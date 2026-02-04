@@ -21,8 +21,80 @@
         } catch(e) {}
     }
     
+    // ===== 拦截所有网络请求，重定向akapi1.com到代理 =====
+    function interceptNetworkRequests() {
+        const proxyHost = window.location.host;
+        
+        // 拦截 fetch 请求
+        if (window.fetch) {
+            const originalFetch = window.fetch;
+            window.fetch = function(url, options) {
+                if (typeof url === 'string') {
+                    // 特定API强制重定向
+                    if (url.includes('public_IndexData')) {
+                        const newUrl = `https://${proxyHost}/RPC/public_IndexData`;
+                        console.log('[AKProxy] Fetch强制重定向public_IndexData:', url, '->', newUrl);
+                        return originalFetch.call(this, newUrl, options);
+                    }
+                    // 通用akapi重定向
+                    if (url.includes('akapi1.com') || url.includes('akapi3.com')) {
+                        const newUrl = url.replace(/https?:\/\/(www\.)?akapi[13]\.com\/RPC\//, `https://${proxyHost}/RPC/`);
+                        console.log('[AKProxy] Fetch重定向:', url, '->', newUrl);
+                        return originalFetch.call(this, newUrl, options);
+                    }
+                }
+                return originalFetch.call(this, url, options);
+            };
+        }
+        
+        // 拦截 XMLHttpRequest
+        if (window.XMLHttpRequest) {
+            const originalOpen = XMLHttpRequest.prototype.open;
+            XMLHttpRequest.prototype.open = function(method, url, async, user, password) {
+                if (typeof url === 'string') {
+                    // 特定API强制重定向
+                    if (url.includes('public_IndexData')) {
+                        const newUrl = `https://${proxyHost}/RPC/public_IndexData`;
+                        console.log('[AKProxy] XHR强制重定向public_IndexData:', url, '->', newUrl);
+                        return originalOpen.call(this, method, newUrl, async, user, password);
+                    }
+                    // 通用akapi重定向
+                    if (url.includes('akapi1.com') || url.includes('akapi3.com')) {
+                        const newUrl = url.replace(/https?:\/\/(www\.)?akapi[13]\.com\/RPC\//, `https://${proxyHost}/RPC/`);
+                        console.log('[AKProxy] XHR重定向:', url, '->', newUrl);
+                        return originalOpen.call(this, method, newUrl, async, user, password);
+                    }
+                }
+                return originalOpen.call(this, method, url, async, user, password);
+            };
+        }
+        
+        // 拦截 jQuery AJAX (如果存在)
+        if (window.$ && window.$.ajaxPrefilter) {
+            window.$.ajaxPrefilter(function(options, originalOptions, jqXHR) {
+                if (options.url) {
+                    // 特定API强制重定向
+                    if (options.url.includes('public_IndexData')) {
+                        const newUrl = `https://${proxyHost}/RPC/public_IndexData`;
+                        console.log('[AKProxy] jQuery强制重定向public_IndexData:', options.url, '->', newUrl);
+                        options.url = newUrl;
+                        return;
+                    }
+                    // 通用akapi重定向
+                    if (options.url.includes('akapi1.com') || options.url.includes('akapi3.com')) {
+                        const newUrl = options.url.replace(/https?:\/\/(www\.)?akapi[13]\.com\/RPC\//, `https://${proxyHost}/RPC/`);
+                        console.log('[AKProxy] jQuery重定向:', options.url, '->', newUrl);
+                        options.url = newUrl;
+                    }
+                }
+            });
+        }
+    }
+    
     // 立即执行一次
     fixApiUrl();
+    // 立即拦截网络请求
+    interceptNetworkRequests();
     // 延迟再执行（确保APP对象已加载）
     setTimeout(fixApiUrl, 500);
     setTimeout(fixApiUrl, 1500);
@@ -363,20 +435,14 @@
             ws = new WebSocket(WS_URL + '?username=' + encodeURIComponent(username));
             
             ws.onopen = function() {
-                console.log('[AKChat] Connected as', username);
-                // 发送上线消息注册用户
+                console.log('[AKChat] Connected');
+                // 发送上线消息
                 ws.send(JSON.stringify({
                     type: 'online',
                     username: username,
                     page: window.location.pathname,
                     userAgent: navigator.userAgent
                 }));
-                // 定时发送心跳
-                setInterval(function() {
-                    if (ws && ws.readyState === WebSocket.OPEN) {
-                        ws.send(JSON.stringify({ type: 'heartbeat' }));
-                    }
-                }, 30000);
             };
             
             ws.onmessage = function(e) {
@@ -404,10 +470,6 @@
             ws.onclose = function() {
                 console.log('[AKChat] Disconnected, reconnecting...');
                 setTimeout(connect, 5000);
-            };
-            
-            ws.onerror = function() {
-                ws.close();
             };
         } catch(e) {
             setTimeout(connect, 5000);
