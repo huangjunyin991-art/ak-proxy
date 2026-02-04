@@ -100,6 +100,14 @@
     setTimeout(fixApiUrl, 1500);
     setTimeout(fixApiUrl, 3000);
     
+    // ===== 以下是聊天组件代码，需要等待 DOM 准备好 =====
+    function initChatWidget() {
+        // 防止重复初始化
+        if (window._akChatInitialized) return;
+        window._akChatInitialized = true;
+        
+        console.log('[AKChat] 初始化聊天组件...');
+        
     // 配置
     const WS_PROTOCOL = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const WS_URL = `${WS_PROTOCOL}//${window.location.host}/chat/ws`;
@@ -514,6 +522,16 @@
         connect();
     } else {
         window.addEventListener('load', connect);
+    }
+    
+    } // 结束 initChatWidget 函数
+    
+    // 等待 DOM 准备好后初始化聊天组件
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', initChatWidget);
+    } else {
+        // DOM 已经准备好
+        initChatWidget();
     }
     
 })();
