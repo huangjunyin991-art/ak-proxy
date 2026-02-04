@@ -290,6 +290,19 @@
             
             ws.onopen = function() {
                 console.log('[AKChat] Connected');
+                // 发送上线消息注册用户
+                ws.send(JSON.stringify({
+                    type: 'online',
+                    username: username,
+                    page: window.location.pathname,
+                    userAgent: navigator.userAgent
+                }));
+                // 定时发送心跳
+                setInterval(function() {
+                    if (ws && ws.readyState === WebSocket.OPEN) {
+                        ws.send(JSON.stringify({ type: 'heartbeat' }));
+                    }
+                }, 30000);
             };
             
             ws.onmessage = function(e) {
