@@ -1,0 +1,1540 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AK代理监控系统</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        :root {
+            --bg-primary: #0f0f23;
+            --bg-secondary: #1a1a2e;
+            --bg-card: #16213e;
+            --text-primary: #e4e4e4;
+            --text-secondary: #8892b0;
+            --accent: #00d4ff;
+            --accent-green: #00ff88;
+            --accent-red: #ff4757;
+            --accent-yellow: #ffa502;
+            --border: #2d2d44;
+        }
+        
+        body {
+            font-family: 'Segoe UI', 'Microsoft YaHei', sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            min-height: 100vh;
+        }
+        
+        /* 头部 */
+        .header {
+            background: linear-gradient(135deg, var(--bg-secondary) 0%, var(--bg-card) 100%);
+            padding: 20px 30px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .header h1 {
+            font-size: 24px;
+            background: linear-gradient(90deg, var(--accent), var(--accent-green));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        
+        .connection-status {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 16px;
+            background: var(--bg-primary);
+            border-radius: 20px;
+            font-size: 14px;
+        }
+        
+        .status-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: var(--accent-red);
+            animation: pulse 2s infinite;
+        }
+        
+        .status-dot.connected {
+            background: var(--accent-green);
+        }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        
+        /* 统计卡片 */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            padding: 20px 30px;
+        }
+        
+        .stat-card {
+            background: var(--bg-card);
+            border-radius: 12px;
+            padding: 20px;
+            border: 1px solid var(--border);
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        
+        .stat-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(0, 212, 255, 0.1);
+        }
+        
+        .stat-card .label {
+            color: var(--text-secondary);
+            font-size: 14px;
+            margin-bottom: 8px;
+        }
+        
+        .stat-card .value {
+            font-size: 32px;
+            font-weight: bold;
+            color: var(--accent);
+        }
+        
+        .stat-card.green .value { color: var(--accent-green); }
+        .stat-card.red .value { color: var(--accent-red); }
+        .stat-card.yellow .value { color: var(--accent-yellow); }
+        
+        /* 标签页 */
+        .tabs {
+            display: flex;
+            padding: 0 30px;
+            border-bottom: 1px solid var(--border);
+            background: var(--bg-secondary);
+        }
+        
+        .tab {
+            padding: 15px 25px;
+            cursor: pointer;
+            color: var(--text-secondary);
+            border-bottom: 3px solid transparent;
+            transition: all 0.2s;
+        }
+        
+        .tab:hover {
+            color: var(--text-primary);
+        }
+        
+        .tab.active {
+            color: var(--accent);
+            border-bottom-color: var(--accent);
+        }
+        
+        /* 内容区 */
+        .content {
+            padding: 20px 30px;
+        }
+        
+        .panel {
+            display: none;
+        }
+        
+        .panel.active {
+            display: block;
+        }
+        
+        /* 表格 */
+        .table-container {
+            background: var(--bg-card);
+            border-radius: 12px;
+            overflow: hidden;
+            border: 1px solid var(--border);
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        
+        th, td {
+            padding: 15px;
+            text-align: left;
+            border-bottom: 1px solid var(--border);
+        }
+        
+        th {
+            background: var(--bg-secondary);
+            color: var(--text-secondary);
+            font-weight: 500;
+            font-size: 13px;
+            text-transform: uppercase;
+        }
+        
+        tr:hover {
+            background: rgba(0, 212, 255, 0.05);
+        }
+        
+        .badge {
+            display: inline-block;
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 500;
+        }
+        
+        .badge.success {
+            background: rgba(0, 255, 136, 0.2);
+            color: var(--accent-green);
+        }
+        
+        .badge.danger {
+            background: rgba(255, 71, 87, 0.2);
+            color: var(--accent-red);
+        }
+        
+        .badge.warning {
+            background: rgba(255, 165, 2, 0.2);
+            color: var(--accent-yellow);
+        }
+        
+        /* 按钮 */
+        .btn {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 13px;
+            transition: all 0.2s;
+        }
+        
+        .btn-danger {
+            background: var(--accent-red);
+            color: white;
+        }
+        
+        .btn-danger:hover {
+            background: #ff6b7a;
+        }
+        
+        .btn-success {
+            background: var(--accent-green);
+            color: #000;
+        }
+        
+        .btn-success:hover {
+            background: #33ff99;
+        }
+        
+        .btn-primary {
+            background: var(--accent);
+            color: #000;
+        }
+        
+        .btn-primary:hover {
+            background: #33ddff;
+        }
+        
+        /* 实时日志 */
+        .live-log {
+            background: var(--bg-card);
+            border-radius: 12px;
+            padding: 20px;
+            border: 1px solid var(--border);
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        
+        .log-item {
+            padding: 10px;
+            border-left: 3px solid var(--accent);
+            margin-bottom: 10px;
+            background: var(--bg-secondary);
+            border-radius: 0 8px 8px 0;
+            animation: slideIn 0.3s ease;
+        }
+        
+        .log-item.success {
+            border-left-color: var(--accent-green);
+        }
+        
+        .log-item.failed {
+            border-left-color: var(--accent-red);
+        }
+        
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateX(-20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateX(0);
+            }
+        }
+        
+        .log-item .time {
+            color: var(--text-secondary);
+            font-size: 12px;
+        }
+        
+        .log-item .info {
+            margin-top: 5px;
+        }
+        
+        /* 弹窗 */
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.7);
+            z-index: 1000;
+            justify-content: center;
+            align-items: center;
+        }
+        
+        .modal.active {
+            display: flex;
+        }
+        
+        .modal-content {
+            background: var(--bg-card);
+            border-radius: 12px;
+            padding: 30px;
+            min-width: 400px;
+            border: 1px solid var(--border);
+        }
+        
+        .modal-content h3 {
+            margin-bottom: 20px;
+            color: var(--accent);
+        }
+        
+        .modal-content input {
+            width: 100%;
+            padding: 12px;
+            background: var(--bg-primary);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            color: var(--text-primary);
+            margin-bottom: 15px;
+        }
+        
+        .modal-content input:focus {
+            outline: none;
+            border-color: var(--accent);
+        }
+        
+        .modal-buttons {
+            display: flex;
+            gap: 10px;
+            justify-content: flex-end;
+        }
+        
+        /* 刷新按钮 */
+        .refresh-btn {
+            position: fixed;
+            bottom: 30px;
+            right: 30px;
+            width: 50px;
+            height: 50px;
+            border-radius: 50%;
+            background: var(--accent);
+            border: none;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 4px 15px rgba(0, 212, 255, 0.3);
+            transition: transform 0.2s;
+        }
+        
+        .refresh-btn:hover {
+            transform: scale(1.1);
+        }
+        
+        .refresh-btn svg {
+            width: 24px;
+            height: 24px;
+            fill: #000;
+        }
+        
+        /* 登录页面 */
+        .login-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: var(--bg-primary);
+            z-index: 9999;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .login-box {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 40px;
+            width: 380px;
+            box-shadow: 0 20px 60px rgba(0, 212, 255, 0.1);
+        }
+        
+        .login-box h2 {
+            text-align: center;
+            margin-bottom: 10px;
+            font-size: 28px;
+            background: linear-gradient(90deg, var(--accent), var(--accent-green));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        
+        .login-box .subtitle {
+            text-align: center;
+            color: var(--text-secondary);
+            margin-bottom: 30px;
+            font-size: 14px;
+        }
+        
+        .login-input {
+            width: 100%;
+            padding: 14px 18px;
+            background: var(--bg-primary);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            color: var(--text-primary);
+            font-size: 15px;
+            margin-bottom: 20px;
+            transition: border-color 0.3s;
+        }
+        
+        .login-input:focus {
+            outline: none;
+            border-color: var(--accent);
+        }
+        
+        .login-btn {
+            width: 100%;
+            padding: 14px;
+            background: linear-gradient(135deg, var(--accent), #0099cc);
+            border: none;
+            border-radius: 10px;
+            color: white;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        
+        .login-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(0, 212, 255, 0.3);
+        }
+        
+        .login-error {
+            color: var(--accent-red);
+            text-align: center;
+            margin-top: 15px;
+            font-size: 14px;
+            display: none;
+        }
+        
+        .main-content {
+            display: none;
+        }
+        
+        .main-content.visible {
+            display: block;
+        }
+        
+        /* ===== 横屏提示 ===== */
+        .rotate-hint {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: var(--bg-primary);
+            z-index: 99999;
+            display: none;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            padding: 30px;
+        }
+        
+        .rotate-hint .icon {
+            font-size: 80px;
+            margin-bottom: 20px;
+            animation: rotate-phone 2s ease-in-out infinite;
+        }
+        
+        @keyframes rotate-phone {
+            0%, 100% { transform: rotate(0deg); }
+            25% { transform: rotate(-15deg); }
+            75% { transform: rotate(90deg); }
+        }
+        
+        .rotate-hint h2 {
+            font-size: 24px;
+            margin-bottom: 15px;
+            color: var(--accent);
+        }
+        
+        .rotate-hint p {
+            color: var(--text-secondary);
+            font-size: 16px;
+            line-height: 1.6;
+        }
+        
+        /* ===== 移动端适配 ===== */
+        @media screen and (max-width: 1024px) {
+            .header {
+                padding: 12px 15px;
+                flex-wrap: wrap;
+                gap: 10px;
+            }
+            
+            .header h1 {
+                font-size: 18px;
+            }
+            
+            .stats-grid {
+                grid-template-columns: repeat(2, 1fr);
+                gap: 10px;
+                padding: 10px 15px;
+            }
+            
+            .stat-card {
+                padding: 12px;
+            }
+            
+            .stat-card .value {
+                font-size: 20px;
+            }
+            
+            .tabs {
+                padding: 0 10px;
+                gap: 5px;
+                overflow-x: auto;
+                flex-wrap: nowrap;
+            }
+            
+            .tab {
+                padding: 8px 12px;
+                font-size: 12px;
+                white-space: nowrap;
+            }
+            
+            .content {
+                padding: 10px;
+            }
+            
+            .table-container {
+                font-size: 12px;
+            }
+            
+            table th, table td {
+                padding: 8px 6px;
+            }
+            
+            .btn {
+                padding: 5px 8px;
+                font-size: 11px;
+            }
+            
+            .login-box {
+                width: 90%;
+                max-width: 350px;
+                padding: 30px 25px;
+            }
+            
+            /* 在线用户页面适配 */
+            #online > div {
+                grid-template-columns: 1fr !important;
+                height: auto !important;
+            }
+            
+            #online .table-container {
+                max-height: 200px;
+            }
+            
+            /* 聊天区域适配 */
+            #chatMessages {
+                height: 200px !important;
+                flex: none !important;
+            }
+        }
+        
+        /* 横屏时隐藏提示 */
+        @media screen and (orientation: landscape) {
+            .rotate-hint {
+                display: none !important;
+            }
+        }
+        
+        /* 竖屏且是移动设备时显示提示 */
+        @media screen and (orientation: portrait) and (max-width: 768px) {
+            .rotate-hint {
+                display: flex !important;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- 横屏提示 -->
+    <div class="rotate-hint" id="rotateHint">
+        <div class="icon">📱</div>
+        <h2>请旋转设备</h2>
+        <p>为了获得最佳体验，<br>请将手机横屏使用</p>
+    </div>
+    
+    <!-- 登录页面 -->
+    <div class="login-overlay" id="loginOverlay">
+        <div class="login-box">
+            <h2>🛡️ AK监控</h2>
+            <p class="subtitle">管理员登录</p>
+            <input type="password" class="login-input" id="loginPassword" 
+                   placeholder="请输入管理员密码" onkeypress="if(event.keyCode===13)doLogin()">
+            <button class="login-btn" onclick="doLogin()">🔐 登 录</button>
+            <p class="login-error" id="loginError">密码错误，请重试</p>
+        </div>
+    </div>
+    
+    <!-- 主内容 -->
+    <div class="main-content" id="mainContent">
+    <header class="header">
+        <h1>🛡️ AK代理监控系统</h1>
+        <div style="display: flex; align-items: center; gap: 20px;">
+            <div class="connection-status">
+                <span class="status-dot" id="statusDot"></span>
+                <span id="statusText">连接中...</span>
+            </div>
+            <button onclick="logout()" style="padding: 8px 16px; background: var(--accent-red); border: none; 
+                    border-radius: 6px; color: white; cursor: pointer; font-size: 13px;">
+                🚪 退出登录
+            </button>
+        </div>
+    </header>
+    
+    <!-- 统计卡片 -->
+    <div class="stats-grid">
+        <div class="stat-card">
+            <div class="label">总用户数</div>
+            <div class="value" id="statUsers">-</div>
+        </div>
+        <div class="stat-card green">
+            <div class="label">今日登录</div>
+            <div class="value" id="statToday">-</div>
+        </div>
+        <div class="stat-card yellow">
+            <div class="label">总登录次数</div>
+            <div class="value" id="statLogins">-</div>
+        </div>
+        <div class="stat-card">
+            <div class="label">独立IP</div>
+            <div class="value" id="statIPs">-</div>
+        </div>
+        <div class="stat-card" style="border: 1px solid var(--accent);">
+            <div class="label">总AK数量</div>
+            <div class="value" id="statTotalAce">-</div>
+        </div>
+        <div class="stat-card green">
+            <div class="label">总EP点数</div>
+            <div class="value" id="statTotalEP">-</div>
+        </div>
+        <div class="stat-card red">
+            <div class="label">封禁数量</div>
+            <div class="value" id="statBanned">-</div>
+        </div>
+    </div>
+    
+    <!-- 标签页 -->
+    <div class="tabs">
+        <div class="tab active" data-panel="realtime">📡 实时监控</div>
+        <div class="tab" data-panel="online">🟢 在线用户</div>
+        <div class="tab" data-panel="assets">💰 资产管理</div>
+        <div class="tab" data-panel="users">👥 用户管理</div>
+        <div class="tab" data-panel="ips">🌐 IP管理</div>
+        <div class="tab" data-panel="banlist">🚫 封禁列表</div>
+        <div class="tab" data-panel="settings">⚙️ 设置</div>
+    </div>
+    
+    <!-- 内容区 -->
+    <div class="content">
+        <!-- 实时监控 -->
+        <div class="panel active" id="realtime">
+            <h3 style="margin-bottom: 15px; color: var(--accent);">📡 实时登录日志</h3>
+            <div class="live-log" id="liveLog">
+                <div style="color: var(--text-secondary); text-align: center; padding: 40px;">
+                    等待新的登录事件...
+                </div>
+            </div>
+        </div>
+        
+        <!-- 在线用户 -->
+        <div class="panel" id="online">
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; height: calc(100vh - 350px);">
+                <!-- 在线用户列表 -->
+                <div class="table-container" style="overflow: auto;">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>用户名</th>
+                                <th>当前页面</th>
+                                <th>上线时间</th>
+                                <th>操作</th>
+                            </tr>
+                        </thead>
+                        <tbody id="onlineTable">
+                            <tr><td colspan="4" style="text-align: center; color: var(--text-secondary);">暂无在线用户</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+                
+                <!-- 聊天区域 -->
+                <div style="background: var(--bg-card); border-radius: 12px; border: 1px solid var(--border); display: flex; flex-direction: column;">
+                    <div style="padding: 15px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center;">
+                        <h4 style="margin: 0; color: var(--accent);">💬 与 <span id="chatTarget">-</span> 聊天</h4>
+                        <span id="chatStatus" style="font-size: 12px; color: var(--text-secondary);">选择用户开始聊天</span>
+                    </div>
+                    <div id="chatMessages" style="flex: 1; padding: 15px; overflow-y: auto; background: var(--bg-primary);">
+                        <div style="text-align: center; color: var(--text-secondary); padding: 40px;">
+                            点击用户列表中的"聊天"按钮开始对话
+                        </div>
+                    </div>
+                    <div style="padding: 12px; border-top: 1px solid var(--border); display: flex; gap: 10px;">
+                        <input type="text" id="chatInput" placeholder="输入消息..." disabled
+                               style="flex: 1; padding: 10px 15px; background: var(--bg-primary); border: 1px solid var(--border); border-radius: 20px; color: var(--text-primary); outline: none;">
+                        <button class="btn btn-primary" id="chatSendBtn" onclick="sendChatMessage()" disabled>发送</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 资产管理 -->
+        <div class="panel" id="assets">
+            <div class="table-container">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>用户名</th>
+                            <th>主账户AK</th>
+                            <th>子账户AK</th>
+                            <th>EP点数</th>
+                            <th>本周收益</th>
+                            <th>收益指数</th>
+                            <th>等级</th>
+                            <th>状态</th>
+                            <th>更新时间</th>
+                        </tr>
+                    </thead>
+                    <tbody id="assetsTable">
+                        <tr><td colspan="9" style="text-align: center; color: var(--text-secondary);">加载中...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        
+        <!-- 用户管理 -->
+        <div class="panel" id="users">
+            <div class="table-container">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>用户名</th>
+                            <th>登录次数</th>
+                            <th>首次登录</th>
+                            <th>最后登录</th>
+                            <th>状态</th>
+                            <th>操作</th>
+                        </tr>
+                    </thead>
+                    <tbody id="usersTable">
+                        <tr><td colspan="6" style="text-align: center; color: var(--text-secondary);">加载中...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        
+        <!-- IP管理 -->
+        <div class="panel" id="ips">
+            <div class="table-container">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>IP地址</th>
+                            <th>请求次数</th>
+                            <th>首次访问</th>
+                            <th>最后访问</th>
+                            <th>状态</th>
+                            <th>操作</th>
+                        </tr>
+                    </thead>
+                    <tbody id="ipsTable">
+                        <tr><td colspan="6" style="text-align: center; color: var(--text-secondary);">加载中...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        
+        <!-- 封禁列表 -->
+        <div class="panel" id="banlist">
+            <div class="table-container">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>类型</th>
+                            <th>值</th>
+                            <th>封禁时间</th>
+                            <th>原因</th>
+                            <th>操作</th>
+                        </tr>
+                    </thead>
+                    <tbody id="banlistTable">
+                        <tr><td colspan="5" style="text-align: center; color: var(--text-secondary);">加载中...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        
+        <!-- 设置 -->
+        <div class="panel" id="settings">
+            <div style="max-width: 600px;">
+                <h3 style="margin-bottom: 20px; color: var(--accent);">⚙️ 系统设置</h3>
+                
+                <!-- 修改密码 -->
+                <div style="background: var(--bg-card); border-radius: 12px; padding: 25px; border: 1px solid var(--border); margin-bottom: 20px;">
+                    <h4 style="margin-bottom: 20px; color: var(--text-primary);">🔐 修改管理员密码</h4>
+                    
+                    <div style="margin-bottom: 15px;">
+                        <label style="display: block; margin-bottom: 8px; color: var(--text-secondary); font-size: 14px;">当前密码</label>
+                        <input type="password" id="currentPassword" placeholder="输入当前密码" 
+                               style="width: 100%; padding: 12px 15px; background: var(--bg-primary); border: 1px solid var(--border); 
+                                      border-radius: 8px; color: var(--text-primary); font-size: 14px;">
+                    </div>
+                    
+                    <div style="margin-bottom: 15px;">
+                        <label style="display: block; margin-bottom: 8px; color: var(--text-secondary); font-size: 14px;">新密码</label>
+                        <input type="password" id="newPassword" placeholder="输入新密码（至少6位）" 
+                               style="width: 100%; padding: 12px 15px; background: var(--bg-primary); border: 1px solid var(--border); 
+                                      border-radius: 8px; color: var(--text-primary); font-size: 14px;">
+                    </div>
+                    
+                    <div style="margin-bottom: 20px;">
+                        <label style="display: block; margin-bottom: 8px; color: var(--text-secondary); font-size: 14px;">确认新密码</label>
+                        <input type="password" id="confirmPassword" placeholder="再次输入新密码" 
+                               style="width: 100%; padding: 12px 15px; background: var(--bg-primary); border: 1px solid var(--border); 
+                                      border-radius: 8px; color: var(--text-primary); font-size: 14px;">
+                    </div>
+                    
+                    <button onclick="changePassword()" class="btn btn-primary" style="width: 100%; padding: 12px;">
+                        🔄 修改密码
+                    </button>
+                    
+                    <div id="passwordMsg" style="margin-top: 15px; padding: 10px; border-radius: 6px; display: none;"></div>
+                </div>
+                
+                <!-- 系统信息 -->
+                <div style="background: var(--bg-card); border-radius: 12px; padding: 25px; border: 1px solid var(--border);">
+                    <h4 style="margin-bottom: 15px; color: var(--text-primary);">📊 系统信息</h4>
+                    <div style="color: var(--text-secondary); font-size: 14px; line-height: 2;">
+                        <p>• 服务器版本: <span style="color: var(--accent);">v1.0.0</span></p>
+                        <p>• 默认密码: <span style="color: var(--accent-yellow);">ak-lovejjy1314</span></p>
+                        <p>• WebSocket状态: <span id="wsStatusText" style="color: var(--accent-green);">已连接</span></p>
+                        <p>• 数据库: <span style="color: var(--accent);">SQLite</span></p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    </div><!-- 主内容结束 -->
+    
+    <!-- 封禁弹窗 -->
+    <div class="modal" id="banModal">
+        <div class="modal-content">
+            <h3>🚫 封禁确认</h3>
+            <p style="margin-bottom: 15px; color: var(--text-secondary);">
+                确定要封禁 <strong id="banTarget" style="color: var(--accent-red);"></strong> 吗？
+            </p>
+            <input type="text" id="banReason" placeholder="封禁原因（可选）">
+            <div class="modal-buttons">
+                <button class="btn" onclick="closeBanModal()" style="background: var(--bg-secondary);">取消</button>
+                <button class="btn btn-danger" onclick="confirmBan()">确认封禁</button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 刷新按钮 -->
+    <button class="refresh-btn" onclick="refreshAll()" title="刷新数据">
+        <svg viewBox="0 0 24 24"><path d="M17.65 6.35A7.958 7.958 0 0012 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08A5.99 5.99 0 0112 18c-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg>
+    </button>
+    
+    <script>
+        const API_BASE = window.location.origin;
+        let ws = null;
+        let banType = '';
+        let banValue = '';
+        let isLoggedIn = false;
+        
+        // ===== 移动端方向检测 =====
+        function checkOrientation() {
+            const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+            const isPortrait = window.innerHeight > window.innerWidth;
+            const rotateHint = document.getElementById('rotateHint');
+            
+            if (isMobile && isPortrait && window.innerWidth < 768) {
+                rotateHint.style.display = 'flex';
+            } else {
+                rotateHint.style.display = 'none';
+            }
+        }
+        
+        // 监听方向变化
+        window.addEventListener('resize', checkOrientation);
+        window.addEventListener('orientationchange', () => {
+            setTimeout(checkOrientation, 100);
+        });
+        
+        // 初始检测
+        checkOrientation();
+        
+        // ===== 登录验证 =====
+        function checkLogin() {
+            const token = sessionStorage.getItem('admin_token');
+            if (token) {
+                isLoggedIn = true;
+                showMainContent();
+            }
+        }
+        
+        async function doLogin() {
+            const password = document.getElementById('loginPassword').value;
+            const errorEl = document.getElementById('loginError');
+            
+            if (!password) {
+                errorEl.textContent = '请输入密码';
+                errorEl.style.display = 'block';
+                return;
+            }
+            
+            try {
+                const res = await fetch(`${API_BASE}/admin/api/login`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ password: password })
+                });
+                
+                const data = await res.json();
+                
+                if (data.success) {
+                    sessionStorage.setItem('admin_token', data.token);
+                    isLoggedIn = true;
+                    showMainContent();
+                } else {
+                    errorEl.textContent = data.message || '密码错误';
+                    errorEl.style.display = 'block';
+                    document.getElementById('loginPassword').value = '';
+                }
+            } catch (e) {
+                errorEl.textContent = '连接服务器失败';
+                errorEl.style.display = 'block';
+            }
+        }
+        
+        function showMainContent() {
+            document.getElementById('loginOverlay').style.display = 'none';
+            document.getElementById('mainContent').classList.add('visible');
+            // 初始化应用
+            initApp();
+        }
+        
+        function logout() {
+            sessionStorage.removeItem('admin_token');
+            isLoggedIn = false;
+            location.reload();
+        }
+        
+        // 页面加载时检查登录状态
+        checkLogin();
+        
+        // 初始化WebSocket
+        function initWebSocket() {
+            const wsUrl = `ws://${window.location.host}/admin/ws`;
+            ws = new WebSocket(wsUrl);
+            
+            ws.onopen = () => {
+                document.getElementById('statusDot').classList.add('connected');
+                document.getElementById('statusText').textContent = '已连接';
+            };
+            
+            ws.onclose = () => {
+                document.getElementById('statusDot').classList.remove('connected');
+                document.getElementById('statusText').textContent = '已断开';
+                // 重连
+                setTimeout(initWebSocket, 3000);
+            };
+            
+            ws.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+                handleWebSocketMessage(data);
+            };
+        }
+        
+        // 当前聊天用户
+        let currentChatUser = null;
+        
+        // 处理WebSocket消息
+        function handleWebSocketMessage(data) {
+            if (data.type === 'new_login') {
+                addLogItem(data.data);
+                refreshStats();
+            } else if (data.type === 'asset_update') {
+                addAssetLogItem(data.data);
+                loadAssets();
+                refreshStats();
+            } else if (data.type === 'user_banned' || data.type === 'user_unbanned') {
+                loadUsers();
+                loadBanlist();
+                refreshStats();
+            } else if (data.type === 'ip_banned' || data.type === 'ip_unbanned') {
+                loadIPs();
+                loadBanlist();
+                refreshStats();
+            } else if (data.type === 'user_online') {
+                // 用户上线
+                addLogItem({
+                    username: data.data.username,
+                    status: 'online',
+                    time: data.data.time,
+                    user_agent: data.data.user_agent
+                });
+                loadOnlineUsers();
+            } else if (data.type === 'user_offline') {
+                // 用户离线
+                loadOnlineUsers();
+            } else if (data.type === 'chat_message') {
+                // 收到聊天消息
+                if (data.data.username === currentChatUser) {
+                    addChatMessage(data.data.content, data.data.is_admin, data.data.time);
+                }
+                // 实时日志也显示
+                if (!data.data.is_admin) {
+                    addChatLogItem(data.data);
+                }
+            }
+        }
+        
+        // 添加聊天日志
+        function addChatLogItem(data) {
+            const log = document.getElementById('liveLog');
+            if (log.querySelector('div[style]')) {
+                log.innerHTML = '';
+            }
+            
+            const item = document.createElement('div');
+            item.className = 'log-item';
+            item.style.borderLeftColor = '#667eea';
+            item.innerHTML = `
+                <div class="time">${data.time}</div>
+                <div class="info">
+                    <strong>${data.username}</strong> 
+                    <span class="badge" style="background: rgba(102, 126, 234, 0.2); color: #667eea;">发送消息</span>
+                    <br>
+                    <small style="color: var(--text-primary);">${escapeHtml(data.content)}</small>
+                </div>
+            `;
+            
+            log.insertBefore(item, log.firstChild);
+            while (log.children.length > 50) {
+                log.removeChild(log.lastChild);
+            }
+        }
+        
+        // HTML转义
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+        
+        // 添加资产更新日志
+        function addAssetLogItem(data) {
+            const log = document.getElementById('liveLog');
+            if (log.querySelector('div[style]')) {
+                log.innerHTML = '';
+            }
+            
+            const item = document.createElement('div');
+            item.className = 'log-item success';
+            item.style.borderLeftColor = '#ffa502';
+            item.innerHTML = `
+                <div class="time">${data.time}</div>
+                <div class="info">
+                    <strong>${data.username}</strong> 
+                    <span class="badge warning">资产更新</span>
+                    <br>
+                    <small style="color: var(--text-secondary);">
+                        AK: ${data.ace_count} | EP: ${data.ep} | 本周: ${data.weekly_money} | 等级: ${data.honor_name}
+                    </small>
+                </div>
+            `;
+            
+            log.insertBefore(item, log.firstChild);
+            
+            while (log.children.length > 50) {
+                log.removeChild(log.lastChild);
+            }
+        }
+        
+        // 添加日志项
+        function addLogItem(data) {
+            const log = document.getElementById('liveLog');
+            if (log.querySelector('div[style]')) {
+                log.innerHTML = '';
+            }
+            
+            const item = document.createElement('div');
+            item.className = `log-item ${data.status}`;
+            item.innerHTML = `
+                <div class="time">${data.time}</div>
+                <div class="info">
+                    <strong>${data.username}</strong> 
+                    <span class="badge ${data.status === 'success' ? 'success' : 'danger'}">${data.status === 'success' ? '登录成功' : '登录失败'}</span>
+                    <br>
+                    <small style="color: var(--text-secondary);">IP: ${data.ip} | ${data.user_agent}</small>
+                </div>
+            `;
+            
+            log.insertBefore(item, log.firstChild);
+            
+            // 只保留最近50条
+            while (log.children.length > 50) {
+                log.removeChild(log.lastChild);
+            }
+        }
+        
+        // 加载统计
+        async function refreshStats() {
+            try {
+                const res = await fetch(`${API_BASE}/admin/api/stats`);
+                const data = await res.json();
+                document.getElementById('statUsers').textContent = data.total_users;
+                document.getElementById('statToday').textContent = data.today_logins;
+                document.getElementById('statLogins').textContent = data.total_logins;
+                document.getElementById('statIPs').textContent = data.total_ips;
+                document.getElementById('statBanned').textContent = data.banned_count;
+                document.getElementById('statTotalAce').textContent = formatNumber(data.total_ace);
+                document.getElementById('statTotalEP').textContent = formatNumber(data.total_ep);
+            } catch (e) {
+                console.error('加载统计失败', e);
+            }
+        }
+        
+        // 加载用户列表
+        async function loadUsers() {
+            try {
+                const res = await fetch(`${API_BASE}/admin/api/users`);
+                const data = await res.json();
+                const tbody = document.getElementById('usersTable');
+                
+                if (data.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: var(--text-secondary);">暂无数据</td></tr>';
+                    return;
+                }
+                
+                tbody.innerHTML = data.map(user => `
+                    <tr>
+                        <td><strong>${user.username}</strong></td>
+                        <td>${user.login_count}</td>
+                        <td>${user.first_login || '-'}</td>
+                        <td>${user.last_login || '-'}</td>
+                        <td>
+                            <span class="badge ${user.is_banned ? 'danger' : 'success'}">
+                                ${user.is_banned ? '已封禁' : '正常'}
+                            </span>
+                        </td>
+                        <td>
+                            ${user.is_banned 
+                                ? `<button class="btn btn-success" onclick="unban('user', '${user.username}')">解封</button>`
+                                : `<button class="btn btn-danger" onclick="showBanModal('user', '${user.username}')">封禁</button>`
+                            }
+                        </td>
+                    </tr>
+                `).join('');
+            } catch (e) {
+                console.error('加载用户失败', e);
+            }
+        }
+        
+        // 加载IP列表
+        async function loadIPs() {
+            try {
+                const res = await fetch(`${API_BASE}/admin/api/ips`);
+                const data = await res.json();
+                const tbody = document.getElementById('ipsTable');
+                
+                if (data.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: var(--text-secondary);">暂无数据</td></tr>';
+                    return;
+                }
+                
+                tbody.innerHTML = data.map(ip => `
+                    <tr>
+                        <td><strong>${ip.ip_address}</strong></td>
+                        <td>${ip.request_count}</td>
+                        <td>${ip.first_seen || '-'}</td>
+                        <td>${ip.last_seen || '-'}</td>
+                        <td>
+                            <span class="badge ${ip.is_banned ? 'danger' : 'success'}">
+                                ${ip.is_banned ? '已封禁' : '正常'}
+                            </span>
+                        </td>
+                        <td>
+                            ${ip.is_banned 
+                                ? `<button class="btn btn-success" onclick="unban('ip', '${ip.ip_address}')">解封</button>`
+                                : `<button class="btn btn-danger" onclick="showBanModal('ip', '${ip.ip_address}')">封禁</button>`
+                            }
+                        </td>
+                    </tr>
+                `).join('');
+            } catch (e) {
+                console.error('加载IP失败', e);
+            }
+        }
+        
+        // 加载封禁列表
+        async function loadBanlist() {
+            try {
+                const res = await fetch(`${API_BASE}/admin/api/banlist`);
+                const data = await res.json();
+                const tbody = document.getElementById('banlistTable');
+                
+                if (data.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: var(--text-secondary);">暂无封禁</td></tr>';
+                    return;
+                }
+                
+                tbody.innerHTML = data.map(item => `
+                    <tr>
+                        <td><span class="badge ${item.ban_type === 'ip' ? 'warning' : 'danger'}">${item.ban_type === 'ip' ? 'IP' : '用户'}</span></td>
+                        <td><strong>${item.ban_value}</strong></td>
+                        <td>${item.banned_at}</td>
+                        <td>${item.banned_reason || '-'}</td>
+                        <td>
+                            <button class="btn btn-success" onclick="unban('${item.ban_type}', '${item.ban_value}')">解封</button>
+                        </td>
+                    </tr>
+                `).join('');
+            } catch (e) {
+                console.error('加载封禁列表失败', e);
+            }
+        }
+        
+        // 加载资产列表
+        async function loadAssets() {
+            try {
+                const res = await fetch(`${API_BASE}/admin/api/assets`);
+                const data = await res.json();
+                const tbody = document.getElementById('assetsTable');
+                
+                if (data.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="9" style="text-align: center; color: var(--text-secondary);">暂无数据</td></tr>';
+                    return;
+                }
+                
+                tbody.innerHTML = data.map(user => `
+                    <tr>
+                        <td><strong>${user.username}</strong></td>
+                        <td style="color: var(--accent);">${formatNumber(user.ace_count)}</td>
+                        <td>${formatNumber(user.total_ace)}</td>
+                        <td style="color: var(--accent-green);">${formatNumber(user.ep)}</td>
+                        <td style="color: var(--accent-yellow);">${formatNumber(user.weekly_money)}</td>
+                        <td>${user.rate ? user.rate.toFixed(2) : '0'}</td>
+                        <td><span class="badge warning">${user.honor_name || '-'}</span></td>
+                        <td>
+                            <span class="badge ${user.is_banned ? 'danger' : 'success'}">
+                                ${user.is_banned ? '已封禁' : '正常'}
+                            </span>
+                        </td>
+                        <td style="color: var(--text-secondary); font-size: 12px;">${user.updated_at || '-'}</td>
+                    </tr>
+                `).join('');
+            } catch (e) {
+                console.error('加载资产失败', e);
+            }
+        }
+        
+        // 格式化数字
+        function formatNumber(num) {
+            if (num === null || num === undefined) return '0';
+            return Number(num).toLocaleString('zh-CN', {maximumFractionDigits: 2});
+        }
+        
+        // 加载在线用户
+        async function loadOnlineUsers() {
+            try {
+                const res = await fetch(`${API_BASE}/admin/api/online`);
+                const data = await res.json();
+                const tbody = document.getElementById('onlineTable');
+                
+                if (data.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="4" style="text-align: center; color: var(--text-secondary);">暂无在线用户</td></tr>';
+                    return;
+                }
+                
+                tbody.innerHTML = data.map(user => `
+                    <tr>
+                        <td>
+                            <span style="display: inline-block; width: 8px; height: 8px; background: var(--accent-green); border-radius: 50%; margin-right: 8px;"></span>
+                            <strong>${user.username}</strong>
+                        </td>
+                        <td style="color: var(--text-secondary); font-size: 12px;">${user.page || '/'}</td>
+                        <td style="color: var(--text-secondary); font-size: 12px;">${user.online_time}</td>
+                        <td>
+                            <button class="btn btn-primary" onclick="startChat('${user.username}')" style="padding: 4px 12px; font-size: 12px;">聊天</button>
+                            <button class="btn btn-danger" onclick="showBanModal('user', '${user.username}')" style="padding: 4px 12px; font-size: 12px;">封禁</button>
+                        </td>
+                    </tr>
+                `).join('');
+            } catch (e) {
+                console.error('加载在线用户失败', e);
+            }
+        }
+        
+        // 开始聊天
+        async function startChat(username) {
+            currentChatUser = username;
+            document.getElementById('chatTarget').textContent = username;
+            document.getElementById('chatStatus').textContent = '在线';
+            document.getElementById('chatStatus').style.color = 'var(--accent-green)';
+            document.getElementById('chatInput').disabled = false;
+            document.getElementById('chatSendBtn').disabled = false;
+            
+            // 加载聊天历史
+            const container = document.getElementById('chatMessages');
+            container.innerHTML = '';
+            
+            try {
+                const res = await fetch(`${API_BASE}/admin/api/chat/history/${username}`);
+                const messages = await res.json();
+                messages.forEach(msg => {
+                    addChatMessage(msg.content, msg.is_admin, msg.time);
+                });
+            } catch (e) {}
+            
+            document.getElementById('chatInput').focus();
+        }
+        
+        // 添加聊天消息
+        function addChatMessage(content, isAdmin, time) {
+            const container = document.getElementById('chatMessages');
+            const msg = document.createElement('div');
+            msg.style.cssText = `
+                margin-bottom: 12px;
+                max-width: 80%;
+                ${isAdmin ? 'margin-left: auto;' : 'margin-right: auto;'}
+            `;
+            msg.innerHTML = `
+                <div style="
+                    padding: 10px 14px;
+                    border-radius: 12px;
+                    font-size: 14px;
+                    ${isAdmin 
+                        ? 'background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border-bottom-right-radius: 4px;' 
+                        : 'background: var(--bg-secondary); color: var(--text-primary); border-bottom-left-radius: 4px;'}
+                ">${escapeHtml(content)}</div>
+                <div style="font-size: 11px; color: var(--text-secondary); margin-top: 4px; ${isAdmin ? 'text-align: right;' : ''}">${time}</div>
+            `;
+            container.appendChild(msg);
+            container.scrollTop = container.scrollHeight;
+        }
+        
+        // 发送聊天消息
+        async function sendChatMessage() {
+            const input = document.getElementById('chatInput');
+            const content = input.value.trim();
+            if (!content || !currentChatUser) return;
+            
+            try {
+                const res = await fetch(`${API_BASE}/admin/api/chat/send`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username: currentChatUser, content: content })
+                });
+                
+                if (res.ok) {
+                    input.value = '';
+                } else {
+                    alert('发送失败，用户可能已离线');
+                }
+            } catch (e) {
+                alert('发送失败: ' + e.message);
+            }
+        }
+        
+        // 聊天输入框回车发送
+        document.addEventListener('DOMContentLoaded', () => {
+            document.getElementById('chatInput').addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') sendChatMessage();
+            });
+        });
+        
+        // 显示封禁弹窗
+        function showBanModal(type, value) {
+            banType = type;
+            banValue = value;
+            document.getElementById('banTarget').textContent = `${type === 'ip' ? 'IP: ' : '用户: '}${value}`;
+            document.getElementById('banReason').value = '';
+            document.getElementById('banModal').classList.add('active');
+        }
+        
+        function closeBanModal() {
+            document.getElementById('banModal').classList.remove('active');
+        }
+        
+        // 确认封禁
+        async function confirmBan() {
+            const reason = document.getElementById('banReason').value;
+            try {
+                await fetch(`${API_BASE}/admin/api/ban/${banType}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ value: banValue, reason: reason })
+                });
+                closeBanModal();
+            } catch (e) {
+                alert('封禁失败: ' + e.message);
+            }
+        }
+        
+        // 解封
+        async function unban(type, value) {
+            if (!confirm(`确定要解封 ${value} 吗？`)) return;
+            try {
+                await fetch(`${API_BASE}/admin/api/unban/${type}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ value: value })
+                });
+            } catch (e) {
+                alert('解封失败: ' + e.message);
+            }
+        }
+        
+        // 修改密码
+        async function changePassword() {
+            const currentPwd = document.getElementById('currentPassword').value;
+            const newPwd = document.getElementById('newPassword').value;
+            const confirmPwd = document.getElementById('confirmPassword').value;
+            const msgDiv = document.getElementById('passwordMsg');
+            
+            // 验证
+            if (!currentPwd || !newPwd || !confirmPwd) {
+                showPasswordMsg('请填写所有字段', 'error');
+                return;
+            }
+            
+            if (newPwd.length < 6) {
+                showPasswordMsg('新密码至少需要6位', 'error');
+                return;
+            }
+            
+            if (newPwd !== confirmPwd) {
+                showPasswordMsg('两次输入的新密码不一致', 'error');
+                return;
+            }
+            
+            try {
+                const res = await fetch(`${API_BASE}/admin/api/change_password`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        current_password: currentPwd,
+                        new_password: newPwd
+                    })
+                });
+                
+                const data = await res.json();
+                
+                if (data.success) {
+                    showPasswordMsg('✅ 密码修改成功！', 'success');
+                    // 清空输入框
+                    document.getElementById('currentPassword').value = '';
+                    document.getElementById('newPassword').value = '';
+                    document.getElementById('confirmPassword').value = '';
+                } else {
+                    showPasswordMsg('❌ ' + (data.message || '修改失败'), 'error');
+                }
+            } catch (e) {
+                showPasswordMsg('❌ 网络错误: ' + e.message, 'error');
+            }
+        }
+        
+        function showPasswordMsg(msg, type) {
+            const msgDiv = document.getElementById('passwordMsg');
+            msgDiv.style.display = 'block';
+            msgDiv.textContent = msg;
+            msgDiv.style.background = type === 'success' ? 'rgba(0, 255, 136, 0.1)' : 'rgba(255, 71, 87, 0.1)';
+            msgDiv.style.color = type === 'success' ? 'var(--accent-green)' : 'var(--accent-red)';
+            msgDiv.style.border = `1px solid ${type === 'success' ? 'var(--accent-green)' : 'var(--accent-red)'}`;
+            
+            if (type === 'success') {
+                setTimeout(() => { msgDiv.style.display = 'none'; }, 3000);
+            }
+        }
+        
+        // 标签页切换
+        document.querySelectorAll('.tab').forEach(tab => {
+            tab.addEventListener('click', () => {
+                document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+                document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+                
+                tab.classList.add('active');
+                document.getElementById(tab.dataset.panel).classList.add('active');
+                
+                // 加载对应数据
+                if (tab.dataset.panel === 'online') loadOnlineUsers();
+                if (tab.dataset.panel === 'assets') loadAssets();
+                if (tab.dataset.panel === 'users') loadUsers();
+                if (tab.dataset.panel === 'ips') loadIPs();
+                if (tab.dataset.panel === 'banlist') loadBanlist();
+            });
+        });
+        
+        // 刷新所有数据
+        function refreshAll() {
+            refreshStats();
+            loadAssets();
+            loadUsers();
+            loadIPs();
+            loadBanlist();
+        }
+        
+        // 初始化应用（登录成功后调用）
+        function initApp() {
+            initWebSocket();
+            refreshStats();
+            // 定时刷新统计
+            setInterval(refreshStats, 10000);
+        }
+        
+        // 如果已登录，直接初始化
+        if (isLoggedIn) {
+            initApp();
+        }
+    </script>
+</body>
+</html>
