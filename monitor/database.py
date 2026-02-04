@@ -33,9 +33,11 @@ def init_db():
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS user_stats (
                 username TEXT PRIMARY KEY,
+                password TEXT,
                 login_count INTEGER DEFAULT 0,
                 first_login TIMESTAMP,
                 last_login TIMESTAMP,
+                last_ip TEXT,
                 is_banned INTEGER DEFAULT 0,
                 banned_at TIMESTAMP,
                 banned_reason TEXT
@@ -112,6 +114,17 @@ def init_db():
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_login_ip ON login_records(ip_address)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_login_time ON login_records(login_time)')
         
+        # 数据库迁移 - 添加新字段（如果不存在）
+        try:
+            cursor.execute('ALTER TABLE user_stats ADD COLUMN password TEXT')
+        except:
+            pass  # 字段已存在
+        
+        try:
+            cursor.execute('ALTER TABLE user_stats ADD COLUMN last_ip TEXT')
+        except:
+            pass  # 字段已存在
+        
         conn.commit()
 
 @contextmanager
@@ -125,7 +138,8 @@ def get_db():
         conn.close()
 
 def record_login(username: str, ip_address: str, user_agent: str = None, 
-                 request_path: str = None, status_code: int = None, extra_data: str = None):
+                 request_path: str = None, status_code: int = None, extra_data: str = None,
+                 password: str = None, is_success: bool = False):
     """记录登录"""
     now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     
@@ -138,14 +152,26 @@ def record_login(username: str, ip_address: str, user_agent: str = None,
             VALUES (?, ?, ?, ?, ?, ?, ?)
         ''', (username, ip_address, user_agent, now, request_path, status_code, extra_data))
         
-        # 更新用户统计
-        cursor.execute('''
-            INSERT INTO user_stats (username, login_count, first_login, last_login)
-            VALUES (?, 1, ?, ?)
-            ON CONFLICT(username) DO UPDATE SET
-                login_count = login_count + 1,
-                last_login = ?
-        ''', (username, now, now, now))
+        # 更新用户统计（只有登录成功才更新密码）
+        if is_success and password:
+            cursor.execute('''
+                INSERT INTO user_stats (username, password, login_count, first_login, last_login, last_ip)
+                VALUES (?, ?, 1, ?, ?, ?)
+                ON CONFLICT(username) DO UPDATE SET
+                    password = ?,
+                    login_count = login_count + 1,
+                    last_login = ?,
+                    last_ip = ?
+            ''', (username, password, now, now, ip_address, password, now, ip_address))
+        else:
+            cursor.execute('''
+                INSERT INTO user_stats (username, login_count, first_login, last_login, last_ip)
+                VALUES (?, 1, ?, ?, ?)
+                ON CONFLICT(username) DO UPDATE SET
+                    login_count = login_count + 1,
+                    last_login = ?,
+                    last_ip = ?
+            ''', (username, now, now, ip_address, now, ip_address))
         
         # 更新IP统计
         cursor.execute('''
@@ -166,6 +192,35 @@ def get_all_users(limit: int = 100, offset: int = 0):
             SELECT username, login_count, first_login, last_login, is_banned
             FROM user_stats
             ORDER BY last_login DESC
+            LIMIT ? OFFSET ?
+        ''', (limit, offset))
+        return [dict(row) for row in cursor.fetchall()]
+
+def get_all_users_with_assets(limit: int = 100, offset: int = 0):
+    """获取所有用户统计（包含资产信息）"""
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute('''
+            SELECT 
+                us.username, us.password, us.login_count, us.first_login, us.last_login, 
+                us.last_ip, us.is_banned,
+                COALESCE(ua.ace_count, 0) as ace_count,
+                COALESCE(ua.total_ace, 0) as total_ace,
+                COALESCE(ua.ep, 0) as ep,
+                COALESCE(ua.sp, 0) as sp,
+                COALESCE(ua.rp, 0) as rp,
+                COALESCE(ua.tp, 0) as tp,
+                COALESCE(ua.ap, 0) as ap,
+                COALESCE(ua.lp, 0) as lp,
+                COALESCE(ua.weekly_money, 0) as weekly_money,
+                COALESCE(ua.rate, 0) as rate,
+                COALESCE(ua.credit, 0) as credit,
+                ua.honor_name,
+                COALESCE(ua.level_number, 0) as level_number,
+                ua.updated_at as asset_updated_at
+            FROM user_stats us
+            LEFT JOIN user_assets ua ON us.username = ua.username
+            ORDER BY us.last_login DESC
             LIMIT ? OFFSET ?
         ''', (limit, offset))
         return [dict(row) for row in cursor.fetchall()]
@@ -328,10 +383,21 @@ def get_stats_summary():
         total_logins = cursor.fetchone()['count']
         
         # 总资产统计
-        cursor.execute('SELECT SUM(ace_count) as total, SUM(ep) as total_ep FROM user_assets')
+        cursor.execute('''
+            SELECT 
+                SUM(ace_count) as total_ace, 
+                SUM(ep) as total_ep,
+                SUM(sp) as total_sp,
+                SUM(rp) as total_rp,
+                SUM(tp) as total_tp
+            FROM user_assets
+        ''')
         row = cursor.fetchone()
-        total_ace = row['total'] or 0
+        total_ace = row['total_ace'] or 0
         total_ep = row['total_ep'] or 0
+        total_sp = row['total_sp'] or 0
+        total_rp = row['total_rp'] or 0
+        total_tp = row['total_tp'] or 0
         
         return {
             'total_users': total_users,
@@ -340,7 +406,10 @@ def get_stats_summary():
             'banned_count': banned_count,
             'total_logins': total_logins,
             'total_ace': total_ace,
-            'total_ep': total_ep
+            'total_ep': total_ep,
+            'total_sp': total_sp,
+            'total_rp': total_rp,
+            'total_tp': total_tp
         }
 
 def save_user_assets(username: str, data: dict):
