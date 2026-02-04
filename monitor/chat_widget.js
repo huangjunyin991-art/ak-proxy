@@ -29,21 +29,35 @@
         if (window.fetch) {
             const originalFetch = window.fetch;
             window.fetch = function(url, options) {
+                let finalUrl = url;
                 if (typeof url === 'string') {
                     // 特定API强制重定向
                     if (url.includes('public_IndexData')) {
-                        const newUrl = `https://${proxyHost}/RPC/public_IndexData`;
-                        console.log('[AKProxy] Fetch强制重定向public_IndexData:', url, '->', newUrl);
-                        return originalFetch.call(this, newUrl, options);
+                        finalUrl = `https://${proxyHost}/RPC/public_IndexData`;
+                        console.log('[AKProxy] Fetch强制重定向public_IndexData:', url, '->', finalUrl);
                     }
                     // 通用akapi重定向
-                    if (url.includes('akapi1.com') || url.includes('akapi3.com')) {
-                        const newUrl = url.replace(/https?:\/\/(www\.)?akapi[13]\.com\/RPC\//, `https://${proxyHost}/RPC/`);
-                        console.log('[AKProxy] Fetch重定向:', url, '->', newUrl);
-                        return originalFetch.call(this, newUrl, options);
+                    else if (url.includes('akapi1.com') || url.includes('akapi3.com')) {
+                        finalUrl = url.replace(/https?:\/\/(www\.)?akapi[13]\.com\/RPC\//, `https://${proxyHost}/RPC/`);
+                        console.log('[AKProxy] Fetch重定向:', url, '->', finalUrl);
                     }
                 }
-                return originalFetch.call(this, url, options);
+                
+                // 检测登录请求，登录成功后重连WebSocket
+                const result = originalFetch.call(this, finalUrl, options);
+                if (typeof url === 'string' && url.includes('Login')) {
+                    result.then(response => response.clone().json()).then(data => {
+                        if (data && !data.Error && data.UserData) {
+                            console.log('[AKProxy] 检测到登录成功，将重连WebSocket...');
+                            setTimeout(() => {
+                                if (window.AKChat && window.AKChat.reconnect) {
+                                    window.AKChat.reconnect();
+                                }
+                            }, 1000);
+                        }
+                    }).catch(() => {});
+                }
+                return result;
             };
         }
         
@@ -510,11 +524,23 @@
         inputEl.value = '';
     }
     
+    // 重连WebSocket（登录后调用）
+    function reconnect() {
+        console.log('[AKChat] 重连WebSocket，刷新用户信息...');
+        if (ws) {
+            ws.close();
+        }
+        // 重新获取用户名并连接
+        username = getUsername();
+        connect();
+    }
+    
     // 暴露全局API
     window.AKChat = {
         show: showChat,
         close: closeChat,
-        send: sendMessage
+        send: sendMessage,
+        reconnect: reconnect
     };
     
     // 页面加载完成后连接
