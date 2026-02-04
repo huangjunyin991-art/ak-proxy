@@ -972,7 +972,8 @@
         
         // 初始化WebSocket
         function initWebSocket() {
-            const wsUrl = `ws://${window.location.host}/admin/ws`;
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsUrl = `${protocol}//${window.location.host}/admin/ws`;
             ws = new WebSocket(wsUrl);
             
             ws.onopen = () => {

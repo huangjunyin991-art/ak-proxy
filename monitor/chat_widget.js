@@ -9,7 +9,8 @@
     'use strict';
     
     // 配置
-    const WS_URL = `wss://${window.location.host}/chat/ws`;
+    const WS_PROTOCOL = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const WS_URL = `${WS_PROTOCOL}//${window.location.host}/chat/ws`;
     
     // 状态
     let ws = null;
