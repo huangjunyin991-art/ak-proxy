@@ -840,6 +840,38 @@ async def get_chat_history(username: str):
     """获取聊天历史"""
     return online_manager.get_messages(username)
 
+@app.post("/admin/api/chat/broadcast")
+async def broadcast_chat_message(request: Request):
+    """群发消息给所有在线用户"""
+    data = await request.json()
+    content = data.get('content')
+    
+    if not content:
+        raise HTTPException(status_code=400, detail="缺少消息内容")
+    
+    # 获取所有在线用户并发送
+    online_users = online_manager.get_online_users()
+    sent_count = 0
+    
+    for user in online_users:
+        username = user.get('username')
+        if username:
+            success = await online_manager.send_to_user(username, content)
+            if success:
+                sent_count += 1
+    
+    # 广播给管理后台
+    await manager.broadcast({
+        'type': 'broadcast_message',
+        'data': {
+            'content': content,
+            'time': datetime.now().strftime('%H:%M:%S'),
+            'sent_count': sent_count
+        }
+    })
+    
+    return {"success": True, "sent_count": sent_count}
+
 # ===== 管理后台页面 =====
 @app.get("/admin", response_class=HTMLResponse)
 @app.get("/admin/", response_class=HTMLResponse)

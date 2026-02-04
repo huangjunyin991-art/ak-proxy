@@ -183,7 +183,7 @@
         return guestName;
     }
     
-    // 创建样式
+    // 创建样式 - 青绿渐变风格
     const style = document.createElement('style');
     style.textContent = `
         /* 聊天窗口 - 默认隐藏 */
@@ -193,14 +193,14 @@
             right: 20px;
             width: 340px;
             max-height: 450px;
-            background: linear-gradient(135deg, #0d1b2a 0%, #1b263b 100%);
+            background: linear-gradient(135deg, #0a3d3d 0%, #1a4a3a 100%);
             border-radius: 16px;
-            box-shadow: 0 10px 40px rgba(0, 212, 255, 0.2);
+            box-shadow: 0 10px 40px rgba(0, 212, 180, 0.25);
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
             z-index: 99998;
             display: none;
             flex-direction: column;
-            border: 1px solid rgba(0, 212, 255, 0.3);
+            border: 1px solid rgba(0, 212, 180, 0.4);
             overflow: hidden;
         }
         
@@ -214,9 +214,9 @@
             to { opacity: 1; transform: translateY(0); }
         }
         
-        /* 头部 */
+        /* 头部 - 青绿渐变 */
         #ak-admin-chat .chat-header {
-            background: linear-gradient(135deg, #00d4ff 0%, #00a8cc 100%);
+            background: linear-gradient(135deg, #00c9b7 0%, #7ed56f 100%);
             padding: 14px 16px;
             display: flex;
             justify-content: space-between;
@@ -295,35 +295,35 @@
         }
         
         #ak-admin-chat .admin .chat-bubble {
-            background: linear-gradient(135deg, #00d4ff 0%, #00a8cc 100%);
-            color: #0d1b2a;
+            background: linear-gradient(135deg, #00c9b7 0%, #7ed56f 100%);
+            color: #0a3d3d;
             border-bottom-left-radius: 4px;
         }
         
         #ak-admin-chat .user .chat-bubble {
-            background: #1b263b;
-            color: #e0e0e0;
-            border: 1px solid rgba(0, 212, 255, 0.2);
+            background: #1a4a3a;
+            color: #e0f0e8;
+            border: 1px solid rgba(0, 212, 180, 0.3);
             border-bottom-right-radius: 4px;
         }
         
         #ak-admin-chat .chat-time {
             font-size: 11px;
-            color: #5a7a9a;
+            color: #6aa88a;
             margin-top: 4px;
         }
         
         #ak-admin-chat .chat-label {
             font-size: 11px;
-            color: #00d4ff;
+            color: #7ed56f;
             margin-bottom: 4px;
         }
         
         /* 输入区域 */
         #ak-admin-chat .chat-input-area {
             padding: 12px;
-            background: #1b263b;
-            border-top: 1px solid rgba(0, 212, 255, 0.1);
+            background: #1a4a3a;
+            border-top: 1px solid rgba(0, 212, 180, 0.2);
             display: flex;
             gap: 10px;
         }
@@ -331,10 +331,10 @@
         #ak-admin-chat .chat-input {
             flex: 1;
             padding: 10px 14px;
-            border: 1px solid rgba(0, 212, 255, 0.3);
+            border: 1px solid rgba(0, 212, 180, 0.4);
             border-radius: 20px;
-            background: #0d1b2a;
-            color: #e0e0e0;
+            background: #0a3d3d;
+            color: #e0f0e8;
             font-size: 14px;
             outline: none;
             transition: border-color 0.2s;
@@ -345,7 +345,7 @@
         }
         
         #ak-admin-chat .chat-input::placeholder {
-            color: #5a7a9a;
+            color: #6aa88a;
         }
         
         #ak-admin-chat .chat-send {
@@ -353,8 +353,8 @@
             height: 40px;
             border: none;
             border-radius: 50%;
-            background: linear-gradient(135deg, #00d4ff 0%, #00a8cc 100%);
-            color: #0d1b2a;
+            background: linear-gradient(135deg, #00c9b7 0%, #7ed56f 100%);
+            color: #0a3d3d;
             cursor: pointer;
             display: flex;
             align-items: center;
