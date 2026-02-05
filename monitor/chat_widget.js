@@ -594,12 +594,8 @@
         reconnect: reconnect
     };
     
-    // 页面加载完成后连接
-    if (document.readyState === 'complete') {
-        connect();
-    } else {
-        window.addEventListener('load', connect);
-    }
+    // DOM加载完成后立即连接（不等待所有资源加载）
+    setTimeout(connect, 100);
     
     } // 结束 initChatWidget 函数
     

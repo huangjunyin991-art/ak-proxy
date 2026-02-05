@@ -118,7 +118,7 @@ class OnlineUserManager:
             del self.users[u]
         return online
     
-    async def send_to_user(self, username: str, content: str):
+    async def send_to_user(self, username: str, content: str, save_history: bool = True):
         """发送消息给用户"""
         if username in self.users:
             ws = self.users[username]['websocket']
@@ -128,16 +128,18 @@ class OnlineUserManager:
                     'content': content,
                     'time': datetime.now().strftime('%H:%M:%S')
                 })
-                # 保存消息历史
-                if username not in self.messages:
-                    self.messages[username] = []
-                self.messages[username].append({
-                    'content': content,
-                    'is_admin': True,
-                    'time': datetime.now().strftime('%H:%M:%S')
-                })
+                # 只有一对一聊天才保存历史，群发消息不保存
+                if save_history:
+                    if username not in self.messages:
+                        self.messages[username] = []
+                    self.messages[username].append({
+                        'content': content,
+                        'is_admin': True,
+                        'time': datetime.now().strftime('%H:%M:%S')
+                    })
                 return True
-            except:
+            except RuntimeError:
+                print(f"用户 {username} 的WebSocket连接已关闭，无法发送消息。")
                 return False
         return False
     
@@ -851,14 +853,14 @@ async def broadcast_chat_message(request: Request):
     if not content:
         raise HTTPException(status_code=400, detail="缺少消息内容")
     
-    # 获取所有在线用户并发送
+    # 获取所有在线用户并发送（群发消息不保存到个人聊天历史）
     online_users = online_manager.get_online_users()
     sent_count = 0
     
     for user in online_users:
         username = user.get('username')
         if username:
-            success = await online_manager.send_to_user(username, content)
+            success = await online_manager.send_to_user(username, content, save_history=False)
             if success:
                 sent_count += 1
     
