@@ -460,6 +460,12 @@ def save_user_assets(username: str, data: dict):
             data.get('HonorName', ''), now
         ))
         
+        # 删除30天前的旧记录
+        cursor.execute('''
+            DELETE FROM asset_history 
+            WHERE recorded_at < datetime('now', '-30 days')
+        ''')
+        
         conn.commit()
 
 def get_user_assets(username: str):

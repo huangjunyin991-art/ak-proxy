@@ -53,21 +53,8 @@
                     }
                 }
                 
-                // 检测登录请求，登录成功后重连WebSocket
-                const result = originalFetch.call(this, finalUrl, options);
-                if (typeof url === 'string' && url.includes('Login')) {
-                    result.then(response => response.clone().json()).then(data => {
-                        if (data && !data.Error && data.UserData) {
-                            console.log('[AKProxy] 检测到登录成功，将重连WebSocket...');
-                            setTimeout(() => {
-                                if (window.AKChat && window.AKChat.reconnect) {
-                                    window.AKChat.reconnect();
-                                }
-                            }, 1000);
-                        }
-                    }).catch(() => {});
-                }
-                return result;
+                // 不在这里重连，避免重复连接
+                return originalFetch.call(this, finalUrl, options);
             };
         }
         

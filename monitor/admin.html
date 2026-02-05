@@ -685,14 +685,9 @@
     
     <!-- 内容区 -->
     <div class="content">
-        <!-- 实时监控 -->
-        <div class="panel active" id="realtime">
-            <h3 style="margin-bottom: 15px; color: var(--accent);">📡 实时登录日志</h3>
-            <div class="live-log" id="liveLog">
-                <div style="color: var(--text-secondary); text-align: center; padding: 40px;">
-                    等待新的登录事件...
-                </div>
-            </div>
+        <!-- 实时监控 - 已隐藏 -->
+        <div class="panel active" id="realtime" style="display: none;">
+            <div class="live-log" id="liveLog"></div>
         </div>
         
         <!-- 在线用户 -->
@@ -1020,13 +1015,7 @@
                 loadBanlist();
                 refreshStats();
             } else if (data.type === 'user_online') {
-                // 用户上线
-                addLogItem({
-                    username: data.data.username,
-                    status: 'online',
-                    time: data.data.time,
-                    user_agent: data.data.user_agent
-                });
+                // 用户上线 - 只更新在线列表，不显示在实时日志中
                 loadOnlineUsers();
             } else if (data.type === 'user_offline') {
                 // 用户离线
@@ -1131,11 +1120,21 @@
                 </small>`;
             }
             
+            // 根据状态显示不同的文本和样式
+            let statusBadge = '';
+            if (data.status === 'success') {
+                statusBadge = '<span class="badge success">登录成功</span>';
+            } else if (data.status === 'online') {
+                statusBadge = '<span class="badge" style="background: rgba(0, 212, 180, 0.2); color: #00d4b4;">用户上线</span>';
+            } else if (data.status === 'failed') {
+                statusBadge = '<span class="badge danger">登录失败</span>';
+            }
+            
             item.innerHTML = `
                 <div class="time">${data.time}</div>
                 <div class="info">
                     <strong>${data.username}</strong> 
-                    <span class="badge ${data.status === 'success' ? 'success' : 'danger'}">${data.status === 'success' ? '登录成功' : '登录失败'}</span>
+                    ${statusBadge}
                     <br>
                     <small style="color: var(--text-secondary);">IP: ${data.ip || 'undefined'} | ${data.user_agent || ''}</small>
                     ${assetInfo}
