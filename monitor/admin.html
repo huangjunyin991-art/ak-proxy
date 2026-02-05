@@ -1019,6 +1019,7 @@
         
         // 当前聊天用户
         let currentChatUser = null;
+        let chatRefreshTimer = null;
         
         // 处理WebSocket消息
         function handleWebSocketMessage(data) {
@@ -1342,8 +1343,39 @@
             }
         }
         
+        // 刷新聊天记录
+        async function refreshChatHistory() {
+            if (!currentChatUser) return;
+            
+            try {
+                const res = await fetch(`${API_BASE}/admin/api/chat/history/${currentChatUser}`);
+                const messages = await res.json();
+                
+                // 重新渲染聊天记录
+                const container = document.getElementById('chatMessages');
+                const scrollAtBottom = container.scrollHeight - container.scrollTop <= container.clientHeight + 50;
+                
+                container.innerHTML = '';
+                messages.forEach(msg => {
+                    addChatMessage(msg.content, msg.is_admin, msg.time);
+                });
+                
+                // 如果之前在底部，保持在底部
+                if (scrollAtBottom) {
+                    container.scrollTop = container.scrollHeight;
+                }
+            } catch (e) {
+                console.error('刷新聊天记录失败', e);
+            }
+        }
+        
         // 开始聊天
         async function startChat(username) {
+            // 清除旧的定时器
+            if (chatRefreshTimer) {
+                clearInterval(chatRefreshTimer);
+            }
+            
             currentChatUser = username;
             document.getElementById('chatTarget').textContent = username;
             document.getElementById('chatStatus').textContent = '在线';
@@ -1352,16 +1384,10 @@
             document.getElementById('chatSendBtn').disabled = false;
             
             // 加载聊天历史
-            const container = document.getElementById('chatMessages');
-            container.innerHTML = '';
+            await refreshChatHistory();
             
-            try {
-                const res = await fetch(`${API_BASE}/admin/api/chat/history/${username}`);
-                const messages = await res.json();
-                messages.forEach(msg => {
-                    addChatMessage(msg.content, msg.is_admin, msg.time);
-                });
-            } catch (e) {}
+            // 每3秒刷新一次聊天记录（作为WebSocket的备份）
+            chatRefreshTimer = setInterval(refreshChatHistory, 3000);
             
             document.getElementById('chatInput').focus();
         }

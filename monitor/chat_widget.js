@@ -564,15 +564,27 @@
     // 发送消息
     function sendMessage() {
         const content = inputEl.value.trim();
-        if (!content || !ws || ws.readyState !== WebSocket.OPEN) return;
+        if (!content) return;
         
-        ws.send(JSON.stringify({
-            type: 'user_message',
-            content: content
-        }));
+        // 检查WebSocket连接状态
+        if (!ws || ws.readyState !== WebSocket.OPEN) {
+            console.error('[AKChat] WebSocket未连接，无法发送消息');
+            alert('连接已断开，消息发送失败');
+            return;
+        }
         
-        addMessage(content, false);
-        inputEl.value = '';
+        try {
+            ws.send(JSON.stringify({
+                type: 'user_message',
+                content: content
+            }));
+            console.log('[AKChat] 消息已发送:', content);
+            addMessage(content, false);
+            inputEl.value = '';
+        } catch(e) {
+            console.error('[AKChat] 发送消息失败:', e);
+            alert('发送失败，请重试');
+        }
     }
     
     // 重连WebSocket（登录后调用）
