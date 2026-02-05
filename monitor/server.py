@@ -745,14 +745,19 @@ async def websocket_endpoint(websocket: WebSocket):
 
 # ===== WebSocket - 用户聊天 =====
 @app.websocket("/chat/ws")
-async def chat_websocket(websocket: WebSocket, username: str = "visitor"):
+async def chat_websocket(websocket: WebSocket):
     """用户聊天WebSocket"""
     await websocket.accept()
+    
+    # 获取用户名
+    username = websocket.query_params.get('username', 'visitor')
+    print(f"[ChatWS] ★★★ 新WebSocket连接: username={username}, ws_id={id(websocket)}")
     
     try:
         while True:
             data = await websocket.receive_json()
             msg_type = data.get('type')
+            print(f"[ChatWS] 收到消息: type={msg_type}, username={username}, ws_id={id(websocket)}")
             
             if msg_type == 'online':
                 # 用户上线
@@ -778,10 +783,11 @@ async def chat_websocket(websocket: WebSocket, username: str = "visitor"):
             elif msg_type == 'user_message':
                 # 用户发送消息
                 content = data.get('content', '')
+                print(f"[ChatWS] ★ 收到用户消息: username={username}, content={content}, ws_id={id(websocket)}")
                 if content:
                     online_manager.save_user_message(username, content)
                     # 广播给管理后台
-                    await manager.broadcast({
+                    broadcast_data = {
                         'type': 'chat_message',
                         'data': {
                             'username': username,
@@ -789,7 +795,9 @@ async def chat_websocket(websocket: WebSocket, username: str = "visitor"):
                             'time': datetime.now().strftime('%H:%M:%S'),
                             'is_admin': False
                         }
-                    })
+                    }
+                    print(f"[ChatWS] ★ 广播用户消息给管理后台: {broadcast_data}")
+                    await manager.broadcast(broadcast_data)
             
             elif msg_type == 'offline':
                 # 用户离线

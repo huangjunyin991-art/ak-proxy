@@ -989,6 +989,12 @@
         
         // 初始化WebSocket
         function initWebSocket() {
+            // 先关闭已存在的连接，避免重复连接
+            if (ws && ws.readyState !== WebSocket.CLOSED) {
+                console.log('[Admin] 关闭旧WebSocket连接');
+                ws.close();
+            }
+            
             const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
             const wsUrl = `${protocol}//${window.location.host}/admin/ws`;
             ws = new WebSocket(wsUrl);
