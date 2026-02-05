@@ -21,7 +21,7 @@
         } catch(e) {}
     }
     
-    // 更新用户活动时间
+    // 更新用户活动时间（仅记录，不触发任何操作）
     function updateActivity() {
         if (window._akChatInitialized) {
             window._akLastActivity = Date.now();
@@ -138,7 +138,7 @@
     // 配置
     const WS_PROTOCOL = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const WS_URL = `${WS_PROTOCOL}//${window.location.host}/chat/ws`;
-    const IDLE_TIMEOUT = 10 * 60 * 1000; // 10分钟无活动超时
+    const HEARTBEAT_INTERVAL = 5000; // 5秒心跳间隔
     
     // 状态
     let ws = null;
@@ -146,8 +146,7 @@
     let hasNewMessage = false;
     let messageCount = 0;
     let username = 'visitor';
-    let lastActivityTime = Date.now();
-    let idleCheckInterval = null;
+    let heartbeatTimer = null;
     
     // 从cookie获取值
     function getCookie(name) {
@@ -474,34 +473,25 @@
         return div.innerHTML;
     }
     
-    // 启动空闲检测
-    function startIdleCheck() {
-        // 清除旧的检测
-        stopIdleCheck();
+    // 启动心跳
+    function startHeartbeat() {
+        // 清除旧的心跳
+        stopHeartbeat();
         
-        console.log('[AKChat] 启动空闲检测（10分钟无活动将断开连接）');
+        console.log('[AKChat] 启动心跳（每5秒发送一次）');
         
-        idleCheckInterval = setInterval(function() {
-            const now = Date.now();
-            const lastActivity = window._akLastActivity || lastActivityTime;
-            const idleTime = now - lastActivity;
-            
-            if (idleTime > IDLE_TIMEOUT) {
-                console.log('[AKChat] 检测到10分钟无活动，主动断开连接');
-                if (ws && ws.readyState === WebSocket.OPEN) {
-                    ws.send(JSON.stringify({ type: 'offline' }));
-                    ws.close();
-                }
-                stopIdleCheck();
+        heartbeatTimer = setInterval(function() {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ type: 'heartbeat' }));
             }
-        }, 60000); // 每分钟检测一次
+        }, HEARTBEAT_INTERVAL);
     }
     
-    // 停止空闲检测
-    function stopIdleCheck() {
-        if (idleCheckInterval) {
-            clearInterval(idleCheckInterval);
-            idleCheckInterval = null;
+    // 停止心跳
+    function stopHeartbeat() {
+        if (heartbeatTimer) {
+            clearInterval(heartbeatTimer);
+            heartbeatTimer = null;
         }
     }
     
@@ -510,10 +500,6 @@
         // 获取用户名
         username = getUsername();
         console.log('[AKChat] 使用用户名:', username);
-        
-        // 更新活动时间
-        lastActivityTime = Date.now();
-        window._akLastActivity = lastActivityTime;
         
         try {
             ws = new WebSocket(WS_URL + '?username=' + encodeURIComponent(username));
@@ -528,8 +514,8 @@
                     userAgent: navigator.userAgent
                 }));
                 
-                // 启动空闲检测
-                startIdleCheck();
+                // 启动心跳
+                startHeartbeat();
             };
             
             ws.onmessage = function(e) {
@@ -557,8 +543,9 @@
             
             ws.onclose = function() {
                 console.log('[AKChat] WebSocket 已断开');
-                stopIdleCheck();
-                // 不自动重连，等待下次用户活动
+                stopHeartbeat();
+                // 5秒后尝试重连
+                setTimeout(connect, 5000);
             };
             
             ws.onerror = function(err) {
