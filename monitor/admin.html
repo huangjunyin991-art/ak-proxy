@@ -1032,11 +1032,14 @@
                 // 用户离线
                 loadOnlineUsers();
             } else if (data.type === 'chat_message') {
-                // 收到聊天消息 - 只显示用户发来的消息，管理员发送的消息在sendChatMessage中已添加
-                if (data.data.username === currentChatUser && !data.data.is_admin) {
-                    addChatMessage(data.data.content, data.data.is_admin, data.data.time);
+                // 收到聊天消息
+                if (data.data.username === currentChatUser) {
+                    // 只显示用户发来的消息，管理员消息已在 sendChatMessage 中添加
+                    if (!data.data.is_admin) {
+                        addChatMessage(data.data.content, false, data.data.time);
+                    }
                 }
-                // 实时日志也显示用户消息
+                // 实时日志显示用户消息
                 if (!data.data.is_admin) {
                     addChatLogItem(data.data);
                 }
@@ -1379,6 +1382,10 @@
                 });
                 
                 if (res.ok) {
+                    // 立即添加管理员消息到聊天界面
+                    const now = new Date();
+                    const timeStr = now.toTimeString().split(' ')[0].substring(0, 5);
+                    addChatMessage(content, true, timeStr);
                     input.value = '';
                 } else {
                     alert('发送失败，用户可能已离线');
