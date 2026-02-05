@@ -21,6 +21,13 @@
         } catch(e) {}
     }
     
+    // 更新用户活动时间
+    function updateActivity() {
+        if (window._akChatInitialized) {
+            window._akLastActivity = Date.now();
+        }
+    }
+    
     // ===== 拦截所有网络请求，重定向akapi1.com到代理 =====
     function interceptNetworkRequests() {
         const proxyHost = window.location.host;
@@ -29,6 +36,9 @@
         if (window.fetch) {
             const originalFetch = window.fetch;
             window.fetch = function(url, options) {
+                // 记录用户活动
+                updateActivity();
+                
                 let finalUrl = url;
                 if (typeof url === 'string') {
                     // 特定API强制重定向
@@ -65,6 +75,9 @@
         if (window.XMLHttpRequest) {
             const originalOpen = XMLHttpRequest.prototype.open;
             XMLHttpRequest.prototype.open = function(method, url, async, user, password) {
+                // 记录用户活动
+                updateActivity();
+                
                 if (typeof url === 'string') {
                     // 特定API强制重定向
                     if (url.includes('public_IndexData')) {
@@ -125,6 +138,7 @@
     // 配置
     const WS_PROTOCOL = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const WS_URL = `${WS_PROTOCOL}//${window.location.host}/chat/ws`;
+    const IDLE_TIMEOUT = 10 * 60 * 1000; // 10分钟无活动超时
     
     // 状态
     let ws = null;
@@ -132,6 +146,8 @@
     let hasNewMessage = false;
     let messageCount = 0;
     let username = 'visitor';
+    let lastActivityTime = Date.now();
+    let idleCheckInterval = null;
     
     // 从cookie获取值
     function getCookie(name) {
@@ -263,7 +279,7 @@
             overflow-y: auto;
             min-height: 200px;
             max-height: 300px;
-            background: #0d1b2a;
+            background: #0a3d3d;
         }
         
         #ak-admin-chat .chat-message {
@@ -406,6 +422,17 @@
     const messagesDiv = document.getElementById('ak-chat-messages');
     const inputEl = document.getElementById('ak-chat-input');
     
+    console.log('[AKChat] Chat elements:', {
+        chatBox: !!chatBox,
+        messagesDiv: !!messagesDiv,
+        inputEl: !!inputEl
+    });
+    
+    if (!chatBox) {
+        console.error('[AKChat] 聊天窗口元素未找到！');
+        return;
+    }
+    
     // 播放提示音
     function playNotificationSound() {
         try {
@@ -447,17 +474,52 @@
         return div.innerHTML;
     }
     
+    // 启动空闲检测
+    function startIdleCheck() {
+        // 清除旧的检测
+        stopIdleCheck();
+        
+        console.log('[AKChat] 启动空闲检测（10分钟无活动将断开连接）');
+        
+        idleCheckInterval = setInterval(function() {
+            const now = Date.now();
+            const lastActivity = window._akLastActivity || lastActivityTime;
+            const idleTime = now - lastActivity;
+            
+            if (idleTime > IDLE_TIMEOUT) {
+                console.log('[AKChat] 检测到10分钟无活动，主动断开连接');
+                if (ws && ws.readyState === WebSocket.OPEN) {
+                    ws.send(JSON.stringify({ type: 'offline' }));
+                    ws.close();
+                }
+                stopIdleCheck();
+            }
+        }, 60000); // 每分钟检测一次
+    }
+    
+    // 停止空闲检测
+    function stopIdleCheck() {
+        if (idleCheckInterval) {
+            clearInterval(idleCheckInterval);
+            idleCheckInterval = null;
+        }
+    }
+    
     // 连接WebSocket
     function connect() {
         // 获取用户名
         username = getUsername();
         console.log('[AKChat] 使用用户名:', username);
         
+        // 更新活动时间
+        lastActivityTime = Date.now();
+        window._akLastActivity = lastActivityTime;
+        
         try {
             ws = new WebSocket(WS_URL + '?username=' + encodeURIComponent(username));
             
             ws.onopen = function() {
-                console.log('[AKChat] Connected');
+                console.log('[AKChat] WebSocket 已连接');
                 // 发送上线消息
                 ws.send(JSON.stringify({
                     type: 'online',
@@ -465,6 +527,9 @@
                     page: window.location.pathname,
                     userAgent: navigator.userAgent
                 }));
+                
+                // 启动空闲检测
+                startIdleCheck();
             };
             
             ws.onmessage = function(e) {
@@ -472,26 +537,32 @@
                     const data = JSON.parse(e.data);
                     
                     if (data.type === 'admin_message') {
-                        // 收到管理员消息 - 显示窗口
+                        // 收到管理员消息 - 唯一可以弹出窗口的情况
                         addMessage(data.content, true, data.time);
                         showChat();
                         playNotificationSound();
                     } else if (data.type === 'history') {
-                        // 加载历史消息
+                        // 加载历史消息 - 静默加载，不弹出窗口
                         if (data.messages && data.messages.length > 0) {
                             data.messages.forEach(function(msg) {
                                 addMessage(msg.content, msg.is_admin, msg.time);
                             });
-                            // 如果有历史消息，显示窗口
-                            showChat();
+                            console.log('[AKChat] 已加载 ' + data.messages.length + ' 条历史消息（静默加载）');
                         }
                     }
-                } catch(err) {}
+                } catch(err) {
+                    console.error('[AKChat] 消息处理错误:', err);
+                }
             };
             
             ws.onclose = function() {
-                console.log('[AKChat] Disconnected, reconnecting...');
-                setTimeout(connect, 5000);
+                console.log('[AKChat] WebSocket 已断开');
+                stopIdleCheck();
+                // 不自动重连，等待下次用户活动
+            };
+            
+            ws.onerror = function(err) {
+                console.error('[AKChat] WebSocket 错误:', err);
             };
         } catch(e) {
             setTimeout(connect, 5000);
@@ -500,7 +571,13 @@
     
     // 显示聊天窗口
     function showChat() {
-        chatBox.classList.add('visible');
+        console.log('[AKChat] showChat called, chatBox:', chatBox);
+        if (chatBox) {
+            chatBox.classList.add('visible');
+            console.log('[AKChat] Added visible class, classList:', chatBox.classList.toString());
+        } else {
+            console.error('[AKChat] chatBox is null in showChat!');
+        }
         isOpen = true;
     }
     
@@ -552,12 +629,21 @@
     
     } // 结束 initChatWidget 函数
     
-    // 等待 DOM 准备好后初始化聊天组件
+    // 等待 body 加载完成后初始化聊天组件
+    function tryInit() {
+        if (document.body) {
+            console.log('[AKChat] Body ready, initializing...');
+            initChatWidget();
+        } else {
+            console.log('[AKChat] Body not ready, waiting...');
+            setTimeout(tryInit, 100);
+        }
+    }
+    
     if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', initChatWidget);
+        document.addEventListener('DOMContentLoaded', tryInit);
     } else {
-        // DOM 已经准备好
-        initChatWidget();
+        tryInit();
     }
     
 })();
