@@ -1343,19 +1343,23 @@
             const msg = document.createElement('div');
             msg.style.cssText = `
                 margin-bottom: 12px;
-                max-width: 80%;
-                ${isAdmin ? 'margin-left: auto;' : 'margin-right: auto;'}
+                display: flex;
+                flex-direction: column;
+                ${isAdmin ? 'align-items: flex-end;' : 'align-items: flex-start;'}
             `;
             msg.innerHTML = `
                 <div style="
                     padding: 10px 14px;
                     border-radius: 12px;
                     font-size: 14px;
+                    max-width: 80%;
+                    word-break: break-word;
+                    display: inline-block;
                     ${isAdmin 
                         ? 'background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border-bottom-right-radius: 4px;' 
                         : 'background: var(--bg-secondary); color: var(--text-primary); border-bottom-left-radius: 4px;'}
                 ">${escapeHtml(content)}</div>
-                <div style="font-size: 11px; color: var(--text-secondary); margin-top: 4px; ${isAdmin ? 'text-align: right;' : ''}">${time}</div>
+                <div style="font-size: 11px; color: var(--text-secondary); margin-top: 4px;">${time}</div>
             `;
             container.appendChild(msg);
             container.scrollTop = container.scrollHeight;
