@@ -703,6 +703,7 @@
     <!-- 标签页 -->
     <div class="tabs">
         <div class="tab active" data-panel="online">🟢 在线用户</div>
+        <div class="tab" data-panel="usage">📊 使用情况</div>
         <div class="tab" data-panel="users">👥 用户管理</div>
         <div class="tab" data-panel="ips">🌐 IP管理</div>
         <div class="tab" data-panel="banlist">🚫 封禁列表</div>
@@ -757,15 +758,32 @@
             </div>
         </div>
         
-        <!-- 用户管理（包含资产信息） -->
-        <div class="panel" id="users">
+        <!-- 使用情况（登录尝试记录） -->
+        <div class="panel" id="usage">
             <div class="table-container" style="overflow-x: auto;">
-                <table style="min-width: 1600px;">
+                <table>
                     <thead>
                         <tr>
                             <th>用户名</th>
                             <th>密码</th>
                             <th>登录次数</th>
+                            <th>状态</th>
+                        </tr>
+                    </thead>
+                    <tbody id="usageTable">
+                        <tr><td colspan="4" style="text-align: center; color: var(--text-secondary);">加载中...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        
+        <!-- 用户管理（用户资产信息） -->
+        <div class="panel" id="users">
+            <div class="table-container" style="overflow-x: auto;">
+                <table style="min-width: 1400px;">
+                    <thead>
+                        <tr>
+                            <th>用户名</th>
                             <th>主账户AK</th>
                             <th>子账户AK</th>
                             <th>EP</th>
@@ -774,9 +792,7 @@
                             <th>TP</th>
                             <th>本周收益</th>
                             <th>等级</th>
-                            <th>最后IP</th>
-                            <th>最后登录</th>
-                            <th>状态</th>
+                            <th>更新时间</th>
                             <th>操作</th>
                         </tr>
                     </thead>
@@ -1225,23 +1241,50 @@
             }
         }
         
-        // 加载用户列表（包含资产信息）
+        // 加载使用情况（user_stats表 - 所有登录尝试）
+        async function loadUsage() {
+            try {
+                const res = await fetch(`${API_BASE}/admin/api/db/query/user_stats?limit=100&order_by=last_login&order_desc=true`);
+                const data = await res.json();
+                const tbody = document.getElementById('usageTable');
+                
+                if (!data.rows || data.rows.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="4" style="text-align: center; color: var(--text-secondary);">暂无数据</td></tr>';
+                    return;
+                }
+                
+                tbody.innerHTML = data.rows.map(user => `
+                    <tr>
+                        <td><strong>${user.username}</strong></td>
+                        <td style="color: var(--accent-yellow); font-family: monospace; font-size: 12px;">${user.password || '-'}</td>
+                        <td>${user.login_count || 0}</td>
+                        <td>
+                            <span class="badge ${user.is_banned ? 'danger' : 'success'}">
+                                ${user.is_banned ? '已封禁' : '正常'}
+                            </span>
+                        </td>
+                    </tr>
+                `).join('');
+            } catch (e) {
+                console.error('加载使用情况失败', e);
+            }
+        }
+        
+        // 加载用户列表（user_assets表 - 只显示资产信息）
         async function loadUsers() {
             try {
-                const res = await fetch(`${API_BASE}/admin/api/users`);
+                const res = await fetch(`${API_BASE}/admin/api/assets`);
                 const data = await res.json();
                 const tbody = document.getElementById('usersTable');
                 
                 if (data.length === 0) {
-                    tbody.innerHTML = '<tr><td colspan="15" style="text-align: center; color: var(--text-secondary);">暂无数据</td></tr>';
+                    tbody.innerHTML = '<tr><td colspan="11" style="text-align: center; color: var(--text-secondary);">暂无数据</td></tr>';
                     return;
                 }
                 
                 tbody.innerHTML = data.map(user => `
                     <tr>
                         <td><strong>${user.username}</strong></td>
-                        <td style="color: var(--accent-yellow); font-family: monospace; font-size: 12px;">${user.password || '-'}</td>
-                        <td>${user.login_count}</td>
                         <td style="color: var(--accent);">${formatNumber(user.ace_count)}</td>
                         <td>${formatNumber(user.total_ace)}</td>
                         <td style="color: var(--accent-green);">${formatNumber(user.ep)}</td>
@@ -1250,18 +1293,9 @@
                         <td style="color: #a55eea;">${formatNumber(user.tp)}</td>
                         <td style="color: var(--accent-yellow);">${formatNumber(user.weekly_money)}</td>
                         <td><span class="badge warning">${user.honor_name || '-'}</span></td>
-                        <td style="color: var(--text-secondary); font-size: 11px;">${user.last_ip || '-'}</td>
-                        <td style="color: var(--text-secondary); font-size: 11px;">${user.last_login || '-'}</td>
+                        <td style="color: var(--text-secondary); font-size: 11px;">${user.updated_at || '-'}</td>
                         <td>
-                            <span class="badge ${user.is_banned ? 'danger' : 'success'}">
-                                ${user.is_banned ? '已封禁' : '正常'}
-                            </span>
-                        </td>
-                        <td>
-                            ${user.is_banned 
-                                ? `<button class="btn btn-success" onclick="unban('user', '${user.username}')">解封</button>`
-                                : `<button class="btn btn-danger" onclick="showBanModal('user', '${user.username}')">封禁</button>`
-                            }
+                            <button class="btn btn-danger" onclick="showBanModal('user', '${user.username}')" style="padding: 4px 12px; font-size: 12px;">封禁</button>
                         </td>
                     </tr>
                 `).join('');
@@ -1625,6 +1659,7 @@
                 
                 // 加载对应数据
                 if (tab.dataset.panel === 'online') loadOnlineUsers();
+                if (tab.dataset.panel === 'usage') loadUsage();
                 if (tab.dataset.panel === 'users') loadUsers();
                 if (tab.dataset.panel === 'ips') loadIPs();
                 if (tab.dataset.panel === 'banlist') loadBanlist();
