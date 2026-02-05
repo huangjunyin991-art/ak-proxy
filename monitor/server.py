@@ -64,14 +64,19 @@ class ConnectionManager:
     
     async def broadcast(self, message: dict):
         """广播消息给所有连接"""
+        print(f"[Broadcast] 广播消息: type={message.get('type')}, 当前连接数={len(self.active_connections)}")
         dead_connections = set()
         for connection in self.active_connections:
             try:
                 await connection.send_json(message)
-            except:
+                print(f"[Broadcast] 发送成功: {id(connection)}")
+            except Exception as e:
+                print(f"[Broadcast] 发送失败: {id(connection)}, error={e}")
                 dead_connections.add(connection)
         
         # 清理断开的连接
+        if dead_connections:
+            print(f"[Broadcast] 清理断开连接: {len(dead_connections)}个")
         self.active_connections -= dead_connections
 
 manager = ConnectionManager()
