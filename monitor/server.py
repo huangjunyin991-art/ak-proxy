@@ -325,32 +325,36 @@ async def proxy_login(request: Request):
     except Exception as e:
         print(f"[Login] ★ 登录记录保存失败: {e}")
     
-    # 广播新登录事件
-    broadcast_data = {
-        "type": "new_login",
-        "data": {
-            "username": account,
-            "ip": client_ip,
-            "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "status": status,
-            "user_agent": user_agent[:50] if user_agent else ""
+    # 只有真正的登录尝试（有账号密码的请求）才广播，且只广播成功的登录
+    if account and password and is_success:
+        broadcast_data = {
+            "type": "new_login",
+            "data": {
+                "username": account,
+                "ip": client_ip,
+                "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "status": "success",
+                "user_agent": user_agent[:50] if user_agent else ""
+            }
         }
-    }
-    
-    # 如果有资产数据，一起广播
-    if asset_data:
-        broadcast_data["data"]["assets"] = {
-            "ep": asset_data.get("EP", 0),
-            "sp": asset_data.get("SP", 0),
-            "tp": asset_data.get("TP", 0),
-            "rp": asset_data.get("RP", 0),
-            "ace_count": asset_data.get("ACECount", 0),
-            "total_ace": asset_data.get("TotalACE", 0),
-            "honor_name": asset_data.get("HonorName", ""),
-            "weekly_money": asset_data.get("WeeklyMoney", 0)
-        }
-    
-    await manager.broadcast(broadcast_data)
+        
+        # 如果有资产数据，一起广播
+        if asset_data:
+            broadcast_data["data"]["assets"] = {
+                "ep": asset_data.get("EP", 0),
+                "sp": asset_data.get("SP", 0),
+                "tp": asset_data.get("TP", 0),
+                "rp": asset_data.get("RP", 0),
+                "ace_count": asset_data.get("ACECount", 0),
+                "total_ace": asset_data.get("TotalACE", 0),
+                "honor_name": asset_data.get("HonorName", ""),
+                "weekly_money": asset_data.get("WeeklyMoney", 0)
+            }
+        
+        print(f"[Login] 广播登录成功事件: {account}")
+        await manager.broadcast(broadcast_data)
+    else:
+        print(f"[Login] 跳过广播（account={account}, password={'***' if password else 'None'}, is_success={is_success}）")
     
     # 创建响应，如果登录成功则设置cookie保存用户名
     response = JSONResponse(result)
