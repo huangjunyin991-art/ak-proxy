@@ -31,7 +31,8 @@ from database import (
     get_recent_logins, get_user_detail, ban_user, unban_user,
     ban_ip, unban_ip, is_banned, get_ban_list, get_stats_summary,
     save_user_assets, get_user_assets, get_all_user_assets, get_asset_history,
-    get_all_users_with_assets
+    get_all_users_with_assets,
+    get_all_tables, get_table_schema, query_table, insert_row, update_row, delete_row, execute_sql
 )
 
 # 配置
@@ -889,6 +890,70 @@ async def broadcast_chat_message(request: Request):
     })
     
     return {"success": True, "sent_count": sent_count}
+
+# ===== 数据库管理API =====
+@app.get("/admin/api/db/tables")
+async def get_tables():
+    """获取所有表名"""
+    return get_all_tables()
+
+@app.get("/admin/api/db/schema/{table_name}")
+async def get_schema(table_name: str):
+    """获取表结构"""
+    return get_table_schema(table_name)
+
+@app.get("/admin/api/db/query/{table_name}")
+async def query_data(table_name: str, limit: int = 100, offset: int = 0, order_by: str = None, order_desc: bool = True):
+    """查询表数据"""
+    return query_table(table_name, limit, offset, order_by, order_desc)
+
+@app.post("/admin/api/db/insert/{table_name}")
+async def insert_data(table_name: str, request: Request):
+    """插入数据"""
+    data = await request.json()
+    try:
+        row_id = insert_row(table_name, data)
+        return {"success": True, "id": row_id}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.put("/admin/api/db/update/{table_name}")
+async def update_data(table_name: str, request: Request):
+    """更新数据"""
+    data = await request.json()
+    pk_column = data.pop('_pk_column', 'id')
+    pk_value = data.pop('_pk_value', None)
+    if pk_value is None:
+        raise HTTPException(status_code=400, detail="缺少主键值")
+    try:
+        affected = update_row(table_name, pk_column, pk_value, data)
+        return {"success": True, "affected_rows": affected}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.delete("/admin/api/db/delete/{table_name}")
+async def delete_data(table_name: str, pk_column: str = "id", pk_value: str = None):
+    """删除数据"""
+    if pk_value is None:
+        raise HTTPException(status_code=400, detail="缺少主键值")
+    try:
+        affected = delete_row(table_name, pk_column, pk_value)
+        return {"success": True, "affected_rows": affected}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.post("/admin/api/db/sql")
+async def run_sql(request: Request):
+    """执行自定义SQL"""
+    data = await request.json()
+    sql = data.get('sql', '')
+    if not sql:
+        raise HTTPException(status_code=400, detail="缺少SQL语句")
+    try:
+        result = execute_sql(sql)
+        return {"success": True, "result": result}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 # ===== 管理后台页面 =====
 @app.get("/admin", response_class=HTMLResponse)

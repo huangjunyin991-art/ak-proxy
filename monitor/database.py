@@ -501,6 +501,93 @@ def get_asset_history(username: str, limit: int = 30):
         ''', (username, limit))
         return [dict(row) for row in cursor.fetchall()]
 
+# ===== 通用数据库CRUD操作 =====
+
+def get_all_tables():
+    """获取所有表名"""
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
+        return [row['name'] for row in cursor.fetchall()]
+
+def get_table_schema(table_name: str):
+    """获取表结构"""
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute(f"PRAGMA table_info({table_name})")
+        columns = []
+        for row in cursor.fetchall():
+            columns.append({
+                'cid': row['cid'],
+                'name': row['name'],
+                'type': row['type'],
+                'notnull': row['notnull'],
+                'dflt_value': row['dflt_value'],
+                'pk': row['pk']
+            })
+        return columns
+
+def query_table(table_name: str, limit: int = 100, offset: int = 0, order_by: str = None, order_desc: bool = True):
+    """查询表数据"""
+    with get_db() as conn:
+        cursor = conn.cursor()
+        
+        # 获取总数
+        cursor.execute(f"SELECT COUNT(*) as count FROM {table_name}")
+        total = cursor.fetchone()['count']
+        
+        # 查询数据
+        sql = f"SELECT * FROM {table_name}"
+        if order_by:
+            sql += f" ORDER BY {order_by} {'DESC' if order_desc else 'ASC'}"
+        sql += f" LIMIT {limit} OFFSET {offset}"
+        
+        cursor.execute(sql)
+        rows = [dict(row) for row in cursor.fetchall()]
+        
+        return {'total': total, 'rows': rows}
+
+def insert_row(table_name: str, data: dict):
+    """插入数据"""
+    with get_db() as conn:
+        cursor = conn.cursor()
+        columns = ', '.join(data.keys())
+        placeholders = ', '.join(['?' for _ in data])
+        sql = f"INSERT INTO {table_name} ({columns}) VALUES ({placeholders})"
+        cursor.execute(sql, list(data.values()))
+        conn.commit()
+        return cursor.lastrowid
+
+def update_row(table_name: str, pk_column: str, pk_value, data: dict):
+    """更新数据"""
+    with get_db() as conn:
+        cursor = conn.cursor()
+        set_clause = ', '.join([f"{k} = ?" for k in data.keys()])
+        sql = f"UPDATE {table_name} SET {set_clause} WHERE {pk_column} = ?"
+        cursor.execute(sql, list(data.values()) + [pk_value])
+        conn.commit()
+        return cursor.rowcount
+
+def delete_row(table_name: str, pk_column: str, pk_value):
+    """删除数据"""
+    with get_db() as conn:
+        cursor = conn.cursor()
+        sql = f"DELETE FROM {table_name} WHERE {pk_column} = ?"
+        cursor.execute(sql, [pk_value])
+        conn.commit()
+        return cursor.rowcount
+
+def execute_sql(sql: str):
+    """执行自定义SQL（只读查询）"""
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute(sql)
+        if sql.strip().upper().startswith('SELECT'):
+            return [dict(row) for row in cursor.fetchall()]
+        else:
+            conn.commit()
+            return {'affected_rows': cursor.rowcount}
+
 # 初始化数据库
 if __name__ == '__main__':
     init_db()

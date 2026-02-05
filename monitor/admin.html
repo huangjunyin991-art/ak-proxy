@@ -706,6 +706,7 @@
         <div class="tab" data-panel="users">👥 用户管理</div>
         <div class="tab" data-panel="ips">🌐 IP管理</div>
         <div class="tab" data-panel="banlist">🚫 封禁列表</div>
+        <div class="tab" data-panel="database">🗄️ 数据库</div>
         <div class="tab" data-panel="settings">⚙️ 设置</div>
     </div>
     
@@ -825,6 +826,33 @@
                     </tbody>
                 </table>
             </div>
+        </div>
+        
+        <!-- 数据库管理 -->
+        <div class="panel" id="database">
+            <div style="display: flex; gap: 15px; margin-bottom: 20px; align-items: center; flex-wrap: wrap;">
+                <select id="dbTableSelect" onchange="loadTableData()" style="padding: 10px 15px; background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; color: var(--text-primary); font-size: 14px; min-width: 200px;">
+                    <option value="">选择表...</option>
+                </select>
+                <button class="btn btn-primary" onclick="loadTableData()" style="padding: 10px 20px;">🔄 刷新</button>
+                <button class="btn btn-primary" onclick="showAddRowModal()" style="padding: 10px 20px;">➕ 新增</button>
+                <button class="btn btn-danger" onclick="showSqlModal()" style="padding: 10px 20px;">📝 执行SQL</button>
+                <span id="dbRowCount" style="color: var(--text-secondary); font-size: 14px; margin-left: auto;"></span>
+            </div>
+            
+            <div class="table-container" style="overflow: auto; max-height: calc(100vh - 400px);">
+                <table id="dbTable" style="min-width: 100%;">
+                    <thead id="dbTableHead">
+                        <tr><th>请先选择一个表</th></tr>
+                    </thead>
+                    <tbody id="dbTableBody">
+                        <tr><td style="text-align: center; color: var(--text-secondary); padding: 40px;">从上方下拉菜单选择要查看的表</td></tr>
+                    </tbody>
+                </table>
+            </div>
+            
+            <!-- 分页 -->
+            <div id="dbPagination" style="display: flex; justify-content: center; gap: 10px; margin-top: 15px;"></div>
         </div>
         
         <!-- 设置 -->
@@ -1600,6 +1628,7 @@
                 if (tab.dataset.panel === 'users') loadUsers();
                 if (tab.dataset.panel === 'ips') loadIPs();
                 if (tab.dataset.panel === 'banlist') loadBanlist();
+                if (tab.dataset.panel === 'database') loadDbTables();
             });
         });
         
@@ -1609,6 +1638,291 @@
             loadUsers();
             loadIPs();
             loadBanlist();
+        }
+        
+        // ===== 数据库管理功能 =====
+        let dbCurrentTable = '';
+        let dbCurrentPage = 0;
+        let dbPageSize = 50;
+        let dbSchema = [];
+        let dbPkColumn = 'id';
+        
+        // 加载表列表
+        async function loadDbTables() {
+            try {
+                const res = await fetch(`${API_BASE}/admin/api/db/tables`);
+                const tables = await res.json();
+                const select = document.getElementById('dbTableSelect');
+                select.innerHTML = '<option value="">选择表...</option>' + 
+                    tables.map(t => `<option value="${t}">${t}</option>`).join('');
+            } catch (e) {
+                console.error('加载表列表失败', e);
+            }
+        }
+        
+        // 加载表数据
+        async function loadTableData() {
+            const table = document.getElementById('dbTableSelect').value;
+            if (!table) return;
+            
+            dbCurrentTable = table;
+            
+            try {
+                // 获取表结构
+                const schemaRes = await fetch(`${API_BASE}/admin/api/db/schema/${table}`);
+                dbSchema = await schemaRes.json();
+                
+                // 找到主键列
+                const pkCol = dbSchema.find(c => c.pk === 1);
+                dbPkColumn = pkCol ? pkCol.name : dbSchema[0]?.name || 'id';
+                
+                // 获取数据
+                const dataRes = await fetch(`${API_BASE}/admin/api/db/query/${table}?limit=${dbPageSize}&offset=${dbCurrentPage * dbPageSize}`);
+                const data = await dataRes.json();
+                
+                // 渲染表头
+                const thead = document.getElementById('dbTableHead');
+                thead.innerHTML = '<tr>' + 
+                    dbSchema.map(c => `<th style="white-space: nowrap;">${c.name}<br><span style="font-size: 10px; color: var(--text-secondary);">${c.type}</span></th>`).join('') +
+                    '<th>操作</th></tr>';
+                
+                // 渲染数据
+                const tbody = document.getElementById('dbTableBody');
+                if (data.rows.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="' + (dbSchema.length + 1) + '" style="text-align: center; color: var(--text-secondary); padding: 40px;">暂无数据</td></tr>';
+                } else {
+                    tbody.innerHTML = data.rows.map(row => {
+                        const pkValue = row[dbPkColumn];
+                        return '<tr>' + 
+                            dbSchema.map(c => {
+                                let val = row[c.name];
+                                if (val === null) val = '<span style="color: #666;">NULL</span>';
+                                else if (typeof val === 'string' && val.length > 50) val = val.substring(0, 50) + '...';
+                                return `<td style="max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${String(row[c.name] || '')}">${val}</td>`;
+                            }).join('') +
+                            `<td style="white-space: nowrap;">
+                                <button class="btn btn-primary" onclick="showEditRowModal('${pkValue}')" style="padding: 4px 10px; font-size: 12px;">编辑</button>
+                                <button class="btn btn-danger" onclick="deleteDbRow('${pkValue}')" style="padding: 4px 10px; font-size: 12px;">删除</button>
+                            </td></tr>`;
+                    }).join('');
+                }
+                
+                // 显示行数
+                document.getElementById('dbRowCount').textContent = `共 ${data.total} 条记录`;
+                
+                // 渲染分页
+                const totalPages = Math.ceil(data.total / dbPageSize);
+                const pagination = document.getElementById('dbPagination');
+                if (totalPages > 1) {
+                    let html = '';
+                    if (dbCurrentPage > 0) html += `<button class="btn btn-primary" onclick="dbGoPage(${dbCurrentPage - 1})" style="padding: 5px 15px;">上一页</button>`;
+                    html += `<span style="color: var(--text-secondary); line-height: 32px;">第 ${dbCurrentPage + 1} / ${totalPages} 页</span>`;
+                    if (dbCurrentPage < totalPages - 1) html += `<button class="btn btn-primary" onclick="dbGoPage(${dbCurrentPage + 1})" style="padding: 5px 15px;">下一页</button>`;
+                    pagination.innerHTML = html;
+                } else {
+                    pagination.innerHTML = '';
+                }
+            } catch (e) {
+                console.error('加载表数据失败', e);
+            }
+        }
+        
+        function dbGoPage(page) {
+            dbCurrentPage = page;
+            loadTableData();
+        }
+        
+        // 显示新增行弹窗
+        function showAddRowModal() {
+            if (!dbCurrentTable || dbSchema.length === 0) {
+                alert('请先选择一个表');
+                return;
+            }
+            
+            const fields = dbSchema.filter(c => !c.pk || c.dflt_value !== null).map(c => `
+                <div style="margin-bottom: 15px;">
+                    <label style="display: block; margin-bottom: 5px; color: var(--text-secondary); font-size: 14px;">${c.name} (${c.type})${c.notnull ? ' *' : ''}</label>
+                    <input type="text" id="dbAdd_${c.name}" placeholder="${c.dflt_value || ''}" 
+                           style="width: 100%; padding: 10px; background: var(--bg-primary); border: 1px solid var(--border); border-radius: 6px; color: var(--text-primary);">
+                </div>
+            `).join('');
+            
+            showModal('新增记录', fields, async () => {
+                const data = {};
+                dbSchema.forEach(c => {
+                    if (c.pk && c.dflt_value === null) return; // 跳过自增主键
+                    const val = document.getElementById(`dbAdd_${c.name}`)?.value;
+                    if (val !== undefined && val !== '') data[c.name] = val;
+                });
+                
+                try {
+                    const res = await fetch(`${API_BASE}/admin/api/db/insert/${dbCurrentTable}`, {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify(data)
+                    });
+                    const result = await res.json();
+                    if (result.success) {
+                        closeModal();
+                        loadTableData();
+                    } else {
+                        alert('新增失败: ' + (result.detail || '未知错误'));
+                    }
+                } catch (e) {
+                    alert('新增失败: ' + e.message);
+                }
+            });
+        }
+        
+        // 显示编辑行弹窗
+        async function showEditRowModal(pkValue) {
+            if (!dbCurrentTable) return;
+            
+            // 获取当前行数据
+            const res = await fetch(`${API_BASE}/admin/api/db/query/${dbCurrentTable}?limit=1&offset=0`);
+            const data = await res.json();
+            const row = data.rows.find(r => String(r[dbPkColumn]) === String(pkValue));
+            
+            if (!row) {
+                // 重新查询
+                const allRes = await fetch(`${API_BASE}/admin/api/db/sql`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({sql: `SELECT * FROM ${dbCurrentTable} WHERE ${dbPkColumn} = '${pkValue}'`})
+                });
+                const allData = await allRes.json();
+                if (allData.success && allData.result.length > 0) {
+                    Object.assign(row || {}, allData.result[0]);
+                }
+            }
+            
+            const fields = dbSchema.map(c => `
+                <div style="margin-bottom: 15px;">
+                    <label style="display: block; margin-bottom: 5px; color: var(--text-secondary); font-size: 14px;">${c.name} (${c.type})${c.pk ? ' [主键]' : ''}</label>
+                    <input type="text" id="dbEdit_${c.name}" value="${row?.[c.name] ?? ''}" ${c.pk ? 'readonly style="background: #333;"' : ''}
+                           style="width: 100%; padding: 10px; background: var(--bg-primary); border: 1px solid var(--border); border-radius: 6px; color: var(--text-primary);">
+                </div>
+            `).join('');
+            
+            showModal('编辑记录', fields, async () => {
+                const data = {_pk_column: dbPkColumn, _pk_value: pkValue};
+                dbSchema.forEach(c => {
+                    if (c.pk) return; // 跳过主键
+                    const val = document.getElementById(`dbEdit_${c.name}`)?.value;
+                    if (val !== undefined) data[c.name] = val;
+                });
+                
+                try {
+                    const res = await fetch(`${API_BASE}/admin/api/db/update/${dbCurrentTable}`, {
+                        method: 'PUT',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify(data)
+                    });
+                    const result = await res.json();
+                    if (result.success) {
+                        closeModal();
+                        loadTableData();
+                    } else {
+                        alert('更新失败: ' + (result.detail || '未知错误'));
+                    }
+                } catch (e) {
+                    alert('更新失败: ' + e.message);
+                }
+            });
+        }
+        
+        // 删除行
+        async function deleteDbRow(pkValue) {
+            if (!confirm(`确定要删除 ${dbPkColumn}=${pkValue} 的记录吗？`)) return;
+            
+            try {
+                const res = await fetch(`${API_BASE}/admin/api/db/delete/${dbCurrentTable}?pk_column=${dbPkColumn}&pk_value=${pkValue}`, {
+                    method: 'DELETE'
+                });
+                const result = await res.json();
+                if (result.success) {
+                    loadTableData();
+                } else {
+                    alert('删除失败: ' + (result.detail || '未知错误'));
+                }
+            } catch (e) {
+                alert('删除失败: ' + e.message);
+            }
+        }
+        
+        // 显示SQL执行弹窗
+        function showSqlModal() {
+            const content = `
+                <div style="margin-bottom: 15px;">
+                    <label style="display: block; margin-bottom: 5px; color: var(--text-secondary);">输入SQL语句</label>
+                    <textarea id="sqlInput" rows="5" placeholder="SELECT * FROM user_stats LIMIT 10" 
+                              style="width: 100%; padding: 10px; background: var(--bg-primary); border: 1px solid var(--border); border-radius: 6px; color: var(--text-primary); font-family: monospace;"></textarea>
+                </div>
+                <div id="sqlResult" style="max-height: 300px; overflow: auto; background: var(--bg-primary); border-radius: 6px; padding: 10px; display: none;"></div>
+            `;
+            
+            showModal('执行SQL', content, async () => {
+                const sql = document.getElementById('sqlInput').value.trim();
+                if (!sql) return;
+                
+                try {
+                    const res = await fetch(`${API_BASE}/admin/api/db/sql`, {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({sql})
+                    });
+                    const result = await res.json();
+                    const resultDiv = document.getElementById('sqlResult');
+                    resultDiv.style.display = 'block';
+                    
+                    if (result.success) {
+                        if (Array.isArray(result.result)) {
+                            if (result.result.length === 0) {
+                                resultDiv.innerHTML = '<span style="color: var(--text-secondary);">查询结果为空</span>';
+                            } else {
+                                const cols = Object.keys(result.result[0]);
+                                resultDiv.innerHTML = `<table style="width: 100%; font-size: 12px;"><thead><tr>${cols.map(c => `<th>${c}</th>`).join('')}</tr></thead><tbody>${result.result.map(r => `<tr>${cols.map(c => `<td>${r[c]}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
+                            }
+                        } else {
+                            resultDiv.innerHTML = `<span style="color: var(--accent-green);">执行成功，影响 ${result.result.affected_rows} 行</span>`;
+                            loadTableData();
+                        }
+                    } else {
+                        resultDiv.innerHTML = `<span style="color: var(--accent-red);">错误: ${result.detail}</span>`;
+                    }
+                } catch (e) {
+                    document.getElementById('sqlResult').innerHTML = `<span style="color: var(--accent-red);">错误: ${e.message}</span>`;
+                    document.getElementById('sqlResult').style.display = 'block';
+                }
+            }, '执行');
+        }
+        
+        // 通用弹窗函数
+        function showModal(title, content, onConfirm, confirmText = '确定') {
+            // 移除旧弹窗
+            const oldModal = document.getElementById('dbModal');
+            if (oldModal) oldModal.remove();
+            
+            const modal = document.createElement('div');
+            modal.id = 'dbModal';
+            modal.style.cssText = 'position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.7); display: flex; align-items: center; justify-content: center; z-index: 10000;';
+            modal.innerHTML = `
+                <div style="background: var(--bg-card); border-radius: 12px; padding: 25px; max-width: 600px; width: 90%; max-height: 80vh; overflow-y: auto; border: 1px solid var(--border);">
+                    <h3 style="margin-bottom: 20px; color: var(--accent);">${title}</h3>
+                    ${content}
+                    <div style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px;">
+                        <button class="btn" onclick="closeModal()" style="padding: 10px 20px; background: var(--bg-primary);">取消</button>
+                        <button class="btn btn-primary" id="modalConfirmBtn" style="padding: 10px 20px;">${confirmText}</button>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(modal);
+            document.getElementById('modalConfirmBtn').onclick = onConfirm;
+        }
+        
+        function closeModal() {
+            const modal = document.getElementById('dbModal');
+            if (modal) modal.remove();
         }
         
         // 初始化应用（登录成功后调用）
