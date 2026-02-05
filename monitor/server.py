@@ -17,6 +17,12 @@ from pydantic import BaseModel
 import uvicorn
 import os
 import sys
+import io
+
+# 修复Windows控制台中文乱码
+if sys.platform == 'win32':
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
 
 # 添加当前目录到路径
 sys.path.insert(0, os.path.dirname(__file__))
