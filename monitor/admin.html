@@ -31,6 +31,33 @@
             min-height: 100vh;
         }
         
+        /* 自定义滚动条样式 */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+        
+        ::-webkit-scrollbar-track {
+            background: var(--bg-secondary);
+            border-radius: 4px;
+        }
+        
+        ::-webkit-scrollbar-thumb {
+            background: linear-gradient(135deg, var(--accent) 0%, var(--accent-green) 100%);
+            border-radius: 4px;
+            transition: background 0.3s;
+        }
+        
+        ::-webkit-scrollbar-thumb:hover {
+            background: linear-gradient(135deg, #00b8d4 0%, #00e676 100%);
+        }
+        
+        /* Firefox 滚动条 */
+        * {
+            scrollbar-width: thin;
+            scrollbar-color: var(--accent) var(--bg-secondary);
+        }
+        
         /* 头部 */
         .header {
             background: linear-gradient(135deg, var(--bg-secondary) 0%, var(--bg-card) 100%);
@@ -675,8 +702,7 @@
     
     <!-- 标签页 -->
     <div class="tabs">
-        <div class="tab active" data-panel="realtime">📡 实时监控</div>
-        <div class="tab" data-panel="online">🟢 在线用户</div>
+        <div class="tab active" data-panel="online">🟢 在线用户</div>
         <div class="tab" data-panel="users">👥 用户管理</div>
         <div class="tab" data-panel="ips">🌐 IP管理</div>
         <div class="tab" data-panel="banlist">🚫 封禁列表</div>
@@ -685,13 +711,8 @@
     
     <!-- 内容区 -->
     <div class="content">
-        <!-- 实时监控 - 已隐藏 -->
-        <div class="panel active" id="realtime" style="display: none;">
-            <div class="live-log" id="liveLog"></div>
-        </div>
-        
         <!-- 在线用户 -->
-        <div class="panel" id="online">
+        <div class="panel active" id="online">
             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; height: calc(100vh - 350px);">
                 <!-- 在线用户列表 -->
                 <div class="table-container" style="overflow: auto;">
