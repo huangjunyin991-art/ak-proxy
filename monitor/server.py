@@ -10,8 +10,7 @@ import httpx
 from datetime import datetime
 from typing import List, Set
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request, HTTPException
-from fastapi.responses import JSONResponse
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -857,6 +856,11 @@ async def get_ips(limit: int = 100, offset: int = 0):
     """获取IP列表"""
     return get_all_ips(limit, offset)
 
+@app.get("/admin/api/usage")
+async def get_usage(limit: int = 500):
+    """获取使用情况（user_stats表）"""
+    return get_all_users(limit, 0)
+
 @app.get("/admin/api/logins")
 async def get_logins(limit: int = 50):
     """获取最近登录记录"""
@@ -876,9 +880,9 @@ async def get_banlist():
     return get_ban_list()
 
 @app.get("/admin/api/assets")
-async def get_assets(limit: int = 100, offset: int = 0):
-    """获取所有用户资产列表"""
-    return get_all_user_assets(limit, offset)
+async def get_assets(limit: int = 100, offset: int = 0, search: str = None):
+    """获取所有用户资产列表（支持分页和搜索）"""
+    return get_all_user_assets(limit, offset, search)
 
 @app.get("/admin/api/assets/{username}")
 async def get_user_asset(username: str):
@@ -1099,6 +1103,215 @@ async def kick_sub_admin(request: Request):
     else:
         return {"success": True, "message": "当前没有在线的子管理员"}
 
+# ===== 激活码管理代理 =====
+# Server_V 激活码服务地址（根据实际部署修改）
+LICENSE_SERVER_URL = os.environ.get('LICENSE_SERVER_URL', 'http://121.4.46.66:8080')
+LICENSE_ADMIN_KEY = os.environ.get('LICENSE_ADMIN_KEY', 'ak-lovejjy1314')
+
+async def proxy_license_request(method: str, path: str, params: dict = None, json_body: dict = None):
+    """代理请求到激活码服务"""
+    url = f"{LICENSE_SERVER_URL}/api/v1{path}"
+    
+    # 注入 admin_key
+    if params is None:
+        params = {}
+    if 'admin_key' not in params:
+        params['admin_key'] = LICENSE_ADMIN_KEY
+    
+    if json_body and 'admin_key' not in json_body:
+        json_body['admin_key'] = LICENSE_ADMIN_KEY
+    
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            if method == 'GET':
+                resp = await client.get(url, params=params)
+            elif method == 'POST':
+                resp = await client.post(url, json=json_body, params=params)
+            else:
+                return {"error": True, "message": "不支持的方法"}
+            
+            return resp.json()
+    except httpx.ConnectError:
+        return {"error": True, "message": "无法连接激活码服务器，请确认服务已启动"}
+    except Exception as e:
+        return {"error": True, "message": f"代理请求失败: {str(e)}"}
+
+@app.get("/admin/api/license/statistics")
+async def license_statistics(request: Request):
+    """获取激活码统计"""
+    token = request.headers.get('Authorization', '').replace('Bearer ', '')
+    if not verify_admin_token(token):
+        return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
+    return await proxy_license_request('GET', '/admin/statistics')
+
+@app.get("/admin/api/license/list")
+async def license_list(request: Request, limit: int = 50, offset: int = 0):
+    """获取激活码列表"""
+    token = request.headers.get('Authorization', '').replace('Bearer ', '')
+    if not verify_admin_token(token):
+        return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
+    return await proxy_license_request('GET', '/admin/licenses', params={'limit': limit, 'offset': offset})
+
+@app.get("/admin/api/license/info/{license_key}")
+async def license_info(license_key: str, request: Request):
+    """获取激活码详情"""
+    token = request.headers.get('Authorization', '').replace('Bearer ', '')
+    if not verify_admin_token(token):
+        return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
+    return await proxy_license_request('GET', f'/admin/license-info/{license_key}')
+
+@app.post("/admin/api/license/create")
+async def license_create(request: Request):
+    """创建激活码"""
+    token = request.headers.get('Authorization', '').replace('Bearer ', '')
+    if not verify_admin_token(token):
+        return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
+    
+    # 仅系统总管理可操作
+    role = get_token_role(token)
+    if role != ROLE_SUPER_ADMIN:
+        return {"error": True, "message": "仅系统总管理员可创建激活码"}
+    
+    data = await request.json()
+    return await proxy_license_request('POST', '/admin/create-license', json_body=data)
+
+@app.post("/admin/api/license/revoke")
+async def license_revoke(request: Request):
+    """撤销激活码"""
+    token = request.headers.get('Authorization', '').replace('Bearer ', '')
+    if not verify_admin_token(token):
+        return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
+    
+    role = get_token_role(token)
+    if role != ROLE_SUPER_ADMIN:
+        return {"error": True, "message": "仅系统总管理员可撤销激活码"}
+    
+    data = await request.json()
+    return await proxy_license_request('POST', '/admin/revoke-license', json_body=data)
+
+@app.post("/admin/api/license/edit")
+async def license_edit(request: Request):
+    """编辑激活码"""
+    token = request.headers.get('Authorization', '').replace('Bearer ', '')
+    if not verify_admin_token(token):
+        return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
+    
+    role = get_token_role(token)
+    if role != ROLE_SUPER_ADMIN:
+        return {"error": True, "message": "仅系统总管理员可编辑激活码"}
+    
+    data = await request.json()
+    return await proxy_license_request('POST', '/admin/edit-license', json_body=data)
+
+@app.get("/admin/api/license/clients")
+async def license_clients(request: Request, limit: int = 100, offset: int = 0):
+    """获取客户端列表"""
+    token = request.headers.get('Authorization', '').replace('Bearer ', '')
+    if not verify_admin_token(token):
+        return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
+    return await proxy_license_request('GET', '/admin/clients', params={'limit': limit, 'offset': offset})
+
+@app.get("/admin/api/license/clients/{client_id}")
+async def license_client_detail(client_id: str, request: Request):
+    """获取客户端详情"""
+    token = request.headers.get('Authorization', '').replace('Bearer ', '')
+    if not verify_admin_token(token):
+        return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
+    return await proxy_license_request('GET', f'/admin/clients/{client_id}')
+
+@app.post("/admin/api/license/blacklist/add")
+async def license_blacklist_add(request: Request):
+    """添加黑名单"""
+    token = request.headers.get('Authorization', '').replace('Bearer ', '')
+    if not verify_admin_token(token):
+        return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
+    
+    role = get_token_role(token)
+    if role != ROLE_SUPER_ADMIN:
+        return {"error": True, "message": "仅系统总管理员可操作黑名单"}
+    
+    data = await request.json()
+    return await proxy_license_request('POST', '/admin/blacklist', json_body=data)
+
+@app.post("/admin/api/license/blacklist/remove")
+async def license_blacklist_remove(request: Request):
+    """移除黑名单"""
+    token = request.headers.get('Authorization', '').replace('Bearer ', '')
+    if not verify_admin_token(token):
+        return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
+    
+    role = get_token_role(token)
+    if role != ROLE_SUPER_ADMIN:
+        return {"error": True, "message": "仅系统总管理员可操作黑名单"}
+    
+    data = await request.json()
+    return await proxy_license_request('POST', '/admin/blacklist/remove', json_body=data)
+
+@app.get("/admin/api/license/blacklist")
+async def license_blacklist_list(request: Request):
+    """获取黑名单"""
+    token = request.headers.get('Authorization', '').replace('Bearer ', '')
+    if not verify_admin_token(token):
+        return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
+    return await proxy_license_request('GET', '/admin/blacklist')
+
+@app.get("/admin/api/license/online-clients")
+async def license_online_clients(request: Request):
+    """获取在线客户端"""
+    token = request.headers.get('Authorization', '').replace('Bearer ', '')
+    if not verify_admin_token(token):
+        return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
+    return await proxy_license_request('GET', '/admin/online-clients')
+
+@app.post("/admin/api/license/disable-client")
+async def license_disable_client(request: Request):
+    """禁用客户端设备（实时推送）"""
+    token = request.headers.get('Authorization', '').replace('Bearer ', '')
+    if not verify_admin_token(token):
+        return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
+    
+    role = get_token_role(token)
+    if role != ROLE_SUPER_ADMIN:
+        return {"error": True, "message": "仅系统总管理员可禁用客户端"}
+    
+    data = await request.json()
+    return await proxy_license_request('POST', '/admin/disable-client', json_body=data)
+
+@app.post("/admin/api/license/enable-client")
+async def license_enable_client(request: Request):
+    """启用客户端设备（实时推送）"""
+    token = request.headers.get('Authorization', '').replace('Bearer ', '')
+    if not verify_admin_token(token):
+        return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
+    
+    role = get_token_role(token)
+    if role != ROLE_SUPER_ADMIN:
+        return {"error": True, "message": "仅系统总管理员可启用客户端"}
+    
+    data = await request.json()
+    return await proxy_license_request('POST', '/admin/enable-client', json_body=data)
+
+@app.get("/admin/api/license/logs")
+async def license_logs(request: Request, limit: int = 100, offset: int = 0):
+    """获取使用日志"""
+    token = request.headers.get('Authorization', '').replace('Bearer ', '')
+    if not verify_admin_token(token):
+        return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
+    return await proxy_license_request('GET', '/admin/logs', params={'limit': limit, 'offset': offset})
+
+@app.get("/admin/api/license/products")
+async def license_products(request: Request):
+    """获取产品列表"""
+    token = request.headers.get('Authorization', '').replace('Bearer ', '')
+    if not verify_admin_token(token):
+        return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
+    return await proxy_license_request('GET', '/admin/products')
+
+@app.get("/admin/api/license/health")
+async def license_health():
+    """激活码服务健康检查"""
+    return await proxy_license_request('GET', '/health')
+
 # ===== WebSocket - 管理后台 =====
 @app.websocket("/admin/ws")
 async def websocket_endpoint(websocket: WebSocket):
@@ -1126,7 +1339,8 @@ async def chat_websocket(websocket: WebSocket):
         while True:
             data = await websocket.receive_json()
             msg_type = data.get('type')
-            print(f"[ChatWS] 收到消息: type={msg_type}, username={username}, ws_id={id(websocket)}")
+            if msg_type != 'heartbeat':
+                print(f"[ChatWS] 收到消息: type={msg_type}, username={username}, ws_id={id(websocket)}")
             
             if msg_type == 'online':
                 # 用户上线
@@ -1371,7 +1585,6 @@ async def admin_page():
     return "<h1>管理页面未找到</h1>"
 
 # ===== 聊天组件JS =====
-from fastapi.responses import Response
 
 @app.get("/chat/widget.js")
 async def chat_widget_js():

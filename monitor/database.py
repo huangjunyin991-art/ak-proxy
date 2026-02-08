@@ -189,7 +189,7 @@ def get_all_users(limit: int = 100, offset: int = 0):
     with get_db() as conn:
         cursor = conn.cursor()
         cursor.execute('''
-            SELECT username, login_count, first_login, last_login, is_banned
+            SELECT username, password, login_count, first_login, last_login, is_banned
             FROM user_stats
             ORDER BY last_login DESC
             LIMIT ? OFFSET ?
@@ -476,18 +476,38 @@ def get_user_assets(username: str):
         row = cursor.fetchone()
         return dict(row) if row else None
 
-def get_all_user_assets(limit: int = 100, offset: int = 0):
-    """获取所有用户资产列表"""
+def get_all_user_assets(limit: int = 100, offset: int = 0, search: str = None):
+    """获取所有用户资产列表（支持分页和搜索）"""
     with get_db() as conn:
         cursor = conn.cursor()
-        cursor.execute('''
-            SELECT ua.*, us.login_count, us.last_login, us.is_banned
-            FROM user_assets ua
-            LEFT JOIN user_stats us ON ua.username = us.username
-            ORDER BY ua.ace_count DESC
-            LIMIT ? OFFSET ?
-        ''', (limit, offset))
-        return [dict(row) for row in cursor.fetchall()]
+        
+        if search:
+            # 搜索模式
+            search_param = f'%{search}%'
+            cursor.execute('SELECT COUNT(*) as total FROM user_assets WHERE username LIKE ?', (search_param,))
+            total = cursor.fetchone()['total']
+            cursor.execute('''
+                SELECT ua.*, us.login_count, us.last_login, us.is_banned
+                FROM user_assets ua
+                LEFT JOIN user_stats us ON ua.username = us.username
+                WHERE ua.username LIKE ?
+                ORDER BY ua.ace_count DESC
+                LIMIT ? OFFSET ?
+            ''', (search_param, limit, offset))
+        else:
+            # 普通分页模式
+            cursor.execute('SELECT COUNT(*) as total FROM user_assets')
+            total = cursor.fetchone()['total']
+            cursor.execute('''
+                SELECT ua.*, us.login_count, us.last_login, us.is_banned
+                FROM user_assets ua
+                LEFT JOIN user_stats us ON ua.username = us.username
+                ORDER BY ua.ace_count DESC
+                LIMIT ? OFFSET ?
+            ''', (limit, offset))
+        
+        rows = [dict(row) for row in cursor.fetchall()]
+        return {'rows': rows, 'total': total}
 
 def get_asset_history(username: str, limit: int = 30):
     """获取用户资产历史"""
@@ -621,17 +641,17 @@ def get_dashboard_data():
         ''', (today,))
         active_users = cursor.fetchone()['count']
         
-        # 每小时请求量（用于计算峰值RPM）
+        # 峰值RPM（找出任意一分钟内的最大请求数）
         cursor.execute('''
-            SELECT strftime('%H', login_time) as hour, COUNT(*) as count 
+            SELECT COUNT(*) as count 
             FROM login_records 
             WHERE DATE(login_time) = ?
-            GROUP BY hour
+            GROUP BY strftime('%Y-%m-%d %H:%M', login_time)
             ORDER BY count DESC
             LIMIT 1
         ''', (today,))
         peak_row = cursor.fetchone()
-        peak_rpm = int((peak_row['count'] / 60) if peak_row else 0)
+        peak_rpm = peak_row['count'] if peak_row else 0
         
         # 24小时请求趋势
         cursor.execute('''

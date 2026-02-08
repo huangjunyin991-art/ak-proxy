@@ -145,6 +145,7 @@
             background: var(--bg-card);
             border: none !important;
             overflow: hidden;
+            isolation: isolate;
         }
         
         .glow-border::before {
@@ -188,19 +189,25 @@
         .glow-border.glow-yellow { --glow-color: #f7b731; }
         .glow-border.glow-purple { --glow-color: #a55eea; }
         
+        .glow-border {
+            box-shadow: 0 0 20px rgba(var(--glow-rgb, 0, 212, 255), 0.25);
+        }
+        
+        .glow-border.glow-cyan { box-shadow: 0 0 20px rgba(0, 212, 255, 0.3); }
+        .glow-border.glow-green { box-shadow: 0 0 20px rgba(0, 255, 136, 0.3); }
+        .glow-border.glow-pink { box-shadow: 0 0 20px rgba(255, 107, 157, 0.3); }
+        .glow-border.glow-yellow { box-shadow: 0 0 20px rgba(247, 183, 49, 0.3); }
+        .glow-border.glow-purple { box-shadow: 0 0 20px rgba(165, 94, 234, 0.3); }
+        
         .glow-border:hover::before {
             animation-duration: 1.5s;
         }
         
-        .glow-border:hover {
-            box-shadow: 0 0 25px rgba(var(--glow-rgb, 0, 212, 255), 0.3);
-        }
-        
-        .glow-border.glow-cyan:hover { box-shadow: 0 0 25px rgba(0, 212, 255, 0.4); }
-        .glow-border.glow-green:hover { box-shadow: 0 0 25px rgba(0, 255, 136, 0.4); }
-        .glow-border.glow-pink:hover { box-shadow: 0 0 25px rgba(255, 107, 157, 0.4); }
-        .glow-border.glow-yellow:hover { box-shadow: 0 0 25px rgba(247, 183, 49, 0.4); }
-        .glow-border.glow-purple:hover { box-shadow: 0 0 25px rgba(165, 94, 234, 0.4); }
+        .glow-border.glow-cyan:hover { box-shadow: 0 0 30px rgba(0, 212, 255, 0.5); }
+        .glow-border.glow-green:hover { box-shadow: 0 0 30px rgba(0, 255, 136, 0.5); }
+        .glow-border.glow-pink:hover { box-shadow: 0 0 30px rgba(255, 107, 157, 0.5); }
+        .glow-border.glow-yellow:hover { box-shadow: 0 0 30px rgba(247, 183, 49, 0.5); }
+        .glow-border.glow-purple:hover { box-shadow: 0 0 30px rgba(165, 94, 234, 0.5); }
         
         /* 可排序表头 */
         th.sortable {
@@ -625,6 +632,56 @@
             color: var(--text-secondary);
         }
         
+        /* ===== 激活码管理样式 ===== */
+        .status {
+            display: inline-block;
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: bold;
+        }
+        
+        .status-active {
+            background: rgba(0, 255, 136, 0.15);
+            color: var(--accent-green);
+        }
+        
+        .status-inactive {
+            background: rgba(150, 150, 150, 0.15);
+            color: var(--text-secondary);
+        }
+        
+        .status-expired {
+            background: rgba(255, 165, 0, 0.15);
+            color: #ffa500;
+        }
+        
+        .status-revoked {
+            background: rgba(255, 71, 87, 0.15);
+            color: var(--accent-red);
+        }
+        
+        .btn-small {
+            padding: 4px 8px;
+            border: none;
+            border-radius: 4px;
+            background: var(--bg-secondary);
+            color: var(--text-primary);
+            cursor: pointer;
+            font-size: 12px;
+            margin-right: 4px;
+            transition: all 0.2s;
+        }
+        
+        .btn-small:hover {
+            background: var(--accent);
+            transform: scale(1.05);
+        }
+        
+        .btn-small.btn-danger:hover {
+            background: var(--accent-red);
+        }
+        
         /* 响应式 */
         @media screen and (max-width: 1024px) {
             .dashboard-metrics {
@@ -641,6 +698,10 @@
             
             .metric-value {
                 font-size: 22px;
+            }
+            
+            .license-stats {
+                grid-template-columns: repeat(2, 1fr) !important;
             }
         }
         
@@ -1218,6 +1279,7 @@
         <div class="tab" data-panel="users">👥 用户管理</div>
         <div class="tab" data-panel="ips">🌐 IP管理</div>
         <div class="tab" data-panel="banlist">🚫 封禁列表</div>
+        <div class="tab" data-panel="license">🔑 激活码</div>
         <div class="tab" data-panel="database">🗄️ 数据库</div>
         <div class="tab" data-panel="settings">⚙️ 设置</div>
     </div>
@@ -1229,28 +1291,28 @@
             <!-- 实时指标卡片 -->
             <div class="dashboard-metrics">
                 <div class="metric-card">
-                    <div class="metric-icon" style="background: linear-gradient(135deg, #00d4ff, #0099cc);">📊</div>
+                    <div class="metric-icon" style="background: linear-gradient(135deg, #00d4ff, #0099cc);"></div>
                     <div class="metric-info">
                         <div class="metric-value" id="dashTodayRequests">0</div>
                         <div class="metric-label">今日请求</div>
                     </div>
                 </div>
                 <div class="metric-card">
-                    <div class="metric-icon" style="background: linear-gradient(135deg, #00ff88, #00cc6a);">✅</div>
+                    <div class="metric-icon" style="background: linear-gradient(135deg, #00ff88, #00cc6a);"></div>
                     <div class="metric-info">
                         <div class="metric-value" id="dashSuccessRate">0%</div>
                         <div class="metric-label">成功率</div>
                     </div>
                 </div>
                 <div class="metric-card">
-                    <div class="metric-icon" style="background: linear-gradient(135deg, #667eea, #764ba2);">👥</div>
+                    <div class="metric-icon" style="background: linear-gradient(135deg, #667eea, #764ba2);"></div>
                     <div class="metric-info">
                         <div class="metric-value" id="dashActiveUsers">0</div>
                         <div class="metric-label">今日活跃</div>
                     </div>
                 </div>
                 <div class="metric-card">
-                    <div class="metric-icon" style="background: linear-gradient(135deg, #f093fb, #f5576c);">⚡</div>
+                    <div class="metric-icon" style="background: linear-gradient(135deg, #f093fb, #f5576c);"></div>
                     <div class="metric-info">
                         <div class="metric-value" id="dashPeakRPM">0</div>
                         <div class="metric-label">峰值RPM</div>
@@ -1261,7 +1323,7 @@
             <!-- 24小时趋势图 -->
             <div class="dashboard-chart">
                 <div class="chart-header">
-                    <h4>📈 24小时请求趋势</h4>
+                    <h4>24小时请求趋势</h4>
                     <span class="chart-update-time" id="chartUpdateTime">--:--</span>
                 </div>
                 <div class="chart-container" id="hourlyChart">
@@ -1381,12 +1443,16 @@
         
         <!-- 用户管理（用户资产信息） -->
         <div class="panel" id="users">
-            <div style="margin-bottom: 15px; display: flex; gap: 10px; align-items: center;">
-                <input type="text" id="usersSearchInput" placeholder="🔍 搜索用户名..." 
+            <div style="margin-bottom: 15px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+                <input type="text" id="usersSearchInput" placeholder="搜索用户名..." 
                        style="flex: 1; max-width: 300px; padding: 10px 15px; background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; color: var(--text-primary); font-size: 14px;"
-                       oninput="searchUsers()">
+                       onkeypress="if(event.keyCode===13)searchUsers()">
                 <button class="btn btn-primary" onclick="searchUsers()" style="padding: 10px 20px;">搜索</button>
                 <button class="btn" onclick="clearUsersSearch()" style="padding: 10px 20px; background: var(--bg-secondary);">清除</button>
+                <label style="display: flex; align-items: center; gap: 6px; color: var(--text-secondary); font-size: 14px; cursor: pointer; margin-left: 10px;">
+                    <input type="checkbox" id="usersLoadAll" onchange="onUsersLoadAllChange()" style="cursor: pointer; width: 16px; height: 16px; accent-color: var(--accent);">
+                    加载全部
+                </label>
                 <span id="usersSearchCount" style="color: var(--text-secondary); font-size: 14px; margin-left: auto;"></span>
             </div>
             <div class="table-container" style="overflow-x: auto;">
@@ -1410,6 +1476,14 @@
                         <tr><td colspan="11" style="text-align: center; color: var(--text-secondary);">加载中...</td></tr>
                     </tbody>
                 </table>
+            </div>
+            <!-- 分页控件 -->
+            <div id="usersPagination" style="display: flex; align-items: center; justify-content: center; gap: 10px; margin-top: 15px; padding: 10px 0;">
+                <button class="btn" onclick="usersGoPage(0)" id="usersFirstBtn" style="padding: 6px 14px; background: var(--bg-secondary); font-size: 13px;" disabled>首页</button>
+                <button class="btn" onclick="usersGoPage(usersCurrentPage - 1)" id="usersPrevBtn" style="padding: 6px 14px; background: var(--bg-secondary); font-size: 13px;" disabled>上一页</button>
+                <span id="usersPageInfo" style="color: var(--text-secondary); font-size: 14px; min-width: 120px; text-align: center;">第 1 页</span>
+                <button class="btn" onclick="usersGoPage(usersCurrentPage + 1)" id="usersNextBtn" style="padding: 6px 14px; background: var(--bg-secondary); font-size: 13px;" disabled>下一页</button>
+                <button class="btn" onclick="usersGoPage(usersTotalPages - 1)" id="usersLastBtn" style="padding: 6px 14px; background: var(--bg-secondary); font-size: 13px;" disabled>末页</button>
             </div>
         </div>
         
@@ -1454,25 +1528,79 @@
             </div>
         </div>
         
+        <!-- 激活码管理 -->
+        <div class="panel" id="license">
+            <div style="margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 15px;">
+                <h3 style="margin: 0; color: var(--accent);">🔑 激活码管理</h3>
+                <div style="display: flex; gap: 10px; align-items: center;">
+                    <input type="text" id="licenseSearch" placeholder="搜索激活码..." 
+                           style="padding: 8px 15px; background: var(--bg-card); border: 1px solid var(--border); 
+                                  border-radius: 8px; color: var(--text-primary); width: 200px;">
+                    <button onclick="searchLicenses()" class="btn btn-primary" style="padding: 8px 15px;">🔍 搜索</button>
+                    <button onclick="showCreateLicenseModal()" class="btn btn-primary" style="padding: 8px 15px; background: linear-gradient(135deg, #00ff88, #00cc6a);">
+                        ➕ 创建激活码
+                    </button>
+                </div>
+            </div>
+            
+            <!-- 激活码统计 -->
+            <div class="license-stats" style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; margin-bottom: 20px;">
+                <div class="stat-mini" style="background: var(--bg-card); border-radius: 8px; padding: 15px; border: 1px solid var(--border);">
+                    <div style="color: var(--text-secondary); font-size: 12px;">总激活码</div>
+                    <div style="color: var(--accent); font-size: 24px; font-weight: bold;" id="licStatTotal">-</div>
+                </div>
+                <div class="stat-mini" style="background: var(--bg-card); border-radius: 8px; padding: 15px; border: 1px solid var(--border);">
+                    <div style="color: var(--text-secondary); font-size: 12px;">已激活</div>
+                    <div style="color: var(--accent-green); font-size: 24px; font-weight: bold;" id="licStatActive">-</div>
+                </div>
+                <div class="stat-mini" style="background: var(--bg-card); border-radius: 8px; padding: 15px; border: 1px solid var(--border);">
+                    <div style="color: var(--text-secondary); font-size: 12px;">活跃客户端</div>
+                    <div style="color: #667eea; font-size: 24px; font-weight: bold;" id="licStatClients">-</div>
+                </div>
+                <div class="stat-mini" style="background: var(--bg-card); border-radius: 8px; padding: 15px; border: 1px solid var(--border);">
+                    <div style="color: var(--text-secondary); font-size: 12px;">黑名单</div>
+                    <div style="color: var(--accent-red); font-size: 24px; font-weight: bold;" id="licStatBlacklist">-</div>
+                </div>
+            </div>
+            
+            <!-- 激活码列表 -->
+            <div class="table-container" style="overflow: auto; max-height: calc(100vh - 450px);">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>激活码</th>
+                            <th>产品</th>
+                            <th>计费模式</th>
+                            <th>剩余</th>
+                            <th>状态</th>
+                            <th>创建时间</th>
+                            <th>操作</th>
+                        </tr>
+                    </thead>
+                    <tbody id="licenseTable">
+                        <tr><td colspan="7" style="text-align: center; color: var(--text-secondary);">加载中...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+            
+            <!-- 分页 -->
+            <div id="licensePagination" style="margin-top: 15px; display: flex; justify-content: center; gap: 10px;">
+            </div>
+        </div>
+        
         <!-- 数据库管理 -->
         <div class="panel" id="database">
-            <!-- 二级密码验证层 -->
+            <!-- 二级密码验证提示 -->
             <div id="dbAuthOverlay" style="display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 60px 20px;">
                 <div style="background: var(--bg-card); border: 1px solid var(--border); border-radius: 16px; padding: 40px; max-width: 400px; width: 100%; text-align: center;">
-                    <div style="font-size: 48px; margin-bottom: 20px;">🔐</div>
                     <h3 style="color: var(--accent); margin-bottom: 10px;">数据库操作验证</h3>
                     <p style="color: var(--text-secondary); margin-bottom: 25px; font-size: 14px;">
                         数据库操作需要二级密码验证<br>验证通过后有效期30分钟
                     </p>
-                    <input type="password" id="dbSecondaryPassword" placeholder="请输入二级密码" 
-                           onkeypress="if(event.keyCode===13)verifyDbPassword()"
-                           style="width: 100%; padding: 14px 18px; background: var(--bg-primary); border: 1px solid var(--border); 
-                                  border-radius: 10px; color: var(--text-primary); font-size: 15px; margin-bottom: 15px; text-align: center;">
-                    <button onclick="verifyDbPassword()" class="btn btn-primary" 
-                            style="width: 100%; padding: 14px; font-size: 16px; font-weight: bold;">
-                        🔓 验证密码
+                    <button onclick="showDbAuthModal()" class="btn btn-primary" 
+                            style="padding: 12px 40px; font-size: 15px; font-weight: bold;">
+                        验证密码
                     </button>
-                    <p id="dbAuthError" style="color: var(--accent-red); margin-top: 15px; font-size: 14px; display: none;"></p>
                 </div>
             </div>
             
@@ -1634,6 +1762,91 @@
         </div>
     </div>
     
+    <!-- 创建激活码弹窗 -->
+    <div class="modal" id="createLicenseModal">
+        <div class="modal-content" style="max-width: 500px;">
+            <h3>➕ 创建激活码</h3>
+            
+            <div style="margin-bottom: 15px;">
+                <label style="display: block; margin-bottom: 8px; color: var(--text-secondary); font-size: 14px;">产品类型</label>
+                <select id="licProductId" style="width: 100%; padding: 10px; background: var(--bg-primary); border: 1px solid var(--border); 
+                        border-radius: 8px; color: var(--text-primary);">
+                    <option value="ak_admin_panel">管理面板 (ak_admin_panel)</option>
+                    <option value="auto_sell_system">自动销售系统 (auto_sell_system)</option>
+                </select>
+            </div>
+            
+            <div style="margin-bottom: 15px;">
+                <label style="display: block; margin-bottom: 8px; color: var(--text-secondary); font-size: 14px;">计费模式</label>
+                <select id="licBillingMode" onchange="onBillingModeChange()" style="width: 100%; padding: 10px; background: var(--bg-primary); border: 1px solid var(--border); 
+                        border-radius: 8px; color: var(--text-primary);">
+                    <option value="per_use">按次数 (per_use)</option>
+                    <option value="time_based">按时间 (time_based)</option>
+                    <option value="unlimited">无限制 (unlimited)</option>
+                </select>
+            </div>
+            
+            <div id="licMaxUsesRow" style="margin-bottom: 15px;">
+                <label style="display: block; margin-bottom: 8px; color: var(--text-secondary); font-size: 14px;">最大使用次数</label>
+                <input type="number" id="licMaxUses" value="100" min="1" 
+                       style="width: 100%; padding: 10px; background: var(--bg-primary); border: 1px solid var(--border); 
+                              border-radius: 8px; color: var(--text-primary);">
+            </div>
+            
+            <div id="licUsageTimeRow" style="margin-bottom: 15px; display: none;">
+                <label style="display: block; margin-bottom: 8px; color: var(--text-secondary); font-size: 14px;">使用时长（天）</label>
+                <input type="number" id="licUsageTime" value="30" min="1" step="0.5"
+                       style="width: 100%; padding: 10px; background: var(--bg-primary); border: 1px solid var(--border); 
+                              border-radius: 8px; color: var(--text-primary);">
+            </div>
+            
+            <div style="margin-bottom: 20px;">
+                <label style="display: block; margin-bottom: 8px; color: var(--text-secondary); font-size: 14px;">有效期（天）</label>
+                <input type="number" id="licExpiryDays" value="365" min="1" 
+                       style="width: 100%; padding: 10px; background: var(--bg-primary); border: 1px solid var(--border); 
+                              border-radius: 8px; color: var(--text-primary);">
+            </div>
+            
+            <div id="createLicenseMsg" style="margin-bottom: 15px; padding: 10px; border-radius: 6px; display: none;"></div>
+            
+            <div class="modal-buttons">
+                <button class="btn" onclick="closeCreateLicenseModal()" style="background: var(--bg-secondary);">取消</button>
+                <button class="btn btn-primary" onclick="doCreateLicense()">创建</button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 激活码详情弹窗 -->
+    <div class="modal" id="licenseDetailModal">
+        <div class="modal-content" style="max-width: 600px;">
+            <h3>📋 激活码详情</h3>
+            <div id="licenseDetailContent" style="max-height: 400px; overflow-y: auto;">
+                <!-- 内容由JS填充 -->
+            </div>
+            <div class="modal-buttons" style="margin-top: 20px;">
+                <button class="btn" onclick="closeLicenseDetailModal()" style="background: var(--bg-secondary);">关闭</button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 数据库二级密码验证弹窗 -->
+    <div class="modal" id="dbAuthModal">
+        <div class="modal-content" style="max-width: 420px; text-align: center;">
+            <h3 style="margin-bottom: 10px;">数据库操作验证</h3>
+            <p style="color: var(--text-secondary); margin-bottom: 20px; font-size: 14px;">
+                请输入二级密码以访问数据库操作<br>验证通过后有效期30分钟
+            </p>
+            <input type="password" id="dbSecondaryPassword" placeholder="请输入二级密码" 
+                   onkeypress="if(event.keyCode===13)verifyDbPassword()"
+                   style="width: 100%; padding: 14px 18px; background: var(--bg-primary); border: 1px solid var(--border); 
+                          border-radius: 10px; color: var(--text-primary); font-size: 15px; margin-bottom: 10px; text-align: center;">
+            <p id="dbAuthError" style="color: var(--accent-red); margin-bottom: 10px; font-size: 14px; display: none;"></p>
+            <div class="modal-buttons">
+                <button class="btn" onclick="closeDbAuthModal()" style="background: var(--bg-secondary);">取消</button>
+                <button class="btn btn-primary" onclick="verifyDbPassword()">确定</button>
+            </div>
+        </div>
+    </div>
     
     <script>
         const API_BASE = window.location.origin;
@@ -1642,6 +1855,8 @@
         let banValue = '';
         let isLoggedIn = false;
         let currentUserRole = null;  // 当前用户权限
+        let dashboardTimer = null;
+        let activityItems = [];
         
         // 权限常量
         const ROLE_SUPER_ADMIN = 'super_admin';
@@ -1749,6 +1964,11 @@
         function showMainContent() {
             document.getElementById('loginOverlay').style.display = 'none';
             document.getElementById('mainContent').classList.add('visible');
+            // 非系统总管理员隐藏设置标签
+            if (!isSuperAdmin()) {
+                const settingsTab = document.querySelector('.tab[data-panel="settings"]');
+                if (settingsTab) settingsTab.style.display = 'none';
+            }
             // 初始化应用
             initApp();
         }
@@ -1919,9 +2139,9 @@
         // 加载使用情况（user_stats表 - 所有登录尝试）
         async function loadUsage() {
             try {
-                const res = await fetch(`${API_BASE}/admin/api/db/query/user_stats?limit=500&order_by=last_login&order_desc=true`);
+                const res = await fetch(`${API_BASE}/admin/api/usage?limit=500`);
                 const data = await res.json();
-                usageDataCache = data.rows || [];
+                usageDataCache = data || [];
                 renderUsageTable(usageDataCache);
             } catch (e) {
                 console.error('加载使用情况失败', e);
@@ -1971,13 +2191,46 @@
             renderUsageTable(usageDataCache);
         }
         
+        // 用户管理分页相关
+        let usersCurrentPage = 0;
+        const usersPageSize = 100;
+        let usersTotalCount = 0;
+        let usersTotalPages = 0;
+        let usersIsLoadAll = false;
+        let usersSearchKeyword = '';
+        
         // 加载用户列表（user_assets表 - 只显示资产信息）
-        async function loadUsers() {
+        async function loadUsers(page = 0) {
+            usersCurrentPage = page;
+            const offset = page * usersPageSize;
+            
             try {
-                const res = await fetch(`${API_BASE}/admin/api/assets`);
+                let url;
+                if (usersIsLoadAll) {
+                    url = `${API_BASE}/admin/api/assets?limit=99999&offset=0`;
+                } else {
+                    url = `${API_BASE}/admin/api/assets?limit=${usersPageSize}&offset=${offset}`;
+                }
+                if (usersSearchKeyword) {
+                    url += `&search=${encodeURIComponent(usersSearchKeyword)}`;
+                }
+                
+                const res = await fetch(url);
                 const data = await res.json();
-                usersDataCache = data || [];
+                
+                const rows = data.rows || [];
+                usersTotalCount = data.total || 0;
+                usersDataCache = rows;
+                
+                if (usersIsLoadAll) {
+                    usersTotalPages = 1;
+                    usersCurrentPage = 0;
+                } else {
+                    usersTotalPages = Math.ceil(usersTotalCount / usersPageSize) || 1;
+                }
+                
                 renderUsersTable(usersDataCache);
+                updateUsersPagination();
             } catch (e) {
                 console.error('加载用户失败', e);
             }
@@ -1987,7 +2240,10 @@
         function renderUsersTable(users, keepSortInfo = false) {
             const tbody = document.getElementById('usersTable');
             const sortInfo = usersSortField ? ` (按${getSortFieldName(usersSortField)}${usersSortAsc ? '↑' : '↓'})` : '';
-            document.getElementById('usersSearchCount').textContent = `共 ${users.length} 条记录${keepSortInfo ? sortInfo : ''}`;
+            const countText = usersIsLoadAll 
+                ? `共 ${usersTotalCount} 条记录（已全部加载）` 
+                : `共 ${usersTotalCount} 条记录，当前显示 ${users.length} 条`;
+            document.getElementById('usersSearchCount').textContent = countText + (keepSortInfo ? sortInfo : '');
             
             if (users.length === 0) {
                 tbody.innerHTML = '<tr><td colspan="11" style="text-align: center; color: var(--text-secondary);">暂无数据</td></tr>';
@@ -2013,30 +2269,55 @@
             `).join('');
         }
         
-        // 搜索用户
-        function searchUsers() {
-            const keyword = document.getElementById('usersSearchInput').value.trim().toLowerCase();
-            if (!keyword) {
-                renderUsersTable(usersDataCache);
+        // 更新分页控件
+        function updateUsersPagination() {
+            const pagination = document.getElementById('usersPagination');
+            if (usersIsLoadAll) {
+                pagination.style.display = 'none';
                 return;
             }
-            const filtered = usersDataCache.filter(user => 
-                user.username && user.username.toLowerCase().includes(keyword)
-            );
-            renderUsersTable(filtered);
+            pagination.style.display = 'flex';
+            
+            document.getElementById('usersFirstBtn').disabled = usersCurrentPage <= 0;
+            document.getElementById('usersPrevBtn').disabled = usersCurrentPage <= 0;
+            document.getElementById('usersNextBtn').disabled = usersCurrentPage >= usersTotalPages - 1;
+            document.getElementById('usersLastBtn').disabled = usersCurrentPage >= usersTotalPages - 1;
+            document.getElementById('usersPageInfo').textContent = `第 ${usersCurrentPage + 1} / ${usersTotalPages} 页`;
+        }
+        
+        // 跳转到指定页
+        function usersGoPage(page) {
+            if (page < 0 || page >= usersTotalPages) return;
+            loadUsers(page);
+        }
+        
+        // 搜索用户（从数据库查询）
+        function searchUsers() {
+            usersSearchKeyword = document.getElementById('usersSearchInput').value.trim();
+            usersCurrentPage = 0;
+            loadUsers(0);
         }
         
         // 清除用户搜索
         function clearUsersSearch() {
             document.getElementById('usersSearchInput').value = '';
-            renderUsersTable(usersDataCache);
+            usersSearchKeyword = '';
+            usersCurrentPage = 0;
+            loadUsers(0);
+        }
+        
+        // 加载全部数据切换
+        function onUsersLoadAllChange() {
+            usersIsLoadAll = document.getElementById('usersLoadAll').checked;
+            usersCurrentPage = 0;
+            loadUsers(0);
         }
         
         // 用户表格排序相关
         let usersSortField = null;
         let usersSortAsc = true;
         
-        // 排序用户表格
+        // 排序用户表格（前端排序当前页数据）
         function sortUsersBy(field) {
             // 切换排序方向
             if (usersSortField === field) {
@@ -2049,11 +2330,7 @@
             // 更新排序图标
             updateSortIcons(field, usersSortAsc);
             
-            // 获取当前显示的数据（可能是搜索结果）
-            const keyword = document.getElementById('usersSearchInput').value.trim().toLowerCase();
-            let dataToSort = keyword 
-                ? usersDataCache.filter(u => u.username && u.username.toLowerCase().includes(keyword))
-                : [...usersDataCache];
+            let dataToSort = [...usersDataCache];
             
             // 排序
             dataToSort.sort((a, b) => {
@@ -2076,7 +2353,7 @@
                 return 0;
             });
             
-            renderUsersTable(dataToSort, true);  // 保持排序，不更新计数
+            renderUsersTable(dataToSort, true);
         }
         
         // 更新排序图标
@@ -2733,6 +3010,10 @@
                 if (tab.dataset.panel === 'users') loadUsers();
                 if (tab.dataset.panel === 'ips') loadIPs();
                 if (tab.dataset.panel === 'banlist') loadBanlist();
+                if (tab.dataset.panel === 'license') {
+                    loadLicenseStats();
+                    loadLicenses(0);
+                }
                 if (tab.dataset.panel === 'database') {
                     // 检查数据库授权状态
                     checkDbAuth().then(authed => {
@@ -2775,6 +3056,21 @@
             };
         }
         
+        // 显示数据库验证弹窗
+        function showDbAuthModal() {
+            document.getElementById('dbAuthModal').style.display = 'flex';
+            document.getElementById('dbSecondaryPassword').value = '';
+            document.getElementById('dbAuthError').style.display = 'none';
+            setTimeout(() => document.getElementById('dbSecondaryPassword').focus(), 100);
+        }
+        
+        // 关闭数据库验证弹窗
+        function closeDbAuthModal() {
+            document.getElementById('dbAuthModal').style.display = 'none';
+            document.getElementById('dbSecondaryPassword').value = '';
+            document.getElementById('dbAuthError').style.display = 'none';
+        }
+        
         // 验证二级密码
         async function verifyDbPassword() {
             const password = document.getElementById('dbSecondaryPassword').value;
@@ -2798,6 +3094,8 @@
                     dbAuthToken = data.token;
                     // 保存到 sessionStorage
                     sessionStorage.setItem('db_auth_token', dbAuthToken);
+                    // 关闭弹窗
+                    closeDbAuthModal();
                     // 显示数据库操作界面
                     showDbContent();
                     // 加载表列表
@@ -2825,8 +3123,7 @@
             sessionStorage.removeItem('db_auth_token');
             document.getElementById('dbAuthOverlay').style.display = 'flex';
             document.getElementById('dbContent').style.display = 'none';
-            document.getElementById('dbSecondaryPassword').value = '';
-            document.getElementById('dbAuthError').style.display = 'none';
+            closeDbAuthModal();
         }
         
         // 检查并恢复Token
@@ -3158,9 +3455,364 @@
             if (modal) modal.remove();
         }
         
+        // ===== 激活码管理功能 =====
+        let licenseCurrentPage = 0;
+        let licensePageSize = 50;
+        let licenseSearchTerm = '';
+        
+        // 获取带Token的请求头
+        function getLicenseHeaders() {
+            return {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${sessionStorage.getItem('admin_token') || ''}`
+            };
+        }
+        
+        // 加载激活码统计
+        async function loadLicenseStats() {
+            try {
+                const res = await fetch(`${API_BASE}/admin/api/license/statistics`, {
+                    headers: getLicenseHeaders()
+                });
+                if (!checkTokenValid(res)) return;
+                const data = await res.json();
+                
+                if (!data.error && data.data) {
+                    document.getElementById('licStatTotal').textContent = data.data.total_licenses || 0;
+                    document.getElementById('licStatActive').textContent = data.data.active_licenses || 0;
+                    document.getElementById('licStatClients').textContent = data.data.active_clients || 0;
+                    document.getElementById('licStatBlacklist').textContent = data.data.blacklist_count || 0;
+                }
+            } catch (e) {
+                console.error('加载激活码统计失败', e);
+            }
+        }
+        
+        // 加载激活码列表
+        async function loadLicenses(page = 0) {
+            licenseCurrentPage = page;
+            const offset = page * licensePageSize;
+            
+            try {
+                const res = await fetch(`${API_BASE}/admin/api/license/list?limit=${licensePageSize}&offset=${offset}`, {
+                    headers: getLicenseHeaders()
+                });
+                if (!checkTokenValid(res)) return;
+                const data = await res.json();
+                
+                if (data.error) {
+                    document.getElementById('licenseTable').innerHTML = 
+                        `<tr><td colspan="7" style="text-align: center; color: var(--accent-red);">加载失败: ${data.message}</td></tr>`;
+                    return;
+                }
+                
+                const licenses = data.data?.items || [];
+                const total = data.data?.total || 0;
+                
+                if (licenses.length === 0) {
+                    document.getElementById('licenseTable').innerHTML = 
+                        '<tr><td colspan="7" style="text-align: center; color: var(--text-secondary);">暂无激活码</td></tr>';
+                    return;
+                }
+                
+                // 搜索过滤
+                let filteredLicenses = licenses;
+                if (licenseSearchTerm) {
+                    const term = licenseSearchTerm.toLowerCase();
+                    filteredLicenses = licenses.filter(l => 
+                        l.license_key?.toLowerCase().includes(term) ||
+                        l.product_id?.toLowerCase().includes(term) ||
+                        l.machine_id?.toLowerCase().includes(term)
+                    );
+                }
+                
+                document.getElementById('licenseTable').innerHTML = filteredLicenses.map(license => {
+                    const statusClass = {
+                        'active': 'status-active',
+                        'inactive': 'status-inactive',
+                        'expired': 'status-expired',
+                        'revoked': 'status-revoked'
+                    }[license.status] || '';
+                    
+                    const statusText = {
+                        'active': '已激活',
+                        'inactive': '未激活',
+                        'expired': '已过期',
+                        'revoked': '已撤销',
+                        'suspended': '已暂停'
+                    }[license.status] || license.status;
+                    
+                    const billingText = {
+                        'per_use': '按次数',
+                        'time_based': '按时间',
+                        'unlimited': '无限制'
+                    }[license.billing_mode] || license.billing_mode;
+                    
+                    // 剩余显示
+                    let remainingText = '-';
+                    if (license.billing_mode === 'per_use') {
+                        remainingText = `${license.remaining_uses || 0} 次`;
+                    } else if (license.billing_mode === 'time_based') {
+                        const minutes = license.remaining_time || 0;
+                        const days = (minutes / 1440).toFixed(1);
+                        remainingText = `${days} 天`;
+                    } else if (license.billing_mode === 'unlimited') {
+                        remainingText = '∞';
+                    }
+                    
+                    return `
+                        <tr>
+                            <td style="font-family: monospace; font-size: 12px;">
+                                <span style="cursor: pointer;" onclick="copyToClipboard('${license.license_key}')" title="点击复制">${license.license_key}</span>
+                            </td>
+                            <td>${license.product_id || '-'}</td>
+                            <td>${billingText}</td>
+                            <td>${remainingText}</td>
+                            <td><span class="status ${statusClass}">${statusText}</span></td>
+                            <td>${license.created_at ? new Date(license.created_at).toLocaleString('zh-CN') : '-'}</td>
+                            <td>
+                                <button class="btn-small" onclick="showLicenseDetail('${license.license_key}')" title="详情">📋</button>
+                                ${license.status === 'active' ? `<button class="btn-small btn-danger" onclick="revokeLicense('${license.license_key}')" title="撤销">❌</button>` : ''}
+                            </td>
+                        </tr>
+                    `;
+                }).join('');
+                
+                // 渲染分页
+                renderLicensePagination(total);
+                
+            } catch (e) {
+                console.error('加载激活码列表失败', e);
+                document.getElementById('licenseTable').innerHTML = 
+                    `<tr><td colspan="7" style="text-align: center; color: var(--accent-red);">网络错误: ${e.message}</td></tr>`;
+            }
+        }
+        
+        // 渲染分页
+        function renderLicensePagination(total) {
+            const totalPages = Math.ceil(total / licensePageSize);
+            const container = document.getElementById('licensePagination');
+            
+            if (totalPages <= 1) {
+                container.innerHTML = '';
+                return;
+            }
+            
+            let html = '';
+            
+            // 上一页
+            if (licenseCurrentPage > 0) {
+                html += `<button class="btn-small" onclick="loadLicenses(${licenseCurrentPage - 1})">◀</button>`;
+            }
+            
+            // 页码
+            for (let i = 0; i < totalPages && i < 10; i++) {
+                const active = i === licenseCurrentPage ? 'background: var(--accent); color: white;' : '';
+                html += `<button class="btn-small" style="${active}" onclick="loadLicenses(${i})">${i + 1}</button>`;
+            }
+            
+            // 下一页
+            if (licenseCurrentPage < totalPages - 1) {
+                html += `<button class="btn-small" onclick="loadLicenses(${licenseCurrentPage + 1})">▶</button>`;
+            }
+            
+            container.innerHTML = html;
+        }
+        
+        // 搜索激活码
+        function searchLicenses() {
+            licenseSearchTerm = document.getElementById('licenseSearch').value.trim();
+            loadLicenses(0);
+        }
+        
+        // 复制到剪贴板
+        function copyToClipboard(text) {
+            navigator.clipboard.writeText(text).then(() => {
+                alert('已复制到剪贴板: ' + text);
+            }).catch(e => {
+                console.error('复制失败', e);
+            });
+        }
+        
+        // 显示创建激活码弹窗
+        function showCreateLicenseModal() {
+            document.getElementById('createLicenseModal').style.display = 'flex';
+            onBillingModeChange();
+        }
+        
+        // 关闭创建激活码弹窗
+        function closeCreateLicenseModal() {
+            document.getElementById('createLicenseModal').style.display = 'none';
+            document.getElementById('createLicenseMsg').style.display = 'none';
+        }
+        
+        // 计费模式变化
+        function onBillingModeChange() {
+            const mode = document.getElementById('licBillingMode').value;
+            document.getElementById('licMaxUsesRow').style.display = mode === 'per_use' ? 'block' : 'none';
+            document.getElementById('licUsageTimeRow').style.display = mode === 'time_based' ? 'block' : 'none';
+        }
+        
+        // 创建激活码
+        async function doCreateLicense() {
+            const productId = document.getElementById('licProductId').value;
+            const billingMode = document.getElementById('licBillingMode').value;
+            const maxUses = parseInt(document.getElementById('licMaxUses').value) || 100;
+            const usageTime = parseFloat(document.getElementById('licUsageTime').value) || 30;
+            const expiryDays = parseInt(document.getElementById('licExpiryDays').value) || 365;
+            
+            const msgDiv = document.getElementById('createLicenseMsg');
+            
+            try {
+                const body = {
+                    product_id: productId,
+                    billing_mode: billingMode,
+                    expiry_days: expiryDays
+                };
+                
+                if (billingMode === 'per_use') {
+                    body.max_uses = maxUses;
+                } else if (billingMode === 'time_based') {
+                    body.usage_time = usageTime;
+                }
+                
+                const res = await fetch(`${API_BASE}/admin/api/license/create`, {
+                    method: 'POST',
+                    headers: getLicenseHeaders(),
+                    body: JSON.stringify(body)
+                });
+                
+                const data = await res.json();
+                
+                if (data.error) {
+                    msgDiv.textContent = '❌ ' + data.message;
+                    msgDiv.style.background = 'rgba(255, 71, 87, 0.1)';
+                    msgDiv.style.color = 'var(--accent-red)';
+                    msgDiv.style.display = 'block';
+                } else {
+                    msgDiv.innerHTML = `✅ 创建成功！激活码: <strong style="font-family: monospace;">${data.data?.license_key || '-'}</strong>`;
+                    msgDiv.style.background = 'rgba(0, 255, 136, 0.1)';
+                    msgDiv.style.color = 'var(--accent-green)';
+                    msgDiv.style.display = 'block';
+                    
+                    // 刷新列表
+                    setTimeout(() => {
+                        loadLicenses(0);
+                        loadLicenseStats();
+                    }, 1000);
+                }
+            } catch (e) {
+                msgDiv.textContent = '❌ 网络错误: ' + e.message;
+                msgDiv.style.background = 'rgba(255, 71, 87, 0.1)';
+                msgDiv.style.color = 'var(--accent-red)';
+                msgDiv.style.display = 'block';
+            }
+        }
+        
+        // 显示激活码详情
+        async function showLicenseDetail(licenseKey) {
+            try {
+                const res = await fetch(`${API_BASE}/admin/api/license/info/${licenseKey}`, {
+                    headers: getLicenseHeaders()
+                });
+                if (!checkTokenValid(res)) return;
+                const data = await res.json();
+                
+                if (data.error) {
+                    alert('获取详情失败: ' + data.message);
+                    return;
+                }
+                
+                const license = data.data;
+                const billingText = {
+                    'per_use': '按次数',
+                    'time_based': '按时间',
+                    'unlimited': '无限制'
+                }[license.billing_mode] || license.billing_mode;
+                
+                const statusText = {
+                    'active': '已激活',
+                    'inactive': '未激活',
+                    'expired': '已过期',
+                    'revoked': '已撤销'
+                }[license.status] || license.status;
+                
+                let remainingText = '-';
+                if (license.billing_mode === 'per_use') {
+                    remainingText = `${license.remaining_uses || 0} / ${license.max_uses || 0} 次`;
+                } else if (license.billing_mode === 'time_based') {
+                    const minutes = license.remaining_time || 0;
+                    const days = (minutes / 1440).toFixed(1);
+                    remainingText = `${days} 天 (${license.usage_time ? (license.usage_time/1440).toFixed(1) : '-'} 天总时长)`;
+                } else {
+                    remainingText = '∞ 无限制';
+                }
+                
+                document.getElementById('licenseDetailContent').innerHTML = `
+                    <table style="width: 100%;">
+                        <tr><td style="color: var(--text-secondary); padding: 8px 0;">激活码</td>
+                            <td style="font-family: monospace; padding: 8px 0;">${license.license_key}</td></tr>
+                        <tr><td style="color: var(--text-secondary); padding: 8px 0;">产品</td>
+                            <td style="padding: 8px 0;">${license.product_id}</td></tr>
+                        <tr><td style="color: var(--text-secondary); padding: 8px 0;">计费模式</td>
+                            <td style="padding: 8px 0;">${billingText}</td></tr>
+                        <tr><td style="color: var(--text-secondary); padding: 8px 0;">剩余</td>
+                            <td style="padding: 8px 0; color: var(--accent-green);">${remainingText}</td></tr>
+                        <tr><td style="color: var(--text-secondary); padding: 8px 0;">状态</td>
+                            <td style="padding: 8px 0;">${statusText}</td></tr>
+                        <tr><td style="color: var(--text-secondary); padding: 8px 0;">绑定机器</td>
+                            <td style="padding: 8px 0; font-family: monospace; font-size: 11px;">${license.machine_id || '未绑定'}</td></tr>
+                        <tr><td style="color: var(--text-secondary); padding: 8px 0;">创建时间</td>
+                            <td style="padding: 8px 0;">${license.created_at ? new Date(license.created_at).toLocaleString('zh-CN') : '-'}</td></tr>
+                        <tr><td style="color: var(--text-secondary); padding: 8px 0;">激活时间</td>
+                            <td style="padding: 8px 0;">${license.activated_at ? new Date(license.activated_at).toLocaleString('zh-CN') : '-'}</td></tr>
+                        <tr><td style="color: var(--text-secondary); padding: 8px 0;">过期时间</td>
+                            <td style="padding: 8px 0;">${license.expiry_date ? new Date(license.expiry_date).toLocaleString('zh-CN') : '-'}</td></tr>
+                    </table>
+                `;
+                
+                document.getElementById('licenseDetailModal').style.display = 'flex';
+            } catch (e) {
+                alert('获取详情失败: ' + e.message);
+            }
+        }
+        
+        // 关闭激活码详情弹窗
+        function closeLicenseDetailModal() {
+            document.getElementById('licenseDetailModal').style.display = 'none';
+        }
+        
+        // 撤销激活码
+        async function revokeLicense(licenseKey) {
+            if (!confirm(`确定要撤销激活码 ${licenseKey} 吗？此操作不可恢复！`)) {
+                return;
+            }
+            
+            try {
+                const res = await fetch(`${API_BASE}/admin/api/license/revoke`, {
+                    method: 'POST',
+                    headers: getLicenseHeaders(),
+                    body: JSON.stringify({
+                        license_key: licenseKey,
+                        reason: '管理员撤销'
+                    })
+                });
+                
+                const data = await res.json();
+                
+                if (data.error) {
+                    alert('撤销失败: ' + data.message);
+                } else {
+                    alert('撤销成功');
+                    loadLicenses(licenseCurrentPage);
+                    loadLicenseStats();
+                }
+            } catch (e) {
+                alert('撤销失败: ' + e.message);
+            }
+        }
+        
         // ===== 流量仪表盘功能 =====
-        let dashboardTimer = null;
-        let activityItems = [];
         
         // 加载仪表盘数据
         async function loadDashboard() {
