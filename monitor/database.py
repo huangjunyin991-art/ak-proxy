@@ -382,10 +382,10 @@ def get_stats_summary():
         cursor.execute('SELECT COUNT(*) as count FROM login_records')
         total_logins = cursor.fetchone()['count']
         
-        # 总资产统计
+        # 总资产统计（总AK = 主账户AK + 子账户AK）
         cursor.execute('''
             SELECT 
-                SUM(ace_count) as total_ace, 
+                SUM(COALESCE(ace_count, 0) + COALESCE(total_ace, 0)) as total_ace, 
                 SUM(ep) as total_ep,
                 SUM(sp) as total_sp,
                 SUM(rp) as total_rp,
@@ -587,6 +587,93 @@ def execute_sql(sql: str):
         else:
             conn.commit()
             return {'affected_rows': cursor.rowcount}
+
+def get_dashboard_data():
+    """获取仪表盘数据"""
+    with get_db() as conn:
+        cursor = conn.cursor()
+        today = datetime.now().strftime('%Y-%m-%d')
+        
+        # 今日请求数
+        cursor.execute('''
+            SELECT COUNT(*) as count FROM login_records 
+            WHERE DATE(login_time) = ?
+        ''', (today,))
+        today_requests = cursor.fetchone()['count']
+        
+        # 成功率（基于status_code或extra_data中的状态）
+        cursor.execute('''
+            SELECT 
+                COUNT(*) as total,
+                SUM(CASE WHEN status_code = 200 OR extra_data LIKE '%"status": "success"%' OR extra_data LIKE '%success%' THEN 1 ELSE 0 END) as success
+            FROM login_records 
+            WHERE DATE(login_time) = ?
+        ''', (today,))
+        row = cursor.fetchone()
+        total = row['total'] or 1
+        success = row['success'] or 0
+        success_rate = (success / total) * 100 if total > 0 else 0
+        
+        # 今日活跃用户数
+        cursor.execute('''
+            SELECT COUNT(DISTINCT username) as count FROM login_records 
+            WHERE DATE(login_time) = ?
+        ''', (today,))
+        active_users = cursor.fetchone()['count']
+        
+        # 每小时请求量（用于计算峰值RPM）
+        cursor.execute('''
+            SELECT strftime('%H', login_time) as hour, COUNT(*) as count 
+            FROM login_records 
+            WHERE DATE(login_time) = ?
+            GROUP BY hour
+            ORDER BY count DESC
+            LIMIT 1
+        ''', (today,))
+        peak_row = cursor.fetchone()
+        peak_rpm = int((peak_row['count'] / 60) if peak_row else 0)
+        
+        # 24小时请求趋势
+        cursor.execute('''
+            SELECT CAST(strftime('%H', login_time) AS INTEGER) as hour, COUNT(*) as count 
+            FROM login_records 
+            WHERE DATE(login_time) = ?
+            GROUP BY hour
+            ORDER BY hour
+        ''', (today,))
+        hourly_data = [{'hour': row['hour'], 'count': row['count']} for row in cursor.fetchall()]
+        
+        # Top10 活跃用户
+        cursor.execute('''
+            SELECT username, COUNT(*) as count 
+            FROM login_records 
+            WHERE DATE(login_time) = ?
+            GROUP BY username
+            ORDER BY count DESC
+            LIMIT 10
+        ''', (today,))
+        top_users = [{'username': row['username'], 'count': row['count']} for row in cursor.fetchall()]
+        
+        # Top10 访问IP
+        cursor.execute('''
+            SELECT ip_address as ip, COUNT(*) as count 
+            FROM login_records 
+            WHERE DATE(login_time) = ?
+            GROUP BY ip_address
+            ORDER BY count DESC
+            LIMIT 10
+        ''', (today,))
+        top_ips = [{'ip': row['ip'], 'count': row['count']} for row in cursor.fetchall()]
+        
+        return {
+            'today_requests': today_requests,
+            'success_rate': success_rate,
+            'active_users': active_users,
+            'peak_rpm': peak_rpm,
+            'hourly_data': hourly_data,
+            'top_users': top_users,
+            'top_ips': top_ips
+        }
 
 # 初始化数据库
 if __name__ == '__main__':

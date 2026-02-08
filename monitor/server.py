@@ -10,6 +10,7 @@ import httpx
 from datetime import datetime
 from typing import List, Set
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request, HTTPException
+from fastapi.responses import JSONResponse
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
@@ -31,13 +32,86 @@ from database import (
     get_recent_logins, get_user_detail, ban_user, unban_user,
     ban_ip, unban_ip, is_banned, get_ban_list, get_stats_summary,
     save_user_assets, get_user_assets, get_all_user_assets, get_asset_history,
-    get_all_users_with_assets,
+    get_all_users_with_assets, get_dashboard_data,
     get_all_tables, get_table_schema, query_table, insert_row, update_row, delete_row, execute_sql
 )
 
 # 配置
-ADMIN_PASSWORD = "ak-lovejjy1314"  # 管理员密码
+ADMIN_PASSWORD = "ak-lovejjy1314"  # 系统总管理员密码（不可更改）
+SUB_ADMIN_PASSWORD = ""  # 子管理员密码（可由总管理设置）
+DB_SECONDARY_PASSWORD = "aa292180"  # 数据库操作二级密码
 AKAPI_URL = "https://www.akapi1.com/RPC/"  # 原始API地址
+
+import hashlib
+import time
+import secrets
+import json
+
+# 权限级别
+ROLE_SUPER_ADMIN = "super_admin"  # 系统总管理
+ROLE_SUB_ADMIN = "sub_admin"  # 子管理员
+
+# 子管理员配置文件
+SUB_ADMIN_CONFIG_FILE = os.path.join(os.path.dirname(__file__), "sub_admin.json")
+
+def load_sub_admin_password():
+    """加载子管理员密码"""
+    global SUB_ADMIN_PASSWORD
+    try:
+        if os.path.exists(SUB_ADMIN_CONFIG_FILE):
+            with open(SUB_ADMIN_CONFIG_FILE, 'r', encoding='utf-8') as f:
+                config = json.load(f)
+                SUB_ADMIN_PASSWORD = config.get('password', '')
+    except:
+        SUB_ADMIN_PASSWORD = ''
+
+def save_sub_admin_password(password: str):
+    """保存子管理员密码"""
+    global SUB_ADMIN_PASSWORD
+    SUB_ADMIN_PASSWORD = password
+    try:
+        with open(SUB_ADMIN_CONFIG_FILE, 'w', encoding='utf-8') as f:
+            json.dump({'password': password}, f)
+        return True
+    except:
+        return False
+
+# 启动时加载子管理员密码
+load_sub_admin_password()
+
+# 二级密码Token管理
+db_auth_tokens = {}  # {token: expire_time}
+
+def generate_db_token():
+    """生成数据库操作token"""
+    token = secrets.token_urlsafe(32)
+    # Token有效期30分钟
+    db_auth_tokens[token] = time.time() + 1800
+    # 清理过期token
+    current = time.time()
+    expired = [k for k, v in db_auth_tokens.items() if v < current]
+    for k in expired:
+        del db_auth_tokens[k]
+    return token
+
+def verify_db_token(token: str) -> bool:
+    """验证数据库操作token"""
+    if not token:
+        return False
+    expire_time = db_auth_tokens.get(token)
+    if not expire_time:
+        return False
+    if time.time() > expire_time:
+        del db_auth_tokens[token]
+        return False
+    return True
+
+def verify_db_password(password: str) -> bool:
+    """验证二级密码（防时序攻击）"""
+    if not password or not isinstance(password, str):
+        return False
+    # 使用常量时间比较防止时序攻击
+    return secrets.compare_digest(password, DB_SECONDARY_PASSWORD)
 
 app = FastAPI(title="AK代理监控系统")
 
@@ -603,25 +677,175 @@ async def proxy_rpc(path: str, request: Request):
 
 # ===== 管理API =====
 
+# 登录失败记录（防暴力破解）
+login_fail_records = {}  # {ip: [fail_count, last_fail_time]}
+LOGIN_MAX_FAILS = 5  # 最大失败次数
+LOGIN_LOCKOUT_TIME = 300  # 锁定时间（秒）
+
+def check_login_lockout(ip: str) -> tuple[bool, int]:
+    """检查IP是否被锁定，返回(是否锁定, 剩余秒数)"""
+    record = login_fail_records.get(ip)
+    if not record:
+        return False, 0
+    fail_count, last_fail = record
+    if fail_count >= LOGIN_MAX_FAILS:
+        elapsed = time.time() - last_fail
+        if elapsed < LOGIN_LOCKOUT_TIME:
+            return True, int(LOGIN_LOCKOUT_TIME - elapsed)
+        else:
+            # 锁定时间已过，重置
+            del login_fail_records[ip]
+    return False, 0
+
+def record_login_fail(ip: str):
+    """记录登录失败"""
+    record = login_fail_records.get(ip, [0, 0])
+    record[0] += 1
+    record[1] = time.time()
+    login_fail_records[ip] = record
+
+def clear_login_fail(ip: str):
+    """清除登录失败记录"""
+    if ip in login_fail_records:
+        del login_fail_records[ip]
+
+def verify_admin_password(password: str) -> tuple:
+    """验证管理员密码，返回(是否通过, 权限级别)"""
+    if not password or not isinstance(password, str):
+        return False, None
+    
+    # 先检查系统总管理员
+    if secrets.compare_digest(password, ADMIN_PASSWORD):
+        return True, ROLE_SUPER_ADMIN
+    
+    # 再检查子管理员（如果已设置）
+    if SUB_ADMIN_PASSWORD and secrets.compare_digest(password, SUB_ADMIN_PASSWORD):
+        return True, ROLE_SUB_ADMIN
+    
+    return False, None
+
+# 管理员 Token 管理
+admin_tokens = {}  # {token: {'expire': expire_time, 'role': role}}
+
+def generate_admin_token(role: str) -> str:
+    """生成安全的管理员Token（登录排他性：同角色只允许一个设备登录）"""
+    # 先删除同角色的所有token（实现登录排他性）
+    tokens_to_remove = [
+        t for t, data in admin_tokens.items() 
+        if data.get('role') == role
+    ]
+    for t in tokens_to_remove:
+        del admin_tokens[t]
+    
+    token = secrets.token_urlsafe(32)
+    # Token有效期24小时
+    admin_tokens[token] = {
+        'expire': time.time() + 86400,
+        'role': role
+    }
+    # 清理过期token
+    current = time.time()
+    expired = [k for k, v in admin_tokens.items() if v.get('expire', 0) < current]
+    for k in expired:
+        del admin_tokens[k]
+    return token
+
+def verify_admin_token(token: str) -> bool:
+    """验证管理员Token"""
+    if not token:
+        return False
+    token_data = admin_tokens.get(token)
+    if not token_data:
+        return False
+    if time.time() > token_data.get('expire', 0):
+        del admin_tokens[token]
+        return False
+    return True
+
+def get_token_role(token: str) -> str:
+    """获取Token对应的权限级别"""
+    if not token:
+        return None
+    token_data = admin_tokens.get(token)
+    if token_data and time.time() <= token_data.get('expire', 0):
+        return token_data.get('role')
+    return None
+
+def kick_sub_admins():
+    """踢出所有子管理员（使其token失效）"""
+    global admin_tokens
+    # 删除所有子管理员的token
+    tokens_to_remove = [
+        token for token, data in admin_tokens.items() 
+        if data.get('role') == ROLE_SUB_ADMIN
+    ]
+    for token in tokens_to_remove:
+        del admin_tokens[token]
+    return len(tokens_to_remove)
+
 @app.post("/admin/api/login")
 async def admin_login(request: Request):
-    """管理员登录验证"""
-    data = await request.json()
-    password = data.get('password')
+    """管理员登录验证（增强安全）"""
+    # 获取客户端IP
+    client_ip = request.client.host if request.client else "unknown"
     
-    if password == ADMIN_PASSWORD:
-        # 生成简单token（实际项目应使用JWT）
-        import hashlib
-        import time
-        token = hashlib.sha256(f"{password}{time.time()}".encode()).hexdigest()[:32]
-        return {"success": True, "token": token}
+    # 检查是否被锁定
+    is_locked, remaining = check_login_lockout(client_ip)
+    if is_locked:
+        return {"success": False, "message": f"登录尝试过多，请{remaining}秒后重试"}
+    
+    try:
+        data = await request.json()
+        password = data.get('password', '')
+    except:
+        return {"success": False, "message": "请求无效"}
+    
+    # 防暴力破解延迟
+    await asyncio.sleep(0.3)
+    
+    is_valid, role = verify_admin_password(password)
+    if is_valid:
+        # 登录成功，清除失败记录
+        clear_login_fail(client_ip)
+        token = generate_admin_token(role)
+        role_name = "系统总管理" if role == ROLE_SUPER_ADMIN else "子管理员"
+        return {"success": True, "token": token, "role": role, "role_name": role_name}
     else:
-        return {"success": False, "message": "密码错误"}
+        # 登录失败，记录并额外延迟
+        record_login_fail(client_ip)
+        await asyncio.sleep(0.7)
+        
+        # 检查是否达到锁定阈值
+        record = login_fail_records.get(client_ip, [0, 0])
+        if record[0] >= LOGIN_MAX_FAILS:
+            return {"success": False, "message": f"密码错误次数过多，账号已锁定{LOGIN_LOCKOUT_TIME}秒"}
+        
+        remaining_attempts = LOGIN_MAX_FAILS - record[0]
+        return {"success": False, "message": f"密码错误，剩余{remaining_attempts}次尝试机会"}
+
+@app.get("/admin/api/verify_token")
+async def verify_token_api(request: Request):
+    """验证Token是否有效"""
+    token = request.headers.get('Authorization', '').replace('Bearer ', '')
+    if not token:
+        return JSONResponse(status_code=401, content={"valid": False, "message": "未登录"})
+    
+    if not verify_admin_token(token):
+        return JSONResponse(status_code=401, content={"valid": False, "message": "登录已失效"})
+    
+    role = get_token_role(token)
+    role_name = "系统总管理" if role == ROLE_SUPER_ADMIN else "子管理员"
+    return {"valid": True, "role": role, "role_name": role_name}
 
 @app.get("/admin/api/stats")
 async def get_stats():
     """获取统计摘要"""
     return get_stats_summary()
+
+@app.get("/admin/api/dashboard")
+async def get_dashboard():
+    """获取仪表盘数据"""
+    return get_dashboard_data()
 
 @app.get("/admin/api/users")
 async def get_users(limit: int = 100, offset: int = 0):
@@ -707,14 +931,30 @@ async def unban_ip_api(req: BanRequest):
 
 @app.post("/admin/api/change_password")
 async def change_password_api(request: Request):
-    """修改管理员密码"""
+    """修改管理员密码（需要二级密码验证）"""
     global ADMIN_PASSWORD
-    data = await request.json()
-    current = data.get('current_password')
-    new_pwd = data.get('new_password')
     
-    if current != ADMIN_PASSWORD:
-        return {"success": False, "message": "当前密码错误"}
+    # 防暴力破解延迟
+    await asyncio.sleep(0.3)
+    
+    try:
+        data = await request.json()
+        current = data.get('current_password', '')
+        new_pwd = data.get('new_password', '')
+        secondary = data.get('secondary_password', '')
+    except:
+        return {"success": False, "message": "请求无效"}
+    
+    # 验证二级密码（优先检查）
+    if not verify_db_password(secondary):
+        await asyncio.sleep(0.7)
+        return {"success": False, "message": "二级密码错误"}
+    
+    # 使用安全比较验证当前密码（必须是系统总管理员）
+    is_valid, role = verify_admin_password(current)
+    if not is_valid or role != ROLE_SUPER_ADMIN:
+        await asyncio.sleep(0.7)
+        return {"success": False, "message": "当前密码错误或权限不足"}
     
     if not new_pwd or len(new_pwd) < 6:
         return {"success": False, "message": "新密码至少需要6位"}
@@ -741,6 +981,123 @@ async def change_password_api(request: Request):
         return {"success": True, "message": "密码修改成功"}
     except Exception as e:
         return {"success": False, "message": f"保存失败: {str(e)}"}
+
+@app.get("/admin/api/sub_admin")
+async def get_sub_admin_status(request: Request):
+    """获取子管理员状态"""
+    # 检查子管理员是否在线
+    sub_admin_online = False
+    sub_admin_login_time = None
+    current_time = time.time()
+    
+    for token, data in admin_tokens.items():
+        if data.get('role') == ROLE_SUB_ADMIN and data.get('expire', 0) > current_time:
+            sub_admin_online = True
+            # 计算登录时间（24小时有效期 - 剩余时间）
+            login_timestamp = data.get('expire', 0) - 86400
+            sub_admin_login_time = datetime.fromtimestamp(login_timestamp).strftime('%Y-%m-%d %H:%M:%S')
+            break
+    
+    return {
+        "has_sub_admin": bool(SUB_ADMIN_PASSWORD),
+        "password_hint": SUB_ADMIN_PASSWORD[:2] + "***" if SUB_ADMIN_PASSWORD and len(SUB_ADMIN_PASSWORD) > 2 else "",
+        "is_online": sub_admin_online,
+        "login_time": sub_admin_login_time
+    }
+
+@app.post("/admin/api/sub_admin/set")
+async def set_sub_admin(request: Request):
+    """设置子管理员密码（仅系统总管理可操作）"""
+    await asyncio.sleep(0.3)
+    
+    try:
+        data = await request.json()
+        admin_password = data.get('admin_password', '')
+        secondary_password = data.get('secondary_password', '')
+        new_sub_password = data.get('new_sub_password', '')
+    except:
+        return {"success": False, "message": "请求无效"}
+    
+    # 验证系统总管理员身份
+    is_valid, role = verify_admin_password(admin_password)
+    if not is_valid or role != ROLE_SUPER_ADMIN:
+        await asyncio.sleep(0.7)
+        return {"success": False, "message": "系统总管理员密码错误"}
+    
+    # 验证二级密码
+    if not verify_db_password(secondary_password):
+        await asyncio.sleep(0.7)
+        return {"success": False, "message": "二级密码错误"}
+    
+    # 验证新密码
+    if not new_sub_password or len(new_sub_password) < 6:
+        return {"success": False, "message": "子管理员密码至少需要6位"}
+    
+    # 不能与系统总管理员密码相同
+    if secrets.compare_digest(new_sub_password, ADMIN_PASSWORD):
+        return {"success": False, "message": "子管理员密码不能与总管理员密码相同"}
+    
+    # 保存子管理员密码
+    if save_sub_admin_password(new_sub_password):
+        return {"success": True, "message": "子管理员密码设置成功"}
+    else:
+        return {"success": False, "message": "保存失败"}
+
+@app.post("/admin/api/sub_admin/delete")
+async def delete_sub_admin(request: Request):
+    """删除子管理员（仅系统总管理可操作）"""
+    await asyncio.sleep(0.3)
+    
+    try:
+        data = await request.json()
+        admin_password = data.get('admin_password', '')
+        secondary_password = data.get('secondary_password', '')
+    except:
+        return {"success": False, "message": "请求无效"}
+    
+    # 验证系统总管理员身份
+    is_valid, role = verify_admin_password(admin_password)
+    if not is_valid or role != ROLE_SUPER_ADMIN:
+        await asyncio.sleep(0.7)
+        return {"success": False, "message": "系统总管理员密码错误"}
+    
+    # 验证二级密码
+    if not verify_db_password(secondary_password):
+        await asyncio.sleep(0.7)
+        return {"success": False, "message": "二级密码错误"}
+    
+    # 先踢出所有子管理员
+    kick_sub_admins()
+    
+    # 删除子管理员密码
+    if save_sub_admin_password(""):
+        return {"success": True, "message": "子管理员已删除"}
+    else:
+        return {"success": False, "message": "删除失败"}
+
+@app.post("/admin/api/sub_admin/kick")
+async def kick_sub_admin(request: Request):
+    """踢出子管理员（仅系统总管理可操作）"""
+    await asyncio.sleep(0.3)
+    
+    try:
+        data = await request.json()
+        admin_password = data.get('admin_password', '')
+    except:
+        return {"success": False, "message": "请求无效"}
+    
+    # 验证系统总管理员身份
+    is_valid, role = verify_admin_password(admin_password)
+    if not is_valid or role != ROLE_SUPER_ADMIN:
+        await asyncio.sleep(0.7)
+        return {"success": False, "message": "系统总管理员密码错误"}
+    
+    # 踢出所有子管理员
+    count = kick_sub_admins()
+    if count > 0:
+        return {"success": True, "message": f"已踢出 {count} 个子管理员会话"}
+    else:
+        return {"success": True, "message": "当前没有在线的子管理员"}
 
 # ===== WebSocket - 管理后台 =====
 @app.websocket("/admin/ws")
@@ -896,25 +1253,64 @@ async def broadcast_chat_message(request: Request):
     
     return {"success": True, "sent_count": sent_count}
 
-# ===== 数据库管理API =====
+# ===== 数据库管理API（需要二级密码验证） =====
+
+def check_db_auth(request: Request):
+    """检查数据库操作授权"""
+    token = request.headers.get("X-DB-Token")
+    if not verify_db_token(token):
+        raise HTTPException(status_code=403, detail="数据库操作需要二级密码验证")
+
+@app.post("/admin/api/db/auth")
+async def db_authenticate(request: Request):
+    """数据库二级密码验证"""
+    try:
+        data = await request.json()
+        password = data.get('password', '')
+        
+        # 防止暴力破解 - 添加延迟
+        await asyncio.sleep(0.5)
+        
+        if verify_db_password(password):
+            token = generate_db_token()
+            return {"success": True, "token": token, "expires_in": 1800}
+        else:
+            # 失败时额外延迟
+            await asyncio.sleep(1)
+            raise HTTPException(status_code=401, detail="二级密码错误")
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail="验证请求无效")
+
+@app.post("/admin/api/db/verify")
+async def db_verify_token(request: Request):
+    """验证Token是否有效"""
+    token = request.headers.get("X-DB-Token")
+    return {"valid": verify_db_token(token)}
+
 @app.get("/admin/api/db/tables")
-async def get_tables():
+async def get_tables(request: Request):
     """获取所有表名"""
+    check_db_auth(request)
     return get_all_tables()
 
 @app.get("/admin/api/db/schema/{table_name}")
-async def get_schema(table_name: str):
+async def get_schema(table_name: str, request: Request):
     """获取表结构"""
+    check_db_auth(request)
     return get_table_schema(table_name)
 
 @app.get("/admin/api/db/query/{table_name}")
-async def query_data(table_name: str, limit: int = 100, offset: int = 0, order_by: str = None, order_desc: bool = True):
+async def query_data(table_name: str, request: Request, limit: int = 100, offset: int = 0, order_by: str = None, order_desc: bool = True):
     """查询表数据"""
+    check_db_auth(request)
     return query_table(table_name, limit, offset, order_by, order_desc)
 
 @app.post("/admin/api/db/insert/{table_name}")
 async def insert_data(table_name: str, request: Request):
     """插入数据"""
+    check_db_auth(request)
     data = await request.json()
     try:
         row_id = insert_row(table_name, data)
@@ -925,6 +1321,7 @@ async def insert_data(table_name: str, request: Request):
 @app.put("/admin/api/db/update/{table_name}")
 async def update_data(table_name: str, request: Request):
     """更新数据"""
+    check_db_auth(request)
     data = await request.json()
     pk_column = data.pop('_pk_column', 'id')
     pk_value = data.pop('_pk_value', None)
@@ -937,8 +1334,9 @@ async def update_data(table_name: str, request: Request):
         raise HTTPException(status_code=400, detail=str(e))
 
 @app.delete("/admin/api/db/delete/{table_name}")
-async def delete_data(table_name: str, pk_column: str = "id", pk_value: str = None):
+async def delete_data(table_name: str, request: Request, pk_column: str = "id", pk_value: str = None):
     """删除数据"""
+    check_db_auth(request)
     if pk_value is None:
         raise HTTPException(status_code=400, detail="缺少主键值")
     try:
@@ -950,6 +1348,7 @@ async def delete_data(table_name: str, pk_column: str = "id", pk_value: str = No
 @app.post("/admin/api/db/sql")
 async def run_sql(request: Request):
     """执行自定义SQL"""
+    check_db_auth(request)
     data = await request.json()
     sql = data.get('sql', '')
     if not sql:

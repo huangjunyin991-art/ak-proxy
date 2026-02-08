@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AK代理监控系统</title>
+    <title>AK后台监控系统</title>
     <style>
         * {
             margin: 0;
@@ -138,6 +138,511 @@
         .stat-card.green .value { color: var(--accent-green); }
         .stat-card.red .value { color: var(--accent-red); }
         .stat-card.yellow .value { color: var(--accent-yellow); }
+        
+        /* 流光边框效果 */
+        .glow-border {
+            position: relative;
+            background: var(--bg-card);
+            border: none !important;
+            overflow: hidden;
+        }
+        
+        .glow-border::before {
+            content: '';
+            position: absolute;
+            top: -50%;
+            left: -50%;
+            width: 200%;
+            height: 200%;
+            background: conic-gradient(
+                from 0deg,
+                transparent 0deg 60deg,
+                var(--glow-color, var(--accent)) 60deg 120deg,
+                transparent 120deg 180deg,
+                var(--glow-color, var(--accent)) 180deg 240deg,
+                transparent 240deg 300deg,
+                var(--glow-color, var(--accent)) 300deg 360deg
+            );
+            animation: glow-spin 3s linear infinite;
+            z-index: -2;
+        }
+        
+        .glow-border::after {
+            content: '';
+            position: absolute;
+            inset: 2px;
+            background: var(--bg-card);
+            border-radius: 10px;
+            z-index: -1;
+        }
+        
+        @keyframes glow-spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+        
+        /* 不同颜色主题 */
+        .glow-border.glow-cyan { --glow-color: #00d4ff; }
+        .glow-border.glow-green { --glow-color: #00ff88; }
+        .glow-border.glow-pink { --glow-color: #ff6b9d; }
+        .glow-border.glow-yellow { --glow-color: #f7b731; }
+        .glow-border.glow-purple { --glow-color: #a55eea; }
+        
+        .glow-border:hover::before {
+            animation-duration: 1.5s;
+        }
+        
+        .glow-border:hover {
+            box-shadow: 0 0 25px rgba(var(--glow-rgb, 0, 212, 255), 0.3);
+        }
+        
+        .glow-border.glow-cyan:hover { box-shadow: 0 0 25px rgba(0, 212, 255, 0.4); }
+        .glow-border.glow-green:hover { box-shadow: 0 0 25px rgba(0, 255, 136, 0.4); }
+        .glow-border.glow-pink:hover { box-shadow: 0 0 25px rgba(255, 107, 157, 0.4); }
+        .glow-border.glow-yellow:hover { box-shadow: 0 0 25px rgba(247, 183, 49, 0.4); }
+        .glow-border.glow-purple:hover { box-shadow: 0 0 25px rgba(165, 94, 234, 0.4); }
+        
+        /* 可排序表头 */
+        th.sortable {
+            cursor: pointer;
+            user-select: none;
+            transition: background 0.2s;
+            white-space: nowrap;
+        }
+        
+        th.sortable:hover {
+            background: rgba(0, 212, 255, 0.15);
+        }
+        
+        th.sortable .sort-icon {
+            display: inline-block;
+            margin-left: 4px;
+            font-size: 12px;
+            color: var(--text-secondary);
+            transition: color 0.2s;
+        }
+        
+        th.sortable.asc .sort-icon,
+        th.sortable.desc .sort-icon {
+            color: var(--accent);
+        }
+        
+        /* ===== 权限标识样式 ===== */
+        .role-badge {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 13px;
+            font-weight: bold;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .role-badge.super-admin {
+            background: linear-gradient(135deg, #ffd700 0%, #ff8c00 50%, #ffd700 100%);
+            background-size: 200% 200%;
+            animation: shimmer 2s ease-in-out infinite;
+            color: #1a1a2e;
+            box-shadow: 0 0 20px rgba(255, 215, 0, 0.5), 0 0 40px rgba(255, 140, 0, 0.3);
+            border: 2px solid rgba(255, 255, 255, 0.3);
+        }
+        
+        .role-badge.sub-admin {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 50%, #667eea 100%);
+            background-size: 200% 200%;
+            animation: shimmer 3s ease-in-out infinite;
+            color: white;
+            box-shadow: 0 0 15px rgba(102, 126, 234, 0.5);
+            border: 2px solid rgba(255, 255, 255, 0.2);
+        }
+        
+        @keyframes shimmer {
+            0%, 100% { background-position: 0% 50%; }
+            50% { background-position: 100% 50%; }
+        }
+        
+        .role-badge::before {
+            content: '';
+            position: absolute;
+            top: -50%;
+            left: -50%;
+            width: 200%;
+            height: 200%;
+            background: linear-gradient(
+                45deg,
+                transparent 30%,
+                rgba(255, 255, 255, 0.3) 50%,
+                transparent 70%
+            );
+            animation: shine 3s infinite;
+        }
+        
+        @keyframes shine {
+            0% { transform: translateX(-100%) rotate(45deg); }
+            100% { transform: translateX(100%) rotate(45deg); }
+        }
+        
+        .role-icon {
+            font-size: 16px;
+            z-index: 1;
+        }
+        
+        .role-text {
+            z-index: 1;
+            text-shadow: 0 1px 2px rgba(0,0,0,0.2);
+        }
+        
+        .role-badge.super-admin .role-icon {
+            animation: crown-bounce 1s ease-in-out infinite;
+        }
+        
+        @keyframes crown-bounce {
+            0%, 100% { transform: translateY(0) rotate(0deg); }
+            25% { transform: translateY(-2px) rotate(-5deg); }
+            75% { transform: translateY(-2px) rotate(5deg); }
+        }
+        
+        /* ===== 流量仪表盘样式 ===== */
+        .dashboard-metrics {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 20px;
+            margin-bottom: 25px;
+        }
+        
+        .metric-card {
+            background: var(--bg-card);
+            border-radius: 12px;
+            padding: 20px;
+            border: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        
+        .metric-card:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.3);
+        }
+        
+        .metric-icon {
+            width: 50px;
+            height: 50px;
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 24px;
+        }
+        
+        .metric-info {
+            flex: 1;
+        }
+        
+        .metric-value {
+            font-size: 28px;
+            font-weight: bold;
+            color: var(--text-primary);
+            line-height: 1.2;
+        }
+        
+        .metric-label {
+            font-size: 13px;
+            color: var(--text-secondary);
+            margin-top: 4px;
+        }
+        
+        /* 24小时趋势图 */
+        .dashboard-chart {
+            background: var(--bg-card);
+            border-radius: 12px;
+            padding: 20px;
+            border: 1px solid var(--border);
+            margin-bottom: 25px;
+        }
+        
+        .chart-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+        
+        .chart-header h4 {
+            margin: 0;
+            color: var(--accent);
+        }
+        
+        .chart-update-time {
+            font-size: 12px;
+            color: var(--text-secondary);
+        }
+        
+        .chart-container {
+            display: flex;
+            align-items: flex-end;
+            gap: 4px;
+            height: 150px;
+            padding: 0 10px;
+        }
+        
+        .chart-bar {
+            flex: 1;
+            background: linear-gradient(to top, #00d4ff, #667eea);
+            border-radius: 4px 4px 0 0;
+            min-height: 4px;
+            transition: height 0.5s ease, background 0.3s;
+            cursor: pointer;
+            position: relative;
+        }
+        
+        .chart-bar:hover {
+            background: linear-gradient(to top, #00ff88, #00d4ff);
+        }
+        
+        .chart-bar::after {
+            content: attr(data-value);
+            position: absolute;
+            bottom: 100%;
+            left: 50%;
+            transform: translateX(-50%);
+            background: var(--bg-secondary);
+            color: var(--text-primary);
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            white-space: nowrap;
+            opacity: 0;
+            transition: opacity 0.2s;
+            pointer-events: none;
+        }
+        
+        .chart-bar:hover::after {
+            opacity: 1;
+        }
+        
+        .chart-labels {
+            display: flex;
+            gap: 4px;
+            padding: 10px 10px 0;
+        }
+        
+        .chart-label {
+            flex: 1;
+            text-align: center;
+            font-size: 10px;
+            color: var(--text-secondary);
+        }
+        
+        /* 排行榜 */
+        .dashboard-rankings {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin-bottom: 25px;
+        }
+        
+        .ranking-card {
+            background: var(--bg-card);
+            border-radius: 12px;
+            border: 1px solid var(--border);
+            overflow: hidden;
+        }
+        
+        .ranking-header {
+            padding: 15px 20px;
+            border-bottom: 1px solid var(--border);
+            background: var(--bg-secondary);
+        }
+        
+        .ranking-header h4 {
+            margin: 0;
+            font-size: 14px;
+            color: var(--text-primary);
+        }
+        
+        .ranking-list {
+            padding: 10px 0;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        
+        .ranking-item {
+            display: flex;
+            align-items: center;
+            padding: 10px 20px;
+            gap: 12px;
+            transition: background 0.2s;
+        }
+        
+        .ranking-item:hover {
+            background: rgba(0, 212, 255, 0.05);
+        }
+        
+        .ranking-rank {
+            width: 24px;
+            height: 24px;
+            border-radius: 6px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+            font-weight: bold;
+            background: var(--bg-secondary);
+            color: var(--text-secondary);
+        }
+        
+        .ranking-item:nth-child(1) .ranking-rank {
+            background: linear-gradient(135deg, #ffd700, #ffaa00);
+            color: #000;
+        }
+        
+        .ranking-item:nth-child(2) .ranking-rank {
+            background: linear-gradient(135deg, #c0c0c0, #a0a0a0);
+            color: #000;
+        }
+        
+        .ranking-item:nth-child(3) .ranking-rank {
+            background: linear-gradient(135deg, #cd7f32, #a0522d);
+            color: #fff;
+        }
+        
+        .ranking-name {
+            flex: 1;
+            font-size: 14px;
+            color: var(--text-primary);
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        
+        .ranking-value {
+            font-size: 14px;
+            font-weight: bold;
+            color: var(--accent);
+        }
+        
+        .ranking-empty {
+            padding: 30px;
+            text-align: center;
+            color: var(--text-secondary);
+        }
+        
+        /* 实时活动流 */
+        .dashboard-activity {
+            background: var(--bg-card);
+            border-radius: 12px;
+            border: 1px solid var(--border);
+            overflow: hidden;
+        }
+        
+        .activity-header {
+            padding: 15px 20px;
+            border-bottom: 1px solid var(--border);
+            background: var(--bg-secondary);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .activity-header h4 {
+            margin: 0;
+            font-size: 14px;
+            color: var(--text-primary);
+        }
+        
+        .activity-status {
+            font-size: 12px;
+            color: var(--accent-green);
+            animation: pulse 2s infinite;
+        }
+        
+        .activity-stream {
+            max-height: 200px;
+            overflow-y: auto;
+        }
+        
+        .activity-item {
+            display: flex;
+            align-items: center;
+            padding: 12px 20px;
+            gap: 12px;
+            border-bottom: 1px solid var(--border);
+            animation: slideInLeft 0.3s ease;
+        }
+        
+        @keyframes slideInLeft {
+            from {
+                opacity: 0;
+                transform: translateX(-20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateX(0);
+            }
+        }
+        
+        .activity-item:last-child {
+            border-bottom: none;
+        }
+        
+        .activity-icon {
+            width: 32px;
+            height: 32px;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 16px;
+            background: var(--bg-secondary);
+        }
+        
+        .activity-icon.success { background: rgba(0, 255, 136, 0.15); }
+        .activity-icon.failed { background: rgba(255, 71, 87, 0.15); }
+        .activity-icon.info { background: rgba(0, 212, 255, 0.15); }
+        
+        .activity-content {
+            flex: 1;
+        }
+        
+        .activity-text {
+            font-size: 13px;
+            color: var(--text-primary);
+        }
+        
+        .activity-time {
+            font-size: 11px;
+            color: var(--text-secondary);
+            margin-top: 2px;
+        }
+        
+        .activity-empty {
+            padding: 40px;
+            text-align: center;
+            color: var(--text-secondary);
+        }
+        
+        /* 响应式 */
+        @media screen and (max-width: 1024px) {
+            .dashboard-metrics {
+                grid-template-columns: repeat(2, 1fr);
+            }
+            
+            .dashboard-rankings {
+                grid-template-columns: 1fr;
+            }
+            
+            .metric-card {
+                padding: 15px;
+            }
+            
+            .metric-value {
+                font-size: 22px;
+            }
+        }
         
         /* 标签页 */
         .tabs {
@@ -643,15 +1148,20 @@
     <!-- 主内容 -->
     <div class="main-content" id="mainContent">
     <header class="header">
-        <h1>🛡️ AK代理监控系统</h1>
-        <div style="display: flex; align-items: center; gap: 20px;">
+        <h1>AK后台监控系统</h1>
+        <div style="display: flex; align-items: center; gap: 15px;">
+            <!-- 权限标识 -->
+            <div class="role-badge" id="roleBadge">
+                <span class="role-icon">👑</span>
+                <span class="role-text" id="roleText">加载中...</span>
+            </div>
             <div class="connection-status">
                 <span class="status-dot" id="statusDot"></span>
                 <span id="statusText">连接中...</span>
             </div>
             <button onclick="logout()" style="padding: 8px 16px; background: var(--accent-red); border: none; 
                     border-radius: 6px; color: white; cursor: pointer; font-size: 13px;">
-                🚪 退出登录
+                退出登录
             </button>
         </div>
     </header>
@@ -674,23 +1184,23 @@
             <div class="label">独立IP</div>
             <div class="value" id="statIPs">-</div>
         </div>
-        <div class="stat-card" style="border: 1px solid var(--accent);">
+        <div class="stat-card glow-border glow-cyan">
             <div class="label">总AK数量</div>
             <div class="value" id="statTotalAce">-</div>
         </div>
-        <div class="stat-card green">
+        <div class="stat-card glow-border glow-green">
             <div class="label">总EP</div>
-            <div class="value" id="statTotalEP">-</div>
+            <div class="value" id="statTotalEP" style="color: var(--accent-green);">-</div>
         </div>
-        <div class="stat-card" style="border: 1px solid #ff6b9d;">
+        <div class="stat-card glow-border glow-pink">
             <div class="label">总SP</div>
             <div class="value" id="statTotalSP" style="color: #ff6b9d;">-</div>
         </div>
-        <div class="stat-card" style="border: 1px solid #f7b731;">
+        <div class="stat-card glow-border glow-yellow">
             <div class="label">总RP</div>
             <div class="value" id="statTotalRP" style="color: #f7b731;">-</div>
         </div>
-        <div class="stat-card" style="border: 1px solid #a55eea;">
+        <div class="stat-card glow-border glow-purple">
             <div class="label">总TP</div>
             <div class="value" id="statTotalTP" style="color: #a55eea;">-</div>
         </div>
@@ -702,7 +1212,8 @@
     
     <!-- 标签页 -->
     <div class="tabs">
-        <div class="tab active" data-panel="online">🟢 在线用户</div>
+        <div class="tab active" data-panel="dashboard">📈 流量仪表盘</div>
+        <div class="tab" data-panel="online">🟢 在线用户</div>
         <div class="tab" data-panel="usage">📊 使用情况</div>
         <div class="tab" data-panel="users">👥 用户管理</div>
         <div class="tab" data-panel="ips">🌐 IP管理</div>
@@ -713,8 +1224,91 @@
     
     <!-- 内容区 -->
     <div class="content">
+        <!-- 流量仪表盘 -->
+        <div class="panel active" id="dashboard">
+            <!-- 实时指标卡片 -->
+            <div class="dashboard-metrics">
+                <div class="metric-card">
+                    <div class="metric-icon" style="background: linear-gradient(135deg, #00d4ff, #0099cc);">📊</div>
+                    <div class="metric-info">
+                        <div class="metric-value" id="dashTodayRequests">0</div>
+                        <div class="metric-label">今日请求</div>
+                    </div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-icon" style="background: linear-gradient(135deg, #00ff88, #00cc6a);">✅</div>
+                    <div class="metric-info">
+                        <div class="metric-value" id="dashSuccessRate">0%</div>
+                        <div class="metric-label">成功率</div>
+                    </div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-icon" style="background: linear-gradient(135deg, #667eea, #764ba2);">👥</div>
+                    <div class="metric-info">
+                        <div class="metric-value" id="dashActiveUsers">0</div>
+                        <div class="metric-label">今日活跃</div>
+                    </div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-icon" style="background: linear-gradient(135deg, #f093fb, #f5576c);">⚡</div>
+                    <div class="metric-info">
+                        <div class="metric-value" id="dashPeakRPM">0</div>
+                        <div class="metric-label">峰值RPM</div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- 24小时趋势图 -->
+            <div class="dashboard-chart">
+                <div class="chart-header">
+                    <h4>📈 24小时请求趋势</h4>
+                    <span class="chart-update-time" id="chartUpdateTime">--:--</span>
+                </div>
+                <div class="chart-container" id="hourlyChart">
+                    <!-- 柱状图将由JS生成 -->
+                </div>
+                <div class="chart-labels" id="chartLabels">
+                    <!-- 时间标签将由JS生成 -->
+                </div>
+            </div>
+            
+            <!-- 排行榜区域 -->
+            <div class="dashboard-rankings">
+                <!-- Top用户 -->
+                <div class="ranking-card">
+                    <div class="ranking-header">
+                        <h4>🏆 今日活跃用户 Top10</h4>
+                    </div>
+                    <div class="ranking-list" id="topUsersList">
+                        <div class="ranking-empty">暂无数据</div>
+                    </div>
+                </div>
+                
+                <!-- Top IP -->
+                <div class="ranking-card">
+                    <div class="ranking-header">
+                        <h4>🌐 今日访问IP Top10</h4>
+                    </div>
+                    <div class="ranking-list" id="topIpsList">
+                        <div class="ranking-empty">暂无数据</div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- 实时活动流 -->
+            <div class="dashboard-activity">
+                <div class="activity-header">
+                    <h4>⏱ 实时活动</h4>
+                    <span class="activity-status">● 实时更新中</span>
+                </div>
+                <div class="activity-stream" id="activityStream">
+                    <div class="activity-empty">等待活动数据...</div>
+                </div>
+            </div>
+        </div>
+        
         <!-- 在线用户 -->
-        <div class="panel active" id="online">
+        <div class="panel" id="online">
             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; height: calc(100vh - 350px);">
                 <!-- 在线用户列表 -->
                 <div class="table-container" style="overflow: auto;">
@@ -760,6 +1354,14 @@
         
         <!-- 使用情况（登录尝试记录） -->
         <div class="panel" id="usage">
+            <div style="margin-bottom: 15px; display: flex; gap: 10px; align-items: center;">
+                <input type="text" id="usageSearchInput" placeholder="🔍 搜索用户名..." 
+                       style="flex: 1; max-width: 300px; padding: 10px 15px; background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; color: var(--text-primary); font-size: 14px;"
+                       oninput="searchUsage()">
+                <button class="btn btn-primary" onclick="searchUsage()" style="padding: 10px 20px;">搜索</button>
+                <button class="btn" onclick="clearUsageSearch()" style="padding: 10px 20px; background: var(--bg-secondary);">清除</button>
+                <span id="usageSearchCount" style="color: var(--text-secondary); font-size: 14px; margin-left: auto;"></span>
+            </div>
             <div class="table-container" style="overflow-x: auto;">
                 <table>
                     <thead>
@@ -779,25 +1381,33 @@
         
         <!-- 用户管理（用户资产信息） -->
         <div class="panel" id="users">
+            <div style="margin-bottom: 15px; display: flex; gap: 10px; align-items: center;">
+                <input type="text" id="usersSearchInput" placeholder="🔍 搜索用户名..." 
+                       style="flex: 1; max-width: 300px; padding: 10px 15px; background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; color: var(--text-primary); font-size: 14px;"
+                       oninput="searchUsers()">
+                <button class="btn btn-primary" onclick="searchUsers()" style="padding: 10px 20px;">搜索</button>
+                <button class="btn" onclick="clearUsersSearch()" style="padding: 10px 20px; background: var(--bg-secondary);">清除</button>
+                <span id="usersSearchCount" style="color: var(--text-secondary); font-size: 14px; margin-left: auto;"></span>
+            </div>
             <div class="table-container" style="overflow-x: auto;">
                 <table style="min-width: 1400px;">
                     <thead>
                         <tr>
                             <th>用户名</th>
-                            <th>主账户AK</th>
-                            <th>子账户AK</th>
-                            <th>EP</th>
-                            <th>SP</th>
-                            <th>RP</th>
-                            <th>TP</th>
-                            <th>本周收益</th>
-                            <th>等级</th>
-                            <th>更新时间</th>
+                            <th class="sortable" onclick="sortUsersBy('ace_count')" data-field="ace_count">主账户AK <span class="sort-icon" id="sort-ace_count">⇅</span></th>
+                            <th class="sortable" onclick="sortUsersBy('total_ace')" data-field="total_ace">子账户AK <span class="sort-icon" id="sort-total_ace">⇅</span></th>
+                            <th class="sortable" onclick="sortUsersBy('ep')" data-field="ep">EP <span class="sort-icon" id="sort-ep">⇅</span></th>
+                            <th class="sortable" onclick="sortUsersBy('sp')" data-field="sp">SP <span class="sort-icon" id="sort-sp">⇅</span></th>
+                            <th class="sortable" onclick="sortUsersBy('rp')" data-field="rp">RP <span class="sort-icon" id="sort-rp">⇅</span></th>
+                            <th class="sortable" onclick="sortUsersBy('tp')" data-field="tp">TP <span class="sort-icon" id="sort-tp">⇅</span></th>
+                            <th class="sortable" onclick="sortUsersBy('weekly_money')" data-field="weekly_money">本周收益 <span class="sort-icon" id="sort-weekly_money">⇅</span></th>
+                            <th class="sortable" onclick="sortUsersBy('honor_name')" data-field="honor_name">等级 <span class="sort-icon" id="sort-honor_name">⇅</span></th>
+                            <th class="sortable" onclick="sortUsersBy('updated_at')" data-field="updated_at">更新时间 <span class="sort-icon" id="sort-updated_at">⇅</span></th>
                             <th>操作</th>
                         </tr>
                     </thead>
                     <tbody id="usersTable">
-                        <tr><td colspan="15" style="text-align: center; color: var(--text-secondary);">加载中...</td></tr>
+                        <tr><td colspan="11" style="text-align: center; color: var(--text-secondary);">加载中...</td></tr>
                     </tbody>
                 </table>
             </div>
@@ -846,29 +1456,53 @@
         
         <!-- 数据库管理 -->
         <div class="panel" id="database">
-            <div style="display: flex; gap: 15px; margin-bottom: 20px; align-items: center; flex-wrap: wrap;">
-                <select id="dbTableSelect" onchange="loadTableData()" style="padding: 10px 15px; background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; color: var(--text-primary); font-size: 14px; min-width: 200px;">
-                    <option value="">选择表...</option>
-                </select>
-                <button class="btn btn-primary" onclick="loadTableData()" style="padding: 10px 20px;">🔄 刷新</button>
-                <button class="btn btn-primary" onclick="showAddRowModal()" style="padding: 10px 20px;">➕ 新增</button>
-                <button class="btn btn-danger" onclick="showSqlModal()" style="padding: 10px 20px;">📝 执行SQL</button>
-                <span id="dbRowCount" style="color: var(--text-secondary); font-size: 14px; margin-left: auto;"></span>
+            <!-- 二级密码验证层 -->
+            <div id="dbAuthOverlay" style="display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 60px 20px;">
+                <div style="background: var(--bg-card); border: 1px solid var(--border); border-radius: 16px; padding: 40px; max-width: 400px; width: 100%; text-align: center;">
+                    <div style="font-size: 48px; margin-bottom: 20px;">🔐</div>
+                    <h3 style="color: var(--accent); margin-bottom: 10px;">数据库操作验证</h3>
+                    <p style="color: var(--text-secondary); margin-bottom: 25px; font-size: 14px;">
+                        数据库操作需要二级密码验证<br>验证通过后有效期30分钟
+                    </p>
+                    <input type="password" id="dbSecondaryPassword" placeholder="请输入二级密码" 
+                           onkeypress="if(event.keyCode===13)verifyDbPassword()"
+                           style="width: 100%; padding: 14px 18px; background: var(--bg-primary); border: 1px solid var(--border); 
+                                  border-radius: 10px; color: var(--text-primary); font-size: 15px; margin-bottom: 15px; text-align: center;">
+                    <button onclick="verifyDbPassword()" class="btn btn-primary" 
+                            style="width: 100%; padding: 14px; font-size: 16px; font-weight: bold;">
+                        🔓 验证密码
+                    </button>
+                    <p id="dbAuthError" style="color: var(--accent-red); margin-top: 15px; font-size: 14px; display: none;"></p>
+                </div>
             </div>
             
-            <div class="table-container" style="overflow: auto; max-height: calc(100vh - 400px);">
-                <table id="dbTable" style="min-width: 100%;">
-                    <thead id="dbTableHead">
-                        <tr><th>请先选择一个表</th></tr>
-                    </thead>
-                    <tbody id="dbTableBody">
-                        <tr><td style="text-align: center; color: var(--text-secondary); padding: 40px;">从上方下拉菜单选择要查看的表</td></tr>
-                    </tbody>
-                </table>
+            <!-- 数据库操作界面（验证后显示） -->
+            <div id="dbContent" style="display: none;">
+                <div style="display: flex; gap: 15px; margin-bottom: 20px; align-items: center; flex-wrap: wrap;">
+                    <select id="dbTableSelect" onchange="loadTableData()" style="padding: 10px 15px; background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; color: var(--text-primary); font-size: 14px; min-width: 200px;">
+                        <option value="">选择表...</option>
+                    </select>
+                    <button class="btn btn-primary" onclick="loadTableData()" style="padding: 10px 20px;">🔄 刷新</button>
+                    <button class="btn btn-primary" onclick="showAddRowModal()" style="padding: 10px 20px;">➕ 新增</button>
+                    <button class="btn btn-danger" onclick="showSqlModal()" style="padding: 10px 20px;">📝 执行SQL</button>
+                    <span id="dbRowCount" style="color: var(--text-secondary); font-size: 14px; margin-left: auto;"></span>
+                    <button class="btn" onclick="lockDatabase()" style="padding: 10px 20px; background: var(--bg-secondary);">🔒 锁定</button>
+                </div>
+                
+                <div class="table-container" style="overflow: auto; max-height: calc(100vh - 400px);">
+                    <table id="dbTable" style="min-width: 100%;">
+                        <thead id="dbTableHead">
+                            <tr><th>请先选择一个表</th></tr>
+                        </thead>
+                        <tbody id="dbTableBody">
+                            <tr><td style="text-align: center; color: var(--text-secondary); padding: 40px;">从上方下拉菜单选择要查看的表</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+                
+                <!-- 分页 -->
+                <div id="dbPagination" style="display: flex; justify-content: center; gap: 10px; margin-top: 15px;"></div>
             </div>
-            
-            <!-- 分页 -->
-            <div id="dbPagination" style="display: flex; justify-content: center; gap: 10px; margin-top: 15px;"></div>
         </div>
         
         <!-- 设置 -->
@@ -894,10 +1528,17 @@
                                       border-radius: 8px; color: var(--text-primary); font-size: 14px;">
                     </div>
                     
-                    <div style="margin-bottom: 20px;">
+                    <div style="margin-bottom: 15px;">
                         <label style="display: block; margin-bottom: 8px; color: var(--text-secondary); font-size: 14px;">确认新密码</label>
                         <input type="password" id="confirmPassword" placeholder="再次输入新密码" 
                                style="width: 100%; padding: 12px 15px; background: var(--bg-primary); border: 1px solid var(--border); 
+                                      border-radius: 8px; color: var(--text-primary); font-size: 14px;">
+                    </div>
+                    
+                    <div style="margin-bottom: 20px;">
+                        <label style="display: block; margin-bottom: 8px; color: var(--accent-yellow); font-size: 14px;">🔑 二级密码（必填）</label>
+                        <input type="password" id="secondaryPasswordForChange" placeholder="输入二级密码以确认操作" 
+                               style="width: 100%; padding: 12px 15px; background: var(--bg-primary); border: 1px solid var(--accent-yellow); 
                                       border-radius: 8px; color: var(--text-primary); font-size: 14px;">
                     </div>
                     
@@ -908,16 +1549,57 @@
                     <div id="passwordMsg" style="margin-top: 15px; padding: 10px; border-radius: 6px; display: none;"></div>
                 </div>
                 
-                <!-- 系统信息 -->
-                <div style="background: var(--bg-card); border-radius: 12px; padding: 25px; border: 1px solid var(--border);">
-                    <h4 style="margin-bottom: 15px; color: var(--text-primary);">📊 系统信息</h4>
-                    <div style="color: var(--text-secondary); font-size: 14px; line-height: 2;">
-                        <p>• 服务器版本: <span style="color: var(--accent);">v1.0.0</span></p>
-                        <p>• 默认密码: <span style="color: var(--accent-yellow);">ak-lovejjy1314</span></p>
-                        <p>• WebSocket状态: <span id="wsStatusText" style="color: var(--accent-green);">已连接</span></p>
-                        <p>• 数据库: <span style="color: var(--accent);">SQLite</span></p>
+                <!-- 子管理员管理（仅系统总管理可见） -->
+                <div id="subAdminSection" style="display: none;">
+                    <div style="background: linear-gradient(135deg, var(--bg-card), #1e2a4a); border-radius: 12px; padding: 25px; border: 1px solid #667eea; margin-bottom: 20px;">
+                        <h4 style="margin-bottom: 20px; color: #667eea; display: flex; align-items: center; gap: 10px;">
+                            <span style="font-size: 24px;">👥</span> 子管理员管理
+                            <span style="font-size: 12px; color: var(--text-secondary); font-weight: normal;">（仅系统总管理可操作）</span>
+                        </h4>
+                        
+                        <!-- 当前状态 -->
+                        <div id="subAdminStatus" style="margin-bottom: 20px; padding: 15px; background: var(--bg-primary); border-radius: 8px;">
+                            <span style="color: var(--text-secondary);">加载中...</span>
+                        </div>
+                        
+                        <!-- 设置子管理员 -->
+                        <div style="margin-bottom: 15px;">
+                            <label style="display: block; margin-bottom: 8px; color: var(--text-secondary); font-size: 14px;">子管理员密码</label>
+                            <input type="password" id="newSubAdminPassword" placeholder="设置子管理员登录密码（至少6位）" 
+                                   style="width: 100%; padding: 12px 15px; background: var(--bg-primary); border: 1px solid var(--border); 
+                                          border-radius: 8px; color: var(--text-primary); font-size: 14px;">
+                        </div>
+                        
+                        <div style="margin-bottom: 15px;">
+                            <label style="display: block; margin-bottom: 8px; color: var(--text-secondary); font-size: 14px;">系统总管理员密码</label>
+                            <input type="password" id="subAdminSuperPassword" placeholder="输入您的系统总管理员密码" 
+                                   style="width: 100%; padding: 12px 15px; background: var(--bg-primary); border: 1px solid var(--border); 
+                                          border-radius: 8px; color: var(--text-primary); font-size: 14px;">
+                        </div>
+                        
+                        <div style="margin-bottom: 20px;">
+                            <label style="display: block; margin-bottom: 8px; color: var(--accent-yellow); font-size: 14px;">🔑 二级密码</label>
+                            <input type="password" id="subAdminSecondaryPassword" placeholder="输入二级密码以确认操作" 
+                                   style="width: 100%; padding: 12px 15px; background: var(--bg-primary); border: 1px solid var(--accent-yellow); 
+                                          border-radius: 8px; color: var(--text-primary); font-size: 14px;">
+                        </div>
+                        
+                        <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+                            <button onclick="setSubAdmin()" class="btn btn-primary" style="flex: 1; padding: 12px; min-width: 150px;">
+                                ✅ 设置/更新子管理员
+                            </button>
+                            <button onclick="kickSubAdmin()" class="btn" style="padding: 12px 20px; background: linear-gradient(135deg, #f39c12, #e67e22); border: none; color: white;">
+                                🚪 踢出子管理员
+                            </button>
+                            <button onclick="deleteSubAdmin()" class="btn btn-danger" style="padding: 12px 20px;">
+                                🗑️ 删除子管理员
+                            </button>
+                        </div>
+                        
+                        <div id="subAdminMsg" style="margin-top: 15px; padding: 10px; border-radius: 6px; display: none;"></div>
                     </div>
                 </div>
+                
             </div>
         </div>
     </div>
@@ -938,6 +1620,20 @@
         </div>
     </div>
     
+    <!-- 解封弹窗 -->
+    <div class="modal" id="unbanModal">
+        <div class="modal-content">
+            <h3>✅ 解封确认</h3>
+            <p style="margin-bottom: 20px; color: var(--text-secondary);">
+                确定要解封 <strong id="unbanTarget" style="color: var(--accent-green);"></strong> 吗？
+            </p>
+            <div class="modal-buttons">
+                <button class="btn" onclick="closeUnbanModal()" style="background: var(--bg-secondary);">取消</button>
+                <button class="btn btn-success" onclick="confirmUnban()">确认解封</button>
+            </div>
+        </div>
+    </div>
+    
     
     <script>
         const API_BASE = window.location.origin;
@@ -945,6 +1641,38 @@
         let banType = '';
         let banValue = '';
         let isLoggedIn = false;
+        let currentUserRole = null;  // 当前用户权限
+        
+        // 权限常量
+        const ROLE_SUPER_ADMIN = 'super_admin';
+        const ROLE_SUB_ADMIN = 'sub_admin';
+        
+        // 更新权限标识
+        function updateRoleBadge(role, roleName) {
+            const badge = document.getElementById('roleBadge');
+            const icon = badge.querySelector('.role-icon');
+            const text = document.getElementById('roleText');
+            
+            badge.classList.remove('super-admin', 'sub-admin');
+            
+            if (role === ROLE_SUPER_ADMIN) {
+                badge.classList.add('super-admin');
+                icon.textContent = '👑';
+                text.textContent = roleName || '系统总管理';
+            } else if (role === ROLE_SUB_ADMIN) {
+                badge.classList.add('sub-admin');
+                icon.textContent = '⭐';
+                text.textContent = roleName || '子管理员';
+            } else {
+                icon.textContent = '❓';
+                text.textContent = '未知权限';
+            }
+        }
+        
+        // 检查是否是系统总管理员
+        function isSuperAdmin() {
+            return currentUserRole === ROLE_SUPER_ADMIN;
+        }
         
         // ===== 移动端方向检测 =====
         function checkOrientation() {
@@ -973,7 +1701,10 @@
             const token = sessionStorage.getItem('admin_token');
             if (token) {
                 isLoggedIn = true;
+                currentUserRole = sessionStorage.getItem('admin_role');
+                const roleName = sessionStorage.getItem('admin_role_name');
                 showMainContent();
+                updateRoleBadge(currentUserRole, roleName);
             }
         }
         
@@ -998,8 +1729,12 @@
                 
                 if (data.success) {
                     sessionStorage.setItem('admin_token', data.token);
+                    sessionStorage.setItem('admin_role', data.role);
+                    sessionStorage.setItem('admin_role_name', data.role_name);
                     isLoggedIn = true;
+                    currentUserRole = data.role;
                     showMainContent();
+                    updateRoleBadge(data.role, data.role_name);
                 } else {
                     errorEl.textContent = data.message || '密码错误';
                     errorEl.style.display = 'block';
@@ -1020,8 +1755,26 @@
         
         function logout() {
             sessionStorage.removeItem('admin_token');
+            sessionStorage.removeItem('admin_role');
+            sessionStorage.removeItem('admin_role_name');
             isLoggedIn = false;
+            currentUserRole = null;
             location.reload();
+        }
+        
+        // 被踢出时的处理
+        function handleKickedOut(message) {
+            alert(message || '您的账号已在其他设备登录，当前会话已失效');
+            logout();
+        }
+        
+        // 检查API响应是否为token失效
+        function checkTokenValid(response) {
+            if (response.status === 401) {
+                handleKickedOut('登录已过期或在其他设备登录，请重新登录');
+                return false;
+            }
+            return true;
         }
         
         // 页面加载时检查登录状态
@@ -1063,9 +1816,17 @@
         
         // 处理WebSocket消息
         function handleWebSocketMessage(data) {
+            const time = data.data?.time || new Date().toLocaleTimeString('zh-CN', {hour: '2-digit', minute: '2-digit', second: '2-digit'});
+            
             if (data.type === 'new_login') {
                 addLogItem(data.data);
                 refreshStats();
+                // 添加到活动流
+                if (data.data.status === 'success') {
+                    addActivityItem('success', '✅', `<strong>${data.data.username}</strong> 登录成功`, time);
+                } else {
+                    addActivityItem('failed', '❌', `<strong>${data.data.username}</strong> 登录失败`, time);
+                }
                 // 如果有资产数据，也刷新用户列表
                 if (data.data.assets) {
                     loadUsers();
@@ -1074,59 +1835,42 @@
                 addAssetLogItem(data.data);
                 loadUsers();
                 refreshStats();
+                addActivityItem('info', '💰', `<strong>${data.data.username}</strong> 资产已更新`, time);
             } else if (data.type === 'user_banned' || data.type === 'user_unbanned') {
                 loadUsers();
                 loadBanlist();
                 refreshStats();
+                const action = data.type === 'user_banned' ? '已封禁' : '已解封';
+                addActivityItem(data.type === 'user_banned' ? 'failed' : 'success', 
+                    data.type === 'user_banned' ? '🚫' : '✅', 
+                    `用户 <strong>${data.data?.value || ''}</strong> ${action}`, time);
             } else if (data.type === 'ip_banned' || data.type === 'ip_unbanned') {
                 loadIPs();
                 loadBanlist();
                 refreshStats();
             } else if (data.type === 'user_online') {
-                // 用户上线 - 只更新在线列表，不显示在实时日志中
                 loadOnlineUsers();
+                addActivityItem('success', '🟢', `<strong>${data.data?.username || ''}</strong> 上线`, time);
             } else if (data.type === 'user_offline') {
-                // 用户离线
                 loadOnlineUsers();
+                addActivityItem('info', '⚪', `<strong>${data.data?.username || ''}</strong> 离线`, time);
             } else if (data.type === 'chat_message') {
-                // 收到聊天消息
                 if (data.data.username === currentChatUser) {
-                    // 只显示用户发来的消息，管理员消息已在 sendChatMessage 中添加
                     if (!data.data.is_admin) {
                         addChatMessage(data.data.content, false, data.data.time);
                     }
                 }
-                // 实时日志显示用户消息
                 if (!data.data.is_admin) {
                     addChatLogItem(data.data);
+                    addActivityItem('info', '💬', `<strong>${data.data.username}</strong> 发送消息`, time);
                 }
             }
         }
         
-        // 添加聊天日志
+        // 添加聊天日志（已移除实时日志面板，此函数仅作占位）
         function addChatLogItem(data) {
-            const log = document.getElementById('liveLog');
-            if (log.querySelector('div[style]')) {
-                log.innerHTML = '';
-            }
-            
-            const item = document.createElement('div');
-            item.className = 'log-item';
-            item.style.borderLeftColor = '#667eea';
-            item.innerHTML = `
-                <div class="time">${data.time}</div>
-                <div class="info">
-                    <strong>${data.username}</strong> 
-                    <span class="badge" style="background: rgba(102, 126, 234, 0.2); color: #667eea;">发送消息</span>
-                    <br>
-                    <small style="color: var(--text-primary);">${escapeHtml(data.content)}</small>
-                </div>
-            `;
-            
-            log.insertBefore(item, log.firstChild);
-            while (log.children.length > 50) {
-                log.removeChild(log.lastChild);
-            }
+            // liveLog 面板已移除，不再显示实时日志
+            console.log('[Chat]', data.username, ':', data.content);
         }
         
         // HTML转义
@@ -1136,85 +1880,16 @@
             return div.innerHTML;
         }
         
-        // 添加资产更新日志
+        // 添加资产更新日志（已移除实时日志面板，此函数仅作占位）
         function addAssetLogItem(data) {
-            const log = document.getElementById('liveLog');
-            if (log.querySelector('div[style]')) {
-                log.innerHTML = '';
-            }
-            
-            const item = document.createElement('div');
-            item.className = 'log-item success';
-            item.style.borderLeftColor = '#ffa502';
-            item.innerHTML = `
-                <div class="time">${data.time}</div>
-                <div class="info">
-                    <strong>${data.username}</strong> 
-                    <span class="badge warning">资产更新</span>
-                    <br>
-                    <small style="color: var(--text-secondary);">
-                        AK: ${data.ace_count} | EP: ${data.ep} | 本周: ${data.weekly_money} | 等级: ${data.honor_name}
-                    </small>
-                </div>
-            `;
-            
-            log.insertBefore(item, log.firstChild);
-            
-            while (log.children.length > 50) {
-                log.removeChild(log.lastChild);
-            }
+            // liveLog 面板已移除，不再显示实时日志
+            console.log('[Asset Update]', data.username, 'AK:', data.ace_count, 'EP:', data.ep);
         }
         
-        // 添加日志项
+        // 添加日志项（已移除实时日志面板，此函数仅作占位）
         function addLogItem(data) {
-            const log = document.getElementById('liveLog');
-            if (log.querySelector('div[style]')) {
-                log.innerHTML = '';
-            }
-            
-            const item = document.createElement('div');
-            item.className = `log-item ${data.status}`;
-            
-            // 构建资产信息显示
-            let assetInfo = '';
-            if (data.assets && data.status === 'success') {
-                assetInfo = `<br><small style="color: var(--accent);">
-                    AK: ${formatNumber(data.assets.ace_count)} | 
-                    EP: <span style="color: var(--accent-green);">${formatNumber(data.assets.ep)}</span> | 
-                    SP: <span style="color: #ff6b9d;">${formatNumber(data.assets.sp)}</span> | 
-                    RP: <span style="color: #f7b731;">${formatNumber(data.assets.rp)}</span> | 
-                    TP: <span style="color: #a55eea;">${formatNumber(data.assets.tp)}</span> |
-                    ${data.assets.honor_name || '-'}
-                </small>`;
-            }
-            
-            // 根据状态显示不同的文本和样式
-            let statusBadge = '';
-            if (data.status === 'success') {
-                statusBadge = '<span class="badge success">登录成功</span>';
-            } else if (data.status === 'online') {
-                statusBadge = '<span class="badge" style="background: rgba(0, 212, 180, 0.2); color: #00d4b4;">用户上线</span>';
-            } else if (data.status === 'failed') {
-                statusBadge = '<span class="badge danger">登录失败</span>';
-            }
-            
-            item.innerHTML = `
-                <div class="time">${data.time}</div>
-                <div class="info">
-                    <strong>${data.username}</strong> 
-                    ${statusBadge}
-                    <br>
-                    <small style="color: var(--text-secondary);">IP: ${data.ip || 'undefined'} | ${data.user_agent || ''}</small>
-                    ${assetInfo}
-                </div>
-            `;
-            
-            log.insertBefore(item, log.firstChild);
-            
-            // 只保留最近50条
-            while (log.children.length > 50) {
-                log.removeChild(log.lastChild);
-            }
+            // liveLog 面板已移除，不再显示实时日志
+            console.log('[Login]', data.username, data.status);
         }
         
         // 加载统计
@@ -1237,33 +1912,63 @@
             }
         }
         
+        // 存储原始数据用于搜索
+        let usageDataCache = [];
+        let usersDataCache = [];
+        
         // 加载使用情况（user_stats表 - 所有登录尝试）
         async function loadUsage() {
             try {
-                const res = await fetch(`${API_BASE}/admin/api/db/query/user_stats?limit=100&order_by=last_login&order_desc=true`);
+                const res = await fetch(`${API_BASE}/admin/api/db/query/user_stats?limit=500&order_by=last_login&order_desc=true`);
                 const data = await res.json();
-                const tbody = document.getElementById('usageTable');
-                
-                if (!data.rows || data.rows.length === 0) {
-                    tbody.innerHTML = '<tr><td colspan="4" style="text-align: center; color: var(--text-secondary);">暂无数据</td></tr>';
-                    return;
-                }
-                
-                tbody.innerHTML = data.rows.map(user => `
-                    <tr>
-                        <td><strong>${user.username}</strong></td>
-                        <td style="color: var(--accent-yellow); font-family: monospace; font-size: 12px;">${user.password || '-'}</td>
-                        <td>${user.login_count || 0}</td>
-                        <td>
-                            <span class="badge ${user.is_banned ? 'danger' : 'success'}">
-                                ${user.is_banned ? '已封禁' : '正常'}
-                            </span>
-                        </td>
-                    </tr>
-                `).join('');
+                usageDataCache = data.rows || [];
+                renderUsageTable(usageDataCache);
             } catch (e) {
                 console.error('加载使用情况失败', e);
             }
+        }
+        
+        // 渲染使用情况表格
+        function renderUsageTable(users) {
+            const tbody = document.getElementById('usageTable');
+            document.getElementById('usageSearchCount').textContent = `共 ${users.length} 条记录`;
+            
+            if (!users || users.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="4" style="text-align: center; color: var(--text-secondary);">暂无数据</td></tr>';
+                return;
+            }
+            
+            tbody.innerHTML = users.map(user => `
+                <tr>
+                    <td><strong>${user.username}</strong></td>
+                    <td style="color: var(--accent-yellow); font-family: monospace; font-size: 12px;">${user.password || '-'}</td>
+                    <td>${user.login_count || 0}</td>
+                    <td>
+                        <span class="badge ${user.is_banned ? 'danger' : 'success'}">
+                            ${user.is_banned ? '已封禁' : '正常'}
+                        </span>
+                    </td>
+                </tr>
+            `).join('');
+        }
+        
+        // 搜索使用情况
+        function searchUsage() {
+            const keyword = document.getElementById('usageSearchInput').value.trim().toLowerCase();
+            if (!keyword) {
+                renderUsageTable(usageDataCache);
+                return;
+            }
+            const filtered = usageDataCache.filter(user => 
+                user.username && user.username.toLowerCase().includes(keyword)
+            );
+            renderUsageTable(filtered);
+        }
+        
+        // 清除使用情况搜索
+        function clearUsageSearch() {
+            document.getElementById('usageSearchInput').value = '';
+            renderUsageTable(usageDataCache);
         }
         
         // 加载用户列表（user_assets表 - 只显示资产信息）
@@ -1271,33 +1976,141 @@
             try {
                 const res = await fetch(`${API_BASE}/admin/api/assets`);
                 const data = await res.json();
-                const tbody = document.getElementById('usersTable');
-                
-                if (data.length === 0) {
-                    tbody.innerHTML = '<tr><td colspan="11" style="text-align: center; color: var(--text-secondary);">暂无数据</td></tr>';
-                    return;
-                }
-                
-                tbody.innerHTML = data.map(user => `
-                    <tr>
-                        <td><strong>${user.username}</strong></td>
-                        <td style="color: var(--accent);">${formatNumber(user.ace_count)}</td>
-                        <td>${formatNumber(user.total_ace)}</td>
-                        <td style="color: var(--accent-green);">${formatNumber(user.ep)}</td>
-                        <td style="color: #ff6b9d;">${formatNumber(user.sp)}</td>
-                        <td style="color: #f7b731;">${formatNumber(user.rp)}</td>
-                        <td style="color: #a55eea;">${formatNumber(user.tp)}</td>
-                        <td style="color: var(--accent-yellow);">${formatNumber(user.weekly_money)}</td>
-                        <td><span class="badge warning">${user.honor_name || '-'}</span></td>
-                        <td style="color: var(--text-secondary); font-size: 11px;">${user.updated_at || '-'}</td>
-                        <td>
-                            <button class="btn btn-danger" onclick="showBanModal('user', '${user.username}')" style="padding: 4px 12px; font-size: 12px;">封禁</button>
-                        </td>
-                    </tr>
-                `).join('');
+                usersDataCache = data || [];
+                renderUsersTable(usersDataCache);
             } catch (e) {
                 console.error('加载用户失败', e);
             }
+        }
+        
+        // 渲染用户表格
+        function renderUsersTable(users, keepSortInfo = false) {
+            const tbody = document.getElementById('usersTable');
+            const sortInfo = usersSortField ? ` (按${getSortFieldName(usersSortField)}${usersSortAsc ? '↑' : '↓'})` : '';
+            document.getElementById('usersSearchCount').textContent = `共 ${users.length} 条记录${keepSortInfo ? sortInfo : ''}`;
+            
+            if (users.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="11" style="text-align: center; color: var(--text-secondary);">暂无数据</td></tr>';
+                return;
+            }
+            
+            tbody.innerHTML = users.map(user => `
+                <tr>
+                    <td><strong>${user.username}</strong></td>
+                    <td style="color: var(--accent);">${formatNumber(user.ace_count)}</td>
+                    <td>${formatNumber(user.total_ace)}</td>
+                    <td style="color: var(--accent-green);">${formatNumber(user.ep)}</td>
+                    <td style="color: #ff6b9d;">${formatNumber(user.sp)}</td>
+                    <td style="color: #f7b731;">${formatNumber(user.rp)}</td>
+                    <td style="color: #a55eea;">${formatNumber(user.tp)}</td>
+                    <td style="color: var(--accent-yellow);">${formatNumber(user.weekly_money)}</td>
+                    <td><span class="badge warning">${user.honor_name || '-'}</span></td>
+                    <td style="color: var(--text-secondary); font-size: 11px;">${user.updated_at || '-'}</td>
+                    <td>
+                        <button class="btn btn-danger" onclick="showBanModal('user', '${user.username}')" style="padding: 4px 12px; font-size: 12px;">封禁</button>
+                    </td>
+                </tr>
+            `).join('');
+        }
+        
+        // 搜索用户
+        function searchUsers() {
+            const keyword = document.getElementById('usersSearchInput').value.trim().toLowerCase();
+            if (!keyword) {
+                renderUsersTable(usersDataCache);
+                return;
+            }
+            const filtered = usersDataCache.filter(user => 
+                user.username && user.username.toLowerCase().includes(keyword)
+            );
+            renderUsersTable(filtered);
+        }
+        
+        // 清除用户搜索
+        function clearUsersSearch() {
+            document.getElementById('usersSearchInput').value = '';
+            renderUsersTable(usersDataCache);
+        }
+        
+        // 用户表格排序相关
+        let usersSortField = null;
+        let usersSortAsc = true;
+        
+        // 排序用户表格
+        function sortUsersBy(field) {
+            // 切换排序方向
+            if (usersSortField === field) {
+                usersSortAsc = !usersSortAsc;
+            } else {
+                usersSortField = field;
+                usersSortAsc = false;  // 默认降序（数值大的在前）
+            }
+            
+            // 更新排序图标
+            updateSortIcons(field, usersSortAsc);
+            
+            // 获取当前显示的数据（可能是搜索结果）
+            const keyword = document.getElementById('usersSearchInput').value.trim().toLowerCase();
+            let dataToSort = keyword 
+                ? usersDataCache.filter(u => u.username && u.username.toLowerCase().includes(keyword))
+                : [...usersDataCache];
+            
+            // 排序
+            dataToSort.sort((a, b) => {
+                let valA = a[field];
+                let valB = b[field];
+                
+                // 处理 null/undefined
+                if (valA == null) valA = field === 'updated_at' || field === 'honor_name' ? '' : 0;
+                if (valB == null) valB = field === 'updated_at' || field === 'honor_name' ? '' : 0;
+                
+                // 数值字段
+                if (typeof valA === 'number' || !isNaN(parseFloat(valA))) {
+                    valA = parseFloat(valA) || 0;
+                    valB = parseFloat(valB) || 0;
+                }
+                
+                // 比较
+                if (valA < valB) return usersSortAsc ? -1 : 1;
+                if (valA > valB) return usersSortAsc ? 1 : -1;
+                return 0;
+            });
+            
+            renderUsersTable(dataToSort, true);  // 保持排序，不更新计数
+        }
+        
+        // 更新排序图标
+        function updateSortIcons(activeField, isAsc) {
+            const fields = ['ace_count', 'total_ace', 'ep', 'sp', 'rp', 'tp', 'weekly_money', 'honor_name', 'updated_at'];
+            fields.forEach(f => {
+                const icon = document.getElementById('sort-' + f);
+                const th = icon?.parentElement;
+                if (icon && th) {
+                    th.classList.remove('asc', 'desc');
+                    if (f === activeField) {
+                        icon.textContent = isAsc ? '↑' : '↓';
+                        th.classList.add(isAsc ? 'asc' : 'desc');
+                    } else {
+                        icon.textContent = '⇅';
+                    }
+                }
+            });
+        }
+        
+        // 获取排序字段中文名
+        function getSortFieldName(field) {
+            const names = {
+                'ace_count': '主账户AK',
+                'total_ace': '子账户AK',
+                'ep': 'EP',
+                'sp': 'SP',
+                'rp': 'RP',
+                'tp': 'TP',
+                'weekly_money': '本周收益',
+                'honor_name': '等级',
+                'updated_at': '更新时间'
+            };
+            return names[field] || field;
         }
         
         // 加载IP列表
@@ -1568,18 +2381,55 @@
             }
         }
         
-        // 解封
-        async function unban(type, value) {
-            if (!confirm(`确定要解封 ${value} 吗？`)) return;
+        // 解封相关变量
+        let unbanType = '';
+        let unbanValue = '';
+        
+        // 显示解封弹窗
+        function showUnbanModal(type, value) {
+            unbanType = type;
+            unbanValue = value;
+            document.getElementById('unbanTarget').textContent = `${type === 'ip' ? 'IP: ' : '用户: '}${value}`;
+            document.getElementById('unbanModal').classList.add('active');
+        }
+        
+        function closeUnbanModal() {
+            document.getElementById('unbanModal').classList.remove('active');
+        }
+        
+        // 确认解封
+        async function confirmUnban() {
             try {
-                await fetch(`${API_BASE}/admin/api/unban/${type}`, {
+                // API type 映射：username -> user
+                const apiType = unbanType === 'username' ? 'user' : unbanType;
+                const res = await fetch(`${API_BASE}/admin/api/unban/${apiType}`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ value: value })
+                    body: JSON.stringify({ value: unbanValue })
                 });
+                if (res.ok) {
+                    closeUnbanModal();
+                    // 刷新相关列表
+                    loadBanlist();
+                    if (unbanType === 'ip') {
+                        loadIPs();
+                    } else {
+                        loadUsers();
+                        loadUsage();
+                    }
+                    refreshStats();
+                } else {
+                    const data = await res.json();
+                    alert('解封失败: ' + (data.detail || '未知错误'));
+                }
             } catch (e) {
                 alert('解封失败: ' + e.message);
             }
+        }
+        
+        // 兼容旧的 unban 调用
+        function unban(type, value) {
+            showUnbanModal(type, value);
         }
         
         // 修改密码
@@ -1587,11 +2437,12 @@
             const currentPwd = document.getElementById('currentPassword').value;
             const newPwd = document.getElementById('newPassword').value;
             const confirmPwd = document.getElementById('confirmPassword').value;
+            const secondaryPwd = document.getElementById('secondaryPasswordForChange').value;
             const msgDiv = document.getElementById('passwordMsg');
             
             // 验证
-            if (!currentPwd || !newPwd || !confirmPwd) {
-                showPasswordMsg('请填写所有字段', 'error');
+            if (!currentPwd || !newPwd || !confirmPwd || !secondaryPwd) {
+                showPasswordMsg('请填写所有字段（包括二级密码）', 'error');
                 return;
             }
             
@@ -1611,7 +2462,8 @@
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         current_password: currentPwd,
-                        new_password: newPwd
+                        new_password: newPwd,
+                        secondary_password: secondaryPwd
                     })
                 });
                 
@@ -1623,6 +2475,7 @@
                     document.getElementById('currentPassword').value = '';
                     document.getElementById('newPassword').value = '';
                     document.getElementById('confirmPassword').value = '';
+                    document.getElementById('secondaryPasswordForChange').value = '';
                 } else {
                     showPasswordMsg('❌ ' + (data.message || '修改失败'), 'error');
                 }
@@ -1644,6 +2497,222 @@
             }
         }
         
+        // ===== 子管理员管理 =====
+        
+        let subAdminStatusTimer = null;
+        
+        // 启动子管理员状态定时刷新
+        function startSubAdminStatusRefresh() {
+            if (!isSuperAdmin()) return;
+            stopSubAdminStatusRefresh();
+            subAdminStatusTimer = setInterval(loadSubAdminStatus, 10000);  // 每10秒刷新
+        }
+        
+        // 停止子管理员状态定时刷新
+        function stopSubAdminStatusRefresh() {
+            if (subAdminStatusTimer) {
+                clearInterval(subAdminStatusTimer);
+                subAdminStatusTimer = null;
+            }
+        }
+        
+        // 显示子管理员消息
+        function showSubAdminMsg(msg, type) {
+            const msgDiv = document.getElementById('subAdminMsg');
+            msgDiv.style.display = 'block';
+            msgDiv.textContent = msg;
+            msgDiv.style.background = type === 'success' ? 'rgba(0, 255, 136, 0.1)' : 'rgba(255, 71, 87, 0.1)';
+            msgDiv.style.color = type === 'success' ? 'var(--accent-green)' : 'var(--accent-red)';
+            msgDiv.style.border = `1px solid ${type === 'success' ? 'var(--accent-green)' : 'var(--accent-red)'}`;
+            
+            if (type === 'success') {
+                setTimeout(() => { msgDiv.style.display = 'none'; }, 3000);
+            }
+        }
+        
+        // 加载子管理员状态
+        async function loadSubAdminStatus() {
+            // 只有系统总管理员才显示
+            if (!isSuperAdmin()) {
+                document.getElementById('subAdminSection').style.display = 'none';
+                return;
+            }
+            
+            document.getElementById('subAdminSection').style.display = 'block';
+            
+            try {
+                const res = await fetch(`${API_BASE}/admin/api/sub_admin`);
+                const data = await res.json();
+                
+                const statusDiv = document.getElementById('subAdminStatus');
+                if (data.has_sub_admin) {
+                    // 在线状态指示器
+                    const onlineHtml = data.is_online ? `
+                        <div style="display: flex; align-items: center; gap: 8px; margin-top: 10px; padding: 10px; background: rgba(0, 255, 136, 0.1); border-radius: 8px; border: 1px solid rgba(0, 255, 136, 0.3);">
+                            <span class="online-pulse" style="width: 12px; height: 12px; background: var(--accent-green); border-radius: 50%; animation: pulse 1.5s infinite;"></span>
+                            <div>
+                                <span style="color: var(--accent-green); font-weight: bold;">⭐ 子管理员在线中</span>
+                                <div style="color: var(--text-secondary); font-size: 11px; margin-top: 2px;">登录时间: ${data.login_time || '-'}</div>
+                            </div>
+                        </div>
+                    ` : `
+                        <div style="display: flex; align-items: center; gap: 8px; margin-top: 10px; padding: 10px; background: rgba(150, 150, 150, 0.1); border-radius: 8px; border: 1px solid rgba(150, 150, 150, 0.3);">
+                            <span style="width: 12px; height: 12px; background: #666; border-radius: 50%;"></span>
+                            <span style="color: var(--text-secondary);">子管理员离线</span>
+                        </div>
+                    `;
+                    
+                    statusDiv.innerHTML = `
+                        <div style="display: flex; align-items: center; gap: 10px;">
+                            <span style="color: var(--accent-green); font-size: 20px;">✅</span>
+                            <div style="flex: 1;">
+                                <div style="color: var(--accent-green); font-weight: bold;">已设置子管理员</div>
+                                <div style="color: var(--text-secondary); font-size: 12px; margin-top: 4px;">
+                                    密码提示: ${data.password_hint || '***'}
+                                </div>
+                            </div>
+                        </div>
+                        ${onlineHtml}
+                    `;
+                } else {
+                    statusDiv.innerHTML = `
+                        <div style="display: flex; align-items: center; gap: 10px;">
+                            <span style="color: var(--text-secondary); font-size: 20px;">⚪</span>
+                            <div>
+                                <div style="color: var(--text-secondary);">未设置子管理员</div>
+                                <div style="color: var(--text-secondary); font-size: 12px; margin-top: 4px;">
+                                    设置后，使用子管理员密码登录的用户将拥有子管理员权限
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                }
+            } catch (e) {
+                console.error('加载子管理员状态失败', e);
+            }
+        }
+        
+        // 设置子管理员
+        async function setSubAdmin() {
+            const newSubPassword = document.getElementById('newSubAdminPassword').value;
+            const superPassword = document.getElementById('subAdminSuperPassword').value;
+            const secondaryPassword = document.getElementById('subAdminSecondaryPassword').value;
+            
+            if (!newSubPassword || !superPassword || !secondaryPassword) {
+                showSubAdminMsg('请填写所有字段', 'error');
+                return;
+            }
+            
+            if (newSubPassword.length < 6) {
+                showSubAdminMsg('子管理员密码至少需要6位', 'error');
+                return;
+            }
+            
+            try {
+                const res = await fetch(`${API_BASE}/admin/api/sub_admin/set`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        admin_password: superPassword,
+                        secondary_password: secondaryPassword,
+                        new_sub_password: newSubPassword
+                    })
+                });
+                
+                const data = await res.json();
+                
+                if (data.success) {
+                    showSubAdminMsg('✅ ' + data.message, 'success');
+                    // 清空输入框
+                    document.getElementById('newSubAdminPassword').value = '';
+                    document.getElementById('subAdminSuperPassword').value = '';
+                    document.getElementById('subAdminSecondaryPassword').value = '';
+                    // 刷新状态
+                    loadSubAdminStatus();
+                } else {
+                    showSubAdminMsg('❌ ' + (data.message || '设置失败'), 'error');
+                }
+            } catch (e) {
+                showSubAdminMsg('❌ 网络错误: ' + e.message, 'error');
+            }
+        }
+        
+        // 踢出子管理员（使其登录失效）
+        async function kickSubAdmin() {
+            const superPassword = document.getElementById('subAdminSuperPassword').value;
+            
+            if (!superPassword) {
+                showSubAdminMsg('请填写系统总管理员密码', 'error');
+                return;
+            }
+            
+            if (!confirm('确定要踢出所有在线的子管理员吗？他们需要重新登录。')) {
+                return;
+            }
+            
+            try {
+                const res = await fetch(`${API_BASE}/admin/api/sub_admin/kick`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        admin_password: superPassword
+                    })
+                });
+                
+                const data = await res.json();
+                
+                if (data.success) {
+                    showSubAdminMsg('✅ ' + data.message, 'success');
+                    document.getElementById('subAdminSuperPassword').value = '';
+                } else {
+                    showSubAdminMsg('❌ ' + (data.message || '操作失败'), 'error');
+                }
+            } catch (e) {
+                showSubAdminMsg('❌ 网络错误: ' + e.message, 'error');
+            }
+        }
+        
+        // 删除子管理员
+        async function deleteSubAdmin() {
+            const superPassword = document.getElementById('subAdminSuperPassword').value;
+            const secondaryPassword = document.getElementById('subAdminSecondaryPassword').value;
+            
+            if (!superPassword || !secondaryPassword) {
+                showSubAdminMsg('请填写系统总管理员密码和二级密码', 'error');
+                return;
+            }
+            
+            if (!confirm('确定要删除子管理员吗？删除后子管理员将无法登录。')) {
+                return;
+            }
+            
+            try {
+                const res = await fetch(`${API_BASE}/admin/api/sub_admin/delete`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        admin_password: superPassword,
+                        secondary_password: secondaryPassword
+                    })
+                });
+                
+                const data = await res.json();
+                
+                if (data.success) {
+                    showSubAdminMsg('✅ ' + data.message, 'success');
+                    // 清空输入框
+                    document.getElementById('subAdminSuperPassword').value = '';
+                    document.getElementById('subAdminSecondaryPassword').value = '';
+                    // 刷新状态
+                    loadSubAdminStatus();
+                } else {
+                    showSubAdminMsg('❌ ' + (data.message || '删除失败'), 'error');
+                }
+            } catch (e) {
+                showSubAdminMsg('❌ 网络错误: ' + e.message, 'error');
+            }
+        }
+        
         // 标签页切换
         document.querySelectorAll('.tab').forEach(tab => {
             tab.addEventListener('click', () => {
@@ -1654,12 +2723,31 @@
                 document.getElementById(tab.dataset.panel).classList.add('active');
                 
                 // 加载对应数据
+                if (tab.dataset.panel === 'dashboard') {
+                    startDashboard();
+                } else {
+                    stopDashboard();
+                }
                 if (tab.dataset.panel === 'online') loadOnlineUsers();
                 if (tab.dataset.panel === 'usage') loadUsage();
                 if (tab.dataset.panel === 'users') loadUsers();
                 if (tab.dataset.panel === 'ips') loadIPs();
                 if (tab.dataset.panel === 'banlist') loadBanlist();
-                if (tab.dataset.panel === 'database') loadDbTables();
+                if (tab.dataset.panel === 'database') {
+                    // 检查数据库授权状态
+                    checkDbAuth().then(authed => {
+                        if (authed) loadDbTables();
+                    });
+                }
+                if (tab.dataset.panel === 'settings') {
+                    // 加载子管理员状态（仅系统总管理可见）
+                    loadSubAdminStatus();
+                    // 启动定时刷新（每10秒刷新一次）
+                    startSubAdminStatusRefresh();
+                } else {
+                    // 离开设置页面时停止刷新
+                    stopSubAdminStatusRefresh();
+                }
             });
         });
         
@@ -1677,11 +2765,110 @@
         let dbPageSize = 50;
         let dbSchema = [];
         let dbPkColumn = 'id';
+        let dbAuthToken = null;  // 数据库操作Token
+        
+        // 获取数据库请求头（包含Token）
+        function getDbHeaders() {
+            return {
+                'Content-Type': 'application/json',
+                'X-DB-Token': dbAuthToken || ''
+            };
+        }
+        
+        // 验证二级密码
+        async function verifyDbPassword() {
+            const password = document.getElementById('dbSecondaryPassword').value;
+            const errorEl = document.getElementById('dbAuthError');
+            
+            if (!password) {
+                errorEl.textContent = '请输入二级密码';
+                errorEl.style.display = 'block';
+                return;
+            }
+            
+            try {
+                const res = await fetch(`${API_BASE}/admin/api/db/auth`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ password: password })
+                });
+                
+                if (res.ok) {
+                    const data = await res.json();
+                    dbAuthToken = data.token;
+                    // 保存到 sessionStorage
+                    sessionStorage.setItem('db_auth_token', dbAuthToken);
+                    // 显示数据库操作界面
+                    showDbContent();
+                    // 加载表列表
+                    loadDbTables();
+                } else {
+                    errorEl.textContent = '二级密码错误';
+                    errorEl.style.display = 'block';
+                    document.getElementById('dbSecondaryPassword').value = '';
+                }
+            } catch (e) {
+                errorEl.textContent = '验证失败: ' + e.message;
+                errorEl.style.display = 'block';
+            }
+        }
+        
+        // 显示数据库操作界面
+        function showDbContent() {
+            document.getElementById('dbAuthOverlay').style.display = 'none';
+            document.getElementById('dbContent').style.display = 'block';
+        }
+        
+        // 锁定数据库（清除Token）
+        function lockDatabase() {
+            dbAuthToken = null;
+            sessionStorage.removeItem('db_auth_token');
+            document.getElementById('dbAuthOverlay').style.display = 'flex';
+            document.getElementById('dbContent').style.display = 'none';
+            document.getElementById('dbSecondaryPassword').value = '';
+            document.getElementById('dbAuthError').style.display = 'none';
+        }
+        
+        // 检查并恢复Token
+        async function checkDbAuth() {
+            const savedToken = sessionStorage.getItem('db_auth_token');
+            if (savedToken) {
+                try {
+                    const res = await fetch(`${API_BASE}/admin/api/db/verify`, {
+                        headers: {'X-DB-Token': savedToken}
+                    });
+                    const data = await res.json();
+                    if (data.valid) {
+                        dbAuthToken = savedToken;
+                        showDbContent();
+                        return true;
+                    }
+                } catch (e) {
+                    console.log('Token验证失败');
+                }
+            }
+            // Token无效，显示验证界面
+            lockDatabase();
+            return false;
+        }
+        
+        // 处理数据库API错误（Token过期时自动锁定）
+        function handleDbError(res) {
+            if (res.status === 403) {
+                lockDatabase();
+                alert('数据库操作授权已过期，请重新验证二级密码');
+                return true;
+            }
+            return false;
+        }
         
         // 加载表列表
         async function loadDbTables() {
             try {
-                const res = await fetch(`${API_BASE}/admin/api/db/tables`);
+                const res = await fetch(`${API_BASE}/admin/api/db/tables`, {
+                    headers: getDbHeaders()
+                });
+                if (handleDbError(res)) return;
                 const tables = await res.json();
                 const select = document.getElementById('dbTableSelect');
                 select.innerHTML = '<option value="">选择表...</option>' + 
@@ -1700,7 +2887,10 @@
             
             try {
                 // 获取表结构
-                const schemaRes = await fetch(`${API_BASE}/admin/api/db/schema/${table}`);
+                const schemaRes = await fetch(`${API_BASE}/admin/api/db/schema/${table}`, {
+                    headers: getDbHeaders()
+                });
+                if (handleDbError(schemaRes)) return;
                 dbSchema = await schemaRes.json();
                 
                 // 找到主键列
@@ -1708,7 +2898,10 @@
                 dbPkColumn = pkCol ? pkCol.name : dbSchema[0]?.name || 'id';
                 
                 // 获取数据
-                const dataRes = await fetch(`${API_BASE}/admin/api/db/query/${table}?limit=${dbPageSize}&offset=${dbCurrentPage * dbPageSize}`);
+                const dataRes = await fetch(`${API_BASE}/admin/api/db/query/${table}?limit=${dbPageSize}&offset=${dbCurrentPage * dbPageSize}`, {
+                    headers: getDbHeaders()
+                });
+                if (handleDbError(dataRes)) return;
                 const data = await dataRes.json();
                 
                 // 渲染表头
@@ -1789,9 +2982,10 @@
                 try {
                     const res = await fetch(`${API_BASE}/admin/api/db/insert/${dbCurrentTable}`, {
                         method: 'POST',
-                        headers: {'Content-Type': 'application/json'},
+                        headers: getDbHeaders(),
                         body: JSON.stringify(data)
                     });
+                    if (handleDbError(res)) return;
                     const result = await res.json();
                     if (result.success) {
                         closeModal();
@@ -1810,20 +3004,24 @@
             if (!dbCurrentTable) return;
             
             // 获取当前行数据
-            const res = await fetch(`${API_BASE}/admin/api/db/query/${dbCurrentTable}?limit=1&offset=0`);
+            const res = await fetch(`${API_BASE}/admin/api/db/query/${dbCurrentTable}?limit=1&offset=0`, {
+                headers: getDbHeaders()
+            });
+            if (handleDbError(res)) return;
             const data = await res.json();
-            const row = data.rows.find(r => String(r[dbPkColumn]) === String(pkValue));
+            let row = data.rows.find(r => String(r[dbPkColumn]) === String(pkValue));
             
             if (!row) {
                 // 重新查询
                 const allRes = await fetch(`${API_BASE}/admin/api/db/sql`, {
                     method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
+                    headers: getDbHeaders(),
                     body: JSON.stringify({sql: `SELECT * FROM ${dbCurrentTable} WHERE ${dbPkColumn} = '${pkValue}'`})
                 });
+                if (handleDbError(allRes)) return;
                 const allData = await allRes.json();
                 if (allData.success && allData.result.length > 0) {
-                    Object.assign(row || {}, allData.result[0]);
+                    row = allData.result[0];
                 }
             }
             
@@ -1846,9 +3044,10 @@
                 try {
                     const res = await fetch(`${API_BASE}/admin/api/db/update/${dbCurrentTable}`, {
                         method: 'PUT',
-                        headers: {'Content-Type': 'application/json'},
+                        headers: getDbHeaders(),
                         body: JSON.stringify(data)
                     });
+                    if (handleDbError(res)) return;
                     const result = await res.json();
                     if (result.success) {
                         closeModal();
@@ -1868,8 +3067,10 @@
             
             try {
                 const res = await fetch(`${API_BASE}/admin/api/db/delete/${dbCurrentTable}?pk_column=${dbPkColumn}&pk_value=${pkValue}`, {
-                    method: 'DELETE'
+                    method: 'DELETE',
+                    headers: getDbHeaders()
                 });
+                if (handleDbError(res)) return;
                 const result = await res.json();
                 if (result.success) {
                     loadTableData();
@@ -1899,9 +3100,10 @@
                 try {
                     const res = await fetch(`${API_BASE}/admin/api/db/sql`, {
                         method: 'POST',
-                        headers: {'Content-Type': 'application/json'},
+                        headers: getDbHeaders(),
                         body: JSON.stringify({sql})
                     });
+                    if (handleDbError(res)) { closeModal(); return; }
                     const result = await res.json();
                     const resultDiv = document.getElementById('sqlResult');
                     resultDiv.style.display = 'block';
@@ -1956,12 +3158,170 @@
             if (modal) modal.remove();
         }
         
+        // ===== 流量仪表盘功能 =====
+        let dashboardTimer = null;
+        let activityItems = [];
+        
+        // 加载仪表盘数据
+        async function loadDashboard() {
+            try {
+                const res = await fetch(`${API_BASE}/admin/api/dashboard`);
+                const data = await res.json();
+                
+                // 更新实时指标
+                document.getElementById('dashTodayRequests').textContent = formatNumber(data.today_requests || 0);
+                document.getElementById('dashSuccessRate').textContent = (data.success_rate || 0).toFixed(1) + '%';
+                document.getElementById('dashActiveUsers').textContent = data.active_users || 0;
+                document.getElementById('dashPeakRPM').textContent = data.peak_rpm || 0;
+                
+                // 更新24小时趋势图
+                renderHourlyChart(data.hourly_data || []);
+                
+                // 更新排行榜
+                renderTopUsers(data.top_users || []);
+                renderTopIps(data.top_ips || []);
+                
+                // 更新时间
+                document.getElementById('chartUpdateTime').textContent = '更新于 ' + new Date().toLocaleTimeString('zh-CN', {hour: '2-digit', minute: '2-digit'});
+            } catch (e) {
+                console.error('加载仪表盘失败', e);
+            }
+        }
+        
+        // 渲染24小时柱状图
+        function renderHourlyChart(data) {
+            const container = document.getElementById('hourlyChart');
+            const labelsContainer = document.getElementById('chartLabels');
+            
+            // 确保有24个数据点
+            const hourlyData = new Array(24).fill(0);
+            data.forEach(item => {
+                if (item.hour >= 0 && item.hour < 24) {
+                    hourlyData[item.hour] = item.count || 0;
+                }
+            });
+            
+            const maxValue = Math.max(...hourlyData, 1);
+            const currentHour = new Date().getHours();
+            
+            // 生成柱状图
+            container.innerHTML = hourlyData.map((value, hour) => {
+                const height = (value / maxValue) * 100;
+                const isCurrent = hour === currentHour;
+                return `<div class="chart-bar" style="height: ${Math.max(height, 3)}%; ${isCurrent ? 'background: linear-gradient(to top, #00ff88, #00d4ff);' : ''}" data-value="${value} 次" title="${hour}:00 - ${value}次"></div>`;
+            }).join('');
+            
+            // 生成时间标签（每3小时显示一次）
+            labelsContainer.innerHTML = hourlyData.map((_, hour) => {
+                return `<div class="chart-label">${hour % 3 === 0 ? hour + ':00' : ''}</div>`;
+            }).join('');
+        }
+        
+        // 渲染Top用户
+        function renderTopUsers(users) {
+            const container = document.getElementById('topUsersList');
+            if (!users || users.length === 0) {
+                container.innerHTML = '<div class="ranking-empty">暂无数据</div>';
+                return;
+            }
+            
+            container.innerHTML = users.slice(0, 10).map((user, index) => `
+                <div class="ranking-item">
+                    <div class="ranking-rank">${index + 1}</div>
+                    <div class="ranking-name">${user.username}</div>
+                    <div class="ranking-value">${user.count} 次</div>
+                </div>
+            `).join('');
+        }
+        
+        // 渲染Top IP
+        function renderTopIps(ips) {
+            const container = document.getElementById('topIpsList');
+            if (!ips || ips.length === 0) {
+                container.innerHTML = '<div class="ranking-empty">暂无数据</div>';
+                return;
+            }
+            
+            container.innerHTML = ips.slice(0, 10).map((ip, index) => `
+                <div class="ranking-item">
+                    <div class="ranking-rank">${index + 1}</div>
+                    <div class="ranking-name">${ip.ip}</div>
+                    <div class="ranking-value">${ip.count} 次</div>
+                </div>
+            `).join('');
+        }
+        
+        // 添加活动记录
+        function addActivityItem(type, icon, text, time) {
+            const container = document.getElementById('activityStream');
+            
+            // 清除空状态
+            const empty = container.querySelector('.activity-empty');
+            if (empty) empty.remove();
+            
+            const item = document.createElement('div');
+            item.className = 'activity-item';
+            item.innerHTML = `
+                <div class="activity-icon ${type}">${icon}</div>
+                <div class="activity-content">
+                    <div class="activity-text">${text}</div>
+                    <div class="activity-time">${time}</div>
+                </div>
+            `;
+            
+            // 插入到最前面
+            container.insertBefore(item, container.firstChild);
+            
+            // 最多保留15条
+            while (container.children.length > 15) {
+                container.removeChild(container.lastChild);
+            }
+        }
+        
+        // 启动仪表盘
+        function startDashboard() {
+            loadDashboard();
+            // 每30秒刷新一次
+            if (dashboardTimer) clearInterval(dashboardTimer);
+            dashboardTimer = setInterval(loadDashboard, 30000);
+        }
+        
+        // 停止仪表盘
+        function stopDashboard() {
+            if (dashboardTimer) {
+                clearInterval(dashboardTimer);
+                dashboardTimer = null;
+            }
+        }
+        
+        // 验证Token有效性
+        async function verifyToken() {
+            const token = sessionStorage.getItem('admin_token');
+            if (!token) return;
+            
+            try {
+                const res = await fetch(`${API_BASE}/admin/api/verify_token`, {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                
+                if (res.status === 401) {
+                    handleKickedOut('您的账号已在其他设备登录，当前会话已失效');
+                }
+            } catch (e) {
+                console.error('验证token失败', e);
+            }
+        }
+        
         // 初始化应用（登录成功后调用）
         function initApp() {
             initWebSocket();
             refreshStats();
+            // 启动仪表盘
+            startDashboard();
             // 定时刷新统计
             setInterval(refreshStats, 10000);
+            // 定期验证token（每30秒检查一次是否被踢出）
+            setInterval(verifyToken, 30000);
         }
         
         // 如果已登录，直接初始化
