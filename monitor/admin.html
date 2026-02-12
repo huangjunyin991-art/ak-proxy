@@ -1493,7 +1493,7 @@
             <div style="margin-bottom: 15px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
                 <input type="text" id="usersSearchInput" placeholder="搜索用户名..." 
                        style="flex: 1; max-width: 300px; padding: 10px 15px; background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; color: var(--text-primary); font-size: 14px;"
-                       onkeypress="if(event.keyCode===13)searchUsers()">
+                       oninput="searchUsers()" onkeypress="if(event.keyCode===13)searchUsers()">
                 <button class="btn btn-primary" onclick="searchUsers()" style="padding: 10px 20px;">搜索</button>
                 <button class="btn-page" onclick="clearUsersSearch()" style="padding: 10px 20px;">清除</button>
                 <label style="display: flex; align-items: center; gap: 6px; color: var(--text-secondary); font-size: 14px; cursor: pointer; margin-left: 10px;">
@@ -2465,11 +2465,15 @@
             loadUsers(page);
         }
         
-        // 搜索用户（从数据库查询）
+        // 搜索用户（从数据库查询，带防抖）
+        let usersSearchTimer = null;
         function searchUsers() {
-            usersSearchKeyword = document.getElementById('usersSearchInput').value.trim();
-            usersCurrentPage = 0;
-            loadUsers(0);
+            clearTimeout(usersSearchTimer);
+            usersSearchTimer = setTimeout(() => {
+                usersSearchKeyword = document.getElementById('usersSearchInput').value.trim();
+                usersCurrentPage = 0;
+                loadUsers(0);
+            }, 300);
         }
         
         // 清除用户搜索
