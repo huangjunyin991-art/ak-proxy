@@ -1258,15 +1258,21 @@
     <header class="header">
         <h1>AK后台监控系统</h1>
         <div style="display: flex; align-items: center; gap: 15px;">
+            <!-- 显示模式切换 -->
+            <div style="display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-secondary);">
+                <span>显示模式:</span>
+                <div style="display: flex; background: var(--bg-primary); border-radius: 4px; border: 1px solid var(--border); overflow: hidden;">
+                    <div id="modeFullBtn" onclick="setViewMode(false)" 
+                         style="padding: 4px 10px; cursor: pointer; color: white; background: var(--accent); transition: all 0.2s;">完全</div>
+                    <div id="modeCompactBtn" onclick="setViewMode(true)" 
+                         style="padding: 4px 10px; cursor: pointer; color: var(--text-secondary); background: transparent; transition: all 0.2s;">精简</div>
+                </div>
+            </div>
             <!-- 权限标识 -->
             <div class="role-badge" id="roleBadge">
                 <span class="role-icon">👑</span>
                 <span class="role-text" id="roleText">加载中...</span>
             </div>
-            <button id="modeToggleBtn" onclick="toggleViewMode()" 
-                    style="padding: 6px 14px; background: var(--bg-card); border: 1px solid var(--border); border-radius: 6px; color: var(--text-secondary); cursor: pointer; font-size: 12px; transition: all 0.3s;">
-                精简模式
-            </button>
             <div class="connection-status">
                 <span class="status-dot" id="statusDot"></span>
                 <span id="statusText">连接中...</span>
@@ -1614,7 +1620,7 @@
             </div>
             
             <!-- 激活码统计 -->
-            <div class="license-stats" style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; margin-bottom: 20px;">
+            <div class="license-stats overview-section" id="licenseStatsGrid" style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; margin-bottom: 20px;">
                 <div class="stat-mini" style="background: var(--bg-card); border-radius: 8px; padding: 15px; border: 1px solid var(--border);">
                     <div style="color: var(--text-secondary); font-size: 12px;">总激活码</div>
                     <div style="color: var(--accent); font-size: 24px; font-weight: bold;" id="licStatTotal">-</div>
@@ -2056,30 +2062,35 @@
             return currentUserRole === ROLE_SUPER_ADMIN;
         }
         
-        // 完全/精简模式切换
+        // 显示模式切换
         let isCompactMode = false;
-        function toggleViewMode() {
-            isCompactMode = !isCompactMode;
-            const btn = document.getElementById('modeToggleBtn');
+        function setViewMode(compact) {
+            if (isCompactMode === compact) return;
+            isCompactMode = compact;
+            const fullBtn = document.getElementById('modeFullBtn');
+            const compactBtn = document.getElementById('modeCompactBtn');
             const statsGrid = document.getElementById('statsGrid');
             const tabDashboard = document.getElementById('tabDashboard');
+            const licenseStats = document.getElementById('licenseStatsGrid');
+            const displayVal = isCompactMode ? 'none' : '';
+            
+            statsGrid.style.display = displayVal;
+            tabDashboard.style.display = displayVal;
+            if (licenseStats) licenseStats.style.display = displayVal;
             
             if (isCompactMode) {
-                statsGrid.style.display = 'none';
-                tabDashboard.style.display = 'none';
-                btn.textContent = '完全模式';
-                btn.style.color = 'var(--accent)';
-                btn.style.borderColor = 'var(--accent)';
-                // 如果当前在仪表盘tab，切换到在线用户
+                fullBtn.style.background = 'transparent';
+                fullBtn.style.color = 'var(--text-secondary)';
+                compactBtn.style.background = 'var(--accent)';
+                compactBtn.style.color = 'white';
                 if (tabDashboard.classList.contains('active')) {
                     document.querySelector('.tab[data-panel="online"]').click();
                 }
             } else {
-                statsGrid.style.display = '';
-                tabDashboard.style.display = '';
-                btn.textContent = '精简模式';
-                btn.style.color = 'var(--text-secondary)';
-                btn.style.borderColor = 'var(--border)';
+                fullBtn.style.background = 'var(--accent)';
+                fullBtn.style.color = 'white';
+                compactBtn.style.background = 'transparent';
+                compactBtn.style.color = 'var(--text-secondary)';
             }
         }
         
