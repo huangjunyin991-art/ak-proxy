@@ -3851,8 +3851,8 @@
                         <td><span class="status ${statusClass}">${statusText}</span></td>
                         <td>${license.created_at ? new Date(license.created_at).toLocaleString('zh-CN') : '-'}</td>
                         <td>
-                            <button class="btn-small" onclick="showLicenseDetail('${license.license_key}')" title="详情">📋</button>
-                            ${license.status === 'active' ? `<button class="btn-small btn-danger" onclick="revokeLicense('${license.license_key}')" title="撤销">❌</button>` : ''}
+                            <button class="btn-small" onclick="showLicenseDetail('${license.license_key}')" style="padding: 4px 10px; font-size: 12px; background: var(--bg-secondary); color: var(--accent); border: 1px solid var(--border); border-radius: 4px; cursor: pointer;">详情</button>
+                            ${license.status === 'active' ? `<button class="btn-small" onclick="revokeLicense('${license.license_key}')" style="padding: 4px 10px; font-size: 12px; background: var(--bg-secondary); color: var(--accent-red); border: 1px solid rgba(255,71,87,0.3); border-radius: 4px; cursor: pointer;">撤销</button>` : ''}
                         </td>
                     </tr>
                 `;
