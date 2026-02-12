@@ -35,7 +35,8 @@ from database import (
     get_all_tables, get_table_schema, query_table, insert_row, update_row, delete_row, execute_sql,
     save_admin_token, get_admin_token, delete_admin_token, delete_admin_tokens_by_role,
     delete_admin_tokens_by_sub_name, cleanup_expired_tokens, load_all_admin_tokens,
-    add_license_log, get_license_logs
+    add_license_log, get_license_logs,
+    db_get_all_sub_admins, db_set_sub_admin, db_delete_sub_admin, db_get_sub_admin
 )
 
 # 配置
@@ -53,45 +54,52 @@ import json
 ROLE_SUPER_ADMIN = "super_admin"  # 系统总管理
 ROLE_SUB_ADMIN = "sub_admin"  # 子管理员
 
-# 子管理员配置文件
+# 子管理员配置文件（旧，用于迁移）
 SUB_ADMIN_CONFIG_FILE = os.path.join(os.path.dirname(__file__), "sub_admin.json")
 
-def load_sub_admins():
-    """加载所有子管理员"""
-    global SUB_ADMINS
+def migrate_sub_admins_from_json():
+    """从旧的JSON文件迁移子管理员到数据库"""
     try:
-        print(f"[SubAdmin] 配置文件路径: {SUB_ADMIN_CONFIG_FILE}")
         if os.path.exists(SUB_ADMIN_CONFIG_FILE):
             with open(SUB_ADMIN_CONFIG_FILE, 'r', encoding='utf-8') as f:
                 config = json.load(f)
-                print(f"[SubAdmin] 读取到配置: {list(config.keys())}")
-                # 兼容旧格式 {"password": "xxx"}
-                if 'password' in config and 'admins' not in config:
-                    old_pwd = config.get('password', '')
-                    if old_pwd:
-                        SUB_ADMINS = {"子管理员": old_pwd}
-                    else:
-                        SUB_ADMINS = {}
-                else:
-                    SUB_ADMINS = config.get('admins', {})
-                print(f"[SubAdmin] 加载了 {len(SUB_ADMINS)} 个子管理员: {list(SUB_ADMINS.keys())}")
-        else:
-            print(f"[SubAdmin] 配置文件不存在: {SUB_ADMIN_CONFIG_FILE}")
-            SUB_ADMINS = {}
+            
+            admins_to_migrate = {}
+            if 'password' in config and 'admins' not in config:
+                old_pwd = config.get('password', '')
+                if old_pwd:
+                    admins_to_migrate = {"子管理员": old_pwd}
+            else:
+                admins_to_migrate = config.get('admins', {})
+            
+            for name, pwd in admins_to_migrate.items():
+                if pwd:
+                    db_set_sub_admin(name, pwd)
+                    print(f"[SubAdmin] 迁移子管理员到数据库: {name}")
+            
+            # 迁移完成后重命名旧文件
+            if admins_to_migrate:
+                os.rename(SUB_ADMIN_CONFIG_FILE, SUB_ADMIN_CONFIG_FILE + '.bak')
+                print(f"[SubAdmin] JSON文件已备份为 sub_admin.json.bak")
+    except Exception as e:
+        print(f"[SubAdmin] 迁移失败: {e}")
+
+def load_sub_admins():
+    """从数据库加载所有子管理员"""
+    global SUB_ADMINS
+    try:
+        SUB_ADMINS = db_get_all_sub_admins()
+        print(f"[SubAdmin] 从数据库加载了 {len(SUB_ADMINS)} 个子管理员: {list(SUB_ADMINS.keys())}")
     except Exception as e:
         print(f"[SubAdmin] 加载失败: {e}")
         SUB_ADMINS = {}
 
 def save_sub_admins():
-    """保存所有子管理员"""
-    try:
-        with open(SUB_ADMIN_CONFIG_FILE, 'w', encoding='utf-8') as f:
-            json.dump({'admins': SUB_ADMINS}, f, ensure_ascii=False)
-        return True
-    except:
-        return False
+    """同步内存中的子管理员到数据库（兼容旧调用）"""
+    return True  # 现在每次操作都直接写数据库，不需要额外保存
 
-# 启动时加载子管理员
+# 启动时迁移旧数据并加载
+migrate_sub_admins_from_json()
 load_sub_admins()
 
 # 二级密码Token管理
@@ -1174,14 +1182,15 @@ async def set_sub_admin(request: Request):
         if existing_name != sub_name and existing_pwd and secrets.compare_digest(new_sub_password, existing_pwd):
             return {"success": False, "message": f"该密码已被子管理员 [{existing_name}] 使用"}
     
-    # 保存子管理员
+    # 保存子管理员到数据库
     is_update = sub_name in SUB_ADMINS
-    SUB_ADMINS[sub_name] = new_sub_password
-    if save_sub_admins():
+    try:
+        db_set_sub_admin(sub_name, new_sub_password)
+        SUB_ADMINS[sub_name] = new_sub_password  # 同步内存
         action = "更新" if is_update else "添加"
         return {"success": True, "message": f"子管理员 [{sub_name}] {action}成功"}
-    else:
-        return {"success": False, "message": "保存失败"}
+    except Exception as e:
+        return {"success": False, "message": f"保存失败: {e}"}
 
 @app.post("/admin/api/sub_admin/delete")
 async def delete_sub_admin(request: Request):
@@ -1216,12 +1225,13 @@ async def delete_sub_admin(request: Request):
     # 先踢出该子管理员
     kick_sub_admins(target_name=sub_name)
     
-    # 删除子管理员
-    del SUB_ADMINS[sub_name]
-    if save_sub_admins():
+    # 从数据库删除子管理员
+    try:
+        db_delete_sub_admin(sub_name)
+        SUB_ADMINS.pop(sub_name, None)  # 同步内存
         return {"success": True, "message": f"子管理员 [{sub_name}] 已删除"}
-    else:
-        return {"success": False, "message": "删除失败"}
+    except Exception as e:
+        return {"success": False, "message": f"删除失败: {e}"}
 
 @app.post("/admin/api/sub_admin/kick")
 async def kick_sub_admin_api(request: Request):

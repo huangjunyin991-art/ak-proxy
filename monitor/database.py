@@ -133,6 +133,15 @@ def init_db():
             )
         ''')
         
+        # 子管理员表
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS sub_admins (
+                name TEXT PRIMARY KEY,
+                password TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        
         # 创建索引
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_login_username ON login_records(username)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_login_ip ON login_records(ip_address)')
@@ -832,6 +841,41 @@ def get_license_logs(action: str = None, limit: int = 100, offset: int = 0):
         
         rows = [dict(row) for row in cursor.fetchall()]
         return {'rows': rows, 'total': total}
+
+# ===== 子管理员管理 =====
+
+def db_get_all_sub_admins():
+    """获取所有子管理员"""
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute('SELECT name, password, created_at FROM sub_admins ORDER BY created_at')
+        return {row['name']: row['password'] for row in cursor.fetchall()}
+
+def db_set_sub_admin(name: str, password: str):
+    """添加或更新子管理员"""
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute('''
+            INSERT INTO sub_admins (name, password) VALUES (?, ?)
+            ON CONFLICT(name) DO UPDATE SET password = ?
+        ''', (name, password, password))
+        conn.commit()
+
+def db_delete_sub_admin(name: str):
+    """删除子管理员"""
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute('DELETE FROM sub_admins WHERE name = ?', (name,))
+        conn.commit()
+        return cursor.rowcount > 0
+
+def db_get_sub_admin(name: str):
+    """获取单个子管理员"""
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute('SELECT name, password, created_at FROM sub_admins WHERE name = ?', (name,))
+        row = cursor.fetchone()
+        return dict(row) if row else None
 
 # 初始化数据库
 if __name__ == '__main__':
