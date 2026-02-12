@@ -1425,7 +1425,7 @@
                         <thead>
                             <tr>
                                 <th>用户名</th>
-                                <th>当前页面</th>
+                                <th>当前操作</th>
                                 <th>上线时间</th>
                                 <th>操作</th>
                             </tr>
@@ -2635,6 +2635,49 @@
         }
         
         // 加载在线用户
+        // 页面路径 → 中文描述映射
+        const PAGE_NAME_MAP = {
+            '/pages/home.html': '位于首页',
+            '/pages/ace.list.html': 'AK交易页面',
+            '/pages/ep.list.html': 'EP交易界面',
+            '/pages/center.html': '位于个人主页',
+            '/pages/center/sell.ace.html': 'AK出售界面',
+            '/pages/center/sell.ep.html': 'EP出售界面',
+            '/pages/center/ep.out.html': 'EP转出界面',
+            '/pages/center/ep.to.rp.html': 'EP转RP界面',
+            '/pages/center/ep.to.sp.html': 'EP转SP界面',
+            '/pages/center/rp.to.sp.html': 'RP转SP界面',
+            '/pages/center/rp.out.html': 'RP转出界面',
+            '/pages/center/rptp.out.html': 'TP+RP转出界面',
+            '/pages/center/sub.account.html': '查看子账户',
+            '/pages/center/my.friend.html': '查看附近玩家',
+            '/pages/center/my.fans.list.html': '查看全球玩家表',
+            '/pages/center/my.fans.tree.html': '查看全球玩家图',
+            '/pages/center/records/rp.record.html': '查看RP记录',
+            '/pages/center/records/sp.record.html': '查看SP记录',
+            '/pages/center/records/ep.record.html': '查看EP记录',
+            '/pages/center/records/tp.record.html': '查看TP记录',
+            '/pages/center/profit.html': '查看收益明细',
+            '/pages/center/records/ep.out.record.html': '查看EP转出记录',
+            '/pages/center/records/ep.in.record.html': '查看EP转入记录',
+            '/pages/center/business.center.html': '查看EP交易信息',
+            '/pages/center/split.record.html': '查看拆分记录',
+            '/pages/center/Summary_Record.html': '查看一键归集明细',
+            '/pages/center/Donate_Record.html': '查看捐赠销毁记录',
+            '/pages/center/Donate.html': '自愿捐赠界面',
+            '/pages/center/google/activation.code.html': '查看谷歌激活码',
+            '/pages/center/security/change.password.html': '修改登录密码',
+            '/pages/center/security/change.pin.html': '修改交易密码',
+            '/pages/center/security/reset.mnemonic.html': '重置助记词',
+            '/pages/center/child/upgrade_record.html': '查看荣耀历程',
+            '/pages/center/security.html': '账户安全界面'
+        };
+        
+        function getPageName(path) {
+            if (!path || path === '/') return '首页';
+            return PAGE_NAME_MAP[path] || path;
+        }
+        
         async function loadOnlineUsers() {
             try {
                 const res = await fetch(`${API_BASE}/admin/api/online`);
@@ -2652,7 +2695,7 @@
                             <span style="display: inline-block; width: 8px; height: 8px; background: var(--accent-green); border-radius: 50%; margin-right: 8px;"></span>
                             <strong>${user.username}</strong>
                         </td>
-                        <td style="color: var(--text-secondary); font-size: 12px;">${user.page || '/'}</td>
+                        <td style="color: var(--text-secondary); font-size: 12px;">${getPageName(user.page)}</td>
                         <td style="color: var(--text-secondary); font-size: 12px;">${user.online_time}</td>
                         <td>
                             <button class="btn btn-primary" onclick="startChat('${user.username}')" style="padding: 4px 12px; font-size: 12px;">聊天</button>
