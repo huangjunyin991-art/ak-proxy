@@ -2127,10 +2127,12 @@
         function showMainContent() {
             document.getElementById('loginOverlay').style.display = 'none';
             document.getElementById('mainContent').classList.add('visible');
-            // 非系统总管理员隐藏设置标签
+            // 非系统总管理员隐藏设置和数据库标签
             if (!isSuperAdmin()) {
                 const settingsTab = document.querySelector('.tab[data-panel="settings"]');
                 if (settingsTab) settingsTab.style.display = 'none';
+                const dbTab = document.querySelector('.tab[data-panel="database"]');
+                if (dbTab) dbTab.style.display = 'none';
             }
             // 初始化应用
             initApp();
