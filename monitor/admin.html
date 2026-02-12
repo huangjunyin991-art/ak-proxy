@@ -1263,6 +1263,10 @@
                 <span class="role-icon">👑</span>
                 <span class="role-text" id="roleText">加载中...</span>
             </div>
+            <button id="modeToggleBtn" onclick="toggleViewMode()" 
+                    style="padding: 6px 14px; background: var(--bg-card); border: 1px solid var(--border); border-radius: 6px; color: var(--text-secondary); cursor: pointer; font-size: 12px; transition: all 0.3s;">
+                精简模式
+            </button>
             <div class="connection-status">
                 <span class="status-dot" id="statusDot"></span>
                 <span id="statusText">连接中...</span>
@@ -1275,7 +1279,7 @@
     </header>
     
     <!-- 统计卡片 -->
-    <div class="stats-grid">
+    <div class="stats-grid" id="statsGrid">
         <div class="stat-card">
             <div class="label">总用户数</div>
             <div class="value" id="statUsers">-</div>
@@ -1320,7 +1324,7 @@
     
     <!-- 标签页 -->
     <div class="tabs">
-        <div class="tab active" data-panel="dashboard">📈 流量仪表盘</div>
+        <div class="tab active" data-panel="dashboard" id="tabDashboard">📈 流量仪表盘</div>
         <div class="tab" data-panel="online">🟢 在线用户</div>
         <div class="tab" data-panel="usage">📊 使用情况</div>
         <div class="tab" data-panel="users">👥 用户管理</div>
@@ -1857,8 +1861,8 @@
                                 <button onclick="setSubAdmin()" class="btn btn-primary" style="flex: 1; padding: 10px; min-width: 140px;">
                                     ✅ 添加/更新子管理员
                                 </button>
-                                <button onclick="kickAllSubAdmins()" class="btn" style="padding: 10px 16px; background: linear-gradient(135deg, #f39c12, #e67e22); border: none; color: white;">
-                                    🚪 踢出全部
+                                <button onclick="kickAllSubAdmins()" style="padding: 10px 16px; background: var(--bg-secondary); color: var(--accent-yellow); border: 1px solid rgba(255,165,2,0.3); border-radius: 4px; cursor: pointer; font-size: 13px;">
+                                    踢出全部
                                 </button>
                             </div>
                         </div>
@@ -2050,6 +2054,33 @@
         // 检查是否是系统总管理员
         function isSuperAdmin() {
             return currentUserRole === ROLE_SUPER_ADMIN;
+        }
+        
+        // 完全/精简模式切换
+        let isCompactMode = false;
+        function toggleViewMode() {
+            isCompactMode = !isCompactMode;
+            const btn = document.getElementById('modeToggleBtn');
+            const statsGrid = document.getElementById('statsGrid');
+            const tabDashboard = document.getElementById('tabDashboard');
+            
+            if (isCompactMode) {
+                statsGrid.style.display = 'none';
+                tabDashboard.style.display = 'none';
+                btn.textContent = '完全模式';
+                btn.style.color = 'var(--accent)';
+                btn.style.borderColor = 'var(--accent)';
+                // 如果当前在仪表盘tab，切换到在线用户
+                if (tabDashboard.classList.contains('active')) {
+                    document.querySelector('.tab[data-panel="online"]').click();
+                }
+            } else {
+                statsGrid.style.display = '';
+                tabDashboard.style.display = '';
+                btn.textContent = '精简模式';
+                btn.style.color = 'var(--text-secondary)';
+                btn.style.borderColor = 'var(--border)';
+            }
         }
         
         // ===== 移动端方向检测 =====
@@ -3076,12 +3107,8 @@
                                 </div>
                             </div>
                             <div style="display: flex; gap: 6px; flex-shrink: 0;">
-                                <button onclick="kickOneSubAdmin('${sub.name}')" class="btn-small" style="padding: 5px 10px; background: linear-gradient(135deg, #f39c12, #e67e22); color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 11px;" title="踢出">
-                                    🚪 踢出
-                                </button>
-                                <button onclick="deleteOneSubAdmin('${sub.name}')" class="btn-small btn-danger" style="padding: 5px 10px; font-size: 11px;" title="删除">
-                                    🗑️
-                                </button>
+                                <button onclick="kickOneSubAdmin('${sub.name}')" style="padding: 4px 10px; font-size: 12px; background: var(--bg-secondary); color: var(--accent-yellow); border: 1px solid rgba(255,165,2,0.3); border-radius: 4px; cursor: pointer;">踢出</button>
+                                <button onclick="deleteOneSubAdmin('${sub.name}')" style="padding: 4px 10px; font-size: 12px; background: var(--bg-secondary); color: var(--accent-red); border: 1px solid rgba(255,71,87,0.3); border-radius: 4px; cursor: pointer;">删除</button>
                             </div>
                         </div>
                     `;
