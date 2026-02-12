@@ -816,6 +816,36 @@
             background: #ff6b7a;
         }
         
+        .btn-page {
+            padding: 6px 14px;
+            background: #ffffff;
+            color: #1a1a2e;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            font-size: 13px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        
+        .btn-page:hover:not(:disabled) {
+            background: var(--accent);
+            color: #fff;
+            border-color: var(--accent);
+        }
+        
+        .btn-page:disabled {
+            background: rgba(255, 255, 255, 0.15);
+            color: rgba(255, 255, 255, 0.3);
+            cursor: not-allowed;
+        }
+        
+        .btn-page.active {
+            background: var(--accent);
+            color: #fff;
+            border-color: var(--accent);
+        }
+        
         .btn-success {
             background: var(--accent-green);
             color: #000;
@@ -1164,6 +1194,23 @@
                 max-height: 200px;
             }
             
+            /* 激活码表格移动端适配 */
+            .license-table-wrap {
+                max-height: 50vh !important;
+                min-height: 200px;
+                -webkit-overflow-scrolling: touch;
+            }
+            
+            .license-table-wrap table {
+                min-width: 650px;
+            }
+            
+            /* 激活码管理顶部工具栏 */
+            #license > div:first-child {
+                flex-direction: column;
+                align-items: flex-start !important;
+            }
+            
             /* 聊天区域适配 */
             #chatMessages {
                 height: 200px !important;
@@ -1201,7 +1248,7 @@
             <p class="subtitle">管理员登录</p>
             <input type="password" class="login-input" id="loginPassword" 
                    placeholder="请输入管理员密码" onkeypress="if(event.keyCode===13)doLogin()">
-            <button class="login-btn" onclick="doLogin()">🔐 登 录</button>
+            <button class="login-btn" onclick="doLogin()"> 登 录</button>
             <p class="login-error" id="loginError">密码错误，请重试</p>
         </div>
     </div>
@@ -1421,7 +1468,7 @@
                        style="flex: 1; max-width: 300px; padding: 10px 15px; background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; color: var(--text-primary); font-size: 14px;"
                        oninput="searchUsage()">
                 <button class="btn btn-primary" onclick="searchUsage()" style="padding: 10px 20px;">搜索</button>
-                <button class="btn" onclick="clearUsageSearch()" style="padding: 10px 20px; background: var(--bg-secondary);">清除</button>
+                <button class="btn-page" onclick="clearUsageSearch()" style="padding: 10px 20px;">清除</button>
                 <span id="usageSearchCount" style="color: var(--text-secondary); font-size: 14px; margin-left: auto;"></span>
             </div>
             <div class="table-container" style="overflow-x: auto;">
@@ -1448,7 +1495,7 @@
                        style="flex: 1; max-width: 300px; padding: 10px 15px; background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; color: var(--text-primary); font-size: 14px;"
                        onkeypress="if(event.keyCode===13)searchUsers()">
                 <button class="btn btn-primary" onclick="searchUsers()" style="padding: 10px 20px;">搜索</button>
-                <button class="btn" onclick="clearUsersSearch()" style="padding: 10px 20px; background: var(--bg-secondary);">清除</button>
+                <button class="btn-page" onclick="clearUsersSearch()" style="padding: 10px 20px;">清除</button>
                 <label style="display: flex; align-items: center; gap: 6px; color: var(--text-secondary); font-size: 14px; cursor: pointer; margin-left: 10px;">
                     <input type="checkbox" id="usersLoadAll" onchange="onUsersLoadAllChange()" style="cursor: pointer; width: 16px; height: 16px; accent-color: var(--accent);">
                     加载全部
@@ -1479,11 +1526,11 @@
             </div>
             <!-- 分页控件 -->
             <div id="usersPagination" style="display: flex; align-items: center; justify-content: center; gap: 10px; margin-top: 15px; padding: 10px 0;">
-                <button class="btn" onclick="usersGoPage(0)" id="usersFirstBtn" style="padding: 6px 14px; background: var(--bg-secondary); font-size: 13px;" disabled>首页</button>
-                <button class="btn" onclick="usersGoPage(usersCurrentPage - 1)" id="usersPrevBtn" style="padding: 6px 14px; background: var(--bg-secondary); font-size: 13px;" disabled>上一页</button>
+                <button class="btn-page" onclick="usersGoPage(0)" id="usersFirstBtn" disabled>首页</button>
+                <button class="btn-page" onclick="usersGoPage(usersCurrentPage - 1)" id="usersPrevBtn" disabled>上一页</button>
                 <span id="usersPageInfo" style="color: var(--text-secondary); font-size: 14px; min-width: 120px; text-align: center;">第 1 页</span>
-                <button class="btn" onclick="usersGoPage(usersCurrentPage + 1)" id="usersNextBtn" style="padding: 6px 14px; background: var(--bg-secondary); font-size: 13px;" disabled>下一页</button>
-                <button class="btn" onclick="usersGoPage(usersTotalPages - 1)" id="usersLastBtn" style="padding: 6px 14px; background: var(--bg-secondary); font-size: 13px;" disabled>末页</button>
+                <button class="btn-page" onclick="usersGoPage(usersCurrentPage + 1)" id="usersNextBtn" disabled>下一页</button>
+                <button class="btn-page" onclick="usersGoPage(usersTotalPages - 1)" id="usersLastBtn" disabled>末页</button>
             </div>
         </div>
         
@@ -1532,11 +1579,30 @@
         <div class="panel" id="license">
             <div style="margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 15px;">
                 <h3 style="margin: 0; color: var(--accent);">🔑 激活码管理</h3>
-                <div style="display: flex; gap: 10px; align-items: center;">
+                <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
                     <input type="text" id="licenseSearch" placeholder="搜索激活码..." 
                            style="padding: 8px 15px; background: var(--bg-card); border: 1px solid var(--border); 
-                                  border-radius: 8px; color: var(--text-primary); width: 200px;">
+                                  border-radius: 8px; color: var(--text-primary); width: 180px;"
+                           onkeypress="if(event.keyCode===13)searchLicenses()">
+                    <select id="licBillingFilter" onchange="applyLicenseFilters()" 
+                            style="padding: 8px 12px; background: var(--bg-card); border: 1px solid var(--border); 
+                                   border-radius: 8px; color: var(--text-primary); font-size: 13px;">
+                        <option value="">全部计费</option>
+                        <option value="per_use">按次数</option>
+                        <option value="time_based">按时间</option>
+                        <option value="unlimited">无限制</option>
+                    </select>
+                    <select id="licStatusFilter" onchange="applyLicenseFilters()" 
+                            style="padding: 8px 12px; background: var(--bg-card); border: 1px solid var(--border); 
+                                   border-radius: 8px; color: var(--text-primary); font-size: 13px;">
+                        <option value="">全部状态</option>
+                        <option value="active">已激活</option>
+                        <option value="inactive">未激活</option>
+                        <option value="expired">已过期</option>
+                        <option value="revoked">已撤销</option>
+                    </select>
                     <button onclick="searchLicenses()" class="btn btn-primary" style="padding: 8px 15px;">🔍 搜索</button>
+                    <button onclick="clearLicenseFilters()" class="btn-page" style="padding: 8px 15px;">清除</button>
                     <button onclick="showCreateLicenseModal()" class="btn btn-primary" style="padding: 8px 15px; background: linear-gradient(135deg, #00ff88, #00cc6a);">
                         ➕ 创建激活码
                     </button>
@@ -1563,28 +1629,91 @@
                 </div>
             </div>
             
-            <!-- 激活码列表 -->
-            <div class="table-container" style="overflow: auto; max-height: calc(100vh - 450px);">
-                <table>
-                    <thead>
-                        <tr>
-                            <th>激活码</th>
-                            <th>产品</th>
-                            <th>计费模式</th>
-                            <th>剩余</th>
-                            <th>状态</th>
-                            <th>创建时间</th>
-                            <th>操作</th>
-                        </tr>
-                    </thead>
-                    <tbody id="licenseTable">
-                        <tr><td colspan="7" style="text-align: center; color: var(--text-secondary);">加载中...</td></tr>
-                    </tbody>
-                </table>
+            <!-- 子标签切换 -->
+            <div style="display: flex; gap: 0; margin-bottom: 15px; border-bottom: 2px solid var(--border);">
+                <button class="btn" id="licTabList" onclick="switchLicenseTab('list')" 
+                        style="padding: 10px 20px; border-radius: 8px 8px 0 0; border: 2px solid var(--border); border-bottom: none; 
+                               margin-bottom: -2px; background: var(--accent); color: #fff; font-weight: bold;">
+                    激活码列表
+                </button>
+                <button class="btn" id="licTabCreate" onclick="switchLicenseTab('create')" 
+                        style="padding: 10px 20px; border-radius: 8px 8px 0 0; border: 2px solid var(--border); border-bottom: none; 
+                               margin-bottom: -2px; background: var(--bg-card); color: var(--text-secondary);">
+                    创建记录
+                </button>
+                <button class="btn" id="licTabUsage" onclick="switchLicenseTab('usage')" 
+                        style="padding: 10px 20px; border-radius: 8px 8px 0 0; border: 2px solid var(--border); border-bottom: none; 
+                               margin-bottom: -2px; background: var(--bg-card); color: var(--text-secondary);">
+                    使用记录
+                </button>
             </div>
             
-            <!-- 分页 -->
-            <div id="licensePagination" style="margin-top: 15px; display: flex; justify-content: center; gap: 10px;">
+            <!-- 激活码列表 -->
+            <div id="licPanelList">
+                <div class="table-container license-table-wrap" style="overflow: auto; max-height: max(300px, calc(100vh - 500px));">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>激活码</th>
+                                <th>产品</th>
+                                <th>计费模式</th>
+                                <th class="sortable" onclick="toggleLicenseSort()" style="cursor: pointer; user-select: none;">
+                                    剩余 <span id="licSortIcon" style="font-size: 12px;">⇅</span>
+                                </th>
+                                <th>状态</th>
+                                <th>创建时间</th>
+                                <th>操作</th>
+                            </tr>
+                        </thead>
+                        <tbody id="licenseTable">
+                            <tr><td colspan="7" style="text-align: center; color: var(--text-secondary);">加载中...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div id="licensePagination" style="margin-top: 15px; display: flex; justify-content: center; gap: 10px;"></div>
+            </div>
+            
+            <!-- 创建记录 -->
+            <div id="licPanelCreate" style="display: none;">
+                <div class="table-container license-table-wrap" style="overflow: auto; max-height: max(300px, calc(100vh - 500px));">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>时间</th>
+                                <th>激活码</th>
+                                <th>产品</th>
+                                <th>计费模式</th>
+                                <th>详情</th>
+                                <th>操作人</th>
+                            </tr>
+                        </thead>
+                        <tbody id="licCreateLogsTable">
+                            <tr><td colspan="6" style="text-align: center; color: var(--text-secondary);">加载中...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div id="licCreateLogsPagination" style="margin-top: 15px; display: flex; justify-content: center; gap: 10px;"></div>
+            </div>
+            
+            <!-- 使用记录 -->
+            <div id="licPanelUsage" style="display: none;">
+                <div class="table-container license-table-wrap" style="overflow: auto; max-height: max(300px, calc(100vh - 500px));">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>时间</th>
+                                <th>激活码</th>
+                                <th>操作</th>
+                                <th>详情</th>
+                                <th>操作人</th>
+                            </tr>
+                        </thead>
+                        <tbody id="licUsageLogsTable">
+                            <tr><td colspan="5" style="text-align: center; color: var(--text-secondary);">加载中...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div id="licUsageLogsPagination" style="margin-top: 15px; display: flex; justify-content: center; gap: 10px;"></div>
             </div>
         </div>
         
@@ -1617,7 +1746,7 @@
                     <button class="btn" onclick="lockDatabase()" style="padding: 10px 20px; background: var(--bg-secondary);">🔒 锁定</button>
                 </div>
                 
-                <div class="table-container" style="overflow: auto; max-height: calc(100vh - 400px);">
+                <div class="table-container" style="overflow: auto; max-height: max(300px, calc(100vh - 400px));">
                     <table id="dbTable" style="min-width: 100%;">
                         <thead id="dbTableHead">
                             <tr><th>请先选择一个表</th></tr>
@@ -1682,46 +1811,56 @@
                     <div style="background: linear-gradient(135deg, var(--bg-card), #1e2a4a); border-radius: 12px; padding: 25px; border: 1px solid #667eea; margin-bottom: 20px;">
                         <h4 style="margin-bottom: 20px; color: #667eea; display: flex; align-items: center; gap: 10px;">
                             <span style="font-size: 24px;">👥</span> 子管理员管理
-                            <span style="font-size: 12px; color: var(--text-secondary); font-weight: normal;">（仅系统总管理可操作）</span>
+                            <span id="subAdminCount" style="font-size: 12px; color: var(--text-secondary); font-weight: normal;">（仅系统总管理可操作）</span>
                         </h4>
                         
-                        <!-- 当前状态 -->
-                        <div id="subAdminStatus" style="margin-bottom: 20px; padding: 15px; background: var(--bg-primary); border-radius: 8px;">
+                        <!-- 子管理员列表 -->
+                        <div id="subAdminList" style="margin-bottom: 20px;">
                             <span style="color: var(--text-secondary);">加载中...</span>
                         </div>
                         
-                        <!-- 设置子管理员 -->
-                        <div style="margin-bottom: 15px;">
-                            <label style="display: block; margin-bottom: 8px; color: var(--text-secondary); font-size: 14px;">子管理员密码</label>
-                            <input type="password" id="newSubAdminPassword" placeholder="设置子管理员登录密码（至少6位）" 
-                                   style="width: 100%; padding: 12px 15px; background: var(--bg-primary); border: 1px solid var(--border); 
-                                          border-radius: 8px; color: var(--text-primary); font-size: 14px;">
-                        </div>
-                        
-                        <div style="margin-bottom: 15px;">
-                            <label style="display: block; margin-bottom: 8px; color: var(--text-secondary); font-size: 14px;">系统总管理员密码</label>
-                            <input type="password" id="subAdminSuperPassword" placeholder="输入您的系统总管理员密码" 
-                                   style="width: 100%; padding: 12px 15px; background: var(--bg-primary); border: 1px solid var(--border); 
-                                          border-radius: 8px; color: var(--text-primary); font-size: 14px;">
-                        </div>
-                        
-                        <div style="margin-bottom: 20px;">
-                            <label style="display: block; margin-bottom: 8px; color: var(--accent-yellow); font-size: 14px;">🔑 二级密码</label>
-                            <input type="password" id="subAdminSecondaryPassword" placeholder="输入二级密码以确认操作" 
-                                   style="width: 100%; padding: 12px 15px; background: var(--bg-primary); border: 1px solid var(--accent-yellow); 
-                                          border-radius: 8px; color: var(--text-primary); font-size: 14px;">
-                        </div>
-                        
-                        <div style="display: flex; gap: 10px; flex-wrap: wrap;">
-                            <button onclick="setSubAdmin()" class="btn btn-primary" style="flex: 1; padding: 12px; min-width: 150px;">
-                                ✅ 设置/更新子管理员
-                            </button>
-                            <button onclick="kickSubAdmin()" class="btn" style="padding: 12px 20px; background: linear-gradient(135deg, #f39c12, #e67e22); border: none; color: white;">
-                                🚪 踢出子管理员
-                            </button>
-                            <button onclick="deleteSubAdmin()" class="btn btn-danger" style="padding: 12px 20px;">
-                                🗑️ 删除子管理员
-                            </button>
+                        <!-- 添加/更新子管理员 -->
+                        <div style="background: var(--bg-primary); border-radius: 8px; padding: 15px; margin-bottom: 15px;">
+                            <div style="margin-bottom: 12px; color: var(--accent); font-size: 14px; font-weight: bold;">➕ 添加/更新子管理员</div>
+                            
+                            <div style="display: flex; gap: 10px; margin-bottom: 12px; flex-wrap: wrap;">
+                                <div style="flex: 1; min-width: 150px;">
+                                    <label style="display: block; margin-bottom: 6px; color: var(--text-secondary); font-size: 12px;">名称</label>
+                                    <input type="text" id="newSubAdminName" placeholder="子管理员名称（如：运营1号）" 
+                                           style="width: 100%; padding: 10px 12px; background: var(--bg-secondary); border: 1px solid var(--border); 
+                                                  border-radius: 6px; color: var(--text-primary); font-size: 13px;">
+                                </div>
+                                <div style="flex: 1; min-width: 150px;">
+                                    <label style="display: block; margin-bottom: 6px; color: var(--text-secondary); font-size: 12px;">登录密码</label>
+                                    <input type="password" id="newSubAdminPassword" placeholder="至少6位" 
+                                           style="width: 100%; padding: 10px 12px; background: var(--bg-secondary); border: 1px solid var(--border); 
+                                                  border-radius: 6px; color: var(--text-primary); font-size: 13px;">
+                                </div>
+                            </div>
+                            
+                            <div style="display: flex; gap: 10px; margin-bottom: 12px; flex-wrap: wrap;">
+                                <div style="flex: 1; min-width: 150px;">
+                                    <label style="display: block; margin-bottom: 6px; color: var(--text-secondary); font-size: 12px;">系统总管理员密码</label>
+                                    <input type="password" id="subAdminSuperPassword" placeholder="验证身份" 
+                                           style="width: 100%; padding: 10px 12px; background: var(--bg-secondary); border: 1px solid var(--border); 
+                                                  border-radius: 6px; color: var(--text-primary); font-size: 13px;">
+                                </div>
+                                <div style="flex: 1; min-width: 150px;">
+                                    <label style="display: block; margin-bottom: 6px; color: var(--accent-yellow); font-size: 12px;">🔑 二级密码</label>
+                                    <input type="password" id="subAdminSecondaryPassword" placeholder="确认操作" 
+                                           style="width: 100%; padding: 10px 12px; background: var(--bg-secondary); border: 1px solid var(--accent-yellow); 
+                                                  border-radius: 6px; color: var(--text-primary); font-size: 13px;">
+                                </div>
+                            </div>
+                            
+                            <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+                                <button onclick="setSubAdmin()" class="btn btn-primary" style="flex: 1; padding: 10px; min-width: 140px;">
+                                    ✅ 添加/更新子管理员
+                                </button>
+                                <button onclick="kickAllSubAdmins()" class="btn" style="padding: 10px 16px; background: linear-gradient(135deg, #f39c12, #e67e22); border: none; color: white;">
+                                    🚪 踢出全部
+                                </button>
+                            </div>
                         </div>
                         
                         <div id="subAdminMsg" style="margin-top: 15px; padding: 10px; border-radius: 6px; display: none;"></div>
@@ -1780,17 +1919,9 @@
                 <label style="display: block; margin-bottom: 8px; color: var(--text-secondary); font-size: 14px;">计费模式</label>
                 <select id="licBillingMode" onchange="onBillingModeChange()" style="width: 100%; padding: 10px; background: var(--bg-primary); border: 1px solid var(--border); 
                         border-radius: 8px; color: var(--text-primary);">
-                    <option value="per_use">按次数 (per_use)</option>
-                    <option value="time_based">按时间 (time_based)</option>
                     <option value="unlimited">无限制 (unlimited)</option>
+                    <option value="time_based">按时间 (time_based)</option>
                 </select>
-            </div>
-            
-            <div id="licMaxUsesRow" style="margin-bottom: 15px;">
-                <label style="display: block; margin-bottom: 8px; color: var(--text-secondary); font-size: 14px;">最大使用次数</label>
-                <input type="number" id="licMaxUses" value="100" min="1" 
-                       style="width: 100%; padding: 10px; background: var(--bg-primary); border: 1px solid var(--border); 
-                              border-radius: 8px; color: var(--text-primary);">
             </div>
             
             <div id="licUsageTimeRow" style="margin-bottom: 15px; display: none;">
@@ -1800,18 +1931,36 @@
                               border-radius: 8px; color: var(--text-primary);">
             </div>
             
-            <div style="margin-bottom: 20px;">
+            <div style="margin-bottom: 15px;">
                 <label style="display: block; margin-bottom: 8px; color: var(--text-secondary); font-size: 14px;">有效期（天）</label>
                 <input type="number" id="licExpiryDays" value="365" min="1" 
                        style="width: 100%; padding: 10px; background: var(--bg-primary); border: 1px solid var(--border); 
                               border-radius: 8px; color: var(--text-primary);">
             </div>
             
-            <div id="createLicenseMsg" style="margin-bottom: 15px; padding: 10px; border-radius: 6px; display: none;"></div>
+            <div style="margin-bottom: 20px;">
+                <label style="display: block; margin-bottom: 8px; color: var(--text-secondary); font-size: 14px;">创建数量</label>
+                <div style="display: flex; align-items: center; gap: 10px;">
+                    <input type="number" id="licBatchCount" value="1" min="1" max="100" 
+                           style="flex: 1; padding: 10px; background: var(--bg-primary); border: 1px solid var(--border); 
+                                  border-radius: 8px; color: var(--text-primary);">
+                    <span style="color: var(--text-secondary); font-size: 12px; white-space: nowrap;">最多100个</span>
+                </div>
+            </div>
+            
+            <div id="createLicenseMsg" style="margin-bottom: 15px; padding: 10px; border-radius: 6px; display: none; max-height: 150px; overflow-y: auto;"></div>
+            
+            <!-- 创建进度 -->
+            <div id="createLicenseProgress" style="display: none; margin-bottom: 15px;">
+                <div style="background: var(--bg-primary); border-radius: 6px; height: 6px; overflow: hidden;">
+                    <div id="createProgressBar" style="height: 100%; background: var(--accent); width: 0%; transition: width 0.3s;"></div>
+                </div>
+                <div id="createProgressText" style="text-align: center; color: var(--text-secondary); font-size: 12px; margin-top: 5px;">0/0</div>
+            </div>
             
             <div class="modal-buttons">
-                <button class="btn" onclick="closeCreateLicenseModal()" style="background: var(--bg-secondary);">取消</button>
-                <button class="btn btn-primary" onclick="doCreateLicense()">创建</button>
+                <button class="btn-page" onclick="closeCreateLicenseModal()">取消</button>
+                <button class="btn btn-primary" id="createLicenseBtn" onclick="doCreateLicense()">创建</button>
             </div>
         </div>
     </div>
@@ -1844,6 +1993,20 @@
             <div class="modal-buttons">
                 <button class="btn" onclick="closeDbAuthModal()" style="background: var(--bg-secondary);">取消</button>
                 <button class="btn btn-primary" onclick="verifyDbPassword()">确定</button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 会话失效提示弹窗 -->
+    <div class="modal" id="sessionExpiredModal">
+        <div class="modal-content" style="max-width: 400px; text-align: center;">
+            <div style="font-size: 40px; margin-bottom: 15px; line-height: 1;">⚠️</div>
+            <h3 style="margin-bottom: 10px; color: var(--text-primary);">会话已失效</h3>
+            <p id="sessionExpiredMsg" style="color: var(--text-secondary); margin-bottom: 25px; font-size: 14px; line-height: 1.6;">
+                您的登录状态已过期，请重新登录
+            </p>
+            <div class="modal-buttons" style="justify-content: center;">
+                <button class="btn btn-primary" onclick="confirmSessionExpired()" style="min-width: 120px;">重新登录</button>
             </div>
         </div>
     </div>
@@ -1982,16 +2145,25 @@
             location.reload();
         }
         
-        // 被踢出时的处理
+        // 会话失效提示（主题风格弹窗）
+        let sessionExpiredShown = false;
         function handleKickedOut(message) {
-            alert(message || '您的账号已在其他设备登录，当前会话已失效');
+            if (sessionExpiredShown) return; // 防止重复弹窗
+            sessionExpiredShown = true;
+            document.getElementById('sessionExpiredMsg').textContent = message || '您的登录状态已过期，请重新登录';
+            document.getElementById('sessionExpiredModal').style.display = 'flex';
+        }
+        
+        function confirmSessionExpired() {
+            document.getElementById('sessionExpiredModal').style.display = 'none';
+            sessionExpiredShown = false;
             logout();
         }
         
         // 检查API响应是否为token失效
         function checkTokenValid(response) {
             if (response.status === 401) {
-                handleKickedOut('登录已过期或在其他设备登录，请重新登录');
+                handleKickedOut('您的登录状态已过期，请重新登录');
                 return false;
             }
             return true;
@@ -2782,7 +2954,7 @@
         function startSubAdminStatusRefresh() {
             if (!isSuperAdmin()) return;
             stopSubAdminStatusRefresh();
-            subAdminStatusTimer = setInterval(loadSubAdminStatus, 10000);  // 每10秒刷新
+            subAdminStatusTimer = setInterval(loadSubAdminStatus, 10000);
         }
         
         // 停止子管理员状态定时刷新
@@ -2809,7 +2981,6 @@
         
         // 加载子管理员状态
         async function loadSubAdminStatus() {
-            // 只有系统总管理员才显示
             if (!isSuperAdmin()) {
                 document.getElementById('subAdminSection').style.display = 'none';
                 return;
@@ -2821,61 +2992,64 @@
                 const res = await fetch(`${API_BASE}/admin/api/sub_admin`);
                 const data = await res.json();
                 
-                const statusDiv = document.getElementById('subAdminStatus');
-                if (data.has_sub_admin) {
-                    // 在线状态指示器
-                    const onlineHtml = data.is_online ? `
-                        <div style="display: flex; align-items: center; gap: 8px; margin-top: 10px; padding: 10px; background: rgba(0, 255, 136, 0.1); border-radius: 8px; border: 1px solid rgba(0, 255, 136, 0.3);">
-                            <span class="online-pulse" style="width: 12px; height: 12px; background: var(--accent-green); border-radius: 50%; animation: pulse 1.5s infinite;"></span>
-                            <div>
-                                <span style="color: var(--accent-green); font-weight: bold;">⭐ 子管理员在线中</span>
-                                <div style="color: var(--text-secondary); font-size: 11px; margin-top: 2px;">登录时间: ${data.login_time || '-'}</div>
-                            </div>
-                        </div>
-                    ` : `
-                        <div style="display: flex; align-items: center; gap: 8px; margin-top: 10px; padding: 10px; background: rgba(150, 150, 150, 0.1); border-radius: 8px; border: 1px solid rgba(150, 150, 150, 0.3);">
-                            <span style="width: 12px; height: 12px; background: #666; border-radius: 50%;"></span>
-                            <span style="color: var(--text-secondary);">子管理员离线</span>
+                const listDiv = document.getElementById('subAdminList');
+                const countSpan = document.getElementById('subAdminCount');
+                const subAdmins = data.sub_admins || [];
+                
+                countSpan.textContent = `（共 ${subAdmins.length} 个子管理员）`;
+                
+                if (subAdmins.length === 0) {
+                    listDiv.innerHTML = `
+                        <div style="padding: 20px; text-align: center; background: var(--bg-primary); border-radius: 8px; border: 1px dashed var(--border);">
+                            <span style="color: var(--text-secondary); font-size: 14px;">暂无子管理员，请在下方添加</span>
                         </div>
                     `;
-                    
-                    statusDiv.innerHTML = `
-                        <div style="display: flex; align-items: center; gap: 10px;">
-                            <span style="color: var(--accent-green); font-size: 20px;">✅</span>
-                            <div style="flex: 1;">
-                                <div style="color: var(--accent-green); font-weight: bold;">已设置子管理员</div>
-                                <div style="color: var(--text-secondary); font-size: 12px; margin-top: 4px;">
-                                    密码提示: ${data.password_hint || '***'}
-                                </div>
-                            </div>
-                        </div>
-                        ${onlineHtml}
-                    `;
-                } else {
-                    statusDiv.innerHTML = `
-                        <div style="display: flex; align-items: center; gap: 10px;">
-                            <span style="color: var(--text-secondary); font-size: 20px;">⚪</span>
-                            <div>
-                                <div style="color: var(--text-secondary);">未设置子管理员</div>
-                                <div style="color: var(--text-secondary); font-size: 12px; margin-top: 4px;">
-                                    设置后，使用子管理员密码登录的用户将拥有子管理员权限
-                                </div>
-                            </div>
-                        </div>
-                    `;
+                    return;
                 }
+                
+                listDiv.innerHTML = subAdmins.map(sub => {
+                    const onlineDot = sub.is_online 
+                        ? `<span style="width: 10px; height: 10px; background: var(--accent-green); border-radius: 50%; display: inline-block; animation: pulse 1.5s infinite;"></span>`
+                        : `<span style="width: 10px; height: 10px; background: #555; border-radius: 50%; display: inline-block;"></span>`;
+                    const statusText = sub.is_online 
+                        ? `<span style="color: var(--accent-green); font-size: 12px;">在线 · ${sub.login_time || ''}</span>`
+                        : `<span style="color: var(--text-secondary); font-size: 12px;">离线</span>`;
+                    
+                    return `
+                        <div style="display: flex; align-items: center; gap: 12px; padding: 12px 15px; background: var(--bg-primary); 
+                                    border-radius: 8px; border: 1px solid ${sub.is_online ? 'rgba(0,255,136,0.3)' : 'var(--border)'}; margin-bottom: 8px;">
+                            ${onlineDot}
+                            <div style="flex: 1; min-width: 0;">
+                                <div style="font-weight: bold; color: var(--text-primary); font-size: 14px;">⭐ ${sub.name}</div>
+                                <div style="display: flex; align-items: center; gap: 8px; margin-top: 4px;">
+                                    ${statusText}
+                                    <span style="color: var(--text-secondary); font-size: 11px;">密码: ${sub.password_hint}</span>
+                                </div>
+                            </div>
+                            <div style="display: flex; gap: 6px; flex-shrink: 0;">
+                                <button onclick="kickOneSubAdmin('${sub.name}')" class="btn-small" style="padding: 5px 10px; background: linear-gradient(135deg, #f39c12, #e67e22); color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 11px;" title="踢出">
+                                    🚪 踢出
+                                </button>
+                                <button onclick="deleteOneSubAdmin('${sub.name}')" class="btn-small btn-danger" style="padding: 5px 10px; font-size: 11px;" title="删除">
+                                    🗑️
+                                </button>
+                            </div>
+                        </div>
+                    `;
+                }).join('');
             } catch (e) {
                 console.error('加载子管理员状态失败', e);
             }
         }
         
-        // 设置子管理员
+        // 添加/更新子管理员
         async function setSubAdmin() {
+            const subName = document.getElementById('newSubAdminName').value.trim();
             const newSubPassword = document.getElementById('newSubAdminPassword').value;
             const superPassword = document.getElementById('subAdminSuperPassword').value;
             const secondaryPassword = document.getElementById('subAdminSecondaryPassword').value;
             
-            if (!newSubPassword || !superPassword || !secondaryPassword) {
+            if (!subName || !newSubPassword || !superPassword || !secondaryPassword) {
                 showSubAdminMsg('请填写所有字段', 'error');
                 return;
             }
@@ -2892,6 +3066,7 @@
                     body: JSON.stringify({
                         admin_password: superPassword,
                         secondary_password: secondaryPassword,
+                        sub_name: subName,
                         new_sub_password: newSubPassword
                     })
                 });
@@ -2900,11 +3075,8 @@
                 
                 if (data.success) {
                     showSubAdminMsg('✅ ' + data.message, 'success');
-                    // 清空输入框
+                    document.getElementById('newSubAdminName').value = '';
                     document.getElementById('newSubAdminPassword').value = '';
-                    document.getElementById('subAdminSuperPassword').value = '';
-                    document.getElementById('subAdminSecondaryPassword').value = '';
-                    // 刷新状态
                     loadSubAdminStatus();
                 } else {
                     showSubAdminMsg('❌ ' + (data.message || '设置失败'), 'error');
@@ -2914,33 +3086,26 @@
             }
         }
         
-        // 踢出子管理员（使其登录失效）
-        async function kickSubAdmin() {
+        // 踢出指定子管理员
+        async function kickOneSubAdmin(name) {
             const superPassword = document.getElementById('subAdminSuperPassword').value;
-            
             if (!superPassword) {
-                showSubAdminMsg('请填写系统总管理员密码', 'error');
+                showSubAdminMsg('请先在下方填写系统总管理员密码', 'error');
                 return;
             }
             
-            if (!confirm('确定要踢出所有在线的子管理员吗？他们需要重新登录。')) {
-                return;
-            }
+            if (!confirm(`确定要踢出子管理员 [${name}] 吗？`)) return;
             
             try {
                 const res = await fetch(`${API_BASE}/admin/api/sub_admin/kick`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        admin_password: superPassword
-                    })
+                    body: JSON.stringify({ admin_password: superPassword, sub_name: name })
                 });
-                
                 const data = await res.json();
-                
                 if (data.success) {
                     showSubAdminMsg('✅ ' + data.message, 'success');
-                    document.getElementById('subAdminSuperPassword').value = '';
+                    loadSubAdminStatus();
                 } else {
                     showSubAdminMsg('❌ ' + (data.message || '操作失败'), 'error');
                 }
@@ -2949,19 +3114,45 @@
             }
         }
         
-        // 删除子管理员
-        async function deleteSubAdmin() {
+        // 踢出全部子管理员
+        async function kickAllSubAdmins() {
+            const superPassword = document.getElementById('subAdminSuperPassword').value;
+            if (!superPassword) {
+                showSubAdminMsg('请填写系统总管理员密码', 'error');
+                return;
+            }
+            
+            if (!confirm('确定要踢出所有在线的子管理员吗？')) return;
+            
+            try {
+                const res = await fetch(`${API_BASE}/admin/api/sub_admin/kick`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ admin_password: superPassword, sub_name: '' })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    showSubAdminMsg('✅ ' + data.message, 'success');
+                    loadSubAdminStatus();
+                } else {
+                    showSubAdminMsg('❌ ' + (data.message || '操作失败'), 'error');
+                }
+            } catch (e) {
+                showSubAdminMsg('❌ 网络错误: ' + e.message, 'error');
+            }
+        }
+        
+        // 删除指定子管理员
+        async function deleteOneSubAdmin(name) {
             const superPassword = document.getElementById('subAdminSuperPassword').value;
             const secondaryPassword = document.getElementById('subAdminSecondaryPassword').value;
             
             if (!superPassword || !secondaryPassword) {
-                showSubAdminMsg('请填写系统总管理员密码和二级密码', 'error');
+                showSubAdminMsg('请先在下方填写系统总管理员密码和二级密码', 'error');
                 return;
             }
             
-            if (!confirm('确定要删除子管理员吗？删除后子管理员将无法登录。')) {
-                return;
-            }
+            if (!confirm(`确定要删除子管理员 [${name}] 吗？删除后该管理员将无法登录。`)) return;
             
             try {
                 const res = await fetch(`${API_BASE}/admin/api/sub_admin/delete`, {
@@ -2969,18 +3160,13 @@
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         admin_password: superPassword,
-                        secondary_password: secondaryPassword
+                        secondary_password: secondaryPassword,
+                        sub_name: name
                     })
                 });
-                
                 const data = await res.json();
-                
                 if (data.success) {
                     showSubAdminMsg('✅ ' + data.message, 'success');
-                    // 清空输入框
-                    document.getElementById('subAdminSuperPassword').value = '';
-                    document.getElementById('subAdminSecondaryPassword').value = '';
-                    // 刷新状态
                     loadSubAdminStatus();
                 } else {
                     showSubAdminMsg('❌ ' + (data.message || '删除失败'), 'error');
@@ -3236,9 +3422,9 @@
                 const pagination = document.getElementById('dbPagination');
                 if (totalPages > 1) {
                     let html = '';
-                    if (dbCurrentPage > 0) html += `<button class="btn btn-primary" onclick="dbGoPage(${dbCurrentPage - 1})" style="padding: 5px 15px;">上一页</button>`;
+                    html += `<button class="btn-page" onclick="dbGoPage(${dbCurrentPage - 1})" ${dbCurrentPage <= 0 ? 'disabled' : ''}>上一页</button>`;
                     html += `<span style="color: var(--text-secondary); line-height: 32px;">第 ${dbCurrentPage + 1} / ${totalPages} 页</span>`;
-                    if (dbCurrentPage < totalPages - 1) html += `<button class="btn btn-primary" onclick="dbGoPage(${dbCurrentPage + 1})" style="padding: 5px 15px;">下一页</button>`;
+                    html += `<button class="btn-page" onclick="dbGoPage(${dbCurrentPage + 1})" ${dbCurrentPage >= totalPages - 1 ? 'disabled' : ''}>下一页</button>`;
                     pagination.innerHTML = html;
                 } else {
                     pagination.innerHTML = '';
@@ -3459,6 +3645,11 @@
         let licenseCurrentPage = 0;
         let licensePageSize = 50;
         let licenseSearchTerm = '';
+        let licenseAllData = []; // 当前页原始数据缓存
+        let licenseTotalCount = 0;
+        let licenseSortDir = 0; // 0=不排序, 1=升序, -1=降序
+        let licenseBillingFilter = '';
+        let licenseStatusFilter = '';
         
         // 获取带Token的请求头
         function getLicenseHeaders() {
@@ -3488,6 +3679,14 @@
             }
         }
         
+        // 获取剩余值的数值（用于排序）
+        function getLicenseRemainingValue(license) {
+            if (license.billing_mode === 'unlimited') return Infinity;
+            if (license.billing_mode === 'per_use') return license.remaining_uses || 0;
+            if (license.billing_mode === 'time_based') return license.remaining_time || 0;
+            return 0;
+        }
+        
         // 加载激活码列表
         async function loadLicenses(page = 0) {
             licenseCurrentPage = page;
@@ -3506,86 +3705,112 @@
                     return;
                 }
                 
-                const licenses = data.data?.items || [];
-                const total = data.data?.total || 0;
+                licenseAllData = data.data?.items || [];
+                licenseTotalCount = data.data?.total || 0;
                 
-                if (licenses.length === 0) {
-                    document.getElementById('licenseTable').innerHTML = 
-                        '<tr><td colspan="7" style="text-align: center; color: var(--text-secondary);">暂无激活码</td></tr>';
-                    return;
-                }
-                
-                // 搜索过滤
-                let filteredLicenses = licenses;
-                if (licenseSearchTerm) {
-                    const term = licenseSearchTerm.toLowerCase();
-                    filteredLicenses = licenses.filter(l => 
-                        l.license_key?.toLowerCase().includes(term) ||
-                        l.product_id?.toLowerCase().includes(term) ||
-                        l.machine_id?.toLowerCase().includes(term)
-                    );
-                }
-                
-                document.getElementById('licenseTable').innerHTML = filteredLicenses.map(license => {
-                    const statusClass = {
-                        'active': 'status-active',
-                        'inactive': 'status-inactive',
-                        'expired': 'status-expired',
-                        'revoked': 'status-revoked'
-                    }[license.status] || '';
-                    
-                    const statusText = {
-                        'active': '已激活',
-                        'inactive': '未激活',
-                        'expired': '已过期',
-                        'revoked': '已撤销',
-                        'suspended': '已暂停'
-                    }[license.status] || license.status;
-                    
-                    const billingText = {
-                        'per_use': '按次数',
-                        'time_based': '按时间',
-                        'unlimited': '无限制'
-                    }[license.billing_mode] || license.billing_mode;
-                    
-                    // 剩余显示
-                    let remainingText = '-';
-                    if (license.billing_mode === 'per_use') {
-                        remainingText = `${license.remaining_uses || 0} 次`;
-                    } else if (license.billing_mode === 'time_based') {
-                        const minutes = license.remaining_time || 0;
-                        const days = (minutes / 1440).toFixed(1);
-                        remainingText = `${days} 天`;
-                    } else if (license.billing_mode === 'unlimited') {
-                        remainingText = '∞';
-                    }
-                    
-                    return `
-                        <tr>
-                            <td style="font-family: monospace; font-size: 12px;">
-                                <span style="cursor: pointer;" onclick="copyToClipboard('${license.license_key}')" title="点击复制">${license.license_key}</span>
-                            </td>
-                            <td>${license.product_id || '-'}</td>
-                            <td>${billingText}</td>
-                            <td>${remainingText}</td>
-                            <td><span class="status ${statusClass}">${statusText}</span></td>
-                            <td>${license.created_at ? new Date(license.created_at).toLocaleString('zh-CN') : '-'}</td>
-                            <td>
-                                <button class="btn-small" onclick="showLicenseDetail('${license.license_key}')" title="详情">📋</button>
-                                ${license.status === 'active' ? `<button class="btn-small btn-danger" onclick="revokeLicense('${license.license_key}')" title="撤销">❌</button>` : ''}
-                            </td>
-                        </tr>
-                    `;
-                }).join('');
-                
-                // 渲染分页
-                renderLicensePagination(total);
+                renderLicenseTable();
                 
             } catch (e) {
                 console.error('加载激活码列表失败', e);
                 document.getElementById('licenseTable').innerHTML = 
                     `<tr><td colspan="7" style="text-align: center; color: var(--accent-red);">网络错误: ${e.message}</td></tr>`;
             }
+        }
+        
+        // 渲染激活码表格（应用筛选+搜索+排序）
+        function renderLicenseTable() {
+            let filtered = [...licenseAllData];
+            
+            // 搜索过滤
+            if (licenseSearchTerm) {
+                const term = licenseSearchTerm.toLowerCase();
+                filtered = filtered.filter(l => 
+                    l.license_key?.toLowerCase().includes(term) ||
+                    l.product_id?.toLowerCase().includes(term) ||
+                    l.machine_id?.toLowerCase().includes(term)
+                );
+            }
+            
+            // 计费模式筛选
+            if (licenseBillingFilter) {
+                filtered = filtered.filter(l => l.billing_mode === licenseBillingFilter);
+            }
+            
+            // 状态筛选
+            if (licenseStatusFilter) {
+                filtered = filtered.filter(l => l.status === licenseStatusFilter);
+            }
+            
+            // 按剩余排序
+            if (licenseSortDir !== 0) {
+                filtered.sort((a, b) => {
+                    const va = getLicenseRemainingValue(a);
+                    const vb = getLicenseRemainingValue(b);
+                    return licenseSortDir === 1 ? va - vb : vb - va;
+                });
+            }
+            
+            if (filtered.length === 0) {
+                document.getElementById('licenseTable').innerHTML = 
+                    '<tr><td colspan="7" style="text-align: center; color: var(--text-secondary);">无匹配的激活码</td></tr>';
+                renderLicensePagination(licenseTotalCount);
+                return;
+            }
+            
+            document.getElementById('licenseTable').innerHTML = filtered.map(license => {
+                const statusClass = {
+                    'active': 'status-active',
+                    'inactive': 'status-inactive',
+                    'expired': 'status-expired',
+                    'revoked': 'status-revoked'
+                }[license.status] || '';
+                
+                const statusText = {
+                    'active': '已激活',
+                    'inactive': '未激活',
+                    'expired': '已过期',
+                    'revoked': '已撤销',
+                    'suspended': '已暂停'
+                }[license.status] || license.status;
+                
+                const billingText = {
+                    'per_use': '按次数',
+                    'time_based': '按时间',
+                    'unlimited': '无限制'
+                }[license.billing_mode] || license.billing_mode;
+                
+                // 剩余显示
+                let remainingText = '-';
+                if (license.billing_mode === 'per_use') {
+                    remainingText = `${license.remaining_uses || 0} 次`;
+                } else if (license.billing_mode === 'time_based') {
+                    const minutes = license.remaining_time || 0;
+                    const days = (minutes / 1440).toFixed(1);
+                    remainingText = `${days} 天`;
+                } else if (license.billing_mode === 'unlimited') {
+                    remainingText = '∞';
+                }
+                
+                return `
+                    <tr>
+                        <td style="font-family: monospace; font-size: 12px;">
+                            <span style="cursor: pointer;" onclick="copyToClipboard('${license.license_key}')" title="点击复制">${license.license_key}</span>
+                        </td>
+                        <td>${license.product_id || '-'}</td>
+                        <td>${billingText}</td>
+                        <td>${remainingText}</td>
+                        <td><span class="status ${statusClass}">${statusText}</span></td>
+                        <td>${license.created_at ? new Date(license.created_at).toLocaleString('zh-CN') : '-'}</td>
+                        <td>
+                            <button class="btn-small" onclick="showLicenseDetail('${license.license_key}')" title="详情">📋</button>
+                            ${license.status === 'active' ? `<button class="btn-small btn-danger" onclick="revokeLicense('${license.license_key}')" title="撤销">❌</button>` : ''}
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+            
+            // 渲染分页
+            renderLicensePagination(licenseTotalCount);
         }
         
         // 渲染分页
@@ -3601,20 +3826,16 @@
             let html = '';
             
             // 上一页
-            if (licenseCurrentPage > 0) {
-                html += `<button class="btn-small" onclick="loadLicenses(${licenseCurrentPage - 1})">◀</button>`;
-            }
+            html += `<button class="btn-page" onclick="loadLicenses(${licenseCurrentPage - 1})" ${licenseCurrentPage <= 0 ? 'disabled' : ''}>上一页</button>`;
             
             // 页码
             for (let i = 0; i < totalPages && i < 10; i++) {
-                const active = i === licenseCurrentPage ? 'background: var(--accent); color: white;' : '';
-                html += `<button class="btn-small" style="${active}" onclick="loadLicenses(${i})">${i + 1}</button>`;
+                const activeClass = i === licenseCurrentPage ? ' active' : '';
+                html += `<button class="btn-page${activeClass}" onclick="loadLicenses(${i})">${i + 1}</button>`;
             }
             
             // 下一页
-            if (licenseCurrentPage < totalPages - 1) {
-                html += `<button class="btn-small" onclick="loadLicenses(${licenseCurrentPage + 1})">▶</button>`;
-            }
+            html += `<button class="btn-page" onclick="loadLicenses(${licenseCurrentPage + 1})" ${licenseCurrentPage >= totalPages - 1 ? 'disabled' : ''}>下一页</button>`;
             
             container.innerHTML = html;
         }
@@ -3622,7 +3843,208 @@
         // 搜索激活码
         function searchLicenses() {
             licenseSearchTerm = document.getElementById('licenseSearch').value.trim();
-            loadLicenses(0);
+            licenseBillingFilter = document.getElementById('licBillingFilter').value;
+            licenseStatusFilter = document.getElementById('licStatusFilter').value;
+            renderLicenseTable();
+        }
+        
+        // 应用筛选（下拉框变化时触发）
+        function applyLicenseFilters() {
+            licenseBillingFilter = document.getElementById('licBillingFilter').value;
+            licenseStatusFilter = document.getElementById('licStatusFilter').value;
+            renderLicenseTable();
+        }
+        
+        // 清除所有筛选
+        function clearLicenseFilters() {
+            document.getElementById('licenseSearch').value = '';
+            document.getElementById('licBillingFilter').value = '';
+            document.getElementById('licStatusFilter').value = '';
+            licenseSearchTerm = '';
+            licenseBillingFilter = '';
+            licenseStatusFilter = '';
+            licenseSortDir = 0;
+            document.getElementById('licSortIcon').textContent = '⇅';
+            renderLicenseTable();
+        }
+        
+        // 切换剩余排序方向
+        function toggleLicenseSort() {
+            // 0 -> 1(升序) -> -1(降序) -> 0(不排序)
+            if (licenseSortDir === 0) licenseSortDir = 1;
+            else if (licenseSortDir === 1) licenseSortDir = -1;
+            else licenseSortDir = 0;
+            
+            const iconEl = document.getElementById('licSortIcon');
+            if (licenseSortDir === 1) iconEl.textContent = '↑';
+            else if (licenseSortDir === -1) iconEl.textContent = '↓';
+            else iconEl.textContent = '⇅';
+            
+            renderLicenseTable();
+        }
+        
+        // ===== 激活码子标签切换 =====
+        let licCurrentTab = 'list';
+        let licCreateLogsPage = 0;
+        let licUsageLogsPage = 0;
+        const licLogsPageSize = 50;
+        
+        function switchLicenseTab(tab) {
+            licCurrentTab = tab;
+            // 切换面板
+            document.getElementById('licPanelList').style.display = tab === 'list' ? 'block' : 'none';
+            document.getElementById('licPanelCreate').style.display = tab === 'create' ? 'block' : 'none';
+            document.getElementById('licPanelUsage').style.display = tab === 'usage' ? 'block' : 'none';
+            
+            // 切换tab按钮样式
+            ['licTabList', 'licTabCreate', 'licTabUsage'].forEach(id => {
+                const btn = document.getElementById(id);
+                const isActive = (id === 'licTab' + tab.charAt(0).toUpperCase() + tab.slice(1)) ||
+                                 (tab === 'list' && id === 'licTabList') ||
+                                 (tab === 'create' && id === 'licTabCreate') ||
+                                 (tab === 'usage' && id === 'licTabUsage');
+                btn.style.background = isActive ? 'var(--accent)' : 'var(--bg-card)';
+                btn.style.color = isActive ? '#fff' : 'var(--text-secondary)';
+                btn.style.fontWeight = isActive ? 'bold' : 'normal';
+            });
+            
+            // 加载对应数据
+            if (tab === 'create') loadLicenseCreateLogs(0);
+            else if (tab === 'usage') loadLicenseUsageLogs(0);
+        }
+        
+        // 加载创建记录
+        async function loadLicenseCreateLogs(page = 0) {
+            licCreateLogsPage = page;
+            const tbody = document.getElementById('licCreateLogsTable');
+            tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: var(--text-secondary);">加载中...</td></tr>';
+            
+            try {
+                const res = await fetch(`${API_BASE}/admin/api/license/local-logs?action=create&limit=${licLogsPageSize}&offset=${page * licLogsPageSize}`, {
+                    headers: getLicenseHeaders()
+                });
+                if (!checkTokenValid(res)) return;
+                const data = await res.json();
+                
+                const rows = data.rows || [];
+                const total = data.total || 0;
+                
+                if (rows.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: var(--text-secondary);">暂无创建记录</td></tr>';
+                } else {
+                    const billingTextMap = {'per_use': '按次数', 'time_based': '按时间', 'unlimited': '无限制'};
+                    tbody.innerHTML = rows.map(row => `
+                        <tr>
+                            <td style="white-space: nowrap;">${row.created_at ? new Date(row.created_at).toLocaleString('zh-CN') : '-'}</td>
+                            <td style="font-family: monospace; font-size: 12px;">
+                                <span style="cursor: pointer;" onclick="copyToClipboard('${row.license_key || ''}')" title="点击复制">${row.license_key || '-'}</span>
+                            </td>
+                            <td>${row.product_id || '-'}</td>
+                            <td>${billingTextMap[row.billing_mode] || row.billing_mode || '-'}</td>
+                            <td>${row.detail || '-'}</td>
+                            <td>${row.operator || '-'}</td>
+                        </tr>
+                    `).join('');
+                }
+                
+                // 分页
+                renderLogsPagination('licCreateLogsPagination', total, licLogsPageSize, page, 'loadLicenseCreateLogs');
+            } catch (e) {
+                tbody.innerHTML = `<tr><td colspan="6" style="text-align: center; color: var(--accent-red);">加载失败: ${e.message}</td></tr>`;
+            }
+        }
+        
+        // 加载使用记录（从远程服务器 + 本地撤销记录）
+        async function loadLicenseUsageLogs(page = 0) {
+            licUsageLogsPage = page;
+            const tbody = document.getElementById('licUsageLogsTable');
+            tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: var(--text-secondary);">加载中...</td></tr>';
+            
+            try {
+                // 同时请求远程使用日志和本地操作日志
+                const [remoteRes, localRes] = await Promise.all([
+                    fetch(`${API_BASE}/admin/api/license/logs?limit=${licLogsPageSize}&offset=${page * licLogsPageSize}`, {
+                        headers: getLicenseHeaders()
+                    }).catch(() => null),
+                    fetch(`${API_BASE}/admin/api/license/local-logs?limit=${licLogsPageSize}&offset=${page * licLogsPageSize}`, {
+                        headers: getLicenseHeaders()
+                    }).catch(() => null)
+                ]);
+                
+                let allRows = [];
+                let total = 0;
+                
+                // 远程日志
+                if (remoteRes && remoteRes.ok) {
+                    const remoteData = await remoteRes.json();
+                    if (!remoteData.error && remoteData.data) {
+                        const items = remoteData.data.items || remoteData.data || [];
+                        if (Array.isArray(items)) {
+                            allRows = items.map(r => ({
+                                time: r.timestamp || r.created_at || '',
+                                license_key: r.license_key || '',
+                                action: r.action || r.event || '',
+                                detail: r.details || r.message || r.machine_id || '',
+                                operator: r.client_ip || r.ip || '-'
+                            }));
+                            total = remoteData.data.total || items.length;
+                        }
+                    }
+                }
+                
+                // 如果远程没数据，用本地非create的日志
+                if (allRows.length === 0 && localRes && localRes.ok) {
+                    const localData = await localRes.json();
+                    const rows = localData.rows || [];
+                    total = localData.total || 0;
+                    const actionMap = {'create': '创建', 'revoke': '撤销', 'activate': '激活', 'use': '使用'};
+                    allRows = rows.map(r => ({
+                        time: r.created_at || '',
+                        license_key: r.license_key || '',
+                        action: actionMap[r.action] || r.action || '',
+                        detail: r.detail || '-',
+                        operator: r.operator || '-'
+                    }));
+                }
+                
+                if (allRows.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: var(--text-secondary);">暂无使用记录</td></tr>';
+                } else {
+                    tbody.innerHTML = allRows.map(row => {
+                        const actionClass = {
+                            'activate': 'status-active', 'use': 'status-active', '激活': 'status-active', '使用': 'status-active',
+                            'revoke': 'status-revoked', '撤销': 'status-revoked',
+                            'create': 'status-inactive', '创建': 'status-inactive'
+                        }[row.action] || '';
+                        return `
+                            <tr>
+                                <td style="white-space: nowrap;">${row.time ? new Date(row.time).toLocaleString('zh-CN') : '-'}</td>
+                                <td style="font-family: monospace; font-size: 12px;">${row.license_key || '-'}</td>
+                                <td><span class="status ${actionClass}">${row.action || '-'}</span></td>
+                                <td style="max-width: 300px; overflow: hidden; text-overflow: ellipsis;">${row.detail || '-'}</td>
+                                <td>${row.operator || '-'}</td>
+                            </tr>
+                        `;
+                    }).join('');
+                }
+                
+                renderLogsPagination('licUsageLogsPagination', total, licLogsPageSize, page, 'loadLicenseUsageLogs');
+            } catch (e) {
+                tbody.innerHTML = `<tr><td colspan="5" style="text-align: center; color: var(--accent-red);">加载失败: ${e.message}</td></tr>`;
+            }
+        }
+        
+        // 渲染日志分页
+        function renderLogsPagination(containerId, total, pageSize, currentPage, loadFnName) {
+            const totalPages = Math.ceil(total / pageSize);
+            const container = document.getElementById(containerId);
+            if (totalPages <= 1) { container.innerHTML = ''; return; }
+            
+            let html = '';
+            html += `<button class="btn-page" onclick="${loadFnName}(${currentPage - 1})" ${currentPage <= 0 ? 'disabled' : ''}>上一页</button>`;
+            html += `<span style="color: var(--text-secondary); line-height: 32px; font-size: 13px;">第 ${currentPage + 1} / ${totalPages} 页</span>`;
+            html += `<button class="btn-page" onclick="${loadFnName}(${currentPage + 1})" ${currentPage >= totalPages - 1 ? 'disabled' : ''}>下一页</button>`;
+            container.innerHTML = html;
         }
         
         // 复制到剪贴板
@@ -3637,6 +4059,11 @@
         // 显示创建激活码弹窗
         function showCreateLicenseModal() {
             document.getElementById('createLicenseModal').style.display = 'flex';
+            document.getElementById('licBatchCount').value = 1;
+            document.getElementById('createLicenseMsg').style.display = 'none';
+            document.getElementById('createLicenseProgress').style.display = 'none';
+            document.getElementById('createLicenseBtn').disabled = false;
+            document.getElementById('createLicenseBtn').textContent = '创建';
             onBillingModeChange();
         }
         
@@ -3644,68 +4071,110 @@
         function closeCreateLicenseModal() {
             document.getElementById('createLicenseModal').style.display = 'none';
             document.getElementById('createLicenseMsg').style.display = 'none';
+            document.getElementById('createLicenseProgress').style.display = 'none';
         }
         
         // 计费模式变化
         function onBillingModeChange() {
             const mode = document.getElementById('licBillingMode').value;
-            document.getElementById('licMaxUsesRow').style.display = mode === 'per_use' ? 'block' : 'none';
             document.getElementById('licUsageTimeRow').style.display = mode === 'time_based' ? 'block' : 'none';
         }
         
-        // 创建激活码
+        // 创建激活码（支持批量）
         async function doCreateLicense() {
             const productId = document.getElementById('licProductId').value;
             const billingMode = document.getElementById('licBillingMode').value;
             const maxUses = parseInt(document.getElementById('licMaxUses').value) || 100;
             const usageTime = parseFloat(document.getElementById('licUsageTime').value) || 30;
             const expiryDays = parseInt(document.getElementById('licExpiryDays').value) || 365;
+            const batchCount = Math.min(Math.max(parseInt(document.getElementById('licBatchCount').value) || 1, 1), 100);
             
             const msgDiv = document.getElementById('createLicenseMsg');
+            const progressDiv = document.getElementById('createLicenseProgress');
+            const progressBar = document.getElementById('createProgressBar');
+            const progressText = document.getElementById('createProgressText');
+            const createBtn = document.getElementById('createLicenseBtn');
             
-            try {
-                const body = {
-                    product_id: productId,
-                    billing_mode: billingMode,
-                    expiry_days: expiryDays
-                };
-                
-                if (billingMode === 'per_use') {
-                    body.max_uses = maxUses;
-                } else if (billingMode === 'time_based') {
-                    body.usage_time = usageTime;
-                }
-                
-                const res = await fetch(`${API_BASE}/admin/api/license/create`, {
-                    method: 'POST',
-                    headers: getLicenseHeaders(),
-                    body: JSON.stringify(body)
-                });
-                
-                const data = await res.json();
-                
-                if (data.error) {
-                    msgDiv.textContent = '❌ ' + data.message;
-                    msgDiv.style.background = 'rgba(255, 71, 87, 0.1)';
-                    msgDiv.style.color = 'var(--accent-red)';
-                    msgDiv.style.display = 'block';
-                } else {
-                    msgDiv.innerHTML = `✅ 创建成功！激活码: <strong style="font-family: monospace;">${data.data?.license_key || '-'}</strong>`;
-                    msgDiv.style.background = 'rgba(0, 255, 136, 0.1)';
-                    msgDiv.style.color = 'var(--accent-green)';
-                    msgDiv.style.display = 'block';
+            // 禁用按钮防止重复点击
+            createBtn.disabled = true;
+            createBtn.textContent = '创建中...';
+            
+            const body = {
+                product_id: productId,
+                billing_mode: billingMode,
+                expiry_days: expiryDays
+            };
+            if (billingMode === 'per_use') body.max_uses = maxUses;
+            else if (billingMode === 'time_based') body.usage_time = usageTime;
+            
+            let successKeys = [];
+            let failCount = 0;
+            
+            // 批量创建时显示进度条
+            if (batchCount > 1) {
+                progressDiv.style.display = 'block';
+                progressBar.style.width = '0%';
+                progressText.textContent = `0/${batchCount}`;
+            }
+            
+            for (let i = 0; i < batchCount; i++) {
+                try {
+                    const res = await fetch(`${API_BASE}/admin/api/license/create`, {
+                        method: 'POST',
+                        headers: getLicenseHeaders(),
+                        body: JSON.stringify(body)
+                    });
+                    const data = await res.json();
                     
-                    // 刷新列表
-                    setTimeout(() => {
-                        loadLicenses(0);
-                        loadLicenseStats();
-                    }, 1000);
+                    if (data.error) {
+                        failCount++;
+                    } else {
+                        successKeys.push(data.data?.license_key || '');
+                    }
+                } catch (e) {
+                    failCount++;
                 }
-            } catch (e) {
-                msgDiv.textContent = '❌ 网络错误: ' + e.message;
+                
+                // 更新进度
+                if (batchCount > 1) {
+                    const pct = ((i + 1) / batchCount * 100).toFixed(0);
+                    progressBar.style.width = pct + '%';
+                    progressText.textContent = `${i + 1}/${batchCount}`;
+                }
+            }
+            
+            // 恢复按钮
+            createBtn.disabled = false;
+            createBtn.textContent = '创建';
+            
+            if (failCount === batchCount) {
+                // 全部失败
+                msgDiv.textContent = `❌ 创建失败（${failCount}个）`;
                 msgDiv.style.background = 'rgba(255, 71, 87, 0.1)';
                 msgDiv.style.color = 'var(--accent-red)';
                 msgDiv.style.display = 'block';
+            } else if (successKeys.length > 0) {
+                // 有成功的 → 刷新列表并自动关闭弹窗
+                loadLicenses(0);
+                loadLicenseStats();
+                
+                if (batchCount === 1) {
+                    // 单个创建：短暂显示成功后关闭
+                    msgDiv.innerHTML = `✅ 创建成功！激活码: <strong style="font-family: monospace; user-select: all;">${successKeys[0]}</strong>`;
+                    msgDiv.style.background = 'rgba(0, 255, 136, 0.1)';
+                    msgDiv.style.color = 'var(--accent-green)';
+                    msgDiv.style.display = 'block';
+                    setTimeout(() => closeCreateLicenseModal(), 1500);
+                } else {
+                    // 批量创建：显示结果后自动关闭
+                    let summary = `✅ 成功创建 ${successKeys.length} 个`;
+                    if (failCount > 0) summary += `，失败 ${failCount} 个`;
+                    msgDiv.innerHTML = summary + `<br><div style="margin-top: 8px; font-family: monospace; font-size: 11px; max-height: 80px; overflow-y: auto; user-select: all; line-height: 1.8;">${successKeys.join('<br>')}</div>`;
+                    msgDiv.style.background = 'rgba(0, 255, 136, 0.1)';
+                    msgDiv.style.color = 'var(--accent-green)';
+                    msgDiv.style.display = 'block';
+                    setTimeout(() => closeCreateLicenseModal(), 3000);
+                }
             }
         }
         
@@ -3957,9 +4426,15 @@
                 });
                 
                 if (res.status === 401) {
-                    handleKickedOut('您的账号已在其他设备登录，当前会话已失效');
+                    let msg = '您的登录状态已过期，请重新登录';
+                    try {
+                        const data = await res.json();
+                        if (data.message) msg = data.message;
+                    } catch(e) {}
+                    handleKickedOut(msg);
                 }
             } catch (e) {
+                // 网络错误不弹窗，避免离线时误报
                 console.error('验证token失败', e);
             }
         }

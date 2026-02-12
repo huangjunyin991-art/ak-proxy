@@ -109,6 +109,30 @@ def init_db():
             )
         ''')
         
+        # 管理员Token持久化表
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS admin_tokens (
+                token TEXT PRIMARY KEY,
+                role TEXT NOT NULL,
+                expire REAL NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        
+        # 激活码操作记录表
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS license_logs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                action TEXT NOT NULL,
+                license_key TEXT,
+                product_id TEXT,
+                billing_mode TEXT,
+                detail TEXT,
+                operator TEXT DEFAULT 'admin',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        
         # 创建索引
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_login_username ON login_records(username)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_login_ip ON login_records(ip_address)')
@@ -694,6 +718,120 @@ def get_dashboard_data():
             'top_users': top_users,
             'top_ips': top_ips
         }
+
+# ===== 管理员Token持久化操作 =====
+
+def _ensure_sub_name_column():
+    """确保admin_tokens表有sub_name列（兼容旧数据库）"""
+    with get_db() as conn:
+        cursor = conn.cursor()
+        try:
+            cursor.execute("SELECT sub_name FROM admin_tokens LIMIT 1")
+        except:
+            cursor.execute("ALTER TABLE admin_tokens ADD COLUMN sub_name TEXT DEFAULT ''")
+            conn.commit()
+
+_ensure_sub_name_column()
+
+def save_admin_token(token: str, role: str, expire: float, sub_name: str = ''):
+    """保存管理员Token到数据库"""
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute('''
+            INSERT OR REPLACE INTO admin_tokens (token, role, expire, sub_name)
+            VALUES (?, ?, ?, ?)
+        ''', (token, role, expire, sub_name))
+        conn.commit()
+
+def get_admin_token(token: str):
+    """从数据库获取Token信息，返回 {'role': ..., 'expire': ..., 'sub_name': ...} 或 None"""
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute('SELECT token, role, expire, sub_name FROM admin_tokens WHERE token = ?', (token,))
+        row = cursor.fetchone()
+        if row:
+            return {'role': row['role'], 'expire': row['expire'], 'sub_name': row['sub_name'] or ''}
+        return None
+
+def delete_admin_token(token: str):
+    """删除指定Token"""
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute('DELETE FROM admin_tokens WHERE token = ?', (token,))
+        conn.commit()
+
+def delete_admin_tokens_by_role(role: str):
+    """删除指定角色的所有Token"""
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute('DELETE FROM admin_tokens WHERE role = ?', (role,))
+        conn.commit()
+        return cursor.rowcount
+
+def delete_admin_tokens_by_sub_name(sub_name: str):
+    """删除指定子管理员名称的所有Token"""
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute('DELETE FROM admin_tokens WHERE role = ? AND sub_name = ?', ('sub_admin', sub_name))
+        conn.commit()
+        return cursor.rowcount
+
+def cleanup_expired_tokens():
+    """清理过期Token"""
+    import time
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute('DELETE FROM admin_tokens WHERE expire < ?', (time.time(),))
+        conn.commit()
+        return cursor.rowcount
+
+def load_all_admin_tokens():
+    """加载所有未过期的Token，用于服务启动时恢复"""
+    import time
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute('SELECT token, role, expire, sub_name FROM admin_tokens WHERE expire > ?', (time.time(),))
+        result = {}
+        for row in cursor.fetchall():
+            result[row['token']] = {'role': row['role'], 'expire': row['expire'], 'sub_name': row['sub_name'] or ''}
+        return result
+
+# ===== 激活码操作记录 =====
+
+def add_license_log(action: str, license_key: str = None, product_id: str = None, 
+                    billing_mode: str = None, detail: str = None, operator: str = 'admin'):
+    """记录激活码操作日志"""
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute('''
+            INSERT INTO license_logs (action, license_key, product_id, billing_mode, detail, operator)
+            VALUES (?, ?, ?, ?, ?, ?)
+        ''', (action, license_key, product_id, billing_mode, detail, operator))
+        conn.commit()
+
+def get_license_logs(action: str = None, limit: int = 100, offset: int = 0):
+    """获取激活码操作记录"""
+    with get_db() as conn:
+        cursor = conn.cursor()
+        if action:
+            cursor.execute('SELECT COUNT(*) as total FROM license_logs WHERE action = ?', (action,))
+        else:
+            cursor.execute('SELECT COUNT(*) as total FROM license_logs')
+        total = cursor.fetchone()['total']
+        
+        if action:
+            cursor.execute('''
+                SELECT * FROM license_logs WHERE action = ?
+                ORDER BY created_at DESC LIMIT ? OFFSET ?
+            ''', (action, limit, offset))
+        else:
+            cursor.execute('''
+                SELECT * FROM license_logs 
+                ORDER BY created_at DESC LIMIT ? OFFSET ?
+            ''', (limit, offset))
+        
+        rows = [dict(row) for row in cursor.fetchall()]
+        return {'rows': rows, 'total': total}
 
 # 初始化数据库
 if __name__ == '__main__':

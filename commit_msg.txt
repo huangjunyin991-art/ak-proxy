@@ -1,6 +1,0 @@
-严格对接 Server_V 激活码服务 API
-
-- 修复 LICENSE_SERVER_URL 端口：从 5000 改为 8080，匹配实际服务器地址 121.4.46.66:8080
-- 补全缺失的代理端点：disable-client、enable-client、logs、products、health
-- 核对所有代理路由与 Server_V 实际 API 路径完全匹配
-- 核对前端请求参数与后端 API 规范一致

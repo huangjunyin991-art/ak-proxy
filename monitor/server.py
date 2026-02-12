@@ -32,12 +32,15 @@ from database import (
     ban_ip, unban_ip, is_banned, get_ban_list, get_stats_summary,
     save_user_assets, get_user_assets, get_all_user_assets, get_asset_history,
     get_all_users_with_assets, get_dashboard_data,
-    get_all_tables, get_table_schema, query_table, insert_row, update_row, delete_row, execute_sql
+    get_all_tables, get_table_schema, query_table, insert_row, update_row, delete_row, execute_sql,
+    save_admin_token, get_admin_token, delete_admin_token, delete_admin_tokens_by_role,
+    delete_admin_tokens_by_sub_name, cleanup_expired_tokens, load_all_admin_tokens,
+    add_license_log, get_license_logs
 )
 
 # 配置
 ADMIN_PASSWORD = "ak-lovejjy1314"  # 系统总管理员密码（不可更改）
-SUB_ADMIN_PASSWORD = ""  # 子管理员密码（可由总管理设置）
+SUB_ADMINS = {}  # 子管理员字典 {名称: 密码}（可由总管理设置）
 DB_SECONDARY_PASSWORD = "aa292180"  # 数据库操作二级密码
 AKAPI_URL = "https://www.akapi1.com/RPC/"  # 原始API地址
 
@@ -53,30 +56,43 @@ ROLE_SUB_ADMIN = "sub_admin"  # 子管理员
 # 子管理员配置文件
 SUB_ADMIN_CONFIG_FILE = os.path.join(os.path.dirname(__file__), "sub_admin.json")
 
-def load_sub_admin_password():
-    """加载子管理员密码"""
-    global SUB_ADMIN_PASSWORD
+def load_sub_admins():
+    """加载所有子管理员"""
+    global SUB_ADMINS
     try:
+        print(f"[SubAdmin] 配置文件路径: {SUB_ADMIN_CONFIG_FILE}")
         if os.path.exists(SUB_ADMIN_CONFIG_FILE):
             with open(SUB_ADMIN_CONFIG_FILE, 'r', encoding='utf-8') as f:
                 config = json.load(f)
-                SUB_ADMIN_PASSWORD = config.get('password', '')
-    except:
-        SUB_ADMIN_PASSWORD = ''
+                print(f"[SubAdmin] 读取到配置: {list(config.keys())}")
+                # 兼容旧格式 {"password": "xxx"}
+                if 'password' in config and 'admins' not in config:
+                    old_pwd = config.get('password', '')
+                    if old_pwd:
+                        SUB_ADMINS = {"子管理员": old_pwd}
+                    else:
+                        SUB_ADMINS = {}
+                else:
+                    SUB_ADMINS = config.get('admins', {})
+                print(f"[SubAdmin] 加载了 {len(SUB_ADMINS)} 个子管理员: {list(SUB_ADMINS.keys())}")
+        else:
+            print(f"[SubAdmin] 配置文件不存在: {SUB_ADMIN_CONFIG_FILE}")
+            SUB_ADMINS = {}
+    except Exception as e:
+        print(f"[SubAdmin] 加载失败: {e}")
+        SUB_ADMINS = {}
 
-def save_sub_admin_password(password: str):
-    """保存子管理员密码"""
-    global SUB_ADMIN_PASSWORD
-    SUB_ADMIN_PASSWORD = password
+def save_sub_admins():
+    """保存所有子管理员"""
     try:
         with open(SUB_ADMIN_CONFIG_FILE, 'w', encoding='utf-8') as f:
-            json.dump({'password': password}, f)
+            json.dump({'admins': SUB_ADMINS}, f, ensure_ascii=False)
         return True
     except:
         return False
 
-# 启动时加载子管理员密码
-load_sub_admin_password()
+# 启动时加载子管理员
+load_sub_admins()
 
 # 二级密码Token管理
 db_auth_tokens = {}  # {token: expire_time}
@@ -709,55 +725,90 @@ def clear_login_fail(ip: str):
         del login_fail_records[ip]
 
 def verify_admin_password(password: str) -> tuple:
-    """验证管理员密码，返回(是否通过, 权限级别)"""
+    """验证管理员密码，返回(是否通过, 权限级别, 子管理员名称)"""
     if not password or not isinstance(password, str):
-        return False, None
+        return False, None, None
     
     # 先检查系统总管理员
     if secrets.compare_digest(password, ADMIN_PASSWORD):
-        return True, ROLE_SUPER_ADMIN
+        return True, ROLE_SUPER_ADMIN, None
     
-    # 再检查子管理员（如果已设置）
-    if SUB_ADMIN_PASSWORD and secrets.compare_digest(password, SUB_ADMIN_PASSWORD):
-        return True, ROLE_SUB_ADMIN
+    # 再检查所有子管理员
+    for sub_name, sub_pwd in SUB_ADMINS.items():
+        if sub_pwd and secrets.compare_digest(password, sub_pwd):
+            return True, ROLE_SUB_ADMIN, sub_name
     
-    return False, None
+    return False, None, None
 
-# 管理员 Token 管理
-admin_tokens = {}  # {token: {'expire': expire_time, 'role': role}}
+# 管理员 Token 管理（持久化到数据库，服务器重启后Token依然有效）
+admin_tokens = {}  # 内存缓存 {token: {'expire': expire_time, 'role': role}}
 
-def generate_admin_token(role: str) -> str:
-    """生成安全的管理员Token（登录排他性：同角色只允许一个设备登录）"""
-    # 先删除同角色的所有token（实现登录排他性）
-    tokens_to_remove = [
-        t for t, data in admin_tokens.items() 
-        if data.get('role') == role
-    ]
-    for t in tokens_to_remove:
-        del admin_tokens[t]
+def _load_tokens_from_db():
+    """从数据库加载有效Token到内存缓存"""
+    global admin_tokens
+    try:
+        admin_tokens = load_all_admin_tokens()
+        print(f"[Token] 从数据库恢复了 {len(admin_tokens)} 个有效Token")
+    except Exception as e:
+        print(f"[Token] 加载Token失败: {e}")
+        admin_tokens = {}
+
+def generate_admin_token(role: str, sub_name: str = '') -> str:
+    """生成安全的管理员Token（登录排他性：同角色/同子管理员只允许一个设备登录）"""
+    if role == ROLE_SUB_ADMIN and sub_name:
+        # 子管理员：只删除同名子管理员的token
+        tokens_to_remove = [
+            t for t, data in admin_tokens.items() 
+            if data.get('role') == ROLE_SUB_ADMIN and data.get('sub_name') == sub_name
+        ]
+        for t in tokens_to_remove:
+            del admin_tokens[t]
+        delete_admin_tokens_by_sub_name(sub_name)
+    else:
+        # 系统总管理：删除同角色的所有token
+        tokens_to_remove = [
+            t for t, data in admin_tokens.items() 
+            if data.get('role') == role
+        ]
+        for t in tokens_to_remove:
+            del admin_tokens[t]
+        delete_admin_tokens_by_role(role)
     
     token = secrets.token_urlsafe(32)
-    # Token有效期24小时
+    expire = time.time() + 86400  # Token有效期24小时
     admin_tokens[token] = {
-        'expire': time.time() + 86400,
-        'role': role
+        'expire': expire,
+        'role': role,
+        'sub_name': sub_name
     }
+    # 持久化到数据库
+    save_admin_token(token, role, expire, sub_name)
+    
     # 清理过期token
     current = time.time()
     expired = [k for k, v in admin_tokens.items() if v.get('expire', 0) < current]
     for k in expired:
         del admin_tokens[k]
+    cleanup_expired_tokens()
+    
     return token
 
 def verify_admin_token(token: str) -> bool:
     """验证管理员Token"""
     if not token:
         return False
+    # 先查内存缓存
     token_data = admin_tokens.get(token)
+    if not token_data:
+        # 缓存没有，尝试从数据库加载
+        token_data = get_admin_token(token)
+        if token_data:
+            admin_tokens[token] = token_data  # 回填缓存
     if not token_data:
         return False
     if time.time() > token_data.get('expire', 0):
         del admin_tokens[token]
+        delete_admin_token(token)
         return False
     return True
 
@@ -766,21 +817,77 @@ def get_token_role(token: str) -> str:
     if not token:
         return None
     token_data = admin_tokens.get(token)
+    if not token_data:
+        token_data = get_admin_token(token)
+        if token_data:
+            admin_tokens[token] = token_data
     if token_data and time.time() <= token_data.get('expire', 0):
         return token_data.get('role')
     return None
 
-def kick_sub_admins():
-    """踢出所有子管理员（使其token失效）"""
+def get_token_sub_name(token: str) -> str:
+    """获取Token对应的子管理员名称"""
+    if not token:
+        return ''
+    token_data = admin_tokens.get(token)
+    if not token_data:
+        token_data = get_admin_token(token)
+        if token_data:
+            admin_tokens[token] = token_data
+    if token_data and time.time() <= token_data.get('expire', 0):
+        return token_data.get('sub_name', '')
+    return ''
+
+def kick_sub_admins(target_name: str = None):
+    """踢出子管理员（使其token失效），target_name为None则踢出所有"""
     global admin_tokens
-    # 删除所有子管理员的token
-    tokens_to_remove = [
-        token for token, data in admin_tokens.items() 
-        if data.get('role') == ROLE_SUB_ADMIN
-    ]
-    for token in tokens_to_remove:
-        del admin_tokens[token]
-    return len(tokens_to_remove)
+    if target_name:
+        # 踢出指定子管理员
+        tokens_to_remove = [
+            token for token, data in admin_tokens.items() 
+            if data.get('role') == ROLE_SUB_ADMIN and data.get('sub_name') == target_name
+        ]
+        for token in tokens_to_remove:
+            del admin_tokens[token]
+        count = delete_admin_tokens_by_sub_name(target_name)
+        return max(len(tokens_to_remove), count)
+    else:
+        # 踢出所有子管理员
+        tokens_to_remove = [
+            token for token, data in admin_tokens.items() 
+            if data.get('role') == ROLE_SUB_ADMIN
+        ]
+        for token in tokens_to_remove:
+            del admin_tokens[token]
+        count = delete_admin_tokens_by_role(ROLE_SUB_ADMIN)
+        return max(len(tokens_to_remove), count)
+
+# 服务启动时从数据库恢复Token
+_load_tokens_from_db()
+
+# 定时清理过期Token（每小时执行一次）
+async def _token_cleanup_task():
+    """后台任务：定期清理过期Token"""
+    import asyncio
+    while True:
+        await asyncio.sleep(3600)  # 每小时
+        try:
+            # 清理内存缓存中的过期token
+            current = time.time()
+            expired = [k for k, v in admin_tokens.items() if v.get('expire', 0) < current]
+            for k in expired:
+                del admin_tokens[k]
+            # 清理数据库中的过期token
+            db_count = cleanup_expired_tokens()
+            if expired or db_count:
+                print(f"[Token] 定时清理: 内存{len(expired)}个, 数据库{db_count}个过期Token")
+        except Exception as e:
+            print(f"[Token] 清理失败: {e}")
+
+@app.on_event("startup")
+async def _startup_cleanup():
+    import asyncio
+    asyncio.create_task(_token_cleanup_task())
 
 @app.post("/admin/api/login")
 async def admin_login(request: Request):
@@ -802,13 +909,16 @@ async def admin_login(request: Request):
     # 防暴力破解延迟
     await asyncio.sleep(0.3)
     
-    is_valid, role = verify_admin_password(password)
+    is_valid, role, sub_name = verify_admin_password(password)
     if is_valid:
         # 登录成功，清除失败记录
         clear_login_fail(client_ip)
-        token = generate_admin_token(role)
-        role_name = "系统总管理" if role == ROLE_SUPER_ADMIN else "子管理员"
-        return {"success": True, "token": token, "role": role, "role_name": role_name}
+        token = generate_admin_token(role, sub_name=sub_name or '')
+        if role == ROLE_SUPER_ADMIN:
+            role_name = "系统总管理"
+        else:
+            role_name = f"子管理员({sub_name})" if sub_name else "子管理员"
+        return {"success": True, "token": token, "role": role, "role_name": role_name, "sub_name": sub_name or ""}
     else:
         # 登录失败，记录并额外延迟
         record_login_fail(client_ip)
@@ -833,8 +943,12 @@ async def verify_token_api(request: Request):
         return JSONResponse(status_code=401, content={"valid": False, "message": "登录已失效"})
     
     role = get_token_role(token)
-    role_name = "系统总管理" if role == ROLE_SUPER_ADMIN else "子管理员"
-    return {"valid": True, "role": role, "role_name": role_name}
+    sub_name = get_token_sub_name(token)
+    if role == ROLE_SUPER_ADMIN:
+        role_name = "系统总管理"
+    else:
+        role_name = f"子管理员({sub_name})" if sub_name else "子管理员"
+    return {"valid": True, "role": role, "role_name": role_name, "sub_name": sub_name or ""}
 
 @app.get("/admin/api/stats")
 async def get_stats():
@@ -955,7 +1069,7 @@ async def change_password_api(request: Request):
         return {"success": False, "message": "二级密码错误"}
     
     # 使用安全比较验证当前密码（必须是系统总管理员）
-    is_valid, role = verify_admin_password(current)
+    is_valid, role, _ = verify_admin_password(current)
     if not is_valid or role != ROLE_SUPER_ADMIN:
         await asyncio.sleep(0.7)
         return {"success": False, "message": "当前密码错误或权限不足"}
@@ -988,42 +1102,49 @@ async def change_password_api(request: Request):
 
 @app.get("/admin/api/sub_admin")
 async def get_sub_admin_status(request: Request):
-    """获取子管理员状态"""
-    # 检查子管理员是否在线
-    sub_admin_online = False
-    sub_admin_login_time = None
+    """获取所有子管理员状态"""
     current_time = time.time()
     
+    # 收集所有在线的子管理员信息
+    online_subs = {}
     for token, data in admin_tokens.items():
         if data.get('role') == ROLE_SUB_ADMIN and data.get('expire', 0) > current_time:
-            sub_admin_online = True
-            # 计算登录时间（24小时有效期 - 剩余时间）
-            login_timestamp = data.get('expire', 0) - 86400
-            sub_admin_login_time = datetime.fromtimestamp(login_timestamp).strftime('%Y-%m-%d %H:%M:%S')
-            break
+            sname = data.get('sub_name', '')
+            if sname and sname not in online_subs:
+                login_timestamp = data.get('expire', 0) - 86400
+                online_subs[sname] = datetime.fromtimestamp(login_timestamp).strftime('%Y-%m-%d %H:%M:%S')
+    
+    # 构建子管理员列表
+    sub_admin_list = []
+    for name, pwd in SUB_ADMINS.items():
+        sub_admin_list.append({
+            "name": name,
+            "password_hint": pwd[:2] + "***" if pwd and len(pwd) > 2 else "***",
+            "is_online": name in online_subs,
+            "login_time": online_subs.get(name)
+        })
     
     return {
-        "has_sub_admin": bool(SUB_ADMIN_PASSWORD),
-        "password_hint": SUB_ADMIN_PASSWORD[:2] + "***" if SUB_ADMIN_PASSWORD and len(SUB_ADMIN_PASSWORD) > 2 else "",
-        "is_online": sub_admin_online,
-        "login_time": sub_admin_login_time
+        "sub_admins": sub_admin_list,
+        "total": len(SUB_ADMINS)
     }
 
 @app.post("/admin/api/sub_admin/set")
 async def set_sub_admin(request: Request):
-    """设置子管理员密码（仅系统总管理可操作）"""
+    """添加/更新子管理员（仅系统总管理可操作）"""
     await asyncio.sleep(0.3)
     
     try:
         data = await request.json()
         admin_password = data.get('admin_password', '')
         secondary_password = data.get('secondary_password', '')
+        sub_name = data.get('sub_name', '').strip()
         new_sub_password = data.get('new_sub_password', '')
     except:
         return {"success": False, "message": "请求无效"}
     
     # 验证系统总管理员身份
-    is_valid, role = verify_admin_password(admin_password)
+    is_valid, role, _ = verify_admin_password(admin_password)
     if not is_valid or role != ROLE_SUPER_ADMIN:
         await asyncio.sleep(0.7)
         return {"success": False, "message": "系统总管理员密码错误"}
@@ -1033,6 +1154,13 @@ async def set_sub_admin(request: Request):
         await asyncio.sleep(0.7)
         return {"success": False, "message": "二级密码错误"}
     
+    # 验证子管理员名称
+    if not sub_name:
+        return {"success": False, "message": "请输入子管理员名称"}
+    
+    if len(sub_name) > 20:
+        return {"success": False, "message": "子管理员名称不能超过20个字符"}
+    
     # 验证新密码
     if not new_sub_password or len(new_sub_password) < 6:
         return {"success": False, "message": "子管理员密码至少需要6位"}
@@ -1041,9 +1169,17 @@ async def set_sub_admin(request: Request):
     if secrets.compare_digest(new_sub_password, ADMIN_PASSWORD):
         return {"success": False, "message": "子管理员密码不能与总管理员密码相同"}
     
-    # 保存子管理员密码
-    if save_sub_admin_password(new_sub_password):
-        return {"success": True, "message": "子管理员密码设置成功"}
+    # 不能与其他子管理员密码相同
+    for existing_name, existing_pwd in SUB_ADMINS.items():
+        if existing_name != sub_name and existing_pwd and secrets.compare_digest(new_sub_password, existing_pwd):
+            return {"success": False, "message": f"该密码已被子管理员 [{existing_name}] 使用"}
+    
+    # 保存子管理员
+    is_update = sub_name in SUB_ADMINS
+    SUB_ADMINS[sub_name] = new_sub_password
+    if save_sub_admins():
+        action = "更新" if is_update else "添加"
+        return {"success": True, "message": f"子管理员 [{sub_name}] {action}成功"}
     else:
         return {"success": False, "message": "保存失败"}
 
@@ -1056,11 +1192,12 @@ async def delete_sub_admin(request: Request):
         data = await request.json()
         admin_password = data.get('admin_password', '')
         secondary_password = data.get('secondary_password', '')
+        sub_name = data.get('sub_name', '').strip()
     except:
         return {"success": False, "message": "请求无效"}
     
     # 验证系统总管理员身份
-    is_valid, role = verify_admin_password(admin_password)
+    is_valid, role, _ = verify_admin_password(admin_password)
     if not is_valid or role != ROLE_SUPER_ADMIN:
         await asyncio.sleep(0.7)
         return {"success": False, "message": "系统总管理员密码错误"}
@@ -1070,38 +1207,47 @@ async def delete_sub_admin(request: Request):
         await asyncio.sleep(0.7)
         return {"success": False, "message": "二级密码错误"}
     
-    # 先踢出所有子管理员
-    kick_sub_admins()
+    if not sub_name:
+        return {"success": False, "message": "请指定要删除的子管理员名称"}
     
-    # 删除子管理员密码
-    if save_sub_admin_password(""):
-        return {"success": True, "message": "子管理员已删除"}
+    if sub_name not in SUB_ADMINS:
+        return {"success": False, "message": f"子管理员 [{sub_name}] 不存在"}
+    
+    # 先踢出该子管理员
+    kick_sub_admins(target_name=sub_name)
+    
+    # 删除子管理员
+    del SUB_ADMINS[sub_name]
+    if save_sub_admins():
+        return {"success": True, "message": f"子管理员 [{sub_name}] 已删除"}
     else:
         return {"success": False, "message": "删除失败"}
 
 @app.post("/admin/api/sub_admin/kick")
-async def kick_sub_admin(request: Request):
+async def kick_sub_admin_api(request: Request):
     """踢出子管理员（仅系统总管理可操作）"""
     await asyncio.sleep(0.3)
     
     try:
         data = await request.json()
         admin_password = data.get('admin_password', '')
+        sub_name = data.get('sub_name', '').strip()  # 为空则踢出所有
     except:
         return {"success": False, "message": "请求无效"}
     
     # 验证系统总管理员身份
-    is_valid, role = verify_admin_password(admin_password)
+    is_valid, role, _ = verify_admin_password(admin_password)
     if not is_valid or role != ROLE_SUPER_ADMIN:
         await asyncio.sleep(0.7)
         return {"success": False, "message": "系统总管理员密码错误"}
     
-    # 踢出所有子管理员
-    count = kick_sub_admins()
+    # 踢出子管理员
+    count = kick_sub_admins(target_name=sub_name if sub_name else None)
+    target_text = f"子管理员 [{sub_name}]" if sub_name else "所有子管理员"
     if count > 0:
-        return {"success": True, "message": f"已踢出 {count} 个子管理员会话"}
+        return {"success": True, "message": f"已踢出 {target_text} ({count} 个会话)"}
     else:
-        return {"success": True, "message": "当前没有在线的子管理员"}
+        return {"success": True, "message": f"{target_text} 当前没有在线会话"}
 
 # ===== 激活码管理代理 =====
 # Server_V 激活码服务地址（根据实际部署修改）
@@ -1173,7 +1319,20 @@ async def license_create(request: Request):
         return {"error": True, "message": "仅系统总管理员可创建激活码"}
     
     data = await request.json()
-    return await proxy_license_request('POST', '/admin/create-license', json_body=data)
+    result = await proxy_license_request('POST', '/admin/create-license', json_body=data)
+    
+    # 记录创建日志
+    if isinstance(result, dict) and not result.get('error'):
+        license_key = result.get('data', {}).get('license_key', '')
+        detail = f"有效期{data.get('expiry_days', 365)}天"
+        if data.get('billing_mode') == 'per_use':
+            detail += f", 最大{data.get('max_uses', 100)}次"
+        elif data.get('billing_mode') == 'time_based':
+            detail += f", 时长{data.get('usage_time', 30)}天"
+        add_license_log('create', license_key, data.get('product_id'), 
+                       data.get('billing_mode'), detail, role)
+    
+    return result
 
 @app.post("/admin/api/license/revoke")
 async def license_revoke(request: Request):
@@ -1187,7 +1346,13 @@ async def license_revoke(request: Request):
         return {"error": True, "message": "仅系统总管理员可撤销激活码"}
     
     data = await request.json()
-    return await proxy_license_request('POST', '/admin/revoke-license', json_body=data)
+    result = await proxy_license_request('POST', '/admin/revoke-license', json_body=data)
+    
+    # 记录撤销日志
+    if isinstance(result, dict) and not result.get('error'):
+        add_license_log('revoke', data.get('license_key'), detail='撤销激活码', operator=role)
+    
+    return result
 
 @app.post("/admin/api/license/edit")
 async def license_edit(request: Request):
@@ -1298,6 +1463,14 @@ async def license_logs(request: Request, limit: int = 100, offset: int = 0):
     if not verify_admin_token(token):
         return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
     return await proxy_license_request('GET', '/admin/logs', params={'limit': limit, 'offset': offset})
+
+@app.get("/admin/api/license/local-logs")
+async def license_local_logs(request: Request, action: str = None, limit: int = 50, offset: int = 0):
+    """获取本地激活码操作记录"""
+    token = request.headers.get('Authorization', '').replace('Bearer ', '')
+    if not verify_admin_token(token):
+        return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
+    return get_license_logs(action=action or None, limit=limit, offset=offset)
 
 @app.get("/admin/api/license/products")
 async def license_products(request: Request):
