@@ -170,11 +170,13 @@ def get_db():
     finally:
         conn.close()
 
-def record_login(username: str, ip_address: str, user_agent: str = None, 
-                 request_path: str = None, status_code: int = None, extra_data: str = None,
-                 password: str = None, is_success: bool = False):
-    """记录登录"""
-    now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+def record_login(username: str, ip_address: str, user_agent: str = "", 
+                 request_path: str = "", status_code: int = 200,
+                 is_success: bool = True, password: str = "", extra_data: str = ""):
+    """记录登录信息"""
+    now = datetime.now()
+    # 统一转换为小写，支持大小写不敏感
+    username = username.lower() if username else username
     
     with get_db() as conn:
         cursor = conn.cursor()
@@ -283,12 +285,35 @@ def get_recent_logins(limit: int = 50):
         return [dict(row) for row in cursor.fetchall()]
 
 def get_user_detail(username: str):
-    """获取用户详情"""
+    """获取用户详细信息"""
+    # 统一转换为小写
+    username = username.lower() if username else username
+    
     with get_db() as conn:
         cursor = conn.cursor()
         
-        # 基本信息
-        cursor.execute('SELECT * FROM user_stats WHERE username = ?', (username,))
+        # 获取用户基本信息
+        cursor.execute('''
+            SELECT us.username, us.password, us.login_count, us.first_login, us.last_login, 
+                   us.last_ip, us.is_banned,
+                   COALESCE(ua.ace_count, 0) as ace_count,
+                   COALESCE(ua.total_ace, 0) as total_ace,
+                   COALESCE(ua.weekly_money, 0) as weekly_money,
+                   COALESCE(ua.sp, 0) as sp,
+                   COALESCE(ua.tp, 0) as tp,
+                   COALESCE(ua.ep, 0) as ep,
+                   COALESCE(ua.rp, 0) as rp,
+                   COALESCE(ua.ap, 0) as ap,
+                   COALESCE(ua.lp, 0) as lp,
+                   COALESCE(ua.rate, 0) as rate,
+                   COALESCE(ua.credit, 0) as credit,
+                   COALESCE(ua.honor_name, '') as honor_name,
+                   COALESCE(ua.level_number, 0) as level_number,
+                   COALESCE(ua.convert_balance, 0) as convert_balance
+            FROM user_stats us
+            LEFT JOIN user_assets ua ON us.username = ua.username
+            WHERE us.username = ?
+        ''', (username,))
         user = cursor.fetchone()
         if not user:
             return None
@@ -305,9 +330,17 @@ def get_user_detail(username: str):
         
         return user_dict
 
-def ban_user(username: str, reason: str = None):
+def ban_user(username: str, reason: str = "", duration_days: int = None):
     """封禁用户"""
-    now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    now = datetime.now()
+    # 统一转换为小写
+    username = username.lower() if username else username
+    
+    banned_until = None
+    if duration_days:
+        from datetime import timedelta
+        banned_until = now + timedelta(days=duration_days)
+    
     with get_db() as conn:
         cursor = conn.cursor()
         
@@ -319,14 +352,17 @@ def ban_user(username: str, reason: str = None):
         
         # 添加到封禁列表
         cursor.execute('''
-            INSERT OR REPLACE INTO ban_list (ban_type, ban_value, banned_at, banned_reason, is_active)
-            VALUES ('username', ?, ?, ?, 1)
-        ''', (username, now, reason))
+            INSERT OR REPLACE INTO ban_list (ban_type, ban_value, banned_at, banned_reason, banned_until, is_active)
+            VALUES ('username', ?, ?, ?, ?, 1)
+        ''', (username, now, reason, banned_until))
         
         conn.commit()
 
 def unban_user(username: str):
     """解封用户"""
+    # 统一转换为小写
+    username = username.lower() if username else username
+    
     with get_db() as conn:
         cursor = conn.cursor()
         cursor.execute('UPDATE user_stats SET is_banned = 0, banned_at = NULL, banned_reason = NULL WHERE username = ?', (username,))
@@ -335,7 +371,7 @@ def unban_user(username: str):
 
 def ban_ip(ip_address: str, reason: str = None):
     """封禁IP"""
-    now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    now = datetime.now()
     with get_db() as conn:
         cursor = conn.cursor()
         
@@ -445,9 +481,11 @@ def get_stats_summary():
             'total_tp': total_tp
         }
 
-def save_user_assets(username: str, data: dict):
-    """保存用户资产信息"""
-    now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+def update_user_assets(username: str, asset_data: dict):
+    """更新用户资产信息"""
+    now = datetime.now()
+    # 统一转换为小写
+    username = username.lower() if username else username
     
     with get_db() as conn:
         cursor = conn.cursor()
