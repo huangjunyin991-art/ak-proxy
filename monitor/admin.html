@@ -935,6 +935,20 @@
             padding: 30px;
             min-width: 400px;
             border: 1px solid var(--border);
+            max-height: 90vh;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        @media (max-width: 768px) {
+            .modal-content {
+                min-width: unset;
+                width: 90%;
+                max-width: 500px;
+                padding: 20px;
+                max-height: 85vh;
+            }
         }
         
         .modal-content h3 {
@@ -1914,61 +1928,71 @@
     <!-- 创建激活码弹窗 -->
     <div class="modal" id="createLicenseModal">
         <div class="modal-content" style="max-width: 500px;">
-            <h3>➕ 创建激活码</h3>
+            <h3 style="flex-shrink: 0;">➕ 创建激活码</h3>
             
-            <div style="margin-bottom: 15px;">
-                <label style="display: block; margin-bottom: 8px; color: var(--text-secondary); font-size: 14px;">产品类型</label>
-                <select id="licProductId" style="width: 100%; padding: 10px; background: var(--bg-primary); border: 1px solid var(--border); 
-                        border-radius: 8px; color: var(--text-primary);">
-                    <option value="ak_admin_panel">管理面板 (ak_admin_panel)</option>
-                    <option value="auto_sell_system">自动销售系统 (auto_sell_system)</option>
-                </select>
-            </div>
-            
-            <div style="margin-bottom: 15px;">
-                <label style="display: block; margin-bottom: 8px; color: var(--text-secondary); font-size: 14px;">计费模式</label>
-                <select id="licBillingMode" onchange="onBillingModeChange()" style="width: 100%; padding: 10px; background: var(--bg-primary); border: 1px solid var(--border); 
-                        border-radius: 8px; color: var(--text-primary);">
-                    <option value="unlimited">无限制 (unlimited)</option>
-                    <option value="time_based">按时间 (time_based)</option>
-                </select>
-            </div>
-            
-            <div id="licUsageTimeRow" style="margin-bottom: 15px; display: none;">
-                <label style="display: block; margin-bottom: 8px; color: var(--text-secondary); font-size: 14px;">使用时长（天）</label>
-                <input type="number" id="licUsageTime" value="30" min="1" step="0.5"
-                       style="width: 100%; padding: 10px; background: var(--bg-primary); border: 1px solid var(--border); 
-                              border-radius: 8px; color: var(--text-primary);">
-            </div>
-            
-            <div style="margin-bottom: 15px;">
-                <label style="display: block; margin-bottom: 8px; color: var(--text-secondary); font-size: 14px;">有效期（天）</label>
-                <input type="number" id="licExpiryDays" value="365" min="1" 
-                       style="width: 100%; padding: 10px; background: var(--bg-primary); border: 1px solid var(--border); 
-                              border-radius: 8px; color: var(--text-primary);">
-            </div>
-            
-            <div style="margin-bottom: 20px;">
-                <label style="display: block; margin-bottom: 8px; color: var(--text-secondary); font-size: 14px;">创建数量</label>
-                <div style="display: flex; align-items: center; gap: 10px;">
-                    <input type="number" id="licBatchCount" value="1" min="1" max="100" 
-                           style="flex: 1; padding: 10px; background: var(--bg-primary); border: 1px solid var(--border); 
+            <div style="flex: 1; overflow-y: auto; margin-bottom: 20px;">
+                <div style="margin-bottom: 15px;">
+                    <label style="display: block; margin-bottom: 8px; color: var(--text-secondary); font-size: 14px;">产品类型</label>
+                    <select id="licProductId" style="width: 100%; padding: 10px; background: var(--bg-primary); border: 1px solid var(--border); 
+                            border-radius: 8px; color: var(--text-primary);">
+                        <option value="ak_admin_panel">管理面板 (ak_admin_panel)</option>
+                        <option value="auto_sell_system">自动销售系统 (auto_sell_system)</option>
+                    </select>
+                </div>
+                
+                <div style="margin-bottom: 15px;">
+                    <label style="display: block; margin-bottom: 8px; color: var(--text-secondary); font-size: 14px;">计费模式</label>
+                    <select id="licBillingMode" onchange="onBillingModeChange()" style="width: 100%; padding: 10px; background: var(--bg-primary); border: 1px solid var(--border); 
+                            border-radius: 8px; color: var(--text-primary);">
+                        <option value="unlimited">无限制 (unlimited)</option>
+                        <option value="per_use">按次数 (per_use)</option>
+                        <option value="time_based">按时间 (time_based)</option>
+                    </select>
+                </div>
+                
+                <div id="licMaxUsesRow" style="margin-bottom: 15px; display: none;">
+                    <label style="display: block; margin-bottom: 8px; color: var(--text-secondary); font-size: 14px;">最大使用次数</label>
+                    <input type="number" id="licMaxUses" value="100" min="1"
+                           style="width: 100%; padding: 10px; background: var(--bg-primary); border: 1px solid var(--border); 
                                   border-radius: 8px; color: var(--text-primary);">
-                    <span style="color: var(--text-secondary); font-size: 12px; white-space: nowrap;">最多100个</span>
+                </div>
+                
+                <div id="licUsageTimeRow" style="margin-bottom: 15px; display: none;">
+                    <label style="display: block; margin-bottom: 8px; color: var(--text-secondary); font-size: 14px;">使用时长（天）</label>
+                    <input type="number" id="licUsageTime" value="30" min="1" step="0.5"
+                           style="width: 100%; padding: 10px; background: var(--bg-primary); border: 1px solid var(--border); 
+                                  border-radius: 8px; color: var(--text-primary);">
+                </div>
+                
+                <div style="margin-bottom: 15px;">
+                    <label style="display: block; margin-bottom: 8px; color: var(--text-secondary); font-size: 14px;">有效期（天）</label>
+                    <input type="number" id="licExpiryDays" value="365" min="1" 
+                           style="width: 100%; padding: 10px; background: var(--bg-primary); border: 1px solid var(--border); 
+                                  border-radius: 8px; color: var(--text-primary);">
+                </div>
+                
+                <div style="margin-bottom: 15px;">
+                    <label style="display: block; margin-bottom: 8px; color: var(--text-secondary); font-size: 14px;">创建数量</label>
+                    <div style="display: flex; align-items: center; gap: 10px;">
+                        <input type="number" id="licBatchCount" value="1" min="1" max="100" 
+                               style="flex: 1; padding: 10px; background: var(--bg-primary); border: 1px solid var(--border); 
+                                      border-radius: 8px; color: var(--text-primary);">
+                        <span style="color: var(--text-secondary); font-size: 12px; white-space: nowrap;">最多100个</span>
+                    </div>
+                </div>
+                
+                <div id="createLicenseMsg" style="margin-bottom: 15px; padding: 10px; border-radius: 6px; display: none; max-height: 150px; overflow-y: auto;"></div>
+                
+                <!-- 创建进度 -->
+                <div id="createLicenseProgress" style="display: none; margin-bottom: 15px;">
+                    <div style="background: var(--bg-primary); border-radius: 6px; height: 6px; overflow: hidden;">
+                        <div id="createProgressBar" style="height: 100%; background: var(--accent); width: 0%; transition: width 0.3s;"></div>
+                    </div>
+                    <div id="createProgressText" style="text-align: center; color: var(--text-secondary); font-size: 12px; margin-top: 5px;">0/0</div>
                 </div>
             </div>
             
-            <div id="createLicenseMsg" style="margin-bottom: 15px; padding: 10px; border-radius: 6px; display: none; max-height: 150px; overflow-y: auto;"></div>
-            
-            <!-- 创建进度 -->
-            <div id="createLicenseProgress" style="display: none; margin-bottom: 15px;">
-                <div style="background: var(--bg-primary); border-radius: 6px; height: 6px; overflow: hidden;">
-                    <div id="createProgressBar" style="height: 100%; background: var(--accent); width: 0%; transition: width 0.3s;"></div>
-                </div>
-                <div id="createProgressText" style="text-align: center; color: var(--text-secondary); font-size: 12px; margin-top: 5px;">0/0</div>
-            </div>
-            
-            <div class="modal-buttons">
+            <div class="modal-buttons" style="flex-shrink: 0;">
                 <button class="btn-page" onclick="closeCreateLicenseModal()">取消</button>
                 <button class="btn btn-primary" id="createLicenseBtn" onclick="doCreateLicense()">创建</button>
             </div>
@@ -4164,6 +4188,7 @@
         // 计费模式变化
         function onBillingModeChange() {
             const mode = document.getElementById('licBillingMode').value;
+            document.getElementById('licMaxUsesRow').style.display = mode === 'per_use' ? 'block' : 'none';
             document.getElementById('licUsageTimeRow').style.display = mode === 'time_based' ? 'block' : 'none';
         }
         
