@@ -14,6 +14,9 @@ import threading
 import time
 import sqlite3
 import signal
+import json
+import urllib.request
+import urllib.error
 
 # 配置路径 (使用相对路径，文件与管理器在同一目录)
 MONITOR_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -28,7 +31,9 @@ EDITABLE_FILES = {
     "database.py": "数据库操作",
     "chat_widget.js": "聊天组件",
     "admin.html": "管理后台页面",
-    "requirements.txt": "依赖配置"
+    "proxy_pool.py": "代理池模块",
+    "subscription_parser.py": "订阅解析",
+    "subscription_cache.json": "节点缓存"
 }
 
 # 设置主题
@@ -51,10 +56,9 @@ class MonitorManager(ctk.CTk):
         
         self.create_widgets()
         self.update_status()
+        self._schedule_status_refresh()
         
-        # 全局快捷键
-        self.bind("<Control-s>", lambda e: self.save_file())
-        self.bind("<Control-S>", lambda e: self.save_file())
+        # Ctrl+S 快捷键在 editor_text 上绑定（避免重复触发）
         
     def create_widgets(self):
         # 主框架
@@ -120,6 +124,11 @@ class MonitorManager(ctk.CTk):
         # 配置标签页
         self.tab_config = self.tabview.add("⚙️ 配置")
         self.tab_config.grid_columnconfigure(0, weight=1)
+        
+        # 代理池标签页
+        self.tab_proxy = self.tabview.add("🌐 代理池")
+        self.tab_proxy.grid_columnconfigure(0, weight=1)
+        self.tab_proxy.grid_rowconfigure(1, weight=1)
         
         # ===== 日志区域 =====
         self.log_text = ctk.CTkTextbox(self.tab_log, font=ctk.CTkFont(family="Consolas", size=12))
@@ -254,6 +263,107 @@ class MonitorManager(ctk.CTk):
         ctk.CTkButton(config_frame, text="保存配置到server.py", 
                      command=self.save_config).grid(row=3, column=1, sticky="w", padx=10, pady=20)
         
+        # ===== 代理池区域 =====
+        self.pp_admin_token = ""
+        self.pp_refresh_timer = None
+        
+        # 上半部分：配置
+        pp_config_frame = ctk.CTkFrame(self.tab_proxy)
+        pp_config_frame.grid(row=0, column=0, sticky="ew", padx=10, pady=10)
+        pp_config_frame.grid_columnconfigure(1, weight=1)
+        
+        ctk.CTkLabel(pp_config_frame, text="代理池管理", 
+                     font=ctk.CTkFont(size=16, weight="bold")).grid(row=0, column=0, columnspan=4, pady=10)
+        
+        # 状态指示
+        self.pp_status_label = ctk.CTkLabel(pp_config_frame, text="状态: 未知", 
+                                            font=ctk.CTkFont(size=13, weight="bold"))
+        self.pp_status_label.grid(row=1, column=0, columnspan=4, pady=(0, 10))
+        
+        # sing-box 路径
+        ctk.CTkLabel(pp_config_frame, text="sing-box路径:").grid(row=2, column=0, sticky="e", padx=10, pady=5)
+        self.pp_singbox_entry = ctk.CTkEntry(pp_config_frame, width=400, 
+                                             placeholder_text=r"如: C:\sing-box\sing-box.exe")
+        self.pp_singbox_entry.grid(row=2, column=1, columnspan=3, sticky="ew", padx=10, pady=5)
+        
+        # 订阅链接
+        ctk.CTkLabel(pp_config_frame, text="订阅链接:").grid(row=3, column=0, sticky="e", padx=10, pady=5)
+        sub_frame = ctk.CTkFrame(pp_config_frame, fg_color="transparent")
+        sub_frame.grid(row=3, column=1, columnspan=3, sticky="ew", padx=10, pady=5)
+        self.pp_sub_entry = ctk.CTkEntry(sub_frame, width=350,
+                                         placeholder_text="输入订阅链接获取代理节点")
+        self.pp_sub_entry.pack(side="left", fill="x", expand=True)
+        ctk.CTkButton(sub_frame, text="🔄 刷新订阅", width=100,
+                     fg_color="#6c5ce7", hover_color="#5a4bd1",
+                     command=self.pp_refresh_subscription).pack(side="left", padx=(8, 0))
+        
+        # 数值参数行
+        param_frame = ctk.CTkFrame(pp_config_frame, fg_color="transparent")
+        param_frame.grid(row=4, column=0, columnspan=4, pady=5)
+        
+        ctk.CTkLabel(param_frame, text="槽位数:").pack(side="left", padx=(10, 2))
+        self.pp_slots_entry = ctk.CTkEntry(param_frame, width=50)
+        self.pp_slots_entry.insert(0, "5")
+        self.pp_slots_entry.pack(side="left", padx=(0, 15))
+        
+        ctk.CTkLabel(param_frame, text="起始端口:").pack(side="left", padx=(0, 2))
+        self.pp_port_entry = ctk.CTkEntry(param_frame, width=70)
+        self.pp_port_entry.insert(0, "21000")
+        self.pp_port_entry.pack(side="left", padx=(0, 15))
+        
+        ctk.CTkLabel(param_frame, text="速率限制/min:").pack(side="left", padx=(0, 2))
+        self.pp_rate_entry = ctk.CTkEntry(param_frame, width=50)
+        self.pp_rate_entry.insert(0, "8")
+        self.pp_rate_entry.pack(side="left", padx=(0, 10))
+        
+        # 优先直连选项
+        direct_frame = ctk.CTkFrame(pp_config_frame, fg_color="transparent")
+        direct_frame.grid(row=5, column=0, columnspan=4, pady=5)
+        
+        self.pp_prefer_direct_var = ctk.BooleanVar(value=False)
+        self.pp_prefer_direct_cb = ctk.CTkCheckBox(direct_frame, text="优先直连（冷却后自动切回直连）",
+                                                     variable=self.pp_prefer_direct_var)
+        self.pp_prefer_direct_cb.pack(side="left", padx=(10, 15))
+        
+        ctk.CTkLabel(direct_frame, text="冷却时间(秒):").pack(side="left", padx=(0, 2))
+        self.pp_direct_cd_entry = ctk.CTkEntry(direct_frame, width=50)
+        self.pp_direct_cd_entry.insert(0, "60")
+        self.pp_direct_cd_entry.pack(side="left", padx=(0, 10))
+        
+        ctk.CTkLabel(direct_frame, text="直连限速/min:").pack(side="left", padx=(0, 2))
+        self.pp_direct_rate_entry = ctk.CTkEntry(direct_frame, width=50)
+        self.pp_direct_rate_entry.insert(0, "4")
+        self.pp_direct_rate_entry.pack(side="left", padx=(0, 10))
+        
+        self.pp_direct_status_label = ctk.CTkLabel(direct_frame, text="", 
+                                                     font=ctk.CTkFont(size=12))
+        self.pp_direct_status_label.pack(side="left", padx=(10, 0))
+        
+        # 按钮行
+        btn_frame = ctk.CTkFrame(pp_config_frame, fg_color="transparent")
+        btn_frame.grid(row=6, column=0, columnspan=4, pady=10)
+        
+        ctk.CTkButton(btn_frame, text="💾 保存配置", width=100,
+                     command=self.pp_save_config).pack(side="left", padx=5)
+        ctk.CTkButton(btn_frame, text="📦 加载/重载模块", width=120,
+                     fg_color="orange", hover_color="darkorange",
+                     command=self.pp_load_module).pack(side="left", padx=5)
+        self.pp_start_btn = ctk.CTkButton(btn_frame, text="▶ 启动", width=80,
+                     fg_color="green", hover_color="darkgreen",
+                     command=self.pp_start)
+        self.pp_start_btn.pack(side="left", padx=5)
+        self.pp_stop_btn = ctk.CTkButton(btn_frame, text="■ 停止", width=80,
+                     fg_color="red", hover_color="darkred",
+                     command=self.pp_stop)
+        self.pp_stop_btn.pack(side="left", padx=5)
+        ctk.CTkButton(btn_frame, text="🔄 刷新状态", width=100,
+                     command=self.pp_refresh_status).pack(side="left", padx=5)
+        
+        # 下半部分：状态展示
+        self.pp_status_text = ctk.CTkTextbox(self.tab_proxy, font=ctk.CTkFont(family="Consolas", size=12))
+        self.pp_status_text.grid(row=1, column=0, sticky="nsew", padx=10, pady=(0, 10))
+        self.pp_status_text.insert("1.0", "点击「刷新状态」查看代理池信息\n（需要先输入管理Token并确保服务器已启动）")
+        
         # 初始化
         self.load_table("user_stats")
     
@@ -272,6 +382,9 @@ class MonitorManager(ctk.CTk):
     def update_status(self):
         """更新服务状态"""
         proc = self.find_server_process()
+        # 检查 self.server_process 是否已退出
+        if self.server_process and self.server_process.poll() is not None:
+            self.server_process = None
         if proc or self.server_process:
             port = self.port_entry.get()
             self.status_label.configure(text=f"状态: ✅ 运行中 (端口 {port})", text_color="lightgreen")
@@ -282,9 +395,36 @@ class MonitorManager(ctk.CTk):
             self.start_btn.configure(state="normal")
             self.stop_btn.configure(state="disabled")
     
+    def _schedule_status_refresh(self):
+        """每5秒自动刷新服务状态"""
+        self.update_status()
+        self.after(5000, self._schedule_status_refresh)
+    
+    def _kill_port(self, port):
+        """强制杀死占用指定端口的进程（Windows）"""
+        if os.name != 'nt':
+            return
+        try:
+            result = subprocess.run(
+                f'netstat -ano | findstr ":{port}" | findstr "LISTENING"',
+                capture_output=True, text=True, shell=True
+            )
+            for line in result.stdout.strip().split('\n'):
+                if line.strip():
+                    pid = line.strip().split()[-1]
+                    if pid.isdigit() and int(pid) != os.getpid():
+                        subprocess.run(f'taskkill /F /PID {pid}', shell=True, capture_output=True)
+                        self.log_text.insert("end", f"[INFO] 已清理端口 {port} 占用进程 PID={pid}\n")
+        except Exception:
+            pass
+    
     def start_server(self):
         """启动服务器"""
         port = self.port_entry.get()
+        
+        # 启动前清理端口占用
+        self._kill_port(port)
+        time.sleep(0.5)
         
         try:
             # 检查依赖
@@ -292,6 +432,16 @@ class MonitorManager(ctk.CTk):
             subprocess.run([sys.executable, "-m", "pip", "install", "-r", "requirements.txt",
                           "-i", "https://pypi.tuna.tsinghua.edu.cn/simple", "-q"],
                          capture_output=True)
+            
+            # 清理 __pycache__ 确保加载最新代码
+            cache_dir = os.path.join(MONITOR_DIR, "__pycache__")
+            if os.path.isdir(cache_dir):
+                import shutil
+                try:
+                    shutil.rmtree(cache_dir)
+                    self.log_text.insert("end", "[INFO] 已清理 __pycache__\n")
+                except Exception:
+                    pass
             
             # 启动服务器
             self.log_text.insert("end", f"[INFO] 启动服务器在端口 {port}...\n")
@@ -334,21 +484,34 @@ uvicorn.run(app, host='0.0.0.0', port={port})
                 break
     
     def stop_server(self):
-        """停止服务器"""
+        """停止服务器（强制杀死进程树+端口占用进程）"""
         self.log_running = False
         
-        # 停止进程
+        # 强制杀死进程树
         if self.server_process:
-            self.server_process.terminate()
+            try:
+                import psutil
+                parent = psutil.Process(self.server_process.pid)
+                for child in parent.children(recursive=True):
+                    child.kill()
+                parent.kill()
+            except Exception:
+                try:
+                    self.server_process.kill()
+                except Exception:
+                    pass
             self.server_process = None
         
         # 查找并终止其他服务器进程
         proc = self.find_server_process()
         if proc:
             try:
-                proc.terminate()
+                proc.kill()
             except:
                 pass
+        
+        # 强制杀死端口占用
+        self._kill_port(self.port_entry.get())
         
         time.sleep(1)
         self.update_status()
@@ -528,12 +691,326 @@ uvicorn.run(app, host='0.0.0.0', port={port})
         except Exception as e:
             messagebox.showerror("错误", f"保存配置失败: {e}")
     
+    # ===== 代理池管理方法 =====
+    
+    _pp_token = None  # 缓存的管理员Token
+    
+    def _pp_api(self, method, path, data=None):
+        """调用代理池API，返回 (success, result_dict)。401时自动登录重试"""
+        port = self.port_entry.get()
+        url = f"http://127.0.0.1:{port}{path}"
+        
+        def _do_request(token=None):
+            body = json.dumps(data).encode('utf-8') if data else None
+            req = urllib.request.Request(url, data=body, method=method)
+            req.add_header('Content-Type', 'application/json')
+            if token:
+                req.add_header('Authorization', f'Bearer {token}')
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                return json.loads(resp.read().decode('utf-8'))
+        
+        try:
+            result = _do_request(self._pp_token)
+            return True, result
+        except urllib.error.HTTPError as e:
+            if e.code == 401:
+                # 自动登录获取Token后重试
+                token = self._pp_auto_login(port)
+                if token:
+                    try:
+                        result = _do_request(token)
+                        return True, result
+                    except urllib.error.HTTPError as e2:
+                        try:
+                            return False, json.loads(e2.read().decode('utf-8'))
+                        except Exception:
+                            return False, {"message": f"HTTP {e2.code}: {e2.reason}"}
+            try:
+                err_body = json.loads(e.read().decode('utf-8'))
+                return False, err_body
+            except Exception:
+                return False, {"message": f"HTTP {e.code}: {e.reason}"}
+        except urllib.error.URLError as e:
+            return False, {"message": f"连接失败: {e.reason}\n请确认服务器已启动"}
+        except Exception as e:
+            return False, {"message": f"请求异常: {e}"}
+    
+    def _pp_auto_login(self, port):
+        """自动登录获取管理员Token"""
+        try:
+            login_url = f"http://127.0.0.1:{port}/admin/api/login"
+            body = json.dumps({"password": "ak-lovejjy1314"}).encode('utf-8')
+            req = urllib.request.Request(login_url, data=body, method="POST")
+            req.add_header('Content-Type', 'application/json')
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                result = json.loads(resp.read().decode('utf-8'))
+                if result.get("success") and result.get("token"):
+                    MonitorManager._pp_token = result["token"]
+                    return result["token"]
+        except Exception:
+            pass
+        return None
+    
+    def pp_save_config(self):
+        """保存代理池配置到服务器"""
+        data = {
+            "singbox_path": self.pp_singbox_entry.get().strip(),
+            "subscription_url": self.pp_sub_entry.get().strip(),
+            "prefer_direct": self.pp_prefer_direct_var.get(),
+            "direct_cooldown": int(self.pp_direct_cd_entry.get() or 60),
+            "direct_rate_limit": int(self.pp_direct_rate_entry.get() or 4),
+            "num_slots": int(self.pp_slots_entry.get() or 5),
+            "base_port": int(self.pp_port_entry.get() or 21000),
+            "rate_limit": int(self.pp_rate_entry.get() or 8),
+        }
+        ok, result = self._pp_api("POST", "/admin/api/proxy_pool/config", data)
+        if ok and result.get("success"):
+            messagebox.showinfo("成功", result.get("message", "配置已保存"))
+        else:
+            messagebox.showerror("错误", result.get("message", "保存失败"))
+    
+    def pp_refresh_subscription(self):
+        """本地刷新订阅节点"""
+        sub_url = self.pp_sub_entry.get().strip()
+        if not sub_url:
+            messagebox.showwarning("提示", "请先输入订阅链接")
+            return
+        
+        def do_fetch():
+            try:
+                from subscription_parser import SubscriptionParser
+                
+                raw_nodes, err = SubscriptionParser.fetch_and_parse(sub_url)
+                if err:
+                    self.after(0, lambda: messagebox.showerror("错误", f"订阅获取失败:\n{err}"))
+                    return
+                
+                node_dicts = [n.to_dict() for n in raw_nodes]
+                info_keywords = ["剩余流量", "套餐到期", "官网", "到期时间", "过期", "流量"]
+                nodes = []
+                for n in node_dicts:
+                    host = n.get("host", "")
+                    name = n.get("name", "")
+                    if host in ("127.0.0.1", "localhost", "0.0.0.0", "") or not n.get("port", 0):
+                        continue
+                    if any(kw in name for kw in info_keywords):
+                        continue
+                    nodes.append(n)
+                
+                if not nodes:
+                    self.after(0, lambda: messagebox.showwarning("提示", "订阅中没有可用节点"))
+                    return
+                
+                cache_path = os.path.join(MONITOR_DIR, "subscription_cache.json")
+                with open(cache_path, 'w', encoding='utf-8') as f:
+                    json.dump({
+                        "cached_nodes": nodes, 
+                        "updated": time.strftime("%Y-%m-%d %H:%M:%S")
+                    }, f, ensure_ascii=False, indent=2)
+                
+                count = len(nodes)
+                self.after(0, lambda: messagebox.showinfo("成功", f"获取到 {count} 个可用节点\n已缓存到 subscription_cache.json"))
+                
+                self._pp_api("POST", "/admin/api/proxy_pool/config", {"subscription_url": sub_url})
+                
+            except ImportError as e:
+                err_msg = str(e)
+                self.after(0, lambda: messagebox.showerror("错误", f"导入订阅解析器失败:\n{err_msg}\n\n请安装: pip install requests pyyaml"))
+            except Exception as e:
+                err_msg = str(e)
+                self.after(0, lambda: messagebox.showerror("错误", f"订阅获取异常:\n{err_msg}"))
+        
+        threading.Thread(target=do_fetch, daemon=True).start()
+    
+    def pp_load_module(self):
+        """动态加载/重载代理池模块"""
+        ok, result = self._pp_api("POST", "/admin/api/proxy_pool/load_module")
+        if ok and result.get("success"):
+            messagebox.showinfo("成功", result.get("message", "模块已加载"))
+            self.pp_refresh_status()
+        else:
+            msg = result.get("message", "") if isinstance(result, dict) else str(result)
+            messagebox.showerror("错误", msg or f"加载失败\n\n响应: {result}")
+    
+    def pp_start(self):
+        """启动代理池"""
+        self.pp_start_btn.configure(text="⏳ 启动中...", state="disabled")
+        self.update()
+        
+        ok, result = self._pp_api("POST", "/admin/api/proxy_pool/start")
+        
+        self.pp_start_btn.configure(text="▶ 启动", state="normal")
+        if ok and result.get("success"):
+            messagebox.showinfo("成功", result.get("message", "已启动"))
+            self.pp_refresh_status()
+        else:
+            messagebox.showerror("错误", result.get("message", "启动失败"))
+    
+    def pp_stop(self):
+        """停止代理池"""
+        if not messagebox.askyesno("确认", "确定停止代理池？停止后所有请求将直连上游。"):
+            return
+        ok, result = self._pp_api("POST", "/admin/api/proxy_pool/stop")
+        if ok and result.get("success"):
+            messagebox.showinfo("成功", result.get("message", "已停止"))
+            self.pp_refresh_status()
+        else:
+            messagebox.showerror("错误", result.get("message", "停止失败"))
+    
+    def pp_refresh_status(self):
+        """刷新代理池状态"""
+        ok, result = self._pp_api("GET", "/admin/api/proxy_pool/status")
+        
+        self.pp_status_text.delete("1.0", "end")
+        
+        if not ok:
+            self.pp_status_label.configure(text="状态: ❌ 获取失败", text_color="red")
+            self.pp_status_text.insert("1.0", f"获取状态失败:\n{result.get('message', '未知错误')}")
+            return
+        
+        # 模块未加载
+        if result.get("available") is False:
+            self.pp_status_label.configure(text="状态: ⚠ 模块未加载", text_color="orange")
+            self.pp_status_text.insert("1.0", "代理池模块未加载\n\n请先：\n1. 部署 proxy_pool.py 到 monitor 目录\n2. 安装依赖: pip install httpx[socks]\n3. 点击「加载/重载模块」按钮")
+            return
+        
+        config = result.get("config", {})
+        pool = result.get("pool")
+        
+        # 填充配置到输入框
+        if config.get("singbox_path"):
+            self.pp_singbox_entry.delete(0, "end")
+            self.pp_singbox_entry.insert(0, config["singbox_path"])
+        if config.get("subscription_url"):
+            self.pp_sub_entry.delete(0, "end")
+            self.pp_sub_entry.insert(0, config["subscription_url"])
+        if config.get("num_slots"):
+            self.pp_slots_entry.delete(0, "end")
+            self.pp_slots_entry.insert(0, str(config["num_slots"]))
+        if config.get("base_port"):
+            self.pp_port_entry.delete(0, "end")
+            self.pp_port_entry.insert(0, str(config["base_port"]))
+        if config.get("rate_limit"):
+            self.pp_rate_entry.delete(0, "end")
+            self.pp_rate_entry.insert(0, str(config["rate_limit"]))
+        self.pp_prefer_direct_var.set(config.get("prefer_direct", False))
+        if config.get("direct_cooldown"):
+            self.pp_direct_cd_entry.delete(0, "end")
+            self.pp_direct_cd_entry.insert(0, str(config["direct_cooldown"]))
+        if config.get("direct_rate_limit"):
+            self.pp_direct_rate_entry.delete(0, "end")
+            self.pp_direct_rate_entry.insert(0, str(config["direct_rate_limit"]))
+        
+        # 更新直连状态显示
+        direct = result.get("direct", {})
+        if direct.get("prefer_direct"):
+            req_1min = direct.get("direct_req_1min", 0)
+            rate_lim = direct.get("direct_rate_limit", 4)
+            if direct.get("is_cooling"):
+                remaining = direct.get("cooldown_remaining", 0)
+                self.pp_direct_status_label.configure(
+                    text=f"🟡 冷却中 ({remaining:.0f}s)，走代理", text_color="orange")
+            else:
+                self.pp_direct_status_label.configure(
+                    text=f"🟢 直连中 ({req_1min}/{rate_lim}/min)", text_color="lightgreen")
+        else:
+            self.pp_direct_status_label.configure(text="", text_color="gray")
+        
+        if pool and pool.get("running"):
+            alive = pool.get("alive_slots", 0)
+            total = pool.get("total_slots", 0)
+            last_route = result.get("last_route", "")
+            route_text = f"  路由: {last_route}" if last_route else ""
+            self.pp_status_label.configure(
+                text=f"状态: ✅ 运行中 ({alive}/{total} 槽位在线){route_text}", text_color="lightgreen")
+            
+            lines = []
+            lines.append(f"{'='*60}")
+            lines.append(f"  总请求: {pool.get('total_requests', 0)}  |  "
+                        f"成功: {pool.get('total_success', 0)}  |  "
+                        f"失败: {pool.get('total_fail', 0)}  |  "
+                        f"成功率: {pool.get('success_rate', 'N/A')}")
+            tiers = pool.get('node_tiers', {})
+            lines.append(f"  当前速率限制: {pool.get('current_rate_limit', '-')}/min  |  "
+                        f"总节点: {pool.get('total_nodes', 0)}")
+            lines.append(f"  节点分级: T1(优) {tiers.get('good', 0)}  |  "
+                        f"T2(中) {tiers.get('ok', 0)}  |  "
+                        f"T3(差) {tiers.get('bad', 0)}  |  "
+                        f"热备池: {tiers.get('ready_pool', 0)}")
+            lines.append(f"{'='*60}")
+            lines.append("")
+            
+            for s in pool.get("slots", []):
+                alive_mark = "🟢" if s.get("alive") else "🔴"
+                status = s.get("status", "unknown")
+                if status == "blocked":
+                    alive_mark = "🟡"
+                    status = f"冷却中 ({s.get('cooldown_left', 0)}s)"
+                elif status == "available":
+                    status = "在线"
+                elif status == "dead":
+                    status = "离线"
+                
+                tier_tag = s.get('node_tier', '?')
+                line = (f"  {alive_mark} Slot {s.get('slot_id', '?'):>2}  "
+                       f"[{status:<12}]  [{tier_tag}] {s.get('node', '-'):<20}  "
+                       f":{s.get('port', '-')}")
+                lines.append(line)
+                
+                detail = (f"           "
+                         f"请求/min: {s.get('requests_1min', 0)}  |  "
+                         f"总计: {s.get('total_requests', 0)}  |  "
+                         f"✓{s.get('success', 0)} ✗{s.get('fail', 0)}  |  "
+                         f"成功率: {s.get('success_rate', 'N/A')}")
+                lines.append(detail)
+                
+                extras = []
+                if s.get("blocked_count", 0) > 0:
+                    extras.append(f"被封: {s['blocked_count']}次")
+                if s.get("consecutive_fails", 0) > 0:
+                    extras.append(f"连续失败: {s['consecutive_fails']}")
+                if s.get("last_error"):
+                    extras.append(f"最近错误: {s['last_error']}")
+                if extras:
+                    lines.append(f"           {'  |  '.join(extras)}")
+                lines.append("")
+            
+            self.pp_status_text.insert("1.0", "\n".join(lines))
+        else:
+            self.pp_status_label.configure(text="状态: ⏸ 已加载·未启用", text_color="yellow")
+            self.pp_status_text.insert("1.0", "代理池模块已加载，但未启动\n\n请先配置 sing-box 路径和节点配置路径，然后点击「启动」")
+    
     def on_closing(self):
         """关闭窗口时的处理"""
         if self.server_process:
-            if messagebox.askyesno("确认", "服务器正在运行，是否停止并退出？"):
-                self.stop_server()
-                self.destroy()
+            # 检查在线用户
+            online_count = 0
+            online_names = []
+            try:
+                port = self.port_entry.get()
+                url = f"http://127.0.0.1:{port}/admin/api/online"
+                req = urllib.request.Request(url, method="GET")
+                with urllib.request.urlopen(req, timeout=3) as resp:
+                    users = json.loads(resp.read().decode('utf-8'))
+                    if isinstance(users, list):
+                        online_count = len(users)
+                        online_names = [u.get('username', '?') for u in users[:10]]
+            except Exception:
+                pass
+            
+            if online_count > 0:
+                names_str = ", ".join(online_names)
+                if online_count > 10:
+                    names_str += f" 等{online_count}人"
+                if not messagebox.askyesno("警告", 
+                    f"当前有 {online_count} 个在线用户:\n{names_str}\n\n"
+                    f"关闭服务器将断开所有用户连接！\n确定要停止服务器并退出吗？"):
+                    return
+            elif not messagebox.askyesno("确认", "服务器正在运行，是否停止并退出？"):
+                return
+            
+            self.stop_server()
+            self.destroy()
         else:
             self.destroy()
 

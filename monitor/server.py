@@ -17,6 +17,7 @@ from pydantic import BaseModel
 import uvicorn
 import os
 import sys
+import importlib
 import io
 
 # 修复Windows控制台中文乱码
@@ -50,6 +51,15 @@ import hashlib
 import time
 import secrets
 import json
+try:
+    import proxy_pool as pp
+    _HAS_PROXY_POOL = True
+    print("[ProxyPool] 模块加载成功")
+except Exception as _e:
+    pp = None
+    _HAS_PROXY_POOL = False
+    print(f"[ProxyPool] 模块加载失败: {_e}")
+    import traceback; traceback.print_exc()
 
 # 权限级别
 ROLE_SUPER_ADMIN = "super_admin"  # 系统总管理
@@ -138,6 +148,18 @@ def verify_db_password(password: str) -> bool:
     return secrets.compare_digest(password, DB_SECONDARY_PASSWORD)
 
 app = FastAPI(title="AK代理监控系统")
+
+@app.on_event("startup")
+async def on_startup():
+    """服务器启动时自动启动代理池（如果配置了）"""
+    if _HAS_PROXY_POOL:
+        await pp.auto_start_pool()
+
+@app.on_event("shutdown")
+async def on_shutdown():
+    """服务器关闭时停止代理池"""
+    if _HAS_PROXY_POOL:
+        await pp.stop_pool()
 
 # CORS
 app.add_middleware(
@@ -371,31 +393,60 @@ async def proxy_login(request: Request):
             "Msg": "您的账号或IP已被封禁"
         })
     
-    # 转发请求到原始服务器（保持原始格式）
-    async with httpx.AsyncClient(verify=False, timeout=30) as client:
-        try:
-            # 构建转发请求
-            if "application/json" in content_type:
-                response = await client.post(
-                    AKAPI_URL + "Login",
-                    json=params,
-                    headers={"User-Agent": user_agent, "Content-Type": "application/json"}
-                )
+    # 转发请求到原始服务器（优先通过代理池，回退直连）
+    fwd_headers = {
+        "User-Agent": user_agent,
+        "X-Forwarded-For": client_ip,
+        "X-Real-IP": client_ip
+    }
+    if "application/json" in content_type:
+        fwd_headers["Content-Type"] = "application/json"
+
+    try:
+        response = None
+        use_direct = _HAS_PROXY_POOL and pp.should_use_direct()
+        
+        if use_direct:
+            async with httpx.AsyncClient(verify=False, timeout=30) as client:
+                if "application/json" in content_type:
+                    response = await client.post(AKAPI_URL + "Login", json=params, headers=fwd_headers)
+                else:
+                    response = await client.post(AKAPI_URL + "Login", data=params, headers=fwd_headers)
+            if response.status_code == 403:
+                pp.report_direct_blocked()
+                response = None
             else:
-                # 使用 form data 格式转发
-                response = await client.post(
-                    AKAPI_URL + "Login",
-                    data=params,
-                    headers={"User-Agent": user_agent}
-                )
-            result = response.json()
-            print(f"[Login] 服务器响应: Error={result.get('Error')}, 有UserData={bool(result.get('UserData'))}")
-        except Exception as e:
-            print(f"[Login] 请求失败: {e}")
-            return JSONResponse({
-                "Error": True,
-                "Msg": f"服务器连接失败: {str(e)}"
-            })
+                pp.report_direct_success()
+                pp.report_route("本地直连")
+                print(f"[Login] 优先直连转发")
+        
+        if response is None and _HAS_PROXY_POOL:
+            proxy_resp = await pp.proxy_request(
+                "POST", AKAPI_URL + "Login",
+                json_data=params if "application/json" in content_type else None,
+                form_data=params if "application/json" not in content_type else None,
+                headers=fwd_headers, strict=True
+            )
+            if proxy_resp is not None:
+                response = proxy_resp
+                print(f"[Login] 通过代理池转发")
+        
+        if response is None:
+            async with httpx.AsyncClient(verify=False, timeout=30) as client:
+                if "application/json" in content_type:
+                    response = await client.post(AKAPI_URL + "Login", json=params, headers=fwd_headers)
+                else:
+                    response = await client.post(AKAPI_URL + "Login", data=params, headers=fwd_headers)
+            if _HAS_PROXY_POOL: pp.report_route("本地直连(兜底)")
+            print(f"[Login] 直连转发")
+        result = response.json()
+        print(f"[Login] 服务器响应: Error={result.get('Error')}, 有UserData={bool(result.get('UserData'))}")
+    except Exception as e:
+        print(f"[Login] 请求失败: {e}")
+        return JSONResponse({
+            "Error": True,
+            "Msg": f"服务器连接失败: {str(e)}"
+        })
     
     # 判断登录是否成功 - 检查Error字段
     is_success = result.get("Error") == False or (not result.get("Error") and result.get("UserData"))
@@ -554,31 +605,57 @@ async def proxy_index_data(request: Request):
     print(f"[IndexData] 最终解析结果: {params}")
     print(f"[IndexData] 所有参数keys: {list(params.keys())}")
     
-    # 转发请求到原始服务器 - 完全照抄登录API的逻辑
-    async with httpx.AsyncClient(verify=False, timeout=30) as client:
-        try:
-            # 构建转发请求
-            if "application/json" in content_type:
-                response = await client.post(
-                    AKAPI_URL + "public_IndexData",
-                    json=params,
-                    headers={"User-Agent": user_agent, "Content-Type": "application/json"}
-                )
+    # 转发请求到原始服务器（优先代理池，回退直连）
+    fwd_headers = {
+        "User-Agent": user_agent,
+        "X-Forwarded-For": client_ip,
+        "X-Real-IP": client_ip
+    }
+    if "application/json" in content_type:
+        fwd_headers["Content-Type"] = "application/json"
+
+    try:
+        response = None
+        use_direct = _HAS_PROXY_POOL and pp.should_use_direct()
+        
+        if use_direct:
+            async with httpx.AsyncClient(verify=False, timeout=30) as client:
+                if "application/json" in content_type:
+                    response = await client.post(AKAPI_URL + "public_IndexData", json=params, headers=fwd_headers)
+                else:
+                    response = await client.post(AKAPI_URL + "public_IndexData", data=params, headers=fwd_headers)
+            if response.status_code == 403:
+                pp.report_direct_blocked()
+                response = None
             else:
-                # 使用 form data 格式转发
-                response = await client.post(
-                    AKAPI_URL + "public_IndexData",
-                    data=params,
-                    headers={"User-Agent": user_agent}
-                )
-            result = response.json()
-            print(f"[IndexData] 服务器响应: Error={result.get('Error')}, 有Data={bool(result.get('Data'))}")
-        except Exception as e:
-            print(f"[IndexData] 请求失败: {e}")
-            return JSONResponse({
-                "Error": True,
-                "Msg": f"服务器连接失败: {str(e)}"
-            })
+                pp.report_direct_success()
+                pp.report_route("本地直连")
+        
+        if response is None and _HAS_PROXY_POOL:
+            proxy_resp = await pp.proxy_request(
+                "POST", AKAPI_URL + "public_IndexData",
+                json_data=params if "application/json" in content_type else None,
+                form_data=params if "application/json" not in content_type else None,
+                headers=fwd_headers
+            )
+            if proxy_resp is not None:
+                response = proxy_resp
+        
+        if response is None:
+            async with httpx.AsyncClient(verify=False, timeout=30) as client:
+                if "application/json" in content_type:
+                    response = await client.post(AKAPI_URL + "public_IndexData", json=params, headers=fwd_headers)
+                else:
+                    response = await client.post(AKAPI_URL + "public_IndexData", data=params, headers=fwd_headers)
+            if _HAS_PROXY_POOL: pp.report_route("本地直连(兜底)")
+        result = response.json()
+        print(f"[IndexData] 服务器响应: Error={result.get('Error')}, 有Data={bool(result.get('Data'))}")
+    except Exception as e:
+        print(f"[IndexData] 请求失败: {e}")
+        return JSONResponse({
+            "Error": True,
+            "Msg": f"服务器连接失败: {str(e)}"
+        })
     
     # 如果成功获取数据，先保存到数据库再返回给客户端
     if not result.get("Error") and result.get("Data"):
@@ -675,29 +752,60 @@ async def proxy_rpc(path: str, request: Request):
         except:
             body = await request.body()
     
-    # 转发请求
-    async with httpx.AsyncClient(verify=False, timeout=30) as client:
-        try:
-            response = await client.request(
-                method=request.method,
-                url=AKAPI_URL + path,
-                json=body if isinstance(body, dict) else None,
-                content=body if isinstance(body, bytes) else None,
-                headers={
-                    "User-Agent": request.headers.get("user-agent", ""),
-                    "Content-Type": request.headers.get("content-type", "application/json"),
-                    "Accept": request.headers.get("accept", "*/*")
-                }
+    # 转发请求（优先代理池，回退直连）
+    fwd_headers = {
+        "User-Agent": request.headers.get("user-agent", ""),
+        "Content-Type": request.headers.get("content-type", "application/json"),
+        "Accept": request.headers.get("accept", "*/*"),
+        "X-Forwarded-For": client_ip,
+        "X-Real-IP": client_ip
+    }
+    try:
+        response = None
+        use_direct = _HAS_PROXY_POOL and pp.should_use_direct()
+        
+        if use_direct:
+            async with httpx.AsyncClient(verify=False, timeout=30) as client:
+                response = await client.request(
+                    method=request.method, url=AKAPI_URL + path,
+                    json=body if isinstance(body, dict) else None,
+                    content=body if isinstance(body, bytes) else None,
+                    headers=fwd_headers
+                )
+            if response.status_code == 403:
+                pp.report_direct_blocked()
+                response = None
+            else:
+                pp.report_direct_success()
+                pp.report_route("本地直连")
+        
+        if response is None and _HAS_PROXY_POOL:
+            proxy_resp = await pp.proxy_request(
+                request.method, AKAPI_URL + path,
+                json_data=body if isinstance(body, dict) else None,
+                headers=fwd_headers
             )
-            return JSONResponse(
-                content=response.json() if response.headers.get("content-type", "").startswith("application/json") else response.text,
-                status_code=response.status_code
-            )
-        except Exception as e:
-            return JSONResponse({
-                "Error": True,
-                "Msg": f"请求失败: {str(e)}"
-            }, status_code=500)
+            if proxy_resp is not None:
+                response = proxy_resp
+        
+        if response is None:
+            async with httpx.AsyncClient(verify=False, timeout=30) as client:
+                response = await client.request(
+                    method=request.method, url=AKAPI_URL + path,
+                    json=body if isinstance(body, dict) else None,
+                    content=body if isinstance(body, bytes) else None,
+                    headers=fwd_headers
+                )
+            if _HAS_PROXY_POOL: pp.report_route("本地直连(兜底)")
+        return JSONResponse(
+            content=response.json() if response.headers.get("content-type", "").startswith("application/json") else response.text,
+            status_code=response.status_code
+        )
+    except Exception as e:
+        return JSONResponse({
+            "Error": True,
+            "Msg": f"请求失败: {str(e)}"
+        }, status_code=500)
 
 # ===== 管理API =====
 
@@ -1533,7 +1641,7 @@ async def websocket_endpoint(websocket: WebSocket):
             # 保持连接，等待消息
             data = await websocket.receive_text()
             # 可以处理客户端发来的消息
-    except WebSocketDisconnect:
+    except (WebSocketDisconnect, Exception):
         manager.disconnect(websocket)
 
 # ===== WebSocket - 用户聊天 =====
@@ -1573,6 +1681,9 @@ async def chat_websocket(websocket: WebSocket):
             elif msg_type == 'heartbeat':
                 # 心跳
                 online_manager.update_heartbeat(username)
+                heartbeat_page = data.get('page', '')
+                if heartbeat_page and username in online_manager.users:
+                    online_manager.users[username]['page'] = heartbeat_page
             
             elif msg_type == 'user_message':
                 # 用户发送消息
@@ -1602,7 +1713,7 @@ async def chat_websocket(websocket: WebSocket):
                 })
                 break
                 
-    except WebSocketDisconnect:
+    except (WebSocketDisconnect, Exception):
         online_manager.user_offline(username)
         await manager.broadcast({
             'type': 'user_offline',
@@ -1784,6 +1895,117 @@ async def run_sql(request: Request):
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
+# ===== 代理池管理API =====
+
+def _is_local_request(request: Request) -> bool:
+    """判断是否为本地请求（localhost），本地请求免认证
+    支持直连、nginx 反代、IPv4-mapped IPv6 等场景"""
+    local_ips = {"127.0.0.1", "::1", "localhost", "::ffff:127.0.0.1"}
+    def _is_local(ip: str) -> bool:
+        return ip in local_ips or ip.startswith("127.")
+    client = request.client
+    if client and _is_local(client.host):
+        return True
+    # nginx 反代场景：检查 X-Forwarded-For / X-Real-IP
+    real_ip = request.headers.get("X-Real-IP", "")
+    if real_ip and _is_local(real_ip):
+        return True
+    forwarded = request.headers.get("X-Forwarded-For", "")
+    if forwarded:
+        first_ip = forwarded.split(",")[0].strip()
+        if _is_local(first_ip):
+            return True
+    return False
+
+def _pp_auth_check(request: Request) -> dict:
+    """代理池API认证：本地请求免Token，远程请求需要超级管理员Token。
+    返回 None 表示通过，否则返回错误响应 dict"""
+    if _is_local_request(request):
+        return None
+    token = request.headers.get('Authorization', '').replace('Bearer ', '')
+    if not verify_admin_token(token):
+        return {"_status": 401, "error": True, "message": "未授权"}
+    if get_token_role(token) != ROLE_SUPER_ADMIN:
+        return {"_status": 403, "success": False, "message": "仅系统总管理可操作"}
+    return None
+
+@app.get("/admin/api/proxy_pool/status")
+async def proxy_pool_status(request: Request):
+    """获取代理池状态"""
+    if not _HAS_PROXY_POOL:
+        return {"config": {}, "pool": None, "available": False}
+    pool = pp.get_pool()
+    config = pp.get_config()
+    return {
+        "config": config.to_dict(),
+        "pool": pool.status_dict() if pool and pool._running else None,
+        "direct": pp.direct_status(),
+        "last_route": pp.get_last_route(),
+        "available": True
+    }
+
+@app.post("/admin/api/proxy_pool/config")
+async def proxy_pool_config(request: Request):
+    """更新代理池配置"""
+    if not _HAS_PROXY_POOL:
+        return {"success": False, "message": "代理池模块未加载（缺少依赖或文件）"}
+    
+    data = await request.json()
+    config = pp.get_config()
+    
+    allowed_keys = {"singbox_path", "vpn_config_path", "subscription_url", "prefer_direct", "direct_cooldown", "direct_rate_limit", "num_slots", "base_port", "rate_limit", "window"}
+    updates = {k: v for k, v in data.items() if k in allowed_keys}
+    if updates:
+        config.update(updates)
+    return {"success": True, "message": "配置已保存", "config": config.to_dict()}
+
+@app.post("/admin/api/proxy_pool/start")
+async def proxy_pool_start(request: Request):
+    """启动代理池"""
+    if not _HAS_PROXY_POOL:
+        return {"success": False, "message": "代理池模块未加载（缺少依赖或文件）"}
+    
+    result = await pp.start_pool()
+    return result
+
+@app.post("/admin/api/proxy_pool/stop")
+async def proxy_pool_stop(request: Request):
+    """停止代理池"""
+    if not _HAS_PROXY_POOL:
+        return {"success": False, "message": "代理池模块未加载"}
+    
+    result = await pp.stop_pool()
+    return result
+
+@app.post("/admin/api/proxy_pool/load_module")
+async def proxy_pool_load_module(request: Request):
+    """动态加载/重载代理池模块（部署 proxy_pool.py 后无需重启服务器）"""
+    global pp, _HAS_PROXY_POOL
+    
+    try:
+        if _HAS_PROXY_POOL and pp:
+            if pp.get_pool() and pp.get_pool()._running:
+                return {"success": False, "message": "代理池正在运行中，请先停止再重载模块"}
+            importlib.reload(pp)
+            _HAS_PROXY_POOL = True
+            return {"success": True, "message": "代理池模块已重载"}
+        else:
+            import proxy_pool as _pp
+            pp = _pp
+            _HAS_PROXY_POOL = True
+            return {"success": True, "message": "代理池模块已加载"}
+    except Exception as e:
+        return {"success": False, "message": f"加载失败: {str(e)}"}
+
+@app.post("/admin/api/proxy_pool/refresh_subscription")
+async def proxy_pool_refresh_sub(request: Request):
+    """刷新订阅节点"""
+    if not _HAS_PROXY_POOL:
+        return {"success": False, "message": "代理池模块未加载"}
+    
+    result = await pp.refresh_subscription()
+    return result
+
 # ===== 管理后台页面 =====
 @app.get("/admin", response_class=HTMLResponse)
 @app.get("/admin/", response_class=HTMLResponse)
@@ -1818,7 +2040,7 @@ def run_server(host="0.0.0.0", port=8080):
 ║  WebSocket: ws://{host}:{port}/admin/ws                   
 ╚══════════════════════════════════════════════════════════╝
     """)
-    uvicorn.run(app, host=host, port=port)
+    uvicorn.run(app, host=host, port=port, ws_ping_interval=60, ws_ping_timeout=30)
 
 if __name__ == "__main__":
     run_server()

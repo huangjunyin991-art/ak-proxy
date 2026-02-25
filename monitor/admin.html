@@ -1887,6 +1887,48 @@
                     </div>
                 </div>
                 
+                <!-- 代理池状态（仅系统总管理可见，只读） -->
+                <div id="proxyPoolSection" style="display: none; margin-top: 15px;">
+                    <div style="background: linear-gradient(135deg, var(--bg-card), #1a2e3a); border-radius: 12px; padding: 15px; border: 1px solid #00c8ff;">
+                        <h4 style="margin-bottom: 12px; color: #00c8ff; display: flex; align-items: center; gap: 10px;">
+                            <span style="font-size: 24px;">🌐</span> 代理池状态
+                            <span id="proxyPoolStatus" style="font-size: 12px; font-weight: normal; padding: 2px 8px; border-radius: 10px; background: rgba(255,71,87,0.2); color: var(--accent-red);">未启用</span>
+                            <span id="ppLastRoute" style="font-size: 11px; padding: 2px 8px; border-radius: 10px; background: rgba(255,255,255,0.05); color: var(--text-secondary);"></span>
+                            <span style="font-size: 11px; color: var(--text-secondary); margin-left: auto;">管理操作请使用 monitor_manager</span>
+                        </h4>
+
+                        <!-- 运行状态 -->
+                        <div id="ppRunningInfo" style="display: none;">
+                            <div style="background: var(--bg-primary); border-radius: 8px; padding: 12px; margin-bottom: 10px;">
+                                <div style="display: flex; gap: 15px; flex-wrap: wrap; font-size: 13px;">
+                                    <span>总请求: <strong id="ppTotalReq" style="color: var(--accent);">0</strong></span>
+                                    <span>成功: <strong id="ppTotalSuccess" style="color: var(--accent-green);">0</strong></span>
+                                    <span>失败: <strong id="ppTotalFail" style="color: var(--accent-red);">0</strong></span>
+                                    <span>成功率: <strong id="ppSuccessRate" style="color: var(--accent-yellow);">N/A</strong></span>
+                                    <span>速率: <strong id="ppRateLimitCur" style="color: var(--accent);">-</strong>/min</span>
+                                    <span>节点: <strong id="ppTotalNodes" style="color: var(--text-secondary);">0</strong></span>
+                                </div>
+                                <div id="ppTierInfo" style="display: flex; gap: 15px; flex-wrap: wrap; font-size: 12px; margin-top: 6px; color: var(--text-secondary);">
+                                    <span>节点分级: <strong id="ppTierT1" style="color: var(--accent-green);">0</strong> T1(优)</span>
+                                    <span><strong id="ppTierT2" style="color: var(--accent-yellow);">0</strong> T2(中)</span>
+                                    <span><strong id="ppTierT3" style="color: var(--accent-red);">0</strong> T3(差)</span>
+                                    <span>热备池: <strong id="ppReadyPool" style="color: #00c8ff;">0</strong></span>
+                                </div>
+                                <div id="ppDirectInfo" style="display: none; margin-top: 6px; font-size: 12px;"></div>
+                            </div>
+                            <!-- 视图切换按钮 -->
+                            <div style="display: flex; gap: 6px; margin-bottom: 8px;">
+                                <button id="ppViewSlots" onclick="switchPPView('slots')" style="padding: 4px 12px; font-size: 12px; border-radius: 6px; border: 1px solid #00c8ff; background: rgba(0,200,255,0.2); color: #00c8ff; cursor: pointer;">槽位</button>
+                                <button id="ppViewNodes" onclick="switchPPView('nodes')" style="padding: 4px 12px; font-size: 12px; border-radius: 6px; border: 1px solid var(--border); background: transparent; color: var(--text-secondary); cursor: pointer;">所有节点</button>
+                            </div>
+                            <!-- 槽位列表 -->
+                            <div id="ppSlotList" style="max-height: 300px; overflow-y: auto;"></div>
+                            <!-- 节点列表 -->
+                            <div id="ppNodeList" style="max-height: 400px; overflow-y: auto; display: none;"></div>
+                        </div>
+                    </div>
+                </div>
+
             </div>
         </div>
     </div>
@@ -2732,17 +2774,17 @@
         // 页面路径 → 中文描述映射
         const PAGE_NAME_MAP = {
             '/pages/home.html': '位于首页',
-            '/pages/ace.list.html': 'AK交易页面',
-            '/pages/ep.list.html': 'EP交易界面',
+            '/pages/ace.list.html': '查看AK交易页面',
+            '/pages/ep.list.html': '查看EP交易界面',
             '/pages/center.html': '位于个人主页',
-            '/pages/center/sell.ace.html': 'AK出售界面',
-            '/pages/center/sell.ep.html': 'EP出售界面',
-            '/pages/center/ep.out.html': 'EP转出界面',
-            '/pages/center/ep.to.rp.html': 'EP转RP界面',
-            '/pages/center/ep.to.sp.html': 'EP转SP界面',
-            '/pages/center/rp.to.sp.html': 'RP转SP界面',
-            '/pages/center/rp.out.html': 'RP转出界面',
-            '/pages/center/rptp.out.html': 'TP+RP转出界面',
+            '/pages/center/sell.ace.html': '位于AK出售界面',
+            '/pages/center/sell.ep.html': '位于EP出售界面',
+            '/pages/center/ep.out.html': '位于EP转出界面',
+            '/pages/center/ep.to.rp.html': '位于EP转RP界面',
+            '/pages/center/ep.to.sp.html': '位于EP转SP界面',
+            '/pages/center/rp.to.sp.html': '位于RP转SP界面',
+            '/pages/center/rp.out.html': '位于RP转出界面',
+            '/pages/center/rptp.out.html': '位于TP+RP转出界面',
             '/pages/center/sub.account.html': '查看子账户',
             '/pages/center/my.friend.html': '查看附近玩家',
             '/pages/center/my.fans.list.html': '查看全球玩家表',
@@ -2767,12 +2809,33 @@
             '/pages/center/security.html': '账户安全界面',
             '/pages/center/financial_management.html': '查看财务管理',
             '/pages/center/security-settings.html': '查看安全设置',
-            '/pages/account/login.html': '位于登录界面'
+            '/pages/account/login.html': '位于登录界面',
+            '/pages/subpages/notice.html': '查看公告',
+            '/pages/subpages/notice.list.html': '查看公告',
+            '/pages/subpages/last.notice.detail.html': '查看公告',
+            '/pages/subpages/about.html': '查看关于',
+            '/pages/subpages/help.html': '查看帮助',
+            '/pages/subpages/contact.html': '查看联系方式'
         };
         
         function getPageName(path) {
             if (!path || path === '/') return '首页';
-            return PAGE_NAME_MAP[path] || path;
+            // 先直接匹配完整路径（含hash）
+            if (PAGE_NAME_MAP[path]) return PAGE_NAME_MAP[path];
+            // 尝试匹配 pathname 部分
+            let pathname = path.split('#')[0].split('?')[0];
+            if (PAGE_NAME_MAP[pathname]) return PAGE_NAME_MAP[pathname];
+            // /pages/subpages/ 下所有子页面统一显示“查看公告”
+            if (pathname.startsWith('/pages/subpages/')) return '查看公告';
+            // 尝试匹配 hash 中的路径（SPA hash路由）
+            let hash = path.includes('#') ? path.split('#')[1] : '';
+            if (hash) {
+                // hash可能是 #/pages/subpages/notice.html 或 #pages/subpages/notice.html
+                let hashPath = hash.startsWith('/') ? hash : '/' + hash;
+                if (PAGE_NAME_MAP[hashPath]) return PAGE_NAME_MAP[hashPath];
+                if (hashPath.startsWith('/pages/subpages/')) return '查看公告';
+            }
+            return path;
         }
         
         async function loadOnlineUsers() {
@@ -3157,10 +3220,13 @@
         async function loadSubAdminStatus() {
             if (!isSuperAdmin()) {
                 document.getElementById('subAdminSection').style.display = 'none';
+                document.getElementById('proxyPoolSection').style.display = 'none';
                 return;
             }
             
             document.getElementById('subAdminSection').style.display = 'block';
+            document.getElementById('proxyPoolSection').style.display = 'block';
+            loadProxyPoolStatus();
             
             try {
                 const res = await fetch(`${API_BASE}/admin/api/sub_admin`);
@@ -3378,6 +3444,169 @@
             }
         }
         
+        // ===== 代理池管理 =====
+        let ppRefreshTimer = null;
+        let ppCurrentView = 'slots';
+        let ppCachedNodes = [];
+
+        async function loadProxyPoolStatus() {
+            try {
+                const res = await fetch(`${API_BASE}/admin/api/proxy_pool/status`, {
+                    headers: { 'Authorization': `Bearer ${sessionStorage.getItem('admin_token')}` }
+                });
+                const data = await res.json();
+                if (data.available === false) {
+                    document.getElementById('proxyPoolStatus').textContent = '模块未加载';
+                    document.getElementById('proxyPoolStatus').style.background = 'rgba(255,165,2,0.2)';
+                    document.getElementById('proxyPoolStatus').style.color = 'var(--accent-yellow)';
+                    document.getElementById('ppRunningInfo').style.display = 'none';
+                    return;
+                }
+                const pool = data.pool;
+
+                // 更新当前路由
+                const routeEl = document.getElementById('ppLastRoute');
+                const lastRoute = data.last_route || '';
+                if (lastRoute) {
+                    const isProxy = lastRoute.includes('代理');
+                    routeEl.textContent = `当前: ${lastRoute}`;
+                    routeEl.style.background = isProxy ? 'rgba(0,200,255,0.15)' : 'rgba(0,255,136,0.15)';
+                    routeEl.style.color = isProxy ? '#00c8ff' : 'var(--accent-green)';
+                } else {
+                    routeEl.textContent = '';
+                }
+
+                if (pool && pool.running) {
+                    document.getElementById('proxyPoolStatus').textContent = `运行中 (${pool.alive_slots}/${pool.total_slots})`;
+                    document.getElementById('proxyPoolStatus').style.background = 'rgba(0,255,136,0.2)';
+                    document.getElementById('proxyPoolStatus').style.color = 'var(--accent-green)';
+                    document.getElementById('ppRunningInfo').style.display = 'block';
+
+                    document.getElementById('ppTotalReq').textContent = pool.total_requests;
+                    document.getElementById('ppTotalSuccess').textContent = pool.total_success;
+                    document.getElementById('ppTotalFail').textContent = pool.total_fail;
+                    document.getElementById('ppSuccessRate').textContent = pool.success_rate;
+                    document.getElementById('ppRateLimitCur').textContent = pool.current_rate_limit;
+                    document.getElementById('ppTotalNodes').textContent = pool.total_nodes;
+
+                    // 节点分级统计
+                    const tiers = pool.node_tiers || {};
+                    document.getElementById('ppTierT1').textContent = tiers.good || 0;
+                    document.getElementById('ppTierT2').textContent = tiers.ok || 0;
+                    document.getElementById('ppTierT3').textContent = tiers.bad || 0;
+                    document.getElementById('ppReadyPool').textContent = tiers.ready_pool || 0;
+                    document.getElementById('ppTierInfo').style.display = 'flex';
+
+                    // 直连状态
+                    const direct = data.direct || {};
+                    const ppDirectEl = document.getElementById('ppDirectInfo');
+                    if (direct.prefer_direct) {
+                        ppDirectEl.style.display = 'block';
+                        const reqMin = direct.direct_req_1min || 0;
+                        const rateLim = direct.direct_rate_limit || 4;
+                        const rateInfo = `(${reqMin}/${rateLim}/min)`;
+                        if (direct.is_cooling) {
+                            ppDirectEl.innerHTML = `<span style="color:var(--accent-yellow);">🟡 直连冷却中 (${Math.round(direct.cooldown_remaining)}s)，走代理 ${rateInfo}</span>`;
+                        } else if (reqMin >= rateLim) {
+                            ppDirectEl.innerHTML = `<span style="color:var(--accent-yellow);">🟡 直连限速中，走代理 ${rateInfo}</span>`;
+                        } else {
+                            ppDirectEl.innerHTML = `<span style="color:var(--accent-green);">🟢 优先直连中 ${rateInfo}</span>`;
+                        }
+                    } else {
+                        ppDirectEl.style.display = 'none';
+                    }
+
+                    renderPPSlots(pool.slots || []);
+                    ppCachedNodes = pool.nodes || [];
+                    if (ppCurrentView === 'nodes') renderPPNodes(ppCachedNodes);
+
+                    if (!ppRefreshTimer) {
+                        ppRefreshTimer = setInterval(loadProxyPoolStatus, 5000);
+                    }
+                } else {
+                    document.getElementById('proxyPoolStatus').textContent = '已加载·未启用';
+                    document.getElementById('proxyPoolStatus').style.background = 'rgba(255,71,87,0.2)';
+                    document.getElementById('proxyPoolStatus').style.color = 'var(--accent-red)';
+                    document.getElementById('ppRunningInfo').style.display = 'none';
+                    if (ppRefreshTimer) { clearInterval(ppRefreshTimer); ppRefreshTimer = null; }
+                }
+            } catch (e) {
+                console.error('加载代理池状态失败:', e);
+            }
+        }
+
+        function renderPPSlots(slots) {
+            const container = document.getElementById('ppSlotList');
+            if (!slots.length) { container.innerHTML = '<span style="color:var(--text-secondary);font-size:12px;">无槽位</span>'; return; }
+            container.innerHTML = slots.map(s => {
+                const statusColor = s.alive ? (s.status === 'blocked' ? 'var(--accent-yellow)' : 'var(--accent-green)') : 'var(--accent-red)';
+                const statusText = s.alive ? (s.status === 'blocked' ? '冷却中' : '在线') : '离线';
+                const statusDot = `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${statusColor};margin-right:6px;"></span>`;
+                const tierColor = s.node_tier === 'T1' ? 'var(--accent-green)' : s.node_tier === 'T3' ? 'var(--accent-red)' : 'var(--accent-yellow)';
+                const tierBadge = `<span style="color:${tierColor};font-size:10px;font-weight:bold;padding:1px 4px;border:1px solid ${tierColor};border-radius:3px;margin-left:4px;">${s.node_tier || '?'}</span>`;
+                const cooldownInfo = s.cooldown_left > 0 ? `<span style="color:var(--accent-yellow);margin-left:8px;">⏳ ${s.cooldown_left}s</span>` : '';
+                const errorInfo = s.last_error ? `<div style="color:var(--accent-red);font-size:11px;margin-top:3px;opacity:0.8;">最近错误: ${s.last_error}</div>` : '';
+                const blockedInfo = s.blocked_count > 0 ? `<span style="color:var(--accent-yellow);">🚫${s.blocked_count}</span>` : '';
+                const failStreak = s.consecutive_fails > 0 ? `<span style="color:var(--accent-red);">连败${s.consecutive_fails}</span>` : '';
+                return `<div style="padding:8px 12px;background:var(--bg-primary);border-radius:6px;border:1px solid var(--border);margin-bottom:4px;font-size:12px;">
+                    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:4px;">
+                        <span>${statusDot}<strong>Slot ${s.slot_id}</strong> <span style="color:${statusColor};font-size:11px;">[${statusText}]</span>${tierBadge} → ${s.node || '-'} <span style="color:var(--text-secondary);font-size:11px;">:${s.port}</span>${cooldownInfo}</span>
+                        <span style="color:var(--text-secondary);">${s.requests_1min}/min | ${s.success}✓ ${s.fail}✗ | ${s.success_rate} ${blockedInfo} ${failStreak}</span>
+                    </div>
+                    ${errorInfo}
+                </div>`;
+            }).join('');
+        }
+
+        function switchPPView(view) {
+            ppCurrentView = view;
+            const slotsBtn = document.getElementById('ppViewSlots');
+            const nodesBtn = document.getElementById('ppViewNodes');
+            const slotList = document.getElementById('ppSlotList');
+            const nodeList = document.getElementById('ppNodeList');
+            if (view === 'slots') {
+                slotsBtn.style.background = 'rgba(0,200,255,0.2)';
+                slotsBtn.style.borderColor = '#00c8ff';
+                slotsBtn.style.color = '#00c8ff';
+                nodesBtn.style.background = 'transparent';
+                nodesBtn.style.borderColor = 'var(--border)';
+                nodesBtn.style.color = 'var(--text-secondary)';
+                slotList.style.display = '';
+                nodeList.style.display = 'none';
+            } else {
+                nodesBtn.style.background = 'rgba(0,200,255,0.2)';
+                nodesBtn.style.borderColor = '#00c8ff';
+                nodesBtn.style.color = '#00c8ff';
+                slotsBtn.style.background = 'transparent';
+                slotsBtn.style.borderColor = 'var(--border)';
+                slotsBtn.style.color = 'var(--text-secondary)';
+                slotList.style.display = 'none';
+                nodeList.style.display = '';
+                renderPPNodes(ppCachedNodes);
+            }
+        }
+
+        function renderPPNodes(nodes) {
+            const container = document.getElementById('ppNodeList');
+            if (!nodes.length) { container.innerHTML = '<span style="color:var(--text-secondary);font-size:12px;">无节点数据</span>'; return; }
+            container.innerHTML = nodes.map((n, i) => {
+                const tierColor = n.tier === 'T1' ? 'var(--accent-green)' : n.tier === 'T3' ? 'var(--accent-red)' : 'var(--accent-yellow)';
+                const tierBadge = `<span style="color:${tierColor};font-size:10px;font-weight:bold;padding:1px 4px;border:1px solid ${tierColor};border-radius:3px;">${n.tier}</span>`;
+                const inUseBadge = n.in_use ? '<span style="color:#00c8ff;font-size:10px;padding:1px 4px;border:1px solid #00c8ff;border-radius:3px;margin-left:4px;">使用中</span>' : '';
+                const verifiedIcon = n.verified ? '✅' : (n.fail_count > 0 ? '❌' : '⏳');
+                const latencyText = n.latency > 0 ? `<span style="color:${n.latency < 500 ? 'var(--accent-green)' : n.latency < 1500 ? 'var(--accent-yellow)' : 'var(--accent-red)'};">${Math.round(n.latency)}ms</span>` : '<span style="color:var(--text-secondary);">-</span>';
+                const failInfo = n.fail_count > 0 ? `<span style="color:var(--accent-red);margin-left:6px;">失败${n.fail_count}次</span>` : '';
+                const bgColor = n.in_use ? 'rgba(0,200,255,0.05)' : 'var(--bg-primary)';
+                const borderColor = n.in_use ? 'rgba(0,200,255,0.3)' : 'var(--border)';
+                return `<div style="padding:6px 12px;background:${bgColor};border-radius:6px;border:1px solid ${borderColor};margin-bottom:3px;font-size:12px;">
+                    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:4px;">
+                        <span>${verifiedIcon} ${tierBadge}${inUseBadge} <strong style="margin-left:4px;">${n.name}</strong> <span style="color:var(--text-secondary);font-size:11px;">${n.type} | ${n.host}:${n.port}</span></span>
+                        <span style="color:var(--text-secondary);">延迟: ${latencyText}${failInfo}</span>
+                    </div>
+                </div>`;
+            }).join('');
+        }
+
         // 标签页切换
         document.querySelectorAll('.tab').forEach(tab => {
             tab.addEventListener('click', () => {

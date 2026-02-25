@@ -116,6 +116,7 @@ def init_db():
                 token TEXT PRIMARY KEY,
                 role TEXT NOT NULL,
                 expire REAL NOT NULL,
+                sub_name TEXT DEFAULT '',
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
@@ -512,19 +513,19 @@ def update_user_assets(username: str, asset_data: dict):
                 convert_balance = ?, updated_at = ?
         ''', (
             username,
-            data.get('ACECount', 0), data.get('TotalACE', 0), data.get('WeeklyMoney', 0),
-            data.get('SP', 0), data.get('TP', 0), data.get('EP', 0),
-            data.get('RP', 0), data.get('AP', 0), data.get('LP', 0),
-            data.get('Rate', 0), data.get('Credit', 0),
-            data.get('HonorName', ''), data.get('LevelNumber', 0),
-            data.get('Convertbalance', 0), now,
+            asset_data.get('ACECount', 0), asset_data.get('TotalACE', 0), asset_data.get('WeeklyMoney', 0),
+            asset_data.get('SP', 0), asset_data.get('TP', 0), asset_data.get('EP', 0),
+            asset_data.get('RP', 0), asset_data.get('AP', 0), asset_data.get('LP', 0),
+            asset_data.get('Rate', 0), asset_data.get('Credit', 0),
+            asset_data.get('HonorName', ''), asset_data.get('LevelNumber', 0),
+            asset_data.get('Convertbalance', 0), now,
             # ON CONFLICT 更新的值
-            data.get('ACECount', 0), data.get('TotalACE', 0), data.get('WeeklyMoney', 0),
-            data.get('SP', 0), data.get('TP', 0), data.get('EP', 0),
-            data.get('RP', 0), data.get('AP', 0), data.get('LP', 0),
-            data.get('Rate', 0), data.get('Credit', 0),
-            data.get('HonorName', ''), data.get('LevelNumber', 0),
-            data.get('Convertbalance', 0), now
+            asset_data.get('ACECount', 0), asset_data.get('TotalACE', 0), asset_data.get('WeeklyMoney', 0),
+            asset_data.get('SP', 0), asset_data.get('TP', 0), asset_data.get('EP', 0),
+            asset_data.get('RP', 0), asset_data.get('AP', 0), asset_data.get('LP', 0),
+            asset_data.get('Rate', 0), asset_data.get('Credit', 0),
+            asset_data.get('HonorName', ''), asset_data.get('LevelNumber', 0),
+            asset_data.get('Convertbalance', 0), now
         ))
         
         # 记录历史
@@ -534,9 +535,9 @@ def update_user_assets(username: str, asset_data: dict):
             ) VALUES (?, ?, ?, ?, ?, ?, ?)
         ''', (
             username,
-            data.get('ACECount', 0), data.get('TotalACE', 0),
-            data.get('EP', 0), data.get('Rate', 0),
-            data.get('HonorName', ''), now
+            asset_data.get('ACECount', 0), asset_data.get('TotalACE', 0),
+            asset_data.get('EP', 0), asset_data.get('Rate', 0),
+            asset_data.get('HonorName', ''), now
         ))
         
         # 删除30天前的旧记录
@@ -781,8 +782,12 @@ def _ensure_sub_name_column():
     with get_db() as conn:
         cursor = conn.cursor()
         try:
+            # 先检查表是否存在
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='admin_tokens'")
+            if not cursor.fetchone():
+                return  # 表还不存在，init_db()会创建带sub_name的完整表
             cursor.execute("SELECT sub_name FROM admin_tokens LIMIT 1")
-        except:
+        except sqlite3.OperationalError:
             cursor.execute("ALTER TABLE admin_tokens ADD COLUMN sub_name TEXT DEFAULT ''")
             conn.commit()
 
