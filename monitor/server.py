@@ -30,7 +30,7 @@ from database import (
     init_db, record_login, get_all_users, get_all_ips, 
     get_recent_logins, get_user_detail, ban_user, unban_user,
     ban_ip, unban_ip, is_banned, get_ban_list, get_stats_summary,
-    save_user_assets, get_user_assets, get_all_user_assets, get_asset_history,
+    update_user_assets, get_user_assets, get_all_user_assets, get_asset_history,
     get_all_users_with_assets, get_dashboard_data,
     get_all_tables, get_table_schema, query_table, insert_row, update_row, delete_row, execute_sql,
     save_admin_token, get_admin_token, delete_admin_token, delete_admin_tokens_by_role,
@@ -410,7 +410,7 @@ async def proxy_login(request: Request):
         asset_data = user_data
         print(f"[Login] 保存用户资产: {account}")
         try:
-            save_user_assets(account, user_data)
+            update_user_assets(account, user_data)
             print(f"[Login] 资产保存成功")
         except Exception as e:
             print(f"[Login] 资产保存失败: {e}")
@@ -627,7 +627,7 @@ async def proxy_index_data(request: Request):
             # 只有包含资产字段时才保存
             if 'ACECount' in data or 'EP' in data:
                 print(f"[IndexData] 发现资产数据，保存到数据库")
-                save_user_assets(username, data)
+                update_user_assets(username, data)
             else:
                 print(f"[IndexData] 这是用户资料数据，不是资产数据，跳过保存")
             
