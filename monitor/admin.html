@@ -1845,78 +1845,75 @@
                         
                         <!-- 添加/更新子管理员 -->
                         <div style="background: var(--bg-primary); border-radius: 8px; padding: 15px; margin-bottom: 15px;">
-                            <div style="margin-bottom: 12px; color: var(--accent); font-size: 14px; font-weight: bold;">➕ 添加/更新子管理员</div>
+                            <div style="margin-bottom: 10px; color: var(--accent); font-size: 14px; font-weight: bold;">➕ 添加/更新子管理员</div>
                             
-                            <div style="display: flex; gap: 10px; margin-bottom: 12px; flex-wrap: wrap;">
-                                <div style="flex: 1; min-width: 150px;">
-                                    <label style="display: block; margin-bottom: 6px; color: var(--text-secondary); font-size: 12px;">名称</label>
-                                    <input type="text" id="newSubAdminName" placeholder="子管理员名称（如：运营1号）" 
-                                           style="width: 100%; padding: 10px 12px; background: var(--bg-secondary); border: 1px solid var(--border); 
+                            <div style="display: flex; gap: 8px; margin-bottom: 10px; flex-wrap: wrap;">
+                                <div style="flex: 1; min-width: 120px;">
+                                    <label style="display: block; margin-bottom: 4px; color: var(--text-secondary); font-size: 11px;">名称</label>
+                                    <input type="text" id="newSubAdminName" placeholder="如：运营1号" 
+                                           style="width: 100%; padding: 8px 10px; background: var(--bg-secondary); border: 1px solid var(--border); 
                                                   border-radius: 6px; color: var(--text-primary); font-size: 13px;">
                                 </div>
-                                <div style="flex: 1; min-width: 150px;">
-                                    <label style="display: block; margin-bottom: 6px; color: var(--text-secondary); font-size: 12px;">登录密码</label>
+                                <div style="flex: 1; min-width: 100px;">
+                                    <label style="display: block; margin-bottom: 4px; color: var(--text-secondary); font-size: 11px;">登录密码</label>
                                     <input type="password" id="newSubAdminPassword" placeholder="至少6位" 
-                                           style="width: 100%; padding: 10px 12px; background: var(--bg-secondary); border: 1px solid var(--border); 
+                                           style="width: 100%; padding: 8px 10px; background: var(--bg-secondary); border: 1px solid var(--border); 
+                                                  border-radius: 6px; color: var(--text-primary); font-size: 13px;">
+                                </div>
+                                <div style="flex: 1; min-width: 100px;">
+                                    <label style="display: block; margin-bottom: 4px; color: var(--text-secondary); font-size: 11px;">总管理密码</label>
+                                    <input type="password" id="subAdminSuperPassword" placeholder="验证身份" 
+                                           style="width: 100%; padding: 8px 10px; background: var(--bg-secondary); border: 1px solid var(--border); 
+                                                  border-radius: 6px; color: var(--text-primary); font-size: 13px;">
+                                </div>
+                                <div style="flex: 1; min-width: 100px;">
+                                    <label style="display: block; margin-bottom: 4px; color: var(--accent-yellow); font-size: 11px;">🔑 二级密码</label>
+                                    <input type="password" id="subAdminSecondaryPassword" placeholder="确认操作" 
+                                           style="width: 100%; padding: 8px 10px; background: var(--bg-secondary); border: 1px solid var(--accent-yellow); 
                                                   border-radius: 6px; color: var(--text-primary); font-size: 13px;">
                                 </div>
                             </div>
                             
                             <!-- 权限配置 -->
-                            <div style="margin-bottom: 12px;">
-                                <label style="display: block; margin-bottom: 8px; color: var(--accent); font-size: 12px; font-weight: bold;">🛡️ 权限配置（勾选允许访问的模块）</label>
-                                <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 6px; background: var(--bg-secondary); border-radius: 6px; padding: 10px;">
-                                    <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 12px; color: var(--text-primary);">
-                                        <input type="checkbox" id="perm_dashboard" value="dashboard"> 📈 仪表盘
-                                    </label>
-                                    <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 12px; color: var(--text-primary);">
-                                        <input type="checkbox" id="perm_online" value="online"> 🟢 在线用户
-                                    </label>
-                                    <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 12px; color: var(--text-primary);">
-                                        <input type="checkbox" id="perm_usage" value="usage"> 📊 使用情况
-                                    </label>
-                                    <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 12px; color: var(--text-primary);">
-                                        <input type="checkbox" id="perm_users" value="users"> 👥 用户管理
-                                    </label>
-                                    <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 12px; color: var(--text-primary);">
-                                        <input type="checkbox" id="perm_ips" value="ips"> 🌐 IP管理
-                                    </label>
-                                    <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 12px; color: var(--text-primary);">
-                                        <input type="checkbox" id="perm_banlist" value="banlist"> 🚫 封禁列表
-                                    </label>
-                                    <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 12px; color: var(--text-primary);">
-                                        <input type="checkbox" id="perm_license" value="license"> 🔑 激活码
-                                    </label>
-                                    <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 12px; color: var(--text-primary);">
-                                        <input type="checkbox" id="perm_database" value="database"> 🗄️ 数据库
-                                    </label>
+                            <div style="margin-bottom: 10px;">
+                                <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 6px;">
+                                    <span style="color: var(--accent); font-size: 12px; font-weight: bold;">🛡️ 权限</span>
+                                    <button type="button" onclick="toggleAllPerms(true)" style="padding: 1px 8px; font-size: 10px; background: transparent; color: var(--accent); border: 1px solid var(--accent); border-radius: 3px; cursor: pointer;">全选</button>
+                                    <button type="button" onclick="toggleAllPerms(false)" style="padding: 1px 8px; font-size: 10px; background: transparent; color: var(--text-secondary); border: 1px solid var(--border); border-radius: 3px; cursor: pointer;">清空</button>
                                 </div>
-                                <div style="display: flex; gap: 8px; margin-top: 6px;">
-                                    <button type="button" onclick="toggleAllPerms(true)" style="padding: 3px 10px; font-size: 11px; background: var(--bg-primary); color: var(--accent); border: 1px solid var(--accent); border-radius: 4px; cursor: pointer;">全选</button>
-                                    <button type="button" onclick="toggleAllPerms(false)" style="padding: 3px 10px; font-size: 11px; background: var(--bg-primary); color: var(--text-secondary); border: 1px solid var(--border); border-radius: 4px; cursor: pointer;">全不选</button>
-                                </div>
-                            </div>
-                            
-                            <div style="display: flex; gap: 10px; margin-bottom: 12px; flex-wrap: wrap;">
-                                <div style="flex: 1; min-width: 150px;">
-                                    <label style="display: block; margin-bottom: 6px; color: var(--text-secondary); font-size: 12px;">系统总管理员密码</label>
-                                    <input type="password" id="subAdminSuperPassword" placeholder="验证身份" 
-                                           style="width: 100%; padding: 10px 12px; background: var(--bg-secondary); border: 1px solid var(--border); 
-                                                  border-radius: 6px; color: var(--text-primary); font-size: 13px;">
-                                </div>
-                                <div style="flex: 1; min-width: 150px;">
-                                    <label style="display: block; margin-bottom: 6px; color: var(--accent-yellow); font-size: 12px;">🔑 二级密码</label>
-                                    <input type="password" id="subAdminSecondaryPassword" placeholder="确认操作" 
-                                           style="width: 100%; padding: 10px 12px; background: var(--bg-secondary); border: 1px solid var(--accent-yellow); 
-                                                  border-radius: 6px; color: var(--text-primary); font-size: 13px;">
+                                <div style="display: flex; flex-wrap: wrap; gap: 4px 12px; background: var(--bg-secondary); border-radius: 6px; padding: 8px 10px;">
+                                    <label style="display: flex; align-items: center; gap: 4px; cursor: pointer; font-size: 12px; color: var(--text-primary); white-space: nowrap;">
+                                        <input type="checkbox" id="perm_dashboard" value="dashboard"> 📈仪表盘
+                                    </label>
+                                    <label style="display: flex; align-items: center; gap: 4px; cursor: pointer; font-size: 12px; color: var(--text-primary); white-space: nowrap;">
+                                        <input type="checkbox" id="perm_online" value="online"> 🟢在线
+                                    </label>
+                                    <label style="display: flex; align-items: center; gap: 4px; cursor: pointer; font-size: 12px; color: var(--text-primary); white-space: nowrap;">
+                                        <input type="checkbox" id="perm_usage" value="usage"> 📊使用
+                                    </label>
+                                    <label style="display: flex; align-items: center; gap: 4px; cursor: pointer; font-size: 12px; color: var(--text-primary); white-space: nowrap;">
+                                        <input type="checkbox" id="perm_users" value="users"> 👥用户
+                                    </label>
+                                    <label style="display: flex; align-items: center; gap: 4px; cursor: pointer; font-size: 12px; color: var(--text-primary); white-space: nowrap;">
+                                        <input type="checkbox" id="perm_ips" value="ips"> 🌐IP
+                                    </label>
+                                    <label style="display: flex; align-items: center; gap: 4px; cursor: pointer; font-size: 12px; color: var(--text-primary); white-space: nowrap;">
+                                        <input type="checkbox" id="perm_banlist" value="banlist"> 🚫封禁
+                                    </label>
+                                    <label style="display: flex; align-items: center; gap: 4px; cursor: pointer; font-size: 12px; color: var(--text-primary); white-space: nowrap;">
+                                        <input type="checkbox" id="perm_license" value="license"> 🔑激活码
+                                    </label>
+                                    <label style="display: flex; align-items: center; gap: 4px; cursor: pointer; font-size: 12px; color: var(--text-primary); white-space: nowrap;">
+                                        <input type="checkbox" id="perm_database" value="database"> 🗄️数据库
+                                    </label>
                                 </div>
                             </div>
                             
-                            <div style="display: flex; gap: 10px; flex-wrap: wrap;">
-                                <button onclick="setSubAdmin()" class="btn btn-primary" style="flex: 1; padding: 10px; min-width: 140px;">
+                            <div style="display: flex; gap: 8px;">
+                                <button onclick="setSubAdmin()" class="btn btn-primary" style="flex: 1; padding: 8px; font-size: 13px;">
                                     ✅ 添加/更新子管理员
                                 </button>
-                                <button onclick="kickAllSubAdmins()" style="padding: 10px 16px; background: var(--bg-secondary); color: var(--accent-yellow); border: 1px solid rgba(255,165,2,0.3); border-radius: 4px; cursor: pointer; font-size: 13px;">
+                                <button onclick="kickAllSubAdmins()" style="padding: 8px 14px; background: var(--bg-secondary); color: var(--accent-yellow); border: 1px solid rgba(255,165,2,0.3); border-radius: 4px; cursor: pointer; font-size: 13px;">
                                     踢出全部
                                 </button>
                             </div>
