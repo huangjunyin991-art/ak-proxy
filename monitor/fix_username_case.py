@@ -44,59 +44,94 @@ def merge_duplicate_users(conn, username_lower, variants):
     
     print(f"\n  📝 合并用户: {variants}")
     
-    # 1. 选择主用户（最早登录的或登录次数最多的）
-    cursor.execute('''
-        SELECT username, login_count, first_login, last_login, last_ip, password
-        FROM user_stats
-        WHERE LOWER(username) IN ({})
-        ORDER BY login_count DESC, first_login ASC
-        LIMIT 1
-    '''.format(','.join('?' * len(variant_list))), variant_list)
-    
-    primary = cursor.fetchone()
-    if not primary:
-        return
-    
-    primary_username = primary[0]
-    print(f"    → 主用户: {primary_username}")
-    
-    # 2. 合并所有变体的数据
+    # 1. 合并所有变体的数据
     cursor.execute('''
         SELECT 
             SUM(login_count) as total_logins,
             MIN(first_login) as earliest_login,
-            MAX(last_login) as latest_login
+            MAX(last_login) as latest_login,
+            password,
+            last_ip
         FROM user_stats
         WHERE LOWER(username) IN ({})
     '''.format(','.join('?' * len(variant_list))), variant_list)
     
     merged_stats = cursor.fetchone()
+    if not merged_stats:
+        return
     
-    # 3. 更新主用户记录
-    cursor.execute('''
-        UPDATE user_stats
-        SET 
-            login_count = ?,
-            first_login = ?,
-            last_login = ?,
-            username = ?
-        WHERE LOWER(username) = ?
-    ''', (
-        merged_stats[0],  # total_logins
-        merged_stats[1],  # earliest_login
-        merged_stats[2],  # latest_login
-        username_lower,   # 统一用小写
-        username_lower
-    ))
+    print(f"    → 合并为: {username_lower}")
+    print(f"    → 总登录次数: {merged_stats[0]}")
     
-    # 4. 删除其他变体（保留主用户，删除其他的）
-    other_variants = [v for v in variant_list if v.lower() != username_lower]
-    if other_variants:
+    # 2. 检查小写版本是否已存在
+    cursor.execute('SELECT username FROM user_stats WHERE username = ?', (username_lower,))
+    lowercase_exists = cursor.fetchone()
+    
+    if lowercase_exists:
+        # 小写版本已存在，更新它的数据
         cursor.execute('''
-            DELETE FROM user_stats
-            WHERE username IN ({}) AND username != ?
-        '''.format(','.join('?' * len(other_variants))), other_variants + [username_lower])
-        print(f"    ✅ 已删除重复: {', '.join(other_variants)}")
+            UPDATE user_stats
+            SET 
+                login_count = ?,
+                first_login = ?,
+                last_login = ?,
+                password = COALESCE(password, ?),
+                last_ip = COALESCE(?, last_ip)
+            WHERE username = ?
+        ''', (
+            merged_stats[0],  # total_logins
+            merged_stats[1],  # earliest_login
+            merged_stats[2],  # latest_login
+            merged_stats[3],  # password
+            merged_stats[4],  # last_ip
+            username_lower
+        ))
+        
+        # 删除其他大小写变体
+        other_variants = [v for v in variant_list if v != username_lower]
+        if other_variants:
+            cursor.execute('''
+                DELETE FROM user_stats
+                WHERE username IN ({})
+            '''.format(','.join('?' * len(other_variants))), other_variants)
+            print(f"    ✅ 已删除重复: {', '.join(other_variants)}")
+    else:
+        # 小写版本不存在，选择一个变体重命名
+        cursor.execute('''
+            SELECT username FROM user_stats
+            WHERE LOWER(username) IN ({})
+            ORDER BY login_count DESC, first_login ASC
+            LIMIT 1
+        '''.format(','.join('?' * len(variant_list))), variant_list)
+        
+        primary = cursor.fetchone()
+        primary_username = primary[0] if primary else variant_list[0]
+        
+        # 更新选中的变体为小写
+        cursor.execute('''
+            UPDATE user_stats
+            SET 
+                username = ?,
+                login_count = ?,
+                first_login = ?,
+                last_login = ?
+            WHERE username = ?
+        ''', (
+            username_lower,
+            merged_stats[0],
+            merged_stats[1],
+            merged_stats[2],
+            primary_username
+        ))
+        
+        # 删除其他变体
+        other_variants = [v for v in variant_list if v != primary_username]
+        if other_variants:
+            cursor.execute('''
+                DELETE FROM user_stats
+                WHERE username IN ({})
+            '''.format(','.join('?' * len(other_variants))), other_variants)
+            print(f"    ✅ 已删除重复: {', '.join(other_variants)}")
     
     # 5. 更新 login_records 中的用户名为小写
     cursor.execute('''
@@ -140,7 +175,7 @@ def merge_duplicate_users(conn, username_lower, variants):
                 username, ace_count, total_ace, weekly_money, sp, tp, ep, rp, ap, lp,
                 rate, credit, level_number, convert_balance, updated_at
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ''', (username_lower,) + merged_assets + (datetime.now(),))
+        ''', (username_lower,) + tuple(merged_assets) + (datetime.now(),))
         
         # 删除其他变体的资产
         cursor.execute('''

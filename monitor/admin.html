@@ -1791,48 +1791,8 @@
             <div>
                 <h3 style="margin-bottom: 15px; color: var(--accent);">⚙️ 系统设置</h3>
                 
-                <div style="display: flex; gap: 15px; align-items: stretch; flex-wrap: wrap;">
-                
-                <!-- 修改密码（左侧） -->
-                <div style="flex: 0 0 220px; background: var(--bg-card); border-radius: 12px; padding: 15px; border: 1px solid var(--border); display: flex; flex-direction: column;">
-                    <h4 style="margin-bottom: 10px; color: var(--text-primary); font-size: 14px;">🔐 修改管理员密码</h4>
-                    
-                    <div style="display: flex; flex-direction: column; gap: 8px; margin-bottom: 10px; flex: 1;">
-                        <div>
-                            <label style="display: block; margin-bottom: 4px; color: var(--text-secondary); font-size: 11px;">当前密码</label>
-                            <input type="password" id="currentPassword" placeholder="当前密码" 
-                                   style="width: 100%; padding: 8px 10px; background: var(--bg-primary); border: 1px solid var(--border); 
-                                          border-radius: 6px; color: var(--text-primary); font-size: 13px;">
-                        </div>
-                        <div>
-                            <label style="display: block; margin-bottom: 4px; color: var(--text-secondary); font-size: 11px;">新密码</label>
-                            <input type="password" id="newPassword" placeholder="至少6位" 
-                                   style="width: 100%; padding: 8px 10px; background: var(--bg-primary); border: 1px solid var(--border); 
-                                          border-radius: 6px; color: var(--text-primary); font-size: 13px;">
-                        </div>
-                        <div>
-                            <label style="display: block; margin-bottom: 4px; color: var(--text-secondary); font-size: 11px;">确认新密码</label>
-                            <input type="password" id="confirmPassword" placeholder="再次输入" 
-                                   style="width: 100%; padding: 8px 10px; background: var(--bg-primary); border: 1px solid var(--border); 
-                                          border-radius: 6px; color: var(--text-primary); font-size: 13px;">
-                        </div>
-                        <div>
-                            <label style="display: block; margin-bottom: 4px; color: var(--accent-yellow); font-size: 11px;">🔑 二级密码</label>
-                            <input type="password" id="secondaryPasswordForChange" placeholder="确认操作" 
-                                   style="width: 100%; padding: 8px 10px; background: var(--bg-primary); border: 1px solid var(--accent-yellow); 
-                                          border-radius: 6px; color: var(--text-primary); font-size: 13px;">
-                        </div>
-                    </div>
-                    
-                    <button onclick="changePassword()" class="btn btn-primary" style="width: 100%; padding: 8px; font-size: 13px;">
-                        🔄 修改密码
-                    </button>
-                    
-                    <div id="passwordMsg" style="margin-top: 10px; padding: 8px; border-radius: 6px; display: none;"></div>
-                </div>
-                
-                <!-- 子管理员管理（右侧，仅系统总管理可见） -->
-                <div id="subAdminSection" style="display: none; flex: 1.5; min-width: 400px;">
+                <!-- 子管理员管理（仅系统总管理可见） -->
+                <div id="subAdminSection" style="display: none;">
                     <div style="background: linear-gradient(135deg, var(--bg-card), #1e2a4a); border-radius: 12px; padding: 15px; border: 1px solid #667eea;">
                         <h4 style="margin-bottom: 20px; color: #667eea; display: flex; align-items: center; gap: 10px;">
                             <span style="font-size: 24px;">👥</span> 子管理员管理
@@ -1927,7 +1887,6 @@
                     </div>
                 </div>
                 
-                </div><!-- flex row end -->
             </div>
         </div>
     </div>
@@ -3061,71 +3020,6 @@
             showUnbanModal(type, value);
         }
         
-        // 修改密码
-        async function changePassword() {
-            const currentPwd = document.getElementById('currentPassword').value;
-            const newPwd = document.getElementById('newPassword').value;
-            const confirmPwd = document.getElementById('confirmPassword').value;
-            const secondaryPwd = document.getElementById('secondaryPasswordForChange').value;
-            const msgDiv = document.getElementById('passwordMsg');
-            
-            // 验证
-            if (!currentPwd || !newPwd || !confirmPwd || !secondaryPwd) {
-                showPasswordMsg('请填写所有字段（包括二级密码）', 'error');
-                return;
-            }
-            
-            if (newPwd.length < 6) {
-                showPasswordMsg('新密码至少需要6位', 'error');
-                return;
-            }
-            
-            if (newPwd !== confirmPwd) {
-                showPasswordMsg('两次输入的新密码不一致', 'error');
-                return;
-            }
-            
-            try {
-                const res = await fetch(`${API_BASE}/admin/api/change_password`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        current_password: currentPwd,
-                        new_password: newPwd,
-                        secondary_password: secondaryPwd
-                    })
-                });
-                
-                const data = await res.json();
-                
-                if (data.success) {
-                    showPasswordMsg('✅ 密码修改成功！', 'success');
-                    // 清空输入框
-                    document.getElementById('currentPassword').value = '';
-                    document.getElementById('newPassword').value = '';
-                    document.getElementById('confirmPassword').value = '';
-                    document.getElementById('secondaryPasswordForChange').value = '';
-                } else {
-                    showPasswordMsg('❌ ' + (data.message || '修改失败'), 'error');
-                }
-            } catch (e) {
-                showPasswordMsg('❌ 网络错误: ' + e.message, 'error');
-            }
-        }
-        
-        function showPasswordMsg(msg, type) {
-            const msgDiv = document.getElementById('passwordMsg');
-            msgDiv.style.display = 'block';
-            msgDiv.textContent = msg;
-            msgDiv.style.background = type === 'success' ? 'rgba(0, 255, 136, 0.1)' : 'rgba(255, 71, 87, 0.1)';
-            msgDiv.style.color = type === 'success' ? 'var(--accent-green)' : 'var(--accent-red)';
-            msgDiv.style.border = `1px solid ${type === 'success' ? 'var(--accent-green)' : 'var(--accent-red)'}`;
-            
-            if (type === 'success') {
-                setTimeout(() => { msgDiv.style.display = 'none'; }, 3000);
-            }
-        }
-        
         // ===== 子管理员管理 =====
         
         let subAdminStatusTimer = null;
@@ -3173,17 +3067,14 @@
                 const cb = document.getElementById('perm_' + key);
                 if (cb) cb.checked = !!permissions[key];
             });
-            // 高亮选中的卡片
-            document.querySelectorAll('#subAdminList > div').forEach(card => {
-                card.style.borderColor = 'var(--border)';
-                card.style.boxShadow = 'none';
-            });
-            // 找到被点击的卡片并高亮
-            const cards = document.querySelectorAll('#subAdminList > div');
-            cards.forEach(card => {
-                if (card.textContent.includes(name)) {
+            // 高亮选中的卡片，重置其他卡片
+            document.querySelectorAll('#subAdminList [data-subname]').forEach(card => {
+                if (card.dataset.subname === name) {
                     card.style.borderColor = 'var(--accent)';
                     card.style.boxShadow = '0 0 8px rgba(0,200,255,0.3)';
+                } else {
+                    card.style.borderColor = 'var(--border)';
+                    card.style.boxShadow = 'none';
                 }
             });
             // 显示更新权限按钮
@@ -3307,11 +3198,14 @@
                         : permTags;
                     
                     const permJson = JSON.stringify(perms).replace(/'/g, "\\'");
+                    const defaultBorder = sub.is_online ? 'rgba(0,255,136,0.3)' : 'var(--border)';
                     return `
-                        <div style="padding: 12px 15px; background: var(--bg-primary); 
-                                    border-radius: 8px; border: 1px solid ${sub.is_online ? 'rgba(0,255,136,0.3)' : 'var(--border)'}; margin-bottom: 8px; cursor: pointer; transition: border-color 0.2s;"
+                        <div data-subname="${sub.name}" style="padding: 12px 15px; background: var(--bg-primary); 
+                                    border-radius: 8px; border: 1px solid ${defaultBorder}; margin-bottom: 8px; cursor: pointer; transition: border-color 0.2s, box-shadow 0.2s;"
                              onclick="selectSubAdmin('${sub.name}', ${permJson.replace(/"/g, '&quot;')})"
-                             onmouseover="this.style.borderColor='var(--accent)'" onmouseout="this.style.borderColor='${sub.is_online ? 'rgba(0,255,136,0.3)' : 'var(--border)'}'">
+                             onmouseover="if(selectedSubAdmin!=='${sub.name}'){this.style.borderColor='var(--accent)'}"
+                             onmouseout="if(selectedSubAdmin!=='${sub.name}'){this.style.borderColor='${defaultBorder}';this.style.boxShadow='none'}"
+                        >
                             <div style="display: flex; align-items: center; gap: 12px;">
                                 ${onlineDot}
                                 <div style="flex: 1; min-width: 0;">
