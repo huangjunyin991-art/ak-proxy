@@ -36,7 +36,7 @@ class ProxyPoolConfig:
         "subscription_url": "",
         "prefer_direct": False,
         "direct_cooldown": 60,
-        "direct_rate_limit": 4,
+        "direct_rate_limit": 8,
         "num_slots": 5,
         "base_port": 21000,
         "rate_limit": 8,
@@ -1178,7 +1178,7 @@ def get_pool() -> Optional[ProxyPool]:
 
 _direct_requests = deque()   # 直连请求时间戳滑动窗口
 _DIRECT_WINDOW = 60          # 统计窗口(秒)
-_DIRECT_RATE_LIMIT = 4       # 每分钟直连上限(超过则切代理池)
+_DIRECT_RATE_LIMIT = 8       # 每分钟直连上限(超过则切代理池)
 _last_route = "无"            # 最近一次请求的路由方式
 
 

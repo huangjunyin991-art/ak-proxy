@@ -322,7 +322,8 @@ class MonitorManager(ctk.CTk):
         
         self.pp_prefer_direct_var = ctk.BooleanVar(value=False)
         self.pp_prefer_direct_cb = ctk.CTkCheckBox(direct_frame, text="优先直连（冷却后自动切回直连）",
-                                                     variable=self.pp_prefer_direct_var)
+                                                     variable=self.pp_prefer_direct_var,
+                                                     command=self._pp_toggle_prefer_direct)
         self.pp_prefer_direct_cb.pack(side="left", padx=(10, 15))
         
         ctk.CTkLabel(direct_frame, text="冷却时间(秒):").pack(side="left", padx=(0, 2))
@@ -332,7 +333,7 @@ class MonitorManager(ctk.CTk):
         
         ctk.CTkLabel(direct_frame, text="直连限速/min:").pack(side="left", padx=(0, 2))
         self.pp_direct_rate_entry = ctk.CTkEntry(direct_frame, width=50)
-        self.pp_direct_rate_entry.insert(0, "4")
+        self.pp_direct_rate_entry.insert(0, "8")
         self.pp_direct_rate_entry.pack(side="left", padx=(0, 10))
         
         self.pp_direct_status_label = ctk.CTkLabel(direct_frame, text="", 
@@ -751,6 +752,18 @@ uvicorn.run(app, host='0.0.0.0', port={port})
             pass
         return None
     
+    def _pp_toggle_prefer_direct(self):
+        """勾选/取消优先直连时立即生效"""
+        val = self.pp_prefer_direct_var.get()
+        ok, result = self._pp_api("POST", "/admin/api/proxy_pool/config", {"prefer_direct": val})
+        if ok and result.get("success"):
+            state = "启用" if val else "关闭"
+            self.pp_direct_status_label.configure(
+                text=f"优先直连已{state}", text_color="lightgreen" if val else "gray")
+        else:
+            # 恢复旧状态
+            self.pp_prefer_direct_var.set(not val)
+    
     def pp_save_config(self):
         """保存代理池配置到服务器"""
         data = {
@@ -758,14 +771,22 @@ uvicorn.run(app, host='0.0.0.0', port={port})
             "subscription_url": self.pp_sub_entry.get().strip(),
             "prefer_direct": self.pp_prefer_direct_var.get(),
             "direct_cooldown": int(self.pp_direct_cd_entry.get() or 60),
-            "direct_rate_limit": int(self.pp_direct_rate_entry.get() or 4),
+            "direct_rate_limit": int(self.pp_direct_rate_entry.get() or 8),
             "num_slots": int(self.pp_slots_entry.get() or 5),
             "base_port": int(self.pp_port_entry.get() or 21000),
             "rate_limit": int(self.pp_rate_entry.get() or 8),
         }
         ok, result = self._pp_api("POST", "/admin/api/proxy_pool/config", data)
         if ok and result.get("success"):
-            messagebox.showinfo("成功", result.get("message", "配置已保存"))
+            self._pp_config_loaded = False  # 下次刷新重新加载服务器配置
+            saved_config = result.get("config", data)
+            msg = (f"配置已保存并立即生效\n\n"
+                   f"优先直连: {'✅' if saved_config.get('prefer_direct') else '❌'}\n"
+                   f"直连限速: {saved_config.get('direct_rate_limit', 8)}/min\n"
+                   f"冷却时间: {saved_config.get('direct_cooldown', 60)}s\n"
+                   f"代理池限速: {saved_config.get('rate_limit', 8)}/min\n"
+                   f"槽位数: {saved_config.get('num_slots', 5)}")
+            messagebox.showinfo("成功", msg)
         else:
             messagebox.showerror("错误", result.get("message", "保存失败"))
     
@@ -839,11 +860,13 @@ uvicorn.run(app, host='0.0.0.0', port={port})
         
         ok, result = self._pp_api("POST", "/admin/api/proxy_pool/start")
         
-        self.pp_start_btn.configure(text="▶ 启动", state="normal")
         if ok and result.get("success"):
+            self.pp_start_btn.configure(text="▶ 已启动", state="disabled", fg_color="gray")
+            self.pp_stop_btn.configure(state="normal", fg_color="red")
             messagebox.showinfo("成功", result.get("message", "已启动"))
             self.pp_refresh_status()
         else:
+            self.pp_start_btn.configure(text="▶ 启动", state="normal", fg_color="green")
             messagebox.showerror("错误", result.get("message", "启动失败"))
     
     def pp_stop(self):
@@ -852,6 +875,8 @@ uvicorn.run(app, host='0.0.0.0', port={port})
             return
         ok, result = self._pp_api("POST", "/admin/api/proxy_pool/stop")
         if ok and result.get("success"):
+            self.pp_start_btn.configure(text="▶ 启动", state="normal", fg_color="green")
+            self.pp_stop_btn.configure(state="disabled", fg_color="gray")
             messagebox.showinfo("成功", result.get("message", "已停止"))
             self.pp_refresh_status()
         else:
@@ -877,29 +902,31 @@ uvicorn.run(app, host='0.0.0.0', port={port})
         config = result.get("config", {})
         pool = result.get("pool")
         
-        # 填充配置到输入框
-        if config.get("singbox_path"):
-            self.pp_singbox_entry.delete(0, "end")
-            self.pp_singbox_entry.insert(0, config["singbox_path"])
-        if config.get("subscription_url"):
-            self.pp_sub_entry.delete(0, "end")
-            self.pp_sub_entry.insert(0, config["subscription_url"])
-        if config.get("num_slots"):
-            self.pp_slots_entry.delete(0, "end")
-            self.pp_slots_entry.insert(0, str(config["num_slots"]))
-        if config.get("base_port"):
-            self.pp_port_entry.delete(0, "end")
-            self.pp_port_entry.insert(0, str(config["base_port"]))
-        if config.get("rate_limit"):
-            self.pp_rate_entry.delete(0, "end")
-            self.pp_rate_entry.insert(0, str(config["rate_limit"]))
-        self.pp_prefer_direct_var.set(config.get("prefer_direct", False))
-        if config.get("direct_cooldown"):
-            self.pp_direct_cd_entry.delete(0, "end")
-            self.pp_direct_cd_entry.insert(0, str(config["direct_cooldown"]))
-        if config.get("direct_rate_limit"):
-            self.pp_direct_rate_entry.delete(0, "end")
-            self.pp_direct_rate_entry.insert(0, str(config["direct_rate_limit"]))
+        # 仅首次刷新时加载配置到输入框，避免覆盖用户未保存的修改
+        if not getattr(self, '_pp_config_loaded', False):
+            self._pp_config_loaded = True
+            if config.get("singbox_path"):
+                self.pp_singbox_entry.delete(0, "end")
+                self.pp_singbox_entry.insert(0, config["singbox_path"])
+            if config.get("subscription_url"):
+                self.pp_sub_entry.delete(0, "end")
+                self.pp_sub_entry.insert(0, config["subscription_url"])
+            if config.get("num_slots"):
+                self.pp_slots_entry.delete(0, "end")
+                self.pp_slots_entry.insert(0, str(config["num_slots"]))
+            if config.get("base_port"):
+                self.pp_port_entry.delete(0, "end")
+                self.pp_port_entry.insert(0, str(config["base_port"]))
+            if config.get("rate_limit"):
+                self.pp_rate_entry.delete(0, "end")
+                self.pp_rate_entry.insert(0, str(config["rate_limit"]))
+            self.pp_prefer_direct_var.set(config.get("prefer_direct", False))
+            if config.get("direct_cooldown"):
+                self.pp_direct_cd_entry.delete(0, "end")
+                self.pp_direct_cd_entry.insert(0, str(config["direct_cooldown"]))
+            if config.get("direct_rate_limit"):
+                self.pp_direct_rate_entry.delete(0, "end")
+                self.pp_direct_rate_entry.insert(0, str(config["direct_rate_limit"]))
         
         # 更新直连状态显示
         direct = result.get("direct", {})
@@ -923,6 +950,8 @@ uvicorn.run(app, host='0.0.0.0', port={port})
             route_text = f"  路由: {last_route}" if last_route else ""
             self.pp_status_label.configure(
                 text=f"状态: ✅ 运行中 ({alive}/{total} 槽位在线){route_text}", text_color="lightgreen")
+            self.pp_start_btn.configure(text="▶ 已启动", state="disabled", fg_color="gray")
+            self.pp_stop_btn.configure(state="normal", fg_color="red")
             
             lines = []
             lines.append(f"{'='*60}")
@@ -978,6 +1007,8 @@ uvicorn.run(app, host='0.0.0.0', port={port})
             self.pp_status_text.insert("1.0", "\n".join(lines))
         else:
             self.pp_status_label.configure(text="状态: ⏸ 已加载·未启用", text_color="yellow")
+            self.pp_start_btn.configure(text="▶ 启动", state="normal", fg_color="green")
+            self.pp_stop_btn.configure(state="disabled", fg_color="gray")
             self.pp_status_text.insert("1.0", "代理池模块已加载，但未启动\n\n请先配置 sing-box 路径和节点配置路径，然后点击「启动」")
     
     def on_closing(self):

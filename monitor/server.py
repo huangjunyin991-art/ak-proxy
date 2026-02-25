@@ -174,6 +174,8 @@ app.add_middleware(
 class ConnectionManager:
     def __init__(self):
         self.active_connections: Set[WebSocket] = set()
+        # 子管理员心跳追踪: {sub_name: {websocket, last_heartbeat, login_time}}
+        self.sub_admin_sessions: dict = {}
     
     async def connect(self, websocket: WebSocket):
         await websocket.accept()
@@ -181,6 +183,37 @@ class ConnectionManager:
     
     def disconnect(self, websocket: WebSocket):
         self.active_connections.discard(websocket)
+        # 清理对应的子管理员会话
+        to_remove = [name for name, sess in self.sub_admin_sessions.items() if sess.get('websocket') is websocket]
+        for name in to_remove:
+            del self.sub_admin_sessions[name]
+    
+    def register_sub_admin(self, sub_name: str, websocket: WebSocket):
+        """注册子管理员WebSocket连接"""
+        self.sub_admin_sessions[sub_name] = {
+            'websocket': websocket,
+            'last_heartbeat': datetime.now(),
+            'login_time': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        }
+    
+    def heartbeat_sub_admin(self, sub_name: str):
+        """更新子管理员心跳"""
+        if sub_name in self.sub_admin_sessions:
+            self.sub_admin_sessions[sub_name]['last_heartbeat'] = datetime.now()
+    
+    def get_online_sub_admins(self) -> dict:
+        """获取在线子管理员（15秒无心跳视为离线，心跳间隔10秒）"""
+        now = datetime.now()
+        online = {}
+        offline = []
+        for name, sess in self.sub_admin_sessions.items():
+            if (now - sess['last_heartbeat']).total_seconds() > 15:
+                offline.append(name)
+            else:
+                online[name] = sess['login_time']
+        for name in offline:
+            del self.sub_admin_sessions[name]
+        return online
     
     async def broadcast(self, message: dict):
         """广播消息给所有连接"""
@@ -615,39 +648,12 @@ async def proxy_index_data(request: Request):
         fwd_headers["Content-Type"] = "application/json"
 
     try:
-        response = None
-        use_direct = _HAS_PROXY_POOL and pp.should_use_direct()
-        
-        if use_direct:
-            async with httpx.AsyncClient(verify=False, timeout=30) as client:
-                if "application/json" in content_type:
-                    response = await client.post(AKAPI_URL + "public_IndexData", json=params, headers=fwd_headers)
-                else:
-                    response = await client.post(AKAPI_URL + "public_IndexData", data=params, headers=fwd_headers)
-            if response.status_code == 403:
-                pp.report_direct_blocked()
-                response = None
+        # IndexData 不做直连限速，直接直连
+        async with httpx.AsyncClient(verify=False, timeout=30) as client:
+            if "application/json" in content_type:
+                response = await client.post(AKAPI_URL + "public_IndexData", json=params, headers=fwd_headers)
             else:
-                pp.report_direct_success()
-                pp.report_route("本地直连")
-        
-        if response is None and _HAS_PROXY_POOL:
-            proxy_resp = await pp.proxy_request(
-                "POST", AKAPI_URL + "public_IndexData",
-                json_data=params if "application/json" in content_type else None,
-                form_data=params if "application/json" not in content_type else None,
-                headers=fwd_headers
-            )
-            if proxy_resp is not None:
-                response = proxy_resp
-        
-        if response is None:
-            async with httpx.AsyncClient(verify=False, timeout=30) as client:
-                if "application/json" in content_type:
-                    response = await client.post(AKAPI_URL + "public_IndexData", json=params, headers=fwd_headers)
-                else:
-                    response = await client.post(AKAPI_URL + "public_IndexData", data=params, headers=fwd_headers)
-            if _HAS_PROXY_POOL: pp.report_route("本地直连(兜底)")
+                response = await client.post(AKAPI_URL + "public_IndexData", data=params, headers=fwd_headers)
         result = response.json()
         print(f"[IndexData] 服务器响应: Error={result.get('Error')}, 有Data={bool(result.get('Data'))}")
     except Exception as e:
@@ -761,42 +767,14 @@ async def proxy_rpc(path: str, request: Request):
         "X-Real-IP": client_ip
     }
     try:
-        response = None
-        use_direct = _HAS_PROXY_POOL and pp.should_use_direct()
-        
-        if use_direct:
-            async with httpx.AsyncClient(verify=False, timeout=30) as client:
-                response = await client.request(
-                    method=request.method, url=AKAPI_URL + path,
-                    json=body if isinstance(body, dict) else None,
-                    content=body if isinstance(body, bytes) else None,
-                    headers=fwd_headers
-                )
-            if response.status_code == 403:
-                pp.report_direct_blocked()
-                response = None
-            else:
-                pp.report_direct_success()
-                pp.report_route("本地直连")
-        
-        if response is None and _HAS_PROXY_POOL:
-            proxy_resp = await pp.proxy_request(
-                request.method, AKAPI_URL + path,
-                json_data=body if isinstance(body, dict) else None,
+        # 通用API不做直连限速，直接直连
+        async with httpx.AsyncClient(verify=False, timeout=30) as client:
+            response = await client.request(
+                method=request.method, url=AKAPI_URL + path,
+                json=body if isinstance(body, dict) else None,
+                content=body if isinstance(body, bytes) else None,
                 headers=fwd_headers
             )
-            if proxy_resp is not None:
-                response = proxy_resp
-        
-        if response is None:
-            async with httpx.AsyncClient(verify=False, timeout=30) as client:
-                response = await client.request(
-                    method=request.method, url=AKAPI_URL + path,
-                    json=body if isinstance(body, dict) else None,
-                    content=body if isinstance(body, bytes) else None,
-                    headers=fwd_headers
-                )
-            if _HAS_PROXY_POOL: pp.report_route("本地直连(兜底)")
         return JSONResponse(
             content=response.json() if response.headers.get("content-type", "").startswith("application/json") else response.text,
             status_code=response.status_code
@@ -1190,17 +1168,19 @@ async def unban_ip_api(req: BanRequest):
 
 @app.get("/admin/api/sub_admin")
 async def get_sub_admin_status(request: Request):
-    """获取所有子管理员状态"""
+    """获取所有子管理员状态（心跳检测在线+token记录登录时间）"""
     current_time = time.time()
+    # 心跳检测在线状态
+    online_subs = manager.get_online_sub_admins()
     
-    # 收集所有在线的子管理员信息
-    online_subs = {}
+    # 从token获取最近登录时间
+    login_times = {}
     for token, data in admin_tokens.items():
         if data.get('role') == ROLE_SUB_ADMIN and data.get('expire', 0) > current_time:
             sname = data.get('sub_name', '')
-            if sname and sname not in online_subs:
+            if sname and sname not in login_times:
                 login_timestamp = data.get('expire', 0) - 86400
-                online_subs[sname] = datetime.fromtimestamp(login_timestamp).strftime('%Y-%m-%d %H:%M:%S')
+                login_times[sname] = datetime.fromtimestamp(login_timestamp).strftime('%Y-%m-%d %H:%M:%S')
     
     # 构建子管理员列表
     sub_admin_list = []
@@ -1211,7 +1191,7 @@ async def get_sub_admin_status(request: Request):
             "name": name,
             "password_hint": pwd[:2] + "***" if pwd and len(pwd) > 2 else "***",
             "is_online": name in online_subs,
-            "login_time": online_subs.get(name),
+            "login_time": login_times.get(name),
             "permissions": perms
         })
     
@@ -1634,13 +1614,31 @@ async def license_health():
 # ===== WebSocket - 管理后台 =====
 @app.websocket("/admin/ws")
 async def websocket_endpoint(websocket: WebSocket):
-    """WebSocket实时推送"""
+    """WebSocket实时推送（支持子管理员心跳）"""
     await manager.connect(websocket)
+    sub_name = None
     try:
         while True:
-            # 保持连接，等待消息
             data = await websocket.receive_text()
-            # 可以处理客户端发来的消息
+            try:
+                msg = json.loads(data)
+                msg_type = msg.get('type')
+                if msg_type == 'auth':
+                    # 管理员认证：发送token识别身份
+                    token = msg.get('token', '')
+                    role = get_token_role(token)
+                    if role == ROLE_SUB_ADMIN:
+                        sub_name = get_token_sub_name(token)
+                        if sub_name:
+                            manager.register_sub_admin(sub_name, websocket)
+                    elif role == ROLE_SUPER_ADMIN:
+                        sub_name = '__super__'
+                        manager.register_sub_admin(sub_name, websocket)
+                elif msg_type == 'heartbeat':
+                    if sub_name:
+                        manager.heartbeat_sub_admin(sub_name)
+            except (json.JSONDecodeError, Exception):
+                pass
     except (WebSocketDisconnect, Exception):
         manager.disconnect(websocket)
 

@@ -1162,11 +1162,30 @@
                 font-size: 20px;
             }
             
+            /* 移动端：body不滚动，main-content内部滚动（可样式化） */
+            html, body {
+                overflow: hidden;
+                height: 100%;
+            }
+            .main-content.visible {
+                height: 100vh;
+                overflow-y: auto;
+                -webkit-overflow-scrolling: touch;
+            }
+            
             .tabs {
                 padding: 0 10px;
                 gap: 5px;
                 overflow-x: auto;
                 flex-wrap: nowrap;
+                position: sticky;
+                top: 0;
+                z-index: 100;
+                scrollbar-width: none;  /* Firefox */
+                -ms-overflow-style: none;  /* IE */
+            }
+            .tabs::-webkit-scrollbar {
+                display: none;  /* Chrome/Safari */
             }
             
             .tab {
@@ -2321,11 +2340,24 @@
             ws.onopen = () => {
                 document.getElementById('statusDot').classList.add('connected');
                 document.getElementById('statusText').textContent = '已连接';
+                // 发送身份认证
+                const token = sessionStorage.getItem('admin_token');
+                if (token) {
+                    ws.send(JSON.stringify({ type: 'auth', token: token }));
+                }
+                // 启动心跳（每10秒）
+                if (window._adminHeartbeat) clearInterval(window._adminHeartbeat);
+                window._adminHeartbeat = setInterval(() => {
+                    if (ws && ws.readyState === WebSocket.OPEN) {
+                        ws.send(JSON.stringify({ type: 'heartbeat' }));
+                    }
+                }, 10000);
             };
             
             ws.onclose = () => {
                 document.getElementById('statusDot').classList.remove('connected');
                 document.getElementById('statusText').textContent = '已断开';
+                if (window._adminHeartbeat) { clearInterval(window._adminHeartbeat); window._adminHeartbeat = null; }
                 // 重连
                 setTimeout(initWebSocket, 3000);
             };
@@ -3251,9 +3283,10 @@
                     const onlineDot = sub.is_online 
                         ? `<span style="width: 10px; height: 10px; background: var(--accent-green); border-radius: 50%; display: inline-block; animation: pulse 1.5s infinite;"></span>`
                         : `<span style="width: 10px; height: 10px; background: #555; border-radius: 50%; display: inline-block;"></span>`;
+                    const loginInfo = sub.login_time ? ` · 最近登录: ${sub.login_time}` : '';
                     const statusText = sub.is_online 
-                        ? `<span style="color: var(--accent-green); font-size: 12px;">在线 · ${sub.login_time || ''}</span>`
-                        : `<span style="color: var(--text-secondary); font-size: 12px;">离线</span>`;
+                        ? `<span style="color: var(--accent-green); font-size: 12px;">在线${loginInfo}</span>`
+                        : `<span style="color: var(--text-secondary); font-size: 12px;">离线${loginInfo}</span>`;
                     
                     // 构建权限标签
                     const perms = sub.permissions || {};
