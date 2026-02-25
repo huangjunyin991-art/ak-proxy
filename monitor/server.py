@@ -36,12 +36,13 @@ from database import (
     save_admin_token, get_admin_token, delete_admin_token, delete_admin_tokens_by_role,
     delete_admin_tokens_by_sub_name, cleanup_expired_tokens, load_all_admin_tokens,
     add_license_log, get_license_logs,
-    db_get_all_sub_admins, db_set_sub_admin, db_delete_sub_admin, db_get_sub_admin
+    db_get_all_sub_admins, db_set_sub_admin, db_delete_sub_admin, db_get_sub_admin,
+    db_update_sub_admin_permissions
 )
 
 # 配置
 ADMIN_PASSWORD = "ak-lovejjy1314"  # 系统总管理员密码（不可更改）
-SUB_ADMINS = {}  # 子管理员字典 {名称: 密码}（可由总管理设置）
+SUB_ADMINS = {}  # 子管理员字典 {名称: {password, permissions, created_at}}（可由总管理设置）
 DB_SECONDARY_PASSWORD = "aa292180"  # 数据库操作二级密码
 AKAPI_URL = "https://www.akapi1.com/RPC/"  # 原始API地址
 
@@ -742,11 +743,31 @@ def verify_admin_password(password: str) -> tuple:
         return True, ROLE_SUPER_ADMIN, None
     
     # 再检查所有子管理员
-    for sub_name, sub_pwd in SUB_ADMINS.items():
+    for sub_name, sub_data in SUB_ADMINS.items():
+        sub_pwd = sub_data.get('password', '') if isinstance(sub_data, dict) else sub_data
         if sub_pwd and secrets.compare_digest(password, sub_pwd):
             return True, ROLE_SUB_ADMIN, sub_name
     
     return False, None, None
+
+def get_sub_admin_permissions(sub_name: str) -> dict:
+    """获取子管理员的权限"""
+    sub_data = SUB_ADMINS.get(sub_name, {})
+    if isinstance(sub_data, dict):
+        return sub_data.get('permissions', {})
+    return {}
+
+def check_token_permission(token: str, perm_key: str) -> bool:
+    """检查Token是否拥有指定权限。超管拥有所有权限。"""
+    role = get_token_role(token)
+    if role == ROLE_SUPER_ADMIN:
+        return True
+    if role == ROLE_SUB_ADMIN:
+        sub_name = get_token_sub_name(token)
+        if sub_name:
+            perms = get_sub_admin_permissions(sub_name)
+            return perms.get(perm_key, False)
+    return False
 
 # 管理员 Token 管理（持久化到数据库，服务器重启后Token依然有效）
 admin_tokens = {}  # 内存缓存 {token: {'expire': expire_time, 'role': role}}
@@ -924,9 +945,11 @@ async def admin_login(request: Request):
         token = generate_admin_token(role, sub_name=sub_name or '')
         if role == ROLE_SUPER_ADMIN:
             role_name = "系统总管理"
+            permissions = {}  # 超管拥有全部权限，前端不做限制
         else:
             role_name = f"子管理员({sub_name})" if sub_name else "子管理员"
-        return {"success": True, "token": token, "role": role, "role_name": role_name, "sub_name": sub_name or ""}
+            permissions = get_sub_admin_permissions(sub_name) if sub_name else {}
+        return {"success": True, "token": token, "role": role, "role_name": role_name, "sub_name": sub_name or "", "permissions": permissions}
     else:
         # 登录失败，记录并额外延迟
         record_login_fail(client_ip)
@@ -954,9 +977,11 @@ async def verify_token_api(request: Request):
     sub_name = get_token_sub_name(token)
     if role == ROLE_SUPER_ADMIN:
         role_name = "系统总管理"
+        permissions = {}
     else:
         role_name = f"子管理员({sub_name})" if sub_name else "子管理员"
-    return {"valid": True, "role": role, "role_name": role_name, "sub_name": sub_name or ""}
+        permissions = get_sub_admin_permissions(sub_name) if sub_name else {}
+    return {"valid": True, "role": role, "role_name": role_name, "sub_name": sub_name or "", "permissions": permissions}
 
 @app.get("/admin/api/stats")
 async def get_stats():
@@ -1124,12 +1149,15 @@ async def get_sub_admin_status(request: Request):
     
     # 构建子管理员列表
     sub_admin_list = []
-    for name, pwd in SUB_ADMINS.items():
+    for name, sub_data in SUB_ADMINS.items():
+        pwd = sub_data.get('password', '') if isinstance(sub_data, dict) else sub_data
+        perms = sub_data.get('permissions', {}) if isinstance(sub_data, dict) else {}
         sub_admin_list.append({
             "name": name,
             "password_hint": pwd[:2] + "***" if pwd and len(pwd) > 2 else "***",
             "is_online": name in online_subs,
-            "login_time": online_subs.get(name)
+            "login_time": online_subs.get(name),
+            "permissions": perms
         })
     
     return {
@@ -1178,15 +1206,21 @@ async def set_sub_admin(request: Request):
         return {"success": False, "message": "子管理员密码不能与总管理员密码相同"}
     
     # 不能与其他子管理员密码相同
-    for existing_name, existing_pwd in SUB_ADMINS.items():
+    for existing_name, existing_data in SUB_ADMINS.items():
+        existing_pwd = existing_data.get('password', '') if isinstance(existing_data, dict) else existing_data
         if existing_name != sub_name and existing_pwd and secrets.compare_digest(new_sub_password, existing_pwd):
             return {"success": False, "message": f"该密码已被子管理员 [{existing_name}] 使用"}
+    
+    # 解析权限
+    permissions = data.get('permissions', {})
+    if not isinstance(permissions, dict):
+        permissions = {}
     
     # 保存子管理员到数据库
     is_update = sub_name in SUB_ADMINS
     try:
-        db_set_sub_admin(sub_name, new_sub_password)
-        SUB_ADMINS[sub_name] = new_sub_password  # 同步内存
+        db_set_sub_admin(sub_name, new_sub_password, permissions)
+        SUB_ADMINS[sub_name] = {'password': new_sub_password, 'permissions': permissions}  # 同步内存
         action = "更新" if is_update else "添加"
         return {"success": True, "message": f"子管理员 [{sub_name}] {action}成功"}
     except Exception as e:
@@ -1323,12 +1357,12 @@ async def license_create(request: Request):
     if not verify_admin_token(token):
         return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
     
-    # 仅系统总管理可操作
-    role = get_token_role(token)
-    if role != ROLE_SUPER_ADMIN:
-        return {"error": True, "message": "仅系统总管理员可创建激活码"}
+    # 权限检查：需要 license 权限
+    if not check_token_permission(token, 'license'):
+        return {"error": True, "message": "您没有激活码管理权限"}
     
     data = await request.json()
+    role = get_token_role(token)
     result = await proxy_license_request('POST', '/admin/create-license', json_body=data)
     
     # 记录创建日志
@@ -1351,9 +1385,10 @@ async def license_revoke(request: Request):
     if not verify_admin_token(token):
         return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
     
+    # 权限检查：需要 license 权限
+    if not check_token_permission(token, 'license'):
+        return {"error": True, "message": "您没有激活码管理权限"}
     role = get_token_role(token)
-    if role != ROLE_SUPER_ADMIN:
-        return {"error": True, "message": "仅系统总管理员可撤销激活码"}
     
     data = await request.json()
     result = await proxy_license_request('POST', '/admin/revoke-license', json_body=data)
@@ -1371,9 +1406,9 @@ async def license_edit(request: Request):
     if not verify_admin_token(token):
         return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
     
-    role = get_token_role(token)
-    if role != ROLE_SUPER_ADMIN:
-        return {"error": True, "message": "仅系统总管理员可编辑激活码"}
+    # 权限检查：需要 license 权限
+    if not check_token_permission(token, 'license'):
+        return {"error": True, "message": "您没有激活码管理权限"}
     
     data = await request.json()
     return await proxy_license_request('POST', '/admin/edit-license', json_body=data)
@@ -1401,9 +1436,8 @@ async def license_blacklist_add(request: Request):
     if not verify_admin_token(token):
         return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
     
-    role = get_token_role(token)
-    if role != ROLE_SUPER_ADMIN:
-        return {"error": True, "message": "仅系统总管理员可操作黑名单"}
+    if not check_token_permission(token, 'license'):
+        return {"error": True, "message": "您没有激活码管理权限"}
     
     data = await request.json()
     return await proxy_license_request('POST', '/admin/blacklist', json_body=data)
@@ -1415,9 +1449,8 @@ async def license_blacklist_remove(request: Request):
     if not verify_admin_token(token):
         return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
     
-    role = get_token_role(token)
-    if role != ROLE_SUPER_ADMIN:
-        return {"error": True, "message": "仅系统总管理员可操作黑名单"}
+    if not check_token_permission(token, 'license'):
+        return {"error": True, "message": "您没有激活码管理权限"}
     
     data = await request.json()
     return await proxy_license_request('POST', '/admin/blacklist/remove', json_body=data)

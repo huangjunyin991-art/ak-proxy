@@ -1862,6 +1862,41 @@
                                 </div>
                             </div>
                             
+                            <!-- 权限配置 -->
+                            <div style="margin-bottom: 12px;">
+                                <label style="display: block; margin-bottom: 8px; color: var(--accent); font-size: 12px; font-weight: bold;">🛡️ 权限配置（勾选允许访问的模块）</label>
+                                <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 6px; background: var(--bg-secondary); border-radius: 6px; padding: 10px;">
+                                    <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 12px; color: var(--text-primary);">
+                                        <input type="checkbox" id="perm_dashboard" value="dashboard"> 📈 仪表盘
+                                    </label>
+                                    <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 12px; color: var(--text-primary);">
+                                        <input type="checkbox" id="perm_online" value="online"> 🟢 在线用户
+                                    </label>
+                                    <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 12px; color: var(--text-primary);">
+                                        <input type="checkbox" id="perm_usage" value="usage"> 📊 使用情况
+                                    </label>
+                                    <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 12px; color: var(--text-primary);">
+                                        <input type="checkbox" id="perm_users" value="users"> 👥 用户管理
+                                    </label>
+                                    <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 12px; color: var(--text-primary);">
+                                        <input type="checkbox" id="perm_ips" value="ips"> 🌐 IP管理
+                                    </label>
+                                    <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 12px; color: var(--text-primary);">
+                                        <input type="checkbox" id="perm_banlist" value="banlist"> 🚫 封禁列表
+                                    </label>
+                                    <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 12px; color: var(--text-primary);">
+                                        <input type="checkbox" id="perm_license" value="license"> 🔑 激活码
+                                    </label>
+                                    <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 12px; color: var(--text-primary);">
+                                        <input type="checkbox" id="perm_database" value="database"> 🗄️ 数据库
+                                    </label>
+                                </div>
+                                <div style="display: flex; gap: 8px; margin-top: 6px;">
+                                    <button type="button" onclick="toggleAllPerms(true)" style="padding: 3px 10px; font-size: 11px; background: var(--bg-primary); color: var(--accent); border: 1px solid var(--accent); border-radius: 4px; cursor: pointer;">全选</button>
+                                    <button type="button" onclick="toggleAllPerms(false)" style="padding: 3px 10px; font-size: 11px; background: var(--bg-primary); color: var(--text-secondary); border: 1px solid var(--border); border-radius: 4px; cursor: pointer;">全不选</button>
+                                </div>
+                            </div>
+                            
                             <div style="display: flex; gap: 10px; margin-bottom: 12px; flex-wrap: wrap;">
                                 <div style="flex: 1; min-width: 150px;">
                                     <label style="display: block; margin-bottom: 6px; color: var(--text-secondary); font-size: 12px;">系统总管理员密码</label>
@@ -1933,7 +1968,7 @@
             <div style="flex: 1; overflow-y: auto; margin-bottom: 20px;">
                 <div style="margin-bottom: 15px;">
                     <label style="display: block; margin-bottom: 8px; color: var(--text-secondary); font-size: 14px;">产品类型</label>
-                    <select id="licProductId" style="width: 100%; padding: 10px; background: var(--bg-primary); border: 1px solid var(--border); 
+                    <select id="licProductId" onchange="onProductTypeChange()" style="width: 100%; padding: 10px; background: var(--bg-primary); border: 1px solid var(--border); 
                             border-radius: 8px; color: var(--text-primary);">
                         <option value="ak_admin_panel">管理面板 (ak_admin_panel)</option>
                         <option value="auto_sell_system">自动销售系统 (auto_sell_system)</option>
@@ -2175,6 +2210,7 @@
                     sessionStorage.setItem('admin_token', data.token);
                     sessionStorage.setItem('admin_role', data.role);
                     sessionStorage.setItem('admin_role_name', data.role_name);
+                    sessionStorage.setItem('admin_permissions', JSON.stringify(data.permissions || {}));
                     isLoggedIn = true;
                     currentUserRole = data.role;
                     showMainContent();
@@ -2193,21 +2229,48 @@
         function showMainContent() {
             document.getElementById('loginOverlay').style.display = 'none';
             document.getElementById('mainContent').classList.add('visible');
-            // 非系统总管理员隐藏设置和数据库标签
-            if (!isSuperAdmin()) {
-                const settingsTab = document.querySelector('.tab[data-panel="settings"]');
-                if (settingsTab) settingsTab.style.display = 'none';
-                const dbTab = document.querySelector('.tab[data-panel="database"]');
-                if (dbTab) dbTab.style.display = 'none';
-            }
+            // 根据权限动态显示/隐藏标签页
+            applyPermissions();
             // 初始化应用
             initApp();
+        }
+        
+        function applyPermissions() {
+            if (isSuperAdmin()) {
+                // 超管显示所有标签
+                document.querySelectorAll('.tab').forEach(t => t.style.display = '');
+                return;
+            }
+            
+            // 子管理员：根据权限显示/隐藏
+            const perms = JSON.parse(sessionStorage.getItem('admin_permissions') || '{}');
+            const allTabs = ['dashboard', 'online', 'usage', 'users', 'ips', 'banlist', 'license', 'database', 'settings'];
+            
+            allTabs.forEach(tabName => {
+                const tab = document.querySelector(`.tab[data-panel="${tabName}"]`);
+                if (!tab) return;
+                
+                if (tabName === 'settings') {
+                    // 设置页始终对子管理员隐藏
+                    tab.style.display = 'none';
+                } else {
+                    tab.style.display = perms[tabName] ? '' : 'none';
+                }
+            });
+            
+            // 如果当前活动标签被隐藏了，切换到第一个可见标签
+            const activeTab = document.querySelector('.tab.active');
+            if (activeTab && activeTab.style.display === 'none') {
+                const firstVisible = document.querySelector('.tab:not([style*="display: none"])');
+                if (firstVisible) firstVisible.click();
+            }
         }
         
         function logout() {
             sessionStorage.removeItem('admin_token');
             sessionStorage.removeItem('admin_role');
             sessionStorage.removeItem('admin_role_name');
+            sessionStorage.removeItem('admin_permissions');
             isLoggedIn = false;
             currentUserRole = null;
             location.reload();
@@ -3080,6 +3143,21 @@
             }
         }
         
+        // 权限全选/全不选
+        function toggleAllPerms(checked) {
+            const permKeys = ['dashboard', 'online', 'usage', 'users', 'ips', 'banlist', 'license', 'database'];
+            permKeys.forEach(key => {
+                const cb = document.getElementById('perm_' + key);
+                if (cb) cb.checked = checked;
+            });
+        }
+        
+        // 权限名称映射
+        const PERM_LABELS = {
+            dashboard: '📈仪表盘', online: '🟢在线', usage: '📊使用', users: '👥用户',
+            ips: '🌐IP', banlist: '🚫封禁', license: '🔑激活码', database: '🗄️数据库'
+        };
+        
         // 显示子管理员消息
         function showSubAdminMsg(msg, type) {
             const msgDiv = document.getElementById('subAdminMsg');
@@ -3130,20 +3208,36 @@
                         ? `<span style="color: var(--accent-green); font-size: 12px;">在线 · ${sub.login_time || ''}</span>`
                         : `<span style="color: var(--text-secondary); font-size: 12px;">离线</span>`;
                     
+                    // 构建权限标签
+                    const perms = sub.permissions || {};
+                    const permTags = Object.entries(PERM_LABELS)
+                        .filter(([key]) => perms[key])
+                        .map(([key, label]) => `<span style="display: inline-block; padding: 1px 6px; font-size: 10px; background: rgba(0,255,136,0.1); color: var(--accent-green); border: 1px solid rgba(0,255,136,0.2); border-radius: 3px;">${label}</span>`)
+                        .join('');
+                    const noPerms = Object.values(perms).filter(v => v).length === 0;
+                    const permLine = noPerms 
+                        ? '<span style="font-size: 10px; color: var(--accent-red);">⚠️ 无权限</span>' 
+                        : permTags;
+                    
                     return `
-                        <div style="display: flex; align-items: center; gap: 12px; padding: 12px 15px; background: var(--bg-primary); 
+                        <div style="padding: 12px 15px; background: var(--bg-primary); 
                                     border-radius: 8px; border: 1px solid ${sub.is_online ? 'rgba(0,255,136,0.3)' : 'var(--border)'}; margin-bottom: 8px;">
-                            ${onlineDot}
-                            <div style="flex: 1; min-width: 0;">
-                                <div style="font-weight: bold; color: var(--text-primary); font-size: 14px;">⭐ ${sub.name}</div>
-                                <div style="display: flex; align-items: center; gap: 8px; margin-top: 4px;">
-                                    ${statusText}
-                                    <span style="color: var(--text-secondary); font-size: 11px;">密码: ${sub.password_hint}</span>
+                            <div style="display: flex; align-items: center; gap: 12px;">
+                                ${onlineDot}
+                                <div style="flex: 1; min-width: 0;">
+                                    <div style="font-weight: bold; color: var(--text-primary); font-size: 14px;">⭐ ${sub.name}</div>
+                                    <div style="display: flex; align-items: center; gap: 8px; margin-top: 4px;">
+                                        ${statusText}
+                                        <span style="color: var(--text-secondary); font-size: 11px;">密码: ${sub.password_hint}</span>
+                                    </div>
+                                </div>
+                                <div style="display: flex; gap: 6px; flex-shrink: 0;">
+                                    <button onclick="kickOneSubAdmin('${sub.name}')" style="padding: 4px 10px; font-size: 12px; background: var(--bg-secondary); color: var(--accent-yellow); border: 1px solid rgba(255,165,2,0.3); border-radius: 4px; cursor: pointer;">踢出</button>
+                                    <button onclick="deleteOneSubAdmin('${sub.name}')" style="padding: 4px 10px; font-size: 12px; background: var(--bg-secondary); color: var(--accent-red); border: 1px solid rgba(255,71,87,0.3); border-radius: 4px; cursor: pointer;">删除</button>
                                 </div>
                             </div>
-                            <div style="display: flex; gap: 6px; flex-shrink: 0;">
-                                <button onclick="kickOneSubAdmin('${sub.name}')" style="padding: 4px 10px; font-size: 12px; background: var(--bg-secondary); color: var(--accent-yellow); border: 1px solid rgba(255,165,2,0.3); border-radius: 4px; cursor: pointer;">踢出</button>
-                                <button onclick="deleteOneSubAdmin('${sub.name}')" style="padding: 4px 10px; font-size: 12px; background: var(--bg-secondary); color: var(--accent-red); border: 1px solid rgba(255,71,87,0.3); border-radius: 4px; cursor: pointer;">删除</button>
+                            <div style="margin-top: 6px; display: flex; flex-wrap: wrap; gap: 4px; padding-left: 22px;">
+                                ${permLine}
                             </div>
                         </div>
                     `;
@@ -3170,6 +3264,14 @@
                 return;
             }
             
+            // 收集权限配置
+            const permissions = {};
+            const permKeys = ['dashboard', 'online', 'usage', 'users', 'ips', 'banlist', 'license', 'database'];
+            permKeys.forEach(key => {
+                const cb = document.getElementById('perm_' + key);
+                if (cb) permissions[key] = cb.checked;
+            });
+            
             try {
                 const res = await fetch(`${API_BASE}/admin/api/sub_admin/set`, {
                     method: 'POST',
@@ -3178,7 +3280,8 @@
                         admin_password: superPassword,
                         secondary_password: secondaryPassword,
                         sub_name: subName,
-                        new_sub_password: newSubPassword
+                        new_sub_password: newSubPassword,
+                        permissions: permissions
                     })
                 });
                 
@@ -3188,6 +3291,7 @@
                     showSubAdminMsg('✅ ' + data.message, 'success');
                     document.getElementById('newSubAdminName').value = '';
                     document.getElementById('newSubAdminPassword').value = '';
+                    toggleAllPerms(false);
                     loadSubAdminStatus();
                 } else {
                     showSubAdminMsg('❌ ' + (data.message || '设置失败'), 'error');
@@ -4175,7 +4279,8 @@
             document.getElementById('createLicenseProgress').style.display = 'none';
             document.getElementById('createLicenseBtn').disabled = false;
             document.getElementById('createLicenseBtn').textContent = '创建';
-            onBillingModeChange();
+            // 初始化产品类型和计费模式
+            onProductTypeChange();
         }
         
         // 关闭创建激活码弹窗
@@ -4183,6 +4288,34 @@
             document.getElementById('createLicenseModal').style.display = 'none';
             document.getElementById('createLicenseMsg').style.display = 'none';
             document.getElementById('createLicenseProgress').style.display = 'none';
+        }
+        
+        // 产品类型变化
+        function onProductTypeChange() {
+            const productId = document.getElementById('licProductId').value;
+            const billingModeSelect = document.getElementById('licBillingMode');
+            
+            // 清空现有选项
+            billingModeSelect.innerHTML = '';
+            
+            // 根据产品类型添加对应的计费模式
+            if (productId === 'ak_admin_panel') {
+                // 管理面板：只支持无限制和按时间
+                billingModeSelect.innerHTML = `
+                    <option value="unlimited">无限制 (unlimited)</option>
+                    <option value="time_based">按时间 (time_based)</option>
+                `;
+            } else {
+                // 其他产品：支持所有计费模式
+                billingModeSelect.innerHTML = `
+                    <option value="unlimited">无限制 (unlimited)</option>
+                    <option value="per_use">按次数 (per_use)</option>
+                    <option value="time_based">按时间 (time_based)</option>
+                `;
+            }
+            
+            // 更新计费模式相关显示
+            onBillingModeChange();
         }
         
         // 计费模式变化
@@ -4544,6 +4677,15 @@
                         if (data.message) msg = data.message;
                     } catch(e) {}
                     handleKickedOut(msg);
+                } else if (res.ok) {
+                    // 刷新权限信息（管理员可能修改了子管理员权限）
+                    try {
+                        const data = await res.json();
+                        if (data.valid && data.permissions !== undefined) {
+                            sessionStorage.setItem('admin_permissions', JSON.stringify(data.permissions || {}));
+                            applyPermissions();
+                        }
+                    } catch(e) {}
                 }
             } catch (e) {
                 // 网络错误不弹窗，避免离线时误报

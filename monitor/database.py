@@ -5,6 +5,7 @@
 
 import sqlite3
 import os
+import json
 from datetime import datetime
 from contextlib import contextmanager
 
@@ -138,9 +139,16 @@ def init_db():
             CREATE TABLE IF NOT EXISTS sub_admins (
                 name TEXT PRIMARY KEY,
                 password TEXT NOT NULL,
+                permissions TEXT DEFAULT '{}',
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
+        
+        # 自动迁移：为旧表添加 permissions 字段
+        try:
+            cursor.execute('ALTER TABLE sub_admins ADD COLUMN permissions TEXT DEFAULT "{}"')
+        except:
+            pass  # 字段已存在
         
         # 创建索引
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_login_username ON login_records(username)')
@@ -883,20 +891,28 @@ def get_license_logs(action: str = None, limit: int = 100, offset: int = 0):
 # ===== 子管理员管理 =====
 
 def db_get_all_sub_admins():
-    """获取所有子管理员"""
+    """获取所有子管理员（含权限）"""
     with get_db() as conn:
         cursor = conn.cursor()
-        cursor.execute('SELECT name, password, created_at FROM sub_admins ORDER BY created_at')
-        return {row['name']: row['password'] for row in cursor.fetchall()}
+        cursor.execute('SELECT name, password, permissions, created_at FROM sub_admins ORDER BY created_at')
+        result = {}
+        for row in cursor.fetchall():
+            result[row['name']] = {
+                'password': row['password'],
+                'permissions': json.loads(row['permissions'] or '{}'),
+                'created_at': row['created_at']
+            }
+        return result
 
-def db_set_sub_admin(name: str, password: str):
-    """添加或更新子管理员"""
+def db_set_sub_admin(name: str, password: str, permissions: dict = None):
+    """添加或更新子管理员（含权限）"""
+    perm_json = json.dumps(permissions or {})
     with get_db() as conn:
         cursor = conn.cursor()
         cursor.execute('''
-            INSERT INTO sub_admins (name, password) VALUES (?, ?)
-            ON CONFLICT(name) DO UPDATE SET password = ?
-        ''', (name, password, password))
+            INSERT INTO sub_admins (name, password, permissions) VALUES (?, ?, ?)
+            ON CONFLICT(name) DO UPDATE SET password = ?, permissions = ?
+        ''', (name, password, perm_json, password, perm_json))
         conn.commit()
 
 def db_delete_sub_admin(name: str):
@@ -908,12 +924,25 @@ def db_delete_sub_admin(name: str):
         return cursor.rowcount > 0
 
 def db_get_sub_admin(name: str):
-    """获取单个子管理员"""
+    """获取单个子管理员（含权限）"""
     with get_db() as conn:
         cursor = conn.cursor()
-        cursor.execute('SELECT name, password, created_at FROM sub_admins WHERE name = ?', (name,))
+        cursor.execute('SELECT name, password, permissions, created_at FROM sub_admins WHERE name = ?', (name,))
         row = cursor.fetchone()
-        return dict(row) if row else None
+        if not row:
+            return None
+        result = dict(row)
+        result['permissions'] = json.loads(result.get('permissions') or '{}')
+        return result
+
+def db_update_sub_admin_permissions(name: str, permissions: dict):
+    """仅更新子管理员权限"""
+    perm_json = json.dumps(permissions or {})
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute('UPDATE sub_admins SET permissions = ? WHERE name = ?', (perm_json, name))
+        conn.commit()
+        return cursor.rowcount > 0
 
 # 初始化数据库
 if __name__ == '__main__':
