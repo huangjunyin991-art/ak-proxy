@@ -1080,59 +1080,6 @@ async def unban_ip_api(req: BanRequest):
     })
     return {"success": True, "message": f"IP {req.value} 已解封"}
 
-@app.post("/admin/api/change_password")
-async def change_password_api(request: Request):
-    """修改管理员密码（需要二级密码验证）"""
-    global ADMIN_PASSWORD
-    
-    # 防暴力破解延迟
-    await asyncio.sleep(0.3)
-    
-    try:
-        data = await request.json()
-        current = data.get('current_password', '')
-        new_pwd = data.get('new_password', '')
-        secondary = data.get('secondary_password', '')
-    except:
-        return {"success": False, "message": "请求无效"}
-    
-    # 验证二级密码（优先检查）
-    if not verify_db_password(secondary):
-        await asyncio.sleep(0.7)
-        return {"success": False, "message": "二级密码错误"}
-    
-    # 使用安全比较验证当前密码（必须是系统总管理员）
-    is_valid, role, _ = verify_admin_password(current)
-    if not is_valid or role != ROLE_SUPER_ADMIN:
-        await asyncio.sleep(0.7)
-        return {"success": False, "message": "当前密码错误或权限不足"}
-    
-    if not new_pwd or len(new_pwd) < 6:
-        return {"success": False, "message": "新密码至少需要6位"}
-    
-    # 更新内存中的密码
-    ADMIN_PASSWORD = new_pwd
-    
-    # 更新server.py文件中的密码
-    try:
-        import re
-        server_path = os.path.join(os.path.dirname(__file__), "server.py")
-        with open(server_path, 'r', encoding='utf-8') as f:
-            content = f.read()
-        
-        content = re.sub(
-            r'ADMIN_PASSWORD\s*=\s*"[^"]*"',
-            f'ADMIN_PASSWORD = "{new_pwd}"',
-            content
-        )
-        
-        with open(server_path, 'w', encoding='utf-8') as f:
-            f.write(content)
-        
-        return {"success": True, "message": "密码修改成功"}
-    except Exception as e:
-        return {"success": False, "message": f"保存失败: {str(e)}"}
-
 @app.get("/admin/api/sub_admin")
 async def get_sub_admin_status(request: Request):
     """获取所有子管理员状态"""
