@@ -894,12 +894,20 @@ def db_get_all_sub_admins():
     """获取所有子管理员（含权限）"""
     with get_db() as conn:
         cursor = conn.cursor()
-        cursor.execute('SELECT name, password, permissions, created_at FROM sub_admins ORDER BY created_at')
+        try:
+            cursor.execute('SELECT name, password, permissions, created_at FROM sub_admins ORDER BY created_at')
+        except:
+            cursor.execute('SELECT name, password, created_at FROM sub_admins ORDER BY created_at')
         result = {}
         for row in cursor.fetchall():
+            perm_str = ''
+            try:
+                perm_str = row['permissions']
+            except (IndexError, KeyError):
+                pass
             result[row['name']] = {
                 'password': row['password'],
-                'permissions': json.loads(row['permissions'] or '{}'),
+                'permissions': json.loads(perm_str or '{}'),
                 'created_at': row['created_at']
             }
         return result
