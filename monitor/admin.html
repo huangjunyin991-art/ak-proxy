@@ -1840,7 +1840,7 @@
                         </h4>
                         
                         <!-- 子管理员列表 -->
-                        <div id="subAdminList" style="margin-bottom: 20px;">
+                        <div id="subAdminList" style="margin-bottom: 15px; max-height: 320px; overflow-y: auto;">
                             <span style="color: var(--text-secondary);">加载中...</span>
                         </div>
                         
@@ -3173,9 +3173,22 @@
                 const cb = document.getElementById('perm_' + key);
                 if (cb) cb.checked = !!permissions[key];
             });
+            // 高亮选中的卡片
+            document.querySelectorAll('#subAdminList > div').forEach(card => {
+                card.style.borderColor = 'var(--border)';
+                card.style.boxShadow = 'none';
+            });
+            // 找到被点击的卡片并高亮
+            const cards = document.querySelectorAll('#subAdminList > div');
+            cards.forEach(card => {
+                if (card.textContent.includes(name)) {
+                    card.style.borderColor = 'var(--accent)';
+                    card.style.boxShadow = '0 0 8px rgba(0,200,255,0.3)';
+                }
+            });
             // 显示更新权限按钮
             document.getElementById('updatePermBtn').style.display = '';
-            showSubAdminMsg(`已选中 [${name}]，可修改权限后点击"更新权限"`, 'success');
+            showSubAdminMsg(`已选中 [${name}]，可修改权限后点击"更新权限"`, 'select');
         }
         
         // 仅更新权限（不需要改密码）
@@ -3230,12 +3243,19 @@
             const msgDiv = document.getElementById('subAdminMsg');
             msgDiv.style.display = 'block';
             msgDiv.textContent = msg;
-            msgDiv.style.background = type === 'success' ? 'rgba(0, 255, 136, 0.1)' : 'rgba(255, 71, 87, 0.1)';
-            msgDiv.style.color = type === 'success' ? 'var(--accent-green)' : 'var(--accent-red)';
-            msgDiv.style.border = `1px solid ${type === 'success' ? 'var(--accent-green)' : 'var(--accent-red)'}`;
-            
-            if (type === 'success') {
+            if (type === 'select') {
+                msgDiv.style.background = 'rgba(0,200,255,0.1)';
+                msgDiv.style.color = 'var(--accent)';
+                msgDiv.style.border = '1px solid var(--accent)';
+            } else if (type === 'success') {
+                msgDiv.style.background = 'rgba(0, 255, 136, 0.1)';
+                msgDiv.style.color = 'var(--accent-green)';
+                msgDiv.style.border = '1px solid var(--accent-green)';
                 setTimeout(() => { msgDiv.style.display = 'none'; }, 3000);
+            } else {
+                msgDiv.style.background = 'rgba(255, 71, 87, 0.1)';
+                msgDiv.style.color = 'var(--accent-red)';
+                msgDiv.style.border = '1px solid var(--accent-red)';
             }
         }
         
