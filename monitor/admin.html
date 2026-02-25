@@ -1791,13 +1791,13 @@
             <div>
                 <h3 style="margin-bottom: 15px; color: var(--accent);">⚙️ 系统设置</h3>
                 
-                <div style="display: flex; gap: 15px; align-items: flex-start; flex-wrap: wrap;">
+                <div style="display: flex; gap: 15px; align-items: stretch; flex-wrap: wrap;">
                 
                 <!-- 修改密码（左侧） -->
-                <div style="flex: 1; min-width: 300px; background: var(--bg-card); border-radius: 12px; padding: 15px; border: 1px solid var(--border);">
+                <div style="flex: 0 0 220px; background: var(--bg-card); border-radius: 12px; padding: 15px; border: 1px solid var(--border); display: flex; flex-direction: column;">
                     <h4 style="margin-bottom: 10px; color: var(--text-primary); font-size: 14px;">🔐 修改管理员密码</h4>
                     
-                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 10px;">
+                    <div style="display: flex; flex-direction: column; gap: 8px; margin-bottom: 10px; flex: 1;">
                         <div>
                             <label style="display: block; margin-bottom: 4px; color: var(--text-secondary); font-size: 11px;">当前密码</label>
                             <input type="password" id="currentPassword" placeholder="当前密码" 
@@ -1913,6 +1913,9 @@
                             <div style="display: flex; gap: 8px;">
                                 <button onclick="setSubAdmin()" class="btn btn-primary" style="flex: 1; padding: 8px; font-size: 13px;">
                                     ✅ 添加/更新子管理员
+                                </button>
+                                <button id="updatePermBtn" onclick="updateSubAdminPermissions()" style="display: none; padding: 8px 14px; background: var(--bg-secondary); color: var(--accent); border: 1px solid var(--accent); border-radius: 4px; cursor: pointer; font-size: 13px;">
+                                    🛡️ 更新权限
                                 </button>
                                 <button onclick="kickAllSubAdmins()" style="padding: 8px 14px; background: var(--bg-secondary); color: var(--accent-yellow); border: 1px solid rgba(255,165,2,0.3); border-radius: 4px; cursor: pointer; font-size: 13px;">
                                     踢出全部
@@ -3157,6 +3160,71 @@
             ips: '🌐IP', banlist: '🚫封禁', license: '🔑激活码', database: '🗄️数据库'
         };
         
+        // 当前选中的子管理员
+        let selectedSubAdmin = null;
+        
+        // 点击子管理员卡片 → 加载权限到复选框
+        function selectSubAdmin(name, permissions) {
+            selectedSubAdmin = name;
+            document.getElementById('newSubAdminName').value = name;
+            // 加载权限到复选框
+            const permKeys = ['dashboard', 'online', 'usage', 'users', 'ips', 'banlist', 'license', 'database'];
+            permKeys.forEach(key => {
+                const cb = document.getElementById('perm_' + key);
+                if (cb) cb.checked = !!permissions[key];
+            });
+            // 显示更新权限按钮
+            document.getElementById('updatePermBtn').style.display = '';
+            showSubAdminMsg(`已选中 [${name}]，可修改权限后点击"更新权限"`, 'success');
+        }
+        
+        // 仅更新权限（不需要改密码）
+        async function updateSubAdminPermissions() {
+            const subName = selectedSubAdmin || document.getElementById('newSubAdminName').value.trim();
+            const superPassword = document.getElementById('subAdminSuperPassword').value;
+            
+            if (!subName) {
+                showSubAdminMsg('请先点击选择一个子管理员', 'error');
+                return;
+            }
+            if (!superPassword) {
+                showSubAdminMsg('请填写系统总管理员密码', 'error');
+                return;
+            }
+            
+            // 收集权限
+            const permissions = {};
+            const permKeys = ['dashboard', 'online', 'usage', 'users', 'ips', 'banlist', 'license', 'database'];
+            permKeys.forEach(key => {
+                const cb = document.getElementById('perm_' + key);
+                if (cb) permissions[key] = cb.checked;
+            });
+            
+            try {
+                const res = await fetch(`${API_BASE}/admin/api/sub_admin/update_permissions`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        admin_password: superPassword,
+                        sub_name: subName,
+                        permissions: permissions
+                    })
+                });
+                
+                const data = await res.json();
+                if (data.success) {
+                    showSubAdminMsg('✅ ' + data.message, 'success');
+                    selectedSubAdmin = null;
+                    document.getElementById('updatePermBtn').style.display = 'none';
+                    loadSubAdminStatus();
+                } else {
+                    showSubAdminMsg('❌ ' + (data.message || '更新失败'), 'error');
+                }
+            } catch (e) {
+                showSubAdminMsg('❌ 网络错误: ' + e.message, 'error');
+            }
+        }
+        
         // 显示子管理员消息
         function showSubAdminMsg(msg, type) {
             const msgDiv = document.getElementById('subAdminMsg');
@@ -3218,9 +3286,12 @@
                         ? '<span style="font-size: 10px; color: var(--accent-red);">⚠️ 无权限</span>' 
                         : permTags;
                     
+                    const permJson = JSON.stringify(perms).replace(/'/g, "\\'");
                     return `
                         <div style="padding: 12px 15px; background: var(--bg-primary); 
-                                    border-radius: 8px; border: 1px solid ${sub.is_online ? 'rgba(0,255,136,0.3)' : 'var(--border)'}; margin-bottom: 8px;">
+                                    border-radius: 8px; border: 1px solid ${sub.is_online ? 'rgba(0,255,136,0.3)' : 'var(--border)'}; margin-bottom: 8px; cursor: pointer; transition: border-color 0.2s;"
+                             onclick="selectSubAdmin('${sub.name}', ${permJson.replace(/"/g, '&quot;')})"
+                             onmouseover="this.style.borderColor='var(--accent)'" onmouseout="this.style.borderColor='${sub.is_online ? 'rgba(0,255,136,0.3)' : 'var(--border)'}'">
                             <div style="display: flex; align-items: center; gap: 12px;">
                                 ${onlineDot}
                                 <div style="flex: 1; min-width: 0;">
@@ -3231,8 +3302,8 @@
                                     </div>
                                 </div>
                                 <div style="display: flex; gap: 6px; flex-shrink: 0;">
-                                    <button onclick="kickOneSubAdmin('${sub.name}')" style="padding: 4px 10px; font-size: 12px; background: var(--bg-secondary); color: var(--accent-yellow); border: 1px solid rgba(255,165,2,0.3); border-radius: 4px; cursor: pointer;">踢出</button>
-                                    <button onclick="deleteOneSubAdmin('${sub.name}')" style="padding: 4px 10px; font-size: 12px; background: var(--bg-secondary); color: var(--accent-red); border: 1px solid rgba(255,71,87,0.3); border-radius: 4px; cursor: pointer;">删除</button>
+                                    <button onclick="event.stopPropagation(); kickOneSubAdmin('${sub.name}')" style="padding: 4px 10px; font-size: 12px; background: var(--bg-secondary); color: var(--accent-yellow); border: 1px solid rgba(255,165,2,0.3); border-radius: 4px; cursor: pointer;">踢出</button>
+                                    <button onclick="event.stopPropagation(); deleteOneSubAdmin('${sub.name}')" style="padding: 4px 10px; font-size: 12px; background: var(--bg-secondary); color: var(--accent-red); border: 1px solid rgba(255,71,87,0.3); border-radius: 4px; cursor: pointer;">删除</button>
                                 </div>
                             </div>
                             <div style="margin-top: 6px; display: flex; flex-wrap: wrap; gap: 4px; padding-left: 22px;">

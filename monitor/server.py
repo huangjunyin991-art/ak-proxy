@@ -1226,6 +1226,54 @@ async def set_sub_admin(request: Request):
     except Exception as e:
         return {"success": False, "message": f"保存失败: {e}"}
 
+@app.post("/admin/api/sub_admin/update_permissions")
+async def update_sub_admin_permissions_api(request: Request):
+    """仅更新子管理员权限（仅系统总管理可操作），更新后踢出该子管理员"""
+    await asyncio.sleep(0.3)
+    
+    try:
+        data = await request.json()
+        admin_password = data.get('admin_password', '')
+        sub_name = data.get('sub_name', '').strip()
+        permissions = data.get('permissions', {})
+    except:
+        return {"success": False, "message": "请求无效"}
+    
+    # 验证系统总管理员身份
+    is_valid, role, _ = verify_admin_password(admin_password)
+    if not is_valid or role != ROLE_SUPER_ADMIN:
+        return {"success": False, "message": "需要系统总管理员密码"}
+    
+    if not sub_name or sub_name not in SUB_ADMINS:
+        return {"success": False, "message": f"子管理员 [{sub_name}] 不存在"}
+    
+    if not isinstance(permissions, dict):
+        permissions = {}
+    
+    try:
+        db_update_sub_admin_permissions(sub_name, permissions)
+        # 同步内存
+        if isinstance(SUB_ADMINS.get(sub_name), dict):
+            SUB_ADMINS[sub_name]['permissions'] = permissions
+        
+        # 踢出该子管理员，强制重新登录以获取新权限
+        kicked = 0
+        tokens_to_remove = []
+        for token, tdata in admin_tokens.items():
+            if tdata.get('role') == ROLE_SUB_ADMIN and tdata.get('sub_name') == sub_name:
+                tokens_to_remove.append(token)
+        for token in tokens_to_remove:
+            try:
+                delete_admin_token(token)
+            except:
+                pass
+            admin_tokens.pop(token, None)
+            kicked += 1
+        
+        return {"success": True, "message": f"子管理员 [{sub_name}] 权限已更新" + (f"，已踢出{kicked}个会话" if kicked > 0 else "")}
+    except Exception as e:
+        return {"success": False, "message": f"更新失败: {e}"}
+
 @app.post("/admin/api/sub_admin/delete")
 async def delete_sub_admin(request: Request):
     """删除子管理员（仅系统总管理可操作）"""
