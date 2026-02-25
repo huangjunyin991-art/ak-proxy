@@ -1789,32 +1789,34 @@
         <!-- 设置 -->
         <div class="panel" id="settings">
             <div>
-                <h3 style="margin-bottom: 20px; color: var(--accent);">⚙️ 系统设置</h3>
+                <h3 style="margin-bottom: 15px; color: var(--accent);">⚙️ 系统设置</h3>
                 
-                <!-- 修改密码 -->
-                <div style="background: var(--bg-card); border-radius: 12px; padding: 20px; border: 1px solid var(--border); margin-bottom: 20px;">
-                    <h4 style="margin-bottom: 15px; color: var(--text-primary);">🔐 修改管理员密码</h4>
+                <div style="display: flex; gap: 15px; align-items: flex-start; flex-wrap: wrap;">
+                
+                <!-- 修改密码（左侧） -->
+                <div style="flex: 1; min-width: 300px; background: var(--bg-card); border-radius: 12px; padding: 15px; border: 1px solid var(--border);">
+                    <h4 style="margin-bottom: 10px; color: var(--text-primary); font-size: 14px;">🔐 修改管理员密码</h4>
                     
-                    <div style="display: flex; gap: 8px; margin-bottom: 10px; flex-wrap: wrap;">
-                        <div style="flex: 1; min-width: 120px;">
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 10px;">
+                        <div>
                             <label style="display: block; margin-bottom: 4px; color: var(--text-secondary); font-size: 11px;">当前密码</label>
                             <input type="password" id="currentPassword" placeholder="当前密码" 
                                    style="width: 100%; padding: 8px 10px; background: var(--bg-primary); border: 1px solid var(--border); 
                                           border-radius: 6px; color: var(--text-primary); font-size: 13px;">
                         </div>
-                        <div style="flex: 1; min-width: 120px;">
+                        <div>
                             <label style="display: block; margin-bottom: 4px; color: var(--text-secondary); font-size: 11px;">新密码</label>
                             <input type="password" id="newPassword" placeholder="至少6位" 
                                    style="width: 100%; padding: 8px 10px; background: var(--bg-primary); border: 1px solid var(--border); 
                                           border-radius: 6px; color: var(--text-primary); font-size: 13px;">
                         </div>
-                        <div style="flex: 1; min-width: 120px;">
+                        <div>
                             <label style="display: block; margin-bottom: 4px; color: var(--text-secondary); font-size: 11px;">确认新密码</label>
                             <input type="password" id="confirmPassword" placeholder="再次输入" 
                                    style="width: 100%; padding: 8px 10px; background: var(--bg-primary); border: 1px solid var(--border); 
                                           border-radius: 6px; color: var(--text-primary); font-size: 13px;">
                         </div>
-                        <div style="flex: 1; min-width: 120px;">
+                        <div>
                             <label style="display: block; margin-bottom: 4px; color: var(--accent-yellow); font-size: 11px;">🔑 二级密码</label>
                             <input type="password" id="secondaryPasswordForChange" placeholder="确认操作" 
                                    style="width: 100%; padding: 8px 10px; background: var(--bg-primary); border: 1px solid var(--accent-yellow); 
@@ -1829,9 +1831,9 @@
                     <div id="passwordMsg" style="margin-top: 10px; padding: 8px; border-radius: 6px; display: none;"></div>
                 </div>
                 
-                <!-- 子管理员管理（仅系统总管理可见） -->
-                <div id="subAdminSection" style="display: none;">
-                    <div style="background: linear-gradient(135deg, var(--bg-card), #1e2a4a); border-radius: 12px; padding: 25px; border: 1px solid #667eea; margin-bottom: 20px;">
+                <!-- 子管理员管理（右侧，仅系统总管理可见） -->
+                <div id="subAdminSection" style="display: none; flex: 1.5; min-width: 400px;">
+                    <div style="background: linear-gradient(135deg, var(--bg-card), #1e2a4a); border-radius: 12px; padding: 15px; border: 1px solid #667eea;">
                         <h4 style="margin-bottom: 20px; color: #667eea; display: flex; align-items: center; gap: 10px;">
                             <span style="font-size: 24px;">👥</span> 子管理员管理
                             <span id="subAdminCount" style="font-size: 12px; color: var(--text-secondary); font-weight: normal;">（仅系统总管理可操作）</span>
@@ -1922,6 +1924,7 @@
                     </div>
                 </div>
                 
+                </div><!-- flex row end -->
             </div>
         </div>
     </div>
