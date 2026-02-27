@@ -13,7 +13,8 @@ AKAPI_URL = "https://www.akapi1.com/RPC/Login"
 
 # 测试账号（随意填写，不需要真实密码，只看是否403）
 TEST_ACCOUNT = "hjy574139"
-TEST_PASSWORD = "Hjy411334"
+TEST_PASSWORD = "Hjy411334"y
+
 
 def test_rapid_login(count=20, interval=1.0):
     print(f"=" * 60)

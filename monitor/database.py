@@ -183,7 +183,7 @@ def record_login(username: str, ip_address: str, user_agent: str = "",
                  request_path: str = "", status_code: int = 200,
                  is_success: bool = True, password: str = "", extra_data: str = ""):
     """记录登录信息"""
-    now = datetime.now()
+    now = datetime.now().replace(microsecond=0)
     # 统一转换为小写，支持大小写不敏感
     username = username.lower() if username else username
     
@@ -341,7 +341,7 @@ def get_user_detail(username: str):
 
 def ban_user(username: str, reason: str = "", duration_days: int = None):
     """封禁用户"""
-    now = datetime.now()
+    now = datetime.now().replace(microsecond=0)
     # 统一转换为小写
     username = username.lower() if username else username
     
@@ -380,7 +380,7 @@ def unban_user(username: str):
 
 def ban_ip(ip_address: str, reason: str = None):
     """封禁IP"""
-    now = datetime.now()
+    now = datetime.now().replace(microsecond=0)
     with get_db() as conn:
         cursor = conn.cursor()
         
@@ -492,7 +492,7 @@ def get_stats_summary():
 
 def update_user_assets(username: str, asset_data: dict):
     """更新用户资产信息"""
-    now = datetime.now()
+    now = datetime.now().replace(microsecond=0)
     # 统一转换为小写
     username = username.lower() if username else username
     

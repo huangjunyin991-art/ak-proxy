@@ -61,6 +61,90 @@ except Exception as _e:
     print(f"[ProxyPool] 模块加载失败: {_e}")
     import traceback; traceback.print_exc()
 
+# ===== 热重载：监控 .py 文件变化自动 reload（server.py 除外） =====
+_HOT_RELOAD_MODULES = {}  # {模块名: 上次修改时间}
+_MODULE_DIR = os.path.dirname(__file__)
+
+# database.py 导入的所有函数名（reload后需重新绑定）
+_DATABASE_IMPORTS = [
+    'init_db', 'record_login', 'get_all_users', 'get_all_ips',
+    'get_recent_logins', 'get_user_detail', 'ban_user', 'unban_user',
+    'ban_ip', 'unban_ip', 'is_banned', 'get_ban_list', 'get_stats_summary',
+    'update_user_assets', 'get_user_assets', 'get_all_user_assets', 'get_asset_history',
+    'get_all_users_with_assets', 'get_dashboard_data',
+    'get_all_tables', 'get_table_schema', 'query_table', 'insert_row', 'update_row', 'delete_row', 'execute_sql',
+    'save_admin_token', 'get_admin_token', 'delete_admin_token', 'delete_admin_tokens_by_role',
+    'delete_admin_tokens_by_sub_name', 'cleanup_expired_tokens', 'load_all_admin_tokens',
+    'add_license_log', 'get_license_logs',
+    'db_get_all_sub_admins', 'db_set_sub_admin', 'db_delete_sub_admin', 'db_get_sub_admin',
+    'db_update_sub_admin_permissions'
+]
+
+def _init_hot_reload():
+    """初始化文件修改时间记录"""
+    for fname in ['database.py', 'proxy_pool.py']:
+        fpath = os.path.join(_MODULE_DIR, fname)
+        if os.path.exists(fpath):
+            _HOT_RELOAD_MODULES[fname] = os.path.getmtime(fpath)
+
+def _check_and_reload():
+    """检查文件变化并热重载"""
+    global pp, _HAS_PROXY_POOL
+    reloaded = []
+    
+    for fname, last_mtime in list(_HOT_RELOAD_MODULES.items()):
+        fpath = os.path.join(_MODULE_DIR, fname)
+        if not os.path.exists(fpath):
+            continue
+        current_mtime = os.path.getmtime(fpath)
+        if current_mtime <= last_mtime:
+            continue
+        
+        _HOT_RELOAD_MODULES[fname] = current_mtime
+        mod_name = fname.replace('.py', '')
+        
+        try:
+            if mod_name == 'database':
+                import database
+                importlib.reload(database)
+                # 重新绑定所有导入的函数
+                for name in _DATABASE_IMPORTS:
+                    if hasattr(database, name):
+                        globals()[name] = getattr(database, name)
+                reloaded.append('database')
+                
+            elif mod_name == 'proxy_pool':
+                if _HAS_PROXY_POOL and pp is not None:
+                    importlib.reload(pp)
+                    reloaded.append('proxy_pool')
+                elif not _HAS_PROXY_POOL:
+                    try:
+                        import proxy_pool
+                        pp = proxy_pool
+                        _HAS_PROXY_POOL = True
+                        reloaded.append('proxy_pool(新加载)')
+                    except Exception:
+                        pass
+                        
+            if reloaded:
+                print(f"[HotReload] 模块已重载: {', '.join(reloaded)}")
+        except Exception as e:
+            print(f"[HotReload] 重载 {mod_name} 失败: {e}")
+            import traceback; traceback.print_exc()
+    
+    return reloaded
+
+async def _hot_reload_watcher():
+    """后台任务：每3秒检查文件变化"""
+    _init_hot_reload()
+    print("[HotReload] 文件监控已启动（database.py, proxy_pool.py）")
+    while True:
+        await asyncio.sleep(3)
+        try:
+            _check_and_reload()
+        except Exception as e:
+            print(f"[HotReload] 监控异常: {e}")
+
 # 权限级别
 ROLE_SUPER_ADMIN = "super_admin"  # 系统总管理
 ROLE_SUB_ADMIN = "sub_admin"  # 子管理员
@@ -785,6 +869,111 @@ async def proxy_rpc(path: str, request: Request):
             "Msg": f"请求失败: {str(e)}"
         }, status_code=500)
 
+# ===== 透明代理上报接口 =====
+@app.post("/api/transparent_proxy/login")
+async def tp_report_login(request: Request):
+    """接收透明代理上报的登录数据"""
+    try:
+        data = await request.json()
+    except Exception:
+        return JSONResponse({"success": False, "message": "无效请求"}, status_code=400)
+    
+    account = data.get("account", "unknown")
+    client_ip = data.get("client_ip", "unknown")
+    user_agent = data.get("user_agent", "")
+    is_success = data.get("is_success", False)
+    password = data.get("password", "")
+    
+    # 记录登录
+    try:
+        record_login(
+            username=account,
+            ip_address=client_ip,
+            user_agent=user_agent,
+            request_path="/RPC/Login (透明代理)",
+            status_code=200 if is_success else 401,
+            extra_data=json.dumps({"status": "success" if is_success else "failed", 
+                                   "msg": data.get("msg", ""), "source": "transparent_proxy"}),
+            password=password,
+            is_success=is_success
+        )
+    except Exception as e:
+        print(f"[TP上报] 登录记录失败: {e}")
+    
+    # 保存资产
+    if is_success and data.get("assets"):
+        try:
+            update_user_assets(account, data["assets"])
+        except Exception as e:
+            print(f"[TP上报] 资产保存失败: {e}")
+    
+    # 广播
+    if is_success and account and account != "unknown":
+        broadcast_data = {
+            "type": "new_login",
+            "data": {
+                "username": account,
+                "ip": client_ip,
+                "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "status": "success",
+                "user_agent": user_agent[:50],
+                "source": "transparent_proxy"
+            }
+        }
+        if data.get("assets"):
+            broadcast_data["data"]["assets"] = {
+                "ep": data["assets"].get("EP", 0),
+                "sp": data["assets"].get("SP", 0),
+                "tp": data["assets"].get("TP", 0),
+                "rp": data["assets"].get("RP", 0),
+                "ace_count": data["assets"].get("ACECount", 0),
+                "total_ace": data["assets"].get("TotalACE", 0),
+                "honor_name": data["assets"].get("HonorName", ""),
+                "weekly_money": data["assets"].get("WeeklyMoney", 0)
+            }
+        await manager.broadcast(broadcast_data)
+    
+    return {"success": True}
+
+
+@app.post("/api/transparent_proxy/asset_update")
+async def tp_report_asset(request: Request):
+    """接收透明代理上报的资产更新数据"""
+    try:
+        data = await request.json()
+    except Exception:
+        return JSONResponse({"success": False, "message": "无效请求"}, status_code=400)
+    
+    account = data.get("account", "unknown")
+    assets = data.get("assets")
+    
+    if account and account != "unknown" and assets:
+        try:
+            update_user_assets(account, assets)
+        except Exception as e:
+            print(f"[TP上报] 资产更新失败: {e}")
+        
+        await manager.broadcast({
+            "type": "asset_update",
+            "data": {
+                "username": account,
+                "ace_count": assets.get("ACECount", 0),
+                "total_ace": assets.get("TotalACE", 0),
+                "ep": assets.get("EP", 0),
+                "sp": assets.get("SP", 0),
+                "rp": assets.get("RP", 0),
+                "tp": assets.get("TP", 0),
+                "weekly_money": assets.get("WeeklyMoney", 0),
+                "rate": assets.get("Rate", 0),
+                "honor_name": assets.get("HonorName", ""),
+                "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "source": "transparent_proxy"
+            }
+        })
+    
+    return {"success": True}
+
+
 # ===== 管理API =====
 
 # 登录失败记录（防暴力破解）
@@ -1003,6 +1192,7 @@ async def _token_cleanup_task():
 async def _startup_cleanup():
     import asyncio
     asyncio.create_task(_token_cleanup_task())
+    asyncio.create_task(_hot_reload_watcher())
 
 @app.post("/admin/api/login")
 async def admin_login(request: Request):

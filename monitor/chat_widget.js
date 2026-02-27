@@ -469,7 +469,7 @@
         
         heartbeatTimer = setInterval(function() {
             if (ws && ws.readyState === WebSocket.OPEN) {
-                ws.send(JSON.stringify({ type: 'heartbeat' }));
+                ws.send(JSON.stringify({ type: 'heartbeat', page: window.location.pathname + window.location.hash }));
             }
         }, HEARTBEAT_INTERVAL);
     }
@@ -497,7 +497,7 @@
                 ws.send(JSON.stringify({
                     type: 'online',
                     username: username,
-                    page: window.location.pathname,
+                    page: window.location.pathname + window.location.hash,
                     userAgent: navigator.userAgent
                 }));
                 

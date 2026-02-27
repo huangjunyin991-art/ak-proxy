@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+*.db
+*.log
+b64.txt
+gen_upload.py
+*.vsix
+*.zip
+taskpool-mcp-panel-extracted/
+taskpool-mcp-panel-source/
+vpn_tool/
+subscription_cache.json
