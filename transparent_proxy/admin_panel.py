@@ -496,11 +496,10 @@ editor = CodeMirror.fromTextArea(document.getElementById('code-editor'), {
     scrollbarStyle: 'native'
 });
 
-// Ctrl+S shortcut
+// Ctrl+S shortcut (only in editor, prevent browser save dialog globally)
 editor.setOption('extraKeys', {'Ctrl-S': function(cm){smartSave()}, 'Cmd-S': function(cm){smartSave()}});
-// Also capture global Ctrl+S
 document.addEventListener('keydown', function(e) {
-    if ((e.ctrlKey || e.metaKey) && e.key === 's') { e.preventDefault(); smartSave(); }
+    if ((e.ctrlKey || e.metaKey) && e.key === 's') { e.preventDefault(); }
 });
 
 // Clock
