@@ -2,11 +2,14 @@
 """
 PostgreSQL 数据库模块 (asyncpg)
 参考 monitor/database.py 结构，使用 asyncpg 实现高并发异步读写
+支持连接池自动扩容：击穿时自动扩大并持久化
 """
 
 import asyncpg
+import asyncio
 import json
 import logging
+import os
 from datetime import datetime, timedelta
 from typing import Optional, List, Dict, Any
 
@@ -14,6 +17,118 @@ logger = logging.getLogger("TransparentProxy.DB")
 
 # 全局连接池
 _pool: Optional[asyncpg.Pool] = None
+_pool_config: Dict = {}  # 保存连接参数，用于重建池
+_expand_lock = asyncio.Lock()  # 扩容锁，防止并发扩容
+_POOL_STATE_FILE = os.path.join(os.path.dirname(__file__), ".pool_size")  # 持久化文件
+
+
+def _load_persisted_max_size(default: int) -> int:
+    """从持久化文件加载上次扩容后的max_size"""
+    try:
+        if os.path.exists(_POOL_STATE_FILE):
+            with open(_POOL_STATE_FILE, 'r') as f:
+                saved = int(f.read().strip())
+                if saved > default:
+                    logger.info(f"加载持久化连接池上限: {saved}（原始配置: {default}）")
+                    return saved
+    except Exception:
+        pass
+    return default
+
+
+def _persist_max_size(max_size: int):
+    """持久化扩容后的max_size"""
+    try:
+        with open(_POOL_STATE_FILE, 'w') as f:
+            f.write(str(max_size))
+        logger.info(f"连接池上限已持久化: {max_size}")
+    except Exception as e:
+        logger.warning(f"持久化连接池上限失败: {e}")
+
+
+async def _auto_expand_pool():
+    """连接池击穿时自动扩容（扩大50%，上限100）"""
+    global _pool
+    async with _expand_lock:
+        if _pool is None:
+            return
+        current_max = _pool.get_max_size()
+        # 再次检查是否真的需要扩容（可能其他协程已经扩了）
+        if _pool.get_idle_size() > 0:
+            return
+
+        new_max = min(int(current_max * 1.5), 100)  # 扩50%，不超过PG的100
+        if new_max <= current_max:
+            logger.warning(f"连接池已达上限 {current_max}，无法继续扩容")
+            return
+
+        logger.warning(f"连接池击穿！自动扩容: {current_max} → {new_max}")
+
+        # 关闭旧池，创建新池
+        old_pool = _pool
+        cfg = _pool_config.copy()
+        cfg['max_size'] = new_max
+        try:
+            _pool = await asyncpg.create_pool(**cfg)
+            await old_pool.close()
+            _pool_config['max_size'] = new_max
+            _persist_max_size(new_max)
+        except Exception as e:
+            logger.error(f"扩容失败: {e}，保留旧池")
+            _pool = old_pool
+
+
+async def safe_acquire():
+    """安全获取连接，超时则触发自动扩容后重试"""
+    pool = _get_pool()
+    try:
+        return await asyncio.wait_for(pool.acquire(), timeout=5.0)
+    except asyncio.TimeoutError:
+        logger.warning("连接池获取超时，触发自动扩容...")
+        await _auto_expand_pool()
+        pool = _get_pool()
+        return await pool.acquire()
+
+
+_high_load_count = 0  # 连续高负载计数
+
+async def _pool_monitor():
+    """后台监控连接池利用率，连续高负载时自动扩容"""
+    global _high_load_count
+    while True:
+        await asyncio.sleep(30)
+        try:
+            if _pool is None:
+                continue
+            total = _pool.get_size()
+            idle = _pool.get_idle_size()
+            max_sz = _pool.get_max_size()
+            usage = (total - idle) / max_sz if max_sz > 0 else 0
+
+            if idle == 0 and total >= max_sz:
+                _high_load_count += 1
+                logger.warning(f"连接池高负载 [{_high_load_count}/3]: active={total-idle}/{max_sz}, idle={idle}")
+                if _high_load_count >= 3:  # 连续3次（90秒）高负载
+                    await _auto_expand_pool()
+                    _high_load_count = 0
+            else:
+                _high_load_count = 0
+        except Exception as e:
+            logger.debug(f"连接池监控异常: {e}")
+
+
+def get_pool_info() -> Dict:
+    """获取连接池当前状态"""
+    if _pool is None:
+        return {"status": "未初始化"}
+    return {
+        "min_size": _pool.get_min_size(),
+        "max_size": _pool.get_max_size(),
+        "current_size": _pool.get_size(),
+        "idle": _pool.get_idle_size(),
+        "active": _pool.get_size() - _pool.get_idle_size(),
+        "usage_pct": round(((_pool.get_size() - _pool.get_idle_size()) / _pool.get_max_size()) * 100, 1) if _pool.get_max_size() > 0 else 0,
+    }
 
 
 async def init_db(host: str = "127.0.0.1", port: int = 5432,
@@ -21,14 +136,22 @@ async def init_db(host: str = "127.0.0.1", port: int = 5432,
                   password: str = "ak2026db",
                   min_size: int = 5, max_size: int = 20):
     """初始化数据库连接池并创建表"""
-    global _pool
-    _pool = await asyncpg.create_pool(
+    global _pool, _pool_config
+
+    # 如果之前扩容过，使用持久化的更大值
+    max_size = _load_persisted_max_size(max_size)
+
+    _pool_config = dict(
         host=host, port=port, database=database,
         user=user, password=password,
         min_size=min_size, max_size=max_size,
         command_timeout=30
     )
+    _pool = await asyncpg.create_pool(**_pool_config)
     logger.info(f"PostgreSQL 连接池已创建 (pool={min_size}-{max_size})")
+
+    # 启动连接池监控（每30秒检查，持续高负载则自动扩容）
+    asyncio.create_task(_pool_monitor())
 
     async with _pool.acquire() as conn:
         # 用户登录记录表
@@ -156,20 +279,17 @@ async def record_login(username: str, ip_address: str, user_agent: str = "",
                        request_path: str = "", status_code: int = 200,
                        is_success: bool = True, password: str = "",
                        extra_data: str = ""):
-    """记录登录信息"""
+    """
+    记录登录：只更新计数器（user_stats + ip_stats），不插入逐条记录
+    节省存储，保留统计能力
+    """
     pool = _get_pool()
     now = datetime.now().replace(microsecond=0)
     username = username.lower() if username else username
 
     async with pool.acquire() as conn:
         async with conn.transaction():
-            # 插入登录记录
-            await conn.execute('''
-                INSERT INTO login_records (username, ip_address, user_agent, login_time, request_path, status_code, extra_data)
-                VALUES ($1, $2, $3, $4, $5, $6, $7)
-            ''', username, ip_address, user_agent, now, request_path, status_code, extra_data)
-
-            # 更新用户统计
+            # 更新用户统计（计数器+1）
             if is_success and password:
                 await conn.execute('''
                     INSERT INTO user_stats (username, password, login_count, first_login, last_login, last_ip)
@@ -190,7 +310,7 @@ async def record_login(username: str, ip_address: str, user_agent: str = "",
                         last_ip = $3
                 ''', username, now, ip_address)
 
-            # 更新IP统计
+            # 更新IP统计（计数器+1）
             await conn.execute('''
                 INSERT INTO ip_stats (ip_address, request_count, first_seen, last_seen)
                 VALUES ($1, 1, $2, $2)
@@ -496,15 +616,147 @@ async def get_all_ips(limit: int = 100, offset: int = 0) -> List[Dict]:
 
 # ===== 数据清理 =====
 
-async def cleanup_old_records(days: int = 90):
-    """清理超过N天的登录记录和资产历史"""
+async def cleanup_old_records(login_days: int = 90, history_days: int = 180,
+                              max_login_rows: int = 500000,
+                              max_history_rows: int = 200000):
+    """
+    清理旧数据，平衡性能和存储：
+    - login_records: 保留N天，超过max_rows时强制清理最旧的
+    - asset_history: 保留N天，超过max_rows时强制清理最旧的
+    """
     pool = _get_pool()
-    cutoff = datetime.now() - timedelta(days=days)
+    cutoff_login = datetime.now() - timedelta(days=login_days)
+    cutoff_history = datetime.now() - timedelta(days=history_days)
+
     async with pool.acquire() as conn:
-        deleted_logins = await conn.execute(
-            'DELETE FROM login_records WHERE login_time < $1', cutoff
+        # 按时间清理
+        r1 = await conn.execute(
+            'DELETE FROM login_records WHERE login_time < $1', cutoff_login
         )
-        deleted_history = await conn.execute(
-            'DELETE FROM asset_history WHERE recorded_at < $1', cutoff
+        r2 = await conn.execute(
+            'DELETE FROM asset_history WHERE recorded_at < $1', cutoff_history
         )
-        logger.info(f"清理完成: 登录记录 {deleted_logins}, 资产历史 {deleted_history}")
+
+        # 按行数限制（防止短时间内大量登录撑爆存储）
+        login_count = await conn.fetchval('SELECT COUNT(*) FROM login_records')
+        if login_count > max_login_rows:
+            excess = login_count - max_login_rows
+            await conn.execute('''
+                DELETE FROM login_records WHERE id IN (
+                    SELECT id FROM login_records ORDER BY login_time ASC LIMIT $1
+                )
+            ''', excess)
+            logger.info(f"登录记录超限，额外删除 {excess} 条")
+
+        history_count = await conn.fetchval('SELECT COUNT(*) FROM asset_history')
+        if history_count > max_history_rows:
+            excess = history_count - max_history_rows
+            await conn.execute('''
+                DELETE FROM asset_history WHERE id IN (
+                    SELECT id FROM asset_history ORDER BY recorded_at ASC LIMIT $1
+                )
+            ''', excess)
+            logger.info(f"资产历史超限，额外删除 {excess} 条")
+
+        logger.info(f"数据清理完成: 登录{r1}, 资产历史{r2}, 当前行数: login={login_count}, history={history_count}")
+
+
+async def get_db_size() -> Dict:
+    """获取数据库各表大小（用于监控存储占用）"""
+    pool = _get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch('''
+            SELECT relname AS table_name,
+                   pg_size_pretty(pg_total_relation_size(relid)) AS total_size,
+                   pg_total_relation_size(relid) AS size_bytes,
+                   n_live_tup AS row_count
+            FROM pg_stat_user_tables
+            ORDER BY pg_total_relation_size(relid) DESC
+        ''')
+        tables = [dict(r) for r in rows]
+        total = sum(t['size_bytes'] for t in tables)
+        return {
+            'tables': tables,
+            'total_size': _format_size(total),
+            'total_bytes': total
+        }
+
+
+async def delete_by_date(table: str, before_date: str = None,
+                        after_date: str = None, exact_date: str = None) -> int:
+    """
+    按日期删除指定表的数据
+    - before_date: 删除此日期之前的数据 (YYYY-MM-DD)
+    - after_date: 删除此日期之后的数据 (YYYY-MM-DD)
+    - exact_date: 删除指定日期的数据 (YYYY-MM-DD)
+    返回删除的行数
+    """
+    pool = _get_pool()
+
+    # 安全检查：只允许操作这些表
+    allowed_tables = {
+        'login_records': 'login_time',
+        'asset_history': 'recorded_at',
+        'user_stats': 'last_login',
+        'ip_stats': 'last_seen',
+    }
+    if table not in allowed_tables:
+        raise ValueError(f"不允许操作表: {table}，可选: {list(allowed_tables.keys())}")
+
+    time_col = allowed_tables[table]
+
+    async with pool.acquire() as conn:
+        if exact_date:
+            dt = datetime.strptime(exact_date, "%Y-%m-%d")
+            dt_end = dt + timedelta(days=1)
+            result = await conn.execute(
+                f'DELETE FROM {table} WHERE {time_col} >= $1 AND {time_col} < $2',
+                dt, dt_end
+            )
+        elif before_date and after_date:
+            dt_before = datetime.strptime(before_date, "%Y-%m-%d")
+            dt_after = datetime.strptime(after_date, "%Y-%m-%d")
+            result = await conn.execute(
+                f'DELETE FROM {table} WHERE {time_col} >= $1 AND {time_col} < $2',
+                dt_after, dt_before + timedelta(days=1)
+            )
+        elif before_date:
+            dt = datetime.strptime(before_date, "%Y-%m-%d") + timedelta(days=1)
+            result = await conn.execute(
+                f'DELETE FROM {table} WHERE {time_col} < $1', dt
+            )
+        elif after_date:
+            dt = datetime.strptime(after_date, "%Y-%m-%d")
+            result = await conn.execute(
+                f'DELETE FROM {table} WHERE {time_col} >= $1', dt
+            )
+        else:
+            raise ValueError("必须指定 before_date、after_date 或 exact_date")
+
+        # 提取删除行数
+        deleted = int(result.split()[-1]) if result else 0
+        logger.info(f"按日期删除: table={table}, before={before_date}, after={after_date}, exact={exact_date}, deleted={deleted}")
+        return deleted
+
+
+async def get_table_row_counts() -> Dict:
+    """获取所有表的行数"""
+    pool = _get_pool()
+    async with pool.acquire() as conn:
+        tables = ['login_records', 'user_stats', 'ip_stats', 'ban_list',
+                  'user_assets', 'asset_history']
+        counts = {}
+        for t in tables:
+            count = await conn.fetchval(f'SELECT COUNT(*) FROM {t}')
+            counts[t] = count or 0
+        return counts
+
+
+def _format_size(size_bytes: int) -> str:
+    if size_bytes > 1024**3:
+        return f"{size_bytes/1024**3:.1f} GB"
+    elif size_bytes > 1024**2:
+        return f"{size_bytes/1024**2:.1f} MB"
+    elif size_bytes > 1024:
+        return f"{size_bytes/1024:.1f} KB"
+    return f"{size_bytes} B"

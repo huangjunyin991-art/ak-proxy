@@ -48,8 +48,8 @@ except ImportError:
     DB_NAME = "ak_proxy"
     DB_USER = "ak_proxy"
     DB_PASSWORD = "ak2026db"
-    DB_MIN_POOL = 5
-    DB_MAX_POOL = 20
+    DB_MIN_POOL = 10
+    DB_MAX_POOL = 30
 
 # 数据库模块
 import database_pg as db
@@ -115,8 +115,25 @@ async def startup():
             min_size=DB_MIN_POOL, max_size=DB_MAX_POOL
         )
         logger.info("PostgreSQL 数据库连接成功")
+        # 启动定期清理任务
+        asyncio.create_task(_periodic_cleanup())
     except Exception as e:
         logger.error(f"PostgreSQL 连接失败: {e}，将使用内存模式")
+
+
+async def _periodic_cleanup():
+    """每6小时清理旧数据，平衡性能和存储"""
+    while True:
+        await asyncio.sleep(6 * 3600)  # 6小时
+        try:
+            await db.cleanup_old_records(
+                login_days=90,       # 登录记录保留90天
+                history_days=180,    # 资产历史保留180天
+                max_login_rows=500000,   # 最多50万条登录记录
+                max_history_rows=200000  # 最多20万条资产历史
+            )
+        except Exception as e:
+            logger.warning(f"定期清理失败: {e}")
 
 
 @app.on_event("shutdown")
@@ -508,6 +525,50 @@ async def api_status():
         },
         "api_target": AKAPI_URL,
     }
+
+
+@app.get("/api/db/size")
+async def api_db_size():
+    """查看数据库各表存储占用"""
+    try:
+        size_info = await db.get_db_size()
+        row_counts = await db.get_table_row_counts()
+        for t in size_info.get('tables', []):
+            t['row_count_exact'] = row_counts.get(t['table_name'], 0)
+        return {"success": True, "data": size_info}
+    except Exception as e:
+        return {"success": False, "message": f"查询失败: {e}"}
+
+
+@app.post("/api/db/delete")
+async def api_db_delete(request: Request):
+    """按日期删除指定表数据
+    参数: table, before_date, after_date, exact_date (YYYY-MM-DD)
+    """
+    try:
+        data = await request.json()
+        table = data.get("table", "")
+        before_date = data.get("before_date")
+        after_date = data.get("after_date")
+        exact_date = data.get("exact_date")
+        deleted = await db.delete_by_date(table, before_date, after_date, exact_date)
+        return {"success": True, "deleted": deleted, "table": table}
+    except ValueError as e:
+        return {"success": False, "message": str(e)}
+    except Exception as e:
+        return {"success": False, "message": f"删除失败: {e}"}
+
+
+@app.get("/api/db/stats")
+async def api_db_stats():
+    """获取数据库统计摘要 + 连接池状态"""
+    try:
+        summary = await db.get_stats_summary()
+        row_counts = await db.get_table_row_counts()
+        pool_info = db.get_pool_info()
+        return {"success": True, "summary": summary, "row_counts": row_counts, "pool": pool_info}
+    except Exception as e:
+        return {"success": False, "message": f"查询失败: {e}"}
 
 
 @app.post("/api/ban")

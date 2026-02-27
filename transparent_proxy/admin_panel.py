@@ -20,6 +20,15 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from starlette.middleware.sessions import SessionMiddleware
 import uvicorn
 
+sys.path.insert(0, os.path.dirname(__file__))
+try:
+    from config import DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASSWORD, DB_MIN_POOL, DB_MAX_POOL
+except ImportError:
+    DB_HOST, DB_PORT, DB_NAME = "127.0.0.1", 5432, "ak_proxy"
+    DB_USER, DB_PASSWORD = "ak_proxy", "ak2026db"
+    DB_MIN_POOL, DB_MAX_POOL = 5, 20
+import database_pg as db
+
 # ===== 配置 =====
 # 密码使用SHA256哈希存储，默认密码: ak-lovejjy1314
 # 修改密码: python3 -c "import hashlib;print(hashlib.sha256('新密码'.encode()).hexdigest())"
@@ -64,6 +73,23 @@ FILE_GROUPS = {
 
 app = FastAPI(title="AK服务器管理面板")
 app.add_middleware(SessionMiddleware, secret_key=SECRET_KEY)
+
+
+@app.on_event("startup")
+async def panel_startup():
+    try:
+        await db.init_db(
+            host=DB_HOST, port=DB_PORT, database=DB_NAME,
+            user=DB_USER, password=DB_PASSWORD,
+            min_size=3, max_size=10  # 管理面板最多10个同时在线
+        )
+    except Exception as e:
+        print(f"[管理面板] PostgreSQL连接失败: {e}（数据库管理功能不可用）")
+
+
+@app.on_event("shutdown")
+async def panel_shutdown():
+    await db.close_db()
 
 
 def check_auth(request: Request) -> bool:
@@ -989,6 +1015,54 @@ async def api_logs_clear(request: Request):
             return {"success": True, "message": "已清空"}
     except Exception as e:
         return {"success": False, "message": str(e)}
+
+
+@app.get(f"{BASE_PATH}/api/db/size")
+async def api_db_size(request: Request):
+    """查看数据库各表存储占用"""
+    if not check_auth(request):
+        raise HTTPException(status_code=401)
+    try:
+        size_info = await db.get_db_size()
+        row_counts = await db.get_table_row_counts()
+        for t in size_info.get('tables', []):
+            t['row_count_exact'] = row_counts.get(t['table_name'], 0)
+        return {"success": True, "data": size_info}
+    except Exception as e:
+        return {"success": False, "message": f"查询失败: {e}"}
+
+
+@app.post(f"{BASE_PATH}/api/db/delete")
+async def api_db_delete(request: Request):
+    """按日期删除指定表数据"""
+    if not check_auth(request):
+        raise HTTPException(status_code=401)
+    try:
+        data = await request.json()
+        table = data.get("table", "")
+        before_date = data.get("before_date")
+        after_date = data.get("after_date")
+        exact_date = data.get("exact_date")
+        deleted = await db.delete_by_date(table, before_date, after_date, exact_date)
+        return {"success": True, "deleted": deleted, "table": table}
+    except ValueError as e:
+        return {"success": False, "message": str(e)}
+    except Exception as e:
+        return {"success": False, "message": f"删除失败: {e}"}
+
+
+@app.get(f"{BASE_PATH}/api/db/stats")
+async def api_db_stats(request: Request):
+    """获取数据库统计摘要 + 连接池状态"""
+    if not check_auth(request):
+        raise HTTPException(status_code=401)
+    try:
+        summary = await db.get_stats_summary()
+        row_counts = await db.get_table_row_counts()
+        pool_info = db.get_pool_info()
+        return {"success": True, "summary": summary, "row_counts": row_counts, "pool": pool_info}
+    except Exception as e:
+        return {"success": False, "message": f"查询失败: {e}"}
 
 
 @app.get(f"{BASE_PATH}")

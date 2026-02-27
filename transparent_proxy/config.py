@@ -33,5 +33,5 @@ DB_PORT = 5432
 DB_NAME = "ak_proxy"
 DB_USER = "ak_proxy"
 DB_PASSWORD = "ak2026db"  # 部署时修改
-DB_MIN_POOL = 5   # 最小连接数
-DB_MAX_POOL = 20  # 最大连接数
+DB_MIN_POOL = 10   # 最小连接数
+DB_MAX_POOL = 30   # 最大连接数（4核8G服务器最估值，PG默认max_connections=100）
