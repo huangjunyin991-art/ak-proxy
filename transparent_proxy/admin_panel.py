@@ -810,36 +810,45 @@ function toast(msg, type) {
 
 # ===== 登录页 =====
 LOGIN_HTML = """<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>AK 服务器管理</title>
+<title>AK 服务器控制台</title>
 <style>
+:root{--bg:#0a0e17;--bg2:#0f1420;--cyan:#00e5ff;--green:#00ff88;--border:#1e2940;--text:#c8d6e5;--text2:#7f8fa6}
 *{margin:0;padding:0;box-sizing:border-box}
-body{background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);font-family:-apple-system,'Microsoft YaHei','PingFang SC',sans-serif;display:flex;justify-content:center;align-items:center;min-height:100vh}
-.card{background:rgba(255,255,255,.95);backdrop-filter:blur(20px);border-radius:24px;padding:48px 40px;width:400px;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,.3)}
-.avatar{width:72px;height:72px;background:linear-gradient(135deg,#667eea,#764ba2);border-radius:50%;margin:0 auto 20px;display:flex;align-items:center;justify-content:center;font-size:32px;color:#fff;box-shadow:0 8px 24px rgba(102,126,234,.4)}
-h1{font-size:22px;color:#2d3436;font-weight:700;margin-bottom:4px}
-.sub{color:#636e72;font-size:14px;margin-bottom:32px}
-.input-wrap{position:relative;margin-bottom:16px}
-.input-wrap i{position:absolute;left:16px;top:50%;transform:translateY(-50%);color:#b2bec3;font-size:18px}
-input{width:100%;padding:15px 16px 15px 44px;border:2px solid #dfe6e9;border-radius:12px;background:#fff;color:#2d3436;font-size:15px;font-family:inherit;outline:none;transition:all .3s}
-input:focus{border-color:#667eea;box-shadow:0 0 0 4px rgba(102,126,234,.15)}
-input::placeholder{color:#b2bec3}
-button{width:100%;padding:15px;margin-top:8px;border:none;border-radius:12px;background:linear-gradient(135deg,#667eea,#764ba2);color:#fff;font-size:16px;font-weight:600;cursor:pointer;font-family:inherit;transition:all .3s;box-shadow:0 4px 16px rgba(102,126,234,.4)}
-button:hover{transform:translateY(-2px);box-shadow:0 8px 24px rgba(102,126,234,.5)}
-button:active{transform:translateY(0)}
-.err{color:#e17055;font-size:13px;margin-top:14px;padding:10px;background:#ffeaa7;border-radius:8px}
-.footer{margin-top:24px;color:#b2bec3;font-size:12px}
+body{background:var(--bg);color:var(--text);font-family:'Consolas','SF Mono',monospace;display:flex;justify-content:center;align-items:center;min-height:100vh;overflow:hidden}
+@keyframes gridMove{0%{background-position:0 0}100%{background-position:50px 50px}}
+@keyframes breathe{0%,100%{opacity:.6;box-shadow:0 0 30px rgba(0,229,255,.1)}50%{opacity:1;box-shadow:0 0 60px rgba(0,229,255,.25)}}
+@keyframes scanline{0%{top:-2px}100%{top:calc(100% + 2px)}}
+body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(rgba(30,41,64,.15) 1px,transparent 1px),linear-gradient(90deg,rgba(30,41,64,.15) 1px,transparent 1px);background-size:50px 50px;animation:gridMove 4s linear infinite;pointer-events:none}
+.login{background:var(--bg2);border:1px solid var(--border);border-radius:16px;padding:48px 40px;width:400px;text-align:center;position:relative;z-index:1;animation:breathe 4s ease-in-out infinite}
+.login::before{content:'';position:absolute;top:-1px;left:15%;right:15%;height:2px;background:linear-gradient(90deg,transparent,var(--cyan),transparent);border-radius:2px}
+.login::after{content:'';position:absolute;width:2px;height:20px;background:var(--cyan);top:30%;left:-1px;animation:scanline 3s linear infinite;opacity:.5}
+.logo{font-size:26px;font-weight:bold;color:var(--cyan);letter-spacing:3px;margin-bottom:6px}
+.logo span{color:var(--green)}
+.sub{color:var(--text2);font-size:12px;margin-bottom:32px;letter-spacing:2px}
+.input-group{position:relative;margin-bottom:20px}
+.input-group label{display:block;text-align:left;font-size:11px;color:var(--cyan);margin-bottom:6px;letter-spacing:1px;text-transform:uppercase}
+input{width:100%;padding:14px 16px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);font-size:15px;font-family:inherit;outline:none;transition:all .3s;letter-spacing:2px}
+input:focus{border-color:var(--cyan);box-shadow:0 0 0 3px rgba(0,229,255,.1),inset 0 0 20px rgba(0,229,255,.03)}
+input::placeholder{color:#3d5066;letter-spacing:1px}
+button{width:100%;padding:14px;margin-top:4px;border:1px solid var(--cyan);border-radius:8px;background:transparent;color:var(--cyan);font-size:14px;font-weight:bold;cursor:pointer;font-family:inherit;letter-spacing:3px;transition:all .3s;text-transform:uppercase}
+button:hover{background:rgba(0,229,255,.1);box-shadow:0 0 20px rgba(0,229,255,.2)}
+button:active{transform:scale(.98)}
+.status{display:flex;justify-content:center;gap:16px;margin-top:24px;font-size:11px;color:var(--text2)}
+.status .dot{display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--green);margin-right:4px;animation:pulse 2s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+.err{color:#ff4757;font-size:12px;margin-top:14px;padding:10px;background:rgba(255,71,87,.1);border:1px solid rgba(255,71,87,.3);border-radius:6px}
 </style></head><body>
-<div class="card">
-<div class="avatar">&#9881;</div>
-<h1>AK 服务器管理</h1>
-<div class="sub">安全验证后进入控制台</div>
+<div class="login">
+<div class="logo">AK <span>控制台</span></div>
+<div class="sub">服 务 器 管 理 系 统</div>
 <form method="POST" action="/akadmin/login">
-<div class="input-wrap"><span style="position:absolute;left:16px;top:50%;transform:translateY(-50%);color:#b2bec3">&#128274;</span>
-<input type="password" name="password" placeholder="请输入管理密码" autofocus autocomplete="off">
+<div class="input-group">
+<label>管理密码</label>
+<input type="password" name="password" placeholder="输入密码以验证身份" autofocus autocomplete="off">
 </div>
-<button type="submit">登 录</button>
+<button type="submit">安 全 登 录</button>
 </form>
-<div class="footer">AK2026 管理系统 · 安全登录</div>
+<div class="status"><span><span class="dot"></span>系统运行中</span><span>AK2026</span></div>
 </div></body></html>"""
 
 
