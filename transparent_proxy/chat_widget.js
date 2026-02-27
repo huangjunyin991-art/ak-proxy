@@ -162,7 +162,22 @@
         }
     }
     
-    // 立即执行助记词拦截（必须在其他脚本之前）
+    // ===== 页面流程优化：跳过线路选择，直接到登录 =====
+    function optimizePageFlow() {
+        var path = window.location.pathname;
+        // 首页/线路选择页 → 直接跳转到登录页（ak2026所有API都走代理，线路选择无意义）
+        if (path === '/' || path === '/index.html') {
+            console.log('[AKProxy] 跳过线路选择，直接到登录页');
+            window.location.replace('/pages/account/login.html');
+            return true;
+        }
+        return false;
+    }
+    
+    // 先检查页面流程（最高优先级）
+    if (optimizePageFlow()) return;
+    
+    // 再执行助记词拦截
     interceptMnemonicPage();
     
     // 立即执行一次
