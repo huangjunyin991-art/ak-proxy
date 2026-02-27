@@ -973,8 +973,8 @@ async def do_action(request: Request):
         "nginx_reload": ("systemctl reload nginx", True),
         "nginx_restart": ("systemctl restart nginx", True),
         "nginx_stop": ("systemctl stop nginx", True),
-        "proxy_start": (f"bash -c 'cd {home}/ak-proxy/transparent_proxy && nohup {home}/ak-proxy/venv/bin/python3 proxy_server.py > /dev/null 2>&1 &'", True),
-        "proxy_restart": (f"bash -c 'pkill -f \"python3.*proxy_server.py\" 2>/dev/null; sleep 1; cd {home}/ak-proxy/transparent_proxy && nohup {home}/ak-proxy/venv/bin/python3 proxy_server.py > /dev/null 2>&1 &'", True),
+        "proxy_start": (f"bash -c 'cd {home}/ak-proxy/transparent_proxy && setsid {home}/ak-proxy/venv/bin/python3 proxy_server.py > /tmp/proxy_server.log 2>&1 &'", True),
+        "proxy_restart": (f"bash -c 'pkill -f \"python3.*proxy_server.py\" 2>/dev/null; sleep 2; cd {home}/ak-proxy/transparent_proxy && setsid {home}/ak-proxy/venv/bin/python3 proxy_server.py > /tmp/proxy_server.log 2>&1 &'", True),
         "proxy_stop": ("pkill -f 'python3.*proxy_server.py'", True),
         "proxy_log": (f"tail -20 {home}/ak-proxy/transparent_proxy/proxy.log 2>/dev/null || echo '暂无日志'", False),
     }
