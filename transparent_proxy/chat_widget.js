@@ -15,7 +15,6 @@
                 const oldUrl = APP.CONFIG.BASE_URL;
                 if (oldUrl.includes('akapi1.com') || oldUrl.includes('akapi3.com')) {
                     APP.CONFIG.BASE_URL = 'https://' + window.location.host + '/RPC/';
-                    console.log('[AKProxy] API地址已修改:', oldUrl, '->', APP.CONFIG.BASE_URL);
                 }
             }
         } catch(e) {}
@@ -44,12 +43,10 @@
                     // 特定API强制重定向
                     if (url.includes('public_IndexData')) {
                         finalUrl = `https://${proxyHost}/RPC/public_IndexData`;
-                        console.log('[AKProxy] Fetch强制重定向public_IndexData:', url, '->', finalUrl);
                     }
                     // 通用akapi重定向
                     else if (url.includes('akapi1.com') || url.includes('akapi3.com')) {
                         finalUrl = url.replace(/https?:\/\/(www\.)?akapi[13]\.com\/RPC\//, `https://${proxyHost}/RPC/`);
-                        console.log('[AKProxy] Fetch重定向:', url, '->', finalUrl);
                     }
                 }
                 
@@ -69,13 +66,11 @@
                     // 特定API强制重定向
                     if (url.includes('public_IndexData')) {
                         const newUrl = `https://${proxyHost}/RPC/public_IndexData`;
-                        console.log('[AKProxy] XHR强制重定向public_IndexData:', url, '->', newUrl);
                         return originalOpen.call(this, method, newUrl, async, user, password);
                     }
                     // 通用akapi重定向
                     if (url.includes('akapi1.com') || url.includes('akapi3.com')) {
                         const newUrl = url.replace(/https?:\/\/(www\.)?akapi[13]\.com\/RPC\//, `https://${proxyHost}/RPC/`);
-                        console.log('[AKProxy] XHR重定向:', url, '->', newUrl);
                         return originalOpen.call(this, method, newUrl, async, user, password);
                     }
                 }
@@ -90,14 +85,12 @@
                     // 特定API强制重定向
                     if (options.url.includes('public_IndexData')) {
                         const newUrl = `https://${proxyHost}/RPC/public_IndexData`;
-                        console.log('[AKProxy] jQuery强制重定向public_IndexData:', options.url, '->', newUrl);
                         options.url = newUrl;
                         return;
                     }
                     // 通用akapi重定向
                     if (options.url.includes('akapi1.com') || options.url.includes('akapi3.com')) {
                         const newUrl = options.url.replace(/https?:\/\/(www\.)?akapi[13]\.com\/RPC\//, `https://${proxyHost}/RPC/`);
-                        console.log('[AKProxy] jQuery重定向:', options.url, '->', newUrl);
                         options.url = newUrl;
                     }
                 }
@@ -122,8 +115,6 @@
         if (window._akChatInitialized) return;
         window._akChatInitialized = true;
         
-        console.log('[AKChat] 初始化聊天组件...');
-        
     // 配置
     const WS_PROTOCOL = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const WS_URL = `${WS_PROTOCOL}//${window.location.host}/chat/ws`;
@@ -145,46 +136,26 @@
     
     // 获取用户名
     function getUsername() {
-        console.log('[AKChat] ========== 获取用户名 ==========');
-        console.log('[AKChat] 所有Cookies:', document.cookie);
-        
-        // 1. 优先从cookie读取（登录时服务端设置的）
+        // 1. 优先从cookie读取
         let cookieUser = getCookie('ak_username');
-        console.log('[AKChat] ak_username Cookie:', cookieUser);
-        if (cookieUser) {
-            console.log('[AKChat] ★ 使用Cookie用户名:', cookieUser);
-            return cookieUser;
-        }
+        if (cookieUser) return cookieUser;
         
         // 2. 从localStorage遍历找用户名
-        console.log('[AKChat] localStorage长度:', localStorage.length);
         try {
             for (let i = 0; i < localStorage.length; i++) {
-                let key = localStorage.key(i);
-                let value = localStorage.getItem(key);
-                console.log('[AKChat] localStorage[' + key + ']:', value ? value.substring(0, 100) : 'null');
+                let value = localStorage.getItem(localStorage.key(i));
                 try {
                     let data = JSON.parse(value);
                     if (data && typeof data === 'object') {
-                        if (data.UserName && typeof data.UserName === 'string') {
-                            console.log('[AKChat] ★ 找到UserName:', data.UserName);
-                            return data.UserName;
-                        }
-                        if (data.Account && typeof data.Account === 'string') {
-                            console.log('[AKChat] ★ 找到Account:', data.Account);
-                            return data.Account;
-                        }
+                        if (data.UserName && typeof data.UserName === 'string') return data.UserName;
+                        if (data.Account && typeof data.Account === 'string') return data.Account;
                     }
                 } catch(e) {}
             }
-        } catch(e) {
-            console.log('[AKChat] localStorage遍历出错:', e);
-        }
+        } catch(e) {}
         
         // 获取不到就用访客名
-        let guestName = 'guest_' + Math.random().toString(36).substr(2, 6);
-        console.log('[AKChat] ★ 使用访客名:', guestName);
-        return guestName;
+        return 'guest_' + Math.random().toString(36).substr(2, 6);
     }
     
     // 创建样式 - 青绿渐变风格
@@ -410,11 +381,6 @@
     const messagesDiv = document.getElementById('ak-chat-messages');
     const inputEl = document.getElementById('ak-chat-input');
     
-    console.log('[AKChat] Chat elements:', {
-        chatBox: !!chatBox,
-        messagesDiv: !!messagesDiv,
-        inputEl: !!inputEl
-    });
     
     if (!chatBox) {
         console.error('[AKChat] 聊天窗口元素未找到！');
@@ -467,8 +433,6 @@
         // 清除旧的心跳
         stopHeartbeat();
         
-        console.log('[AKChat] 启动心跳（每5秒发送一次）');
-        
         heartbeatTimer = setInterval(function() {
             if (ws && ws.readyState === WebSocket.OPEN) {
                 ws.send(JSON.stringify({ type: 'heartbeat', page: window.location.pathname + window.location.hash }));
@@ -488,13 +452,11 @@
     function connect() {
         // 获取用户名
         username = getUsername();
-        console.log('[AKChat] 使用用户名:', username);
         
         try {
             ws = new WebSocket(WS_URL + '?username=' + encodeURIComponent(username));
             
             ws.onopen = function() {
-                console.log('[AKChat] WebSocket 已连接');
                 // 发送上线消息
                 ws.send(JSON.stringify({
                     type: 'online',
@@ -522,7 +484,6 @@
                             data.messages.forEach(function(msg) {
                                 addMessage(msg.content, msg.is_admin, msg.time);
                             });
-                            console.log('[AKChat] 已加载 ' + data.messages.length + ' 条历史消息（静默加载）');
                         }
                     }
                 } catch(err) {
@@ -531,7 +492,6 @@
             };
             
             ws.onclose = function() {
-                console.log('[AKChat] WebSocket 已断开');
                 stopHeartbeat();
                 // 5秒后尝试重连
                 setTimeout(connect, 5000);
@@ -547,12 +507,8 @@
     
     // 显示聊天窗口
     function showChat() {
-        console.log('[AKChat] showChat called, chatBox:', chatBox);
         if (chatBox) {
             chatBox.classList.add('visible');
-            console.log('[AKChat] Added visible class, classList:', chatBox.classList.toString());
-        } else {
-            console.error('[AKChat] chatBox is null in showChat!');
         }
         isOpen = true;
     }
@@ -580,7 +536,6 @@
                 type: 'user_message',
                 content: content
             }));
-            console.log('[AKChat] 消息已发送:', content);
             addMessage(content, false);
             inputEl.value = '';
         } catch(e) {
@@ -591,7 +546,6 @@
     
     // 重连WebSocket（登录后调用）
     function reconnect() {
-        console.log('[AKChat] 重连WebSocket，刷新用户信息...');
         if (ws) {
             ws.close();
         }
@@ -616,10 +570,8 @@
     // 等待 body 加载完成后初始化聊天组件
     function tryInit() {
         if (document.body) {
-            console.log('[AKChat] Body ready, initializing...');
             initChatWidget();
         } else {
-            console.log('[AKChat] Body not ready, waiting...');
             setTimeout(tryInit, 100);
         }
     }
