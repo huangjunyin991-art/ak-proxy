@@ -258,6 +258,101 @@ async def init_db(host: str = "127.0.0.1", port: int = 5432,
             )
         ''')
 
+        # 管理员Token持久化表
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS admin_tokens (
+                token TEXT PRIMARY KEY,
+                role TEXT NOT NULL,
+                expire DOUBLE PRECISION NOT NULL,
+                sub_name TEXT DEFAULT ''
+            )
+        ''')
+
+        # 子管理员表
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS sub_admins (
+                name TEXT PRIMARY KEY,
+                password TEXT NOT NULL,
+                permissions TEXT DEFAULT '{}',
+                created_at TIMESTAMP DEFAULT NOW()
+            )
+        ''')
+
+        # 激活码操作日志表
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS license_logs (
+                id BIGSERIAL PRIMARY KEY,
+                action TEXT NOT NULL,
+                license_key TEXT,
+                product_id TEXT,
+                billing_mode TEXT,
+                detail TEXT,
+                operator TEXT DEFAULT 'admin',
+                created_at TIMESTAMP DEFAULT NOW()
+            )
+        ''')
+
+        # 授权账号白名单表
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS authorized_accounts (
+                id BIGSERIAL PRIMARY KEY,
+                username TEXT NOT NULL UNIQUE,
+                password TEXT DEFAULT '',
+                added_by TEXT NOT NULL,
+                plan_type TEXT NOT NULL DEFAULT 'monthly',
+                credits_cost INTEGER NOT NULL DEFAULT 0,
+                start_time TIMESTAMP NOT NULL DEFAULT NOW(),
+                expire_time TIMESTAMP NOT NULL,
+                status TEXT NOT NULL DEFAULT 'active',
+                remark TEXT DEFAULT '',
+                created_at TIMESTAMP DEFAULT NOW(),
+                updated_at TIMESTAMP DEFAULT NOW()
+            )
+        ''')
+
+        # 积分定价配置表
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS credit_config (
+                id SERIAL PRIMARY KEY,
+                plan_type TEXT NOT NULL UNIQUE,
+                plan_name TEXT NOT NULL,
+                credits_cost INTEGER NOT NULL,
+                duration_days INTEGER NOT NULL,
+                updated_at TIMESTAMP DEFAULT NOW()
+            )
+        ''')
+
+        # 积分流水表
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS credit_transactions (
+                id BIGSERIAL PRIMARY KEY,
+                admin_name TEXT NOT NULL,
+                type TEXT NOT NULL,
+                amount INTEGER NOT NULL,
+                balance_after INTEGER NOT NULL DEFAULT 0,
+                description TEXT DEFAULT '',
+                related_username TEXT DEFAULT '',
+                operator TEXT NOT NULL DEFAULT 'system',
+                created_at TIMESTAMP DEFAULT NOW()
+            )
+        ''')
+
+        # sub_admins 表添加 credits 字段（兼容旧表）
+        try:
+            await conn.execute("ALTER TABLE sub_admins ADD COLUMN IF NOT EXISTS credits INTEGER DEFAULT 0")
+        except Exception:
+            pass
+
+        # 初始化默认积分定价（如果表为空）
+        existing = await conn.fetchval("SELECT COUNT(*) FROM credit_config")
+        if existing == 0:
+            await conn.execute('''
+                INSERT INTO credit_config (plan_type, plan_name, credits_cost, duration_days) VALUES
+                ('monthly', '月付', 100, 30),
+                ('quarterly', '季付', 270, 90),
+                ('yearly', '年付', 1000, 365)
+            ''')
+
         # 创建索引
         await conn.execute('CREATE INDEX IF NOT EXISTS idx_login_username ON login_records(username)')
         await conn.execute('CREATE INDEX IF NOT EXISTS idx_login_ip ON login_records(ip_address)')
@@ -265,6 +360,12 @@ async def init_db(host: str = "127.0.0.1", port: int = 5432,
         await conn.execute('CREATE INDEX IF NOT EXISTS idx_asset_history_user ON asset_history(username)')
         await conn.execute('CREATE INDEX IF NOT EXISTS idx_asset_history_time ON asset_history(recorded_at)')
         await conn.execute('CREATE INDEX IF NOT EXISTS idx_ban_active ON ban_list(is_active)')
+        await conn.execute('CREATE INDEX IF NOT EXISTS idx_auth_accounts_username ON authorized_accounts(username)')
+        await conn.execute('CREATE INDEX IF NOT EXISTS idx_auth_accounts_added_by ON authorized_accounts(added_by)')
+        await conn.execute('CREATE INDEX IF NOT EXISTS idx_auth_accounts_status ON authorized_accounts(status)')
+        await conn.execute('CREATE INDEX IF NOT EXISTS idx_auth_accounts_expire ON authorized_accounts(expire_time)')
+        await conn.execute('CREATE INDEX IF NOT EXISTS idx_credit_tx_admin ON credit_transactions(admin_name)')
+        await conn.execute('CREATE INDEX IF NOT EXISTS idx_credit_tx_time ON credit_transactions(created_at)')
 
     logger.info("PostgreSQL 数据库表和索引已就绪")
 
@@ -777,3 +878,577 @@ def _format_size(size_bytes: int) -> str:
     elif size_bytes > 1024:
         return f"{size_bytes/1024:.1f} KB"
     return f"{size_bytes} B"
+
+
+# ===== 用户+资产联合查询 =====
+
+async def get_all_users_with_assets(limit: int = 100, offset: int = 0) -> List[Dict]:
+    """获取所有用户统计（包含资产信息）"""
+    pool = _get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch('''
+            SELECT us.username, us.password, us.login_count, us.first_login, us.last_login,
+                   us.last_ip, us.is_banned,
+                   COALESCE(ua.ace_count, 0) as ace_count, COALESCE(ua.total_ace, 0) as total_ace,
+                   COALESCE(ua.ep, 0) as ep, COALESCE(ua.sp, 0) as sp,
+                   COALESCE(ua.rp, 0) as rp, COALESCE(ua.tp, 0) as tp,
+                   COALESCE(ua.ap, 0) as ap, COALESCE(ua.lp, 0) as lp,
+                   COALESCE(ua.weekly_money, 0) as weekly_money,
+                   COALESCE(ua.rate, 0) as rate, COALESCE(ua.credit, 0) as credit,
+                   ua.honor_name, COALESCE(ua.level_number, 0) as level_number,
+                   COALESCE(ua.left_area, 0) as left_area, COALESCE(ua.right_area, 0) as right_area,
+                   COALESCE(ua.direct_push, 0) as direct_push, COALESCE(ua.sub_account, 0) as sub_account,
+                   ua.updated_at as asset_updated_at
+            FROM user_stats us LEFT JOIN user_assets ua ON us.username = ua.username
+            ORDER BY us.last_login DESC NULLS LAST LIMIT $1 OFFSET $2
+        ''', limit, offset)
+        return [dict(r) for r in rows]
+
+
+async def get_dashboard_data() -> Dict:
+    """获取仪表盘数据"""
+    pool = _get_pool()
+    async with pool.acquire() as conn:
+        today = datetime.now().strftime('%Y-%m-%d')
+
+        today_requests = await conn.fetchval(
+            "SELECT COUNT(*) FROM login_records WHERE login_time::date = $1::date", today)
+
+        row = await conn.fetchrow('''
+            SELECT COUNT(*) as total,
+                   SUM(CASE WHEN status_code = 200 THEN 1 ELSE 0 END) as success
+            FROM login_records WHERE login_time::date = $1::date
+        ''', today)
+        total = row['total'] or 1
+        success = row['success'] or 0
+        success_rate = (success / total) * 100 if total > 0 else 0
+
+        active_users = await conn.fetchval(
+            "SELECT COUNT(DISTINCT username) FROM login_records WHERE login_time::date = $1::date", today)
+
+        peak_row = await conn.fetchrow('''
+            SELECT COUNT(*) as count FROM login_records
+            WHERE login_time::date = $1::date
+            GROUP BY date_trunc('minute', login_time)
+            ORDER BY count DESC LIMIT 1
+        ''', today)
+        peak_rpm = peak_row['count'] if peak_row else 0
+
+        hourly_rows = await conn.fetch('''
+            SELECT EXTRACT(HOUR FROM login_time)::int as hour, COUNT(*) as count
+            FROM login_records WHERE login_time::date = $1::date
+            GROUP BY hour ORDER BY hour
+        ''', today)
+        hourly_data = [{'hour': r['hour'], 'count': r['count']} for r in hourly_rows]
+
+        top_users = await conn.fetch('''
+            SELECT username, COUNT(*) as count FROM login_records
+            WHERE login_time::date = $1::date
+            GROUP BY username ORDER BY count DESC LIMIT 10
+        ''', today)
+
+        top_ips = await conn.fetch('''
+            SELECT ip_address as ip, COUNT(*) as count FROM login_records
+            WHERE login_time::date = $1::date
+            GROUP BY ip_address ORDER BY count DESC LIMIT 10
+        ''', today)
+
+        return {
+            'today_requests': today_requests or 0,
+            'success_rate': round(success_rate, 1),
+            'active_users': active_users or 0,
+            'peak_rpm': peak_rpm,
+            'hourly_data': hourly_data,
+            'top_users': [dict(r) for r in top_users],
+            'top_ips': [dict(r) for r in top_ips]
+        }
+
+
+# ===== 数据库管理（通用表操作） =====
+
+async def get_all_tables() -> List[str]:
+    """获取所有表名"""
+    pool = _get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            "SELECT tablename FROM pg_tables WHERE schemaname = 'public' ORDER BY tablename")
+        return [r['tablename'] for r in rows]
+
+
+async def get_table_schema(table_name: str) -> List[Dict]:
+    """获取表结构"""
+    pool = _get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch('''
+            SELECT ordinal_position as cid, column_name as name,
+                   data_type as type, is_nullable,
+                   column_default as dflt_value
+            FROM information_schema.columns
+            WHERE table_schema = 'public' AND table_name = $1
+            ORDER BY ordinal_position
+        ''', table_name)
+        result = []
+        for r in rows:
+            result.append({
+                'cid': r['cid'], 'name': r['name'], 'type': r['type'],
+                'notnull': 1 if r['is_nullable'] == 'NO' else 0,
+                'dflt_value': r['dflt_value'], 'pk': 0
+            })
+        return result
+
+
+async def query_table(table_name: str, limit: int = 100, offset: int = 0,
+                      order_by: str = None, order_desc: bool = True) -> Dict:
+    """查询表数据"""
+    pool = _get_pool()
+    async with pool.acquire() as conn:
+        total = await conn.fetchval(f'SELECT COUNT(*) FROM {table_name}')
+        sql = f'SELECT * FROM {table_name}'
+        if order_by:
+            direction = 'DESC' if order_desc else 'ASC'
+            sql += f' ORDER BY {order_by} {direction}'
+        sql += f' LIMIT {limit} OFFSET {offset}'
+        rows = await conn.fetch(sql)
+        return {'total': total, 'rows': [dict(r) for r in rows]}
+
+
+async def insert_row(table_name: str, data: dict) -> int:
+    """插入数据"""
+    pool = _get_pool()
+    cols = ', '.join(data.keys())
+    placeholders = ', '.join([f'${i+1}' for i in range(len(data))])
+    sql = f'INSERT INTO {table_name} ({cols}) VALUES ({placeholders}) RETURNING id'
+    async with pool.acquire() as conn:
+        row_id = await conn.fetchval(sql, *data.values())
+        return row_id
+
+
+async def update_row(table_name: str, pk_column: str, pk_value, data: dict) -> int:
+    """更新数据"""
+    pool = _get_pool()
+    set_parts = [f'{k} = ${i+1}' for i, k in enumerate(data.keys())]
+    set_clause = ', '.join(set_parts)
+    pk_idx = len(data) + 1
+    sql = f'UPDATE {table_name} SET {set_clause} WHERE {pk_column} = ${pk_idx}'
+    async with pool.acquire() as conn:
+        result = await conn.execute(sql, *data.values(), pk_value)
+        return int(result.split()[-1])
+
+
+async def delete_row(table_name: str, pk_column: str, pk_value) -> int:
+    """删除数据"""
+    pool = _get_pool()
+    sql = f'DELETE FROM {table_name} WHERE {pk_column} = $1'
+    async with pool.acquire() as conn:
+        result = await conn.execute(sql, pk_value)
+        return int(result.split()[-1])
+
+
+async def execute_sql(sql: str):
+    """执行自定义SQL"""
+    pool = _get_pool()
+    async with pool.acquire() as conn:
+        if sql.strip().upper().startswith('SELECT'):
+            rows = await conn.fetch(sql)
+            return [dict(r) for r in rows]
+        else:
+            result = await conn.execute(sql)
+            return {'affected_rows': int(result.split()[-1]) if result else 0}
+
+
+# ===== 管理员Token持久化 =====
+
+async def save_admin_token(token: str, role: str, expire: float, sub_name: str = ''):
+    """保存管理员Token到数据库"""
+    pool = _get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute('''
+            INSERT INTO admin_tokens (token, role, expire, sub_name) VALUES ($1, $2, $3, $4)
+            ON CONFLICT(token) DO UPDATE SET role=$2, expire=$3, sub_name=$4
+        ''', token, role, expire, sub_name)
+
+
+async def get_admin_token(token: str) -> Optional[Dict]:
+    """获取Token信息"""
+    pool = _get_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            'SELECT role, expire, sub_name FROM admin_tokens WHERE token = $1', token)
+        if row:
+            return {'role': row['role'], 'expire': row['expire'], 'sub_name': row['sub_name'] or ''}
+        return None
+
+
+async def delete_admin_token(token: str):
+    """删除指定Token"""
+    pool = _get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute('DELETE FROM admin_tokens WHERE token = $1', token)
+
+
+async def delete_admin_tokens_by_role(role: str) -> int:
+    """删除指定角色的所有Token"""
+    pool = _get_pool()
+    async with pool.acquire() as conn:
+        result = await conn.execute('DELETE FROM admin_tokens WHERE role = $1', role)
+        return int(result.split()[-1])
+
+
+async def delete_admin_tokens_by_sub_name(sub_name: str) -> int:
+    """删除指定子管理员的所有Token"""
+    pool = _get_pool()
+    async with pool.acquire() as conn:
+        result = await conn.execute(
+            "DELETE FROM admin_tokens WHERE role = 'sub_admin' AND sub_name = $1", sub_name)
+        return int(result.split()[-1])
+
+
+async def cleanup_expired_tokens() -> int:
+    """清理过期Token"""
+    import time as _time
+    pool = _get_pool()
+    async with pool.acquire() as conn:
+        result = await conn.execute('DELETE FROM admin_tokens WHERE expire < $1', _time.time())
+        return int(result.split()[-1])
+
+
+async def load_all_admin_tokens() -> Dict:
+    """加载所有未过期的Token"""
+    import time as _time
+    pool = _get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            'SELECT token, role, expire, sub_name FROM admin_tokens WHERE expire > $1', _time.time())
+        return {r['token']: {'role': r['role'], 'expire': r['expire'], 'sub_name': r['sub_name'] or ''} for r in rows}
+
+
+# ===== 激活码操作日志 =====
+
+async def add_license_log(action: str, license_key: str = None, product_id: str = None,
+                          billing_mode: str = None, detail: str = None, operator: str = 'admin'):
+    """记录激活码操作日志"""
+    pool = _get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute('''
+            INSERT INTO license_logs (action, license_key, product_id, billing_mode, detail, operator)
+            VALUES ($1, $2, $3, $4, $5, $6)
+        ''', action, license_key, product_id, billing_mode, detail, operator)
+
+
+async def get_license_logs(action: str = None, limit: int = 100, offset: int = 0) -> Dict:
+    """获取激活码操作记录"""
+    pool = _get_pool()
+    async with pool.acquire() as conn:
+        if action:
+            total = await conn.fetchval('SELECT COUNT(*) FROM license_logs WHERE action = $1', action)
+            rows = await conn.fetch('''
+                SELECT * FROM license_logs WHERE action = $1
+                ORDER BY created_at DESC LIMIT $2 OFFSET $3
+            ''', action, limit, offset)
+        else:
+            total = await conn.fetchval('SELECT COUNT(*) FROM license_logs')
+            rows = await conn.fetch('''
+                SELECT * FROM license_logs ORDER BY created_at DESC LIMIT $1 OFFSET $2
+            ''', limit, offset)
+        return {'rows': [dict(r) for r in rows], 'total': total}
+
+
+# ===== 子管理员管理 =====
+
+async def db_get_all_sub_admins() -> Dict:
+    """获取所有子管理员"""
+    pool = _get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch('SELECT name, password, permissions, created_at FROM sub_admins ORDER BY created_at')
+        result = {}
+        for r in rows:
+            result[r['name']] = {
+                'password': r['password'],
+                'permissions': json.loads(r['permissions'] or '{}'),
+                'created_at': str(r['created_at']) if r['created_at'] else None
+            }
+        return result
+
+
+async def db_set_sub_admin(name: str, password: str, permissions: dict = None):
+    """添加或更新子管理员"""
+    perm_json = json.dumps(permissions or {})
+    pool = _get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute('''
+            INSERT INTO sub_admins (name, password, permissions) VALUES ($1, $2, $3)
+            ON CONFLICT(name) DO UPDATE SET password = $2, permissions = $3
+        ''', name, password, perm_json)
+
+
+async def db_delete_sub_admin(name: str) -> bool:
+    """删除子管理员"""
+    pool = _get_pool()
+    async with pool.acquire() as conn:
+        result = await conn.execute('DELETE FROM sub_admins WHERE name = $1', name)
+        return int(result.split()[-1]) > 0
+
+
+async def db_get_sub_admin(name: str) -> Optional[Dict]:
+    """获取单个子管理员"""
+    pool = _get_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            'SELECT name, password, permissions, created_at FROM sub_admins WHERE name = $1', name)
+        if not row:
+            return None
+        result = dict(row)
+        result['permissions'] = json.loads(result.get('permissions') or '{}')
+        return result
+
+
+async def db_update_sub_admin_permissions(name: str, permissions: dict) -> bool:
+    """仅更新子管理员权限"""
+    perm_json = json.dumps(permissions or {})
+    pool = _get_pool()
+    async with pool.acquire() as conn:
+        result = await conn.execute('UPDATE sub_admins SET permissions = $1 WHERE name = $2', perm_json, name)
+        return int(result.split()[-1]) > 0
+
+
+# ===== 授权白名单 =====
+
+async def check_authorized(username: str) -> Optional[Dict]:
+    """检查账号是否在白名单中且未过期（高频调用，需要快）"""
+    pool = _get_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT id, expire_time, status FROM authorized_accounts WHERE username = $1 AND status = 'active'",
+            username)
+        if not row:
+            return None
+        return {'id': row['id'], 'expire_time': row['expire_time'], 'status': row['status']}
+
+
+async def add_authorized_account(username: str, password: str, added_by: str,
+                                  plan_type: str, credits_cost: int,
+                                  duration_days: int, remark: str = '') -> Dict:
+    """添加授权账号"""
+    pool = _get_pool()
+    now = datetime.now()
+    expire_time = now + timedelta(days=duration_days)
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow('''
+            INSERT INTO authorized_accounts
+                (username, password, added_by, plan_type, credits_cost, start_time, expire_time, status, remark)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, 'active', $8)
+            ON CONFLICT(username) DO UPDATE SET
+                password=$2, added_by=$3, plan_type=$4, credits_cost=$5,
+                start_time=$6, expire_time=$7, status='active', remark=$8, updated_at=NOW()
+            RETURNING id, expire_time
+        ''', username, password, added_by, plan_type, credits_cost, now, expire_time, remark)
+        return {'id': row['id'], 'expire_time': str(row['expire_time']), 'username': username}
+
+
+async def renew_authorized_account(username: str, plan_type: str, credits_cost: int,
+                                    duration_days: int) -> Optional[Dict]:
+    """续期授权账号（从当前过期时间或现在起延长）"""
+    pool = _get_pool()
+    now = datetime.now()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            'SELECT id, expire_time FROM authorized_accounts WHERE username = $1', username)
+        if not row:
+            return None
+        base_time = max(row['expire_time'], now)
+        new_expire = base_time + timedelta(days=duration_days)
+        await conn.execute('''
+            UPDATE authorized_accounts SET
+                plan_type=$1, credits_cost=credits_cost+$2, expire_time=$3,
+                status='active', updated_at=NOW()
+            WHERE username=$4
+        ''', plan_type, credits_cost, new_expire, username)
+        return {'id': row['id'], 'old_expire': str(row['expire_time']),
+                'new_expire': str(new_expire), 'username': username}
+
+
+async def delete_authorized_account(username: str) -> bool:
+    """删除授权账号（标记为deleted）"""
+    pool = _get_pool()
+    async with pool.acquire() as conn:
+        result = await conn.execute(
+            "UPDATE authorized_accounts SET status='deleted', updated_at=NOW() WHERE username=$1",
+            username)
+        return int(result.split()[-1]) > 0
+
+
+async def get_authorized_accounts(added_by: str = None, status: str = None,
+                                   limit: int = 100, offset: int = 0,
+                                   search: str = None) -> Dict:
+    """获取授权账号列表（支持按添加人过滤实现数据隔离）"""
+    pool = _get_pool()
+    async with pool.acquire() as conn:
+        conditions = []
+        params = []
+        idx = 1
+        if added_by:
+            conditions.append(f"added_by = ${idx}")
+            params.append(added_by)
+            idx += 1
+        if status:
+            conditions.append(f"status = ${idx}")
+            params.append(status)
+            idx += 1
+        if search:
+            conditions.append(f"username ILIKE ${idx}")
+            params.append(f"%{search}%")
+            idx += 1
+
+        where = f" WHERE {' AND '.join(conditions)}" if conditions else ""
+
+        total = await conn.fetchval(f"SELECT COUNT(*) FROM authorized_accounts{where}", *params)
+
+        params.append(limit)
+        params.append(offset)
+        rows = await conn.fetch(f'''
+            SELECT * FROM authorized_accounts{where}
+            ORDER BY created_at DESC LIMIT ${idx} OFFSET ${idx+1}
+        ''', *params)
+        return {'total': total or 0, 'rows': [dict(r) for r in rows]}
+
+
+async def get_expiring_accounts(days: int = 7, added_by: str = None) -> List[Dict]:
+    """获取即将到期的账号（用于提醒子管理员续期）"""
+    pool = _get_pool()
+    deadline = datetime.now() + timedelta(days=days)
+    async with pool.acquire() as conn:
+        if added_by:
+            rows = await conn.fetch('''
+                SELECT * FROM authorized_accounts
+                WHERE status='active' AND expire_time <= $1 AND expire_time > NOW() AND added_by = $2
+                ORDER BY expire_time ASC
+            ''', deadline, added_by)
+        else:
+            rows = await conn.fetch('''
+                SELECT * FROM authorized_accounts
+                WHERE status='active' AND expire_time <= $1 AND expire_time > NOW()
+                ORDER BY expire_time ASC
+            ''', deadline)
+        return [dict(r) for r in rows]
+
+
+async def expire_overdue_accounts() -> int:
+    """将已过期的active账号标记为expired"""
+    pool = _get_pool()
+    async with pool.acquire() as conn:
+        result = await conn.execute(
+            "UPDATE authorized_accounts SET status='expired', updated_at=NOW() WHERE status='active' AND expire_time < NOW()")
+        return int(result.split()[-1])
+
+
+# ===== 积分配置 =====
+
+async def get_credit_config() -> List[Dict]:
+    """获取积分定价配置"""
+    pool = _get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch('SELECT * FROM credit_config ORDER BY duration_days ASC')
+        return [dict(r) for r in rows]
+
+
+async def update_credit_config(plan_type: str, plan_name: str, credits_cost: int, duration_days: int) -> bool:
+    """更新/添加积分定价"""
+    pool = _get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute('''
+            INSERT INTO credit_config (plan_type, plan_name, credits_cost, duration_days, updated_at)
+            VALUES ($1, $2, $3, $4, NOW())
+            ON CONFLICT(plan_type) DO UPDATE SET
+                plan_name=$2, credits_cost=$3, duration_days=$4, updated_at=NOW()
+        ''', plan_type, plan_name, credits_cost, duration_days)
+        return True
+
+
+async def delete_credit_config(plan_type: str) -> bool:
+    """删除积分定价"""
+    pool = _get_pool()
+    async with pool.acquire() as conn:
+        result = await conn.execute('DELETE FROM credit_config WHERE plan_type = $1', plan_type)
+        return int(result.split()[-1]) > 0
+
+
+# ===== 积分操作 =====
+
+async def get_sub_admin_credits(name: str) -> int:
+    """获取子管理员积分余额"""
+    pool = _get_pool()
+    async with pool.acquire() as conn:
+        val = await conn.fetchval('SELECT credits FROM sub_admins WHERE name = $1', name)
+        return val or 0
+
+
+async def topup_credits(admin_name: str, amount: int, operator: str = 'super_admin',
+                        description: str = '') -> Dict:
+    """给子管理员充值积分"""
+    if amount <= 0:
+        raise ValueError("充值金额必须大于0")
+    pool = _get_pool()
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            await conn.execute(
+                'UPDATE sub_admins SET credits = credits + $1 WHERE name = $2', amount, admin_name)
+            new_balance = await conn.fetchval('SELECT credits FROM sub_admins WHERE name = $1', admin_name)
+            await conn.execute('''
+                INSERT INTO credit_transactions (admin_name, type, amount, balance_after, description, operator)
+                VALUES ($1, 'topup', $2, $3, $4, $5)
+            ''', admin_name, amount, new_balance or 0, description or f"充值{amount}积分", operator)
+            return {'balance': new_balance or 0, 'amount': amount}
+
+
+async def deduct_credits(admin_name: str, amount: int, related_username: str = '',
+                          description: str = '') -> Dict:
+    """扣除子管理员积分（事务安全，余额不足时回滚）"""
+    if amount <= 0:
+        raise ValueError("扣除金额必须大于0")
+    pool = _get_pool()
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            current = await conn.fetchval('SELECT credits FROM sub_admins WHERE name = $1', admin_name)
+            if (current or 0) < amount:
+                raise ValueError(f"积分不足: 当前{current or 0}, 需要{amount}")
+            await conn.execute(
+                'UPDATE sub_admins SET credits = credits - $1 WHERE name = $2', amount, admin_name)
+            new_balance = (current or 0) - amount
+            await conn.execute('''
+                INSERT INTO credit_transactions
+                    (admin_name, type, amount, balance_after, description, related_username, operator)
+                VALUES ($1, 'deduct', $2, $3, $4, $5, $6)
+            ''', admin_name, -amount, new_balance, description or f"扣除{amount}积分", related_username, admin_name)
+            return {'balance': new_balance, 'deducted': amount}
+
+
+async def get_credit_transactions(admin_name: str = None, limit: int = 50, offset: int = 0) -> Dict:
+    """获取积分流水"""
+    pool = _get_pool()
+    async with pool.acquire() as conn:
+        if admin_name:
+            total = await conn.fetchval(
+                'SELECT COUNT(*) FROM credit_transactions WHERE admin_name = $1', admin_name)
+            rows = await conn.fetch('''
+                SELECT * FROM credit_transactions WHERE admin_name = $1
+                ORDER BY created_at DESC LIMIT $2 OFFSET $3
+            ''', admin_name, limit, offset)
+        else:
+            total = await conn.fetchval('SELECT COUNT(*) FROM credit_transactions')
+            rows = await conn.fetch('''
+                SELECT * FROM credit_transactions ORDER BY created_at DESC LIMIT $1 OFFSET $2
+            ''', limit, offset)
+        return {'total': total or 0, 'rows': [dict(r) for r in rows]}
+
+
+async def get_all_sub_admin_credits() -> List[Dict]:
+    """获取所有子管理员积分概览"""
+    pool = _get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch('''
+            SELECT s.name, COALESCE(s.credits, 0) as credits,
+                   (SELECT COUNT(*) FROM authorized_accounts WHERE added_by = s.name AND status = 'active') as active_count,
+                   (SELECT COUNT(*) FROM authorized_accounts WHERE added_by = s.name) as total_count
+            FROM sub_admins s ORDER BY s.name
+        ''')
+        return [dict(r) for r in rows]

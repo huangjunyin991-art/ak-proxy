@@ -1369,6 +1369,8 @@
         <div class="tab" data-panel="users">👥 用户管理</div>
         <div class="tab" data-panel="ips">🌐 IP管理</div>
         <div class="tab" data-panel="banlist">🚫 封禁列表</div>
+        <div class="tab" data-panel="whitelist">📋 白名单</div>
+        <div class="tab" data-panel="credits">💰 积分</div>
         <div class="tab" data-panel="license">🔑 激活码</div>
         <div class="tab" data-panel="database">🗄️ 数据库</div>
         <div class="tab" data-panel="settings">⚙️ 设置</div>
@@ -1809,6 +1811,100 @@
             </div>
         </div>
         
+        <!-- 白名单管理 -->
+        <div class="panel" id="whitelist">
+            <div>
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; flex-wrap: wrap; gap: 10px;">
+                    <h3 style="color: var(--accent); margin: 0;">📋 授权白名单</h3>
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <span id="wlBalanceInfo" style="font-size: 13px; color: var(--accent-yellow);"></span>
+                        <input type="text" id="wlSearch" placeholder="搜索账号..." onkeyup="if(event.key==='Enter')loadWhitelist()"
+                               style="padding: 6px 12px; background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 6px; color: var(--text-primary); font-size: 13px; width: 160px;">
+                        <button class="btn" onclick="loadWhitelist()" style="padding: 6px 14px; font-size: 13px;">🔍</button>
+                        <button class="btn btn-success" onclick="showAddWhitelistModal()" style="padding: 6px 14px; font-size: 13px;">➕ 授权</button>
+                    </div>
+                </div>
+                <!-- 即将到期提醒 -->
+                <div id="wlExpiringAlert" style="display:none; background: rgba(255,165,0,0.1); border: 1px solid rgba(255,165,0,0.3); border-radius: 8px; padding: 10px 15px; margin-bottom: 12px;">
+                    <span style="color: #ffa500; font-weight: bold;">⚠️ 即将到期:</span>
+                    <span id="wlExpiringList" style="color: var(--text-secondary); font-size: 13px;"></span>
+                </div>
+                <!-- 白名单表格 -->
+                <div style="overflow-x: auto;">
+                    <table>
+                        <thead><tr>
+                            <th>账号</th><th>密码</th><th>套餐</th><th>到期时间</th><th>状态</th><th>添加人</th><th>备注</th><th>操作</th>
+                        </tr></thead>
+                        <tbody id="wlTableBody"><tr><td colspan="8" style="text-align:center; color:var(--text-secondary);">加载中...</td></tr></tbody>
+                    </table>
+                </div>
+                <div id="wlPagination" style="display: flex; justify-content: center; gap: 8px; margin-top: 12px;"></div>
+            </div>
+        </div>
+
+        <!-- 积分管理 -->
+        <div class="panel" id="credits">
+            <div>
+                <h3 style="margin-bottom: 15px; color: var(--accent);">💰 积分管理</h3>
+                <!-- 积分概览（总管理可见） -->
+                <div id="creditsOverviewSection">
+                    <div style="background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px; padding: 15px; margin-bottom: 15px;">
+                        <h4 style="color: var(--accent-yellow); margin-bottom: 12px;">📊 子管理员积分概览</h4>
+                        <div id="creditsOverviewTable" style="overflow-x: auto;">
+                            <table><thead><tr><th>名称</th><th>余额</th><th>活跃账号</th><th>总账号</th><th>操作</th></tr></thead>
+                            <tbody id="creditsOverviewBody"><tr><td colspan="5" style="text-align:center; color:var(--text-secondary);">加载中...</td></tr></tbody></table>
+                        </div>
+                    </div>
+                    <!-- 充值 -->
+                    <div style="background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px; padding: 15px; margin-bottom: 15px;">
+                        <h4 style="color: #00ff88; margin-bottom: 12px;">💳 充值积分</h4>
+                        <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: flex-end;">
+                            <div><label style="display:block; font-size:11px; color:var(--text-secondary); margin-bottom:4px;">子管理员</label>
+                                <input id="topupAdminName" placeholder="名称" style="padding:8px 10px; background:var(--bg-secondary); border:1px solid var(--border); border-radius:6px; color:var(--text-primary); font-size:13px; width:120px;"></div>
+                            <div><label style="display:block; font-size:11px; color:var(--text-secondary); margin-bottom:4px;">积分数量</label>
+                                <input id="topupAmount" type="number" min="1" placeholder="数量" style="padding:8px 10px; background:var(--bg-secondary); border:1px solid var(--border); border-radius:6px; color:var(--text-primary); font-size:13px; width:100px;"></div>
+                            <div><label style="display:block; font-size:11px; color:var(--text-secondary); margin-bottom:4px;">备注</label>
+                                <input id="topupDesc" placeholder="可选" style="padding:8px 10px; background:var(--bg-secondary); border:1px solid var(--border); border-radius:6px; color:var(--text-primary); font-size:13px; width:150px;"></div>
+                            <button class="btn btn-success" onclick="doTopup()" style="padding:8px 16px; font-size:13px;">充值</button>
+                        </div>
+                        <div id="topupMsg" style="display:none; margin-top:8px; font-size:13px; padding:6px 10px; border-radius:6px;"></div>
+                    </div>
+                </div>
+                <!-- 积分定价配置（总管理可见） -->
+                <div id="creditConfigSection">
+                    <div style="background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px; padding: 15px; margin-bottom: 15px;">
+                        <h4 style="color: #45aaf2; margin-bottom: 12px;">⚙️ 积分定价配置</h4>
+                        <div id="creditConfigList" style="margin-bottom: 12px;"></div>
+                        <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: flex-end;">
+                            <div><label style="display:block; font-size:11px; color:var(--text-secondary); margin-bottom:4px;">类型标识</label>
+                                <input id="cfgPlanType" placeholder="如 monthly" style="padding:6px 10px; background:var(--bg-secondary); border:1px solid var(--border); border-radius:6px; color:var(--text-primary); font-size:12px; width:100px;"></div>
+                            <div><label style="display:block; font-size:11px; color:var(--text-secondary); margin-bottom:4px;">显示名</label>
+                                <input id="cfgPlanName" placeholder="如 月付" style="padding:6px 10px; background:var(--bg-secondary); border:1px solid var(--border); border-radius:6px; color:var(--text-primary); font-size:12px; width:80px;"></div>
+                            <div><label style="display:block; font-size:11px; color:var(--text-secondary); margin-bottom:4px;">积分</label>
+                                <input id="cfgCredits" type="number" min="1" style="padding:6px 10px; background:var(--bg-secondary); border:1px solid var(--border); border-radius:6px; color:var(--text-primary); font-size:12px; width:70px;"></div>
+                            <div><label style="display:block; font-size:11px; color:var(--text-secondary); margin-bottom:4px;">天数</label>
+                                <input id="cfgDays" type="number" min="1" style="padding:6px 10px; background:var(--bg-secondary); border:1px solid var(--border); border-radius:6px; color:var(--text-primary); font-size:12px; width:70px;"></div>
+                            <button class="btn" onclick="saveCreditConfig()" style="padding:6px 14px; font-size:12px;">保存</button>
+                        </div>
+                    </div>
+                </div>
+                <!-- 积分流水 -->
+                <div style="background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px; padding: 15px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                        <h4 style="color: #fc5c65; margin: 0;">📜 积分流水</h4>
+                        <select id="txFilterAdmin" onchange="loadCreditTransactions()" style="padding:5px 8px; background:var(--bg-secondary); border:1px solid var(--border); border-radius:6px; color:var(--text-primary); font-size:12px;">
+                            <option value="">全部</option>
+                        </select>
+                    </div>
+                    <div style="overflow-x: auto;">
+                        <table><thead><tr><th>时间</th><th>管理员</th><th>类型</th><th>金额</th><th>余额</th><th>说明</th><th>操作人</th></tr></thead>
+                        <tbody id="txTableBody"><tr><td colspan="7" style="text-align:center; color:var(--text-secondary);">加载中...</td></tr></tbody></table>
+                    </div>
+                    <div id="txPagination" style="display: flex; justify-content: center; gap: 8px; margin-top: 12px;"></div>
+                </div>
+            </div>
+        </div>
+
         <!-- 设置 -->
         <div class="panel" id="settings">
             <div>
@@ -2270,15 +2366,17 @@
             
             // 子管理员：根据权限显示/隐藏
             const perms = JSON.parse(sessionStorage.getItem('admin_permissions') || '{}');
-            const allTabs = ['dashboard', 'online', 'usage', 'users', 'ips', 'banlist', 'license', 'database', 'settings'];
+            const allTabs = ['dashboard', 'online', 'usage', 'users', 'ips', 'banlist', 'whitelist', 'credits', 'license', 'database', 'settings'];
             
             allTabs.forEach(tabName => {
                 const tab = document.querySelector(`.tab[data-panel="${tabName}"]`);
                 if (!tab) return;
                 
                 if (tabName === 'settings') {
-                    // 设置页始终对子管理员隐藏
                     tab.style.display = 'none';
+                } else if (tabName === 'whitelist' || tabName === 'credits') {
+                    // 白名单和积分对所有管理员可见
+                    tab.style.display = '';
                 } else {
                     tab.style.display = perms[tabName] ? '' : 'none';
                 }
@@ -3672,6 +3770,8 @@
                 if (tab.dataset.panel === 'users') loadUsers();
                 if (tab.dataset.panel === 'ips') loadIPs();
                 if (tab.dataset.panel === 'banlist') loadBanlist();
+                if (tab.dataset.panel === 'whitelist') loadWhitelist();
+                if (tab.dataset.panel === 'credits') loadCreditsPage();
                 if (tab.dataset.panel === 'license') {
                     loadLicenseStats();
                     loadLicenses(0);
@@ -4966,6 +5066,330 @@
             setInterval(verifyToken, 30000);
         }
         
+        // ===== 白名单管理 =====
+        let wlPage = 0;
+        let wlCreditConfigs = [];
+
+        async function loadWhitelist(page = 0) {
+            wlPage = page;
+            const search = document.getElementById('wlSearch').value.trim();
+            const params = new URLSearchParams({limit: 50, offset: page * 50});
+            if (search) params.append('search', search);
+            try {
+                const [res, balRes, expRes, cfgRes] = await Promise.all([
+                    fetch(`${API_BASE}/admin/api/whitelist?${params}`, {headers: getHeaders()}),
+                    fetch(`${API_BASE}/admin/api/credits/balance`, {headers: getHeaders()}),
+                    fetch(`${API_BASE}/admin/api/whitelist/expiring?days=7`, {headers: getHeaders()}),
+                    fetch(`${API_BASE}/admin/api/credits/config`)
+                ]);
+                const data = await res.json();
+                const balData = await balRes.json();
+                const expData = await expRes.json();
+                wlCreditConfigs = await cfgRes.json();
+
+                // 余额显示
+                const balEl = document.getElementById('wlBalanceInfo');
+                if (balData.unlimited) {
+                    balEl.textContent = '💰 积分: 无限';
+                } else {
+                    balEl.textContent = `💰 积分: ${balData.balance}`;
+                }
+
+                // 到期提醒
+                const alertEl = document.getElementById('wlExpiringAlert');
+                if (Array.isArray(expData) && expData.length > 0) {
+                    alertEl.style.display = 'block';
+                    document.getElementById('wlExpiringList').textContent = expData.map(a =>
+                        `${a.username}(${new Date(a.expire_time).toLocaleDateString()})`).join(', ');
+                } else {
+                    alertEl.style.display = 'none';
+                }
+
+                // 表格
+                const tbody = document.getElementById('wlTableBody');
+                const rows = data.rows || [];
+                if (rows.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="8" style="text-align:center; color:var(--text-secondary);">暂无数据</td></tr>';
+                } else {
+                    tbody.innerHTML = rows.map(a => {
+                        const statusColors = {active: '#00ff88', expired: '#ff5252', deleted: '#888'};
+                        const statusNames = {active: '有效', expired: '已过期', deleted: '已删除'};
+                        const expDate = a.expire_time ? new Date(a.expire_time).toLocaleString() : '-';
+                        const isExpired = a.status === 'expired' || (a.expire_time && new Date(a.expire_time) < new Date());
+                        return `<tr>
+                            <td style="font-weight:bold;">${a.username}</td>
+                            <td style="color:var(--text-secondary);">${a.password || '-'}</td>
+                            <td>${a.plan_type || '-'}</td>
+                            <td style="color:${isExpired ? '#ff5252' : '#00ff88'};">${expDate}</td>
+                            <td><span style="color:${statusColors[a.status] || '#888'};">${statusNames[a.status] || a.status}</span></td>
+                            <td style="color:var(--text-secondary);">${a.added_by || '-'}</td>
+                            <td style="color:var(--text-secondary); max-width:100px; overflow:hidden; text-overflow:ellipsis;">${a.remark || ''}</td>
+                            <td>
+                                ${a.status !== 'deleted' ? `<button class="btn" onclick="renewWhitelist('${a.username}')" style="padding:3px 8px; font-size:11px; margin-right:4px;">续期</button>
+                                <button class="btn btn-danger" onclick="deleteWhitelist('${a.username}')" style="padding:3px 8px; font-size:11px;">删除</button>` : '-'}
+                            </td>
+                        </tr>`;
+                    }).join('');
+                }
+
+                // 分页
+                const total = data.total || 0;
+                const pages = Math.ceil(total / 50);
+                const pgEl = document.getElementById('wlPagination');
+                if (pages > 1) {
+                    pgEl.innerHTML = Array.from({length: Math.min(pages, 10)}, (_, i) =>
+                        `<button class="btn" onclick="loadWhitelist(${i})" style="padding:4px 10px; font-size:12px; ${i === page ? 'background:var(--accent); color:white;' : ''}">${i+1}</button>`
+                    ).join('') + `<span style="color:var(--text-secondary); font-size:12px; align-self:center;">共${total}条</span>`;
+                } else {
+                    pgEl.innerHTML = total > 0 ? `<span style="color:var(--text-secondary); font-size:12px;">共${total}条</span>` : '';
+                }
+            } catch (e) {
+                console.error('加载白名单失败', e);
+            }
+        }
+
+        function showAddWhitelistModal() {
+            const planOptions = wlCreditConfigs.map(c =>
+                `<option value="${c.plan_type}">${c.plan_name} (${c.credits_cost}积分/${c.duration_days}天)</option>`).join('');
+            const content = `
+                <div style="margin-bottom:12px;">
+                    <label style="display:block; margin-bottom:4px; color:var(--text-secondary); font-size:13px;">游戏账号</label>
+                    <input type="text" id="wlAddUsername" placeholder="输入账号" style="width:100%; padding:8px 10px; background:var(--bg-primary); border:1px solid var(--border); border-radius:6px; color:var(--text-primary);">
+                </div>
+                <div style="margin-bottom:12px;">
+                    <label style="display:block; margin-bottom:4px; color:var(--text-secondary); font-size:13px;">密码（可选，仅记录）</label>
+                    <input type="text" id="wlAddPassword" placeholder="可选" style="width:100%; padding:8px 10px; background:var(--bg-primary); border:1px solid var(--border); border-radius:6px; color:var(--text-primary);">
+                </div>
+                <div style="margin-bottom:12px;">
+                    <label style="display:block; margin-bottom:4px; color:var(--text-secondary); font-size:13px;">套餐</label>
+                    <select id="wlAddPlan" style="width:100%; padding:8px 10px; background:var(--bg-primary); border:1px solid var(--border); border-radius:6px; color:var(--text-primary);">
+                        ${planOptions}
+                    </select>
+                </div>
+                <div style="margin-bottom:12px;">
+                    <label style="display:block; margin-bottom:4px; color:var(--text-secondary); font-size:13px;">备注（可选）</label>
+                    <input type="text" id="wlAddRemark" placeholder="可选" style="width:100%; padding:8px 10px; background:var(--bg-primary); border:1px solid var(--border); border-radius:6px; color:var(--text-primary);">
+                </div>
+            `;
+            showModal('➕ 授权新账号', content, async () => {
+                const username = document.getElementById('wlAddUsername').value.trim();
+                const password = document.getElementById('wlAddPassword').value;
+                const plan_type = document.getElementById('wlAddPlan').value;
+                const remark = document.getElementById('wlAddRemark').value;
+                if (!username) { alert('请输入账号'); return; }
+                try {
+                    const res = await fetch(`${API_BASE}/admin/api/whitelist/add`, {
+                        method: 'POST', headers: {...getHeaders(), 'Content-Type': 'application/json'},
+                        body: JSON.stringify({username, password, plan_type, remark})
+                    });
+                    const data = await res.json();
+                    alert(data.message || (data.success ? '成功' : '失败'));
+                    if (data.success) { document.getElementById('dbModal')?.remove(); loadWhitelist(wlPage); }
+                } catch (e) { alert('请求失败: ' + e.message); }
+            }, '确认授权');
+        }
+
+        async function renewWhitelist(username) {
+            const planOptions = wlCreditConfigs.map(c =>
+                `<option value="${c.plan_type}">${c.plan_name} (${c.credits_cost}积分/${c.duration_days}天)</option>`).join('');
+            const content = `
+                <p style="margin-bottom:12px; color:var(--text-secondary);">续期账号: <strong style="color:var(--accent);">${username}</strong></p>
+                <div style="margin-bottom:12px;">
+                    <label style="display:block; margin-bottom:4px; color:var(--text-secondary); font-size:13px;">续期套餐</label>
+                    <select id="wlRenewPlan" style="width:100%; padding:8px 10px; background:var(--bg-primary); border:1px solid var(--border); border-radius:6px; color:var(--text-primary);">
+                        ${planOptions}
+                    </select>
+                </div>
+            `;
+            showModal('🔄 续期账号', content, async () => {
+                const plan_type = document.getElementById('wlRenewPlan').value;
+                try {
+                    const res = await fetch(`${API_BASE}/admin/api/whitelist/renew`, {
+                        method: 'POST', headers: {...getHeaders(), 'Content-Type': 'application/json'},
+                        body: JSON.stringify({username, plan_type})
+                    });
+                    const data = await res.json();
+                    alert(data.message || (data.success ? '成功' : '失败'));
+                    if (data.success) { document.getElementById('dbModal')?.remove(); loadWhitelist(wlPage); }
+                } catch (e) { alert('请求失败: ' + e.message); }
+            }, '确认续期');
+        }
+
+        async function deleteWhitelist(username) {
+            if (!confirm(`确定删除账号 [${username}] 的授权？\n注意：积分不退还！`)) return;
+            try {
+                const res = await fetch(`${API_BASE}/admin/api/whitelist/delete`, {
+                    method: 'POST', headers: {...getHeaders(), 'Content-Type': 'application/json'},
+                    body: JSON.stringify({username})
+                });
+                const data = await res.json();
+                alert(data.message || (data.success ? '成功' : '失败'));
+                if (data.success) loadWhitelist(wlPage);
+            } catch (e) { alert('请求失败: ' + e.message); }
+        }
+
+        // ===== 积分管理 =====
+        let txPage = 0;
+
+        async function loadCreditsPage() {
+            const role = sessionStorage.getItem('admin_role');
+            const isSup = role === 'super_admin';
+            document.getElementById('creditsOverviewSection').style.display = isSup ? '' : 'none';
+            document.getElementById('creditConfigSection').style.display = isSup ? '' : 'none';
+
+            await Promise.all([
+                isSup ? loadCreditsOverview() : Promise.resolve(),
+                loadCreditConfig(),
+                loadCreditTransactions()
+            ]);
+        }
+
+        async function loadCreditsOverview() {
+            try {
+                const res = await fetch(`${API_BASE}/admin/api/credits/overview`, {headers: getHeaders()});
+                const data = await res.json();
+                if (!Array.isArray(data)) return;
+                const tbody = document.getElementById('creditsOverviewBody');
+                if (data.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; color:var(--text-secondary);">暂无子管理员</td></tr>';
+                    return;
+                }
+                tbody.innerHTML = data.map(s => `<tr>
+                    <td style="font-weight:bold;">${s.name}</td>
+                    <td style="color:var(--accent-yellow); font-weight:bold;">${s.credits}</td>
+                    <td style="color:#00ff88;">${s.active_count}</td>
+                    <td>${s.total_count}</td>
+                    <td><button class="btn" onclick="document.getElementById('topupAdminName').value='${s.name}';document.getElementById('topupAmount').focus();" style="padding:3px 8px; font-size:11px;">充值</button>
+                        <button class="btn" onclick="loadCreditTransactions('${s.name}')" style="padding:3px 8px; font-size:11px;">流水</button></td>
+                </tr>`).join('');
+
+                // 更新流水筛选下拉
+                const select = document.getElementById('txFilterAdmin');
+                const currentVal = select.value;
+                select.innerHTML = '<option value="">全部</option>' + data.map(s =>
+                    `<option value="${s.name}" ${s.name === currentVal ? 'selected' : ''}>${s.name}</option>`).join('');
+            } catch (e) { console.error('加载积分概览失败', e); }
+        }
+
+        async function loadCreditConfig() {
+            try {
+                const res = await fetch(`${API_BASE}/admin/api/credits/config`);
+                const data = await res.json();
+                if (!Array.isArray(data)) return;
+                wlCreditConfigs = data;
+                const el = document.getElementById('creditConfigList');
+                if (data.length === 0) {
+                    el.innerHTML = '<div style="color:var(--text-secondary); font-size:13px;">暂无定价配置</div>';
+                    return;
+                }
+                el.innerHTML = '<div style="display:flex; flex-wrap:wrap; gap:8px;">' + data.map(c =>
+                    `<div style="background:var(--bg-secondary); border-radius:8px; padding:8px 12px; display:flex; align-items:center; gap:8px;">
+                        <span style="font-weight:bold; color:var(--accent);">${c.plan_name}</span>
+                        <span style="color:var(--text-secondary); font-size:12px;">${c.credits_cost}积分/${c.duration_days}天</span>
+                        <span style="color:var(--text-secondary); font-size:11px;">(${c.plan_type})</span>
+                        ${isSuperAdmin() ? `<button onclick="deleteCreditConfig('${c.plan_type}')" style="background:none; border:none; color:#ff5252; cursor:pointer; font-size:14px;">✕</button>` : ''}
+                    </div>`
+                ).join('') + '</div>';
+            } catch (e) { console.error('加载定价失败', e); }
+        }
+
+        async function saveCreditConfig() {
+            const plan_type = document.getElementById('cfgPlanType').value.trim();
+            const plan_name = document.getElementById('cfgPlanName').value.trim();
+            const credits_cost = parseInt(document.getElementById('cfgCredits').value) || 0;
+            const duration_days = parseInt(document.getElementById('cfgDays').value) || 0;
+            if (!plan_type || !plan_name || credits_cost <= 0 || duration_days <= 0) {
+                alert('请填写完整的定价信息'); return;
+            }
+            try {
+                const res = await fetch(`${API_BASE}/admin/api/credits/config`, {
+                    method: 'POST', headers: {...getHeaders(), 'Content-Type': 'application/json'},
+                    body: JSON.stringify({plan_type, plan_name, credits_cost, duration_days})
+                });
+                const data = await res.json();
+                alert(data.message || '操作完成');
+                if (data.success) loadCreditConfig();
+            } catch (e) { alert('保存失败: ' + e.message); }
+        }
+
+        async function deleteCreditConfig(planType) {
+            if (!confirm(`确定删除定价 [${planType}]？`)) return;
+            try {
+                const res = await fetch(`${API_BASE}/admin/api/credits/config/${planType}`, {
+                    method: 'DELETE', headers: getHeaders()
+                });
+                const data = await res.json();
+                alert(data.message || '操作完成');
+                loadCreditConfig();
+            } catch (e) { alert('删除失败: ' + e.message); }
+        }
+
+        async function doTopup() {
+            const admin_name = document.getElementById('topupAdminName').value.trim();
+            const amount = parseInt(document.getElementById('topupAmount').value) || 0;
+            const description = document.getElementById('topupDesc').value;
+            if (!admin_name || amount <= 0) {
+                alert('请填写子管理员名称和充值数量'); return;
+            }
+            const msgEl = document.getElementById('topupMsg');
+            try {
+                const res = await fetch(`${API_BASE}/admin/api/credits/topup`, {
+                    method: 'POST', headers: {...getHeaders(), 'Content-Type': 'application/json'},
+                    body: JSON.stringify({admin_name, amount, description})
+                });
+                const data = await res.json();
+                msgEl.style.display = 'block';
+                msgEl.style.background = data.success ? 'rgba(0,255,136,0.1)' : 'rgba(255,82,82,0.1)';
+                msgEl.style.color = data.success ? '#00ff88' : '#ff5252';
+                msgEl.textContent = data.message || '操作完成';
+                if (data.success) {
+                    document.getElementById('topupAmount').value = '';
+                    document.getElementById('topupDesc').value = '';
+                    loadCreditsOverview();
+                    loadCreditTransactions();
+                }
+                setTimeout(() => msgEl.style.display = 'none', 5000);
+            } catch (e) {
+                msgEl.style.display = 'block'; msgEl.style.background = 'rgba(255,82,82,0.1)';
+                msgEl.style.color = '#ff5252'; msgEl.textContent = '充值失败: ' + e.message;
+            }
+        }
+
+        async function loadCreditTransactions(filterName) {
+            txPage = 0;
+            if (filterName !== undefined) {
+                document.getElementById('txFilterAdmin').value = filterName || '';
+            }
+            const adminName = document.getElementById('txFilterAdmin').value;
+            const params = new URLSearchParams({limit: 50, offset: 0});
+            if (adminName) params.append('admin_name', adminName);
+            try {
+                const res = await fetch(`${API_BASE}/admin/api/credits/transactions?${params}`, {headers: getHeaders()});
+                const data = await res.json();
+                const tbody = document.getElementById('txTableBody');
+                const rows = data.rows || [];
+                if (rows.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center; color:var(--text-secondary);">暂无记录</td></tr>';
+                } else {
+                    tbody.innerHTML = rows.map(t => {
+                        const isTopup = t.type === 'topup';
+                        const amtColor = isTopup ? '#00ff88' : '#ff5252';
+                        const amtPrefix = isTopup ? '+' : '';
+                        const typeNames = {topup: '充值', deduct: '扣除', refund: '退回'};
+                        return `<tr>
+                            <td style="font-size:12px;">${t.created_at ? new Date(t.created_at).toLocaleString() : '-'}</td>
+                            <td>${t.admin_name}</td>
+                            <td style="color:${amtColor};">${typeNames[t.type] || t.type}</td>
+                            <td style="color:${amtColor}; font-weight:bold;">${amtPrefix}${t.amount}</td>
+                            <td>${t.balance_after}</td>
+                            <td style="color:var(--text-secondary); max-width:150px; overflow:hidden; text-overflow:ellipsis;">${t.description || ''}</td>
+                            <td style="color:var(--text-secondary);">${t.operator || ''}</td>
+                        </tr>`;
+                    }).join('');
+                }
+            } catch (e) { console.error('加载流水失败', e); }
+        }
+
         // 如果已登录，直接初始化
         if (isLoggedIn) {
             initApp();

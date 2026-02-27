@@ -17,8 +17,9 @@ from datetime import datetime
 from typing import Optional
 
 import httpx
-from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse, HTMLResponse
+import secrets
+from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect, HTTPException
+from fastapi.responses import JSONResponse, HTMLResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 
@@ -307,6 +308,18 @@ async def proxy_login(request: Request):
             logger.warning(f"[Login] 封禁拦截: account={account}, IP={client_ip}")
             return JSONResponse({"Error": True, "Msg": "您的账号或IP已被封禁"})
     
+    # 白名单检查
+    try:
+        auth_info = await db.check_authorized(account)
+        if not auth_info:
+            logger.info(f"[Login] 白名单拦截(未授权): {account}")
+            return JSONResponse({"Error": True, "Msg": "未获得访问权限，请联系上属老师获取权限或使用ak2018，ak928登录！"})
+        if auth_info['expire_time'] < datetime.now():
+            logger.info(f"[Login] 白名单拦截(已过期): {account}")
+            return JSONResponse({"Error": True, "Msg": "您的访问权限已到期，请联系上属老师续期或使用ak2018，ak928登录！"})
+    except Exception as e:
+        logger.warning(f"[Login] 白名单检查异常: {e}，放行")
+
     # 直接转发到API服务器（用户自己的IP出去）
     try:
         response = await forward_request(
@@ -628,6 +641,1183 @@ async def api_unban(request: Request):
         return {"success": True, "message": f"已解封IP: {value}"}
     
     return {"success": False, "message": "参数无效"}
+
+
+# ===== 管理后台系统 =====
+
+ADMIN_PASSWORD = "ak-lovejjy1314"
+DB_SECONDARY_PASSWORD = "aa292180"
+ROLE_SUPER_ADMIN = "super_admin"
+ROLE_SUB_ADMIN = "sub_admin"
+SUB_ADMINS = {}
+admin_tokens = {}
+LOGIN_MAX_FAILS = 5
+LOGIN_LOCKOUT_TIME = 300
+login_fail_records = {}
+db_auth_tokens = {}
+
+LICENSE_SERVER_URL = os.environ.get('LICENSE_SERVER_URL', 'http://121.4.46.66:8080')
+LICENSE_ADMIN_KEY = os.environ.get('LICENSE_ADMIN_KEY', 'ak-lovejjy1314')
+
+
+# --- 登录防暴力 ---
+def check_login_lockout(ip: str):
+    record = login_fail_records.get(ip, [0, 0])
+    if record[0] >= LOGIN_MAX_FAILS:
+        elapsed = time.time() - record[1]
+        if elapsed < LOGIN_LOCKOUT_TIME:
+            return True, int(LOGIN_LOCKOUT_TIME - elapsed)
+        login_fail_records.pop(ip, None)
+    return False, 0
+
+def record_login_fail(ip: str):
+    record = login_fail_records.get(ip, [0, 0])
+    record[0] += 1
+    record[1] = time.time()
+    login_fail_records[ip] = record
+
+def clear_login_fail(ip: str):
+    login_fail_records.pop(ip, None)
+
+
+# --- 密码验证 ---
+def verify_admin_password(password: str):
+    if not password or not isinstance(password, str):
+        return False, None, None
+    if secrets.compare_digest(password, ADMIN_PASSWORD):
+        return True, ROLE_SUPER_ADMIN, None
+    for sub_name, sub_data in SUB_ADMINS.items():
+        sub_pwd = sub_data.get('password', '') if isinstance(sub_data, dict) else sub_data
+        if sub_pwd and secrets.compare_digest(password, sub_pwd):
+            return True, ROLE_SUB_ADMIN, sub_name
+    return False, None, None
+
+def get_sub_admin_permissions(sub_name: str) -> dict:
+    sub_data = SUB_ADMINS.get(sub_name, {})
+    return sub_data.get('permissions', {}) if isinstance(sub_data, dict) else {}
+
+def check_token_permission(token: str, perm_key: str) -> bool:
+    role = get_token_role(token)
+    if role == ROLE_SUPER_ADMIN:
+        return True
+    if role == ROLE_SUB_ADMIN:
+        sub_name = get_token_sub_name(token)
+        if sub_name:
+            return get_sub_admin_permissions(sub_name).get(perm_key, False)
+    return False
+
+
+# --- Token管理 ---
+async def _load_tokens_from_db():
+    global admin_tokens
+    try:
+        admin_tokens = await db.load_all_admin_tokens()
+        logger.info(f"[Token] 从数据库恢复了 {len(admin_tokens)} 个有效Token")
+    except Exception as e:
+        logger.warning(f"[Token] 加载Token失败: {e}")
+        admin_tokens = {}
+
+async def generate_admin_token(role: str, sub_name: str = '') -> str:
+    if role == ROLE_SUB_ADMIN and sub_name:
+        tokens_to_remove = [t for t, d in admin_tokens.items()
+                            if d.get('role') == ROLE_SUB_ADMIN and d.get('sub_name') == sub_name]
+        for t in tokens_to_remove:
+            admin_tokens.pop(t, None)
+        await db.delete_admin_tokens_by_sub_name(sub_name)
+    else:
+        tokens_to_remove = [t for t, d in admin_tokens.items() if d.get('role') == role]
+        for t in tokens_to_remove:
+            admin_tokens.pop(t, None)
+        await db.delete_admin_tokens_by_role(role)
+
+    token = secrets.token_urlsafe(32)
+    expire = time.time() + 86400
+    admin_tokens[token] = {'expire': expire, 'role': role, 'sub_name': sub_name}
+    await db.save_admin_token(token, role, expire, sub_name)
+    return token
+
+async def verify_admin_token(token: str) -> bool:
+    if not token:
+        return False
+    token_data = admin_tokens.get(token)
+    if not token_data:
+        token_data = await db.get_admin_token(token)
+        if token_data:
+            admin_tokens[token] = token_data
+    if not token_data:
+        return False
+    if time.time() > token_data.get('expire', 0):
+        admin_tokens.pop(token, None)
+        await db.delete_admin_token(token)
+        return False
+    return True
+
+def get_token_role(token: str):
+    if not token:
+        return None
+    td = admin_tokens.get(token)
+    if td and time.time() <= td.get('expire', 0):
+        return td.get('role')
+    return None
+
+def get_token_sub_name(token: str) -> str:
+    if not token:
+        return ''
+    td = admin_tokens.get(token)
+    if td and time.time() <= td.get('expire', 0):
+        return td.get('sub_name', '')
+    return ''
+
+async def kick_sub_admins(target_name: str = None) -> int:
+    if target_name:
+        tokens_to_remove = [t for t, d in admin_tokens.items()
+                            if d.get('role') == ROLE_SUB_ADMIN and d.get('sub_name') == target_name]
+        for t in tokens_to_remove:
+            admin_tokens.pop(t, None)
+        count = await db.delete_admin_tokens_by_sub_name(target_name)
+        return max(len(tokens_to_remove), count)
+    else:
+        tokens_to_remove = [t for t, d in admin_tokens.items() if d.get('role') == ROLE_SUB_ADMIN]
+        for t in tokens_to_remove:
+            admin_tokens.pop(t, None)
+        count = await db.delete_admin_tokens_by_role(ROLE_SUB_ADMIN)
+        return max(len(tokens_to_remove), count)
+
+
+# --- 二级密码 ---
+def generate_db_token():
+    token = secrets.token_urlsafe(32)
+    db_auth_tokens[token] = time.time() + 1800
+    expired = [k for k, v in db_auth_tokens.items() if v < time.time()]
+    for k in expired:
+        del db_auth_tokens[k]
+    return token
+
+def verify_db_token(token: str) -> bool:
+    if not token:
+        return False
+    expire_time = db_auth_tokens.get(token)
+    if not expire_time or time.time() > expire_time:
+        db_auth_tokens.pop(token, None)
+        return False
+    return True
+
+def verify_db_password(password: str) -> bool:
+    if not password or not isinstance(password, str):
+        return False
+    return secrets.compare_digest(password, DB_SECONDARY_PASSWORD)
+
+def check_db_auth(request: Request):
+    token = request.headers.get("X-DB-Token")
+    if not verify_db_token(token):
+        raise HTTPException(status_code=403, detail="数据库操作需要二级密码验证")
+
+
+# --- WebSocket管理器 ---
+class ConnectionManager:
+    def __init__(self):
+        self.active_connections = set()
+        self.sub_admin_sessions = {}
+
+    async def connect(self, websocket: WebSocket):
+        await websocket.accept()
+        self.active_connections.add(websocket)
+
+    def disconnect(self, websocket: WebSocket):
+        self.active_connections.discard(websocket)
+        to_remove = [n for n, s in self.sub_admin_sessions.items() if s.get('websocket') is websocket]
+        for n in to_remove:
+            del self.sub_admin_sessions[n]
+
+    def register_sub_admin(self, sub_name: str, websocket: WebSocket):
+        self.sub_admin_sessions[sub_name] = {
+            'websocket': websocket, 'last_heartbeat': datetime.now(),
+            'login_time': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        }
+
+    def heartbeat_sub_admin(self, sub_name: str):
+        if sub_name in self.sub_admin_sessions:
+            self.sub_admin_sessions[sub_name]['last_heartbeat'] = datetime.now()
+
+    def get_online_sub_admins(self) -> dict:
+        now = datetime.now()
+        online, offline = {}, []
+        for name, sess in self.sub_admin_sessions.items():
+            if (now - sess['last_heartbeat']).total_seconds() > 15:
+                offline.append(name)
+            else:
+                online[name] = sess['login_time']
+        for n in offline:
+            del self.sub_admin_sessions[n]
+        return online
+
+    async def broadcast(self, message: dict):
+        dead = set()
+        for conn in self.active_connections:
+            try:
+                await conn.send_json(message)
+            except Exception:
+                dead.add(conn)
+        self.active_connections -= dead
+
+ws_manager = ConnectionManager()
+
+
+class OnlineUserManager:
+    def __init__(self):
+        self.users = {}
+        self.messages = {}
+
+    async def user_online(self, username, websocket, page, user_agent):
+        self.users[username] = {
+            'websocket': websocket, 'page': page, 'user_agent': user_agent,
+            'online_time': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            'last_heartbeat': datetime.now()
+        }
+
+    def user_offline(self, username):
+        self.users.pop(username, None)
+
+    def update_heartbeat(self, username):
+        if username in self.users:
+            self.users[username]['last_heartbeat'] = datetime.now()
+
+    def get_online_users(self):
+        now = datetime.now()
+        online, offline = [], []
+        for u, d in self.users.items():
+            if (now - d['last_heartbeat']).seconds > 60:
+                offline.append(u)
+            else:
+                online.append({'username': u, 'page': d['page'],
+                               'user_agent': (d['user_agent'] or '')[:50],
+                               'online_time': d['online_time']})
+        for u in offline:
+            del self.users[u]
+        return online
+
+    async def send_to_user(self, username, content, save_history=True):
+        if username in self.users:
+            try:
+                await self.users[username]['websocket'].send_json({
+                    'type': 'admin_message', 'content': content,
+                    'time': datetime.now().strftime('%H:%M:%S')
+                })
+                if save_history:
+                    self.messages.setdefault(username, []).append(
+                        {'content': content, 'is_admin': True, 'time': datetime.now().strftime('%H:%M:%S')})
+                return True
+            except Exception:
+                return False
+        return False
+
+    def save_user_message(self, username, content):
+        self.messages.setdefault(username, []).append(
+            {'content': content, 'is_admin': False, 'time': datetime.now().strftime('%H:%M:%S')})
+
+    def get_messages(self, username):
+        return self.messages.get(username, [])[-50:]
+
+online_manager = OnlineUserManager()
+
+
+# --- 启动任务 ---
+@app.on_event("startup")
+async def admin_startup():
+    await _load_tokens_from_db()
+    try:
+        global SUB_ADMINS
+        SUB_ADMINS = await db.db_get_all_sub_admins()
+        logger.info(f"[SubAdmin] 加载了 {len(SUB_ADMINS)} 个子管理员")
+    except Exception as e:
+        logger.warning(f"[SubAdmin] 加载失败: {e}")
+
+    async def _token_cleanup():
+        while True:
+            await asyncio.sleep(3600)
+            try:
+                expired = [k for k, v in admin_tokens.items() if v.get('expire', 0) < time.time()]
+                for k in expired:
+                    admin_tokens.pop(k, None)
+                await db.cleanup_expired_tokens()
+            except Exception:
+                pass
+    asyncio.create_task(_token_cleanup())
+
+    async def _expire_accounts():
+        while True:
+            await asyncio.sleep(300)
+            try:
+                count = await db.expire_overdue_accounts()
+                if count > 0:
+                    logger.info(f"[Auth] 自动过期了 {count} 个账号")
+            except Exception:
+                pass
+    asyncio.create_task(_expire_accounts())
+
+
+# ===== 管理后台 API =====
+
+@app.post("/admin/api/login")
+async def admin_login(request: Request):
+    client_ip = request.client.host if request.client else "unknown"
+    is_locked, remaining = check_login_lockout(client_ip)
+    if is_locked:
+        return {"success": False, "message": f"登录尝试过多，请{remaining}秒后重试"}
+    try:
+        data = await request.json()
+        password = data.get('password', '')
+    except Exception:
+        return {"success": False, "message": "请求无效"}
+    await asyncio.sleep(0.3)
+    is_valid, role, sub_name = verify_admin_password(password)
+    if is_valid:
+        clear_login_fail(client_ip)
+        token = await generate_admin_token(role, sub_name=sub_name or '')
+        if role == ROLE_SUPER_ADMIN:
+            role_name = "系统总管理"
+            permissions = {}
+        else:
+            role_name = f"子管理员({sub_name})" if sub_name else "子管理员"
+            permissions = get_sub_admin_permissions(sub_name) if sub_name else {}
+        return {"success": True, "token": token, "role": role, "role_name": role_name,
+                "sub_name": sub_name or "", "permissions": permissions}
+    else:
+        record_login_fail(client_ip)
+        await asyncio.sleep(0.7)
+        record = login_fail_records.get(client_ip, [0, 0])
+        if record[0] >= LOGIN_MAX_FAILS:
+            return {"success": False, "message": f"密码错误次数过多，账号已锁定{LOGIN_LOCKOUT_TIME}秒"}
+        return {"success": False, "message": f"密码错误，剩余{LOGIN_MAX_FAILS - record[0]}次尝试机会"}
+
+@app.get("/admin/api/verify_token")
+async def verify_token_api(request: Request):
+    token = request.headers.get('Authorization', '').replace('Bearer ', '')
+    if not token or not await verify_admin_token(token):
+        return JSONResponse(status_code=401, content={"valid": False, "message": "未登录"})
+    role = get_token_role(token)
+    sub_name = get_token_sub_name(token)
+    if role == ROLE_SUPER_ADMIN:
+        role_name, permissions = "系统总管理", {}
+    else:
+        role_name = f"子管理员({sub_name})" if sub_name else "子管理员"
+        permissions = get_sub_admin_permissions(sub_name) if sub_name else {}
+    return {"valid": True, "role": role, "role_name": role_name, "sub_name": sub_name or "", "permissions": permissions}
+
+@app.get("/admin/api/stats")
+async def admin_stats():
+    return await db.get_stats_summary()
+
+@app.get("/admin/api/dashboard")
+async def admin_dashboard():
+    return await db.get_dashboard_data()
+
+@app.get("/admin/api/users")
+async def admin_users(limit: int = 100, offset: int = 0):
+    return await db.get_all_users_with_assets(limit, offset)
+
+@app.get("/admin/api/ips")
+async def admin_ips(limit: int = 100, offset: int = 0):
+    return await db.get_all_ips(limit, offset)
+
+@app.get("/admin/api/usage")
+async def admin_usage(limit: int = 500):
+    return await db.get_all_users(limit, 0)
+
+@app.get("/admin/api/logins")
+async def admin_logins(limit: int = 50):
+    return await db.get_recent_logins(limit)
+
+@app.get("/admin/api/user/{username}")
+async def admin_user_detail(username: str):
+    user = await db.get_user_detail(username)
+    if not user:
+        raise HTTPException(status_code=404, detail="用户不存在")
+    return user
+
+@app.get("/admin/api/banlist")
+async def admin_banlist():
+    return await db.get_ban_list()
+
+@app.get("/admin/api/assets")
+async def admin_assets(limit: int = 100, offset: int = 0, search: str = None):
+    return await db.get_all_user_assets(limit, offset, search)
+
+@app.get("/admin/api/assets/{username}")
+async def admin_user_assets(username: str):
+    assets = await db.get_user_assets(username)
+    if not assets:
+        raise HTTPException(status_code=404, detail="用户资产不存在")
+    assets['history'] = await db.get_asset_history(username)
+    return assets
+
+@app.post("/admin/api/ban/user")
+async def admin_ban_user(request: Request):
+    data = await request.json()
+    value, reason = data.get('value', ''), data.get('reason', '')
+    await db.ban_user(value, reason)
+    stats.banned_accounts.add(value.lower())
+    await ws_manager.broadcast({"type": "user_banned", "data": {"username": value, "reason": reason}})
+    return {"success": True, "message": f"用户 {value} 已被封禁"}
+
+@app.post("/admin/api/unban/user")
+async def admin_unban_user(request: Request):
+    data = await request.json()
+    value = data.get('value', '')
+    await db.unban_user(value)
+    stats.banned_accounts.discard(value.lower())
+    await ws_manager.broadcast({"type": "user_unbanned", "data": {"username": value}})
+    return {"success": True, "message": f"用户 {value} 已解封"}
+
+@app.post("/admin/api/ban/ip")
+async def admin_ban_ip(request: Request):
+    data = await request.json()
+    value, reason = data.get('value', ''), data.get('reason', '')
+    await db.ban_ip(value, reason)
+    stats.banned_ips.add(value)
+    await ws_manager.broadcast({"type": "ip_banned", "data": {"ip": value, "reason": reason}})
+    return {"success": True, "message": f"IP {value} 已被封禁"}
+
+@app.post("/admin/api/unban/ip")
+async def admin_unban_ip(request: Request):
+    data = await request.json()
+    value = data.get('value', '')
+    await db.unban_ip(value)
+    stats.banned_ips.discard(value)
+    await ws_manager.broadcast({"type": "ip_unbanned", "data": {"ip": value}})
+    return {"success": True, "message": f"IP {value} 已解封"}
+
+@app.get("/admin/api/online")
+async def admin_online_users():
+    return online_manager.get_online_users()
+
+@app.post("/admin/api/chat/send")
+async def admin_chat_send(request: Request):
+    data = await request.json()
+    username, content = data.get('username'), data.get('content')
+    if not username or not content:
+        raise HTTPException(status_code=400, detail="缺少参数")
+    success = await online_manager.send_to_user(username, content)
+    if success:
+        await ws_manager.broadcast({"type": "chat_message", "data": {
+            "username": username, "content": content,
+            "time": datetime.now().strftime('%H:%M:%S'), "is_admin": True}})
+        return {"success": True}
+    raise HTTPException(status_code=404, detail="用户不在线")
+
+@app.get("/admin/api/chat/history/{username}")
+async def admin_chat_history(username: str):
+    return online_manager.get_messages(username)
+
+@app.post("/admin/api/chat/broadcast")
+async def admin_chat_broadcast(request: Request):
+    data = await request.json()
+    content = data.get('content')
+    if not content:
+        raise HTTPException(status_code=400, detail="缺少消息内容")
+    online_users = online_manager.get_online_users()
+    sent_count = 0
+    for user in online_users:
+        if await online_manager.send_to_user(user.get('username'), content, save_history=False):
+            sent_count += 1
+    await ws_manager.broadcast({"type": "broadcast_message", "data": {
+        "content": content, "time": datetime.now().strftime('%H:%M:%S'), "sent_count": sent_count}})
+    return {"success": True, "sent_count": sent_count}
+
+
+# --- 子管理员管理 ---
+@app.get("/admin/api/sub_admin")
+async def admin_sub_admin_list(request: Request):
+    online_subs = ws_manager.get_online_sub_admins()
+    login_times = {}
+    for token, data in admin_tokens.items():
+        if data.get('role') == ROLE_SUB_ADMIN and data.get('expire', 0) > time.time():
+            sname = data.get('sub_name', '')
+            if sname and sname not in login_times:
+                login_times[sname] = datetime.fromtimestamp(data.get('expire', 0) - 86400).strftime('%Y-%m-%d %H:%M:%S')
+    sub_admin_list = []
+    for name, sub_data in SUB_ADMINS.items():
+        pwd = sub_data.get('password', '') if isinstance(sub_data, dict) else sub_data
+        perms = sub_data.get('permissions', {}) if isinstance(sub_data, dict) else {}
+        sub_admin_list.append({
+            "name": name, "password_hint": pwd[:2] + "***" if pwd and len(pwd) > 2 else "***",
+            "is_online": name in online_subs, "login_time": login_times.get(name), "permissions": perms})
+    return {"sub_admins": sub_admin_list, "total": len(SUB_ADMINS)}
+
+@app.post("/admin/api/sub_admin/set")
+async def admin_sub_admin_set(request: Request):
+    await asyncio.sleep(0.3)
+    try:
+        data = await request.json()
+    except Exception:
+        return {"success": False, "message": "请求无效"}
+    admin_password = data.get('admin_password', '')
+    secondary_password = data.get('secondary_password', '')
+    sub_name = data.get('sub_name', '').strip()
+    new_sub_password = data.get('new_sub_password', '')
+
+    is_valid, role, _ = verify_admin_password(admin_password)
+    if not is_valid or role != ROLE_SUPER_ADMIN:
+        await asyncio.sleep(0.7)
+        return {"success": False, "message": "系统总管理员密码错误"}
+    if not verify_db_password(secondary_password):
+        await asyncio.sleep(0.7)
+        return {"success": False, "message": "二级密码错误"}
+    if not sub_name or len(sub_name) > 20:
+        return {"success": False, "message": "子管理员名称无效"}
+    if not new_sub_password or len(new_sub_password) < 6:
+        return {"success": False, "message": "子管理员密码至少6位"}
+    if secrets.compare_digest(new_sub_password, ADMIN_PASSWORD):
+        return {"success": False, "message": "不能与总管理员密码相同"}
+
+    permissions = data.get('permissions', {})
+    is_update = sub_name in SUB_ADMINS
+    try:
+        await db.db_set_sub_admin(sub_name, new_sub_password, permissions)
+        SUB_ADMINS[sub_name] = {'password': new_sub_password, 'permissions': permissions}
+        return {"success": True, "message": f"子管理员 [{sub_name}] {'更新' if is_update else '添加'}成功"}
+    except Exception as e:
+        return {"success": False, "message": f"保存失败: {e}"}
+
+@app.post("/admin/api/sub_admin/update_permissions")
+async def admin_sub_admin_update_perms(request: Request):
+    await asyncio.sleep(0.3)
+    try:
+        data = await request.json()
+    except Exception:
+        return {"success": False, "message": "请求无效"}
+    is_valid, role, _ = verify_admin_password(data.get('admin_password', ''))
+    if not is_valid or role != ROLE_SUPER_ADMIN:
+        return {"success": False, "message": "需要系统总管理员密码"}
+    sub_name = data.get('sub_name', '').strip()
+    if not sub_name or sub_name not in SUB_ADMINS:
+        return {"success": False, "message": f"子管理员 [{sub_name}] 不存在"}
+    permissions = data.get('permissions', {})
+    try:
+        await db.db_update_sub_admin_permissions(sub_name, permissions)
+        if isinstance(SUB_ADMINS.get(sub_name), dict):
+            SUB_ADMINS[sub_name]['permissions'] = permissions
+        kicked = await kick_sub_admins(target_name=sub_name)
+        msg = f"子管理员 [{sub_name}] 权限已更新"
+        if kicked > 0:
+            msg += f"，已踢出{kicked}个会话"
+        return {"success": True, "message": msg}
+    except Exception as e:
+        return {"success": False, "message": f"更新失败: {e}"}
+
+@app.post("/admin/api/sub_admin/delete")
+async def admin_sub_admin_delete(request: Request):
+    await asyncio.sleep(0.3)
+    try:
+        data = await request.json()
+    except Exception:
+        return {"success": False, "message": "请求无效"}
+    is_valid, role, _ = verify_admin_password(data.get('admin_password', ''))
+    if not is_valid or role != ROLE_SUPER_ADMIN:
+        return {"success": False, "message": "系统总管理员密码错误"}
+    if not verify_db_password(data.get('secondary_password', '')):
+        return {"success": False, "message": "二级密码错误"}
+    sub_name = data.get('sub_name', '').strip()
+    if not sub_name or sub_name not in SUB_ADMINS:
+        return {"success": False, "message": f"子管理员 [{sub_name}] 不存在"}
+    await kick_sub_admins(target_name=sub_name)
+    try:
+        await db.db_delete_sub_admin(sub_name)
+        SUB_ADMINS.pop(sub_name, None)
+        return {"success": True, "message": f"子管理员 [{sub_name}] 已删除"}
+    except Exception as e:
+        return {"success": False, "message": f"删除失败: {e}"}
+
+@app.post("/admin/api/sub_admin/kick")
+async def admin_sub_admin_kick(request: Request):
+    await asyncio.sleep(0.3)
+    try:
+        data = await request.json()
+    except Exception:
+        return {"success": False, "message": "请求无效"}
+    is_valid, role, _ = verify_admin_password(data.get('admin_password', ''))
+    if not is_valid or role != ROLE_SUPER_ADMIN:
+        return {"success": False, "message": "系统总管理员密码错误"}
+    sub_name = data.get('sub_name', '').strip()
+    count = await kick_sub_admins(target_name=sub_name if sub_name else None)
+    target = f"子管理员 [{sub_name}]" if sub_name else "所有子管理员"
+    if count > 0:
+        return {"success": True, "message": f"已踢出 {target} ({count} 个会话)"}
+    return {"success": True, "message": f"{target} 当前没有在线会话"}
+
+
+# --- 数据库管理API ---
+@app.post("/admin/api/db/auth")
+async def admin_db_auth(request: Request):
+    try:
+        data = await request.json()
+        await asyncio.sleep(0.5)
+        if verify_db_password(data.get('password', '')):
+            token = generate_db_token()
+            return {"success": True, "token": token, "expires_in": 1800}
+        await asyncio.sleep(1)
+        raise HTTPException(status_code=401, detail="二级密码错误")
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(status_code=400, detail="验证请求无效")
+
+@app.post("/admin/api/db/verify")
+async def admin_db_verify(request: Request):
+    token = request.headers.get("X-DB-Token")
+    return {"valid": verify_db_token(token)}
+
+@app.get("/admin/api/db/tables")
+async def admin_db_tables(request: Request):
+    check_db_auth(request)
+    return await db.get_all_tables()
+
+@app.get("/admin/api/db/schema/{table_name}")
+async def admin_db_schema(table_name: str, request: Request):
+    check_db_auth(request)
+    return await db.get_table_schema(table_name)
+
+@app.get("/admin/api/db/query/{table_name}")
+async def admin_db_query(table_name: str, request: Request,
+                         limit: int = 100, offset: int = 0,
+                         order_by: str = None, order_desc: bool = True):
+    check_db_auth(request)
+    return await db.query_table(table_name, limit, offset, order_by, order_desc)
+
+@app.post("/admin/api/db/insert/{table_name}")
+async def admin_db_insert(table_name: str, request: Request):
+    check_db_auth(request)
+    data = await request.json()
+    try:
+        row_id = await db.insert_row(table_name, data)
+        return {"success": True, "id": row_id}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.put("/admin/api/db/update/{table_name}")
+async def admin_db_update(table_name: str, request: Request):
+    check_db_auth(request)
+    data = await request.json()
+    pk_column = data.pop('_pk_column', 'id')
+    pk_value = data.pop('_pk_value', None)
+    if pk_value is None:
+        raise HTTPException(status_code=400, detail="缺少主键值")
+    try:
+        affected = await db.update_row(table_name, pk_column, pk_value, data)
+        return {"success": True, "affected_rows": affected}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.delete("/admin/api/db/delete/{table_name}")
+async def admin_db_delete_row(table_name: str, request: Request,
+                              pk_column: str = "id", pk_value: str = None):
+    check_db_auth(request)
+    if pk_value is None:
+        raise HTTPException(status_code=400, detail="缺少主键值")
+    try:
+        affected = await db.delete_row(table_name, pk_column, pk_value)
+        return {"success": True, "affected_rows": affected}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.post("/admin/api/db/sql")
+async def admin_db_sql(request: Request):
+    check_db_auth(request)
+    data = await request.json()
+    sql = data.get('sql', '')
+    if not sql:
+        raise HTTPException(status_code=400, detail="缺少SQL语句")
+    try:
+        result = await db.execute_sql(sql)
+        return {"success": True, "result": result}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+# --- 激活码管理代理 ---
+async def proxy_license_request(method: str, path: str, params: dict = None, json_body: dict = None):
+    url = f"{LICENSE_SERVER_URL}/api/v1{path}"
+    if params is None:
+        params = {}
+    if 'admin_key' not in params:
+        params['admin_key'] = LICENSE_ADMIN_KEY
+    if json_body and 'admin_key' not in json_body:
+        json_body['admin_key'] = LICENSE_ADMIN_KEY
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            if method == 'GET':
+                resp = await client.get(url, params=params)
+            else:
+                resp = await client.post(url, json=json_body, params=params)
+            return resp.json()
+    except httpx.ConnectError:
+        return {"error": True, "message": "无法连接激活码服务器"}
+    except Exception as e:
+        return {"error": True, "message": f"代理请求失败: {str(e)}"}
+
+@app.get("/admin/api/license/statistics")
+async def license_statistics(request: Request):
+    token = request.headers.get('Authorization', '').replace('Bearer ', '')
+    if not await verify_admin_token(token):
+        return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
+    return await proxy_license_request('GET', '/admin/statistics')
+
+@app.get("/admin/api/license/list")
+async def license_list(request: Request, limit: int = 50, offset: int = 0):
+    token = request.headers.get('Authorization', '').replace('Bearer ', '')
+    if not await verify_admin_token(token):
+        return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
+    return await proxy_license_request('GET', '/admin/licenses', params={'limit': limit, 'offset': offset})
+
+@app.get("/admin/api/license/info/{license_key}")
+async def license_info(license_key: str, request: Request):
+    token = request.headers.get('Authorization', '').replace('Bearer ', '')
+    if not await verify_admin_token(token):
+        return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
+    return await proxy_license_request('GET', f'/admin/license-info/{license_key}')
+
+@app.post("/admin/api/license/create")
+async def license_create(request: Request):
+    token = request.headers.get('Authorization', '').replace('Bearer ', '')
+    if not await verify_admin_token(token):
+        return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
+    if not check_token_permission(token, 'license'):
+        return {"error": True, "message": "您没有激活码管理权限"}
+    data = await request.json()
+    role = get_token_role(token)
+    result = await proxy_license_request('POST', '/admin/create-license', json_body=data)
+    if isinstance(result, dict) and not result.get('error'):
+        lk = result.get('data', {}).get('license_key', '')
+        detail = f"有效期{data.get('expiry_days', 365)}天"
+        await db.add_license_log('create', lk, data.get('product_id'), data.get('billing_mode'), detail, role)
+    return result
+
+@app.post("/admin/api/license/revoke")
+async def license_revoke(request: Request):
+    token = request.headers.get('Authorization', '').replace('Bearer ', '')
+    if not await verify_admin_token(token):
+        return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
+    if not check_token_permission(token, 'license'):
+        return {"error": True, "message": "您没有激活码管理权限"}
+    data = await request.json()
+    result = await proxy_license_request('POST', '/admin/revoke-license', json_body=data)
+    if isinstance(result, dict) and not result.get('error'):
+        await db.add_license_log('revoke', data.get('license_key'), detail='撤销激活码', operator=get_token_role(token))
+    return result
+
+@app.post("/admin/api/license/edit")
+async def license_edit(request: Request):
+    token = request.headers.get('Authorization', '').replace('Bearer ', '')
+    if not await verify_admin_token(token):
+        return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
+    if not check_token_permission(token, 'license'):
+        return {"error": True, "message": "您没有激活码管理权限"}
+    data = await request.json()
+    return await proxy_license_request('POST', '/admin/edit-license', json_body=data)
+
+@app.get("/admin/api/license/clients")
+async def license_clients(request: Request, limit: int = 100, offset: int = 0):
+    token = request.headers.get('Authorization', '').replace('Bearer ', '')
+    if not await verify_admin_token(token):
+        return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
+    return await proxy_license_request('GET', '/admin/clients', params={'limit': limit, 'offset': offset})
+
+@app.get("/admin/api/license/clients/{client_id}")
+async def license_client_detail(client_id: str, request: Request):
+    token = request.headers.get('Authorization', '').replace('Bearer ', '')
+    if not await verify_admin_token(token):
+        return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
+    return await proxy_license_request('GET', f'/admin/clients/{client_id}')
+
+@app.post("/admin/api/license/blacklist/add")
+async def license_blacklist_add(request: Request):
+    token = request.headers.get('Authorization', '').replace('Bearer ', '')
+    if not await verify_admin_token(token):
+        return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
+    if not check_token_permission(token, 'license'):
+        return {"error": True, "message": "您没有激活码管理权限"}
+    data = await request.json()
+    return await proxy_license_request('POST', '/admin/blacklist', json_body=data)
+
+@app.post("/admin/api/license/blacklist/remove")
+async def license_blacklist_remove(request: Request):
+    token = request.headers.get('Authorization', '').replace('Bearer ', '')
+    if not await verify_admin_token(token):
+        return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
+    if not check_token_permission(token, 'license'):
+        return {"error": True, "message": "您没有激活码管理权限"}
+    data = await request.json()
+    return await proxy_license_request('POST', '/admin/blacklist/remove', json_body=data)
+
+@app.get("/admin/api/license/blacklist")
+async def license_blacklist_list(request: Request):
+    token = request.headers.get('Authorization', '').replace('Bearer ', '')
+    if not await verify_admin_token(token):
+        return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
+    return await proxy_license_request('GET', '/admin/blacklist')
+
+@app.get("/admin/api/license/online-clients")
+async def license_online_clients(request: Request):
+    token = request.headers.get('Authorization', '').replace('Bearer ', '')
+    if not await verify_admin_token(token):
+        return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
+    return await proxy_license_request('GET', '/admin/online-clients')
+
+@app.post("/admin/api/license/disable-client")
+async def license_disable_client(request: Request):
+    token = request.headers.get('Authorization', '').replace('Bearer ', '')
+    if not await verify_admin_token(token):
+        return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
+    if get_token_role(token) != ROLE_SUPER_ADMIN:
+        return {"error": True, "message": "仅系统总管理员可禁用客户端"}
+    data = await request.json()
+    return await proxy_license_request('POST', '/admin/disable-client', json_body=data)
+
+@app.post("/admin/api/license/enable-client")
+async def license_enable_client(request: Request):
+    token = request.headers.get('Authorization', '').replace('Bearer ', '')
+    if not await verify_admin_token(token):
+        return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
+    if get_token_role(token) != ROLE_SUPER_ADMIN:
+        return {"error": True, "message": "仅系统总管理员可启用客户端"}
+    data = await request.json()
+    return await proxy_license_request('POST', '/admin/enable-client', json_body=data)
+
+@app.get("/admin/api/license/logs")
+async def license_logs(request: Request, limit: int = 100, offset: int = 0):
+    token = request.headers.get('Authorization', '').replace('Bearer ', '')
+    if not await verify_admin_token(token):
+        return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
+    return await proxy_license_request('GET', '/admin/logs', params={'limit': limit, 'offset': offset})
+
+@app.get("/admin/api/license/local-logs")
+async def license_local_logs(request: Request, action: str = None, limit: int = 50, offset: int = 0):
+    token = request.headers.get('Authorization', '').replace('Bearer ', '')
+    if not await verify_admin_token(token):
+        return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
+    return await db.get_license_logs(action=action or None, limit=limit, offset=offset)
+
+@app.get("/admin/api/license/products")
+async def license_products(request: Request):
+    token = request.headers.get('Authorization', '').replace('Bearer ', '')
+    if not await verify_admin_token(token):
+        return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
+    return await proxy_license_request('GET', '/admin/products')
+
+@app.get("/admin/api/license/health")
+async def license_health():
+    return await proxy_license_request('GET', '/health')
+
+@app.get("/admin/api/proxy_pool/status")
+async def admin_proxy_pool_status():
+    return {"config": {}, "pool": None, "available": False}
+
+
+# --- 授权白名单管理 ---
+
+@app.get("/admin/api/whitelist")
+async def admin_whitelist_list(request: Request, limit: int = 100, offset: int = 0,
+                                status: str = None, search: str = None):
+    token = request.headers.get('Authorization', '').replace('Bearer ', '')
+    if not await verify_admin_token(token):
+        return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
+    role = get_token_role(token)
+    sub_name = get_token_sub_name(token)
+    added_by = sub_name if role == ROLE_SUB_ADMIN and sub_name else None
+    return await db.get_authorized_accounts(added_by=added_by, status=status or None,
+                                             limit=limit, offset=offset, search=search or None)
+
+@app.post("/admin/api/whitelist/add")
+async def admin_whitelist_add(request: Request):
+    token = request.headers.get('Authorization', '').replace('Bearer ', '')
+    if not await verify_admin_token(token):
+        return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
+    role = get_token_role(token)
+    sub_name = get_token_sub_name(token)
+    data = await request.json()
+    username = data.get('username', '').strip()
+    password = data.get('password', '')
+    plan_type = data.get('plan_type', 'monthly')
+    remark = data.get('remark', '')
+    if not username:
+        return {"success": False, "message": "账号不能为空"}
+
+    configs = await db.get_credit_config()
+    config_map = {c['plan_type']: c for c in configs}
+    plan = config_map.get(plan_type)
+    if not plan:
+        return {"success": False, "message": f"未知的套餐类型: {plan_type}"}
+    credits_cost = plan['credits_cost']
+    duration_days = plan['duration_days']
+
+    if role == ROLE_SUPER_ADMIN:
+        added_by = sub_name if sub_name and sub_name != '__super__' else 'super_admin'
+    else:
+        added_by = sub_name or 'unknown'
+        try:
+            await db.deduct_credits(added_by, credits_cost, related_username=username,
+                                     description=f"授权账号[{username}] {plan['plan_name']}")
+        except ValueError as e:
+            return {"success": False, "message": str(e)}
+
+    try:
+        result = await db.add_authorized_account(
+            username=username, password=password, added_by=added_by,
+            plan_type=plan_type, credits_cost=credits_cost,
+            duration_days=duration_days, remark=remark)
+        return {"success": True, "message": f"账号 [{username}] 已授权 {plan['plan_name']}({duration_days}天)",
+                "data": result}
+    except Exception as e:
+        if role != ROLE_SUPER_ADMIN:
+            try:
+                await db.topup_credits(added_by, credits_cost, operator='system',
+                                        description=f"授权失败退回: {username}")
+            except Exception:
+                pass
+        return {"success": False, "message": f"添加失败: {e}"}
+
+@app.post("/admin/api/whitelist/renew")
+async def admin_whitelist_renew(request: Request):
+    token = request.headers.get('Authorization', '').replace('Bearer ', '')
+    if not await verify_admin_token(token):
+        return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
+    role = get_token_role(token)
+    sub_name = get_token_sub_name(token)
+    data = await request.json()
+    username = data.get('username', '').strip()
+    plan_type = data.get('plan_type', 'monthly')
+    if not username:
+        return {"success": False, "message": "账号不能为空"}
+
+    configs = await db.get_credit_config()
+    config_map = {c['plan_type']: c for c in configs}
+    plan = config_map.get(plan_type)
+    if not plan:
+        return {"success": False, "message": f"未知的套餐类型: {plan_type}"}
+
+    if role != ROLE_SUPER_ADMIN:
+        admin_name = sub_name or 'unknown'
+        try:
+            await db.deduct_credits(admin_name, plan['credits_cost'], related_username=username,
+                                     description=f"续期账号[{username}] {plan['plan_name']}")
+        except ValueError as e:
+            return {"success": False, "message": str(e)}
+
+    try:
+        result = await db.renew_authorized_account(
+            username=username, plan_type=plan_type,
+            credits_cost=plan['credits_cost'], duration_days=plan['duration_days'])
+        if not result:
+            return {"success": False, "message": f"账号 [{username}] 不存在"}
+        return {"success": True, "message": f"账号 [{username}] 已续期 {plan['plan_name']}", "data": result}
+    except Exception as e:
+        if role != ROLE_SUPER_ADMIN:
+            try:
+                await db.topup_credits(sub_name or 'unknown', plan['credits_cost'],
+                                        operator='system', description=f"续期失败退回: {username}")
+            except Exception:
+                pass
+        return {"success": False, "message": f"续期失败: {e}"}
+
+@app.post("/admin/api/whitelist/delete")
+async def admin_whitelist_delete(request: Request):
+    token = request.headers.get('Authorization', '').replace('Bearer ', '')
+    if not await verify_admin_token(token):
+        return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
+    data = await request.json()
+    username = data.get('username', '').strip()
+    if not username:
+        return {"success": False, "message": "账号不能为空"}
+    ok = await db.delete_authorized_account(username)
+    if ok:
+        return {"success": True, "message": f"账号 [{username}] 已删除（积分不退还）"}
+    return {"success": False, "message": f"账号 [{username}] 不存在"}
+
+@app.get("/admin/api/whitelist/expiring")
+async def admin_whitelist_expiring(request: Request, days: int = 7):
+    token = request.headers.get('Authorization', '').replace('Bearer ', '')
+    if not await verify_admin_token(token):
+        return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
+    role = get_token_role(token)
+    sub_name = get_token_sub_name(token)
+    added_by = sub_name if role == ROLE_SUB_ADMIN and sub_name else None
+    return await db.get_expiring_accounts(days=days, added_by=added_by)
+
+
+# --- 积分管理 ---
+
+@app.get("/admin/api/credits/config")
+async def admin_credits_config():
+    return await db.get_credit_config()
+
+@app.post("/admin/api/credits/config")
+async def admin_credits_config_update(request: Request):
+    token = request.headers.get('Authorization', '').replace('Bearer ', '')
+    if not await verify_admin_token(token):
+        return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
+    if get_token_role(token) != ROLE_SUPER_ADMIN:
+        return {"success": False, "message": "仅总管理员可修改积分定价"}
+    data = await request.json()
+    plan_type = data.get('plan_type', '').strip()
+    plan_name = data.get('plan_name', '').strip()
+    credits_cost = int(data.get('credits_cost', 0))
+    duration_days = int(data.get('duration_days', 0))
+    if not plan_type or not plan_name or credits_cost <= 0 or duration_days <= 0:
+        return {"success": False, "message": "参数无效"}
+    await db.update_credit_config(plan_type, plan_name, credits_cost, duration_days)
+    return {"success": True, "message": f"定价 [{plan_name}] 已保存"}
+
+@app.delete("/admin/api/credits/config/{plan_type}")
+async def admin_credits_config_delete(plan_type: str, request: Request):
+    token = request.headers.get('Authorization', '').replace('Bearer ', '')
+    if not await verify_admin_token(token):
+        return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
+    if get_token_role(token) != ROLE_SUPER_ADMIN:
+        return {"success": False, "message": "仅总管理员可删除积分定价"}
+    ok = await db.delete_credit_config(plan_type)
+    return {"success": ok, "message": "已删除" if ok else "不存在"}
+
+@app.get("/admin/api/credits/overview")
+async def admin_credits_overview(request: Request):
+    token = request.headers.get('Authorization', '').replace('Bearer ', '')
+    if not await verify_admin_token(token):
+        return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
+    if get_token_role(token) != ROLE_SUPER_ADMIN:
+        return {"success": False, "message": "仅总管理员可查看"}
+    return await db.get_all_sub_admin_credits()
+
+@app.get("/admin/api/credits/balance")
+async def admin_credits_balance(request: Request):
+    token = request.headers.get('Authorization', '').replace('Bearer ', '')
+    if not await verify_admin_token(token):
+        return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
+    role = get_token_role(token)
+    sub_name = get_token_sub_name(token)
+    if role == ROLE_SUPER_ADMIN:
+        return {"balance": -1, "unlimited": True}
+    balance = await db.get_sub_admin_credits(sub_name)
+    return {"balance": balance, "unlimited": False}
+
+@app.post("/admin/api/credits/topup")
+async def admin_credits_topup(request: Request):
+    token = request.headers.get('Authorization', '').replace('Bearer ', '')
+    if not await verify_admin_token(token):
+        return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
+    if get_token_role(token) != ROLE_SUPER_ADMIN:
+        return {"success": False, "message": "仅总管理员可充值积分"}
+    data = await request.json()
+    admin_name = data.get('admin_name', '').strip()
+    amount = int(data.get('amount', 0))
+    description = data.get('description', '')
+    if not admin_name or admin_name not in SUB_ADMINS:
+        return {"success": False, "message": f"子管理员 [{admin_name}] 不存在"}
+    if amount <= 0:
+        return {"success": False, "message": "充值金额必须大于0"}
+    try:
+        result = await db.topup_credits(admin_name, amount, operator='super_admin',
+                                         description=description or f"总管理充值{amount}积分")
+        return {"success": True, "message": f"已给 [{admin_name}] 充值 {amount} 积分，余额: {result['balance']}",
+                "data": result}
+    except Exception as e:
+        return {"success": False, "message": f"充值失败: {e}"}
+
+@app.get("/admin/api/credits/transactions")
+async def admin_credits_transactions(request: Request, admin_name: str = None,
+                                      limit: int = 50, offset: int = 0):
+    token = request.headers.get('Authorization', '').replace('Bearer ', '')
+    if not await verify_admin_token(token):
+        return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
+    role = get_token_role(token)
+    sub_name = get_token_sub_name(token)
+    if role == ROLE_SUPER_ADMIN:
+        query_name = admin_name or None
+    else:
+        query_name = sub_name
+    return await db.get_credit_transactions(admin_name=query_name, limit=limit, offset=offset)
+
+
+# --- WebSocket ---
+@app.websocket("/admin/ws")
+async def admin_websocket(websocket: WebSocket):
+    await ws_manager.connect(websocket)
+    sub_name = None
+    try:
+        while True:
+            data = await websocket.receive_text()
+            try:
+                msg = json.loads(data)
+                msg_type = msg.get('type')
+                if msg_type == 'auth':
+                    token = msg.get('token', '')
+                    role = get_token_role(token)
+                    if role == ROLE_SUB_ADMIN:
+                        sub_name = get_token_sub_name(token)
+                        if sub_name:
+                            ws_manager.register_sub_admin(sub_name, websocket)
+                    elif role == ROLE_SUPER_ADMIN:
+                        sub_name = '__super__'
+                        ws_manager.register_sub_admin(sub_name, websocket)
+                elif msg_type == 'heartbeat':
+                    if sub_name:
+                        ws_manager.heartbeat_sub_admin(sub_name)
+            except Exception:
+                pass
+    except (WebSocketDisconnect, Exception):
+        ws_manager.disconnect(websocket)
+
+@app.websocket("/chat/ws")
+async def chat_websocket(websocket: WebSocket):
+    await websocket.accept()
+    username = websocket.query_params.get('username', 'visitor')
+    try:
+        while True:
+            data = await websocket.receive_json()
+            msg_type = data.get('type')
+            if msg_type == 'online':
+                await online_manager.user_online(
+                    data.get('username', username), websocket,
+                    data.get('page', ''), data.get('userAgent', ''))
+                username = data.get('username', username)
+                history = online_manager.get_messages(username)
+                if history:
+                    await websocket.send_json({'type': 'history', 'messages': history})
+            elif msg_type == 'heartbeat':
+                online_manager.update_heartbeat(username)
+                hp = data.get('page', '')
+                if hp and username in online_manager.users:
+                    online_manager.users[username]['page'] = hp
+            elif msg_type == 'user_message':
+                content = data.get('content', '')
+                if content:
+                    online_manager.save_user_message(username, content)
+                    await ws_manager.broadcast({'type': 'chat_message', 'data': {
+                        'username': username, 'content': content,
+                        'time': datetime.now().strftime('%H:%M:%S'), 'is_admin': False}})
+            elif msg_type == 'offline':
+                online_manager.user_offline(username)
+                await ws_manager.broadcast({'type': 'user_offline', 'data': {'username': username}})
+                break
+    except (WebSocketDisconnect, Exception):
+        online_manager.user_offline(username)
+
+
+# --- 管理后台页面 ---
+@app.get("/admin", response_class=HTMLResponse)
+@app.get("/admin/", response_class=HTMLResponse)
+async def admin_page():
+    html_path = os.path.join(os.path.dirname(__file__), "admin.html")
+    if os.path.exists(html_path):
+        with open(html_path, "r", encoding="utf-8") as f:
+            return f.read()
+    return "<h1>管理页面未找到</h1>"
+
+@app.get("/chat/widget.js")
+async def chat_widget_js():
+    js_path = os.path.join(os.path.dirname(__file__), "chat_widget.js")
+    if os.path.exists(js_path):
+        with open(js_path, "r", encoding="utf-8") as f:
+            return Response(content=f.read(), media_type="application/javascript")
+    return Response(content="// not found", media_type="application/javascript")
 
 
 # ===== 启动 =====
