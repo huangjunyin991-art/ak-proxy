@@ -375,6 +375,10 @@ async def proxy_login(request: Request):
             "AP": user_data.get("AP", 0),
             "LP": user_data.get("LP", 0),
             "Convertbalance": user_data.get("Convertbalance", 0),
+            "L": user_data.get("L", 0),
+            "R": user_data.get("R", 0),
+            "F": user_data.get("F", 0),
+            "S": user_data.get("S", 0),
         }
     
     asyncio.create_task(report_to_monitor("login", report_data))

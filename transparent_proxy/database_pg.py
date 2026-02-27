@@ -229,9 +229,20 @@ async def init_db(host: str = "127.0.0.1", port: int = 5432,
                 honor_name TEXT DEFAULT '',
                 level_number INTEGER DEFAULT 0,
                 convert_balance DOUBLE PRECISION DEFAULT 0,
+                left_area INTEGER DEFAULT 0,
+                right_area INTEGER DEFAULT 0,
+                direct_push INTEGER DEFAULT 0,
+                sub_account INTEGER DEFAULT 0,
                 updated_at TIMESTAMP DEFAULT NOW()
             )
         ''')
+
+        # 动态添加新列（兼容已有数据库）
+        for col in ['left_area', 'right_area', 'direct_push', 'sub_account']:
+            try:
+                await conn.execute(f'ALTER TABLE user_assets ADD COLUMN IF NOT EXISTS {col} INTEGER DEFAULT 0')
+            except Exception:
+                pass
 
         # 资产历史记录表
         await conn.execute('''
@@ -397,22 +408,28 @@ async def update_user_assets(username: str, data: Dict):
     honor_name = str(data.get("HonorName", "") or "")
     level_number = int(data.get("LevelNumber", 0) or 0)
     convert_balance = float(data.get("Convertbalance", 0) or 0)
+    left_area = int(data.get("L", 0) or 0)
+    right_area = int(data.get("R", 0) or 0)
+    direct_push = int(data.get("F", 0) or 0)
+    sub_account = int(data.get("S", 0) or 0)
 
     async with pool.acquire() as conn:
         async with conn.transaction():
             await conn.execute('''
                 INSERT INTO user_assets (username, ace_count, total_ace, weekly_money,
                     sp, tp, ep, rp, ap, lp, rate, credit, honor_name, level_number,
-                    convert_balance, updated_at)
-                VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
+                    convert_balance, left_area, right_area, direct_push, sub_account, updated_at)
+                VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
                 ON CONFLICT(username) DO UPDATE SET
                     ace_count=$2, total_ace=$3, weekly_money=$4,
                     sp=$5, tp=$6, ep=$7, rp=$8, ap=$9, lp=$10,
                     rate=$11, credit=$12, honor_name=$13, level_number=$14,
-                    convert_balance=$15, updated_at=$16
+                    convert_balance=$15, left_area=$16, right_area=$17,
+                    direct_push=$18, sub_account=$19, updated_at=$20
             ''', username, ace_count, total_ace, weekly_money,
                  sp, tp, ep, rp, ap, lp, rate, credit, honor_name,
-                 level_number, convert_balance, now)
+                 level_number, convert_balance, left_area, right_area,
+                 direct_push, sub_account, now)
 
             # 记录资产历史
             await conn.execute('''
