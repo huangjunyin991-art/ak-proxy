@@ -1264,12 +1264,26 @@
                 display: flex !important;
             }
         }
+        /* Lucide图标样式 */
+        .tab-icon {
+            width: 16px;
+            height: 16px;
+            vertical-align: -2px;
+            margin-right: 4px;
+            stroke: currentColor;
+            stroke-width: 2;
+            fill: none;
+        }
+        
+        .tab.active .tab-icon {
+            filter: drop-shadow(0 0 4px rgba(0, 212, 255, 0.5));
+        }
     </style>
 </head>
 <body>
     <!-- 横屏提示 -->
     <div class="rotate-hint" id="rotateHint">
-        <div class="icon">📱</div>
+        <div class="icon"><svg width="80" height="80" viewBox="0 0 24 24" fill="none" stroke="rgba(0,212,255,0.8)" stroke-width="1.5"><rect width="14" height="20" x="5" y="2" rx="2" ry="2"/><line x1="12" y1="18" x2="12.01" y2="18"/></svg></div>
         <h2>请旋转设备</h2>
         <p>为了获得最佳体验，<br>请将手机横屏使用</p>
     </div>
@@ -1303,7 +1317,7 @@
             </div>
             <!-- 权限标识 -->
             <div class="role-badge" id="roleBadge">
-                <span class="role-icon">👑</span>
+                <span class="role-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m2 4 3 12h14l3-12-6 7-4-7-4 7-6-7z" fill="rgba(255,215,0,0.3)"/><path d="M4 22h16"/></svg></span>
                 <span class="role-text" id="roleText">加载中...</span>
             </div>
             <div class="connection-status">
@@ -1363,17 +1377,17 @@
     
     <!-- 标签页 -->
     <div class="tabs">
-        <div class="tab active" data-panel="dashboard" id="tabDashboard">📈 流量仪表盘</div>
-        <div class="tab" data-panel="online">🟢 在线用户</div>
-        <div class="tab" data-panel="usage">📊 使用情况</div>
-        <div class="tab" data-panel="users">👥 用户管理</div>
-        <div class="tab" data-panel="ips">🌐 IP管理</div>
-        <div class="tab" data-panel="banlist">🚫 封禁列表</div>
-        <div class="tab" data-panel="whitelist">📋 白名单</div>
-        <div class="tab" data-panel="credits">💰 积分</div>
-        <div class="tab" data-panel="license">🔑 激活码</div>
-        <div class="tab" data-panel="database">🗄️ 数据库</div>
-        <div class="tab" data-panel="settings">⚙️ 设置</div>
+        <div class="tab active" data-panel="dashboard" id="tabDashboard"><svg class="tab-icon" viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg> 流量仪表盘</div>
+        <div class="tab" data-panel="online"><svg class="tab-icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4" fill="rgba(0,255,136,0.3)"/><circle cx="12" cy="12" r="2" fill="#00ff88"/></svg> 在线用户</div>
+        <div class="tab" data-panel="usage"><svg class="tab-icon" viewBox="0 0 24 24"><line x1="12" y1="20" x2="12" y2="10"/><line x1="18" y1="20" x2="18" y2="4"/><line x1="6" y1="20" x2="6" y2="16"/></svg> 使用情况</div>
+        <div class="tab" data-panel="users"><svg class="tab-icon" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg> 用户管理</div>
+        <div class="tab" data-panel="ips"><svg class="tab-icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></svg> IP管理</div>
+        <div class="tab" data-panel="banlist"><svg class="tab-icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="m4.9 4.9 14.2 14.2"/></svg> 封禁列表</div>
+        <div class="tab" data-panel="whitelist"><svg class="tab-icon" viewBox="0 0 24 24"><rect width="8" height="4" x="8" y="2" rx="1" ry="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="m9 14 2 2 4-4"/></svg> 白名单</div>
+        <div class="tab" data-panel="credits"><svg class="tab-icon" viewBox="0 0 24 24"><circle cx="8" cy="8" r="6"/><path d="M18.09 10.37A6 6 0 1 1 10.34 18"/><path d="M7 6h1v4"/><path d="m16.71 13.88.7.71-2.82 2.82"/></svg> 积分</div>
+        <div class="tab" data-panel="license"><svg class="tab-icon" viewBox="0 0 24 24"><path d="M2.586 17.414A2 2 0 0 0 2 18.828V21a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h1a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h.172a2 2 0 0 0 1.414-.586l.814-.814a6.5 6.5 0 1 0-4-4z"/><circle cx="16.5" cy="7.5" r=".5" fill="currentColor"/></svg> 激活码</div>
+        <div class="tab" data-panel="database"><svg class="tab-icon" viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14a9 3 0 0 0 18 0V5"/><path d="M3 12a9 3 0 0 0 18 0"/></svg> 数据库</div>
+        <div class="tab" data-panel="settings"><svg class="tab-icon" viewBox="0 0 24 24"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg> 设置</div>
     </div>
     
     <!-- 内容区 -->
@@ -1383,28 +1397,28 @@
             <!-- 实时指标卡片 -->
             <div class="dashboard-metrics">
                 <div class="metric-card">
-                    <div class="metric-icon" style="background: linear-gradient(135deg, #00d4ff, #0099cc);"></div>
+                    <div class="metric-icon" style="background: linear-gradient(135deg, #00d4ff, #0099cc);"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg></div>
                     <div class="metric-info">
                         <div class="metric-value" id="dashTodayRequests">0</div>
                         <div class="metric-label">今日请求</div>
                     </div>
                 </div>
                 <div class="metric-card">
-                    <div class="metric-icon" style="background: linear-gradient(135deg, #00ff88, #00cc6a);"></div>
+                    <div class="metric-icon" style="background: linear-gradient(135deg, #00ff88, #00cc6a);"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg></div>
                     <div class="metric-info">
                         <div class="metric-value" id="dashSuccessRate">0%</div>
                         <div class="metric-label">成功率</div>
                     </div>
                 </div>
                 <div class="metric-card">
-                    <div class="metric-icon" style="background: linear-gradient(135deg, #667eea, #764ba2);"></div>
+                    <div class="metric-icon" style="background: linear-gradient(135deg, #667eea, #764ba2);"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></div>
                     <div class="metric-info">
                         <div class="metric-value" id="dashActiveUsers">0</div>
                         <div class="metric-label">今日活跃</div>
                     </div>
                 </div>
                 <div class="metric-card">
-                    <div class="metric-icon" style="background: linear-gradient(135deg, #f093fb, #f5576c);"></div>
+                    <div class="metric-icon" style="background: linear-gradient(135deg, #f093fb, #f5576c);"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2"><path d="M12 12m-10 0a10 10 0 1 0 20 0 10 10 0 1 0-20 0"/><path d="M12 12 16 6"/><path d="M12 16v-4"/></svg></div>
                     <div class="metric-info">
                         <div class="metric-value" id="dashPeakRPM">0</div>
                         <div class="metric-label">峰值RPM</div>
@@ -1484,7 +1498,7 @@
                 <!-- 聊天区域 -->
                 <div style="background: var(--bg-card); border-radius: 12px; border: 1px solid var(--border); display: flex; flex-direction: column;">
                     <div style="padding: 15px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center;">
-                        <h4 style="margin: 0; color: var(--accent);">💬 与 <span id="chatTarget">-</span> 聊天</h4>
+                        <h4 style="margin: 0; color: var(--accent);"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-2px"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg> 与 <span id="chatTarget">-</span> 聊天</h4>
                         <span id="chatStatus" style="font-size: 12px; color: var(--text-secondary);">选择用户开始聊天</span>
                     </div>
                     <div id="chatMessages" style="flex: 1; padding: 15px; overflow-y: auto; background: var(--bg-primary);">
@@ -1500,7 +1514,7 @@
                     <div style="padding: 12px; border-top: 1px solid var(--border); display: flex; gap: 10px; align-items: center;">
                         <input type="text" id="broadcastInput" placeholder="群发消息给所有在线用户..."
                                style="flex: 1; padding: 10px 15px; background: var(--bg-primary); border: 1px solid var(--border); border-radius: 20px; color: var(--text-primary); outline: none;">
-                        <button class="btn" style="background: linear-gradient(135deg, #f39c12, #e74c3c);" onclick="broadcastMessage()">📢 群发</button>
+                        <button class="btn" style="background: linear-gradient(135deg, #f39c12, #e74c3c);" onclick="broadcastMessage()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-2px"><path d="m3 11 18-5v12L3 13v-2z"/><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/></svg> 群发</button>
                     </div>
                 </div>
             </div>
@@ -1509,7 +1523,7 @@
         <!-- 使用情况（登录尝试记录） -->
         <div class="panel" id="usage">
             <div style="margin-bottom: 15px; display: flex; gap: 10px; align-items: center;">
-                <input type="text" id="usageSearchInput" placeholder="🔍 搜索用户名..." 
+                <input type="text" id="usageSearchInput" placeholder="搜索用户名..." 
                        style="flex: 1; max-width: 300px; padding: 10px 15px; background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; color: var(--text-primary); font-size: 14px;"
                        oninput="searchUsage()">
                 <button class="btn btn-primary" onclick="searchUsage()" style="padding: 10px 20px;">搜索</button>
@@ -1627,7 +1641,7 @@
         <!-- 激活码管理 -->
         <div class="panel" id="license">
             <div style="margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 15px;">
-                <h3 style="margin: 0; color: var(--accent);">🔑 激活码管理</h3>
+                <h3 style="margin: 0; color: var(--accent);"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-2px"><path d="M2.586 17.414A2 2 0 0 0 2 18.828V21a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h1a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h.172a2 2 0 0 0 1.414-.586l.814-.814a6.5 6.5 0 1 0-4-4z"/><circle cx="16.5" cy="7.5" r=".5" fill="currentColor"/></svg> 激活码管理</h3>
                 <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
                     <input type="text" id="licenseSearch" placeholder="搜索激活码..." 
                            style="padding: 8px 15px; background: var(--bg-card); border: 1px solid var(--border); 
@@ -1650,7 +1664,7 @@
                         <option value="expired">已过期</option>
                         <option value="revoked">已撤销</option>
                     </select>
-                    <button onclick="searchLicenses()" class="btn btn-primary" style="padding: 8px 15px;">🔍 搜索</button>
+                    <button onclick="searchLicenses()" class="btn btn-primary" style="padding: 8px 15px;">搜索</button>
                     <button onclick="clearLicenseFilters()" class="btn-page" style="padding: 8px 15px;">清除</button>
                     <button onclick="showCreateLicenseModal()" class="btn btn-primary" style="padding: 8px 15px; background: linear-gradient(135deg, #00ff88, #00cc6a);">
                         ➕ 创建激活码
@@ -1788,11 +1802,11 @@
                     <select id="dbTableSelect" onchange="loadTableData()" style="padding: 10px 15px; background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; color: var(--text-primary); font-size: 14px; min-width: 200px;">
                         <option value="">选择表...</option>
                     </select>
-                    <button class="btn btn-primary" onclick="loadTableData()" style="padding: 10px 20px;">🔄 刷新</button>
+                    <button class="btn btn-primary" onclick="loadTableData()" style="padding: 10px 20px;">刷新</button>
                     <button class="btn btn-primary" onclick="showAddRowModal()" style="padding: 10px 20px;">➕ 新增</button>
-                    <button class="btn btn-danger" onclick="showSqlModal()" style="padding: 10px 20px;">📝 执行SQL</button>
+                    <button class="btn btn-danger" onclick="showSqlModal()" style="padding: 10px 20px;">执行SQL</button>
                     <span id="dbRowCount" style="color: var(--text-secondary); font-size: 14px; margin-left: auto;"></span>
-                    <button class="btn" onclick="lockDatabase()" style="padding: 10px 20px; background: var(--bg-secondary);">🔒 锁定</button>
+                    <button class="btn" onclick="lockDatabase()" style="padding: 10px 20px; background: var(--bg-secondary);">锁定</button>
                 </div>
                 
                 <div class="table-container" style="overflow: auto; max-height: max(300px, calc(100vh - 400px));">
@@ -1815,12 +1829,12 @@
         <div class="panel" id="whitelist">
             <div>
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; flex-wrap: wrap; gap: 10px;">
-                    <h3 style="color: var(--accent); margin: 0;">📋 授权白名单</h3>
+                    <h3 style="color: var(--accent); margin: 0;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-2px"><rect width="8" height="4" x="8" y="2" rx="1" ry="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="m9 14 2 2 4-4"/></svg> 授权白名单</h3>
                     <div style="display: flex; align-items: center; gap: 8px;">
                         <span id="wlBalanceInfo" style="font-size: 13px; color: var(--accent-yellow);"></span>
                         <input type="text" id="wlSearch" placeholder="搜索账号..." onkeyup="if(event.key==='Enter')loadWhitelist()"
                                style="padding: 6px 12px; background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 6px; color: var(--text-primary); font-size: 13px; width: 160px;">
-                        <button class="btn" onclick="loadWhitelist()" style="padding: 6px 14px; font-size: 13px;">🔍</button>
+                        <button class="btn" onclick="loadWhitelist()" style="padding: 6px 14px; font-size: 13px;">搜索</button>
                         <button class="btn btn-success" onclick="showAddWhitelistModal()" style="padding: 6px 14px; font-size: 13px;">➕ 授权</button>
                     </div>
                 </div>
@@ -1845,11 +1859,11 @@
         <!-- 积分管理 -->
         <div class="panel" id="credits">
             <div>
-                <h3 style="margin-bottom: 15px; color: var(--accent);">💰 积分管理</h3>
+                <h3 style="margin-bottom: 15px; color: var(--accent);"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-2px"><circle cx="8" cy="8" r="6"/><path d="M18.09 10.37A6 6 0 1 1 10.34 18"/><path d="M7 6h1v4"/><path d="m16.71 13.88.7.71-2.82 2.82"/></svg> 积分管理</h3>
                 <!-- 积分概览（总管理可见） -->
                 <div id="creditsOverviewSection">
                     <div style="background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px; padding: 15px; margin-bottom: 15px;">
-                        <h4 style="color: var(--accent-yellow); margin-bottom: 12px;">📊 子管理员积分概览</h4>
+                        <h4 style="color: var(--accent-yellow); margin-bottom: 12px;">子管理员积分概览</h4>
                         <div id="creditsOverviewTable" style="overflow-x: auto;">
                             <table><thead><tr><th>名称</th><th>余额</th><th>活跃账号</th><th>总账号</th><th>操作</th></tr></thead>
                             <tbody id="creditsOverviewBody"><tr><td colspan="5" style="text-align:center; color:var(--text-secondary);">加载中...</td></tr></tbody></table>
@@ -1857,7 +1871,7 @@
                     </div>
                     <!-- 充值 -->
                     <div style="background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px; padding: 15px; margin-bottom: 15px;">
-                        <h4 style="color: #00ff88; margin-bottom: 12px;">💳 充值积分</h4>
+                        <h4 style="color: #00ff88; margin-bottom: 12px;">充值积分</h4>
                         <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: flex-end;">
                             <div><label style="display:block; font-size:11px; color:var(--text-secondary); margin-bottom:4px;">子管理员</label>
                                 <input id="topupAdminName" placeholder="名称" style="padding:8px 10px; background:var(--bg-secondary); border:1px solid var(--border); border-radius:6px; color:var(--text-primary); font-size:13px; width:120px;"></div>
@@ -1873,7 +1887,7 @@
                 <!-- 积分定价配置（总管理可见） -->
                 <div id="creditConfigSection">
                     <div style="background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px; padding: 15px; margin-bottom: 15px;">
-                        <h4 style="color: #45aaf2; margin-bottom: 12px;">⚙️ 积分定价配置</h4>
+                        <h4 style="color: #45aaf2; margin-bottom: 12px;">积分定价配置</h4>
                         <div id="creditConfigList" style="margin-bottom: 12px;"></div>
                         <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: flex-end;">
                             <div><label style="display:block; font-size:11px; color:var(--text-secondary); margin-bottom:4px;">类型标识</label>
@@ -1908,13 +1922,13 @@
         <!-- 设置 -->
         <div class="panel" id="settings">
             <div>
-                <h3 style="margin-bottom: 15px; color: var(--accent);">⚙️ 系统设置</h3>
+                <h3 style="margin-bottom: 15px; color: var(--accent);"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-2px"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg> 系统设置</h3>
                 
                 <!-- 子管理员管理（仅系统总管理可见） -->
                 <div id="subAdminSection" style="display: none;">
                     <div style="background: linear-gradient(135deg, var(--bg-card), #1e2a4a); border-radius: 12px; padding: 15px; border: 1px solid #667eea;">
                         <h4 style="margin-bottom: 20px; color: #667eea; display: flex; align-items: center; gap: 10px;">
-                            <span style="font-size: 24px;">👥</span> 子管理员管理
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-3px"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg> 子管理员管理
                             <span id="subAdminCount" style="font-size: 12px; color: var(--text-secondary); font-weight: normal;">（仅系统总管理可操作）</span>
                         </h4>
                         
