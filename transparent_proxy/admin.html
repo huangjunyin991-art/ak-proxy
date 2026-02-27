@@ -5066,6 +5066,11 @@
             setInterval(verifyToken, 30000);
         }
         
+        // 通用认证header
+        function getHeaders() {
+            return { 'Authorization': `Bearer ${sessionStorage.getItem('admin_token') || ''}` };
+        }
+
         // ===== 白名单管理 =====
         let wlPage = 0;
         let wlCreditConfigs = [];

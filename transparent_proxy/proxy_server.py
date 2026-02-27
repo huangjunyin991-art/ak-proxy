@@ -1010,7 +1010,11 @@ async def admin_stats():
 
 @app.get("/admin/api/dashboard")
 async def admin_dashboard():
-    return await db.get_dashboard_data()
+    try:
+        return await db.get_dashboard_data()
+    except Exception as e:
+        logger.warning(f"[Dashboard] 数据加载失败: {e}")
+        return {"today_requests": 0, "success_rate": 0, "active_users": 0, "peak_rpm": 0, "hourly_data": [], "top_users": [], "top_ips": []}
 
 @app.get("/admin/api/users")
 async def admin_users(limit: int = 100, offset: int = 0):
