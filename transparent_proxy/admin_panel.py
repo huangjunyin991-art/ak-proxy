@@ -66,6 +66,9 @@ FILE_GROUPS = {
     "透明代理": {
         "proxy_config": {"label": "代理配置 (config.py)", "path": os.path.expanduser("~/ak-proxy/transparent_proxy/config.py"), "sudo": False, "lang": "python"},
         "proxy_server": {"label": "代理主程序 (proxy_server.py)", "path": os.path.expanduser("~/ak-proxy/transparent_proxy/proxy_server.py"), "sudo": False, "lang": "python"},
+        "proxy_database": {"label": "数据库模块 (database_pg.py)", "path": os.path.expanduser("~/ak-proxy/transparent_proxy/database_pg.py"), "sudo": False, "lang": "python"},
+        "proxy_widget": {"label": "注入脚本 (chat_widget.js)", "path": os.path.expanduser("~/ak-proxy/transparent_proxy/chat_widget.js"), "sudo": False, "lang": "javascript"},
+        "proxy_admin_html": {"label": "管理后台 (admin.html)", "path": os.path.expanduser("~/ak-proxy/transparent_proxy/admin.html"), "sudo": False, "lang": "html"},
         "admin_panel": {"label": "管理面板 (admin_panel.py)", "path": os.path.expanduser("~/ak-proxy/transparent_proxy/admin_panel.py"), "sudo": False, "lang": "python"},
     },
 }
@@ -593,7 +596,7 @@ async function smartSave() {
             toast('Nginx\u914d\u7f6e\u6709\u8bef\uff0c\u672a\u91cd\u8f7d', 'error');
         }
     }
-    if (autoProxy && (currentFile.startsWith('proxy') || currentFile === 'admin_panel')) {
+    if (autoProxy && (currentFile.startsWith('proxy') || currentFile === 'admin_panel') && !currentFile.endsWith('widget') && !currentFile.endsWith('admin_html')) {
         termWrite('\u2192 \u81ea\u52a8\u91cd\u542f\u4ee3\u7406\u670d\u52a1...', undefined);
         await action('proxy_restart');
     }
