@@ -111,7 +111,7 @@ def get_system_info() -> dict:
     mem = run_cmd("free -h | grep Mem | awk '{print $3\"/\"$2}'")
     disk = run_cmd("df -h / | tail -1 | awk '{print $3\"/\"$2\" (\"$5\")\"}'")
     cpu = run_cmd("grep 'cpu ' /proc/stat | awk '{usage=($2+$4)*100/($2+$4+$5); printf \"%.1f\", usage}'")
-    load = run_cmd("cat /proc/loadavg | awk '{print $1, $2, $3}'")
+    load = run_cmd("cut -d' ' -f1-3 /proc/loadavg")
     return {
         "uptime": uptime["stdout"].strip() if uptime["success"] else "N/A",
         "memory": mem["stdout"].strip() if mem["success"] else "N/A",
@@ -354,12 +354,12 @@ body{background:var(--bg);color:var(--text);font-family:'Consolas','SF Mono','Me
 </head><body>
 
 <div class="topbar">
-<div class="logo">⬡ AK <span>CONTROL</span> PANEL</div>
+<div class="logo">⬡ AK <span>控制台</span></div>
 <div class="info">
 <span>CPU: <span class="val" id="sys-cpu">-</span>%</span>
 <span>MEM: <span class="val" id="sys-mem">-</span></span>
 <span>DISK: <span class="val" id="sys-disk">-</span></span>
-<span>LOAD: <span class="val" id="sys-load">-</span></span>
+<span>负载: <span class="val" id="sys-load">-</span></span>
 </div>
 <div class="clock" id="clock"></div>
 </div>
@@ -1088,7 +1088,7 @@ async def root(request: Request):
 
 if __name__ == "__main__":
     print("=" * 56)
-    print("  ⬡ AK CONTROL PANEL")
+    print("  ⬡ AK 控制台")
     print(f"  地址: http://0.0.0.0:{PANEL_PORT}")
     print(f"  密码: {ADMIN_PASSWORD_HASH[:8]}...")
     print("=" * 56)
