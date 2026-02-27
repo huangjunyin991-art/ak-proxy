@@ -929,19 +929,32 @@ async def save_file(request: Request):
             break
     if not info:
         return {"success": False, "message": "文件不存在"}
+    is_nginx = name.startswith("nginx_")
+    backup_path = info['path'] + '.bak' if is_nginx else None
     try:
+        if is_nginx:
+            run_cmd(f"cp {info['path']} {backup_path}", sudo=True)
         if info["sudo"]:
             tmp = "/tmp/_panel_edit_tmp"
             with open(tmp, 'w', encoding='utf-8') as f:
                 f.write(content)
             result = run_cmd(f"cp {tmp} {info['path']}", sudo=True)
             if not result["success"]:
+                if is_nginx and backup_path:
+                    run_cmd(f"cp {backup_path} {info['path']}", sudo=True)
                 return {"success": False, "message": f"写入失败: {result['stderr']}"}
         else:
             with open(info["path"], 'w', encoding='utf-8') as f:
                 f.write(content)
+        if is_nginx:
+            test = run_cmd("nginx -t", sudo=True)
+            if not test["success"]:
+                run_cmd(f"cp {backup_path} {info['path']}", sudo=True)
+                return {"success": False, "message": f"Nginx配置测试失败，已自动回滚:\n{test['stderr']}"}
         return {"success": True, "message": f"已保存: {info['path']}"}
     except Exception as e:
+        if is_nginx and backup_path:
+            run_cmd(f"cp {backup_path} {info['path']}", sudo=True)
         return {"success": False, "message": str(e)}
 
 
