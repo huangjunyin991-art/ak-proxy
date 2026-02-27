@@ -253,7 +253,7 @@ body{background:var(--bg);color:var(--text);font-family:'Consolas','SF Mono','Me
 /* Layout */
 .container{display:flex;height:calc(100vh - 48px)}
 .sidebar{width:280px;background:var(--bg2);border-right:1px solid var(--border);display:flex;flex-direction:column;flex-shrink:0}
-.main{flex:1;display:flex;flex-direction:column;min-width:0}
+.main{flex:1;display:flex;flex-direction:column;min-width:0;min-height:0;overflow:hidden}
 
 /* Sidebar */
 .sidebar-section{padding:12px 16px;border-bottom:1px solid var(--border)}
@@ -300,7 +300,7 @@ body{background:var(--bg);color:var(--text);font-family:'Consolas','SF Mono','Me
 .auto-opts input[type=checkbox]:checked::after{content:'\2713';position:absolute;top:-1px;left:2px;font-size:11px;color:var(--bg);font-weight:bold}
 .shortcut-hint{font-size:10px;color:var(--text2);opacity:.6;padding:2px 6px;border:1px solid var(--border);border-radius:3px;margin-left:4px}
 
-.editor-wrap{flex:1;overflow:hidden}
+.editor-wrap{flex:1;overflow:hidden;min-height:0}
 .CodeMirror{height:100%!important;font-size:13px!important;line-height:1.6!important}
 
 /* Terminal */
@@ -344,7 +344,7 @@ body{background:var(--bg);color:var(--text);font-family:'Consolas','SF Mono','Me
 .log-lines-select{padding:4px 8px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text);font-size:11px;font-family:inherit}
 .log-search{padding:4px 10px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text);font-size:11px;width:180px;font-family:inherit;outline:none}
 .log-search:focus{border-color:var(--cyan)}
-.editor-panel{display:flex;flex-direction:column;flex:1}
+.editor-panel{display:flex;flex-direction:column;flex:1;min-height:0;overflow:hidden}
 .editor-panel.hidden{display:none}
 .log-item.active{background:var(--yellow)18;color:var(--yellow);border-left-color:var(--yellow)}
 
@@ -359,7 +359,7 @@ body{background:var(--bg);color:var(--text);font-family:'Consolas','SF Mono','Me
 <span>CPU: <span class="val" id="sys-cpu">-</span>%</span>
 <span>MEM: <span class="val" id="sys-mem">-</span></span>
 <span>DISK: <span class="val" id="sys-disk">-</span></span>
-<span>负载: <span class="val" id="sys-load">-</span></span>
+<span>运行: <span class="val" id="sys-uptime">-</span></span>
 </div>
 <div class="clock" id="clock"></div>
 </div>
@@ -523,8 +523,7 @@ async function refreshStatus() {
         document.getElementById('sys-cpu').textContent = d.system.cpu || '-';
         document.getElementById('sys-mem').textContent = d.system.memory || '-';
         document.getElementById('sys-disk').textContent = d.system.disk || '-';
-        document.getElementById('sys-load').textContent = d.system.load || '-';
-        document.getElementById('uptime-info').textContent = d.system.uptime || '';
+        document.getElementById('sys-uptime').textContent = d.system.uptime || '-';
     } catch(e) {}
 }
 function setDot(id, on) {
