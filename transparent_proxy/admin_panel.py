@@ -810,32 +810,36 @@ function toast(msg, type) {
 
 # ===== 登录页 =====
 LOGIN_HTML = """<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>AK 控制台登录</title>
+<title>AK 服务器管理</title>
 <style>
-:root{--bg:#0a0e17;--cyan:#00e5ff;--border:#1e2940}
 *{margin:0;padding:0;box-sizing:border-box}
-body{background:var(--bg);color:#c8d6e5;font-family:'Consolas',monospace;display:flex;justify-content:center;align-items:center;height:100vh;overflow:hidden}
-@keyframes gridMove{0%{background-position:0 0}100%{background-position:50px 50px}}
-body::before{content:'';position:fixed;top:0;left:0;right:0;bottom:0;background-image:linear-gradient(var(--border)22 1px,transparent 1px),linear-gradient(90deg,var(--border)22 1px,transparent 1px);background-size:50px 50px;animation:gridMove 4s linear infinite;pointer-events:none}
-.login{background:#0f1420;border:1px solid var(--border);border-radius:16px;padding:50px 40px;width:380px;text-align:center;position:relative;z-index:1}
-.login::before{content:'';position:absolute;top:-1px;left:20%;right:20%;height:2px;background:linear-gradient(90deg,transparent,var(--cyan),transparent)}
-.logo{font-size:28px;font-weight:bold;color:var(--cyan);letter-spacing:4px;margin-bottom:8px}
-.logo span{color:#00ff88}
-.sub{color:#7f8fa6;font-size:12px;margin-bottom:30px}
-input{width:100%;padding:14px 16px;border:1px solid var(--border);border-radius:8px;background:#0a0e17;color:#e0e0e0;font-size:15px;font-family:inherit;outline:none;transition:border-color .2s}
-input:focus{border-color:var(--cyan)}
-button{width:100%;padding:14px;margin-top:20px;border:none;border-radius:8px;background:linear-gradient(135deg,var(--cyan),#0091ea);color:#0a0e17;font-size:15px;font-weight:bold;cursor:pointer;font-family:inherit;letter-spacing:2px;transition:transform .1s}
-button:hover{transform:scale(1.02)}
-button:active{transform:scale(.98)}
-.err{color:#ff4757;font-size:13px;margin-top:12px}
+body{background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);font-family:-apple-system,'Microsoft YaHei','PingFang SC',sans-serif;display:flex;justify-content:center;align-items:center;min-height:100vh}
+.card{background:rgba(255,255,255,.95);backdrop-filter:blur(20px);border-radius:24px;padding:48px 40px;width:400px;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,.3)}
+.avatar{width:72px;height:72px;background:linear-gradient(135deg,#667eea,#764ba2);border-radius:50%;margin:0 auto 20px;display:flex;align-items:center;justify-content:center;font-size:32px;color:#fff;box-shadow:0 8px 24px rgba(102,126,234,.4)}
+h1{font-size:22px;color:#2d3436;font-weight:700;margin-bottom:4px}
+.sub{color:#636e72;font-size:14px;margin-bottom:32px}
+.input-wrap{position:relative;margin-bottom:16px}
+.input-wrap i{position:absolute;left:16px;top:50%;transform:translateY(-50%);color:#b2bec3;font-size:18px}
+input{width:100%;padding:15px 16px 15px 44px;border:2px solid #dfe6e9;border-radius:12px;background:#fff;color:#2d3436;font-size:15px;font-family:inherit;outline:none;transition:all .3s}
+input:focus{border-color:#667eea;box-shadow:0 0 0 4px rgba(102,126,234,.15)}
+input::placeholder{color:#b2bec3}
+button{width:100%;padding:15px;margin-top:8px;border:none;border-radius:12px;background:linear-gradient(135deg,#667eea,#764ba2);color:#fff;font-size:16px;font-weight:600;cursor:pointer;font-family:inherit;transition:all .3s;box-shadow:0 4px 16px rgba(102,126,234,.4)}
+button:hover{transform:translateY(-2px);box-shadow:0 8px 24px rgba(102,126,234,.5)}
+button:active{transform:translateY(0)}
+.err{color:#e17055;font-size:13px;margin-top:14px;padding:10px;background:#ffeaa7;border-radius:8px}
+.footer{margin-top:24px;color:#b2bec3;font-size:12px}
 </style></head><body>
-<div class="login">
-<div class="logo">⬡ AK <span>CTRL</span></div>
-<div class="sub">SERVER MANAGEMENT CONSOLE</div>
+<div class="card">
+<div class="avatar">&#9881;</div>
+<h1>AK 服务器管理</h1>
+<div class="sub">安全验证后进入控制台</div>
 <form method="POST" action="/akadmin/login">
-<input type="password" name="password" placeholder="输入管理密码..." autofocus autocomplete="off">
-<button type="submit">▶ 进入控制台</button>
+<div class="input-wrap"><span style="position:absolute;left:16px;top:50%;transform:translateY(-50%);color:#b2bec3">&#128274;</span>
+<input type="password" name="password" placeholder="请输入管理密码" autofocus autocomplete="off">
+</div>
+<button type="submit">登 录</button>
 </form>
+<div class="footer">AK2026 管理系统 · 安全登录</div>
 </div></body></html>"""
 
 
