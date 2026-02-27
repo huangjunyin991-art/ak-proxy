@@ -110,7 +110,7 @@ def get_system_info() -> dict:
     uptime = run_cmd("uptime -p")
     mem = run_cmd("free -h | grep Mem | awk '{print $3\"/\"$2}'")
     disk = run_cmd("df -h / | tail -1 | awk '{print $3\"/\"$2\" (\"$5\")\"}'")
-    cpu = run_cmd("top -bn1 | grep 'Cpu(s)' | awk '{print $2}' | cut -d'%' -f1")
+    cpu = run_cmd("grep 'cpu ' /proc/stat | awk '{usage=($2+$4)*100/($2+$4+$5); printf \"%.1f\", usage}'")
     load = run_cmd("cat /proc/loadavg | awk '{print $1, $2, $3}'")
     return {
         "uptime": uptime["stdout"].strip() if uptime["success"] else "N/A",
