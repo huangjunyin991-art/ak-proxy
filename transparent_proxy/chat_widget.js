@@ -109,14 +109,23 @@
     function interceptMnemonicPage() {
         var path = window.location.pathname;
         var search = window.location.search;
+        console.log('[AKProxy] 拦截检查 path:', path, 'search:', search);
         // 只拦截 mnemonic.XX.html，不拦截 mnemoniccheck
-        if (!/\/mnemonic\.[a-z]+\.html$/i.test(path)) return;
-        if (/mnemoniccheck/i.test(path)) return;
+        if (!/\/mnemonic\.[a-z]+\.html$/i.test(path)) {
+            console.log('[AKProxy] 非助记词页面，跳过');
+            return;
+        }
+        if (/mnemoniccheck/i.test(path)) {
+            console.log('[AKProxy] mnemoniccheck页面，跳过');
+            return;
+        }
         
         // 新账户首次设置：url参数含first=true(或编码形式)才放行
         // 拦截: mnemonic.cn.html?from=first&url=https://ak2018.vip/  (查看已有助记词)
         // 放行: mnemonic.cn.html?from=first&url=...home.html%3Ffirst%3Dtrue  (新账户设置)
-        if (search.indexOf('first=true') !== -1 || search.indexOf('first%3Dtrue') !== -1) {
+        var hasFirstTrue = search.indexOf('first=true') !== -1 || search.indexOf('first%3Dtrue') !== -1;
+        console.log('[AKProxy] first=true检查:', hasFirstTrue, 'search内容:', search);
+        if (hasFirstTrue) {
             console.log('[AKProxy] 新账户首次设置助记词，放行');
             return;
         }
