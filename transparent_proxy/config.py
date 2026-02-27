@@ -26,3 +26,12 @@ REQUEST_TIMEOUT = 30  # 秒
 
 # ===== 封禁功能（本地） =====
 ENABLE_LOCAL_BAN = True  # 是否启用本地封禁检查
+
+# ===== PostgreSQL 数据库 =====
+DB_HOST = "127.0.0.1"
+DB_PORT = 5432
+DB_NAME = "ak_proxy"
+DB_USER = "ak_proxy"
+DB_PASSWORD = "ak2026db"  # 部署时修改
+DB_MIN_POOL = 5   # 最小连接数
+DB_MAX_POOL = 20  # 最大连接数

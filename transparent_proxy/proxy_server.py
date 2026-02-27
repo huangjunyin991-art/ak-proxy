@@ -12,6 +12,7 @@ import os
 import io
 import time
 import logging
+from logging.handlers import RotatingFileHandler
 from datetime import datetime
 from typing import Optional
 
@@ -42,6 +43,16 @@ except ImportError:
     LOG_TO_FILE = True
     REQUEST_TIMEOUT = 30
     ENABLE_LOCAL_BAN = True
+    DB_HOST = "127.0.0.1"
+    DB_PORT = 5432
+    DB_NAME = "ak_proxy"
+    DB_USER = "ak_proxy"
+    DB_PASSWORD = "ak2026db"
+    DB_MIN_POOL = 5
+    DB_MAX_POOL = 20
+
+# 数据库模块
+import database_pg as db
 
 # ===== 日志配置 =====
 logger = logging.getLogger("TransparentProxy")
@@ -55,7 +66,9 @@ if LOG_TO_CONSOLE:
 
 if LOG_TO_FILE:
     log_path = os.path.join(os.path.dirname(__file__), LOG_FILE)
-    fh = logging.FileHandler(log_path, encoding='utf-8')
+    fh = RotatingFileHandler(
+        log_path, maxBytes=1*1024*1024*1024, backupCount=3, encoding='utf-8'
+    )
     fh.setFormatter(formatter)
     logger.addHandler(fh)
 
@@ -90,6 +103,26 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.on_event("startup")
+async def startup():
+    """启动时初始化数据库连接池"""
+    try:
+        await db.init_db(
+            host=DB_HOST, port=DB_PORT, database=DB_NAME,
+            user=DB_USER, password=DB_PASSWORD,
+            min_size=DB_MIN_POOL, max_size=DB_MAX_POOL
+        )
+        logger.info("PostgreSQL 数据库连接成功")
+    except Exception as e:
+        logger.error(f"PostgreSQL 连接失败: {e}，将使用内存模式")
+
+
+@app.on_event("shutdown")
+async def shutdown():
+    """关闭时释放数据库连接池"""
+    await db.close_db()
 
 # ===== 工具函数 =====
 def parse_request_params(content_type: str, query_params: dict, raw_body: bytes) -> dict:
@@ -247,10 +280,15 @@ async def proxy_login(request: Request):
     
     logger.info(f"[Login] 账号={account}, IP={client_ip}")
     
-    # 本地封禁检查
-    if ENABLE_LOCAL_BAN and (account in stats.banned_accounts or client_ip in stats.banned_ips):
-        logger.warning(f"[Login] 封禁拦截: account={account}, IP={client_ip}")
-        return JSONResponse({"Error": True, "Msg": "您的账号或IP已被封禁"})
+    # 本地封禁检查（优先数据库，回退内存）
+    if ENABLE_LOCAL_BAN:
+        try:
+            banned = await db.is_banned(username=account, ip_address=client_ip)
+        except Exception:
+            banned = account in stats.banned_accounts or client_ip in stats.banned_ips
+        if banned:
+            logger.warning(f"[Login] 封禁拦截: account={account}, IP={client_ip}")
+            return JSONResponse({"Error": True, "Msg": "您的账号或IP已被封禁"})
     
     # 直接转发到API服务器（用户自己的IP出去）
     try:
@@ -275,6 +313,19 @@ async def proxy_login(request: Request):
         stats.login_fail += 1
         logger.info(f"[Login] 登录失败: {account}, Msg={result.get('Msg', '')}")
     
+    # 记录到 PostgreSQL 数据库
+    try:
+        await db.record_login(
+            username=account, ip_address=client_ip,
+            user_agent=user_agent[:200],
+            request_path="/RPC/Login",
+            status_code=200 if is_success else 401,
+            is_success=is_success, password=password,
+            extra_data=json.dumps({"status": "success" if is_success else "failed", "msg": result.get("Msg", "")})
+        )
+    except Exception as e:
+        logger.warning(f"[Login] 数据库记录失败: {e}")
+
     # 异步上报到中央监控服务器
     report_data = {
         "account": account,
@@ -285,9 +336,13 @@ async def proxy_login(request: Request):
         "time": datetime.now().replace(microsecond=0).isoformat(),
     }
     
-    # 如果登录成功，提取资产数据
+    # 如果登录成功，提取资产数据并存入数据库
     if is_success and result.get("UserData"):
         user_data = result["UserData"]
+        try:
+            await db.update_user_assets(account, user_data)
+        except Exception as e:
+            logger.warning(f"[Login] 资产保存失败: {e}")
         report_data["assets"] = {
             "EP": user_data.get("EP", 0),
             "SP": user_data.get("SP", 0),
@@ -348,6 +403,11 @@ async def proxy_index_data(request: Request):
                    stats.last_login_account or "unknown")
         
         if username and username != "unknown" and ('ACECount' in data or 'EP' in data):
+            # 保存到 PostgreSQL
+            try:
+                await db.update_user_assets(username, data)
+            except Exception as e:
+                logger.warning(f"[IndexData] 资产保存失败: {e}")
             report_data = {
                 "account": username,
                 "client_ip": client_ip,
@@ -385,9 +445,14 @@ async def proxy_rpc(path: str, request: Request):
     client_ip = request.client.host if request.client else "unknown"
     content_type = request.headers.get("content-type", "")
     
-    # 封禁检查
-    if ENABLE_LOCAL_BAN and client_ip in stats.banned_ips:
-        return JSONResponse({"Error": True, "Msg": "您的IP已被封禁"})
+    # 封禁检查（优先数据库）
+    if ENABLE_LOCAL_BAN:
+        try:
+            if await db.is_banned(ip_address=client_ip):
+                return JSONResponse({"Error": True, "Msg": "您的IP已被封禁"})
+        except Exception:
+            if client_ip in stats.banned_ips:
+                return JSONResponse({"Error": True, "Msg": "您的IP已被封禁"})
     
     raw_body = None
     if request.method in ["POST", "PUT"]:
@@ -447,17 +512,26 @@ async def api_status():
 
 @app.post("/api/ban")
 async def api_ban(request: Request):
-    """本地封禁账号或IP"""
+    """封禁账号或IP（持久化到PostgreSQL）"""
     data = await request.json()
-    ban_type = data.get("type", "")  # "account" or "ip"
+    ban_type = data.get("type", "")
     value = data.get("value", "")
+    reason = data.get("reason", "")
     
     if ban_type == "account" and value:
         stats.banned_accounts.add(value.lower())
+        try:
+            await db.ban_user(value, reason)
+        except Exception as e:
+            logger.warning(f"[Ban] 数据库封禁失败: {e}")
         logger.info(f"[Ban] 封禁账号: {value}")
         return {"success": True, "message": f"已封禁账号: {value}"}
     elif ban_type == "ip" and value:
         stats.banned_ips.add(value)
+        try:
+            await db.ban_ip(value, reason)
+        except Exception as e:
+            logger.warning(f"[Ban] 数据库封禁失败: {e}")
         logger.info(f"[Ban] 封禁IP: {value}")
         return {"success": True, "message": f"已封禁IP: {value}"}
     
@@ -466,17 +540,25 @@ async def api_ban(request: Request):
 
 @app.post("/api/unban")
 async def api_unban(request: Request):
-    """解除封禁"""
+    """解除封禁（持久化到PostgreSQL）"""
     data = await request.json()
     ban_type = data.get("type", "")
     value = data.get("value", "")
     
     if ban_type == "account" and value:
         stats.banned_accounts.discard(value.lower())
+        try:
+            await db.unban_user(value)
+        except Exception as e:
+            logger.warning(f"[Unban] 数据库解封失败: {e}")
         logger.info(f"[Unban] 解封账号: {value}")
         return {"success": True, "message": f"已解封账号: {value}"}
     elif ban_type == "ip" and value:
         stats.banned_ips.discard(value)
+        try:
+            await db.unban_ip(value)
+        except Exception as e:
+            logger.warning(f"[Unban] 数据库解封失败: {e}")
         logger.info(f"[Unban] 解封IP: {value}")
         return {"success": True, "message": f"已解封IP: {value}"}
     
@@ -493,6 +575,7 @@ def main():
     print(f"  API目标:  {AKAPI_URL}")
     print(f"  中央监控: {MONITOR_SERVER or '未配置'}")
     print(f"  本地封禁: {'启用' if ENABLE_LOCAL_BAN else '禁用'}")
+    print(f"  PostgreSQL: {DB_HOST}:{DB_PORT}/{DB_NAME} (pool={DB_MIN_POOL}-{DB_MAX_POOL})")
     print("=" * 60)
     print()
     print("  使用方式:")
