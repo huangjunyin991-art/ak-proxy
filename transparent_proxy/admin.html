@@ -1899,6 +1899,7 @@
                             <div><label style="display:block; font-size:11px; color:var(--text-secondary); margin-bottom:4px;">天数</label>
                                 <input id="cfgDays" type="number" min="1" style="padding:6px 10px; background:var(--bg-secondary); border:1px solid var(--border); border-radius:6px; color:var(--text-primary); font-size:12px; width:70px;"></div>
                             <button class="btn" onclick="saveCreditConfig()" style="padding:6px 14px; font-size:12px;">保存</button>
+                            <button class="btn" onclick="clearCreditConfigForm()" style="padding:6px 14px; font-size:12px; background:var(--bg-secondary);">清空</button>
                         </div>
                     </div>
                 </div>
@@ -5302,14 +5303,38 @@
                     return;
                 }
                 el.innerHTML = '<div style="display:flex; flex-wrap:wrap; gap:8px;">' + data.map(c =>
-                    `<div style="background:var(--bg-secondary); border-radius:8px; padding:8px 12px; display:flex; align-items:center; gap:8px;">
+                    `<div onclick="fillCreditConfig('${c.plan_type}','${c.plan_name}',${c.credits_cost},${c.duration_days})" style="background:var(--bg-secondary); border-radius:8px; padding:8px 12px; display:flex; align-items:center; gap:8px; cursor:pointer; transition:all 0.2s; border:2px solid transparent;" onmouseover="this.style.borderColor='var(--accent)'" onmouseout="if(!this.classList.contains('cfg-selected'))this.style.borderColor='transparent'" class="cfg-badge">
                         <span style="font-weight:bold; color:var(--accent);">${c.plan_name}</span>
                         <span style="color:var(--text-secondary); font-size:12px;">${c.credits_cost}积分/${c.duration_days}天</span>
                         <span style="color:var(--text-secondary); font-size:11px;">(${c.plan_type})</span>
-                        ${isSuperAdmin() ? `<button onclick="deleteCreditConfig('${c.plan_type}')" style="background:none; border:none; color:#ff5252; cursor:pointer; font-size:14px;">✕</button>` : ''}
+                        ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig('${c.plan_type}')" style="background:none; border:none; color:#ff5252; cursor:pointer; font-size:14px;">✕</button>` : ''}
                     </div>`
                 ).join('') + '</div>';
             } catch (e) { console.error('加载定价失败', e); }
+        }
+
+        function fillCreditConfig(planType, planName, credits, days) {
+            document.getElementById('cfgPlanType').value = planType;
+            document.getElementById('cfgPlanName').value = planName;
+            document.getElementById('cfgCredits').value = credits;
+            document.getElementById('cfgDays').value = days;
+            document.querySelectorAll('.cfg-badge').forEach(b => {
+                b.classList.remove('cfg-selected');
+                b.style.borderColor = 'transparent';
+            });
+            event.currentTarget.classList.add('cfg-selected');
+            event.currentTarget.style.borderColor = 'var(--accent)';
+        }
+
+        function clearCreditConfigForm() {
+            document.getElementById('cfgPlanType').value = '';
+            document.getElementById('cfgPlanName').value = '';
+            document.getElementById('cfgCredits').value = '';
+            document.getElementById('cfgDays').value = '';
+            document.querySelectorAll('.cfg-badge').forEach(b => {
+                b.classList.remove('cfg-selected');
+                b.style.borderColor = 'transparent';
+            });
         }
 
         async function saveCreditConfig() {
@@ -5327,7 +5352,7 @@
                 });
                 const data = await res.json();
                 alert(data.message || '操作完成');
-                if (data.success) loadCreditConfig();
+                if (data.success) { clearCreditConfigForm(); loadCreditConfig(); }
             } catch (e) { alert('保存失败: ' + e.message); }
         }
 
