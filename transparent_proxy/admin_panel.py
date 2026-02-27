@@ -61,8 +61,7 @@ _last_log_cleanup = 0
 # 可编辑文件 - 分组管理
 FILE_GROUPS = {
     "Nginx": {
-        "nginx_site": {"label": "站点配置 (ak-proxy)", "path": "/etc/nginx/sites-available/ak-proxy", "sudo": True, "lang": "nginx"},
-        "nginx_main": {"label": "主配置 (nginx.conf)", "path": "/etc/nginx/nginx.conf", "sudo": True, "lang": "nginx"},
+        "nginx_conf": {"label": "Nginx 配置 (nginx.conf)", "path": "/etc/nginx/nginx.conf", "sudo": True, "lang": "nginx"},
     },
     "透明代理": {
         "proxy_config": {"label": "代理配置 (config.py)", "path": os.path.expanduser("~/ak-proxy/transparent_proxy/config.py"), "sudo": False, "lang": "python"},
