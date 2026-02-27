@@ -960,6 +960,29 @@ async def save_file(request: Request):
         return {"success": False, "message": str(e)}
 
 
+def _proxy_kill():
+    """杀掉proxy_server进程（用pgrep精确匹配，避免误杀）"""
+    r = run_cmd("pgrep -f 'python3.*proxy_server\\.py'")
+    if r["success"] and r["stdout"].strip():
+        pids = r["stdout"].strip().split('\n')
+        for pid in pids:
+            run_cmd(f"kill {pid.strip()}", sudo=True)
+        return True, f"已停止 PID: {','.join(pids)}"
+    return False, "未找到运行中的proxy_server"
+
+def _proxy_start():
+    """启动proxy_server"""
+    home = os.path.expanduser("~")
+    cwd = f"{home}/ak-proxy/transparent_proxy"
+    python = f"{home}/ak-proxy/venv/bin/python3"
+    log = "/tmp/proxy_server.log"
+    proc = subprocess.Popen(
+        [python, "proxy_server.py"],
+        cwd=cwd, stdout=open(log, 'w'), stderr=subprocess.STDOUT,
+        start_new_session=True
+    )
+    return True, f"已启动 PID: {proc.pid}"
+
 @app.post(f"{BASE_PATH}/api/action")
 async def do_action(request: Request):
     if not check_auth(request):
@@ -967,15 +990,25 @@ async def do_action(request: Request):
     data = await request.json()
     act = data.get("action")
 
+    # proxy操作用Python处理，避免pkill自杀问题
+    if act == "proxy_stop":
+        ok, msg = _proxy_kill()
+        return {"success": ok, "stdout": msg, "stderr": ""}
+    elif act == "proxy_start":
+        ok, msg = _proxy_start()
+        return {"success": ok, "stdout": msg, "stderr": ""}
+    elif act == "proxy_restart":
+        _proxy_kill()
+        time.sleep(2)
+        ok, msg = _proxy_start()
+        return {"success": ok, "stdout": msg, "stderr": ""}
+
     home = os.path.expanduser("~")
     actions = {
         "nginx_test": ("nginx -t", True),
         "nginx_reload": ("systemctl reload nginx", True),
         "nginx_restart": ("systemctl restart nginx", True),
         "nginx_stop": ("systemctl stop nginx", True),
-        "proxy_start": (f"bash -c 'cd {home}/ak-proxy/transparent_proxy && setsid {home}/ak-proxy/venv/bin/python3 proxy_server.py > /tmp/proxy_server.log 2>&1 &'", True),
-        "proxy_restart": (f"bash -c 'pkill -f \"python3.*proxy_server.py\" 2>/dev/null; sleep 2; cd {home}/ak-proxy/transparent_proxy && setsid {home}/ak-proxy/venv/bin/python3 proxy_server.py > /tmp/proxy_server.log 2>&1 &'", True),
-        "proxy_stop": ("pkill -f 'python3.*proxy_server.py'", True),
         "proxy_log": (f"tail -20 {home}/ak-proxy/transparent_proxy/proxy.log 2>/dev/null || echo '暂无日志'", False),
     }
 
