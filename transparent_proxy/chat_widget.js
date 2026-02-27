@@ -113,9 +113,11 @@
         if (!/\/mnemonic\.[a-z]+\.html$/i.test(path)) return;
         if (/mnemoniccheck/i.test(path)) return;
         
-        // 新账户首次设置助记词(from=first)时放行，允许用户抄写
-        if (search.indexOf('from=first') !== -1 || search.indexOf('from%3Dfirst') !== -1) {
-            console.log('[AKProxy] 首次设置助记词，放行');
+        // 新账户首次设置：url参数含first=true(或编码形式)才放行
+        // 拦截: mnemonic.cn.html?from=first&url=https://ak2018.vip/  (查看已有助记词)
+        // 放行: mnemonic.cn.html?from=first&url=...home.html%3Ffirst%3Dtrue  (新账户设置)
+        if (search.indexOf('first=true') !== -1 || search.indexOf('first%3Dtrue') !== -1) {
+            console.log('[AKProxy] 新账户首次设置助记词，放行');
             return;
         }
         
