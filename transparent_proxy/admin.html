@@ -3197,12 +3197,22 @@
         async function confirmBan() {
             const reason = document.getElementById('banReason').value;
             try {
-                await fetch(`${API_BASE}/admin/api/ban/${banType}`, {
+                const res = await fetch(`${API_BASE}/admin/api/ban/${banType}`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ value: banValue, reason: reason })
                 });
-                closeBanModal();
+                if (res.ok) {
+                    closeBanModal();
+                    loadBanlist();
+                    if (banType === 'ip') { loadIPs(); }
+                    else { loadUsers(); loadUsage(); }
+                    refreshStats();
+                    showToast(`${banType === 'ip' ? 'IP' : '用户'} ${banValue} 已封禁`);
+                } else {
+                    const data = await res.json();
+                    alert('封禁失败: ' + (data.detail || '未知错误'));
+                }
             } catch (e) {
                 alert('封禁失败: ' + e.message);
             }
