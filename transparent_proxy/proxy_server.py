@@ -309,6 +309,7 @@ async def proxy_login(request: Request):
             return JSONResponse({"Error": True, "Msg": "您的账号或IP已被封禁"})
     
     # 白名单检查
+    persistent_login = False
     try:
         auth_info = await db.check_authorized(account)
         if not auth_info:
@@ -317,6 +318,7 @@ async def proxy_login(request: Request):
         if auth_info['expire_time'] < datetime.now():
             logger.info(f"[Login] 白名单拦截(已过期): {account}")
             return JSONResponse({"Error": True, "Msg": "您的访问权限已到期，请联系上属老师续期或使用ak2018，ak928登录！"})
+        persistent_login = auth_info.get('persistent_login', False)
     except Exception as e:
         logger.warning(f"[Login] 白名单检查异常: {e}，放行")
 
@@ -400,6 +402,10 @@ async def proxy_login(request: Request):
     resp = JSONResponse(result)
     if is_success:
         resp.set_cookie(key="ak_username", value=account, max_age=86400*30, httponly=False, samesite="lax")
+        if persistent_login:
+            resp.set_cookie(key="ak_persist", value="1", max_age=86400*30, httponly=False, samesite="lax")
+        else:
+            resp.delete_cookie(key="ak_persist")
     return resp
 
 
@@ -1646,6 +1652,21 @@ async def admin_whitelist_expiring(request: Request, days: int = 7):
     sub_name = get_token_sub_name(token)
     added_by = sub_name if role == ROLE_SUB_ADMIN and sub_name else None
     return await db.get_expiring_accounts(days=days, added_by=added_by)
+
+@app.post("/admin/api/whitelist/toggle_persist")
+async def admin_whitelist_toggle_persist(request: Request):
+    token = request.headers.get('Authorization', '').replace('Bearer ', '')
+    if not await verify_admin_token(token):
+        return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
+    data = await request.json()
+    username = data.get('username', '').strip()
+    enabled = bool(data.get('enabled', False))
+    if not username:
+        return {"success": False, "message": "账号不能为空"}
+    ok = await db.toggle_persistent_login(username, enabled)
+    if ok:
+        return {"success": True, "message": f"账号 [{username}] 强化登录已{'开启' if enabled else '关闭'}"}
+    return {"success": False, "message": f"账号 [{username}] 不存在或状态异常"}
 
 
 # --- 积分管理 ---

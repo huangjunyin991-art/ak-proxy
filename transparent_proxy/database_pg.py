@@ -305,10 +305,17 @@ async def init_db(host: str = "127.0.0.1", port: int = 5432,
                 expire_time TIMESTAMP NOT NULL,
                 status TEXT NOT NULL DEFAULT 'active',
                 remark TEXT DEFAULT '',
+                persistent_login BOOLEAN DEFAULT FALSE,
                 created_at TIMESTAMP DEFAULT NOW(),
                 updated_at TIMESTAMP DEFAULT NOW()
             )
         ''')
+
+        # authorized_accounts 添加 persistent_login 字段（兼容旧表）
+        try:
+            await conn.execute("ALTER TABLE authorized_accounts ADD COLUMN IF NOT EXISTS persistent_login BOOLEAN DEFAULT FALSE")
+        except Exception:
+            pass
 
         # 积分定价配置表
         await conn.execute('''
@@ -1218,11 +1225,12 @@ async def check_authorized(username: str) -> Optional[Dict]:
     pool = _get_pool()
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
-            "SELECT id, expire_time, status FROM authorized_accounts WHERE username = $1 AND status = 'active'",
+            "SELECT id, expire_time, status, persistent_login FROM authorized_accounts WHERE username = $1 AND status = 'active'",
             username)
         if not row:
             return None
-        return {'id': row['id'], 'expire_time': row['expire_time'], 'status': row['status']}
+        return {'id': row['id'], 'expire_time': row['expire_time'], 'status': row['status'],
+                'persistent_login': row.get('persistent_login', False)}
 
 
 async def add_authorized_account(username: str, password: str, added_by: str,
@@ -1274,6 +1282,16 @@ async def delete_authorized_account(username: str) -> bool:
         result = await conn.execute(
             "UPDATE authorized_accounts SET status='deleted', updated_at=NOW() WHERE username=$1",
             username)
+        return int(result.split()[-1]) > 0
+
+
+async def toggle_persistent_login(username: str, enabled: bool) -> bool:
+    """切换账号的强化登录开关"""
+    pool = _get_pool()
+    async with pool.acquire() as conn:
+        result = await conn.execute(
+            "UPDATE authorized_accounts SET persistent_login=$1, updated_at=NOW() WHERE username=$2 AND status='active'",
+            enabled, username)
         return int(result.split()[-1]) > 0
 
 

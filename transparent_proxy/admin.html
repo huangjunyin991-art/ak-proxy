@@ -1847,9 +1847,9 @@
                 <div style="overflow-x: auto;">
                     <table>
                         <thead><tr>
-                            <th>账号</th><th>密码</th><th>套餐</th><th>到期时间</th><th>状态</th><th>添加人</th><th>备注</th><th>操作</th>
+                            <th>账号</th><th>密码</th><th>套餐</th><th>到期时间</th><th>状态</th><th>强化登录</th><th>添加人</th><th>备注</th><th>操作</th>
                         </tr></thead>
-                        <tbody id="wlTableBody"><tr><td colspan="8" style="text-align:center; color:var(--text-secondary);">加载中...</td></tr></tbody>
+                        <tbody id="wlTableBody"><tr><td colspan="9" style="text-align:center; color:var(--text-secondary);">加载中...</td></tr></tbody>
                     </table>
                 </div>
                 <div id="wlPagination" style="display: flex; justify-content: center; gap: 8px; margin-top: 12px;"></div>
@@ -5129,7 +5129,7 @@
                 const tbody = document.getElementById('wlTableBody');
                 const rows = data.rows || [];
                 if (rows.length === 0) {
-                    tbody.innerHTML = '<tr><td colspan="8" style="text-align:center; color:var(--text-secondary);">暂无数据</td></tr>';
+                    tbody.innerHTML = '<tr><td colspan="9" style="text-align:center; color:var(--text-secondary);">暂无数据</td></tr>';
                 } else {
                     tbody.innerHTML = rows.map(a => {
                         const statusColors = {active: '#00ff88', expired: '#ff5252', deleted: '#888'};
@@ -5142,6 +5142,7 @@
                             <td>${a.plan_type || '-'}</td>
                             <td style="color:${isExpired ? '#ff5252' : '#00ff88'};">${expDate}</td>
                             <td><span style="color:${statusColors[a.status] || '#888'};">${statusNames[a.status] || a.status}</span></td>
+                            <td>${a.status !== 'deleted' ? `<button onclick="togglePersistLogin('${a.username}', ${!a.persistent_login})" style="padding:2px 10px; font-size:11px; border:none; border-radius:12px; cursor:pointer; transition:all 0.2s; background:${a.persistent_login ? 'linear-gradient(135deg,#00c9b7,#7ed56f)' : 'var(--bg-secondary)'}; color:${a.persistent_login ? '#0a1a2e' : 'var(--text-secondary)'}; font-weight:${a.persistent_login ? 'bold' : 'normal'};">${a.persistent_login ? '✅ 已开启' : '⭕ 关闭'}</button>` : '-'}</td>
                             <td style="color:var(--text-secondary);">${a.added_by || '-'}</td>
                             <td style="color:var(--text-secondary); max-width:100px; overflow:hidden; text-overflow:ellipsis;">${a.remark || ''}</td>
                             <td>
@@ -5245,6 +5246,18 @@
                 const data = await res.json();
                 alert(data.message || (data.success ? '成功' : '失败'));
                 if (data.success) loadWhitelist(wlPage);
+            } catch (e) { alert('请求失败: ' + e.message); }
+        }
+
+        async function togglePersistLogin(username, enabled) {
+            try {
+                const res = await fetch(`${API_BASE}/admin/api/whitelist/toggle_persist`, {
+                    method: 'POST', headers: {...getHeaders(), 'Content-Type': 'application/json'},
+                    body: JSON.stringify({username, enabled})
+                });
+                const data = await res.json();
+                if (data.success) loadWhitelist(wlPage);
+                else alert(data.message || '操作失败');
             } catch (e) { alert('请求失败: ' + e.message); }
         }
 
