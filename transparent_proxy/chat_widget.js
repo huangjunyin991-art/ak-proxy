@@ -291,16 +291,24 @@
         }
         // 如果已经是standalone模式（已安装），不显示安装提示
         if (window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone) return;
-        // 拦截浏览器安装事件，延迟到登录后再显示
+        // 拦截浏览器安装事件，登录后再显示
         var deferredPrompt = null;
         window.addEventListener('beforeinstallprompt', function(e) {
             e.preventDefault();
             deferredPrompt = e;
-            // 只有强化登录授权用户（ak_persist=1）且已登录（ak_username存在）才显示
-            if (_akHasPersistCookie() && document.cookie.indexOf('ak_username=') !== -1) {
-                showInstallBanner();
-            }
+            tryShowInstallBanner();
         });
+        // 定期检查cookie状态（登录后cookie才会出现）
+        var _pwaCheckTimer = setInterval(function() {
+            if (deferredPrompt) tryShowInstallBanner();
+            // 已显示或无事件则停止
+            if (!deferredPrompt || document.getElementById('ak-pwa-banner')) clearInterval(_pwaCheckTimer);
+        }, 3000);
+        function tryShowInstallBanner() {
+            if (!deferredPrompt) return;
+            if (!_akHasPersistCookie() || document.cookie.indexOf('ak_username=') === -1) return;
+            showInstallBanner();
+        }
         function showInstallBanner() {
             if (document.getElementById('ak-pwa-banner')) return;
             // 如果用户之前关闭了提示，24小时内不再显示
