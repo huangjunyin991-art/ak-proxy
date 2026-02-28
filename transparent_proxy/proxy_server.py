@@ -1278,7 +1278,7 @@ async def admin_db_auth(request: Request):
     except Exception:
         raise HTTPException(status_code=400, detail="验证请求无效")
 
-@app.post("/admin/api/db/verify")
+@app.api_route("/admin/api/db/verify", methods=["GET", "POST"])
 async def admin_db_verify(request: Request):
     token = request.headers.get("X-DB-Token")
     return {"valid": verify_db_token(token)}
