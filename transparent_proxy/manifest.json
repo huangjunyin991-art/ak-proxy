@@ -1,0 +1,19 @@
+{
+  "name": "AK 交易平台",
+  "short_name": "AK",
+  "description": "AK 数字资产交易平台",
+  "start_url": "/pages/home.html?first=true",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0a0e1a",
+  "theme_color": "#00e5ff",
+  "scope": "/",
+  "icons": [
+    {
+      "src": "/pwa-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

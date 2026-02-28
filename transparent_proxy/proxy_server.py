@@ -1858,6 +1858,22 @@ async def chat_widget_js():
             return Response(content=f.read(), media_type="application/javascript")
     return Response(content="// not found", media_type="application/javascript")
 
+@app.get("/manifest.json")
+async def pwa_manifest():
+    path = os.path.join(os.path.dirname(__file__), "manifest.json")
+    if os.path.exists(path):
+        with open(path, "r", encoding="utf-8") as f:
+            return Response(content=f.read(), media_type="application/manifest+json")
+    return Response(content="{}", media_type="application/manifest+json")
+
+@app.get("/sw.js")
+async def pwa_sw():
+    path = os.path.join(os.path.dirname(__file__), "sw.js")
+    if os.path.exists(path):
+        with open(path, "r", encoding="utf-8") as f:
+            return Response(content=f.read(), media_type="application/javascript")
+    return Response(content="// not found", media_type="application/javascript")
+
 
 # ===== 启动 =====
 def main():

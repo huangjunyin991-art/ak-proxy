@@ -275,6 +275,28 @@
     
     // 助记词和首页拦截已由nginx 302处理，JS层不再需要
     
+    // ===== PWA支持：注入manifest + 注册Service Worker =====
+    (function setupPWA() {
+        // 注入manifest link
+        if (!document.querySelector('link[rel="manifest"]')) {
+            var link = document.createElement('link');
+            link.rel = 'manifest';
+            link.href = '/manifest.json';
+            (document.head || document.documentElement).appendChild(link);
+        }
+        // 注入theme-color meta
+        if (!document.querySelector('meta[name="theme-color"]')) {
+            var meta = document.createElement('meta');
+            meta.name = 'theme-color';
+            meta.content = '#00e5ff';
+            (document.head || document.documentElement).appendChild(meta);
+        }
+        // 注册Service Worker
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('/sw.js', {scope: '/'}).catch(function(){});
+        }
+    })();
+    
     // 持久化登录：尽早隐藏登录页并自动登录
     autoLogin();
     // 立即执行一次
