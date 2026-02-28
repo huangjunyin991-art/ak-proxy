@@ -281,7 +281,7 @@
         if (!document.querySelector('link[rel="manifest"]')) {
             var link = document.createElement('link');
             link.rel = 'manifest';
-            link.href = '/manifest.json';
+            link.href = '/admin/api/pwa-manifest';
             (document.head || document.documentElement).appendChild(link);
         }
         // 注入theme-color meta
