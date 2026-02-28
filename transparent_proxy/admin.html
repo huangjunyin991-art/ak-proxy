@@ -2706,9 +2706,17 @@
                 return;
             }
             
-            tbody.innerHTML = users.map(user => `
-                <tr>
-                    <td><strong>${user.username}</strong></td>
+            tbody.innerHTML = users.map(user => {
+                const banned = user.is_banned;
+                const nameStyle = banned 
+                    ? 'color: #ff5252; text-decoration: line-through; opacity: 0.7;' 
+                    : '';
+                const banIcon = banned ? '🔒 ' : '';
+                const banBtn = banned
+                    ? `<button class="btn btn-success" onclick="unban('user', '${user.username}')" style="padding: 4px 12px; font-size: 12px;">解封</button>`
+                    : `<button class="btn btn-danger" onclick="showBanModal('user', '${user.username}')" style="padding: 4px 12px; font-size: 12px;">封禁</button>`;
+                return `<tr style="${banned ? 'background: rgba(255,82,82,0.05);' : ''}">
+                    <td><strong style="${nameStyle}">${banIcon}${user.username}</strong></td>
                     <td style="color: var(--accent);">${formatNumber(user.ace_count)}</td>
                     <td>${formatNumber(user.total_ace)}</td>
                     <td style="color: var(--accent-green);">${formatNumber(user.ep)}</td>
@@ -2722,11 +2730,9 @@
                     <td style="color: #fed330;">${user.sub_account || 0}</td>
                     <td><span class="badge warning">${user.honor_name || '-'}</span></td>
                     <td style="color: var(--text-secondary); font-size: 11px;">${fmtTime(user.updated_at)}</td>
-                    <td>
-                        <button class="btn btn-danger" onclick="showBanModal('user', '${user.username}')" style="padding: 4px 12px; font-size: 12px;">封禁</button>
-                    </td>
-                </tr>
-            `).join('');
+                    <td>${banBtn}</td>
+                </tr>`;
+            }).join('');
         }
         
         // 更新分页控件

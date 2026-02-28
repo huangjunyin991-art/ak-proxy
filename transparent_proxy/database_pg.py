@@ -525,21 +525,26 @@ async def get_user_assets(username: str) -> Optional[Dict]:
 
 async def get_all_user_assets(limit: int = 100, offset: int = 0,
                               search: str = None) -> Dict:
-    """获取所有用户资产"""
+    """获取所有用户资产（含封禁状态）"""
     pool = _get_pool()
     async with pool.acquire() as conn:
+        base = '''
+            SELECT ua.*, 
+                   CASE WHEN bl.id IS NOT NULL THEN TRUE ELSE FALSE END AS is_banned
+            FROM user_assets ua
+            LEFT JOIN ban_list bl ON bl.ban_type='user' AND bl.ban_value=ua.username AND bl.is_active=TRUE
+        '''
         if search:
             total = await conn.fetchval(
                 "SELECT COUNT(*) FROM user_assets WHERE username ILIKE $1", f'%{search}%')
-            rows = await conn.fetch('''
-                SELECT * FROM user_assets WHERE username ILIKE $1
-                ORDER BY updated_at DESC LIMIT $2 OFFSET $3
-            ''', f'%{search}%', limit, offset)
+            rows = await conn.fetch(
+                base + " WHERE ua.username ILIKE $1 ORDER BY ua.updated_at DESC LIMIT $2 OFFSET $3",
+                f'%{search}%', limit, offset)
         else:
             total = await conn.fetchval("SELECT COUNT(*) FROM user_assets")
-            rows = await conn.fetch('''
-                SELECT * FROM user_assets ORDER BY updated_at DESC LIMIT $1 OFFSET $2
-            ''', limit, offset)
+            rows = await conn.fetch(
+                base + " ORDER BY ua.updated_at DESC LIMIT $1 OFFSET $2",
+                limit, offset)
         return {'total': total or 0, 'rows': [dict(r) for r in rows]}
 
 
