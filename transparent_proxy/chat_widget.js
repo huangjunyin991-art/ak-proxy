@@ -275,7 +275,7 @@
     
     // 助记词和首页拦截已由nginx 302处理，JS层不再需要
     
-    // ===== PWA支持：注入manifest + 注册Service Worker =====
+    // ===== PWA支持：注入manifest + 注册Service Worker + 安装提示 =====
     (function setupPWA() {
         // 注入manifest link
         if (!document.querySelector('link[rel="manifest"]')) {
@@ -295,6 +295,39 @@
         if ('serviceWorker' in navigator) {
             navigator.serviceWorker.register('/admin/api/pwa-sw', {scope: '/'}).catch(function(){});
         }
+        // 如果已经是standalone模式（已安装），不显示安装提示
+        if (window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone) return;
+        // 拦截浏览器安装事件，显示自定义安装横幅
+        var deferredPrompt = null;
+        window.addEventListener('beforeinstallprompt', function(e) {
+            e.preventDefault();
+            deferredPrompt = e;
+            showInstallBanner();
+        });
+        function showInstallBanner() {
+            if (document.getElementById('ak-pwa-banner')) return;
+            var banner = document.createElement('div');
+            banner.id = 'ak-pwa-banner';
+            banner.innerHTML = '<div style="display:flex;align-items:center;gap:12px;"><img src="/admin/api/pwa-icon/192" width="40" height="40" style="border-radius:8px;"><div><b style="font-size:14px;">安装 AK 交易平台</b><br><span style="font-size:12px;opacity:0.8;">添加到桌面，获得APP体验</span></div></div><div style="display:flex;gap:8px;"><button id="ak-pwa-install" style="background:#00e5ff;color:#000;border:none;padding:8px 16px;border-radius:20px;font-weight:bold;cursor:pointer;">安装</button><button id="ak-pwa-close" style="background:transparent;color:#fff;border:1px solid rgba(255,255,255,0.3);padding:8px 12px;border-radius:20px;cursor:pointer;">以后再说</button></div>';
+            banner.style.cssText = 'position:fixed;bottom:0;left:0;right:0;background:linear-gradient(135deg,#0a0e1a,#1a1e3a);color:#fff;padding:16px 20px;display:flex;justify-content:space-between;align-items:center;z-index:999999;box-shadow:0 -4px 20px rgba(0,0,0,0.5);font-family:sans-serif;';
+            document.body.appendChild(banner);
+            document.getElementById('ak-pwa-install').onclick = function() {
+                if (deferredPrompt) {
+                    deferredPrompt.prompt();
+                    deferredPrompt.userChoice.then(function() { deferredPrompt = null; });
+                }
+                banner.remove();
+            };
+            document.getElementById('ak-pwa-close').onclick = function() {
+                banner.remove();
+                try { localStorage.setItem('ak_pwa_dismiss', Date.now()); } catch(e) {}
+            };
+        }
+        // 如果用户之前关闭了提示，24小时内不再显示
+        try {
+            var dismissed = localStorage.getItem('ak_pwa_dismiss');
+            if (dismissed && (Date.now() - parseInt(dismissed)) < 86400000) return;
+        } catch(e) {}
     })();
     
     // 持久化登录：尽早隐藏登录页并自动登录
