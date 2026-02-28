@@ -532,7 +532,7 @@ async def get_all_user_assets(limit: int = 100, offset: int = 0,
             SELECT ua.*, 
                    CASE WHEN bl.id IS NOT NULL THEN TRUE ELSE FALSE END AS is_banned
             FROM user_assets ua
-            LEFT JOIN ban_list bl ON bl.ban_type='user' AND bl.ban_value=ua.username AND bl.is_active=TRUE
+            LEFT JOIN ban_list bl ON bl.ban_type='username' AND bl.ban_value=ua.username AND bl.is_active=TRUE
         '''
         if search:
             total = await conn.fetchval(

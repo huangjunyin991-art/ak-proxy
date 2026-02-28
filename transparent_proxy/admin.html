@@ -2679,7 +2679,7 @@
                 const banData = await banRes.json();
                 bannedUsersSet.clear();
                 banData.forEach(item => {
-                    if (item.ban_type === 'user') bannedUsersSet.add(item.ban_value.toLowerCase());
+                    if (item.ban_type === 'user' || item.ban_type === 'username') bannedUsersSet.add(item.ban_value.toLowerCase());
                 });
                 
                 const rows = data.rows || [];
@@ -2924,7 +2924,7 @@
                 // 更新封禁用户集合
                 bannedUsersSet.clear();
                 data.forEach(item => {
-                    if (item.ban_type === 'user') bannedUsersSet.add(item.ban_value.toLowerCase());
+                    if (item.ban_type === 'user' || item.ban_type === 'username') bannedUsersSet.add(item.ban_value.toLowerCase());
                 });
 
                 if (data.length === 0) {
