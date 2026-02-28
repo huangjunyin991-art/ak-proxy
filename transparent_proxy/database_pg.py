@@ -223,12 +223,8 @@ async def init_db(host: str = "127.0.0.1", port: int = 5432,
                 ep DOUBLE PRECISION DEFAULT 0,
                 rp DOUBLE PRECISION DEFAULT 0,
                 ap DOUBLE PRECISION DEFAULT 0,
-                lp DOUBLE PRECISION DEFAULT 0,
                 rate DOUBLE PRECISION DEFAULT 0,
-                credit INTEGER DEFAULT 0,
                 honor_name TEXT DEFAULT '',
-                level_number INTEGER DEFAULT 0,
-                convert_balance DOUBLE PRECISION DEFAULT 0,
                 left_area INTEGER DEFAULT 0,
                 right_area INTEGER DEFAULT 0,
                 direct_push INTEGER DEFAULT 0,
@@ -241,6 +237,12 @@ async def init_db(host: str = "127.0.0.1", port: int = 5432,
         for col in ['left_area', 'right_area', 'direct_push', 'sub_account']:
             try:
                 await conn.execute(f'ALTER TABLE user_assets ADD COLUMN IF NOT EXISTS {col} INTEGER DEFAULT 0')
+            except Exception:
+                pass
+        # 删除废弃字段
+        for col in ['lp', 'credit', 'level_number', 'convert_balance']:
+            try:
+                await conn.execute(f'ALTER TABLE user_assets DROP COLUMN IF EXISTS {col}')
             except Exception:
                 pass
 
@@ -522,12 +524,8 @@ async def update_user_assets(username: str, data: Dict):
     ep = float(data.get("EP", 0) or 0)
     rp = float(data.get("RP", 0) or 0)
     ap = float(data.get("AP", 0) or 0)
-    lp = float(data.get("LP", 0) or 0)
     rate = float(data.get("Rate", 0) or 0)
-    credit = int(data.get("Credit", 0) or 0)
     honor_name = str(data.get("HonorName", "") or "")
-    level_number = int(data.get("LevelNumber", 0) or 0)
-    convert_balance = float(data.get("Convertbalance", 0) or 0)
     left_area = int(data.get("L", 0) or 0)
     right_area = int(data.get("R", 0) or 0)
     direct_push = int(data.get("F", 0) or 0)
@@ -537,23 +535,21 @@ async def update_user_assets(username: str, data: Dict):
         async with conn.transaction():
             await conn.execute('''
                 INSERT INTO user_assets (username, ace_count, total_ace, weekly_money,
-                    sp, tp, ep, rp, ap, lp, rate, credit, honor_name, level_number,
-                    convert_balance, left_area, right_area, direct_push, sub_account, updated_at)
-                VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
+                    sp, tp, ep, rp, ap, rate, honor_name,
+                    left_area, right_area, direct_push, sub_account, updated_at)
+                VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
                 ON CONFLICT(username) DO UPDATE SET
                     ace_count=$2, total_ace=$3, weekly_money=$4,
-                    sp=$5, tp=$6, ep=$7, rp=$8, ap=$9, lp=$10,
-                    rate=$11, credit=$12, honor_name=$13, level_number=$14,
-                    convert_balance=$15,
-                    left_area=CASE WHEN $16>0 THEN $16 ELSE user_assets.left_area END,
-                    right_area=CASE WHEN $17>0 THEN $17 ELSE user_assets.right_area END,
-                    direct_push=CASE WHEN $18>0 THEN $18 ELSE user_assets.direct_push END,
-                    sub_account=CASE WHEN $19>0 THEN $19 ELSE user_assets.sub_account END,
-                    updated_at=$20
+                    sp=$5, tp=$6, ep=$7, rp=$8, ap=$9,
+                    rate=$10, honor_name=$11,
+                    left_area=CASE WHEN $12>0 THEN $12 ELSE user_assets.left_area END,
+                    right_area=CASE WHEN $13>0 THEN $13 ELSE user_assets.right_area END,
+                    direct_push=CASE WHEN $14>0 THEN $14 ELSE user_assets.direct_push END,
+                    sub_account=CASE WHEN $15>0 THEN $15 ELSE user_assets.sub_account END,
+                    updated_at=$16
             ''', username, ace_count, total_ace, weekly_money,
-                 sp, tp, ep, rp, ap, lp, rate, credit, honor_name,
-                 level_number, convert_balance, left_area, right_area,
-                 direct_push, sub_account, now)
+                 sp, tp, ep, rp, ap, rate, honor_name,
+                 left_area, right_area, direct_push, sub_account, now)
 
 
 
