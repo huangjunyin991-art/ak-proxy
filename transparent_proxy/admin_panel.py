@@ -970,7 +970,7 @@ def _proxy_kill():
     return False, "未找到运行中的proxy_server"
 
 def _proxy_start():
-    """启动proxy_server"""
+    """启动proxy_server，等待几秒验证是否成功"""
     home = os.path.expanduser("~")
     cwd = f"{home}/ak-proxy/transparent_proxy"
     python = f"{home}/ak-proxy/venv/bin/python3"
@@ -980,6 +980,18 @@ def _proxy_start():
         cwd=cwd, stdout=open(log, 'w'), stderr=subprocess.STDOUT,
         start_new_session=True
     )
+    # 等待3秒检查进程是否存活
+    time.sleep(3)
+    ret = proc.poll()
+    if ret is not None:
+        # 进程已退出，读取错误日志
+        err_msg = ""
+        try:
+            with open(log, 'r') as f:
+                err_msg = f.read()[-2000:]  # 最后2000字符
+        except Exception:
+            pass
+        return False, f"启动失败 (退出码: {ret})\n{err_msg}"
     return True, f"已启动 PID: {proc.pid}"
 
 @app.post(f"{BASE_PATH}/api/action")
