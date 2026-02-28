@@ -5153,8 +5153,8 @@
                             <td>${a.plan_type || '-'}</td>
                             <td style="color:${isExpired ? '#ff5252' : '#00ff88'};">${expDate}</td>
                             <td><span style="color:${statusColors[a.status] || '#888'};">${statusNames[a.status] || a.status}</span></td>
-                            <td>${a.status !== 'deleted' ? `<button onclick="togglePersistLogin('${a.username}', ${!a.persistent_login})" style="padding:2px 10px; font-size:11px; border:none; border-radius:12px; cursor:pointer; transition:all 0.2s; background:${a.persistent_login ? 'linear-gradient(135deg,#00c9b7,#7ed56f)' : 'var(--bg-secondary)'}; color:${a.persistent_login ? '#0a1a2e' : 'var(--text-secondary)'}; font-weight:${a.persistent_login ? 'bold' : 'normal'};">${a.persistent_login ? '✅ 已开启' : '⭕ 关闭'}</button>` : '-'}</td>
-                            <td style="color:var(--text-secondary);">${a.added_by || '-'}</td>
+                            <td>${a.status !== 'deleted' ? `<button onclick="togglePersistLogin('${a.username}', ${!a.persistent_login})" style="padding:4px 14px; font-size:12px; border:${a.persistent_login ? 'none' : '1px solid var(--border)'}; border-radius:12px; cursor:pointer; transition:all 0.2s; background:${a.persistent_login ? 'linear-gradient(135deg,#00c9b7,#7ed56f)' : 'var(--bg-primary)'}; color:${a.persistent_login ? '#0a1a2e' : '#ff5252'}; font-weight:bold;">${a.persistent_login ? '✅ 已开启' : '❌ 关闭'}</button>` : '-'}</td>
+                            <td style="color:var(--text-secondary);">${a.added_by === 'super_admin' ? '系统总管理' : (a.added_by || '-')}</td>
                             <td style="color:var(--text-secondary); max-width:100px; overflow:hidden; text-overflow:ellipsis;">${a.remark || ''}</td>
                             <td>
                                 ${a.status !== 'deleted' ? `<button class="btn" onclick="renewWhitelist('${a.username}')" style="padding:3px 8px; font-size:11px; margin-right:4px;">续期</button>
