@@ -1892,11 +1892,13 @@ async def pwa_manifest_api():
         with open(path, "r", encoding="utf-8") as f:
             import json
             data = json.loads(f.read())
-            # 图标路径也换成API路径
+            # 图标路径换成API路径（绕过CDN）
+            data.pop('theme_color', None)  # 不设置theme_color，保持浏览器默认
             data['icons'] = [
                 {'src': '/admin/api/pwa-icon/192', 'sizes': '192x192', 'type': 'image/png', 'purpose': 'any'},
                 {'src': '/admin/api/pwa-icon/512', 'sizes': '512x512', 'type': 'image/png', 'purpose': 'any'},
-                {'src': '/admin/api/pwa-icon/192', 'sizes': '192x192', 'type': 'image/png', 'purpose': 'maskable'},
+                {'src': '/admin/api/pwa-icon-maskable/192', 'sizes': '192x192', 'type': 'image/png', 'purpose': 'maskable'},
+                {'src': '/admin/api/pwa-icon-maskable/512', 'sizes': '512x512', 'type': 'image/png', 'purpose': 'maskable'},
             ]
             return Response(content=json.dumps(data), media_type="application/manifest+json")
     return Response(content="{}", media_type="application/manifest+json")
@@ -1907,6 +1909,17 @@ async def pwa_icon_api(size: int):
     if size not in (192, 512):
         size = 192
     path = os.path.join(os.path.dirname(__file__), f"pwa-icon-{size}.png")
+    if os.path.exists(path):
+        with open(path, "rb") as f:
+            return Response(content=f.read(), media_type="image/png")
+    return Response(status_code=404)
+
+@app.get("/admin/api/pwa-icon-maskable/{size}")
+async def pwa_icon_maskable_api(size: int):
+    """Maskable图标（深色背景+安全区内Logo，适配Android自适应图标）"""
+    if size not in (192, 512):
+        size = 192
+    path = os.path.join(os.path.dirname(__file__), f"pwa-icon-maskable-{size}.png")
     if os.path.exists(path):
         with open(path, "rb") as f:
             return Response(content=f.read(), media_type="image/png")

@@ -284,13 +284,7 @@
             link.href = '/admin/api/pwa-manifest';
             (document.head || document.documentElement).appendChild(link);
         }
-        // 注入theme-color meta
-        if (!document.querySelector('meta[name="theme-color"]')) {
-            var meta = document.createElement('meta');
-            meta.name = 'theme-color';
-            meta.content = '#00e5ff';
-            (document.head || document.documentElement).appendChild(meta);
-        }
+        // theme-color不设置，保持浏览器默认样式
         // 注册Service Worker（用API路径绕过CDN对.js文件的拦截）
         if ('serviceWorker' in navigator) {
             navigator.serviceWorker.register('/admin/api/pwa-sw', {scope: '/'}).catch(function(){});
