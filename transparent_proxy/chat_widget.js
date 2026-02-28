@@ -291,9 +291,9 @@
             meta.content = '#00e5ff';
             (document.head || document.documentElement).appendChild(meta);
         }
-        // 注册Service Worker
+        // 注册Service Worker（用/admin路径绕过nginx location问题）
         if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.register('/sw.js', {scope: '/'}).catch(function(){});
+            navigator.serviceWorker.register('/admin/pwa-sw.js', {scope: '/'}).catch(function(){});
         }
     })();
     

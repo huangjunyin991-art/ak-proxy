@@ -1871,8 +1871,18 @@ async def pwa_sw():
     path = os.path.join(os.path.dirname(__file__), "sw.js")
     if os.path.exists(path):
         with open(path, "r", encoding="utf-8") as f:
-            return Response(content=f.read(), media_type="application/javascript")
+            return Response(content=f.read(), media_type="application/javascript",
+                          headers={"Service-Worker-Allowed": "/"})
     return Response(content="// not found", media_type="application/javascript")
+
+@app.get("/admin/pwa-sw.js")
+async def pwa_sw_admin():
+    """通过/admin路径提供SW（备用路径，绕过nginx location问题）"""
+    path = os.path.join(os.path.dirname(__file__), "sw.js")
+    if os.path.exists(path):
+        with open(path, "r", encoding="utf-8") as f:
+            return Response(content=f.read(), media_type="application/javascript",
+                          headers={"Service-Worker-Allowed": "/"})
 
 @app.get("/pwa-icon-{size}.png")
 async def pwa_icon(size: int):
