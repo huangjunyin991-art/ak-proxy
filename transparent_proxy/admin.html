@@ -2720,7 +2720,7 @@
                     <td style="color: #fc5c65;">${user.direct_push || 0}</td>
                     <td style="color: #fed330;">${user.sub_account || 0}</td>
                     <td><span class="badge warning">${user.honor_name || '-'}</span></td>
-                    <td style="color: var(--text-secondary); font-size: 11px;">${user.updated_at || '-'}</td>
+                    <td style="color: var(--text-secondary); font-size: 11px;">${user.updated_at ? user.updated_at.replace('T',' ').slice(0,16) : '-'}</td>
                     <td>
                         <button class="btn btn-danger" onclick="showBanModal('user', '${user.username}')" style="padding: 4px 12px; font-size: 12px;">封禁</button>
                     </td>
@@ -2803,9 +2803,12 @@
                 // 处理 null/undefined
                 if (valA == null) valA = field === 'updated_at' || field === 'honor_name' ? '' : 0;
                 if (valB == null) valB = field === 'updated_at' || field === 'honor_name' ? '' : 0;
-                
-                // 数值字段
-                if (typeof valA === 'number' || !isNaN(parseFloat(valA))) {
+
+                // 日期字段
+                if (field === 'updated_at') {
+                    valA = valA ? new Date(valA).getTime() : 0;
+                    valB = valB ? new Date(valB).getTime() : 0;
+                } else if (typeof valA === 'number' || !isNaN(parseFloat(valA))) {
                     valA = parseFloat(valA) || 0;
                     valB = parseFloat(valB) || 0;
                 }
