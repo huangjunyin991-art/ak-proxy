@@ -530,8 +530,10 @@ async def get_all_user_assets(limit: int = 100, offset: int = 0,
     async with pool.acquire() as conn:
         base = '''
             SELECT ua.*, 
+                   COALESCE(us.login_count, 0) AS login_count,
                    CASE WHEN bl.id IS NOT NULL THEN TRUE ELSE FALSE END AS is_banned
             FROM user_assets ua
+            LEFT JOIN user_stats us ON us.username = ua.username
             LEFT JOIN ban_list bl ON bl.ban_type='username' AND bl.ban_value=ua.username AND bl.is_active=TRUE
         '''
         if search:

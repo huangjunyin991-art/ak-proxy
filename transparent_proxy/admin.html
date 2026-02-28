@@ -1600,6 +1600,7 @@
                     <thead>
                         <tr>
                             <th>用户名</th>
+                            <th class="sortable" onclick="sortUsersBy('login_count')" data-field="login_count">登录次数 <span class="sort-icon" id="sort-login_count">⇅</span></th>
                             <th class="sortable" onclick="sortUsersBy('ace_count')" data-field="ace_count">主账户AK <span class="sort-icon" id="sort-ace_count">⇅</span></th>
                             <th class="sortable" onclick="sortUsersBy('total_ace')" data-field="total_ace">子账户AK <span class="sort-icon" id="sort-total_ace">⇅</span></th>
                             <th class="sortable" onclick="sortUsersBy('ep')" data-field="ep">EP <span class="sort-icon" id="sort-ep">⇅</span></th>
@@ -2744,7 +2745,7 @@
             document.getElementById('usersSearchCount').textContent = countText + (keepSortInfo ? sortInfo : '');
             
             if (users.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="15" style="text-align: center; color: var(--text-secondary);">暂无数据</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="16" style="text-align: center; color: var(--text-secondary);">暂无数据</td></tr>';
                 return;
             }
             
@@ -2755,6 +2756,7 @@
                     : `<button class="btn btn-danger" onclick="showBanModal('user', '${user.username}')" style="padding: 4px 12px; font-size: 12px;">封禁</button>`;
                 return `<tr class="${banned ? 'banned-row' : ''}">
                     <td><strong>${user.username}</strong></td>
+                    <td style="color: #78e8c6;">${formatNumber(user.login_count || 0)}</td>
                     <td style="color: var(--accent);">${formatNumber(user.ace_count)}</td>
                     <td>${formatNumber(user.total_ace)}</td>
                     <td style="color: var(--accent-green);">${formatNumber(user.ep)}</td>
