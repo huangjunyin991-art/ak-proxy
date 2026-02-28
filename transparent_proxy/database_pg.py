@@ -539,8 +539,12 @@ async def update_user_assets(username: str, data: Dict):
                     ace_count=$2, total_ace=$3, weekly_money=$4,
                     sp=$5, tp=$6, ep=$7, rp=$8, ap=$9, lp=$10,
                     rate=$11, credit=$12, honor_name=$13, level_number=$14,
-                    convert_balance=$15, left_area=$16, right_area=$17,
-                    direct_push=$18, sub_account=$19, updated_at=$20
+                    convert_balance=$15,
+                    left_area=CASE WHEN $16>0 THEN $16 ELSE user_assets.left_area END,
+                    right_area=CASE WHEN $17>0 THEN $17 ELSE user_assets.right_area END,
+                    direct_push=CASE WHEN $18>0 THEN $18 ELSE user_assets.direct_push END,
+                    sub_account=CASE WHEN $19>0 THEN $19 ELSE user_assets.sub_account END,
+                    updated_at=$20
             ''', username, ace_count, total_ace, weekly_money,
                  sp, tp, ep, rp, ap, lp, rate, credit, honor_name,
                  level_number, convert_balance, left_area, right_area,
