@@ -244,19 +244,8 @@ async def init_db(host: str = "127.0.0.1", port: int = 5432,
             except Exception:
                 pass
 
-        # 资产历史记录表
-        await conn.execute('''
-            CREATE TABLE IF NOT EXISTS asset_history (
-                id BIGSERIAL PRIMARY KEY,
-                username TEXT NOT NULL,
-                ace_count DOUBLE PRECISION,
-                total_ace DOUBLE PRECISION,
-                ep DOUBLE PRECISION,
-                rate DOUBLE PRECISION,
-                honor_name TEXT,
-                recorded_at TIMESTAMP DEFAULT NOW()
-            )
-        ''')
+        # 清理废弃的 asset_history 表
+        await conn.execute('DROP TABLE IF EXISTS asset_history')
 
         # 管理员Token持久化表
         await conn.execute('''
@@ -322,16 +311,14 @@ async def init_db(host: str = "127.0.0.1", port: int = 5432,
         except Exception:
             pass
 
-        # user_assets / asset_history 修复唯一约束（兼容旧表）
-        for tbl, col in [('user_assets', 'username'), ('asset_history', 'username')]:
-            try:
-                # 清理重复数据：保留每个用户最新的一条
-                await conn.execute(f'''
-                    DELETE FROM {tbl} a USING {tbl} b
-                    WHERE a.id < b.id AND a.{col} = b.{col}
-                ''')
-            except Exception:
-                pass
+        # user_assets 修复唯一约束（兼容旧表）
+        try:
+            await conn.execute('''
+                DELETE FROM user_assets a USING user_assets b
+                WHERE a.id < b.id AND a.username = b.username
+            ''')
+        except Exception:
+            pass
         try:
             await conn.execute("ALTER TABLE user_assets ADD CONSTRAINT user_assets_username_key UNIQUE (username)")
         except Exception:
@@ -384,8 +371,6 @@ async def init_db(host: str = "127.0.0.1", port: int = 5432,
         await conn.execute('CREATE INDEX IF NOT EXISTS idx_login_username ON login_records(username)')
         await conn.execute('CREATE INDEX IF NOT EXISTS idx_login_ip ON login_records(ip_address)')
         await conn.execute('CREATE INDEX IF NOT EXISTS idx_login_time ON login_records(login_time)')
-        await conn.execute('CREATE INDEX IF NOT EXISTS idx_asset_history_user ON asset_history(username)')
-        await conn.execute('CREATE INDEX IF NOT EXISTS idx_asset_history_time ON asset_history(recorded_at)')
         await conn.execute('CREATE INDEX IF NOT EXISTS idx_ban_active ON ban_list(is_active)')
         await conn.execute('CREATE INDEX IF NOT EXISTS idx_auth_accounts_username ON authorized_accounts(username)')
         await conn.execute('CREATE INDEX IF NOT EXISTS idx_auth_accounts_added_by ON authorized_accounts(added_by)')
@@ -570,21 +555,6 @@ async def update_user_assets(username: str, data: Dict):
                  level_number, convert_balance, left_area, right_area,
                  direct_push, sub_account, now)
 
-            # 记录资产历史（仅IndexData有实际数据时记录，60秒内去重）
-            if ace_count > 0 or total_ace > 0 or ep > 0:
-                recent = await conn.fetchval(
-                    "SELECT id FROM asset_history WHERE username=$1 AND recorded_at > $2 LIMIT 1",
-                    username, now - timedelta(seconds=60))
-                if recent:
-                    await conn.execute('''
-                        UPDATE asset_history SET ace_count=$1, total_ace=$2, ep=$3, rate=$4, honor_name=$5, recorded_at=$6
-                        WHERE id=$7
-                    ''', ace_count, total_ace, ep, rate, honor_name, now, recent)
-                else:
-                    await conn.execute('''
-                        INSERT INTO asset_history (username, ace_count, total_ace, ep, rate, honor_name, recorded_at)
-                        VALUES ($1, $2, $3, $4, $5, $6, $7)
-                    ''', username, ace_count, total_ace, ep, rate, honor_name, now)
 
 
 async def get_user_assets(username: str) -> Optional[Dict]:
@@ -614,18 +584,6 @@ async def get_all_user_assets(limit: int = 100, offset: int = 0,
                 SELECT * FROM user_assets ORDER BY updated_at DESC LIMIT $1 OFFSET $2
             ''', limit, offset)
         return {'total': total or 0, 'rows': [dict(r) for r in rows]}
-
-
-async def get_asset_history(username: str, limit: int = 50) -> List[Dict]:
-    """获取用户资产变化历史"""
-    pool = _get_pool()
-    username = username.lower() if username else username
-    async with pool.acquire() as conn:
-        rows = await conn.fetch('''
-            SELECT * FROM asset_history WHERE username = $1
-            ORDER BY recorded_at DESC LIMIT $2
-        ''', username, limit)
-        return [dict(r) for r in rows]
 
 
 # ===== 封禁管理 =====
@@ -785,28 +743,18 @@ async def get_all_ips(limit: int = 100, offset: int = 0) -> List[Dict]:
 
 # ===== 数据清理 =====
 
-async def cleanup_old_records(login_days: int = 90, history_days: int = 180,
-                              max_login_rows: int = 500000,
-                              max_history_rows: int = 200000):
+async def cleanup_old_records(login_days: int = 90, max_login_rows: int = 500000):
     """
-    清理旧数据，平衡性能和存储：
-    - login_records: 保留N天，超过max_rows时强制清理最旧的
-    - asset_history: 保留N天，超过max_rows时强制清理最旧的
+    清理旧数据：login_records 保留N天，超过max_rows时强制清理最旧的
     """
     pool = _get_pool()
     cutoff_login = datetime.now() - timedelta(days=login_days)
-    cutoff_history = datetime.now() - timedelta(days=history_days)
 
     async with pool.acquire() as conn:
-        # 按时间清理
         r1 = await conn.execute(
             'DELETE FROM login_records WHERE login_time < $1', cutoff_login
         )
-        r2 = await conn.execute(
-            'DELETE FROM asset_history WHERE recorded_at < $1', cutoff_history
-        )
 
-        # 按行数限制（防止短时间内大量登录撑爆存储）
         login_count = await conn.fetchval('SELECT COUNT(*) FROM login_records')
         if login_count > max_login_rows:
             excess = login_count - max_login_rows
@@ -817,17 +765,7 @@ async def cleanup_old_records(login_days: int = 90, history_days: int = 180,
             ''', excess)
             logger.info(f"登录记录超限，额外删除 {excess} 条")
 
-        history_count = await conn.fetchval('SELECT COUNT(*) FROM asset_history')
-        if history_count > max_history_rows:
-            excess = history_count - max_history_rows
-            await conn.execute('''
-                DELETE FROM asset_history WHERE id IN (
-                    SELECT id FROM asset_history ORDER BY recorded_at ASC LIMIT $1
-                )
-            ''', excess)
-            logger.info(f"资产历史超限，额外删除 {excess} 条")
-
-        logger.info(f"数据清理完成: 登录{r1}, 资产历史{r2}, 当前行数: login={login_count}, history={history_count}")
+        logger.info(f"数据清理完成: 登录{r1}, 当前行数: login={login_count}")
 
 
 async def get_db_size() -> Dict:
@@ -865,7 +803,6 @@ async def delete_by_date(table: str, before_date: str = None,
     # 安全检查：只允许操作这些表
     allowed_tables = {
         'login_records': 'login_time',
-        'asset_history': 'recorded_at',
         'user_stats': 'last_login',
         'ip_stats': 'last_seen',
     }
@@ -913,7 +850,7 @@ async def get_table_row_counts() -> Dict:
     pool = _get_pool()
     async with pool.acquire() as conn:
         tables = ['login_records', 'user_stats', 'ip_stats', 'ban_list',
-                  'user_assets', 'asset_history']
+                  'user_assets']
         counts = {}
         for t in tables:
             count = await conn.fetchval(f'SELECT COUNT(*) FROM {t}')

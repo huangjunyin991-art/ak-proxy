@@ -1064,7 +1064,6 @@ async def admin_user_assets(username: str):
     assets = await db.get_user_assets(username)
     if not assets:
         raise HTTPException(status_code=404, detail="用户资产不存在")
-    assets['history'] = await db.get_asset_history(username)
     return assets
 
 @app.post("/admin/api/ban/user")
