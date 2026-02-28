@@ -322,6 +322,21 @@ async def init_db(host: str = "127.0.0.1", port: int = 5432,
         except Exception:
             pass
 
+        # user_assets / asset_history 修复唯一约束（兼容旧表）
+        for tbl, col in [('user_assets', 'username'), ('asset_history', 'username')]:
+            try:
+                # 清理重复数据：保留每个用户最新的一条
+                await conn.execute(f'''
+                    DELETE FROM {tbl} a USING {tbl} b
+                    WHERE a.id < b.id AND a.{col} = b.{col}
+                ''')
+            except Exception:
+                pass
+        try:
+            await conn.execute("ALTER TABLE user_assets ADD CONSTRAINT user_assets_username_key UNIQUE (username)")
+        except Exception:
+            pass
+
         # 积分定价配置表
         await conn.execute('''
             CREATE TABLE IF NOT EXISTS credit_config (
