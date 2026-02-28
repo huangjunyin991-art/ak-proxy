@@ -1884,6 +1884,43 @@ async def pwa_sw_api():
             return Response(content=f.read(), media_type="application/javascript",
                           headers={"Service-Worker-Allowed": "/"})
 
+@app.get("/admin/api/pwa-manifest")
+async def pwa_manifest_api():
+    """通过API路径提供manifest（绕过CDN拦截）"""
+    path = os.path.join(os.path.dirname(__file__), "manifest.json")
+    if os.path.exists(path):
+        with open(path, "r", encoding="utf-8") as f:
+            import json
+            data = json.loads(f.read())
+            # 图标路径也换成API路径
+            data['icons'] = [
+                {'src': '/admin/api/pwa-icon/192', 'sizes': '192x192', 'type': 'image/png', 'purpose': 'any'},
+                {'src': '/admin/api/pwa-icon/512', 'sizes': '512x512', 'type': 'image/png', 'purpose': 'any'},
+                {'src': '/admin/api/pwa-icon/192', 'sizes': '192x192', 'type': 'image/png', 'purpose': 'maskable'},
+            ]
+            return Response(content=json.dumps(data), media_type="application/manifest+json")
+    return Response(content="{}", media_type="application/manifest+json")
+
+@app.get("/admin/api/pwa-icon/{size}")
+async def pwa_icon_api(size: int):
+    """通过API路径提供图标（绕过CDN对.png文件的拦截）"""
+    if size not in (192, 512):
+        size = 192
+    path = os.path.join(os.path.dirname(__file__), f"pwa-icon-{size}.png")
+    if os.path.exists(path):
+        with open(path, "rb") as f:
+            return Response(content=f.read(), media_type="image/png")
+    return Response(status_code=404)
+
+@app.get("/admin/api/pwa-widget")
+async def pwa_widget_api():
+    """通过API路径提供widget.js（绕过CDN对.js文件的拦截）"""
+    js_path = os.path.join(os.path.dirname(__file__), "chat_widget.js")
+    if os.path.exists(js_path):
+        with open(js_path, "r", encoding="utf-8") as f:
+            return Response(content=f.read(), media_type="application/javascript")
+    return Response(content="// not found", media_type="application/javascript")
+
 @app.get("/pwa-icon-{size}.png")
 async def pwa_icon(size: int):
     """提供PWA图标（本地PNG文件）"""
