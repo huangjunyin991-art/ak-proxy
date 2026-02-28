@@ -1663,10 +1663,14 @@ async def admin_whitelist_toggle_persist(request: Request):
     enabled = bool(data.get('enabled', False))
     if not username:
         return {"success": False, "message": "账号不能为空"}
-    ok = await db.toggle_persistent_login(username, enabled)
-    if ok:
-        return {"success": True, "message": f"账号 [{username}] 强化登录已{'开启' if enabled else '关闭'}"}
-    return {"success": False, "message": f"账号 [{username}] 不存在或状态异常"}
+    try:
+        ok = await db.toggle_persistent_login(username, enabled)
+        if ok:
+            return {"success": True, "message": f"账号 [{username}] 强化登录已{'开启' if enabled else '关闭'}"}
+        return {"success": False, "message": f"账号 [{username}] 不存在或状态异常"}
+    except Exception as e:
+        logger.error(f"[Whitelist] toggle_persist 失败: {e}")
+        return {"success": False, "message": f"操作失败: {str(e)}"}
 
 
 # --- 积分管理 ---

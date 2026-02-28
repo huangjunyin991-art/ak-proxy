@@ -4204,6 +4204,17 @@
             }, '执行');
         }
         
+        // Toast 通知
+        function showToast(msg, type = 'success') {
+            const colors = {success: 'linear-gradient(135deg,#00c9b7,#7ed56f)', error: 'linear-gradient(135deg,#ff5252,#ff7b7b)', info: 'linear-gradient(135deg,#4facfe,#00f2fe)'};
+            const t = document.createElement('div');
+            t.style.cssText = `position:fixed;top:30px;left:50%;transform:translateX(-50%);padding:14px 28px;border-radius:10px;color:#fff;font-size:15px;font-weight:bold;z-index:99999;background:${colors[type]||colors.info};box-shadow:0 4px 20px rgba(0,0,0,0.3);opacity:0;transition:opacity 0.3s;`;
+            t.textContent = msg;
+            document.body.appendChild(t);
+            requestAnimationFrame(() => t.style.opacity = '1');
+            setTimeout(() => { t.style.opacity = '0'; setTimeout(() => t.remove(), 300); }, 2500);
+        }
+
         // 通用弹窗函数
         function showModal(title, content, onConfirm, confirmText = '确定') {
             // 移除旧弹窗
@@ -4214,12 +4225,12 @@
             modal.id = 'dbModal';
             modal.style.cssText = 'position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.7); display: flex; align-items: center; justify-content: center; z-index: 10000;';
             modal.innerHTML = `
-                <div style="background: var(--bg-card); border-radius: 12px; padding: 25px; max-width: 600px; width: 90%; max-height: 80vh; overflow-y: auto; border: 1px solid var(--border);">
+                <div style="background: var(--bg-card); border-radius: 12px; padding: 25px; max-width: 420px; width: 90%; max-height: 80vh; overflow-y: auto; border: 1px solid var(--border);">
                     <h3 style="margin-bottom: 20px; color: var(--accent);">${title}</h3>
                     ${content}
-                    <div style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px;">
-                        <button class="btn" onclick="closeModal()" style="padding: 10px 20px; background: var(--bg-primary);">取消</button>
-                        <button class="btn btn-primary" id="modalConfirmBtn" style="padding: 10px 20px;">${confirmText}</button>
+                    <div style="display: flex; gap: 10px; margin-top: 20px;">
+                        <button class="btn" onclick="closeModal()" style="flex:1; padding: 12px 0; background: var(--accent-red); color: white; font-size: 15px; border-radius: 8px;">取消</button>
+                        <button class="btn btn-primary" id="modalConfirmBtn" style="flex:1; padding: 12px 0; font-size: 15px; border-radius: 8px;">${confirmText}</button>
                     </div>
                 </div>
             `;
@@ -5174,12 +5185,8 @@
                 `<option value="${c.plan_type}">${c.plan_name} (${c.credits_cost}积分/${c.duration_days}天)</option>`).join('');
             const content = `
                 <div style="margin-bottom:12px;">
-                    <label style="display:block; margin-bottom:4px; color:var(--text-secondary); font-size:13px;">游戏账号</label>
+                    <label style="display:block; margin-bottom:4px; color:var(--text-secondary); font-size:13px;">账号</label>
                     <input type="text" id="wlAddUsername" placeholder="输入账号" style="width:100%; padding:8px 10px; background:var(--bg-primary); border:1px solid var(--border); border-radius:6px; color:var(--text-primary);">
-                </div>
-                <div style="margin-bottom:12px;">
-                    <label style="display:block; margin-bottom:4px; color:var(--text-secondary); font-size:13px;">密码（可选，仅记录）</label>
-                    <input type="text" id="wlAddPassword" placeholder="可选" style="width:100%; padding:8px 10px; background:var(--bg-primary); border:1px solid var(--border); border-radius:6px; color:var(--text-primary);">
                 </div>
                 <div style="margin-bottom:12px;">
                     <label style="display:block; margin-bottom:4px; color:var(--text-secondary); font-size:13px;">套餐</label>
@@ -5194,19 +5201,19 @@
             `;
             showModal('➕ 授权新账号', content, async () => {
                 const username = document.getElementById('wlAddUsername').value.trim();
-                const password = document.getElementById('wlAddPassword').value;
+                const password = '';
                 const plan_type = document.getElementById('wlAddPlan').value;
                 const remark = document.getElementById('wlAddRemark').value;
-                if (!username) { alert('请输入账号'); return; }
+                if (!username) { showToast('请输入账号', 'error'); return; }
                 try {
                     const res = await fetch(`${API_BASE}/admin/api/whitelist/add`, {
                         method: 'POST', headers: {...getHeaders(), 'Content-Type': 'application/json'},
                         body: JSON.stringify({username, password, plan_type, remark})
                     });
                     const data = await res.json();
-                    alert(data.message || (data.success ? '成功' : '失败'));
-                    if (data.success) { document.getElementById('dbModal')?.remove(); loadWhitelist(wlPage); }
-                } catch (e) { alert('请求失败: ' + e.message); }
+                    if (data.success) { closeModal(); showToast(data.message || '授权成功'); loadWhitelist(wlPage); }
+                    else { showToast(data.message || '失败', 'error'); }
+                } catch (e) { showToast('请求失败: ' + e.message, 'error'); }
             }, '确认授权');
         }
 
@@ -5230,9 +5237,9 @@
                         body: JSON.stringify({username, plan_type})
                     });
                     const data = await res.json();
-                    alert(data.message || (data.success ? '成功' : '失败'));
-                    if (data.success) { document.getElementById('dbModal')?.remove(); loadWhitelist(wlPage); }
-                } catch (e) { alert('请求失败: ' + e.message); }
+                    if (data.success) { closeModal(); showToast(data.message || '续期成功'); loadWhitelist(wlPage); }
+                    else { showToast(data.message || '失败', 'error'); }
+                } catch (e) { showToast('请求失败: ' + e.message, 'error'); }
             }, '确认续期');
         }
 
@@ -5244,9 +5251,9 @@
                     body: JSON.stringify({username})
                 });
                 const data = await res.json();
-                alert(data.message || (data.success ? '成功' : '失败'));
-                if (data.success) loadWhitelist(wlPage);
-            } catch (e) { alert('请求失败: ' + e.message); }
+                if (data.success) { showToast(data.message || '删除成功'); loadWhitelist(wlPage); }
+                else { showToast(data.message || '失败', 'error'); }
+            } catch (e) { showToast('请求失败: ' + e.message, 'error'); }
         }
 
         async function togglePersistLogin(username, enabled) {
@@ -5256,9 +5263,9 @@
                     body: JSON.stringify({username, enabled})
                 });
                 const data = await res.json();
-                if (data.success) loadWhitelist(wlPage);
-                else alert(data.message || '操作失败');
-            } catch (e) { alert('请求失败: ' + e.message); }
+                if (data.success) { showToast(data.message || '操作成功'); loadWhitelist(wlPage); }
+                else { showToast(data.message || '操作失败', 'error'); }
+            } catch (e) { showToast('请求失败: ' + e.message, 'error'); }
         }
 
         // ===== 积分管理 =====

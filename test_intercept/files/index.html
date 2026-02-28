@@ -1,0 +1,36 @@
+﻿<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <title></title>
+    <link href="/content/css/vant.css" rel="stylesheet" />
+    <link href="/content/css/base.css" rel="stylesheet" />
+    <link href="/assets/css/vue-component.css" rel="stylesheet" />
+    <link href="/assets/css/index.css" rel="stylesheet" />
+</head>
+<body>
+    <div id="app">
+      <div class="Index">
+        <top-back :title="language.TITLE_TEXT" :title-font-size="22"></top-back>
+        <div class="items">
+          <div
+            class="item"
+            v-for="({ name, url }, index) of lines"
+            :key="index"
+            @click="selectedIndex = index">
+            <div class="name">{{ name }}</div>
+            <checkbox :checked="selectedIndex === index"></checkbox>
+          </div>
+        </div>
+        <custom-button :text="language.CONFIRM_BUTTON" :height="53" @click="confirmLine"></custom-button>
+      </div>
+    </div>
+
+    <script src="/content/js/vue.js?v=22"></script>
+    <script src="/content/js/vant.min.js?v=22"></script>
+    <script src="/content/js/base.js?v=22"></script>
+    <script src="/content/js/vue-component.js"></script>
+    <script src="/content/js/pages/index.js?v=22"></script>
+</body>
+</html>

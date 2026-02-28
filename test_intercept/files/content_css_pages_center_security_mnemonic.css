@@ -1,0 +1,146 @@
+﻿.input_content {
+    margin-top: 10px;
+}
+
+.input_content {
+    margin-top: 10px;
+}
+
+
+.input_content.pd {
+    background-color: white;
+    padding: 15px;
+    -moz-box-sizing: border-box;
+    -webkit-box-sizing: border-box;
+    box-sizing: border-box;
+    width: calc(100% - 20px);
+    margin: 0 auto;
+    border-radius: 4px;
+	background-image: url('../../../../img/change_pin_bg.png');
+    background-repeat: no-repeat;
+    background-size: auto 140px;
+    background-position: 100% center;
+	
+}
+
+.input_content .rule {
+    display: block;
+    margin-bottom: 10px;
+	
+}
+.input_content .rules {
+    padding-left: 15px;
+}
+.input_content .rules {
+    padding-left: 15px;
+}
+
+.input_control {
+        text-align:center;
+    }
+	
+	.input_control_Pasword {
+        text-align:center;
+    }
+
+    .input_content .rules .rule_item {
+        font-size: .8em;
+        color: #777;
+        line-height: 30px;
+        list-style-type: disc;
+    }
+
+.warn {
+    padding: 10px;
+    font-size: .9em;
+    margin-top: 5px;
+    color: #f9bc0b;
+    background-color: #fef7e1;
+    border-color: #fef3d2;
+    text-align: left;
+    width: calc(100% - 20px);
+    margin: 0 auto;
+    box-sizing:border-box;
+    text-align:center;
+}
+
+    .warn.text-center {
+        text-align: center;
+    }
+
+.confirm_button.normal {
+    margin-top: 5%;
+}
+.margin_auto {
+    display:block;
+    margin:0 auto;
+}
+.input_group .input_line .input_textcolumn {
+    display: block;
+    width: 20%;
+    text-align: center;
+    font-size: .8em;
+    padding: 0 5px;
+    -moz-box-sizing: border-box;
+    -webkit-box-sizing: border-box;
+    box-sizing: border-box;
+}
+.input_group .input_line .input_textselect {
+    display: block;
+    width: 20%;
+    text-align: center;
+    font-size: .8em;
+    padding: 0 5px;
+    -moz-box-sizing: border-box;
+    -webkit-box-sizing: border-box;
+    box-sizing: border-box;
+	background-color:#1e81d2;
+	color:#FFFFFF;
+}
+.input_groupmnemonic .input_line1 .input_textStr {
+    display: block;
+    width: 25%;
+    text-align: center;
+    font-size: .8em;
+    padding: 0 5px;
+    -moz-box-sizing: border-box;
+    -webkit-box-sizing: border-box;
+    box-sizing: border-box;
+	padding-top:8px;
+}
+
+.input_groupmnemonic .input_line2 .input_textnumber {
+	display: block;
+	width: 25%;
+	text-align: center;
+	font-size: .6em;
+	padding: 0 5px;
+	-moz-box-sizing: border-box;
+	-webkit-box-sizing: border-box;
+	box-sizing: border-box;
+	color:#9B9B9B;
+	
+	height: 18px; 
+    line-height: 18px; 
+}
+.input_groupmnemonic {
+    background-color: white;
+    width: calc(100% - 20px);
+    margin: 0 auto;
+    margin-top: 10px;
+    border-radius: 4px;
+    overflow: hidden;
+}
+.input_groupmnemonic .input_line1 {
+    height: 30px;
+    line-height: 30px;
+    display: flex;
+	
+	
+}    
+.input_groupmnemonic .input_line2 {
+    height: 18px;
+    line-height: 18px;
+    display: flex;
+	padding-bottom:8px;
+}      

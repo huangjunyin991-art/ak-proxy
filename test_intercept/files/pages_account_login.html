@@ -1,0 +1,89 @@
+﻿<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="initial-scale=1.0, maximum-scale=1.0, user-scalable=no,viewport-fit=cover" />
+  <title>AK</title>
+  <link href="/content/css/base.css" rel="stylesheet" />
+  <link href="/content/css/vant.css" rel="stylesheet" />
+  <link href="/assets/css/vue-component.css" rel="stylesheet" />
+  <link href="/assets/css/login.css" rel="stylesheet" />
+</head>
+<body>
+  <div id="app">
+    <div class="Login">
+      <div class="top-container">
+        <div class="top">
+          <div class="left" @click="switchLanguageVisible = true">
+            {{ language.CHANGE_LANGUAGE }}
+          </div>
+          <div class="right" @click="switchLinesVisible = true">{{ language.CHANGE_LINES }}</div>
+        </div>
+        <div class="image"></div>
+
+        <template v-if="request.canclose">
+          <div class="force-logout-text">
+            {{ language.RELOGIN_TEXT }}
+            <span style="color: #16d06e;">{{ language.RELOGIN_ACTION }}</span>
+          </div>
+        </template>
+
+        <div class="form-container">
+          <div class="form-items">
+            <div class="form-item">
+              <div class="icon-box">
+                <img class="icon" style="width: 32px;" src="/assets/svg/icon17.svg" />
+              </div>
+              <input
+                class="input"
+                type="text"
+                :placeholder="language.INPUT_TEXT_1"
+                maxlength="20"
+                v-model="form.account"
+              />
+            </div>
+            <div class="form-item">
+              <div class="icon-box">
+                <img class="icon" style="width: 28px;" src="/assets/svg/icon18.svg" />
+              </div>
+              <input
+                class="input"
+                type="password"
+                :placeholder="language.INPUT_TEXT_2"
+                maxlength="16"
+                v-model="form.password"
+              />
+            </div>
+          </div>
+
+          <div class="forgot-password-text" @click="!isLogin && APP.GLOBAL.gotoNewWindow('forgotPage', 'forgot')">
+            {{ language.MIDDLE_TEXT_2 }}
+          </div>
+        </div>
+
+        <div class="login-button">
+          <template v-if="false">
+            <div>
+              <p>{{ language.RELOGIN_TEXT }}</p>
+              <p @click="window.location = '/index.html'">{{ language.RELOGIN_ACTION }}</p>
+            </div>
+          </template>
+          <custom-button :text="language.t1" :loading="isLogin" @click="checkInput">
+          </custom-button>
+        </div>
+      </div>
+
+      <div class="version">{{ publicVersion }}</div>
+    </div>
+
+    <switch-language v-model="switchLanguageVisible"></switch-language>
+    <switch-lines v-model="switchLinesVisible"></switch-lines>
+  </div>
+
+  <script src="/content/js/vue.js?v=28"></script>
+  <script src="/content/js/vue-component.js?v=28"></script>
+  <script src="/content/js/vant.min.js?v=28"></script>
+  <script src="/content/js/base.js?v=28"></script>
+  <script src="/content/js/pages/account/login.js?v=28"></script>
+</body>
+</html>

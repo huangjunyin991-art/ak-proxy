@@ -1,0 +1,113 @@
+﻿<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="initial-scale=1.0, maximum-scale=1.0, user-scalable=no,viewport-fit=cover" />
+    <title></title>
+    <link href="/content/css/base.css" rel="stylesheet" />
+    <link href="/content/css/vant.css" rel="stylesheet" />
+    <link href="/content/css/pages/center/security/mnemonic.css" rel="stylesheet" />
+
+</head>
+<body>
+    <div id="app">
+        <div id="app-head" class="van-hairline--bottom" v-bind:style="{'paddingTop': statusbarHeight + 'px'}">
+            <i id="app-back-button" class="iconfont iconzuo right-back"></i>
+            <div class="app-head-text" v-text="language.TITLE_TEXT"></div>
+        </div>
+        <div id="app-content">
+            <div v-if="isLoadingAnswer" class="loading-box">
+                <van-loading color="black"></van-loading>
+                <p class="loading-text" v-text="language.LOADING"></p>
+            </div>
+            <div v-else v-cloak>
+                <div class="input_content">
+                    <div class="input_content pd">
+                        <p class="rule" v-text="language.Tip_0"></p>
+                        <ul class="rules">
+                            <li class="rule_item" v-text="language.Tip_1"></li>
+                            <li class="rule_item" v-text="language.Tip_2"></li>
+							<li class="rule_item" v-text="language.Tip_3"></li>
+							<li class="rule_item" v-text="language.Tip_4"></li>
+                        </ul>
+                    </div>
+					<div class="input_group">
+                        <div class="input_line">
+                            <p style="text-align:center" class="input_control margin_auto"   v-text="language.SELECT_Type"></p>
+                        </div>
+                    </div>
+                    <div class="input_group">
+                        <div class="input_line van-hairline--bottom">
+                            <span class="input_textcolumn" v-text="language.SELECT_Type1" @click="gotoLightPage('ep.outPage', 'mnemonic.id')"></span>
+                            <span class="input_textselect" v-text="language.SELECT_Type2" @click="gotoLightPage('ep.outPage', 'mnemonic.cn')"></span>
+							<span class="input_textcolumn" v-text="language.SELECT_Type3" @click="gotoLightPage('ep.outPage', 'mnemonic.en')"></span>
+							<span class="input_textcolumn" v-text="language.SELECT_Type4" @click="gotoLightPage('ep.outPage', 'mnemonic.kr')"></span>
+							<span class="input_textcolumn" v-text="language.SELECT_Type5" @click="gotoLightPage('ep.outPage', 'mnemonic.jp')"></span>
+                        </div>
+						<div class="input_line van-hairline--bottom">
+                            <span class="input_textcolumn" v-text="language.SELECT_Type6" @click="gotoLightPage('ep.outPage', 'mnemonic.tw')"></span>
+                            <span class="input_textcolumn" v-text="language.SELECT_Type7" @click="gotoLightPage('ep.outPage', 'mnemonic.fr')"></span>
+							<span class="input_textcolumn" v-text="language.SELECT_Type8" @click="gotoLightPage('ep.outPage', 'mnemonic.it')"></span>
+							<span class="input_textcolumn" v-text="language.SELECT_Type9" @click="gotoLightPage('ep.outPage', 'mnemonic.pt')"></span>
+							<span class="input_textcolumn" v-text="language.SELECT_Type10" @click="gotoLightPage('ep.outPage', 'mnemonic.es')"></span>
+                        </div>
+                    </div>
+
+					<div class="input_group">
+                        <div class="input_line">
+                            <p style="text-align:center" class="input_control margin_auto"   v-text="language.INPUT_List"></p>
+                        </div>
+                    </div>
+                    <div class="input_groupmnemonic">
+                        <div class="input_line1">
+                            <span class="input_textStr" v-text="mnemonic1"></span>
+                            <span class="input_textStr" v-text="mnemonic2" ></span>
+							<span class="input_textStr" v-text="mnemonic3" ></span>
+							<span class="input_textStr" v-text="mnemonic4" ></span>
+                        </div>
+						<div class="input_line2 van-hairline--bottom">
+							<span class="input_textnumber" v-text="1"></span>
+                            <span class="input_textnumber" v-text="2" ></span>
+							<span class="input_textnumber" v-text="3" ></span>
+							<span class="input_textnumber" v-text="4" ></span>
+                        </div>
+						<div class="input_line1">
+                            <span class="input_textStr" v-text="mnemonic5"></span>
+                            <span class="input_textStr" v-text="mnemonic6"></span>
+							<span class="input_textStr" v-text="mnemonic7"></span>
+							<span class="input_textStr" v-text="mnemonic8"></span>
+                        </div>
+						<div class="input_line2 van-hairline--bottom">
+							<span class="input_textnumber" v-text="5"></span>
+                            <span class="input_textnumber" v-text="6" ></span>
+							<span class="input_textnumber" v-text="7" ></span>
+							<span class="input_textnumber" v-text="8" ></span>
+                        </div>
+						<div class="input_line1">
+                            <span class="input_textStr" v-text="mnemonic9"></span>
+                            <span class="input_textStr" v-text="mnemonic10"></span>
+							<span class="input_textStr" v-text="mnemonic11"></span>
+							<span class="input_textStr" v-text="mnemonic12"></span>
+                        </div>
+						<div class="input_line2 van-hairline--bottom">
+							<span class="input_textnumber" v-text="9"></span>
+                            <span class="input_textnumber" v-text="10" ></span>
+							<span class="input_textnumber" v-text="11" ></span>
+							<span class="input_textnumber" v-text="12" ></span>
+                        </div>
+                    </div>
+
+                </div>
+
+                <div class="input_content">
+                    <button class="confirm_button" v-text="language.CONFIRM_MODIFY" @click="checkData" style="margin-top:3rem;"></button>
+                </div>
+            </div>
+        </div>
+    </div>
+    <script src="/content/js/vue.js?v=28"></script>
+    <script src="/content/js/vant.min.js?v=28"></script>
+    <script src="/content/js/base.js?v=28"></script>
+    <script src="/content/js/pages/center/security/mnemonic.cn.js?v=28"></script>
+</body>
+</html>
