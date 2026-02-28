@@ -1847,7 +1847,7 @@
                 <div style="overflow-x: auto;">
                     <table>
                         <thead><tr>
-                            <th>账号</th><th>姓名</th><th>套餐</th><th>到期时间</th><th>状态</th><th>强化登录</th><th>添加人</th><th>备注</th><th>操作</th>
+                            <th>账号</th><th>姓名</th><th>计费方式</th><th>到期时间</th><th>状态</th><th>强化登录</th><th>添加人</th><th>备注</th><th>操作</th>
                         </tr></thead>
                         <tbody id="wlTableBody"><tr><td colspan="9" style="text-align:center; color:var(--text-secondary);">加载中...</td></tr></tbody>
                     </table>
@@ -1899,7 +1899,7 @@
                             <div><label style="display:block; font-size:11px; color:var(--text-secondary); margin-bottom:4px;">天数</label>
                                 <input id="cfgDays" type="number" min="1" style="padding:6px 10px; background:var(--bg-secondary); border:1px solid var(--border); border-radius:6px; color:var(--text-primary); font-size:12px; width:70px;"></div>
                             <button class="btn" onclick="saveCreditConfig()" style="padding:6px 14px; font-size:12px;">保存</button>
-                            <button class="btn" onclick="clearCreditConfigForm()" style="padding:6px 14px; font-size:12px; background:var(--bg-secondary);">清空</button>
+                            <button class="btn" onclick="clearCreditConfigForm()" style="padding:6px 14px; font-size:12px; background:#ff5252; color:#fff;">清空</button>
                         </div>
                     </div>
                 </div>
@@ -5156,10 +5156,12 @@
                         const statusNames = {active: '有效', expired: '已过期', deleted: '已删除'};
                         const expDate = a.expire_time ? new Date(a.expire_time).toLocaleString() : '-';
                         const isExpired = a.status === 'expired' || (a.expire_time && new Date(a.expire_time) < new Date());
+                        const planCfg = wlCreditConfigs.find(c => c.plan_type === a.plan_type);
+                        const planDisplay = planCfg ? planCfg.plan_name : (a.plan_type || '-');
                         return `<tr>
                             <td style="font-weight:bold;">${a.username}</td>
                             <td style="color:var(--text-secondary);">${a.nickname || '-'}</td>
-                            <td>${a.plan_type || '-'}</td>
+                            <td>${planDisplay}</td>
                             <td style="color:${isExpired ? '#ff5252' : '#00ff88'};">${expDate}</td>
                             <td><span style="color:${statusColors[a.status] || '#888'};">${statusNames[a.status] || a.status}</span></td>
                             <td>${a.status !== 'deleted' ? `<button onclick="togglePersistLogin('${a.username}', ${!a.persistent_login})" style="padding:4px 14px; font-size:12px; border:${a.persistent_login ? 'none' : '1px solid var(--border)'}; border-radius:12px; cursor:pointer; transition:all 0.2s; background:${a.persistent_login ? 'linear-gradient(135deg,#00c9b7,#7ed56f)' : 'var(--bg-primary)'}; color:${a.persistent_login ? '#0a1a2e' : '#ff5252'}; font-weight:bold;">${a.persistent_login ? '✅ 已开启' : '❌ 关闭'}</button>` : '-'}</td>
@@ -5340,8 +5342,7 @@
                     `<div onclick="fillCreditConfig('${c.plan_type}','${c.plan_name}',${c.credits_cost},${c.duration_days})" style="background:var(--bg-secondary); border-radius:8px; padding:8px 12px; display:flex; align-items:center; gap:8px; cursor:pointer; transition:all 0.2s; border:2px solid transparent;" onmouseover="this.style.borderColor='var(--accent)'" onmouseout="if(!this.classList.contains('cfg-selected'))this.style.borderColor='transparent'" class="cfg-badge">
                         <span style="font-weight:bold; color:var(--accent);">${c.plan_name}</span>
                         <span style="color:var(--text-secondary); font-size:12px;">${c.credits_cost}积分/${c.duration_days}天</span>
-                        <span style="color:var(--text-secondary); font-size:11px;">(${c.plan_type})</span>
-                        ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig('${c.plan_type}')" style="background:none; border:none; color:#ff5252; cursor:pointer; font-size:14px;">✕</button>` : ''}
+${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig('${c.plan_type}')" style="background:none; border:none; color:#ff5252; cursor:pointer; font-size:14px;">✕</button>` : ''}
                     </div>`
                 ).join('') + '</div>';
             } catch (e) { console.error('加载定价失败', e); }

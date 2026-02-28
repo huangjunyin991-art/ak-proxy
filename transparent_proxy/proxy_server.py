@@ -445,9 +445,13 @@ async def proxy_index_data(request: Request):
                    stats.last_login_account or "unknown")
         
         if username and username != "unknown" and ('ACECount' in data or 'EP' in data):
-            # 保存到 PostgreSQL
+            # 只有授权用户才保存资产
             try:
-                await db.update_user_assets(username, data)
+                auth_info = await db.check_authorized(username)
+                if auth_info and auth_info.get('expire_time') and auth_info['expire_time'] > datetime.now():
+                    await db.update_user_assets(username, data)
+                else:
+                    logger.debug(f"[IndexData] 跳过未授权用户: {username}")
             except Exception as e:
                 logger.warning(f"[IndexData] 资产保存失败: {e}")
             report_data = {
