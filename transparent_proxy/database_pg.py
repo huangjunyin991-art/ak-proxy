@@ -1064,6 +1064,11 @@ async def update_row(table_name: str, pk_column: str, pk_value, data: dict) -> i
 async def delete_row(table_name: str, pk_column: str, pk_value) -> int:
     """删除数据"""
     pool = _get_pool()
+    if pk_column.endswith('id') or pk_column == 'id':
+        try:
+            pk_value = int(pk_value)
+        except (ValueError, TypeError):
+            pass
     sql = f'DELETE FROM {table_name} WHERE {pk_column} = $1'
     async with pool.acquire() as conn:
         result = await conn.execute(sql, pk_value)
