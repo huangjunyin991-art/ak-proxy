@@ -2670,8 +2670,17 @@
                     url += `&search=${encodeURIComponent(usersSearchKeyword)}`;
                 }
                 
-                const res = await fetch(url);
+                // 并行获取用户数据和封禁列表
+                const [res, banRes] = await Promise.all([
+                    fetch(url),
+                    fetch(`${API_BASE}/admin/api/banlist`)
+                ]);
                 const data = await res.json();
+                const banData = await banRes.json();
+                bannedUsersSet.clear();
+                banData.forEach(item => {
+                    if (item.ban_type === 'user') bannedUsersSet.add(item.ban_value.toLowerCase());
+                });
                 
                 const rows = data.rows || [];
                 usersTotalCount = data.total || 0;
