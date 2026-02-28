@@ -981,15 +981,65 @@ async def insert_row(table_name: str, data: dict) -> int:
 
 
 async def update_row(table_name: str, pk_column: str, pk_value, data: dict) -> int:
-    """更新数据"""
+    """更新数据（自动根据列类型转换值）"""
     pool = _get_pool()
-    set_parts = [f'{k} = ${i+1}' for i, k in enumerate(data.keys())]
-    set_clause = ', '.join(set_parts)
-    pk_idx = len(data) + 1
-    sql = f'UPDATE {table_name} SET {set_clause} WHERE {pk_column} = ${pk_idx}'
     async with pool.acquire() as conn:
-        result = await conn.execute(sql, *data.values(), pk_value)
+        # 查询列类型用于自动转换
+        col_types = {}
+        rows = await conn.fetch(
+            "SELECT column_name, data_type FROM information_schema.columns WHERE table_name=$1",
+            table_name)
+        for r in rows:
+            col_types[r['column_name']] = r['data_type']
+
+        # 过滤掉不属于该表的字段（如JOIN产生的虚拟列）
+        filtered = {}
+        for k, v in data.items():
+            if k not in col_types:
+                continue
+            filtered[k] = _convert_value(v, col_types.get(k, ''))
+
+        if not filtered:
+            return 0
+
+        set_parts = [f'{k} = ${i+1}' for i, k in enumerate(filtered.keys())]
+        set_clause = ', '.join(set_parts)
+        pk_idx = len(filtered) + 1
+        # 主键值也需要转换
+        pk_converted = _convert_value(pk_value, col_types.get(pk_column, ''))
+        sql = f'UPDATE {table_name} SET {set_clause} WHERE {pk_column} = ${pk_idx}'
+        result = await conn.execute(sql, *filtered.values(), pk_converted)
         return int(result.split()[-1])
+
+
+def _convert_value(val, data_type: str):
+    """根据PostgreSQL列类型转换Python值"""
+    if val is None or val == '':
+        return None
+    dt = data_type.lower()
+    try:
+        if 'int' in dt or dt in ('bigserial', 'serial', 'smallserial'):
+            return int(val)
+        elif dt in ('double precision', 'real', 'numeric', 'decimal'):
+            return float(val)
+        elif dt == 'boolean':
+            if isinstance(val, bool):
+                return val
+            return str(val).lower() in ('true', '1', 't', 'yes')
+        elif 'timestamp' in dt or dt == 'date':
+            if isinstance(val, (datetime,)):
+                return val
+            # 解析ISO格式时间字符串
+            s = str(val).replace('T', ' ').replace('Z', '')
+            for fmt in ('%Y-%m-%d %H:%M:%S', '%Y-%m-%d %H:%M:%S.%f', '%Y-%m-%d'):
+                try:
+                    return datetime.strptime(s, fmt)
+                except ValueError:
+                    continue
+            return val
+    except (ValueError, TypeError):
+        pass
+    return val
 
 
 async def delete_row(table_name: str, pk_column: str, pk_value) -> int:
