@@ -3816,7 +3816,7 @@
                 }
                 if (tab.dataset.panel === 'online') loadOnlineUsers();
                 if (tab.dataset.panel === 'usage') loadUsage();
-                if (tab.dataset.panel === 'users') loadUsers();
+                if (tab.dataset.panel === 'users') loadBanlist().then(() => loadUsers());
                 if (tab.dataset.panel === 'ips') loadIPs();
                 if (tab.dataset.panel === 'banlist') loadBanlist();
                 if (tab.dataset.panel === 'whitelist') loadWhitelist();
