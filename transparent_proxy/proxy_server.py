@@ -1874,6 +1874,48 @@ async def pwa_sw():
             return Response(content=f.read(), media_type="application/javascript")
     return Response(content="// not found", media_type="application/javascript")
 
+def _make_png(size):
+    """生成简单PWA图标PNG（深色背景+青色AK字样区域）"""
+    import struct, zlib
+    bg = (10, 14, 26)       # #0a0e1a
+    accent = (0, 229, 255)  # #00e5ff
+    raw = b''
+    cx, cy = size // 2, size // 2
+    r_outer = int(size * 0.38)
+    r_inner = int(size * 0.32)
+    for y in range(size):
+        raw += b'\x00'
+        for x in range(size):
+            dx, dy = x - cx, y - cy
+            dist = (dx*dx + dy*dy) ** 0.5
+            if dist < r_inner:
+                # 中心深色区域
+                raw += bytes(bg)
+            elif dist < r_outer:
+                # 青色圆环
+                raw += bytes(accent)
+            else:
+                raw += bytes(bg)
+    compressed = zlib.compress(raw, 9)
+    def chunk(ct, d):
+        c = ct + d
+        return struct.pack('>I', len(d)) + c + struct.pack('>I', zlib.crc32(c) & 0xffffffff)
+    png = b'\x89PNG\r\n\x1a\n'
+    png += chunk(b'IHDR', struct.pack('>IIBBBBB', size, size, 8, 2, 0, 0, 0))
+    png += chunk(b'IDAT', compressed)
+    png += chunk(b'IEND', b'')
+    return png
+
+_icon_cache = {}
+
+@app.get("/pwa-icon-{size}.png")
+async def pwa_icon(size: int):
+    if size not in (192, 512):
+        size = 192
+    if size not in _icon_cache:
+        _icon_cache[size] = _make_png(size)
+    return Response(content=_icon_cache[size], media_type="image/png")
+
 
 # ===== 启动 =====
 def main():
