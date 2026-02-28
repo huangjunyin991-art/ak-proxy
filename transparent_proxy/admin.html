@@ -4005,6 +4005,7 @@
                             dbSchema.map(c => {
                                 let val = row[c.name];
                                 if (val === null) val = '<span style="color: #666;">NULL</span>';
+                                else if (c.type && c.type.toLowerCase().includes('timestamp') && val) val = fmtTime(val);
                                 else if (typeof val === 'string' && val.length > 50) val = val.substring(0, 50) + '...';
                                 return `<td style="max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${String(row[c.name] || '')}">${val}</td>`;
                             }).join('') +
