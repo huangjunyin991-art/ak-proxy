@@ -233,22 +233,6 @@ async def init_db(host: str = "127.0.0.1", port: int = 5432,
             )
         ''')
 
-        # 动态添加新列（兼容已有数据库）
-        for col in ['left_area', 'right_area', 'direct_push', 'sub_account']:
-            try:
-                await conn.execute(f'ALTER TABLE user_assets ADD COLUMN IF NOT EXISTS {col} INTEGER DEFAULT 0')
-            except Exception:
-                pass
-        # 删除废弃字段
-        for col in ['lp', 'credit', 'level_number', 'convert_balance']:
-            try:
-                await conn.execute(f'ALTER TABLE user_assets DROP COLUMN IF EXISTS {col}')
-            except Exception:
-                pass
-
-        # 清理废弃的 asset_history 表
-        await conn.execute('DROP TABLE IF EXISTS asset_history')
-
         # 管理员Token持久化表
         await conn.execute('''
             CREATE TABLE IF NOT EXISTS admin_tokens (
@@ -302,29 +286,6 @@ async def init_db(host: str = "127.0.0.1", port: int = 5432,
                 updated_at TIMESTAMP DEFAULT NOW()
             )
         ''')
-
-        # authorized_accounts 添加 persistent_login 字段（兼容旧表）
-        try:
-            await conn.execute("ALTER TABLE authorized_accounts ADD COLUMN IF NOT EXISTS persistent_login BOOLEAN DEFAULT FALSE")
-        except Exception:
-            pass
-        try:
-            await conn.execute("ALTER TABLE authorized_accounts ADD COLUMN IF NOT EXISTS nickname TEXT DEFAULT ''")
-        except Exception:
-            pass
-
-        # user_assets 修复唯一约束（兼容旧表）
-        try:
-            await conn.execute('''
-                DELETE FROM user_assets a USING user_assets b
-                WHERE a.id < b.id AND a.username = b.username
-            ''')
-        except Exception:
-            pass
-        try:
-            await conn.execute("ALTER TABLE user_assets ADD CONSTRAINT user_assets_username_key UNIQUE (username)")
-        except Exception:
-            pass
 
         # 积分定价配置表
         await conn.execute('''
