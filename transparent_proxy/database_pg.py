@@ -570,20 +570,21 @@ async def update_user_assets(username: str, data: Dict):
                  level_number, convert_balance, left_area, right_area,
                  direct_push, sub_account, now)
 
-            # 记录资产历史（同一用户60秒内只记一条，更新为最新值）
-            recent = await conn.fetchval(
-                "SELECT id FROM asset_history WHERE username=$1 AND recorded_at > $2 LIMIT 1",
-                username, now - timedelta(seconds=60))
-            if recent:
-                await conn.execute('''
-                    UPDATE asset_history SET ace_count=$1, total_ace=$2, ep=$3, rate=$4, honor_name=$5, recorded_at=$6
-                    WHERE id=$7
-                ''', ace_count, total_ace, ep, rate, honor_name, now, recent)
-            else:
-                await conn.execute('''
-                    INSERT INTO asset_history (username, ace_count, total_ace, ep, rate, honor_name, recorded_at)
-                    VALUES ($1, $2, $3, $4, $5, $6, $7)
-                ''', username, ace_count, total_ace, ep, rate, honor_name, now)
+            # 记录资产历史（仅IndexData有实际数据时记录，60秒内去重）
+            if ace_count > 0 or total_ace > 0 or ep > 0:
+                recent = await conn.fetchval(
+                    "SELECT id FROM asset_history WHERE username=$1 AND recorded_at > $2 LIMIT 1",
+                    username, now - timedelta(seconds=60))
+                if recent:
+                    await conn.execute('''
+                        UPDATE asset_history SET ace_count=$1, total_ace=$2, ep=$3, rate=$4, honor_name=$5, recorded_at=$6
+                        WHERE id=$7
+                    ''', ace_count, total_ace, ep, rate, honor_name, now, recent)
+                else:
+                    await conn.execute('''
+                        INSERT INTO asset_history (username, ace_count, total_ace, ep, rate, honor_name, recorded_at)
+                        VALUES ($1, $2, $3, $4, $5, $6, $7)
+                    ''', username, ace_count, total_ace, ep, rate, honor_name, now)
 
 
 async def get_user_assets(username: str) -> Optional[Dict]:
