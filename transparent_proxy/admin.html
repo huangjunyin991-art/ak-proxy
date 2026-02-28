@@ -102,6 +102,11 @@
             50% { opacity: 0.5; }
         }
         
+        @keyframes alertIn {
+            from { transform: scale(0.85); opacity: 0; }
+            to { transform: scale(1); opacity: 1; }
+        }
+        
         /* 封禁行：红色流动效果 */
         @keyframes banned-flow {
             0% { background-position: 0% 50%; }
@@ -3187,10 +3192,10 @@
                     addChatMessage(content, true, timeStr);
                     input.value = '';
                 } else {
-                    alert('发送失败，用户可能已离线');
+                    showAlert('发送失败，用户可能已离线', 'error');
                 }
             } catch (e) {
-                alert('发送失败: ' + e.message);
+                showAlert('发送失败: ' + e.message, 'error');
             }
         }
         
@@ -3220,12 +3225,12 @@
                 if (response.ok) {
                     const result = await response.json();
                     input.value = '';
-                    alert(`消息已发送给 ${result.sent_count} 个在线用户`);
+                    showAlert(`消息已发送给 ${result.sent_count} 个在线用户`, 'success');
                 } else {
-                    alert('发送失败');
+                    showAlert('发送失败', 'error');
                 }
             } catch (e) {
-                alert('发送失败: ' + e.message);
+                showAlert('发送失败: ' + e.message, 'error');
             }
         }
         
@@ -3260,10 +3265,10 @@
                     showToast(`${banType === 'ip' ? 'IP' : '用户'} ${banValue} 已封禁`);
                 } else {
                     const data = await res.json();
-                    alert('封禁失败: ' + (data.detail || '未知错误'));
+                    showAlert('封禁失败: ' + (data.detail || '未知错误'), 'error');
                 }
             } catch (e) {
-                alert('封禁失败: ' + e.message);
+                showAlert('封禁失败: ' + e.message, 'error');
             }
         }
         
@@ -3306,10 +3311,10 @@
                     refreshStats();
                 } else {
                     const data = await res.json();
-                    alert('解封失败: ' + (data.detail || '未知错误'));
+                    showAlert('解封失败: ' + (data.detail || '未知错误'), 'error');
                 }
             } catch (e) {
-                alert('解封失败: ' + e.message);
+                showAlert('解封失败: ' + e.message, 'error');
             }
         }
         
@@ -4005,7 +4010,7 @@
         function handleDbError(res) {
             if (res.status === 403) {
                 lockDatabase();
-                alert('数据库操作授权已过期，请重新验证二级密码');
+                showAlert('数据库操作授权已过期，请重新验证二级密码', 'warning');
                 return true;
             }
             return false;
@@ -4109,7 +4114,7 @@
         // 显示新增行弹窗
         function showAddRowModal() {
             if (!dbCurrentTable || dbSchema.length === 0) {
-                alert('请先选择一个表');
+                showAlert('请先选择一个表', 'warning');
                 return;
             }
             
@@ -4141,10 +4146,10 @@
                         closeModal();
                         loadTableData();
                     } else {
-                        alert('新增失败: ' + (result.detail || '未知错误'));
+                        showAlert('新增失败: ' + (result.detail || '未知错误'), 'error');
                     }
                 } catch (e) {
-                    alert('新增失败: ' + e.message);
+                    showAlert('新增失败: ' + e.message, 'error');
                 }
             });
         }
@@ -4187,8 +4192,15 @@
                 const data = {_pk_column: dbPkColumn, _pk_value: pkValue};
                 dbSchema.forEach(c => {
                     if (c.pk) return; // 跳过主键
-                    const val = document.getElementById(`dbEdit_${c.name}`)?.value;
-                    if (val !== undefined) data[c.name] = val;
+                    const raw = document.getElementById(`dbEdit_${c.name}`)?.value;
+                    if (raw === undefined) return;
+                    // 根据列类型转换值
+                    const t = c.type.toLowerCase();
+                    if (raw === '') { data[c.name] = null; }
+                    else if (t.includes('int') || t === 'bigserial' || t === 'serial') { data[c.name] = parseInt(raw, 10); }
+                    else if (t.includes('double') || t.includes('float') || t === 'real' || t === 'numeric' || t === 'decimal') { data[c.name] = parseFloat(raw); }
+                    else if (t === 'boolean' || t === 'bool') { data[c.name] = raw.toLowerCase() === 'true' || raw === '1'; }
+                    else { data[c.name] = raw; }
                 });
                 
                 try {
@@ -4203,10 +4215,10 @@
                         closeModal();
                         loadTableData();
                     } else {
-                        alert('更新失败: ' + (result.detail || '未知错误'));
+                        showAlert('更新失败: ' + (result.detail || '未知错误'), 'error');
                     }
                 } catch (e) {
-                    alert('更新失败: ' + e.message);
+                    showAlert('更新失败: ' + e.message, 'error');
                 }
             });
         }
@@ -4259,10 +4271,10 @@
                 if (result.success) {
                     loadTableData();
                 } else {
-                    alert('删除失败: ' + (result.detail || '未知错误'));
+                    showAlert('删除失败: ' + (result.detail || '未知错误'), 'error');
                 }
             } catch (e) {
-                alert('删除失败: ' + e.message);
+                showAlert('删除失败: ' + e.message, 'error');
             }
         }
         
@@ -4323,6 +4335,35 @@
             document.body.appendChild(t);
             requestAnimationFrame(() => t.style.opacity = '1');
             setTimeout(() => { t.style.opacity = '0'; setTimeout(() => t.remove(), 300); }, 2500);
+        }
+
+        // 主题风格提示弹窗（替代原生alert）
+        function showAlert(msg, type = 'info') {
+            const oldAlert = document.getElementById('themeAlert');
+            if (oldAlert) oldAlert.remove();
+            const icons = {success: '✅', error: '❌', info: 'ℹ️', warning: '⚠️'};
+            const colors = {success: 'var(--accent-green, #00ff88)', error: 'var(--accent-red, #ff4757)', info: 'var(--accent, #00e5ff)', warning: '#ffd740'};
+            const borderColor = colors[type] || colors.info;
+            const icon = icons[type] || icons.info;
+            const overlay = document.createElement('div');
+            overlay.id = 'themeAlert';
+            overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.6);display:flex;align-items:center;justify-content:center;z-index:99999;';
+            overlay.innerHTML = `
+                <div style="background:var(--bg-card,#1a1f2e);border-radius:14px;max-width:400px;width:90%;border:1px solid ${borderColor}44;box-shadow:0 8px 32px rgba(0,0,0,0.5),0 0 20px ${borderColor}22;animation:alertIn 0.2s ease-out;">
+                    <div style="padding:24px 28px 16px;text-align:center;">
+                        <div style="font-size:36px;margin-bottom:12px;">${icon}</div>
+                        <div style="color:var(--text-primary,#e8e8e8);font-size:14px;line-height:1.7;word-break:break-word;white-space:pre-wrap;">${msg.replace(/</g,'&lt;').replace(/>/g,'&gt;')}</div>
+                    </div>
+                    <div style="padding:12px 28px 20px;text-align:center;">
+                        <button id="themeAlertBtn" style="padding:10px 48px;border:1px solid ${borderColor};border-radius:8px;background:${borderColor}22;color:${borderColor};font-size:14px;cursor:pointer;font-weight:bold;transition:all 0.2s;" onmouseover="this.style.background='${borderColor}44'" onmouseout="this.style.background='${borderColor}22'">确 定</button>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(overlay);
+            const btn = document.getElementById('themeAlertBtn');
+            btn.onclick = () => overlay.remove();
+            overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
+            btn.focus();
         }
 
         // 通用弹窗函数
@@ -4762,7 +4803,7 @@
         // 复制到剪贴板
         function copyToClipboard(text) {
             navigator.clipboard.writeText(text).then(() => {
-                alert('已复制到剪贴板: ' + text);
+                showToast('已复制到剪贴板', 'success');
             }).catch(e => {
                 console.error('复制失败', e);
             });
@@ -4930,7 +4971,7 @@
                 const data = await res.json();
                 
                 if (data.error) {
-                    alert('获取详情失败: ' + data.message);
+                    showAlert('获取详情失败: ' + data.message, 'error');
                     return;
                 }
                 
@@ -4984,7 +5025,7 @@
                 
                 document.getElementById('licenseDetailModal').style.display = 'flex';
             } catch (e) {
-                alert('获取详情失败: ' + e.message);
+                showAlert('获取详情失败: ' + e.message, 'error');
             }
         }
         
@@ -5012,14 +5053,14 @@
                 const data = await res.json();
                 
                 if (data.error) {
-                    alert('撤销失败: ' + data.message);
+                    showAlert('撤销失败: ' + data.message, 'error');
                 } else {
-                    alert('撤销成功');
+                    showAlert('撤销成功', 'success');
                     loadLicenses(licenseCurrentPage);
                     loadLicenseStats();
                 }
             } catch (e) {
-                alert('撤销失败: ' + e.message);
+                showAlert('撤销失败: ' + e.message, 'error');
             }
         }
         
@@ -5479,7 +5520,7 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
             const credits_cost = parseInt(document.getElementById('cfgCredits').value) || 0;
             const duration_days = parseInt(document.getElementById('cfgDays').value) || 0;
             if (!plan_type || !plan_name || credits_cost <= 0 || duration_days <= 0) {
-                alert('请填写完整的定价信息'); return;
+                showAlert('请填写完整的定价信息', 'warning'); return;
             }
             try {
                 const res = await fetch(`${API_BASE}/admin/api/credits/config`, {
@@ -5487,9 +5528,9 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                     body: JSON.stringify({plan_type, plan_name, credits_cost, duration_days})
                 });
                 const data = await res.json();
-                alert(data.message || '操作完成');
+                showAlert(data.message || '操作完成', data.success ? 'success' : 'error');
                 if (data.success) { clearCreditConfigForm(); loadCreditConfig(); }
-            } catch (e) { alert('保存失败: ' + e.message); }
+            } catch (e) { showAlert('保存失败: ' + e.message, 'error'); }
         }
 
         async function deleteCreditConfig(planType) {
@@ -5499,9 +5540,9 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                     method: 'DELETE', headers: getHeaders()
                 });
                 const data = await res.json();
-                alert(data.message || '操作完成');
+                showAlert(data.message || '操作完成', data.success ? 'success' : 'info');
                 loadCreditConfig();
-            } catch (e) { alert('删除失败: ' + e.message); }
+            } catch (e) { showAlert('删除失败: ' + e.message, 'error'); }
         }
 
         async function doTopup() {
@@ -5509,7 +5550,7 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
             const amount = parseInt(document.getElementById('topupAmount').value) || 0;
             const description = document.getElementById('topupDesc').value;
             if (!admin_name || amount <= 0) {
-                alert('请填写子管理员名称和充值数量'); return;
+                showAlert('请填写子管理员名称和充值数量', 'warning'); return;
             }
             const msgEl = document.getElementById('topupMsg');
             try {
