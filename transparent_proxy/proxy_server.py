@@ -1843,7 +1843,11 @@ async def admin_page():
     html_path = os.path.join(os.path.dirname(__file__), "admin.html")
     if os.path.exists(html_path):
         with open(html_path, "r", encoding="utf-8") as f:
-            return f.read()
+            content = f.read()
+        return HTMLResponse(content=content, headers={
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+            "Pragma": "no-cache", "Expires": "0"
+        })
     return "<h1>管理页面未找到</h1>"
 
 @app.get("/chat/widget.js")
