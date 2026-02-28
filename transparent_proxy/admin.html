@@ -2513,8 +2513,7 @@
                 refreshStats();
                 addActivityItem('info', '💰', `<strong>${data.data.username}</strong> 资产已更新`, time);
             } else if (data.type === 'user_banned' || data.type === 'user_unbanned') {
-                loadUsers();
-                loadBanlist();
+                loadBanlist().then(() => loadUsers());
                 refreshStats();
                 const action = data.type === 'user_banned' ? '已封禁' : '已解封';
                 addActivityItem(data.type === 'user_banned' ? 'failed' : 'success', 
@@ -2707,7 +2706,7 @@
             }
             
             tbody.innerHTML = users.map(user => {
-                const banned = user.is_banned;
+                const banned = bannedUsersSet.has((user.username || '').toLowerCase());
                 const nameStyle = banned 
                     ? 'color: #ff5252; text-decoration: line-through; opacity: 0.7;' 
                     : '';
@@ -2903,6 +2902,9 @@
             }
         }
         
+        // 全局封禁用户集合（前端维护）
+        const bannedUsersSet = new Set();
+
         // 加载封禁列表
         async function loadBanlist() {
             try {
@@ -2910,6 +2912,12 @@
                 const data = await res.json();
                 const tbody = document.getElementById('banlistTable');
                 
+                // 更新封禁用户集合
+                bannedUsersSet.clear();
+                data.forEach(item => {
+                    if (item.ban_type === 'user') bannedUsersSet.add(item.ban_value.toLowerCase());
+                });
+
                 if (data.length === 0) {
                     tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: var(--text-secondary);">暂无封禁</td></tr>';
                     return;
@@ -3204,7 +3212,7 @@
                 });
                 if (res.ok) {
                     closeBanModal();
-                    loadBanlist();
+                    await loadBanlist();
                     if (banType === 'ip') { loadIPs(); }
                     else { loadUsers(); loadUsage(); }
                     refreshStats();
@@ -3247,7 +3255,7 @@
                 if (res.ok) {
                     closeUnbanModal();
                     // 刷新相关列表
-                    loadBanlist();
+                    await loadBanlist();
                     if (unbanType === 'ip') {
                         loadIPs();
                     } else {
@@ -3836,11 +3844,11 @@
         });
         
         // 刷新所有数据
-        function refreshAll() {
+        async function refreshAll() {
             refreshStats();
+            await loadBanlist();
             loadUsers();
             loadIPs();
-            loadBanlist();
         }
         
         // ===== 数据库管理功能 =====
