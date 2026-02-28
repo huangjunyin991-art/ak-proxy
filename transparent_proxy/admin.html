@@ -4270,10 +4270,10 @@
             modal.id = 'dbModal';
             modal.style.cssText = 'position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.7); display: flex; align-items: center; justify-content: center; z-index: 10000;';
             modal.innerHTML = `
-                <div style="background: var(--bg-card); border-radius: 12px; padding: 25px; max-width: 420px; width: 90%; max-height: 80vh; overflow-y: auto; border: 1px solid var(--border);">
-                    <h3 style="margin-bottom: 20px; color: var(--accent);">${title}</h3>
-                    ${content}
-                    <div style="display: flex; gap: 10px; margin-top: 20px;">
+                <div style="background: var(--bg-card); border-radius: 12px; max-width: 420px; width: 90%; max-height: 80vh; border: 1px solid var(--border); display: flex; flex-direction: column;">
+                    <h3 style="padding: 20px 25px 15px; margin: 0; color: var(--accent); border-bottom: 1px solid var(--border); flex-shrink: 0;">${title}</h3>
+                    <div style="padding: 15px 25px; overflow-y: auto; flex: 1;">${content}</div>
+                    <div style="display: flex; gap: 10px; padding: 15px 25px 20px; border-top: 1px solid var(--border); flex-shrink: 0;">
                         <button class="btn" onclick="closeModal()" style="flex:1; padding: 12px 0; background: var(--accent-red); color: white; font-size: 15px; border-radius: 8px;">取消</button>
                         <button class="btn btn-primary" id="modalConfirmBtn" style="flex:1; padding: 12px 0; font-size: 15px; border-radius: 8px;">${confirmText}</button>
                     </div>
