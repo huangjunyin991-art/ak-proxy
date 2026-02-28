@@ -4447,7 +4447,7 @@
                         <td>${billingText}</td>
                         <td>${remainingText}</td>
                         <td><span class="status ${statusClass}">${statusText}</span></td>
-                        <td>${license.created_at ? new Date(license.created_at).toLocaleString('zh-CN') : '-'}</td>
+                        <td>${fmtTime(license.created_at)}</td>
                         <td>
                             <button class="btn-small" onclick="showLicenseDetail('${license.license_key}')" style="padding: 4px 10px; font-size: 12px; background: var(--bg-secondary); color: var(--accent); border: 1px solid var(--border); border-radius: 4px; cursor: pointer;">详情</button>
                             ${license.status === 'active' ? `<button class="btn-small" onclick="revokeLicense('${license.license_key}')" style="padding: 4px 10px; font-size: 12px; background: var(--bg-secondary); color: var(--accent-red); border: 1px solid rgba(255,71,87,0.3); border-radius: 4px; cursor: pointer;">撤销</button>` : ''}
@@ -4582,7 +4582,7 @@
                     const billingTextMap = {'per_use': '按次数', 'time_based': '按时间', 'unlimited': '无限制'};
                     tbody.innerHTML = rows.map(row => `
                         <tr>
-                            <td style="white-space: nowrap;">${row.created_at ? new Date(row.created_at).toLocaleString('zh-CN') : '-'}</td>
+                            <td style="white-space: nowrap;">${fmtTime(row.created_at)}</td>
                             <td style="font-family: monospace; font-size: 12px;">
                                 <span style="cursor: pointer;" onclick="copyToClipboard('${row.license_key || ''}')" title="点击复制">${row.license_key || '-'}</span>
                             </td>
@@ -4665,7 +4665,7 @@
                         }[row.action] || '';
                         return `
                             <tr>
-                                <td style="white-space: nowrap;">${row.time ? new Date(row.time).toLocaleString('zh-CN') : '-'}</td>
+                                <td style="white-space: nowrap;">${fmtTime(row.time)}</td>
                                 <td style="font-family: monospace; font-size: 12px;">${row.license_key || '-'}</td>
                                 <td><span class="status ${actionClass}">${row.action || '-'}</span></td>
                                 <td style="max-width: 300px; overflow: hidden; text-overflow: ellipsis;">${row.detail || '-'}</td>
@@ -4909,11 +4909,11 @@
                         <tr><td style="color: var(--text-secondary); padding: 8px 0;">绑定机器</td>
                             <td style="padding: 8px 0; font-family: monospace; font-size: 11px;">${license.machine_id || '未绑定'}</td></tr>
                         <tr><td style="color: var(--text-secondary); padding: 8px 0;">创建时间</td>
-                            <td style="padding: 8px 0;">${license.created_at ? new Date(license.created_at).toLocaleString('zh-CN') : '-'}</td></tr>
+                            <td style="padding: 8px 0;">${fmtTime(license.created_at)}</td></tr>
                         <tr><td style="color: var(--text-secondary); padding: 8px 0;">激活时间</td>
-                            <td style="padding: 8px 0;">${license.activated_at ? new Date(license.activated_at).toLocaleString('zh-CN') : '-'}</td></tr>
+                            <td style="padding: 8px 0;">${fmtTime(license.activated_at)}</td></tr>
                         <tr><td style="color: var(--text-secondary); padding: 8px 0;">过期时间</td>
-                            <td style="padding: 8px 0;">${license.expiry_date ? new Date(license.expiry_date).toLocaleString('zh-CN') : '-'}</td></tr>
+                            <td style="padding: 8px 0;">${fmtTime(license.expiry_date)}</td></tr>
                     </table>
                 `;
                 
@@ -5190,7 +5190,7 @@
                     tbody.innerHTML = rows.map(a => {
                         const statusColors = {active: '#00ff88', expired: '#ff5252', deleted: '#888'};
                         const statusNames = {active: '有效', expired: '已过期', deleted: '已删除'};
-                        const expDate = a.expire_time ? new Date(a.expire_time).toLocaleString() : '-';
+                        const expDate = fmtTime(a.expire_time);
                         const isExpired = a.status === 'expired' || (a.expire_time && new Date(a.expire_time) < new Date());
                         const planCfg = wlCreditConfigs.find(c => c.plan_type === a.plan_type);
                         const planDisplay = planCfg ? planCfg.plan_name : (a.plan_type || '-');
@@ -5492,7 +5492,7 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                         const amtPrefix = isTopup ? '+' : '';
                         const typeNames = {topup: '充值', deduct: '扣除', refund: '退回'};
                         return `<tr>
-                            <td style="font-size:12px;">${t.created_at ? new Date(t.created_at).toLocaleString() : '-'}</td>
+                            <td style="font-size:12px;">${fmtTime(t.created_at)}</td>
                             <td>${t.admin_name}</td>
                             <td style="color:${amtColor};">${typeNames[t.type] || t.type}</td>
                             <td style="color:${amtColor}; font-weight:bold;">${amtPrefix}${t.amount}</td>
