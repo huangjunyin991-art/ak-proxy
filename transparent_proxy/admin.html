@@ -4180,7 +4180,7 @@
                     });
                     const r = await res.json();
                     if (r.success) ok++; else fail++;
-                } catch { fail++; }
+                } catch(e) { fail++; }
             }
             showToast(`删除完成: 成功${ok}条${fail > 0 ? ', 失败' + fail + '条' : ''}`);
             loadTableData();
