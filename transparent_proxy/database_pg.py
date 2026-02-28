@@ -322,6 +322,27 @@ async def init_db(host: str = "127.0.0.1", port: int = 5432,
         except Exception:
             pass
 
+        # user_assets 去重 + 添加唯一约束（兼容旧表）
+        try:
+            dup = await conn.fetchval("SELECT COUNT(*) - COUNT(DISTINCT username) FROM user_assets")
+            if dup and dup > 0:
+                logger.info(f"[DB] user_assets 发现 {dup} 条重复记录，清理中...")
+                await conn.execute('''
+                    DELETE FROM user_assets a USING user_assets b
+                    WHERE a.id < b.id AND a.username = b.username
+                ''')
+                logger.info("[DB] user_assets 重复记录已清理")
+            # 确保唯一约束存在
+            has_uq = await conn.fetchval('''
+                SELECT 1 FROM pg_constraint
+                WHERE conrelid = 'user_assets'::regclass AND contype = 'u'
+            ''')
+            if not has_uq:
+                await conn.execute("ALTER TABLE user_assets ADD CONSTRAINT user_assets_username_key UNIQUE (username)")
+                logger.info("[DB] user_assets 已添加 username 唯一约束")
+        except Exception as e:
+            logger.debug(f"[DB] user_assets 迁移: {e}")
+
         # 积分定价配置表
         await conn.execute('''
             CREATE TABLE IF NOT EXISTS credit_config (
