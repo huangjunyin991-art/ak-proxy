@@ -2720,7 +2720,7 @@
                     <td style="color: #fc5c65;">${user.direct_push || 0}</td>
                     <td style="color: #fed330;">${user.sub_account || 0}</td>
                     <td><span class="badge warning">${user.honor_name || '-'}</span></td>
-                    <td style="color: var(--text-secondary); font-size: 11px;">${user.updated_at ? user.updated_at.replace('T',' ').slice(0,16) : '-'}</td>
+                    <td style="color: var(--text-secondary); font-size: 11px;">${fmtTime(user.updated_at)}</td>
                     <td>
                         <button class="btn btn-danger" onclick="showBanModal('user', '${user.username}')" style="padding: 4px 12px; font-size: 12px;">封禁</button>
                     </td>
@@ -2876,8 +2876,8 @@
                     <tr>
                         <td><strong>${ip.ip_address}</strong></td>
                         <td>${ip.request_count}</td>
-                        <td>${ip.first_seen || '-'}</td>
-                        <td>${ip.last_seen || '-'}</td>
+                        <td>${fmtTime(ip.first_seen)}</td>
+                        <td>${fmtTime(ip.last_seen)}</td>
                         <td>
                             <span class="badge ${ip.is_banned ? 'danger' : 'success'}">
                                 ${ip.is_banned ? '已封禁' : '正常'}
@@ -2912,7 +2912,7 @@
                     <tr>
                         <td><span class="badge ${item.ban_type === 'ip' ? 'warning' : 'danger'}">${item.ban_type === 'ip' ? 'IP' : '用户'}</span></td>
                         <td><strong>${item.ban_value}</strong></td>
-                        <td>${item.banned_at}</td>
+                        <td>${fmtTime(item.banned_at)}</td>
                         <td>${item.banned_reason || '-'}</td>
                         <td>
                             <button class="btn btn-success" onclick="unban('${item.ban_type}', '${item.ban_value}')">解封</button>
@@ -2928,6 +2928,12 @@
         function formatNumber(num) {
             if (num === null || num === undefined) return '0';
             return Number(num).toLocaleString('zh-CN', {maximumFractionDigits: 2});
+        }
+
+        // 格式化时间（去掉T，精确到分钟）
+        function fmtTime(t) {
+            if (!t) return '-';
+            return String(t).replace('T', ' ').slice(0, 16);
         }
         
         // 加载在线用户
@@ -3411,7 +3417,7 @@
                     const onlineDot = sub.is_online 
                         ? `<span style="width: 10px; height: 10px; background: var(--accent-green); border-radius: 50%; display: inline-block; animation: pulse 1.5s infinite;"></span>`
                         : `<span style="width: 10px; height: 10px; background: #555; border-radius: 50%; display: inline-block;"></span>`;
-                    const loginInfo = sub.login_time ? ` · 最近登录: ${sub.login_time}` : '';
+                    const loginInfo = sub.login_time ? ` · 最近登录: ${fmtTime(sub.login_time)}` : '';
                     const statusText = sub.is_online 
                         ? `<span style="color: var(--accent-green); font-size: 12px;">在线${loginInfo}</span>`
                         : `<span style="color: var(--text-secondary); font-size: 12px;">离线${loginInfo}</span>`;
