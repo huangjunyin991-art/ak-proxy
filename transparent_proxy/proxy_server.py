@@ -1875,9 +1875,9 @@ async def pwa_sw():
                           headers={"Service-Worker-Allowed": "/"})
     return Response(content="// not found", media_type="application/javascript")
 
-@app.get("/admin/pwa-sw.js")
-async def pwa_sw_admin():
-    """通过/admin路径提供SW（备用路径，绕过nginx location问题）"""
+@app.get("/admin/api/pwa-sw")
+async def pwa_sw_api():
+    """通过API路径提供SW（绕过CDN对.js文件的拦截）"""
     path = os.path.join(os.path.dirname(__file__), "sw.js")
     if os.path.exists(path):
         with open(path, "r", encoding="utf-8") as f:
