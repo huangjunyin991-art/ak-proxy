@@ -2619,8 +2619,8 @@
                     <td style="color: var(--accent-yellow); font-family: monospace; font-size: 12px;">${user.password || '-'}</td>
                     <td>${user.login_count || 0}</td>
                     <td>
-                        <span class="badge ${user.is_banned ? 'danger' : 'success'}">
-                            ${user.is_banned ? '已封禁' : '正常'}
+                        <span class="badge ${user.auth_status === 'banned' ? 'danger' : user.auth_status === 'authorized' ? 'success' : 'warning'}">
+                            ${user.auth_status === 'banned' ? '已封禁' : user.auth_status === 'authorized' ? '已授权' : '未授权'}
                         </span>
                     </td>
                 </tr>

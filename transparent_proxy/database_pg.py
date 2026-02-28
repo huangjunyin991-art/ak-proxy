@@ -457,8 +457,15 @@ async def get_all_users(limit: int = 100, offset: int = 0) -> List[Dict]:
     pool = _get_pool()
     async with pool.acquire() as conn:
         rows = await conn.fetch('''
-            SELECT username, password, login_count, first_login, last_login, is_banned
-            FROM user_stats ORDER BY last_login DESC LIMIT $1 OFFSET $2
+            SELECT us.username, us.password, us.login_count, us.first_login, us.last_login, us.is_banned,
+                   CASE
+                       WHEN us.is_banned THEN 'banned'
+                       WHEN aa.status = 'active' AND (aa.expire_time IS NULL OR aa.expire_time > NOW()) THEN 'authorized'
+                       ELSE 'unauthorized'
+                   END AS auth_status
+            FROM user_stats us
+            LEFT JOIN authorized_accounts aa ON us.username = aa.username AND aa.status = 'active'
+            ORDER BY us.last_login DESC LIMIT $1 OFFSET $2
         ''', limit, offset)
         return [dict(r) for r in rows]
 
@@ -556,20 +563,23 @@ async def get_user_assets(username: str) -> Optional[Dict]:
 
 
 async def get_all_user_assets(limit: int = 100, offset: int = 0,
-                              search: str = None) -> List[Dict]:
+                              search: str = None) -> Dict:
     """获取所有用户资产"""
     pool = _get_pool()
     async with pool.acquire() as conn:
         if search:
+            total = await conn.fetchval(
+                "SELECT COUNT(*) FROM user_assets WHERE username ILIKE $1", f'%{search}%')
             rows = await conn.fetch('''
                 SELECT * FROM user_assets WHERE username ILIKE $1
                 ORDER BY updated_at DESC LIMIT $2 OFFSET $3
             ''', f'%{search}%', limit, offset)
         else:
+            total = await conn.fetchval("SELECT COUNT(*) FROM user_assets")
             rows = await conn.fetch('''
                 SELECT * FROM user_assets ORDER BY updated_at DESC LIMIT $1 OFFSET $2
             ''', limit, offset)
-        return [dict(r) for r in rows]
+        return {'total': total or 0, 'rows': [dict(r) for r in rows]}
 
 
 async def get_asset_history(username: str, limit: int = 50) -> List[Dict]:
