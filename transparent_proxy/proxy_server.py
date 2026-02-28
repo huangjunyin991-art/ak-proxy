@@ -1874,39 +1874,16 @@ async def pwa_sw():
             return Response(content=f.read(), media_type="application/javascript")
     return Response(content="// not found", media_type="application/javascript")
 
-_upstream_icon_cache = None
-
 @app.get("/pwa-icon-{size}.png")
 async def pwa_icon(size: int):
-    """从上游服务器获取图标并缓存"""
-    global _upstream_icon_cache
-    if _upstream_icon_cache is None:
-        # 尝试从上游获取图标（按优先级）
-        icon_urls = [
-            f"{AKAPI_URL.rstrip('/')}/apple-touch-icon.png",
-            f"{AKAPI_URL.rstrip('/')}/apple-touch-icon-precomposed.png",
-            f"{AKAPI_URL.rstrip('/')}/favicon-192x192.png",
-            f"{AKAPI_URL.rstrip('/')}/favicon.ico",
-            "https://ak2018.vip/apple-touch-icon.png",
-            "https://ak2018.vip/favicon.ico",
-        ]
-        async with httpx.AsyncClient(verify=False, timeout=10) as client:
-            for url in icon_urls:
-                try:
-                    resp = await client.get(url)
-                    if resp.status_code == 200 and len(resp.content) > 100:
-                        _upstream_icon_cache = (resp.content, resp.headers.get('content-type', 'image/png'))
-                        logger.info(f"[PWA] 获取上游图标成功: {url} ({len(resp.content)} bytes)")
-                        break
-                except Exception:
-                    continue
-        if _upstream_icon_cache is None:
-            _upstream_icon_cache = (b'', '')
-            logger.warning("[PWA] 无法获取上游图标")
-    content, ctype = _upstream_icon_cache
-    if not content:
-        return Response(status_code=404)
-    return Response(content=content, media_type=ctype or "image/png")
+    """提供PWA图标（本地PNG文件）"""
+    if size not in (192, 512):
+        size = 192
+    path = os.path.join(os.path.dirname(__file__), f"pwa-icon-{size}.png")
+    if os.path.exists(path):
+        with open(path, "rb") as f:
+            return Response(content=f.read(), media_type="image/png")
+    return Response(status_code=404)
 
 
 # ===== 启动 =====
