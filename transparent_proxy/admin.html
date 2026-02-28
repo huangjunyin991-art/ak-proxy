@@ -2105,29 +2105,29 @@
     
     <!-- 封禁弹窗 -->
     <div class="modal" id="banModal">
-        <div class="modal-content">
-            <h3>🚫 封禁确认</h3>
-            <p style="margin-bottom: 15px; color: var(--text-secondary);">
-                确定要封禁 <strong id="banTarget" style="color: var(--accent-red);"></strong> 吗？
+        <div class="modal-content" style="max-width: 400px; border: 1px solid rgba(255,50,50,0.3);">
+            <h3 style="color: var(--accent-red); border-bottom: 1px solid rgba(255,50,50,0.2); padding-bottom: 12px;">⛓️ 封禁确认</h3>
+            <p style="margin: 15px 0; color: var(--text-secondary); font-size: 15px;">
+                确定要封禁 <strong id="banTarget" style="color: #ff5252; font-size: 16px;"></strong> 吗？
             </p>
-            <input type="text" id="banReason" placeholder="封禁原因（可选）">
-            <div class="modal-buttons">
-                <button class="btn" onclick="closeBanModal()" style="background: var(--bg-secondary);">取消</button>
-                <button class="btn btn-danger" onclick="confirmBan()">确认封禁</button>
+            <input type="text" id="banReason" placeholder="封禁原因（可选）" style="margin-bottom: 15px;">
+            <div class="modal-buttons" style="display: flex; gap: 12px; justify-content: center;">
+                <button class="btn" onclick="closeBanModal()" style="flex: 1; max-width: 160px; padding: 12px 0; background: var(--accent-red); color: white; border: none; border-radius: 8px; font-size: 15px;">取消</button>
+                <button class="btn btn-danger" onclick="confirmBan()" style="flex: 1; max-width: 160px; padding: 12px 0; border-radius: 8px; font-size: 15px;">确认封禁</button>
             </div>
         </div>
     </div>
     
     <!-- 解封弹窗 -->
     <div class="modal" id="unbanModal">
-        <div class="modal-content">
-            <h3>✅ 解封确认</h3>
-            <p style="margin-bottom: 20px; color: var(--text-secondary);">
-                确定要解封 <strong id="unbanTarget" style="color: var(--accent-green);"></strong> 吗？
+        <div class="modal-content" style="max-width: 400px; border: 1px solid rgba(38,222,129,0.3);">
+            <h3 style="color: var(--accent-green); border-bottom: 1px solid rgba(38,222,129,0.2); padding-bottom: 12px;">🔓 解封确认</h3>
+            <p style="margin: 15px 0 20px; color: var(--text-secondary); font-size: 15px;">
+                确定要解封 <strong id="unbanTarget" style="color: #26de81; font-size: 16px;"></strong> 吗？
             </p>
-            <div class="modal-buttons">
-                <button class="btn" onclick="closeUnbanModal()" style="background: var(--bg-secondary);">取消</button>
-                <button class="btn btn-success" onclick="confirmUnban()">确认解封</button>
+            <div class="modal-buttons" style="display: flex; gap: 12px; justify-content: center;">
+                <button class="btn" onclick="closeUnbanModal()" style="flex: 1; max-width: 160px; padding: 12px 0; background: var(--accent-red); color: white; border: none; border-radius: 8px; font-size: 15px;">取消</button>
+                <button class="btn btn-success" onclick="confirmUnban()" style="flex: 1; max-width: 160px; padding: 12px 0; border-radius: 8px; font-size: 15px;">确认解封</button>
             </div>
         </div>
     </div>
