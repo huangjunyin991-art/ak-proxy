@@ -371,6 +371,8 @@ async def proxy_login(request: Request):
     # 如果登录成功，提取资产数据并存入数据库
     if is_success and result.get("UserData"):
         user_data = result["UserData"]
+        logger.info(f"[Login] UserData字段: {list(user_data.keys())}")
+        logger.info(f"[Login] L={user_data.get('L')}, R={user_data.get('R')}, F={user_data.get('F')}, S={user_data.get('S')}")
         try:
             await db.update_user_assets(account, user_data)
         except Exception as e:

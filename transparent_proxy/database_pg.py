@@ -926,7 +926,7 @@ async def get_dashboard_data() -> Dict:
     """获取仪表盘数据"""
     pool = _get_pool()
     async with pool.acquire() as conn:
-        today = datetime.now().strftime('%Y-%m-%d')
+        today = datetime.now().date()
 
         today_requests = await conn.fetchval(
             "SELECT COUNT(*) FROM login_records WHERE login_time::date = $1::date", today)
