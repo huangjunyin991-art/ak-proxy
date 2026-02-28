@@ -1805,8 +1805,9 @@
                     <button class="btn btn-primary" onclick="loadTableData()" style="padding: 10px 20px;">刷新</button>
                     <button class="btn btn-primary" onclick="showAddRowModal()" style="padding: 10px 20px;">➕ 新增</button>
                     <button class="btn btn-danger" onclick="showSqlModal()" style="padding: 10px 20px;">执行SQL</button>
+                    <button id="dbBatchDeleteBtn" class="btn btn-danger" onclick="batchDeleteDbRows()" style="padding: 10px 20px; display:none;">批量删除 (<span id="dbSelectedCount">0</span>)</button>
                     <span id="dbRowCount" style="color: var(--text-secondary); font-size: 14px; margin-left: auto;"></span>
-                    <button class="btn" onclick="lockDatabase()" style="padding: 10px 20px; background: var(--bg-secondary);">锁定</button>
+                    <button class="btn" onclick="lockDatabase()" style="padding: 10px 20px; background: var(--bg-secondary); color: #ff5252; border: 1px solid #ff5252;">🔒 锁定</button>
                 </div>
                 
                 <div class="table-container" style="overflow: auto; max-height: max(300px, calc(100vh - 400px));">
@@ -3989,18 +3990,18 @@
                 
                 // 渲染表头
                 const thead = document.getElementById('dbTableHead');
-                thead.innerHTML = '<tr>' + 
+                thead.innerHTML = '<tr><th style="width:40px;"><input type="checkbox" onchange="dbToggleAll(this.checked)" id="dbCheckAll"></th>' + 
                     dbSchema.map(c => `<th style="white-space: nowrap;">${c.name}<br><span style="font-size: 10px; color: var(--text-secondary);">${c.type}</span></th>`).join('') +
                     '<th>操作</th></tr>';
                 
                 // 渲染数据
                 const tbody = document.getElementById('dbTableBody');
                 if (data.rows.length === 0) {
-                    tbody.innerHTML = '<tr><td colspan="' + (dbSchema.length + 1) + '" style="text-align: center; color: var(--text-secondary); padding: 40px;">暂无数据</td></tr>';
+                    tbody.innerHTML = '<tr><td colspan="' + (dbSchema.length + 2) + '" style="text-align: center; color: var(--text-secondary); padding: 40px;">暂无数据</td></tr>';
                 } else {
                     tbody.innerHTML = data.rows.map(row => {
                         const pkValue = row[dbPkColumn];
-                        return '<tr>' + 
+                        return `<tr><td><input type="checkbox" class="db-row-check" value="${pkValue}" onchange="dbUpdateSelected()"></td>` + 
                             dbSchema.map(c => {
                                 let val = row[c.name];
                                 if (val === null) val = '<span style="color: #666;">NULL</span>';
@@ -4008,7 +4009,7 @@
                                 return `<td style="max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${String(row[c.name] || '')}">${val}</td>`;
                             }).join('') +
                             `<td style="white-space: nowrap;">
-                                <button class="btn btn-primary" onclick="showEditRowModal('${pkValue}')" style="padding: 4px 10px; font-size: 12px;">编辑</button>
+                                <button class="btn" onclick="showEditRowModal('${pkValue}')" style="padding: 4px 10px; font-size: 12px; background: #45aaf2; color: #fff;">编辑</button>
                                 <button class="btn btn-danger" onclick="deleteDbRow('${pkValue}')" style="padding: 4px 10px; font-size: 12px;">删除</button>
                             </td></tr>`;
                     }).join('');
@@ -4144,6 +4145,40 @@
             });
         }
         
+        // 全选/取消全选
+        function dbToggleAll(checked) {
+            document.querySelectorAll('.db-row-check').forEach(cb => cb.checked = checked);
+            dbUpdateSelected();
+        }
+
+        // 更新已选计数和批量删除按钮
+        function dbUpdateSelected() {
+            const checked = document.querySelectorAll('.db-row-check:checked');
+            const btn = document.getElementById('dbBatchDeleteBtn');
+            const count = document.getElementById('dbSelectedCount');
+            count.textContent = checked.length;
+            btn.style.display = checked.length > 0 ? 'inline-block' : 'none';
+        }
+
+        // 批量删除
+        async function batchDeleteDbRows() {
+            const checked = document.querySelectorAll('.db-row-check:checked');
+            if (checked.length === 0) return;
+            if (!confirm(`确定要删除选中的 ${checked.length} 条记录吗？`)) return;
+            let ok = 0, fail = 0;
+            for (const cb of checked) {
+                try {
+                    const res = await fetch(`${API_BASE}/admin/api/db/delete/${dbCurrentTable}?pk_column=${dbPkColumn}&pk_value=${cb.value}`, {
+                        method: 'DELETE', headers: getDbHeaders()
+                    });
+                    const r = await res.json();
+                    if (r.success) ok++; else fail++;
+                } catch { fail++; }
+            }
+            showToast(`删除完成: 成功${ok}条${fail > 0 ? ', 失败' + fail + '条' : ''}`);
+            loadTableData();
+        }
+
         // 删除行
         async function deleteDbRow(pkValue) {
             if (!confirm(`确定要删除 ${dbPkColumn}=${pkValue} 的记录吗？`)) return;
