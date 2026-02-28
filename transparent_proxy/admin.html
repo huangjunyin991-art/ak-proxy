@@ -102,6 +102,40 @@
             50% { opacity: 0.5; }
         }
         
+        /* 封禁行：红色流动效果 */
+        @keyframes banned-flow {
+            0% { background-position: 0% 50%; }
+            50% { background-position: 100% 50%; }
+            100% { background-position: 0% 50%; }
+        }
+        tr.banned-row {
+            background: linear-gradient(90deg, 
+                rgba(255,30,30,0.15) 0%, 
+                rgba(180,0,0,0.25) 25%, 
+                rgba(255,50,50,0.12) 50%, 
+                rgba(200,0,0,0.22) 75%, 
+                rgba(255,30,30,0.15) 100%) !important;
+            background-size: 200% 100%;
+            animation: banned-flow 4s ease-in-out infinite;
+            position: relative;
+            border-left: 3px solid #ff2222 !important;
+        }
+        tr.banned-row td {
+            color: #ff6b6b !important;
+            text-shadow: 0 0 8px rgba(255,50,50,0.3);
+        }
+        tr.banned-row td:first-child::before {
+            content: '⛓️';
+            margin-right: 4px;
+            font-size: 13px;
+            filter: drop-shadow(0 0 3px rgba(255,0,0,0.5));
+        }
+        tr.banned-row td:first-child strong {
+            text-decoration: line-through;
+            text-decoration-color: rgba(255,0,0,0.6);
+            text-decoration-thickness: 2px;
+        }
+        
         /* 统计卡片 */
         .stats-grid {
             display: grid;
@@ -2716,15 +2750,11 @@
             
             tbody.innerHTML = users.map(user => {
                 const banned = bannedUsersSet.has((user.username || '').toLowerCase());
-                const nameStyle = banned 
-                    ? 'color: #ff5252; text-decoration: line-through; opacity: 0.7;' 
-                    : '';
-                const banIcon = banned ? '🔒 ' : '';
                 const banBtn = banned
                     ? `<button class="btn btn-success" onclick="unban('user', '${user.username}')" style="padding: 4px 12px; font-size: 12px;">解封</button>`
                     : `<button class="btn btn-danger" onclick="showBanModal('user', '${user.username}')" style="padding: 4px 12px; font-size: 12px;">封禁</button>`;
-                return `<tr style="${banned ? 'background: rgba(255,82,82,0.05);' : ''}">
-                    <td><strong style="${nameStyle}">${banIcon}${user.username}</strong></td>
+                return `<tr class="${banned ? 'banned-row' : ''}">
+                    <td><strong>${user.username}</strong></td>
                     <td style="color: var(--accent);">${formatNumber(user.ace_count)}</td>
                     <td>${formatNumber(user.total_ace)}</td>
                     <td style="color: var(--accent-green);">${formatNumber(user.ep)}</td>
