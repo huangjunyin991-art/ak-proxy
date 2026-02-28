@@ -1847,7 +1847,7 @@
                 <div style="overflow-x: auto;">
                     <table>
                         <thead><tr>
-                            <th>账号</th><th>密码</th><th>套餐</th><th>到期时间</th><th>状态</th><th>强化登录</th><th>添加人</th><th>备注</th><th>操作</th>
+                            <th>账号</th><th>姓名</th><th>套餐</th><th>到期时间</th><th>状态</th><th>强化登录</th><th>添加人</th><th>备注</th><th>操作</th>
                         </tr></thead>
                         <tbody id="wlTableBody"><tr><td colspan="9" style="text-align:center; color:var(--text-secondary);">加载中...</td></tr></tbody>
                     </table>
@@ -5158,7 +5158,7 @@
                         const isExpired = a.status === 'expired' || (a.expire_time && new Date(a.expire_time) < new Date());
                         return `<tr>
                             <td style="font-weight:bold;">${a.username}</td>
-                            <td style="color:var(--text-secondary);">${a.password || '-'}</td>
+                            <td style="color:var(--text-secondary);">${a.nickname || '-'}</td>
                             <td>${a.plan_type || '-'}</td>
                             <td style="color:${isExpired ? '#ff5252' : '#00ff88'};">${expDate}</td>
                             <td><span style="color:${statusColors[a.status] || '#888'};">${statusNames[a.status] || a.status}</span></td>
@@ -5204,6 +5204,10 @@
                     </select>
                 </div>
                 <div style="margin-bottom:12px;">
+                    <label style="display:block; margin-bottom:4px; color:var(--text-secondary); font-size:13px;">姓名（可选）</label>
+                    <input type="text" id="wlAddNickname" placeholder="可选" style="width:100%; padding:8px 10px; background:var(--bg-primary); border:1px solid var(--border); border-radius:6px; color:var(--text-primary);">
+                </div>
+                <div style="margin-bottom:12px;">
                     <label style="display:block; margin-bottom:4px; color:var(--text-secondary); font-size:13px;">备注（可选）</label>
                     <input type="text" id="wlAddRemark" placeholder="可选" style="width:100%; padding:8px 10px; background:var(--bg-primary); border:1px solid var(--border); border-radius:6px; color:var(--text-primary);">
                 </div>
@@ -5212,12 +5216,13 @@
                 const username = document.getElementById('wlAddUsername').value.trim();
                 const password = '';
                 const plan_type = document.getElementById('wlAddPlan').value;
+                const nickname = document.getElementById('wlAddNickname').value.trim();
                 const remark = document.getElementById('wlAddRemark').value;
                 if (!username) { showToast('请输入账号', 'error'); return; }
                 try {
                     const res = await fetch(`${API_BASE}/admin/api/whitelist/add`, {
                         method: 'POST', headers: {...getHeaders(), 'Content-Type': 'application/json'},
-                        body: JSON.stringify({username, password, plan_type, remark})
+                        body: JSON.stringify({username, password, plan_type, nickname, remark})
                     });
                     const data = await res.json();
                     if (data.success) { closeModal(); showToast(data.message || '授权成功'); loadWhitelist(wlPage); }

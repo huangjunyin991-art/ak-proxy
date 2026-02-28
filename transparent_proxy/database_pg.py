@@ -305,6 +305,7 @@ async def init_db(host: str = "127.0.0.1", port: int = 5432,
                 expire_time TIMESTAMP NOT NULL,
                 status TEXT NOT NULL DEFAULT 'active',
                 remark TEXT DEFAULT '',
+                nickname TEXT DEFAULT '',
                 persistent_login BOOLEAN DEFAULT FALSE,
                 created_at TIMESTAMP DEFAULT NOW(),
                 updated_at TIMESTAMP DEFAULT NOW()
@@ -314,6 +315,10 @@ async def init_db(host: str = "127.0.0.1", port: int = 5432,
         # authorized_accounts 添加 persistent_login 字段（兼容旧表）
         try:
             await conn.execute("ALTER TABLE authorized_accounts ADD COLUMN IF NOT EXISTS persistent_login BOOLEAN DEFAULT FALSE")
+        except Exception:
+            pass
+        try:
+            await conn.execute("ALTER TABLE authorized_accounts ADD COLUMN IF NOT EXISTS nickname TEXT DEFAULT ''")
         except Exception:
             pass
 
@@ -1249,7 +1254,8 @@ async def check_authorized(username: str) -> Optional[Dict]:
 
 async def add_authorized_account(username: str, password: str, added_by: str,
                                   plan_type: str, credits_cost: int,
-                                  duration_days: int, remark: str = '') -> Dict:
+                                  duration_days: int, remark: str = '',
+                                  nickname: str = '') -> Dict:
     """添加授权账号"""
     pool = _get_pool()
     now = datetime.now()
@@ -1257,13 +1263,13 @@ async def add_authorized_account(username: str, password: str, added_by: str,
     async with pool.acquire() as conn:
         row = await conn.fetchrow('''
             INSERT INTO authorized_accounts
-                (username, password, added_by, plan_type, credits_cost, start_time, expire_time, status, remark)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, 'active', $8)
+                (username, password, added_by, plan_type, credits_cost, start_time, expire_time, status, remark, nickname)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, 'active', $8, $9)
             ON CONFLICT(username) DO UPDATE SET
                 password=$2, added_by=$3, plan_type=$4, credits_cost=$5,
-                start_time=$6, expire_time=$7, status='active', remark=$8, updated_at=NOW()
+                start_time=$6, expire_time=$7, status='active', remark=$8, nickname=$9, updated_at=NOW()
             RETURNING id, expire_time
-        ''', username, password, added_by, plan_type, credits_cost, now, expire_time, remark)
+        ''', username, password, added_by, plan_type, credits_cost, now, expire_time, remark, nickname)
         return {'id': row['id'], 'expire_time': str(row['expire_time']), 'username': username}
 
 

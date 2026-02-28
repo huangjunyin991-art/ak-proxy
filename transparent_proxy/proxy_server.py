@@ -1551,6 +1551,7 @@ async def admin_whitelist_add(request: Request):
     password = data.get('password', '')
     plan_type = data.get('plan_type', 'monthly')
     remark = data.get('remark', '')
+    nickname = data.get('nickname', '').strip()
     if not username:
         return {"success": False, "message": "账号不能为空"}
 
@@ -1576,7 +1577,7 @@ async def admin_whitelist_add(request: Request):
         result = await db.add_authorized_account(
             username=username, password=password, added_by=added_by,
             plan_type=plan_type, credits_cost=credits_cost,
-            duration_days=duration_days, remark=remark)
+            duration_days=duration_days, remark=remark, nickname=nickname)
         return {"success": True, "message": f"账号 [{username}] 已授权 {plan['plan_name']}({duration_days}天)",
                 "data": result}
     except Exception as e:
