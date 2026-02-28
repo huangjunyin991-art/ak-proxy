@@ -367,8 +367,7 @@ async def record_login(username: str, ip_address: str, user_agent: str = "",
                        is_success: bool = True, password: str = "",
                        extra_data: str = ""):
     """
-    记录登录：只更新计数器（user_stats + ip_stats），不插入逐条记录
-    节省存储，保留统计能力
+    记录登录：插入逐条记录到login_records + 更新计数器（user_stats + ip_stats）
     """
     pool = _get_pool()
     now = datetime.now().replace(microsecond=0)
@@ -376,6 +375,12 @@ async def record_login(username: str, ip_address: str, user_agent: str = "",
 
     async with pool.acquire() as conn:
         async with conn.transaction():
+            # 插入登录记录
+            await conn.execute('''
+                INSERT INTO login_records (username, ip_address, user_agent, login_time, request_path, status_code, extra_data)
+                VALUES ($1, $2, $3, $4, $5, $6, $7)
+            ''', username, ip_address, user_agent, now, request_path, status_code, extra_data)
+
             # 更新用户统计（计数器+1）
             if is_success and password:
                 await conn.execute('''
