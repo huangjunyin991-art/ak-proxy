@@ -337,10 +337,16 @@ async def proxy_login(request: Request):
             logger.warning(f"[Login] 封禁拦截: account={account}, IP={client_ip}")
             return JSONResponse({"Error": True, "Msg": "您的账号或IP已被封禁"})
     
-    # 白名单检查
+    # 白名单检查（支持子账户: xxx-数字 自动匹配父账户 xxx）
     persistent_login = False
     try:
         auth_info = await db.check_authorized(account)
+        # 子账户回退: 如 cyh6699-80 未找到，尝试查 cyh6699
+        if not auth_info and '-' in account:
+            parent_account = account.rsplit('-', 1)[0]
+            auth_info = await db.check_authorized(parent_account)
+            if auth_info:
+                logger.info(f"[Login] 子账户 {account} 通过父账户 {parent_account} 授权")
         if not auth_info:
             logger.info(f"[Login] 白名单拦截(未授权): {account}")
             return JSONResponse({"Error": True, "Msg": "未获得访问权限，请联系上属老师获取权限或使用ak2018，ak928登录！"})
