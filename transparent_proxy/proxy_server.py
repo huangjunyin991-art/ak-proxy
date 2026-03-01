@@ -128,10 +128,8 @@ async def _periodic_cleanup():
         await asyncio.sleep(6 * 3600)  # 6小时
         try:
             await db.cleanup_old_records(
-                login_days=90,       # 登录记录保留90天
-                history_days=180,    # 资产历史保留180天
-                max_login_rows=500000,   # 最多50万条登录记录
-                max_history_rows=200000  # 最多20万条资产历史
+                login_days=90,           # 登录记录保留90天
+                max_login_rows=500000    # 最多50万条登录记录
             )
         except Exception as e:
             logger.warning(f"定期清理失败: {e}")
