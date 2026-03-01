@@ -64,6 +64,20 @@ if SOCKS5_EXITS:
     dispatcher.configure_from_list(SOCKS5_EXITS)
 dispatcher.MAX_LOGIN_PER_MIN = LOGIN_RATE_PER_EXIT
 
+# 从持久化文件恢复订阅节点出口
+try:
+    import singbox_manager as _sbm
+    _saved = _sbm.load_saved_nodes()
+    if _saved:
+        _base_port = 10001
+        for _i, _node in enumerate(_saved):
+            _port = _base_port + _i
+            _name = _node.get("display_name", _node.get("name", f"node_{_i}"))
+            dispatcher.add_socks5(_name, _port)
+        logging.getLogger("TransparentProxy").info(f"[Dispatcher] 从 nodes.json 恢复 {len(_saved)} 个出口")
+except Exception as _e:
+    logging.getLogger("TransparentProxy").warning(f"[Dispatcher] 恢复出口失败: {_e}")
+
 # ===== 日志配置 =====
 logger = logging.getLogger("TransparentProxy")
 logger.setLevel(getattr(logging, LOG_LEVEL, logging.INFO))

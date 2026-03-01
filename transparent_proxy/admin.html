@@ -5395,22 +5395,22 @@
                             ${!isDirect ? `<button onclick="lbRemoveExit(${ex.index},'${ex.name}')" style="margin-left:4px;background:none;border:1px solid rgba(255,71,87,0.3);border-radius:4px;color:#ff4757;cursor:pointer;font-size:11px;padding:2px 6px;">删除</button>` : ''}
                         </div>
                     </div>
-                    <div style="display:flex;gap:12px;margin-bottom:8px;flex-wrap:wrap;">
-                        <div style="background:${healthBg};border-radius:6px;padding:6px 10px;flex:1;min-width:80px;">
+                    <div style="display:flex;gap:6px;margin-bottom:8px;flex-wrap:nowrap;">
+                        <div style="background:${healthBg};border-radius:6px;padding:6px 8px;flex:3;min-width:0;overflow:hidden;">
                             <div style="font-size:10px;color:var(--text-secondary);">出口IP</div>
-                            <div style="font-size:13px;font-weight:bold;color:${healthColor};font-family:monospace;">${ex.exit_ip || '检测中...'}</div>
+                            <div style="font-size:12px;font-weight:bold;color:${healthColor};font-family:monospace;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${ex.exit_ip || ''}">${ex.exit_ip || '检测中...'}</div>
                         </div>
-                        <div style="background:rgba(102,126,234,0.1);border-radius:6px;padding:6px 10px;flex:1;min-width:60px;">
-                            <div style="font-size:10px;color:var(--text-secondary);">并发用户</div>
-                            <div style="font-size:18px;font-weight:bold;color:#667eea;">${ex.active}</div>
+                        <div style="background:rgba(102,126,234,0.1);border-radius:6px;padding:6px 8px;flex:1;min-width:0;text-align:center;">
+                            <div style="font-size:10px;color:var(--text-secondary);">并发</div>
+                            <div style="font-size:15px;font-weight:bold;color:#667eea;">${ex.active}</div>
                         </div>
-                        <div style="background:rgba(0,212,255,0.1);border-radius:6px;padding:6px 10px;flex:1;min-width:60px;">
-                            <div style="font-size:10px;color:var(--text-secondary);">总请求</div>
-                            <div style="font-size:13px;font-weight:bold;color:var(--accent);">${ex.total_requests}</div>
+                        <div style="background:rgba(0,212,255,0.1);border-radius:6px;padding:6px 8px;flex:1;min-width:0;text-align:center;">
+                            <div style="font-size:10px;color:var(--text-secondary);">请求</div>
+                            <div style="font-size:12px;font-weight:bold;color:var(--accent);">${ex.total_requests}</div>
                         </div>
-                        <div style="background:rgba(255,71,87,0.08);border-radius:6px;padding:6px 10px;flex:1;min-width:60px;">
+                        <div style="background:rgba(255,71,87,0.08);border-radius:6px;padding:6px 8px;flex:1;min-width:0;text-align:center;">
                             <div style="font-size:10px;color:var(--text-secondary);">错误</div>
-                            <div style="font-size:13px;font-weight:bold;color:${ex.errors > 0 ? '#ff4757' : 'var(--text-secondary)'};">${ex.errors}</div>
+                            <div style="font-size:12px;font-weight:bold;color:${ex.errors > 0 ? '#ff4757' : 'var(--text-secondary)'};">${ex.errors}</div>
                         </div>
                     </div>
                     <!-- 登录冷却进度 -->
