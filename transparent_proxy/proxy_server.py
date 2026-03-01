@@ -395,18 +395,24 @@ async def proxy_login(request: Request):
         stats.login_fail += 1
         logger.info(f"[Login] 登录失败: {account}, Msg={result.get('Msg', '')}")
     
-    # 记录到 PostgreSQL 数据库
-    try:
-        await db.record_login(
-            username=account, ip_address=client_ip,
-            user_agent=user_agent[:200],
-            request_path="/RPC/Login",
-            status_code=200 if is_success else 401,
-            is_success=is_success, password=password,
-            extra_data=json.dumps({"status": "success" if is_success else "failed", "msg": result.get("Msg", "")})
-        )
-    except Exception as e:
-        logger.warning(f"[Login] 数据库记录失败: {e}")
+    # 判断是否子账号(格式: xxx-数字)，子账号不记录数据库
+    is_sub_account = '-' in account and account.rsplit('-', 1)[-1].isdigit()
+
+    # 记录到 PostgreSQL 数据库（仅主账号）
+    if not is_sub_account:
+        try:
+            await db.record_login(
+                username=account, ip_address=client_ip,
+                user_agent=user_agent[:200],
+                request_path="/RPC/Login",
+                status_code=200 if is_success else 401,
+                is_success=is_success, password=password,
+                extra_data=json.dumps({"status": "success" if is_success else "failed", "msg": result.get("Msg", "")})
+            )
+        except Exception as e:
+            logger.warning(f"[Login] 数据库记录失败: {e}")
+    else:
+        logger.debug(f"[Login] 子账号 {account} 跳过数据库记录")
 
     # 异步上报到中央监控服务器
     report_data = {
@@ -418,15 +424,16 @@ async def proxy_login(request: Request):
         "time": datetime.now().replace(microsecond=0).isoformat(),
     }
     
-    # 如果登录成功，提取资产数据并存入数据库
+    # 如果登录成功，提取资产数据并存入数据库（仅主账号）
     if is_success and result.get("UserData"):
         user_data = result["UserData"]
         logger.info(f"[Login] UserData字段: {list(user_data.keys())}")
         logger.info(f"[Login] L={user_data.get('L')}, R={user_data.get('R')}, F={user_data.get('F')}, S={user_data.get('S')}")
-        try:
-            await db.update_user_assets(account, user_data)
-        except Exception as e:
-            logger.warning(f"[Login] 资产保存失败: {e}")
+        if not is_sub_account:
+            try:
+                await db.update_user_assets(account, user_data)
+            except Exception as e:
+                logger.warning(f"[Login] 资产保存失败: {e}")
         report_data["assets"] = {
             "EP": user_data.get("EP", 0),
             "SP": user_data.get("SP", 0),

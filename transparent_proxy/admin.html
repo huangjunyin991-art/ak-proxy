@@ -5321,7 +5321,7 @@
             const configEl = document.getElementById('lbSbConfig');
             if (!sb) return;
             if (sb.active) {
-                stateEl.innerHTML = `<span style="color:#00ff88;">● 运行中</span> <span style="color:var(--text-secondary);">(PID: ${sb.pid})</span>`;
+                stateEl.innerHTML = `<span style="color:#00ff88;">● 运行中</span> <span style="color:var(--text-secondary);">(PID: ${sb.pid})</span> <button onclick="lbReloadSingbox()" style="margin-left:8px;background:rgba(102,126,234,0.2);color:#667eea;border:1px solid rgba(102,126,234,0.3);border-radius:4px;padding:3px 10px;cursor:pointer;font-size:11px;font-weight:bold;">重启</button>`;
             } else if (sb.installed) {
                 stateEl.innerHTML = `<span style="color:#ff4757;">● 已停止</span> <button onclick="lbStartSingbox()" style="margin-left:8px;background:#00ff88;color:#000;border:none;border-radius:4px;padding:3px 10px;cursor:pointer;font-size:11px;font-weight:bold;">启动</button>`;
             } else {
