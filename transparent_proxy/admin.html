@@ -5323,7 +5323,7 @@
             if (sb.active) {
                 stateEl.innerHTML = `<span style="color:#00ff88;">● 运行中</span> <span style="color:var(--text-secondary);">(PID: ${sb.pid})</span>`;
             } else if (sb.installed) {
-                stateEl.innerHTML = `<span style="color:#ff4757;">● 已停止</span>`;
+                stateEl.innerHTML = `<span style="color:#ff4757;">● 已停止</span> <button onclick="lbStartSingbox()" style="margin-left:8px;background:#00ff88;color:#000;border:none;border-radius:4px;padding:3px 10px;cursor:pointer;font-size:11px;font-weight:bold;">启动</button>`;
             } else {
                 stateEl.innerHTML = `<span style="color:#ffa502;">● 未安装</span>`;
             }
@@ -5655,6 +5655,18 @@
                 loadLbStatus();
             } catch (e) {
                 showToast('热重载失败: ' + e.message, 'error');
+            }
+        }
+
+        async function lbStartSingbox() {
+            try {
+                showToast('正在启动 sing-box...', 'info');
+                const res = await fetch(`${API_BASE}/api/dispatcher/start_singbox`, {method: 'POST'});
+                const data = await res.json();
+                showToast(data.message, data.success ? 'success' : 'error');
+                loadLbStatus();
+            } catch (e) {
+                showToast('启动失败: ' + e.message, 'error');
             }
         }
 

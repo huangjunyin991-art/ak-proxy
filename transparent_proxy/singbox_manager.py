@@ -261,6 +261,28 @@ def reload_service() -> dict:
         return {"success": False, "message": str(e)}
 
 
+def start_service() -> dict:
+    """启动 sing-box 服务（用于异常退出后远程恢复）"""
+    try:
+        result = subprocess.run(
+            ["sudo", "systemctl", "start", SINGBOX_SERVICE],
+            capture_output=True, text=True, timeout=15
+        )
+        if result.returncode != 0:
+            err = result.stderr.strip() or result.stdout.strip()
+            logger.error(f"[SingBox] 服务启动失败: {err}")
+            return {"success": False, "message": f"服务启动失败: {err}"}
+        logger.info("[SingBox] 服务启动成功")
+        return {"success": True, "message": "sing-box 启动成功"}
+    except FileNotFoundError:
+        return {"success": False, "message": "systemctl 未找到"}
+    except subprocess.TimeoutExpired:
+        return {"success": False, "message": "操作超时"}
+    except Exception as e:
+        logger.error(f"[SingBox] 启动异常: {e}")
+        return {"success": False, "message": str(e)}
+
+
 def get_service_status() -> dict:
     """获取 sing-box 服务状态"""
     try:

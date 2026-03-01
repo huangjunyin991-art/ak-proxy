@@ -52,7 +52,7 @@ except ImportError:
     DB_MIN_POOL = 10
     DB_MAX_POOL = 30
     SOCKS5_EXITS = []
-    LOGIN_RATE_PER_EXIT = 8
+    LOGIN_RATE_PER_EXIT = 10
 
 # 数据库模块
 import database_pg as db
@@ -796,6 +796,13 @@ async def api_dispatcher_reload_singbox():
     """手动热重载 sing-box 服务"""
     import singbox_manager as sbm
     return sbm.reload_service()
+
+
+@app.post("/api/dispatcher/start_singbox")
+async def api_dispatcher_start_singbox():
+    """远程启动 sing-box 服务（异常退出后恢复）"""
+    import singbox_manager as sbm
+    return sbm.start_service()
 
 
 @app.get("/api/dispatcher/singbox_status")
