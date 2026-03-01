@@ -5370,9 +5370,9 @@
                 const cdColor = cdPct >= 100 ? '#ff4757' : cdPct >= 75 ? '#ffa502' : '#00ff88';
                 const cdRemaining = cd.remaining || 0;
                 const cdText = cdPct >= 100
-                    ? `已满 (${cd.next_available_in}s后释放1个名额)`
+                    ? `已满 (${cd.next_available_in}s后开始释放)`
                     : cdUsed > 0
-                        ? `${cdUsed}/${cdMax} (剩${cdRemaining}个名额)`
+                        ? `${cdUsed}/${cdMax} (${cdRemaining}个可用)`
                         : `${cdUsed}/${cdMax}`;
 
                 // 冻结+告警标记
