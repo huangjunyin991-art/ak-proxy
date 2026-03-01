@@ -35,3 +35,14 @@ DB_USER = "ak_proxy"
 DB_PASSWORD = "ak2026db"  # 部署时修改
 DB_MIN_POOL = 10   # 最小连接数
 DB_MAX_POOL = 30   # 最大连接数（4核8G服务器最估值，PG默认max_connections=100）
+
+# ===== 出口IP设置（sing-box SOCKS5隧道） =====
+# 每个出口对应sing-box的一个本地SOCKS5端口
+# 直连（服务器本机IP）自动包含，无需配置
+SOCKS5_EXITS = [
+    # {"name": "出口_01",   "port": 10001},
+    # {"name": "出口_pro",  "port": 10002},
+    # {"name": "新加坡_01", "port": 10003},
+    # ... 请根据sing-box配置删除注释
+]
+LOGIN_RATE_PER_EXIT = 8  # 每个出口IP每分钟最多登录次数

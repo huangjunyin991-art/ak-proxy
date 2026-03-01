@@ -51,9 +51,18 @@ except ImportError:
     DB_PASSWORD = "ak2026db"
     DB_MIN_POOL = 10
     DB_MAX_POOL = 30
+    SOCKS5_EXITS = []
+    LOGIN_RATE_PER_EXIT = 8
 
 # 数据库模块
 import database_pg as db
+# 出口IP调度模块
+from outbound_dispatcher import dispatcher, OutboundExit
+
+# 初始化调度器配置
+if SOCKS5_EXITS:
+    dispatcher.configure_from_list(SOCKS5_EXITS)
+dispatcher.MAX_LOGIN_PER_MIN = LOGIN_RATE_PER_EXIT
 
 # ===== 日志配置 =====
 logger = logging.getLogger("TransparentProxy")
@@ -120,6 +129,8 @@ async def startup():
         asyncio.create_task(_periodic_cleanup())
     except Exception as e:
         logger.error(f"PostgreSQL 连接失败: {e}，将使用内存模式")
+    # 启动出口调度器
+    await dispatcher.start()
 
 
 async def _periodic_cleanup():
@@ -201,8 +212,9 @@ async def report_to_monitor(endpoint: str, data: dict):
 
 async def forward_request(method: str, api_path: str, content_type: str,
                           params: dict, raw_body: bytes, headers: dict,
-                          client_ip: str = "") -> httpx.Response:
-    """转发请求到真实API服务器（透传用户真实IP）"""
+                          client_ip: str = "",
+                          is_login: bool = False) -> httpx.Response:
+    """转发请求到真实API服务器（通过出口调度器选择出口IP）"""
     url = AKAPI_URL + api_path
     # 从nginx传递的头中提取用户真实IP
     real_ip = client_ip or headers.get("x-real-ip", "") or headers.get("x-forwarded-for", "").split(",")[0].strip()
@@ -214,17 +226,16 @@ async def forward_request(method: str, api_path: str, content_type: str,
     if real_ip:
         fwd_headers["X-Real-IP"] = real_ip
         fwd_headers["X-Forwarded-For"] = real_ip
-    
-    async with httpx.AsyncClient(verify=False, timeout=REQUEST_TIMEOUT) as client:
-        if method == "GET":
-            return await client.get(url, params=params, headers=fwd_headers)
-        else:
-            if "application/json" in (content_type or ""):
-                return await client.post(url, json=params, headers=fwd_headers)
-            elif raw_body:
-                return await client.post(url, content=raw_body, headers=fwd_headers)
-            else:
-                return await client.post(url, data=params, headers=fwd_headers)
+
+    # 通过调度器选择出口
+    exit_obj = dispatcher.pick_login_exit() if is_login else dispatcher.pick_api_exit()
+    logger.debug(f"[Forward] {api_path} -> 出口[{exit_obj.name}]")
+
+    return await dispatcher.forward(
+        exit_obj, method, url, fwd_headers,
+        content_type=content_type, params=params,
+        raw_body=raw_body, timeout=REQUEST_TIMEOUT
+    )
 
 
 # ===== 状态页 =====
@@ -330,7 +341,7 @@ async def proxy_login(request: Request):
     try:
         response = await forward_request(
             request.method, "Login", content_type, params, raw_body, dict(request.headers),
-            client_ip=client_ip
+            client_ip=client_ip, is_login=True
         )
         result = response.json()
     except Exception as e:
@@ -561,7 +572,14 @@ async def api_status():
             "fail": stats.report_fail,
         },
         "api_target": AKAPI_URL,
+        "dispatcher": dispatcher.summary(),
     }
+
+
+@app.get("/api/dispatcher")
+async def api_dispatcher_status():
+    """获取出口调度器状态"""
+    return dispatcher.get_status()
 
 
 @app.get("/api/db/size")
