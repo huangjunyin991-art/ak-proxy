@@ -32,7 +32,7 @@ ALERT_STATUS_CODES = {
 class OutboundExit:
     """单个出口通道"""
     __slots__ = ('name', 'proxy_url', 'healthy', 'total', 'login_count', 'errors',
-                 'warn_403', 'warn_429', 'active', 'exit_ip', '_login_timestamps')
+                 'warn_403', 'warn_429', 'active', 'exit_ip', '_login_timestamps', '_error_logs')
 
     def __init__(self, name: str, proxy_url: Optional[str] = None):
         self.name = name
@@ -46,6 +46,7 @@ class OutboundExit:
         self.active = 0         # 当前正在处理的并发请求数
         self.exit_ip = ""       # 检测到的出口IP
         self._login_timestamps: list[float] = []
+        self._error_logs: list[dict] = []  # [{time, msg}] 最多保留50条
 
     @property
     def is_direct(self) -> bool:
@@ -84,8 +85,15 @@ class OutboundExit:
     def record_request(self):
         self.total += 1
 
-    def record_error(self):
+    def record_error(self, msg: str = ""):
         self.errors += 1
+        import datetime
+        self._error_logs.append({
+            "time": datetime.datetime.now().strftime("%H:%M:%S"),
+            "msg": msg or "unknown error"
+        })
+        if len(self._error_logs) > 50:
+            self._error_logs = self._error_logs[-50:]
 
 
 class OutboundDispatcher:
@@ -414,6 +422,7 @@ class OutboundDispatcher:
                     "errors": ex.errors,
                     "warn_403": ex.warn_403,
                     "warn_429": ex.warn_429,
+                    "recent_errors": ex._error_logs[-5:] if ex._error_logs else [],
                 })
 
             healthy_count = sum(1 for ex in self.exits if ex.healthy)
@@ -427,6 +436,12 @@ class OutboundDispatcher:
             }
         except Exception as e:
             return {"error": str(e), "total_exits": len(self.exits)}
+
+    def get_exit_logs(self, index: int) -> list[dict]:
+        """获取指定出口的错误日志"""
+        if 0 <= index < len(self.exits):
+            return list(self.exits[index]._error_logs)
+        return []
 
     def summary(self) -> str:
         """一行摘要（异常安全）"""

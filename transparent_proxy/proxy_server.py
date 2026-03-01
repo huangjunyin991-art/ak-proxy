@@ -638,6 +638,14 @@ async def api_dispatcher_detect_ips():
     ]}
 
 
+@app.get("/api/dispatcher/logs/{index}")
+async def api_dispatcher_exit_logs(index: int):
+    """获取指定出口的错误日志"""
+    logs = dispatcher.get_exit_logs(index)
+    name = dispatcher.exits[index].name if 0 <= index < len(dispatcher.exits) else "unknown"
+    return {"index": index, "name": name, "logs": logs}
+
+
 @app.post("/api/dispatcher/parse_sub")
 async def api_dispatcher_parse_sub(request: Request):
     """解析订阅: 支持URL自动获取或直接传入文本"""

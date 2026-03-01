@@ -5408,8 +5408,8 @@
                             <div style="font-size:10px;color:var(--text-secondary);">请求</div>
                             <div style="font-size:12px;font-weight:bold;color:var(--accent);">${ex.total_requests}</div>
                         </div>
-                        <div style="background:rgba(255,71,87,0.08);border-radius:6px;padding:6px 8px;flex:1;min-width:0;text-align:center;">
-                            <div style="font-size:10px;color:var(--text-secondary);">错误</div>
+                        <div style="background:rgba(255,71,87,0.08);border-radius:6px;padding:6px 8px;flex:1;min-width:0;text-align:center;${ex.errors > 0 ? 'cursor:pointer;' : ''}" ${ex.errors > 0 ? `onclick="lbShowErrorLogs(${i},'${ex.name}')"` : ''} title="${ex.errors > 0 ? '点击查看错误日志' : ''}">
+                            <div style="font-size:10px;color:var(--text-secondary);">错误${ex.errors > 0 ? ' 🔍' : ''}</div>
                             <div style="font-size:12px;font-weight:bold;color:${ex.errors > 0 ? '#ff4757' : 'var(--text-secondary)'};">${ex.errors}</div>
                         </div>
                     </div>
@@ -5649,6 +5649,32 @@
                 loadLbStatus();
             } catch (e) {
                 showToast('热重载失败: ' + e.message, 'error');
+            }
+        }
+
+        async function lbShowErrorLogs(index, name) {
+            try {
+                const res = await fetch(`${API_BASE}/api/dispatcher/logs/${index}`);
+                const data = await res.json();
+                const logs = data.logs || [];
+                let logsHtml;
+                if (logs.length === 0) {
+                    logsHtml = '<div style="color:var(--text-secondary);text-align:center;padding:20px;">暂无错误日志</div>';
+                } else {
+                    logsHtml = logs.map(l =>
+                        `<div style="display:flex;gap:8px;padding:4px 0;border-bottom:1px solid var(--border);font-size:12px;font-family:monospace;">
+                            <span style="color:var(--text-secondary);white-space:nowrap;">${l.time}</span>
+                            <span style="color:#ff4757;word-break:break-all;">${l.msg}</span>
+                        </div>`
+                    ).reverse().join('');
+                }
+                const content = `
+                    <div style="font-size:13px;margin-bottom:8px;color:var(--text-secondary);">出口 #${index} | ${name} | 共 ${logs.length} 条错误</div>
+                    <div style="max-height:350px;overflow-y:auto;">${logsHtml}</div>
+                `;
+                showModal(`📋 错误日志 - ${name}`, content, () => closeModal(), '关闭');
+            } catch (e) {
+                showToast('获取日志失败: ' + e.message, 'error');
             }
         }
 
