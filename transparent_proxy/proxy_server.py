@@ -117,6 +117,9 @@ class ProxyStats:
 
 stats = ProxyStats()
 
+# 全局共享的上报 client（启动时初始化，复用TCP连接）
+_report_client: Optional[httpx.AsyncClient] = None
+
 # ===== FastAPI 应用 =====
 app = FastAPI(title="AK透明代理")
 
@@ -132,6 +135,7 @@ app.add_middleware(
 @app.on_event("startup")
 async def startup():
     """启动时初始化数据库连接池"""
+    global _report_client
     try:
         await db.init_db(
             host=DB_HOST, port=DB_PORT, database=DB_NAME,
@@ -143,6 +147,12 @@ async def startup():
         asyncio.create_task(_periodic_cleanup())
     except Exception as e:
         logger.error(f"PostgreSQL 连接失败: {e}，将使用内存模式")
+    # 初始化全局上报 client（复用连接，避免每次请求都 TCP握手）
+    _report_client = httpx.AsyncClient(
+        verify=False,
+        timeout=httpx.Timeout(10, connect=5),
+        limits=httpx.Limits(max_connections=5, max_keepalive_connections=2, keepalive_expiry=120),
+    )
     # 启动出口调度器
     await dispatcher.start()
 
@@ -162,7 +172,14 @@ async def _periodic_cleanup():
 
 @app.on_event("shutdown")
 async def shutdown():
-    """关闭时释放数据库连接池"""
+    """关闭时释放所有资源"""
+    global _report_client
+    # 关闭调度器（关闭所有持久连接）
+    await dispatcher.stop()
+    # 关闭上报 client
+    if _report_client and not _report_client.is_closed:
+        await _report_client.aclose()
+        _report_client = None
     await db.close_db()
 
 # ===== 工具函数 =====
@@ -202,8 +219,8 @@ def parse_request_params(content_type: str, query_params: dict, raw_body: bytes)
 
 
 async def report_to_monitor(endpoint: str, data: dict):
-    """上报数据到中央监控服务器（异步，不阻塞主流程）"""
-    if not MONITOR_SERVER:
+    """上报数据到中央监控服务器（异步，复用全局连接池）"""
+    if not MONITOR_SERVER or not _report_client:
         return
     
     url = f"{MONITOR_SERVER.rstrip('/')}/api/transparent_proxy/{endpoint}"
@@ -212,13 +229,12 @@ async def report_to_monitor(endpoint: str, data: dict):
         headers["X-API-Key"] = MONITOR_API_KEY
     
     try:
-        async with httpx.AsyncClient(verify=False, timeout=10) as client:
-            resp = await client.post(url, json=data, headers=headers)
-            if resp.status_code == 200:
-                stats.report_success += 1
-            else:
-                stats.report_fail += 1
-                logger.warning(f"上报失败 [{endpoint}]: HTTP {resp.status_code}")
+        resp = await _report_client.post(url, json=data, headers=headers)
+        if resp.status_code == 200:
+            stats.report_success += 1
+        else:
+            stats.report_fail += 1
+            logger.warning(f"上报失败 [{endpoint}]: HTTP {resp.status_code}")
     except Exception as e:
         stats.report_fail += 1
         logger.debug(f"上报异常 [{endpoint}]: {e}")
@@ -2230,7 +2246,15 @@ def main():
     print(f"  状态API:  http://127.0.0.1:{PROXY_PORT}/api/status")
     print("=" * 60)
     
-    uvicorn.run(app, host=PROXY_HOST, port=PROXY_PORT, log_level="warning")
+    # 性能优化: uvloop(Linux自动使用) + 关闭access_log减少IO
+    uvicorn.run(
+        app,
+        host=PROXY_HOST,
+        port=PROXY_PORT,
+        log_level="warning",
+        access_log=False,       # 关闭access log，减少IO开销
+        loop="auto",            # Linux下自动使用uvloop
+    )
 
 
 if __name__ == "__main__":

@@ -34,7 +34,8 @@ class OutboundExit:
     __slots__ = ('name', 'proxy_url', 'healthy', 'total', 'login_count', 'errors',
                  'warn_403', 'warn_429', 'active', 'exit_ip', '_login_timestamps',
                  '_error_logs', '_req_timestamps', 'rate_limit', '_rate_lock',
-                 '_inflight_logins', '_frozen_until')
+                 '_inflight_logins', '_frozen_until',
+                 '_client', '_client_lock')
 
     def __init__(self, name: str, proxy_url: Optional[str] = None):
         self.name = name
@@ -54,6 +55,8 @@ class OutboundExit:
         self._rate_lock = asyncio.Lock()
         self._inflight_logins: int = 0  # 正在飞行中的登录请求数
         self._frozen_until: float = 0    # 403后冻结截止时间戳
+        self._client: Optional[httpx.AsyncClient] = None   # 持久连接池
+        self._client_lock = asyncio.Lock()                 # 保护 client 创建
 
     @property
     def is_direct(self) -> bool:
@@ -166,6 +169,42 @@ class OutboundExit:
                 else:
                     return waited
 
+    async def get_client(self) -> httpx.AsyncClient:
+        """获取或创建持久 httpx.AsyncClient（带连接池，复用TCP连接）"""
+        if self._client and not self._client.is_closed:
+            return self._client
+        async with self._client_lock:
+            if self._client and not self._client.is_closed:
+                return self._client
+            # 关闭旧的
+            if self._client:
+                try:
+                    await self._client.aclose()
+                except Exception:
+                    pass
+            limits = httpx.Limits(
+                max_connections=30,
+                max_keepalive_connections=10,
+                keepalive_expiry=120,
+            )
+            self._client = httpx.AsyncClient(
+                verify=False,
+                limits=limits,
+                proxy=self.proxy_url,
+                timeout=httpx.Timeout(30, connect=10),
+                http2=False,  # SOCKS5 代理不支持 h2
+            )
+            return self._client
+
+    async def close_client(self):
+        """关闭持久 client"""
+        if self._client and not self._client.is_closed:
+            try:
+                await self._client.aclose()
+            except Exception:
+                pass
+        self._client = None
+
     def record_error(self, msg: str = ""):
         self.errors += 1
         import datetime
@@ -208,6 +247,12 @@ class OutboundDispatcher:
             return False
         ex = self.exits[index]
         logger.info(f"[Dispatcher] 移除出口 #{index}: {ex.name}")
+        # 异步关闭 client（best effort）
+        try:
+            loop = asyncio.get_running_loop()
+            loop.create_task(ex.close_client())
+        except RuntimeError:
+            pass
         self.exits.pop(index)
         return True
 
@@ -231,16 +276,8 @@ class OutboundDispatcher:
         asyncio.create_task(self._initial_ip_detect())
         logger.info(f"[Dispatcher] 调度器就绪: {len(self.exits)} 个出口")
 
-    async def _initial_ip_detect(self):
-        """启动后延迟2秒执行一次全量IP检测"""
-        await asyncio.sleep(2)
-        try:
-            await self.detect_all_ips()
-        except Exception as e:
-            logger.warning(f"[Dispatcher] 初始IP检测异常: {e}")
-
     async def stop(self):
-        """停止健康检查"""
+        """停止调度器，关闭所有持久连接"""
         self._started = False
         if self._health_task:
             self._health_task.cancel()
@@ -248,6 +285,18 @@ class OutboundDispatcher:
                 await self._health_task
             except asyncio.CancelledError:
                 pass
+        # 关闭所有出口的持久 client
+        for ex in self.exits:
+            await ex.close_client()
+        logger.info("[Dispatcher] 调度器已停止，所有连接已关闭")
+
+    async def _initial_ip_detect(self):
+        """启动后延迟2秒执行一次全量IP检测"""
+        await asyncio.sleep(2)
+        try:
+            await self.detect_all_ips()
+        except Exception as e:
+            logger.warning(f"[Dispatcher] 初始IP检测异常: {e}")
 
     # ===== 内部工具 =====
 
@@ -380,20 +429,18 @@ class OutboundDispatcher:
                           headers: dict, content_type: str,
                           params: dict, raw_body: bytes,
                           timeout: float) -> httpx.Response:
-        """执行实际HTTP请求"""
-        proxy = exit_obj.proxy_url
-        async with httpx.AsyncClient(
-            verify=False, timeout=timeout, proxy=proxy
-        ) as client:
-            if method == "GET":
-                return await client.get(url, params=params, headers=headers)
+        """执行实际HTTP请求（复用持久连接池）"""
+        client = await exit_obj.get_client()
+        req_timeout = httpx.Timeout(timeout, connect=10)
+        if method == "GET":
+            return await client.get(url, params=params, headers=headers, timeout=req_timeout)
+        else:
+            if "application/json" in (content_type or ""):
+                return await client.post(url, json=params, headers=headers, timeout=req_timeout)
+            elif raw_body:
+                return await client.post(url, content=raw_body, headers=headers, timeout=req_timeout)
             else:
-                if "application/json" in (content_type or ""):
-                    return await client.post(url, json=params, headers=headers)
-                elif raw_body:
-                    return await client.post(url, content=raw_body, headers=headers)
-                else:
-                    return await client.post(url, data=params, headers=headers)
+                return await client.post(url, data=params, headers=headers, timeout=req_timeout)
 
     def _check_alert_status(self, exit_obj: OutboundExit, status_code: int, url: str):
         """检查响应状态码，403/429等记录告警日志"""
@@ -445,27 +492,27 @@ class OutboundDispatcher:
             await asyncio.gather(*tasks, return_exceptions=True)
 
     async def _check_single_exit(self, idx: int, ex: OutboundExit):
-        """检查单个出口是否可用，同时检测出口IP"""
+        """检查单个出口是否可用，同时检测出口IP（复用持久连接）"""
         was_healthy = ex.healthy
         try:
-            async with httpx.AsyncClient(
-                verify=False, timeout=self.HEALTH_CHECK_TIMEOUT,
-                proxy=ex.proxy_url
-            ) as client:
-                resp = await client.head(self.HEALTH_CHECK_URL)
-                ex.healthy = True
-                if not was_healthy:
-                    logger.info(f"[Dispatcher] 出口恢复: #{idx} {ex.name}")
-                # 检测出口IP（仅在IP未知或刚恢复时）
-                if not ex.exit_ip or not was_healthy:
-                    await self._detect_exit_ip(ex)
+            client = await ex.get_client()
+            resp = await client.head(self.HEALTH_CHECK_URL,
+                                     timeout=httpx.Timeout(self.HEALTH_CHECK_TIMEOUT, connect=5))
+            ex.healthy = True
+            if not was_healthy:
+                logger.info(f"[Dispatcher] 出口恢复: #{idx} {ex.name}")
+            # 检测出口IP（仅在IP未知或刚恢复时）
+            if not ex.exit_ip or not was_healthy:
+                await self._detect_exit_ip(ex)
         except Exception:
             ex.healthy = False
             if was_healthy:
                 logger.warning(f"[Dispatcher] 出口离线: #{idx} {ex.name}")
+                # 连接可能坏了，重建 client
+                await ex.close_client()
 
     async def _detect_exit_ip(self, ex: OutboundExit):
-        """通过外部服务检测出口的公网IP"""
+        """通过外部服务检测出口的公网IP（复用持久连接）"""
         IP_SERVICES = [
             "http://ip.3322.net",
             "http://members.3322.org/dyndns/getip",
@@ -474,24 +521,24 @@ class OutboundDispatcher:
             "https://ifconfig.me/ip",
             "https://icanhazip.com",
         ]
+        try:
+            client = await ex.get_client()
+        except Exception:
+            return
         for svc in IP_SERVICES:
             try:
-                async with httpx.AsyncClient(
-                    verify=False, timeout=8,
-                    proxy=ex.proxy_url  # None for direct = no proxy
-                ) as client:
-                    resp = await client.get(svc)
-                    if resp.status_code == 200:
-                        text = resp.text.strip()
-                        # httpbin 返回 JSON {"origin": "x.x.x.x"}
-                        if text.startswith("{"):
-                            import json as _json
-                            text = _json.loads(text).get("origin", "").split(",")[0].strip()
-                        ip = text.strip()
-                        if ip and ip != ex.exit_ip:
-                            logger.info(f"[Dispatcher] 出口IP检测: {ex.name} -> {ip}")
-                            ex.exit_ip = ip
-                        return  # 成功就退出
+                resp = await client.get(svc, timeout=httpx.Timeout(8, connect=5))
+                if resp.status_code == 200:
+                    text = resp.text.strip()
+                    # httpbin 返回 JSON {"origin": "x.x.x.x"}
+                    if text.startswith("{"):
+                        import json as _json
+                        text = _json.loads(text).get("origin", "").split(",")[0].strip()
+                    ip = text.strip()
+                    if ip and ip != ex.exit_ip:
+                        logger.info(f"[Dispatcher] 出口IP检测: {ex.name} -> {ip}")
+                        ex.exit_ip = ip
+                    return  # 成功就退出
             except Exception:
                 continue  # 换下一个服务
 
