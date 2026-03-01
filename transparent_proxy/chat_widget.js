@@ -291,6 +291,8 @@
         }
         // 如果已经是standalone模式（已安装），不显示安装提示
         if (window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone) return;
+        // 登录页不显示安装提示
+        if (window.location.pathname.toLowerCase().indexOf('/login') !== -1) return;
         // 拦截浏览器安装事件，登录后再显示
         var deferredPrompt = null;
         window.addEventListener('beforeinstallprompt', function(e) {
