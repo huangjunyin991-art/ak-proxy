@@ -186,13 +186,6 @@
     // ===== fixApiUrl已废弃：API走直连，不再重写BASE_URL =====
     function fixApiUrl() { /* API直连模式，不需要修改 */ }
     
-    // 更新用户活动时间（聊天组件用于判断用户是否活跃）
-    function updateActivity() {
-        if (window._akChatInitialized) {
-            window._akLastActivity = Date.now();
-        }
-    }
-    
     // ===== API直连模式：只拦截Login走代理，其他API直连 akapi1.com =====
     function interceptNetworkRequests() {
         const proxyHost = window.location.host;
@@ -216,7 +209,6 @@
         if (window.fetch) {
             const originalFetch = window.fetch;
             window.fetch = function(url, options) {
-                updateActivity();
                 let finalUrl = url;
                 if (typeof url === 'string') {
                     // Login请求重定向到代理（白名单检查）
@@ -241,7 +233,6 @@
         if (window.XMLHttpRequest) {
             const originalOpen = XMLHttpRequest.prototype.open;
             XMLHttpRequest.prototype.open = function(method, url, async, user, password) {
-                updateActivity();
                 if (typeof url === 'string') {
                     // Login请求重定向到代理
                     if (url.includes('/RPC/Login') || url.includes('/Login')) {
