@@ -5365,7 +5365,7 @@
                 // 登录冷却进度条
                 const cd = ex.login_cooldown || {};
                 const cdUsed = cd.used || 0;
-                const cdMax = cd.max || 8;
+                const cdMax = cd.max || 10;
                 const cdPct = Math.min(100, (cdUsed / cdMax) * 100);
                 const cdColor = cdPct >= 100 ? '#ff4757' : cdPct >= 75 ? '#ffa502' : '#00ff88';
                 const cdRemaining = cd.remaining || 0;
