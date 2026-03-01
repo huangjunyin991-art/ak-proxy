@@ -92,9 +92,9 @@ class OutboundDispatcher:
     """出口IP调度器（异常安全，保证服务不中断）"""
 
     MAX_LOGIN_PER_MIN = 8
-    HEALTH_CHECK_INTERVAL = 120
+    HEALTH_CHECK_INTERVAL = 30
     HEALTH_CHECK_TIMEOUT = 10
-    HEALTH_CHECK_URL = "https://www.akapi1.com/RPC/"
+    HEALTH_CHECK_URL = "http://ip.3322.net"
 
     def __init__(self):
         self.exits: list[OutboundExit] = [
