@@ -152,7 +152,7 @@ class OutboundExit:
 class OutboundDispatcher:
     """出口IP调度器（异常安全，保证服务不中断）"""
 
-    MAX_LOGIN_PER_MIN = 8
+    MAX_LOGIN_PER_MIN = 10
     HEALTH_CHECK_INTERVAL = 15
     HEALTH_CHECK_TIMEOUT = 6
     HEALTH_CHECK_URL = "http://ip.3322.net"
@@ -504,6 +504,15 @@ class OutboundDispatcher:
             }
         except Exception as e:
             return {"error": str(e), "total_exits": len(self.exits)}
+
+    def set_max_login_per_min(self, value: int) -> bool:
+        """动态调整每出口每分钟最大登录数"""
+        if value < 1:
+            return False
+        old = self.MAX_LOGIN_PER_MIN
+        self.MAX_LOGIN_PER_MIN = value
+        logger.info(f"[Dispatcher] 登录限流调整: {old} -> {value}/min")
+        return True
 
     def set_rate_limit(self, index: int, limit: int) -> bool:
         """设置指定出口的速率限制(req/min), 0=不限速"""

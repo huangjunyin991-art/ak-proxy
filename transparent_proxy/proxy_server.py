@@ -652,6 +652,17 @@ async def api_dispatcher_exit_logs(index: int):
     return {"index": index, "name": name, "logs": logs}
 
 
+@app.post("/api/dispatcher/max_login")
+async def api_dispatcher_set_max_login(request: Request):
+    """动态调整每出口每分钟最大登录数"""
+    data = await request.json()
+    value = int(data.get("value", 0))
+    ok = dispatcher.set_max_login_per_min(value)
+    if ok:
+        return {"success": True, "message": f"登录限流已调整为 {value}/min/出口", "max_login_per_min": dispatcher.MAX_LOGIN_PER_MIN}
+    return {"success": False, "message": "无效的值(最小为1)"}
+
+
 @app.post("/api/dispatcher/rate_limit")
 async def api_dispatcher_set_rate_limit(request: Request):
     """设置指定出口的速率限制"""
