@@ -33,7 +33,8 @@ class OutboundExit:
     """单个出口通道"""
     __slots__ = ('name', 'proxy_url', 'healthy', 'total', 'login_count', 'errors',
                  'warn_403', 'warn_429', 'active', 'exit_ip', '_login_timestamps',
-                 '_error_logs', '_req_timestamps', 'rate_limit', '_rate_lock')
+                 '_error_logs', '_req_timestamps', 'rate_limit', '_rate_lock',
+                 '_inflight_logins', '_frozen_until')
 
     def __init__(self, name: str, proxy_url: Optional[str] = None):
         self.name = name
@@ -51,24 +52,41 @@ class OutboundExit:
         self._req_timestamps: list[float] = []  # 最近60秒请求时间戳
         self.rate_limit: int = 0  # 每分钟最大请求数, 0=不限速
         self._rate_lock = asyncio.Lock()
+        self._inflight_logins: int = 0  # 正在飞行中的登录请求数
+        self._frozen_until: float = 0    # 403后冻结截止时间戳
 
     @property
     def is_direct(self) -> bool:
         return self.proxy_url is None
 
+    @property
+    def is_frozen(self) -> bool:
+        """403后是否处于冻结期(硬性等待1分钟)"""
+        return time.time() < self._frozen_until
+
+    @property
+    def frozen_remaining(self) -> float:
+        """冻结剩余秒数"""
+        return max(0, self._frozen_until - time.time())
+
+    def freeze_for_403(self, duration: float = 60.0):
+        """收到403后冻结该出口, 不允许发任何请求"""
+        self._frozen_until = time.time() + duration
+        logger.warning(f"[Dispatcher] {self.name} 收到403, 冻结{duration}秒")
+
     def count_recent_logins(self, window: float = 60.0) -> int:
-        """统计最近 window 秒内的登录次数"""
+        """统计最近 window 秒内的登录次数(含飞行中的)"""
         now = time.time()
         cutoff = now - window
         self._login_timestamps = [t for t in self._login_timestamps if t > cutoff]
-        return len(self._login_timestamps)
+        return len(self._login_timestamps) + self._inflight_logins
 
     def get_login_cooldown_detail(self, max_per_min: int, window: float = 60.0) -> dict:
         """获取登录冷却详情，用于前端进度条"""
         now = time.time()
         cutoff = now - window
         self._login_timestamps = [t for t in self._login_timestamps if t > cutoff]
-        used = len(self._login_timestamps)
+        used = len(self._login_timestamps) + self._inflight_logins
         # 最早那条记录还有多久过期
         if self._login_timestamps and used >= max_per_min:
             oldest = min(self._login_timestamps)
@@ -82,9 +100,19 @@ class OutboundExit:
             "next_available_in": round(next_available_in, 1),
         }
 
-    def record_login(self):
-        self._login_timestamps.append(time.time())
+    def reserve_login(self):
+        """[Phase 1] 预留登录名额(请求发出前), 防并发超发"""
+        self._inflight_logins += 1
         self.login_count += 1
+
+    def confirm_login(self):
+        """[Phase 2] 响应收到后记录时间戳, 窗口比服务器慢 -> 永不超发"""
+        self._inflight_logins = max(0, self._inflight_logins - 1)
+        self._login_timestamps.append(time.time())
+
+    def cancel_login(self):
+        """[异常] 请求失败时释放预留名额"""
+        self._inflight_logins = max(0, self._inflight_logins - 1)
 
     def record_request(self):
         self.total += 1
@@ -228,8 +256,8 @@ class OutboundDispatcher:
         return self.exits[0]
 
     def _get_healthy(self) -> list[int]:
-        """获取所有健康出口的索引"""
-        return [i for i, ex in enumerate(self.exits) if ex.healthy]
+        """获取所有健康且未冻结的出口索引"""
+        return [i for i, ex in enumerate(self.exits) if ex.healthy and not ex.is_frozen]
 
     # ===== 调度（全部异常安全） =====
 
@@ -255,17 +283,19 @@ class OutboundDispatcher:
                     candidates.append(idx)
 
             if candidates:
-                # 在候选中选活跃连接最少的，实现用户数均衡
-                best = min(candidates, key=lambda i: self.exits[i].active)
+                # 优先选不限速的出口，再按活跃连接数排序
+                unrestricted = [i for i in candidates if self.exits[i].rate_limit == 0]
+                pool = unrestricted if unrestricted else candidates
+                best = min(pool, key=lambda i: self.exits[i].active)
                 ex = self.exits[best]
-                ex.record_login()
+                ex.reserve_login()
                 ex.record_request()
                 return ex
 
             # 全满了，选登录最少的
             best = min(healthy, key=lambda i: self.exits[i].count_recent_logins())
             ex = self.exits[best]
-            ex.record_login()
+            ex.reserve_login()
             ex.record_request()
             logger.warning(f"[Dispatcher] 所有出口Login配额已满，使用最少的: {ex.name}")
             return ex
@@ -285,8 +315,10 @@ class OutboundDispatcher:
                 logger.warning("[Dispatcher] 所有出口不健康，降级直连")
                 return self._safe_direct()
 
-            # 选活跃连接最少的出口
-            best = min(healthy, key=lambda i: self.exits[i].active)
+            # 优先选不限速的出口，再按活跃连接数排序
+            unrestricted = [i for i in healthy if self.exits[i].rate_limit == 0]
+            pool = unrestricted if unrestricted else healthy
+            best = min(pool, key=lambda i: self.exits[i].active)
             ex = self.exits[best]
             ex.record_request()
             return ex
@@ -370,6 +402,7 @@ class OutboundDispatcher:
             # 更新统计
             if status_code == 403:
                 exit_obj.warn_403 += 1
+                exit_obj.freeze_for_403(60.0)
                 exit_obj.auto_throttle_on_403()
             elif status_code == 429:
                 exit_obj.warn_429 += 1
@@ -488,6 +521,8 @@ class OutboundDispatcher:
                     "errors": ex.errors,
                     "warn_403": ex.warn_403,
                     "warn_429": ex.warn_429,
+                    "frozen": ex.is_frozen,
+                    "frozen_remaining": round(ex.frozen_remaining, 1),
                     "recent_errors": ex._error_logs[-5:] if ex._error_logs else [],
                     "rpm": ex.get_current_rpm(),
                     "rate_limit": ex.rate_limit,

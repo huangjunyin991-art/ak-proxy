@@ -245,11 +245,21 @@ async def forward_request(method: str, api_path: str, content_type: str,
     exit_obj = dispatcher.pick_login_exit() if is_login else dispatcher.pick_api_exit()
     logger.debug(f"[Forward] {api_path} -> 出口[{exit_obj.name}]")
 
-    return await dispatcher.forward(
-        exit_obj, method, url, fwd_headers,
-        content_type=content_type, params=params,
-        raw_body=raw_body, timeout=REQUEST_TIMEOUT
-    )
+    try:
+        resp = await dispatcher.forward(
+            exit_obj, method, url, fwd_headers,
+            content_type=content_type, params=params,
+            raw_body=raw_body, timeout=REQUEST_TIMEOUT
+        )
+        # 登录请求: 响应收到后确认时间戳(滑动窗口从响应时间开始)
+        if is_login:
+            exit_obj.confirm_login()
+        return resp
+    except Exception as e:
+        # 登录请求失败: 释放预留名额
+        if is_login:
+            exit_obj.cancel_login()
+        raise
 
 
 # ===== 状态页 =====
@@ -363,6 +373,10 @@ async def proxy_login(request: Request):
             request.method, "Login", content_type, params, raw_body, dict(request.headers),
             client_ip=client_ip, is_login=True
         )
+        # 非200响应（如403）直接返回错误，不尝试解析JSON
+        if response.status_code != 200:
+            logger.warning(f"[Login] 上游返回 HTTP {response.status_code} for {account}")
+            return JSONResponse({"Error": True, "Msg": f"服务暂时不可用(HTTP {response.status_code})，请稍后重试"})
         result = response.json()
     except Exception as e:
         stats.errors += 1

@@ -5368,17 +5368,23 @@
                 const cdMax = cd.max || 8;
                 const cdPct = Math.min(100, (cdUsed / cdMax) * 100);
                 const cdColor = cdPct >= 100 ? '#ff4757' : cdPct >= 75 ? '#ffa502' : '#00ff88';
+                const cdRemaining = cd.remaining || 0;
                 const cdText = cdPct >= 100
-                    ? `已满 (${cd.next_available_in}s后恢复)`
-                    : `${cdUsed}/${cdMax}`;
+                    ? `已满 (${cd.next_available_in}s后释放1个名额)`
+                    : cdUsed > 0
+                        ? `${cdUsed}/${cdMax} (剩${cdRemaining}个名额)`
+                        : `${cdUsed}/${cdMax}`;
 
-                // 告警标记
+                // 冻结+告警标记
                 let warnHtml = '';
+                if (ex.frozen) {
+                    warnHtml += `<div style="margin-top:6px;font-size:11px;color:#ff4757;">🧊 403冻结中 (${Math.round(ex.frozen_remaining)}s后解冻)</div>`;
+                }
                 if (ex.warn_403 > 0 || ex.warn_429 > 0) {
                     const parts = [];
                     if (ex.warn_403 > 0) parts.push(`<span style="color:#ff4757;">403×${ex.warn_403}</span>`);
                     if (ex.warn_429 > 0) parts.push(`<span style="color:#ffa502;">429×${ex.warn_429}</span>`);
-                    warnHtml = `<div style="margin-top:6px;font-size:11px;">⚠️ ${parts.join(' ')}</div>`;
+                    warnHtml += `<div style="margin-top:6px;font-size:11px;">⚠️ ${parts.join(' ')}</div>`;
                 }
 
                 const serverLabel = isDirect ? '直连服务器' : `负载均衡服务器${i}`;
