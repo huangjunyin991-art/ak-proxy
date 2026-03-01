@@ -1433,7 +1433,6 @@
         <div class="tab" data-panel="whitelist"><svg class="tab-icon" viewBox="0 0 24 24"><rect width="8" height="4" x="8" y="2" rx="1" ry="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="m9 14 2 2 4-4"/></svg> 白名单</div>
         <div class="tab" data-panel="credits"><svg class="tab-icon" viewBox="0 0 24 24"><circle cx="8" cy="8" r="6"/><path d="M18.09 10.37A6 6 0 1 1 10.34 18"/><path d="M7 6h1v4"/><path d="m16.71 13.88.7.71-2.82 2.82"/></svg> 积分</div>
         <div class="tab" data-panel="license"><svg class="tab-icon" viewBox="0 0 24 24"><path d="M2.586 17.414A2 2 0 0 0 2 18.828V21a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h1a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h.172a2 2 0 0 0 1.414-.586l.814-.814a6.5 6.5 0 1 0-4-4z"/><circle cx="16.5" cy="7.5" r=".5" fill="currentColor"/></svg> 激活码</div>
-        <div class="tab" data-panel="loadbalance"><svg class="tab-icon" viewBox="0 0 24 24"><path d="M12 2v4m0 12v4M4.93 4.93l2.83 2.83m8.48 8.48l2.83 2.83M2 12h4m12 0h4M4.93 19.07l2.83-2.83m8.48-8.48l2.83-2.83"/></svg> 负载均衡</div>
         <div class="tab" data-panel="database"><svg class="tab-icon" viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14a9 3 0 0 0 18 0V5"/><path d="M3 12a9 3 0 0 0 18 0"/></svg> 数据库</div>
         <div class="tab" data-panel="settings"><svg class="tab-icon" viewBox="0 0 24 24"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg> 设置</div>
     </div>
@@ -1829,55 +1828,6 @@
             </div>
         </div>
         
-        <!-- 负载均衡 -->
-        <div class="panel" id="loadbalance">
-            <div>
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; flex-wrap: wrap; gap: 10px;">
-                    <h3 style="margin: 0; color: var(--accent);"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-2px"><path d="M12 2v4m0 12v4M4.93 4.93l2.83 2.83m8.48 8.48l2.83 2.83M2 12h4m12 0h4M4.93 19.07l2.83-2.83m8.48-8.48l2.83-2.83"/></svg> 出口负载均衡</h3>
-                    <div style="display: flex; gap: 8px; align-items: center;">
-                        <span id="lbSummary" style="font-size: 13px; color: var(--text-secondary);"></span>
-                        <button class="btn" onclick="lbReloadSingbox()" id="lbReloadBtn" style="padding: 6px 14px; font-size: 13px; background: var(--bg-secondary); color: var(--accent-yellow); border: 1px solid rgba(255,165,2,0.3);">🔄 热重载</button>
-                        <button class="btn btn-primary" onclick="lbDetectIPs()" style="padding: 6px 14px; font-size: 13px;">刷新IP</button>
-                        <button class="btn btn-success" onclick="showLbAddModal()" style="padding: 6px 14px; font-size: 13px;">➕ 添加出口</button>
-                        <button class="btn" onclick="showLbSubModal()" style="padding: 6px 14px; font-size: 13px; background: linear-gradient(135deg, #667eea, #764ba2); color: white;">📡 导入订阅</button>
-                    </div>
-                </div>
-
-                <!-- 概览统计 -->
-                <div id="lbStatsRow" style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 15px;">
-                    <div style="background: var(--bg-card); border-radius: 8px; padding: 12px; border: 1px solid var(--border);">
-                        <div style="color: var(--text-secondary); font-size: 12px;">总出口</div>
-                        <div style="color: var(--accent); font-size: 24px; font-weight: bold;" id="lbTotalExits">-</div>
-                    </div>
-                    <div style="background: var(--bg-card); border-radius: 8px; padding: 12px; border: 1px solid var(--border);">
-                        <div style="color: var(--text-secondary); font-size: 12px;">健康出口</div>
-                        <div style="color: var(--accent-green); font-size: 24px; font-weight: bold;" id="lbHealthyExits">-</div>
-                    </div>
-                    <div style="background: var(--bg-card); border-radius: 8px; padding: 12px; border: 1px solid var(--border);">
-                        <div style="color: var(--text-secondary); font-size: 12px;">总活跃连接</div>
-                        <div style="color: #667eea; font-size: 24px; font-weight: bold;" id="lbTotalActive">-</div>
-                    </div>
-                    <div style="background: var(--bg-card); border-radius: 8px; padding: 12px; border: 1px solid var(--border);">
-                        <div style="color: var(--text-secondary); font-size: 12px;">登录限额/分</div>
-                        <div style="color: var(--accent-yellow); font-size: 24px; font-weight: bold;" id="lbLoginLimit">-</div>
-                    </div>
-                </div>
-
-                <!-- sing-box 服务状态 -->
-                <div id="lbSingboxBar" style="background: var(--bg-card); border-radius: 8px; padding: 10px 14px; border: 1px solid var(--border); margin-bottom: 12px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; font-size: 13px;">
-                    <span style="font-weight: bold; color: var(--text-secondary);">sing-box:</span>
-                    <span id="lbSbState" style="color: var(--text-secondary);">检测中...</span>
-                    <span id="lbSbNodes" style="color: var(--text-secondary);"></span>
-                    <span id="lbSbConfig" style="color: var(--text-secondary); font-size: 11px;"></span>
-                </div>
-
-                <!-- 出口服务器卡片列表 -->
-                <div id="lbExitCards" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 12px;">
-                    <div style="text-align: center; color: var(--text-secondary); padding: 40px;">加载中...</div>
-                </div>
-            </div>
-        </div>
-
         <!-- 数据库管理 -->
         <div class="panel" id="database">
             <!-- 二级密码验证提示 -->
@@ -2120,8 +2070,63 @@
                     </div>
                 </div>
                 
-                <!-- 代理池状态（仅系统总管理可见，只读） -->
-                <div id="proxyPoolSection" style="display: none; margin-top: 15px;">
+                <!-- 代理池状态（已隐藏，被负载均衡替代） -->
+                <div id="proxyPoolSection" style="display: none !important; margin-top: 15px;">
+                </div>
+
+                <!-- 出口负载均衡 (仅系统总管理可见) -->
+                <div id="loadBalanceSection" style="display: none; margin-top: 15px;">
+                    <div style="background: linear-gradient(135deg, var(--bg-card), #1a2332); border-radius: 12px; padding: 15px; border: 1px solid rgba(102,126,234,0.4);">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; flex-wrap: wrap; gap: 8px;">
+                            <h4 style="margin: 0; color: #667eea; display: flex; align-items: center; gap: 8px;">
+                                <span style="font-size: 22px;">⚡</span> 出口负载均衡
+                            </h4>
+                            <div style="display: flex; gap: 6px; align-items: center; flex-wrap: wrap;">
+                                <span id="lbSummary" style="font-size: 12px; color: var(--text-secondary);"></span>
+                                <button class="btn" onclick="lbReloadSingbox()" id="lbReloadBtn" style="padding: 4px 10px; font-size: 12px; background: var(--bg-secondary); color: var(--accent-yellow); border: 1px solid rgba(255,165,2,0.3);">🔄 热重载</button>
+                                <button class="btn" onclick="lbDetectIPs()" style="padding: 4px 10px; font-size: 12px; background: rgba(102,126,234,0.15); color: #667eea; border: 1px solid rgba(102,126,234,0.3);">刷新IP</button>
+                                <button class="btn" onclick="showLbAddModal()" style="padding: 4px 10px; font-size: 12px; background: rgba(0,255,136,0.1); color: #00ff88; border: 1px solid rgba(0,255,136,0.3);">➕ 添加</button>
+                                <button class="btn" onclick="showLbSubModal()" style="padding: 4px 10px; font-size: 12px; background: linear-gradient(135deg, #667eea, #764ba2); color: white; border: none;">📡 导入订阅</button>
+                            </div>
+                        </div>
+
+                        <!-- 概览统计 -->
+                        <div id="lbStatsRow" style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 10px;">
+                            <div style="background: var(--bg-primary); border-radius: 8px; padding: 10px; border: 1px solid var(--border);">
+                                <div style="color: var(--text-secondary); font-size: 11px;">总出口</div>
+                                <div style="color: var(--accent); font-size: 20px; font-weight: bold;" id="lbTotalExits">-</div>
+                            </div>
+                            <div style="background: var(--bg-primary); border-radius: 8px; padding: 10px; border: 1px solid var(--border);">
+                                <div style="color: var(--text-secondary); font-size: 11px;">健康出口</div>
+                                <div style="color: var(--accent-green); font-size: 20px; font-weight: bold;" id="lbHealthyExits">-</div>
+                            </div>
+                            <div style="background: var(--bg-primary); border-radius: 8px; padding: 10px; border: 1px solid var(--border);">
+                                <div style="color: var(--text-secondary); font-size: 11px;">总活跃连接</div>
+                                <div style="color: #667eea; font-size: 20px; font-weight: bold;" id="lbTotalActive">-</div>
+                            </div>
+                            <div style="background: var(--bg-primary); border-radius: 8px; padding: 10px; border: 1px solid var(--border);">
+                                <div style="color: var(--text-secondary); font-size: 11px;">登录限额/分</div>
+                                <div style="color: var(--accent-yellow); font-size: 20px; font-weight: bold;" id="lbLoginLimit">-</div>
+                            </div>
+                        </div>
+
+                        <!-- sing-box 服务状态 -->
+                        <div id="lbSingboxBar" style="background: var(--bg-primary); border-radius: 6px; padding: 8px 12px; border: 1px solid var(--border); margin-bottom: 10px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 12px;">
+                            <span style="font-weight: bold; color: var(--text-secondary);">sing-box:</span>
+                            <span id="lbSbState" style="color: var(--text-secondary);">检测中...</span>
+                            <span id="lbSbNodes" style="color: var(--text-secondary);"></span>
+                            <span id="lbSbConfig" style="color: var(--text-secondary); font-size: 10px;"></span>
+                        </div>
+
+                        <!-- 出口服务器卡片列表 -->
+                        <div id="lbExitCards" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 10px;">
+                            <div style="text-align: center; color: var(--text-secondary); padding: 30px;">加载中...</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 代理池状态原始内容(保留但永远隐藏) -->
+                <div id="proxyPoolSectionOld" style="display: none !important; margin-top: 15px;">
                     <div style="background: linear-gradient(135deg, var(--bg-card), #1a2e3a); border-radius: 12px; padding: 15px; border: 1px solid #00c8ff;">
                         <h4 style="margin-bottom: 12px; color: #00c8ff; display: flex; align-items: center; gap: 10px;">
                             <span style="font-size: 24px;">🌐</span> 代理池状态
@@ -2480,13 +2485,13 @@
             
             // 子管理员：根据权限显示/隐藏
             const perms = JSON.parse(sessionStorage.getItem('admin_permissions') || '{}');
-            const allTabs = ['dashboard', 'online', 'usage', 'users', 'ips', 'banlist', 'whitelist', 'credits', 'license', 'loadbalance', 'database', 'settings'];
+            const allTabs = ['dashboard', 'online', 'usage', 'users', 'ips', 'banlist', 'whitelist', 'credits', 'license', 'database', 'settings'];
             
             allTabs.forEach(tabName => {
                 const tab = document.querySelector(`.tab[data-panel="${tabName}"]`);
                 if (!tab) return;
                 
-                if (tabName === 'settings' || tabName === 'loadbalance') {
+                if (tabName === 'settings') {
                     tab.style.display = 'none';
                 } else if (tabName === 'whitelist' || tabName === 'credits') {
                     // 白名单和积分对所有管理员可见
@@ -3520,8 +3525,9 @@
             }
             
             document.getElementById('subAdminSection').style.display = 'block';
-            document.getElementById('proxyPoolSection').style.display = 'block';
-            loadProxyPoolStatus();
+            document.getElementById('loadBalanceSection').style.display = 'block';
+            loadLbStatus();
+            startLbRefresh();
             
             try {
                 const res = await fetch(`${API_BASE}/admin/api/sub_admin`);
@@ -3935,12 +3941,6 @@
                         if (authed) loadDbTables();
                     });
                 }
-                if (tab.dataset.panel === 'loadbalance') {
-                    loadLbStatus();
-                    startLbRefresh();
-                } else {
-                    stopLbRefresh();
-                }
                 if (tab.dataset.panel === 'settings') {
                     // 加载子管理员状态（仅系统总管理可见）
                     loadSubAdminStatus();
@@ -3949,6 +3949,7 @@
                 } else {
                     // 离开设置页面时停止刷新
                     stopSubAdminStatusRefresh();
+                    stopLbRefresh();
                 }
             });
         });
