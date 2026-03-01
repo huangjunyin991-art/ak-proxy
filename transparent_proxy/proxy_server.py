@@ -1074,26 +1074,6 @@ async def admin_user_assets(username: str):
         raise HTTPException(status_code=404, detail="用户资产不存在")
     return assets
 
-@app.post("/admin/api/report-assets")
-async def report_assets_from_client(request: Request):
-    """接收客户端JS上报的资产数据（API直连模式下IndexData不经过代理）"""
-    try:
-        data = await request.json()
-        username = data.get('username', '').strip().lower()
-        asset_data = data.get('data', {})
-        if not username or username == 'unknown' or not asset_data:
-            return {"success": False, "message": "无效数据"}
-        # 只有授权用户才保存
-        auth_info = await db.check_authorized(username)
-        if auth_info and auth_info.get('expire_time') and auth_info['expire_time'] > datetime.now():
-            await db.update_user_assets(username, asset_data)
-            logger.info(f"[ReportAssets] 客户端上报资产: {username}")
-            return {"success": True}
-        return {"success": False, "message": "未授权"}
-    except Exception as e:
-        logger.warning(f"[ReportAssets] 上报失败: {e}")
-        return {"success": False, "message": str(e)}
-
 @app.post("/admin/api/ban/user")
 async def admin_ban_user(request: Request):
     data = await request.json()

