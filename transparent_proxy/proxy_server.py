@@ -582,6 +582,163 @@ async def api_dispatcher_status():
     return dispatcher.get_status()
 
 
+@app.post("/api/dispatcher/add")
+async def api_dispatcher_add(request: Request):
+    """添加一个SOCKS5出口"""
+    data = await request.json()
+    name = data.get("name", "").strip()
+    port = data.get("port")
+    if not name or not port:
+        return {"success": False, "message": "需要 name 和 port"}
+    try:
+        port = int(port)
+    except (ValueError, TypeError):
+        return {"success": False, "message": "port 必须为整数"}
+    idx = dispatcher.add_socks5(name, port)
+    return {"success": True, "index": idx, "message": f"已添加出口 #{idx}: {name}"}
+
+
+@app.post("/api/dispatcher/remove")
+async def api_dispatcher_remove(request: Request):
+    """移除一个出口"""
+    data = await request.json()
+    index = data.get("index")
+    if index is None:
+        return {"success": False, "message": "需要 index"}
+    try:
+        index = int(index)
+    except (ValueError, TypeError):
+        return {"success": False, "message": "index 必须为整数"}
+    if dispatcher.remove_exit(index):
+        return {"success": True, "message": f"已移除出口 #{index}"}
+    return {"success": False, "message": f"无法移除出口 #{index} (不存在或为直连)"}
+
+
+@app.post("/api/dispatcher/detect_ips")
+async def api_dispatcher_detect_ips():
+    """手动触发所有出口的IP检测"""
+    await dispatcher.detect_all_ips()
+    return {"success": True, "message": "IP检测完成", "exits": [
+        {"index": i, "name": ex.name, "exit_ip": ex.exit_ip}
+        for i, ex in enumerate(dispatcher.exits)
+    ]}
+
+
+@app.post("/api/dispatcher/parse_sub")
+async def api_dispatcher_parse_sub(request: Request):
+    """解析订阅: 支持URL自动获取或直接传入文本"""
+    from sub_parser import fetch_subscription, parse_subscription_text
+    data = await request.json()
+    url = data.get("url", "").strip()
+    text = data.get("text", "").strip()
+
+    if url:
+        result = fetch_subscription(url)
+    elif text:
+        result = parse_subscription_text(text)
+    else:
+        return {"error": "需要 url 或 text 参数"}
+    return result
+
+
+@app.post("/api/dispatcher/apply_sub")
+async def api_dispatcher_apply_sub(request: Request):
+    """
+    一键应用订阅: 解析 → 生成sing-box配置 → 写盘 → 重载服务 → 注册出口到dispatcher
+    前端批量添加时调用此接口，实现热重载生效
+    """
+    import singbox_manager as sbm
+    from sub_parser import fetch_subscription, parse_subscription_text
+
+    data = await request.json()
+    url = data.get("url", "").strip()
+    text = data.get("text", "").strip()
+    selected_servers = data.get("selected_servers", [])  # [{server, name}]
+    base_port = int(data.get("base_port", 10001))
+
+    # 1) 解析订阅
+    if url:
+        parsed = fetch_subscription(url)
+    elif text:
+        parsed = parse_subscription_text(text)
+    else:
+        return {"success": False, "message": "需要 url 或 text 参数"}
+
+    if parsed.get("error"):
+        return {"success": False, "message": parsed["error"]}
+
+    if not parsed.get("nodes"):
+        return {"success": False, "message": "未解析到任何节点"}
+
+    # 2) 筛选节点 (按服务器地址，每个服务器取第一个节点)
+    all_nodes = parsed["nodes"]
+    servers_map = parsed.get("servers", {})
+
+    if selected_servers:
+        # 前端指定了要添加的服务器列表
+        selected_set = {s["server"] for s in selected_servers}
+        nodes_to_add = []
+        names_map = {s["server"]: s["name"] for s in selected_servers}
+        for srv in selected_set:
+            indices = servers_map.get(srv, [])
+            if indices:
+                node = dict(all_nodes[indices[0]])  # 取第一个节点
+                node["display_name"] = names_map.get(srv, node.get("name", srv))
+                nodes_to_add.append(node)
+    else:
+        # 没指定就全部添加，每个唯一服务器取第一个
+        nodes_to_add = []
+        seen = set()
+        for node in all_nodes:
+            if node["server"] not in seen:
+                seen.add(node["server"])
+                node_copy = dict(node)
+                node_copy["display_name"] = f"{node.get('region_label', '')}服务器{len(nodes_to_add)+1}"
+                nodes_to_add.append(node_copy)
+
+    if not nodes_to_add:
+        return {"success": False, "message": "筛选后无有效节点"}
+
+    # 3) 生成 sing-box 配置 + 写盘 + 重载
+    apply_result = sbm.apply_nodes(nodes_to_add, base_port)
+
+    # 4) 清除旧的隧道出口 (保留#0直连)，注册新出口到 dispatcher
+    while len(dispatcher.exits) > 1:
+        dispatcher.exits.pop()
+
+    added_exits = []
+    for i, node in enumerate(nodes_to_add):
+        port = base_port + i
+        name = node.get("display_name", node.get("name", f"node_{i}"))
+        idx = dispatcher.add_socks5(name, port)
+        added_exits.append({"index": idx, "name": name, "port": port})
+
+    logger.info(f"[Dispatcher] 订阅热重载完成: {len(added_exits)} 个出口已注册")
+
+    return {
+        "success": apply_result["success"],
+        "message": apply_result["message"],
+        "singbox_reload": apply_result["success"],
+        "nodes_count": len(nodes_to_add),
+        "exits_added": added_exits,
+        "config_path": apply_result.get("config_path", ""),
+    }
+
+
+@app.post("/api/dispatcher/reload_singbox")
+async def api_dispatcher_reload_singbox():
+    """手动热重载 sing-box 服务"""
+    import singbox_manager as sbm
+    return sbm.reload_service()
+
+
+@app.get("/api/dispatcher/singbox_status")
+async def api_dispatcher_singbox_status():
+    """获取 sing-box 服务状态"""
+    import singbox_manager as sbm
+    return sbm.get_service_status()
+
+
 @app.get("/api/db/size")
 async def api_db_size():
     """查看数据库各表存储占用"""

@@ -32,7 +32,7 @@ ALERT_STATUS_CODES = {
 class OutboundExit:
     """单个出口通道"""
     __slots__ = ('name', 'proxy_url', 'healthy', 'total', 'login_count', 'errors',
-                 'warn_403', 'warn_429', 'active', '_login_timestamps')
+                 'warn_403', 'warn_429', 'active', 'exit_ip', '_login_timestamps')
 
     def __init__(self, name: str, proxy_url: Optional[str] = None):
         self.name = name
@@ -44,6 +44,7 @@ class OutboundExit:
         self.warn_403 = 0       # 403次数
         self.warn_429 = 0       # 429次数
         self.active = 0         # 当前正在处理的并发请求数
+        self.exit_ip = ""       # 检测到的出口IP
         self._login_timestamps: list[float] = []
 
     @property
@@ -56,6 +57,25 @@ class OutboundExit:
         cutoff = now - window
         self._login_timestamps = [t for t in self._login_timestamps if t > cutoff]
         return len(self._login_timestamps)
+
+    def get_login_cooldown_detail(self, max_per_min: int, window: float = 60.0) -> dict:
+        """获取登录冷却详情，用于前端进度条"""
+        now = time.time()
+        cutoff = now - window
+        self._login_timestamps = [t for t in self._login_timestamps if t > cutoff]
+        used = len(self._login_timestamps)
+        # 最早那条记录还有多久过期
+        if self._login_timestamps and used >= max_per_min:
+            oldest = min(self._login_timestamps)
+            next_available_in = max(0, oldest + window - now)
+        else:
+            next_available_in = 0
+        return {
+            "used": used,
+            "max": max_per_min,
+            "remaining": max(0, max_per_min - used),
+            "next_available_in": round(next_available_in, 1),
+        }
 
     def record_login(self):
         self._login_timestamps.append(time.time())
@@ -85,11 +105,22 @@ class OutboundDispatcher:
 
     # ===== 配置 =====
 
-    def add_socks5(self, name: str, port: int):
-        """添加一个 sing-box SOCKS5 出口"""
+    def add_socks5(self, name: str, port: int) -> int:
+        """添加一个 sing-box SOCKS5 出口，返回索引"""
         proxy_url = f"socks5://127.0.0.1:{port}"
         self.exits.append(OutboundExit(name, proxy_url))
-        logger.info(f"[Dispatcher] 添加出口 #{len(self.exits)-1}: {name} -> :{port}")
+        idx = len(self.exits) - 1
+        logger.info(f"[Dispatcher] 添加出口 #{idx}: {name} -> :{port}")
+        return idx
+
+    def remove_exit(self, index: int) -> bool:
+        """移除指定索引的出口（不允许移除直连#0）"""
+        if index <= 0 or index >= len(self.exits):
+            return False
+        ex = self.exits[index]
+        logger.info(f"[Dispatcher] 移除出口 #{index}: {ex.name}")
+        self.exits.pop(index)
+        return True
 
     def configure_from_list(self, socks_list: list[dict]):
         """批量配置: [{"name": "香港_01", "port": 10001}, ...]"""
@@ -297,7 +328,7 @@ class OutboundDispatcher:
             await asyncio.gather(*tasks, return_exceptions=True)
 
     async def _check_single_exit(self, idx: int, ex: OutboundExit):
-        """检查单个出口是否可用"""
+        """检查单个出口是否可用，同时检测出口IP"""
         was_healthy = ex.healthy
         try:
             async with httpx.AsyncClient(
@@ -308,10 +339,33 @@ class OutboundDispatcher:
                 ex.healthy = True
                 if not was_healthy:
                     logger.info(f"[Dispatcher] 出口恢复: #{idx} {ex.name}")
+                # 检测出口IP（仅在IP未知或刚恢复时）
+                if not ex.exit_ip or not was_healthy:
+                    await self._detect_exit_ip(ex)
         except Exception:
             ex.healthy = False
             if was_healthy:
                 logger.warning(f"[Dispatcher] 出口离线: #{idx} {ex.name}")
+
+    async def _detect_exit_ip(self, ex: OutboundExit):
+        """通过外部服务检测出口的公网IP"""
+        try:
+            async with httpx.AsyncClient(
+                verify=False, timeout=8, proxy=ex.proxy_url
+            ) as client:
+                resp = await client.get("https://api.ipify.org")
+                if resp.status_code == 200:
+                    ip = resp.text.strip()
+                    if ip != ex.exit_ip:
+                        logger.info(f"[Dispatcher] 出口IP检测: {ex.name} -> {ip}")
+                        ex.exit_ip = ip
+        except Exception:
+            pass  # IP检测失败不影响健康状态
+
+    async def detect_all_ips(self):
+        """手动触发所有出口的IP检测"""
+        tasks = [self._detect_exit_ip(ex) for ex in self.exits]
+        await asyncio.gather(*tasks, return_exceptions=True)
 
     # ===== 状态查询 =====
 
@@ -326,10 +380,11 @@ class OutboundDispatcher:
                     "type": "direct" if ex.is_direct else "socks5",
                     "proxy": ex.proxy_url,
                     "healthy": ex.healthy,
+                    "exit_ip": ex.exit_ip,
                     "active": ex.active,
                     "total_requests": ex.total,
                     "login_requests": ex.login_count,
-                    "recent_logins_1min": ex.count_recent_logins(),
+                    "login_cooldown": ex.get_login_cooldown_detail(self.MAX_LOGIN_PER_MIN),
                     "errors": ex.errors,
                     "warn_403": ex.warn_403,
                     "warn_429": ex.warn_429,

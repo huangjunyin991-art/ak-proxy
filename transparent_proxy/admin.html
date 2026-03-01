@@ -1266,6 +1266,14 @@
                 max-height: 200px;
             }
             
+            /* 负载均衡移动端适配 */
+            #lbStatsRow {
+                grid-template-columns: repeat(2, 1fr) !important;
+            }
+            #lbExitCards {
+                grid-template-columns: 1fr !important;
+            }
+            
             /* 激活码表格移动端适配 */
             .license-table-wrap {
                 max-height: 50vh !important;
@@ -1425,6 +1433,7 @@
         <div class="tab" data-panel="whitelist"><svg class="tab-icon" viewBox="0 0 24 24"><rect width="8" height="4" x="8" y="2" rx="1" ry="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="m9 14 2 2 4-4"/></svg> 白名单</div>
         <div class="tab" data-panel="credits"><svg class="tab-icon" viewBox="0 0 24 24"><circle cx="8" cy="8" r="6"/><path d="M18.09 10.37A6 6 0 1 1 10.34 18"/><path d="M7 6h1v4"/><path d="m16.71 13.88.7.71-2.82 2.82"/></svg> 积分</div>
         <div class="tab" data-panel="license"><svg class="tab-icon" viewBox="0 0 24 24"><path d="M2.586 17.414A2 2 0 0 0 2 18.828V21a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h1a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h.172a2 2 0 0 0 1.414-.586l.814-.814a6.5 6.5 0 1 0-4-4z"/><circle cx="16.5" cy="7.5" r=".5" fill="currentColor"/></svg> 激活码</div>
+        <div class="tab" data-panel="loadbalance"><svg class="tab-icon" viewBox="0 0 24 24"><path d="M12 2v4m0 12v4M4.93 4.93l2.83 2.83m8.48 8.48l2.83 2.83M2 12h4m12 0h4M4.93 19.07l2.83-2.83m8.48-8.48l2.83-2.83"/></svg> 负载均衡</div>
         <div class="tab" data-panel="database"><svg class="tab-icon" viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14a9 3 0 0 0 18 0V5"/><path d="M3 12a9 3 0 0 0 18 0"/></svg> 数据库</div>
         <div class="tab" data-panel="settings"><svg class="tab-icon" viewBox="0 0 24 24"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg> 设置</div>
     </div>
@@ -1820,6 +1829,55 @@
             </div>
         </div>
         
+        <!-- 负载均衡 -->
+        <div class="panel" id="loadbalance">
+            <div>
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; flex-wrap: wrap; gap: 10px;">
+                    <h3 style="margin: 0; color: var(--accent);"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-2px"><path d="M12 2v4m0 12v4M4.93 4.93l2.83 2.83m8.48 8.48l2.83 2.83M2 12h4m12 0h4M4.93 19.07l2.83-2.83m8.48-8.48l2.83-2.83"/></svg> 出口负载均衡</h3>
+                    <div style="display: flex; gap: 8px; align-items: center;">
+                        <span id="lbSummary" style="font-size: 13px; color: var(--text-secondary);"></span>
+                        <button class="btn" onclick="lbReloadSingbox()" id="lbReloadBtn" style="padding: 6px 14px; font-size: 13px; background: var(--bg-secondary); color: var(--accent-yellow); border: 1px solid rgba(255,165,2,0.3);">🔄 热重载</button>
+                        <button class="btn btn-primary" onclick="lbDetectIPs()" style="padding: 6px 14px; font-size: 13px;">刷新IP</button>
+                        <button class="btn btn-success" onclick="showLbAddModal()" style="padding: 6px 14px; font-size: 13px;">➕ 添加出口</button>
+                        <button class="btn" onclick="showLbSubModal()" style="padding: 6px 14px; font-size: 13px; background: linear-gradient(135deg, #667eea, #764ba2); color: white;">📡 导入订阅</button>
+                    </div>
+                </div>
+
+                <!-- 概览统计 -->
+                <div id="lbStatsRow" style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 15px;">
+                    <div style="background: var(--bg-card); border-radius: 8px; padding: 12px; border: 1px solid var(--border);">
+                        <div style="color: var(--text-secondary); font-size: 12px;">总出口</div>
+                        <div style="color: var(--accent); font-size: 24px; font-weight: bold;" id="lbTotalExits">-</div>
+                    </div>
+                    <div style="background: var(--bg-card); border-radius: 8px; padding: 12px; border: 1px solid var(--border);">
+                        <div style="color: var(--text-secondary); font-size: 12px;">健康出口</div>
+                        <div style="color: var(--accent-green); font-size: 24px; font-weight: bold;" id="lbHealthyExits">-</div>
+                    </div>
+                    <div style="background: var(--bg-card); border-radius: 8px; padding: 12px; border: 1px solid var(--border);">
+                        <div style="color: var(--text-secondary); font-size: 12px;">总活跃连接</div>
+                        <div style="color: #667eea; font-size: 24px; font-weight: bold;" id="lbTotalActive">-</div>
+                    </div>
+                    <div style="background: var(--bg-card); border-radius: 8px; padding: 12px; border: 1px solid var(--border);">
+                        <div style="color: var(--text-secondary); font-size: 12px;">登录限额/分</div>
+                        <div style="color: var(--accent-yellow); font-size: 24px; font-weight: bold;" id="lbLoginLimit">-</div>
+                    </div>
+                </div>
+
+                <!-- sing-box 服务状态 -->
+                <div id="lbSingboxBar" style="background: var(--bg-card); border-radius: 8px; padding: 10px 14px; border: 1px solid var(--border); margin-bottom: 12px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; font-size: 13px;">
+                    <span style="font-weight: bold; color: var(--text-secondary);">sing-box:</span>
+                    <span id="lbSbState" style="color: var(--text-secondary);">检测中...</span>
+                    <span id="lbSbNodes" style="color: var(--text-secondary);"></span>
+                    <span id="lbSbConfig" style="color: var(--text-secondary); font-size: 11px;"></span>
+                </div>
+
+                <!-- 出口服务器卡片列表 -->
+                <div id="lbExitCards" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 12px;">
+                    <div style="text-align: center; color: var(--text-secondary); padding: 40px;">加载中...</div>
+                </div>
+            </div>
+        </div>
+
         <!-- 数据库管理 -->
         <div class="panel" id="database">
             <!-- 二级密码验证提示 -->
@@ -2422,13 +2480,13 @@
             
             // 子管理员：根据权限显示/隐藏
             const perms = JSON.parse(sessionStorage.getItem('admin_permissions') || '{}');
-            const allTabs = ['dashboard', 'online', 'usage', 'users', 'ips', 'banlist', 'whitelist', 'credits', 'license', 'database', 'settings'];
+            const allTabs = ['dashboard', 'online', 'usage', 'users', 'ips', 'banlist', 'whitelist', 'credits', 'license', 'loadbalance', 'database', 'settings'];
             
             allTabs.forEach(tabName => {
                 const tab = document.querySelector(`.tab[data-panel="${tabName}"]`);
                 if (!tab) return;
                 
-                if (tabName === 'settings') {
+                if (tabName === 'settings' || tabName === 'loadbalance') {
                     tab.style.display = 'none';
                 } else if (tabName === 'whitelist' || tabName === 'credits') {
                     // 白名单和积分对所有管理员可见
@@ -3877,6 +3935,12 @@
                         if (authed) loadDbTables();
                     });
                 }
+                if (tab.dataset.panel === 'loadbalance') {
+                    loadLbStatus();
+                    startLbRefresh();
+                } else {
+                    stopLbRefresh();
+                }
                 if (tab.dataset.panel === 'settings') {
                     // 加载子管理员状态（仅系统总管理可见）
                     loadSubAdminStatus();
@@ -5231,6 +5295,321 @@
             }
         }
         
+        // ===== 负载均衡管理 =====
+        let lbRefreshTimer = null;
+        let lbData = null;
+
+        async function loadLbStatus() {
+            try {
+                const [dispRes, sbRes] = await Promise.all([
+                    fetch(`${API_BASE}/api/dispatcher`),
+                    fetch(`${API_BASE}/api/dispatcher/singbox_status`)
+                ]);
+                lbData = await dispRes.json();
+                renderLbStatus(lbData);
+                const sbData = await sbRes.json();
+                renderSingboxStatus(sbData);
+            } catch (e) {
+                console.error('加载负载均衡状态失败', e);
+            }
+        }
+
+        function renderSingboxStatus(sb) {
+            const stateEl = document.getElementById('lbSbState');
+            const nodesEl = document.getElementById('lbSbNodes');
+            const configEl = document.getElementById('lbSbConfig');
+            if (!sb) return;
+            if (sb.active) {
+                stateEl.innerHTML = `<span style="color:#00ff88;">● 运行中</span> <span style="color:var(--text-secondary);">(PID: ${sb.pid})</span>`;
+            } else if (sb.installed) {
+                stateEl.innerHTML = `<span style="color:#ff4757;">● 已停止</span>`;
+            } else {
+                stateEl.innerHTML = `<span style="color:#ffa502;">● 未安装</span>`;
+            }
+            nodesEl.textContent = sb.nodes_count ? `节点: ${sb.nodes_count}` : '';
+            configEl.textContent = sb.config_exists ? sb.config_path : '配置文件不存在';
+        }
+
+        function startLbRefresh() {
+            stopLbRefresh();
+            lbRefreshTimer = setInterval(loadLbStatus, 3000);
+        }
+
+        function stopLbRefresh() {
+            if (lbRefreshTimer) { clearInterval(lbRefreshTimer); lbRefreshTimer = null; }
+        }
+
+        function renderLbStatus(data) {
+            if (!data || data.error) return;
+            document.getElementById('lbTotalExits').textContent = data.total_exits;
+            document.getElementById('lbHealthyExits').textContent = data.healthy_exits;
+            document.getElementById('lbTotalActive').textContent = data.total_active;
+            document.getElementById('lbLoginLimit').textContent = data.max_login_per_min;
+            document.getElementById('lbSummary').textContent =
+                `${data.healthy_exits}/${data.total_exits} 健康 | ${data.total_active} 活跃连接`;
+
+            const container = document.getElementById('lbExitCards');
+            if (!data.exits || data.exits.length === 0) {
+                container.innerHTML = '<div style="text-align:center;color:var(--text-secondary);padding:40px;">暂无出口配置</div>';
+                return;
+            }
+
+            container.innerHTML = data.exits.map((ex, i) => {
+                const isDirect = ex.type === 'direct';
+                const healthColor = ex.healthy ? '#00ff88' : '#ff4757';
+                const healthText = ex.healthy ? '在线' : '离线';
+                const healthBg = ex.healthy ? 'rgba(0,255,136,0.1)' : 'rgba(255,71,87,0.1)';
+                const borderColor = ex.healthy ? 'rgba(0,255,136,0.3)' : 'rgba(255,71,87,0.3)';
+
+                // 登录冷却进度条
+                const cd = ex.login_cooldown || {};
+                const cdUsed = cd.used || 0;
+                const cdMax = cd.max || 8;
+                const cdPct = Math.min(100, (cdUsed / cdMax) * 100);
+                const cdColor = cdPct >= 100 ? '#ff4757' : cdPct >= 75 ? '#ffa502' : '#00ff88';
+                const cdText = cdPct >= 100
+                    ? `已满 (${cd.next_available_in}s后恢复)`
+                    : `${cdUsed}/${cdMax}`;
+
+                // 告警标记
+                let warnHtml = '';
+                if (ex.warn_403 > 0 || ex.warn_429 > 0) {
+                    const parts = [];
+                    if (ex.warn_403 > 0) parts.push(`<span style="color:#ff4757;">403×${ex.warn_403}</span>`);
+                    if (ex.warn_429 > 0) parts.push(`<span style="color:#ffa502;">429×${ex.warn_429}</span>`);
+                    warnHtml = `<div style="margin-top:6px;font-size:11px;">⚠️ ${parts.join(' ')}</div>`;
+                }
+
+                const serverLabel = isDirect ? '直连服务器' : `负载均衡服务器${i}`;
+
+                return `<div style="background:var(--bg-card);border-radius:10px;padding:14px;border:1px solid ${borderColor};position:relative;overflow:hidden;">
+                    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px;">
+                        <div>
+                            <div style="font-size:15px;font-weight:bold;color:var(--text-primary);">${serverLabel}</div>
+                            <div style="font-size:11px;color:var(--text-secondary);margin-top:2px;">${ex.name}${ex.proxy ? ' | ' + ex.proxy : ''}</div>
+                        </div>
+                        <div style="display:flex;align-items:center;gap:6px;">
+                            <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${healthColor};"></span>
+                            <span style="font-size:12px;color:${healthColor};font-weight:bold;">${healthText}</span>
+                            ${!isDirect ? `<button onclick="lbRemoveExit(${ex.index},'${ex.name}')" style="margin-left:4px;background:none;border:1px solid rgba(255,71,87,0.3);border-radius:4px;color:#ff4757;cursor:pointer;font-size:11px;padding:2px 6px;">删除</button>` : ''}
+                        </div>
+                    </div>
+                    <div style="display:flex;gap:12px;margin-bottom:8px;flex-wrap:wrap;">
+                        <div style="background:${healthBg};border-radius:6px;padding:6px 10px;flex:1;min-width:80px;">
+                            <div style="font-size:10px;color:var(--text-secondary);">出口IP</div>
+                            <div style="font-size:13px;font-weight:bold;color:${healthColor};font-family:monospace;">${ex.exit_ip || '检测中...'}</div>
+                        </div>
+                        <div style="background:rgba(102,126,234,0.1);border-radius:6px;padding:6px 10px;flex:1;min-width:60px;">
+                            <div style="font-size:10px;color:var(--text-secondary);">并发用户</div>
+                            <div style="font-size:18px;font-weight:bold;color:#667eea;">${ex.active}</div>
+                        </div>
+                        <div style="background:rgba(0,212,255,0.1);border-radius:6px;padding:6px 10px;flex:1;min-width:60px;">
+                            <div style="font-size:10px;color:var(--text-secondary);">总请求</div>
+                            <div style="font-size:13px;font-weight:bold;color:var(--accent);">${ex.total_requests}</div>
+                        </div>
+                        <div style="background:rgba(255,71,87,0.08);border-radius:6px;padding:6px 10px;flex:1;min-width:60px;">
+                            <div style="font-size:10px;color:var(--text-secondary);">错误</div>
+                            <div style="font-size:13px;font-weight:bold;color:${ex.errors > 0 ? '#ff4757' : 'var(--text-secondary)'};">${ex.errors}</div>
+                        </div>
+                    </div>
+                    <!-- 登录冷却进度 -->
+                    <div style="margin-top:4px;">
+                        <div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:3px;">
+                            <span style="color:var(--text-secondary);">登录冷却 (1分钟窗口)</span>
+                            <span style="color:${cdColor};font-weight:bold;">${cdText}</span>
+                        </div>
+                        <div style="background:var(--bg-primary);border-radius:3px;height:6px;overflow:hidden;">
+                            <div style="height:100%;background:${cdColor};width:${cdPct}%;transition:width 0.5s;border-radius:3px;"></div>
+                        </div>
+                    </div>
+                    ${warnHtml}
+                </div>`;
+            }).join('');
+        }
+
+        async function lbDetectIPs() {
+            try {
+                showToast('正在检测出口IP...', 'info');
+                const res = await fetch(`${API_BASE}/api/dispatcher/detect_ips`, {method: 'POST'});
+                const data = await res.json();
+                if (data.success) {
+                    showToast('IP检测完成');
+                    loadLbStatus();
+                } else {
+                    showToast(data.message || '检测失败', 'error');
+                }
+            } catch (e) {
+                showToast('检测请求失败: ' + e.message, 'error');
+            }
+        }
+
+        async function lbRemoveExit(index, name) {
+            if (!confirm(`确定删除出口 [${name}] (#${index})？`)) return;
+            try {
+                const res = await fetch(`${API_BASE}/api/dispatcher/remove`, {
+                    method: 'POST', headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({index})
+                });
+                const data = await res.json();
+                if (data.success) { showToast(data.message); loadLbStatus(); }
+                else { showToast(data.message || '删除失败', 'error'); }
+            } catch (e) { showToast('请求失败: ' + e.message, 'error'); }
+        }
+
+        function showLbAddModal() {
+            const content = `
+                <div style="margin-bottom:12px;">
+                    <label style="display:block;margin-bottom:4px;color:var(--text-secondary);font-size:13px;">出口名称</label>
+                    <input type="text" id="lbAddName" placeholder="如: 负载均衡欧洲服务器1" style="width:100%;padding:8px 10px;background:var(--bg-primary);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);">
+                </div>
+                <div style="margin-bottom:12px;">
+                    <label style="display:block;margin-bottom:4px;color:var(--text-secondary);font-size:13px;">SOCKS5端口 (本地sing-box)</label>
+                    <input type="number" id="lbAddPort" placeholder="如: 10001" min="1024" max="65535" style="width:100%;padding:8px 10px;background:var(--bg-primary);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);">
+                </div>
+            `;
+            showModal('➕ 添加SOCKS5出口', content, async () => {
+                const name = document.getElementById('lbAddName').value.trim();
+                const port = parseInt(document.getElementById('lbAddPort').value);
+                if (!name || !port) { showToast('请填写名称和端口', 'error'); return; }
+                try {
+                    const res = await fetch(`${API_BASE}/api/dispatcher/add`, {
+                        method: 'POST', headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({name, port})
+                    });
+                    const data = await res.json();
+                    if (data.success) { closeModal(); showToast(data.message); loadLbStatus(); }
+                    else { showToast(data.message || '添加失败', 'error'); }
+                } catch (e) { showToast('请求失败: ' + e.message, 'error'); }
+            }, '确认添加');
+        }
+
+        function showLbSubModal() {
+            const content = `
+                <div style="margin-bottom:12px;">
+                    <label style="display:block;margin-bottom:4px;color:var(--text-secondary);font-size:13px;">订阅链接 (自动获取并解析)</label>
+                    <input type="text" id="lbSubUrl" placeholder="https://example.com/sub?token=xxx" style="width:100%;padding:8px 10px;background:var(--bg-primary);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);">
+                </div>
+                <div style="text-align:center;color:var(--text-secondary);font-size:12px;margin:8px 0;">—— 或 ——</div>
+                <div style="margin-bottom:12px;">
+                    <label style="display:block;margin-bottom:4px;color:var(--text-secondary);font-size:13px;">订阅内容 (粘贴Clash YAML / Base64 / SS链接)</label>
+                    <textarea id="lbSubText" rows="6" placeholder="粘贴订阅内容..." style="width:100%;padding:8px 10px;background:var(--bg-primary);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-family:monospace;font-size:12px;resize:vertical;"></textarea>
+                </div>
+                <div id="lbSubResult" style="display:none;"></div>
+            `;
+            showModal('📡 导入VPN订阅', content, async () => {
+                const url = document.getElementById('lbSubUrl').value.trim();
+                const text = document.getElementById('lbSubText').value.trim();
+                if (!url && !text) { showToast('请输入订阅链接或内容', 'error'); return; }
+                const resultEl = document.getElementById('lbSubResult');
+                resultEl.style.display = 'block';
+                resultEl.innerHTML = '<div style="color:var(--accent);padding:10px;text-align:center;">解析中...</div>';
+                try {
+                    const res = await fetch(`${API_BASE}/api/dispatcher/parse_sub`, {
+                        method: 'POST', headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({url, text})
+                    });
+                    const data = await res.json();
+                    if (data.error) {
+                        resultEl.innerHTML = `<div style="color:#ff4757;padding:10px;">${data.error}</div>`;
+                        return;
+                    }
+                    renderSubResult(data, resultEl);
+                } catch (e) {
+                    resultEl.innerHTML = `<div style="color:#ff4757;padding:10px;">请求失败: ${e.message}</div>`;
+                }
+            }, '解析订阅');
+        }
+
+        function renderSubResult(data, el) {
+            const regionHtml = Object.entries(data.regions || {}).map(([code, info]) =>
+                `<span style="background:var(--bg-secondary);padding:2px 8px;border-radius:10px;font-size:11px;">${info.label} ×${info.count}</span>`
+            ).join(' ');
+
+            // 按服务器分组，每个唯一服务器一行
+            const serverEntries = Object.entries(data.servers || {});
+            const nodesHtml = serverEntries.map(([server, indices], si) => {
+                const firstNode = data.nodes[indices[0]];
+                const checked = 'checked';
+                return `<label style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border);font-size:12px;cursor:pointer;">
+                    <input type="checkbox" class="lb-sub-node" data-server="${server}" data-name="${firstNode.region_label}服务器${si+1}" data-type="${firstNode.type}" ${checked} style="accent-color:var(--accent);">
+                    <span style="flex:1;">
+                        <strong>${firstNode.region_label}服务器${si+1}</strong>
+                        <span style="color:var(--text-secondary);margin-left:6px;">${firstNode.type.toUpperCase()} | ${server}:${firstNode.port}</span>
+                        ${indices.length > 1 ? `<span style="color:var(--accent);margin-left:4px;">(${indices.length}节点)</span>` : ''}
+                    </span>
+                </label>`;
+            }).join('');
+
+            el.innerHTML = `
+                <div style="background:var(--bg-secondary);border-radius:8px;padding:10px;margin-bottom:10px;">
+                    <div style="font-size:13px;margin-bottom:6px;">格式: <strong style="color:var(--accent);">${data.format}</strong> | 
+                        节点: <strong>${data.total_nodes}</strong> | 
+                        服务器: <strong style="color:var(--accent-green);">${data.unique_servers}</strong></div>
+                    <div style="display:flex;gap:4px;flex-wrap:wrap;">${regionHtml}</div>
+                </div>
+                <div style="max-height:250px;overflow-y:auto;margin-bottom:10px;">
+                    ${nodesHtml}
+                </div>
+                <div style="display:flex;gap:8px;align-items:center;">
+                    <label style="font-size:12px;color:var(--text-secondary);">起始端口:</label>
+                    <input type="number" id="lbSubBasePort" value="10001" min="1024" max="65000" style="width:80px;padding:4px 8px;background:var(--bg-primary);border:1px solid var(--border);border-radius:4px;color:var(--text-primary);font-size:12px;">
+                    <button onclick="lbBatchAddFromSub()" class="btn btn-success" style="padding:6px 14px;font-size:12px;">批量添加选中</button>
+                    <span id="lbSubAddMsg" style="font-size:12px;color:var(--text-secondary);"></span>
+                </div>
+            `;
+        }
+
+        async function lbBatchAddFromSub() {
+            const checks = document.querySelectorAll('.lb-sub-node:checked');
+            if (checks.length === 0) { showToast('请至少选择一个节点', 'error'); return; }
+            const basePort = parseInt(document.getElementById('lbSubBasePort').value) || 10001;
+            const msgEl = document.getElementById('lbSubAddMsg');
+            msgEl.textContent = '正在应用: 生成配置 → 重载sing-box → 注册出口...';
+
+            // 收集选中的服务器信息
+            const selected_servers = [];
+            checks.forEach(chk => {
+                selected_servers.push({ server: chk.dataset.server, name: chk.dataset.name });
+            });
+
+            // 获取订阅源 (从弹窗的输入框)
+            const url = document.getElementById('lbSubUrl')?.value?.trim() || '';
+            const text = document.getElementById('lbSubText')?.value?.trim() || '';
+
+            try {
+                const res = await fetch(`${API_BASE}/api/dispatcher/apply_sub`, {
+                    method: 'POST', headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ url, text, selected_servers, base_port: basePort })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    const sbIcon = data.singbox_reload ? '✅' : '⚠️';
+                    msgEl.innerHTML = `${sbIcon} 完成! ${data.nodes_count}个节点已应用, sing-box: ${data.message}`;
+                    showToast(`热重载成功: ${data.nodes_count}个出口已生效`);
+                    closeModal();
+                } else {
+                    msgEl.innerHTML = `<span style="color:#ffa502;">⚠️ ${data.message}</span><br>节点已注册到dispatcher(${data.nodes_count || 0}个), sing-box需手动重载`;
+                    showToast(data.message || '部分失败', 'error');
+                }
+                loadLbStatus();
+            } catch (e) {
+                msgEl.textContent = `请求失败: ${e.message}`;
+                showToast('请求失败: ' + e.message, 'error');
+            }
+        }
+
+        async function lbReloadSingbox() {
+            try {
+                showToast('正在热重载 sing-box...', 'info');
+                const res = await fetch(`${API_BASE}/api/dispatcher/reload_singbox`, {method: 'POST'});
+                const data = await res.json();
+                showToast(data.message, data.success ? 'success' : 'error');
+                loadLbStatus();
+            } catch (e) {
+                showToast('热重载失败: ' + e.message, 'error');
+            }
+        }
+
         // 初始化应用（登录成功后调用）
         function initApp() {
             initWebSocket();
