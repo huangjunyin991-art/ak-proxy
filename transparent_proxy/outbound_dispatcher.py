@@ -98,14 +98,24 @@ class OutboundExit:
         return len(self._req_timestamps)
 
     def auto_throttle_on_403(self):
-        """收到403时自动限速: 当前速率的90%"""
-        current_rpm = self.get_current_rpm()
-        if current_rpm > 5:  # 至少有一定流量才限速
-            new_limit = max(5, int(current_rpm * 0.9))
-            if self.rate_limit == 0 or new_limit < self.rate_limit:
-                old_limit = self.rate_limit
+        """收到403时自动限速:
+        - 不限速时: 取当前RPM的90%作为限速值
+        - 已限速时: 在当前限速值基础上再降10%
+        """
+        old_limit = self.rate_limit
+        if self.rate_limit == 0:
+            # 不限速 → 以当前峰值速率的90%为限速
+            current_rpm = self.get_current_rpm()
+            if current_rpm > 5:
+                new_limit = max(5, int(current_rpm * 0.9))
                 self.rate_limit = new_limit
-                logger.info(f"[RateLimit] {self.name} 收到403, 自动限速: {old_limit or '无限'} -> {new_limit}/min")
+                logger.info(f"[RateLimit] {self.name} 收到403, 自动限速: 无限 -> {new_limit}/min (当前RPM={current_rpm})")
+        else:
+            # 已限速 → 在现有限速基础上再降10%
+            new_limit = max(5, int(self.rate_limit * 0.9))
+            if new_limit < self.rate_limit:
+                self.rate_limit = new_limit
+                logger.info(f"[RateLimit] {self.name} 再次403, 限速下调: {old_limit} -> {new_limit}/min")
 
     async def wait_for_rate(self) -> float:
         """如果设置了限速且超过阈值, 等待直到可以发送. 返回等待秒数."""
