@@ -209,7 +209,6 @@
         if (window.fetch) {
             const originalFetch = window.fetch;
             window.fetch = function(url, options) {
-                updateActivity();
                 let finalUrl = url;
                 if (typeof url === 'string') {
                     // Login请求重定向到代理（白名单检查）
@@ -234,7 +233,6 @@
         if (window.XMLHttpRequest) {
             const originalOpen = XMLHttpRequest.prototype.open;
             XMLHttpRequest.prototype.open = function(method, url, async, user, password) {
-                updateActivity();
                 if (typeof url === 'string') {
                     // Login请求重定向到代理
                     if (url.includes('/RPC/Login') || url.includes('/Login')) {
