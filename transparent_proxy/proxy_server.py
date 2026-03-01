@@ -438,9 +438,10 @@ async def proxy_index_data(request: Request):
     # 提取资产数据并上报
     if not result.get("Error") and result.get("Data"):
         data = result["Data"]
+        # 从请求参数、响应数据、cookie中提取用户名（不用全局变量，避免并发错乱）
         username = (params.get("account") or params.get("Account") or
                    data.get("UserName") or data.get("Account") or
-                   stats.last_login_account or "unknown")
+                   request.cookies.get("ak_username") or "unknown")
         
         if username and username != "unknown" and ('ACECount' in data or 'EP' in data):
             # 只有授权用户才保存资产
