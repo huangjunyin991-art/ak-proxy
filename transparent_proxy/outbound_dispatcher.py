@@ -359,7 +359,14 @@ class OutboundDispatcher:
 
     async def _detect_exit_ip(self, ex: OutboundExit):
         """通过外部服务检测出口的公网IP"""
-        IP_SERVICES = ["https://api.ipify.org", "https://ifconfig.me/ip", "https://icanhazip.com"]
+        IP_SERVICES = [
+            "http://ip.3322.net",
+            "http://members.3322.org/dyndns/getip",
+            "https://api.ip.sb/ip",
+            "http://httpbin.org/ip",
+            "https://ifconfig.me/ip",
+            "https://icanhazip.com",
+        ]
         for svc in IP_SERVICES:
             try:
                 async with httpx.AsyncClient(
@@ -368,7 +375,12 @@ class OutboundDispatcher:
                 ) as client:
                     resp = await client.get(svc)
                     if resp.status_code == 200:
-                        ip = resp.text.strip()
+                        text = resp.text.strip()
+                        # httpbin 返回 JSON {"origin": "x.x.x.x"}
+                        if text.startswith("{"):
+                            import json as _json
+                            text = _json.loads(text).get("origin", "").split(",")[0].strip()
+                        ip = text.strip()
                         if ip and ip != ex.exit_ip:
                             logger.info(f"[Dispatcher] 出口IP检测: {ex.name} -> {ip}")
                             ex.exit_ip = ip
