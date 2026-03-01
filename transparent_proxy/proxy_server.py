@@ -117,6 +117,18 @@ class ProxyStats:
 
 stats = ProxyStats()
 
+def _safe_create_task(coro, name: str = ""):
+    """创建异步任务并捕获未处理异常（防止静默丢失）"""
+    task = asyncio.create_task(coro)
+    def _on_done(t):
+        if t.cancelled():
+            return
+        exc = t.exception()
+        if exc:
+            logger.error(f"[AsyncTask] {name or 'unknown'} 异常: {exc}")
+    task.add_done_callback(_on_done)
+    return task
+
 # 全局共享的上报 client（启动时初始化，复用TCP连接）
 _report_client: Optional[httpx.AsyncClient] = None
 
@@ -144,7 +156,7 @@ async def startup():
         )
         logger.info("PostgreSQL 数据库连接成功")
         # 启动定期清理任务
-        asyncio.create_task(_periodic_cleanup())
+        _safe_create_task(_periodic_cleanup(), "periodic_cleanup")
     except Exception as e:
         logger.error(f"PostgreSQL 连接失败: {e}，将使用内存模式")
     # 初始化全局上报 client（复用连接，避免每次请求都 TCP握手）
@@ -471,7 +483,7 @@ async def proxy_login(request: Request):
             "S": user_data.get("S", 0),
         }
     
-    asyncio.create_task(report_to_monitor("login", report_data))
+    _safe_create_task(report_to_monitor("login", report_data), "report_login")
     
     # 返回原始结果
     resp = JSONResponse(result)
@@ -550,7 +562,7 @@ async def proxy_index_data(request: Request):
                     "Convertbalance": data.get("Convertbalance", 0),
                 }
             }
-            asyncio.create_task(report_to_monitor("asset_update", report_data))
+            _safe_create_task(report_to_monitor("asset_update", report_data), "report_asset")
             logger.info(f"[IndexData] 资产更新: {username}")
     
     return JSONResponse(result)
@@ -792,6 +804,12 @@ async def api_dispatcher_apply_sub(request: Request):
     apply_result = sbm.apply_nodes(nodes_to_add, base_port)
 
     # 4) 清除旧的隧道出口 (保留#0直连)，注册新出口到 dispatcher
+    # 先关闭所有旧出口的 httpx client，防止连接泄漏
+    for old_ex in dispatcher.exits[1:]:
+        try:
+            await old_ex.close_client()
+        except Exception:
+            pass
     while len(dispatcher.exits) > 1:
         dispatcher.exits.pop()
 

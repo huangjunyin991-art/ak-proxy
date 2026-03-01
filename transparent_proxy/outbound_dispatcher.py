@@ -222,7 +222,7 @@ class OutboundDispatcher:
     MAX_LOGIN_PER_MIN = 10
     HEALTH_CHECK_INTERVAL = 15
     HEALTH_CHECK_TIMEOUT = 6
-    HEALTH_CHECK_URL = "http://ip.3322.net"
+    HEALTH_CHECK_URL = "http://connectivitycheck.gstatic.com/generate_204"
 
     def __init__(self):
         self.exits: list[OutboundExit] = [
@@ -230,6 +230,18 @@ class OutboundDispatcher:
         ]
         self._health_task: Optional[asyncio.Task] = None
         self._started = False
+
+    def _safe_create_task(self, coro, name: str = ""):
+        """创建异步任务并捕获未处理异常（防止静默丢失）"""
+        task = asyncio.create_task(coro)
+        def _on_done(t):
+            if t.cancelled():
+                return
+            exc = t.exception()
+            if exc:
+                logger.error(f"[AsyncTask] {name or 'unknown'} 异常: {exc}")
+        task.add_done_callback(_on_done)
+        return task
 
     # ===== 配置 =====
 
@@ -249,8 +261,7 @@ class OutboundDispatcher:
         logger.info(f"[Dispatcher] 移除出口 #{index}: {ex.name}")
         # 异步关闭 client（best effort）
         try:
-            loop = asyncio.get_running_loop()
-            loop.create_task(ex.close_client())
+            self._safe_create_task(ex.close_client(), f"close_client_{ex.name}")
         except RuntimeError:
             pass
         self.exits.pop(index)
@@ -270,10 +281,10 @@ class OutboundDispatcher:
             return
         self._started = True
         if len(self.exits) > 1:
-            self._health_task = asyncio.create_task(self._health_check_loop())
+            self._health_task = self._safe_create_task(self._health_check_loop(), "health_check_loop")
             logger.info("[Dispatcher] 健康检查已启动")
         # 启动后立即检测所有出口IP
-        asyncio.create_task(self._initial_ip_detect())
+        self._safe_create_task(self._initial_ip_detect(), "initial_ip_detect")
         logger.info(f"[Dispatcher] 调度器就绪: {len(self.exits)} 个出口")
 
     async def stop(self):
@@ -496,20 +507,21 @@ class OutboundDispatcher:
         was_healthy = ex.healthy
         try:
             client = await ex.get_client()
-            resp = await client.head(self.HEALTH_CHECK_URL,
-                                     timeout=httpx.Timeout(self.HEALTH_CHECK_TIMEOUT, connect=5))
-            ex.healthy = True
-            if not was_healthy:
-                logger.info(f"[Dispatcher] 出口恢复: #{idx} {ex.name}")
-            # 检测出口IP（仅在IP未知或刚恢复时）
-            if not ex.exit_ip or not was_healthy:
-                await self._detect_exit_ip(ex)
+            resp = await client.get(self.HEALTH_CHECK_URL,
+                                    timeout=httpx.Timeout(self.HEALTH_CHECK_TIMEOUT, connect=5))
+            if resp.status_code in (200, 204):
+                ex.healthy = True
+                if not was_healthy:
+                    logger.info(f"[Dispatcher] 出口恢复: #{idx} {ex.name}")
+                # 检测出口IP（仅在IP未知或刚恢复时）
+                if not ex.exit_ip or not was_healthy:
+                    await self._detect_exit_ip(ex)
+            else:
+                raise Exception(f"HTTP {resp.status_code}")
         except Exception:
             ex.healthy = False
             if was_healthy:
                 logger.warning(f"[Dispatcher] 出口离线: #{idx} {ex.name}")
-                # 连接可能坏了，重建 client
-                await ex.close_client()
 
     async def _detect_exit_ip(self, ex: OutboundExit):
         """通过外部服务检测出口的公网IP（复用持久连接）"""
