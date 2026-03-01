@@ -138,7 +138,17 @@ class OutboundDispatcher:
         if len(self.exits) > 1:
             self._health_task = asyncio.create_task(self._health_check_loop())
             logger.info("[Dispatcher] 健康检查已启动")
+        # 启动后立即检测所有出口IP
+        asyncio.create_task(self._initial_ip_detect())
         logger.info(f"[Dispatcher] 调度器就绪: {len(self.exits)} 个出口")
+
+    async def _initial_ip_detect(self):
+        """启动后延迟2秒执行一次全量IP检测"""
+        await asyncio.sleep(2)
+        try:
+            await self.detect_all_ips()
+        except Exception as e:
+            logger.warning(f"[Dispatcher] 初始IP检测异常: {e}")
 
     async def stop(self):
         """停止健康检查"""
@@ -349,18 +359,22 @@ class OutboundDispatcher:
 
     async def _detect_exit_ip(self, ex: OutboundExit):
         """通过外部服务检测出口的公网IP"""
-        try:
-            async with httpx.AsyncClient(
-                verify=False, timeout=8, proxy=ex.proxy_url
-            ) as client:
-                resp = await client.get("https://api.ipify.org")
-                if resp.status_code == 200:
-                    ip = resp.text.strip()
-                    if ip != ex.exit_ip:
-                        logger.info(f"[Dispatcher] 出口IP检测: {ex.name} -> {ip}")
-                        ex.exit_ip = ip
-        except Exception:
-            pass  # IP检测失败不影响健康状态
+        IP_SERVICES = ["https://api.ipify.org", "https://ifconfig.me/ip", "https://icanhazip.com"]
+        for svc in IP_SERVICES:
+            try:
+                async with httpx.AsyncClient(
+                    verify=False, timeout=8,
+                    proxy=ex.proxy_url  # None for direct = no proxy
+                ) as client:
+                    resp = await client.get(svc)
+                    if resp.status_code == 200:
+                        ip = resp.text.strip()
+                        if ip and ip != ex.exit_ip:
+                            logger.info(f"[Dispatcher] 出口IP检测: {ex.name} -> {ip}")
+                            ex.exit_ip = ip
+                        return  # 成功就退出
+            except Exception:
+                continue  # 换下一个服务
 
     async def detect_all_ips(self):
         """手动触发所有出口的IP检测"""
