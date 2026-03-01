@@ -646,6 +646,19 @@ async def api_dispatcher_exit_logs(index: int):
     return {"index": index, "name": name, "logs": logs}
 
 
+@app.post("/api/dispatcher/rate_limit")
+async def api_dispatcher_set_rate_limit(request: Request):
+    """设置指定出口的速率限制"""
+    data = await request.json()
+    index = data.get("index", -1)
+    limit = data.get("limit", 0)
+    ok = dispatcher.set_rate_limit(index, int(limit))
+    if ok:
+        ex = dispatcher.exits[index]
+        return {"success": True, "message": f"{ex.name} 限速已设为 {limit or '无限'}/min", "rate_limit": ex.rate_limit}
+    return {"success": False, "message": "无效的出口索引"}
+
+
 @app.post("/api/dispatcher/parse_sub")
 async def api_dispatcher_parse_sub(request: Request):
     """解析订阅: 支持URL自动获取或直接传入文本"""

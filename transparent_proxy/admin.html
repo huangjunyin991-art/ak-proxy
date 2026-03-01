@@ -5408,9 +5408,9 @@
                             <div style="font-size:10px;color:var(--text-secondary);">请求</div>
                             <div style="font-size:12px;font-weight:bold;color:var(--accent);">${ex.total_requests}</div>
                         </div>
-                        <div style="background:rgba(255,71,87,0.08);border-radius:6px;padding:6px 8px;flex:1;min-width:0;text-align:center;${ex.errors > 0 ? 'cursor:pointer;' : ''}" ${ex.errors > 0 ? `onclick="lbShowErrorLogs(${i},'${ex.name}')"` : ''} title="${ex.errors > 0 ? '点击查看错误日志' : ''}">
-                            <div style="font-size:10px;color:var(--text-secondary);">错误${ex.errors > 0 ? ' 🔍' : ''}</div>
-                            <div style="font-size:12px;font-weight:bold;color:${ex.errors > 0 ? '#ff4757' : 'var(--text-secondary)'};">${ex.errors}</div>
+                        <div style="background:rgba(255,165,0,0.08);border-radius:6px;padding:6px 8px;flex:1.2;min-width:0;text-align:center;cursor:pointer;" onclick="lbShowRateLimit(${i},'${ex.name}',${ex.rate_limit})" title="点击调整限速">
+                            <div style="font-size:10px;color:var(--text-secondary);">速率${ex.rate_limit > 0 ? ' ⚡' : ''}</div>
+                            <div style="font-size:12px;font-weight:bold;color:${ex.rate_limit > 0 && ex.rpm >= ex.rate_limit * 0.8 ? '#ffa502' : 'var(--accent)'};">${ex.rpm}<span style="font-size:9px;color:var(--text-secondary);">/${ex.rate_limit || '∞'}</span></div>
                         </div>
                     </div>
                     <!-- 登录冷却进度 -->
@@ -5649,6 +5649,50 @@
                 loadLbStatus();
             } catch (e) {
                 showToast('热重载失败: ' + e.message, 'error');
+            }
+        }
+
+        function lbShowRateLimit(index, name, currentLimit) {
+            const content = `
+                <div style="margin-bottom:12px;">
+                    <div style="font-size:13px;color:var(--text-secondary);margin-bottom:8px;">出口 #${index} | ${name}</div>
+                    <div style="font-size:12px;color:var(--text-secondary);margin-bottom:12px;">
+                        当前限速: <b style="color:var(--accent);">${currentLimit || '不限速'}</b> ${currentLimit ? 'req/min' : ''}
+                    </div>
+                    <div style="display:flex;flex-direction:column;gap:8px;">
+                        <label style="font-size:13px;color:var(--text-primary);">设置速率上限 (req/min):</label>
+                        <input id="rateLimitInput" type="number" min="0" step="5" value="${currentLimit || 0}" placeholder="0 = 不限速"
+                            style="background:var(--bg-primary);border:1px solid var(--border);border-radius:6px;padding:8px 12px;color:var(--text-primary);font-size:14px;width:100%;">
+                        <div style="font-size:11px;color:var(--text-secondary);">
+                            💡 设为 0 表示不限速 | 收到403会自动降速10%<br>
+                            建议值: 30~100/min (视上游承受能力)
+                        </div>
+                    </div>
+                    <div style="display:flex;gap:8px;margin-top:12px;">
+                        <button onclick="lbSetRate(${index},0)" style="flex:1;padding:6px;border-radius:6px;border:1px solid var(--border);background:var(--bg-secondary);color:var(--text-primary);cursor:pointer;font-size:12px;">🔓 取消限速</button>
+                        <button onclick="lbSetRate(${index},30)" style="flex:1;padding:6px;border-radius:6px;border:1px solid rgba(255,165,0,0.3);background:rgba(255,165,0,0.1);color:#ffa502;cursor:pointer;font-size:12px;">🐢 30/min</button>
+                        <button onclick="lbSetRate(${index},60)" style="flex:1;padding:6px;border-radius:6px;border:1px solid rgba(0,212,255,0.3);background:rgba(0,212,255,0.1);color:var(--accent);cursor:pointer;font-size:12px;">⚡ 60/min</button>
+                    </div>
+                </div>
+            `;
+            showModal(`⚡ 速率控制 - ${name}`, content, async () => {
+                const val = parseInt(document.getElementById('rateLimitInput')?.value || '0');
+                await lbSetRate(index, val);
+            }, '应用设置');
+        }
+
+        async function lbSetRate(index, limit) {
+            try {
+                const res = await fetch(`${API_BASE}/api/dispatcher/rate_limit`, {
+                    method: 'POST', headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ index, limit })
+                });
+                const data = await res.json();
+                showToast(data.message, data.success ? 'success' : 'error');
+                closeModal();
+                loadLbStatus();
+            } catch (e) {
+                showToast('设置失败: ' + e.message, 'error');
             }
         }
 

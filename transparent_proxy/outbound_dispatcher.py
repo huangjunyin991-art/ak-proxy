@@ -32,7 +32,8 @@ ALERT_STATUS_CODES = {
 class OutboundExit:
     """单个出口通道"""
     __slots__ = ('name', 'proxy_url', 'healthy', 'total', 'login_count', 'errors',
-                 'warn_403', 'warn_429', 'active', 'exit_ip', '_login_timestamps', '_error_logs')
+                 'warn_403', 'warn_429', 'active', 'exit_ip', '_login_timestamps',
+                 '_error_logs', '_req_timestamps', 'rate_limit', '_rate_lock')
 
     def __init__(self, name: str, proxy_url: Optional[str] = None):
         self.name = name
@@ -47,6 +48,9 @@ class OutboundExit:
         self.exit_ip = ""       # 检测到的出口IP
         self._login_timestamps: list[float] = []
         self._error_logs: list[dict] = []  # [{time, msg}] 最多保留50条
+        self._req_timestamps: list[float] = []  # 最近60秒请求时间戳
+        self.rate_limit: int = 0  # 每分钟最大请求数, 0=不限速
+        self._rate_lock = asyncio.Lock()
 
     @property
     def is_direct(self) -> bool:
@@ -84,6 +88,45 @@ class OutboundExit:
 
     def record_request(self):
         self.total += 1
+        self._req_timestamps.append(time.time())
+
+    def get_current_rpm(self, window: float = 60.0) -> int:
+        """获取最近1分钟的请求速率"""
+        now = time.time()
+        cutoff = now - window
+        self._req_timestamps = [t for t in self._req_timestamps if t > cutoff]
+        return len(self._req_timestamps)
+
+    def auto_throttle_on_403(self):
+        """收到403时自动限速: 当前速率的90%"""
+        current_rpm = self.get_current_rpm()
+        if current_rpm > 5:  # 至少有一定流量才限速
+            new_limit = max(5, int(current_rpm * 0.9))
+            if self.rate_limit == 0 or new_limit < self.rate_limit:
+                old_limit = self.rate_limit
+                self.rate_limit = new_limit
+                logger.info(f"[RateLimit] {self.name} 收到403, 自动限速: {old_limit or '无限'} -> {new_limit}/min")
+
+    async def wait_for_rate(self) -> float:
+        """如果设置了限速且超过阈值, 等待直到可以发送. 返回等待秒数."""
+        if self.rate_limit <= 0:
+            return 0.0
+        waited = 0.0
+        async with self._rate_lock:
+            while True:
+                now = time.time()
+                cutoff = now - 60.0
+                self._req_timestamps = [t for t in self._req_timestamps if t > cutoff]
+                if len(self._req_timestamps) < self.rate_limit:
+                    return waited
+                # 等最早那条过期
+                oldest = min(self._req_timestamps)
+                wait_time = oldest + 60.0 - now + 0.05
+                if wait_time > 0:
+                    waited += wait_time
+                    await asyncio.sleep(wait_time)
+                else:
+                    return waited
 
     def record_error(self, msg: str = ""):
         self.errors += 1
@@ -100,8 +143,8 @@ class OutboundDispatcher:
     """出口IP调度器（异常安全，保证服务不中断）"""
 
     MAX_LOGIN_PER_MIN = 8
-    HEALTH_CHECK_INTERVAL = 30
-    HEALTH_CHECK_TIMEOUT = 10
+    HEALTH_CHECK_INTERVAL = 15
+    HEALTH_CHECK_TIMEOUT = 6
     HEALTH_CHECK_URL = "http://ip.3322.net"
 
     def __init__(self):
@@ -253,6 +296,11 @@ class OutboundDispatcher:
         - 检测403/429等状态码并记录告警日志
         - 隧道出口失败时自动降级直连重试
         """
+        # 限速等待
+        wait_sec = await exit_obj.wait_for_rate()
+        if wait_sec > 0.5:
+            logger.debug(f"[RateLimit] {exit_obj.name} 等待 {wait_sec:.1f}s")
+
         exit_obj.active += 1
         try:
             resp = await self._do_request(exit_obj, method, url, headers,
@@ -312,8 +360,10 @@ class OutboundDispatcher:
             # 更新统计
             if status_code == 403:
                 exit_obj.warn_403 += 1
+                exit_obj.auto_throttle_on_403()
             elif status_code == 429:
                 exit_obj.warn_429 += 1
+                exit_obj.auto_throttle_on_403()  # 429也触发限速
             # 提取API路径用于日志
             api_path = url.split("/RPC/")[-1] if "/RPC/" in url else url[-50:]
             logger.warning(
@@ -326,6 +376,12 @@ class OutboundDispatcher:
 
     async def _health_check_loop(self):
         """后台定期检查所有隧道出口"""
+        # 首次立即检查
+        await asyncio.sleep(3)
+        try:
+            await self._check_all_exits()
+        except Exception:
+            pass
         while self._started:
             try:
                 await asyncio.sleep(self.HEALTH_CHECK_INTERVAL)
@@ -423,6 +479,8 @@ class OutboundDispatcher:
                     "warn_403": ex.warn_403,
                     "warn_429": ex.warn_429,
                     "recent_errors": ex._error_logs[-5:] if ex._error_logs else [],
+                    "rpm": ex.get_current_rpm(),
+                    "rate_limit": ex.rate_limit,
                 })
 
             healthy_count = sum(1 for ex in self.exits if ex.healthy)
@@ -436,6 +494,15 @@ class OutboundDispatcher:
             }
         except Exception as e:
             return {"error": str(e), "total_exits": len(self.exits)}
+
+    def set_rate_limit(self, index: int, limit: int) -> bool:
+        """设置指定出口的速率限制(req/min), 0=不限速"""
+        if 0 <= index < len(self.exits):
+            old = self.exits[index].rate_limit
+            self.exits[index].rate_limit = max(0, limit)
+            logger.info(f"[RateLimit] {self.exits[index].name} 限速调整: {old or '无限'} -> {limit or '无限'}/min")
+            return True
+        return False
 
     def get_exit_logs(self, index: int) -> list[dict]:
         """获取指定出口的错误日志"""
