@@ -221,6 +221,10 @@
             if (url.includes('/RPC/Login') || url.includes('/Login')) {
                 return `https://${proxyHost}/RPC/Login`;
             }
+            // ak2026.vip/RPC/xxx → IP直连
+            if (url.includes(proxyHost) && url.includes('/RPC/')) {
+                return url.replace('https://' + proxyHost, API_IP).replace('http://' + proxyHost, API_IP);
+            }
             // 相对路径 /RPC/xxx → IP直连
             if (url.match(/^\/RPC\//)) {
                 return API_IP + url;
