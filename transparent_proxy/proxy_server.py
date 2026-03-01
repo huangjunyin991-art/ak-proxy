@@ -200,14 +200,20 @@ async def report_to_monitor(endpoint: str, data: dict):
 
 
 async def forward_request(method: str, api_path: str, content_type: str,
-                          params: dict, raw_body: bytes, headers: dict) -> httpx.Response:
-    """转发请求到真实API服务器"""
+                          params: dict, raw_body: bytes, headers: dict,
+                          client_ip: str = "") -> httpx.Response:
+    """转发请求到真实API服务器（透传用户真实IP）"""
     url = AKAPI_URL + api_path
+    # 从nginx传递的头中提取用户真实IP
+    real_ip = client_ip or headers.get("x-real-ip", "") or headers.get("x-forwarded-for", "").split(",")[0].strip()
     fwd_headers = {
         "User-Agent": headers.get("user-agent", ""),
         "Content-Type": content_type or "application/json",
         "Accept": headers.get("accept", "*/*"),
     }
+    if real_ip:
+        fwd_headers["X-Real-IP"] = real_ip
+        fwd_headers["X-Forwarded-For"] = real_ip
     
     async with httpx.AsyncClient(verify=False, timeout=REQUEST_TIMEOUT) as client:
         if method == "GET":
@@ -320,10 +326,11 @@ async def proxy_login(request: Request):
     except Exception as e:
         logger.warning(f"[Login] 白名单检查异常: {e}，放行")
 
-    # 直接转发到API服务器（用户自己的IP出去）
+    # 直接转发到API服务器（透传用户真实IP）
     try:
         response = await forward_request(
-            request.method, "Login", content_type, params, raw_body, dict(request.headers)
+            request.method, "Login", content_type, params, raw_body, dict(request.headers),
+            client_ip=client_ip
         )
         result = response.json()
     except Exception as e:
@@ -424,10 +431,11 @@ async def proxy_index_data(request: Request):
     
     logger.debug(f"[IndexData] 请求参数: {list(params.keys())}")
     
-    # 直接转发
+    # 直接转发（透传用户真实IP）
     try:
         response = await forward_request(
-            request.method, "public_IndexData", content_type, params, raw_body, dict(request.headers)
+            request.method, "public_IndexData", content_type, params, raw_body, dict(request.headers),
+            client_ip=client_ip
         )
         result = response.json()
     except Exception as e:
@@ -514,7 +522,8 @@ async def proxy_rpc(path: str, request: Request):
     
     try:
         response = await forward_request(
-            request.method, path, content_type, params, raw_body, dict(request.headers)
+            request.method, path, content_type, params, raw_body, dict(request.headers),
+            client_ip=client_ip
         )
         try:
             result = response.json()
