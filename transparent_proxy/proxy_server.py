@@ -3920,6 +3920,23 @@ async def admin_sub_admin_set_monitoring(request: Request):
 
 # --- 订阅组管理 ---
 
+@app.get("/admin/api/nodes")
+async def admin_get_nodes(request: Request):
+    """获取节点列表（含group_id）"""
+    token = request.headers.get('Authorization', '').replace('Bearer ', '')
+    
+    if not await verify_admin_token(token):
+        return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
+    
+    try:
+        import singbox_manager as sbm
+        nodes = sbm.load_saved_nodes()
+        return {"success": True, "nodes": nodes}
+    except Exception as e:
+        logger.error(f"[Nodes] 获取节点列表失败: {e}")
+        return {"success": False, "message": f"获取失败: {str(e)}", "nodes": []}
+
+
 @app.get("/admin/api/subscription_groups")
 async def admin_get_subscription_groups(request: Request):
     """获取订阅组列表"""
