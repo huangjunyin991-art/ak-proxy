@@ -1569,10 +1569,28 @@ async def api_dispatcher_apply_sub(request: Request):
     ip_map = {}  # {ip: (node, port, idx)}
 
     async def get_exit_ip(node, port, idx):
+        IP_SERVICES = [
+            "http://ip.3322.net",
+            "http://members.3322.org/dyndns/getip",
+            "https://api.ip.sb/ip",
+            "https://ifconfig.me/ip",
+            "https://icanhazip.com",
+        ]
         try:
             async with httpx.AsyncClient(proxy=f"socks5://127.0.0.1:{port}", timeout=15) as client:
-                r = await client.get("https://api4.ipify.org")  # IPv4专用端点
-                return (node, port, idx, r.text.strip() if r.status_code == 200 else None)
+                for svc in IP_SERVICES:
+                    try:
+                        r = await client.get(svc, timeout=8)
+                        if r.status_code == 200:
+                            ip = r.text.strip()
+                            # httpbin返回JSON格式，需要解析
+                            if "origin" in ip:
+                                import json as _json
+                                ip = _json.loads(ip).get("origin", "").split(",")[0].strip()
+                            return (node, port, idx, ip)
+                    except:
+                        continue
+            return (node, port, idx, None)
         except Exception as e:
             logger.warning(f"[Dispatcher] 节点{node.get('name','')} (端口{port}) IP检测失败: {e}")
             return (node, port, idx, None)
