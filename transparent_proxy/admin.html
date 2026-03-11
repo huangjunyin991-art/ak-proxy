@@ -2148,6 +2148,34 @@
                             <span id="subAdminCount" style="font-size: 12px; color: var(--text-secondary); font-weight: normal;">（仅系统总管理可操作）</span>
                         </h4>
                         
+                        <!-- 在线监控全局开关 -->
+                        <div style="background: linear-gradient(135deg, #1a237e, #283593); border-radius: 10px; padding: 15px; margin-bottom: 20px; 
+                                    border: 2px solid #5c6bc0; box-shadow: 0 4px 12px rgba(92,107,192,0.3);">
+                            <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px;">
+                                <div style="display: flex; align-items: center; gap: 12px;">
+                                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#5c6bc0" stroke-width="2">
+                                        <circle cx="12" cy="12" r="3"/><path d="M12 1v6m0 6v6M5.64 5.64l4.24 4.24m4.24 4.24l4.24 4.24M1 12h6m6 0h6M5.64 18.36l4.24-4.24m4.24-4.24l4.24-4.24"/>
+                                    </svg>
+                                    <div>
+                                        <div style="font-size: 15px; font-weight: bold; color: #fff; margin-bottom: 4px;">子管理员在线状态监控</div>
+                                        <div style="font-size: 12px; color: rgba(255,255,255,0.7);" id="monitoringStatusDesc">当前所有在线监控功能都需要子管理员发送心跳上报在线状态</div>
+                                    </div>
+                                </div>
+                                <div style="display: flex; align-items: center; gap: 10px;">
+                                    <span id="monitoringStatusText" style="font-size: 13px; padding: 5px 12px; border-radius: 20px; 
+                                                                             background: rgba(76,175,80,0.2); color: #4caf50; font-weight: bold;">
+                                        已开启
+                                    </span>
+                                    <button id="toggleMonitoringBtn" onclick="toggleSubAdminMonitoring()" 
+                                            style="padding: 8px 20px; background: linear-gradient(135deg, #ef5350, #e53935); 
+                                                   color: white; border: none; border-radius: 8px; cursor: pointer; 
+                                                   font-weight: bold; font-size: 13px; transition: all 0.3s; box-shadow: 0 2px 8px rgba(239,83,80,0.4);">
+                                        关闭
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        
                         <!-- 子管理员列表 -->
                         <div id="subAdminList" style="margin-bottom: 15px; max-height: 320px; overflow-y: auto;">
                             <span style="color: var(--text-secondary);">加载中...</span>
@@ -2853,7 +2881,7 @@
             const wsUrl = `${protocol}//${window.location.host}/admin/ws`;
             ws = new WebSocket(wsUrl);
             
-            ws.onopen = () => {
+            ws.onopen = async () => {
                 document.getElementById('statusDot').classList.add('connected');
                 document.getElementById('statusText').textContent = '已连接';
                 // 发送身份认证
@@ -2861,21 +2889,44 @@
                 if (token) {
                     ws.send(JSON.stringify({ type: 'auth', token: token }));
                 }
-                // 启动心跳（每10秒）
+                
+                // 心跳逻辑：根据角色和配置决定
                 if (window._adminHeartbeat) clearInterval(window._adminHeartbeat);
-                window._adminHeartbeat = setInterval(() => {
-                    if (ws && ws.readyState === WebSocket.OPEN) {
-                        ws.send(JSON.stringify({ type: 'heartbeat' }));
+                
+                // 检查是否需要发送心跳
+                let shouldSendHeartbeat = false;
+                
+                if (currentUserRole === 'sub_admin') {
+                    // 子管理员：查询监控开关状态
+                    try {
+                        const res = await fetch(`${API_BASE}/admin/api/sub_admin/monitoring_status`, {
+                            headers: getHeaders()
+                        });
+                        const data = await res.json();
+                        shouldSendHeartbeat = data.success && data.enabled;
+                        console.log(`[WebSocket] 子管理员心跳: ${shouldSendHeartbeat ? '已启用' : '已禁用'}`);
+                    } catch (e) {
+                        console.error('[WebSocket] 查询监控状态失败:', e);
                     }
-                }, 10000);
+                }
+                // 总管理员不发送心跳
+                
+                // 如果需要发送心跳，启动定时器
+                if (shouldSendHeartbeat) {
+                    window._adminHeartbeat = setInterval(() => {
+                        if (ws && ws.readyState === WebSocket.OPEN) {
+                            ws.send(JSON.stringify({ type: 'heartbeat' }));
+                        }
+                    }, 10000); // 每10秒发送一次心跳
+                }
             };
             
             ws.onclose = () => {
                 document.getElementById('statusDot').classList.remove('connected');
                 document.getElementById('statusText').textContent = '已断开';
                 if (window._adminHeartbeat) { clearInterval(window._adminHeartbeat); window._adminHeartbeat = null; }
-                // 重连
-                setTimeout(initWebSocket, 3000);
+                // 重连（30秒间隔，减少日志）
+                setTimeout(initWebSocket, 30000);
             };
             
             ws.onmessage = (event) => {
@@ -3704,11 +3755,81 @@
         // ===== 子管理员管理 =====
         
         let subAdminStatusTimer = null;
+        let monitoringEnabled = true; // 在线监控开关状态
+        
+        // 加载在线监控开关状态
+        async function loadSubAdminMonitoringStatus() {
+            if (!isSuperAdmin()) return;
+            
+            try {
+                const res = await fetch(`${API_BASE}/admin/api/sub_admin/monitoring_status`, {
+                    headers: getHeaders()
+                });
+                const data = await res.json();
+                if (data.success) {
+                    monitoringEnabled = data.enabled;
+                    updateMonitoringUI(data.enabled);
+                }
+            } catch (e) {
+                console.error('加载在线监控状态失败:', e);
+            }
+        }
+        
+        // 更新在线监控UI
+        function updateMonitoringUI(enabled) {
+            const statusText = document.getElementById('monitoringStatusText');
+            const toggleBtn = document.getElementById('toggleMonitoringBtn');
+            
+            if (enabled) {
+                statusText.textContent = '已开启';
+                statusText.style.background = 'rgba(76,175,80,0.2)';
+                statusText.style.color = '#4caf50';
+                toggleBtn.textContent = '关闭';
+                toggleBtn.style.background = 'linear-gradient(135deg, #ef5350, #e53935)';
+            } else {
+                statusText.textContent = '已关闭';
+                statusText.style.background = 'rgba(158,158,158,0.2)';
+                statusText.style.color = '#9e9e9e';
+                toggleBtn.textContent = '开启';
+                toggleBtn.style.background = 'linear-gradient(135deg, #66bb6a, #4caf50)';
+            }
+        }
+        
+        // 切换在线监控开关
+        async function toggleSubAdminMonitoring() {
+            const newStatus = !monitoringEnabled;
+            const action = newStatus ? '开启' : '关闭';
+            const warning = newStatus 
+                ? '开启后，所有子管理员都需要定期发送心跳上报在线状态。\n\n确定要开启在线监控吗？'
+                : '⚠️ 关闭后，将无法监控子管理员的在线状态。\n\n确定要关闭在线监控吗？';
+            
+            if (!await showConfirm('确认操作', warning)) return;
+            
+            try {
+                const res = await fetch(`${API_BASE}/admin/api/sub_admin/set_monitoring`, {
+                    method: 'POST',
+                    headers: {...getHeaders(), 'Content-Type': 'application/json'},
+                    body: JSON.stringify({enabled: newStatus})
+                });
+                const data = await res.json();
+                if (data.success) {
+                    monitoringEnabled = data.enabled;
+                    updateMonitoringUI(data.enabled);
+                    showToast(data.message, 'success');
+                } else {
+                    showToast(data.message || '设置失败', 'error');
+                }
+            } catch (e) {
+                console.error('切换在线监控失败:', e);
+                showToast('操作失败: ' + e.message, 'error');
+            }
+        }
         
         // 启动子管理员状态定时刷新
         function startSubAdminStatusRefresh() {
             if (!isSuperAdmin()) return;
             stopSubAdminStatusRefresh();
+            loadSubAdminMonitoringStatus(); // 加载监控开关状态
             subAdminStatusTimer = setInterval(loadSubAdminStatus, 10000);
         }
         

@@ -1599,6 +1599,20 @@ async def get_whitelist_global_status() -> bool:
     return await system_config.get('whitelist_open_to_all', False)
 
 
+async def get_sub_admin_monitoring_status() -> bool:
+    """获取子管理员在线监控开关状态"""
+    return await system_config.get('sub_admin_online_monitoring_enabled', True)
+
+
+async def set_sub_admin_monitoring_status(enabled: bool) -> bool:
+    """设置子管理员在线监控开关状态"""
+    return await system_config.set(
+        'sub_admin_online_monitoring_enabled', 
+        enabled,
+        '子管理员在线状态监控：开启后子管理员需定期发送心跳上报在线状态'
+    )
+
+
 async def set_whitelist_global_status(enabled: bool) -> bool:
     """设置全体白名单开关状态"""
     description = '全体白名单：开启后所有人可登录AK服务器，关闭后仅白名单用户可登录'

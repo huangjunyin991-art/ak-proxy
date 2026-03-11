@@ -3824,11 +3824,58 @@ async def admin_whitelist_set_global(request: Request):
         return {"success": False, "message": f"设置失败: {str(e)}"}
 
 
+# --- 子管理员在线监控 ---
 
+@app.get("/admin/api/sub_admin/monitoring_status")
+async def admin_sub_admin_monitoring_status(request: Request):
+    """获取子管理员在线监控开关状态"""
+    token = request.headers.get('Authorization', '').replace('Bearer ', '')
+    
+    if not await verify_admin_token(token):
+        return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
+    
+    try:
+        enabled = await db.get_sub_admin_monitoring_status()
+        return {
+            "success": True,
+            "enabled": enabled,
+            "description": "子管理员在线状态监控：开启后子管理员需定期发送心跳上报在线状态"
+        }
+    except Exception as e:
+        logger.error(f"[SubAdmin] 获取在线监控开关失败: {e}")
+        return {"success": False, "message": f"获取失败: {str(e)}"}
+
+
+@app.post("/admin/api/sub_admin/set_monitoring")
+async def admin_sub_admin_set_monitoring(request: Request):
+    """设置子管理员在线监控开关（仅系统总管理员）"""
+    token = request.headers.get('Authorization', '').replace('Bearer ', '')
+    
+    # 验证是否为系统总管理员
+    user_info = await verify_admin_token(token)
+    if not user_info or user_info.get('role') != 'super_admin':
+        return JSONResponse(status_code=403, content={"error": True, "message": "仅系统总管理员可操作"})
+    
+    data = await request.json()
+    enabled = bool(data.get('enabled', False))
+    
+    try:
+        ok = await db.set_sub_admin_monitoring_status(enabled)
+        if ok:
+            status_text = "开启" if enabled else "关闭"
+            logger.info(f"[SubAdmin] 在线监控已{status_text}")
+            return {
+                "success": True,
+                "enabled": enabled,
+                "message": f"子管理员在线监控已{status_text}"
+            }
+        return {"success": False, "message": "设置失败"}
+    except Exception as e:
+        logger.error(f"[SubAdmin] 设置在线监控开关失败: {e}")
+        return {"success": False, "message": f"设置失败: {str(e)}"}
 
 
 # --- 积分管理 ---
-
 
 
 @app.get("/admin/api/credits/config")
@@ -4054,9 +4101,14 @@ async def admin_websocket(websocket: WebSocket):
                         ws_manager.register_sub_admin(sub_name, websocket)
 
                 elif msg_type == 'heartbeat':
-
-                    if sub_name:
-
+                    # 心跳响应
+                    await websocket.send_json({'type': 'pong'})
+                    
+                    # 检查是否启用在线监控
+                    monitoring_enabled = await db.get_sub_admin_monitoring_status()
+                    
+                    # 只有开启监控且是子管理员时才记录在线状态
+                    if monitoring_enabled and sub_name and sub_name != '__super__':
                         ws_manager.heartbeat_sub_admin(sub_name)
 
             except Exception:
