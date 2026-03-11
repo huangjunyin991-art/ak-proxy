@@ -3937,6 +3937,8 @@ async def admin_credits_transactions(request: Request, admin_name: str = None,
 
 async def admin_websocket(websocket: WebSocket):
 
+    logger.info(f"[WebSocket] 新连接建立: {websocket.client}")
+    
     await ws_manager.connect(websocket)
 
     sub_name = None
