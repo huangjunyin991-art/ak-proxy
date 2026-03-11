@@ -6133,7 +6133,7 @@
             if (lbRealtimeTimer) { clearInterval(lbRealtimeTimer); lbRealtimeTimer = null; }
         }
         
-        // 实时更新登录冷却进度条
+        // 实时更新登录冷却进度条（渐变淡出效果）
         function updateLoginCooldownRealtime() {
             if (!lbData || !lbData.exits) return;
             
@@ -6144,20 +6144,29 @@
                 const timestamps = cd.timestamps || [];
                 const window = cd.window || 60;
                 
-                // 过滤60秒内的时间戳
-                const validTimestamps = timestamps.filter(t => (now - t) < window);
+                // 过滤60秒内的时间戳，并按时间从新到老排序
+                const validTimestamps = timestamps
+                    .filter(t => (now - t) < window)
+                    .sort((a, b) => b - a); // 降序，最新的在前
+                
                 const currentUsed = validTimestamps.length;
                 
-                // 更新进度条DOM
+                // 更新进度条DOM - 渐变淡出效果
                 const container = document.querySelector(`#lbExitCards > div:nth-child(${index + 1}) .login-cooldown-segments`);
                 if (container) {
                     const segments = container.querySelectorAll('.cooldown-segment');
                     segments.forEach((seg, i) => {
-                        const isActive = i < currentUsed;
-                        if (isActive) {
-                            const segmentColor = i < 3 ? '#00ff88' : i < 7 ? '#ffa502' : '#ff4757';
-                            seg.style.background = segmentColor;
+                        if (i < currentUsed) {
+                            // 有对应的时间戳，计算年龄和透明度
+                            const timestamp = validTimestamps[i];
+                            const age = now - timestamp; // 秒
+                            const opacity = Math.max(0.3, 1 - (age / window)); // 0.3-1.0，越新越亮
+                            
+                            // 基础颜色
+                            const baseColor = i < 3 ? '0,255,136' : i < 7 ? '255,165,2' : '255,71,87';
+                            seg.style.background = `rgba(${baseColor}, ${opacity})`;
                         } else {
+                            // 空闲段
                             seg.style.background = 'rgba(255,255,255,0.1)';
                         }
                     });
@@ -6165,7 +6174,7 @@
                 
                 // 更新文字显示
                 const textEl = document.querySelector(`#lbExitCards > div:nth-child(${index + 1}) .cooldown-text`);
-                if (textEl && currentUsed !== cd.used) {
+                if (textEl) {
                     const cdMax = cd.max || 10;
                     const cdRemaining = Math.max(0, cdMax - currentUsed);
                     const cdColor = currentUsed >= cdMax ? '#ff4757' : currentUsed >= 7 ? '#ffa502' : '#00ff88';
