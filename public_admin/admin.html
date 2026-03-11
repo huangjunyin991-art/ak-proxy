@@ -5502,14 +5502,22 @@
                 <div style="background:var(--bg-card);border-radius:12px;max-width:680px;width:95%;max-height:85vh;border:1px solid var(--border);display:flex;flex-direction:column;">
                     <h3 style="padding:18px 22px 14px;margin:0;color:var(--accent);border-bottom:1px solid var(--border);flex-shrink:0;">📡 导入VPN订阅</h3>
                     <div style="padding:14px 22px;overflow-y:auto;flex:1;" id="lbSubBody">
-                        <div style="margin-bottom:10px;">
+                        <div style="display:flex;gap:10px;margin-bottom:12px;border-bottom:1px solid var(--border);">
+                            <button onclick="switchSubInputTab('url')" id="subTabUrl" class="sub-input-tab active" style="padding:8px 16px;background:none;border:none;color:var(--text-secondary);cursor:pointer;border-bottom:2px solid transparent;">订阅链接</button>
+                            <button onclick="switchSubInputTab('text')" id="subTabText" class="sub-input-tab" style="padding:8px 16px;background:none;border:none;color:var(--text-secondary);cursor:pointer;border-bottom:2px solid transparent;">订阅内容</button>
+                            <button onclick="switchSubInputTab('json')" id="subTabJson" class="sub-input-tab" style="padding:8px 16px;background:none;border:none;color:var(--text-secondary);cursor:pointer;border-bottom:2px solid transparent;">JSON配置</button>
+                        </div>
+                        <div id="subInputUrl" class="sub-input-panel" style="margin-bottom:10px;">
                             <label style="display:block;margin-bottom:4px;color:var(--text-secondary);font-size:13px;">订阅链接 (自动获取并解析)</label>
                             <input type="text" id="lbSubUrl" placeholder="https://example.com/sub?token=xxx" style="width:100%;padding:8px 10px;background:var(--bg-primary);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);">
                         </div>
-                        <div style="text-align:center;color:var(--text-secondary);font-size:12px;margin:6px 0;">—— 或 ——</div>
-                        <div style="margin-bottom:10px;">
+                        <div id="subInputText" class="sub-input-panel" style="margin-bottom:10px;display:none;">
                             <label style="display:block;margin-bottom:4px;color:var(--text-secondary);font-size:13px;">订阅内容 (粘贴Clash YAML / Base64 / SS链接)</label>
                             <textarea id="lbSubText" rows="4" placeholder="粘贴订阅内容..." style="width:100%;padding:8px 10px;background:var(--bg-primary);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-family:monospace;font-size:12px;resize:vertical;"></textarea>
+                        </div>
+                        <div id="subInputJson" class="sub-input-panel" style="margin-bottom:10px;display:none;">
+                            <label style="display:block;margin-bottom:4px;color:var(--text-secondary);font-size:13px;">JSON配置 (粘贴sing-box配置)</label>
+                            <textarea id="lbSubJson" rows="6" placeholder='{\n  "outbounds": [\n    {"type": "vless", "tag": "节点1", ...},\n    ...\n  ]\n}' style="width:100%;padding:8px 10px;background:var(--bg-primary);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-family:monospace;font-size:11px;resize:vertical;"></textarea>
                         </div>
                         <div id="lbSubResult" style="display:none;"></div>
                     </div>
@@ -5529,12 +5537,29 @@
             if (m) m.remove();
         }
 
+        function switchSubInputTab(tab) {
+            ['url', 'text', 'json'].forEach(t => {
+                document.getElementById('subTab' + t.charAt(0).toUpperCase() + t.slice(1)).classList.toggle('active', t === tab);
+                document.getElementById('subInput' + t.charAt(0).toUpperCase() + t.slice(1)).style.display = t === tab ? 'block' : 'none';
+            });
+            document.querySelectorAll('.sub-input-tab').forEach(btn => {
+                if (btn.id === 'subTab' + tab.charAt(0).toUpperCase() + tab.slice(1)) {
+                    btn.style.color = 'var(--accent)';
+                    btn.style.borderBottomColor = 'var(--accent)';
+                } else {
+                    btn.style.color = 'var(--text-secondary)';
+                    btn.style.borderBottomColor = 'transparent';
+                }
+            });
+        }
+
         async function lbSubAction() {
             if (window._lbSubStep === 'parse') {
                 // 第一步: 解析
                 const url = document.getElementById('lbSubUrl').value.trim();
                 const text = document.getElementById('lbSubText').value.trim();
-                if (!url && !text) { showToast('请输入订阅链接或内容', 'error'); return; }
+                const json = document.getElementById('lbSubJson').value.trim();
+                if (!url && !text && !json) { showToast('请输入订阅链接、内容或JSON配置', 'error'); return; }
                 const resultEl = document.getElementById('lbSubResult');
                 const btn = document.getElementById('lbSubActionBtn');
                 resultEl.style.display = 'block';
@@ -5544,7 +5569,7 @@
                 try {
                     const res = await fetch(`${API_BASE}/api/dispatcher/parse_sub`, {
                         method: 'POST', headers: {'Content-Type': 'application/json'},
-                        body: JSON.stringify({url, text})
+                        body: JSON.stringify({url, text, json})
                     });
                     const data = await res.json();
                     if (data.error) {

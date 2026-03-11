@@ -1275,15 +1275,18 @@ async def api_dispatcher_exit_logs(index: int):
 
 async def api_dispatcher_parse_sub(request: Request):
 
-    """解析订阅: 支持URL自动获取或直接传入文本"""
+    """解析订阅: 支持URL自动获取、文本解析或JSON配置提取"""
 
     from sub_parser import fetch_subscription, parse_subscription_text
+    import json as json_lib
 
     data = await request.json()
 
     url = data.get("url", "").strip()
 
     text = data.get("text", "").strip()
+    
+    json_config = data.get("json", "").strip()
 
 
 
@@ -1294,10 +1297,72 @@ async def api_dispatcher_parse_sub(request: Request):
     elif text:
 
         result = parse_subscription_text(text)
+    
+    elif json_config:
+        # 从JSON配置中提取节点
+        try:
+            config = json_lib.loads(json_config)
+            outbounds = config.get("outbounds", [])
+            
+            nodes = []
+            servers = {}
+            regions = {}
+            
+            for ob in outbounds:
+                if ob.get("type") in ["vless", "hysteria2", "vmess", "trojan", "shadowsocks", "ss"]:
+                    tag = ob.get("tag", "Unknown")
+                    server = ob.get("server", "")
+                    port = ob.get("server_port", 0)
+                    
+                    # 地区检测
+                    region_code = "UN"
+                    region_label = "未知"
+                    tag_lower = tag.lower()
+                    if "香港" in tag or "hk" in tag_lower or "hong" in tag_lower:
+                        region_code, region_label = "HK", "香港"
+                    elif "新加坡" in tag or "sg" in tag_lower or "singapore" in tag_lower:
+                        region_code, region_label = "SG", "新加坡"
+                    elif "日本" in tag or "jp" in tag_lower or "japan" in tag_lower:
+                        region_code, region_label = "JP", "日本"
+                    elif "美国" in tag or "us" in tag_lower or "america" in tag_lower:
+                        region_code, region_label = "US", "美国"
+                    elif "台湾" in tag or "tw" in tag_lower or "taiwan" in tag_lower:
+                        region_code, region_label = "TW", "台湾"
+                    
+                    node = {
+                        "name": tag,
+                        "type": ob.get("type"),
+                        "server": server,
+                        "port": port,
+                        "region_code": region_code,
+                        "region_label": region_label
+                    }
+                    nodes.append(node)
+                    
+                    # 按服务器分组
+                    if server not in servers:
+                        servers[server] = []
+                    servers[server].append(len(nodes) - 1)
+                    
+                    # 地区统计
+                    if region_code not in regions:
+                        regions[region_code] = {"label": region_label, "count": 0}
+                    regions[region_code]["count"] += 1
+            
+            result = {
+                "format": "singbox_json",
+                "node_count": len(nodes),
+                "unique_servers": len(servers),
+                "nodes": nodes,
+                "servers": servers,
+                "regions": regions
+            }
+        except Exception as e:
+            return {"error": f"JSON解析失败: {str(e)}"}
 
     else:
 
-        return {"error": "需要 url 或 text 参数"}
+        return {"error": "需要 url、text 或 json 参数"}
 
     return result
 
