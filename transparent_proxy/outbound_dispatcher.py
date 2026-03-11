@@ -524,10 +524,10 @@ class OutboundDispatcher:
                     await self._detect_exit_ip(ex)
             else:
                 raise Exception(f"HTTP {resp.status_code}")
-        except Exception:
+        except Exception as e:
             ex.healthy = False
             if was_healthy:
-                logger.warning(f"[Dispatcher] 出口离线: #{idx} {ex.name}")
+                logger.warning(f"[Dispatcher] 出口离线: #{idx} {ex.name} - 错误: {type(e).__name__}: {str(e)[:100]}")
 
     async def _detect_exit_ip(self, ex: OutboundExit):
         """通过外部服务检测出口的公网IP（复用持久连接）"""
