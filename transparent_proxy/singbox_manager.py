@@ -55,6 +55,13 @@ def save_nodes(nodes: list[dict]):
 
 def _make_outbound(node: dict, tag: str) -> dict:
     """根据节点信息生成 sing-box outbound 配置"""
+    # 优先使用 outbound_config 字段（完整的 sing-box 配置）
+    if "outbound_config" in node and isinstance(node["outbound_config"], dict):
+        ob = dict(node["outbound_config"])
+        ob["tag"] = tag  # 替换 tag
+        return ob
+    
+    # 回退到 raw 字段
     raw = node.get("raw", {})
     proto = raw.get("type", node.get("type", "")).lower()
     server = node.get("server", "")
