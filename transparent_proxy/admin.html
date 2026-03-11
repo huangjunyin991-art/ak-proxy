@@ -6275,15 +6275,11 @@
                     <div style="margin-top:4px;">
                         <div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:3px;">
                             <span style="color:var(--text-secondary);">登录冷却 (1分钟窗口)</span>
-                            <span class="cooldown-text" style="color:${cdColor};font-weight:bold;">${cdText}</span>
+                            <span class="cooldown-text" style="font-weight:bold;"></span>
                         </div>
                         <div class="login-cooldown-segments" style="display:flex;gap:2px;">
                             ${Array.from({length: 10}, (_, i) => {
-                                const isActive = i < cdUsed;
-                                const segmentColor = isActive 
-                                    ? (i < 3 ? '#00ff88' : i < 7 ? '#ffa502' : '#ff4757')
-                                    : 'rgba(255,255,255,0.1)';
-                                return `<div class="cooldown-segment" style="flex:1;height:8px;background:${segmentColor};border-radius:2px;transition:all 0.3s;"></div>`;
+                                return `<div class="cooldown-segment" style="flex:1;height:8px;background:rgba(255,255,255,0.1);border-radius:2px;transition:all 0.3s;"></div>`;
                             }).join('')}
                         </div>
                     </div>
