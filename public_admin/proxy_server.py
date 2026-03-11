@@ -1571,7 +1571,7 @@ async def api_dispatcher_apply_sub(request: Request):
     async def get_exit_ip(node, port, idx):
         try:
             async with httpx.AsyncClient(proxy=f"socks5://127.0.0.1:{port}", timeout=15) as client:
-                r = await client.get("https://api.ipify.org")
+                r = await client.get("https://api4.ipify.org")  # IPv4专用端点
                 return (node, port, idx, r.text.strip() if r.status_code == 200 else None)
         except Exception as e:
             logger.warning(f"[Dispatcher] 节点{node.get('name','')} (端口{port}) IP检测失败: {e}")
