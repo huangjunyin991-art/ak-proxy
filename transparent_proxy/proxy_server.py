@@ -3995,7 +3995,7 @@ async def admin_delete_subscription_group(group_id: str, request: Request):
             # 同时删除nodes.json中该组的节点
             import singbox_manager as sbm
             nodes = sbm.load_saved_nodes()
-            filtered_nodes = [n for n in nodes if n.get('group_id') != group_id]
+            filtered_nodes = [n for n in nodes if isinstance(n, dict) and n.get('group_id') != group_id]
             if len(filtered_nodes) < len(nodes):
                 sbm.save_nodes(filtered_nodes)
                 # 重新生成配置

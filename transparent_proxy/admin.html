@@ -5898,8 +5898,8 @@
                 const data = await res.json();
                 const nodes = data.nodes || [];
                 
-                // 筛选出属于该组的节点
-                const groupNodes = nodes.filter(n => n.group_id === groupId);
+                // 筛选出属于该组的节点（添加类型检查）
+                const groupNodes = nodes.filter(n => n && typeof n === 'object' && n.group_id === groupId);
                 
                 if (groupNodes.length === 0) {
                     container.innerHTML = '<div style="padding: 8px; color: var(--text-secondary); font-size: 11px;">该组暂无服务器</div>';
