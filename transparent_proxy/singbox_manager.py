@@ -164,14 +164,19 @@ def _make_outbound(node: dict, tag: str) -> dict:
 def generate_config(nodes: list[dict], base_port: int = 10001) -> dict:
     """
     根据节点列表生成完整的 sing-box 配置
-
+    
+    只为enabled=true的节点生成配置（支持订阅组动态启用/禁用）
     每个节点 → 1个 socks inbound (127.0.0.1:base_port+i) + 1个 outbound
     """
     inbounds = []
     outbounds = []
     route_rules = []
+    
+    # 过滤：只使用启用的节点
+    enabled_nodes = [n for n in nodes if n.get('enabled', True)]
+    logger.info(f"[SingBox] 配置生成：总节点{len(nodes)}个，启用{len(enabled_nodes)}个")
 
-    for i, node in enumerate(nodes):
+    for i, node in enumerate(enabled_nodes):
         port = base_port + i
         in_tag = f"socks-in-{i}"
         out_tag = f"proxy-out-{i}"

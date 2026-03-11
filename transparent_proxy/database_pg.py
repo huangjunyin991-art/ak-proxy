@@ -330,6 +330,21 @@ async def init_db(host: str = "127.0.0.1", port: int = 5432,
                 ('yearly', '年付', 1000, 365)
             ''')
 
+        # 订阅组表
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS subscription_groups (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                source_type TEXT DEFAULT 'url',
+                source_url TEXT DEFAULT '',
+                import_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                total_servers INTEGER DEFAULT 0,
+                active_servers INTEGER DEFAULT 0,
+                created_by TEXT DEFAULT 'admin',
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+
         # 创建索引
         await conn.execute('CREATE INDEX IF NOT EXISTS idx_login_username ON login_records(username)')
         await conn.execute('CREATE INDEX IF NOT EXISTS idx_login_ip ON login_records(ip_address)')
@@ -341,6 +356,7 @@ async def init_db(host: str = "127.0.0.1", port: int = 5432,
         await conn.execute('CREATE INDEX IF NOT EXISTS idx_auth_accounts_expire ON authorized_accounts(expire_time)')
         await conn.execute('CREATE INDEX IF NOT EXISTS idx_credit_tx_admin ON credit_transactions(admin_name)')
         await conn.execute('CREATE INDEX IF NOT EXISTS idx_credit_tx_time ON credit_transactions(created_at)')
+        await conn.execute('CREATE INDEX IF NOT EXISTS idx_sub_groups_created_by ON subscription_groups(created_by)')
 
     logger.info("PostgreSQL 数据库表和索引已就绪")
 
@@ -1617,3 +1633,74 @@ async def set_whitelist_global_status(enabled: bool) -> bool:
     """设置全体白名单开关状态"""
     description = '全体白名单：开启后所有人可登录AK服务器，关闭后仅白名单用户可登录'
     return await system_config.set('whitelist_open_to_all', enabled, description)
+
+
+# ===== 订阅组管理 =====
+
+async def create_subscription_group(group_id: str, name: str, source_type: str, source_url: str, 
+                                     total_servers: int, created_by: str = 'admin') -> bool:
+    """创建订阅组"""
+    pool = _get_pool()
+    async with pool.acquire() as conn:
+        try:
+            await conn.execute('''
+                INSERT INTO subscription_groups (id, name, source_type, source_url, total_servers, active_servers, created_by)
+                VALUES ($1, $2, $3, $4, $5, $5, $6)
+            ''', group_id, name, source_type, source_url, total_servers, created_by)
+            return True
+        except Exception as e:
+            logger.error(f"[DB] 创建订阅组失败: {e}")
+            return False
+
+
+async def get_subscription_groups(created_by: str = None) -> list[dict]:
+    """获取订阅组列表"""
+    pool = _get_pool()
+    async with pool.acquire() as conn:
+        if created_by:
+            rows = await conn.fetch('''
+                SELECT id, name, source_type, source_url, import_time, total_servers, active_servers, created_by
+                FROM subscription_groups WHERE created_by = $1 ORDER BY import_time DESC
+            ''', created_by)
+        else:
+            rows = await conn.fetch('''
+                SELECT id, name, source_type, source_url, import_time, total_servers, active_servers, created_by
+                FROM subscription_groups ORDER BY import_time DESC
+            ''')
+        return [dict(r) for r in rows]
+
+
+async def get_subscription_group(group_id: str) -> Optional[dict]:
+    """获取单个订阅组"""
+    pool = _get_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow('SELECT * FROM subscription_groups WHERE id = $1', group_id)
+        return dict(row) if row else None
+
+
+async def update_subscription_group_servers(group_id: str, total_servers: int, active_servers: int) -> bool:
+    """更新订阅组的服务器数量"""
+    pool = _get_pool()
+    async with pool.acquire() as conn:
+        try:
+            await conn.execute('''
+                UPDATE subscription_groups 
+                SET total_servers = $2, active_servers = $3, updated_at = CURRENT_TIMESTAMP
+                WHERE id = $1
+            ''', group_id, total_servers, active_servers)
+            return True
+        except Exception as e:
+            logger.error(f"[DB] 更新订阅组服务器数量失败: {e}")
+            return False
+
+
+async def delete_subscription_group(group_id: str) -> bool:
+    """删除订阅组"""
+    pool = _get_pool()
+    async with pool.acquire() as conn:
+        try:
+            await conn.execute('DELETE FROM subscription_groups WHERE id = $1', group_id)
+            return True
+        except Exception as e:
+            logger.error(f"[DB] 删除订阅组失败: {e}")
+            return False

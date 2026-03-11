@@ -1456,6 +1456,37 @@ async def api_dispatcher_apply_sub(request: Request):
         return {"success": False, "message": "筛选后无有效节点"}
 
 
+    # 2.5) 创建订阅组并为节点添加group_id和enabled字段
+    import uuid
+    import datetime
+    
+    group_id = f"sub_{uuid.uuid4().hex[:12]}"
+    source_type = 'url' if url else ('json' if data.get('json') else 'text')
+    source_url_val = url if url else ''
+    
+    # 生成订阅组名称
+    if url:
+        group_name = f"订阅导入 {datetime.datetime.now().strftime('%m-%d %H:%M')}"
+    else:
+        format_name = parsed.get('format', 'unknown')
+        group_name = f"{format_name}导入 {datetime.datetime.now().strftime('%m-%d %H:%M')}"
+    
+    # 为所有节点添加group_id和enabled字段
+    for node in nodes_to_add:
+        node['group_id'] = group_id
+        node['enabled'] = True  # 默认启用
+    
+    # 创建订阅组记录
+    await db.create_subscription_group(
+        group_id=group_id,
+        name=group_name,
+        source_type=source_type,
+        source_url=source_url_val,
+        total_servers=len(nodes_to_add),
+        created_by='admin'  # TODO: 从token获取实际用户
+    )
+    
+    logger.info(f"[SubGroup] 创建订阅组: {group_name} ({group_id}), {len(nodes_to_add)}个服务器")
 
     # 3) 生成 sing-box 配置 + 写盘 + 重载
 
@@ -3879,6 +3910,96 @@ async def admin_sub_admin_set_monitoring(request: Request):
     except Exception as e:
         logger.error(f"[SubAdmin] 设置在线监控开关失败: {e}")
         return {"success": False, "message": f"设置失败: {str(e)}"}
+
+
+# --- 订阅组管理 ---
+
+@app.get("/admin/api/subscription_groups")
+async def admin_get_subscription_groups(request: Request):
+    """获取订阅组列表"""
+    token = request.headers.get('Authorization', '').replace('Bearer ', '')
+    
+    user_info = await verify_admin_token(token)
+    if not user_info:
+        return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
+    
+    try:
+        # 子管理员只能看到自己创建的订阅组
+        created_by = None if user_info.get('role') == 'super_admin' else user_info.get('sub_name')
+        groups = await db.get_subscription_groups(created_by)
+        return {"success": True, "groups": groups}
+    except Exception as e:
+        logger.error(f"[SubGroup] 获取订阅组列表失败: {e}")
+        return {"success": False, "message": f"获取失败: {str(e)}"}
+
+
+@app.delete("/admin/api/subscription_groups/{group_id}")
+async def admin_delete_subscription_group(group_id: str, request: Request):
+    """删除订阅组"""
+    token = request.headers.get('Authorization', '').replace('Bearer ', '')
+    
+    if not await verify_admin_token(token):
+        return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
+    
+    try:
+        # 删除订阅组
+        ok = await db.delete_subscription_group(group_id)
+        if ok:
+            # 同时删除nodes.json中该组的节点
+            import singbox_manager as sbm
+            nodes = sbm.load_saved_nodes()
+            filtered_nodes = [n for n in nodes if n.get('group_id') != group_id]
+            if len(filtered_nodes) < len(nodes):
+                sbm.save_nodes(filtered_nodes)
+                # 重新生成配置
+                config = sbm.generate_config(filtered_nodes)
+                sbm.write_config(config)
+                sbm.reload_service()
+            
+            return {"success": True, "message": f"订阅组已删除"}
+        return {"success": False, "message": "删除失败"}
+    except Exception as e:
+        logger.error(f"[SubGroup] 删除订阅组失败: {e}")
+        return {"success": False, "message": f"删除失败: {str(e)}"}
+
+
+@app.post("/admin/api/subscription_groups/{group_id}/toggle_server")
+async def admin_toggle_server(group_id: str, request: Request):
+    """切换服务器启用/禁用状态"""
+    token = request.headers.get('Authorization', '').replace('Bearer ', '')
+    
+    if not await verify_admin_token(token):
+        return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
+    
+    data = await request.json()
+    server_index = data.get('server_index', -1)
+    enabled = bool(data.get('enabled', True))
+    
+    try:
+        import singbox_manager as sbm
+        nodes = sbm.load_saved_nodes()
+        
+        # 找到该组的节点并切换状态
+        group_nodes = [i for i, n in enumerate(nodes) if n.get('group_id') == group_id]
+        if 0 <= server_index < len(group_nodes):
+            node_idx = group_nodes[server_index]
+            nodes[node_idx]['enabled'] = enabled
+            sbm.save_nodes(nodes)
+            
+            # 更新订阅组统计
+            active_count = sum(1 for i in group_nodes if nodes[i].get('enabled', True))
+            await db.update_subscription_group_servers(group_id, len(group_nodes), active_count)
+            
+            # 重新生成配置
+            config = sbm.generate_config(nodes)
+            sbm.write_config(config)
+            sbm.reload_service()
+            
+            return {"success": True, "message": f"服务器已{'启用' if enabled else '禁用'}"}
+        return {"success": False, "message": "服务器索引无效"}
+    except Exception as e:
+        logger.error(f"[SubGroup] 切换服务器状态失败: {e}")
+        return {"success": False, "message": f"操作失败: {str(e)}"}
 
 
 # --- 积分管理 ---
