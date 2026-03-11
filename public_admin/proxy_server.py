@@ -1515,10 +1515,11 @@ async def api_dispatcher_apply_sub(request: Request):
 
     async def get_exit_ip(node, port, idx):
         try:
-            async with httpx.AsyncClient(proxy=f"socks5://127.0.0.1:{port}", timeout=10) as client:
+            async with httpx.AsyncClient(proxy=f"socks5://127.0.0.1:{port}", timeout=15) as client:
                 r = await client.get("https://ipinfo.io/ip")
                 return (node, port, idx, r.text.strip() if r.status_code == 200 else None)
-        except:
+        except Exception as e:
+            logger.warning(f"[Dispatcher] 节点{node.get('name','')} (端口{port}) IP检测失败: {e}")
             return (node, port, idx, None)
 
     results = await asyncio.gather(*[get_exit_ip(n, base_port+i, i) for i, n in enumerate(nodes_to_add)])
