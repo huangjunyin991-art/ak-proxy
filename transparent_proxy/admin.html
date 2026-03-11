@@ -4262,7 +4262,10 @@
                     if (panelId === 'users') loadBanlist().then(() => loadUsers());
                     if (panelId === 'ips') loadIPs();
                     if (panelId === 'banlist') loadBanlist();
-                    if (panelId === 'whitelist') loadWhitelist();
+                    if (panelId === 'whitelist') {
+                        loadWhitelistGlobalStatus(); // 每次切换都刷新全局状态
+                        loadWhitelist();
+                    }
                     if (panelId === 'credits') loadCreditsPage();
                     if (panelId === 'license') {
                         loadLicenseStats();
