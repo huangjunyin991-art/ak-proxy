@@ -125,11 +125,19 @@ for line in lines:
     if line.startswith('vless://'):
         outbound = parse_vless(line)
         if outbound:
+            # 过滤订阅信息节点（不是真实VPN节点）
+            tag = outbound.get('tag', '')
+            if '剩余流量' in tag or '套餐到期' in tag or '过期时间' in tag:
+                continue
             outbounds.append(outbound)
             outbound_tags.append(outbound['tag'])
     elif line.startswith('hysteria2://'):
         outbound = parse_hysteria2(line)
         if outbound:
+            # 过滤订阅信息节点
+            tag = outbound.get('tag', '')
+            if '剩余流量' in tag or '套餐到期' in tag or '过期时间' in tag:
+                continue
             outbounds.append(outbound)
             outbound_tags.append(outbound['tag'])
 
