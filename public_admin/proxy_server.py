@@ -310,17 +310,12 @@ async def _restore_dispatcher_exits():
         with open(config_file, "r", encoding="utf-8") as f:
             exits_config = json.load(f)
         
-        ip_map = exits_config.get("ip_map", {})
+        nodes_to_restore = exits_config.get("nodes", [])
         base_port = exits_config.get("base_port", 10001)
         
-        if not ip_map:
+        if not nodes_to_restore:
             logger.info("[Dispatcher] 节点配置为空，跳过恢复")
             return
-        
-        # 重建节点列表用于sing-box配置生成
-        nodes_to_restore = []
-        for ip, data in ip_map.items():
-            nodes_to_restore.append(data["node"])
         
         # 生成sing-box配置并重载
         import singbox_manager as sbm
@@ -338,15 +333,12 @@ async def _restore_dispatcher_exits():
             dispatcher.exits.pop()
         
         # 注册节点到dispatcher
-        restored_count = 0
-        for ip, data in ip_map.items():
-            node = data["node"]
-            port = data["port"]
-            name = node.get("display_name", node.get("name", f"IP:{ip}"))
+        for i, node in enumerate(nodes_to_restore):
+            port = base_port + i
+            name = node.get("display_name", node.get("name", f"node_{i}"))
             dispatcher.add_socks5(name, port)
-            restored_count += 1
         
-        logger.info(f"[Dispatcher] 已自动恢复 {restored_count} 个节点配置")
+        logger.info(f"[Dispatcher] 已自动恢复 {len(nodes_to_restore)} 个节点配置")
         
     except Exception as e:
         logger.warning(f"[Dispatcher] 恢复节点配置失败: {e}")
@@ -1558,53 +1550,9 @@ async def api_dispatcher_apply_sub(request: Request):
 
     apply_result = sbm.apply_nodes(nodes_to_add, base_port)
 
-    if not apply_result["success"]:
-        return apply_result
 
-    # 等待sing-box启动
-    await asyncio.sleep(2)
 
-    # 4) 检测出口IP并去重
-    logger.info(f"[Dispatcher] 检测 {len(nodes_to_add)} 个节点的出口IP...")
-    ip_map = {}  # {ip: (node, port, idx)}
-
-    async def get_exit_ip(node, port, idx):
-        IP_SERVICES = [
-            "http://ip.3322.net",
-            "http://members.3322.org/dyndns/getip",
-            "https://api.ip.sb/ip",
-            "https://ifconfig.me/ip",
-            "https://icanhazip.com",
-        ]
-        try:
-            async with httpx.AsyncClient(proxy=f"socks5://127.0.0.1:{port}", timeout=15) as client:
-                for svc in IP_SERVICES:
-                    try:
-                        r = await client.get(svc, timeout=8)
-                        if r.status_code == 200:
-                            ip = r.text.strip()
-                            # httpbin返回JSON格式，需要解析
-                            if "origin" in ip:
-                                import json as _json
-                                ip = _json.loads(ip).get("origin", "").split(",")[0].strip()
-                            return (node, port, idx, ip)
-                    except:
-                        continue
-            return (node, port, idx, None)
-        except Exception as e:
-            logger.warning(f"[Dispatcher] 节点{node.get('name','')} (端口{port}) IP检测失败: {e}")
-            return (node, port, idx, None)
-
-    results = await asyncio.gather(*[get_exit_ip(n, base_port+i, i) for i, n in enumerate(nodes_to_add)])
-
-    for node, port, idx, ip in results:
-        if ip and ip not in ip_map:
-            ip_map[ip] = (node, port, idx)
-            logger.info(f"[Dispatcher] 唯一IP: {ip} <- {node.get('name','')}")
-
-    logger.info(f"[Dispatcher] 去重后: {len(ip_map)} 个唯一IP (原{len(nodes_to_add)}节点)")
-
-    # 5) 清除旧的隧道出口 (保留#0直连)，注册新出口到 dispatcher
+    # 4) 清除旧的隧道出口 (保留#0直连)，注册新出口到 dispatcher
 
     while len(dispatcher.exits) > 1:
 
@@ -1614,22 +1562,25 @@ async def api_dispatcher_apply_sub(request: Request):
 
     added_exits = []
 
-    for ip, (node, port, _) in ip_map.items():
+    for i, node in enumerate(nodes_to_add):
 
-        name = node.get("display_name", node.get("name", f"IP:{ip}"))
+        port = base_port + i
+
+        name = node.get("display_name", node.get("name", f"node_{i}"))
 
         idx = dispatcher.add_socks5(name, port)
 
-        added_exits.append({"index": idx, "name": name, "port": port, "exit_ip": ip})
+        added_exits.append({"index": idx, "name": name, "port": port})
 
 
 
-    logger.info(f"[Dispatcher] 订阅热重载完成: {len(added_exits)} 个唯一IP出口已注册")
+    logger.info(f"[Dispatcher] 订阅热重载完成: {len(added_exits)} 个出口已注册")
 
+    
     # 持久化节点配置，重启自动恢复
     try:
         exits_config = {
-            "ip_map": {ip: {"node": node, "port": port, "idx": idx} for ip, (node, port, idx) in ip_map.items()},
+            "nodes": nodes_to_add,
             "base_port": base_port,
             "timestamp": time.time()
         }
@@ -1642,15 +1593,13 @@ async def api_dispatcher_apply_sub(request: Request):
 
     return {
 
-        "success": True,
+        "success": apply_result["success"],
 
-        "message": f"成功应用 {len(added_exits)} 个唯一IP出口 (原{len(nodes_to_add)}节点)",
+        "message": apply_result["message"],
 
-        "singbox_reload": True,
+        "singbox_reload": apply_result["success"],
 
         "nodes_count": len(nodes_to_add),
-
-        "unique_ips": len(added_exits),
 
         "exits_added": added_exits,
 
