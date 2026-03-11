@@ -1393,6 +1393,10 @@ async def api_dispatcher_apply_sub(request: Request):
     url = data.get("url", "").strip()
 
     text = data.get("text", "").strip()
+    
+    nodes = data.get("nodes")  # 直接传入的节点列表（来自JSON解析）
+    
+    servers_dict = data.get("servers")  # 服务器分组
 
     selected_servers = data.get("selected_servers", [])  # [{server, name}]
 
@@ -1400,7 +1404,7 @@ async def api_dispatcher_apply_sub(request: Request):
 
 
 
-    # 1) 解析订阅
+    # 1) 解析订阅或使用已解析的节点
 
     if url:
 
@@ -1409,10 +1413,18 @@ async def api_dispatcher_apply_sub(request: Request):
     elif text:
 
         parsed = parse_subscription_text(text)
+    
+    elif nodes and servers_dict:
+        # 使用前端已解析的节点（来自JSON配置）
+        parsed = {
+            "nodes": nodes,
+            "servers": servers_dict,
+            "format": data.get("format", "direct")
+        }
 
     else:
 
-        return {"success": False, "message": "需要 url 或 text 参数"}
+        return {"success": False, "message": "需要 url、text 或 nodes 参数"}
 
 
 

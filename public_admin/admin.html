@@ -5579,6 +5579,8 @@
                         return;
                     }
                     renderSubResult(data, resultEl);
+                    // 保存解析结果供后续应用使用
+                    window._lbParsedData = data;
                     // 切换到第二步
                     window._lbSubStep = 'apply';
                     btn.disabled = false;
@@ -5645,14 +5647,28 @@
                 selected_servers.push({ server: chk.dataset.server, name: chk.dataset.name });
             });
 
-            // 获取订阅源 (从弹窗的输入框)
+            // 获取订阅源或已解析的数据
             const url = document.getElementById('lbSubUrl')?.value?.trim() || '';
             const text = document.getElementById('lbSubText')?.value?.trim() || '';
+            const parsedData = window._lbParsedData;
+            
+            // 构建请求体
+            const requestBody = { selected_servers, base_port: basePort };
+            if (parsedData && parsedData.nodes && parsedData.servers) {
+                // 使用已解析的节点数据（来自JSON配置）
+                requestBody.nodes = parsedData.nodes;
+                requestBody.servers = parsedData.servers;
+                requestBody.format = parsedData.format;
+            } else {
+                // 使用URL或文本
+                requestBody.url = url;
+                requestBody.text = text;
+            }
 
             try {
                 const res = await fetch(`${API_BASE}/api/dispatcher/apply_sub`, {
                     method: 'POST', headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ url, text, selected_servers, base_port: basePort })
+                    body: JSON.stringify(requestBody)
                 });
                 const data = await res.json();
                 if (data.success) {
