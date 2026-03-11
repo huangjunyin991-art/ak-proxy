@@ -345,10 +345,8 @@ class OutboundDispatcher:
                     candidates.append(idx)
 
             if candidates:
-                # 优先选不限速的出口，再按活跃连接数排序
-                unrestricted = [i for i in candidates if self.exits[i].rate_limit == 0]
-                pool = unrestricted if unrestricted else candidates
-                best = min(pool, key=lambda i: self.exits[i].active)
+                # 优先选登录计数最少的出口，实现智能负载均衡
+                best = min(candidates, key=lambda i: self.exits[i].count_recent_logins())
                 ex = self.exits[best]
                 ex.reserve_login()
                 ex.record_request()

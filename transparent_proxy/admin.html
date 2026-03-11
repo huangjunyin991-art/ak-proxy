@@ -6206,14 +6206,20 @@
                             <div style="font-size:12px;font-weight:bold;color:${ex.rate_limit > 0 && ex.rpm >= ex.rate_limit * 0.8 ? '#ffa502' : 'var(--accent)'};">${ex.rpm}<span style="font-size:9px;color:var(--text-secondary);">/${ex.rate_limit || '∞'}</span></div>
                         </div>
                     </div>
-                    <!-- 登录冷却进度 -->
+                    <!-- 登录冷却进度 (10段渐变) -->
                     <div style="margin-top:4px;">
                         <div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:3px;">
                             <span style="color:var(--text-secondary);">登录冷却 (1分钟窗口)</span>
                             <span style="color:${cdColor};font-weight:bold;">${cdText}</span>
                         </div>
-                        <div style="background:var(--bg-primary);border-radius:3px;height:6px;overflow:hidden;">
-                            <div style="height:100%;background:${cdColor};width:${cdPct}%;transition:width 0.5s;border-radius:3px;"></div>
+                        <div style="display:flex;gap:2px;">
+                            ${Array.from({length: 10}, (_, i) => {
+                                const isActive = i < cdUsed;
+                                const segmentColor = isActive 
+                                    ? (i < 3 ? '#00ff88' : i < 7 ? '#ffa502' : '#ff4757')
+                                    : 'rgba(255,255,255,0.1)';
+                                return `<div style="flex:1;height:8px;background:${segmentColor};border-radius:2px;transition:all 0.3s;"></div>`;
+                            }).join('')}
                         </div>
                     </div>
                     ${warnHtml}
