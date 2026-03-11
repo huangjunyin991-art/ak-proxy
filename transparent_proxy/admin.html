@@ -3976,7 +3976,7 @@
             
             document.getElementById('subAdminSection').style.display = 'block';
             document.getElementById('loadBalanceSection').style.display = 'block';
-            loadLbStatus();
+            loadLbStatus(true);  // 初始化时加载订阅组
             startLbRefresh();
             
             try {
@@ -5770,7 +5770,7 @@
         let subscriptionGroups = [];
         let expandedGroups = new Set(); // 记录展开的订阅组
 
-        async function loadLbStatus() {
+        async function loadLbStatus(includeSubGroups = false) {
             try {
                 const [dispRes, sbRes] = await Promise.all([
                     fetch(`${API_BASE}/api/dispatcher`),
@@ -5781,8 +5781,10 @@
                 const sbData = await sbRes.json();
                 renderSingboxStatus(sbData);
                 
-                // 加载订阅组
-                await loadSubscriptionGroups();
+                // 订阅组只在初始化或手动刷新时加载，避免每3秒闪烁
+                if (includeSubGroups) {
+                    await loadSubscriptionGroups();
+                }
             } catch (e) {
                 console.error('加载负载均衡状态失败', e);
             }
@@ -6412,7 +6414,7 @@
                     msgEl.innerHTML = `<span style="color:#ffa502;">⚠️ ${data.message}</span><br>节点已注册到dispatcher(${data.nodes_count || 0}个), sing-box需手动重载`;
                     showToast(data.message || '部分失败', 'error');
                 }
-                loadLbStatus();
+                loadLbStatus(true);  // 订阅导入后刷新订阅组
             } catch (e) {
                 msgEl.textContent = `请求失败: ${e.message}`;
                 showToast('请求失败: ' + e.message, 'error');

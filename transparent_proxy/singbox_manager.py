@@ -335,14 +335,20 @@ def get_service_status() -> dict:
 
 def apply_nodes(nodes: list[dict], base_port: int = 10001) -> dict:
     """
-    一键应用节点：保存 → 生成配置 → 写盘 → 重载服务
+    一键应用节点：追加保存 → 生成配置 → 写盘 → 重载服务
+    
+    注意：追加模式，保留已有节点并添加新节点
 
     Returns:
         {"success": bool, "message": str, "config_path": str, "nodes_count": int}
     """
     try:
-        save_nodes(nodes)
-        config_path = write_config(nodes, base_port)
+        # 追加模式：加载已有节点 + 新节点
+        existing_nodes = load_saved_nodes()
+        all_nodes = existing_nodes + nodes
+        save_nodes(all_nodes)
+        
+        config_path = write_config(all_nodes, base_port)
         reload_result = reload_service()
 
         return {
