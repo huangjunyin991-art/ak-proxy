@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 VPN订阅解析模块
-支持: Clash YAML / Base64 SS/VMess 链接
+支持: Clash YAML / Base64 / VLESS / Hysteria2 / SS / VMess 链接
 可通过URL自动获取，也可直接解析文本内容
 """
 
@@ -9,6 +9,7 @@ import base64
 import logging
 import ssl
 import re
+import urllib.parse
 from typing import Optional
 from urllib.request import Request, urlopen
 
@@ -170,13 +171,109 @@ def _parse_ss_links(text: str) -> list[dict]:
     return nodes
 
 
+def _parse_vless_links(text: str) -> list[dict]:
+    """解析VLESS链接列表"""
+    nodes = []
+    for line in text.strip().split('\n'):
+        line = line.strip()
+        if line.startswith('vless://'):
+            try:
+                parts = line.replace('vless://', '').split('@')
+                if len(parts) != 2:
+                    continue
+                
+                uuid = parts[0]
+                rest = parts[1]
+                
+                if '?' not in rest:
+                    continue
+                    
+                server_port, params_and_name = rest.split('?', 1)
+                server, port = server_port.rsplit(':', 1)
+                
+                name = ''
+                if '#' in params_and_name:
+                    params_str, name = params_and_name.split('#', 1)
+                    name = urllib.parse.unquote(name)
+                else:
+                    params_str = params_and_name
+                
+                params = dict(urllib.parse.parse_qsl(params_str))
+                
+                region_code, region_label = detect_region(name)
+                nodes.append({
+                    'name': name or f'VLESS-{server}',
+                    'type': 'vless',
+                    'server': server,
+                    'port': int(port),
+                    'region_code': region_code,
+                    'region_label': region_label,
+                    'raw': {
+                        'uuid': uuid,
+                        'security': params.get('security', 'none'),
+                        'flow': params.get('flow', ''),
+                        'sni': params.get('sni', ''),
+                        'type': params.get('type', 'tcp'),
+                    },
+                })
+            except Exception as e:
+                logger.debug(f"[SubParser] VLESS解析失败: {e}")
+                continue
+    
+    return nodes
+
+
+def _parse_hysteria2_links(text: str) -> list[dict]:
+    """解析Hysteria2链接列表"""
+    nodes = []
+    for line in text.strip().split('\n'):
+        line = line.strip()
+        if line.startswith('hysteria2://'):
+            try:
+                parts = line.replace('hysteria2://', '').split('@')
+                if len(parts) != 2:
+                    continue
+                
+                password = parts[0]
+                rest = parts[1]
+                
+                if '?' in rest or '/' in rest:
+                    server_port = rest.split('?')[0].split('/')[0]
+                else:
+                    server_port = rest.split('#')[0]
+                    
+                name = ''
+                if '#' in rest:
+                    name = urllib.parse.unquote(rest.split('#')[1])
+                
+                server, port = server_port.rsplit(':', 1)
+                
+                region_code, region_label = detect_region(name)
+                nodes.append({
+                    'name': name or f'Hysteria2-{server}',
+                    'type': 'hysteria2',
+                    'server': server,
+                    'port': int(port),
+                    'region_code': region_code,
+                    'region_label': region_label,
+                    'raw': {
+                        'password': password,
+                    },
+                })
+            except Exception as e:
+                logger.debug(f"[SubParser] Hysteria2解析失败: {e}")
+                continue
+    
+    return nodes
+
+
 def parse_subscription_text(text: str) -> dict:
     """
     解析订阅内容（自动识别格式）
 
     Returns:
         {
-            "format": "clash_yaml" | "ss_links" | "unknown",
+            "format": "clash_yaml" | "vless_hy2_links" | "ss_links" | "unknown",
             "total_nodes": int,
             "unique_servers": int,
             "nodes": [...],
@@ -194,6 +291,14 @@ def parse_subscription_text(text: str) -> dict:
     # 尝试Clash YAML
     nodes = _parse_clash_yaml(text)
     fmt = "clash_yaml"
+
+    # 尝试VLESS/Hysteria2链接
+    if not nodes:
+        vless_nodes = _parse_vless_links(text)
+        hy2_nodes = _parse_hysteria2_links(text)
+        if vless_nodes or hy2_nodes:
+            nodes = vless_nodes + hy2_nodes
+            fmt = "vless_hy2_links"
 
     # 尝试SS/VMess链接
     if not nodes:
