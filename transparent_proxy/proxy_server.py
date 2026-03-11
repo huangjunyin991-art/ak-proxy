@@ -1372,10 +1372,16 @@ async def api_dispatcher_apply_sub(request: Request):
 
 
     # 1) 解析订阅
+    json_data = data.get("json", "").strip()
 
     if url:
 
         parsed = fetch_subscription(url)
+
+    elif json_data:
+
+        from sub_parser import parse_json_config
+        parsed = parse_json_config(json_data)
 
     elif text:
 
@@ -1383,7 +1389,7 @@ async def api_dispatcher_apply_sub(request: Request):
 
     else:
 
-        return {"success": False, "message": "需要 url 或 text 参数"}
+        return {"success": False, "message": "需要 url、text 或 json 参数"}
 
 
 
