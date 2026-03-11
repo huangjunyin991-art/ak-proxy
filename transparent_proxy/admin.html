@@ -1325,6 +1325,151 @@
         .tab.active .tab-icon {
             filter: drop-shadow(0 0 4px rgba(0, 212, 255, 0.5));
         }
+
+        /* ===== 统一美化弹窗系统（独立模块CSS） ===== */
+        .custom-modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            z-index: 10000;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .custom-modal.active {
+            display: flex;
+            animation: modalFadeIn 0.2s ease-out;
+        }
+
+        .custom-modal-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.7);
+            backdrop-filter: blur(4px);
+            -webkit-backdrop-filter: blur(4px);
+        }
+
+        .custom-modal-container {
+            position: relative;
+            background: linear-gradient(145deg, var(--bg-card), var(--bg-primary));
+            border: 1px solid var(--accent);
+            border-radius: 16px;
+            padding: 32px;
+            min-width: 400px;
+            max-width: 600px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(0, 212, 255, 0.2);
+            animation: modalSlideIn 0.3s ease-out;
+        }
+
+        @media (max-width: 768px) {
+            .custom-modal-container {
+                min-width: unset;
+                width: 90%;
+                max-width: 500px;
+                padding: 24px;
+            }
+        }
+
+        .custom-modal-icon {
+            font-size: 48px;
+            text-align: center;
+            margin-bottom: 16px;
+            animation: iconPulse 0.5s ease-out;
+        }
+
+        .custom-modal-title {
+            color: var(--accent);
+            font-size: 20px;
+            font-weight: bold;
+            text-align: center;
+            margin-bottom: 16px;
+        }
+
+        .custom-modal-message {
+            color: var(--text-primary);
+            font-size: 14px;
+            line-height: 1.6;
+            text-align: center;
+            margin-bottom: 24px;
+            white-space: pre-wrap;
+        }
+
+        .custom-modal-input {
+            width: 100%;
+            padding: 12px 16px;
+            background: var(--bg-primary);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            color: var(--text-primary);
+            font-size: 14px;
+            margin-bottom: 20px;
+            transition: all 0.2s;
+        }
+
+        .custom-modal-input:focus {
+            outline: none;
+            border-color: var(--accent);
+            box-shadow: 0 0 0 3px rgba(0, 212, 255, 0.1);
+        }
+
+        .custom-modal-buttons {
+            display: flex;
+            gap: 12px;
+            justify-content: center;
+        }
+
+        .custom-modal-button {
+            padding: 10px 24px;
+            border: none;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.2s;
+            min-width: 100px;
+        }
+
+        .custom-modal-button-confirm {
+            background: linear-gradient(135deg, var(--accent), #0088cc);
+            color: white;
+        }
+
+        .custom-modal-button-confirm:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0, 212, 255, 0.4);
+        }
+
+        .custom-modal-button-cancel {
+            background: var(--bg-secondary);
+            color: var(--text-secondary);
+            border: 1px solid var(--border);
+        }
+
+        .custom-modal-button-cancel:hover {
+            background: var(--bg-primary);
+            color: var(--text-primary);
+        }
+
+        @keyframes modalFadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+
+        @keyframes modalSlideIn {
+            from { transform: translateY(-30px) scale(0.95); opacity: 0; }
+            to { transform: translateY(0) scale(1); opacity: 1; }
+        }
+
+        @keyframes iconPulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.1); }
+        }
     </style>
 </head>
 <body>
@@ -2343,6 +2488,135 @@
     </div>
     
     <script>
+        // ===== 统一美化弹窗系统（独立模块JavaScript） =====
+        let customModalResolver = null;
+
+        function showCustomModal(options) {
+            return new Promise((resolve) => {
+                const modal = document.getElementById('customModal');
+                const icon = document.getElementById('customModalIcon');
+                const title = document.getElementById('customModalTitle');
+                const message = document.getElementById('customModalMessage');
+                const input = document.getElementById('customModalInput');
+                const buttons = document.getElementById('customModalButtons');
+
+                customModalResolver = resolve;
+
+                // 设置图标
+                const icons = {
+                    confirm: '⚠️',
+                    info: 'ℹ️',
+                    success: '✅',
+                    error: '❌',
+                    warning: '⚠️',
+                    question: '❓'
+                };
+                icon.textContent = icons[options.type] || icons.info;
+
+                // 设置标题和消息
+                title.textContent = options.title || '提示';
+                message.innerHTML = (options.message || '').replace(/\n/g, '<br>');
+
+                // 处理输入框
+                if (options.showInput) {
+                    input.style.display = 'block';
+                    input.value = options.defaultValue || '';
+                    setTimeout(() => input.focus(), 100);
+                } else {
+                    input.style.display = 'none';
+                }
+
+                // 设置按钮
+                buttons.innerHTML = '';
+                if (options.showCancel !== false) {
+                    const cancelBtn = document.createElement('button');
+                    cancelBtn.className = 'custom-modal-button custom-modal-button-cancel';
+                    cancelBtn.textContent = options.cancelText || '取消';
+                    cancelBtn.onclick = () => closeCustomModal(options.showInput ? null : false);
+                    buttons.appendChild(cancelBtn);
+                }
+                
+                const confirmBtn = document.createElement('button');
+                confirmBtn.className = 'custom-modal-button custom-modal-button-confirm';
+                confirmBtn.textContent = options.confirmText || '确定';
+                confirmBtn.onclick = () => {
+                    if (options.showInput) {
+                        closeCustomModal(input.value);
+                    } else {
+                        closeCustomModal(true);
+                    }
+                };
+                buttons.appendChild(confirmBtn);
+
+                // 显示模态框
+                modal.classList.add('active');
+
+                // 键盘事件
+                const handleKeydown = (e) => {
+                    if (e.key === 'Enter') {
+                        e.preventDefault();
+                        confirmBtn.click();
+                    } else if (e.key === 'Escape' && options.showCancel !== false) {
+                        e.preventDefault();
+                        closeCustomModal(options.showInput ? null : false);
+                    }
+                };
+                document.addEventListener('keydown', handleKeydown);
+                modal._handleKeydown = handleKeydown;
+            });
+        }
+
+        function closeCustomModal(result) {
+            const modal = document.getElementById('customModal');
+            modal.classList.remove('active');
+            if (modal._handleKeydown) {
+                document.removeEventListener('keydown', modal._handleKeydown);
+                delete modal._handleKeydown;
+            }
+            if (customModalResolver) {
+                customModalResolver(result);
+                customModalResolver = null;
+            }
+        }
+
+        // 自定义confirm函数
+        function showConfirm(title, message) {
+            return showCustomModal({
+                type: 'confirm',
+                title: title || '确认',
+                message: message,
+                showCancel: true
+            });
+        }
+
+        // 自定义alert函数
+        function showAlert(title, message, type = 'info') {
+            return showCustomModal({
+                type: type,
+                title: title || '提示',
+                message: message,
+                showCancel: false
+            });
+        }
+
+        // 自定义prompt函数
+        function showPrompt(title, message, defaultValue = '') {
+            return showCustomModal({
+                type: 'question',
+                title: title || '输入',
+                message: message,
+                showInput: true,
+                defaultValue: defaultValue,
+                showCancel: true
+            });
+        }
+
+        // 注意：由于confirm/alert/prompt是同步的而Promise是异步的，
+        // 我们不直接重写原生方法，而是提供美化版本供使用
+        // 使用方式：将 confirm('xxx') 改为 await showConfirm('确认', 'xxx')
+        //          将 alert('xxx') 改为 await showAlert('提示', 'xxx')  
+        //          将 prompt('xxx') 改为 await showPrompt('输入', 'xxx')
+
         const API_BASE = window.location.origin;
         let ws = null;
         let banType = '';
@@ -3705,7 +3979,7 @@
                 return;
             }
             
-            if (!confirm(`确定要踢出子管理员 [${name}] 吗？`)) return;
+            if (!await showConfirm('确认操作', `确定要踢出子管理员 [${name}] 吗？`)) return;
             
             try {
                 const res = await fetch(`${API_BASE}/admin/api/sub_admin/kick`, {
@@ -3733,7 +4007,7 @@
                 return;
             }
             
-            if (!confirm('确定要踢出所有在线的子管理员吗？')) return;
+            if (!await showConfirm('确认操作', '确定要踢出所有在线的子管理员吗？')) return;
             
             try {
                 const res = await fetch(`${API_BASE}/admin/api/sub_admin/kick`, {
@@ -3763,7 +4037,7 @@
                 return;
             }
             
-            if (!confirm(`确定要删除子管理员 [${name}] 吗？删除后该管理员将无法登录。`)) return;
+            if (!await showConfirm('确认删除', `确定要删除子管理员 [${name}] 吗？删除后该管理员将无法登录。`)) return;
             
             try {
                 const res = await fetch(`${API_BASE}/admin/api/sub_admin/delete`, {
@@ -4355,7 +4629,7 @@
         async function batchDeleteDbRows() {
             const checked = document.querySelectorAll('.db-row-check:checked');
             if (checked.length === 0) return;
-            if (!confirm(`确定要删除选中的 ${checked.length} 条记录吗？`)) return;
+            if (!await showConfirm('确认删除', `确定要删除选中的 ${checked.length} 条记录吗？`)) return;
             let ok = 0, fail = 0;
             for (const cb of checked) {
                 try {
@@ -4372,7 +4646,7 @@
 
         // 删除行
         async function deleteDbRow(pkValue) {
-            if (!confirm(`确定要删除 ${dbPkColumn}=${pkValue} 的记录吗？`)) return;
+            if (!await showConfirm('确认删除', `确定要删除 ${dbPkColumn}=${pkValue} 的记录吗？`)) return;
             
             try {
                 const res = await fetch(`${API_BASE}/admin/api/db/delete/${dbCurrentTable}?pk_column=${dbPkColumn}&pk_value=${pkValue}`, {
@@ -5149,7 +5423,7 @@
         
         // 撤销激活码
         async function revokeLicense(licenseKey) {
-            if (!confirm(`确定要撤销激活码 ${licenseKey} 吗？此操作不可恢复！`)) {
+            if (!await showConfirm('确认撤销', `确定要撤销激活码 ${licenseKey} 吗？此操作不可恢复！`)) {
                 return;
             }
             
@@ -5499,7 +5773,7 @@
         }
 
         async function lbRemoveExit(index, name) {
-            if (!confirm(`确定删除出口 [${name}] (#${index})？`)) return;
+            if (!await showConfirm('确认删除', `确定删除出口 [${name}] (#${index})？`)) return;
             try {
                 const res = await fetch(`${API_BASE}/api/dispatcher/remove`, {
                     method: 'POST', headers: {'Content-Type': 'application/json'},
@@ -5903,7 +6177,7 @@
                 ? '⚠️ 开启后，所有人都可以登录AK服务器，白名单验证将被停用！\n\n确定要开启全体白名单吗？'
                 : '关闭后，将恢复白名单验证，仅白名单中的用户可登录。\n\n确定要关闭全体白名单吗？';
 
-            if (!confirm(warning)) return;
+            if (!await showConfirm('确认操作', warning)) return;
 
             try {
                 const res = await fetch(`${API_BASE}/admin/api/whitelist/set_global`, {
@@ -6079,7 +6353,7 @@
         }
 
         async function deleteWhitelist(username) {
-            if (!confirm(`确定删除账号 [${username}] 的授权？\n注意：积分不退还！`)) return;
+            if (!await showConfirm('确认删除', `确定删除账号 [${username}] 的授权？\n注意：积分不退还！`)) return;
             try {
                 const res = await fetch(`${API_BASE}/admin/api/whitelist/delete`, {
                     method: 'POST', headers: {...getHeaders(), 'Content-Type': 'application/json'},
@@ -6211,7 +6485,7 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
         }
 
         async function deleteCreditConfig(planType) {
-            if (!confirm(`确定删除定价 [${planType}]？`)) return;
+            if (!await showConfirm('确认删除', `确定删除定价 [${planType}]？`)) return;
             try {
                 const res = await fetch(`${API_BASE}/admin/api/credits/config/${planType}`, {
                     method: 'DELETE', headers: getHeaders()
@@ -6293,5 +6567,18 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
             initApp();
         }
     </script>
+
+    <!-- 统一美化弹窗系统（独立模块，可拔插） -->
+    <div id="customModal" class="custom-modal">
+        <div class="custom-modal-overlay"></div>
+        <div class="custom-modal-container">
+            <div class="custom-modal-icon" id="customModalIcon"></div>
+            <h3 class="custom-modal-title" id="customModalTitle">提示</h3>
+            <p class="custom-modal-message" id="customModalMessage"></p>
+            <input type="text" id="customModalInput" class="custom-modal-input" style="display:none;" />
+            <div class="custom-modal-buttons" id="customModalButtons"></div>
+        </div>
+    </div>
+
 </body>
 </html>
