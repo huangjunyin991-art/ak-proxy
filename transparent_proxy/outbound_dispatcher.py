@@ -153,21 +153,23 @@ class OutboundExit:
         if self.rate_limit <= 0:
             return 0.0
         waited = 0.0
-        async with self._rate_lock:
-            while True:
+        while True:
+            async with self._rate_lock:
                 now = time.time()
                 cutoff = now - 60.0
                 self._req_timestamps = [t for t in self._req_timestamps if t > cutoff]
                 if len(self._req_timestamps) < self.rate_limit:
                     return waited
-                # 等最早那条过期
+                # 计算需要等待的时间
                 oldest = min(self._req_timestamps)
                 wait_time = oldest + 60.0 - now + 0.05
-                if wait_time > 0:
-                    waited += wait_time
-                    await asyncio.sleep(wait_time)
-                else:
-                    return waited
+            
+            # 在锁外等待，避免阻塞其他请求
+            if wait_time > 0:
+                waited += wait_time
+                await asyncio.sleep(wait_time)
+            else:
+                return waited
 
     async def get_client(self) -> httpx.AsyncClient:
         """获取或创建持久 httpx.AsyncClient（带连接池，复用TCP连接）"""

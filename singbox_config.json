@@ -1,0 +1,1179 @@
+{
+  "log": {
+    "level": "info",
+    "timestamp": true
+  },
+  "inbounds": [
+    {
+      "type": "socks",
+      "tag": "in-10001",
+      "listen": "127.0.0.1",
+      "listen_port": 10001,
+      "users": []
+    },
+    {
+      "type": "socks",
+      "tag": "in-10002",
+      "listen": "127.0.0.1",
+      "listen_port": 10002,
+      "users": []
+    },
+    {
+      "type": "socks",
+      "tag": "in-10003",
+      "listen": "127.0.0.1",
+      "listen_port": 10003,
+      "users": []
+    },
+    {
+      "type": "socks",
+      "tag": "in-10004",
+      "listen": "127.0.0.1",
+      "listen_port": 10004,
+      "users": []
+    },
+    {
+      "type": "socks",
+      "tag": "in-10005",
+      "listen": "127.0.0.1",
+      "listen_port": 10005,
+      "users": []
+    },
+    {
+      "type": "socks",
+      "tag": "in-10006",
+      "listen": "127.0.0.1",
+      "listen_port": 10006,
+      "users": []
+    },
+    {
+      "type": "socks",
+      "tag": "in-10007",
+      "listen": "127.0.0.1",
+      "listen_port": 10007,
+      "users": []
+    },
+    {
+      "type": "socks",
+      "tag": "in-10008",
+      "listen": "127.0.0.1",
+      "listen_port": 10008,
+      "users": []
+    },
+    {
+      "type": "socks",
+      "tag": "in-10009",
+      "listen": "127.0.0.1",
+      "listen_port": 10009,
+      "users": []
+    },
+    {
+      "type": "socks",
+      "tag": "in-10010",
+      "listen": "127.0.0.1",
+      "listen_port": 10010,
+      "users": []
+    },
+    {
+      "type": "socks",
+      "tag": "in-10011",
+      "listen": "127.0.0.1",
+      "listen_port": 10011,
+      "users": []
+    },
+    {
+      "type": "socks",
+      "tag": "in-10012",
+      "listen": "127.0.0.1",
+      "listen_port": 10012,
+      "users": []
+    },
+    {
+      "type": "socks",
+      "tag": "in-10013",
+      "listen": "127.0.0.1",
+      "listen_port": 10013,
+      "users": []
+    },
+    {
+      "type": "socks",
+      "tag": "in-10014",
+      "listen": "127.0.0.1",
+      "listen_port": 10014,
+      "users": []
+    },
+    {
+      "type": "socks",
+      "tag": "in-10015",
+      "listen": "127.0.0.1",
+      "listen_port": 10015,
+      "users": []
+    },
+    {
+      "type": "socks",
+      "tag": "in-10016",
+      "listen": "127.0.0.1",
+      "listen_port": 10016,
+      "users": []
+    },
+    {
+      "type": "socks",
+      "tag": "in-10017",
+      "listen": "127.0.0.1",
+      "listen_port": 10017,
+      "users": []
+    },
+    {
+      "type": "socks",
+      "tag": "in-10018",
+      "listen": "127.0.0.1",
+      "listen_port": 10018,
+      "users": []
+    },
+    {
+      "type": "socks",
+      "tag": "in-10019",
+      "listen": "127.0.0.1",
+      "listen_port": 10019,
+      "users": []
+    },
+    {
+      "type": "socks",
+      "tag": "in-10020",
+      "listen": "127.0.0.1",
+      "listen_port": 10020,
+      "users": []
+    },
+    {
+      "type": "socks",
+      "tag": "in-10021",
+      "listen": "127.0.0.1",
+      "listen_port": 10021,
+      "users": []
+    },
+    {
+      "type": "socks",
+      "tag": "in-10022",
+      "listen": "127.0.0.1",
+      "listen_port": 10022,
+      "users": []
+    },
+    {
+      "type": "socks",
+      "tag": "in-10023",
+      "listen": "127.0.0.1",
+      "listen_port": 10023,
+      "users": []
+    },
+    {
+      "type": "socks",
+      "tag": "in-10024",
+      "listen": "127.0.0.1",
+      "listen_port": 10024,
+      "users": []
+    },
+    {
+      "type": "socks",
+      "tag": "in-10025",
+      "listen": "127.0.0.1",
+      "listen_port": 10025,
+      "users": []
+    },
+    {
+      "type": "socks",
+      "tag": "in-10026",
+      "listen": "127.0.0.1",
+      "listen_port": 10026,
+      "users": []
+    },
+    {
+      "type": "socks",
+      "tag": "in-10027",
+      "listen": "127.0.0.1",
+      "listen_port": 10027,
+      "users": []
+    },
+    {
+      "type": "socks",
+      "tag": "in-10028",
+      "listen": "127.0.0.1",
+      "listen_port": 10028,
+      "users": []
+    },
+    {
+      "type": "socks",
+      "tag": "in-10029",
+      "listen": "127.0.0.1",
+      "listen_port": 10029,
+      "users": []
+    },
+    {
+      "type": "mixed",
+      "tag": "mixed-in",
+      "listen": "127.0.0.1",
+      "listen_port": 7890,
+      "sniff": true,
+      "sniff_override_destination": true
+    }
+  ],
+  "outbounds": [
+    {
+      "type": "urltest",
+      "tag": "auto",
+      "outbounds": [
+        "🇭🇰香港高速01|BGP|流媒体",
+        "🇭🇰香港高速02|BGP|流媒体",
+        "🇭🇰香港高速03|BGP|流媒体",
+        "🇭🇰香港高速04|BGP|流媒体",
+        "🇸🇬新加坡高速01|BGP|流媒体",
+        "🇸🇬新加坡高速02|BGP|流媒体",
+        "🇸🇬新加坡高速03|BGP|流媒体",
+        "🇸🇬新加坡高速04|BGP|流媒体",
+        "🇯🇵日本高速01|BGP|流媒体",
+        "🇯🇵日本高速02|BGP|流媒体"
+      ],
+      "url": "https://www.google.com/generate_204",
+      "interval": "5m"
+    },
+    {
+      "type": "selector",
+      "tag": "proxy-10001",
+      "outbounds": [
+        "🇭🇰香港高速01|BGP|流媒体",
+        "auto",
+        "direct"
+      ],
+      "default": "🇭🇰香港高速01|BGP|流媒体"
+    },
+    {
+      "type": "selector",
+      "tag": "proxy-10002",
+      "outbounds": [
+        "🇭🇰香港高速02|BGP|流媒体",
+        "auto",
+        "direct"
+      ],
+      "default": "🇭🇰香港高速02|BGP|流媒体"
+    },
+    {
+      "type": "selector",
+      "tag": "proxy-10003",
+      "outbounds": [
+        "🇭🇰香港高速03|BGP|流媒体",
+        "auto",
+        "direct"
+      ],
+      "default": "🇭🇰香港高速03|BGP|流媒体"
+    },
+    {
+      "type": "selector",
+      "tag": "proxy-10004",
+      "outbounds": [
+        "🇭🇰香港高速04|BGP|流媒体",
+        "auto",
+        "direct"
+      ],
+      "default": "🇭🇰香港高速04|BGP|流媒体"
+    },
+    {
+      "type": "selector",
+      "tag": "proxy-10005",
+      "outbounds": [
+        "🇸🇬新加坡高速01|BGP|流媒体",
+        "auto",
+        "direct"
+      ],
+      "default": "🇸🇬新加坡高速01|BGP|流媒体"
+    },
+    {
+      "type": "selector",
+      "tag": "proxy-10006",
+      "outbounds": [
+        "🇸🇬新加坡高速02|BGP|流媒体",
+        "auto",
+        "direct"
+      ],
+      "default": "🇸🇬新加坡高速02|BGP|流媒体"
+    },
+    {
+      "type": "selector",
+      "tag": "proxy-10007",
+      "outbounds": [
+        "🇸🇬新加坡高速03|BGP|流媒体",
+        "auto",
+        "direct"
+      ],
+      "default": "🇸🇬新加坡高速03|BGP|流媒体"
+    },
+    {
+      "type": "selector",
+      "tag": "proxy-10008",
+      "outbounds": [
+        "🇸🇬新加坡高速04|BGP|流媒体",
+        "auto",
+        "direct"
+      ],
+      "default": "🇸🇬新加坡高速04|BGP|流媒体"
+    },
+    {
+      "type": "selector",
+      "tag": "proxy-10009",
+      "outbounds": [
+        "🇯🇵日本高速01|BGP|流媒体",
+        "auto",
+        "direct"
+      ],
+      "default": "🇯🇵日本高速01|BGP|流媒体"
+    },
+    {
+      "type": "selector",
+      "tag": "proxy-10010",
+      "outbounds": [
+        "🇯🇵日本高速02|BGP|流媒体",
+        "auto",
+        "direct"
+      ],
+      "default": "🇯🇵日本高速02|BGP|流媒体"
+    },
+    {
+      "type": "selector",
+      "tag": "proxy-10011",
+      "outbounds": [
+        "🇯🇵日本高速03|BGP|流媒体",
+        "auto",
+        "direct"
+      ],
+      "default": "🇯🇵日本高速03|BGP|流媒体"
+    },
+    {
+      "type": "selector",
+      "tag": "proxy-10012",
+      "outbounds": [
+        "🇯🇵日本高速04|BGP|流媒体",
+        "auto",
+        "direct"
+      ],
+      "default": "🇯🇵日本高速04|BGP|流媒体"
+    },
+    {
+      "type": "selector",
+      "tag": "proxy-10013",
+      "outbounds": [
+        "🇯🇵日本高速05|BGP|流媒体",
+        "auto",
+        "direct"
+      ],
+      "default": "🇯🇵日本高速05|BGP|流媒体"
+    },
+    {
+      "type": "selector",
+      "tag": "proxy-10014",
+      "outbounds": [
+        "🇯🇵日本高速06|BGP|流媒体",
+        "auto",
+        "direct"
+      ],
+      "default": "🇯🇵日本高速06|BGP|流媒体"
+    },
+    {
+      "type": "selector",
+      "tag": "proxy-10015",
+      "outbounds": [
+        "🇺🇸美国高速01|流媒体 0.1倍",
+        "auto",
+        "direct"
+      ],
+      "default": "🇺🇸美国高速01|流媒体 0.1倍"
+    },
+    {
+      "type": "selector",
+      "tag": "proxy-10016",
+      "outbounds": [
+        "🇺🇸美国高速03|流媒体",
+        "auto",
+        "direct"
+      ],
+      "default": "🇺🇸美国高速03|流媒体"
+    },
+    {
+      "type": "selector",
+      "tag": "proxy-10017",
+      "outbounds": [
+        "🇺🇸美国高速04|流媒体",
+        "auto",
+        "direct"
+      ],
+      "default": "🇺🇸美国高速04|流媒体"
+    },
+    {
+      "type": "selector",
+      "tag": "proxy-10018",
+      "outbounds": [
+        "🇰🇷韩国高速01|BGP|流媒体",
+        "auto",
+        "direct"
+      ],
+      "default": "🇰🇷韩国高速01|BGP|流媒体"
+    },
+    {
+      "type": "selector",
+      "tag": "proxy-10019",
+      "outbounds": [
+        "🇨🇳台湾高速01|BGP|流媒体",
+        "auto",
+        "direct"
+      ],
+      "default": "🇨🇳台湾高速01|BGP|流媒体"
+    },
+    {
+      "type": "selector",
+      "tag": "proxy-10020",
+      "outbounds": [
+        "🇭🇰香港专线02|BGP|流媒体",
+        "auto",
+        "direct"
+      ],
+      "default": "🇭🇰香港专线02|BGP|流媒体"
+    },
+    {
+      "type": "selector",
+      "tag": "proxy-10021",
+      "outbounds": [
+        "🇭🇰香港专线03|BGP|流媒体",
+        "auto",
+        "direct"
+      ],
+      "default": "🇭🇰香港专线03|BGP|流媒体"
+    },
+    {
+      "type": "selector",
+      "tag": "proxy-10022",
+      "outbounds": [
+        "🇸🇬新加坡专线02|BGP|流媒体",
+        "auto",
+        "direct"
+      ],
+      "default": "🇸🇬新加坡专线02|BGP|流媒体"
+    },
+    {
+      "type": "selector",
+      "tag": "proxy-10023",
+      "outbounds": [
+        "🇸🇬新加坡专线03|BGP|流媒体",
+        "auto",
+        "direct"
+      ],
+      "default": "🇸🇬新加坡专线03|BGP|流媒体"
+    },
+    {
+      "type": "selector",
+      "tag": "proxy-10024",
+      "outbounds": [
+        "🇯🇵日本专线01|BGP|流媒体",
+        "auto",
+        "direct"
+      ],
+      "default": "🇯🇵日本专线01|BGP|流媒体"
+    },
+    {
+      "type": "selector",
+      "tag": "proxy-10025",
+      "outbounds": [
+        "🇯🇵日本专线02|BGP|流媒体",
+        "auto",
+        "direct"
+      ],
+      "default": "🇯🇵日本专线02|BGP|流媒体"
+    },
+    {
+      "type": "selector",
+      "tag": "proxy-10026",
+      "outbounds": [
+        "🇯🇵日本专线03|BGP|流媒体",
+        "auto",
+        "direct"
+      ],
+      "default": "🇯🇵日本专线03|BGP|流媒体"
+    },
+    {
+      "type": "selector",
+      "tag": "proxy-10027",
+      "outbounds": [
+        "🇰🇷韩国专线01|BGP|流媒体",
+        "auto",
+        "direct"
+      ],
+      "default": "🇰🇷韩国专线01|BGP|流媒体"
+    },
+    {
+      "type": "selector",
+      "tag": "proxy-10028",
+      "outbounds": [
+        "🇨🇳台湾专线01|BGP|流媒体",
+        "auto",
+        "direct"
+      ],
+      "default": "🇨🇳台湾专线01|BGP|流媒体"
+    },
+    {
+      "type": "selector",
+      "tag": "proxy-10029",
+      "outbounds": [
+        "🇺🇸美国02|流媒体 0.1倍",
+        "auto",
+        "direct"
+      ],
+      "default": "🇺🇸美国02|流媒体 0.1倍"
+    },
+    {
+      "type": "vless",
+      "tag": "🇭🇰香港高速01|BGP|流媒体",
+      "server": "aws-link1.liangxin1.xyz",
+      "server_port": 35248,
+      "uuid": "5304eccc-7d78-4741-ab71-27fd6f0c0f8e",
+      "flow": "xtls-rprx-vision",
+      "tls": {
+        "enabled": true,
+        "server_name": "www.lamer.com.hk",
+        "insecure": false,
+        "reality": {
+          "enabled": true,
+          "public_key": "IGsSxC0wgn7wLy0NM0QN_yOREDKT_814Y_3_rbgDoTc",
+          "short_id": "c8c0f951"
+        },
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "vless",
+      "tag": "🇭🇰香港高速02|BGP|流媒体",
+      "server": "aws-link2.liangxin1.xyz",
+      "server_port": 38725,
+      "uuid": "5304eccc-7d78-4741-ab71-27fd6f0c0f8e",
+      "flow": "xtls-rprx-vision",
+      "tls": {
+        "enabled": true,
+        "server_name": "www.lamer.com.hk",
+        "insecure": false,
+        "reality": {
+          "enabled": true,
+          "public_key": "HvwnLBMMKsmvghGX5yVPq3J2HWxwr1GGQB2WIvbPvAY",
+          "short_id": "8f6ca378"
+        },
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "vless",
+      "tag": "🇭🇰香港高速03|BGP|流媒体",
+      "server": "aws-link3.liangxin1.xyz",
+      "server_port": 27758,
+      "uuid": "5304eccc-7d78-4741-ab71-27fd6f0c0f8e",
+      "flow": "xtls-rprx-vision",
+      "tls": {
+        "enabled": true,
+        "server_name": "www.lamer.com.hk",
+        "insecure": false,
+        "reality": {
+          "enabled": true,
+          "public_key": "EYa4ic3GAxqznV61U-OOww-WKsu5wuQQptyS3fw7czM",
+          "short_id": "c50db39f"
+        },
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "vless",
+      "tag": "🇭🇰香港高速04|BGP|流媒体",
+      "server": "aws-link4.liangxin1.xyz",
+      "server_port": 443,
+      "uuid": "5304eccc-7d78-4741-ab71-27fd6f0c0f8e",
+      "flow": "xtls-rprx-vision",
+      "tls": {
+        "enabled": true,
+        "server_name": "www.lamer.com.hk",
+        "insecure": false,
+        "reality": {
+          "enabled": true,
+          "public_key": "3FPGTaxkfOM3nEUWUyCiqkH5oJGsOx-WxPJfADi1QWY",
+          "short_id": "7f369e14"
+        },
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "vless",
+      "tag": "🇸🇬新加坡高速01|BGP|流媒体",
+      "server": "aws-link7.liangxin1.xyz",
+      "server_port": 48574,
+      "uuid": "5304eccc-7d78-4741-ab71-27fd6f0c0f8e",
+      "flow": "xtls-rprx-vision",
+      "tls": {
+        "enabled": true,
+        "server_name": "www.lamer.com.sg",
+        "insecure": false,
+        "reality": {
+          "enabled": true,
+          "public_key": "lmxSayN8tUg2Dag2MPXrdqZ2SQK9K3OjlaKk8wVCRnc",
+          "short_id": "f8f18902"
+        },
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "vless",
+      "tag": "🇸🇬新加坡高速02|BGP|流媒体",
+      "server": "aws-link8.liangxin1.xyz",
+      "server_port": 39645,
+      "uuid": "5304eccc-7d78-4741-ab71-27fd6f0c0f8e",
+      "flow": "xtls-rprx-vision",
+      "tls": {
+        "enabled": true,
+        "server_name": "iosapps.itunes.apple.com",
+        "insecure": false,
+        "reality": {
+          "enabled": true,
+          "public_key": "x7VqpFP7_PrY4ebNw8hi8Ec5Tm5Upmt5JOdrN1M9VnQ",
+          "short_id": "2b3b0b93"
+        },
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "vless",
+      "tag": "🇸🇬新加坡高速03|BGP|流媒体",
+      "server": "aws-link9.liangxin1.xyz",
+      "server_port": 23587,
+      "uuid": "5304eccc-7d78-4741-ab71-27fd6f0c0f8e",
+      "flow": "xtls-rprx-vision",
+      "tls": {
+        "enabled": true,
+        "server_name": "iosapps.itunes.apple.com",
+        "insecure": false,
+        "reality": {
+          "enabled": true,
+          "public_key": "H66PLLf6HkZwHk4oFqisfTawIvw2cxkEwk8Ue8sHZgA",
+          "short_id": "19b580ae"
+        },
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "vless",
+      "tag": "🇸🇬新加坡高速04|BGP|流媒体",
+      "server": "aws-link10.liangxin1.xyz",
+      "server_port": 443,
+      "uuid": "5304eccc-7d78-4741-ab71-27fd6f0c0f8e",
+      "flow": "xtls-rprx-vision",
+      "tls": {
+        "enabled": true,
+        "server_name": "www.lamer.com.sg",
+        "insecure": false,
+        "reality": {
+          "enabled": true,
+          "public_key": "xQO7CBh6ymSW9qfw9OGHykh7PLTzWQZjxDT-H4ul2AE",
+          "short_id": "2bb6da88"
+        },
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "vless",
+      "tag": "🇯🇵日本高速01|BGP|流媒体",
+      "server": "aws-link13.liangxin1.xyz",
+      "server_port": 36574,
+      "uuid": "5304eccc-7d78-4741-ab71-27fd6f0c0f8e",
+      "flow": "xtls-rprx-vision",
+      "tls": {
+        "enabled": true,
+        "server_name": "www.apple.com.cn",
+        "insecure": false,
+        "reality": {
+          "enabled": true,
+          "public_key": "sDG-KQk1BF7V83-xnmrWDouXxpPd_ZSxKcHrJJzbols",
+          "short_id": "32a3650d"
+        },
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "vless",
+      "tag": "🇯🇵日本高速02|BGP|流媒体",
+      "server": "aws-link14.liangxin1.xyz",
+      "server_port": 25485,
+      "uuid": "5304eccc-7d78-4741-ab71-27fd6f0c0f8e",
+      "flow": "xtls-rprx-vision",
+      "tls": {
+        "enabled": true,
+        "server_name": "www.apple.com.cn",
+        "insecure": false,
+        "reality": {
+          "enabled": true,
+          "public_key": "VOFSjjWT0wIH3Q0ntyEZd8WwksrIAb5gPt_3PBnEASg",
+          "short_id": "9c5b8c53"
+        },
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "vless",
+      "tag": "🇯🇵日本高速03|BGP|流媒体",
+      "server": "aws-link15.liangxin1.xyz",
+      "server_port": 35457,
+      "uuid": "5304eccc-7d78-4741-ab71-27fd6f0c0f8e",
+      "flow": "xtls-rprx-vision",
+      "tls": {
+        "enabled": true,
+        "server_name": "www.apple.com.cn",
+        "insecure": false,
+        "reality": {
+          "enabled": true,
+          "public_key": "3gb-aG6qLCJpEOFrEPZ9qKqLvVPA_ovlu0X1PvjcE0k",
+          "short_id": "05288db3"
+        },
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "vless",
+      "tag": "🇯🇵日本高速04|BGP|流媒体",
+      "server": "cfyes.lxy1015.top",
+      "server_port": 443,
+      "uuid": "5304eccc-7d78-4741-ab71-27fd6f0c0f8e",
+      "flow": "",
+      "tls": {
+        "enabled": true,
+        "server_name": "lxs1jp.lxy1015.top",
+        "insecure": false
+      },
+      "transport": {
+        "type": "ws",
+        "path": "/liangxin/jp1",
+        "headers": {
+          "Host": "lx-1jp.lxy1015.top"
+        }
+      }
+    },
+    {
+      "type": "vless",
+      "tag": "🇯🇵日本高速05|BGP|流媒体",
+      "server": "cfyes.lxy1015.top",
+      "server_port": 443,
+      "uuid": "5304eccc-7d78-4741-ab71-27fd6f0c0f8e",
+      "flow": "",
+      "tls": {
+        "enabled": true,
+        "server_name": "lxs1jp.lxy1015.top",
+        "insecure": false
+      },
+      "transport": {
+        "type": "ws",
+        "path": "/liangxin/jp1",
+        "headers": {
+          "Host": "lx-1jp.lxy1015.top"
+        }
+      }
+    },
+    {
+      "type": "vless",
+      "tag": "🇯🇵日本高速06|BGP|流媒体",
+      "server": "cfyes.lxy1015.top",
+      "server_port": 443,
+      "uuid": "5304eccc-7d78-4741-ab71-27fd6f0c0f8e",
+      "flow": "",
+      "tls": {
+        "enabled": true,
+        "server_name": "lxs1jp.lxy1015.top",
+        "insecure": false
+      },
+      "transport": {
+        "type": "ws",
+        "path": "/liangxin/jp1",
+        "headers": {
+          "Host": "lx-1jp.lxy1015.top"
+        }
+      }
+    },
+    {
+      "type": "vless",
+      "tag": "🇺🇸美国高速01|流媒体 0.1倍",
+      "server": "aws-link19.liangxin1.xyz",
+      "server_port": 443,
+      "uuid": "5304eccc-7d78-4741-ab71-27fd6f0c0f8e",
+      "flow": "xtls-rprx-vision",
+      "tls": {
+        "enabled": true,
+        "server_name": "download-porter.hoyoverse.com",
+        "insecure": false,
+        "reality": {
+          "enabled": true,
+          "public_key": "QE5l0RUqs4OsH3j3u_xHm06-4NlILmQivZUJqiEx11o",
+          "short_id": "6314e825"
+        },
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "vless",
+      "tag": "🇺🇸美国高速03|流媒体",
+      "server": "cfyes.lxy1015.top",
+      "server_port": 443,
+      "uuid": "5304eccc-7d78-4741-ab71-27fd6f0c0f8e",
+      "flow": "",
+      "tls": {
+        "enabled": true,
+        "server_name": "lx-us1.lxy1015.top",
+        "insecure": false
+      },
+      "transport": {
+        "type": "ws",
+        "path": "/liangxin/us",
+        "headers": {
+          "Host": "lx-us1.lxy1015.top"
+        }
+      }
+    },
+    {
+      "type": "vless",
+      "tag": "🇺🇸美国高速04|流媒体",
+      "server": "cfyes.lxy1015.top",
+      "server_port": 443,
+      "uuid": "5304eccc-7d78-4741-ab71-27fd6f0c0f8e",
+      "flow": "",
+      "tls": {
+        "enabled": true,
+        "server_name": "lx-us1.lxy1015.top",
+        "insecure": false
+      },
+      "transport": {
+        "type": "ws",
+        "path": "/liangxin/us",
+        "headers": {
+          "Host": "lx-us1.lxy1015.top"
+        }
+      }
+    },
+    {
+      "type": "vless",
+      "tag": "🇰🇷韩国高速01|BGP|流媒体",
+      "server": "aws-link25.liangxin1.xyz",
+      "server_port": 34578,
+      "uuid": "5304eccc-7d78-4741-ab71-27fd6f0c0f8e",
+      "flow": "xtls-rprx-vision",
+      "tls": {
+        "enabled": true,
+        "server_name": "download-porter.hoyoverse.com",
+        "insecure": false,
+        "reality": {
+          "enabled": true,
+          "public_key": "PSn2s5TN4e7n0LkzPunu2IA1hSmOoPYFu3d_psl2Nmc",
+          "short_id": "e534c8be"
+        },
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "vless",
+      "tag": "🇨🇳台湾高速01|BGP|流媒体",
+      "server": "aws-link27.liangxin1.xyz",
+      "server_port": 443,
+      "uuid": "5304eccc-7d78-4741-ab71-27fd6f0c0f8e",
+      "flow": "xtls-rprx-vision",
+      "tls": {
+        "enabled": true,
+        "server_name": "download-porter.hoyoverse.com",
+        "insecure": false,
+        "reality": {
+          "enabled": true,
+          "public_key": "a9I2uA3NNZA6uBAe3Tui9vZ8CG5MrMaYOifWrAdc0zg",
+          "short_id": "a8609be8"
+        },
+        "utls": {
+          "enabled": true,
+          "fingerprint": "chrome"
+        }
+      }
+    },
+    {
+      "type": "hysteria2",
+      "tag": "🇭🇰香港专线02|BGP|流媒体",
+      "server": "aws-linkhy2.liangxin1.xyz",
+      "server_port": 60000,
+      "password": "5304eccc-7d78-4741-ab71-27fd6f0c0f8e",
+      "tls": {
+        "enabled": true,
+        "insecure": true
+      }
+    },
+    {
+      "type": "hysteria2",
+      "tag": "🇭🇰香港专线03|BGP|流媒体",
+      "server": "aws-linkhy3.liangxin1.xyz",
+      "server_port": 443,
+      "password": "5304eccc-7d78-4741-ab71-27fd6f0c0f8e",
+      "tls": {
+        "enabled": true,
+        "insecure": true
+      }
+    },
+    {
+      "type": "hysteria2",
+      "tag": "🇸🇬新加坡专线02|BGP|流媒体",
+      "server": "aws-linkhy10.liangxin1.xyz",
+      "server_port": 60000,
+      "password": "5304eccc-7d78-4741-ab71-27fd6f0c0f8e",
+      "tls": {
+        "enabled": true,
+        "insecure": true
+      }
+    },
+    {
+      "type": "hysteria2",
+      "tag": "🇸🇬新加坡专线03|BGP|流媒体",
+      "server": "aws-linkhy11.liangxin1.xyz",
+      "server_port": 443,
+      "password": "5304eccc-7d78-4741-ab71-27fd6f0c0f8e",
+      "tls": {
+        "enabled": true,
+        "insecure": true
+      }
+    },
+    {
+      "type": "hysteria2",
+      "tag": "🇯🇵日本专线01|BGP|流媒体",
+      "server": "aws-linkhy15.liangxin1.xyz",
+      "server_port": 60000,
+      "password": "5304eccc-7d78-4741-ab71-27fd6f0c0f8e",
+      "tls": {
+        "enabled": true,
+        "insecure": true
+      }
+    },
+    {
+      "type": "hysteria2",
+      "tag": "🇯🇵日本专线02|BGP|流媒体",
+      "server": "aws-linkhy16.liangxin1.xyz",
+      "server_port": 443,
+      "password": "5304eccc-7d78-4741-ab71-27fd6f0c0f8e",
+      "tls": {
+        "enabled": true,
+        "insecure": true
+      }
+    },
+    {
+      "type": "hysteria2",
+      "tag": "🇯🇵日本专线03|BGP|流媒体",
+      "server": "aws-linkhy17.liangxin1.xyz",
+      "server_port": 443,
+      "password": "5304eccc-7d78-4741-ab71-27fd6f0c0f8e",
+      "tls": {
+        "enabled": true,
+        "insecure": true
+      }
+    },
+    {
+      "type": "hysteria2",
+      "tag": "🇰🇷韩国专线01|BGP|流媒体",
+      "server": "aws-linkhy21.liangxin1.xyz",
+      "server_port": 443,
+      "password": "5304eccc-7d78-4741-ab71-27fd6f0c0f8e",
+      "tls": {
+        "enabled": true,
+        "insecure": true
+      }
+    },
+    {
+      "type": "hysteria2",
+      "tag": "🇨🇳台湾专线01|BGP|流媒体",
+      "server": "aws-linkhy23.liangxin1.xyz",
+      "server_port": 443,
+      "password": "5304eccc-7d78-4741-ab71-27fd6f0c0f8e",
+      "tls": {
+        "enabled": true,
+        "insecure": true
+      }
+    },
+    {
+      "type": "hysteria2",
+      "tag": "🇺🇸美国02|流媒体 0.1倍",
+      "server": "aws-linkhy27.liangxin1.xyz",
+      "server_port": 443,
+      "password": "5304eccc-7d78-4741-ab71-27fd6f0c0f8e",
+      "tls": {
+        "enabled": true,
+        "insecure": true
+      }
+    },
+    {
+      "type": "direct",
+      "tag": "direct"
+    },
+    {
+      "type": "block",
+      "tag": "block"
+    }
+  ],
+  "route": {
+    "rules": [
+      {
+        "inbound": "in-10001",
+        "outbound": "proxy-10001"
+      },
+      {
+        "inbound": "in-10002",
+        "outbound": "proxy-10002"
+      },
+      {
+        "inbound": "in-10003",
+        "outbound": "proxy-10003"
+      },
+      {
+        "inbound": "in-10004",
+        "outbound": "proxy-10004"
+      },
+      {
+        "inbound": "in-10005",
+        "outbound": "proxy-10005"
+      },
+      {
+        "inbound": "in-10006",
+        "outbound": "proxy-10006"
+      },
+      {
+        "inbound": "in-10007",
+        "outbound": "proxy-10007"
+      },
+      {
+        "inbound": "in-10008",
+        "outbound": "proxy-10008"
+      },
+      {
+        "inbound": "in-10009",
+        "outbound": "proxy-10009"
+      },
+      {
+        "inbound": "in-10010",
+        "outbound": "proxy-10010"
+      },
+      {
+        "inbound": "in-10011",
+        "outbound": "proxy-10011"
+      },
+      {
+        "inbound": "in-10012",
+        "outbound": "proxy-10012"
+      },
+      {
+        "inbound": "in-10013",
+        "outbound": "proxy-10013"
+      },
+      {
+        "inbound": "in-10014",
+        "outbound": "proxy-10014"
+      },
+      {
+        "inbound": "in-10015",
+        "outbound": "proxy-10015"
+      },
+      {
+        "inbound": "in-10016",
+        "outbound": "proxy-10016"
+      },
+      {
+        "inbound": "in-10017",
+        "outbound": "proxy-10017"
+      },
+      {
+        "inbound": "in-10018",
+        "outbound": "proxy-10018"
+      },
+      {
+        "inbound": "in-10019",
+        "outbound": "proxy-10019"
+      },
+      {
+        "inbound": "in-10020",
+        "outbound": "proxy-10020"
+      },
+      {
+        "inbound": "in-10021",
+        "outbound": "proxy-10021"
+      },
+      {
+        "inbound": "in-10022",
+        "outbound": "proxy-10022"
+      },
+      {
+        "inbound": "in-10023",
+        "outbound": "proxy-10023"
+      },
+      {
+        "inbound": "in-10024",
+        "outbound": "proxy-10024"
+      },
+      {
+        "inbound": "in-10025",
+        "outbound": "proxy-10025"
+      },
+      {
+        "inbound": "in-10026",
+        "outbound": "proxy-10026"
+      },
+      {
+        "inbound": "in-10027",
+        "outbound": "proxy-10027"
+      },
+      {
+        "inbound": "in-10028",
+        "outbound": "proxy-10028"
+      },
+      {
+        "inbound": "in-10029",
+        "outbound": "proxy-10029"
+      },
+      {
+        "inbound": "mixed-in",
+        "outbound": "auto"
+      }
+    ]
+  }
+}

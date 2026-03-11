@@ -32,14 +32,13 @@ class ProxyPoolConfig:
     DEFAULT = {
         "enabled": False,
         "singbox_path": "",
-        "vpn_config_path": "",
         "subscription_url": "",
         "prefer_direct": False,
         "direct_cooldown": 60,
-        "direct_rate_limit": 8,
-        "num_slots": 5,
+        "direct_rate_limit": 10,
+        "num_slots": 10,
         "base_port": 21000,
-        "rate_limit": 8,
+        "rate_limit": 10,
         "window": 60,
     }
 
@@ -637,6 +636,8 @@ class ProxyPool:
     async def get_proxy(self, exclude=None) -> Optional[ProxySlot]:
         """获取下一个可用代理槽位"""
         exclude = exclude or set()
+        
+        # 锁内：快速查找可用槽位
         async with self.lock:
             for _ in range(self.num_slots):
                 slot = self.slots[self.slot_index % self.num_slots]
@@ -654,16 +655,27 @@ class ProxyPool:
                 logger.warning(f"槽位接近上限，使用 Slot {best.slot_id}")
                 return best
 
+            # 找到一个未启动的槽位和节点
+            slot_to_start = None
+            node_to_use = None
             for slot in self.slots:
                 if not slot.alive and slot.slot_id not in exclude:
                     node = self._next_node()
                     if node:
-                        loop = asyncio.get_running_loop()
-                        ok = await loop.run_in_executor(None, slot.start, node)
-                        if ok:
-                            slot.record_request()
-                            return slot
-            return None
+                        slot_to_start = slot
+                        node_to_use = node
+                        break
+        
+        # 锁外：启动新节点（避免阻塞其他请求）
+        if slot_to_start and node_to_use:
+            loop = asyncio.get_running_loop()
+            ok = await loop.run_in_executor(None, slot_to_start.start, node_to_use)
+            if ok:
+                async with self.lock:
+                    slot_to_start.record_request()
+                return slot_to_start
+        
+        return None
 
     async def rotate_slot(self, slot, reason="blocked"):
         """强制轮换槽位到新节点"""

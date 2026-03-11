@@ -1,0 +1,783 @@
+allow-lan: false
+dns:
+  enable: false
+external-controller: 127.0.0.1:19090
+geo-auto-update: false
+geodata-mode: true
+ipv6: false
+log-level: warning
+mixed-port: 17890
+mode: global
+proxies:
+- cipher: chacha20-ietf-poly1305
+  name: 剩余流量：296.21 GB
+  password: 1ed4dd9b-8259-46bb-827f-ed35358f2cd9
+  port: 44591
+  server: ft-qt-xygh-by.51feitu.com
+  type: ss
+  udp: true
+- cipher: chacha20-ietf-poly1305
+  name: 距离下次重置剩余：21 天
+  password: 1ed4dd9b-8259-46bb-827f-ed35358f2cd9
+  port: 44591
+  server: ft-qt-xygh-by.51feitu.com
+  type: ss
+  udp: true
+- cipher: chacha20-ietf-poly1305
+  name: 套餐到期：2027-01-22
+  password: 1ed4dd9b-8259-46bb-827f-ed35358f2cd9
+  port: 44591
+  server: ft-qt-xygh-by.51feitu.com
+  type: ss
+  udp: true
+- cipher: chacha20-ietf-poly1305
+  name: 超时请重新复制订阅导入
+  password: 1ed4dd9b-8259-46bb-827f-ed35358f2cd9
+  port: 44591
+  server: ft-qt-xygh-by.51feitu.com
+  type: ss
+  udp: true
+- cipher: chacha20-ietf-poly1305
+  name: 🇭🇰 香港_01
+  password: 1ed4dd9b-8259-46bb-827f-ed35358f2cd9
+  port: 10001
+  server: ft-hk-xygh-by.51feitu.com
+  type: ss
+  udp: true
+- alterId: 0
+  cipher: auto
+  name: 🇭🇰 香港_02
+  network: ws
+  port: 10002
+  server: ft-hk-xygh-by.51feitu.com
+  type: vmess
+  udp: true
+  uuid: 1ed4dd9b-8259-46bb-827f-ed35358f2cd9
+- cipher: chacha20-ietf-poly1305
+  name: 🇭🇰 香港_03
+  password: 1ed4dd9b-8259-46bb-827f-ed35358f2cd9
+  port: 10003
+  server: ft-hk-xygh-by.51feitu.com
+  type: ss
+  udp: true
+- alterId: 0
+  cipher: auto
+  name: 🇭🇰 三网×2-香港_04
+  network: ws
+  port: 20004
+  server: ft-hk-xygh-pro.51feitu.com
+  type: vmess
+  udp: true
+  uuid: 1ed4dd9b-8259-46bb-827f-ed35358f2cd9
+- cipher: chacha20-ietf-poly1305
+  name: 🇭🇰 三网×2-香港_05
+  password: 1ed4dd9b-8259-46bb-827f-ed35358f2cd9
+  port: 20005
+  server: ft-hk-xygh-pro.51feitu.com
+  type: ss
+  udp: true
+- alterId: 0
+  cipher: auto
+  name: 🇭🇰 三网×2-香港_06
+  network: ws
+  port: 20006
+  server: ft-hk-xygh-pro.51feitu.com
+  type: vmess
+  udp: true
+  uuid: 1ed4dd9b-8259-46bb-827f-ed35358f2cd9
+- cipher: chacha20-ietf-poly1305
+  name: 🇭🇰 三网×2-香港_07
+  password: 1ed4dd9b-8259-46bb-827f-ed35358f2cd9
+  port: 20007
+  server: ft-hk-xygh-pro.51feitu.com
+  type: ss
+  udp: true
+- alterId: 0
+  cipher: auto
+  name: 🇭🇰 三网×2-香港_08
+  network: ws
+  port: 20008
+  server: ft-hk-xygh-pro.51feitu.com
+  type: vmess
+  udp: true
+  uuid: 1ed4dd9b-8259-46bb-827f-ed35358f2cd9
+- cipher: chacha20-ietf-poly1305
+  name: 🇭🇰 香港_09
+  password: 1ed4dd9b-8259-46bb-827f-ed35358f2cd9
+  port: 10009
+  server: ft-hk-xygh-by.51feitu.com
+  type: ss
+  udp: true
+- alterId: 0
+  cipher: auto
+  name: 🇭🇰 香港_10
+  network: ws
+  port: 10010
+  server: ft-hk-xygh-by.51feitu.com
+  type: vmess
+  udp: true
+  uuid: 1ed4dd9b-8259-46bb-827f-ed35358f2cd9
+- cipher: chacha20-ietf-poly1305
+  name: 🇭🇰 香港_11
+  password: 1ed4dd9b-8259-46bb-827f-ed35358f2cd9
+  port: 11011
+  server: ft-hk-xygh-by.51feitu.com
+  type: ss
+  udp: true
+- alterId: 0
+  cipher: auto
+  name: 🇭🇰 香港_12
+  network: ws
+  port: 11012
+  server: ft-hk-xygh-by.51feitu.com
+  type: vmess
+  udp: true
+  uuid: 1ed4dd9b-8259-46bb-827f-ed35358f2cd9
+- cipher: chacha20-ietf-poly1305
+  name: 🇭🇰 香港_13
+  password: 1ed4dd9b-8259-46bb-827f-ed35358f2cd9
+  port: 11013
+  server: ft-hk-xygh-by.51feitu.com
+  type: ss
+  udp: true
+- alterId: 0
+  cipher: auto
+  name: 🇭🇰 香港_14
+  network: ws
+  port: 11014
+  server: ft-hk-xygh-by.51feitu.com
+  type: vmess
+  udp: true
+  uuid: 1ed4dd9b-8259-46bb-827f-ed35358f2cd9
+- cipher: chacha20-ietf-poly1305
+  name: 🇭🇰 香港_15-v6
+  password: 1ed4dd9b-8259-46bb-827f-ed35358f2cd9
+  port: 11015
+  server: ft-hk-xygh-by.51feitu.com
+  type: ss
+  udp: true
+- alterId: 0
+  cipher: auto
+  name: 🇭🇰 香港_16-v6
+  network: ws
+  port: 11016
+  server: ft-hk-xygh-by.51feitu.com
+  type: vmess
+  udp: true
+  uuid: 1ed4dd9b-8259-46bb-827f-ed35358f2cd9
+- cipher: chacha20-ietf-poly1305
+  name: 🇭🇰 香港_17-v6
+  password: 1ed4dd9b-8259-46bb-827f-ed35358f2cd9
+  port: 11017
+  server: ft-hk-xygh-by.51feitu.com
+  type: ss
+  udp: true
+- alterId: 0
+  cipher: auto
+  name: 🇭🇰 香港_18-v6
+  network: ws
+  port: 11018
+  server: ft-hk-xygh-by.51feitu.com
+  type: vmess
+  udp: true
+  uuid: 1ed4dd9b-8259-46bb-827f-ed35358f2cd9
+- cipher: chacha20-ietf-poly1305
+  name: 🇭🇰 香港_19-v6
+  password: 1ed4dd9b-8259-46bb-827f-ed35358f2cd9
+  port: 11019
+  server: ft-hk-xygh-by.51feitu.com
+  type: ss
+  udp: true
+- alterId: 0
+  cipher: auto
+  name: 🇭🇰 香港_20-v6
+  network: ws
+  port: 11020
+  server: ft-hk-xygh-by.51feitu.com
+  type: vmess
+  udp: true
+  uuid: 1ed4dd9b-8259-46bb-827f-ed35358f2cd9
+- cipher: chacha20-ietf-poly1305
+  name: 🇭🇰 香港_21-v6
+  password: 1ed4dd9b-8259-46bb-827f-ed35358f2cd9
+  port: 11021
+  server: ft-hk-xygh-by.51feitu.com
+  type: ss
+  udp: true
+- cipher: chacha20-ietf-poly1305
+  name: 🇸🇬 新加坡_01
+  password: 1ed4dd9b-8259-46bb-827f-ed35358f2cd9
+  port: 12001
+  server: ft-sg-xygh-by.51feitu.com
+  type: ss
+  udp: true
+- alterId: 0
+  cipher: auto
+  name: 🇸🇬 新加坡_02
+  network: ws
+  port: 12002
+  server: ft-sg-xygh-by.51feitu.com
+  type: vmess
+  udp: true
+  uuid: 1ed4dd9b-8259-46bb-827f-ed35358f2cd9
+- cipher: chacha20-ietf-poly1305
+  name: 🇸🇬 新加坡_03
+  password: 1ed4dd9b-8259-46bb-827f-ed35358f2cd9
+  port: 12003
+  server: ft-sg-xygh-by.51feitu.com
+  type: ss
+  udp: true
+- alterId: 0
+  cipher: auto
+  name: 🇸🇬 三网×2-新加坡_04
+  network: ws
+  port: 22004
+  server: ft-sg-xygh-pro.51feitu.com
+  type: vmess
+  udp: true
+  uuid: 1ed4dd9b-8259-46bb-827f-ed35358f2cd9
+- cipher: chacha20-ietf-poly1305
+  name: 🇸🇬 三网×2-新加坡_05
+  password: 1ed4dd9b-8259-46bb-827f-ed35358f2cd9
+  port: 22005
+  server: ft-sg-xygh-pro.51feitu.com
+  type: ss
+  udp: true
+- alterId: 0
+  cipher: auto
+  name: 🇸🇬 三网×2-新加坡_06
+  network: ws
+  port: 22006
+  server: ft-sg-xygh-pro.51feitu.com
+  type: vmess
+  udp: true
+  uuid: 1ed4dd9b-8259-46bb-827f-ed35358f2cd9
+- cipher: chacha20-ietf-poly1305
+  name: 🇸🇬 三网×2-新加坡_07
+  password: 1ed4dd9b-8259-46bb-827f-ed35358f2cd9
+  port: 22007
+  server: ft-sg-xygh-pro.51feitu.com
+  type: ss
+  udp: true
+- alterId: 0
+  cipher: auto
+  name: 🇸🇬 三网×2-新加坡_08
+  network: ws
+  port: 22008
+  server: ft-sg-xygh-pro.51feitu.com
+  type: vmess
+  udp: true
+  uuid: 1ed4dd9b-8259-46bb-827f-ed35358f2cd9
+- cipher: chacha20-ietf-poly1305
+  name: 🇸🇬 新加坡_09
+  password: 1ed4dd9b-8259-46bb-827f-ed35358f2cd9
+  port: 12009
+  server: ft-sg-xygh-by.51feitu.com
+  type: ss
+  udp: true
+- alterId: 0
+  cipher: auto
+  name: 🇸🇬 新加坡_10
+  network: ws
+  port: 12010
+  server: ft-sg-xygh-by.51feitu.com
+  type: vmess
+  udp: true
+  uuid: 1ed4dd9b-8259-46bb-827f-ed35358f2cd9
+- cipher: chacha20-ietf-poly1305
+  name: 🇯🇵 日本_01
+  password: 1ed4dd9b-8259-46bb-827f-ed35358f2cd9
+  port: 13001
+  server: ft-jp-xygh-by.51feitu.com
+  type: ss
+  udp: true
+- alterId: 0
+  cipher: auto
+  name: 🇯🇵 日本_02
+  network: ws
+  port: 13002
+  server: ft-jp-xygh-by.51feitu.com
+  type: vmess
+  udp: true
+  uuid: 1ed4dd9b-8259-46bb-827f-ed35358f2cd9
+- cipher: chacha20-ietf-poly1305
+  name: 🇯🇵 日本_03
+  password: 1ed4dd9b-8259-46bb-827f-ed35358f2cd9
+  port: 13003
+  server: ft-jp-xygh-by.51feitu.com
+  type: ss
+  udp: true
+- alterId: 0
+  cipher: auto
+  name: 🇯🇵 三网×2-日本_04
+  network: ws
+  port: 23004
+  server: ft-jp-xygh-pro.51feitu.com
+  type: vmess
+  udp: true
+  uuid: 1ed4dd9b-8259-46bb-827f-ed35358f2cd9
+- cipher: chacha20-ietf-poly1305
+  name: 🇯🇵 三网×2-日本_05
+  password: 1ed4dd9b-8259-46bb-827f-ed35358f2cd9
+  port: 23005
+  server: ft-jp-xygh-pro.51feitu.com
+  type: ss
+  udp: true
+- alterId: 0
+  cipher: auto
+  name: 🇯🇵 三网×2-日本_06
+  network: ws
+  port: 23006
+  server: ft-jp-xygh-pro.51feitu.com
+  type: vmess
+  udp: true
+  uuid: 1ed4dd9b-8259-46bb-827f-ed35358f2cd9
+- cipher: chacha20-ietf-poly1305
+  name: 🇯🇵 三网×2-日本_07
+  password: 1ed4dd9b-8259-46bb-827f-ed35358f2cd9
+  port: 23007
+  server: ft-jp-xygh-pro.51feitu.com
+  type: ss
+  udp: true
+- alterId: 0
+  cipher: auto
+  name: 🇯🇵 三网×2-日本_08
+  network: ws
+  port: 23008
+  server: ft-jp-xygh-pro.51feitu.com
+  type: vmess
+  udp: true
+  uuid: 1ed4dd9b-8259-46bb-827f-ed35358f2cd9
+- cipher: chacha20-ietf-poly1305
+  name: 🇯🇵 日本_09
+  password: 1ed4dd9b-8259-46bb-827f-ed35358f2cd9
+  port: 13009
+  server: ft-jp-xygh-by.51feitu.com
+  type: ss
+  udp: true
+- alterId: 0
+  cipher: auto
+  name: 🇯🇵 日本_10
+  network: ws
+  port: 13010
+  server: ft-jp-xygh-by.51feitu.com
+  type: vmess
+  udp: true
+  uuid: 1ed4dd9b-8259-46bb-827f-ed35358f2cd9
+- cipher: chacha20-ietf-poly1305
+  name: 🇺🇸 美国_01
+  password: 1ed4dd9b-8259-46bb-827f-ed35358f2cd9
+  port: 14001
+  server: ft-us-xygh-by.51feitu.com
+  type: ss
+  udp: true
+- alterId: 0
+  cipher: auto
+  name: 🇺🇸 美国_02
+  network: ws
+  port: 14002
+  server: ft-us-xygh-by.51feitu.com
+  type: vmess
+  udp: true
+  uuid: 1ed4dd9b-8259-46bb-827f-ed35358f2cd9
+- cipher: chacha20-ietf-poly1305
+  name: 🇺🇸 美国_03
+  password: 1ed4dd9b-8259-46bb-827f-ed35358f2cd9
+  port: 14003
+  server: ft-us-xygh-by.51feitu.com
+  type: ss
+  udp: true
+- alterId: 0
+  cipher: auto
+  name: 🇺🇸 三网×2-美国_04
+  network: ws
+  port: 24004
+  server: ft-us-xygh-pro.51feitu.com
+  type: vmess
+  udp: true
+  uuid: 1ed4dd9b-8259-46bb-827f-ed35358f2cd9
+- cipher: chacha20-ietf-poly1305
+  name: 🇺🇸 三网×2-美国_05
+  password: 1ed4dd9b-8259-46bb-827f-ed35358f2cd9
+  port: 24005
+  server: ft-us-xygh-pro.51feitu.com
+  type: ss
+  udp: true
+- alterId: 0
+  cipher: auto
+  name: 🇺🇸 三网×2-美国_06
+  network: ws
+  port: 24006
+  server: ft-us-xygh-pro.51feitu.com
+  type: vmess
+  udp: true
+  uuid: 1ed4dd9b-8259-46bb-827f-ed35358f2cd9
+- cipher: chacha20-ietf-poly1305
+  name: 🇺🇸 三网×2-美国_07
+  password: 1ed4dd9b-8259-46bb-827f-ed35358f2cd9
+  port: 24007
+  server: ft-us-xygh-pro.51feitu.com
+  type: ss
+  udp: true
+- alterId: 0
+  cipher: auto
+  name: 🇺🇸 三网×2-美国_08
+  network: ws
+  port: 24008
+  server: ft-us-xygh-pro.51feitu.com
+  type: vmess
+  udp: true
+  uuid: 1ed4dd9b-8259-46bb-827f-ed35358f2cd9
+- cipher: chacha20-ietf-poly1305
+  name: 🇺🇸 美国_09
+  password: 1ed4dd9b-8259-46bb-827f-ed35358f2cd9
+  port: 14009
+  server: ft-us-xygh-by.51feitu.com
+  type: ss
+  udp: true
+- alterId: 0
+  cipher: auto
+  name: 🇺🇸 美国_10
+  network: ws
+  port: 14010
+  server: ft-us-xygh-by.51feitu.com
+  type: vmess
+  udp: true
+  uuid: 1ed4dd9b-8259-46bb-827f-ed35358f2cd9
+- cipher: chacha20-ietf-poly1305
+  name: 🇼🇸 台湾_01
+  password: 1ed4dd9b-8259-46bb-827f-ed35358f2cd9
+  port: 15001
+  server: ft-tw-xygh-by.51feitu.com
+  type: ss
+  udp: true
+- alterId: 0
+  cipher: auto
+  name: 🇼🇸 台湾_02
+  network: ws
+  port: 15002
+  server: ft-tw-xygh-by.51feitu.com
+  type: vmess
+  udp: true
+  uuid: 1ed4dd9b-8259-46bb-827f-ed35358f2cd9
+- cipher: chacha20-ietf-poly1305
+  name: 🇼🇸 台湾_03
+  password: 1ed4dd9b-8259-46bb-827f-ed35358f2cd9
+  port: 15003
+  server: ft-tw-xygh-by.51feitu.com
+  type: ss
+  udp: true
+- alterId: 0
+  cipher: auto
+  name: 🇼🇸 三网×2-台湾_04
+  network: ws
+  port: 25004
+  server: ft-tw-xygh-pro.51feitu.com
+  type: vmess
+  udp: true
+  uuid: 1ed4dd9b-8259-46bb-827f-ed35358f2cd9
+- cipher: chacha20-ietf-poly1305
+  name: 🇼🇸 三网×2-台湾_05
+  password: 1ed4dd9b-8259-46bb-827f-ed35358f2cd9
+  port: 25005
+  server: ft-tw-xygh-pro.51feitu.com
+  type: ss
+  udp: true
+- cipher: chacha20-ietf-poly1305
+  name: 🇨🇦 加拿大
+  password: 1ed4dd9b-8259-46bb-827f-ed35358f2cd9
+  port: 21001
+  server: ft-qt-xygh-by.51feitu.com
+  type: ss
+  udp: true
+- cipher: chacha20-ietf-poly1305
+  name: 🇳🇬 尼日利亚
+  password: 1ed4dd9b-8259-46bb-827f-ed35358f2cd9
+  port: 21002
+  server: ft-qt-xygh-by.51feitu.com
+  type: ss
+  udp: true
+- cipher: chacha20-ietf-poly1305
+  name: 🇷🇺 俄罗斯
+  password: 1ed4dd9b-8259-46bb-827f-ed35358f2cd9
+  port: 21003
+  server: ft-qt-xygh-by.51feitu.com
+  type: ss
+  udp: true
+- cipher: chacha20-ietf-poly1305
+  name: 🇹🇷 土耳其
+  password: 1ed4dd9b-8259-46bb-827f-ed35358f2cd9
+  port: 21004
+  server: ft-qt-xygh-by.51feitu.com
+  type: ss
+  udp: true
+- cipher: chacha20-ietf-poly1305
+  name: 🇪🇸 西班牙
+  password: 1ed4dd9b-8259-46bb-827f-ed35358f2cd9
+  port: 21005
+  server: ft-qt-xygh-by.51feitu.com
+  type: ss
+  udp: true
+- cipher: chacha20-ietf-poly1305
+  name: 🇦🇪 阿联酋
+  password: 1ed4dd9b-8259-46bb-827f-ed35358f2cd9
+  port: 21006
+  server: ft-qt-xygh-by.51feitu.com
+  type: ss
+  udp: true
+- cipher: chacha20-ietf-poly1305
+  name: 🇬🇧 英国
+  password: 1ed4dd9b-8259-46bb-827f-ed35358f2cd9
+  port: 21007
+  server: ft-qt-xygh-by.51feitu.com
+  type: ss
+  udp: true
+- cipher: chacha20-ietf-poly1305
+  name: 🇫🇷 法国
+  password: 1ed4dd9b-8259-46bb-827f-ed35358f2cd9
+  port: 21008
+  server: ft-qt-xygh-by.51feitu.com
+  type: ss
+  udp: true
+- cipher: chacha20-ietf-poly1305
+  name: 🇩🇪 德国
+  password: 1ed4dd9b-8259-46bb-827f-ed35358f2cd9
+  port: 21009
+  server: ft-qt-xygh-by.51feitu.com
+  type: ss
+  udp: true
+- cipher: chacha20-ietf-poly1305
+  name: 🇳🇱 荷兰
+  password: 1ed4dd9b-8259-46bb-827f-ed35358f2cd9
+  port: 21010
+  server: ft-qt-xygh-by.51feitu.com
+  type: ss
+  udp: true
+- cipher: chacha20-ietf-poly1305
+  name: 🇲🇾 马来西亚
+  password: 1ed4dd9b-8259-46bb-827f-ed35358f2cd9
+  port: 21011
+  server: ft-qt-xygh-by.51feitu.com
+  type: ss
+  udp: true
+- cipher: chacha20-ietf-poly1305
+  name: 🇫🇮 芬兰
+  password: 1ed4dd9b-8259-46bb-827f-ed35358f2cd9
+  port: 21012
+  server: ft-qt-xygh-by.51feitu.com
+  type: ss
+  udp: true
+- cipher: chacha20-ietf-poly1305
+  name: 🇦🇷 阿根廷
+  password: 1ed4dd9b-8259-46bb-827f-ed35358f2cd9
+  port: 21013
+  server: ft-qt-xygh-by.51feitu.com
+  type: ss
+  udp: true
+- cipher: chacha20-ietf-poly1305
+  name: 🇹🇭 泰国
+  password: 1ed4dd9b-8259-46bb-827f-ed35358f2cd9
+  port: 21014
+  server: ft-qt-xygh-by.51feitu.com
+  type: ss
+  udp: true
+- cipher: chacha20-ietf-poly1305
+  name: 🇮🇳 印度
+  password: 1ed4dd9b-8259-46bb-827f-ed35358f2cd9
+  port: 21015
+  server: ft-qt-xygh-by.51feitu.com
+  type: ss
+  udp: true
+- cipher: chacha20-ietf-poly1305
+  name: 🇻🇳 越南
+  password: 1ed4dd9b-8259-46bb-827f-ed35358f2cd9
+  port: 21016
+  server: ft-qt-xygh-by.51feitu.com
+  type: ss
+  udp: true
+- cipher: chacha20-ietf-poly1305
+  name: 🇰🇷 韩国
+  password: 1ed4dd9b-8259-46bb-827f-ed35358f2cd9
+  port: 21017
+  server: ft-qt-xygh-by.51feitu.com
+  type: ss
+  udp: true
+- cipher: chacha20-ietf-poly1305
+  name: 🇮🇸 冰岛
+  password: 1ed4dd9b-8259-46bb-827f-ed35358f2cd9
+  port: 21018
+  server: ft-qt-xygh-by.51feitu.com
+  type: ss
+  udp: true
+- cipher: chacha20-ietf-poly1305
+  name: 🇦🇺 澳大利亚
+  password: 1ed4dd9b-8259-46bb-827f-ed35358f2cd9
+  port: 21019
+  server: ft-qt-xygh-by.51feitu.com
+  type: ss
+  udp: true
+- cipher: chacha20-ietf-poly1305
+  name: 🇧🇷 巴西
+  password: 1ed4dd9b-8259-46bb-827f-ed35358f2cd9
+  port: 21020
+  server: ft-qt-xygh-by.51feitu.com
+  type: ss
+  udp: true
+- cipher: chacha20-ietf-poly1305
+  name: 🇮🇩 印度尼西亚
+  password: 1ed4dd9b-8259-46bb-827f-ed35358f2cd9
+  port: 21021
+  server: ft-qt-xygh-by.51feitu.com
+  type: ss
+  udp: true
+- cipher: chacha20-ietf-poly1305
+  name: 🇭🇺 匈牙利
+  password: 1ed4dd9b-8259-46bb-827f-ed35358f2cd9
+  port: 21023
+  server: ft-qt-xygh-by.51feitu.com
+  type: ss
+  udp: true
+- cipher: chacha20-ietf-poly1305
+  name: 🇰🇭 柬埔寨
+  password: 1ed4dd9b-8259-46bb-827f-ed35358f2cd9
+  port: 21024
+  server: ft-qt-xygh-by.51feitu.com
+  type: ss
+  udp: true
+- cipher: chacha20-ietf-poly1305
+  name: 🇺🇦 乌克兰
+  password: 1ed4dd9b-8259-46bb-827f-ed35358f2cd9
+  port: 21025
+  server: ft-qt-xygh-by.51feitu.com
+  type: ss
+  udp: true
+- cipher: chacha20-ietf-poly1305
+  name: 🇲🇽 墨西哥
+  password: 1ed4dd9b-8259-46bb-827f-ed35358f2cd9
+  port: 21026
+  server: ft-qt-xygh-by.51feitu.com
+  type: ss
+  udp: true
+- cipher: chacha20-ietf-poly1305
+  name: 🇿🇦 南非
+  password: 1ed4dd9b-8259-46bb-827f-ed35358f2cd9
+  port: 21027
+  server: ft-qt-xygh-by.51feitu.com
+  type: ss
+  udp: true
+- cipher: chacha20-ietf-poly1305
+  name: 🇵🇭 菲律宾
+  password: 1ed4dd9b-8259-46bb-827f-ed35358f2cd9
+  port: 21028
+  server: ft-qt-xygh-by.51feitu.com
+  type: ss
+  udp: true
+- cipher: chacha20-ietf-poly1305
+  name: 🇪🇬 埃及
+  password: 1ed4dd9b-8259-46bb-827f-ed35358f2cd9
+  port: 21029
+  server: ft-qt-xygh-by.51feitu.com
+  type: ss
+  udp: true
+- cipher: chacha20-ietf-poly1305
+  name: 🇨🇿 捷克
+  password: 1ed4dd9b-8259-46bb-827f-ed35358f2cd9
+  port: 21031
+  server: ft-qt-xygh-by.51feitu.com
+  type: ss
+  udp: true
+proxy-groups:
+- name: GLOBAL
+  proxies:
+  - 剩余流量：296.21 GB
+  - 距离下次重置剩余：21 天
+  - 套餐到期：2027-01-22
+  - 超时请重新复制订阅导入
+  - 🇭🇰 香港_01
+  - 🇭🇰 香港_02
+  - 🇭🇰 香港_03
+  - 🇭🇰 三网×2-香港_04
+  - 🇭🇰 三网×2-香港_05
+  - 🇭🇰 三网×2-香港_06
+  - 🇭🇰 三网×2-香港_07
+  - 🇭🇰 三网×2-香港_08
+  - 🇭🇰 香港_09
+  - 🇭🇰 香港_10
+  - 🇭🇰 香港_11
+  - 🇭🇰 香港_12
+  - 🇭🇰 香港_13
+  - 🇭🇰 香港_14
+  - 🇭🇰 香港_15-v6
+  - 🇭🇰 香港_16-v6
+  - 🇭🇰 香港_17-v6
+  - 🇭🇰 香港_18-v6
+  - 🇭🇰 香港_19-v6
+  - 🇭🇰 香港_20-v6
+  - 🇭🇰 香港_21-v6
+  - 🇸🇬 新加坡_01
+  - 🇸🇬 新加坡_02
+  - 🇸🇬 新加坡_03
+  - 🇸🇬 三网×2-新加坡_04
+  - 🇸🇬 三网×2-新加坡_05
+  - 🇸🇬 三网×2-新加坡_06
+  - 🇸🇬 三网×2-新加坡_07
+  - 🇸🇬 三网×2-新加坡_08
+  - 🇸🇬 新加坡_09
+  - 🇸🇬 新加坡_10
+  - 🇯🇵 日本_01
+  - 🇯🇵 日本_02
+  - 🇯🇵 日本_03
+  - 🇯🇵 三网×2-日本_04
+  - 🇯🇵 三网×2-日本_05
+  - 🇯🇵 三网×2-日本_06
+  - 🇯🇵 三网×2-日本_07
+  - 🇯🇵 三网×2-日本_08
+  - 🇯🇵 日本_09
+  - 🇯🇵 日本_10
+  - 🇺🇸 美国_01
+  - 🇺🇸 美国_02
+  - 🇺🇸 美国_03
+  - 🇺🇸 三网×2-美国_04
+  - 🇺🇸 三网×2-美国_05
+  - 🇺🇸 三网×2-美国_06
+  - 🇺🇸 三网×2-美国_07
+  - 🇺🇸 三网×2-美国_08
+  - 🇺🇸 美国_09
+  - 🇺🇸 美国_10
+  - 🇼🇸 台湾_01
+  - 🇼🇸 台湾_02
+  - 🇼🇸 台湾_03
+  - 🇼🇸 三网×2-台湾_04
+  - 🇼🇸 三网×2-台湾_05
+  - 🇨🇦 加拿大
+  - 🇳🇬 尼日利亚
+  - 🇷🇺 俄罗斯
+  - 🇹🇷 土耳其
+  - 🇪🇸 西班牙
+  - 🇦🇪 阿联酋
+  - 🇬🇧 英国
+  - 🇫🇷 法国
+  - 🇩🇪 德国
+  - 🇳🇱 荷兰
+  - 🇲🇾 马来西亚
+  - 🇫🇮 芬兰
+  - 🇦🇷 阿根廷
+  - 🇹🇭 泰国
+  - 🇮🇳 印度
+  - 🇻🇳 越南
+  - 🇰🇷 韩国
+  - 🇮🇸 冰岛
+  - 🇦🇺 澳大利亚
+  - 🇧🇷 巴西
+  - 🇮🇩 印度尼西亚
+  - 🇭🇺 匈牙利
+  - 🇰🇭 柬埔寨
+  - 🇺🇦 乌克兰
+  - 🇲🇽 墨西哥
+  - 🇿🇦 南非
+  - 🇵🇭 菲律宾
+  - 🇪🇬 埃及
+  - 🇨🇿 捷克
+  type: select
+rules:
+- MATCH,GLOBAL

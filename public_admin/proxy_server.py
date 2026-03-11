@@ -1503,9 +1503,34 @@ async def api_dispatcher_apply_sub(request: Request):
 
     apply_result = sbm.apply_nodes(nodes_to_add, base_port)
 
+    if not apply_result["success"]:
+        return apply_result
 
+    # 等待sing-box启动
+    await asyncio.sleep(2)
 
-    # 4) 清除旧的隧道出口 (保留#0直连)，注册新出口到 dispatcher
+    # 4) 检测出口IP并去重
+    logger.info(f"[Dispatcher] 检测 {len(nodes_to_add)} 个节点的出口IP...")
+    ip_map = {}  # {ip: (node, port, idx)}
+
+    async def get_exit_ip(node, port, idx):
+        try:
+            async with httpx.AsyncClient(proxy=f"socks5://127.0.0.1:{port}", timeout=10) as client:
+                r = await client.get("https://ipinfo.io/ip")
+                return (node, port, idx, r.text.strip() if r.status_code == 200 else None)
+        except:
+            return (node, port, idx, None)
+
+    results = await asyncio.gather(*[get_exit_ip(n, base_port+i, i) for i, n in enumerate(nodes_to_add)])
+
+    for node, port, idx, ip in results:
+        if ip and ip not in ip_map:
+            ip_map[ip] = (node, port, idx)
+            logger.info(f"[Dispatcher] 唯一IP: {ip} <- {node.get('name','')}")
+
+    logger.info(f"[Dispatcher] 去重后: {len(ip_map)} 个唯一IP (原{len(nodes_to_add)}节点)")
+
+    # 5) 清除旧的隧道出口 (保留#0直连)，注册新出口到 dispatcher
 
     while len(dispatcher.exits) > 1:
 
@@ -1515,31 +1540,31 @@ async def api_dispatcher_apply_sub(request: Request):
 
     added_exits = []
 
-    for i, node in enumerate(nodes_to_add):
+    for ip, (node, port, _) in ip_map.items():
 
-        port = base_port + i
-
-        name = node.get("display_name", node.get("name", f"node_{i}"))
+        name = node.get("display_name", node.get("name", f"IP:{ip}"))
 
         idx = dispatcher.add_socks5(name, port)
 
-        added_exits.append({"index": idx, "name": name, "port": port})
+        added_exits.append({"index": idx, "name": name, "port": port, "exit_ip": ip})
 
 
 
-    logger.info(f"[Dispatcher] 订阅热重载完成: {len(added_exits)} 个出口已注册")
+    logger.info(f"[Dispatcher] 订阅热重载完成: {len(added_exits)} 个唯一IP出口已注册")
 
 
 
     return {
 
-        "success": apply_result["success"],
+        "success": True,
 
-        "message": apply_result["message"],
+        "message": f"成功应用 {len(added_exits)} 个唯一IP出口 (原{len(nodes_to_add)}节点)",
 
-        "singbox_reload": apply_result["success"],
+        "singbox_reload": True,
 
         "nodes_count": len(nodes_to_add),
+
+        "unique_ips": len(added_exits),
 
         "exits_added": added_exits,
 
