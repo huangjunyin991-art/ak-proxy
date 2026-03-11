@@ -291,10 +291,65 @@ async def startup():
     # 启动出口调度器
 
     await dispatcher.start()
+    
+    # 自动恢复上次保存的节点配置
+    await _restore_dispatcher_exits()
 
 
 
 
+
+async def _restore_dispatcher_exits():
+    """启动时自动恢复上次保存的节点配置"""
+    try:
+        config_file = os.path.join(os.path.dirname(__file__), "dispatcher_exits.json")
+        if not os.path.exists(config_file):
+            logger.info("[Dispatcher] 未找到保存的节点配置，跳过恢复")
+            return
+        
+        with open(config_file, "r", encoding="utf-8") as f:
+            exits_config = json.load(f)
+        
+        ip_map = exits_config.get("ip_map", {})
+        base_port = exits_config.get("base_port", 10001)
+        
+        if not ip_map:
+            logger.info("[Dispatcher] 节点配置为空，跳过恢复")
+            return
+        
+        # 重建节点列表用于sing-box配置生成
+        nodes_to_restore = []
+        for ip, data in ip_map.items():
+            nodes_to_restore.append(data["node"])
+        
+        # 生成sing-box配置并重载
+        import singbox_manager as sbm
+        apply_result = sbm.apply_nodes(nodes_to_restore, base_port)
+        
+        if not apply_result["success"]:
+            logger.warning(f"[Dispatcher] sing-box配置恢复失败: {apply_result.get('message', '')}")
+            return
+        
+        # 等待sing-box启动
+        await asyncio.sleep(2)
+        
+        # 清除旧的隧道出口（保留#0直连）
+        while len(dispatcher.exits) > 1:
+            dispatcher.exits.pop()
+        
+        # 注册节点到dispatcher
+        restored_count = 0
+        for ip, data in ip_map.items():
+            node = data["node"]
+            port = data["port"]
+            name = node.get("display_name", node.get("name", f"IP:{ip}"))
+            dispatcher.add_socks5(name, port)
+            restored_count += 1
+        
+        logger.info(f"[Dispatcher] 已自动恢复 {restored_count} 个节点配置")
+        
+    except Exception as e:
+        logger.warning(f"[Dispatcher] 恢复节点配置失败: {e}")
 
 async def _periodic_cleanup():
 
@@ -1553,7 +1608,19 @@ async def api_dispatcher_apply_sub(request: Request):
 
     logger.info(f"[Dispatcher] 订阅热重载完成: {len(added_exits)} 个唯一IP出口已注册")
 
-
+    # 持久化节点配置，重启自动恢复
+    try:
+        exits_config = {
+            "ip_map": {ip: {"node": node, "port": port, "idx": idx} for ip, (node, port, idx) in ip_map.items()},
+            "base_port": base_port,
+            "timestamp": time.time()
+        }
+        config_file = os.path.join(os.path.dirname(__file__), "dispatcher_exits.json")
+        with open(config_file, "w", encoding="utf-8") as f:
+            json.dump(exits_config, f, ensure_ascii=False, indent=2)
+        logger.info(f"[Dispatcher] 节点配置已保存: {config_file}")
+    except Exception as e:
+        logger.warning(f"[Dispatcher] 保存节点配置失败: {e}")
 
     return {
 
