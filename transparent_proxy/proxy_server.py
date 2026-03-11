@@ -490,19 +490,35 @@ async def forward_request(method: str, api_path: str, content_type: str,
 
     logger.debug(f"[Forward] {api_path} -> 出口[{exit_obj.name}]")
 
+    try:
 
+        response = await dispatcher.forward(
 
-    return await dispatcher.forward(
+            exit_obj, method, url, fwd_headers,
 
-        exit_obj, method, url, fwd_headers,
+            content_type=content_type, params=params,
 
-        content_type=content_type, params=params,
+            raw_body=raw_body, timeout=REQUEST_TIMEOUT
 
-        raw_body=raw_body, timeout=REQUEST_TIMEOUT
+        )
 
-    )
+        # 登录请求成功后记录时间戳
 
+        if is_login:
 
+            exit_obj.confirm_login()
+
+        return response
+
+    except Exception as e:
+
+        # 登录请求失败释放预留名额
+
+        if is_login:
+
+            exit_obj.cancel_login()
+
+        raise
 
 
 
