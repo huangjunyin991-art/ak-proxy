@@ -4004,8 +4004,7 @@ async def admin_delete_subscription_group(group_id: str, request: Request):
             if len(filtered_nodes) < len(nodes):
                 sbm.save_nodes(filtered_nodes)
                 # 重新生成配置
-                config = sbm.generate_config(filtered_nodes)
-                sbm.write_config(config)
+                sbm.write_config(filtered_nodes)
                 sbm.reload_service()
             
             return {"success": True, "message": f"订阅组已删除"}
@@ -4048,8 +4047,7 @@ async def admin_toggle_server_by_ip(group_id: str, request: Request):
         await db.update_subscription_group_servers(group_id, len(unique_servers), len(enabled_servers))
         
         # 重新生成配置
-        config = sbm.generate_config(nodes)
-        sbm.write_config(config)
+        sbm.write_config(nodes)
         sbm.reload_service()
         
         return {"success": True, "message": f"已{'启用' if enabled else '禁用'}{server}的{len(matching_indices)}个节点"}
@@ -4090,8 +4088,7 @@ async def admin_toggle_all_servers(group_id: str, request: Request):
         await db.update_subscription_group_servers(group_id, len(unique_servers), active_count)
         
         # 重新生成配置
-        config = sbm.generate_config(nodes)
-        sbm.write_config(config)
+        sbm.write_config(nodes)
         sbm.reload_service()
         
         return {"success": True, "message": f"已{'启用' if enabled else '禁用'}{len(unique_servers)}个独立IP"}
@@ -4128,8 +4125,7 @@ async def admin_toggle_server(group_id: str, request: Request):
             await db.update_subscription_group_servers(group_id, len(group_nodes), active_count)
             
             # 重新生成配置
-            config = sbm.generate_config(nodes)
-            sbm.write_config(config)
+            sbm.write_config(nodes)
             sbm.reload_service()
             
             return {"success": True, "message": f"服务器已{'启用' if enabled else '禁用'}"}
