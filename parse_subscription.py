@@ -210,8 +210,8 @@ with open('singbox_config.json', 'w', encoding='utf-8') as f:
 node_count = len([ob for ob in outbounds if ob.get("type") in ["vless", "hysteria2", "vmess", "trojan", "ss"]])
 inbound_count = len([ib for ib in inbounds if ib.get("type") == "socks"])
 
-print(f"✅ 配置已保存到 singbox_config.json")
-print(f"✅ 解析了 {node_count} 个节点")
-print(f"✅ 生成了 {inbound_count} 个独立SOCKS5入站（端口 {base_port}-{base_port + inbound_count - 1}）")
-print(f"✅ 负载均衡组包含前 10 个节点")
-print(f"✅ 混合入站端口：7890（测试用）")
+print(f"[OK] 配置已保存到 singbox_config.json")
+print(f"[OK] 解析了 {node_count} 个节点")
+print(f"[OK] 生成了 {inbound_count} 个独立SOCKS5入站（端口 {base_port}-{base_port + inbound_count - 1}）")
+print(f"[OK] 负载均衡组包含前 10 个节点")
+print(f"[OK] 混合入站端口：7890（测试用）")
