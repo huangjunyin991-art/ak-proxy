@@ -2312,6 +2312,20 @@
                             <span id="lbSbConfig" style="color: var(--text-secondary); font-size: 10px;"></span>
                         </div>
 
+                        <!-- 订阅组管理 -->
+                        <div id="subscriptionGroupsPanel" style="margin-bottom: 15px;">
+                            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
+                                <h4 style="margin: 0; color: #667eea; font-size: 14px; display: flex; align-items: center; gap: 8px;">
+                                    📦 订阅组管理
+                                    <span id="subGroupCount" style="font-size: 11px; color: var(--text-secondary); font-weight: normal;"></span>
+                                </h4>
+                                <button class="btn" onclick="loadSubscriptionGroups()" style="padding: 4px 10px; font-size: 11px; background: rgba(102,126,234,0.15); color: #667eea;">🔄 刷新</button>
+                            </div>
+                            <div id="subscriptionGroupsList" style="display: flex; flex-direction: column; gap: 8px;">
+                                <div style="text-align: center; color: var(--text-secondary); padding: 20px; font-size: 12px;">加载中...</div>
+                            </div>
+                        </div>
+
                         <!-- 出口服务器卡片列表 -->
                         <div id="lbExitCards" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 10px;">
                             <div style="text-align: center; color: var(--text-secondary); padding: 30px;">加载中...</div>
@@ -5753,6 +5767,8 @@
         // ===== 负载均衡管理 =====
         let lbRefreshTimer = null;
         let lbData = null;
+        let subscriptionGroups = [];
+        let expandedGroups = new Set(); // 记录展开的订阅组
 
         async function loadLbStatus() {
             try {
@@ -5764,8 +5780,209 @@
                 renderLbStatus(lbData);
                 const sbData = await sbRes.json();
                 renderSingboxStatus(sbData);
+                
+                // 加载订阅组
+                await loadSubscriptionGroups();
             } catch (e) {
                 console.error('加载负载均衡状态失败', e);
+            }
+        }
+
+        // 加载订阅组列表
+        async function loadSubscriptionGroups() {
+            try {
+                const res = await fetch(`${API_BASE}/admin/api/subscription_groups`, {
+                    headers: getHeaders()
+                });
+                const data = await res.json();
+                if (data.success) {
+                    subscriptionGroups = data.groups || [];
+                    renderSubscriptionGroups();
+                }
+            } catch (e) {
+                console.error('加载订阅组失败', e);
+            }
+        }
+
+        // 渲染订阅组列表
+        function renderSubscriptionGroups() {
+            const container = document.getElementById('subscriptionGroupsList');
+            const countEl = document.getElementById('subGroupCount');
+            
+            if (!subscriptionGroups || subscriptionGroups.length === 0) {
+                container.innerHTML = '<div style="text-align: center; color: var(--text-secondary); padding: 20px; font-size: 12px;">暂无订阅组，点击"导入订阅"开始</div>';
+                countEl.textContent = '';
+                return;
+            }
+            
+            countEl.textContent = `(${subscriptionGroups.length}个)`;
+            
+            const html = subscriptionGroups.map(group => {
+                const isExpanded = expandedGroups.has(group.id);
+                const icon = isExpanded ? '🔽' : '▶';
+                const importTime = new Date(group.import_time).toLocaleString('zh-CN', {
+                    month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit'
+                });
+                
+                return `
+                    <div style="background: var(--bg-primary); border-radius: 8px; border: 1px solid var(--border); overflow: hidden;">
+                        <div style="display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; cursor: pointer;" onclick="toggleSubscriptionGroup('${group.id}')">
+                            <div style="flex: 1; display: flex; align-items: center; gap: 8px;">
+                                <span style="font-size: 14px;">${icon}</span>
+                                <div>
+                                    <div style="font-size: 13px; font-weight: bold; color: var(--text-primary);">${group.name}</div>
+                                    <div style="font-size: 11px; color: var(--text-secondary);">
+                                        ${importTime} | ${group.active_servers}/${group.total_servers}台启用
+                                        ${group.source_type === 'url' ? ' | 🔗订阅链接' : group.source_type === 'json' ? ' | 📋JSON' : ' | 📝文本'}
+                                    </div>
+                                </div>
+                            </div>
+                            <div style="display: flex; gap: 6px;" onclick="event.stopPropagation()">
+                                <button class="btn" onclick="deleteSubscriptionGroup('${group.id}')" 
+                                        style="padding: 4px 8px; font-size: 11px; background: rgba(255,71,87,0.1); color: var(--accent-red); border: 1px solid rgba(255,71,87,0.3);">
+                                    🗑️ 删除
+                                </button>
+                            </div>
+                        </div>
+                        <div id="subGroupServers_${group.id}" style="display: ${isExpanded ? 'block' : 'none'}; padding: 0 12px 12px; border-top: 1px solid var(--border);">
+                            <div style="color: var(--text-secondary); font-size: 11px; padding: 8px 0;">
+                                服务器列表加载中...
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+            
+            container.innerHTML = html;
+            
+            // 如果有展开的组，加载其服务器列表
+            expandedGroups.forEach(groupId => {
+                loadGroupServers(groupId);
+            });
+        }
+
+        // 展开/折叠订阅组
+        function toggleSubscriptionGroup(groupId) {
+            if (expandedGroups.has(groupId)) {
+                expandedGroups.delete(groupId);
+            } else {
+                expandedGroups.add(groupId);
+                loadGroupServers(groupId);
+            }
+            renderSubscriptionGroups();
+        }
+
+        // 加载订阅组的服务器列表
+        async function loadGroupServers(groupId) {
+            const container = document.getElementById(`subGroupServers_${groupId}`);
+            if (!container) return;
+            
+            try {
+                // 从sing-box获取节点列表
+                const res = await fetch(`${API_BASE}/api/dispatcher/singbox_status`);
+                const data = await res.json();
+                const nodes = data.nodes || [];
+                
+                // 筛选出属于该组的节点
+                const groupNodes = nodes.filter(n => n.group_id === groupId);
+                
+                if (groupNodes.length === 0) {
+                    container.innerHTML = '<div style="padding: 8px; color: var(--text-secondary); font-size: 11px;">该组暂无服务器</div>';
+                    return;
+                }
+                
+                const serversHtml = groupNodes.map((node, idx) => {
+                    const enabled = node.enabled !== false;
+                    const checkIcon = enabled ? '☑️' : '☐';
+                    const textColor = enabled ? 'var(--text-primary)' : 'var(--text-secondary)';
+                    const bgColor = enabled ? 'var(--bg-secondary)' : 'rgba(0,0,0,0.2)';
+                    
+                    return `
+                        <div style="display: flex; align-items: center; gap: 8px; padding: 6px 8px; background: ${bgColor}; border-radius: 6px; margin-top: 6px;">
+                            <input type="checkbox" ${enabled ? 'checked' : ''} 
+                                   onchange="toggleServerEnabled('${groupId}', ${idx}, this.checked)"
+                                   style="cursor: pointer; accent-color: var(--accent);">
+                            <div style="flex: 1; font-size: 12px; color: ${textColor};">
+                                <strong>${node.name || node.display_name || `服务器${idx + 1}`}</strong>
+                                <span style="color: var(--text-secondary); margin-left: 6px;">
+                                    ${node.type?.toUpperCase() || 'UNKNOWN'} | ${node.server}:${node.port}
+                                </span>
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+                
+                const actionsHtml = `
+                    <div style="display: flex; gap: 6px; padding: 8px 0; font-size: 11px;">
+                        <button class="btn" onclick="toggleAllServers('${groupId}', true)" 
+                                style="padding: 4px 10px; background: rgba(76,175,80,0.1); color: var(--accent-green);">全选</button>
+                        <button class="btn" onclick="toggleAllServers('${groupId}', false)" 
+                                style="padding: 4px 10px; background: var(--bg-secondary); color: var(--text-secondary);">全不选</button>
+                    </div>
+                `;
+                
+                container.innerHTML = actionsHtml + serversHtml;
+            } catch (e) {
+                console.error('加载订阅组服务器失败', e);
+                container.innerHTML = '<div style="padding: 8px; color: var(--accent-red); font-size: 11px;">加载失败</div>';
+            }
+        }
+
+        // 切换服务器启用状态
+        async function toggleServerEnabled(groupId, serverIndex, enabled) {
+            try {
+                const res = await fetch(`${API_BASE}/admin/api/subscription_groups/${groupId}/toggle_server`, {
+                    method: 'POST',
+                    headers: {...getHeaders(), 'Content-Type': 'application/json'},
+                    body: JSON.stringify({server_index: serverIndex, enabled})
+                });
+                const data = await res.json();
+                if (data.success) {
+                    showToast(data.message, 'success');
+                    // 刷新订阅组列表和负载均衡状态
+                    await loadSubscriptionGroups();
+                    await loadLbStatus();
+                } else {
+                    showToast(data.message || '操作失败', 'error');
+                }
+            } catch (e) {
+                console.error('切换服务器状态失败', e);
+                showToast('操作失败: ' + e.message, 'error');
+            }
+        }
+
+        // 全选/全不选订阅组的服务器
+        async function toggleAllServers(groupId, enabled) {
+            // TODO: 后续可以添加批量切换API
+            showToast('功能开发中...', 'info');
+        }
+
+        // 删除订阅组
+        async function deleteSubscriptionGroup(groupId) {
+            const group = subscriptionGroups.find(g => g.id === groupId);
+            const groupName = group ? group.name : groupId;
+            
+            if (!await showConfirm('确认删除', `确定要删除订阅组"${groupName}"吗？\n\n该组的所有服务器将被移除。`)) {
+                return;
+            }
+            
+            try {
+                const res = await fetch(`${API_BASE}/admin/api/subscription_groups/${groupId}`, {
+                    method: 'DELETE',
+                    headers: getHeaders()
+                });
+                const data = await res.json();
+                if (data.success) {
+                    showToast(data.message, 'success');
+                    expandedGroups.delete(groupId);
+                    await loadSubscriptionGroups();
+                    await loadLbStatus();
+                } else {
+                    showToast(data.message || '删除失败', 'error');
+                }
+            } catch (e) {
+                console.error('删除订阅组失败', e);
+                showToast('删除失败: ' + e.message, 'error');
             }
         }
 
