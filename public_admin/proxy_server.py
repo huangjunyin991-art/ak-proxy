@@ -1362,7 +1362,7 @@ async def api_dispatcher_parse_sub(request: Request):
 
     else:
 
-        return {"error": "需要 url、text 或 json 参数"}
+        return {"error": "请输入订阅链接、订阅内容或JSON配置"}
 
     return result
 
