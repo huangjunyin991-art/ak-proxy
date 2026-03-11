@@ -5968,8 +5968,24 @@
 
         // 全选/全不选订阅组的服务器
         async function toggleAllServers(groupId, enabled) {
-            // TODO: 后续可以添加批量切换API
-            showToast('功能开发中...', 'info');
+            try {
+                const res = await fetch(`${API_BASE}/admin/api/subscription_groups/${groupId}/toggle_all`, {
+                    method: 'POST',
+                    headers: {...getHeaders(), 'Content-Type': 'application/json'},
+                    body: JSON.stringify({enabled})
+                });
+                const data = await res.json();
+                if (data.success) {
+                    showToast(data.message, 'success');
+                    // 刷新订阅组列表
+                    await loadSubscriptionGroups();
+                } else {
+                    showToast(data.message || '操作失败', 'error');
+                }
+            } catch (e) {
+                console.error('批量切换失败', e);
+                showToast('操作失败: ' + e.message, 'error');
+            }
         }
 
         // 编辑订阅组备注

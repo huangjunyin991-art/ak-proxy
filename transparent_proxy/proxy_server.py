@@ -4010,6 +4010,46 @@ async def admin_delete_subscription_group(group_id: str, request: Request):
         return {"success": False, "message": f"删除失败: {str(e)}"}
 
 
+@app.post("/admin/api/subscription_groups/{group_id}/toggle_all")
+async def admin_toggle_all_servers(group_id: str, request: Request):
+    """批量切换订阅组所有服务器状态"""
+    token = request.headers.get('Authorization', '').replace('Bearer ', '')
+    
+    if not await verify_admin_token(token):
+        return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
+    
+    data = await request.json()
+    enabled = bool(data.get('enabled', True))
+    
+    try:
+        import singbox_manager as sbm
+        nodes = sbm.load_saved_nodes()
+        
+        # 找到该组的所有节点并批量切换状态
+        group_nodes = [i for i, n in enumerate(nodes) if isinstance(n, dict) and n.get('group_id') == group_id]
+        if not group_nodes:
+            return {"success": False, "message": "该组暂无服务器"}
+        
+        # 批量更新状态
+        for idx in group_nodes:
+            nodes[idx]['enabled'] = enabled
+        sbm.save_nodes(nodes)
+        
+        # 更新订阅组统计
+        active_count = len(group_nodes) if enabled else 0
+        await db.update_subscription_group_servers(group_id, len(group_nodes), active_count)
+        
+        # 重新生成配置
+        config = sbm.generate_config(nodes)
+        sbm.write_config(config)
+        sbm.reload_service()
+        
+        return {"success": True, "message": f"已{'启用' if enabled else '禁用'}{len(group_nodes)}个服务器"}
+    except Exception as e:
+        logger.error(f"[SubGroup] 批量切换服务器状态失败: {e}")
+        return {"success": False, "message": f"操作失败: {str(e)}"}
+
+
 @app.post("/admin/api/subscription_groups/{group_id}/toggle_server")
 async def admin_toggle_server(group_id: str, request: Request):
     """切换服务器启用/禁用状态"""
@@ -4026,8 +4066,8 @@ async def admin_toggle_server(group_id: str, request: Request):
         import singbox_manager as sbm
         nodes = sbm.load_saved_nodes()
         
-        # 找到该组的节点并切换状态
-        group_nodes = [i for i, n in enumerate(nodes) if n.get('group_id') == group_id]
+        # 找到该组的节点并切换状态（添加类型检查）
+        group_nodes = [i for i, n in enumerate(nodes) if isinstance(n, dict) and n.get('group_id') == group_id]
         if 0 <= server_index < len(group_nodes):
             node_idx = group_nodes[server_index]
             nodes[node_idx]['enabled'] = enabled
