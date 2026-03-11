@@ -337,9 +337,14 @@ def apply_nodes(nodes: list[dict], base_port: int = 10001) -> dict:
         {"success": bool, "message": str, "config_path": str, "nodes_count": int}
     """
     try:
-        # 追加模式：加载已有节点 + 新节点
+        # 追加模式：加载已有节点 + 新节点，按server去重
         existing_nodes = load_saved_nodes()
-        all_nodes = existing_nodes + nodes
+        
+        # 按server去重：保留已有节点，新节点中相同server的跳过
+        existing_servers = {n.get('server') for n in existing_nodes if isinstance(n, dict) and n.get('server')}
+        unique_new_nodes = [n for n in nodes if n.get('server') not in existing_servers]
+        
+        all_nodes = existing_nodes + unique_new_nodes
         save_nodes(all_nodes)
         
         config_path = write_config(all_nodes, base_port)
