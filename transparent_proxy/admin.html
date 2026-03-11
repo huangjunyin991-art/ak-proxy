@@ -6393,11 +6393,12 @@
             // 获取订阅源 (从弹窗的输入框)
             const url = document.getElementById('lbSubUrl')?.value?.trim() || '';
             const text = document.getElementById('lbSubText')?.value?.trim() || '';
+            const json = document.getElementById('lbSubJson')?.value?.trim() || '';
 
             try {
                 const res = await fetch(`${API_BASE}/api/dispatcher/apply_sub`, {
                     method: 'POST', headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ url, text, selected_servers, base_port: basePort })
+                    body: JSON.stringify({ url, text, json, selected_servers, base_port: basePort })
                 });
                 const data = await res.json();
                 if (data.success) {
