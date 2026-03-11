@@ -3919,13 +3919,14 @@ async def admin_get_subscription_groups(request: Request):
     """获取订阅组列表"""
     token = request.headers.get('Authorization', '').replace('Bearer ', '')
     
-    user_info = await verify_admin_token(token)
-    if not user_info:
+    if not await verify_admin_token(token):
         return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
     
     try:
         # 子管理员只能看到自己创建的订阅组
-        created_by = None if user_info.get('role') == 'super_admin' else user_info.get('sub_name')
+        role = get_token_role(token)
+        sub_name = get_token_sub_name(token)
+        created_by = None if role == ROLE_SUPER_ADMIN else sub_name
         groups = await db.get_subscription_groups(created_by)
         return {"success": True, "groups": groups}
     except Exception as e:
