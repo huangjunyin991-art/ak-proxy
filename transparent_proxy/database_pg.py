@@ -1538,7 +1538,11 @@ class SystemConfig:
             row = await conn.fetchrow(
                 "SELECT value FROM system_config WHERE key = $1", key
             )
-            value = row['value'] if row else default
+            if row:
+                # 解析JSON字符串为原始类型
+                value = json.loads(row['value'])
+            else:
+                value = default
             
             # 更新缓存
             async with self._cache_lock:
