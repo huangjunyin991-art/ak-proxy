@@ -337,10 +337,10 @@ def apply_nodes(nodes: list[dict], base_port: int = 10001) -> dict:
         {"success": bool, "message": str, "config_path": str, "nodes_count": int}
     """
     try:
-        # 追加模式：加载已有节点 + 新节点，按server去重
+        # 追加模式：加载已有节点 + 新节点，按server全局去重
         existing_nodes = load_saved_nodes()
         
-        # 按server去重：保留已有节点，新节点中相同server的跳过
+        # 按server全局去重：确保出口IP全局唯一
         existing_servers = {n.get('server') for n in existing_nodes if isinstance(n, dict) and n.get('server')}
         unique_new_nodes = [n for n in nodes if n.get('server') not in existing_servers]
         
@@ -355,6 +355,7 @@ def apply_nodes(nodes: list[dict], base_port: int = 10001) -> dict:
             "message": reload_result["message"],
             "config_path": config_path,
             "nodes_count": len(nodes),
+            "unique_added_count": len(unique_new_nodes),  # 实际新增的独立IP数量
         }
     except Exception as e:
         logger.error(f"[SingBox] apply_nodes 失败: {e}")

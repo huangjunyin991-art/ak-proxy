@@ -1484,8 +1484,11 @@ async def api_dispatcher_apply_sub(request: Request):
         node['group_id'] = group_id
         node['enabled'] = True  # 默认启用
     
-    # 统计独立IP/server数量（已去重，nodes_to_add中每个server都是唯一的）
-    unique_servers_count = len(nodes_to_add)
+    # 3) 生成 sing-box 配置 + 写盘 + 重载（全局去重）
+    apply_result = sbm.apply_nodes(nodes_to_add, base_port)
+    
+    # 使用实际新增的独立IP数量（经过全局去重后的数量）
+    actual_added_count = apply_result.get('unique_added_count', len(nodes_to_add))
     
     # 创建订阅组记录
     await db.create_subscription_group(
@@ -1493,15 +1496,11 @@ async def api_dispatcher_apply_sub(request: Request):
         name=group_name,
         source_type=source_type,
         source_url=source_url_val,
-        total_servers=unique_servers_count,  # 独立IP数量
+        total_servers=actual_added_count,  # 实际新增的独立IP数量
         created_by='admin',  # TODO: 从token获取实际用户
         notes=notes
     )
-    logger.info(f"[SubGroup] 创建订阅组: {group_name} ({group_id}), {unique_servers_count}个独立IP")
-
-    # 3) 生成 sing-box 配置 + 写盘 + 重载
-
-    apply_result = sbm.apply_nodes(nodes_to_add, base_port)
+    logger.info(f"[SubGroup] 创建订阅组: {group_name} ({group_id}), 实际新增{actual_added_count}个独立IP（解析出{len(nodes_to_add)}个，去重后{actual_added_count}个）")
 
 
 
