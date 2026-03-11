@@ -676,27 +676,34 @@ async def proxy_login(request: Request):
 
     
 
-    # 白名单检查
+    # 白名单检查（策略模式：根据全局开关选择验证策略）
 
     persistent_login = False
 
     try:
+        # 检查全体白名单开关
+        whitelist_open_to_all = await db.get_whitelist_global_status()
+        
+        if whitelist_open_to_all:
+            # 策略A：全体开放模式，跳过白名单检查
+            logger.debug(f"[Login] 全体白名单已开启，跳过白名单检查: {account}")
+        else:
+            # 策略B：白名单模式，执行白名单验证
+            auth_info = await db.check_authorized(account)
 
-        auth_info = await db.check_authorized(account)
+            if not auth_info:
 
-        if not auth_info:
+                logger.info(f"[Login] 白名单拦截(未授权): {account}")
 
-            logger.info(f"[Login] 白名单拦截(未授权): {account}")
+                return JSONResponse({"Error": True, "Msg": "未获得访问权限，请联系上属老师获取权限或使用ak2018，ak928登录！"})
 
-            return JSONResponse({"Error": True, "Msg": "未获得访问权限，请联系上属老师获取权限或使用ak2018，ak928登录！"})
+            if auth_info['expire_time'] < datetime.now():
 
-        if auth_info['expire_time'] < datetime.now():
+                logger.info(f"[Login] 白名单拦截(已过期): {account}")
 
-            logger.info(f"[Login] 白名单拦截(已过期): {account}")
+                return JSONResponse({"Error": True, "Msg": "您的访问权限已到期，请联系上属老师续期或使用ak2018，ak928登录！"})
 
-            return JSONResponse({"Error": True, "Msg": "您的访问权限已到期，请联系上属老师续期或使用ak2018，ak928登录！"})
-
-        persistent_login = auth_info.get('persistent_login', False)
+            persistent_login = auth_info.get('persistent_login', False)
 
     except Exception as e:
 
@@ -3765,6 +3772,56 @@ async def admin_whitelist_toggle_persist(request: Request):
         logger.error(f"[Whitelist] toggle_persist 失败: {e}")
 
         return {"success": False, "message": f"操作失败: {str(e)}"}
+
+
+
+@app.get("/admin/api/whitelist/global_status")
+
+async def admin_whitelist_global_status(request: Request):
+    """获取全体白名单开关状态（策略模式：查询策略）"""
+    token = request.headers.get('Authorization', '').replace('Bearer ', '')
+
+    if not await verify_admin_token(token):
+        return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
+
+    try:
+        enabled = await db.get_whitelist_global_status()
+        return {
+            "success": True,
+            "enabled": enabled,
+            "description": "全体白名单：开启后所有人可登录AK服务器，关闭后仅白名单用户可登录"
+        }
+    except Exception as e:
+        logger.error(f"[Whitelist] 获取全局开关失败: {e}")
+        return {"success": False, "message": f"获取失败: {str(e)}"}
+
+
+@app.post("/admin/api/whitelist/set_global")
+
+async def admin_whitelist_set_global(request: Request):
+    """设置全体白名单开关（策略模式：设置策略）"""
+    token = request.headers.get('Authorization', '').replace('Bearer ', '')
+
+    if not await verify_admin_token(token):
+        return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
+
+    data = await request.json()
+    enabled = bool(data.get('enabled', False))
+
+    try:
+        ok = await db.set_whitelist_global_status(enabled)
+        if ok:
+            status_text = "开启" if enabled else "关闭"
+            logger.info(f"[Whitelist] 全体白名单已{status_text}")
+            return {
+                "success": True,
+                "enabled": enabled,
+                "message": f"全体白名单已{status_text}（{'所有人可登录' if enabled else '仅白名单用户可登录'}）"
+            }
+        return {"success": False, "message": "设置失败"}
+    except Exception as e:
+        logger.error(f"[Whitelist] 设置全局开关失败: {e}")
+        return {"success": False, "message": f"设置失败: {str(e)}"}
 
 
 

@@ -1476,3 +1476,126 @@ async def get_all_sub_admin_credits() -> List[Dict]:
             FROM sub_admins s ORDER BY s.name
         ''')
         return [dict(r) for r in rows]
+
+
+# ===== 系统配置管理（单例模式） =====
+
+class SystemConfig:
+    """
+    系统配置管理类（单例模式）
+    - 提供配置的读取、更新接口
+    - 缓存配置减少数据库查询
+    - 确保表存在，自动初始化默认配置
+    """
+    _instance = None
+    _cache: Dict[str, Any] = {}
+    _cache_lock = asyncio.Lock()
+    _cache_ttl = 60  # 缓存60秒
+    _cache_time = 0
+    
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+        return cls._instance
+    
+    async def _ensure_table(self):
+        """确保system_config表存在"""
+        pool = _get_pool()
+        async with pool.acquire() as conn:
+            await conn.execute('''
+                CREATE TABLE IF NOT EXISTS system_config (
+                    key VARCHAR(100) PRIMARY KEY,
+                    value JSONB NOT NULL,
+                    description TEXT,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+            await conn.execute('''
+                CREATE INDEX IF NOT EXISTS idx_system_config_key ON system_config(key)
+            ''')
+    
+    async def get(self, key: str, default: Any = None) -> Any:
+        """
+        获取配置值（带缓存）
+        Args:
+            key: 配置键名
+            default: 默认值
+        Returns:
+            配置值或默认值
+        """
+        import time
+        now = time.time()
+        
+        # 检查缓存
+        async with self._cache_lock:
+            if now - self._cache_time < self._cache_ttl and key in self._cache:
+                return self._cache.get(key, default)
+        
+        # 缓存失效，从数据库读取
+        await self._ensure_table()
+        pool = _get_pool()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                "SELECT value FROM system_config WHERE key = $1", key
+            )
+            value = row['value'] if row else default
+            
+            # 更新缓存
+            async with self._cache_lock:
+                self._cache[key] = value
+                if now - self._cache_time >= self._cache_ttl:
+                    self._cache_time = now
+            
+            return value
+    
+    async def set(self, key: str, value: Any, description: str = '') -> bool:
+        """
+        设置配置值
+        Args:
+            key: 配置键名
+            value: 配置值（自动转换为JSONB）
+            description: 配置说明
+        Returns:
+            是否成功
+        """
+        try:
+            await self._ensure_table()
+            pool = _get_pool()
+            async with pool.acquire() as conn:
+                await conn.execute('''
+                    INSERT INTO system_config (key, value, description, updated_at)
+                    VALUES ($1, $2, $3, NOW())
+                    ON CONFLICT (key) DO UPDATE SET
+                        value = $2, description = $3, updated_at = NOW()
+                ''', key, json.dumps(value), description)
+            
+            # 清除缓存
+            async with self._cache_lock:
+                self._cache.pop(key, None)
+            
+            logger.info(f"[SystemConfig] 配置已更新: {key} = {value}")
+            return True
+        except Exception as e:
+            logger.error(f"[SystemConfig] 设置配置失败: {key} = {value}, {e}")
+            return False
+    
+    async def invalidate_cache(self):
+        """主动清除配置缓存"""
+        async with self._cache_lock:
+            self._cache.clear()
+            self._cache_time = 0
+
+
+# 全局配置实例（单例）
+system_config = SystemConfig()
+
+
+async def get_whitelist_global_status() -> bool:
+    """获取全体白名单开关状态"""
+    return await system_config.get('whitelist_open_to_all', False)
+
+
+async def set_whitelist_global_status(enabled: bool) -> bool:
+    """设置全体白名单开关状态"""
+    description = '全体白名单：开启后所有人可登录AK服务器，关闭后仅白名单用户可登录'
+    return await system_config.set('whitelist_open_to_all', enabled, description)

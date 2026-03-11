@@ -1877,6 +1877,27 @@
         <!-- 白名单管理 -->
         <div class="panel" id="whitelist">
             <div>
+                <!-- 全体白名单全局开关 -->
+                <div id="wlGlobalSwitch" style="background: linear-gradient(135deg, rgba(102,126,234,0.15), rgba(118,75,162,0.15)); border: 2px solid var(--accent); border-radius: 12px; padding: 15px 20px; margin-bottom: 18px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
+                    <div style="flex: 1; min-width: 200px;">
+                        <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 6px;">
+                            <span style="font-size: 28px;">🌐</span>
+                            <h4 style="margin: 0; color: var(--accent); font-size: 16px; font-weight: bold;">全体白名单模式</h4>
+                        </div>
+                        <p id="wlGlobalDesc" style="margin: 0; font-size: 12px; color: var(--text-secondary); line-height: 1.5;">
+                            加载中...
+                        </p>
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 12px;">
+                        <div id="wlGlobalStatus" style="padding: 8px 16px; background: rgba(0,0,0,0.2); border-radius: 8px; font-size: 13px; font-weight: bold;">
+                            检测中...
+                        </div>
+                        <button id="wlGlobalToggleBtn" onclick="toggleWhitelistGlobal()" class="btn" style="padding: 8px 20px; font-size: 14px; font-weight: bold; min-width: 100px;" disabled>
+                            <span id="wlGlobalToggleBtnText">加载中</span>
+                        </button>
+                    </div>
+                </div>
+                
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; flex-wrap: wrap; gap: 10px;">
                     <h3 style="color: var(--accent); margin: 0;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-2px"><rect width="8" height="4" x="8" y="2" rx="1" ry="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="m9 14 2 2 4-4"/></svg> 授权白名单</h3>
                     <div style="display: flex; align-items: center; gap: 8px;">
@@ -5801,8 +5822,87 @@
         // ===== 白名单管理 =====
         let wlPage = 0;
         let wlCreditConfigs = [];
+        let wlGlobalEnabled = false;
+
+        // 加载全体白名单开关状态
+        async function loadWhitelistGlobalStatus() {
+            try {
+                const res = await fetch(`${API_BASE}/admin/api/whitelist/global_status`, {headers: getHeaders()});
+                const data = await res.json();
+                if (data.success) {
+                    wlGlobalEnabled = data.enabled;
+                    updateWhitelistGlobalUI(data.enabled, data.description);
+                } else {
+                    showToast('获取全体白名单状态失败', 'error');
+                }
+            } catch (e) {
+                console.error('加载全体白名单状态失败:', e);
+                showToast('加载失败: ' + e.message, 'error');
+            }
+        }
+
+        // 更新全体白名单UI显示（观察者模式：UI跟随状态变化）
+        function updateWhitelistGlobalUI(enabled, description) {
+            const statusEl = document.getElementById('wlGlobalStatus');
+            const btnEl = document.getElementById('wlGlobalToggleBtn');
+            const btnTextEl = document.getElementById('wlGlobalToggleBtnText');
+            const descEl = document.getElementById('wlGlobalDesc');
+
+            if (enabled) {
+                // 开启状态
+                statusEl.textContent = '✅ 已开启';
+                statusEl.style.color = '#00ff88';
+                statusEl.style.background = 'rgba(0,255,136,0.2)';
+                btnEl.className = 'btn btn-danger';
+                btnTextEl.textContent = '关闭';
+                descEl.innerHTML = '<strong style="color:#00ff88;">当前所有人可登录AK服务器</strong>（白名单验证已停用）';
+            } else {
+                // 关闭状态
+                statusEl.textContent = '❌ 已关闭';
+                statusEl.style.color = '#ff5252';
+                statusEl.style.background = 'rgba(255,82,82,0.2)';
+                btnEl.className = 'btn btn-success';
+                btnTextEl.textContent = '开启';
+                descEl.innerHTML = '<strong style="color:#ffa502;">当前仅白名单用户可登录</strong>（正常白名单模式）';
+            }
+            btnEl.disabled = false;
+        }
+
+        // 切换全体白名单开关
+        async function toggleWhitelistGlobal() {
+            const newStatus = !wlGlobalEnabled;
+            const action = newStatus ? '开启' : '关闭';
+            const warning = newStatus 
+                ? '⚠️ 开启后，所有人都可以登录AK服务器，白名单验证将被停用！\n\n确定要开启全体白名单吗？'
+                : '关闭后，将恢复白名单验证，仅白名单中的用户可登录。\n\n确定要关闭全体白名单吗？';
+
+            if (!confirm(warning)) return;
+
+            try {
+                const res = await fetch(`${API_BASE}/admin/api/whitelist/set_global`, {
+                    method: 'POST',
+                    headers: {...getHeaders(), 'Content-Type': 'application/json'},
+                    body: JSON.stringify({enabled: newStatus})
+                });
+                const data = await res.json();
+                if (data.success) {
+                    wlGlobalEnabled = data.enabled;
+                    updateWhitelistGlobalUI(data.enabled, '');
+                    showToast(data.message, 'success');
+                } else {
+                    showToast(data.message || '设置失败', 'error');
+                }
+            } catch (e) {
+                console.error('切换全体白名单失败:', e);
+                showToast('操作失败: ' + e.message, 'error');
+            }
+        }
 
         async function loadWhitelist(page = 0) {
+            // 首次加载时同时加载全局开关状态
+            if (page === 0 && wlPage === 0) {
+                loadWhitelistGlobalStatus();
+            }
             wlPage = page;
             const search = document.getElementById('wlSearch').value.trim();
             const params = new URLSearchParams({limit: 50, offset: page * 50});
