@@ -170,6 +170,169 @@ def _parse_ss_links(text: str) -> list[dict]:
     return nodes
 
 
+def _parse_singbox_json(data: dict) -> list[dict]:
+    """解析Sing-box JSON格式的outbounds"""
+    nodes = []
+    
+    # 支持两种格式：完整config或单独的outbounds数组
+    outbounds = data.get('outbounds', [])
+    if not outbounds and isinstance(data, list):
+        outbounds = data
+    
+    for ob in outbounds:
+        if not isinstance(ob, dict):
+            continue
+            
+        ob_type = ob.get('type', '')
+        tag = ob.get('tag', '')
+        
+        # 跳过非代理类型的outbound
+        if ob_type in ['direct', 'block', 'dns']:
+            continue
+        
+        # 提取服务器信息
+        server = ob.get('server', '')
+        port = ob.get('server_port', 0)
+        
+        if not server or not port:
+            continue
+        
+        # 跳过信息节点
+        if any(k in tag for k in SKIP_KEYWORDS):
+            continue
+        
+        region_code, region_label = detect_region(tag)
+        nodes.append({
+            'name': tag or f'{ob_type.upper()}-{server}',
+            'type': ob_type,
+            'server': server,
+            'port': int(port),
+            'region_code': region_code,
+            'region_label': region_label,
+            'raw': ob,
+        })
+    
+    return nodes
+
+
+def _parse_v2ray_json(data: dict) -> list[dict]:
+    """解析V2ray/Xray JSON格式的config"""
+    nodes = []
+    
+    # V2ray格式：outbounds数组
+    outbounds = data.get('outbounds', [])
+    
+    for ob in outbounds:
+        if not isinstance(ob, dict):
+            continue
+        
+        protocol = ob.get('protocol', '')
+        tag = ob.get('tag', '')
+        
+        # 跳过非代理协议
+        if protocol in ['freedom', 'blackhole', 'dns']:
+            continue
+        
+        settings = ob.get('settings', {})
+        servers = settings.get('servers', [])
+        vnext = settings.get('vnext', [])
+        
+        # VMess/VLESS格式
+        if vnext:
+            for v in vnext:
+                address = v.get('address', '')
+                port = v.get('port', 0)
+                
+                if not address or not port:
+                    continue
+                
+                region_code, region_label = detect_region(tag)
+                nodes.append({
+                    'name': tag or f'{protocol.upper()}-{address}',
+                    'type': protocol,
+                    'server': address,
+                    'port': int(port),
+                    'region_code': region_code,
+                    'region_label': region_label,
+                    'raw': ob,
+                })
+        
+        # Shadowsocks/Trojan格式
+        elif servers:
+            for s in servers:
+                address = s.get('address', '')
+                port = s.get('port', 0)
+                
+                if not address or not port:
+                    continue
+                
+                region_code, region_label = detect_region(tag)
+                nodes.append({
+                    'name': tag or f'{protocol.upper()}-{address}',
+                    'type': protocol,
+                    'server': address,
+                    'port': int(port),
+                    'region_code': region_code,
+                    'region_label': region_label,
+                    'raw': ob,
+                })
+    
+    return nodes
+
+
+def parse_json_config(json_text: str) -> dict:
+    """
+    解析JSON配置（策略模式：自动识别Sing-box/V2ray格式）
+    
+    Returns:
+        与parse_subscription_text相同的格式
+    """
+    import json
+    
+    try:
+        data = json.loads(json_text)
+    except json.JSONDecodeError as e:
+        return {"error": f"JSON格式错误: {str(e)}"}
+    
+    if not isinstance(data, (dict, list)):
+        return {"error": "JSON格式无效：需要对象或数组"}
+    
+    # 尝试Sing-box格式
+    nodes = _parse_singbox_json(data)
+    fmt = "singbox_json"
+    
+    # 尝试V2ray格式
+    if not nodes and isinstance(data, dict):
+        nodes = _parse_v2ray_json(data)
+        fmt = "v2ray_json"
+    
+    if not nodes:
+        return {"error": "未找到有效节点：请检查JSON格式", "format": "unknown"}
+    
+    # 统计（与parse_subscription_text相同的逻辑）
+    servers: dict[str, list[int]] = {}
+    regions: dict[str, dict] = {}
+    for i, n in enumerate(nodes):
+        s = n['server']
+        if s not in servers:
+            servers[s] = []
+        servers[s].append(i)
+        
+        rc = n['region_code']
+        if rc not in regions:
+            regions[rc] = {"label": n['region_label'], "count": 0}
+        regions[rc]["count"] += 1
+    
+    return {
+        "format": fmt,
+        "total_nodes": len(nodes),
+        "unique_servers": len(servers),
+        "nodes": nodes,
+        "servers": servers,
+        "regions": regions,
+    }
+
+
 def parse_subscription_text(text: str) -> dict:
     """
     解析订阅内容（自动识别格式）

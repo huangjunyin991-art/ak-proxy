@@ -1305,9 +1305,9 @@ async def api_dispatcher_exit_logs(index: int):
 
 async def api_dispatcher_parse_sub(request: Request):
 
-    """解析订阅: 支持URL自动获取或直接传入文本"""
+    """解析订阅: 支持URL/文本/JSON多种格式（策略模式）"""
 
-    from sub_parser import fetch_subscription, parse_subscription_text
+    from sub_parser import fetch_subscription, parse_subscription_text, parse_json_config
 
     data = await request.json()
 
@@ -1315,11 +1315,17 @@ async def api_dispatcher_parse_sub(request: Request):
 
     text = data.get("text", "").strip()
 
+    json_data = data.get("json", "").strip()
+
 
 
     if url:
 
         result = fetch_subscription(url)
+
+    elif json_data:
+
+        result = parse_json_config(json_data)
 
     elif text:
 
@@ -1327,7 +1333,7 @@ async def api_dispatcher_parse_sub(request: Request):
 
     else:
 
-        return {"error": "需要 url 或 text 参数"}
+        return {"error": "需要 url、text 或 json 参数"}
 
     return result
 

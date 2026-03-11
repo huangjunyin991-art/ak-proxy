@@ -5953,20 +5953,64 @@
             modal.id = 'lbSubModal';
             modal.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.7);display:flex;align-items:center;justify-content:center;z-index:10000;';
             modal.innerHTML = `
-                <div style="background:var(--bg-card);border-radius:12px;max-width:680px;width:95%;max-height:85vh;border:1px solid var(--border);display:flex;flex-direction:column;">
+                <div style="background:var(--bg-card);border-radius:12px;max-width:720px;width:95%;max-height:85vh;border:1px solid var(--border);display:flex;flex-direction:column;">
                     <h3 style="padding:18px 22px 14px;margin:0;color:var(--accent);border-bottom:1px solid var(--border);flex-shrink:0;">📡 导入VPN订阅</h3>
+                    
+                    <!-- Tab切换 -->
+                    <div style="display:flex;gap:8px;padding:12px 22px 0;border-bottom:1px solid var(--border);">
+                        <button onclick="switchSubTab('url')" id="subTabUrl" class="sub-tab active" 
+                                style="padding:8px 16px;background:var(--accent);color:white;border:none;border-radius:6px 6px 0 0;cursor:pointer;font-size:13px;font-weight:bold;transition:all 0.3s;">
+                            🔗 订阅链接
+                        </button>
+                        <button onclick="switchSubTab('text')" id="subTabText" class="sub-tab" 
+                                style="padding:8px 16px;background:var(--bg-secondary);color:var(--text-secondary);border:none;border-radius:6px 6px 0 0;cursor:pointer;font-size:13px;transition:all 0.3s;">
+                            📝 文本粘贴
+                        </button>
+                        <button onclick="switchSubTab('json')" id="subTabJson" class="sub-tab" 
+                                style="padding:8px 16px;background:var(--bg-secondary);color:var(--text-secondary);border:none;border-radius:6px 6px 0 0;cursor:pointer;font-size:13px;transition:all 0.3s;">
+                            📋 JSON导入
+                        </button>
+                    </div>
+                    
                     <div style="padding:14px 22px;overflow-y:auto;flex:1;" id="lbSubBody">
-                        <div style="margin-bottom:10px;">
-                            <label style="display:block;margin-bottom:4px;color:var(--text-secondary);font-size:13px;">订阅链接 (自动获取并解析)</label>
-                            <input type="text" id="lbSubUrl" placeholder="https://example.com/sub?token=xxx" style="width:100%;padding:8px 10px;background:var(--bg-primary);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);">
+                        <!-- 订阅链接Tab -->
+                        <div id="subPanelUrl" class="sub-panel" style="display:block;">
+                            <div style="margin-bottom:10px;">
+                                <label style="display:block;margin-bottom:4px;color:var(--text-secondary);font-size:13px;">订阅链接（自动获取并解析）</label>
+                                <input type="text" id="lbSubUrl" placeholder="https://example.com/sub?token=xxx" 
+                                       style="width:100%;padding:10px 12px;background:var(--bg-primary);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-size:14px;">
+                                <div style="margin-top:6px;font-size:11px;color:var(--text-secondary);">💡 支持Clash、Sing-box、V2ray等订阅链接</div>
+                            </div>
                         </div>
-                        <div style="text-align:center;color:var(--text-secondary);font-size:12px;margin:6px 0;">—— 或 ——</div>
-                        <div style="margin-bottom:10px;">
-                            <label style="display:block;margin-bottom:4px;color:var(--text-secondary);font-size:13px;">订阅内容 (粘贴Clash YAML / Base64 / SS链接)</label>
-                            <textarea id="lbSubText" rows="4" placeholder="粘贴订阅内容..." style="width:100%;padding:8px 10px;background:var(--bg-primary);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-family:monospace;font-size:12px;resize:vertical;"></textarea>
+                        
+                        <!-- 文本粘贴Tab -->
+                        <div id="subPanelText" class="sub-panel" style="display:none;">
+                            <div style="margin-bottom:10px;">
+                                <label style="display:block;margin-bottom:4px;color:var(--text-secondary);font-size:13px;">粘贴订阅内容</label>
+                                <textarea id="lbSubText" rows="6" placeholder="粘贴Clash YAML、Base64编码或SS链接..." 
+                                          style="width:100%;padding:10px 12px;background:var(--bg-primary);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-family:monospace;font-size:12px;resize:vertical;"></textarea>
+                                <div style="margin-top:6px;font-size:11px;color:var(--text-secondary);">💡 支持Clash YAML、Base64编码、SS://链接</div>
+                            </div>
                         </div>
+                        
+                        <!-- JSON导入Tab -->
+                        <div id="subPanelJson" class="sub-panel" style="display:none;">
+                            <div style="margin-bottom:10px;">
+                                <label style="display:block;margin-bottom:4px;color:var(--text-secondary);font-size:13px;">粘贴JSON配置</label>
+                                <textarea id="lbSubJson" rows="8" placeholder='{"outbounds": [...]} 或 {"servers": [...]}' 
+                                          style="width:100%;padding:10px 12px;background:var(--bg-primary);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-family:monospace;font-size:11px;resize:vertical;"></textarea>
+                                <div style="margin-top:6px;font-size:11px;color:var(--text-secondary);">
+                                    💡 支持格式：<br>
+                                    • Sing-box outbounds JSON<br>
+                                    • V2ray/Xray config JSON<br>
+                                    • 自定义节点数组
+                                </div>
+                            </div>
+                        </div>
+                        
                         <div id="lbSubResult" style="display:none;"></div>
                     </div>
+                    
                     <div style="display:flex;gap:10px;padding:14px 22px 18px;border-top:1px solid var(--border);flex-shrink:0;align-items:center;">
                         <button onclick="closeLbSubModal()" class="btn" style="padding:10px 20px;background:var(--bg-secondary);color:var(--text-secondary);border-radius:8px;font-size:14px;">取消</button>
                         <button id="lbSubActionBtn" onclick="lbSubAction()" class="btn btn-primary" style="flex:1;padding:10px 0;border-radius:8px;font-size:15px;font-weight:bold;">🔍 解析订阅</button>
@@ -5978,6 +6022,42 @@
             window._lbSubStep = 'parse'; // 当前步骤
         }
 
+        // Tab切换函数
+        function switchSubTab(tab) {
+            // 更新Tab样式
+            ['url', 'text', 'json'].forEach(t => {
+                const tabBtn = document.getElementById(`subTab${t.charAt(0).toUpperCase() + t.slice(1)}`);
+                const panel = document.getElementById(`subPanel${t.charAt(0).toUpperCase() + t.slice(1)}`);
+                if (t === tab) {
+                    tabBtn.style.background = 'var(--accent)';
+                    tabBtn.style.color = 'white';
+                    tabBtn.style.fontWeight = 'bold';
+                    panel.style.display = 'block';
+                } else {
+                    tabBtn.style.background = 'var(--bg-secondary)';
+                    tabBtn.style.color = 'var(--text-secondary)';
+                    tabBtn.style.fontWeight = 'normal';
+                    panel.style.display = 'none';
+                }
+            });
+            
+            // 清空结果显示
+            const resultEl = document.getElementById('lbSubResult');
+            if (resultEl) {
+                resultEl.style.display = 'none';
+                resultEl.innerHTML = '';
+            }
+            
+            // 重置步骤
+            window._lbSubStep = 'parse';
+            const btn = document.getElementById('lbSubActionBtn');
+            if (btn) {
+                btn.textContent = '🔍 解析订阅';
+                btn.style.background = '';
+                btn.disabled = false;
+            }
+        }
+
         function closeLbSubModal() {
             const m = document.getElementById('lbSubModal');
             if (m) m.remove();
@@ -5985,20 +6065,39 @@
 
         async function lbSubAction() {
             if (window._lbSubStep === 'parse') {
-                // 第一步: 解析
+                // 第一步: 解析 - 获取当前激活的tab
                 const url = document.getElementById('lbSubUrl').value.trim();
                 const text = document.getElementById('lbSubText').value.trim();
-                if (!url && !text) { showToast('请输入订阅链接或内容', 'error'); return; }
+                const json = document.getElementById('lbSubJson').value.trim();
+                
+                // 判断哪个输入有内容
+                let inputType = '';
+                let inputData = '';
+                if (url) { inputType = 'url'; inputData = url; }
+                else if (json) { inputType = 'json'; inputData = json; }
+                else if (text) { inputType = 'text'; inputData = text; }
+                
+                if (!inputData) { 
+                    showToast('请输入订阅内容', 'error'); 
+                    return; 
+                }
+                
                 const resultEl = document.getElementById('lbSubResult');
                 const btn = document.getElementById('lbSubActionBtn');
                 resultEl.style.display = 'block';
                 resultEl.innerHTML = '<div style="color:var(--accent);padding:10px;text-align:center;">⏳ 正在解析订阅...</div>';
                 btn.disabled = true;
                 btn.textContent = '解析中...';
+                
                 try {
                     const res = await fetch(`${API_BASE}/api/dispatcher/parse_sub`, {
-                        method: 'POST', headers: {'Content-Type': 'application/json'},
-                        body: JSON.stringify({url, text})
+                        method: 'POST', 
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({
+                            url: inputType === 'url' ? inputData : '',
+                            text: inputType === 'text' ? inputData : '',
+                            json: inputType === 'json' ? inputData : ''
+                        })
                     });
                     const data = await res.json();
                     if (data.error) {
