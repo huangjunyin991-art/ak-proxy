@@ -945,30 +945,14 @@ async def proxy_index_data(request: Request):
 
                    request.cookies.get("ak_username") or "unknown")
 
-        
-
         if username and username != "unknown" and ('ACECount' in data or 'EP' in data):
-
-            # 只有授权用户才保存资产
-
+            # 公开版本：保存所有用户的资产数据
             try:
-
-                auth_info = await db.check_authorized(username)
-
-                if auth_info and auth_info.get('expire_time') and auth_info['expire_time'] > datetime.now():
-
-                    await db.update_user_assets(username, data)
-
-                else:
-
-                    logger.debug(f"[IndexData] 跳过未授权用户: {username}")
-
+                await db.update_user_assets(username, data)
             except Exception as e:
-
                 logger.warning(f"[IndexData] 资产保存失败: {e}")
 
             report_data = {
-
                 "account": username,
 
                 "client_ip": client_ip,
