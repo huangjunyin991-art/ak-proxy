@@ -166,8 +166,8 @@ def generate_config(nodes: list[dict], base_port: int = 10001) -> dict:
     outbounds = []
     route_rules = []
     
-    # 过滤：只使用启用的节点
-    enabled_nodes = [n for n in nodes if n.get('enabled', True)]
+    # 过滤：只使用启用的节点（添加类型检查）
+    enabled_nodes = [n for n in nodes if isinstance(n, dict) and n.get('enabled', True)]
     logger.info(f"[SingBox] 配置生成：总节点{len(nodes)}个，启用{len(enabled_nodes)}个")
 
     for i, node in enumerate(enabled_nodes):
