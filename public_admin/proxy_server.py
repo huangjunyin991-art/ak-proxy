@@ -1335,7 +1335,8 @@ async def api_dispatcher_parse_sub(request: Request):
                         "server": server,
                         "port": port,
                         "region_code": region_code,
-                        "region_label": region_label
+                        "region_label": region_label,
+                        "outbound_config": ob  # 保存完整outbound配置供后续直接使用
                     }
                     nodes.append(node)
                     

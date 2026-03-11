@@ -54,7 +54,18 @@ def save_nodes(nodes: list[dict]):
 # ===== sing-box 配置生成 =====
 
 def _make_outbound(node: dict, tag: str) -> dict:
-    """根据节点信息生成 sing-box outbound 配置"""
+    """根据节点信息生成 sing-box outbound 配置
+    
+    优先使用 outbound_config 字段（来自JSON配置解析）
+    否则从 raw 字段生成（来自订阅解析）
+    """
+    # 方案1：直接复用完整outbound配置（来自JSON配置）
+    if "outbound_config" in node:
+        outbound = dict(node["outbound_config"])
+        outbound["tag"] = tag  # 更新tag
+        return outbound
+    
+    # 方案2：从raw字段生成（来自订阅解析）
     raw = node.get("raw", {})
     proto = raw.get("type", node.get("type", "")).lower()
     server = node.get("server", "")
