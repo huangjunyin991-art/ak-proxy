@@ -4224,55 +4224,63 @@
             }).join('');
         }
 
-        // 标签页切换
-        document.querySelectorAll('.tab').forEach(tab => {
+        // 标签页切换（性能优化版本：缓存选择器+批量DOM操作）
+        const allTabs = document.querySelectorAll('.tab');
+        const allPanels = document.querySelectorAll('.panel');
+        
+        allTabs.forEach(tab => {
             tab.addEventListener('click', () => {
-                document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-                document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+                const panelId = tab.dataset.panel;
                 
+                // 批量移除active类（性能优化：一次性操作）
+                allTabs.forEach(t => t.classList.remove('active'));
+                allPanels.forEach(p => p.classList.remove('active'));
+                
+                // 立即添加active类（UI秒切换）
                 tab.classList.add('active');
-                document.getElementById(tab.dataset.panel).classList.add('active');
+                document.getElementById(panelId).classList.add('active');
                 
-                // 加载对应数据
-                if (tab.dataset.panel === 'dashboard') {
-                    startDashboard();
-                } else {
-                    stopDashboard();
-                }
-                if (tab.dataset.panel === 'online') {
-                    loadOnlineUsers();
-                    // 启动在线用户自动刷新
-                    startOnlineUsersAutoRefresh();
-                } else {
-                    // 离开在线用户页面时停止自动刷新
-                    stopOnlineUsersAutoRefresh();
-                }
-                if (tab.dataset.panel === 'usage') loadUsage();
-                if (tab.dataset.panel === 'users') loadBanlist().then(() => loadUsers());
-                if (tab.dataset.panel === 'ips') loadIPs();
-                if (tab.dataset.panel === 'banlist') loadBanlist();
-                if (tab.dataset.panel === 'whitelist') loadWhitelist();
-                if (tab.dataset.panel === 'credits') loadCreditsPage();
-                if (tab.dataset.panel === 'license') {
-                    loadLicenseStats();
-                    loadLicenses(0);
-                }
-                if (tab.dataset.panel === 'database') {
-                    // 检查数据库授权状态
-                    checkDbAuth().then(authed => {
-                        if (authed) loadDbTables();
-                    });
-                }
-                if (tab.dataset.panel === 'settings') {
-                    // 加载子管理员状态（仅系统总管理可见）
-                    loadSubAdminStatus();
-                    // 启动定时刷新（每10秒刷新一次）
-                    startSubAdminStatusRefresh();
-                } else {
-                    // 离开设置页面时停止刷新
-                    stopSubAdminStatusRefresh();
-                    stopLbRefresh();
-                }
+                // 数据加载完全异步（使用setTimeout确保不阻塞UI）
+                setTimeout(() => {
+                    // Dashboard控制
+                    if (panelId === 'dashboard') {
+                        startDashboard();
+                    } else {
+                        stopDashboard();
+                    }
+                    
+                    // 在线用户
+                    if (panelId === 'online') {
+                        loadOnlineUsers();
+                        startOnlineUsersAutoRefresh();
+                    } else {
+                        stopOnlineUsersAutoRefresh();
+                    }
+                    
+                    // 其他tab数据加载
+                    if (panelId === 'usage') loadUsage();
+                    if (panelId === 'users') loadBanlist().then(() => loadUsers());
+                    if (panelId === 'ips') loadIPs();
+                    if (panelId === 'banlist') loadBanlist();
+                    if (panelId === 'whitelist') loadWhitelist();
+                    if (panelId === 'credits') loadCreditsPage();
+                    if (panelId === 'license') {
+                        loadLicenseStats();
+                        loadLicenses(0);
+                    }
+                    if (panelId === 'database') {
+                        checkDbAuth().then(authed => {
+                            if (authed) loadDbTables();
+                        });
+                    }
+                    if (panelId === 'settings') {
+                        loadSubAdminStatus();
+                        startSubAdminStatusRefresh();
+                    } else {
+                        stopSubAdminStatusRefresh();
+                        stopLbRefresh();
+                    }
+                }, 0); // setTimeout 0 = 异步执行，不阻塞UI
             });
         });
         
