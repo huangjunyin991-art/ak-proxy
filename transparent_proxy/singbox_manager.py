@@ -112,18 +112,14 @@ def _make_outbound(node: dict, tag: str) -> dict:
         return ob
 
     elif proto in ("vless",):
-        ob = {
-            "type": "vless",
-            "tag": tag,
-            "server": server,
-            "server_port": int(port),
-            "uuid": raw.get("uuid", ""),
-            "flow": raw.get("flow", ""),
-        }
-        if raw.get("tls"):
-            ob["tls"] = {"enabled": True}
-            if raw.get("sni"):
-                ob["tls"]["server_name"] = raw["sni"]
+        # 直接使用raw配置并修改tag（保留完整的TLS、reality、utls等配置）
+        ob = dict(raw)
+        ob["tag"] = tag
+        # 确保server和port字段正确
+        if "server" in raw:
+            ob["server"] = raw["server"]
+        if "server_port" in raw:
+            ob["server_port"] = int(raw["server_port"])
         return ob
 
     elif proto in ("trojan",):
@@ -141,16 +137,14 @@ def _make_outbound(node: dict, tag: str) -> dict:
         return ob
 
     elif proto in ("hysteria2", "hy2"):
-        ob = {
-            "type": "hysteria2",
-            "tag": tag,
-            "server": server,
-            "server_port": int(port),
-            "password": raw.get("password", ""),
-            "tls": {"enabled": True},
-        }
-        if raw.get("sni"):
-            ob["tls"]["server_name"] = raw["sni"]
+        # 直接使用raw配置并修改tag（保留完整的TLS配置）
+        ob = dict(raw)
+        ob["tag"] = tag
+        # 确保server和port字段正确
+        if "server" in raw:
+            ob["server"] = raw["server"]
+        if "server_port" in raw:
+            ob["server_port"] = int(raw["server_port"])
         return ob
 
     else:
