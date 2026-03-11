@@ -1446,6 +1446,9 @@ async def api_dispatcher_apply_sub(request: Request):
         seen = set()
 
         for node in all_nodes:
+            # 添加类型检查
+            if not isinstance(node, dict):
+                continue
 
             if node["server"] not in seen:
 

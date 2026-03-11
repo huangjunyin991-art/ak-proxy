@@ -313,6 +313,9 @@ def parse_json_config(json_text: str) -> dict:
     servers: dict[str, list[int]] = {}
     regions: dict[str, dict] = {}
     for i, n in enumerate(nodes):
+        # 添加类型检查
+        if not isinstance(n, dict):
+            continue
         s = n['server']
         if s not in servers:
             servers[s] = []
@@ -371,6 +374,9 @@ def parse_subscription_text(text: str) -> dict:
     servers: dict[str, list[int]] = {}
     regions: dict[str, dict] = {}
     for i, n in enumerate(nodes):
+        # 添加类型检查
+        if not isinstance(n, dict):
+            continue
         s = n['server']
         if s not in servers:
             servers[s] = []
