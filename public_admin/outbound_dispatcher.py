@@ -577,8 +577,7 @@ class OutboundDispatcher:
                     "exit_ip": ex.exit_ip,
                     "active": ex.active,
                     "total_requests": ex.total,
-                    "login_requests": ex.count_recent_logins(),  # 滑动窗口内的登录数
-                    "login_total": ex.login_count,  # 累计登录数
+                    "login_requests": ex.login_count,
                     "login_cooldown": ex.get_login_cooldown_detail(self.MAX_LOGIN_PER_MIN),
                     "errors": ex.errors,
                     "warn_403": ex.warn_403,
