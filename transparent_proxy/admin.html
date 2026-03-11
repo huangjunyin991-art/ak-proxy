@@ -6172,22 +6172,25 @@
                     });
                 }
                 
-                // 更新文字显示
+                // 更新文字显示（无条件更新避免闪烁）
                 const textEl = document.querySelector(`#lbExitCards > div:nth-child(${index + 1}) .cooldown-text`);
                 if (textEl) {
                     const cdMax = cd.max || 10;
                     const cdRemaining = Math.max(0, cdMax - currentUsed);
                     const cdColor = currentUsed >= cdMax ? '#ff4757' : currentUsed >= 7 ? '#ffa502' : '#00ff88';
                     
+                    let text = '';
                     if (currentUsed >= cdMax && validTimestamps.length > 0) {
                         const oldest = Math.min(...validTimestamps);
                         const nextAvailable = Math.max(0, oldest + window - now);
-                        textEl.innerHTML = `<span style="color:${cdColor};font-weight:bold;">已满 (${Math.ceil(nextAvailable)}s后开始释放)</span>`;
+                        text = `已满 (${Math.ceil(nextAvailable)}s后开始释放)`;
                     } else if (currentUsed > 0) {
-                        textEl.innerHTML = `<span style="color:${cdColor};font-weight:bold;">${currentUsed}/${cdMax} (${cdRemaining}个可用)</span>`;
+                        text = `${currentUsed}/${cdMax} (${cdRemaining}个可用)`;
                     } else {
-                        textEl.innerHTML = `<span style="color:${cdColor};font-weight:bold;">${currentUsed}/${cdMax}</span>`;
+                        text = `${currentUsed}/${cdMax}`;
                     }
+                    textEl.textContent = text;
+                    textEl.style.color = cdColor;
                 }
             });
         }
@@ -6275,7 +6278,7 @@
                     <div style="margin-top:4px;">
                         <div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:3px;">
                             <span style="color:var(--text-secondary);">登录冷却 (1分钟窗口)</span>
-                            <span class="cooldown-text" style="font-weight:bold;"></span>
+                            <span class="cooldown-text" style="color:${cdColor};font-weight:bold;">${cdUsed}/${cdMax}</span>
                         </div>
                         <div class="login-cooldown-segments" style="display:flex;gap:2px;">
                             ${Array.from({length: 10}, (_, i) => {
