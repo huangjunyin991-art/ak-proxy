@@ -146,29 +146,72 @@ outbounds.insert(0, {
     "interval": "5m"
 })
 
+# 为每个节点生成独立的SOCKS5入站（从10001端口开始）
+inbounds = []
+base_port = 10001
+
+# 为前N个节点创建独立入站（最多30个）
+for i, tag in enumerate(outbound_tags[:30]):
+    port = base_port + i
+    inbounds.append({
+        "type": "socks",
+        "tag": f"in-{port}",
+        "listen": "127.0.0.1",
+        "listen_port": port,
+        "users": []
+    })
+    
+    # 为每个入站创建对应的selector出站，指向特定节点
+    outbounds.insert(i + 1, {
+        "type": "selector",
+        "tag": f"proxy-{port}",
+        "outbounds": [tag, "auto", "direct"],
+        "default": tag
+    })
+
+# 添加统一的mixed入站用于测试（可选）
+inbounds.append({
+    "type": "mixed",
+    "tag": "mixed-in",
+    "listen": "127.0.0.1",
+    "listen_port": 7890,
+    "sniff": True,
+    "sniff_override_destination": True
+})
+
 # 生成完整配置
 config = {
     "log": {
         "level": "info",
         "timestamp": True
     },
-    "inbounds": [
-        {
-            "type": "mixed",
-            "tag": "mixed-in",
-            "listen": "127.0.0.1",
-            "listen_port": 7890,
-            "sniff": True,
-            "sniff_override_destination": True
-        }
-    ],
-    "outbounds": outbounds
+    "inbounds": inbounds,
+    "outbounds": outbounds,
+    "route": {
+        "rules": [
+            # 为每个入站配置路由到对应的selector
+            *[{
+                "inbound": f"in-{base_port + i}",
+                "outbound": f"proxy-{base_port + i}"
+            } for i in range(min(len(outbound_tags), 30))],
+            # mixed入站使用auto
+            {
+                "inbound": "mixed-in",
+                "outbound": "auto"
+            }
+        ]
+    }
 }
 
 # 保存到文件
 with open('singbox_config.json', 'w', encoding='utf-8') as f:
     json.dump(config, f, indent=2, ensure_ascii=False)
 
+node_count = len([ob for ob in outbounds if ob.get("type") in ["vless", "hysteria2", "vmess", "trojan", "ss"]])
+inbound_count = len([ib for ib in inbounds if ib.get("type") == "socks"])
+
 print(f"✅ 配置已保存到 singbox_config.json")
-print(f"✅ 解析了 {len(outbounds)-1} 个节点")
+print(f"✅ 解析了 {node_count} 个节点")
+print(f"✅ 生成了 {inbound_count} 个独立SOCKS5入站（端口 {base_port}-{base_port + inbound_count - 1}）")
 print(f"✅ 负载均衡组包含前 10 个节点")
+print(f"✅ 混合入站端口：7890（测试用）")
