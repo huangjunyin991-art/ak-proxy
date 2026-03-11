@@ -1,0 +1,18 @@
+# Web Framework
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+
+# HTTP Client with SOCKS support
+httpx[socks]>=0.25.0
+
+# Database
+asyncpg>=0.29.0
+
+# File Upload
+python-multipart>=0.0.6
+
+# YAML Parser (for subscription parsing)
+pyyaml>=6.0
+
+# Other utilities
+python-dotenv>=1.0.0
