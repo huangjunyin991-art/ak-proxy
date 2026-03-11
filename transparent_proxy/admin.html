@@ -5766,6 +5766,7 @@
         
         // ===== 负载均衡管理 =====
         let lbRefreshTimer = null;
+        let lbRealtimeTimer = null; // 实时更新定时器
         let lbData = null;
         let subscriptionGroups = [];
         let expandedGroups = new Set(); // 记录展开的订阅组
@@ -6121,10 +6122,65 @@
         function startLbRefresh() {
             stopLbRefresh();
             lbRefreshTimer = setInterval(loadLbStatus, 3000);
+            // 启动实时更新（每秒）
+            if (!lbRealtimeTimer) {
+                lbRealtimeTimer = setInterval(updateLoginCooldownRealtime, 1000);
+            }
         }
 
         function stopLbRefresh() {
             if (lbRefreshTimer) { clearInterval(lbRefreshTimer); lbRefreshTimer = null; }
+            if (lbRealtimeTimer) { clearInterval(lbRealtimeTimer); lbRealtimeTimer = null; }
+        }
+        
+        // 实时更新登录冷却进度条
+        function updateLoginCooldownRealtime() {
+            if (!lbData || !lbData.exits) return;
+            
+            const now = Date.now() / 1000; // 转为秒
+            
+            lbData.exits.forEach((ex, index) => {
+                const cd = ex.login_cooldown || {};
+                const timestamps = cd.timestamps || [];
+                const window = cd.window || 60;
+                
+                // 过滤60秒内的时间戳
+                const validTimestamps = timestamps.filter(t => (now - t) < window);
+                const currentUsed = validTimestamps.length;
+                
+                // 更新进度条DOM
+                const container = document.querySelector(`#lbExitCards > div:nth-child(${index + 1}) .login-cooldown-segments`);
+                if (container) {
+                    const segments = container.querySelectorAll('.cooldown-segment');
+                    segments.forEach((seg, i) => {
+                        const isActive = i < currentUsed;
+                        if (isActive) {
+                            const segmentColor = i < 3 ? '#00ff88' : i < 7 ? '#ffa502' : '#ff4757';
+                            seg.style.background = segmentColor;
+                        } else {
+                            seg.style.background = 'rgba(255,255,255,0.1)';
+                        }
+                    });
+                }
+                
+                // 更新文字显示
+                const textEl = document.querySelector(`#lbExitCards > div:nth-child(${index + 1}) .cooldown-text`);
+                if (textEl && currentUsed !== cd.used) {
+                    const cdMax = cd.max || 10;
+                    const cdRemaining = Math.max(0, cdMax - currentUsed);
+                    const cdColor = currentUsed >= cdMax ? '#ff4757' : currentUsed >= 7 ? '#ffa502' : '#00ff88';
+                    
+                    if (currentUsed >= cdMax && validTimestamps.length > 0) {
+                        const oldest = Math.min(...validTimestamps);
+                        const nextAvailable = Math.max(0, oldest + window - now);
+                        textEl.innerHTML = `<span style="color:${cdColor};font-weight:bold;">已满 (${Math.ceil(nextAvailable)}s后开始释放)</span>`;
+                    } else if (currentUsed > 0) {
+                        textEl.innerHTML = `<span style="color:${cdColor};font-weight:bold;">${currentUsed}/${cdMax} (${cdRemaining}个可用)</span>`;
+                    } else {
+                        textEl.innerHTML = `<span style="color:${cdColor};font-weight:bold;">${currentUsed}/${cdMax}</span>`;
+                    }
+                }
+            });
         }
 
         function renderLbStatus(data) {
@@ -6210,15 +6266,15 @@
                     <div style="margin-top:4px;">
                         <div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:3px;">
                             <span style="color:var(--text-secondary);">登录冷却 (1分钟窗口)</span>
-                            <span style="color:${cdColor};font-weight:bold;">${cdText}</span>
+                            <span class="cooldown-text" style="color:${cdColor};font-weight:bold;">${cdText}</span>
                         </div>
-                        <div style="display:flex;gap:2px;">
+                        <div class="login-cooldown-segments" style="display:flex;gap:2px;">
                             ${Array.from({length: 10}, (_, i) => {
                                 const isActive = i < cdUsed;
                                 const segmentColor = isActive 
                                     ? (i < 3 ? '#00ff88' : i < 7 ? '#ffa502' : '#ff4757')
                                     : 'rgba(255,255,255,0.1)';
-                                return `<div style="flex:1;height:8px;background:${segmentColor};border-radius:2px;transition:all 0.3s;"></div>`;
+                                return `<div class="cooldown-segment" style="flex:1;height:8px;background:${segmentColor};border-radius:2px;transition:all 0.3s;"></div>`;
                             }).join('')}
                         </div>
                     </div>

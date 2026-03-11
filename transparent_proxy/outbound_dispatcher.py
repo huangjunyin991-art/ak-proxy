@@ -96,11 +96,17 @@ class OutboundExit:
             next_available_in = max(0, oldest + window - now)
         else:
             next_available_in = 0
+        
+        # 返回时间戳列表供前端实时计算
+        timestamps = sorted(self._login_timestamps)
+        
         return {
             "used": used,
             "max": max_per_min,
             "remaining": max(0, max_per_min - used),
             "next_available_in": round(next_available_in, 1),
+            "timestamps": timestamps,  # 新增：时间戳列表
+            "window": window,  # 新增：窗口时长
         }
 
     def reserve_login(self):
