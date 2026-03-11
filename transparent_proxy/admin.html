@@ -3149,6 +3149,26 @@
             return path;
         }
         
+        // ===== 在线用户自动刷新模块（独立模块，可拔插） =====
+        let onlineUsersRefreshTimer = null;
+        const ONLINE_REFRESH_INTERVAL = 3000; // 3秒刷新一次
+
+        function startOnlineUsersAutoRefresh() {
+            // 先清除旧定时器（避免重复）
+            stopOnlineUsersAutoRefresh();
+            // 设置新定时器
+            onlineUsersRefreshTimer = setInterval(() => {
+                loadOnlineUsers();
+            }, ONLINE_REFRESH_INTERVAL);
+        }
+
+        function stopOnlineUsersAutoRefresh() {
+            if (onlineUsersRefreshTimer) {
+                clearInterval(onlineUsersRefreshTimer);
+                onlineUsersRefreshTimer = null;
+            }
+        }
+
         async function loadOnlineUsers() {
             try {
                 const res = await fetch(`${API_BASE}/admin/api/online`);
@@ -3945,7 +3965,14 @@
                 } else {
                     stopDashboard();
                 }
-                if (tab.dataset.panel === 'online') loadOnlineUsers();
+                if (tab.dataset.panel === 'online') {
+                    loadOnlineUsers();
+                    // 启动在线用户自动刷新
+                    startOnlineUsersAutoRefresh();
+                } else {
+                    // 离开在线用户页面时停止自动刷新
+                    stopOnlineUsersAutoRefresh();
+                }
                 if (tab.dataset.panel === 'usage') loadUsage();
                 if (tab.dataset.panel === 'users') loadBanlist().then(() => loadUsers());
                 if (tab.dataset.panel === 'ips') loadIPs();
