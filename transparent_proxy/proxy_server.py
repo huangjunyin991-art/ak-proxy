@@ -1364,6 +1364,8 @@ async def api_dispatcher_apply_sub(request: Request):
     url = data.get("url", "").strip()
 
     text = data.get("text", "").strip()
+    
+    notes = data.get("notes", "").strip()  # 订阅组备注
 
     selected_servers = data.get("selected_servers", [])  # [{server, name}]
 
@@ -1489,9 +1491,9 @@ async def api_dispatcher_apply_sub(request: Request):
         source_type=source_type,
         source_url=source_url_val,
         total_servers=len(nodes_to_add),
-        created_by='admin'  # TODO: 从token获取实际用户
+        created_by='admin',  # TODO: 从token获取实际用户
+        notes=notes
     )
-    
     logger.info(f"[SubGroup] 创建订阅组: {group_name} ({group_id}), {len(nodes_to_add)}个服务器")
 
     # 3) 生成 sing-box 配置 + 写盘 + 重载
@@ -3955,6 +3957,27 @@ async def admin_get_subscription_groups(request: Request):
     except Exception as e:
         logger.error(f"[SubGroup] 获取订阅组列表失败: {e}")
         return {"success": False, "message": f"获取失败: {str(e)}"}
+
+
+@app.patch("/admin/api/subscription_groups/{group_id}/notes")
+async def admin_update_subscription_group_notes(group_id: str, request: Request):
+    """更新订阅组备注"""
+    token = request.headers.get('Authorization', '').replace('Bearer ', '')
+    
+    if not await verify_admin_token(token):
+        return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
+    
+    try:
+        data = await request.json()
+        notes = data.get('notes', '')
+        
+        ok = await db.update_subscription_group_notes(group_id, notes)
+        if ok:
+            return {"success": True, "message": "备注已更新"}
+        return {"success": False, "message": "更新失败"}
+    except Exception as e:
+        logger.error(f"[SubGroup] 更新订阅组备注失败: {e}")
+        return {"success": False, "message": f"更新失败: {str(e)}"}
 
 
 @app.delete("/admin/api/subscription_groups/{group_id}")

@@ -5826,20 +5826,31 @@
                     month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit'
                 });
                 
+                const notesHtml = group.notes ? `
+                    <div style="margin-top: 4px; padding: 4px 8px; background: rgba(102,126,234,0.1); border-radius: 4px; font-size: 11px; color: var(--accent);">
+                        📝 ${group.notes}
+                    </div>
+                ` : '';
+                
                 return `
                     <div style="background: var(--bg-primary); border-radius: 8px; border: 1px solid var(--border); overflow: hidden;">
                         <div style="display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; cursor: pointer;" onclick="toggleSubscriptionGroup('${group.id}')">
                             <div style="flex: 1; display: flex; align-items: center; gap: 8px;">
                                 <span style="font-size: 14px;">${icon}</span>
-                                <div>
+                                <div style="flex: 1;">
                                     <div style="font-size: 13px; font-weight: bold; color: var(--text-primary);">${group.name}</div>
                                     <div style="font-size: 11px; color: var(--text-secondary);">
                                         ${importTime} | ${group.active_servers}/${group.total_servers}台启用
                                         ${group.source_type === 'url' ? ' | 🔗订阅链接' : group.source_type === 'json' ? ' | 📋JSON' : ' | 📝文本'}
                                     </div>
+                                    ${notesHtml}
                                 </div>
                             </div>
                             <div style="display: flex; gap: 6px;" onclick="event.stopPropagation()">
+                                <button class="btn" onclick="editSubscriptionGroupNotes('${group.id}', '${(group.notes || '').replace(/'/g, "\\'")}')" 
+                                        style="padding: 4px 8px; font-size: 11px; background: rgba(102,126,234,0.1); color: var(--accent); border: 1px solid rgba(102,126,234,0.3);">
+                                    📝 备注
+                                </button>
                                 <button class="btn" onclick="deleteSubscriptionGroup('${group.id}')" 
                                         style="padding: 4px 8px; font-size: 11px; background: rgba(255,71,87,0.1); color: var(--accent-red); border: 1px solid rgba(255,71,87,0.3);">
                                     🗑️ 删除
@@ -5959,6 +5970,48 @@
         async function toggleAllServers(groupId, enabled) {
             // TODO: 后续可以添加批量切换API
             showToast('功能开发中...', 'info');
+        }
+
+        // 编辑订阅组备注
+        async function editSubscriptionGroupNotes(groupId, currentNotes) {
+            const group = subscriptionGroups.find(g => g.id === groupId);
+            const groupName = group ? group.name : groupId;
+            
+            showModal('编辑订阅组备注', `
+                <div style="margin-bottom: 12px;">
+                    <label style="display: block; margin-bottom: 8px; color: var(--text-primary); font-weight: bold;">
+                        订阅组：${groupName}
+                    </label>
+                    <label style="display: block; margin-bottom: 4px; color: var(--text-secondary); font-size: 13px;">
+                        备注内容
+                    </label>
+                    <input type="text" id="editNotesInput" value="${currentNotes.replace(/"/g, '&quot;')}" 
+                           placeholder="如：XX机场-月付套餐 | 2026-04-12到期"
+                           style="width: 100%; padding: 8px 12px; background: var(--bg-primary); border: 1px solid var(--border); border-radius: 6px; color: var(--text-primary); font-size: 14px;">
+                    <div style="margin-top: 6px; font-size: 11px; color: var(--text-secondary);">
+                        💡 方便记录订阅来源、到期时间等信息
+                    </div>
+                </div>
+            `, async () => {
+                const notes = document.getElementById('editNotesInput').value.trim();
+                
+                try {
+                    const res = await fetch(`${API_BASE}/admin/api/subscription_groups/${groupId}/notes`, {
+                        method: 'PATCH',
+                        headers: {...getHeaders(), 'Content-Type': 'application/json'},
+                        body: JSON.stringify({notes})
+                    });
+                    const data = await res.json();
+                    if (data.success) {
+                        showToast('备注已更新', 'success');
+                        await loadSubscriptionGroups();
+                    } else {
+                        showToast(data.message || '更新失败', 'error');
+                    }
+                } catch (e) {
+                    showToast('更新失败: ' + e.message, 'error');
+                }
+            }, '保存');
         }
 
         // 删除订阅组
@@ -6229,6 +6282,14 @@
                             </div>
                         </div>
                         
+                        <!-- 备注输入框（所有tab共用） -->
+                        <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border);">
+                            <label style="display:block;margin-bottom:4px;color:var(--text-secondary);font-size:13px;">📝 订阅备注（选填）</label>
+                            <input type="text" id="lbSubNotes" placeholder="如：XX机场-月付套餐 | 2026-04-12到期 | 备用线路" 
+                                   style="width:100%;padding:8px 12px;background:var(--bg-primary);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-size:13px;">
+                            <div style="margin-top:4px;font-size:11px;color:var(--text-secondary);">💡 方便记录订阅来源、到期时间等信息</div>
+                        </div>
+                        
                         <div id="lbSubResult" style="display:none;"></div>
                     </div>
                     
@@ -6398,11 +6459,12 @@
             const url = document.getElementById('lbSubUrl')?.value?.trim() || '';
             const text = document.getElementById('lbSubText')?.value?.trim() || '';
             const json = document.getElementById('lbSubJson')?.value?.trim() || '';
+            const notes = document.getElementById('lbSubNotes')?.value?.trim() || '';
 
             try {
                 const res = await fetch(`${API_BASE}/api/dispatcher/apply_sub`, {
                     method: 'POST', headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ url, text, json, selected_servers, base_port: basePort })
+                    body: JSON.stringify({ url, text, json, notes, selected_servers, base_port: basePort })
                 });
                 const data = await res.json();
                 if (data.success) {
