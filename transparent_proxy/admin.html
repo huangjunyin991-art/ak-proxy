@@ -5906,23 +5906,42 @@
                     return;
                 }
                 
-                const serversHtml = groupNodes.map((node, idx) => {
-                    const enabled = node.enabled !== false;
+                // 按server去重，每个独立IP只显示一个代表节点
+                const uniqueServers = new Map();
+                groupNodes.forEach(node => {
+                    const server = node.server;
+                    if (!uniqueServers.has(server)) {
+                        // 记录该server的所有节点，用于判断启用状态
+                        uniqueServers.set(server, {
+                            representative: node,
+                            allNodes: [node]
+                        });
+                    } else {
+                        uniqueServers.get(server).allNodes.push(node);
+                    }
+                });
+                
+                const serversHtml = Array.from(uniqueServers.entries()).map(([server, {representative, allNodes}], idx) => {
+                    // 该server的所有节点都启用才算启用
+                    const enabled = allNodes.every(n => n.enabled !== false);
+                    const node = representative;
                     const textColor = enabled ? 'var(--text-primary)' : '#6b7280';
                     const bgColor = enabled ? 'var(--bg-secondary)' : 'rgba(107,114,128,0.1)';
                     const opacity = enabled ? '1' : '0.5';
                     const disabledTag = enabled ? '' : '<span style="color: #6b7280; font-size: 10px; margin-left: 6px;">❌已禁用</span>';
+                    const nodeCountTag = allNodes.length > 1 ? `<span style="color: #9ca3af; font-size: 10px; margin-left: 4px;">(${allNodes.length}个节点)</span>` : '';
                     
                     return `
                         <div style="display: flex; align-items: center; gap: 8px; padding: 6px 8px; background: ${bgColor}; border-radius: 6px; margin-top: 6px; opacity: ${opacity};">
                             <input type="checkbox" ${enabled ? 'checked' : ''} 
-                                   onchange="toggleServerEnabled('${groupId}', ${idx}, this.checked)"
+                                   onchange="toggleServerByIP('${groupId}', '${server}', this.checked)"
                                    style="cursor: pointer; accent-color: var(--accent);">
                             <div style="flex: 1; font-size: 12px; color: ${textColor};">
                                 <strong>${node.name || node.display_name || `服务器${idx + 1}`}</strong>
+                                ${nodeCountTag}
                                 ${disabledTag}
                                 <span style="color: #6b7280; margin-left: 6px;">
-                                    ${node.type?.toUpperCase() || 'UNKNOWN'} | ${node.server}:${node.port}
+                                    ${node.type?.toUpperCase() || 'UNKNOWN'} | ${node.server}
                                 </span>
                             </div>
                         </div>
@@ -5945,7 +5964,29 @@
             }
         }
 
-        // 切换服务器启用状态
+        // 按IP批量切换服务器状态（切换该IP的所有节点）
+        async function toggleServerByIP(groupId, server, enabled) {
+            try {
+                const res = await fetch(`${API_BASE}/admin/api/subscription_groups/${groupId}/toggle_by_ip`, {
+                    method: 'POST',
+                    headers: {...getHeaders(), 'Content-Type': 'application/json'},
+                    body: JSON.stringify({server, enabled})
+                });
+                const data = await res.json();
+                if (data.success) {
+                    showToast(data.message, 'success');
+                    // 刷新订阅组列表
+                    await loadSubscriptionGroups();
+                } else {
+                    showToast(data.message || '操作失败', 'error');
+                }
+            } catch (e) {
+                console.error('切换服务器状态失败', e);
+                showToast('操作失败: ' + e.message, 'error');
+            }
+        }
+
+        // 切换服务器启用状态（保留旧函数以兼容）
         async function toggleServerEnabled(groupId, serverIndex, enabled) {
             try {
                 const res = await fetch(`${API_BASE}/admin/api/subscription_groups/${groupId}/toggle_server`, {

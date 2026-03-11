@@ -4013,6 +4013,49 @@ async def admin_delete_subscription_group(group_id: str, request: Request):
         return {"success": False, "message": f"删除失败: {str(e)}"}
 
 
+@app.post("/admin/api/subscription_groups/{group_id}/toggle_by_ip")
+async def admin_toggle_server_by_ip(group_id: str, request: Request):
+    """按IP批量切换服务器状态（切换该IP的所有节点）"""
+    token = request.headers.get('Authorization', '').replace('Bearer ', '')
+    
+    if not await verify_admin_token(token):
+        return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
+    
+    data = await request.json()
+    server = data.get('server', '')
+    enabled = bool(data.get('enabled', True))
+    
+    try:
+        import singbox_manager as sbm
+        nodes = sbm.load_saved_nodes()
+        
+        # 找到该组且该server的所有节点并批量切换状态
+        matching_indices = [i for i, n in enumerate(nodes) if isinstance(n, dict) and n.get('group_id') == group_id and n.get('server') == server]
+        if not matching_indices:
+            return {"success": False, "message": "未找到该服务器的节点"}
+        
+        # 批量更新状态
+        for idx in matching_indices:
+            nodes[idx]['enabled'] = enabled
+        sbm.save_nodes(nodes)
+        
+        # 统计该组的独立IP和启用的独立IP
+        group_nodes = [n for n in nodes if isinstance(n, dict) and n.get('group_id') == group_id]
+        unique_servers = set(n.get('server') for n in group_nodes)
+        enabled_servers = set(n.get('server') for n in group_nodes if n.get('enabled', True))
+        await db.update_subscription_group_servers(group_id, len(unique_servers), len(enabled_servers))
+        
+        # 重新生成配置
+        config = sbm.generate_config(nodes)
+        sbm.write_config(config)
+        sbm.reload_service()
+        
+        return {"success": True, "message": f"已{'启用' if enabled else '禁用'}{server}的{len(matching_indices)}个节点"}
+    except Exception as e:
+        logger.error(f"[SubGroup] 按IP切换服务器状态失败: {e}")
+        return {"success": False, "message": f"操作失败: {str(e)}"}
+
+
 @app.post("/admin/api/subscription_groups/{group_id}/toggle_all")
 async def admin_toggle_all_servers(group_id: str, request: Request):
     """批量切换订阅组所有服务器状态"""
@@ -4038,16 +4081,18 @@ async def admin_toggle_all_servers(group_id: str, request: Request):
             nodes[idx]['enabled'] = enabled
         sbm.save_nodes(nodes)
         
-        # 更新订阅组统计
-        active_count = len(group_nodes) if enabled else 0
-        await db.update_subscription_group_servers(group_id, len(group_nodes), active_count)
+        # 统计独立IP数量
+        group_node_list = [nodes[i] for i in group_nodes]
+        unique_servers = set(n.get('server') for n in group_node_list)
+        active_count = len(unique_servers) if enabled else 0
+        await db.update_subscription_group_servers(group_id, len(unique_servers), active_count)
         
         # 重新生成配置
         config = sbm.generate_config(nodes)
         sbm.write_config(config)
         sbm.reload_service()
         
-        return {"success": True, "message": f"已{'启用' if enabled else '禁用'}{len(group_nodes)}个服务器"}
+        return {"success": True, "message": f"已{'启用' if enabled else '禁用'}{len(unique_servers)}个独立IP"}
     except Exception as e:
         logger.error(f"[SubGroup] 批量切换服务器状态失败: {e}")
         return {"success": False, "message": f"操作失败: {str(e)}"}
