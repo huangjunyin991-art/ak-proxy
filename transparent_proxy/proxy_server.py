@@ -4038,10 +4038,10 @@ async def admin_toggle_server_by_ip(group_id: str, request: Request):
             nodes[idx]['enabled'] = enabled
         sbm.save_nodes(nodes)
         
-        # 统计该组的独立IP和启用的独立IP
+        # 统计该组的独立IP和启用的独立IP（添加类型检查）
         group_nodes = [n for n in nodes if isinstance(n, dict) and n.get('group_id') == group_id]
-        unique_servers = set(n.get('server') for n in group_nodes)
-        enabled_servers = set(n.get('server') for n in group_nodes if n.get('enabled', True))
+        unique_servers = set(n.get('server') for n in group_nodes if isinstance(n, dict) and n.get('server'))
+        enabled_servers = set(n.get('server') for n in group_nodes if isinstance(n, dict) and n.get('enabled', True) and n.get('server'))
         await db.update_subscription_group_servers(group_id, len(unique_servers), len(enabled_servers))
         
         # 重新生成配置
@@ -4080,9 +4080,9 @@ async def admin_toggle_all_servers(group_id: str, request: Request):
             nodes[idx]['enabled'] = enabled
         sbm.save_nodes(nodes)
         
-        # 统计独立IP数量
-        group_node_list = [nodes[i] for i in group_nodes]
-        unique_servers = set(n.get('server') for n in group_node_list)
+        # 统计独立IP数量（添加类型检查）
+        group_node_list = [nodes[i] for i in group_nodes if isinstance(nodes[i], dict)]
+        unique_servers = set(n.get('server') for n in group_node_list if isinstance(n, dict) and n.get('server'))
         active_count = len(unique_servers) if enabled else 0
         await db.update_subscription_group_servers(group_id, len(unique_servers), active_count)
         
