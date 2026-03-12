@@ -4731,7 +4731,15 @@ def main():
 
     
 
-    uvicorn.run(app, host=PROXY_HOST, port=PROXY_PORT, log_level="warning")
+    uvicorn.run(
+        app, 
+        host=PROXY_HOST, 
+        port=PROXY_PORT, 
+        log_level="warning",
+        backlog=2048,  # 增加连接队列，防止高并发时连接被拒绝
+        limit_concurrency=10000,  # 增加并发限制
+        timeout_keep_alive=75,  # 增加keep-alive超时
+    )
 
 
 
