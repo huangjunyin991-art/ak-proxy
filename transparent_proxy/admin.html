@@ -6195,16 +6195,165 @@
             });
         }
 
+        // ===== 智能诊断模块（独立、可复用） =====
+        function diagnoseDispatcher(data) {
+            /**
+             * 诊断调度器状态并返回问题诊断
+             * @param {Object} data - 调度器API返回的数据
+             * @returns {Object} {status: string, title: string, message: string, actions: Array, severity: string}
+             */
+            // 规则1: 只有direct出口（最常见问题）
+            if (data.total_exits === 1 && data.exits && data.exits.length === 1 && data.exits[0].type === 'direct') {
+                return {
+                    status: 'no_vpn_exits',
+                    severity: 'warning',
+                    title: '未配置负载均衡出口',
+                    message: '系统当前仅使用服务器直连IP，未启用VPN节点分流',
+                    actions: [
+                        { text: '导入VPN订阅', icon: '📥', desc: '推荐：一键导入Clash/V2Ray订阅链接' },
+                        { text: '手动添加SOCKS5出口', icon: '➕', desc: '高级：手动配置本地Sing-box端口' },
+                        { text: '查看配置教程', icon: '📖', desc: '了解如何部署负载均衡' }
+                    ],
+                    quickAction: 'openSubscription'
+                };
+            }
+            
+            // 规则2: 所有出口不健康
+            if (data.total_exits > 1 && data.healthy_exits === 0) {
+                return {
+                    status: 'all_unhealthy',
+                    severity: 'error',
+                    title: '所有出口不可用',
+                    message: `${data.total_exits}个出口全部离线，请检查Sing-box服务和网络连接`,
+                    actions: [
+                        { text: '重启Sing-box服务', icon: '🔄', desc: '尝试修复VPN连接' },
+                        { text: '检测出口IP', icon: '🔍', desc: '手动测试所有出口连通性' },
+                        { text: '查看服务日志', icon: '📋', desc: '定位具体错误原因' }
+                    ],
+                    quickAction: 'reloadSingbox'
+                };
+            }
+            
+            // 规则3: 部分出口不健康
+            if (data.total_exits > 1 && data.healthy_exits < data.total_exits * 0.5) {
+                return {
+                    status: 'partially_unhealthy',
+                    severity: 'warning',
+                    title: '部分出口异常',
+                    message: `${data.total_exits - data.healthy_exits}/${data.total_exits}个出口离线`,
+                    actions: [
+                        { text: '检测问题出口', icon: '🔍', desc: '定位不可用的节点' },
+                        { text: '移除故障节点', icon: '🗑️', desc: '删除长期离线的出口' }
+                    ],
+                    quickAction: null
+                };
+            }
+            
+            // 规则4: 数据为空（API异常）
+            if (!data.exits || data.exits.length === 0) {
+                return {
+                    status: 'no_data',
+                    severity: 'error',
+                    title: '无法获取出口数据',
+                    message: '调度器API返回空数据，请检查代理服务是否正常运行',
+                    actions: [
+                        { text: '刷新页面', icon: '🔄', desc: '重新加载数据' },
+                        { text: '查看服务状态', icon: '📊', desc: '检查proxy_server.py运行状态' }
+                    ],
+                    quickAction: 'refresh'
+                };
+            }
+            
+            return { status: 'ok' };
+        }
+
+        function renderDiagnosisCard(diagnosis) {
+            /**
+             * 渲染诊断引导卡片
+             * @param {Object} diagnosis - 诊断结果对象
+             */
+            const severityColors = {
+                'error': { bg: 'linear-gradient(135deg, #ff4757, #ff6348)', icon: '❌' },
+                'warning': { bg: 'linear-gradient(135deg, #ffa502, #ff6348)', icon: '⚠️' },
+                'info': { bg: 'linear-gradient(135deg, #667eea, #764ba2)', icon: 'ℹ️' }
+            };
+            
+            const style = severityColors[diagnosis.severity] || severityColors.info;
+            
+            return `
+                <div style="background: ${style.bg}; border-radius: 12px; padding: 25px; text-align: center; animation: fadeIn 0.3s;">
+                    <div style="font-size: 56px; margin-bottom: 12px;">${style.icon}</div>
+                    <h3 style="color: #fff; margin: 0 0 10px 0; font-size: 20px;">${diagnosis.title}</h3>
+                    <p style="color: rgba(255,255,255,0.9); margin: 0 0 20px 0; font-size: 14px;">${diagnosis.message}</p>
+                    
+                    <div style="background: rgba(255,255,255,0.12); border-radius: 10px; padding: 18px; margin: 20px 0; backdrop-filter: blur(10px);">
+                        <p style="color: #fff; margin: 0 0 12px 0; font-size: 13px; font-weight: bold;">💡 解决步骤</p>
+                        ${diagnosis.actions.map((action, i) => `
+                            <div style="background: rgba(255,255,255,0.08); border-radius: 8px; padding: 12px; margin: 8px 0; text-align: left; cursor: pointer; transition: all 0.2s; border: 1px solid rgba(255,255,255,0.1);"
+                                 onmouseover="this.style.background='rgba(255,255,255,0.15)'; this.style.transform='translateX(4px)';"
+                                 onmouseout="this.style.background='rgba(255,255,255,0.08)'; this.style.transform='translateX(0)';">
+                                <div style="display: flex; align-items: center; gap: 10px;">
+                                    <span style="font-size: 24px;">${action.icon}</span>
+                                    <div style="flex: 1;">
+                                        <div style="color: #fff; font-weight: bold; font-size: 14px;">${i + 1}. ${action.text}</div>
+                                        <div style="color: rgba(255,255,255,0.7); font-size: 12px; margin-top: 2px;">${action.desc}</div>
+                                    </div>
+                                </div>
+                            </div>
+                        `).join('')}
+                    </div>
+                    
+                    ${diagnosis.quickAction ? `
+                        <button onclick="${diagnosis.quickAction === 'openSubscription' ? "document.querySelector('[onclick*=switchTab][onclick*=subscription]')?.click()" : 
+                                          diagnosis.quickAction === 'reloadSingbox' ? 'lbReloadSingbox()' : 
+                                          diagnosis.quickAction === 'refresh' ? 'location.reload()' : ''}"
+                                style="padding: 12px 28px; background: #fff; color: ${style.bg.includes('ff4757') ? '#ff4757' : '#667eea'}; 
+                                       border: none; border-radius: 8px; cursor: pointer; font-weight: bold; font-size: 14px;
+                                       box-shadow: 0 4px 12px rgba(0,0,0,0.15); transition: all 0.2s;"
+                                onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 6px 16px rgba(0,0,0,0.2)';"
+                                onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 4px 12px rgba(0,0,0,0.15)';">
+                            ${diagnosis.actions[0].text} →
+                        </button>
+                    ` : ''}
+                    
+                    <div style="margin-top: 20px; padding-top: 15px; border-top: 1px solid rgba(255,255,255,0.2);">
+                        <a href="javascript:loadLbStatus()" style="color: rgba(255,255,255,0.8); font-size: 12px; text-decoration: none;">
+                            🔄 刷新状态
+                        </a>
+                    </div>
+                </div>
+                <style>
+                    @keyframes fadeIn {
+                        from { opacity: 0; transform: translateY(10px); }
+                        to { opacity: 1; transform: translateY(0); }
+                    }
+                </style>
+            `;
+        }
+
         function renderLbStatus(data) {
             if (!data || data.error) return;
-            document.getElementById('lbTotalExits').textContent = data.total_exits;
-            document.getElementById('lbHealthyExits').textContent = data.healthy_exits;
-            document.getElementById('lbTotalActive').textContent = data.total_active;
-            document.getElementById('lbLoginLimit').textContent = data.max_login_per_min;
+            
+            // 先运行诊断
+            const diagnosis = diagnoseDispatcher(data);
+            
+            // 更新顶部统计（即使有问题也要显示）
+            document.getElementById('lbTotalExits').textContent = data.total_exits || 0;
+            document.getElementById('lbHealthyExits').textContent = data.healthy_exits || 0;
+            document.getElementById('lbTotalActive').textContent = data.total_active || 0;
+            document.getElementById('lbLoginLimit').textContent = data.max_login_per_min || 0;
             document.getElementById('lbSummary').textContent =
-                `${data.healthy_exits}/${data.total_exits} 健康 | ${data.total_active} 活跃连接`;
+                `${data.healthy_exits || 0}/${data.total_exits || 0} 健康 | ${data.total_active || 0} 活跃连接`;
 
             const container = document.getElementById('lbExitCards');
+            
+            // 如果诊断发现问题，显示引导卡片
+            if (diagnosis.status !== 'ok') {
+                container.innerHTML = renderDiagnosisCard(diagnosis);
+                return;
+            }
+            
+            // 正常情况：渲染出口列表
             if (!data.exits || data.exits.length === 0) {
                 container.innerHTML = '<div style="text-align:center;color:var(--text-secondary);padding:40px;">暂无出口配置</div>';
                 return;
