@@ -372,7 +372,8 @@ class OutboundDispatcher:
     def pick_api_exit(self) -> OutboundExit:
         """
         为普通API请求选择出口:
-        使用 least-connections（最少活跃连接）策略，保证每个IP同时使用人数均匀
+        使用 加权负载均衡 策略，综合考虑历史总请求数和当前活跃连接数
+        评分 = total + active * 10，选择评分最低的出口，实现请求均匀分布
         任何异常降级直连
         """
         try:
@@ -381,10 +382,13 @@ class OutboundDispatcher:
                 logger.warning("[Dispatcher] 所有出口不健康，降级直连")
                 return self._safe_direct()
 
-            # 优先选不限速的出口，再按活跃连接数排序
+            # 优先选不限速的出口
             unrestricted = [i for i in healthy if self.exits[i].rate_limit == 0]
             pool = unrestricted if unrestricted else healthy
-            best = min(pool, key=lambda i: self.exits[i].active)
+            
+            # 使用综合负载评分：历史请求数 + 当前活跃连接数*10
+            # 这样既考虑长期负载均衡，又避免短期过载
+            best = min(pool, key=lambda i: self.exits[i].total + self.exits[i].active * 10)
             ex = self.exits[best]
             ex.record_request()
             return ex
