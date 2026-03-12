@@ -1,0 +1,30 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "一键部署Nginx配置",
+            "type": "shell",
+            "command": "powershell",
+            "args": [
+                "-ExecutionPolicy", "Bypass",
+                "-File", "${workspaceFolder}/deploy.ps1"
+            ],
+            "problemMatcher": [],
+            "presentation": {
+                "reveal": "always",
+                "panel": "new",
+                "focus": true
+            }
+        },
+        {
+            "label": "Git提交并推送",
+            "type": "shell",
+            "command": "powershell",
+            "args": [
+                "-Command",
+                "D:\\Git\\bin\\git.exe add . ; D:\\Git\\bin\\git.exe commit -m '更新配置' ; D:\\Git\\bin\\git.exe push"
+            ],
+            "problemMatcher": []
+        }
+    ]
+}

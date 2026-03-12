@@ -1,0 +1,8 @@
+{
+    "remote.SSH.remotePlatform": {
+        "152.32.216.95": "linux"
+    },
+    "remote.SSH.defaultExtensions": [
+        "ms-python.python"
+    ]
+}
