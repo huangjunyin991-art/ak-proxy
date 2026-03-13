@@ -431,10 +431,37 @@ class OutboundDispatcher:
 
         except Exception as e:
             exit_obj.record_error()
+            
+            # 立即标记为不健康，避免下次再选中
+            exit_obj.healthy = False
+            logger.warning(f"[Dispatcher] 出口故障: {exit_obj.name} - {type(e).__name__}")
 
-            # 如果是隧道出口失败，降级直连重试
+            # 如果是隧道出口失败，尝试故障转移到其他健康出口
             if not exit_obj.is_direct:
-                logger.warning(f"[Dispatcher] {exit_obj.name} 失败({e})，降级直连重试")
+                # 获取其他健康的出口（排除刚失败的）
+                backup_exits = [i for i, ex in enumerate(self.exits) 
+                               if ex.healthy and i != self.exits.index(exit_obj)]
+                
+                # 优先尝试其他隧道出口，最后才降级直连
+                if backup_exits:
+                    backup_idx = backup_exits[0]  # 选择第一个健康备用
+                    backup = self.exits[backup_idx]
+                    logger.info(f"[Dispatcher] 故障转移: {exit_obj.name} -> {backup.name}")
+                    backup.active += 1
+                    try:
+                        resp = await self._do_request(backup, method, url, headers,
+                                                      content_type, params, raw_body, timeout)
+                        self._check_alert_status(backup, resp.status_code, url)
+                        return resp
+                    except Exception as e2:
+                        backup.record_error()
+                        backup.healthy = False
+                        logger.warning(f"[Dispatcher] 备用出口也失败: {backup.name}")
+                    finally:
+                        backup.active -= 1
+                
+                # 所有隧道出口都失败，最后降级直连
+                logger.warning(f"[Dispatcher] 所有隧道失败，降级直连重试")
                 direct = self._safe_direct()
                 direct.active += 1
                 try:
