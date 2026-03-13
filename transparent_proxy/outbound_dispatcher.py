@@ -372,8 +372,12 @@ class OutboundDispatcher:
     def pick_api_exit(self) -> OutboundExit:
         """
         为普通API请求选择出口:
-        使用 加权负载均衡 策略，综合考虑历史总请求数和当前活跃连接数
-        评分 = total + active * 10，选择评分最低的出口，实现请求均匀分布
+        使用 加权负载均衡 策略，综合考虑历史负载、活跃连接、当前RPM
+        评分 = total + active*10 + rpm*3，选择评分最低的出口
+        - 避免短期过载（active权重10）
+        - 避免频繁请求同一IP导致429（rpm权重3）
+        - 403冻结的服务器会被_get_healthy()自动排除
+        - 连续403时冻结时间自动翻倍（60s→120s→240s...）
         任何异常降级直连
         """
         try:
@@ -386,9 +390,13 @@ class OutboundDispatcher:
             unrestricted = [i for i in healthy if self.exits[i].rate_limit == 0]
             pool = unrestricted if unrestricted else healthy
             
-            # 使用综合负载评分：历史请求数 + 当前活跃连接数*10
-            # 这样既考虑长期负载均衡，又避免短期过载
-            best = min(pool, key=lambda i: self.exits[i].total + self.exits[i].active * 10)
+            # 综合负载评分：历史负载 + 当前活跃*10 + 当前RPM*3
+            # RPM权重较低，主要用于分散请求避免429，不影响整体均衡
+            best = min(pool, key=lambda i: 
+                self.exits[i].total + 
+                self.exits[i].active * 10 + 
+                self.exits[i].get_current_rpm() * 3
+            )
             ex = self.exits[best]
             ex.record_request()
             return ex
