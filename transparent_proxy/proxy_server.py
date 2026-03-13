@@ -488,7 +488,7 @@ async def forward_request(method: str, api_path: str, content_type: str,
 
     exit_obj = dispatcher.pick_login_exit() if is_login else dispatcher.pick_api_exit()
 
-    logger.debug(f"[Forward] {api_path} -> 出口[{exit_obj.name}]")
+    logger.info(f"[Forward] {api_path} -> 出口[{exit_obj.name}]")
 
     try:
 
