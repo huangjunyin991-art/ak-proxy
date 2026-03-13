@@ -1066,6 +1066,9 @@ async def proxy_rpc(path: str, request: Request):
     
 
     client_ip = request.client.host if request.client else "unknown"
+    
+    # 记录所有其他RPC请求的URL路径
+    logger.info(f"[RPC] /RPC/{path} <- IP={client_ip}")
 
     content_type = request.headers.get("content-type", "")
 
