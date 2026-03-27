@@ -232,6 +232,7 @@ class OutboundDispatcher:
         ]
         self._health_task: Optional[asyncio.Task] = None
         self._started = False
+        self._rr_counter: int = 0
 
     def _safe_create_task(self, coro, name: str = ""):
         """创建异步任务并捕获未处理异常（防止静默丢失）"""
@@ -318,8 +319,8 @@ class OutboundDispatcher:
         return self.exits[0]
 
     def _get_healthy(self) -> list[int]:
-        """获取所有健康且未冻结的出口索引"""
-        return [i for i, ex in enumerate(self.exits) if ex.healthy and not ex.is_frozen]
+        """获取所有健康且未冻结的出口索引（直连永远包含）"""
+        return [i for i, ex in enumerate(self.exits) if (ex.healthy or ex.is_direct) and not ex.is_frozen]
 
     # ===== 调度（全部异常安全） =====
 
@@ -348,7 +349,11 @@ class OutboundDispatcher:
                 # 优先选不限速的出口，再按活跃连接数排序
                 unrestricted = [i for i in candidates if self.exits[i].rate_limit == 0]
                 pool = unrestricted if unrestricted else candidates
-                best = min(pool, key=lambda i: self.exits[i].active)
+                # active相等时使用round-robin避免总选第一个
+                min_active = min(self.exits[i].active for i in pool)
+                equal_active = [i for i in pool if self.exits[i].active == min_active]
+                self._rr_counter = (self._rr_counter + 1) % len(equal_active)
+                best = equal_active[self._rr_counter % len(equal_active)]
                 ex = self.exits[best]
                 ex.reserve_login()
                 ex.record_request()
@@ -380,7 +385,11 @@ class OutboundDispatcher:
             # 优先选不限速的出口，再按活跃连接数排序
             unrestricted = [i for i in healthy if self.exits[i].rate_limit == 0]
             pool = unrestricted if unrestricted else healthy
-            best = min(pool, key=lambda i: self.exits[i].active)
+            # active相等时使用round-robin避免总选第一个
+            min_active = min(self.exits[i].active for i in pool)
+            candidates = [i for i in pool if self.exits[i].active == min_active]
+            self._rr_counter = (self._rr_counter + 1) % len(candidates)
+            best = candidates[self._rr_counter % len(candidates)]
             ex = self.exits[best]
             ex.record_request()
             return ex
@@ -521,9 +530,10 @@ class OutboundDispatcher:
             else:
                 raise Exception(f"HTTP {resp.status_code}")
         except Exception:
-            ex.healthy = False
-            if was_healthy:
-                logger.warning(f"[Dispatcher] 出口离线: #{idx} {ex.name}")
+            if not ex.is_direct:  # 直连出口永远不标记为离线
+                ex.healthy = False
+                if was_healthy:
+                    logger.warning(f"[Dispatcher] 出口离线: #{idx} {ex.name}")
 
     async def _detect_exit_ip(self, ex: OutboundExit):
         """通过外部服务检测出口的公网IP（复用持久连接）"""
