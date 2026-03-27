@@ -3159,11 +3159,24 @@
             return path;
         }
         
-        async function loadOnlineUsers() {
+        let _onlineUsersDebounceTimer = null;
+        let _onlineUsersAbortCtrl = null;
+
+        function loadOnlineUsers() {
+            // 防抖：300ms内多次调用只执行最后一次
+            if (_onlineUsersDebounceTimer) clearTimeout(_onlineUsersDebounceTimer);
+            _onlineUsersDebounceTimer = setTimeout(_doLoadOnlineUsers, 300);
+        }
+
+        async function _doLoadOnlineUsers() {
+            // 取消上一个未完成的请求
+            if (_onlineUsersAbortCtrl) _onlineUsersAbortCtrl.abort();
+            _onlineUsersAbortCtrl = new AbortController();
             try {
-                const res = await fetch(`${API_BASE}/admin/api/online`);
+                const res = await fetch(`${API_BASE}/admin/api/online`, { signal: _onlineUsersAbortCtrl.signal });
                 const data = await res.json();
                 const tbody = document.getElementById('onlineTable');
+                if (!tbody) return;
                 
                 if (data.length === 0) {
                     tbody.innerHTML = '<tr><td colspan="4" style="text-align: center; color: var(--text-secondary);">暂无在线用户</td></tr>';
@@ -3185,7 +3198,7 @@
                     </tr>
                 `).join('');
             } catch (e) {
-                console.error('加载在线用户失败', e);
+                if (e.name !== 'AbortError') console.error('加载在线用户失败', e);
             }
         }
         
