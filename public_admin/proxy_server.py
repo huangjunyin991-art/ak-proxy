@@ -1629,6 +1629,29 @@ async def api_dispatcher_apply_sub(request: Request):
     except Exception as e:
         logger.warning(f"[Dispatcher] 保存节点配置失败: {e}")
 
+    # 更新数据库中的订阅组记录
+    if apply_result["success"]:
+        try:
+            import uuid
+            from datetime import datetime as _dt
+            await db.clear_all_subscription_groups()
+            group_id = str(uuid.uuid4())
+            source_type = "url" if url else ("text" if text else "json")
+            source_url = url or ""
+            group_name = f"订阅导入 {_dt.now().strftime('%m-%d %H:%M')}"
+            await db.create_subscription_group(
+                group_id=group_id,
+                name=group_name,
+                source_type=source_type,
+                source_url=source_url,
+                total_servers=len(nodes_to_add),
+                created_by='admin',
+                notes=''
+            )
+            logger.info(f"[SubGroup] 订阅组记录已更新: {len(nodes_to_add)} 台服务器")
+        except Exception as e:
+            logger.warning(f"[SubGroup] 更新订阅组记录失败: {e}")
+
     return {
 
         "success": apply_result["success"],

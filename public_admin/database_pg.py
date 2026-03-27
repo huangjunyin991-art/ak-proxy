@@ -1565,6 +1565,18 @@ async def delete_subscription_group(group_id: str) -> bool:
             return False
 
 
+async def clear_all_subscription_groups() -> bool:
+    """清除所有订阅组记录"""
+    pool = _get_pool()
+    async with pool.acquire() as conn:
+        try:
+            await conn.execute('DELETE FROM subscription_groups')
+            return True
+        except Exception as e:
+            logger.error(f"[DB] 清除订阅组失败: {e}")
+            return False
+
+
 async def get_all_sub_admin_credits() -> List[Dict]:
     """获取所有子管理员积分概览"""
     pool = _get_pool()
