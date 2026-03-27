@@ -2575,6 +2575,7 @@
             // 先关闭已存在的连接，避免重复连接
             if (ws && ws.readyState !== WebSocket.CLOSED) {
                 console.log('[Admin] 关闭旧WebSocket连接');
+                ws.onclose = null; // 主动关闭时不触发重连
                 ws.close();
             }
             
