@@ -330,7 +330,28 @@ async def init_db(host: str = "127.0.0.1", port: int = 5432,
                 ('yearly', '年付', 1000, 365)
             ''')
 
+        # 订阅组表
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS subscription_groups (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                source_type TEXT DEFAULT 'url',
+                source_url TEXT DEFAULT '',
+                import_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                total_servers INTEGER DEFAULT 0,
+                active_servers INTEGER DEFAULT 0,
+                created_by TEXT DEFAULT 'admin',
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                notes TEXT DEFAULT ''
+            )
+        ''')
+        try:
+            await conn.execute("ALTER TABLE subscription_groups ADD COLUMN IF NOT EXISTS notes TEXT DEFAULT ''")
+        except Exception:
+            pass
+
         # 创建索引
+        await conn.execute('CREATE INDEX IF NOT EXISTS idx_sub_groups_created_by ON subscription_groups(created_by)')
         await conn.execute('CREATE INDEX IF NOT EXISTS idx_login_username ON login_records(username)')
         await conn.execute('CREATE INDEX IF NOT EXISTS idx_login_ip ON login_records(ip_address)')
         await conn.execute('CREATE INDEX IF NOT EXISTS idx_login_time ON login_records(login_time)')
@@ -1463,6 +1484,85 @@ async def get_credit_transactions(admin_name: str = None, limit: int = 50, offse
                 SELECT * FROM credit_transactions ORDER BY created_at DESC LIMIT $1 OFFSET $2
             ''', limit, offset)
         return {'total': total or 0, 'rows': [dict(r) for r in rows]}
+
+
+# ===== 订阅组管理 =====
+
+async def create_subscription_group(group_id: str, name: str, source_type: str, source_url: str,
+                                     total_servers: int, created_by: str = 'admin', notes: str = '') -> bool:
+    """创建订阅组"""
+    pool = _get_pool()
+    async with pool.acquire() as conn:
+        try:
+            await conn.execute('''
+                INSERT INTO subscription_groups (id, name, source_type, source_url, total_servers, active_servers, created_by, notes)
+                VALUES ($1, $2, $3, $4, $5, $5, $6, $7)
+            ''', group_id, name, source_type, source_url, total_servers, created_by, notes)
+            return True
+        except Exception as e:
+            logger.error(f"[DB] 创建订阅组失败: {e}")
+            return False
+
+
+async def get_subscription_groups(created_by: str = None) -> list:
+    """获取订阅组列表"""
+    pool = _get_pool()
+    async with pool.acquire() as conn:
+        if created_by:
+            rows = await conn.fetch('''
+                SELECT id, name, source_type, source_url, import_time, total_servers, active_servers, created_by, notes
+                FROM subscription_groups WHERE created_by = $1 ORDER BY import_time DESC
+            ''', created_by)
+        else:
+            rows = await conn.fetch('''
+                SELECT id, name, source_type, source_url, import_time, total_servers, active_servers, created_by, notes
+                FROM subscription_groups ORDER BY import_time DESC
+            ''')
+        return [dict(r) for r in rows]
+
+
+async def update_subscription_group_servers(group_id: str, total_servers: int, active_servers: int) -> bool:
+    """更新订阅组的服务器数量"""
+    pool = _get_pool()
+    async with pool.acquire() as conn:
+        try:
+            await conn.execute('''
+                UPDATE subscription_groups
+                SET total_servers = $2, active_servers = $3, updated_at = CURRENT_TIMESTAMP
+                WHERE id = $1
+            ''', group_id, total_servers, active_servers)
+            return True
+        except Exception as e:
+            logger.error(f"[DB] 更新订阅组服务器数量失败: {e}")
+            return False
+
+
+async def update_subscription_group_notes(group_id: str, notes: str) -> bool:
+    """更新订阅组备注"""
+    pool = _get_pool()
+    async with pool.acquire() as conn:
+        try:
+            await conn.execute('''
+                UPDATE subscription_groups
+                SET notes = $2, updated_at = CURRENT_TIMESTAMP
+                WHERE id = $1
+            ''', group_id, notes)
+            return True
+        except Exception as e:
+            logger.error(f"[DB] 更新订阅组备注失败: {e}")
+            return False
+
+
+async def delete_subscription_group(group_id: str) -> bool:
+    """删除订阅组"""
+    pool = _get_pool()
+    async with pool.acquire() as conn:
+        try:
+            await conn.execute('DELETE FROM subscription_groups WHERE id = $1', group_id)
+            return True
+        except Exception as e:
+            logger.error(f"[DB] 删除订阅组失败: {e}")
+            return False
 
 
 async def get_all_sub_admin_credits() -> List[Dict]:

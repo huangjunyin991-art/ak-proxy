@@ -1434,6 +1434,7 @@
         <div class="tab" data-panel="credits"><svg class="tab-icon" viewBox="0 0 24 24"><circle cx="8" cy="8" r="6"/><path d="M18.09 10.37A6 6 0 1 1 10.34 18"/><path d="M7 6h1v4"/><path d="m16.71 13.88.7.71-2.82 2.82"/></svg> 积分</div>
         <div class="tab" data-panel="license"><svg class="tab-icon" viewBox="0 0 24 24"><path d="M2.586 17.414A2 2 0 0 0 2 18.828V21a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h1a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h.172a2 2 0 0 0 1.414-.586l.814-.814a6.5 6.5 0 1 0-4-4z"/><circle cx="16.5" cy="7.5" r=".5" fill="currentColor"/></svg> 激活码</div>
         <div class="tab" data-panel="database"><svg class="tab-icon" viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14a9 3 0 0 0 18 0V5"/><path d="M3 12a9 3 0 0 0 18 0"/></svg> 数据库</div>
+        <div class="tab" data-panel="subscription"><svg class="tab-icon" viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg> 订阅组</div>
         <div class="tab" data-panel="settings"><svg class="tab-icon" viewBox="0 0 24 24"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg> 设置</div>
     </div>
     
@@ -1969,6 +1970,29 @@
             </div>
         </div>
 
+        <!-- 订阅组管理 -->
+        <div class="panel" id="subscription">
+            <div>
+                <h3 style="margin-bottom: 15px; color: var(--accent-green);">📦 订阅组管理</h3>
+                <div style="background: var(--bg-card); border-radius: 12px; padding: 15px; border: 1px solid var(--border);">
+                    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <span style="font-size: 13px; color: var(--text-secondary);">
+                                当前已导入订阅组：<span id="subGroupCount" style="color: var(--accent-green); font-weight: bold;"></span>
+                            </span>
+                        </div>
+                        <button class="btn" onclick="loadSubscriptionGroups()" style="padding: 5px 14px; font-size: 12px; background: rgba(0,255,136,0.1); color: var(--accent-green); border: 1px solid rgba(0,255,136,0.3);">🔄 刷新</button>
+                    </div>
+                    <div id="subscriptionGroupsList" style="display: flex; flex-direction: column; gap: 8px;">
+                        <div style="text-align: center; color: var(--text-secondary); padding: 30px; font-size: 12px;">加载中...</div>
+                    </div>
+                </div>
+                <div style="margin-top: 12px; padding: 10px 14px; background: rgba(102,126,234,0.05); border-radius: 8px; border: 1px solid rgba(102,126,234,0.2); font-size: 12px; color: var(--text-secondary);">
+                    💡 订阅组通过 <strong style="color: var(--accent);">设置 → 导入订阅</strong> 添加。在此页面可以管理已导入的订阅组：展开查看服务器列表、启用/禁用单台服务器、批量切换、编辑备注或删除整个订阅组。
+                </div>
+            </div>
+        </div>
+
         <!-- 设置 -->
         <div class="panel" id="settings">
             <div>
@@ -2485,7 +2509,7 @@
             
             // 子管理员：根据权限显示/隐藏
             const perms = JSON.parse(sessionStorage.getItem('admin_permissions') || '{}');
-            const allTabs = ['dashboard', 'online', 'usage', 'users', 'ips', 'banlist', 'whitelist', 'credits', 'license', 'database', 'settings'];
+            const allTabs = ['dashboard', 'online', 'usage', 'users', 'ips', 'banlist', 'whitelist', 'credits', 'license', 'database', 'subscription', 'settings'];
             
             allTabs.forEach(tabName => {
                 const tab = document.querySelector(`.tab[data-panel="${tabName}"]`);
@@ -3936,10 +3960,12 @@
                     loadLicenses(0);
                 }
                 if (tab.dataset.panel === 'database') {
-                    // 检查数据库授权状态
                     checkDbAuth().then(authed => {
                         if (authed) loadDbTables();
                     });
+                }
+                if (tab.dataset.panel === 'subscription') {
+                    loadSubscriptionGroups();
                 }
                 if (tab.dataset.panel === 'settings') {
                     // 加载子管理员状态（仅系统总管理可见）
@@ -6164,6 +6190,255 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
         // 如果已登录，直接初始化
         if (isLoggedIn) {
             initApp();
+        }
+
+        // ===== 订阅组管理 =====
+        let subscriptionGroups = [];
+        let expandedGroups = new Set();
+
+        async function loadSubscriptionGroups() {
+            try {
+                const res = await fetch(`${API_BASE}/admin/api/subscription_groups`, {
+                    headers: getHeaders()
+                });
+                const data = await res.json();
+                if (data.success) {
+                    subscriptionGroups = data.groups || [];
+                    renderSubscriptionGroups();
+                }
+            } catch (e) {
+                console.error('加载订阅组失败', e);
+            }
+        }
+
+        function renderSubscriptionGroups() {
+            const container = document.getElementById('subscriptionGroupsList');
+            const countEl = document.getElementById('subGroupCount');
+            if (!container) return;
+
+            if (!subscriptionGroups || subscriptionGroups.length === 0) {
+                container.innerHTML = '<div style="text-align: center; color: var(--text-secondary); padding: 30px; font-size: 12px;">暂无订阅组，请在设置页面导入订阅</div>';
+                if (countEl) countEl.textContent = '0 个';
+                return;
+            }
+
+            if (countEl) countEl.textContent = `${subscriptionGroups.length} 个`;
+
+            const html = subscriptionGroups.map(group => {
+                const isExpanded = expandedGroups.has(group.id);
+                const icon = isExpanded ? '🔽' : '▶';
+                const importTime = group.import_time ? new Date(group.import_time).toLocaleString('zh-CN', {
+                    month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit'
+                }) : '未知';
+
+                const notesHtml = group.notes ? `
+                    <div style="margin-top: 4px; padding: 3px 8px; background: rgba(102,126,234,0.1); border-radius: 4px; font-size: 11px; color: var(--accent);">
+                        📝 ${group.notes}
+                    </div>
+                ` : '';
+
+                return `
+                    <div style="background: var(--bg-primary); border-radius: 8px; border: 1px solid var(--border); overflow: hidden;">
+                        <div style="display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; cursor: pointer;" onclick="toggleSubscriptionGroup('${group.id}')">
+                            <div style="flex: 1; display: flex; align-items: center; gap: 8px;">
+                                <span style="font-size: 14px;">${icon}</span>
+                                <div style="flex: 1;">
+                                    <div style="font-size: 13px; font-weight: bold; color: var(--text-primary);">${group.name}</div>
+                                    <div style="font-size: 11px; color: var(--text-secondary);">
+                                        ${importTime} | ${group.active_servers}/${group.total_servers} 台启用
+                                        ${group.source_type === 'url' ? ' | 🔗订阅链接' : group.source_type === 'json' ? ' | 📋JSON' : ' | 📝文本'}
+                                    </div>
+                                    ${notesHtml}
+                                </div>
+                            </div>
+                            <div style="display: flex; gap: 6px;" onclick="event.stopPropagation()">
+                                <button class="btn" onclick="editSubscriptionGroupNotes('${group.id}', '${(group.notes || '').replace(/'/g, "\\'")}')"
+                                        style="padding: 4px 8px; font-size: 11px; background: rgba(102,126,234,0.1); color: var(--accent); border: 1px solid rgba(102,126,234,0.3);">
+                                    📝 备注
+                                </button>
+                                <button class="btn" onclick="deleteSubscriptionGroup('${group.id}')"
+                                        style="padding: 4px 8px; font-size: 11px; background: rgba(255,71,87,0.1); color: var(--accent-red); border: 1px solid rgba(255,71,87,0.3);">
+                                    🗑️ 删除
+                                </button>
+                            </div>
+                        </div>
+                        <div id="subGroupServers_${group.id}" style="display: ${isExpanded ? 'block' : 'none'}; padding: 0 12px 12px; border-top: 1px solid var(--border);">
+                            <div style="color: var(--text-secondary); font-size: 11px; padding: 8px 0;">服务器列表加载中...</div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+
+            container.innerHTML = html;
+
+            expandedGroups.forEach(groupId => {
+                loadGroupServers(groupId);
+            });
+        }
+
+        function toggleSubscriptionGroup(groupId) {
+            if (expandedGroups.has(groupId)) {
+                expandedGroups.delete(groupId);
+            } else {
+                expandedGroups.add(groupId);
+                loadGroupServers(groupId);
+            }
+            renderSubscriptionGroups();
+        }
+
+        async function loadGroupServers(groupId) {
+            const container = document.getElementById(`subGroupServers_${groupId}`);
+            if (!container) return;
+
+            try {
+                const res = await fetch(`${API_BASE}/admin/api/nodes`, { headers: getHeaders() });
+                const data = await res.json();
+                const nodes = (data.nodes || []).filter(n => n && typeof n === 'object' && n.group_id === groupId);
+
+                if (nodes.length === 0) {
+                    container.innerHTML = '<div style="padding: 8px; color: var(--text-secondary); font-size: 11px;">该组暂无服务器</div>';
+                    return;
+                }
+
+                const uniqueServers = new Map();
+                nodes.forEach(node => {
+                    const s = node.server;
+                    if (!uniqueServers.has(s)) {
+                        uniqueServers.set(s, { representative: node, allNodes: [node] });
+                    } else {
+                        uniqueServers.get(s).allNodes.push(node);
+                    }
+                });
+
+                const serversHtml = Array.from(uniqueServers.entries()).map(([server, { representative, allNodes }], idx) => {
+                    const enabled = allNodes.every(n => n.enabled !== false);
+                    const node = representative;
+                    const textColor = enabled ? 'var(--text-primary)' : '#6b7280';
+                    const bgColor = enabled ? 'var(--bg-secondary)' : 'rgba(107,114,128,0.1)';
+                    const opacity = enabled ? '1' : '0.6';
+                    const disabledTag = enabled ? '' : '<span style="color: #6b7280; font-size: 10px; margin-left: 6px;">❌已禁用</span>';
+                    const nodeCountTag = allNodes.length > 1 ? `<span style="color: #9ca3af; font-size: 10px; margin-left: 4px;">(${allNodes.length}个节点)</span>` : '';
+
+                    return `
+                        <div style="display: flex; align-items: center; gap: 8px; padding: 6px 8px; background: ${bgColor}; border-radius: 6px; margin-top: 6px; opacity: ${opacity};">
+                            <input type="checkbox" ${enabled ? 'checked' : ''} onchange="toggleServerByIP('${groupId}', '${server}', this.checked)" style="cursor: pointer; accent-color: var(--accent-green);">
+                            <div style="flex: 1; font-size: 12px; color: ${textColor};">
+                                <strong>${node.name || node.display_name || `服务器${idx + 1}`}</strong>
+                                ${nodeCountTag}${disabledTag}
+                                <span style="color: #6b7280; margin-left: 6px;">${(node.type || 'UNKNOWN').toUpperCase()} | ${node.server}</span>
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+
+                const actionsHtml = `
+                    <div style="display: flex; gap: 6px; padding: 8px 0; font-size: 11px;">
+                        <button class="btn" onclick="toggleAllServers('${groupId}', true)" style="padding: 4px 10px; background: rgba(76,175,80,0.1); color: var(--accent-green);">全选</button>
+                        <button class="btn" onclick="toggleAllServers('${groupId}', false)" style="padding: 4px 10px; background: var(--bg-secondary); color: var(--text-secondary);">全不选</button>
+                    </div>
+                `;
+
+                container.innerHTML = actionsHtml + serversHtml;
+            } catch (e) {
+                console.error('加载订阅组服务器失败', e);
+                container.innerHTML = '<div style="padding: 8px; color: var(--accent-red); font-size: 11px;">加载失败</div>';
+            }
+        }
+
+        async function toggleServerByIP(groupId, server, enabled) {
+            try {
+                const res = await fetch(`${API_BASE}/admin/api/subscription_groups/${groupId}/toggle_by_ip`, {
+                    method: 'POST',
+                    headers: { ...getHeaders(), 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ server, enabled })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    showToast(data.message, 'success');
+                    await loadSubscriptionGroups();
+                } else {
+                    showToast(data.message || '操作失败', 'error');
+                }
+            } catch (e) {
+                showToast('操作失败: ' + e.message, 'error');
+            }
+        }
+
+        async function toggleAllServers(groupId, enabled) {
+            try {
+                const res = await fetch(`${API_BASE}/admin/api/subscription_groups/${groupId}/toggle_all`, {
+                    method: 'POST',
+                    headers: { ...getHeaders(), 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ enabled })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    showToast(data.message, 'success');
+                    await loadSubscriptionGroups();
+                } else {
+                    showToast(data.message || '操作失败', 'error');
+                }
+            } catch (e) {
+                showToast('操作失败: ' + e.message, 'error');
+            }
+        }
+
+        async function editSubscriptionGroupNotes(groupId, currentNotes) {
+            const group = subscriptionGroups.find(g => g.id === groupId);
+            const groupName = group ? group.name : groupId;
+
+            showModal('编辑订阅组备注', `
+                <div style="margin-bottom: 12px;">
+                    <label style="display: block; margin-bottom: 8px; color: var(--text-primary); font-weight: bold;">订阅组：${groupName}</label>
+                    <label style="display: block; margin-bottom: 4px; color: var(--text-secondary); font-size: 13px;">备注内容</label>
+                    <input type="text" id="editNotesInput" value="${currentNotes.replace(/"/g, '&quot;')}"
+                           placeholder="如：XX机场-月付套餐 | 2026-04-12到期"
+                           style="width: 100%; padding: 8px 12px; background: var(--bg-primary); border: 1px solid var(--border); border-radius: 6px; color: var(--text-primary); font-size: 14px; box-sizing: border-box;">
+                    <div style="margin-top: 6px; font-size: 11px; color: var(--text-secondary);">💡 方便记录订阅来源、到期时间等信息</div>
+                </div>
+            `, async () => {
+                const notes = document.getElementById('editNotesInput').value.trim();
+                try {
+                    const res = await fetch(`${API_BASE}/admin/api/subscription_groups/${groupId}/notes`, {
+                        method: 'PATCH',
+                        headers: { ...getHeaders(), 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ notes })
+                    });
+                    const data = await res.json();
+                    if (data.success) {
+                        showToast('备注已更新', 'success');
+                        await loadSubscriptionGroups();
+                    } else {
+                        showToast(data.message || '更新失败', 'error');
+                    }
+                } catch (e) {
+                    showToast('更新失败: ' + e.message, 'error');
+                }
+            }, '保存');
+        }
+
+        async function deleteSubscriptionGroup(groupId) {
+            const group = subscriptionGroups.find(g => g.id === groupId);
+            const groupName = group ? group.name : groupId;
+
+            if (!await showConfirm('确认删除', `确定要删除订阅组"${groupName}"吗？\n\n该组的所有服务器将被移除。`)) return;
+
+            try {
+                const res = await fetch(`${API_BASE}/admin/api/subscription_groups/${groupId}`, {
+                    method: 'DELETE',
+                    headers: getHeaders()
+                });
+                const data = await res.json();
+                if (data.success) {
+                    showToast(data.message, 'success');
+                    expandedGroups.delete(groupId);
+                    await loadSubscriptionGroups();
+                } else {
+                    showToast(data.message || '删除失败', 'error');
+                }
+            } catch (e) {
+                showToast('删除失败: ' + e.message, 'error');
+            }
         }
     </script>
 </body>

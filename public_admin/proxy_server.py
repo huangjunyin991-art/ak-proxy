@@ -896,16 +896,21 @@ async def proxy_login(request: Request):
 
         }
 
-    
-
     asyncio.create_task(report_to_monitor("login", report_data))
 
-    
-
-    # 返回原始结果
+    asyncio.create_task(ws_manager.broadcast({
+        "type": "new_login",
+        "data": {
+            "username": account,
+            "ip": client_ip,
+            "status": "success" if is_success else "failed",
+            "msg": result.get("Msg", ""),
+            "time": datetime.now().strftime('%H:%M:%S'),
+            "assets": report_data.get("assets"),
+        }
+    }))
 
     resp = JSONResponse(result)
-
     if is_success:
 
         resp.set_cookie(key="ak_username", value=account, max_age=86400*30, httponly=False, samesite="lax")
@@ -1041,6 +1046,15 @@ async def proxy_index_data(request: Request):
             }
 
             asyncio.create_task(report_to_monitor("asset_update", report_data))
+
+            asyncio.create_task(ws_manager.broadcast({
+                "type": "asset_update",
+                "data": {
+                    "username": username,
+                    "time": datetime.now().strftime('%H:%M:%S'),
+                    "assets": report_data["assets"],
+                }
+            }))
 
             logger.info(f"[IndexData] 资产更新: {username}")
 
@@ -3046,7 +3060,43 @@ async def admin_sub_admin_kick(request: Request):
     return {"success": True, "message": f"{target} 当前没有在线会话"}
 
 
+@app.get("/admin/api/sub_admin/monitoring_status")
+async def admin_sub_admin_monitoring_status(request: Request):
+    """获取子管理员在线监控开关状态"""
+    token = request.headers.get('Authorization', '').replace('Bearer ', '')
+    if not await verify_admin_token(token):
+        return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
+    try:
+        enabled = await db.get_sub_admin_monitoring_status()
+        return {
+            "success": True,
+            "enabled": enabled,
+            "description": "子管理员在线状态监控：开启后子管理员需定期发送心跳上报在线状态"
+        }
+    except Exception as e:
+        logger.error(f"[SubAdmin] 获取在线监控开关失败: {e}")
+        return {"success": False, "message": f"获取失败: {str(e)}"}
 
+
+@app.post("/admin/api/sub_admin/set_monitoring")
+async def admin_sub_admin_set_monitoring(request: Request):
+    """设置子管理员在线监控开关（仅系统总管理员）"""
+    token = request.headers.get('Authorization', '').replace('Bearer ', '')
+    user_info = await verify_admin_token(token)
+    if not user_info or get_token_role(token) != ROLE_SUPER_ADMIN:
+        return JSONResponse(status_code=403, content={"error": True, "message": "仅系统总管理员可操作"})
+    data = await request.json()
+    enabled = bool(data.get('enabled', False))
+    try:
+        ok = await db.set_sub_admin_monitoring_status(enabled)
+        if ok:
+            status_text = "开启" if enabled else "关闭"
+            logger.info(f"[SubAdmin] 在线监控已{status_text}")
+            return {"success": True, "enabled": enabled, "message": f"子管理员在线监控已{status_text}"}
+        return {"success": False, "message": "设置失败"}
+    except Exception as e:
+        logger.error(f"[SubAdmin] 设置在线监控开关失败: {e}")
+        return {"success": False, "message": f"设置失败: {str(e)}"}
 
 
 # --- 数据库管理API ---
@@ -3885,6 +3935,50 @@ async def admin_whitelist_toggle_persist(request: Request):
 
 
 
+@app.get("/admin/api/whitelist/global_status")
+async def admin_whitelist_global_status(request: Request):
+    """获取全体白名单开关状态"""
+    token = request.headers.get('Authorization', '').replace('Bearer ', '')
+    if not await verify_admin_token(token):
+        return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
+    try:
+        enabled = await db.get_whitelist_global_status()
+        return {
+            "success": True,
+            "enabled": enabled,
+            "description": "全体白名单：开启后所有人可登录AK服务器，关闭后仅白名单用户可登录"
+        }
+    except Exception as e:
+        logger.error(f"[Whitelist] 获取全局开关失败: {e}")
+        return {"success": False, "message": f"获取失败: {str(e)}"}
+
+
+@app.post("/admin/api/whitelist/set_global")
+async def admin_whitelist_set_global(request: Request):
+    """设置全体白名单开关"""
+    token = request.headers.get('Authorization', '').replace('Bearer ', '')
+    if not await verify_admin_token(token):
+        return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
+    data = await request.json()
+    enabled = bool(data.get('enabled', False))
+    try:
+        ok = await db.set_whitelist_global_status(enabled)
+        if ok:
+            status_text = "开启" if enabled else "关闭"
+            logger.info(f"[Whitelist] 全体白名单已{status_text}")
+            return {
+                "success": True, "enabled": enabled,
+                "message": f"全体白名单已{status_text}（{'所有人可登录' if enabled else '仅白名单用户可登录'}）"
+            }
+        return {"success": False, "message": "设置失败"}
+    except Exception as e:
+        logger.error(f"[Whitelist] 设置全局开关失败: {e}")
+        return {"success": False, "message": f"设置失败: {str(e)}"}
+
+
+
+
+
 # --- 积分管理 ---
 
 
@@ -4062,10 +4156,170 @@ async def admin_credits_transactions(request: Request, admin_name: str = None,
     else:
 
         query_name = sub_name
-
     return await db.get_credit_transactions(admin_name=query_name, limit=limit, offset=offset)
 
 
+
+
+
+# --- 订阅组管理 ---
+
+@app.get("/admin/api/nodes")
+async def admin_get_nodes(request: Request):
+    """获取节点列表（含group_id）"""
+    token = request.headers.get('Authorization', '').replace('Bearer ', '')
+    if not await verify_admin_token(token):
+        return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
+    try:
+        import singbox_manager as sbm
+        nodes = sbm.load_saved_nodes()
+        return {"success": True, "nodes": nodes}
+    except Exception as e:
+        logger.error(f"[Nodes] 获取节点列表失败: {e}")
+        return {"success": False, "message": f"获取失败: {str(e)}", "nodes": []}
+
+
+@app.get("/admin/api/subscription_groups")
+async def admin_get_subscription_groups(request: Request):
+    """获取订阅组列表"""
+    token = request.headers.get('Authorization', '').replace('Bearer ', '')
+    if not await verify_admin_token(token):
+        return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
+    try:
+        role = get_token_role(token)
+        sub_name = get_token_sub_name(token)
+        created_by = None if role == ROLE_SUPER_ADMIN else sub_name
+        groups = await db.get_subscription_groups(created_by)
+        return {"success": True, "groups": groups}
+    except Exception as e:
+        logger.error(f"[SubGroup] 获取订阅组列表失败: {e}")
+        return {"success": False, "message": f"获取失败: {str(e)}"}
+
+
+@app.patch("/admin/api/subscription_groups/{group_id}/notes")
+async def admin_update_subscription_group_notes(group_id: str, request: Request):
+    """更新订阅组备注"""
+    token = request.headers.get('Authorization', '').replace('Bearer ', '')
+    if not await verify_admin_token(token):
+        return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
+    try:
+        data = await request.json()
+        notes = data.get('notes', '')
+        ok = await db.update_subscription_group_notes(group_id, notes)
+        return {"success": ok, "message": "备注已更新" if ok else "更新失败"}
+    except Exception as e:
+        logger.error(f"[SubGroup] 更新订阅组备注失败: {e}")
+        return {"success": False, "message": f"更新失败: {str(e)}"}
+
+
+@app.delete("/admin/api/subscription_groups/{group_id}")
+async def admin_delete_subscription_group(group_id: str, request: Request):
+    """删除订阅组"""
+    token = request.headers.get('Authorization', '').replace('Bearer ', '')
+    if not await verify_admin_token(token):
+        return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
+    try:
+        ok = await db.delete_subscription_group(group_id)
+        if ok:
+            import singbox_manager as sbm
+            nodes = sbm.load_saved_nodes()
+            filtered = [n for n in nodes if isinstance(n, dict) and n.get('group_id') != group_id]
+            if len(filtered) < len(nodes):
+                sbm.save_nodes(filtered)
+                sbm.write_config(filtered)
+                sbm.reload_service()
+            return {"success": True, "message": "订阅组已删除"}
+        return {"success": False, "message": "删除失败"}
+    except Exception as e:
+        logger.error(f"[SubGroup] 删除订阅组失败: {e}")
+        return {"success": False, "message": f"删除失败: {str(e)}"}
+
+
+@app.post("/admin/api/subscription_groups/{group_id}/toggle_by_ip")
+async def admin_toggle_server_by_ip(group_id: str, request: Request):
+    """按IP批量切换服务器状态"""
+    token = request.headers.get('Authorization', '').replace('Bearer ', '')
+    if not await verify_admin_token(token):
+        return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
+    data = await request.json()
+    server = data.get('server', '')
+    enabled = bool(data.get('enabled', True))
+    try:
+        import singbox_manager as sbm
+        nodes = sbm.load_saved_nodes()
+        matching = [i for i, n in enumerate(nodes) if isinstance(n, dict) and n.get('group_id') == group_id and n.get('server') == server]
+        if not matching:
+            return {"success": False, "message": "未找到该服务器的节点"}
+        for idx in matching:
+            nodes[idx]['enabled'] = enabled
+        sbm.save_nodes(nodes)
+        group_nodes = [n for n in nodes if isinstance(n, dict) and n.get('group_id') == group_id]
+        unique_servers = set(n.get('server') for n in group_nodes if n.get('server'))
+        enabled_servers = set(n.get('server') for n in group_nodes if n.get('enabled', True) and n.get('server'))
+        await db.update_subscription_group_servers(group_id, len(unique_servers), len(enabled_servers))
+        sbm.write_config(nodes)
+        sbm.reload_service()
+        return {"success": True, "message": f"已{'启用' if enabled else '禁用'}{server}的{len(matching)}个节点"}
+    except Exception as e:
+        logger.error(f"[SubGroup] 按IP切换服务器状态失败: {e}")
+        return {"success": False, "message": f"操作失败: {str(e)}"}
+
+
+@app.post("/admin/api/subscription_groups/{group_id}/toggle_all")
+async def admin_toggle_all_servers(group_id: str, request: Request):
+    """批量切换订阅组所有服务器状态"""
+    token = request.headers.get('Authorization', '').replace('Bearer ', '')
+    if not await verify_admin_token(token):
+        return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
+    data = await request.json()
+    enabled = bool(data.get('enabled', True))
+    try:
+        import singbox_manager as sbm
+        nodes = sbm.load_saved_nodes()
+        group_indices = [i for i, n in enumerate(nodes) if isinstance(n, dict) and n.get('group_id') == group_id]
+        if not group_indices:
+            return {"success": False, "message": "该组暂无服务器"}
+        for idx in group_indices:
+            nodes[idx]['enabled'] = enabled
+        sbm.save_nodes(nodes)
+        group_node_list = [nodes[i] for i in group_indices if isinstance(nodes[i], dict)]
+        unique_servers = set(n.get('server') for n in group_node_list if n.get('server'))
+        active_count = len(unique_servers) if enabled else 0
+        await db.update_subscription_group_servers(group_id, len(unique_servers), active_count)
+        sbm.write_config(nodes)
+        sbm.reload_service()
+        return {"success": True, "message": f"已{'启用' if enabled else '禁用'}{len(unique_servers)}个独立IP"}
+    except Exception as e:
+        logger.error(f"[SubGroup] 批量切换服务器状态失败: {e}")
+        return {"success": False, "message": f"操作失败: {str(e)}"}
+
+
+@app.post("/admin/api/subscription_groups/{group_id}/toggle_server")
+async def admin_toggle_server(group_id: str, request: Request):
+    """切换单个服务器启用/禁用状态"""
+    token = request.headers.get('Authorization', '').replace('Bearer ', '')
+    if not await verify_admin_token(token):
+        return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
+    data = await request.json()
+    server_index = data.get('server_index', -1)
+    enabled = bool(data.get('enabled', True))
+    try:
+        import singbox_manager as sbm
+        nodes = sbm.load_saved_nodes()
+        group_indices = [i for i, n in enumerate(nodes) if isinstance(n, dict) and n.get('group_id') == group_id]
+        if 0 <= server_index < len(group_indices):
+            node_idx = group_indices[server_index]
+            nodes[node_idx]['enabled'] = enabled
+            sbm.save_nodes(nodes)
+            active_count = sum(1 for i in group_indices if nodes[i].get('enabled', True))
+            await db.update_subscription_group_servers(group_id, len(group_indices), active_count)
+            sbm.write_config(nodes)
+            sbm.reload_service()
+            return {"success": True, "message": f"服务器已{'启用' if enabled else '禁用'}"}
+        return {"success": False, "message": "服务器索引无效"}
+    except Exception as e:
+        logger.error(f"[SubGroup] 切换服务器状态失败: {e}")
+        return {"success": False, "message": f"操作失败: {str(e)}"}
 
 
 
@@ -4114,9 +4368,8 @@ async def admin_websocket(websocket: WebSocket):
                         ws_manager.register_sub_admin(sub_name, websocket)
 
                 elif msg_type == 'heartbeat':
-
-                    if sub_name:
-
+                    await websocket.send_json({'type': 'pong'})
+                    if sub_name and sub_name != '__super__':
                         ws_manager.heartbeat_sub_admin(sub_name)
 
             except Exception:
