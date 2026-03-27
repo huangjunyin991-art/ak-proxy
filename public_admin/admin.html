@@ -2572,11 +2572,17 @@
         
         // 初始化WebSocket
         function initWebSocket() {
-            // 先关闭已存在的连接，避免重复连接
-            if (ws && ws.readyState !== WebSocket.CLOSED) {
-                console.log('[Admin] 关闭旧WebSocket连接');
-                ws.onclose = null; // 主动关闭时不触发重连
-                ws.close();
+            // 先废弃已存在的连接
+            if (ws) {
+                ws.onopen = null;
+                ws.onclose = null;
+                ws.onerror = null;
+                ws.onmessage = null;
+                // 只有 OPEN 状态才调用 close()，CONNECTING 状态直接废弃避免报错
+                if (ws.readyState === WebSocket.OPEN) {
+                    ws.close();
+                }
+                ws = null;
             }
             
             const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
