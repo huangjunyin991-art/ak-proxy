@@ -539,6 +539,30 @@ async def forward_request(method: str, api_path: str, content_type: str,
 
 
 
+    if is_login:
+
+        try:
+
+            result = await dispatcher.forward(
+
+                exit_obj, method, url, fwd_headers,
+
+                content_type=content_type, params=params,
+
+                raw_body=raw_body, timeout=REQUEST_TIMEOUT
+
+            )
+
+            exit_obj.confirm_login()
+
+            return result
+
+        except Exception:
+
+            exit_obj.cancel_login()
+
+            raise
+
     return await dispatcher.forward(
 
         exit_obj, method, url, fwd_headers,
