@@ -3152,6 +3152,20 @@
         
         let _onlineUsersDebounceTimer = null;
         let _onlineUsersAbortCtrl = null;
+        let _onlineUsersRefreshTimer = null;
+        const ONLINE_REFRESH_INTERVAL = 5000;
+
+        function startOnlineUsersAutoRefresh() {
+            stopOnlineUsersAutoRefresh();
+            _onlineUsersRefreshTimer = setInterval(loadOnlineUsers, ONLINE_REFRESH_INTERVAL);
+        }
+
+        function stopOnlineUsersAutoRefresh() {
+            if (_onlineUsersRefreshTimer) {
+                clearInterval(_onlineUsersRefreshTimer);
+                _onlineUsersRefreshTimer = null;
+            }
+        }
 
         function loadOnlineUsers() {
             // 防抖：300ms内多次调用只执行最后一次
@@ -3959,7 +3973,12 @@
                 } else {
                     stopDashboard();
                 }
-                if (tab.dataset.panel === 'online') loadOnlineUsers();
+                if (tab.dataset.panel === 'online') {
+                    loadOnlineUsers();
+                    startOnlineUsersAutoRefresh();
+                } else {
+                    stopOnlineUsersAutoRefresh();
+                }
                 if (tab.dataset.panel === 'usage') loadUsage();
                 if (tab.dataset.panel === 'users') loadBanlist().then(() => loadUsers());
                 if (tab.dataset.panel === 'ips') loadIPs();
