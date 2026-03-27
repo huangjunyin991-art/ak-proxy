@@ -1434,7 +1434,6 @@
         <div class="tab" data-panel="credits"><svg class="tab-icon" viewBox="0 0 24 24"><circle cx="8" cy="8" r="6"/><path d="M18.09 10.37A6 6 0 1 1 10.34 18"/><path d="M7 6h1v4"/><path d="m16.71 13.88.7.71-2.82 2.82"/></svg> 积分</div>
         <div class="tab" data-panel="license"><svg class="tab-icon" viewBox="0 0 24 24"><path d="M2.586 17.414A2 2 0 0 0 2 18.828V21a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h1a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h.172a2 2 0 0 0 1.414-.586l.814-.814a6.5 6.5 0 1 0-4-4z"/><circle cx="16.5" cy="7.5" r=".5" fill="currentColor"/></svg> 激活码</div>
         <div class="tab" data-panel="database"><svg class="tab-icon" viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14a9 3 0 0 0 18 0V5"/><path d="M3 12a9 3 0 0 0 18 0"/></svg> 数据库</div>
-        <div class="tab" data-panel="subscription"><svg class="tab-icon" viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg> 订阅组</div>
         <div class="tab" data-panel="settings"><svg class="tab-icon" viewBox="0 0 24 24"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg> 设置</div>
     </div>
     
@@ -1970,28 +1969,6 @@
             </div>
         </div>
 
-        <!-- 订阅组管理 -->
-        <div class="panel" id="subscription">
-            <div>
-                <h3 style="margin-bottom: 15px; color: var(--accent-green);">📦 订阅组管理</h3>
-                <div style="background: var(--bg-card); border-radius: 12px; padding: 15px; border: 1px solid var(--border);">
-                    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
-                        <div style="display: flex; align-items: center; gap: 8px;">
-                            <span style="font-size: 13px; color: var(--text-secondary);">
-                                当前已导入订阅组：<span id="subGroupCount" style="color: var(--accent-green); font-weight: bold;"></span>
-                            </span>
-                        </div>
-                        <button class="btn" onclick="loadSubscriptionGroups()" style="padding: 5px 14px; font-size: 12px; background: rgba(0,255,136,0.1); color: var(--accent-green); border: 1px solid rgba(0,255,136,0.3);">🔄 刷新</button>
-                    </div>
-                    <div id="subscriptionGroupsList" style="display: flex; flex-direction: column; gap: 8px;">
-                        <div style="text-align: center; color: var(--text-secondary); padding: 30px; font-size: 12px;">加载中...</div>
-                    </div>
-                </div>
-                <div style="margin-top: 12px; padding: 10px 14px; background: rgba(102,126,234,0.05); border-radius: 8px; border: 1px solid rgba(102,126,234,0.2); font-size: 12px; color: var(--text-secondary);">
-                    💡 订阅组通过 <strong style="color: var(--accent);">设置 → 导入订阅</strong> 添加。在此页面可以管理已导入的订阅组：展开查看服务器列表、启用/禁用单台服务器、批量切换、编辑备注或删除整个订阅组。
-                </div>
-            </div>
-        </div>
 
         <!-- 设置 -->
         <div class="panel" id="settings">
@@ -2140,6 +2117,20 @@
                             <span id="lbSbState" style="color: var(--text-secondary);">检测中...</span>
                             <span id="lbSbNodes" style="color: var(--text-secondary);"></span>
                             <span id="lbSbConfig" style="color: var(--text-secondary); font-size: 10px;"></span>
+                        </div>
+
+                        <!-- 订阅组管理 -->
+                        <div id="subscriptionGroupsPanel" style="margin-bottom: 15px;">
+                            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
+                                <h4 style="margin: 0; color: #667eea; font-size: 14px; display: flex; align-items: center; gap: 8px;">
+                                    📦 订阅组管理
+                                    <span id="subGroupCount" style="font-size: 11px; color: var(--text-secondary); font-weight: normal;"></span>
+                                </h4>
+                                <button class="btn" onclick="loadSubscriptionGroups()" style="padding: 4px 10px; font-size: 11px; background: rgba(102,126,234,0.15); color: #667eea;">🔄 刷新</button>
+                            </div>
+                            <div id="subscriptionGroupsList" style="display: flex; flex-direction: column; gap: 8px;">
+                                <div style="text-align: center; color: var(--text-secondary); padding: 20px; font-size: 12px;">加载中...</div>
+                            </div>
                         </div>
 
                         <!-- 出口服务器卡片列表 -->
@@ -2509,7 +2500,7 @@
             
             // 子管理员：根据权限显示/隐藏
             const perms = JSON.parse(sessionStorage.getItem('admin_permissions') || '{}');
-            const allTabs = ['dashboard', 'online', 'usage', 'users', 'ips', 'banlist', 'whitelist', 'credits', 'license', 'database', 'subscription', 'settings'];
+            const allTabs = ['dashboard', 'online', 'usage', 'users', 'ips', 'banlist', 'whitelist', 'credits', 'license', 'database', 'settings'];
             
             allTabs.forEach(tabName => {
                 const tab = document.querySelector(`.tab[data-panel="${tabName}"]`);
@@ -3984,14 +3975,12 @@
                         if (authed) loadDbTables();
                     });
                 }
-                if (tab.dataset.panel === 'subscription') {
-                    loadSubscriptionGroups();
-                }
                 if (tab.dataset.panel === 'settings') {
                     // 加载子管理员状态（仅系统总管理可见）
                     loadSubAdminStatus();
                     // 启动定时刷新（每10秒刷新一次）
                     startSubAdminStatusRefresh();
+                    loadSubscriptionGroups();
                 } else {
                     // 离开设置页面时停止刷新
                     stopSubAdminStatusRefresh();
