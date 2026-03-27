@@ -25,13 +25,13 @@ After=network.target
 [Service]
 Type=simple
 User=ubuntu
-WorkingDirectory=/home/ubuntu/ak-proxy/transparent_proxy
+WorkingDirectory=/home/ubuntu/ak-proxy/public_admin
 Environment="PATH=/home/ubuntu/ak-proxy/venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 ExecStart=/home/ubuntu/ak-proxy/venv/bin/python proxy_server.py
 Restart=always
 RestartSec=10
-StandardOutput=append:/home/ubuntu/ak-proxy/transparent_proxy/proxy.log
-StandardError=append:/home/ubuntu/ak-proxy/transparent_proxy/proxy.log
+StandardOutput=append:/home/ubuntu/ak-proxy/public_admin/proxy.log
+StandardError=append:/home/ubuntu/ak-proxy/public_admin/proxy.log
 LimitNOFILE=65536
 
 [Install]
@@ -44,6 +44,11 @@ else
     echo "❌ systemd 服务文件创建失败"
     exit 1
 fi
+
+# 初始化日志文件（避免权限问题）
+sudo touch /home/ubuntu/ak-proxy/public_admin/proxy.log
+sudo chown ubuntu:ubuntu /home/ubuntu/ak-proxy/public_admin/proxy.log
+echo "✅ 日志文件权限已设置"
 
 echo -e "\n[2/6] 重新加载 systemd 配置..."
 sudo systemctl daemon-reload
@@ -63,7 +68,7 @@ sudo systemctl status ak-proxy --no-pager || true
 
 echo -e "\n[6/6] 验证服务..."
 echo -e "\n--- 最新日志（最后20行）---"
-tail -20 ~/ak-proxy/transparent_proxy/proxy.log
+tail -20 ~/ak-proxy/public_admin/proxy.log
 
 echo -e "\n--- API 测试 ---"
 if curl -I http://localhost:8080/api/stats 2>/dev/null | grep -q "HTTP"; then
@@ -89,6 +94,6 @@ echo "  停止服务: sudo systemctl stop ak-proxy"
 echo "  重启服务: sudo systemctl restart ak-proxy"
 echo "  查看状态: sudo systemctl status ak-proxy"
 echo "  实时日志: sudo journalctl -u ak-proxy -f"
-echo "  应用日志: tail -f ~/ak-proxy/transparent_proxy/proxy.log"
+echo "  应用日志: tail -f ~/ak-proxy/public_admin/proxy.log"
 echo ""
 echo "========================================="
