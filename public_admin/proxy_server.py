@@ -2718,9 +2718,10 @@ async def admin_banlist():
 
 @app.get("/admin/api/assets")
 
-async def admin_assets(limit: int = 100, offset: int = 0, search: str = None):
+async def admin_assets(limit: int = 100, offset: int = 0, search: str = None,
+                       sort_field: str = 'updated_at', sort_dir: str = 'desc'):
 
-    return await db.get_all_user_assets(limit, offset, search)
+    return await db.get_all_user_assets(limit, offset, search, sort_field, sort_dir)
 
 
 

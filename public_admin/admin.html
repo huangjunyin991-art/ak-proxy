@@ -2829,6 +2829,9 @@
                 if (usersSearchKeyword) {
                     url += `&search=${encodeURIComponent(usersSearchKeyword)}`;
                 }
+                if (usersSortField) {
+                    url += `&sort_field=${usersSortField}&sort_dir=${usersSortAsc ? 'asc' : 'desc'}`;
+                }
                 
                 // 并行获取用户数据和封禁列表
                 const [res, banRes] = await Promise.all([
@@ -2981,51 +2984,22 @@
         let usersSortField = null;
         let usersSortAsc = true;
         
-        // 排序用户表格（前端排序当前页数据）
+        // 排序用户表格（服务端全表排序）
         function sortUsersBy(field) {
-            // 切换排序方向
             if (usersSortField === field) {
                 usersSortAsc = !usersSortAsc;
             } else {
                 usersSortField = field;
-                usersSortAsc = false;  // 默认降序（数值大的在前）
+                usersSortAsc = false;
             }
-            
-            // 更新排序图标
             updateSortIcons(field, usersSortAsc);
-            
-            let dataToSort = [...usersDataCache];
-            
-            // 排序
-            dataToSort.sort((a, b) => {
-                let valA = a[field];
-                let valB = b[field];
-                
-                // 处理 null/undefined
-                if (valA == null) valA = field === 'updated_at' || field === 'honor_name' ? '' : 0;
-                if (valB == null) valB = field === 'updated_at' || field === 'honor_name' ? '' : 0;
-
-                // 日期字段
-                if (field === 'updated_at') {
-                    valA = valA ? new Date(valA).getTime() : 0;
-                    valB = valB ? new Date(valB).getTime() : 0;
-                } else if (typeof valA === 'number' || !isNaN(parseFloat(valA))) {
-                    valA = parseFloat(valA) || 0;
-                    valB = parseFloat(valB) || 0;
-                }
-                
-                // 比较
-                if (valA < valB) return usersSortAsc ? -1 : 1;
-                if (valA > valB) return usersSortAsc ? 1 : -1;
-                return 0;
-            });
-            
-            renderUsersTable(dataToSort, true);
+            usersCurrentPage = 0;
+            loadUsers(0);
         }
         
         // 更新排序图标
         function updateSortIcons(activeField, isAsc) {
-            const fields = ['ace_count', 'total_ace', 'ep', 'sp', 'rp', 'tp', 'weekly_money', 'left_area', 'right_area', 'direct_push', 'sub_account', 'honor_name', 'updated_at'];
+            const fields = ['login_count', 'ace_count', 'total_ace', 'ep', 'sp', 'rp', 'tp', 'weekly_money', 'left_area', 'right_area', 'direct_push', 'sub_account', 'honor_name', 'updated_at'];
             fields.forEach(f => {
                 const icon = document.getElementById('sort-' + f);
                 const th = icon?.parentElement;

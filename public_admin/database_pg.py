@@ -571,9 +571,21 @@ async def get_user_assets(username: str) -> Optional[Dict]:
         return dict(row) if row else None
 
 
+_ASSETS_SORT_FIELDS = frozenset({
+    'login_count', 'ace_count', 'total_ace', 'ep', 'sp', 'rp', 'tp',
+    'weekly_money', 'left_area', 'right_area', 'direct_push', 'sub_account',
+    'honor_name', 'updated_at'
+})
+
 async def get_all_user_assets(limit: int = 100, offset: int = 0,
-                              search: str = None) -> Dict:
+                              search: str = None,
+                              sort_field: str = 'updated_at',
+                              sort_dir: str = 'desc') -> Dict:
     """获取所有用户资产（含封禁状态）"""
+    if sort_field not in _ASSETS_SORT_FIELDS:
+        sort_field = 'updated_at'
+    order = 'ASC' if sort_dir == 'asc' else 'DESC'
+    order_clause = f'ORDER BY {sort_field} {order} NULLS LAST'
     pool = _get_pool()
     async with pool.acquire() as conn:
         base = '''
@@ -588,12 +600,12 @@ async def get_all_user_assets(limit: int = 100, offset: int = 0,
             total = await conn.fetchval(
                 "SELECT COUNT(*) FROM user_assets WHERE username ILIKE $1", f'%{search}%')
             rows = await conn.fetch(
-                base + " WHERE ua.username ILIKE $1 ORDER BY ua.updated_at DESC LIMIT $2 OFFSET $3",
+                base + f" WHERE ua.username ILIKE $1 {order_clause} LIMIT $2 OFFSET $3",
                 f'%{search}%', limit, offset)
         else:
             total = await conn.fetchval("SELECT COUNT(*) FROM user_assets")
             rows = await conn.fetch(
-                base + " ORDER BY ua.updated_at DESC LIMIT $1 OFFSET $2",
+                base + f" {order_clause} LIMIT $1 OFFSET $2",
                 limit, offset)
         return {'total': total or 0, 'rows': [dict(r) for r in rows]}
 
