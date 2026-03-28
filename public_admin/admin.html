@@ -139,9 +139,6 @@
             background: rgba(0, 212, 255, 0.12) !important;
             outline: 1px solid rgba(0, 212, 255, 0.4);
         }
-        tr.row-selected td {
-            background: rgba(0, 212, 255, 0.08) !important;
-        }
         tr.banned-row td:first-child strong {
             text-decoration: line-through;
             text-decoration-color: rgba(255,0,0,0.6);
@@ -2937,17 +2934,31 @@
             }, 300);
         }
         
+        // rgba(0,212,255,0.12) 叠加在 var(--bg-card)=#16213e 后的不透明混合色，用于 sticky 列
+        const USERS_ROW_SELECTED_BG = 'rgb(19, 54, 85)';
+        function _setStickyBg(tr, bg) {
+            const td = tr.querySelector('td[style*="sticky"]');
+            if (td) td.style.background = bg;
+        }
         // 行点击高亮
         function selectUsersRow(tr) {
             const tbody = document.getElementById('usersTable');
-            tbody.querySelectorAll('tr.row-selected').forEach(r => r.classList.remove('row-selected'));
+            tbody.querySelectorAll('tr.row-selected').forEach(r => {
+                r.classList.remove('row-selected');
+                if (r._origStickyBg !== undefined) _setStickyBg(r, r._origStickyBg);
+            });
+            const stickyTd = tr.querySelector('td[style*="sticky"]');
+            tr._origStickyBg = stickyTd ? stickyTd.style.background : undefined;
             tr.classList.add('row-selected');
-            tr._isSelected = true;
+            _setStickyBg(tr, USERS_ROW_SELECTED_BG);
         }
         document.addEventListener('click', function(e) {
             if (!e.target.closest('#usersTable')) {
                 const tbody = document.getElementById('usersTable');
-                if (tbody) tbody.querySelectorAll('tr.row-selected').forEach(r => r.classList.remove('row-selected'));
+                if (tbody) tbody.querySelectorAll('tr.row-selected').forEach(r => {
+                    r.classList.remove('row-selected');
+                    if (r._origStickyBg !== undefined) _setStickyBg(r, r._origStickyBg);
+                });
             }
         });
 
