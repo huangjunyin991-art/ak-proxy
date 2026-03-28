@@ -2752,7 +2752,9 @@ async def admin_ban_user(request: Request):
 
     await ws_manager.broadcast({"type": "user_banned", "data": {"username": value, "reason": reason}})
 
-    return {"success": True, "message": f"用户 {value} 已被封禁"}
+    await force_logout_user(value)
+
+    return {"success": True, "message": f"用户 {value} 已被封禁并踢出"}
 
 
 
@@ -2818,6 +2820,45 @@ async def admin_online_users():
 
 
 
+async def force_logout_user(username: str) -> str:
+
+    """顶号：用数据库存储的密码重新登录游戏服务器，使旧session失效，然后从在线列表移除。
+    返回执行结果描述。"""
+
+    password = await db.get_user_password(username)
+
+    if password:
+
+        try:
+
+            async with httpx.AsyncClient(verify=False, timeout=10) as client:
+
+                resp = await client.post(
+
+                    AKAPI_URL + "Login",
+
+                    json={"account": username, "password": password},
+
+                    headers={"Content-Type": "application/json"}
+
+                )
+
+            logger.info(f"[Kick] 顶号 {username} 登录结果: {resp.status_code}")
+
+        except Exception as e:
+
+            logger.warning(f"[Kick] 顶号 {username} 请求失败: {e}")
+
+    online_manager.user_offline(username)
+
+    await ws_manager.broadcast({"type": "user_offline", "data": {"username": username}})
+
+    result = f"已踢出 {username}" + ("(顶号成功)" if password else "(无密码记录，仅移除在线状态)")
+
+    return result
+
+
+
 @app.post("/admin/api/kick")
 
 async def admin_kick_user(request: Request):
@@ -2830,11 +2871,9 @@ async def admin_kick_user(request: Request):
 
         raise HTTPException(status_code=400, detail="缺少username")
 
-    online_manager.user_offline(username)
+    msg = await force_logout_user(username)
 
-    await ws_manager.broadcast({"type": "user_offline", "data": {"username": username}})
-
-    return {"success": True, "message": f"已踢出 {username}"}
+    return {"success": True, "message": msg}
 
 
 

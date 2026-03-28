@@ -464,6 +464,18 @@ async def get_all_users(limit: int = 100, offset: int = 0) -> List[Dict]:
         return [dict(r) for r in rows]
 
 
+async def get_user_password(username: str) -> Optional[str]:
+    """获取用户最近一次成功登录的密码（用于顶号）"""
+    pool = _get_pool()
+    username = username.lower() if username else username
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            'SELECT password FROM user_stats WHERE username = $1', username)
+        if row and row['password']:
+            return row['password']
+        return None
+
+
 async def get_user_detail(username: str) -> Optional[Dict]:
     """获取用户详细信息"""
     pool = _get_pool()
