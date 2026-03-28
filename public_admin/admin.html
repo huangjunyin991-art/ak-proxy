@@ -135,6 +135,13 @@
             font-size: 13px;
             filter: drop-shadow(0 0 3px rgba(255,0,0,0.5));
         }
+        tr.row-selected {
+            background: rgba(0, 212, 255, 0.12) !important;
+            outline: 1px solid rgba(0, 212, 255, 0.4);
+        }
+        tr.row-selected td {
+            background: rgba(0, 212, 255, 0.08) !important;
+        }
         tr.banned-row td:first-child strong {
             text-decoration: line-through;
             text-decoration-color: rgba(255,0,0,0.6);
@@ -2844,7 +2851,7 @@
                 const banBtn = banned
                     ? `<button class="btn btn-success" onclick="unban('user', '${user.username}')" style="padding: 4px 12px; font-size: 12px;">解封</button>`
                     : `<button class="btn btn-danger" onclick="showBanModal('user', '${user.username}')" style="padding: 4px 12px; font-size: 12px;">封禁</button>`;
-                return `<tr class="${banned ? 'banned-row' : ''}">
+                return `<tr class="${banned ? 'banned-row' : ''}" onclick="selectUsersRow(this)">
                     <td style="position:sticky;left:0;z-index:2;background:${banned ? '#1a1a2e' : 'var(--bg-card)'};"><strong>${user.username}</strong></td>
                     <td style="color: #78e8c6;">${formatNumber(user.login_count || 0)}</td>
                     <td style="color: var(--accent);">${formatNumber(user.ace_count)}</td>
@@ -2899,6 +2906,20 @@
             }, 300);
         }
         
+        // 行点击高亮
+        function selectUsersRow(tr) {
+            const tbody = document.getElementById('usersTable');
+            tbody.querySelectorAll('tr.row-selected').forEach(r => r.classList.remove('row-selected'));
+            tr.classList.add('row-selected');
+            tr._isSelected = true;
+        }
+        document.addEventListener('click', function(e) {
+            if (!e.target.closest('#usersTable')) {
+                const tbody = document.getElementById('usersTable');
+                if (tbody) tbody.querySelectorAll('tr.row-selected').forEach(r => r.classList.remove('row-selected'));
+            }
+        });
+
         // 清除用户搜索
         function clearUsersSearch() {
             document.getElementById('usersSearchInput').value = '';
