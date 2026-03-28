@@ -2360,11 +2360,13 @@ class OnlineUserManager:
 
     async def user_online(self, username, websocket, page, user_agent):
 
+        existing = self.users.get(username, {})
+
         self.users[username] = {
 
             'websocket': websocket, 'ws_id': id(websocket), 'page': page, 'user_agent': user_agent,
 
-            'online_time': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            'online_time': existing.get('online_time', datetime.now().strftime('%Y-%m-%d %H:%M:%S')),
 
             'last_heartbeat': datetime.now()
 
@@ -4477,6 +4479,8 @@ async def chat_websocket(websocket: WebSocket):
 
             if msg_type == 'online':
 
+                prev_ws_id = online_manager.users.get(data.get('username', username), {}).get('ws_id')
+
                 await online_manager.user_online(
 
                     data.get('username', username), websocket,
@@ -4485,11 +4489,13 @@ async def chat_websocket(websocket: WebSocket):
 
                 username = data.get('username', username)
 
-                history = online_manager.get_messages(username)
+                if prev_ws_id != id(websocket):
 
-                if history:
+                    history = online_manager.get_messages(username)
 
-                    await websocket.send_json({'type': 'history', 'messages': history})
+                    if history:
+
+                        await websocket.send_json({'type': 'history', 'messages': history})
 
             elif msg_type == 'heartbeat':
 
@@ -4499,9 +4505,7 @@ async def chat_websocket(websocket: WebSocket):
 
                 if hp and username in online_manager.users:
 
-                    if online_manager.users[username].get('ws_id') == id(websocket):
-
-                        online_manager.users[username]['page'] = hp
+                    online_manager.users[username]['page'] = hp
 
             elif msg_type == 'user_message':
 

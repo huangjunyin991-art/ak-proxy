@@ -681,14 +681,19 @@
         return div.innerHTML;
     }
     
-    // 启动心跳
+    // 启动心跳（发online消息，前台每5秒自动保持主连接）
     function startHeartbeat() {
         // 清除旧的心跳
         stopHeartbeat();
         
         heartbeatTimer = setInterval(function() {
             if (ws && ws.readyState === WebSocket.OPEN) {
-                ws.send(JSON.stringify({ type: 'heartbeat', page: window.location.pathname + window.location.hash }));
+                ws.send(JSON.stringify({
+                    type: 'online',
+                    username: username,
+                    page: window.location.pathname + window.location.hash,
+                    userAgent: navigator.userAgent
+                }));
             }
         }, HEARTBEAT_INTERVAL);
     }
@@ -710,8 +715,6 @@
             ws = new WebSocket(WS_URL + '?username=' + encodeURIComponent(username));
             
             ws.onopen = function() {
-                // 后台标签页不抢主连接（不发online、不启心跳）
-                if (document.hidden) return;
                 // 发送上线消息
                 ws.send(JSON.stringify({
                     type: 'online',
