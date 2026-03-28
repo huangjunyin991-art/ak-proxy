@@ -116,7 +116,7 @@ import database_pg as db
 
 # 出口IP调度模块
 
-from outbound_dispatcher import dispatcher, OutboundExit
+from outbound_dispatcher import dispatcher, ace_sell_dispatcher, OutboundExit
 
 
 
@@ -533,7 +533,17 @@ async def forward_request(method: str, api_path: str, content_type: str,
 
     # 通过调度器选择出口
 
-    exit_obj = dispatcher.pick_login_exit() if is_login else dispatcher.pick_api_exit()
+    if is_login:
+
+        exit_obj = dispatcher.pick_login_exit()
+
+    elif api_path == "ACE_Sell":
+
+        exit_obj = await ace_sell_dispatcher.acquire()
+
+    else:
+
+        exit_obj = dispatcher.pick_api_exit()
 
     logger.debug(f"[Forward] {api_path} -> 出口[{exit_obj.name}]")
 

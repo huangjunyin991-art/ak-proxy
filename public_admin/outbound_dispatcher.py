@@ -318,6 +318,18 @@ class OutboundDispatcher:
         """安全返回直连出口（永远不会失败）"""
         return self.exits[0]
 
+    def _pick_fallback(self, failed_exit: OutboundExit) -> OutboundExit:
+        """选一个备用出口（排除已失败的，优先选最少活跃连接，无可用时返回自身）"""
+        candidates = [
+            ex for ex in self.exits
+            if ex is not failed_exit
+            and (ex.healthy or ex.is_direct)
+            and not ex.is_frozen
+        ]
+        if not candidates:
+            return failed_exit
+        return min(candidates, key=lambda e: e.active)
+
     def _get_healthy(self) -> list[int]:
         """获取所有健康且未冻结的出口索引（直连永远包含）"""
         return [i for i, ex in enumerate(self.exits) if (ex.healthy or ex.is_direct) and not ex.is_frozen]
@@ -425,24 +437,24 @@ class OutboundDispatcher:
         except Exception as e:
             exit_obj.record_error()
 
-            # 如果是隧道出口失败，降级直连重试
-            if not exit_obj.is_direct:
-                logger.warning(f"[Dispatcher] {exit_obj.name} 失败({e})，降级直连重试")
-                direct = self._safe_direct()
-                direct.active += 1
+            # 选另一个健康出口重试（负载均衡降级，而非固定直连）
+            fallback = self._pick_fallback(exit_obj)
+            if fallback is not exit_obj:
+                logger.warning(f"[Dispatcher] {exit_obj.name} 失败({e})，降级至 {fallback.name} 重试")
+                fallback.active += 1
                 try:
-                    resp = await self._do_request(direct, method, url, headers,
+                    resp = await self._do_request(fallback, method, url, headers,
                                                   content_type, params, raw_body, timeout)
-                    self._check_alert_status(direct, resp.status_code, url)
+                    self._check_alert_status(fallback, resp.status_code, url)
                     return resp
                 except Exception as e2:
-                    direct.record_error()
-                    logger.error(f"[Dispatcher] 直连也失败: {e2}")
+                    fallback.record_error()
+                    logger.error(f"[Dispatcher] 降级出口 {fallback.name} 也失败: {e2}")
                     raise
                 finally:
-                    direct.active -= 1
+                    fallback.active -= 1
             else:
-                logger.error(f"[Dispatcher] 直连请求失败: {e}")
+                logger.error(f"[Dispatcher] 出口 {exit_obj.name} 请求失败，无可用备用: {e}")
                 raise
         finally:
             exit_obj.active -= 1
@@ -645,5 +657,51 @@ class OutboundDispatcher:
             return f"{len(self.exits)} exits (status unknown)"
 
 
+class AceSellDispatcher:
+    """
+    ACE_Sell API 专用冷却分配器。
+    任何出口发出请求后进入 COOLDOWN 秒冷却，期间不再被分配该 API 请求。
+    所有出口均冷却时请求排队等待最早可用出口，不丢弃任何请求。
+    """
+    COOLDOWN: float = 5.0
+
+    def __init__(self, dispatcher_ref: OutboundDispatcher):
+        self._dispatcher = dispatcher_ref
+        self._cooldowns: dict[str, float] = {}  # exit_name -> 冷却截止时间戳
+        self._lock = asyncio.Lock()
+
+    def _available(self) -> list[OutboundExit]:
+        """返回健康、未冻结、未冷却的出口列表"""
+        now = time.time()
+        return [
+            ex for ex in self._dispatcher.exits
+            if (ex.healthy or ex.is_direct)
+            and not ex.is_frozen
+            and self._cooldowns.get(ex.name, 0) <= now
+        ]
+
+    def _next_available_in(self) -> float:
+        """最早冷却结束还需等待的秒数"""
+        now = time.time()
+        remaining = [v - now for v in self._cooldowns.values() if v > now]
+        return min(remaining, default=0)
+
+    async def acquire(self) -> OutboundExit:
+        """
+        异步获取一个可用出口（最少活跃连接策略）。
+        所有出口均冷却时阻塞等待，直到有出口冷却结束。
+        """
+        while True:
+            async with self._lock:
+                available = self._available()
+                if available:
+                    ex = min(available, key=lambda e: e.active)
+                    self._cooldowns[ex.name] = time.time() + self.COOLDOWN
+                    return ex
+            wait = self._next_available_in()
+            await asyncio.sleep(max(wait, 0.05))
+
+
 # 全局单例
 dispatcher = OutboundDispatcher()
+ace_sell_dispatcher = AceSellDispatcher(dispatcher)
