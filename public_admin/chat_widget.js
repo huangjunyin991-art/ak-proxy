@@ -799,9 +799,10 @@
     
     // 重连WebSocket（登录后调用）
     function reconnect() {
-        if (ws) {
-            ws.close();
+        if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: 'offline' }));
         }
+        if (ws) ws.close();
         // 重新获取用户名并连接
         username = getUsername();
         connect();
