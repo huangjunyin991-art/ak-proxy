@@ -358,6 +358,8 @@
     
     // ===== 以下是聊天组件代码，需要等待 DOM 准备好 =====
     function initChatWidget() {
+        // 在 iframe 里不初始化（避免子框架发送错误的page覆盖父页面）
+        if (window.self !== window.top) return;
         // 防止重复初始化
         if (window._akChatInitialized) return;
         window._akChatInitialized = true;
