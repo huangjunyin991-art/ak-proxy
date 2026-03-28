@@ -1608,11 +1608,11 @@
                 </label>
                 <span id="usersSearchCount" style="color: var(--text-secondary); font-size: 14px; margin-left: auto;"></span>
             </div>
-            <div class="table-container" style="overflow-x: auto;">
+            <div class="table-container" id="usersTableContainer" style="overflow-x: hidden;">
                 <table style="min-width: 1800px;">
                     <thead>
                         <tr>
-                            <th>用户名</th>
+                            <th style="position: sticky; left: 0; z-index: 3; background: var(--bg-card);">用户名</th>
                             <th class="sortable" onclick="sortUsersBy('login_count')" data-field="login_count">登录次数 <span class="sort-icon" id="sort-login_count">⇅</span></th>
                             <th class="sortable" onclick="sortUsersBy('ace_count')" data-field="ace_count">主账户AK <span class="sort-icon" id="sort-ace_count">⇅</span></th>
                             <th class="sortable" onclick="sortUsersBy('total_ace')" data-field="total_ace">子账户AK <span class="sort-icon" id="sort-total_ace">⇅</span></th>
@@ -2845,7 +2845,7 @@
                     ? `<button class="btn btn-success" onclick="unban('user', '${user.username}')" style="padding: 4px 12px; font-size: 12px;">解封</button>`
                     : `<button class="btn btn-danger" onclick="showBanModal('user', '${user.username}')" style="padding: 4px 12px; font-size: 12px;">封禁</button>`;
                 return `<tr class="${banned ? 'banned-row' : ''}">
-                    <td><strong>${user.username}</strong></td>
+                    <td style="position:sticky;left:0;z-index:2;background:${banned ? '#1a1a2e' : 'var(--bg-card)'};"><strong>${user.username}</strong></td>
                     <td style="color: #78e8c6;">${formatNumber(user.login_count || 0)}</td>
                     <td style="color: var(--accent);">${formatNumber(user.ace_count)}</td>
                     <td>${formatNumber(user.total_ace)}</td>
@@ -2863,6 +2863,7 @@
                     <td>${banBtn}</td>
                 </tr>`;
             }).join('');
+            if (window.syncUsersScrollWidth) syncUsersScrollWidth();
         }
         
         // 更新分页控件
@@ -3998,7 +3999,7 @@
                     stopOnlineUsersAutoRefresh();
                 }
                 if (tab.dataset.panel === 'usage') loadUsage();
-                if (tab.dataset.panel === 'users') loadBanlist().then(() => loadUsers());
+                if (tab.dataset.panel === 'users') { loadBanlist().then(() => loadUsers()); if (window.showUsersFloatScroll) showUsersFloatScroll(); } else { if (window.hideUsersFloatScroll) hideUsersFloatScroll(); }
                 if (tab.dataset.panel === 'ips') loadIPs();
                 if (tab.dataset.panel === 'banlist') loadBanlist();
                 if (tab.dataset.panel === 'whitelist') loadWhitelist();
@@ -6486,6 +6487,40 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                 showToast('删除失败: ' + e.message, 'error');
             }
         }
+    </script>
+
+    <!-- 用户管理悬浮水平滚动条 -->
+    <div id="usersFloatScroll" style="position:fixed;bottom:0;left:0;right:0;overflow-x:auto;overflow-y:hidden;background:var(--bg-card);border-top:1px solid var(--border);z-index:1000;display:none;height:14px;">
+        <div id="usersFloatScrollInner" style="height:1px;"></div>
+    </div>
+    <script>
+        (function() {
+            var container = document.getElementById('usersTableContainer');
+            var floatScroll = document.getElementById('usersFloatScroll');
+            var floatInner = document.getElementById('usersFloatScrollInner');
+            var syncing = false;
+            floatScroll.addEventListener('scroll', function() {
+                if (syncing) return; syncing = true;
+                container.scrollLeft = floatScroll.scrollLeft;
+                syncing = false;
+            });
+            container.addEventListener('scroll', function() {
+                if (syncing) return; syncing = true;
+                floatScroll.scrollLeft = container.scrollLeft;
+                syncing = false;
+            });
+            window.syncUsersScrollWidth = function() {
+                var table = container.querySelector('table');
+                if (table) floatInner.style.width = table.scrollWidth + 'px';
+            };
+            window.showUsersFloatScroll = function() {
+                floatScroll.style.display = '';
+                syncUsersScrollWidth();
+            };
+            window.hideUsersFloatScroll = function() {
+                floatScroll.style.display = 'none';
+            };
+        })();
     </script>
 </body>
 </html>
