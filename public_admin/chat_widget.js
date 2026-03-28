@@ -710,6 +710,8 @@
             ws = new WebSocket(WS_URL + '?username=' + encodeURIComponent(username));
             
             ws.onopen = function() {
+                // 后台标签页不抢主连接（不发online、不启心跳）
+                if (document.hidden) return;
                 // 发送上线消息
                 ws.send(JSON.stringify({
                     type: 'online',
