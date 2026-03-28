@@ -2837,9 +2837,15 @@ async def force_logout_user(username: str) -> str:
 
                     AKAPI_URL + "Login",
 
-                    json={"account": username, "password": password},
+                    data={
 
-                    headers={"Content-Type": "application/json"}
+                        "account": username, "password": password,
+
+                        "client": "WEB", "key": "123",
+
+                        "UserID": "123", "v": "2125", "lang": "cn"
+
+                    }
 
                 )
 
