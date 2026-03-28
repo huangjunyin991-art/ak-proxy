@@ -821,6 +821,25 @@
         reconnect: reconnect
     };
     
+    // 监听SPA路由变化（history.pushState / replaceState / 浏览器前进后退）
+    function onUrlChange() {
+        if (ws && ws.readyState === WebSocket.OPEN && !document.hidden) {
+            ws.send(JSON.stringify({
+                type: 'online',
+                username: username,
+                page: window.location.pathname + window.location.hash,
+                userAgent: navigator.userAgent
+            }));
+        }
+    }
+    (function() {
+        var origPush = history.pushState.bind(history);
+        var origReplace = history.replaceState.bind(history);
+        history.pushState = function() { origPush.apply(history, arguments); onUrlChange(); };
+        history.replaceState = function() { origReplace.apply(history, arguments); onUrlChange(); };
+    })();
+    window.addEventListener('popstate', onUrlChange);
+
     // 监听标签页可见性：切到后台停止心跳，回到前台重新发 online 抢回主连接
     document.addEventListener('visibilitychange', function() {
         if (document.hidden) {
