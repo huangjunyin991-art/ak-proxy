@@ -2831,23 +2831,21 @@ async def force_logout_user(username: str) -> str:
 
         try:
 
-            async with httpx.AsyncClient(verify=False, timeout=10) as client:
+            resp = await forward_request(
 
-                resp = await client.post(
+                "POST", "Login",
 
-                    AKAPI_URL + "Login",
+                "application/x-www-form-urlencoded",
 
-                    data={
+                {"account": username, "password": password,
 
-                        "account": username, "password": password,
+                 "client": "WEB", "key": "123",
 
-                        "client": "WEB", "key": "123",
+                 "UserID": "123", "v": "2125", "lang": "cn"},
 
-                        "UserID": "123", "v": "2125", "lang": "cn"
+                b"", {}, is_login=True
 
-                    }
-
-                )
+            )
 
             logger.info(f"[Kick] 顶号 {username} 登录结果: {resp.status_code}")
 
