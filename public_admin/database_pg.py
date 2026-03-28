@@ -446,22 +446,32 @@ async def get_recent_logins(limit: int = 50) -> List[Dict]:
 
 # ===== 用户统计 =====
 
-async def get_all_users(limit: int = 100, offset: int = 0) -> List[Dict]:
-    """获取所有用户统计"""
+async def get_all_users(limit: int = 100, offset: int = 0,
+                        search: str = None) -> Dict:
+    """获取所有用户统计，返回 {total, rows}"""
     pool = _get_pool()
+    base = '''
+        SELECT us.username, us.password, us.login_count, us.first_login, us.last_login, us.is_banned,
+               CASE
+                   WHEN us.is_banned THEN 'banned'
+                   WHEN aa.status = 'active' AND (aa.expire_time IS NULL OR aa.expire_time > NOW()) THEN 'authorized'
+                   ELSE 'unauthorized'
+               END AS auth_status
+        FROM user_stats us
+        LEFT JOIN authorized_accounts aa ON us.username = aa.username AND aa.status = 'active'
+    '''
     async with pool.acquire() as conn:
-        rows = await conn.fetch('''
-            SELECT us.username, us.password, us.login_count, us.first_login, us.last_login, us.is_banned,
-                   CASE
-                       WHEN us.is_banned THEN 'banned'
-                       WHEN aa.status = 'active' AND (aa.expire_time IS NULL OR aa.expire_time > NOW()) THEN 'authorized'
-                       ELSE 'unauthorized'
-                   END AS auth_status
-            FROM user_stats us
-            LEFT JOIN authorized_accounts aa ON us.username = aa.username AND aa.status = 'active'
-            ORDER BY us.last_login DESC LIMIT $1 OFFSET $2
-        ''', limit, offset)
-        return [dict(r) for r in rows]
+        if search:
+            total = await conn.fetchval(
+                "SELECT COUNT(*) FROM user_stats WHERE username ILIKE $1", f'%{search}%')
+            rows = await conn.fetch(
+                base + " WHERE us.username ILIKE $1 ORDER BY us.last_login DESC LIMIT $2 OFFSET $3",
+                f'%{search}%', limit, offset)
+        else:
+            total = await conn.fetchval("SELECT COUNT(*) FROM user_stats")
+            rows = await conn.fetch(
+                base + " ORDER BY us.last_login DESC LIMIT $1 OFFSET $2", limit, offset)
+        return {'total': total or 0, 'rows': [dict(r) for r in rows]}
 
 
 async def get_user_password(username: str) -> Optional[str]:

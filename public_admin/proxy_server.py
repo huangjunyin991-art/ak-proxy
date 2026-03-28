@@ -2680,9 +2680,9 @@ async def admin_ips(limit: int = 100, offset: int = 0):
 
 @app.get("/admin/api/usage")
 
-async def admin_usage(limit: int = 500):
+async def admin_usage(limit: int = 100, offset: int = 0, search: str = None):
 
-    return await db.get_all_users(limit, 0)
+    return await db.get_all_users(limit, offset, search)
 
 
 

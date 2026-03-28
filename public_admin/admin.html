@@ -1576,10 +1576,10 @@
         
         <!-- 使用情况（登录尝试记录） -->
         <div class="panel" id="usage">
-            <div style="margin-bottom: 15px; display: flex; gap: 10px; align-items: center;">
+            <div style="margin-bottom: 15px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
                 <input type="text" id="usageSearchInput" placeholder="搜索用户名..." 
                        style="flex: 1; max-width: 300px; padding: 10px 15px; background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; color: var(--text-primary); font-size: 14px;"
-                       oninput="searchUsage()">
+                       oninput="searchUsage()" onkeypress="if(event.keyCode===13)searchUsage()">
                 <button class="btn btn-primary" onclick="searchUsage()" style="padding: 10px 20px;">搜索</button>
                 <button class="btn-page" onclick="clearUsageSearch()" style="padding: 10px 20px;">清除</button>
                 <span id="usageSearchCount" style="color: var(--text-secondary); font-size: 14px; margin-left: auto;"></span>
@@ -1598,6 +1598,14 @@
                         <tr><td colspan="4" style="text-align: center; color: var(--text-secondary);">加载中...</td></tr>
                     </tbody>
                 </table>
+            </div>
+            <!-- 分页控件 -->
+            <div id="usagePagination" style="display: flex; align-items: center; justify-content: center; gap: 10px; margin-top: 15px; padding: 10px 0;">
+                <button class="btn-page" onclick="usageGoPage(0)" id="usageFirstBtn" disabled>首页</button>
+                <button class="btn-page" onclick="usageGoPage(usageCurrentPage - 1)" id="usagePrevBtn" disabled>上一页</button>
+                <span id="usagePageInfo" style="color: var(--text-secondary); font-size: 14px; min-width: 120px; text-align: center;">第 1 页</span>
+                <button class="btn-page" onclick="usageGoPage(usageCurrentPage + 1)" id="usageNextBtn" disabled>下一页</button>
+                <button class="btn-page" onclick="usageGoPage(usageTotalPages - 1)" id="usageLastBtn" disabled>末页</button>
             </div>
         </div>
         
@@ -2722,29 +2730,40 @@
         // 存储原始数据用于搜索
         let usageDataCache = [];
         let usersDataCache = [];
-        
-        // 加载使用情况（user_stats表 - 所有登录尝试）
-        async function loadUsage() {
+
+        // 使用情况分页
+        let usageCurrentPage = 0;
+        const usagePageSize = 100;
+        let usageTotalCount = 0;
+        let usageTotalPages = 0;
+        let usageSearchKeyword = '';
+
+        async function loadUsage(page = 0) {
+            usageCurrentPage = page;
+            const offset = page * usagePageSize;
             try {
-                const res = await fetch(`${API_BASE}/admin/api/usage?limit=500`);
+                let url = `${API_BASE}/admin/api/usage?limit=${usagePageSize}&offset=${offset}`;
+                if (usageSearchKeyword) url += `&search=${encodeURIComponent(usageSearchKeyword)}`;
+                const res = await fetch(url);
                 const data = await res.json();
-                usageDataCache = data || [];
+                usageTotalCount = data.total || 0;
+                usageTotalPages = Math.ceil(usageTotalCount / usagePageSize) || 1;
+                usageDataCache = data.rows || [];
                 renderUsageTable(usageDataCache);
+                updateUsagePagination();
             } catch (e) {
                 console.error('加载使用情况失败', e);
             }
         }
-        
-        // 渲染使用情况表格
+
         function renderUsageTable(users) {
             const tbody = document.getElementById('usageTable');
-            document.getElementById('usageSearchCount').textContent = `共 ${users.length} 条记录`;
-            
+            document.getElementById('usageSearchCount').textContent =
+                `共 ${usageTotalCount} 条记录，当前显示 ${users.length} 条`;
             if (!users || users.length === 0) {
                 tbody.innerHTML = '<tr><td colspan="4" style="text-align: center; color: var(--text-secondary);">暂无数据</td></tr>';
                 return;
             }
-            
             tbody.innerHTML = users.map(user => `
                 <tr>
                     <td><strong>${user.username}</strong></td>
@@ -2758,24 +2777,36 @@
                 </tr>
             `).join('');
         }
-        
-        // 搜索使用情况
-        function searchUsage() {
-            const keyword = document.getElementById('usageSearchInput').value.trim().toLowerCase();
-            if (!keyword) {
-                renderUsageTable(usageDataCache);
-                return;
-            }
-            const filtered = usageDataCache.filter(user => 
-                user.username && user.username.toLowerCase().includes(keyword)
-            );
-            renderUsageTable(filtered);
+
+        function updateUsagePagination() {
+            document.getElementById('usageFirstBtn').disabled = usageCurrentPage <= 0;
+            document.getElementById('usagePrevBtn').disabled = usageCurrentPage <= 0;
+            document.getElementById('usageNextBtn').disabled = usageCurrentPage >= usageTotalPages - 1;
+            document.getElementById('usageLastBtn').disabled = usageCurrentPage >= usageTotalPages - 1;
+            document.getElementById('usagePageInfo').textContent =
+                `第 ${usageCurrentPage + 1} / ${usageTotalPages} 页`;
         }
-        
-        // 清除使用情况搜索
+
+        function usageGoPage(page) {
+            if (page < 0 || page >= usageTotalPages) return;
+            loadUsage(page);
+        }
+
+        let usageSearchTimer = null;
+        function searchUsage() {
+            clearTimeout(usageSearchTimer);
+            usageSearchTimer = setTimeout(() => {
+                usageSearchKeyword = document.getElementById('usageSearchInput').value.trim();
+                usageCurrentPage = 0;
+                loadUsage(0);
+            }, 300);
+        }
+
         function clearUsageSearch() {
             document.getElementById('usageSearchInput').value = '';
-            renderUsageTable(usageDataCache);
+            usageSearchKeyword = '';
+            usageCurrentPage = 0;
+            loadUsage(0);
         }
         
         // 用户管理分页相关
