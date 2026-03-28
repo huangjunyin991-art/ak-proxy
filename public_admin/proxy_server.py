@@ -2374,9 +2374,15 @@ class OnlineUserManager:
 
 
 
-    def user_offline(self, username):
+    def user_offline(self, username, websocket=None):
 
-        self.users.pop(username, None)
+        if username not in self.users:
+
+            return
+
+        if websocket is None or self.users[username].get('websocket') is websocket:
+
+            del self.users[username]
 
 
 
@@ -4531,7 +4537,7 @@ async def chat_websocket(websocket: WebSocket):
 
     except (WebSocketDisconnect, Exception):
 
-        online_manager.user_offline(username)
+        online_manager.user_offline(username, websocket)
 
 
 
