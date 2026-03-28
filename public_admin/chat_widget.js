@@ -816,6 +816,23 @@
         reconnect: reconnect
     };
     
+    // 监听标签页可见性：切到后台停止心跳，回到前台重新发 online 抢回主连接
+    document.addEventListener('visibilitychange', function() {
+        if (document.hidden) {
+            stopHeartbeat();
+        } else {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({
+                    type: 'online',
+                    username: username,
+                    page: window.location.pathname + window.location.hash,
+                    userAgent: navigator.userAgent
+                }));
+                startHeartbeat();
+            }
+        }
+    });
+    
     // DOM加载完成后立即连接（不等待所有资源加载）
     setTimeout(connect, 100);
     
