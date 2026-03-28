@@ -688,6 +688,9 @@
         // 清除旧的心跳
         stopHeartbeat();
         
+        // 游客用户不启动持续心跳，只靠首次online上报，60秒后自动从列表消失
+        if (username && username.indexOf('guest_') === 0) return;
+        
         heartbeatTimer = setInterval(function() {
             if (ws && ws.readyState === WebSocket.OPEN) {
                 ws.send(JSON.stringify({
