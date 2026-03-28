@@ -3204,6 +3204,7 @@
                         <td>
                             <button class="btn btn-primary" onclick="startChat('${user.username}')" style="padding: 4px 12px; font-size: 12px;">聊天</button>
                             <button class="btn btn-danger" onclick="showBanModal('user', '${user.username}')" style="padding: 4px 12px; font-size: 12px;">封禁</button>
+                            <button class="btn" onclick="kickUser('${user.username}')" style="padding: 4px 12px; font-size: 12px; background: var(--text-secondary); color: var(--bg-dark);">踢出</button>
                         </td>
                     </tr>
                 `).join('');
@@ -3212,6 +3213,16 @@
             }
         }
         
+        async function kickUser(username) {
+            if (!confirm(`确认将 ${username} 从在线列表移除？`)) return;
+            const res = await fetch(`${API_BASE}/admin/api/kick`, {
+                method: 'POST', headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ username })
+            });
+            const data = await res.json();
+            if (data.success) loadOnlineUsers();
+        }
+
         // 刷新聊天记录
         async function refreshChatHistory() {
             if (!currentChatUser) return;

@@ -2810,6 +2810,26 @@ async def admin_online_users():
 
 
 
+@app.post("/admin/api/kick")
+
+async def admin_kick_user(request: Request):
+
+    data = await request.json()
+
+    username = data.get("username", "").strip()
+
+    if not username:
+
+        raise HTTPException(status_code=400, detail="缺少username")
+
+    online_manager.user_offline(username)
+
+    await ws_manager.broadcast({"type": "user_offline", "data": {"username": username}})
+
+    return {"success": True, "message": f"已踢出 {username}"}
+
+
+
 @app.post("/admin/api/chat/send")
 
 async def admin_chat_send(request: Request):
@@ -4549,7 +4569,11 @@ async def chat_widget_js():
 
         with open(js_path, "r", encoding="utf-8") as f:
 
-            return Response(content=f.read(), media_type="application/javascript")
+            return Response(content=f.read(), media_type="application/javascript",
+
+                            headers={"Cache-Control": "no-cache, no-store, must-revalidate",
+
+                                     "Pragma": "no-cache", "Expires": "0"})
 
     return Response(content="// not found", media_type="application/javascript")
 
@@ -4701,7 +4725,11 @@ async def pwa_widget_api():
 
         with open(js_path, "r", encoding="utf-8") as f:
 
-            return Response(content=f.read(), media_type="application/javascript")
+            return Response(content=f.read(), media_type="application/javascript",
+
+                            headers={"Cache-Control": "no-cache, no-store, must-revalidate",
+
+                                     "Pragma": "no-cache", "Expires": "0"})
 
     return Response(content="// not found", media_type="application/javascript")
 
