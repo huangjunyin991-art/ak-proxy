@@ -73,7 +73,10 @@
                     if (result.Error !== false && (result.Error || !result.UserData)) return;
                     if (!_akHasPersistCookie()) return;
                     var creds = _akExtractCreds(xhr._akReqBody);
-                    if (creds) _akSaveCred(creds.account, creds.password);
+                    if (creds) {
+                        _akSaveCred(creds.account, creds.password);
+                        if (window.AKChat && window.AKChat.reconnect) window.AKChat.reconnect();
+                    }
                 } catch(e) {}
             });
             return origSend.call(this, body);
@@ -89,7 +92,10 @@
                         if (data.Error === false || (!data.Error && data.UserData)) {
                             if (!_akHasPersistCookie()) return;
                             var creds = _akExtractCreds(options.body);
-                            if (creds) _akSaveCred(creds.account, creds.password);
+                            if (creds) {
+                                _akSaveCred(creds.account, creds.password);
+                                if (window.AKChat && window.AKChat.reconnect) window.AKChat.reconnect();
+                            }
                         }
                     }).catch(function(){});
                 }).catch(function(){});
@@ -393,6 +399,12 @@
                     }
                 } catch(e) {}
             }
+        } catch(e) {}
+        
+        // 3. 从已保存的持久化登录凭据读取
+        try {
+            var saved = _akDecode();
+            if (saved && saved.account) return saved.account;
         } catch(e) {}
         
         // 获取不到就用访客名
