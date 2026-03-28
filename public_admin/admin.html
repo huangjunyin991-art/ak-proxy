@@ -6509,17 +6509,26 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                 floatScroll.scrollLeft = container.scrollLeft;
                 syncing = false;
             });
+            function alignFloatScroll() {
+                var rect = container.getBoundingClientRect();
+                floatScroll.style.left = rect.left + 'px';
+                floatScroll.style.right = (window.innerWidth - rect.right) + 'px';
+            }
             window.syncUsersScrollWidth = function() {
                 var table = container.querySelector('table');
                 if (table) floatInner.style.width = table.scrollWidth + 'px';
             };
             window.showUsersFloatScroll = function() {
                 floatScroll.style.display = '';
+                alignFloatScroll();
                 syncUsersScrollWidth();
             };
             window.hideUsersFloatScroll = function() {
                 floatScroll.style.display = 'none';
             };
+            window.addEventListener('resize', function() {
+                if (floatScroll.style.display !== 'none') alignFloatScroll();
+            });
         })();
     </script>
 </body>
