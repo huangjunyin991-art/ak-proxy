@@ -2362,7 +2362,7 @@ class OnlineUserManager:
 
         self.users[username] = {
 
-            'websocket': websocket, 'page': page, 'user_agent': user_agent,
+            'websocket': websocket, 'ws_id': id(websocket), 'page': page, 'user_agent': user_agent,
 
             'online_time': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
 
@@ -4499,7 +4499,9 @@ async def chat_websocket(websocket: WebSocket):
 
                 if hp and username in online_manager.users:
 
-                    online_manager.users[username]['page'] = hp
+                    if online_manager.users[username].get('ws_id') == id(websocket):
+
+                        online_manager.users[username]['page'] = hp
 
             elif msg_type == 'user_message':
 
