@@ -9,6 +9,7 @@ import base64
 import logging
 import ssl
 import re
+import urllib.parse
 from typing import Optional
 from urllib.request import Request, urlopen
 
@@ -40,7 +41,7 @@ REGION_RULES = [
 ]
 
 # 跳过的节点名称关键词
-SKIP_KEYWORDS = ['剩余', '套餐', '到期', '流量', '过期', '官网', '续费', '客服']
+SKIP_KEYWORDS = ['剩余', '套餐', '到期', '流量', '过期', '官网', '续费', '客服', '超时']
 
 
 def detect_region(name: str) -> tuple[str, str]:
@@ -121,7 +122,7 @@ def _parse_ss_links(text: str) -> list[dict]:
                 name = ''
                 if '#' in rest:
                     rest, name = rest.rsplit('#', 1)
-                    name = name.strip()
+                    name = urllib.parse.unquote(name.strip())
 
                 if '@' in rest:
                     encoded, addr = rest.split('@', 1)
@@ -132,6 +133,8 @@ def _parse_ss_links(text: str) -> list[dict]:
                     _, addr = decoded.rsplit('@', 1)
                     server, port = addr.rsplit(':', 1)
 
+                if any(k in name for k in SKIP_KEYWORDS):
+                    continue
                 region_code, region_label = detect_region(name)
                 nodes.append({
                     'name': name or f'SS-{server}',

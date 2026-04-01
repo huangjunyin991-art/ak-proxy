@@ -1,0 +1,209 @@
+format: ss_links
+total_nodes: 84
+unique_servers: 11
+
+=== regions ===
+  澳大利亚(AU): 1
+  巴西(BR): 1
+  加拿大(CA): 1
+  德国(DE): 1
+  法国(FR): 1
+  香港(HK): 21
+  印度(IN): 2
+  日本(JP): 10
+  韩国(KR): 1
+  马来西亚(MY): 1
+  荷兰(NL): 1
+  其他(OTHER): 12
+  菲律宾(PH): 1
+  俄罗斯(RU): 1
+  新加坡(SG): 10
+  泰国(TH): 1
+  土耳其(TR): 1
+  台湾(TW): 5
+  英国(UK): 1
+  美国(US): 10
+  越南(VN): 1
+
+=== duplicate host ===
+  ft-hk-xygh-by.51feitu.com -> 16 nodes:
+    - 🇭🇰 香港_01
+    - 🇭🇰 香港_02
+    - 🇭🇰 香港_03
+    - 🇭🇰 香港_09
+    - 🇭🇰 香港_10
+    - 🇭🇰 香港_11
+    - 🇭🇰 香港_12
+    - 🇭🇰 香港_13
+    - 🇭🇰 香港_14
+    - 🇭🇰 香港_15-v6
+    - 🇭🇰 香港_16-v6
+    - 🇭🇰 香港_17-v6
+    - 🇭🇰 香港_18-v6
+    - 🇭🇰 香港_19-v6
+    - 🇭🇰 香港_20-v6
+    - 🇭🇰 香港_21-v6
+  ft-hk-xygh-pro.51feitu.com -> 5 nodes:
+    - 🇭🇰 三网×2-香港_04
+    - 🇭🇰 三网×2-香港_05
+    - 🇭🇰 三网×2-香港_06
+    - 🇭🇰 三网×2-香港_07
+    - 🇭🇰 三网×2-香港_08
+  ft-sg-xygh-by.51feitu.com -> 5 nodes:
+    - 🇸🇬 新加坡_01
+    - 🇸🇬 新加坡_02
+    - 🇸🇬 新加坡_03
+    - 🇸🇬 新加坡_09
+    - 🇸🇬 新加坡_10
+  ft-sg-xygh-pro.51feitu.com -> 5 nodes:
+    - 🇸🇬 三网×2-新加坡_04
+    - 🇸🇬 三网×2-新加坡_05
+    - 🇸🇬 三网×2-新加坡_06
+    - 🇸🇬 三网×2-新加坡_07
+    - 🇸🇬 三网×2-新加坡_08
+  ft-jp-xygh-by.51feitu.com -> 5 nodes:
+    - 🇯🇵 日本_01
+    - 🇯🇵 日本_02
+    - 🇯🇵 日本_03
+    - 🇯🇵 日本_09
+    - 🇯🇵 日本_10
+  ft-jp-xygh-pro.51feitu.com -> 5 nodes:
+    - 🇯🇵 三网×2-日本_04
+    - 🇯🇵 三网×2-日本_05
+    - 🇯🇵 三网×2-日本_06
+    - 🇯🇵 三网×2-日本_07
+    - 🇯🇵 三网×2-日本_08
+  ft-us-xygh-by.51feitu.com -> 5 nodes:
+    - 🇺🇸 美国_01
+    - 🇺🇸 美国_02
+    - 🇺🇸 美国_03
+    - 🇺🇸 美国_09
+    - 🇺🇸 美国_10
+  ft-us-xygh-pro.51feitu.com -> 5 nodes:
+    - 🇺🇸 三网×2-美国_04
+    - 🇺🇸 三网×2-美国_05
+    - 🇺🇸 三网×2-美国_06
+    - 🇺🇸 三网×2-美国_07
+    - 🇺🇸 三网×2-美国_08
+  ft-tw-xygh-by.51feitu.com -> 3 nodes:
+    - 🇼🇸 台湾_01
+    - 🇼🇸 台湾_02
+    - 🇼🇸 台湾_03
+  ft-tw-xygh-pro.51feitu.com -> 2 nodes:
+    - 🇼🇸 三网×2-台湾_04
+    - 🇼🇸 三网×2-台湾_05
+  ft-qt-xygh-by.51feitu.com -> 28 nodes:
+    - 🇨🇦 加拿大
+    - 🇷🇺 俄罗斯
+    - 🇹🇷 土耳其
+    - 🇪🇸 西班牙
+    - 🇦🇪 阿联酋
+    - 🇬🇧 英国
+    - 🇫🇷 法国
+    - 🇩🇪 德国
+    - 🇳🇱 荷兰
+    - 🇲🇾 马来西亚
+    - 🇫🇮 芬兰
+    - 🇦🇷 阿根廷
+    - 🇹🇭 泰国
+    - 🇮🇳 印度
+    - 🇻🇳 越南
+    - 🇰🇷 韩国
+    - 🇮🇸 冰岛
+    - 🇦🇺 澳大利亚
+    - 🇧🇷 巴西
+    - 🇮🇩 印度尼西亚
+    - 🇭🇺 匈牙利
+    - 🇰🇭 柬埔寨
+    - 🇺🇦 乌克兰
+    - 🇲🇽 墨西哥
+    - 🇿🇦 南非
+    - 🇵🇭 菲律宾
+    - 🇪🇬 埃及
+    - 🇨🇿 捷克
+
+=== all nodes ===
+  [0] 🇭🇰 香港_01 | ss | ft-hk-xygh-by.51feitu.com:10001
+  [1] 🇭🇰 香港_02 | vmess | ft-hk-xygh-by.51feitu.com:10002
+  [2] 🇭🇰 香港_03 | ss | ft-hk-xygh-by.51feitu.com:10003
+  [3] 🇭🇰 三网×2-香港_04 | vmess | ft-hk-xygh-pro.51feitu.com:20004
+  [4] 🇭🇰 三网×2-香港_05 | ss | ft-hk-xygh-pro.51feitu.com:20005
+  [5] 🇭🇰 三网×2-香港_06 | vmess | ft-hk-xygh-pro.51feitu.com:20006
+  [6] 🇭🇰 三网×2-香港_07 | ss | ft-hk-xygh-pro.51feitu.com:20007
+  [7] 🇭🇰 三网×2-香港_08 | vmess | ft-hk-xygh-pro.51feitu.com:20008
+  [8] 🇭🇰 香港_09 | ss | ft-hk-xygh-by.51feitu.com:10009
+  [9] 🇭🇰 香港_10 | vmess | ft-hk-xygh-by.51feitu.com:10010
+  [10] 🇭🇰 香港_11 | ss | ft-hk-xygh-by.51feitu.com:11011
+  [11] 🇭🇰 香港_12 | vmess | ft-hk-xygh-by.51feitu.com:11012
+  [12] 🇭🇰 香港_13 | ss | ft-hk-xygh-by.51feitu.com:11013
+  [13] 🇭🇰 香港_14 | vmess | ft-hk-xygh-by.51feitu.com:11014
+  [14] 🇭🇰 香港_15-v6 | ss | ft-hk-xygh-by.51feitu.com:11015
+  [15] 🇭🇰 香港_16-v6 | vmess | ft-hk-xygh-by.51feitu.com:11016
+  [16] 🇭🇰 香港_17-v6 | ss | ft-hk-xygh-by.51feitu.com:11017
+  [17] 🇭🇰 香港_18-v6 | vmess | ft-hk-xygh-by.51feitu.com:11018
+  [18] 🇭🇰 香港_19-v6 | ss | ft-hk-xygh-by.51feitu.com:11019
+  [19] 🇭🇰 香港_20-v6 | vmess | ft-hk-xygh-by.51feitu.com:11020
+  [20] 🇭🇰 香港_21-v6 | ss | ft-hk-xygh-by.51feitu.com:11021
+  [21] 🇸🇬 新加坡_01 | ss | ft-sg-xygh-by.51feitu.com:12001
+  [22] 🇸🇬 新加坡_02 | vmess | ft-sg-xygh-by.51feitu.com:12002
+  [23] 🇸🇬 新加坡_03 | ss | ft-sg-xygh-by.51feitu.com:12003
+  [24] 🇸🇬 三网×2-新加坡_04 | vmess | ft-sg-xygh-pro.51feitu.com:22004
+  [25] 🇸🇬 三网×2-新加坡_05 | ss | ft-sg-xygh-pro.51feitu.com:22005
+  [26] 🇸🇬 三网×2-新加坡_06 | vmess | ft-sg-xygh-pro.51feitu.com:22006
+  [27] 🇸🇬 三网×2-新加坡_07 | ss | ft-sg-xygh-pro.51feitu.com:22007
+  [28] 🇸🇬 三网×2-新加坡_08 | vmess | ft-sg-xygh-pro.51feitu.com:22008
+  [29] 🇸🇬 新加坡_09 | ss | ft-sg-xygh-by.51feitu.com:12009
+  [30] 🇸🇬 新加坡_10 | vmess | ft-sg-xygh-by.51feitu.com:12010
+  [31] 🇯🇵 日本_01 | ss | ft-jp-xygh-by.51feitu.com:13001
+  [32] 🇯🇵 日本_02 | vmess | ft-jp-xygh-by.51feitu.com:13002
+  [33] 🇯🇵 日本_03 | ss | ft-jp-xygh-by.51feitu.com:13003
+  [34] 🇯🇵 三网×2-日本_04 | vmess | ft-jp-xygh-pro.51feitu.com:23004
+  [35] 🇯🇵 三网×2-日本_05 | ss | ft-jp-xygh-pro.51feitu.com:23005
+  [36] 🇯🇵 三网×2-日本_06 | vmess | ft-jp-xygh-pro.51feitu.com:23006
+  [37] 🇯🇵 三网×2-日本_07 | ss | ft-jp-xygh-pro.51feitu.com:23007
+  [38] 🇯🇵 三网×2-日本_08 | vmess | ft-jp-xygh-pro.51feitu.com:23008
+  [39] 🇯🇵 日本_09 | ss | ft-jp-xygh-by.51feitu.com:13009
+  [40] 🇯🇵 日本_10 | vmess | ft-jp-xygh-by.51feitu.com:13010
+  [41] 🇺🇸 美国_01 | ss | ft-us-xygh-by.51feitu.com:14001
+  [42] 🇺🇸 美国_02 | vmess | ft-us-xygh-by.51feitu.com:14002
+  [43] 🇺🇸 美国_03 | ss | ft-us-xygh-by.51feitu.com:14003
+  [44] 🇺🇸 三网×2-美国_04 | vmess | ft-us-xygh-pro.51feitu.com:24004
+  [45] 🇺🇸 三网×2-美国_05 | ss | ft-us-xygh-pro.51feitu.com:24005
+  [46] 🇺🇸 三网×2-美国_06 | vmess | ft-us-xygh-pro.51feitu.com:24006
+  [47] 🇺🇸 三网×2-美国_07 | ss | ft-us-xygh-pro.51feitu.com:24007
+  [48] 🇺🇸 三网×2-美国_08 | vmess | ft-us-xygh-pro.51feitu.com:24008
+  [49] 🇺🇸 美国_09 | ss | ft-us-xygh-by.51feitu.com:14009
+  [50] 🇺🇸 美国_10 | vmess | ft-us-xygh-by.51feitu.com:14010
+  [51] 🇼🇸 台湾_01 | ss | ft-tw-xygh-by.51feitu.com:15001
+  [52] 🇼🇸 台湾_02 | vmess | ft-tw-xygh-by.51feitu.com:15002
+  [53] 🇼🇸 台湾_03 | ss | ft-tw-xygh-by.51feitu.com:15003
+  [54] 🇼🇸 三网×2-台湾_04 | vmess | ft-tw-xygh-pro.51feitu.com:25004
+  [55] 🇼🇸 三网×2-台湾_05 | ss | ft-tw-xygh-pro.51feitu.com:25005
+  [56] 🇨🇦 加拿大 | ss | ft-qt-xygh-by.51feitu.com:21001
+  [57] 🇷🇺 俄罗斯 | ss | ft-qt-xygh-by.51feitu.com:21003
+  [58] 🇹🇷 土耳其 | ss | ft-qt-xygh-by.51feitu.com:21004
+  [59] 🇪🇸 西班牙 | ss | ft-qt-xygh-by.51feitu.com:21005
+  [60] 🇦🇪 阿联酋 | ss | ft-qt-xygh-by.51feitu.com:21006
+  [61] 🇬🇧 英国 | ss | ft-qt-xygh-by.51feitu.com:21007
+  [62] 🇫🇷 法国 | ss | ft-qt-xygh-by.51feitu.com:21008
+  [63] 🇩🇪 德国 | ss | ft-qt-xygh-by.51feitu.com:21009
+  [64] 🇳🇱 荷兰 | ss | ft-qt-xygh-by.51feitu.com:21010
+  [65] 🇲🇾 马来西亚 | ss | ft-qt-xygh-by.51feitu.com:21011
+  [66] 🇫🇮 芬兰 | ss | ft-qt-xygh-by.51feitu.com:21012
+  [67] 🇦🇷 阿根廷 | ss | ft-qt-xygh-by.51feitu.com:21013
+  [68] 🇹🇭 泰国 | ss | ft-qt-xygh-by.51feitu.com:21014
+  [69] 🇮🇳 印度 | ss | ft-qt-xygh-by.51feitu.com:21015
+  [70] 🇻🇳 越南 | ss | ft-qt-xygh-by.51feitu.com:21016
+  [71] 🇰🇷 韩国 | ss | ft-qt-xygh-by.51feitu.com:21017
+  [72] 🇮🇸 冰岛 | ss | ft-qt-xygh-by.51feitu.com:21018
+  [73] 🇦🇺 澳大利亚 | ss | ft-qt-xygh-by.51feitu.com:21019
+  [74] 🇧🇷 巴西 | ss | ft-qt-xygh-by.51feitu.com:21020
+  [75] 🇮🇩 印度尼西亚 | ss | ft-qt-xygh-by.51feitu.com:21021
+  [76] 🇭🇺 匈牙利 | ss | ft-qt-xygh-by.51feitu.com:21023
+  [77] 🇰🇭 柬埔寨 | ss | ft-qt-xygh-by.51feitu.com:21024
+  [78] 🇺🇦 乌克兰 | ss | ft-qt-xygh-by.51feitu.com:21025
+  [79] 🇲🇽 墨西哥 | ss | ft-qt-xygh-by.51feitu.com:21026
+  [80] 🇿🇦 南非 | ss | ft-qt-xygh-by.51feitu.com:21027
+  [81] 🇵🇭 菲律宾 | ss | ft-qt-xygh-by.51feitu.com:21028
+  [82] 🇪🇬 埃及 | ss | ft-qt-xygh-by.51feitu.com:21029
+  [83] 🇨🇿 捷克 | ss | ft-qt-xygh-by.51feitu.com:21031

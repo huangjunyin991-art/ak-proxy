@@ -41,7 +41,7 @@ REGION_RULES = [
 ]
 
 # 跳过的节点名称关键词
-SKIP_KEYWORDS = ['剩余', '套餐', '到期', '流量', '过期', '官网', '续费', '客服']
+SKIP_KEYWORDS = ['剩余', '套餐', '到期', '流量', '过期', '官网', '续费', '客服', '超时']
 
 
 def detect_region(name: str) -> tuple[str, str]:
@@ -122,7 +122,7 @@ def _parse_ss_links(text: str) -> list[dict]:
                 name = ''
                 if '#' in rest:
                     rest, name = rest.rsplit('#', 1)
-                    name = name.strip()
+                    name = urllib.parse.unquote(name.strip())
 
                 if '@' in rest:
                     encoded, addr = rest.split('@', 1)
@@ -133,6 +133,8 @@ def _parse_ss_links(text: str) -> list[dict]:
                     _, addr = decoded.rsplit('@', 1)
                     server, port = addr.rsplit(':', 1)
 
+                if any(k in name for k in SKIP_KEYWORDS):
+                    continue
                 region_code, region_label = detect_region(name)
                 nodes.append({
                     'name': name or f'SS-{server}',
@@ -199,7 +201,9 @@ def _parse_vless_links(text: str) -> list[dict]:
                     params_str = params_and_name
                 
                 params = dict(urllib.parse.parse_qsl(params_str))
-                
+
+                if any(k in name for k in SKIP_KEYWORDS):
+                    continue
                 region_code, region_label = detect_region(name)
                 nodes.append({
                     'name': name or f'VLESS-{server}',
@@ -212,8 +216,13 @@ def _parse_vless_links(text: str) -> list[dict]:
                         'uuid': uuid,
                         'security': params.get('security', 'none'),
                         'flow': params.get('flow', ''),
-                        'sni': params.get('sni', ''),
-                        'type': params.get('type', 'tcp'),
+                        'sni': params.get('sni', server),
+                        'network': params.get('type', 'tcp'),
+                        'pbk': params.get('pbk', ''),
+                        'sid': params.get('sid', ''),
+                        'fp': params.get('fp', 'chrome'),
+                        'host': params.get('host', ''),
+                        'path': params.get('path', ''),
                     },
                 })
             except Exception as e:
@@ -244,10 +253,13 @@ def _parse_hysteria2_links(text: str) -> list[dict]:
                     
                 name = ''
                 if '#' in rest:
+                    params_str = rest.split('?')[1] if '?' in rest else ''
                     name = urllib.parse.unquote(rest.split('#')[1])
                 
                 server, port = server_port.rsplit(':', 1)
                 
+                if any(k in name for k in SKIP_KEYWORDS):
+                    continue
                 region_code, region_label = detect_region(name)
                 nodes.append({
                     'name': name or f'Hysteria2-{server}',
