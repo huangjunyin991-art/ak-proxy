@@ -1488,7 +1488,7 @@ async def api_dispatcher_apply_sub(request: Request):
 
 
 
-    # 2) 筛选节点 (按服务器地址，每个服务器取第一个节点)
+    # 2) 筛选节点：每个节点作为独立出口（同一服务器域名下的多端口节点各自占一个 SOCKS5 端口）
 
     all_nodes = parsed["nodes"]
 
@@ -1498,7 +1498,7 @@ async def api_dispatcher_apply_sub(request: Request):
 
     if selected_servers:
 
-        # 前端指定了要添加的服务器列表
+        # 前端指定了要添加的服务器列表，每个服务器取其下所有节点（独立出口）
 
         selected_set = {s["server"] for s in selected_servers}
 
@@ -1510,33 +1510,29 @@ async def api_dispatcher_apply_sub(request: Request):
 
             indices = servers_map.get(srv, [])
 
-            if indices:
+            for j, idx in enumerate(indices):
 
-                node = dict(all_nodes[indices[0]])  # 取第一个节点
+                node = dict(all_nodes[idx])
 
-                node["display_name"] = names_map.get(srv, node.get("name", srv))
+                base_name = names_map.get(srv, node.get("name", srv))
+
+                node["display_name"] = base_name if len(indices) == 1 else f"{base_name}_{j+1:02d}"
 
                 nodes_to_add.append(node)
 
     else:
 
-        # 没指定就全部添加，每个唯一服务器取第一个
+        # 没指定就全部添加，每个节点作为独立出口
 
         nodes_to_add = []
 
-        seen = set()
+        for i, node in enumerate(all_nodes):
 
-        for node in all_nodes:
+            node_copy = dict(node)
 
-            if node["server"] not in seen:
+            node_copy["display_name"] = node.get("name") or f"{node.get('region_label', '')}节点{i+1}"
 
-                seen.add(node["server"])
-
-                node_copy = dict(node)
-
-                node_copy["display_name"] = f"{node.get('region_label', '')}服务器{len(nodes_to_add)+1}"
-
-                nodes_to_add.append(node_copy)
+            nodes_to_add.append(node_copy)
 
 
 
