@@ -1348,90 +1348,69 @@ async def api_dispatcher_parse_sub(request: Request):
     from sub_parser import fetch_subscription, parse_subscription_text
     import json as json_lib
 
-    data = await request.json()
+    try:
+        data = await request.json()
+    except Exception:
+        return {"error": "请求体不是合法 JSON"}
 
     url = data.get("url", "").strip()
-
     text = data.get("text", "").strip()
-    
     json_config = data.get("json", "").strip()
 
+    # text 输入框误粘 URL 时自动识别
+    if not url and text and (text.startswith("http://") or text.startswith("https://")):
+        url, text = text, ""
 
-
-    if url:
-
-        result = fetch_subscription(url)
-
-    elif text:
-
-        result = parse_subscription_text(text)
-    
-    elif json_config:
-        # 从JSON配置中提取节点
-        try:
-            config = json_lib.loads(json_config)
-            outbounds = config.get("outbounds", [])
-            
-            nodes = []
-            servers = {}
-            regions = {}
-            
-            for ob in outbounds:
-                if ob.get("type") in ["vless", "hysteria2", "vmess", "trojan", "shadowsocks", "ss"]:
-                    tag = ob.get("tag", "Unknown")
-                    server = ob.get("server", "")
-                    port = ob.get("server_port", 0)
-                    
-                    # 地区检测
-                    region_code = "UN"
-                    region_label = "未知"
-                    tag_lower = tag.lower()
-                    if "香港" in tag or "hk" in tag_lower or "hong" in tag_lower:
-                        region_code, region_label = "HK", "香港"
-                    elif "新加坡" in tag or "sg" in tag_lower or "singapore" in tag_lower:
-                        region_code, region_label = "SG", "新加坡"
-                    elif "日本" in tag or "jp" in tag_lower or "japan" in tag_lower:
-                        region_code, region_label = "JP", "日本"
-                    elif "美国" in tag or "us" in tag_lower or "america" in tag_lower:
-                        region_code, region_label = "US", "美国"
-                    elif "台湾" in tag or "tw" in tag_lower or "taiwan" in tag_lower:
-                        region_code, region_label = "TW", "台湾"
-                    
-                    node = {
-                        "name": tag,
-                        "type": ob.get("type"),
-                        "server": server,
-                        "port": port,
-                        "region_code": region_code,
-                        "region_label": region_label,
-                        "outbound_config": ob  # 保存完整outbound配置供后续直接使用
-                    }
-                    nodes.append(node)
-                    
-                    # 按服务器分组
-                    if server not in servers:
-                        servers[server] = []
-                    servers[server].append(len(nodes) - 1)
-                    
-                    # 地区统计
-                    if region_code not in regions:
-                        regions[region_code] = {"label": region_label, "count": 0}
-                    regions[region_code]["count"] += 1
-            
-            result = {
-                "format": "singbox_json",
-                "node_count": len(nodes),
-                "unique_servers": len(servers),
-                "nodes": nodes,
-                "servers": servers,
-                "regions": regions
-            }
-        except Exception as e:
-            return {"error": f"JSON解析失败: {str(e)}"}
-
-    else:
-
-        return {"error": "请输入订阅链接、订阅内容或JSON配置"}
+    try:
+        if url:
+            result = fetch_subscription(url)
+        elif text:
+            result = parse_subscription_text(text)
+        elif json_config:
+            # 从JSON配置中提取节点
+            try:
+                config = json_lib.loads(json_config)
+                outbounds = config.get("outbounds", [])
+                nodes = []
+                servers = {}
+                regions = {}
+                for ob in outbounds:
+                    if ob.get("type") in ["vless", "hysteria2", "vmess", "trojan", "shadowsocks", "ss"]:
+                        tag = ob.get("tag", "Unknown")
+                        server = ob.get("server", "")
+                        port = ob.get("server_port", 0)
+                        region_code = "UN"
+                        region_label = "未知"
+                        tag_lower = tag.lower()
+                        if "香港" in tag or "hk" in tag_lower or "hong" in tag_lower:
+                            region_code, region_label = "HK", "香港"
+                        elif "新加坡" in tag or "sg" in tag_lower or "singapore" in tag_lower:
+                            region_code, region_label = "SG", "新加坡"
+                        elif "日本" in tag or "jp" in tag_lower or "japan" in tag_lower:
+                            region_code, region_label = "JP", "日本"
+                        elif "美国" in tag or "us" in tag_lower or "america" in tag_lower:
+                            region_code, region_label = "US", "美国"
+                        elif "台湾" in tag or "tw" in tag_lower or "taiwan" in tag_lower:
+                            region_code, region_label = "TW", "台湾"
+                        nodes.append({"name": tag, "type": ob.get("type"), "server": server,
+                                      "port": port, "region_code": region_code,
+                                      "region_label": region_label, "outbound_config": ob})
+                        if server not in servers:
+                            servers[server] = []
+                        servers[server].append(len(nodes) - 1)
+                        if region_code not in regions:
+                            regions[region_code] = {"label": region_label, "count": 0}
+                        regions[region_code]["count"] += 1
+                result = {"format": "singbox_json", "node_count": len(nodes),
+                          "unique_servers": len(servers), "nodes": nodes,
+                          "servers": servers, "regions": regions}
+            except Exception as e:
+                return {"error": f"JSON解析失败: {str(e)}"}
+        else:
+            return {"error": "请输入订阅链接、订阅内容或JSON配置"}
+    except Exception as e:
+        logger.error(f"[ParseSub] 解析异常: {e}")
+        return {"error": f"解析失败: {str(e)}"}
 
     return result
 
@@ -4330,6 +4309,9 @@ async def admin_delete_subscription_group(group_id: str, request: Request):
                 sbm.save_nodes(filtered)
                 sbm.write_config(filtered)
                 sbm.reload_service()
+            # 从 dispatcher 内存移除所有 SOCKS5 出口（保留直连 #0）
+            for i in range(len(dispatcher.exits) - 1, 0, -1):
+                dispatcher.remove_exit(i)
             return {"success": True, "message": "订阅组已删除"}
         return {"success": False, "message": "删除失败"}
     except Exception as e:

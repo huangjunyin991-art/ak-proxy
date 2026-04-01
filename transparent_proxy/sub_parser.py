@@ -74,6 +74,8 @@ def _parse_clash_yaml(text: str) -> list[dict]:
     except Exception:
         config = {}
 
+    if not isinstance(config, dict):
+        return []
     proxies = config.get('proxies', [])
     if not proxies:
         return []
