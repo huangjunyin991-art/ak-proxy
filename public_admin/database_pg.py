@@ -697,6 +697,22 @@ async def unban_ip(ip_address: str):
             ''', ip_address)
 
 
+async def load_banned_sets() -> tuple[set, set]:
+    """启动时一次性加载所有活跃封禁记录，返回 (banned_usernames, banned_ips) 内存集合"""
+    pool = _get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            "SELECT ban_type, ban_value FROM ban_list WHERE is_active = TRUE"
+        )
+    usernames, ips = set(), set()
+    for r in rows:
+        if r['ban_type'] == 'username':
+            usernames.add(r['ban_value'].lower())
+        elif r['ban_type'] == 'ip':
+            ips.add(r['ban_value'])
+    return usernames, ips
+
+
 async def is_banned(username: str = None, ip_address: str = None) -> bool:
     """检查是否被封禁"""
     pool = _get_pool()

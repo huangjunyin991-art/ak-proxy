@@ -268,6 +268,15 @@ async def startup():
     # 注入403/429持久化回调
     dispatcher.alert_callback = db.insert_exit_event
 
+    # 预加载封禁集合到内存，避免热路径查DB
+    try:
+        banned_usernames, banned_ips = await db.load_banned_sets()
+        stats.banned_accounts.update(banned_usernames)
+        stats.banned_ips.update(banned_ips)
+        logger.info(f"封禁集合已加载: {len(banned_usernames)} 账号, {len(banned_ips)} IP")
+    except Exception as e:
+        logger.warning(f"加载封禁集合失败: {e}")
+
     # 自动恢复上次保存的节点配置
     await _restore_dispatcher_exits()
 
@@ -713,22 +722,10 @@ async def proxy_login(request: Request):
 
     
 
-    # 本地封禁检查（优先数据库，回退内存）
-
+    # 本地封禁检查（内存集合，启动时已从DB预加载）
     if ENABLE_LOCAL_BAN:
-
-        try:
-
-            banned = await db.is_banned(username=account, ip_address=client_ip)
-
-        except Exception:
-
-            banned = account in stats.banned_accounts or client_ip in stats.banned_ips
-
-        if banned:
-
+        if account.lower() in stats.banned_accounts or client_ip in stats.banned_ips:
             logger.warning(f"[Login] 封禁拦截: account={account}, IP={client_ip}")
-
             return JSONResponse({"Error": True, "Msg": "您的账号或IP已被封禁"})
 
     
