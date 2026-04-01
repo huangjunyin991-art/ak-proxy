@@ -35,7 +35,7 @@ class OutboundExit:
     __slots__ = ('name', 'proxy_url', 'healthy', '_ever_healthy', 'total', 'login_count', 'errors',
                  'warn_403', 'warn_429', 'active', 'exit_ip', '_login_timestamps',
                  '_error_logs', '_req_timestamps', 'rate_limit', '_rate_lock',
-                 '_inflight_logins', '_frozen_until',
+                 '_inflight_logins', '_frozen_until', '_ip_detect_failures',
                  '_client', '_client_lock')
 
     def __init__(self, name: str, proxy_url: Optional[str] = None):
@@ -57,6 +57,7 @@ class OutboundExit:
         self._rate_lock = asyncio.Lock()
         self._inflight_logins: int = 0  # 正在飞行中的登录请求数
         self._frozen_until: float = 0    # 403后冻结截止时间戳
+        self._ip_detect_failures: int = 0  # 连续IP检测失败次数（用于剔除死节点）
         self._client: Optional[httpx.AsyncClient] = None   # 持久连接池
         self._client_lock = asyncio.Lock()                 # 保护 client 创建
 
@@ -594,9 +595,16 @@ class OutboundDispatcher:
                     if ip and ip != ex.exit_ip:
                         logger.info(f"[Dispatcher] 出口IP检测: {ex.name} -> {ip}")
                         ex.exit_ip = ip
+                    ex._ip_detect_failures = 0  # 连通成功，重置失败计数
                     return True  # 连通即成功，不管 IP 是否变化
             except Exception:
                 continue  # 换下一个服务
+        # 所有服务均失败
+        if not ex.is_direct:
+            ex._ip_detect_failures += 1
+            if ex._ip_detect_failures >= 3 and ex._ever_healthy and ex.healthy:
+                ex.healthy = False
+                logger.warning(f"[Dispatcher] 出口 {ex.name} 连续{ex._ip_detect_failures}次IP检测失败，标记下线")
         return False
 
     async def detect_all_ips(self):
