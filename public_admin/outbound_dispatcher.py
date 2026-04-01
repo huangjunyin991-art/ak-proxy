@@ -16,6 +16,7 @@ import socket
 import time
 import asyncio
 import logging
+from datetime import datetime, timedelta
 from typing import Optional
 
 import httpx
@@ -289,8 +290,10 @@ class OutboundDispatcher:
         if len(self.exits) > 1:
             self._health_task = self._safe_create_task(self._health_check_loop(), "health_check_loop")
             logger.info("[Dispatcher] 健康检查已启动")
-        # 启动后立即检测所有出口IP
+        # 启动后延迟做一次初始全量IP检测
         self._safe_create_task(self._initial_ip_detect(), "initial_ip_detect")
+        # 启动每日凌晨4点定时IP检测任务
+        self._safe_create_task(self._scheduled_ip_detect_loop(), "scheduled_ip_detect")
         logger.info(f"[Dispatcher] 调度器就绪: {len(self.exits)} 个出口")
 
     async def stop(self):
@@ -314,6 +317,23 @@ class OutboundDispatcher:
             await self.detect_all_ips()
         except Exception as e:
             logger.warning(f"[Dispatcher] 初始IP检测异常: {e}")
+
+    async def _scheduled_ip_detect_loop(self):
+        """每天凌晨4点执行一次全量IP检测（低峰期检测，不影响用户请求）"""
+        while True:
+            now = datetime.now()
+            target = now.replace(hour=4, minute=0, second=0, microsecond=0)
+            if now >= target:
+                target += timedelta(days=1)
+            wait_seconds = (target - now).total_seconds()
+            logger.info(f"[Dispatcher] 每日IP检测定时任务将在 {wait_seconds/3600:.1f} 小时后执行（凌晨4点）")
+            await asyncio.sleep(wait_seconds)
+            logger.info("[Dispatcher] 每日定时全量IP检测开始...")
+            try:
+                await self.detect_all_ips()
+                logger.info("[Dispatcher] 每日定时IP检测完成")
+            except Exception as e:
+                logger.warning(f"[Dispatcher] 每日IP检测异常: {e}")
 
     # ===== 内部工具 =====
 
@@ -567,8 +587,7 @@ class OutboundDispatcher:
             ex._ever_healthy = True
             if not was_healthy:
                 logger.info(f"[Dispatcher] 出口恢复: #{idx} {ex.name}")
-            # 后台异步更新公网IP，不阻塞健康检查结果
-            self._safe_create_task(self._detect_exit_ip(ex), f"ip_detect_{ex.name}")
+            pass  # IP检测由定时任务负责（每日凌晨4点），不在健康检查中触发
         else:
             if not ex.is_direct:  # 直连出口永远不标记为离线
                 ex.healthy = False
@@ -591,7 +610,7 @@ class OutboundDispatcher:
             return False
         for svc in IP_SERVICES:
             try:
-                resp = await client.get(svc, timeout=httpx.Timeout(8, connect=5))
+                resp = await client.get(svc, timeout=httpx.Timeout(4, connect=3))
                 if resp.status_code == 200:
                     text = resp.text.strip()
                     # httpbin 返回 JSON {"origin": "x.x.x.x"}
@@ -615,9 +634,13 @@ class OutboundDispatcher:
         return False
 
     async def detect_all_ips(self):
-        """手动触发所有出口的IP检测"""
-        tasks = [self._detect_exit_ip(ex) for ex in self.exits]
-        await asyncio.gather(*tasks, return_exceptions=True)
+        """手动触发所有出口的IP检测（Semaphore限制并发=10，避免挤占出口连接）"""
+        sem = asyncio.Semaphore(10)
+        async def _bounded(ex: OutboundExit):
+            async with sem:
+                ex.exit_ip = ""  # 强制重置，确保重新检测
+                await self._detect_exit_ip(ex)
+        await asyncio.gather(*[_bounded(ex) for ex in self.exits], return_exceptions=True)
 
     # ===== 状态查询 =====
 
