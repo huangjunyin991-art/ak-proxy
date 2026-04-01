@@ -12,6 +12,7 @@
 - 降级保底: 所有隧道故障时 fallback 直连
 """
 
+import socket
 import time
 import asyncio
 import logging
@@ -31,7 +32,7 @@ ALERT_STATUS_CODES = {
 
 class OutboundExit:
     """单个出口通道"""
-    __slots__ = ('name', 'proxy_url', 'healthy', 'total', 'login_count', 'errors',
+    __slots__ = ('name', 'proxy_url', 'healthy', '_ever_healthy', 'total', 'login_count', 'errors',
                  'warn_403', 'warn_429', 'active', 'exit_ip', '_login_timestamps',
                  '_error_logs', '_req_timestamps', 'rate_limit', '_rate_lock',
                  '_inflight_logins', '_frozen_until',
@@ -40,7 +41,8 @@ class OutboundExit:
     def __init__(self, name: str, proxy_url: Optional[str] = None):
         self.name = name
         self.proxy_url = proxy_url  # None=直连, "socks5://127.0.0.1:port"=隧道
-        self.healthy = True
+        self.healthy = True   # 默认乐观在线，首次健康检查后修正
+        self._ever_healthy = False  # 至少成功过一次健康检查；False 时失败不发 WARNING
         self.total = 0          # 历史总请求
         self.login_count = 0    # 历史登录数
         self.errors = 0         # 连接错误数
@@ -224,7 +226,6 @@ class OutboundDispatcher:
     MAX_LOGIN_PER_MIN = 10
     HEALTH_CHECK_INTERVAL = 15
     HEALTH_CHECK_TIMEOUT = 6
-    HEALTH_CHECK_URL = "http://connectivitycheck.gstatic.com/generate_204"
 
     def __init__(self):
         self.exits: list[OutboundExit] = [
@@ -525,30 +526,49 @@ class OutboundDispatcher:
         if tasks:
             await asyncio.gather(*tasks, return_exceptions=True)
 
-    async def _check_single_exit(self, idx: int, ex: OutboundExit):
-        """检查单个出口是否可用，同时检测出口IP（复用持久连接）"""
-        was_healthy = ex.healthy
+    async def _probe_socks5_port(self, ex: OutboundExit) -> bool:
+        """本地 TCP 端口探测：检查 sing-box 是否在监听 SOCKS5 端口（不依赖外网）"""
+        if ex.is_direct or not ex.proxy_url:
+            return True
         try:
-            client = await ex.get_client()
-            resp = await client.get(self.HEALTH_CHECK_URL,
-                                    timeout=httpx.Timeout(self.HEALTH_CHECK_TIMEOUT, connect=5))
-            if resp.status_code in (200, 204):
-                ex.healthy = True
-                if not was_healthy:
-                    logger.info(f"[Dispatcher] 出口恢复: #{idx} {ex.name}")
-                # 检测出口IP（仅在IP未知或刚恢复时）
-                if not ex.exit_ip or not was_healthy:
-                    await self._detect_exit_ip(ex)
-            else:
-                raise Exception(f"HTTP {resp.status_code}")
+            port = int(ex.proxy_url.rsplit(':', 1)[-1])
+        except (ValueError, IndexError):
+            return False
+        loop = asyncio.get_event_loop()
+        try:
+            await asyncio.wait_for(
+                loop.run_in_executor(None, lambda: self._tcp_connect('127.0.0.1', port)),
+                timeout=2.0
+            )
+            return True
         except Exception:
+            return False
+
+    @staticmethod
+    def _tcp_connect(host: str, port: int):
+        """同步 TCP 连接测试（在线程池中执行）"""
+        with socket.create_connection((host, port), timeout=2):
+            pass
+
+    async def _check_single_exit(self, idx: int, ex: OutboundExit):
+        """检查单个出口是否可用：本地TCP端口探测 → healthy；异步后台更新公网IP"""
+        was_healthy = ex.healthy
+        reachable = await self._probe_socks5_port(ex)
+        if reachable:
+            ex.healthy = True
+            ex._ever_healthy = True
+            if not was_healthy:
+                logger.info(f"[Dispatcher] 出口恢复: #{idx} {ex.name}")
+            # 后台异步更新公网IP，不阻塞健康检查结果
+            self._safe_create_task(self._detect_exit_ip(ex), f"ip_detect_{ex.name}")
+        else:
             if not ex.is_direct:  # 直连出口永远不标记为离线
                 ex.healthy = False
-                if was_healthy:
+                if was_healthy and ex._ever_healthy and self._started:
                     logger.warning(f"[Dispatcher] 出口离线: #{idx} {ex.name}")
 
-    async def _detect_exit_ip(self, ex: OutboundExit):
-        """通过外部服务检测出口的公网IP（复用持久连接）"""
+    async def _detect_exit_ip(self, ex: OutboundExit) -> bool:
+        """通过外部服务检测出口的公网IP（复用持久连接），返回 True 表示本次探测成功"""
         IP_SERVICES = [
             "http://ip.3322.net",
             "http://members.3322.org/dyndns/getip",
@@ -560,7 +580,7 @@ class OutboundDispatcher:
         try:
             client = await ex.get_client()
         except Exception:
-            return
+            return False
         for svc in IP_SERVICES:
             try:
                 resp = await client.get(svc, timeout=httpx.Timeout(8, connect=5))
@@ -574,9 +594,10 @@ class OutboundDispatcher:
                     if ip and ip != ex.exit_ip:
                         logger.info(f"[Dispatcher] 出口IP检测: {ex.name} -> {ip}")
                         ex.exit_ip = ip
-                    return  # 成功就退出
+                    return True  # 连通即成功，不管 IP 是否变化
             except Exception:
                 continue  # 换下一个服务
+        return False
 
     async def detect_all_ips(self):
         """手动触发所有出口的IP检测"""
@@ -668,7 +689,7 @@ class AceSellDispatcher:
     def __init__(self, dispatcher_ref: OutboundDispatcher):
         self._dispatcher = dispatcher_ref
         self._cooldowns: dict[str, float] = {}  # exit_name -> 冷却截止时间戳
-        self._lock = asyncio.Lock()
+        self._lock: Optional[asyncio.Lock] = None  # 懒初始化：在 acquire() 首次调用时（正确事件循环上下文中）创建
 
     def _available(self) -> list[OutboundExit]:
         """返回健康、未冻结、未冷却的出口列表"""
@@ -691,6 +712,8 @@ class AceSellDispatcher:
         异步获取一个可用出口（最少活跃连接策略）。
         所有出口均冷却时阻塞等待，直到有出口冷却结束。
         """
+        if self._lock is None:
+            self._lock = asyncio.Lock()
         while True:
             async with self._lock:
                 available = self._available()
