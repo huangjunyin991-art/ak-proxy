@@ -124,14 +124,21 @@ def _parse_ss_links(text: str) -> list[dict]:
                     rest, name = rest.rsplit('#', 1)
                     name = urllib.parse.unquote(name.strip())
 
+                method, password = 'aes-128-gcm', ''
                 if '@' in rest:
                     encoded, addr = rest.split('@', 1)
                     server, port = addr.rsplit(':', 1)
+                    try:
+                        creds = base64.b64decode(encoded + '==').decode()
+                        method, password = creds.split(':', 1)
+                    except Exception:
+                        pass
                 else:
                     decoded = base64.b64decode(rest + '==').decode()
-                    # method:password@server:port
-                    _, addr = decoded.rsplit('@', 1)
+                    creds, addr = decoded.rsplit('@', 1)
                     server, port = addr.rsplit(':', 1)
+                    if ':' in creds:
+                        method, password = creds.split(':', 1)
 
                 if any(k in name for k in SKIP_KEYWORDS):
                     continue
@@ -143,7 +150,7 @@ def _parse_ss_links(text: str) -> list[dict]:
                     'port': int(port),
                     'region_code': region_code,
                     'region_label': region_label,
-                    'raw': {},
+                    'raw': {'cipher': method, 'password': password},
                 })
             except Exception:
                 continue
@@ -157,7 +164,16 @@ def _parse_ss_links(text: str) -> list[dict]:
                 server = info.get('add', '')
                 port = info.get('port', 0)
 
+                if any(k in name for k in SKIP_KEYWORDS):
+                    continue
                 region_code, region_label = detect_region(name)
+                net = info.get('net', 'tcp')
+                ws_opts = {}
+                if net == 'ws':
+                    ws_opts = {
+                        'path': info.get('path', '/'),
+                        'headers': {'Host': info.get('host', '')},
+                    }
                 nodes.append({
                     'name': name or f'VMess-{server}',
                     'type': 'vmess',
@@ -165,7 +181,15 @@ def _parse_ss_links(text: str) -> list[dict]:
                     'port': int(port),
                     'region_code': region_code,
                     'region_label': region_label,
-                    'raw': {},
+                    'raw': {
+                        'uuid': info.get('id', ''),
+                        'alterId': int(info.get('aid', 0)),
+                        'cipher': info.get('scy', info.get('cipher', 'auto')),
+                        'network': net,
+                        'tls': info.get('tls', ''),
+                        'sni': info.get('sni', info.get('host', '')),
+                        'ws-opts': ws_opts,
+                    },
                 })
             except Exception:
                 continue
@@ -356,9 +380,8 @@ def fetch_subscription(url: str, timeout: int = 15) -> dict:
     try:
         ctx = ssl._create_unverified_context()
         req = Request(url, headers={
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'User-Agent': 'ClashForWindows/0.20.39 (Windows NT 10.0; Win64; x64)',
             'Accept': '*/*',
-            'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
         })
         resp = urlopen(req, context=ctx, timeout=timeout)
         raw = resp.read().decode('utf-8').strip()

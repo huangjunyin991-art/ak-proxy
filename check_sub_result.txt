@@ -1,4 +1,4 @@
-format: ss_links
+format: clash_yaml
 total_nodes: 84
 unique_servers: 11
 

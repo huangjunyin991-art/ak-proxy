@@ -1,5 +1,5 @@
 {
-  "format": "ss_links",
+  "format": "clash_yaml",
   "total_nodes": 84,
   "unique_servers": 11,
   "nodes": [
@@ -10,7 +10,14 @@
       "port": 10001,
       "region_code": "HK",
       "region_label": "香港",
-      "raw": {}
+      "raw": {
+        "type": "ss",
+        "server": "ft-hk-xygh-by.51feitu.com",
+        "port": 10001,
+        "cipher": "chacha20-ietf-poly1305",
+        "password": "1ed4dd9b-8259-46bb-827f-ed35358f2cd9",
+        "udp": true
+      }
     },
     {
       "name": "🇭🇰 香港_02",
@@ -19,7 +26,16 @@
       "port": 10002,
       "region_code": "HK",
       "region_label": "香港",
-      "raw": {}
+      "raw": {
+        "type": "vmess",
+        "server": "ft-hk-xygh-by.51feitu.com",
+        "port": 10002,
+        "uuid": "1ed4dd9b-8259-46bb-827f-ed35358f2cd9",
+        "alterId": 0,
+        "cipher": "auto",
+        "udp": true,
+        "network": "ws"
+      }
     },
     {
       "name": "🇭🇰 香港_03",
@@ -28,7 +44,14 @@
       "port": 10003,
       "region_code": "HK",
       "region_label": "香港",
-      "raw": {}
+      "raw": {
+        "type": "ss",
+        "server": "ft-hk-xygh-by.51feitu.com",
+        "port": 10003,
+        "cipher": "chacha20-ietf-poly1305",
+        "password": "1ed4dd9b-8259-46bb-827f-ed35358f2cd9",
+        "udp": true
+      }
     },
     {
       "name": "🇭🇰 三网×2-香港_04",
@@ -37,7 +60,16 @@
       "port": 20004,
       "region_code": "HK",
       "region_label": "香港",
-      "raw": {}
+      "raw": {
+        "type": "vmess",
+        "server": "ft-hk-xygh-pro.51feitu.com",
+        "port": 20004,
+        "uuid": "1ed4dd9b-8259-46bb-827f-ed35358f2cd9",
+        "alterId": 0,
+        "cipher": "auto",
+        "udp": true,
+        "network": "ws"
+      }
     },
     {
       "name": "🇭🇰 三网×2-香港_05",
@@ -46,7 +78,14 @@
       "port": 20005,
       "region_code": "HK",
       "region_label": "香港",
-      "raw": {}
+      "raw": {
+        "type": "ss",
+        "server": "ft-hk-xygh-pro.51feitu.com",
+        "port": 20005,
+        "cipher": "chacha20-ietf-poly1305",
+        "password": "1ed4dd9b-8259-46bb-827f-ed35358f2cd9",
+        "udp": true
+      }
     },
     {
       "name": "🇭🇰 三网×2-香港_06",
@@ -55,7 +94,16 @@
       "port": 20006,
       "region_code": "HK",
       "region_label": "香港",
-      "raw": {}
+      "raw": {
+        "type": "vmess",
+        "server": "ft-hk-xygh-pro.51feitu.com",
+        "port": 20006,
+        "uuid": "1ed4dd9b-8259-46bb-827f-ed35358f2cd9",
+        "alterId": 0,
+        "cipher": "auto",
+        "udp": true,
+        "network": "ws"
+      }
     },
     {
       "name": "🇭🇰 三网×2-香港_07",
@@ -64,7 +112,14 @@
       "port": 20007,
       "region_code": "HK",
       "region_label": "香港",
-      "raw": {}
+      "raw": {
+        "type": "ss",
+        "server": "ft-hk-xygh-pro.51feitu.com",
+        "port": 20007,
+        "cipher": "chacha20-ietf-poly1305",
+        "password": "1ed4dd9b-8259-46bb-827f-ed35358f2cd9",
+        "udp": true
+      }
     },
     {
       "name": "🇭🇰 三网×2-香港_08",
@@ -73,7 +128,16 @@
       "port": 20008,
       "region_code": "HK",
       "region_label": "香港",
-      "raw": {}
+      "raw": {
+        "type": "vmess",
+        "server": "ft-hk-xygh-pro.51feitu.com",
+        "port": 20008,
+        "uuid": "1ed4dd9b-8259-46bb-827f-ed35358f2cd9",
+        "alterId": 0,
+        "cipher": "auto",
+        "udp": true,
+        "network": "ws"
+      }
     },
     {
       "name": "🇭🇰 香港_09",
@@ -82,7 +146,14 @@
       "port": 10009,
       "region_code": "HK",
       "region_label": "香港",
-      "raw": {}
+      "raw": {
+        "type": "ss",
+        "server": "ft-hk-xygh-by.51feitu.com",
+        "port": 10009,
+        "cipher": "chacha20-ietf-poly1305",
+        "password": "1ed4dd9b-8259-46bb-827f-ed35358f2cd9",
+        "udp": true
+      }
     },
     {
       "name": "🇭🇰 香港_10",
@@ -91,7 +162,16 @@
       "port": 10010,
       "region_code": "HK",
       "region_label": "香港",
-      "raw": {}
+      "raw": {
+        "type": "vmess",
+        "server": "ft-hk-xygh-by.51feitu.com",
+        "port": 10010,
+        "uuid": "1ed4dd9b-8259-46bb-827f-ed35358f2cd9",
+        "alterId": 0,
+        "cipher": "auto",
+        "udp": true,
+        "network": "ws"
+      }
     },
     {
       "name": "🇭🇰 香港_11",
@@ -100,7 +180,14 @@
       "port": 11011,
       "region_code": "HK",
       "region_label": "香港",
-      "raw": {}
+      "raw": {
+        "type": "ss",
+        "server": "ft-hk-xygh-by.51feitu.com",
+        "port": 11011,
+        "cipher": "chacha20-ietf-poly1305",
+        "password": "1ed4dd9b-8259-46bb-827f-ed35358f2cd9",
+        "udp": true
+      }
     },
     {
       "name": "🇭🇰 香港_12",
@@ -109,7 +196,16 @@
       "port": 11012,
       "region_code": "HK",
       "region_label": "香港",
-      "raw": {}
+      "raw": {
+        "type": "vmess",
+        "server": "ft-hk-xygh-by.51feitu.com",
+        "port": 11012,
+        "uuid": "1ed4dd9b-8259-46bb-827f-ed35358f2cd9",
+        "alterId": 0,
+        "cipher": "auto",
+        "udp": true,
+        "network": "ws"
+      }
     },
     {
       "name": "🇭🇰 香港_13",
@@ -118,7 +214,14 @@
       "port": 11013,
       "region_code": "HK",
       "region_label": "香港",
-      "raw": {}
+      "raw": {
+        "type": "ss",
+        "server": "ft-hk-xygh-by.51feitu.com",
+        "port": 11013,
+        "cipher": "chacha20-ietf-poly1305",
+        "password": "1ed4dd9b-8259-46bb-827f-ed35358f2cd9",
+        "udp": true
+      }
     },
     {
       "name": "🇭🇰 香港_14",
@@ -127,7 +230,16 @@
       "port": 11014,
       "region_code": "HK",
       "region_label": "香港",
-      "raw": {}
+      "raw": {
+        "type": "vmess",
+        "server": "ft-hk-xygh-by.51feitu.com",
+        "port": 11014,
+        "uuid": "1ed4dd9b-8259-46bb-827f-ed35358f2cd9",
+        "alterId": 0,
+        "cipher": "auto",
+        "udp": true,
+        "network": "ws"
+      }
     },
     {
       "name": "🇭🇰 香港_15-v6",
@@ -136,7 +248,14 @@
       "port": 11015,
       "region_code": "HK",
       "region_label": "香港",
-      "raw": {}
+      "raw": {
+        "type": "ss",
+        "server": "ft-hk-xygh-by.51feitu.com",
+        "port": 11015,
+        "cipher": "chacha20-ietf-poly1305",
+        "password": "1ed4dd9b-8259-46bb-827f-ed35358f2cd9",
+        "udp": true
+      }
     },
     {
       "name": "🇭🇰 香港_16-v6",
@@ -145,7 +264,16 @@
       "port": 11016,
       "region_code": "HK",
       "region_label": "香港",
-      "raw": {}
+      "raw": {
+        "type": "vmess",
+        "server": "ft-hk-xygh-by.51feitu.com",
+        "port": 11016,
+        "uuid": "1ed4dd9b-8259-46bb-827f-ed35358f2cd9",
+        "alterId": 0,
+        "cipher": "auto",
+        "udp": true,
+        "network": "ws"
+      }
     },
     {
       "name": "🇭🇰 香港_17-v6",
@@ -154,7 +282,14 @@
       "port": 11017,
       "region_code": "HK",
       "region_label": "香港",
-      "raw": {}
+      "raw": {
+        "type": "ss",
+        "server": "ft-hk-xygh-by.51feitu.com",
+        "port": 11017,
+        "cipher": "chacha20-ietf-poly1305",
+        "password": "1ed4dd9b-8259-46bb-827f-ed35358f2cd9",
+        "udp": true
+      }
     },
     {
       "name": "🇭🇰 香港_18-v6",
@@ -163,7 +298,16 @@
       "port": 11018,
       "region_code": "HK",
       "region_label": "香港",
-      "raw": {}
+      "raw": {
+        "type": "vmess",
+        "server": "ft-hk-xygh-by.51feitu.com",
+        "port": 11018,
+        "uuid": "1ed4dd9b-8259-46bb-827f-ed35358f2cd9",
+        "alterId": 0,
+        "cipher": "auto",
+        "udp": true,
+        "network": "ws"
+      }
     },
     {
       "name": "🇭🇰 香港_19-v6",
@@ -172,7 +316,14 @@
       "port": 11019,
       "region_code": "HK",
       "region_label": "香港",
-      "raw": {}
+      "raw": {
+        "type": "ss",
+        "server": "ft-hk-xygh-by.51feitu.com",
+        "port": 11019,
+        "cipher": "chacha20-ietf-poly1305",
+        "password": "1ed4dd9b-8259-46bb-827f-ed35358f2cd9",
+        "udp": true
+      }
     },
     {
       "name": "🇭🇰 香港_20-v6",
@@ -181,7 +332,16 @@
       "port": 11020,
       "region_code": "HK",
       "region_label": "香港",
-      "raw": {}
+      "raw": {
+        "type": "vmess",
+        "server": "ft-hk-xygh-by.51feitu.com",
+        "port": 11020,
+        "uuid": "1ed4dd9b-8259-46bb-827f-ed35358f2cd9",
+        "alterId": 0,
+        "cipher": "auto",
+        "udp": true,
+        "network": "ws"
+      }
     },
     {
       "name": "🇭🇰 香港_21-v6",
@@ -190,7 +350,14 @@
       "port": 11021,
       "region_code": "HK",
       "region_label": "香港",
-      "raw": {}
+      "raw": {
+        "type": "ss",
+        "server": "ft-hk-xygh-by.51feitu.com",
+        "port": 11021,
+        "cipher": "chacha20-ietf-poly1305",
+        "password": "1ed4dd9b-8259-46bb-827f-ed35358f2cd9",
+        "udp": true
+      }
     },
     {
       "name": "🇸🇬 新加坡_01",
@@ -199,7 +366,14 @@
       "port": 12001,
       "region_code": "SG",
       "region_label": "新加坡",
-      "raw": {}
+      "raw": {
+        "type": "ss",
+        "server": "ft-sg-xygh-by.51feitu.com",
+        "port": 12001,
+        "cipher": "chacha20-ietf-poly1305",
+        "password": "1ed4dd9b-8259-46bb-827f-ed35358f2cd9",
+        "udp": true
+      }
     },
     {
       "name": "🇸🇬 新加坡_02",
@@ -208,7 +382,16 @@
       "port": 12002,
       "region_code": "SG",
       "region_label": "新加坡",
-      "raw": {}
+      "raw": {
+        "type": "vmess",
+        "server": "ft-sg-xygh-by.51feitu.com",
+        "port": 12002,
+        "uuid": "1ed4dd9b-8259-46bb-827f-ed35358f2cd9",
+        "alterId": 0,
+        "cipher": "auto",
+        "udp": true,
+        "network": "ws"
+      }
     },
     {
       "name": "🇸🇬 新加坡_03",
@@ -217,7 +400,14 @@
       "port": 12003,
       "region_code": "SG",
       "region_label": "新加坡",
-      "raw": {}
+      "raw": {
+        "type": "ss",
+        "server": "ft-sg-xygh-by.51feitu.com",
+        "port": 12003,
+        "cipher": "chacha20-ietf-poly1305",
+        "password": "1ed4dd9b-8259-46bb-827f-ed35358f2cd9",
+        "udp": true
+      }
     },
     {
       "name": "🇸🇬 三网×2-新加坡_04",
@@ -226,7 +416,16 @@
       "port": 22004,
       "region_code": "SG",
       "region_label": "新加坡",
-      "raw": {}
+      "raw": {
+        "type": "vmess",
+        "server": "ft-sg-xygh-pro.51feitu.com",
+        "port": 22004,
+        "uuid": "1ed4dd9b-8259-46bb-827f-ed35358f2cd9",
+        "alterId": 0,
+        "cipher": "auto",
+        "udp": true,
+        "network": "ws"
+      }
     },
     {
       "name": "🇸🇬 三网×2-新加坡_05",
@@ -235,7 +434,14 @@
       "port": 22005,
       "region_code": "SG",
       "region_label": "新加坡",
-      "raw": {}
+      "raw": {
+        "type": "ss",
+        "server": "ft-sg-xygh-pro.51feitu.com",
+        "port": 22005,
+        "cipher": "chacha20-ietf-poly1305",
+        "password": "1ed4dd9b-8259-46bb-827f-ed35358f2cd9",
+        "udp": true
+      }
     },
     {
       "name": "🇸🇬 三网×2-新加坡_06",
@@ -244,7 +450,16 @@
       "port": 22006,
       "region_code": "SG",
       "region_label": "新加坡",
-      "raw": {}
+      "raw": {
+        "type": "vmess",
+        "server": "ft-sg-xygh-pro.51feitu.com",
+        "port": 22006,
+        "uuid": "1ed4dd9b-8259-46bb-827f-ed35358f2cd9",
+        "alterId": 0,
+        "cipher": "auto",
+        "udp": true,
+        "network": "ws"
+      }
     },
     {
       "name": "🇸🇬 三网×2-新加坡_07",
@@ -253,7 +468,14 @@
       "port": 22007,
       "region_code": "SG",
       "region_label": "新加坡",
-      "raw": {}
+      "raw": {
+        "type": "ss",
+        "server": "ft-sg-xygh-pro.51feitu.com",
+        "port": 22007,
+        "cipher": "chacha20-ietf-poly1305",
+        "password": "1ed4dd9b-8259-46bb-827f-ed35358f2cd9",
+        "udp": true
+      }
     },
     {
       "name": "🇸🇬 三网×2-新加坡_08",
@@ -262,7 +484,16 @@
       "port": 22008,
       "region_code": "SG",
       "region_label": "新加坡",
-      "raw": {}
+      "raw": {
+        "type": "vmess",
+        "server": "ft-sg-xygh-pro.51feitu.com",
+        "port": 22008,
+        "uuid": "1ed4dd9b-8259-46bb-827f-ed35358f2cd9",
+        "alterId": 0,
+        "cipher": "auto",
+        "udp": true,
+        "network": "ws"
+      }
     },
     {
       "name": "🇸🇬 新加坡_09",
@@ -271,7 +502,14 @@
       "port": 12009,
       "region_code": "SG",
       "region_label": "新加坡",
-      "raw": {}
+      "raw": {
+        "type": "ss",
+        "server": "ft-sg-xygh-by.51feitu.com",
+        "port": 12009,
+        "cipher": "chacha20-ietf-poly1305",
+        "password": "1ed4dd9b-8259-46bb-827f-ed35358f2cd9",
+        "udp": true
+      }
     },
     {
       "name": "🇸🇬 新加坡_10",
@@ -280,7 +518,16 @@
       "port": 12010,
       "region_code": "SG",
       "region_label": "新加坡",
-      "raw": {}
+      "raw": {
+        "type": "vmess",
+        "server": "ft-sg-xygh-by.51feitu.com",
+        "port": 12010,
+        "uuid": "1ed4dd9b-8259-46bb-827f-ed35358f2cd9",
+        "alterId": 0,
+        "cipher": "auto",
+        "udp": true,
+        "network": "ws"
+      }
     },
     {
       "name": "🇯🇵 日本_01",
@@ -289,7 +536,14 @@
       "port": 13001,
       "region_code": "JP",
       "region_label": "日本",
-      "raw": {}
+      "raw": {
+        "type": "ss",
+        "server": "ft-jp-xygh-by.51feitu.com",
+        "port": 13001,
+        "cipher": "chacha20-ietf-poly1305",
+        "password": "1ed4dd9b-8259-46bb-827f-ed35358f2cd9",
+        "udp": true
+      }
     },
     {
       "name": "🇯🇵 日本_02",
@@ -298,7 +552,16 @@
       "port": 13002,
       "region_code": "JP",
       "region_label": "日本",
-      "raw": {}
+      "raw": {
+        "type": "vmess",
+        "server": "ft-jp-xygh-by.51feitu.com",
+        "port": 13002,
+        "uuid": "1ed4dd9b-8259-46bb-827f-ed35358f2cd9",
+        "alterId": 0,
+        "cipher": "auto",
+        "udp": true,
+        "network": "ws"
+      }
     },
     {
       "name": "🇯🇵 日本_03",
@@ -307,7 +570,14 @@
       "port": 13003,
       "region_code": "JP",
       "region_label": "日本",
-      "raw": {}
+      "raw": {
+        "type": "ss",
+        "server": "ft-jp-xygh-by.51feitu.com",
+        "port": 13003,
+        "cipher": "chacha20-ietf-poly1305",
+        "password": "1ed4dd9b-8259-46bb-827f-ed35358f2cd9",
+        "udp": true
+      }
     },
     {
       "name": "🇯🇵 三网×2-日本_04",
@@ -316,7 +586,16 @@
       "port": 23004,
       "region_code": "JP",
       "region_label": "日本",
-      "raw": {}
+      "raw": {
+        "type": "vmess",
+        "server": "ft-jp-xygh-pro.51feitu.com",
+        "port": 23004,
+        "uuid": "1ed4dd9b-8259-46bb-827f-ed35358f2cd9",
+        "alterId": 0,
+        "cipher": "auto",
+        "udp": true,
+        "network": "ws"
+      }
     },
     {
       "name": "🇯🇵 三网×2-日本_05",
@@ -325,7 +604,14 @@
       "port": 23005,
       "region_code": "JP",
       "region_label": "日本",
-      "raw": {}
+      "raw": {
+        "type": "ss",
+        "server": "ft-jp-xygh-pro.51feitu.com",
+        "port": 23005,
+        "cipher": "chacha20-ietf-poly1305",
+        "password": "1ed4dd9b-8259-46bb-827f-ed35358f2cd9",
+        "udp": true
+      }
     },
     {
       "name": "🇯🇵 三网×2-日本_06",
@@ -334,7 +620,16 @@
       "port": 23006,
       "region_code": "JP",
       "region_label": "日本",
-      "raw": {}
+      "raw": {
+        "type": "vmess",
+        "server": "ft-jp-xygh-pro.51feitu.com",
+        "port": 23006,
+        "uuid": "1ed4dd9b-8259-46bb-827f-ed35358f2cd9",
+        "alterId": 0,
+        "cipher": "auto",
+        "udp": true,
+        "network": "ws"
+      }
     },
     {
       "name": "🇯🇵 三网×2-日本_07",
@@ -343,7 +638,14 @@
       "port": 23007,
       "region_code": "JP",
       "region_label": "日本",
-      "raw": {}
+      "raw": {
+        "type": "ss",
+        "server": "ft-jp-xygh-pro.51feitu.com",
+        "port": 23007,
+        "cipher": "chacha20-ietf-poly1305",
+        "password": "1ed4dd9b-8259-46bb-827f-ed35358f2cd9",
+        "udp": true
+      }
     },
     {
       "name": "🇯🇵 三网×2-日本_08",
@@ -352,7 +654,16 @@
       "port": 23008,
       "region_code": "JP",
       "region_label": "日本",
-      "raw": {}
+      "raw": {
+        "type": "vmess",
+        "server": "ft-jp-xygh-pro.51feitu.com",
+        "port": 23008,
+        "uuid": "1ed4dd9b-8259-46bb-827f-ed35358f2cd9",
+        "alterId": 0,
+        "cipher": "auto",
+        "udp": true,
+        "network": "ws"
+      }
     },
     {
       "name": "🇯🇵 日本_09",
@@ -361,7 +672,14 @@
       "port": 13009,
       "region_code": "JP",
       "region_label": "日本",
-      "raw": {}
+      "raw": {
+        "type": "ss",
+        "server": "ft-jp-xygh-by.51feitu.com",
+        "port": 13009,
+        "cipher": "chacha20-ietf-poly1305",
+        "password": "1ed4dd9b-8259-46bb-827f-ed35358f2cd9",
+        "udp": true
+      }
     },
     {
       "name": "🇯🇵 日本_10",
@@ -370,7 +688,16 @@
       "port": 13010,
       "region_code": "JP",
       "region_label": "日本",
-      "raw": {}
+      "raw": {
+        "type": "vmess",
+        "server": "ft-jp-xygh-by.51feitu.com",
+        "port": 13010,
+        "uuid": "1ed4dd9b-8259-46bb-827f-ed35358f2cd9",
+        "alterId": 0,
+        "cipher": "auto",
+        "udp": true,
+        "network": "ws"
+      }
     },
     {
       "name": "🇺🇸 美国_01",
@@ -379,7 +706,14 @@
       "port": 14001,
       "region_code": "US",
       "region_label": "美国",
-      "raw": {}
+      "raw": {
+        "type": "ss",
+        "server": "ft-us-xygh-by.51feitu.com",
+        "port": 14001,
+        "cipher": "chacha20-ietf-poly1305",
+        "password": "1ed4dd9b-8259-46bb-827f-ed35358f2cd9",
+        "udp": true
+      }
     },
     {
       "name": "🇺🇸 美国_02",
@@ -388,7 +722,16 @@
       "port": 14002,
       "region_code": "US",
       "region_label": "美国",
-      "raw": {}
+      "raw": {
+        "type": "vmess",
+        "server": "ft-us-xygh-by.51feitu.com",
+        "port": 14002,
+        "uuid": "1ed4dd9b-8259-46bb-827f-ed35358f2cd9",
+        "alterId": 0,
+        "cipher": "auto",
+        "udp": true,
+        "network": "ws"
+      }
     },
     {
       "name": "🇺🇸 美国_03",
@@ -397,7 +740,14 @@
       "port": 14003,
       "region_code": "US",
       "region_label": "美国",
-      "raw": {}
+      "raw": {
+        "type": "ss",
+        "server": "ft-us-xygh-by.51feitu.com",
+        "port": 14003,
+        "cipher": "chacha20-ietf-poly1305",
+        "password": "1ed4dd9b-8259-46bb-827f-ed35358f2cd9",
+        "udp": true
+      }
     },
     {
       "name": "🇺🇸 三网×2-美国_04",
@@ -406,7 +756,16 @@
       "port": 24004,
       "region_code": "US",
       "region_label": "美国",
-      "raw": {}
+      "raw": {
+        "type": "vmess",
+        "server": "ft-us-xygh-pro.51feitu.com",
+        "port": 24004,
+        "uuid": "1ed4dd9b-8259-46bb-827f-ed35358f2cd9",
+        "alterId": 0,
+        "cipher": "auto",
+        "udp": true,
+        "network": "ws"
+      }
     },
     {
       "name": "🇺🇸 三网×2-美国_05",
@@ -415,7 +774,14 @@
       "port": 24005,
       "region_code": "US",
       "region_label": "美国",
-      "raw": {}
+      "raw": {
+        "type": "ss",
+        "server": "ft-us-xygh-pro.51feitu.com",
+        "port": 24005,
+        "cipher": "chacha20-ietf-poly1305",
+        "password": "1ed4dd9b-8259-46bb-827f-ed35358f2cd9",
+        "udp": true
+      }
     },
     {
       "name": "🇺🇸 三网×2-美国_06",
@@ -424,7 +790,16 @@
       "port": 24006,
       "region_code": "US",
       "region_label": "美国",
-      "raw": {}
+      "raw": {
+        "type": "vmess",
+        "server": "ft-us-xygh-pro.51feitu.com",
+        "port": 24006,
+        "uuid": "1ed4dd9b-8259-46bb-827f-ed35358f2cd9",
+        "alterId": 0,
+        "cipher": "auto",
+        "udp": true,
+        "network": "ws"
+      }
     },
     {
       "name": "🇺🇸 三网×2-美国_07",
@@ -433,7 +808,14 @@
       "port": 24007,
       "region_code": "US",
       "region_label": "美国",
-      "raw": {}
+      "raw": {
+        "type": "ss",
+        "server": "ft-us-xygh-pro.51feitu.com",
+        "port": 24007,
+        "cipher": "chacha20-ietf-poly1305",
+        "password": "1ed4dd9b-8259-46bb-827f-ed35358f2cd9",
+        "udp": true
+      }
     },
     {
       "name": "🇺🇸 三网×2-美国_08",
@@ -442,7 +824,16 @@
       "port": 24008,
       "region_code": "US",
       "region_label": "美国",
-      "raw": {}
+      "raw": {
+        "type": "vmess",
+        "server": "ft-us-xygh-pro.51feitu.com",
+        "port": 24008,
+        "uuid": "1ed4dd9b-8259-46bb-827f-ed35358f2cd9",
+        "alterId": 0,
+        "cipher": "auto",
+        "udp": true,
+        "network": "ws"
+      }
     },
     {
       "name": "🇺🇸 美国_09",
@@ -451,7 +842,14 @@
       "port": 14009,
       "region_code": "US",
       "region_label": "美国",
-      "raw": {}
+      "raw": {
+        "type": "ss",
+        "server": "ft-us-xygh-by.51feitu.com",
+        "port": 14009,
+        "cipher": "chacha20-ietf-poly1305",
+        "password": "1ed4dd9b-8259-46bb-827f-ed35358f2cd9",
+        "udp": true
+      }
     },
     {
       "name": "🇺🇸 美国_10",
@@ -460,7 +858,16 @@
       "port": 14010,
       "region_code": "US",
       "region_label": "美国",
-      "raw": {}
+      "raw": {
+        "type": "vmess",
+        "server": "ft-us-xygh-by.51feitu.com",
+        "port": 14010,
+        "uuid": "1ed4dd9b-8259-46bb-827f-ed35358f2cd9",
+        "alterId": 0,
+        "cipher": "auto",
+        "udp": true,
+        "network": "ws"
+      }
     },
     {
       "name": "🇼🇸 台湾_01",
@@ -469,7 +876,14 @@
       "port": 15001,
       "region_code": "TW",
       "region_label": "台湾",
-      "raw": {}
+      "raw": {
+        "type": "ss",
+        "server": "ft-tw-xygh-by.51feitu.com",
+        "port": 15001,
+        "cipher": "chacha20-ietf-poly1305",
+        "password": "1ed4dd9b-8259-46bb-827f-ed35358f2cd9",
+        "udp": true
+      }
     },
     {
       "name": "🇼🇸 台湾_02",
@@ -478,7 +892,16 @@
       "port": 15002,
       "region_code": "TW",
       "region_label": "台湾",
-      "raw": {}
+      "raw": {
+        "type": "vmess",
+        "server": "ft-tw-xygh-by.51feitu.com",
+        "port": 15002,
+        "uuid": "1ed4dd9b-8259-46bb-827f-ed35358f2cd9",
+        "alterId": 0,
+        "cipher": "auto",
+        "udp": true,
+        "network": "ws"
+      }
     },
     {
       "name": "🇼🇸 台湾_03",
@@ -487,7 +910,14 @@
       "port": 15003,
       "region_code": "TW",
       "region_label": "台湾",
-      "raw": {}
+      "raw": {
+        "type": "ss",
+        "server": "ft-tw-xygh-by.51feitu.com",
+        "port": 15003,
+        "cipher": "chacha20-ietf-poly1305",
+        "password": "1ed4dd9b-8259-46bb-827f-ed35358f2cd9",
+        "udp": true
+      }
     },
     {
       "name": "🇼🇸 三网×2-台湾_04",
@@ -496,7 +926,16 @@
       "port": 25004,
       "region_code": "TW",
       "region_label": "台湾",
-      "raw": {}
+      "raw": {
+        "type": "vmess",
+        "server": "ft-tw-xygh-pro.51feitu.com",
+        "port": 25004,
+        "uuid": "1ed4dd9b-8259-46bb-827f-ed35358f2cd9",
+        "alterId": 0,
+        "cipher": "auto",
+        "udp": true,
+        "network": "ws"
+      }
     },
     {
       "name": "🇼🇸 三网×2-台湾_05",
@@ -505,7 +944,14 @@
       "port": 25005,
       "region_code": "TW",
       "region_label": "台湾",
-      "raw": {}
+      "raw": {
+        "type": "ss",
+        "server": "ft-tw-xygh-pro.51feitu.com",
+        "port": 25005,
+        "cipher": "chacha20-ietf-poly1305",
+        "password": "1ed4dd9b-8259-46bb-827f-ed35358f2cd9",
+        "udp": true
+      }
     },
     {
       "name": "🇨🇦 加拿大",
@@ -514,7 +960,14 @@
       "port": 21001,
       "region_code": "CA",
       "region_label": "加拿大",
-      "raw": {}
+      "raw": {
+        "type": "ss",
+        "server": "ft-qt-xygh-by.51feitu.com",
+        "port": 21001,
+        "cipher": "chacha20-ietf-poly1305",
+        "password": "1ed4dd9b-8259-46bb-827f-ed35358f2cd9",
+        "udp": true
+      }
     },
     {
       "name": "🇷🇺 俄罗斯",
@@ -523,7 +976,14 @@
       "port": 21003,
       "region_code": "RU",
       "region_label": "俄罗斯",
-      "raw": {}
+      "raw": {
+        "type": "ss",
+        "server": "ft-qt-xygh-by.51feitu.com",
+        "port": 21003,
+        "cipher": "chacha20-ietf-poly1305",
+        "password": "1ed4dd9b-8259-46bb-827f-ed35358f2cd9",
+        "udp": true
+      }
     },
     {
       "name": "🇹🇷 土耳其",
@@ -532,7 +992,14 @@
       "port": 21004,
       "region_code": "TR",
       "region_label": "土耳其",
-      "raw": {}
+      "raw": {
+        "type": "ss",
+        "server": "ft-qt-xygh-by.51feitu.com",
+        "port": 21004,
+        "cipher": "chacha20-ietf-poly1305",
+        "password": "1ed4dd9b-8259-46bb-827f-ed35358f2cd9",
+        "udp": true
+      }
     },
     {
       "name": "🇪🇸 西班牙",
@@ -541,7 +1008,14 @@
       "port": 21005,
       "region_code": "OTHER",
       "region_label": "其他",
-      "raw": {}
+      "raw": {
+        "type": "ss",
+        "server": "ft-qt-xygh-by.51feitu.com",
+        "port": 21005,
+        "cipher": "chacha20-ietf-poly1305",
+        "password": "1ed4dd9b-8259-46bb-827f-ed35358f2cd9",
+        "udp": true
+      }
     },
     {
       "name": "🇦🇪 阿联酋",
@@ -550,7 +1024,14 @@
       "port": 21006,
       "region_code": "OTHER",
       "region_label": "其他",
-      "raw": {}
+      "raw": {
+        "type": "ss",
+        "server": "ft-qt-xygh-by.51feitu.com",
+        "port": 21006,
+        "cipher": "chacha20-ietf-poly1305",
+        "password": "1ed4dd9b-8259-46bb-827f-ed35358f2cd9",
+        "udp": true
+      }
     },
     {
       "name": "🇬🇧 英国",
@@ -559,7 +1040,14 @@
       "port": 21007,
       "region_code": "UK",
       "region_label": "英国",
-      "raw": {}
+      "raw": {
+        "type": "ss",
+        "server": "ft-qt-xygh-by.51feitu.com",
+        "port": 21007,
+        "cipher": "chacha20-ietf-poly1305",
+        "password": "1ed4dd9b-8259-46bb-827f-ed35358f2cd9",
+        "udp": true
+      }
     },
     {
       "name": "🇫🇷 法国",
@@ -568,7 +1056,14 @@
       "port": 21008,
       "region_code": "FR",
       "region_label": "法国",
-      "raw": {}
+      "raw": {
+        "type": "ss",
+        "server": "ft-qt-xygh-by.51feitu.com",
+        "port": 21008,
+        "cipher": "chacha20-ietf-poly1305",
+        "password": "1ed4dd9b-8259-46bb-827f-ed35358f2cd9",
+        "udp": true
+      }
     },
     {
       "name": "🇩🇪 德国",
@@ -577,7 +1072,14 @@
       "port": 21009,
       "region_code": "DE",
       "region_label": "德国",
-      "raw": {}
+      "raw": {
+        "type": "ss",
+        "server": "ft-qt-xygh-by.51feitu.com",
+        "port": 21009,
+        "cipher": "chacha20-ietf-poly1305",
+        "password": "1ed4dd9b-8259-46bb-827f-ed35358f2cd9",
+        "udp": true
+      }
     },
     {
       "name": "🇳🇱 荷兰",
@@ -586,7 +1088,14 @@
       "port": 21010,
       "region_code": "NL",
       "region_label": "荷兰",
-      "raw": {}
+      "raw": {
+        "type": "ss",
+        "server": "ft-qt-xygh-by.51feitu.com",
+        "port": 21010,
+        "cipher": "chacha20-ietf-poly1305",
+        "password": "1ed4dd9b-8259-46bb-827f-ed35358f2cd9",
+        "udp": true
+      }
     },
     {
       "name": "🇲🇾 马来西亚",
@@ -595,7 +1104,14 @@
       "port": 21011,
       "region_code": "MY",
       "region_label": "马来西亚",
-      "raw": {}
+      "raw": {
+        "type": "ss",
+        "server": "ft-qt-xygh-by.51feitu.com",
+        "port": 21011,
+        "cipher": "chacha20-ietf-poly1305",
+        "password": "1ed4dd9b-8259-46bb-827f-ed35358f2cd9",
+        "udp": true
+      }
     },
     {
       "name": "🇫🇮 芬兰",
@@ -604,7 +1120,14 @@
       "port": 21012,
       "region_code": "OTHER",
       "region_label": "其他",
-      "raw": {}
+      "raw": {
+        "type": "ss",
+        "server": "ft-qt-xygh-by.51feitu.com",
+        "port": 21012,
+        "cipher": "chacha20-ietf-poly1305",
+        "password": "1ed4dd9b-8259-46bb-827f-ed35358f2cd9",
+        "udp": true
+      }
     },
     {
       "name": "🇦🇷 阿根廷",
@@ -613,7 +1136,14 @@
       "port": 21013,
       "region_code": "OTHER",
       "region_label": "其他",
-      "raw": {}
+      "raw": {
+        "type": "ss",
+        "server": "ft-qt-xygh-by.51feitu.com",
+        "port": 21013,
+        "cipher": "chacha20-ietf-poly1305",
+        "password": "1ed4dd9b-8259-46bb-827f-ed35358f2cd9",
+        "udp": true
+      }
     },
     {
       "name": "🇹🇭 泰国",
@@ -622,7 +1152,14 @@
       "port": 21014,
       "region_code": "TH",
       "region_label": "泰国",
-      "raw": {}
+      "raw": {
+        "type": "ss",
+        "server": "ft-qt-xygh-by.51feitu.com",
+        "port": 21014,
+        "cipher": "chacha20-ietf-poly1305",
+        "password": "1ed4dd9b-8259-46bb-827f-ed35358f2cd9",
+        "udp": true
+      }
     },
     {
       "name": "🇮🇳 印度",
@@ -631,7 +1168,14 @@
       "port": 21015,
       "region_code": "IN",
       "region_label": "印度",
-      "raw": {}
+      "raw": {
+        "type": "ss",
+        "server": "ft-qt-xygh-by.51feitu.com",
+        "port": 21015,
+        "cipher": "chacha20-ietf-poly1305",
+        "password": "1ed4dd9b-8259-46bb-827f-ed35358f2cd9",
+        "udp": true
+      }
     },
     {
       "name": "🇻🇳 越南",
@@ -640,7 +1184,14 @@
       "port": 21016,
       "region_code": "VN",
       "region_label": "越南",
-      "raw": {}
+      "raw": {
+        "type": "ss",
+        "server": "ft-qt-xygh-by.51feitu.com",
+        "port": 21016,
+        "cipher": "chacha20-ietf-poly1305",
+        "password": "1ed4dd9b-8259-46bb-827f-ed35358f2cd9",
+        "udp": true
+      }
     },
     {
       "name": "🇰🇷 韩国",
@@ -649,7 +1200,14 @@
       "port": 21017,
       "region_code": "KR",
       "region_label": "韩国",
-      "raw": {}
+      "raw": {
+        "type": "ss",
+        "server": "ft-qt-xygh-by.51feitu.com",
+        "port": 21017,
+        "cipher": "chacha20-ietf-poly1305",
+        "password": "1ed4dd9b-8259-46bb-827f-ed35358f2cd9",
+        "udp": true
+      }
     },
     {
       "name": "🇮🇸 冰岛",
@@ -658,7 +1216,14 @@
       "port": 21018,
       "region_code": "OTHER",
       "region_label": "其他",
-      "raw": {}
+      "raw": {
+        "type": "ss",
+        "server": "ft-qt-xygh-by.51feitu.com",
+        "port": 21018,
+        "cipher": "chacha20-ietf-poly1305",
+        "password": "1ed4dd9b-8259-46bb-827f-ed35358f2cd9",
+        "udp": true
+      }
     },
     {
       "name": "🇦🇺 澳大利亚",
@@ -667,7 +1232,14 @@
       "port": 21019,
       "region_code": "AU",
       "region_label": "澳大利亚",
-      "raw": {}
+      "raw": {
+        "type": "ss",
+        "server": "ft-qt-xygh-by.51feitu.com",
+        "port": 21019,
+        "cipher": "chacha20-ietf-poly1305",
+        "password": "1ed4dd9b-8259-46bb-827f-ed35358f2cd9",
+        "udp": true
+      }
     },
     {
       "name": "🇧🇷 巴西",
@@ -676,7 +1248,14 @@
       "port": 21020,
       "region_code": "BR",
       "region_label": "巴西",
-      "raw": {}
+      "raw": {
+        "type": "ss",
+        "server": "ft-qt-xygh-by.51feitu.com",
+        "port": 21020,
+        "cipher": "chacha20-ietf-poly1305",
+        "password": "1ed4dd9b-8259-46bb-827f-ed35358f2cd9",
+        "udp": true
+      }
     },
     {
       "name": "🇮🇩 印度尼西亚",
@@ -685,7 +1264,14 @@
       "port": 21021,
       "region_code": "IN",
       "region_label": "印度",
-      "raw": {}
+      "raw": {
+        "type": "ss",
+        "server": "ft-qt-xygh-by.51feitu.com",
+        "port": 21021,
+        "cipher": "chacha20-ietf-poly1305",
+        "password": "1ed4dd9b-8259-46bb-827f-ed35358f2cd9",
+        "udp": true
+      }
     },
     {
       "name": "🇭🇺 匈牙利",
@@ -694,7 +1280,14 @@
       "port": 21023,
       "region_code": "OTHER",
       "region_label": "其他",
-      "raw": {}
+      "raw": {
+        "type": "ss",
+        "server": "ft-qt-xygh-by.51feitu.com",
+        "port": 21023,
+        "cipher": "chacha20-ietf-poly1305",
+        "password": "1ed4dd9b-8259-46bb-827f-ed35358f2cd9",
+        "udp": true
+      }
     },
     {
       "name": "🇰🇭 柬埔寨",
@@ -703,7 +1296,14 @@
       "port": 21024,
       "region_code": "OTHER",
       "region_label": "其他",
-      "raw": {}
+      "raw": {
+        "type": "ss",
+        "server": "ft-qt-xygh-by.51feitu.com",
+        "port": 21024,
+        "cipher": "chacha20-ietf-poly1305",
+        "password": "1ed4dd9b-8259-46bb-827f-ed35358f2cd9",
+        "udp": true
+      }
     },
     {
       "name": "🇺🇦 乌克兰",
@@ -712,7 +1312,14 @@
       "port": 21025,
       "region_code": "OTHER",
       "region_label": "其他",
-      "raw": {}
+      "raw": {
+        "type": "ss",
+        "server": "ft-qt-xygh-by.51feitu.com",
+        "port": 21025,
+        "cipher": "chacha20-ietf-poly1305",
+        "password": "1ed4dd9b-8259-46bb-827f-ed35358f2cd9",
+        "udp": true
+      }
     },
     {
       "name": "🇲🇽 墨西哥",
@@ -721,7 +1328,14 @@
       "port": 21026,
       "region_code": "OTHER",
       "region_label": "其他",
-      "raw": {}
+      "raw": {
+        "type": "ss",
+        "server": "ft-qt-xygh-by.51feitu.com",
+        "port": 21026,
+        "cipher": "chacha20-ietf-poly1305",
+        "password": "1ed4dd9b-8259-46bb-827f-ed35358f2cd9",
+        "udp": true
+      }
     },
     {
       "name": "🇿🇦 南非",
@@ -730,7 +1344,14 @@
       "port": 21027,
       "region_code": "OTHER",
       "region_label": "其他",
-      "raw": {}
+      "raw": {
+        "type": "ss",
+        "server": "ft-qt-xygh-by.51feitu.com",
+        "port": 21027,
+        "cipher": "chacha20-ietf-poly1305",
+        "password": "1ed4dd9b-8259-46bb-827f-ed35358f2cd9",
+        "udp": true
+      }
     },
     {
       "name": "🇵🇭 菲律宾",
@@ -739,7 +1360,14 @@
       "port": 21028,
       "region_code": "PH",
       "region_label": "菲律宾",
-      "raw": {}
+      "raw": {
+        "type": "ss",
+        "server": "ft-qt-xygh-by.51feitu.com",
+        "port": 21028,
+        "cipher": "chacha20-ietf-poly1305",
+        "password": "1ed4dd9b-8259-46bb-827f-ed35358f2cd9",
+        "udp": true
+      }
     },
     {
       "name": "🇪🇬 埃及",
@@ -748,7 +1376,14 @@
       "port": 21029,
       "region_code": "OTHER",
       "region_label": "其他",
-      "raw": {}
+      "raw": {
+        "type": "ss",
+        "server": "ft-qt-xygh-by.51feitu.com",
+        "port": 21029,
+        "cipher": "chacha20-ietf-poly1305",
+        "password": "1ed4dd9b-8259-46bb-827f-ed35358f2cd9",
+        "udp": true
+      }
     },
     {
       "name": "🇨🇿 捷克",
@@ -757,7 +1392,14 @@
       "port": 21031,
       "region_code": "OTHER",
       "region_label": "其他",
-      "raw": {}
+      "raw": {
+        "type": "ss",
+        "server": "ft-qt-xygh-by.51feitu.com",
+        "port": 21031,
+        "cipher": "chacha20-ietf-poly1305",
+        "password": "1ed4dd9b-8259-46bb-827f-ed35358f2cd9",
+        "udp": true
+      }
     }
   ],
   "servers": {

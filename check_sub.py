@@ -1,11 +1,36 @@
 # -*- coding: utf-8 -*-
-import sys, json
+import sys, json, ssl
 from pathlib import Path
+from urllib.request import Request, urlopen
+
 sys.path.insert(0, 'd:\\pythonProject\\auto_sell_systemV6 - 正在更新\\multi_tunnel')
-from sub_parser import fetch_subscription
+from sub_parser import parse_subscription_text
 
 url = 'https://ft-5jki2k6d.tutunode.com/gateway/feitu?token=c3f4ab56beeaceb2b7e9df121c7fb1c4'
-result = fetch_subscription(url)
+RAW_CACHE = Path('check_sub_raw.txt')
+
+raw = None
+# 尝试从 URL 获取
+try:
+    ctx = ssl._create_unverified_context()
+    req = Request(url, headers={'User-Agent': 'ClashForWindows/0.20.0', 'Accept': '*/*'})
+    resp = urlopen(req, context=ctx, timeout=20)
+    raw = resp.read().decode('utf-8').strip()
+    RAW_CACHE.write_text(raw, encoding='utf-8')
+    print(f'[fetch] 订阅获取成功，已缓存至 {RAW_CACHE}')
+except Exception as e:
+    print(f'[fetch] 订阅获取失败: {e}')
+    if RAW_CACHE.exists():
+        raw = RAW_CACHE.read_text(encoding='utf-8')
+        print(f'[fetch] 使用缓存文本 {RAW_CACHE}')
+
+if not raw:
+    Path('check_sub_result.txt').write_text('ERROR: 无法获取订阅且无缓存', encoding='utf-8')
+    print('ERROR: 无法获取订阅')
+    sys.exit(1)
+
+result = parse_subscription_text(raw)
+result['url'] = url
 
 out = Path('check_sub_result.txt')
 lines = []
