@@ -621,8 +621,10 @@ class OutboundDispatcher:
                         ex.exit_ip = ip
                     ex._ip_detect_failures = 0  # 连通成功，重置失败计数
                     return True  # 连通即成功，不管 IP 是否变化
+            except (httpx.ConnectError, httpx.ConnectTimeout, httpx.ProxyError):
+                break  # 代理连接失败，节点不通，无需尝试其他服务
             except Exception:
-                continue  # 换下一个服务
+                continue  # 网络波动等，尝试下一个服务
         # 所有服务均失败
         if not ex.is_direct:
             ex._ip_detect_failures += 1
@@ -650,15 +652,15 @@ class OutboundDispatcher:
         if not failed:
             return
 
-        logger.info(f"[Dispatcher] IP检测第一轮: {len(failed)} 个出口失败，30秒后重试")
-        await asyncio.sleep(30)
+        logger.info(f"[Dispatcher] IP检测第一轮: {len(failed)} 个出口失败，5秒后重试")
+        await asyncio.sleep(5)
 
         # 第二轮：只对失败出口重试
         retry_results = await asyncio.gather(*[_probe(ex) for ex in failed], return_exceptions=True)
 
-        # 两轮均失败 → 标记死节点下线
+        # 两轮均失败 → 标记死节点下线（不依赖_ever_healthy，新节点也适用）
         for ex, r in zip(failed, retry_results):
-            if not (isinstance(r, bool) and r) and ex.healthy and not ex.is_direct and ex._ever_healthy:
+            if not (isinstance(r, bool) and r) and ex.healthy and not ex.is_direct:
                 ex.healthy = False
                 logger.warning(f"[Dispatcher] 死节点: {ex.name} 两轮IP检测均失败，标记下线")
 
