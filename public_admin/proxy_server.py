@@ -279,6 +279,8 @@ async def startup():
 
     # 自动恢复上次保存的节点配置
     await _restore_dispatcher_exits()
+    # 节点全部加载完毕后触发一次IP检测（fire-and-forget，不阻塞启动）
+    asyncio.create_task(dispatcher.detect_all_ips())
 
 
 

@@ -290,8 +290,6 @@ class OutboundDispatcher:
         if len(self.exits) > 1:
             self._health_task = self._safe_create_task(self._health_check_loop(), "health_check_loop")
             logger.info("[Dispatcher] 健康检查已启动")
-        # 启动后延迟做一次初始全量IP检测
-        self._safe_create_task(self._initial_ip_detect(), "initial_ip_detect")
         # 启动每日凌晨4点定时IP检测任务
         self._safe_create_task(self._scheduled_ip_detect_loop(), "scheduled_ip_detect")
         logger.info(f"[Dispatcher] 调度器就绪: {len(self.exits)} 个出口")
