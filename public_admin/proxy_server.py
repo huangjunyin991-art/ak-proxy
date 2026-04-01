@@ -1446,7 +1446,8 @@ async def api_dispatcher_apply_sub(request: Request):
     
     servers_dict = data.get("servers")  # 服务器分组
 
-    selected_servers = data.get("selected_servers", [])  # [{server, name}]
+    selected_servers = data.get("selected_servers", [])  # [{server, name}] (旧格式，兼容保留)
+    selected_node_indices = data.get("selected_node_indices")  # [int] 按节点索引选择（新格式）
 
     base_port = int(data.get("base_port", 10001))
 
@@ -1496,9 +1497,25 @@ async def api_dispatcher_apply_sub(request: Request):
 
 
 
-    if selected_servers:
+    if selected_node_indices is not None:
 
-        # 前端指定了要添加的服务器列表，每个服务器取其下所有节点（独立出口）
+        # 新格式：前端按节点索引选择
+
+        nodes_to_add = []
+
+        for idx in selected_node_indices:
+
+            if 0 <= idx < len(all_nodes):
+
+                node = dict(all_nodes[idx])
+
+                node["display_name"] = node.get("name") or f"{node.get('region_label', '')}节点{len(nodes_to_add)+1}"
+
+                nodes_to_add.append(node)
+
+    elif selected_servers:
+
+        # 旧格式兑容：前端指定了服务器列表，每个服务器取其下所有节点
 
         selected_set = {s["server"] for s in selected_servers}
 

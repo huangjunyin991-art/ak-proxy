@@ -5685,15 +5685,13 @@
                 `<span style="background:var(--bg-secondary);padding:2px 8px;border-radius:10px;font-size:11px;">${info.label} ×${info.count}</span>`
             ).join(' ');
 
-            const serverEntries = Object.entries(data.servers || {});
-            const nodesHtml = serverEntries.map(([server, indices], si) => {
-                const firstNode = data.nodes[indices[0]];
-                return `<label style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border);font-size:12px;cursor:pointer;">
-                    <input type="checkbox" class="lb-sub-node" data-server="${server}" data-name="${firstNode.region_label}服务器${si+1}" data-type="${firstNode.type}" checked style="accent-color:var(--accent);">
+            const nodesHtml = (data.nodes || []).map((node, ni) => {
+                const label = node.name || `${node.region_label || ''}节点${ni+1}`;
+                return `<label style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--border);font-size:12px;cursor:pointer;">
+                    <input type="checkbox" class="lb-sub-node" data-index="${ni}" data-server="${node.server}" data-port="${node.port}" data-name="${label}" checked style="accent-color:var(--accent);">
                     <span style="flex:1;">
-                        <strong>${firstNode.region_label}服务器${si+1}</strong>
-                        <span style="color:var(--text-secondary);margin-left:6px;">${firstNode.type.toUpperCase()} | ${server}:${firstNode.port}</span>
-                        ${indices.length > 1 ? `<span style="color:var(--accent);margin-left:4px;">(${indices.length}节点)</span>` : ''}
+                        <strong style="font-size:11px;">${label}</strong>
+                        <span style="color:var(--text-secondary);margin-left:6px;font-size:11px;">${(node.type||'').toUpperCase()} | ${node.server}:${node.port}</span>
                     </span>
                 </label>`;
             }).join('');
@@ -5705,7 +5703,7 @@
                         唯一服务器: <strong style="color:var(--accent-green);">${data.unique_servers}</strong></div>
                     <div style="display:flex;gap:4px;flex-wrap:wrap;">${regionHtml}</div>
                 </div>
-                <div style="font-size:12px;color:var(--text-secondary);margin-bottom:4px;">勾选要添加的服务器：</div>
+                <div style="font-size:12px;color:var(--text-secondary);margin-bottom:4px;">勾选要添加的节点（共 ${(data.nodes||[]).length} 个）：</div>
                 <div style="max-height:220px;overflow-y:auto;margin-bottom:8px;border:1px solid var(--border);border-radius:6px;padding:4px 8px;">
                     ${nodesHtml}
                 </div>
@@ -5724,10 +5722,10 @@
             const msgEl = document.getElementById('lbSubAddMsg');
             msgEl.textContent = '正在应用: 生成配置 → 重载sing-box → 注册出口...';
 
-            // 收集选中的服务器信息
-            const selected_servers = [];
+            // 收集选中的节点索引
+            const selected_node_indices = [];
             checks.forEach(chk => {
-                selected_servers.push({ server: chk.dataset.server, name: chk.dataset.name });
+                selected_node_indices.push(parseInt(chk.dataset.index));
             });
 
             // 获取订阅源 (从弹窗的输入框)
@@ -5737,7 +5735,7 @@
             try {
                 const res = await fetch(`${API_BASE}/api/dispatcher/apply_sub`, {
                     method: 'POST', headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ url, text, selected_servers, base_port: basePort })
+                    body: JSON.stringify({ url, text, selected_node_indices, base_port: basePort })
                 });
                 const data = await res.json();
                 if (data.success) {
