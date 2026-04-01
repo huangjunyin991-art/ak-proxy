@@ -311,8 +311,8 @@ class OutboundDispatcher:
         logger.info("[Dispatcher] 调度器已停止，所有连接已关闭")
 
     async def _initial_ip_detect(self):
-        """启动后延迟2秒执行一次全量IP检测"""
-        await asyncio.sleep(2)
+        """启动后延迟30秒执行一次全量IP检测（等待_restore_dispatcher_exits完成且sing-box预热）"""
+        await asyncio.sleep(30)
         try:
             await self.detect_all_ips()
         except Exception as e:
