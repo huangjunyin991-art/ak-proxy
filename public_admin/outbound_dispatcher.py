@@ -639,11 +639,10 @@ class OutboundDispatcher:
 
         async def _probe(ex: OutboundExit) -> bool:
             async with sem:
+                ex.exit_ip = ""  # 轮到自己时才清空，已检测完的立即显示，未排到的保持旧值
                 return await self._detect_exit_ip(ex)
 
-        # 第一轮：重置所有IP并并发检测
-        for ex in self.exits:
-            ex.exit_ip = ""
+        # 第一轮：并发检测（逐个清空、逐个更新，前端实时可见）
         results = await asyncio.gather(*[_probe(ex) for ex in self.exits], return_exceptions=True)
 
         # 找出第一轮失败的出口
