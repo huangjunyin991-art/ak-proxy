@@ -1451,7 +1451,9 @@ async def api_dispatcher_apply_sub(request: Request):
 
     base_port = int(data.get("base_port", 10001))
 
-
+    # text 输入框误粘 URL 时自动识别
+    if not url and text and (text.startswith("http://") or text.startswith("https://")):
+        url, text = text, ""
 
     # 1) 解析订阅或使用已解析的节点
 
