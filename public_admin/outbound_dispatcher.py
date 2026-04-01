@@ -597,12 +597,12 @@ class OutboundDispatcher:
     async def _detect_exit_ip(self, ex: OutboundExit) -> bool:
         """通过外部服务检测出口的公网IP（复用持久连接），返回 True 表示本次探测成功"""
         IP_SERVICES = [
-            "http://ip.3322.net",
-            "http://members.3322.org/dyndns/getip",
+            "https://httpbin.org/ip",
+            "https://api4.ipify.org",
+            "https://ipv4.icanhazip.com",
             "https://api.ip.sb/ip",
-            "http://httpbin.org/ip",
             "https://ifconfig.me/ip",
-            "https://icanhazip.com",
+            "http://ip.3322.net",
         ]
         try:
             client = await ex.get_client()
@@ -610,7 +610,7 @@ class OutboundDispatcher:
             return False
         for svc in IP_SERVICES:
             try:
-                resp = await client.get(svc, timeout=httpx.Timeout(4, connect=3))
+                resp = await client.get(svc, timeout=httpx.Timeout(2, connect=1.5))
                 if resp.status_code == 200:
                     text = resp.text.strip()
                     # httpbin 返回 JSON {"origin": "x.x.x.x"}
@@ -635,7 +635,7 @@ class OutboundDispatcher:
 
     async def detect_all_ips(self):
         """全量IP检测：两轮检测，两轮均失败才标记死节点下线（Semaphore=10 限并发）"""
-        sem = asyncio.Semaphore(10)
+        sem = asyncio.Semaphore(20)
 
         async def _probe(ex: OutboundExit) -> bool:
             async with sem:
