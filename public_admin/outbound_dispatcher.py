@@ -235,6 +235,7 @@ class OutboundDispatcher:
         self._health_task: Optional[asyncio.Task] = None
         self._started = False
         self._rr_counter: int = 0
+        self.alert_callback = None  # Optional[Callable[[str,str,int,str], Awaitable]]
 
     def _safe_create_task(self, coro, name: str = ""):
         """创建异步任务并捕获未处理异常（防止静默丢失）"""
@@ -497,6 +498,12 @@ class OutboundDispatcher:
                 f"出口={exit_obj.name} | API={api_path} | "
                 f"该出口累计: 403×{exit_obj.warn_403} 429×{exit_obj.warn_429}"
             )
+            # 持久化回调（由 proxy_server 注入，dispatcher 本身不依赖 db）
+            if self.alert_callback is not None:
+                self._safe_create_task(
+                    self.alert_callback(exit_obj.name, exit_obj.exit_ip, status_code, api_path),
+                    f"alert_cb_{exit_obj.name}"
+                )
 
     # ===== 健康检查 =====
 

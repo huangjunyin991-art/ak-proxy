@@ -5865,25 +5865,48 @@
 
         async function lbShowErrorLogs(index, name) {
             try {
-                const res = await fetch(`${API_BASE}/api/dispatcher/logs/${index}`);
-                const data = await res.json();
-                const logs = data.logs || [];
-                let logsHtml;
-                if (logs.length === 0) {
-                    logsHtml = '<div style="color:var(--text-secondary);text-align:center;padding:20px;">暂无错误日志</div>';
-                } else {
-                    logsHtml = logs.map(l =>
-                        `<div style="display:flex;gap:8px;padding:4px 0;border-bottom:1px solid var(--border);font-size:12px;font-family:monospace;">
+                const [logsRes, eventsRes] = await Promise.all([
+                    fetch(`${API_BASE}/api/dispatcher/logs/${index}`),
+                    fetch(`${API_BASE}/api/dispatcher/events?exit_name=${encodeURIComponent(name)}&hours=72&limit=100`)
+                ]);
+                const logsData = await logsRes.json();
+                const eventsData = await eventsRes.json();
+                const logs = logsData.logs || [];
+                const events = eventsData.events || [];
+
+                const logsHtml = logs.length === 0
+                    ? '<div style="color:var(--text-secondary);text-align:center;padding:20px;">暂无连接错误</div>'
+                    : logs.map(l => `<div style="display:flex;gap:8px;padding:4px 0;border-bottom:1px solid var(--border);font-size:12px;font-family:monospace;">
                             <span style="color:var(--text-secondary);white-space:nowrap;">${l.time}</span>
                             <span style="color:#ff4757;word-break:break-all;">${l.msg}</span>
-                        </div>`
-                    ).reverse().join('');
-                }
+                        </div>`).reverse().join('');
+
+                const eventsHtml = events.length === 0
+                    ? '<div style="color:var(--text-secondary);text-align:center;padding:20px;">近72小时无风控事件</div>'
+                    : events.map(e => {
+                        const color = e.status_code === 403 ? '#ff4757' : '#ffa502';
+                        return `<div style="display:flex;gap:8px;padding:4px 0;border-bottom:1px solid var(--border);font-size:12px;font-family:monospace;align-items:center;">
+                            <span style="color:var(--text-secondary);white-space:nowrap;">${e.ts}</span>
+                            <span style="color:${color};font-weight:bold;white-space:nowrap;">${e.status_code}</span>
+                            <span style="color:var(--text-secondary);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${e.api_path}">${e.api_path}</span>
+                        </div>`;
+                    }).join('');
+
                 const content = `
-                    <div style="font-size:13px;margin-bottom:8px;color:var(--text-secondary);">出口 #${index} | ${name} | 共 ${logs.length} 条错误</div>
-                    <div style="max-height:350px;overflow-y:auto;">${logsHtml}</div>
+                    <div style="display:flex;gap:8px;margin-bottom:10px;">
+                        <button onclick="this.parentNode.querySelectorAll('button').forEach(b=>b.style.background='var(--bg-secondary)');this.style.background='rgba(0,212,255,0.15)';document.getElementById('lbLogTab1').style.display='block';document.getElementById('lbLogTab2').style.display='none';"
+                            style="flex:1;padding:6px;border-radius:6px;border:1px solid var(--border);background:rgba(0,212,255,0.15);color:var(--accent);cursor:pointer;font-size:12px;">
+                            🔌 连接错误 (${logs.length})
+                        </button>
+                        <button onclick="this.parentNode.querySelectorAll('button').forEach(b=>b.style.background='var(--bg-secondary)');this.style.background='rgba(255,71,87,0.15)';document.getElementById('lbLogTab1').style.display='none';document.getElementById('lbLogTab2').style.display='block';"
+                            style="flex:1;padding:6px;border-radius:6px;border:1px solid var(--border);background:var(--bg-secondary);color:#ff4757;cursor:pointer;font-size:12px;">
+                            ⚠️ 风控事件 (${events.length})
+                        </button>
+                    </div>
+                    <div id="lbLogTab1" style="max-height:320px;overflow-y:auto;">${logsHtml}</div>
+                    <div id="lbLogTab2" style="max-height:320px;overflow-y:auto;display:none;">${eventsHtml}</div>
                 `;
-                showModal(`📋 错误日志 - ${name}`, content, () => closeModal(), '关闭');
+                showModal(`📋 日志 - ${name}`, content, () => closeModal(), '关闭');
             } catch (e) {
                 showToast('获取日志失败: ' + e.message, 'error');
             }

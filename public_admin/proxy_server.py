@@ -264,7 +264,10 @@ async def startup():
     # 启动出口调度器
 
     await dispatcher.start()
-    
+
+    # 注入403/429持久化回调
+    dispatcher.alert_callback = db.insert_exit_event
+
     # 自动恢复上次保存的节点配置
     await _restore_dispatcher_exits()
 
@@ -1354,6 +1357,18 @@ async def api_dispatcher_start_singbox():
         return {"success": True, "message": "sing-box 已启动/重载"}
     except Exception as e:
         return {"success": False, "message": f"启动失败: {str(e)}"}
+
+
+@app.get("/api/dispatcher/events")
+async def api_dispatcher_events(exit_name: str = None, status_code: int = None,
+                                 hours: int = 24, limit: int = 200):
+    """查询403/429风控事件，支持按出口名/状态码/时间范围过滤"""
+    try:
+        rows = await db.query_exit_events(exit_name=exit_name, status_code=status_code,
+                                          hours=hours, limit=limit)
+        return {"events": rows, "total": len(rows)}
+    except Exception as e:
+        return {"events": [], "total": 0, "error": str(e)}
 
 
 @app.get("/api/dispatcher/logs/{index}")

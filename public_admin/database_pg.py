@@ -350,6 +350,20 @@ async def init_db(host: str = "127.0.0.1", port: int = 5432,
         except Exception:
             pass
 
+        # 出口风控事件表（403/429 持久化）
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS exit_events (
+                id BIGSERIAL PRIMARY KEY,
+                exit_name TEXT NOT NULL,
+                exit_ip   TEXT DEFAULT '',
+                status_code INTEGER NOT NULL,
+                api_path TEXT DEFAULT '',
+                ts TIMESTAMP DEFAULT NOW()
+            )
+        ''')
+        await conn.execute('CREATE INDEX IF NOT EXISTS idx_exit_events_name ON exit_events(exit_name)')
+        await conn.execute('CREATE INDEX IF NOT EXISTS idx_exit_events_ts ON exit_events(ts)')
+
         # 创建索引
         await conn.execute('CREATE INDEX IF NOT EXISTS idx_sub_groups_created_by ON subscription_groups(created_by)')
         await conn.execute('CREATE INDEX IF NOT EXISTS idx_login_username ON login_records(username)')
@@ -1609,6 +1623,54 @@ async def clear_all_subscription_groups() -> bool:
         except Exception as e:
             logger.error(f"[DB] 清除订阅组失败: {e}")
             return False
+
+
+# ===== 出口风控事件 =====
+
+async def insert_exit_event(exit_name: str, exit_ip: str, status_code: int, api_path: str = "") -> None:
+    """异步写入一条403/429事件，失败静默忽略"""
+    pool = _get_pool()
+    try:
+        async with pool.acquire() as conn:
+            await conn.execute(
+                'INSERT INTO exit_events (exit_name, exit_ip, status_code, api_path) VALUES ($1,$2,$3,$4)',
+                exit_name, exit_ip or "", status_code, api_path
+            )
+    except Exception as e:
+        logger.debug(f"[DB] exit_event写入失败: {e}")
+
+
+async def query_exit_events(exit_name: str = None, status_code: int = None,
+                             hours: int = 24, limit: int = 200) -> List[Dict]:
+    """查询出口风控事件，支持按出口名、状态码、时间范围过滤"""
+    pool = _get_pool()
+    conditions = ["ts >= NOW() - INTERVAL '" + str(hours) + " hours'"]
+    params: list = []
+    if exit_name:
+        params.append(exit_name)
+        conditions.append(f"exit_name = ${len(params)}")
+    if status_code:
+        params.append(status_code)
+        conditions.append(f"status_code = ${len(params)}")
+    where = " AND ".join(conditions)
+    params.append(limit)
+    sql = f"SELECT id,exit_name,exit_ip,status_code,api_path,ts FROM exit_events WHERE {where} ORDER BY ts DESC LIMIT ${len(params)}"
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(sql, *params)
+        return [{**dict(r), "ts": r["ts"].strftime("%m-%d %H:%M:%S")} for r in rows]
+
+
+async def cleanup_exit_events(days: int = 30) -> int:
+    """清理超过 days 天的旧事件，返回删除行数"""
+    pool = _get_pool()
+    async with pool.acquire() as conn:
+        result = await conn.execute(
+            f"DELETE FROM exit_events WHERE ts < NOW() - INTERVAL '{days} days'"
+        )
+        deleted = int(result.split()[-1])
+        if deleted > 0:
+            logger.info(f"[DB] 清理旧exit_events: {deleted} 条")
+        return deleted
 
 
 async def get_all_sub_admin_credits() -> List[Dict]:
