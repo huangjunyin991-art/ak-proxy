@@ -634,13 +634,36 @@ class OutboundDispatcher:
         return False
 
     async def detect_all_ips(self):
-        """手动触发所有出口的IP检测（Semaphore限制并发=10，避免挤占出口连接）"""
+        """全量IP检测：两轮检测，两轮均失败才标记死节点下线（Semaphore=10 限并发）"""
         sem = asyncio.Semaphore(10)
-        async def _bounded(ex: OutboundExit):
+
+        async def _probe(ex: OutboundExit) -> bool:
             async with sem:
-                ex.exit_ip = ""  # 强制重置，确保重新检测
-                await self._detect_exit_ip(ex)
-        await asyncio.gather(*[_bounded(ex) for ex in self.exits], return_exceptions=True)
+                return await self._detect_exit_ip(ex)
+
+        # 第一轮：重置所有IP并并发检测
+        for ex in self.exits:
+            ex.exit_ip = ""
+        results = await asyncio.gather(*[_probe(ex) for ex in self.exits], return_exceptions=True)
+
+        # 找出第一轮失败的出口
+        failed = [ex for ex, r in zip(self.exits, results)
+                  if not (isinstance(r, bool) and r)]
+
+        if not failed:
+            return
+
+        logger.info(f"[Dispatcher] IP检测第一轮: {len(failed)} 个出口失败，30秒后重试")
+        await asyncio.sleep(30)
+
+        # 第二轮：只对失败出口重试
+        retry_results = await asyncio.gather(*[_probe(ex) for ex in failed], return_exceptions=True)
+
+        # 两轮均失败 → 标记死节点下线
+        for ex, r in zip(failed, retry_results):
+            if not (isinstance(r, bool) and r) and ex.healthy and not ex.is_direct and ex._ever_healthy:
+                ex.healthy = False
+                logger.warning(f"[Dispatcher] 死节点: {ex.name} 两轮IP检测均失败，标记下线")
 
     # ===== 状态查询 =====
 
