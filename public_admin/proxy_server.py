@@ -1323,6 +1323,39 @@ async def api_dispatcher_detect_ips():
 
 
 
+@app.post("/api/dispatcher/rate_limit")
+async def api_dispatcher_rate_limit(request: Request):
+    """设置指定出口的速率限制（req/min），0=不限速"""
+    data = await request.json()
+    index = data.get("index")
+    limit = data.get("limit", 0)
+    if index is None:
+        return {"success": False, "message": "需要 index"}
+    ok = dispatcher.set_rate_limit(int(index), int(limit))
+    msg = f"出口 #{index} 限速已设置: {limit or '不限速'}" if limit else f"出口 #{index} 限速已解除"
+    return {"success": ok, "message": msg if ok else f"出口 #{index} 不存在"}
+
+
+@app.post("/api/dispatcher/max_login")
+async def api_dispatcher_max_login(request: Request):
+    """动态调整每出口每分钟最大登录次数"""
+    data = await request.json()
+    value = data.get("value", 10)
+    ok = dispatcher.set_max_login_per_min(int(value))
+    return {"success": ok, "message": f"登录限额已调整为 {value}/min" if ok else "值无效（须≥1）"}
+
+
+@app.post("/api/dispatcher/start_singbox")
+async def api_dispatcher_start_singbox():
+    """手动启动 sing-box 服务"""
+    import singbox_manager as sbm
+    try:
+        sbm.reload_service()
+        return {"success": True, "message": "sing-box 已启动/重载"}
+    except Exception as e:
+        return {"success": False, "message": f"启动失败: {str(e)}"}
+
+
 @app.get("/api/dispatcher/logs/{index}")
 
 async def api_dispatcher_exit_logs(index: int):
