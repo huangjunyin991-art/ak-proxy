@@ -515,7 +515,7 @@ async def forward_request(method: str, api_path: str, content_type: str,
 
     elif api_path == "ACE_Sell":
 
-        exit_obj = await ace_sell_dispatcher.acquire()
+        exit_obj = ace_sell_dispatcher.acquire()
 
     else:
 

@@ -696,48 +696,42 @@ class OutboundDispatcher:
 class AceSellDispatcher:
     """
     ACE_Sell API 专用冷却分配器。
-    任何出口发出请求后进入 COOLDOWN 秒冷却，期间不再被分配该 API 请求。
-    所有出口均冷却时请求排队等待最早可用出口，不丢弃任何请求。
+    任何出口发出请求后进入 COOLDOWN 秒冷却，期间不再优先分配该 API 请求。
+    有可用出口时选活跃连接最少的；全部冷却时直接选冷却剩余时间最短的，不阻塞。
     """
     COOLDOWN: float = 5.0
 
     def __init__(self, dispatcher_ref: OutboundDispatcher):
         self._dispatcher = dispatcher_ref
         self._cooldowns: dict[str, float] = {}  # exit_name -> 冷却截止时间戳
-        self._lock: Optional[asyncio.Lock] = None  # 懒初始化：在 acquire() 首次调用时（正确事件循环上下文中）创建
 
-    def _available(self) -> list[OutboundExit]:
-        """返回健康、未冻结、未冷却的出口列表"""
-        now = time.time()
+    def _candidates(self) -> list[OutboundExit]:
+        """返回健康且未403冻结的出口列表"""
         return [
             ex for ex in self._dispatcher.exits
-            if (ex.healthy or ex.is_direct)
-            and not ex.is_frozen
-            and self._cooldowns.get(ex.name, 0) <= now
+            if (ex.healthy or ex.is_direct) and not ex.is_frozen
         ]
 
-    def _next_available_in(self) -> float:
-        """最早冷却结束还需等待的秒数"""
+    def acquire(self) -> OutboundExit:
+        """
+        同步选出最优出口，不阻塞：
+        1. 优先选未冷却的出口（最少活跃连接）
+        2. 全部冷却时选冷却剩余最短的出口直接使用
+        """
         now = time.time()
-        remaining = [v - now for v in self._cooldowns.values() if v > now]
-        return min(remaining, default=0)
+        candidates = self._candidates()
+        if not candidates:
+            candidates = self._dispatcher.exits  # 降级：全部出口兜底
 
-    async def acquire(self) -> OutboundExit:
-        """
-        异步获取一个可用出口（最少活跃连接策略）。
-        所有出口均冷却时阻塞等待，直到有出口冷却结束。
-        """
-        if self._lock is None:
-            self._lock = asyncio.Lock()
-        while True:
-            async with self._lock:
-                available = self._available()
-                if available:
-                    ex = min(available, key=lambda e: e.active)
-                    self._cooldowns[ex.name] = time.time() + self.COOLDOWN
-                    return ex
-            wait = self._next_available_in()
-            await asyncio.sleep(max(wait, 0.05))
+        available = [ex for ex in candidates if self._cooldowns.get(ex.name, 0) <= now]
+        if available:
+            ex = min(available, key=lambda e: e.active)
+        else:
+            # 全部冷却：选冷却剩余最短的
+            ex = min(candidates, key=lambda e: self._cooldowns.get(e.name, 0))
+
+        self._cooldowns[ex.name] = now + self.COOLDOWN
+        return ex
 
 
 # 全局单例
