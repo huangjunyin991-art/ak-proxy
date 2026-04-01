@@ -1719,6 +1719,13 @@ async def api_dispatcher_singbox_status():
     return sbm.get_service_status()
 
 
+@app.get("/api/dispatcher/full")
+async def api_dispatcher_full():
+    """合并 dispatcher 状态 + singbox 状态，减少前端轮询请求数"""
+    import singbox_manager as sbm
+    return {**dispatcher.get_status(), "singbox": sbm.get_service_status()}
+
+
 
 
 

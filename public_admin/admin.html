@@ -5412,14 +5412,11 @@
 
         async function loadLbStatus() {
             try {
-                const [dispRes, sbRes] = await Promise.all([
-                    fetch(`${API_BASE}/api/dispatcher`),
-                    fetch(`${API_BASE}/api/dispatcher/singbox_status`)
-                ]);
-                lbData = await dispRes.json();
-                renderLbStatus(lbData);
-                const sbData = await sbRes.json();
-                renderSingboxStatus(sbData);
+                const res = await fetch(`${API_BASE}/api/dispatcher/full`);
+                const data = await res.json();
+                lbData = data;
+                renderLbStatus(data);
+                renderSingboxStatus(data.singbox);
             } catch (e) {
                 console.error('加载负载均衡状态失败', e);
             }
@@ -5443,7 +5440,7 @@
 
         function startLbRefresh() {
             stopLbRefresh();
-            lbRefreshTimer = setInterval(loadLbStatus, 3000);
+            lbRefreshTimer = setInterval(loadLbStatus, 8000);
         }
 
         function stopLbRefresh() {
@@ -5919,7 +5916,7 @@
             // 启动仪表盘
             startDashboard();
             // 定时刷新统计
-            setInterval(refreshStats, 10000);
+            setInterval(refreshStats, 15000);
             // 定期验证token（每30秒检查一次是否被踢出）
             setInterval(verifyToken, 30000);
         }
