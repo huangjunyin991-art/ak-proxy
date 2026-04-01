@@ -610,7 +610,7 @@ class OutboundDispatcher:
             return False
         for svc in IP_SERVICES:
             try:
-                resp = await client.get(svc, timeout=httpx.Timeout(2, connect=1.5))
+                resp = await client.get(svc, timeout=httpx.Timeout(8, connect=5))
                 if resp.status_code == 200:
                     text = resp.text.strip()
                     # httpbin 返回 JSON {"origin": "x.x.x.x"}
