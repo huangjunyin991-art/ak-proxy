@@ -1589,10 +1589,11 @@
                             <th>密码</th>
                             <th>登录次数</th>
                             <th>状态</th>
+                            <th>操作</th>
                         </tr>
                     </thead>
                     <tbody id="usageTable">
-                        <tr><td colspan="4" style="text-align: center; color: var(--text-secondary);">加载中...</td></tr>
+                        <tr><td colspan="5" style="text-align: center; color: var(--text-secondary);">加载中...</td></tr>
                     </tbody>
                 </table>
             </div>
@@ -2198,7 +2199,30 @@
         </div>
     </div>
     </div><!-- 主内容结束 -->
-    
+
+    <!-- AK 网页浏览面板（右侧滑入，占50%宽） -->
+    <div id="akBrowserPanel" style="
+        position: fixed; top: 0; right: -55%; width: 55%; height: 100vh;
+        background: var(--bg-primary); border-left: 1px solid var(--border);
+        z-index: 1200; display: flex; flex-direction: column;
+        transition: right 0.3s ease; box-shadow: -4px 0 20px rgba(0,0,0,0.5);">
+        <!-- 标题栏 -->
+        <div style="display:flex; align-items:center; gap:10px; padding:10px 16px;
+                    background:var(--bg-card); border-bottom:1px solid var(--border); flex-shrink:0;">
+            <span id="akBrowserTitle" style="color:var(--accent); font-weight:bold; font-size:14px; flex:1;">AK 网页</span>
+            <button onclick="closeAkBrowser()" style="padding:4px 12px; border-radius:6px;
+                background:rgba(255,82,82,0.15); color:#ff5252; border:1px solid rgba(255,82,82,0.3);
+                cursor:pointer; font-size:13px;">✕ 关闭</button>
+        </div>
+        <!-- iframe -->
+        <iframe id="akBrowserFrame" src="about:blank" style="flex:1; border:none; width:100%;"
+                sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-top-navigation"></iframe>
+    </div>
+    <!-- 遮罩层 -->
+    <div id="akBrowserOverlay" onclick="closeAkBrowser()" style="
+        display:none; position:fixed; top:0; left:0; width:100%; height:100%;
+        background:rgba(0,0,0,0.4); z-index:1199;"></div>
+
     <!-- 封禁弹窗 -->
     <div class="modal" id="banModal">
         <div class="modal-content" style="max-width: 400px; border: 1px solid rgba(255,50,50,0.3);">
@@ -2758,7 +2782,7 @@
             document.getElementById('usageSearchCount').textContent =
                 `共 ${usageTotalCount} 条记录，当前显示 ${users.length} 条`;
             if (!users || users.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="4" style="text-align: center; color: var(--text-secondary);">暂无数据</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: var(--text-secondary);">暂无数据</td></tr>';
                 return;
             }
             tbody.innerHTML = users.map(user => `
@@ -2770,6 +2794,12 @@
                         <span class="badge ${user.auth_status === 'banned' ? 'danger' : user.auth_status === 'authorized' ? 'success' : 'warning'}">
                             ${user.auth_status === 'banned' ? '已封禁' : user.auth_status === 'authorized' ? '已授权' : '未授权'}
                         </span>
+                    </td>
+                    <td>
+                        <button class="btn btn-primary" style="padding:4px 12px;font-size:12px;"
+                            onclick="openAkBrowser('${user.username}')">
+                            登录
+                        </button>
                     </td>
                 </tr>
             `).join('');
@@ -6585,6 +6615,43 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                 if (floatScroll.style.display !== 'none') alignFloatScroll();
             });
         })();
+
+        // ===== AK 网页浏览面板 =====
+        async function openAkBrowser(username) {
+            const panel = document.getElementById('akBrowserPanel');
+            const overlay = document.getElementById('akBrowserOverlay');
+            const frame = document.getElementById('akBrowserFrame');
+            const title = document.getElementById('akBrowserTitle');
+            title.textContent = `正在登录 ${username}...`;
+            frame.src = 'about:blank';
+            panel.style.right = '0';
+            overlay.style.display = 'block';
+            try {
+                const res = await fetch(`${API_BASE}/admin/api/browse_login`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({username})
+                });
+                const data = await res.json();
+                if (data.success) {
+                    title.textContent = `${username} - AK 网页`;
+                    frame.src = `${API_BASE}/ak-web/?bs=${data.bs_id}`;
+                } else {
+                    title.textContent = `登录失败: ${data.message}`;
+                }
+            } catch (e) {
+                title.textContent = `登录失败: ${e.message}`;
+            }
+        }
+
+        function closeAkBrowser() {
+            const panel = document.getElementById('akBrowserPanel');
+            const overlay = document.getElementById('akBrowserOverlay');
+            const frame = document.getElementById('akBrowserFrame');
+            panel.style.right = '-55%';
+            overlay.style.display = 'none';
+            frame.src = 'about:blank';
+        }
     </script>
 </body>
 </html>

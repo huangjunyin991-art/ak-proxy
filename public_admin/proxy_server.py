@@ -4839,6 +4839,98 @@ async def pwa_icon(size: int):
 
 
 
+# ===== AK 网页代理（管理员内嵌浏览） =====
+
+_browse_sessions: dict = {}          # {bs_id: {cookies, username, expires}}
+_BROWSE_SESSION_TTL = 3600           # session 有效期 1 小时
+_AK_BASE = "https://www.akapi1.com"  # AK 网站根地址
+
+
+@app.post("/admin/api/browse_login")
+async def admin_browse_login(request: Request):
+    """用指定用户的账号密码登录 AK，缓存 session，返回 bs_id 供 /ak-web/* 代理使用"""
+    data = await request.json()
+    username = data.get("username", "").strip()
+    if not username:
+        return JSONResponse({"success": False, "message": "缺少用户名"})
+    password = await db.get_user_password(username)
+    if not password:
+        return JSONResponse({"success": False, "message": f"用户 {username} 无密码记录"})
+    try:
+        async with httpx.AsyncClient(verify=False, timeout=15) as client:
+            resp = await client.post(
+                f"{AKAPI_URL}Login",
+                data={"account": username, "password": password},
+                headers={"User-Agent": "Mozilla/5.0"},
+            )
+        result = resp.json()
+        if result.get("Error") is True:
+            return JSONResponse({"success": False, "message": result.get("Msg", "登录失败")})
+        bs_id = secrets.token_hex(16)
+        _browse_sessions[bs_id] = {
+            "cookies": dict(resp.cookies),
+            "username": username,
+            "expires": time.time() + _BROWSE_SESSION_TTL,
+        }
+        return JSONResponse({"success": True, "bs_id": bs_id})
+    except Exception as e:
+        return JSONResponse({"success": False, "message": f"登录失败: {str(e)}"})
+
+
+@app.api_route("/ak-web/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"])
+async def ak_web_proxy(request: Request, path: str):
+    """AK 网页反向代理：携带用户 session 转发请求，去除 iframe 限制头"""
+    bs_id = request.query_params.get("bs", "")
+    session = _browse_sessions.get(bs_id)
+    cookies = {}
+    if session:
+        if time.time() > session["expires"]:
+            _browse_sessions.pop(bs_id, None)
+        else:
+            cookies = session["cookies"]
+
+    # 构建目标 URL（去掉 bs 查询参数）
+    query_parts = [p for p in str(request.url.query).split("&") if p and not p.startswith("bs=")]
+    target_url = f"{_AK_BASE}/{path}" if path else _AK_BASE
+    if query_parts:
+        target_url += "?" + "&".join(query_parts)
+
+    fwd_headers = {
+        "User-Agent": request.headers.get("user-agent", "Mozilla/5.0"),
+        "Accept": request.headers.get("accept", "*/*"),
+        "Accept-Language": request.headers.get("accept-language", "zh-CN,zh;q=0.9"),
+        "Referer": _AK_BASE + "/",
+    }
+    try:
+        body = await request.body()
+        async with httpx.AsyncClient(verify=False, timeout=15, cookies=cookies,
+                                     follow_redirects=True) as client:
+            resp = await client.request(
+                method=request.method,
+                url=target_url,
+                headers=fwd_headers,
+                content=body or None,
+            )
+        # 去除阻止 iframe 嵌入的响应头
+        resp_headers = {k: v for k, v in resp.headers.items()
+                        if k.lower() not in ("x-frame-options", "content-security-policy",
+                                             "content-encoding", "transfer-encoding",
+                                             "content-length", "x-xss-protection")}
+        content = resp.content
+        content_type = resp.headers.get("content-type", "")
+        # HTML 响应：插入 base href 确保相对路径正确解析
+        if "text/html" in content_type:
+            html = content.decode("utf-8", errors="replace")
+            if "<head" in html:
+                html = html.replace("<head>", f'<head><base href="{_AK_BASE}/">', 1)
+                html = html.replace("<head ", f'<base href="{_AK_BASE}/" /><head ', 1)
+            content = html.encode("utf-8")
+        return Response(content=content, status_code=resp.status_code,
+                        headers=resp_headers, media_type=content_type)
+    except Exception as e:
+        return Response(content=f"代理错误: {str(e)}".encode(), status_code=502)
+
+
 # ===== 启动 =====
 
 def main():
