@@ -4929,6 +4929,14 @@ def _build_cookie_header(cookies: dict) -> str:
     return "; ".join(f"{k}={v}" for k, v in cookies.items() if k)
 
 
+def _extract_site_api_path(path: str) -> str:
+    clean = (path or "").split("?", 1)[0].strip("/")
+    if not clean:
+        return ""
+    last = clean.split("/")[-1]
+    return last if last in _AK_SITE_API_NAMES else ""
+
+
 def _rewrite_site_root_url(url: str, site_prefix: str) -> str:
     if not url or not url.startswith("/"):
         return url
@@ -5022,6 +5030,36 @@ async def admin_ak_test():
     return results
 
 
+async def _forward_admin_ak_rpc_request(path: str, request: Request, session: dict,
+                                        referer: str = "", fetch_dest: str = "", accept: str = ""):
+    content_type = request.headers.get("content-type", "")
+    raw_body = await request.body() if request.method in ["POST", "PUT"] else b""
+    query_params = {k: v for k, v in dict(request.query_params).items() if k != "bs"}
+    params = parse_request_params(content_type, query_params, raw_body)
+    headers = dict(request.headers)
+    cookie_header = _build_cookie_header(session.get("cookies", {}))
+    if cookie_header:
+        headers["cookie"] = cookie_header
+
+    response = await forward_request(
+        request.method, path, content_type, params, raw_body, headers,
+        client_ip="admin-panel"
+    )
+    for sc in response.headers.get_list("set-cookie"):
+        kv = sc.split(";", 1)[0].strip()
+        if "=" in kv:
+            ck, cv = kv.split("=", 1)
+            session["cookies"][ck.strip()] = cv.strip()
+    try:
+        result = response.json()
+        logger.warning(f"[AdminAkRpc/{path}] status={response.status_code} dest={fetch_dest} accept={accept} referer={referer} body_head={json.dumps(result, ensure_ascii=False)[:200]}")
+        return JSONResponse(content=result, status_code=response.status_code)
+    except Exception:
+        logger.warning(f"[AdminAkRpc/{path}] status={response.status_code} dest={fetch_dest} accept={accept} referer={referer} content_type={response.headers.get('content-type','')}")
+        return Response(content=response.content, status_code=response.status_code,
+                        media_type=response.headers.get("content-type", "application/octet-stream"))
+
+
 @app.api_route("/admin/ak-rpc/{path:path}", methods=["GET", "POST", "PUT", "DELETE"])
 async def admin_ak_rpc(path: str, request: Request):
     bs_id = request.query_params.get("bs", "")
@@ -5037,33 +5075,8 @@ async def admin_ak_rpc(path: str, request: Request):
         logger.warning(f"[AdminAkRpc/{path}] session_expired bs={bs_id} dest={fetch_dest} accept={accept} referer={referer}")
         return JSONResponse({"Error": True, "IsLogin": False, "Msg": "用戶未登錄"})
 
-    content_type = request.headers.get("content-type", "")
-    raw_body = await request.body() if request.method in ["POST", "PUT"] else b""
-    query_params = {k: v for k, v in dict(request.query_params).items() if k != "bs"}
-    params = parse_request_params(content_type, query_params, raw_body)
-    headers = dict(request.headers)
-    cookie_header = _build_cookie_header(session.get("cookies", {}))
-    if cookie_header:
-        headers["cookie"] = cookie_header
-
     try:
-        response = await forward_request(
-            request.method, path, content_type, params, raw_body, headers,
-            client_ip="admin-panel"
-        )
-        for sc in response.headers.get_list("set-cookie"):
-            kv = sc.split(";", 1)[0].strip()
-            if "=" in kv:
-                ck, cv = kv.split("=", 1)
-                session["cookies"][ck.strip()] = cv.strip()
-        try:
-            result = response.json()
-            logger.warning(f"[AdminAkRpc/{path}] status={response.status_code} dest={fetch_dest} accept={accept} referer={referer} body_head={json.dumps(result, ensure_ascii=False)[:200]}")
-            return JSONResponse(content=result, status_code=response.status_code)
-        except Exception:
-            logger.warning(f"[AdminAkRpc/{path}] status={response.status_code} dest={fetch_dest} accept={accept} referer={referer} content_type={response.headers.get('content-type','')}")
-            return Response(content=response.content, status_code=response.status_code,
-                            media_type=response.headers.get("content-type", "application/octet-stream"))
+        return await _forward_admin_ak_rpc_request(path, request, session, referer, fetch_dest, accept)
     except Exception as e:
         logger.error(f"[AdminAkRpc/{path}] 转发失败: {e}")
         return JSONResponse({"Error": True, "IsLogin": False, "Msg": f"请求失败: {str(e)}"}, status_code=500)
@@ -5218,6 +5231,24 @@ async def ak_web_proxy(request: Request, path: str):
             session = None
         else:
             cookies = session["cookies"]
+    site_api_path = _extract_site_api_path(path)
+    if site_prefix == _AK_SITE_PREFIX and site_api_path:
+        if not session:
+            logger.warning(f"[AkSiteProxy/{path}] site_api_no_session bs={bs_id}")
+            return JSONResponse({"Error": True, "IsLogin": False, "Msg": "用戶未登錄"})
+        logger.warning(f"[AkSiteProxy/{path}] reroute_admin_rpc -> {site_api_path}")
+        try:
+            return await _forward_admin_ak_rpc_request(
+                site_api_path,
+                request,
+                session,
+                request.headers.get("referer", ""),
+                request.headers.get("sec-fetch-dest", ""),
+                request.headers.get("accept", ""),
+            )
+        except Exception as e:
+            logger.error(f"[AkSiteProxy/{path}] reroute_admin_rpc_failed: {e}")
+            return JSONResponse({"Error": True, "IsLogin": False, "Msg": f"请求失败: {str(e)}"}, status_code=500)
 
     # 构建目标 URL（去掉代理专用参数 bs）
     query_parts = [p for p in str(request.url.query).split("&") if p and not p.startswith("bs=")]
