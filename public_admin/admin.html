@@ -1303,6 +1303,12 @@
             white-space: nowrap;
         }
 
+        #usersTableContainer {
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+            overscroll-behavior-x: contain;
+        }
+
         .editable-real-name-cell {
             min-width: 72px;
             cursor: text;
@@ -1620,6 +1626,51 @@
                 padding: 0 8px !important;
                 font-size: 11px !important;
                 white-space: nowrap;
+            }
+
+            #users {
+                padding-bottom: 96px;
+            }
+
+            #usersTableContainer {
+                touch-action: pan-x pan-y;
+            }
+
+            #usersTableContainer thead th:first-child,
+            #usersTable td:first-child {
+                position: static !important;
+                left: auto !important;
+                z-index: auto !important;
+            }
+
+            #usersPagination {
+                position: fixed;
+                left: 12px;
+                right: 12px;
+                bottom: calc(env(safe-area-inset-bottom, 0px) + 18px);
+                z-index: 1001;
+                margin-top: 0 !important;
+                padding: 8px 10px !important;
+                border: 1px solid var(--border);
+                border-radius: 12px;
+                background: rgba(11, 22, 46, 0.92);
+                backdrop-filter: blur(8px);
+                box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
+                flex-wrap: wrap;
+                gap: 8px !important;
+            }
+
+            #usersPagination .btn-page {
+                min-height: 34px;
+                padding: 0 10px !important;
+                font-size: 11px;
+            }
+
+            #usersPageInfo {
+                width: 100%;
+                min-width: 0 !important;
+                font-size: 12px !important;
+                order: -1;
             }
             
             .header h1 {
@@ -2159,7 +2210,7 @@
                 <button class="btn-page" onclick="clearUsersSearch()" style="padding: 10px 20px;">清除</button>
                 <span id="usersSearchCount" class="usage-toolbar-count"></span>
             </div>
-            <div class="table-container" id="usersTableContainer" style="overflow-x: hidden;">
+            <div class="table-container" id="usersTableContainer" style="overflow-x: auto;">
                 <table style="min-width: 1920px;">
                     <thead>
                         <tr>
