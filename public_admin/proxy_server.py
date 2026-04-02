@@ -5171,11 +5171,6 @@ async def ak_web_proxy(request: Request, path: str):
         if any(t in content_type for t in ("text/html", "text/javascript", "application/javascript",
                                            "text/css", "application/json")):
             text = content.decode("utf-8", errors="replace")
-            # AK API URL 替换为代理自身的 /RPC/ 路径（走负载均衡）
-            for api_base in [AKAPI_URL.rstrip("/"), AKAPI_URL]:
-                text = text.replace(api_base + "/", "/RPC/")
-                text = text.replace(api_base + '"', '/RPC"')
-                text = text.replace(api_base + "'", "/RPC'")
             # 替换 AK 网页绝对 URL 为 /admin/ak-web/ 代理路径
             for base in [_AK_BASE, "https://ak928.vip", "http://ak928.vip",
                              "https://www.ak928.vip", "https://k937.com", "http://k937.com"]:
