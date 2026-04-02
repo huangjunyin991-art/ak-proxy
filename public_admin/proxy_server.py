@@ -4913,18 +4913,8 @@ async def pwa_icon(size: int):
 
 
 
-def _build_cdn_cgi_stub_response(method: str):
-    if method == "GET":
-        return Response(content=";", media_type="application/javascript")
-    return Response(status_code=204)
-
-
-@app.api_route("/cdn-cgi/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"])
-async def cdn_cgi_stub(path: str, request: Request):
-    return _build_cdn_cgi_stub_response(request.method)
-
-
 # ===== AK 网页代理（管理员内嵌浏览） =====
+
 _browse_sessions: dict = {}          # {bs_id: {cookies, username, expires}}
 _ak_auth_cache: dict = {}
 _BROWSE_SESSION_TTL = 3600           # session 有效期 1 小时
@@ -5360,7 +5350,9 @@ async def ak_web_proxy(request: Request, path: str):
     else:
         site_prefix = _AK_WEB_PREFIX
     if path.startswith("cdn-cgi/"):
-        return _build_cdn_cgi_stub_response(request.method)
+        if request.method == "GET":
+            return Response(content=";", media_type="application/javascript")
+        return Response(status_code=204)
     bs_id, session, bs_source = _resolve_browse_session(request)
     referer = request.headers.get("referer", "")
     fetch_dest = request.headers.get("sec-fetch-dest", "")
