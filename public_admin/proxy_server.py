@@ -793,6 +793,8 @@ async def proxy_login(request: Request):
 
         logger.info(f"[Login] 登录成功: {account}")
 
+        _cache_ak_auth(account, password, result, response.headers)
+
     else:
 
         stats.login_fail += 1
@@ -4842,8 +4844,61 @@ async def pwa_icon(size: int):
 # ===== AK 网页代理（管理员内嵌浏览） =====
 
 _browse_sessions: dict = {}          # {bs_id: {cookies, username, expires}}
+_ak_auth_cache: dict = {}
 _BROWSE_SESSION_TTL = 3600           # session 有效期 1 小时
 _AK_BASE = "https://ak928.vip"  # AK 网站根地址
+_AK_HOME_PATH = "/pages/home.html?first=true"
+
+
+def _extract_cookie_map(headers) -> dict:
+    values = []
+    try:
+        values = list(headers.get_list("set-cookie"))
+    except Exception:
+        raw = headers.get("set-cookie") if headers else ""
+        if raw:
+            values = [raw]
+    cookies = {}
+    for item in values:
+        kv = item.split(";", 1)[0].strip()
+        if "=" in kv:
+            ck, cv = kv.split("=", 1)
+            cookies[ck.strip()] = cv.strip()
+    return cookies
+
+
+def _extract_userkey(data):
+    if isinstance(data, dict):
+        for k, v in data.items():
+            if str(k).lower() in {"userkey", "user_key", "ukey"} and v not in (None, ""):
+                return str(v)
+        for v in data.values():
+            found = _extract_userkey(v)
+            if found:
+                return found
+    elif isinstance(data, list):
+        for item in data:
+            found = _extract_userkey(item)
+            if found:
+                return found
+    return ""
+
+
+def _cache_ak_auth(username: str, password: str, result: dict, headers) -> dict:
+    cached = {
+        "cookies": _extract_cookie_map(headers),
+        "userkey": _extract_userkey(result),
+        "login_result": result,
+        "password": password,
+        "expires": time.time() + _BROWSE_SESSION_TTL,
+    }
+    _ak_auth_cache[username] = cached
+    return cached
+
+
+def _make_browse_entry_url(bs_id: str) -> str:
+    sep = "&" if "?" in _AK_HOME_PATH else "?"
+    return f"/admin/ak-web{_AK_HOME_PATH}{sep}bs={bs_id}"
 
 
 @app.get("/admin/api/ak_test")
@@ -4892,6 +4947,18 @@ async def admin_browse_login(request: Request):
     if not password:
         return JSONResponse({"success": False, "message": f"用户 {username} 无密码记录"})
     try:
+        cached = _ak_auth_cache.get(username)
+        if cached and time.time() <= cached.get("expires", 0):
+            bs_id = secrets.token_hex(16)
+            _browse_sessions[bs_id] = {
+                "cookies": dict(cached.get("cookies", {})),
+                "username": username,
+                "password": cached.get("password") or password,
+                "userkey": cached.get("userkey", ""),
+                "login_result": cached.get("login_result", {}),
+                "expires": time.time() + _BROWSE_SESSION_TTL,
+            }
+            return JSONResponse({"success": True, "bs_id": bs_id, "entry_url": _make_browse_entry_url(bs_id)})
         # 走 dispatcher 负载均衡，和普通用户登录逻辑完全一致
         resp = await forward_request(
             "POST", "Login",
@@ -4905,22 +4972,26 @@ async def admin_browse_login(request: Request):
         result = resp.json()
         if result.get("Error") is True:
             return JSONResponse({"success": False, "message": result.get("Msg", "登录失败")})
+        cached = _cache_ak_auth(username, password, result, resp.headers)
         bs_id = secrets.token_hex(16)
         _browse_sessions[bs_id] = {
-            "cookies": {},
+            "cookies": dict(cached.get("cookies", {})),
             "username": username,
             "password": password,
+            "userkey": cached.get("userkey", ""),
+            "login_result": cached.get("login_result", {}),
             "expires": time.time() + _BROWSE_SESSION_TTL,
         }
-        return JSONResponse({"success": True, "bs_id": bs_id})
+        return JSONResponse({"success": True, "bs_id": bs_id, "entry_url": _make_browse_entry_url(bs_id)})
     except Exception as e:
         return JSONResponse({"success": False, "message": f"登录失败: {str(e)}"})
 
 
-def _build_injector(bs_id: str, username: str = "", password: str = "") -> str:
+def _build_injector(bs_id: str, username: str = "", password: str = "", userkey: str = "", login_result: dict = None) -> str:
     """生成注入到 HTML 的 JS 拦截器：劫持 fetch/XHR + 自动登录（如在登录页）"""
     safe_user = username.replace("\\", "\\\\").replace("'", "\\'")
     safe_pwd = password.replace("\\", "\\\\").replace("'", "\\'")
+    login_result_json = json.dumps(login_result or {}, ensure_ascii=False).replace("</", "<\\/")
     ak_list = ",".join(
         f"'{d}'" for d in [_AK_BASE, "https://ak928.vip", "http://ak928.vip",
                            "https://www.ak928.vip", "https://k937.com", "http://k937.com"]
@@ -4944,6 +5015,7 @@ def _build_injector(bs_id: str, username: str = "", password: str = "") -> str:
         "<script>(function(){"
         # 禁用SW注册，防止AK的service worker注册到代理域名并拦截请求
         "if('serviceWorker' in navigator){navigator.serviceWorker.register=function(){return Promise.reject(new Error('SW disabled'));};}"
+        "try{var UK=" + json.dumps(userkey or "", ensure_ascii=False) + ";var LR=" + login_result_json + ";if(UK){localStorage.setItem('userkey',UK);localStorage.setItem('UserKey',UK);sessionStorage.setItem('userkey',UK);sessionStorage.setItem('UserKey',UK);window.userkey=UK;}if(LR&&typeof LR==='object'){localStorage.setItem('ak_login_result',JSON.stringify(LR));sessionStorage.setItem('ak_login_result',JSON.stringify(LR));if(LR.UserData){localStorage.setItem('UserData',JSON.stringify(LR.UserData));sessionStorage.setItem('UserData',JSON.stringify(LR.UserData));}}}catch(_e){}"
         "var P='/admin/ak-web',B='" + bs_id + "';"
         "var API='" + api_base + "';"
         "var AK=[" + ak_list + "];"
@@ -5051,7 +5123,7 @@ async def ak_web_proxy(request: Request, path: str):
             # HTML：注入 JS 拦截器
             if "text/html" in content_type and bs_id:
                 _sess = _browse_sessions.get(bs_id, {})
-                injector = _build_injector(bs_id, _sess.get("username", ""), _sess.get("password", ""))
+                injector = _build_injector(bs_id, _sess.get("username", ""), _sess.get("password", ""), _sess.get("userkey", ""), _sess.get("login_result", {}))
                 if "<head>" in text:
                     text = text.replace("<head>", "<head>" + injector, 1)
                 elif "<head " in text:
