@@ -4843,7 +4843,7 @@ async def pwa_icon(size: int):
 
 _browse_sessions: dict = {}          # {bs_id: {cookies, username, expires}}
 _BROWSE_SESSION_TTL = 3600           # session 有效期 1 小时
-_AK_BASE = "https://www.akapi1.com"  # AK 网站根地址
+_AK_BASE = "https://k937.com"  # AK 网站根地址
 
 
 @app.post("/admin/api/browse_login")
