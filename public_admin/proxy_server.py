@@ -4869,7 +4869,7 @@ async def admin_ak_test():
 
 @app.post("/admin/api/browse_login")
 async def admin_browse_login(request: Request):
-    """用指定用户的账号密码登录 AK，缓存 session，返回 bs_id 供 /ak-web/* 代理使用"""
+    """用指定用户的账号密码登录 AK，通过 dispatcher 负载均衡，缓存 session，返回 bs_id"""
     data = await request.json()
     username = data.get("username", "").strip()
     if not username:
@@ -4878,18 +4878,22 @@ async def admin_browse_login(request: Request):
     if not password:
         return JSONResponse({"success": False, "message": f"用户 {username} 无密码记录"})
     try:
-        async with httpx.AsyncClient(verify=False, timeout=15) as client:
-            resp = await client.post(
-                f"{AKAPI_URL}Login",
-                data={"account": username, "password": password},
-                headers={"User-Agent": "Mozilla/5.0"},
-            )
+        # 走 dispatcher 负载均衡，和普通用户登录逻辑完全一致
+        resp = await forward_request(
+            "POST", "Login",
+            "application/x-www-form-urlencoded",
+            {"account": username, "password": password, "client": "WEB"},
+            None,
+            {},
+            client_ip="admin-panel",
+            is_login=True,
+        )
         result = resp.json()
         if result.get("Error") is True:
             return JSONResponse({"success": False, "message": result.get("Msg", "登录失败")})
         bs_id = secrets.token_hex(16)
         _browse_sessions[bs_id] = {
-            "cookies": dict(resp.cookies),
+            "cookies": {},
             "username": username,
             "password": password,
             "expires": time.time() + _BROWSE_SESSION_TTL,
@@ -4907,6 +4911,8 @@ def _build_injector(bs_id: str, username: str = "", password: str = "") -> str:
         f"'{d}'" for d in [_AK_BASE, "https://ak928.vip", "http://ak928.vip",
                            "https://www.ak928.vip", "https://k937.com", "http://k937.com"]
     )
+    # AK API 基础 URL，去掉末尾斜杠
+    api_base = AKAPI_URL.rstrip("/")
     auto_login = ""
     if safe_user and safe_pwd:
         auto_login = (
@@ -4923,13 +4929,16 @@ def _build_injector(bs_id: str, username: str = "", password: str = "") -> str:
     js = (
         "<script>(function(){"
         "var P='/ak-web',B='" + bs_id + "';"
+        "var API='" + api_base + "';"
         "var AK=[" + ak_list + "];"
         "function rw(u){"
         "if(!u||typeof u!=='string')return u;"
+        # API 请求重写到 /RPC/（走代理自身的出口节点负载均衡）
+        "if(u.startsWith(API)){return '/RPC/'+u.slice(API.length).replace(/^\\/RPC\\//,'').replace(/^\\//,'');}"
         "for(var i=0;i<AK.length;i++){"
         "if(u.startsWith(AK[i])){u=P+(u.slice(AK[i].length)||'/');break;}"
         "}"
-        "if(u.startsWith('/')&&!u.startsWith(P)&&!u.startsWith('/admin')){u=P+u;}"
+        "if(u.startsWith('/')&&!u.startsWith(P)&&!u.startsWith('/admin')&&!u.startsWith('/RPC')){u=P+u;}"
         "if(u.startsWith(P)){u+=((u.indexOf('?')<0)?'?':'&')+'bs='+B;}"
         "return u;"
         "}"
@@ -4992,21 +5001,10 @@ async def ak_web_proxy(request: Request, path: str):
     if request.headers.get("referer"):
         fwd_headers["Referer"] = request.headers["referer"]
 
-    # 优先通过SOCKS5出口节点访问（绕过服务器IP被CDN封锁）
-    socks_proxy = None
-    try:
-        healthy = [e for e in dispatcher.exits if e.healthy and not e.is_direct]
-        if healthy:
-            socks_proxy = f"socks5://127.0.0.1:{healthy[0].port}"
-    except Exception:
-        pass
-
     try:
         body = await request.body()
-        client_kwargs = dict(verify=False, timeout=20, cookies=cookies, follow_redirects=True)
-        if socks_proxy:
-            client_kwargs["proxies"] = {"https://": socks_proxy, "http://": socks_proxy}
-        async with httpx.AsyncClient(**client_kwargs) as client:
+        async with httpx.AsyncClient(verify=False, timeout=20, cookies=cookies,
+                                     follow_redirects=True) as client:
             resp = await client.request(
                 method=request.method,
                 url=target_url,
@@ -5034,7 +5032,12 @@ async def ak_web_proxy(request: Request, path: str):
         if any(t in content_type for t in ("text/html", "text/javascript", "application/javascript",
                                             "text/css", "application/json")):
             text = content.decode("utf-8", errors="replace")
-            # 替换绝对 URL
+            # AK API URL 替换为代理自身的 /RPC/ 路径（走负载均衡）
+            for api_base in [AKAPI_URL.rstrip("/"), AKAPI_URL]:
+                text = text.replace(api_base + "/", "/RPC/")
+                text = text.replace(api_base + '"', '/RPC"')
+                text = text.replace(api_base + "'", "/RPC'")
+            # 替换 AK 网页绝对 URL 为 /ak-web/ 代理路径
             for base in [_AK_BASE, "https://ak928.vip", "http://ak928.vip",
                              "https://www.ak928.vip", "https://k937.com", "http://k937.com"]:
                 text = text.replace(base + "/", "/ak-web/")
