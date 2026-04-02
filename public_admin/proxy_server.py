@@ -4928,6 +4928,8 @@ def _build_injector(bs_id: str, username: str = "", password: str = "") -> str:
         )
     js = (
         "<script>(function(){"
+        # 禁用SW注册，防止AK的service worker注册到代理域名并拦截请求
+        "if('serviceWorker' in navigator){navigator.serviceWorker.register=function(){return Promise.reject(new Error('SW disabled'));};}"
         "var P='/ak-web',B='" + bs_id + "';"
         "var API='" + api_base + "';"
         "var AK=[" + ak_list + "];"
