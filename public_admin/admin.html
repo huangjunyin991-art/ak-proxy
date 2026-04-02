@@ -1386,29 +1386,46 @@
         @media screen and (max-width: 1024px) {
             .header {
                 padding: 10px 12px;
-                flex-wrap: wrap;
+                flex-wrap: nowrap;
                 gap: 8px;
+                align-items: center;
+                overflow-x: auto;
+                overflow-y: hidden;
+                scrollbar-width: none;
+            }
+
+            .header::-webkit-scrollbar {
+                display: none;
             }
 
             .header-controls {
-                width: 100%;
+                width: auto;
+                flex: 1 1 auto;
+                min-width: max-content;
+                flex-wrap: nowrap;
                 gap: 8px;
                 align-items: center;
                 justify-content: flex-start;
+                overflow-x: visible;
             }
 
             .header-mode-switch {
-                width: 100%;
-                justify-content: space-between;
-                padding: 8px 10px;
-                border: 1px solid var(--border);
-                border-radius: 12px;
-                background: var(--bg-primary);
-                order: 1;
+                width: auto;
+                justify-content: flex-start;
+                padding: 0;
+                border: none;
+                border-radius: 0;
+                background: transparent;
+                order: 0;
             }
 
             .header-mode-switch span {
                 font-size: 11px;
+                white-space: nowrap;
+            }
+
+            .header-mode-switch > div {
+                flex-shrink: 0;
             }
 
             .mobile-shell-bar {
@@ -1421,26 +1438,35 @@
             }
             
             .header h1 {
-                display: none;
+                display: block;
+                font-size: 16px;
+                line-height: 1.2;
+                margin: 0;
+                flex: 0 0 auto;
+                white-space: nowrap;
             }
 
             .role-badge {
-                order: 2;
-                flex: 1 1 auto;
-                min-width: 0;
+                order: 1;
+                flex: 0 0 auto;
+                min-width: auto;
                 padding: 8px 10px;
                 font-size: 12px;
+                white-space: nowrap;
             }
 
             .connection-status {
-                order: 3;
+                order: 2;
+                flex: 0 0 auto;
                 padding: 8px 10px;
                 font-size: 12px;
+                white-space: nowrap;
             }
 
             .header-logout-btn {
-                order: 4;
-                margin-left: auto;
+                order: 3;
+                margin-left: 0;
+                flex: 0 0 auto;
                 padding: 8px 12px;
                 font-size: 12px;
                 white-space: nowrap;
