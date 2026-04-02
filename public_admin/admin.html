@@ -1796,8 +1796,9 @@
             .ak-browser-header {
                 position: absolute;
                 top: max(6px, env(safe-area-inset-top));
-                left: 8px;
+                left: 50%;
                 right: auto;
+                transform: translateX(-50%);
                 z-index: 2;
                 padding: 0;
                 gap: 0;
@@ -1808,29 +1809,35 @@
             }
 
             .ak-browser-toolbar {
-                margin-left: 8px;
-                gap: 4px;
+                margin-left: 6px;
+                gap: 6px;
                 pointer-events: auto;
             }
 
             .ak-browser-title-text {
                 flex: 0 1 auto;
-                max-width: calc(100% - 96px);
-                padding: 7px 10px;
+                max-width: calc(100% - 132px);
+                padding: 6px 10px;
                 border-radius: 10px;
-                background: rgba(11, 22, 46, 0.88);
+                background: rgba(11, 22, 46, 0.82);
                 backdrop-filter: blur(10px);
                 font-size: 12px;
                 line-height: 1.2;
+                color: var(--text-primary);
+                border: 1px solid rgba(255, 255, 255, 0.12);
                 pointer-events: auto;
             }
 
             .ak-browser-tool-btn {
-                min-width: 30px;
+                min-width: 44px;
                 min-height: 30px;
-                padding: 0 8px;
-                font-size: 13px;
+                padding: 0 10px;
+                font-size: 12px;
                 line-height: 1;
+                border-radius: 10px;
+                background: rgba(11, 22, 46, 0.82);
+                border: 1px solid rgba(255, 255, 255, 0.12);
+                color: var(--text-primary);
                 pointer-events: auto;
             }
             
@@ -2817,10 +2824,8 @@
         <div class="ak-browser-header">
             <span id="akBrowserTitle" class="ak-browser-title-text">AK 网页</span>
             <div class="ak-browser-toolbar">
-                <button onclick="refreshAkBrowser()" class="ak-browser-tool-btn" aria-label="刷新后台" title="刷新后台">↻</button>
-                <button onclick="closeAkBrowser()" class="ak-browser-tool-btn" aria-label="关闭后台" title="关闭后台" style="padding:0 8px; border-radius:6px;
-                background:rgba(255,82,82,0.15); color:#ff5252; border:1px solid rgba(255,82,82,0.3);
-                cursor:pointer; font-size:13px; line-height:1;">✕</button>
+                <button onclick="refreshAkBrowser()" class="ak-browser-tool-btn" aria-label="刷新后台" title="刷新后台">刷新</button>
+                <button onclick="closeAkBrowser()" class="ak-browser-tool-btn" aria-label="关闭后台" title="关闭后台">关闭</button>
             </div>
         </div>
         <div class="ak-browser-stage" id="akBrowserStage">
@@ -7568,6 +7573,56 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
             frame.style.visibility = visible ? 'hidden' : 'visible';
         }
 
+        let akBrowserSwipeCleanup = null;
+
+        function clearAkBrowserSwipeBinding() {
+            if (typeof akBrowserSwipeCleanup === 'function') {
+                akBrowserSwipeCleanup();
+            }
+            akBrowserSwipeCleanup = null;
+        }
+
+        function bindAkBrowserSwipeClose(seq) {
+            const frame = document.getElementById('akBrowserFrame');
+            if (!frame || !frame.contentWindow) return;
+            clearAkBrowserSwipeBinding();
+            let startX = 0;
+            let startY = 0;
+            let tracking = false;
+            const onTouchStart = (event) => {
+                const touch = event.touches && event.touches[0];
+                if (!touch) return;
+                startX = touch.clientX;
+                startY = touch.clientY;
+                tracking = true;
+            };
+            const onTouchEnd = (event) => {
+                if (!tracking || seq !== akBrowserLoadSeq) return;
+                const touch = event.changedTouches && event.changedTouches[0];
+                tracking = false;
+                if (!touch) return;
+                const deltaX = touch.clientX - startX;
+                const deltaY = touch.clientY - startY;
+                if (deltaX <= -72 && Math.abs(deltaX) >= Math.abs(deltaY) * 1.35) {
+                    closeAkBrowser();
+                }
+            };
+            const onTouchCancel = () => {
+                tracking = false;
+            };
+            frame.contentWindow.addEventListener('touchstart', onTouchStart, { passive: true });
+            frame.contentWindow.addEventListener('touchend', onTouchEnd, { passive: true });
+            frame.contentWindow.addEventListener('touchcancel', onTouchCancel, { passive: true });
+            akBrowserSwipeCleanup = () => {
+                try {
+                    frame.contentWindow.removeEventListener('touchstart', onTouchStart, { passive: true });
+                    frame.contentWindow.removeEventListener('touchend', onTouchEnd, { passive: true });
+                    frame.contentWindow.removeEventListener('touchcancel', onTouchCancel, { passive: true });
+                } catch (e) {
+                }
+            };
+        }
+
         function bindAkBrowserFrame(username, seq, allowRetry) {
             const frame = document.getElementById('akBrowserFrame');
             const title = document.getElementById('akBrowserTitle');
@@ -7578,16 +7633,17 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                     akBrowserRetryTimer = null;
                 }
                 try {
+                    bindAkBrowserSwipeClose(seq);
                     const href = frame.contentWindow.location.href || '';
                     const path = new URL(href, window.location.origin).pathname;
                     if (path.includes('/pages/account/login.html')) {
-                        title.textContent = `正在进入 ${username} 的AK后台...`;
+                        title.textContent = username;
                         setAkBrowserLoading(true, `正在进入 ${username} 的AK后台...`);
                         return;
                     }
                 } catch (e) {
                 }
-                title.textContent = `${username}的AK后台`;
+                title.textContent = username;
                 setAkBrowserLoading(false);
             };
         }
@@ -7602,7 +7658,8 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                 clearTimeout(akBrowserRetryTimer);
                 akBrowserRetryTimer = null;
             }
-            title.textContent = `正在进入 ${username} 的AK后台...`;
+            clearAkBrowserSwipeBinding();
+            title.textContent = username;
             setAkBrowserLoading(true, `正在进入 ${username} 的AK后台...`);
             frame.onload = null;
             frame.src = 'about:blank';
@@ -7617,7 +7674,7 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                 });
                 const data = await res.json();
                 if (data.success) {
-                    title.textContent = `正在进入 ${username} 的AK后台...`;
+                    title.textContent = username;
                     if ('serviceWorker' in navigator) {
                         const regs = await navigator.serviceWorker.getRegistrations();
                         await Promise.all(regs.map(r => r.unregister()));
@@ -7655,6 +7712,7 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
             const frame = document.getElementById('akBrowserFrame');
             const stageFrame = document.getElementById('akBrowserStageFrame');
             akBrowserLoadSeq++;
+            clearAkBrowserSwipeBinding();
             if (akBrowserRetryTimer) {
                 clearTimeout(akBrowserRetryTimer);
                 akBrowserRetryTimer = null;
