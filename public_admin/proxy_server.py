@@ -5146,21 +5146,6 @@ async def admin_browse_login(request: Request):
     if not password:
         return JSONResponse({"success": False, "message": f"用户 {username} 无密码记录"})
     try:
-        cached = await _load_cached_ak_auth(username, password)
-        if cached:
-            bs_id = secrets.token_hex(16)
-            _browse_sessions[bs_id] = {
-                "cookies": dict(cached.get("cookies", {})),
-                "username": username,
-                "password": cached.get("password") or password,
-                "userkey": cached.get("userkey", ""),
-                "login_result": cached.get("login_result", {}),
-                "expires": time.time() + _BROWSE_SESSION_TTL,
-            }
-            return _set_browse_session_cookie(
-                JSONResponse({"success": True, "bs_id": bs_id, "entry_url": _make_browse_entry_url(bs_id)}),
-                bs_id,
-            )
         # 走 dispatcher 负载均衡，和普通用户登录逻辑完全一致
         resp = await forward_request(
             "POST", "Login",
