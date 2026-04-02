@@ -4848,23 +4848,37 @@ _AK_BASE = "https://ak928.vip"  # AK 网站根地址
 
 @app.get("/admin/api/ak_test")
 async def admin_ak_test():
-    """临时调试：测试服务器 httpx 访问 ak928.vip 的实际结果"""
+    """调试：对比两种httpx调用方式的结果，精确定位302来源"""
     url = f"{_AK_BASE}/pages/account/login.html"
+    hdrs = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/124.0",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "zh-CN,zh;q=0.9",
+    }
+    results = {}
+    # 方式A：c.get() + follow_redirects在构造函数
     try:
         async with httpx.AsyncClient(verify=False, follow_redirects=True, timeout=15) as c:
-            r = await c.get(url, headers={
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/124.0",
-                "Accept": "text/html,*/*;q=0.9",
-            })
-        return {
-            "status": r.status_code,
-            "final_url": str(r.url),
-            "content_type": r.headers.get("content-type", ""),
+            r = await c.get(url, headers=hdrs)
+        results["A_get_constructor"] = {
+            "status": r.status_code, "final_url": str(r.url),
             "content_len": len(r.content),
-            "body_head": r.content[:300].decode("utf-8", errors="replace"),
+            "head": r.content[:100].decode("utf-8", errors="replace"),
         }
     except Exception as e:
-        return {"error": str(e)}
+        results["A_get_constructor"] = {"error": str(e)}
+    # 方式B：client.request() + follow_redirects在request()参数（同ak_web_proxy当前代码）
+    try:
+        async with httpx.AsyncClient(verify=False, timeout=15, cookies={}) as c:
+            r = await c.request("GET", url, headers=hdrs, content=None, follow_redirects=True)
+        results["B_request_param"] = {
+            "status": r.status_code, "final_url": str(r.url),
+            "content_len": len(r.content),
+            "head": r.content[:100].decode("utf-8", errors="replace"),
+        }
+    except Exception as e:
+        results["B_request_param"] = {"error": str(e)}
+    return results
 
 
 @app.post("/admin/api/browse_login")
@@ -5000,6 +5014,7 @@ async def ak_web_proxy(request: Request, path: str):
                 content=body or None,
                 follow_redirects=True,
             )
+        logger.warning(f"[AkWebProxy] target={target_url} httpx_status={resp.status_code} final_url={resp.url}")
 
         # 同步响应中的 Set-Cookie 到缓存 session，保持 session 刷新
         if session and bs_id:
