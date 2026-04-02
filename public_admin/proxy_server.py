@@ -4911,6 +4911,12 @@ def _make_browse_entry_url(bs_id: str) -> str:
     return f"/admin/ak-web{_AK_HOME_PATH}{sep}bs={bs_id}"
 
 
+def _build_cookie_header(cookies: dict) -> str:
+    if not cookies:
+        return ""
+    return "; ".join(f"{k}={v}" for k, v in cookies.items() if k)
+
+
 async def _load_cached_ak_auth(username: str, password: str = "") -> dict:
     cached = _ak_auth_cache.get(username)
     if cached and time.time() <= cached.get("expires", 0):
@@ -4982,6 +4988,46 @@ async def admin_ak_test():
     except Exception as e:
         results["B_request_param"] = {"error": str(e)}
     return results
+
+
+@app.api_route("/admin/ak-rpc/{path:path}", methods=["GET", "POST", "PUT", "DELETE"])
+async def admin_ak_rpc(path: str, request: Request):
+    bs_id = request.query_params.get("bs", "")
+    session = _browse_sessions.get(bs_id)
+    if not session:
+        return JSONResponse({"Error": True, "IsLogin": False, "Msg": "用戶未登錄"})
+    if time.time() > session.get("expires", 0):
+        _browse_sessions.pop(bs_id, None)
+        return JSONResponse({"Error": True, "IsLogin": False, "Msg": "用戶未登錄"})
+
+    content_type = request.headers.get("content-type", "")
+    raw_body = await request.body() if request.method in ["POST", "PUT"] else b""
+    query_params = {k: v for k, v in dict(request.query_params).items() if k != "bs"}
+    params = parse_request_params(content_type, query_params, raw_body)
+    headers = dict(request.headers)
+    cookie_header = _build_cookie_header(session.get("cookies", {}))
+    if cookie_header:
+        headers["cookie"] = cookie_header
+
+    try:
+        response = await forward_request(
+            request.method, path, content_type, params, raw_body, headers,
+            client_ip="admin-panel"
+        )
+        for sc in response.headers.get_list("set-cookie"):
+            kv = sc.split(";", 1)[0].strip()
+            if "=" in kv:
+                ck, cv = kv.split("=", 1)
+                session["cookies"][ck.strip()] = cv.strip()
+        try:
+            result = response.json()
+            return JSONResponse(content=result, status_code=response.status_code)
+        except Exception:
+            return Response(content=response.content, status_code=response.status_code,
+                            media_type=response.headers.get("content-type", "application/octet-stream"))
+    except Exception as e:
+        logger.error(f"[AdminAkRpc/{path}] 转发失败: {e}")
+        return JSONResponse({"Error": True, "IsLogin": False, "Msg": f"请求失败: {str(e)}"}, status_code=500)
 
 
 @app.post("/admin/api/browse_login")
@@ -5075,12 +5121,15 @@ def _build_injector(bs_id: str, username: str = "", password: str = "", userkey:
         "if('serviceWorker' in navigator){navigator.serviceWorker.register=function(){return Promise.reject(new Error('SW disabled'));};}"
         "try{var UK=" + json.dumps(userkey or "", ensure_ascii=False) + ";var LR=" + login_result_json + ";if(UK){localStorage.setItem('userkey',UK);localStorage.setItem('UserKey',UK);sessionStorage.setItem('userkey',UK);sessionStorage.setItem('UserKey',UK);window.userkey=UK;}if(LR&&typeof LR==='object'){localStorage.setItem('ak_login_result',JSON.stringify(LR));sessionStorage.setItem('ak_login_result',JSON.stringify(LR));if(LR.UserData){localStorage.setItem('UserData',JSON.stringify(LR.UserData));sessionStorage.setItem('UserData',JSON.stringify(LR.UserData));}}}catch(_e){}"
         "var P='/admin/ak-web',B='" + bs_id + "';"
+        "var R='/admin/ak-rpc';"
         "var API='" + api_base + "';"
         "var AK=[" + ak_list + "];"
+        "function withBs(u){return u+((u.indexOf('?')<0)?'?':'&')+'bs='+B;}"
         "function rw(u){"
         "if(!u||typeof u!=='string')return u;"
         # API 请求重写到 /RPC/（走代理自身的出口节点负载均衡）
-        "if(u.startsWith(API)){return '/RPC/'+u.slice(API.length).replace(/^\\/RPC\\//,'').replace(/^\\//,'');}"
+        "if(u.startsWith(API)){return withBs(R+'/'+u.slice(API.length).replace(/^\\/RPC\\//,'').replace(/^\\//,''));}"
+        "if(u.startsWith('/RPC/')){return withBs(R+'/'+u.slice(5));}"
         "for(var i=0;i<AK.length;i++){"
         "if(u.startsWith(AK[i])){u=P+(u.slice(AK[i].length)||'/');break;}"
         "}"
