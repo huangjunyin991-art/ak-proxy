@@ -4872,9 +4872,6 @@ _AK_HOME_PATH = "/pages/home.html?first=true"
 _BROWSE_SESSION_COOKIE = "ak_admin_bs"
 _AK_WEB_PREFIX = "/admin/ak-web"
 _AK_SITE_PREFIX = "/admin/ak-site"
-_AK_SITE_API_NAMES = {"public_IndexData"}
-_AK_STATIC_EXTENSIONS = {".html", ".htm", ".js", ".mjs", ".css", ".png", ".jpg", ".jpeg", ".gif", ".svg",
-                         ".webp", ".ico", ".woff", ".woff2", ".ttf", ".eot", ".map", ".json", ".txt", ".xml"}
 
 
 def _extract_cookie_map(headers) -> dict:
@@ -4932,19 +4929,6 @@ def _build_cookie_header(cookies: dict) -> str:
     if not cookies:
         return ""
     return "; ".join(f"{k}={v}" for k, v in cookies.items() if k)
-
-
-def _extract_site_api_path(path: str) -> str:
-    clean = (path or "").split("?", 1)[0].strip("/")
-    if not clean:
-        return ""
-    last = clean.split("/")[-1]
-    if last in _AK_SITE_API_NAMES:
-        return last
-    ext = os.path.splitext(last)[1].lower()
-    if ext in _AK_STATIC_EXTENSIONS:
-        return ""
-    return last if ext == "" else ""
 
 
 def _resolve_browse_bs_context(request: Request):
@@ -5193,7 +5177,6 @@ def _build_injector(bs_id: str, username: str = "", password: str = "", userkey:
     safe_user = username.replace("\\", "\\\\").replace("'", "\\'")
     safe_pwd = password.replace("\\", "\\\\").replace("'", "\\'")
     login_result_json = json.dumps(login_result or {}, ensure_ascii=False).replace("</", "<\\/")
-    api_names_json = json.dumps(sorted(_AK_SITE_API_NAMES), ensure_ascii=False)
     ak_list = ",".join(
         f"'{d}'" for d in [_AK_BASE, "https://ak928.vip", "http://ak928.vip",
                            "https://www.ak928.vip", "https://k937.com", "http://k937.com"]
@@ -5222,15 +5205,12 @@ def _build_injector(bs_id: str, username: str = "", password: str = "", userkey:
         "var R='/admin/ak-rpc';"
         "var API='" + api_base + "';"
         "var AK=[" + ak_list + "];"
-        "var SITE_API=" + api_names_json + ";"
         "function withBs(u){return u+((u.indexOf('?')<0)?'?':'&')+'bs='+B;}"
-        "function pickAdminApi(u,n){var rel=u.replace(/^https?:\\/\\/[^\\/]+/,'');if(rel===n||rel.startsWith(n+'?')||rel.startsWith(n+'/'))return rel;var m=rel.match(new RegExp('(?:^|\\\\/)'+n+'(?:[\\\\/?].*)?$'));return m?m[0].replace(/^\\//,''):'';}"
         "function rw(u){"
         "if(!u||typeof u!=='string')return u;"
         # API 请求重写到 /RPC/（走代理自身的出口节点负载均衡）
-        "if(u.startsWith(API)){return withBs(R+'/'+u.slice(API.length).replace(/^\\/RPC\\//,'').replace(/^\\//,''));}"
+        "if(u.startsWith(API)){return withBs(R+'/'+u.slice(API.length).replace(/^\\/RPC\\//,'').replace(/^\\/+/,''));}"
         "if(u.startsWith('/RPC/')){return withBs(R+'/'+u.slice(5));}"
-        "for(var j=0;j<SITE_API.length;j++){var _pia=pickAdminApi(u,SITE_API[j]);if(_pia){return withBs(R+'/'+_pia.replace(/^\\//,''));}}"
         "for(var i=0;i<AK.length;i++){"
         "if(u.startsWith(AK[i])){u=P+(u.slice(AK[i].length)||'/');break;}"
         "}"
@@ -5274,24 +5254,6 @@ async def ak_web_proxy(request: Request, path: str):
     cookies = {}
     if session:
         cookies = session["cookies"]
-    site_api_path = _extract_site_api_path(path)
-    if site_prefix == _AK_SITE_PREFIX and site_api_path:
-        if not session:
-            logger.warning(f"[AkSiteProxy/{path}] site_api_no_session target={site_api_path} bs={bs_id} source={bs_source} cookie_bs={cookie_bs} dest={fetch_dest} accept={accept} referer={referer}")
-            return JSONResponse({"Error": True, "IsLogin": False, "Msg": "用戶未登錄"})
-        logger.warning(f"[AkSiteProxy/{path}] reroute_admin_rpc target={site_api_path} bs={bs_id} source={bs_source} dest={fetch_dest} accept={accept} referer={referer}")
-        try:
-            return await _forward_admin_ak_rpc_request(
-                site_api_path,
-                request,
-                session,
-                referer,
-                fetch_dest,
-                accept,
-            )
-        except Exception as e:
-            logger.error(f"[AkSiteProxy/{path}] reroute_admin_rpc_failed: {e}")
-            return JSONResponse({"Error": True, "IsLogin": False, "Msg": f"请求失败: {str(e)}"}, status_code=500)
 
     # 构建目标 URL（去掉代理专用参数 bs）
     query_parts = [p for p in str(request.url.query).split("&") if p and not p.startswith("bs=")]
@@ -5341,7 +5303,7 @@ async def ak_web_proxy(request: Request, path: str):
         content_type = resp.headers.get("content-type", "")
         if fetch_dest == "script" and "application/json" in content_type.lower():
             body_head = content[:200].decode("utf-8", errors="replace")
-            logger.warning(f"[AkSiteProxy/{path}] script_json_mismatch bs={bs_id} source={bs_source} cookie_bs={cookie_bs} classified_api={site_api_path or '-'} referer={referer} target={target_url} final_url={resp.url} body_head={body_head}")
+            logger.warning(f"[AkSiteProxy/{path}] script_json_mismatch bs={bs_id} source={bs_source} cookie_bs={cookie_bs} referer={referer} target={target_url} final_url={resp.url} body_head={body_head}")
 
         # 对文本内容（HTML/JS/CSS）做 URL 替换 + HTML 注入拦截器
         if any(t in content_type for t in ("text/html", "text/javascript", "application/javascript",
