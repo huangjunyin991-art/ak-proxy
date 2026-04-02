@@ -1293,42 +1293,14 @@
         }
 
         .usage-table-layout {
-            width: 100%;
-            min-width: 640px;
-            table-layout: fixed;
+            width: auto;
+            min-width: 0;
+            table-layout: auto;
         }
 
-        .usage-table-layout th:nth-child(1),
-        .usage-table-layout td:nth-child(1) {
-            width: 24%;
-        }
-
-        .usage-table-layout th:nth-child(2),
-        .usage-table-layout td:nth-child(2) {
-            width: 12%;
-        }
-
-        .usage-table-layout th:nth-child(3),
-        .usage-table-layout td:nth-child(3) {
-            width: 22%;
-        }
-
-        .usage-table-layout th:nth-child(4),
-        .usage-table-layout td:nth-child(4) {
-            width: 16%;
-        }
-
-        .usage-table-layout th:nth-child(5),
-        .usage-table-layout td:nth-child(5) {
-            width: 26%;
-        }
-
-        .usage-table-layout td:nth-child(2),
-        .usage-table-layout td:nth-child(3),
-        .usage-table-layout td:nth-child(5) {
+        .usage-table-layout th,
+        .usage-table-layout td {
             white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
         }
 
         .editable-real-name-cell {
@@ -1630,6 +1602,24 @@
                 flex: 1 0 100%;
                 margin-left: 0;
                 font-size: 12px;
+            }
+
+            .usage-table-layout th,
+            .usage-table-layout td {
+                padding: 10px 6px;
+                font-size: 12px;
+            }
+
+            .usage-table-layout .badge {
+                padding: 4px 6px;
+                font-size: 11px;
+            }
+
+            .usage-table-layout .btn {
+                min-height: 34px;
+                padding: 0 8px !important;
+                font-size: 11px !important;
+                white-space: nowrap;
             }
             
             .header h1 {
@@ -3474,21 +3464,25 @@
 
         // 使用情况分页
         let usageCurrentPage = 0;
-        const usagePageSize = 100;
         let usageTotalCount = 0;
         let usageTotalPages = 0;
         let usageSearchKeyword = '';
 
+        function getAdminListPageSize() {
+            return getMobileLayoutMedia().matches ? 20 : 100;
+        }
+
         async function loadUsage(page = 0) {
             usageCurrentPage = page;
-            const offset = page * usagePageSize;
+            const pageSize = getAdminListPageSize();
+            const offset = page * pageSize;
             try {
-                let url = `${API_BASE}/admin/api/usage?limit=${usagePageSize}&offset=${offset}`;
+                let url = `${API_BASE}/admin/api/usage?limit=${pageSize}&offset=${offset}`;
                 if (usageSearchKeyword) url += `&search=${encodeURIComponent(usageSearchKeyword)}`;
                 const res = await fetch(url);
                 const data = await res.json();
                 usageTotalCount = data.total || 0;
-                usageTotalPages = Math.ceil(usageTotalCount / usagePageSize) || 1;
+                usageTotalPages = Math.ceil(usageTotalCount / pageSize) || 1;
                 usageDataCache = data.rows || [];
                 renderUsageTable(usageDataCache);
                 updateUsagePagination();
@@ -3558,7 +3552,6 @@
         
         // 用户管理分页相关
         let usersCurrentPage = 0;
-        const usersPageSize = 100;
         let usersTotalCount = 0;
         let usersTotalPages = 0;
         let usersSearchKeyword = '';
@@ -3566,10 +3559,11 @@
         // 加载用户列表（user_assets表 - 只显示资产信息）
         async function loadUsers(page = 0) {
             usersCurrentPage = page;
-            const offset = page * usersPageSize;
+            const pageSize = getAdminListPageSize();
+            const offset = page * pageSize;
             
             try {
-                let url = `${API_BASE}/admin/api/assets?limit=${usersPageSize}&offset=${offset}`;
+                let url = `${API_BASE}/admin/api/assets?limit=${pageSize}&offset=${offset}`;
                 if (usersSearchKeyword) {
                     url += `&search=${encodeURIComponent(usersSearchKeyword)}`;
                 }
@@ -3592,7 +3586,7 @@
                 const rows = data.rows || [];
                 usersTotalCount = data.total || 0;
                 usersDataCache = rows;
-                usersTotalPages = Math.ceil(usersTotalCount / usersPageSize) || 1;
+                usersTotalPages = Math.ceil(usersTotalCount / pageSize) || 1;
                 
                 renderUsersTable(usersDataCache);
                 updateUsersPagination();
