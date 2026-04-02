@@ -1565,6 +1565,16 @@
                 right: 0 !important;
             }
 
+            .ak-browser-panel.force-portrait-session {
+                top: 0 !important;
+                left: 100vw !important;
+                right: auto !important;
+                width: 100vh !important;
+                height: 100vw !important;
+                transform-origin: top left;
+                transform: rotate(90deg);
+            }
+
             .ak-browser-stage {
                 align-items: center;
                 justify-content: center;
@@ -4495,7 +4505,9 @@
             if (!panel || !overlay || !stageFrame) return;
             const isMobile = getMobileLayoutMedia().matches;
             const isOpen = panel.classList.contains('open');
+            const shouldForcePortrait = isMobile && isOpen && window.innerWidth > window.innerHeight;
             overlay.style.display = isOpen && !isMobile ? 'block' : 'none';
+            panel.classList.toggle('force-portrait-session', shouldForcePortrait);
             stageFrame.style.width = '100%';
             stageFrame.style.height = '100%';
         }
@@ -7240,7 +7252,9 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
             panel.classList.add('open');
             overlay.style.display = getMobileLayoutMedia().matches ? 'none' : 'block';
             syncAkBrowserViewport();
-            enterAkFullscreenPortrait();
+            enterAkFullscreenPortrait().finally(() => {
+                setTimeout(syncAkBrowserViewport, 120);
+            });
             try {
                 const res = await fetch(`${API_BASE}/admin/api/browse_login`, {
                     method: 'POST',
@@ -7292,6 +7306,7 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                 akBrowserRetryTimer = null;
             }
             panel.classList.remove('open');
+            panel.classList.remove('force-portrait-session');
             overlay.style.display = 'none';
             if (stageFrame) {
                 stageFrame.style.width = '100%';
