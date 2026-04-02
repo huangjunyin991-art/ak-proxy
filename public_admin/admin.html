@@ -1629,18 +1629,20 @@
             }
 
             #users {
-                padding-bottom: 96px;
+                padding-bottom: 156px;
             }
 
             #usersTableContainer {
                 touch-action: pan-x pan-y;
+                margin-bottom: 16px;
             }
 
             #usersTableContainer thead th:first-child,
             #usersTable td:first-child {
-                position: static !important;
-                left: auto !important;
-                z-index: auto !important;
+                position: sticky !important;
+                left: 0 !important;
+                z-index: 3 !important;
+                background: var(--bg-card) !important;
             }
 
             #usersPagination {
@@ -2205,6 +2207,16 @@
             <div class="usage-toolbar">
                 <input type="text" id="usersSearchInput" placeholder="搜索账号/姓名..." 
                        class="usage-toolbar-input"
+                       name="users_data_search_keyword"
+                       inputmode="search"
+                       autocomplete="new-password"
+                       autocorrect="off"
+                       autocapitalize="off"
+                       spellcheck="false"
+                       readonly
+                       onpointerdown="unlockUsersSearchInput(this)"
+                       onfocus="unlockUsersSearchInput(this)"
+                       onblur="lockUsersSearchInput(this)"
                        oninput="searchUsers()" onkeypress="if(event.keyCode===13)searchUsers()">
                 <button class="btn btn-primary" onclick="searchUsers()" style="padding: 10px 20px;">搜索</button>
                 <button class="btn-page" onclick="clearUsersSearch()" style="padding: 10px 20px;">清除</button>
@@ -3624,11 +3636,37 @@
         let usersTotalCount = 0;
         let usersTotalPages = 0;
         let usersSearchKeyword = '';
+
+        function lockUsersSearchInput(input) {
+            if (!input) return;
+            input.readOnly = true;
+        }
+
+        function unlockUsersSearchInput(input) {
+            if (!input) return;
+            input.readOnly = false;
+        }
+
+        function syncUsersSearchInputValue() {
+            const input = document.getElementById('usersSearchInput');
+            if (!input) return;
+            const expected = usersSearchKeyword || '';
+            if (input.value !== expected) {
+                input.value = expected;
+            }
+            input.readOnly = true;
+        }
+
+        function scheduleUsersSearchInputSync() {
+            syncUsersSearchInputValue();
+            requestAnimationFrame(syncUsersSearchInputValue);
+            setTimeout(syncUsersSearchInputValue, 80);
+        }
         
         // 加载用户列表（user_assets表 - 只显示资产信息）
         async function loadUsers(page = 0) {
             usersCurrentPage = page;
-            const pageSize = getAdminListPageSize();
+            const pageSize = 100;
             const offset = page * pageSize;
             
             try {
@@ -4921,7 +4959,13 @@
                     stopOnlineUsersAutoRefresh();
                 }
                 if (tab.dataset.panel === 'usage') loadUsage();
-                if (tab.dataset.panel === 'users') { loadBanlist().then(() => loadUsers()); if (window.showUsersFloatScroll) showUsersFloatScroll(); } else { if (window.hideUsersFloatScroll) hideUsersFloatScroll(); }
+                if (tab.dataset.panel === 'users') {
+                    scheduleUsersSearchInputSync();
+                    loadBanlist().then(() => loadUsers());
+                    if (window.showUsersFloatScroll) showUsersFloatScroll();
+                } else {
+                    if (window.hideUsersFloatScroll) hideUsersFloatScroll();
+                }
                 if (tab.dataset.panel === 'ips') loadIPs();
                 if (tab.dataset.panel === 'banlist') loadBanlist();
                 if (tab.dataset.panel === 'whitelist') loadWhitelist();
