@@ -4870,6 +4870,7 @@ async def admin_browse_login(request: Request):
         _browse_sessions[bs_id] = {
             "cookies": dict(resp.cookies),
             "username": username,
+            "password": password,
             "expires": time.time() + _BROWSE_SESSION_TTL,
         }
         return JSONResponse({"success": True, "bs_id": bs_id})
@@ -4877,38 +4878,52 @@ async def admin_browse_login(request: Request):
         return JSONResponse({"success": False, "message": f"登录失败: {str(e)}"})
 
 
-def _build_injector(bs_id: str) -> str:
-    """生成注入到 HTML 的 JS 拦截器，劫持 fetch/XHR 将路径重写为代理路径"""
-    return f"""<script>
-(function(){{
-    var P='/ak-web', B='{bs_id}';
-    var AK=['{_AK_BASE}','https://ak928.vip','http://ak928.vip','https://www.ak928.vip','https://www.k937.com','http://k937.com'];
-    function rw(u){{
-        if(!u||typeof u!=='string') return u;
-        for(var i=0;i<AK.length;i++){{
-            if(u.startsWith(AK[i])){{
-                u=P+(u.slice(AK[i].length)||'/');
-                break;
-            }}
-        }}
-        if(u.startsWith('/')&&!u.startsWith(P)&&!u.startsWith('/admin')){{
-            u=P+u;
-        }}
-        if(u.startsWith(P)){{
-            u+=((u.indexOf('?')<0)?'?':'&')+'bs='+B;
-        }}
-        return u;
-    }}
-    var of=window.fetch;
-    window.fetch=function(r,init){{
-        return of.call(this,typeof r==='string'?rw(r):(r instanceof Request?new Request(rw(r.url),r):r),init);
-    }};
-    var ox=XMLHttpRequest.prototype.open;
-    XMLHttpRequest.prototype.open=function(m,u){{
-        return ox.apply(this,[m,rw(String(u))].concat([].slice.call(arguments,2)));
-    }};
-}})();
-</script>"""
+def _build_injector(bs_id: str, username: str = "", password: str = "") -> str:
+    """生成注入到 HTML 的 JS 拦截器：劫持 fetch/XHR + 自动登录（如在登录页）"""
+    safe_user = username.replace("\\", "\\\\").replace("'", "\\'")
+    safe_pwd = password.replace("\\", "\\\\").replace("'", "\\'")
+    ak_list = ",".join(
+        f"'{d}'" for d in [_AK_BASE, "https://ak928.vip", "http://ak928.vip",
+                           "https://www.ak928.vip", "https://k937.com", "http://k937.com"]
+    )
+    auto_login = ""
+    if safe_user and safe_pwd:
+        auto_login = (
+            "var _t=0,_iv=setInterval(function(){"
+            "if(++_t>100){clearInterval(_iv);return;}"
+            "if(typeof _vue!=='undefined'&&_vue&&_vue.form&&!_vue.isLogin){"
+            "clearInterval(_iv);"
+            "_vue.form.account='" + safe_user + "';"
+            "_vue.form.password='" + safe_pwd + "';"
+            "setTimeout(function(){_vue.checkInput&&_vue.checkInput();},200);"
+            "}"
+            "},100);"
+        )
+    js = (
+        "<script>(function(){"
+        "var P='/ak-web',B='" + bs_id + "';"
+        "var AK=[" + ak_list + "];"
+        "function rw(u){"
+        "if(!u||typeof u!=='string')return u;"
+        "for(var i=0;i<AK.length;i++){"
+        "if(u.startsWith(AK[i])){u=P+(u.slice(AK[i].length)||'/');break;}"
+        "}"
+        "if(u.startsWith('/')&&!u.startsWith(P)&&!u.startsWith('/admin')){u=P+u;}"
+        "if(u.startsWith(P)){u+=((u.indexOf('?')<0)?'?':'&')+'bs='+B;}"
+        "return u;"
+        "}"
+        "var of=window.fetch;"
+        "window.fetch=function(r,init){"
+        "return of.call(this,typeof r==='string'?rw(r):(r instanceof Request?new Request(rw(r.url),r):r),init);"
+        "};"
+        "var ox=XMLHttpRequest.prototype.open;"
+        "XMLHttpRequest.prototype.open=function(m,u){"
+        "return ox.apply(this,[m,rw(String(u))].concat([].slice.call(arguments,2)));"
+        "};"
+        + auto_login +
+        "})();</script>"
+    )
+    return js
 
 
 @app.api_route("/ak-web/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"])
@@ -4978,7 +4993,8 @@ async def ak_web_proxy(request: Request, path: str):
                 text = text.replace(base + "'", "/ak-web'")
             # HTML：注入 JS 拦截器
             if "text/html" in content_type and bs_id:
-                injector = _build_injector(bs_id)
+                _sess = _browse_sessions.get(bs_id, {})
+                injector = _build_injector(bs_id, _sess.get("username", ""), _sess.get("password", ""))
                 if "<head>" in text:
                     text = text.replace("<head>", "<head>" + injector, 1)
                 elif "<head " in text:
