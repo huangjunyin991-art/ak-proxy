@@ -28,6 +28,8 @@ import re
 
 import logging
 
+from urllib.parse import parse_qs, urlsplit
+
 from logging.handlers import RotatingFileHandler
 
 from datetime import datetime
@@ -4937,6 +4939,31 @@ def _extract_site_api_path(path: str) -> str:
     return last if last in _AK_SITE_API_NAMES else ""
 
 
+def _resolve_browse_bs_id(request: Request) -> str:
+    bs_id = (request.query_params.get("bs") or "").strip()
+    if bs_id:
+        return bs_id
+    referer = (request.headers.get("referer") or "").strip()
+    if not referer:
+        return ""
+    try:
+        parts = urlsplit(referer)
+        if not parts.path.startswith((_AK_SITE_PREFIX, _AK_WEB_PREFIX, "/ak-web")):
+            return ""
+        return (parse_qs(parts.query).get("bs") or [""])[0].strip()
+    except Exception:
+        return ""
+
+
+def _resolve_browse_session(request: Request):
+    bs_id = _resolve_browse_bs_id(request)
+    session = _browse_sessions.get(bs_id)
+    if session and time.time() > session.get("expires", 0):
+        _browse_sessions.pop(bs_id, None)
+        session = None
+    return bs_id, session
+
+
 def _rewrite_site_root_url(url: str, site_prefix: str) -> str:
     if not url or not url.startswith("/"):
         return url
@@ -5062,17 +5089,12 @@ async def _forward_admin_ak_rpc_request(path: str, request: Request, session: di
 
 @app.api_route("/admin/ak-rpc/{path:path}", methods=["GET", "POST", "PUT", "DELETE"])
 async def admin_ak_rpc(path: str, request: Request):
-    bs_id = request.query_params.get("bs", "")
-    session = _browse_sessions.get(bs_id)
+    bs_id, session = _resolve_browse_session(request)
     referer = request.headers.get("referer", "")
     fetch_dest = request.headers.get("sec-fetch-dest", "")
     accept = request.headers.get("accept", "")
     if not session:
         logger.warning(f"[AdminAkRpc/{path}] no_session bs={bs_id} dest={fetch_dest} accept={accept} referer={referer}")
-        return JSONResponse({"Error": True, "IsLogin": False, "Msg": "用戶未登錄"})
-    if time.time() > session.get("expires", 0):
-        _browse_sessions.pop(bs_id, None)
-        logger.warning(f"[AdminAkRpc/{path}] session_expired bs={bs_id} dest={fetch_dest} accept={accept} referer={referer}")
         return JSONResponse({"Error": True, "IsLogin": False, "Msg": "用戶未登錄"})
 
     try:
@@ -5222,15 +5244,10 @@ async def ak_web_proxy(request: Request, path: str):
         if request.method == "GET":
             return Response(content=";", media_type="application/javascript")
         return Response(status_code=204)
-    bs_id = request.query_params.get("bs", "")
-    session = _browse_sessions.get(bs_id)
+    bs_id, session = _resolve_browse_session(request)
     cookies = {}
     if session:
-        if time.time() > session["expires"]:
-            _browse_sessions.pop(bs_id, None)
-            session = None
-        else:
-            cookies = session["cookies"]
+        cookies = session["cookies"]
     site_api_path = _extract_site_api_path(path)
     if site_prefix == _AK_SITE_PREFIX and site_api_path:
         if not session:
