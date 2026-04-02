@@ -5162,11 +5162,13 @@ def _build_injector(bs_id: str, username: str = "", password: str = "", userkey:
         "var API='" + api_base + "';"
         "var AK=[" + ak_list + "];"
         "function withBs(u){return u+((u.indexOf('?')<0)?'?':'&')+'bs='+B;}"
+        "function pickAdminApi(u,n){var rel=u.replace(/^https?:\\/\\/[^\\/]+/,'');if(rel===n||rel.startsWith(n+'?')||rel.startsWith(n+'/'))return rel;var m=rel.match(new RegExp('(?:^|\\\\/)'+n+'(?:[\\\\/?].*)?$'));return m?m[0].replace(/^\\//,''):'';}"
         "function rw(u){"
         "if(!u||typeof u!=='string')return u;"
         # API 请求重写到 /RPC/（走代理自身的出口节点负载均衡）
         "if(u.startsWith(API)){return withBs(R+'/'+u.slice(API.length).replace(/^\\/RPC\\//,'').replace(/^\\//,''));}"
         "if(u.startsWith('/RPC/')){return withBs(R+'/'+u.slice(5));}"
+        "var _pia=pickAdminApi(u,'public_IndexData');if(_pia){return withBs(R+'/'+_pia.replace(/^\\//,''));}"
         "for(var i=0;i<AK.length;i++){"
         "if(u.startsWith(AK[i])){u=P+(u.slice(AK[i].length)||'/');break;}"
         "}"
