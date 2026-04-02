@@ -1450,10 +1450,6 @@
                 font-size: 11px;
             }
 
-            .rotate-hint {
-                display: none !important;
-            }
-
             .ak-browser-panel {
                 width: 100% !important;
                 right: -100% !important;
@@ -1539,7 +1535,7 @@
         /* 竖屏且是移动设备时显示提示 */
         @media screen and (orientation: portrait) and (max-width: 768px) {
             .rotate-hint {
-                display: none !important;
+                display: flex !important;
             }
         }
         /* Lucide图标样式 */
@@ -2780,7 +2776,11 @@
         function applyPermissions() {
             if (isSuperAdmin()) {
                 // 超管显示所有标签
-                document.querySelectorAll('.tab').forEach(t => t.style.display = '');
+                document.querySelectorAll('.tab').forEach(t => {
+                    t.style.display = '';
+                    t.dataset.allowed = '1';
+                });
+                renderMobileTabList();
                 return;
             }
             
@@ -2794,11 +2794,15 @@
                 
                 if (tabName === 'settings') {
                     tab.style.display = 'none';
+                    tab.dataset.allowed = '0';
                 } else if (tabName === 'whitelist' || tabName === 'credits') {
                     // 白名单和积分对所有管理员可见
                     tab.style.display = '';
+                    tab.dataset.allowed = '1';
                 } else {
-                    tab.style.display = perms[tabName] ? '' : 'none';
+                    const allowed = !!perms[tabName];
+                    tab.style.display = allowed ? '' : 'none';
+                    tab.dataset.allowed = allowed ? '1' : '0';
                 }
             });
             
@@ -4310,7 +4314,7 @@
         }
 
         function getVisibleTabs() {
-            return Array.from(document.querySelectorAll('.tab')).filter(tab => tab.style.display !== 'none');
+            return Array.from(document.querySelectorAll('.tab')).filter(tab => tab.dataset.allowed !== '0');
         }
 
         function syncMobileTabLabel() {
