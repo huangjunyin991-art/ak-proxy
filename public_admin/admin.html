@@ -1186,6 +1186,30 @@
             flex: 1;
         }
 
+        .mobile-shell-mode-switch {
+            display: none;
+            align-items: center;
+            gap: 4px;
+            flex: 0 0 auto;
+            padding: 4px;
+            border-radius: 10px;
+            border: 1px solid var(--border);
+            background: var(--bg-primary);
+        }
+
+        .mobile-shell-mode-btn {
+            min-width: 42px;
+            height: 30px;
+            padding: 0 8px;
+            border-radius: 8px;
+            border: none;
+            background: transparent;
+            color: var(--text-secondary);
+            cursor: pointer;
+            font-size: 11px;
+            line-height: 1;
+        }
+
         .mobile-shell-title {
             min-width: 0;
         }
@@ -1218,6 +1242,31 @@
             align-items: center;
             justify-content: center;
             font-size: 16px;
+        }
+
+        .usage-toolbar {
+            margin-bottom: 15px;
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .usage-toolbar-input {
+            flex: 1;
+            max-width: 300px;
+            padding: 10px 15px;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            color: var(--text-primary);
+            font-size: 14px;
+        }
+
+        .usage-toolbar-count {
+            color: var(--text-secondary);
+            font-size: 14px;
+            margin-left: auto;
         }
 
         .mobile-tab-overlay {
@@ -1345,6 +1394,13 @@
             gap:8px;
         }
 
+        .ak-browser-title-text {
+            color: var(--accent);
+            font-weight: bold;
+            font-size: 14px;
+            flex: 1;
+        }
+
         .ak-browser-tool-btn {
             padding:4px 12px;
             border-radius:6px;
@@ -1428,22 +1484,7 @@
             }
 
             .header-mode-switch {
-                width: auto;
-                justify-content: flex-start;
-                padding: 0;
-                border: none;
-                border-radius: 0;
-                background: transparent;
-                order: 0;
-            }
-
-            .header-mode-switch span {
-                font-size: 11px;
-                white-space: nowrap;
-            }
-
-            .header-mode-switch > div {
-                flex-shrink: 0;
+                display: none;
             }
 
             .mobile-shell-bar {
@@ -1451,8 +1492,36 @@
                 padding: 10px 12px;
             }
 
+            .mobile-shell-mode-switch {
+                display: inline-flex;
+            }
+
             .desktop-tabs {
                 display: none;
+            }
+
+            .usage-toolbar {
+                gap: 8px;
+                align-items: stretch;
+            }
+
+            .usage-toolbar-input {
+                flex: 0 0 148px;
+                max-width: 148px;
+                min-width: 0;
+            }
+
+            .usage-toolbar .btn,
+            .usage-toolbar .btn-page {
+                flex: 0 0 auto;
+                padding: 0 12px !important;
+                min-height: 40px;
+            }
+
+            .usage-toolbar-count {
+                flex: 1 0 100%;
+                margin-left: 0;
+                font-size: 12px;
             }
             
             .header h1 {
@@ -1558,21 +1627,12 @@
                 right: -100% !important;
                 border-left: none !important;
                 box-shadow: none !important;
+                height: 100dvh !important;
                 z-index: 1300 !important;
             }
 
             .ak-browser-panel.open {
                 right: 0 !important;
-            }
-
-            .ak-browser-panel.force-portrait-session {
-                top: 0 !important;
-                left: 100vw !important;
-                right: auto !important;
-                width: 100vh !important;
-                height: 100vw !important;
-                transform-origin: top left;
-                transform: rotate(90deg);
             }
 
             .ak-browser-stage {
@@ -1582,18 +1642,41 @@
             }
 
             .ak-browser-header {
-                padding: 12px;
+                position: absolute;
+                top: max(8px, env(safe-area-inset-top));
+                left: 12px;
+                right: 12px;
+                z-index: 2;
+                padding: 0;
                 gap: 8px;
+                background: transparent;
+                border-bottom: none;
+                pointer-events: none;
             }
 
             .ak-browser-toolbar {
+                margin-left: auto;
                 gap: 6px;
+                pointer-events: auto;
+            }
+
+            .ak-browser-title-text {
+                flex: 0 1 auto;
+                max-width: calc(100% - 124px);
+                padding: 10px 12px;
+                border-radius: 10px;
+                background: rgba(11, 22, 46, 0.88);
+                backdrop-filter: blur(10px);
+                font-size: 13px;
+                line-height: 1.2;
+                pointer-events: auto;
             }
 
             .ak-browser-tool-btn {
                 min-height: 36px;
                 padding: 0 10px;
                 font-size: 12px;
+                pointer-events: auto;
             }
             
             .login-box {
@@ -1702,6 +1785,10 @@
                 <div class="mobile-shell-title-main" id="mobileCurrentTab">流量仪表盘</div>
                 <div class="mobile-shell-title-sub">移动端导航</div>
             </div>
+        </div>
+        <div class="mobile-shell-mode-switch">
+            <button type="button" class="mobile-shell-mode-btn" id="mobileModeFullBtn" onclick="setViewMode(false)">完全</button>
+            <button type="button" class="mobile-shell-mode-btn" id="mobileModeCompactBtn" onclick="setViewMode(true)">精简</button>
         </div>
         <button type="button" class="mobile-nav-btn" id="mobilePanelRefresh" onclick="refreshCurrentPanel()">↻</button>
     </div>
@@ -1932,13 +2019,13 @@
         
         <!-- 使用情况（登录尝试记录） -->
         <div class="panel" id="usage">
-            <div style="margin-bottom: 15px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+            <div class="usage-toolbar">
                 <input type="text" id="usageSearchInput" placeholder="搜索用户名..." 
-                       style="flex: 1; max-width: 300px; padding: 10px 15px; background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; color: var(--text-primary); font-size: 14px;"
+                       class="usage-toolbar-input"
                        oninput="searchUsage()" onkeypress="if(event.keyCode===13)searchUsage()">
                 <button class="btn btn-primary" onclick="searchUsage()" style="padding: 10px 20px;">搜索</button>
                 <button class="btn-page" onclick="clearUsageSearch()" style="padding: 10px 20px;">清除</button>
-                <span id="usageSearchCount" style="color: var(--text-secondary); font-size: 14px; margin-left: auto;"></span>
+                <span id="usageSearchCount" class="usage-toolbar-count"></span>
             </div>
             <div class="table-container" style="overflow-x: auto;">
                 <table>
@@ -2563,12 +2650,12 @@
     <div id="akBrowserPanel" class="ak-browser-panel">
         <!-- 标题栏 -->
         <div class="ak-browser-header">
-            <span id="akBrowserTitle" style="color:var(--accent); font-weight:bold; font-size:14px; flex:1;">AK 网页</span>
+            <span id="akBrowserTitle" class="ak-browser-title-text">AK 网页</span>
             <div class="ak-browser-toolbar">
                 <button onclick="refreshAkBrowser()" class="ak-browser-tool-btn">刷新</button>
-                <button onclick="closeAkBrowser()" style="padding:4px 12px; border-radius:6px;
+                <button onclick="closeAkBrowser()" class="ak-browser-tool-btn" style="padding:4px 12px; border-radius:6px;
                 background:rgba(255,82,82,0.15); color:#ff5252; border:1px solid rgba(255,82,82,0.3);
-                cursor:pointer; font-size:13px;">✕ 关闭</button>
+                cursor:pointer; font-size:13px;">关闭</button>
             </div>
         </div>
         <div class="ak-browser-stage" id="akBrowserStage">
@@ -2799,8 +2886,8 @@
             saveViewMode(compact);
             if (isCompactMode === compact) return;
             isCompactMode = compact;
-            const fullBtn = document.getElementById('modeFullBtn');
-            const compactBtn = document.getElementById('modeCompactBtn');
+            const fullBtns = [document.getElementById('modeFullBtn'), document.getElementById('mobileModeFullBtn')].filter(Boolean);
+            const compactBtns = [document.getElementById('modeCompactBtn'), document.getElementById('mobileModeCompactBtn')].filter(Boolean);
             const statsGrid = document.getElementById('statsGrid');
             const tabDashboard = document.getElementById('tabDashboard');
             const licenseStats = document.getElementById('licenseStatsGrid');
@@ -2811,18 +2898,26 @@
             if (licenseStats) licenseStats.style.display = displayVal;
             
             if (isCompactMode) {
-                fullBtn.style.background = 'transparent';
-                fullBtn.style.color = 'var(--text-secondary)';
-                compactBtn.style.background = 'var(--accent)';
-                compactBtn.style.color = 'white';
+                fullBtns.forEach(btn => {
+                    btn.style.background = 'transparent';
+                    btn.style.color = 'var(--text-secondary)';
+                });
+                compactBtns.forEach(btn => {
+                    btn.style.background = 'var(--accent)';
+                    btn.style.color = 'white';
+                });
                 if (tabDashboard.classList.contains('active')) {
                     document.querySelector('.tab[data-panel="online"]').click();
                 }
             } else {
-                fullBtn.style.background = 'var(--accent)';
-                fullBtn.style.color = 'white';
-                compactBtn.style.background = 'transparent';
-                compactBtn.style.color = 'var(--text-secondary)';
+                fullBtns.forEach(btn => {
+                    btn.style.background = 'var(--accent)';
+                    btn.style.color = 'white';
+                });
+                compactBtns.forEach(btn => {
+                    btn.style.background = 'transparent';
+                    btn.style.color = 'var(--text-secondary)';
+                });
             }
         }
 
@@ -4462,22 +4557,11 @@
         }
 
         async function lockAdminPortraitOrientation() {
-            const mainContent = document.getElementById('mainContent');
-            if (!mainContent || !mainContent.classList.contains('visible')) return;
-            if (!getMobileLayoutMedia().matches) return;
-            if (!screen.orientation || typeof screen.orientation.lock !== 'function') return;
-            try {
-                await screen.orientation.lock('portrait');
-            } catch (e) {
-            }
+            return;
         }
 
         function unlockAdminOrientation() {
-            if (!screen.orientation || typeof screen.orientation.unlock !== 'function') return;
-            try {
-                screen.orientation.unlock();
-            } catch (e) {
-            }
+            return;
         }
 
         function setMobileNavOpen(open) {
@@ -4505,44 +4589,9 @@
             if (!panel || !overlay || !stageFrame) return;
             const isMobile = getMobileLayoutMedia().matches;
             const isOpen = panel.classList.contains('open');
-            const shouldForcePortrait = isMobile && isOpen && window.innerWidth > window.innerHeight;
             overlay.style.display = isOpen && !isMobile ? 'block' : 'none';
-            panel.classList.toggle('force-portrait-session', shouldForcePortrait);
             stageFrame.style.width = '100%';
             stageFrame.style.height = '100%';
-        }
-
-        async function enterAkFullscreenPortrait() {
-            const panel = document.getElementById('akBrowserPanel');
-            if (!panel || !getMobileLayoutMedia().matches) return;
-            if (window.innerWidth <= window.innerHeight) return;
-            try {
-                if (!document.fullscreenElement && panel.requestFullscreen) {
-                    await panel.requestFullscreen();
-                }
-            } catch (e) {
-            }
-            try {
-                if (screen.orientation && typeof screen.orientation.lock === 'function') {
-                    await screen.orientation.lock('portrait');
-                }
-            } catch (e) {
-            }
-        }
-
-        async function exitAkFullscreenPortrait() {
-            try {
-                if (screen.orientation && typeof screen.orientation.unlock === 'function') {
-                    screen.orientation.unlock();
-                }
-            } catch (e) {
-            }
-            try {
-                if (document.fullscreenElement && document.exitFullscreen) {
-                    await document.exitFullscreen();
-                }
-            } catch (e) {
-            }
         }
 
         function renderMobileTabList() {
@@ -7252,9 +7301,6 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
             panel.classList.add('open');
             overlay.style.display = getMobileLayoutMedia().matches ? 'none' : 'block';
             syncAkBrowserViewport();
-            enterAkFullscreenPortrait().finally(() => {
-                setTimeout(syncAkBrowserViewport, 120);
-            });
             try {
                 const res = await fetch(`${API_BASE}/admin/api/browse_login`, {
                     method: 'POST',
@@ -7306,13 +7352,11 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                 akBrowserRetryTimer = null;
             }
             panel.classList.remove('open');
-            panel.classList.remove('force-portrait-session');
             overlay.style.display = 'none';
             if (stageFrame) {
                 stageFrame.style.width = '100%';
                 stageFrame.style.height = '100%';
             }
-            exitAkFullscreenPortrait();
             setAkBrowserLoading(false);
             frame.onload = null;
             frame.src = 'about:blank';
