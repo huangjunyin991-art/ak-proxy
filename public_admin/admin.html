@@ -2543,7 +2543,7 @@
                 <div id="akBrowserLoadingText" style="color:var(--text-secondary); font-size:13px;">正在进入AK后台...</div>
             </div>
             <iframe id="akBrowserFrame" src="about:blank" style="border:none; width:100%; height:100%; visibility:hidden; background:var(--bg-primary);"
-                    sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-top-navigation"></iframe>
+                    sandbox="allow-scripts allow-same-origin allow-forms allow-popups"></iframe>
         </div>
     </div>
     <!-- 遮罩层 -->
@@ -2860,6 +2860,7 @@
             initApp();
             renderMobileTabList();
             syncResponsiveShell();
+            lockAdminPortraitOrientation();
         }
         
         function applyPermissions() {
@@ -2905,6 +2906,7 @@
         }
         
         function logout() {
+            unlockAdminOrientation();
             sessionStorage.removeItem('admin_token');
             sessionStorage.removeItem('admin_role');
             sessionStorage.removeItem('admin_role_name');
@@ -4394,6 +4396,25 @@
             return window.matchMedia('(max-width: 1024px)');
         }
 
+        async function lockAdminPortraitOrientation() {
+            const mainContent = document.getElementById('mainContent');
+            if (!mainContent || !mainContent.classList.contains('visible')) return;
+            if (!getMobileLayoutMedia().matches) return;
+            if (!screen.orientation || typeof screen.orientation.lock !== 'function') return;
+            try {
+                await screen.orientation.lock('portrait');
+            } catch (e) {
+            }
+        }
+
+        function unlockAdminOrientation() {
+            if (!screen.orientation || typeof screen.orientation.unlock !== 'function') return;
+            try {
+                screen.orientation.unlock();
+            } catch (e) {
+            }
+        }
+
         function setMobileNavOpen(open) {
             const drawer = document.getElementById('mobileTabDrawer');
             const overlay = document.getElementById('mobileTabOverlay');
@@ -4438,9 +4459,13 @@
             if (refreshButton) refreshButton.style.display = media.matches ? 'inline-flex' : '';
             if (!media.matches) {
                 setMobileNavOpen(false);
+                unlockAdminOrientation();
             }
             if (document.hidden) {
                 setMobileNavOpen(false);
+                unlockAdminOrientation();
+            } else if (document.getElementById('mainContent').classList.contains('visible')) {
+                lockAdminPortraitOrientation();
             }
             renderMobileTabList();
             syncMobileTabLabel();
@@ -4524,9 +4549,12 @@
         window.addEventListener('pageshow', scheduleResponsiveShellSync);
         window.addEventListener('focus', scheduleResponsiveShellSync);
         window.addEventListener('resize', scheduleResponsiveShellSync);
+        window.addEventListener('pagehide', unlockAdminOrientation);
+        window.addEventListener('beforeunload', unlockAdminOrientation);
         document.addEventListener('visibilitychange', () => {
             if (document.hidden) {
                 setMobileNavOpen(false);
+                unlockAdminOrientation();
                 return;
             }
             scheduleResponsiveShellSync();
