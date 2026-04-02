@@ -4877,21 +4877,56 @@ async def admin_browse_login(request: Request):
         return JSONResponse({"success": False, "message": f"登录失败: {str(e)}"})
 
 
+def _build_injector(bs_id: str) -> str:
+    """生成注入到 HTML 的 JS 拦截器，劫持 fetch/XHR 将路径重写为代理路径"""
+    return f"""<script>
+(function(){{
+    var P='/ak-web', B='{bs_id}';
+    var AK=['{_AK_BASE}','https://www.k937.com','http://k937.com','http://www.k937.com'];
+    function rw(u){{
+        if(!u||typeof u!=='string') return u;
+        for(var i=0;i<AK.length;i++){{
+            if(u.startsWith(AK[i])){{
+                u=P+(u.slice(AK[i].length)||'/');
+                break;
+            }}
+        }}
+        if(u.startsWith('/')&&!u.startsWith(P)&&!u.startsWith('/admin')){{
+            u=P+u;
+        }}
+        if(u.startsWith(P)){{
+            u+=((u.indexOf('?')<0)?'?':'&')+'bs='+B;
+        }}
+        return u;
+    }}
+    var of=window.fetch;
+    window.fetch=function(r,init){{
+        return of.call(this,typeof r==='string'?rw(r):(r instanceof Request?new Request(rw(r.url),r):r),init);
+    }};
+    var ox=XMLHttpRequest.prototype.open;
+    XMLHttpRequest.prototype.open=function(m,u){{
+        return ox.apply(this,[m,rw(String(u))].concat([].slice.call(arguments,2)));
+    }};
+}})();
+</script>"""
+
+
 @app.api_route("/ak-web/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"])
 async def ak_web_proxy(request: Request, path: str):
-    """AK 网页反向代理：携带用户 session 转发请求，去除 iframe 限制头"""
+    """AK 网页透明代理：所有请求通过后端转发，携带缓存 session，注入 JS 拦截器实现 VPN 式体验"""
     bs_id = request.query_params.get("bs", "")
     session = _browse_sessions.get(bs_id)
     cookies = {}
     if session:
         if time.time() > session["expires"]:
             _browse_sessions.pop(bs_id, None)
+            session = None
         else:
             cookies = session["cookies"]
 
-    # 构建目标 URL（去掉 bs 查询参数）
+    # 构建目标 URL（去掉代理专用参数 bs）
     query_parts = [p for p in str(request.url.query).split("&") if p and not p.startswith("bs=")]
-    target_url = f"{_AK_BASE}/{path}" if path else _AK_BASE
+    target_url = f"{_AK_BASE}/{path}" if path else f"{_AK_BASE}/"
     if query_parts:
         target_url += "?" + "&".join(query_parts)
 
@@ -4899,11 +4934,14 @@ async def ak_web_proxy(request: Request, path: str):
         "User-Agent": request.headers.get("user-agent", "Mozilla/5.0"),
         "Accept": request.headers.get("accept", "*/*"),
         "Accept-Language": request.headers.get("accept-language", "zh-CN,zh;q=0.9"),
+        "Content-Type": request.headers.get("content-type", ""),
         "Referer": _AK_BASE + "/",
     }
+    fwd_headers = {k: v for k, v in fwd_headers.items() if v}
+
     try:
         body = await request.body()
-        async with httpx.AsyncClient(verify=False, timeout=15, cookies=cookies,
+        async with httpx.AsyncClient(verify=False, timeout=20, cookies=cookies,
                                      follow_redirects=True) as client:
             resp = await client.request(
                 method=request.method,
@@ -4911,23 +4949,51 @@ async def ak_web_proxy(request: Request, path: str):
                 headers=fwd_headers,
                 content=body or None,
             )
-        # 去除阻止 iframe 嵌入的响应头
-        resp_headers = {k: v for k, v in resp.headers.items()
-                        if k.lower() not in ("x-frame-options", "content-security-policy",
-                                             "content-encoding", "transfer-encoding",
-                                             "content-length", "x-xss-protection")}
+
+        # 同步响应中的 Set-Cookie 到缓存 session，保持 session 刷新
+        if session and bs_id:
+            for sc in resp.headers.get_list("set-cookie"):
+                kv = sc.split(";")[0].strip()
+                if "=" in kv:
+                    ck, cv = kv.split("=", 1)
+                    session["cookies"][ck.strip()] = cv.strip()
+
+        # 过滤阻止 iframe 嵌入和影响解压的响应头
+        skip_headers = {"x-frame-options", "content-security-policy", "x-xss-protection",
+                        "content-encoding", "transfer-encoding", "content-length"}
+        resp_headers = {k: v for k, v in resp.headers.items() if k.lower() not in skip_headers}
+
         content = resp.content
         content_type = resp.headers.get("content-type", "")
-        # HTML 响应：插入 base href 确保相对路径正确解析
-        if "text/html" in content_type:
-            html = content.decode("utf-8", errors="replace")
-            if "<head" in html:
-                html = html.replace("<head>", f'<head><base href="{_AK_BASE}/">', 1)
-                html = html.replace("<head ", f'<base href="{_AK_BASE}/" /><head ', 1)
-            content = html.encode("utf-8")
+
+        # 对文本内容（HTML/JS/CSS）做 URL 替换 + HTML 注入拦截器
+        if any(t in content_type for t in ("text/html", "text/javascript", "application/javascript",
+                                            "text/css", "application/json")):
+            text = content.decode("utf-8", errors="replace")
+            # 替换绝对 URL
+            for base in [_AK_BASE, "https://www.k937.com", "http://k937.com", "http://www.k937.com"]:
+                text = text.replace(base + "/", "/ak-web/")
+                text = text.replace(base + '"', '/ak-web"')
+                text = text.replace(base + "'", "/ak-web'")
+            # HTML：注入 JS 拦截器
+            if "text/html" in content_type and bs_id:
+                injector = _build_injector(bs_id)
+                if "<head>" in text:
+                    text = text.replace("<head>", "<head>" + injector, 1)
+                elif "<head " in text:
+                    idx = text.index("<head ")
+                    ins = text.index(">", idx) + 1
+                    text = text[:ins] + injector + text[ins:]
+                elif "<body" in text:
+                    text = text.replace("<body", injector + "<body", 1)
+                else:
+                    text = injector + text
+            content = text.encode("utf-8")
+
         return Response(content=content, status_code=resp.status_code,
-                        headers=resp_headers, media_type=content_type)
+                        headers=resp_headers, media_type=content_type or "application/octet-stream")
     except Exception as e:
+        logger.error(f"[AkWebProxy] {path}: {e}")
         return Response(content=f"代理错误: {str(e)}".encode(), status_code=502)
 
 
