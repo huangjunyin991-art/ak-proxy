@@ -4920,6 +4920,27 @@ def _extract_userkey(data):
     return ""
 
 
+def _build_ak_user_model(login_result: dict, userkey: str = "") -> dict:
+    user_model = {}
+    if isinstance(login_result, dict):
+        user_data = login_result.get("UserData")
+        if isinstance(user_data, dict):
+            user_model = dict(user_data)
+        result_key = login_result.get("Key")
+        if result_key not in (None, ""):
+            user_model["Key"] = str(result_key)
+    key = userkey or user_model.get("Key") or _extract_userkey(login_result)
+    if key:
+        user_model["Key"] = key
+    return user_model
+
+
+def _build_ak_local_login_info(username: str, password: str) -> list:
+    if not username or not password:
+        return []
+    return [{"account": username, "password": password}]
+
+
 def _cache_ak_auth(username: str, password: str, result: dict, headers) -> dict:
     cached = {
         "cookies": _extract_cookie_map(headers),
@@ -5208,6 +5229,9 @@ def _build_injector(bs_id: str, username: str = "", password: str = "", userkey:
     safe_user = username.replace("\\", "\\\\").replace("'", "\\'")
     safe_pwd = password.replace("\\", "\\\\").replace("'", "\\'")
     login_result_json = json.dumps(login_result or {}, ensure_ascii=False).replace("</", "<\\/")
+    user_model_json = json.dumps(_build_ak_user_model(login_result or {}, userkey), ensure_ascii=False).replace("</", "<\\/")
+    local_login_info_json = json.dumps(_build_ak_local_login_info(username, password), ensure_ascii=False).replace("</", "<\\/")
+    api_base_storage = AKAPI_URL if AKAPI_URL.endswith("/") else AKAPI_URL + "/"
     ak_list = ",".join(
         f"'{d}'" for d in [_AK_BASE, "https://ak928.vip", "http://ak928.vip",
                            "https://www.ak928.vip", "https://k937.com", "http://k937.com"]
@@ -5235,7 +5259,7 @@ def _build_injector(bs_id: str, username: str = "", password: str = "", userkey:
         "<script>(function(){"
         # 禁用SW注册，防止AK的service worker注册到代理域名并拦截请求
         "if('serviceWorker' in navigator){navigator.serviceWorker.register=function(){return Promise.reject(new Error('SW disabled'));};}"
-        "try{var UK=" + json.dumps(userkey or "", ensure_ascii=False) + ";var LR=" + login_result_json + ";if(UK){localStorage.setItem('userkey',UK);localStorage.setItem('UserKey',UK);sessionStorage.setItem('userkey',UK);sessionStorage.setItem('UserKey',UK);window.userkey=UK;}if(LR&&typeof LR==='object'){localStorage.setItem('ak_login_result',JSON.stringify(LR));sessionStorage.setItem('ak_login_result',JSON.stringify(LR));if(LR.UserData){localStorage.setItem('UserData',JSON.stringify(LR.UserData));sessionStorage.setItem('UserData',JSON.stringify(LR.UserData));}}}catch(_e){}"
+        "try{var UK=" + json.dumps(userkey or "", ensure_ascii=False) + ";var LR=" + login_result_json + ";var UM=" + user_model_json + ";var LI=" + local_login_info_json + ";var AB=" + json.dumps(api_base_storage, ensure_ascii=False) + ";if(AB){localStorage.setItem('AKapp_base_url',AB);sessionStorage.setItem('AKapp_base_url',AB);}if(LI&&LI.length){localStorage.setItem('AK_local_login_info',JSON.stringify(LI));sessionStorage.setItem('AK_local_login_info',JSON.stringify(LI));}if(UM&&typeof UM==='object'&&Object.keys(UM).length){localStorage.setItem('AK_user_model',JSON.stringify(UM));sessionStorage.setItem('AK_user_model',JSON.stringify(UM));window.USER_MODEL=UM;if(window.APP&&APP.USER){APP.USER.MODEL=Object.assign(APP.USER.MODEL||{},UM);}}if(UK){localStorage.setItem('userkey',UK);localStorage.setItem('UserKey',UK);sessionStorage.setItem('userkey',UK);sessionStorage.setItem('UserKey',UK);window.userkey=UK;}if(LR&&typeof LR==='object'){localStorage.setItem('ak_login_result',JSON.stringify(LR));sessionStorage.setItem('ak_login_result',JSON.stringify(LR));if(LR.UserData){localStorage.setItem('UserData',JSON.stringify(LR.UserData));sessionStorage.setItem('UserData',JSON.stringify(LR.UserData));}}}catch(_e){}"
         "var P=" + json.dumps(site_prefix, ensure_ascii=False) + ",B='" + bs_id + "';"
         "var R='/admin/ak-rpc';"
         "var API='" + api_base + "';"
