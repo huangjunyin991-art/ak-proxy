@@ -4947,32 +4947,37 @@ def _extract_site_api_path(path: str) -> str:
     return last if ext == "" else ""
 
 
-def _resolve_browse_bs_id(request: Request) -> str:
+def _resolve_browse_bs_context(request: Request):
     bs_id = (request.query_params.get("bs") or "").strip()
     if bs_id:
-        return bs_id
+        return bs_id, "query"
     bs_id = (request.cookies.get(_BROWSE_SESSION_COOKIE) or "").strip()
     if bs_id:
-        return bs_id
+        return bs_id, "cookie"
     referer = (request.headers.get("referer") or "").strip()
     if not referer:
-        return ""
+        return "", "none"
     try:
         parts = urlsplit(referer)
         if not parts.path.startswith((_AK_SITE_PREFIX, _AK_WEB_PREFIX, "/ak-web")):
-            return ""
-        return (parse_qs(parts.query).get("bs") or [""])[0].strip()
+            return "", "none"
+        bs_id = (parse_qs(parts.query).get("bs") or [""])[0].strip()
+        return (bs_id, "referer") if bs_id else ("", "none")
     except Exception:
-        return ""
+        return "", "none"
+
+
+def _resolve_browse_bs_id(request: Request) -> str:
+    return _resolve_browse_bs_context(request)[0]
 
 
 def _resolve_browse_session(request: Request):
-    bs_id = _resolve_browse_bs_id(request)
+    bs_id, bs_source = _resolve_browse_bs_context(request)
     session = _browse_sessions.get(bs_id)
     if session and time.time() > session.get("expires", 0):
         _browse_sessions.pop(bs_id, None)
         session = None
-    return bs_id, session
+    return bs_id, session, bs_source
 
 
 def _set_browse_session_cookie(response: Response, bs_id: str):
@@ -5114,12 +5119,13 @@ async def _forward_admin_ak_rpc_request(path: str, request: Request, session: di
 
 @app.api_route("/admin/ak-rpc/{path:path}", methods=["GET", "POST", "PUT", "DELETE"])
 async def admin_ak_rpc(path: str, request: Request):
-    bs_id, session = _resolve_browse_session(request)
+    bs_id, session, bs_source = _resolve_browse_session(request)
     referer = request.headers.get("referer", "")
     fetch_dest = request.headers.get("sec-fetch-dest", "")
     accept = request.headers.get("accept", "")
+    cookie_bs = (request.cookies.get(_BROWSE_SESSION_COOKIE) or "").strip()
     if not session:
-        logger.warning(f"[AdminAkRpc/{path}] no_session bs={bs_id} dest={fetch_dest} accept={accept} referer={referer}")
+        logger.warning(f"[AdminAkRpc/{path}] no_session bs={bs_id} source={bs_source} cookie_bs={cookie_bs} dest={fetch_dest} accept={accept} referer={referer}")
         return JSONResponse({"Error": True, "IsLogin": False, "Msg": "用戶未登錄"})
 
     try:
@@ -5275,24 +5281,28 @@ async def ak_web_proxy(request: Request, path: str):
         if request.method == "GET":
             return Response(content=";", media_type="application/javascript")
         return Response(status_code=204)
-    bs_id, session = _resolve_browse_session(request)
+    bs_id, session, bs_source = _resolve_browse_session(request)
+    referer = request.headers.get("referer", "")
+    fetch_dest = request.headers.get("sec-fetch-dest", "")
+    accept = request.headers.get("accept", "")
+    cookie_bs = (request.cookies.get(_BROWSE_SESSION_COOKIE) or "").strip()
     cookies = {}
     if session:
         cookies = session["cookies"]
     site_api_path = _extract_site_api_path(path)
     if site_prefix == _AK_SITE_PREFIX and site_api_path:
         if not session:
-            logger.warning(f"[AkSiteProxy/{path}] site_api_no_session bs={bs_id}")
+            logger.warning(f"[AkSiteProxy/{path}] site_api_no_session target={site_api_path} bs={bs_id} source={bs_source} cookie_bs={cookie_bs} dest={fetch_dest} accept={accept} referer={referer}")
             return JSONResponse({"Error": True, "IsLogin": False, "Msg": "用戶未登錄"})
-        logger.warning(f"[AkSiteProxy/{path}] reroute_admin_rpc -> {site_api_path}")
+        logger.warning(f"[AkSiteProxy/{path}] reroute_admin_rpc target={site_api_path} bs={bs_id} source={bs_source} dest={fetch_dest} accept={accept} referer={referer}")
         try:
             return await _forward_admin_ak_rpc_request(
                 site_api_path,
                 request,
                 session,
-                request.headers.get("referer", ""),
-                request.headers.get("sec-fetch-dest", ""),
-                request.headers.get("accept", ""),
+                referer,
+                fetch_dest,
+                accept,
             )
         except Exception as e:
             logger.error(f"[AkSiteProxy/{path}] reroute_admin_rpc_failed: {e}")
@@ -5344,6 +5354,9 @@ async def ak_web_proxy(request: Request, path: str):
 
         content = resp.content
         content_type = resp.headers.get("content-type", "")
+        if fetch_dest == "script" and "application/json" in content_type.lower():
+            body_head = content[:200].decode("utf-8", errors="replace")
+            logger.warning(f"[AkSiteProxy/{path}] script_json_mismatch bs={bs_id} source={bs_source} cookie_bs={cookie_bs} classified_api={site_api_path or '-'} referer={referer} target={target_url} final_url={resp.url} body_head={body_head}")
 
         # 对文本内容（HTML/JS/CSS）做 URL 替换 + HTML 注入拦截器
         if any(t in content_type for t in ("text/html", "text/javascript", "application/javascript",
