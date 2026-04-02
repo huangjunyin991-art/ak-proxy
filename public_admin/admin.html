@@ -1186,6 +1186,13 @@
             flex: 1;
         }
 
+        .mobile-shell-actions {
+            display: none;
+            align-items: center;
+            gap: 8px;
+            flex: 0 0 auto;
+        }
+
         .mobile-shell-mode-switch {
             display: none;
             align-items: center;
@@ -1244,6 +1251,22 @@
             font-size: 16px;
         }
 
+        .mobile-shell-logout-btn {
+            display: none;
+            min-width: 68px;
+            height: 38px;
+            padding: 0 12px;
+            border-radius: 10px;
+            border: none;
+            background: var(--accent-red);
+            color: white;
+            cursor: pointer;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+            white-space: nowrap;
+        }
+
         .usage-toolbar {
             margin-bottom: 15px;
             display: flex;
@@ -1269,8 +1292,47 @@
             margin-left: auto;
         }
 
+        .usage-table-layout {
+            width: 100%;
+            min-width: 640px;
+            table-layout: fixed;
+        }
+
+        .usage-table-layout th:nth-child(1),
+        .usage-table-layout td:nth-child(1) {
+            width: 24%;
+        }
+
+        .usage-table-layout th:nth-child(2),
+        .usage-table-layout td:nth-child(2) {
+            width: 12%;
+        }
+
+        .usage-table-layout th:nth-child(3),
+        .usage-table-layout td:nth-child(3) {
+            width: 22%;
+        }
+
+        .usage-table-layout th:nth-child(4),
+        .usage-table-layout td:nth-child(4) {
+            width: 16%;
+        }
+
+        .usage-table-layout th:nth-child(5),
+        .usage-table-layout td:nth-child(5) {
+            width: 26%;
+        }
+
+        .usage-table-layout td:nth-child(2),
+        .usage-table-layout td:nth-child(3),
+        .usage-table-layout td:nth-child(5) {
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
         .editable-real-name-cell {
-            min-width: 96px;
+            min-width: 72px;
             cursor: text;
         }
 
@@ -1513,7 +1575,32 @@
                 padding: 10px 12px;
             }
 
+            .mobile-shell-left {
+                flex: 1 1 auto;
+            }
+
+            .mobile-shell-actions {
+                display: flex;
+                gap: 6px;
+            }
+
             .mobile-shell-mode-switch {
+                display: inline-flex;
+                padding: 3px;
+            }
+
+            .mobile-shell-mode-btn {
+                min-width: 36px;
+                padding: 0 6px;
+                font-size: 10px;
+            }
+
+            .mobile-nav-btn {
+                min-width: 36px;
+                padding: 0 10px;
+            }
+
+            .mobile-shell-logout-btn {
                 display: inline-flex;
             }
 
@@ -1572,12 +1659,7 @@
             }
 
             .header-logout-btn {
-                order: 3;
-                margin-left: 0;
-                flex: 0 0 auto;
-                padding: 8px 12px;
-                font-size: 12px;
-                white-space: nowrap;
+                display: none;
             }
             
             .stats-grid {
@@ -1758,7 +1840,7 @@
         /* 竖屏且是移动设备时显示提示 */
         @media screen and (orientation: portrait) and (max-width: 768px) {
             .rotate-hint {
-                display: flex !important;
+                display: none !important;
             }
         }
         /* Lucide图标样式 */
@@ -1807,11 +1889,14 @@
                 <div class="mobile-shell-title-sub">移动端导航</div>
             </div>
         </div>
-        <div class="mobile-shell-mode-switch">
-            <button type="button" class="mobile-shell-mode-btn" id="mobileModeFullBtn" onclick="setViewMode(false)">完全</button>
-            <button type="button" class="mobile-shell-mode-btn" id="mobileModeCompactBtn" onclick="setViewMode(true)">精简</button>
+        <div class="mobile-shell-actions">
+            <div class="mobile-shell-mode-switch">
+                <button type="button" class="mobile-shell-mode-btn" id="mobileModeFullBtn" onclick="setViewMode(false)">完全</button>
+                <button type="button" class="mobile-shell-mode-btn" id="mobileModeCompactBtn" onclick="setViewMode(true)">精简</button>
+            </div>
+            <button type="button" class="mobile-nav-btn" id="mobilePanelRefresh" onclick="refreshCurrentPanel()">↻</button>
+            <button type="button" class="mobile-shell-logout-btn" onclick="logout()">退出登录</button>
         </div>
-        <button type="button" class="mobile-nav-btn" id="mobilePanelRefresh" onclick="refreshCurrentPanel()">↻</button>
     </div>
     <div class="mobile-tab-overlay" id="mobileTabOverlay" onclick="setMobileNavOpen(false)"></div>
     <div class="mobile-tab-drawer" id="mobileTabDrawer">
@@ -2049,7 +2134,7 @@
                 <span id="usageSearchCount" class="usage-toolbar-count"></span>
             </div>
             <div class="table-container" style="overflow-x: auto;">
-                <table>
+                <table class="usage-table-layout">
                     <thead>
                         <tr>
                             <th>账号</th>
@@ -2076,17 +2161,13 @@
         
         <!-- 用户管理（用户资产信息） -->
         <div class="panel" id="users">
-            <div style="margin-bottom: 15px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+            <div class="usage-toolbar">
                 <input type="text" id="usersSearchInput" placeholder="搜索账号/姓名..." 
-                       style="flex: 1; max-width: 300px; padding: 10px 15px; background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; color: var(--text-primary); font-size: 14px;"
+                       class="usage-toolbar-input"
                        oninput="searchUsers()" onkeypress="if(event.keyCode===13)searchUsers()">
                 <button class="btn btn-primary" onclick="searchUsers()" style="padding: 10px 20px;">搜索</button>
                 <button class="btn-page" onclick="clearUsersSearch()" style="padding: 10px 20px;">清除</button>
-                <label style="display: flex; align-items: center; gap: 6px; color: var(--text-secondary); font-size: 14px; cursor: pointer; margin-left: 10px;">
-                    <input type="checkbox" id="usersLoadAll" onchange="onUsersLoadAllChange()" style="cursor: pointer; width: 16px; height: 16px; accent-color: var(--accent);">
-                    加载全部
-                </label>
-                <span id="usersSearchCount" style="color: var(--text-secondary); font-size: 14px; margin-left: auto;"></span>
+                <span id="usersSearchCount" class="usage-toolbar-count"></span>
             </div>
             <div class="table-container" id="usersTableContainer" style="overflow-x: hidden;">
                 <table style="min-width: 1920px;">
@@ -2956,18 +3037,8 @@
         
         // ===== 移动端方向检测 =====
         function checkOrientation() {
-            const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-            const isPortrait = window.innerHeight > window.innerWidth;
             const rotateHint = document.getElementById('rotateHint');
-            const mainContent = document.getElementById('mainContent');
-            if (mainContent && mainContent.classList.contains('visible') && getMobileLayoutMedia().matches) {
-                rotateHint.style.display = 'none';
-                return;
-            }
-            
-            if (isMobile && isPortrait && window.innerWidth < 768) {
-                rotateHint.style.display = 'flex';
-            } else {
+            if (rotateHint) {
                 rotateHint.style.display = 'none';
             }
         }
@@ -3447,7 +3518,7 @@
                     <td>
                         <button class="btn btn-primary" style="padding:4px 12px;font-size:12px;"
                             onclick="openAkBrowser('${user.username}')">
-                            登录
+                            打开后台
                         </button>
                     </td>
                 </tr>
@@ -3490,7 +3561,6 @@
         const usersPageSize = 100;
         let usersTotalCount = 0;
         let usersTotalPages = 0;
-        let usersIsLoadAll = false;
         let usersSearchKeyword = '';
         
         // 加载用户列表（user_assets表 - 只显示资产信息）
@@ -3499,12 +3569,7 @@
             const offset = page * usersPageSize;
             
             try {
-                let url;
-                if (usersIsLoadAll) {
-                    url = `${API_BASE}/admin/api/assets?limit=99999&offset=0`;
-                } else {
-                    url = `${API_BASE}/admin/api/assets?limit=${usersPageSize}&offset=${offset}`;
-                }
+                let url = `${API_BASE}/admin/api/assets?limit=${usersPageSize}&offset=${offset}`;
                 if (usersSearchKeyword) {
                     url += `&search=${encodeURIComponent(usersSearchKeyword)}`;
                 }
@@ -3527,13 +3592,7 @@
                 const rows = data.rows || [];
                 usersTotalCount = data.total || 0;
                 usersDataCache = rows;
-                
-                if (usersIsLoadAll) {
-                    usersTotalPages = 1;
-                    usersCurrentPage = 0;
-                } else {
-                    usersTotalPages = Math.ceil(usersTotalCount / usersPageSize) || 1;
-                }
+                usersTotalPages = Math.ceil(usersTotalCount / usersPageSize) || 1;
                 
                 renderUsersTable(usersDataCache);
                 updateUsersPagination();
@@ -3546,9 +3605,7 @@
         function renderUsersTable(users, keepSortInfo = false) {
             const tbody = document.getElementById('usersTable');
             const sortInfo = usersSortField ? ` (按${getSortFieldName(usersSortField)}${usersSortAsc ? '↑' : '↓'})` : '';
-            const countText = usersIsLoadAll 
-                ? `共 ${usersTotalCount} 条记录（已全部加载）` 
-                : `共 ${usersTotalCount} 条记录，当前显示 ${users.length} 条`;
+            const countText = `共 ${usersTotalCount} 条记录，当前显示 ${users.length} 条`;
             document.getElementById('usersSearchCount').textContent = countText + (keepSortInfo ? sortInfo : '');
             
             if (users.length === 0) {
@@ -3587,10 +3644,6 @@
         // 更新分页控件
         function updateUsersPagination() {
             const pagination = document.getElementById('usersPagination');
-            if (usersIsLoadAll) {
-                pagination.style.display = 'none';
-                return;
-            }
             pagination.style.display = 'flex';
             
             document.getElementById('usersFirstBtn').disabled = usersCurrentPage <= 0;
@@ -3649,13 +3702,6 @@
         function clearUsersSearch() {
             document.getElementById('usersSearchInput').value = '';
             usersSearchKeyword = '';
-            usersCurrentPage = 0;
-            loadUsers(0);
-        }
-        
-        // 加载全部数据切换
-        function onUsersLoadAllChange() {
-            usersIsLoadAll = document.getElementById('usersLoadAll').checked;
             usersCurrentPage = 0;
             loadUsers(0);
         }
