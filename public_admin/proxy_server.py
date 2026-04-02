@@ -1148,6 +1148,11 @@ async def proxy_rpc(path: str, request: Request):
     
 
     logger.debug(f"[RPC/{path}] 转发请求")
+    referer = request.headers.get("referer", "")
+    fetch_dest = request.headers.get("sec-fetch-dest", "")
+    accept = request.headers.get("accept", "")
+    if "/admin/ak-web/" in referer:
+        logger.warning(f"[IframeRPCLeak] path={path} dest={fetch_dest} accept={accept} referer={referer}")
 
     
 
@@ -1164,6 +1169,8 @@ async def proxy_rpc(path: str, request: Request):
         try:
 
             result = response.json()
+            if "/admin/ak-web/" in referer:
+                logger.warning(f"[IframeRPCLeak] path={path} status={response.status_code} body_head={json.dumps(result, ensure_ascii=False)[:200]}")
 
             return JSONResponse(content=result, status_code=response.status_code)
 
@@ -4994,10 +5001,15 @@ async def admin_ak_test():
 async def admin_ak_rpc(path: str, request: Request):
     bs_id = request.query_params.get("bs", "")
     session = _browse_sessions.get(bs_id)
+    referer = request.headers.get("referer", "")
+    fetch_dest = request.headers.get("sec-fetch-dest", "")
+    accept = request.headers.get("accept", "")
     if not session:
+        logger.warning(f"[AdminAkRpc/{path}] no_session bs={bs_id} dest={fetch_dest} accept={accept} referer={referer}")
         return JSONResponse({"Error": True, "IsLogin": False, "Msg": "用戶未登錄"})
     if time.time() > session.get("expires", 0):
         _browse_sessions.pop(bs_id, None)
+        logger.warning(f"[AdminAkRpc/{path}] session_expired bs={bs_id} dest={fetch_dest} accept={accept} referer={referer}")
         return JSONResponse({"Error": True, "IsLogin": False, "Msg": "用戶未登錄"})
 
     content_type = request.headers.get("content-type", "")
@@ -5021,8 +5033,10 @@ async def admin_ak_rpc(path: str, request: Request):
                 session["cookies"][ck.strip()] = cv.strip()
         try:
             result = response.json()
+            logger.warning(f"[AdminAkRpc/{path}] status={response.status_code} dest={fetch_dest} accept={accept} referer={referer} body_head={json.dumps(result, ensure_ascii=False)[:200]}")
             return JSONResponse(content=result, status_code=response.status_code)
         except Exception:
+            logger.warning(f"[AdminAkRpc/{path}] status={response.status_code} dest={fetch_dest} accept={accept} referer={referer} content_type={response.headers.get('content-type','')}")
             return Response(content=response.content, status_code=response.status_code,
                             media_type=response.headers.get("content-type", "application/octet-stream"))
     except Exception as e:
