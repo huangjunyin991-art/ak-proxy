@@ -4929,6 +4929,27 @@ def _make_browse_login_url(bs_id: str, site_prefix: str = _AK_SITE_PREFIX) -> st
     return f"{site_prefix}/pages/account/login.html?bs={bs_id}"
 
 
+async def _is_browse_site_session_valid(cookies: dict) -> bool:
+    if not cookies:
+        return False
+    target_url = f"{_AK_BASE}{_AK_HOME_PATH}"
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/124.0",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "zh-CN,zh;q=0.9",
+    }
+    try:
+        async with httpx.AsyncClient(verify=False, timeout=15, cookies=cookies, follow_redirects=True) as client:
+            resp = await client.get(target_url, headers=headers)
+        final_url = str(resp.url)
+        if "/pages/account/login.html" in final_url:
+            return False
+        return resp.status_code == 200
+    except Exception as e:
+        logger.warning(f"[BrowseLogin] 站点会话有效性校验失败: {e}")
+        return False
+
+
 def _build_cookie_header(cookies: dict) -> str:
     if not cookies:
         return ""
@@ -5135,16 +5156,18 @@ async def admin_browse_login(request: Request):
         return JSONResponse({"success": False, "message": f"用户 {username} 无密码记录"})
     try:
         cached = await _load_cached_ak_auth(username, password)
+        cached_cookies = dict(cached.get("cookies", {}))
+        has_valid_site_session = await _is_browse_site_session_valid(cached_cookies)
         bs_id = secrets.token_hex(16)
         _browse_sessions[bs_id] = {
-            "cookies": dict(cached.get("cookies", {})),
+            "cookies": cached_cookies if has_valid_site_session else {},
             "username": username,
             "password": password,
-            "userkey": cached.get("userkey", ""),
-            "login_result": cached.get("login_result", {}),
+            "userkey": cached.get("userkey", "") if has_valid_site_session else "",
+            "login_result": cached.get("login_result", {}) if has_valid_site_session else {},
             "expires": time.time() + _BROWSE_SESSION_TTL,
         }
-        entry_url = _make_browse_entry_url(bs_id) if cached.get("cookies") else _make_browse_login_url(bs_id)
+        entry_url = _make_browse_entry_url(bs_id) if has_valid_site_session else _make_browse_login_url(bs_id)
         return _set_browse_session_cookie(
             JSONResponse({"success": True, "bs_id": bs_id, "entry_url": entry_url}),
             bs_id,
