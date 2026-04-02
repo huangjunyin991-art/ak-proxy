@@ -4920,6 +4920,30 @@ def _cache_ak_auth(username: str, password: str, result: dict, headers) -> dict:
     return cached
 
 
+async def _persist_browse_session_auth(session: dict):
+    username = (session.get("username") or "").strip()
+    if not username:
+        return
+    cached = {
+        "cookies": dict(session.get("cookies", {})),
+        "userkey": session.get("userkey", ""),
+        "login_result": session.get("login_result", {}),
+        "password": session.get("password", ""),
+        "expires": time.time() + _BROWSE_SESSION_TTL,
+    }
+    _ak_auth_cache[username] = cached
+    try:
+        await db.save_ak_auth_state(
+            username,
+            userkey=cached.get("userkey", ""),
+            cookies=cached.get("cookies", {}),
+            login_payload=cached.get("login_result", {}),
+            ttl_seconds=_BROWSE_SESSION_TTL,
+        )
+    except Exception as e:
+        logger.warning(f"[BrowseSession] 站点登录态持久化失败 {username}: {e}")
+
+
 def _make_browse_entry_url(bs_id: str, site_prefix: str = _AK_SITE_PREFIX) -> str:
     sep = "&" if "?" in _AK_HOME_PATH else "?"
     return f"{site_prefix}{_AK_HOME_PATH}{sep}bs={bs_id}"
@@ -5090,6 +5114,7 @@ async def _forward_admin_ak_rpc_request(path: str, request: Request, session: di
         request.method, path, content_type, params, raw_body, headers,
         client_ip="admin-panel"
     )
+    set_cookie_values = response.headers.get_list("set-cookie")
     for sc in response.headers.get_list("set-cookie"):
         kv = sc.split(";", 1)[0].strip()
         if "=" in kv:
@@ -5097,9 +5122,21 @@ async def _forward_admin_ak_rpc_request(path: str, request: Request, session: di
             session["cookies"][ck.strip()] = cv.strip()
     try:
         result = response.json()
+        should_persist = bool(set_cookie_values)
+        is_login_success = path.strip("/").lower() == "login" and (result.get("Error") is False or (not result.get("Error") and result.get("UserData")))
+        if is_login_success:
+            session["login_result"] = result
+            userkey = _extract_userkey(result)
+            if userkey:
+                session["userkey"] = userkey
+            should_persist = True
+        if should_persist:
+            await _persist_browse_session_auth(session)
         logger.warning(f"[AdminAkRpc/{path}] status={response.status_code} dest={fetch_dest} accept={accept} referer={referer} body_head={json.dumps(result, ensure_ascii=False)[:200]}")
         return JSONResponse(content=result, status_code=response.status_code)
     except Exception:
+        if set_cookie_values:
+            await _persist_browse_session_auth(session)
         logger.warning(f"[AdminAkRpc/{path}] status={response.status_code} dest={fetch_dest} accept={accept} referer={referer} content_type={response.headers.get('content-type','')}")
         return Response(content=response.content, status_code=response.status_code,
                         media_type=response.headers.get("content-type", "application/octet-stream"))
