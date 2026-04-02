@@ -808,6 +808,18 @@ async def proxy_login(request: Request):
             )
         except Exception as e:
             logger.warning(f"[Login] AK登录态持久化失败: {e}")
+        admin_bs_id, admin_session, admin_bs_source = _resolve_browse_session(request)
+        admin_referer = request.headers.get("referer", "")
+        if admin_session:
+            admin_session["cookies"].update(cached.get("cookies", {}))
+            admin_session["login_result"] = result
+            if cached.get("userkey"):
+                admin_session["userkey"] = cached.get("userkey", "")
+            try:
+                await _persist_browse_session_auth(admin_session)
+                logger.warning(f"[BrowseLoginBridge] account={account} bs={admin_bs_id} source={admin_bs_source} referer={admin_referer} cookies={len(admin_session.get('cookies', {}))}")
+            except Exception as e:
+                logger.warning(f"[BrowseLoginBridge] 持久化失败 account={account} bs={admin_bs_id} source={admin_bs_source} referer={admin_referer}: {e}")
 
     else:
 
