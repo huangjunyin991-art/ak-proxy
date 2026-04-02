@@ -6635,7 +6635,7 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                 const data = await res.json();
                 if (data.success) {
                     title.textContent = `${username} - AK 网页`;
-                    frame.src = `${API_BASE}/ak-web/?bs=${data.bs_id}`;
+                    frame.src = `${API_BASE}/ak-web/pages/account/login.html?bs=${data.bs_id}`;
                 } else {
                     title.textContent = `登录失败: ${data.message}`;
                 }
