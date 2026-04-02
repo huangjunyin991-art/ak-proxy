@@ -4992,13 +4992,13 @@ async def ak_web_proxy(request: Request, path: str):
 
     try:
         body = await request.body()
-        async with httpx.AsyncClient(verify=False, timeout=20, cookies=cookies,
-                                     follow_redirects=True) as client:
+        async with httpx.AsyncClient(verify=False, timeout=20, cookies=cookies) as client:
             resp = await client.request(
                 method=request.method,
                 url=target_url,
                 headers=fwd_headers,
                 content=body or None,
+                follow_redirects=True,
             )
 
         # 同步响应中的 Set-Cookie 到缓存 session，保持 session 刷新
