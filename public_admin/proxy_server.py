@@ -24,6 +24,8 @@ import io
 
 import time
 
+import re
+
 import logging
 
 from logging.handlers import RotatingFileHandler
@@ -4924,6 +4926,27 @@ def _build_cookie_header(cookies: dict) -> str:
     return "; ".join(f"{k}={v}" for k, v in cookies.items() if k)
 
 
+def _rewrite_admin_ak_web_root_url(url: str) -> str:
+    if not url or not url.startswith("/"):
+        return url
+    if url.startswith("//"):
+        return url
+    if url.startswith("/admin/ak-web") or url.startswith("/admin/ak-rpc") or url.startswith("/admin") or url.startswith("/RPC"):
+        return url
+    return "/admin/ak-web" + url
+
+
+def _rewrite_admin_ak_web_html_roots(text: str) -> str:
+    pattern = re.compile(r'(?P<prefix>\b(?:src|href|action|poster)=\s*["\"])(?P<url>/[^"\
+\n>]*)(?P<suffix>["\"])', re.IGNORECASE)
+    return pattern.sub(lambda m: f"{m.group('prefix')}{_rewrite_admin_ak_web_root_url(m.group('url'))}{m.group('suffix')}", text)
+
+
+def _rewrite_admin_ak_web_css_roots(text: str) -> str:
+    pattern = re.compile(r'url\((?P<quote>[\"\']?)(?P<url>/[^)\"\']+)(?P=quote)\)', re.IGNORECASE)
+    return pattern.sub(lambda m: f"url({m.group('quote')}{_rewrite_admin_ak_web_root_url(m.group('url'))}{m.group('quote')})", text)
+
+
 async def _load_cached_ak_auth(username: str, password: str = "") -> dict:
     cached = _ak_auth_cache.get(username)
     if cached and time.time() <= cached.get("expires", 0):
@@ -5240,6 +5263,10 @@ async def ak_web_proxy(request: Request, path: str):
                 text = text.replace(base + "/", "/admin/ak-web/")
                 text = text.replace(base + '"', '/admin/ak-web"')
                 text = text.replace(base + "'", "/admin/ak-web'")
+            if "text/html" in content_type:
+                text = _rewrite_admin_ak_web_html_roots(text)
+            if "text/css" in content_type:
+                text = _rewrite_admin_ak_web_css_roots(text)
             # HTML：注入 JS 拦截器
             if "text/html" in content_type and bs_id:
                 _sess = _browse_sessions.get(bs_id, {})
