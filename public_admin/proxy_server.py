@@ -2763,6 +2763,45 @@ async def admin_user_detail(username: str):
     return user
 
 
+@app.post("/admin/api/user/real_name")
+
+async def admin_user_real_name(request: Request):
+
+    token = request.headers.get('Authorization', '').replace('Bearer ', '')
+
+    if not await verify_admin_token(token):
+
+        return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
+
+    try:
+
+        data = await request.json()
+
+    except Exception:
+
+        return JSONResponse(status_code=400, content={"success": False, "message": "请求无效"})
+
+    username = str(data.get('username', '')).strip()
+
+    real_name = str(data.get('real_name', '')).strip()
+
+    if not username:
+
+        return {"success": False, "message": "账号不能为空"}
+
+    if not real_name:
+
+        return {"success": False, "message": "姓名不能为空"}
+
+    ok = await db.upsert_user_real_name(username, real_name)
+
+    if not ok:
+
+        return {"success": False, "message": "姓名保存失败"}
+
+    return {"success": True, "message": "姓名已保存", "data": {"username": username.lower(), "real_name": real_name}}
+
+
 
 @app.get("/admin/api/banlist")
 

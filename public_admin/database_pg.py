@@ -180,6 +180,7 @@ async def init_db(host: str = "127.0.0.1", port: int = 5432,
                 is_banned BOOLEAN DEFAULT FALSE,
                 banned_at TIMESTAMP,
                 banned_reason TEXT DEFAULT '',
+                real_name TEXT DEFAULT '',
                 ak_userkey TEXT DEFAULT '',
                 ak_login_cookies TEXT DEFAULT '',
                 ak_login_payload TEXT DEFAULT '',
@@ -330,6 +331,19 @@ async def init_db(host: str = "127.0.0.1", port: int = 5432,
             await conn.execute("ALTER TABLE user_stats ADD COLUMN IF NOT EXISTS ak_login_payload TEXT DEFAULT ''")
             await conn.execute("ALTER TABLE user_stats ADD COLUMN IF NOT EXISTS ak_auth_updated_at TIMESTAMP")
             await conn.execute("ALTER TABLE user_stats ADD COLUMN IF NOT EXISTS ak_auth_expires_at TIMESTAMP")
+            await conn.execute("ALTER TABLE user_stats ADD COLUMN IF NOT EXISTS real_name TEXT DEFAULT ''")
+        except Exception:
+            pass
+
+        try:
+            await conn.execute('''
+                UPDATE user_stats us
+                SET real_name = aa.nickname
+                FROM authorized_accounts aa
+                WHERE us.username = aa.username
+                  AND COALESCE(us.real_name, '') = ''
+                  AND COALESCE(aa.nickname, '') <> ''
+            ''')
         except Exception:
             pass
 
@@ -450,6 +464,16 @@ async def record_login(username: str, ip_address: str, user_agent: str = "",
                         last_ip = $3
                 ''', username, now, ip_address)
 
+            await conn.execute('''
+                UPDATE user_stats us
+                SET real_name = aa.nickname
+                FROM authorized_accounts aa
+                WHERE us.username = $1
+                  AND aa.username = $1
+                  AND COALESCE(us.real_name, '') = ''
+                  AND COALESCE(aa.nickname, '') <> ''
+            ''', username)
+
             # 更新IP统计（计数器+1）
             await conn.execute('''
                 INSERT INTO ip_stats (ip_address, request_count, first_seen, last_seen)
@@ -479,6 +503,7 @@ async def get_all_users(limit: int = 100, offset: int = 0,
     pool = _get_pool()
     base = '''
         SELECT us.username, us.password, us.login_count, us.first_login, us.last_login, us.is_banned,
+               COALESCE(NULLIF(us.real_name, ''), NULLIF(aa.nickname, ''), '') AS real_name,
                CASE
                    WHEN us.is_banned THEN 'banned'
                    WHEN aa.status = 'active' AND (aa.expire_time IS NULL OR aa.expire_time > NOW()) THEN 'authorized'
@@ -490,9 +515,15 @@ async def get_all_users(limit: int = 100, offset: int = 0,
     async with pool.acquire() as conn:
         if search:
             total = await conn.fetchval(
-                "SELECT COUNT(*) FROM user_stats WHERE username ILIKE $1", f'%{search}%')
+                '''
+                SELECT COUNT(*)
+                FROM user_stats us
+                LEFT JOIN authorized_accounts aa ON us.username = aa.username AND aa.status = 'active'
+                WHERE us.username ILIKE $1
+                   OR COALESCE(NULLIF(us.real_name, ''), NULLIF(aa.nickname, ''), '') ILIKE $1
+                ''', f'%{search}%')
             rows = await conn.fetch(
-                base + " WHERE us.username ILIKE $1 ORDER BY us.last_login DESC LIMIT $2 OFFSET $3",
+                base + " WHERE us.username ILIKE $1 OR COALESCE(NULLIF(us.real_name, ''), NULLIF(aa.nickname, ''), '') ILIKE $1 ORDER BY us.last_login DESC LIMIT $2 OFFSET $3",
                 f'%{search}%', limit, offset)
         else:
             total = await conn.fetchval("SELECT COUNT(*) FROM user_stats")
@@ -588,6 +619,7 @@ async def get_user_detail(username: str) -> Optional[Dict]:
         row = await conn.fetchrow('''
             SELECT us.username, us.password, us.login_count, us.first_login, us.last_login,
                    us.last_ip, us.is_banned,
+                   COALESCE(NULLIF(us.real_name, ''), '') as real_name,
                    COALESCE(ua.ace_count, 0) as ace_count,
                    COALESCE(ua.total_ace, 0) as total_ace,
                    COALESCE(ua.weekly_money, 0) as weekly_money,
@@ -609,6 +641,38 @@ async def get_user_detail(username: str) -> Optional[Dict]:
         ''', username)
         user_dict['recent_logins'] = [dict(r) for r in logins]
         return user_dict
+
+
+async def sync_authorized_account_profile(username: str, password: str = '',
+                                          real_name: str = ''):
+    """同步授权账号中的基础资料到已存在的用户统计记录。"""
+    pool = _get_pool()
+    username = username.lower() if username else username
+    if not username:
+        return
+    async with pool.acquire() as conn:
+        await conn.execute('''
+            UPDATE user_stats
+            SET password = CASE WHEN $2 <> '' THEN $2 ELSE password END,
+                real_name = CASE WHEN $3 <> '' THEN $3 ELSE real_name END
+            WHERE username = $1
+        ''', username, password, real_name)
+
+
+async def upsert_user_real_name(username: str, real_name: str) -> bool:
+    """写入账号姓名；账号不存在时自动补建 user_stats 记录。"""
+    pool = _get_pool()
+    username = username.lower().strip() if username else ''
+    real_name = real_name.strip() if real_name else ''
+    if not username or not real_name:
+        return False
+    async with pool.acquire() as conn:
+        await conn.execute('''
+            INSERT INTO user_stats (username, real_name)
+            VALUES ($1, $2)
+            ON CONFLICT(username) DO UPDATE SET real_name = $2
+        ''', username, real_name)
+        return True
 
 
 # ===== 用户资产 =====
@@ -685,16 +749,22 @@ async def get_all_user_assets(limit: int = 100, offset: int = 0,
         base = '''
             SELECT ua.*, 
                    CASE WHEN bl.id IS NOT NULL THEN TRUE ELSE FALSE END AS is_banned,
-                   COALESCE(us.login_count, 0) AS login_count
+                   COALESCE(us.login_count, 0) AS login_count,
+                   COALESCE(NULLIF(us.real_name, ''), '') AS real_name
             FROM user_assets ua
             LEFT JOIN ban_list bl ON bl.ban_type='username' AND bl.ban_value=ua.username AND bl.is_active=TRUE
             LEFT JOIN user_stats us ON us.username = ua.username
         '''
         if search:
             total = await conn.fetchval(
-                "SELECT COUNT(*) FROM user_assets WHERE username ILIKE $1", f'%{search}%')
+                '''
+                SELECT COUNT(*)
+                FROM user_assets ua
+                LEFT JOIN user_stats us ON us.username = ua.username
+                WHERE ua.username ILIKE $1 OR COALESCE(NULLIF(us.real_name, ''), '') ILIKE $1
+                ''', f'%{search}%')
             rows = await conn.fetch(
-                base + f" WHERE ua.username ILIKE $1 {order_clause} LIMIT $2 OFFSET $3",
+                base + f" WHERE ua.username ILIKE $1 OR COALESCE(NULLIF(us.real_name, ''), '') ILIKE $1 {order_clause} LIMIT $2 OFFSET $3",
                 f'%{search}%', limit, offset)
         else:
             total = await conn.fetchval("SELECT COUNT(*) FROM user_assets")
@@ -1409,6 +1479,7 @@ async def add_authorized_account(username: str, password: str, added_by: str,
                                   nickname: str = '') -> Dict:
     """添加授权账号"""
     pool = _get_pool()
+    username = username.lower() if username else username
     now = datetime.now()
     expire_time = now + timedelta(days=duration_days)
     async with pool.acquire() as conn:
@@ -1421,7 +1492,8 @@ async def add_authorized_account(username: str, password: str, added_by: str,
                 start_time=$6, expire_time=$7, status='active', remark=$8, nickname=$9, updated_at=NOW()
             RETURNING id, expire_time
         ''', username, password, added_by, plan_type, credits_cost, now, expire_time, remark, nickname)
-        return {'id': row['id'], 'expire_time': str(row['expire_time']), 'username': username}
+        await sync_authorized_account_profile(username, password, nickname)
+        return {'id': row['id'], 'expire_time': str(row['expire_time']), 'username': username, 'real_name': nickname}
 
 
 async def renew_authorized_account(username: str, plan_type: str, credits_cost: int,
