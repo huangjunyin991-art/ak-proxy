@@ -4925,6 +4925,10 @@ def _make_browse_entry_url(bs_id: str, site_prefix: str = _AK_SITE_PREFIX) -> st
     return f"{site_prefix}{_AK_HOME_PATH}{sep}bs={bs_id}"
 
 
+def _make_browse_login_url(bs_id: str, site_prefix: str = _AK_SITE_PREFIX) -> str:
+    return f"{site_prefix}/pages/account/login.html?bs={bs_id}"
+
+
 def _build_cookie_header(cookies: dict) -> str:
     if not cookies:
         return ""
@@ -5130,30 +5134,7 @@ async def admin_browse_login(request: Request):
     if not password:
         return JSONResponse({"success": False, "message": f"用户 {username} 无密码记录"})
     try:
-        # 走 dispatcher 负载均衡，和普通用户登录逻辑完全一致
-        resp = await forward_request(
-            "POST", "Login",
-            "application/x-www-form-urlencoded",
-            {"account": username, "password": password, "client": "WEB"},
-            None,
-            {},
-            client_ip="admin-panel",
-            is_login=True,
-        )
-        result = resp.json()
-        if result.get("Error") is True:
-            return JSONResponse({"success": False, "message": result.get("Msg", "登录失败")})
-        cached = _cache_ak_auth(username, password, result, resp.headers)
-        try:
-            await db.save_ak_auth_state(
-                username,
-                userkey=cached.get("userkey", ""),
-                cookies=cached.get("cookies", {}),
-                login_payload=cached.get("login_result", {}),
-                ttl_seconds=_BROWSE_SESSION_TTL,
-            )
-        except Exception as e:
-            logger.warning(f"[BrowseLogin] AK登录态持久化失败 {username}: {e}")
+        cached = await _load_cached_ak_auth(username, password)
         bs_id = secrets.token_hex(16)
         _browse_sessions[bs_id] = {
             "cookies": dict(cached.get("cookies", {})),
@@ -5164,7 +5145,7 @@ async def admin_browse_login(request: Request):
             "expires": time.time() + _BROWSE_SESSION_TTL,
         }
         return _set_browse_session_cookie(
-            JSONResponse({"success": True, "bs_id": bs_id, "entry_url": _make_browse_entry_url(bs_id)}),
+            JSONResponse({"success": True, "bs_id": bs_id, "entry_url": _make_browse_login_url(bs_id)}),
             bs_id,
         )
     except Exception as e:
@@ -5192,7 +5173,11 @@ def _build_injector(bs_id: str, username: str = "", password: str = "", userkey:
             "clearInterval(_iv);"
             "_vue.form.account='" + safe_user + "';"
             "_vue.form.password='" + safe_pwd + "';"
-            "setTimeout(function(){_vue.checkInput&&_vue.checkInput();},200);"
+            "setTimeout(function(){"
+            "_vue.checkInput&&_vue.checkInput();"
+            "try{if(typeof _vue.login==='function'){_vue.login();return;}if(typeof _vue.Login==='function'){_vue.Login();return;}if(typeof _vue.submit==='function'){_vue.submit();return;}if(typeof _vue.onSubmit==='function'){_vue.onSubmit();return;}}catch(_e){}"
+            "var _btn=document.querySelector('button[type=submit],.login-btn,.btn-login,.el-button--primary');if(_btn){_btn.click();}"
+            "},200);"
             "}"
             "},100);"
         )
@@ -5289,10 +5274,21 @@ async def ak_web_proxy(request: Request, path: str):
         # 同步响应中的 Set-Cookie 到缓存 session，保持 session 刷新
         if session and bs_id:
             for sc in resp.headers.get_list("set-cookie"):
-                kv = sc.split(";")[0].strip()
+                kv = sc.split(";", 1)[0].strip()
                 if "=" in kv:
                     ck, cv = kv.split("=", 1)
                     session["cookies"][ck.strip()] = cv.strip()
+            if resp.headers.get_list("set-cookie") and session.get("username"):
+                try:
+                    await db.save_ak_auth_state(
+                        session.get("username", ""),
+                        userkey=session.get("userkey", ""),
+                        cookies=session.get("cookies", {}),
+                        login_payload=session.get("login_result", {}),
+                        ttl_seconds=_BROWSE_SESSION_TTL,
+                    )
+                except Exception as e:
+                    logger.warning(f"[AkWebProxy] 站点登录态持久化失败 {session.get('username','')}: {e}")
 
         # 过滤阻止 iframe 嵌入和影响解压的响应头
         skip_headers = {"x-frame-options", "content-security-policy", "x-xss-protection",

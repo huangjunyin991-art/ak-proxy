@@ -6649,23 +6649,6 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                     if (path.includes('/pages/account/login.html')) {
                         title.textContent = `正在进入 ${username} 的AK后台...`;
                         setAkBrowserLoading(true, `正在进入 ${username} 的AK后台...`);
-                        if (allowRetry) {
-                            akBrowserRetryTimer = setTimeout(async () => {
-                                if (seq !== akBrowserLoadSeq) return;
-                                try {
-                                    const currentHref = frame.contentWindow.location.href || '';
-                                    const currentPath = new URL(currentHref, window.location.origin).pathname;
-                                    if (!currentPath.includes('/pages/account/login.html')) return;
-                                    await fetch(`${API_BASE}/admin/api/ak_auth/clear`, {
-                                        method: 'POST',
-                                        headers: {'Content-Type': 'application/json'},
-                                        body: JSON.stringify({username})
-                                    });
-                                    openAkBrowser(username, true);
-                                } catch (e) {
-                                }
-                            }, 2500);
-                        }
                         return;
                     }
                 } catch (e) {
@@ -6707,7 +6690,7 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                     bindAkBrowserFrame(username, seq, !hasRetried);
                     const entryUrl = data.entry_url
                         ? (data.entry_url.startsWith('http') ? data.entry_url : `${API_BASE}${data.entry_url}`)
-                        : `${API_BASE}/admin/ak-web/pages/home.html?first=true&bs=${data.bs_id}`;
+                        : `${API_BASE}/admin/ak-site/pages/account/login.html?bs=${data.bs_id}`;
                     frame.src = entryUrl;
                 } else {
                     setAkBrowserLoading(false);
