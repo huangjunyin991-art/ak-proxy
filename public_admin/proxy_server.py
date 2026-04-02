@@ -4843,7 +4843,7 @@ async def pwa_icon(size: int):
 
 _browse_sessions: dict = {}          # {bs_id: {cookies, username, expires}}
 _BROWSE_SESSION_TTL = 3600           # session 有效期 1 小时
-_AK_BASE = "https://k937.com"  # AK 网站根地址
+_AK_BASE = "https://www.ak928.vip"  # AK 网站根地址
 
 
 @app.post("/admin/api/browse_login")
@@ -4882,7 +4882,7 @@ def _build_injector(bs_id: str) -> str:
     return f"""<script>
 (function(){{
     var P='/ak-web', B='{bs_id}';
-    var AK=['{_AK_BASE}','https://www.k937.com','http://k937.com','http://www.k937.com'];
+    var AK=['{_AK_BASE}','https://ak928.vip','http://ak928.vip','https://www.ak928.vip','https://www.k937.com','http://k937.com'];
     function rw(u){{
         if(!u||typeof u!=='string') return u;
         for(var i=0;i<AK.length;i++){{
@@ -4971,7 +4971,8 @@ async def ak_web_proxy(request: Request, path: str):
                                             "text/css", "application/json")):
             text = content.decode("utf-8", errors="replace")
             # 替换绝对 URL
-            for base in [_AK_BASE, "https://www.k937.com", "http://k937.com", "http://www.k937.com"]:
+            for base in [_AK_BASE, "https://ak928.vip", "http://ak928.vip",
+                             "https://www.ak928.vip", "https://k937.com", "http://k937.com"]:
                 text = text.replace(base + "/", "/ak-web/")
                 text = text.replace(base + '"', '/ak-web"')
                 text = text.replace(base + "'", "/ak-web'")
