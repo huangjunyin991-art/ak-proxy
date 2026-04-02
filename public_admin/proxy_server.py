@@ -4873,6 +4873,8 @@ _BROWSE_SESSION_COOKIE = "ak_admin_bs"
 _AK_WEB_PREFIX = "/admin/ak-web"
 _AK_SITE_PREFIX = "/admin/ak-site"
 _AK_SITE_API_NAMES = {"public_IndexData"}
+_AK_STATIC_EXTENSIONS = {".html", ".htm", ".js", ".mjs", ".css", ".png", ".jpg", ".jpeg", ".gif", ".svg",
+                         ".webp", ".ico", ".woff", ".woff2", ".ttf", ".eot", ".map", ".json", ".txt", ".xml"}
 
 
 def _extract_cookie_map(headers) -> dict:
@@ -4937,7 +4939,12 @@ def _extract_site_api_path(path: str) -> str:
     if not clean:
         return ""
     last = clean.split("/")[-1]
-    return last if last in _AK_SITE_API_NAMES else ""
+    if last in _AK_SITE_API_NAMES:
+        return last
+    ext = os.path.splitext(last)[1].lower()
+    if ext in _AK_STATIC_EXTENSIONS:
+        return ""
+    return last if ext == "" else ""
 
 
 def _resolve_browse_bs_id(request: Request) -> str:
