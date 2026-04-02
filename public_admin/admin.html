@@ -6639,7 +6639,7 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                         const regs = await navigator.serviceWorker.getRegistrations();
                         await Promise.all(regs.map(r => r.unregister()));
                     }
-                    frame.src = `${API_BASE}/ak-web/pages/account/login.html?bs=${data.bs_id}`;
+                    frame.src = `${API_BASE}/admin/ak-web/pages/account/login.html?bs=${data.bs_id}`;
                 } else {
                     title.textContent = `登录失败: ${data.message}`;
                 }

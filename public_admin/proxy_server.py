@@ -4944,7 +4944,7 @@ def _build_injector(bs_id: str, username: str = "", password: str = "") -> str:
         "<script>(function(){"
         # 禁用SW注册，防止AK的service worker注册到代理域名并拦截请求
         "if('serviceWorker' in navigator){navigator.serviceWorker.register=function(){return Promise.reject(new Error('SW disabled'));};}"
-        "var P='/ak-web',B='" + bs_id + "';"
+        "var P='/admin/ak-web',B='" + bs_id + "';"
         "var API='" + api_base + "';"
         "var AK=[" + ak_list + "];"
         "function rw(u){"
@@ -4972,6 +4972,7 @@ def _build_injector(bs_id: str, username: str = "", password: str = "") -> str:
     return js
 
 
+@app.api_route("/admin/ak-web/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"])
 @app.api_route("/ak-web/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"])
 async def ak_web_proxy(request: Request, path: str):
     """AK 网页透明代理：所有请求通过后端转发，携带缓存 session，注入 JS 拦截器实现 VPN 式体验"""
@@ -5034,19 +5035,19 @@ async def ak_web_proxy(request: Request, path: str):
 
         # 对文本内容（HTML/JS/CSS）做 URL 替换 + HTML 注入拦截器
         if any(t in content_type for t in ("text/html", "text/javascript", "application/javascript",
-                                            "text/css", "application/json")):
+                                           "text/css", "application/json")):
             text = content.decode("utf-8", errors="replace")
             # AK API URL 替换为代理自身的 /RPC/ 路径（走负载均衡）
             for api_base in [AKAPI_URL.rstrip("/"), AKAPI_URL]:
                 text = text.replace(api_base + "/", "/RPC/")
                 text = text.replace(api_base + '"', '/RPC"')
                 text = text.replace(api_base + "'", "/RPC'")
-            # 替换 AK 网页绝对 URL 为 /ak-web/ 代理路径
+            # 替换 AK 网页绝对 URL 为 /admin/ak-web/ 代理路径
             for base in [_AK_BASE, "https://ak928.vip", "http://ak928.vip",
                              "https://www.ak928.vip", "https://k937.com", "http://k937.com"]:
-                text = text.replace(base + "/", "/ak-web/")
-                text = text.replace(base + '"', '/ak-web"')
-                text = text.replace(base + "'", "/ak-web'")
+                text = text.replace(base + "/", "/admin/ak-web/")
+                text = text.replace(base + '"', '/admin/ak-web"')
+                text = text.replace(base + "'", "/admin/ak-web'")
             # HTML：注入 JS 拦截器
             if "text/html" in content_type and bs_id:
                 _sess = _browse_sessions.get(bs_id, {})
