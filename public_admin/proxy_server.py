@@ -5106,6 +5106,10 @@ def _build_injector(bs_id: str, username: str = "", password: str = "", userkey:
 @app.api_route("/ak-web/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"])
 async def ak_web_proxy(request: Request, path: str):
     """AK 网页透明代理：所有请求通过后端转发，携带缓存 session，注入 JS 拦截器实现 VPN 式体验"""
+    if path.startswith("cdn-cgi/"):
+        if request.method == "GET":
+            return Response(content=";", media_type="application/javascript")
+        return Response(status_code=204)
     bs_id = request.query_params.get("bs", "")
     session = _browse_sessions.get(bs_id)
     cookies = {}
