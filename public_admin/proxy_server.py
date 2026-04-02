@@ -2458,7 +2458,7 @@ class OnlineUserManager:
 
         for u, d in self.users.items():
 
-            if (now - d['last_heartbeat']).seconds > 60:
+            if (now - d['last_heartbeat']).total_seconds() > 15:
 
                 offline.append(u)
 

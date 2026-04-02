@@ -376,6 +376,8 @@
     let messageCount = 0;
     let username = 'visitor';
     let heartbeatTimer = null;
+    let reconnectTimer = null;
+    let presenceSuspended = false;
     
     // 从cookie获取值
     function getCookie(name) {
@@ -710,27 +712,85 @@
             heartbeatTimer = null;
         }
     }
+
+    function clearReconnectTimer() {
+        if (reconnectTimer) {
+            clearTimeout(reconnectTimer);
+            reconnectTimer = null;
+        }
+    }
+
+    function isPresenceForeground() {
+        return !document.hidden;
+    }
+
+    function sendPresence(type) {
+        if (!ws || ws.readyState !== WebSocket.OPEN) return false;
+        try {
+            ws.send(JSON.stringify({
+                type: type,
+                username: username,
+                page: window.location.pathname + window.location.hash,
+                userAgent: navigator.userAgent
+            }));
+            return true;
+        } catch(e) {
+            return false;
+        }
+    }
+
+    function scheduleReconnect() {
+        clearReconnectTimer();
+        if (presenceSuspended) return;
+        reconnectTimer = setTimeout(function() {
+            connect();
+        }, 5000);
+    }
+
+    function suspendPresence() {
+        presenceSuspended = true;
+        stopHeartbeat();
+        clearReconnectTimer();
+        if (!ws) return;
+        const currentWs = ws;
+        sendPresence('offline');
+        setTimeout(function() {
+            if (currentWs.readyState === WebSocket.OPEN || currentWs.readyState === WebSocket.CONNECTING) {
+                currentWs.close();
+            }
+        }, 80);
+    }
+
+    function resumePresence() {
+        presenceSuspended = false;
+        clearReconnectTimer();
+        if (ws && ws.readyState === WebSocket.OPEN) {
+            sendPresence('online');
+            startHeartbeat();
+            return;
+        }
+        connect();
+    }
     
     // 连接WebSocket
     function connect() {
         // 获取用户名
         username = getUsername();
+        clearReconnectTimer();
+        if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
+            return;
+        }
         
         try {
             ws = new WebSocket(WS_URL + '?username=' + encodeURIComponent(username));
             
             ws.onopen = function() {
-                // 后台页面重连不抢主连接，等visibilitychange变为前台时再发
-                if (document.hidden) return;
-                // 发送上线消息
-                ws.send(JSON.stringify({
-                    type: 'online',
-                    username: username,
-                    page: window.location.pathname + window.location.hash,
-                    userAgent: navigator.userAgent
-                }));
-                
-                // 启动心跳
+                if (!isPresenceForeground() || presenceSuspended) {
+                    presenceSuspended = true;
+                    ws.close();
+                    return;
+                }
+                sendPresence('online');
                 startHeartbeat();
             };
             
@@ -758,15 +818,15 @@
             
             ws.onclose = function() {
                 stopHeartbeat();
-                // 5秒后尝试重连
-                setTimeout(connect, 5000);
+                ws = null;
+                scheduleReconnect();
             };
             
             ws.onerror = function(err) {
                 console.error('[AKChat] WebSocket 错误:', err);
             };
         } catch(e) {
-            setTimeout(connect, 5000);
+            scheduleReconnect();
         }
     }
     
@@ -811,13 +871,12 @@
     
     // 重连WebSocket（登录后调用）
     function reconnect() {
-        if (ws && ws.readyState === WebSocket.OPEN) {
-            ws.send(JSON.stringify({ type: 'offline' }));
-        }
-        if (ws) ws.close();
+        suspendPresence();
         // 重新获取用户名并连接
         username = getUsername();
-        connect();
+        if (isPresenceForeground()) {
+            resumePresence();
+        }
     }
     
     // 暴露全局API
@@ -831,12 +890,7 @@
     // 监听SPA路由变化（history.pushState / replaceState / 浏览器前进后退）
     function onUrlChange() {
         if (ws && ws.readyState === WebSocket.OPEN && !document.hidden) {
-            ws.send(JSON.stringify({
-                type: 'online',
-                username: username,
-                page: window.location.pathname + window.location.hash,
-                userAgent: navigator.userAgent
-            }));
+            sendPresence('online');
         }
     }
     (function() {
@@ -847,25 +901,32 @@
     })();
     window.addEventListener('popstate', onUrlChange);
 
-    // 监听标签页可见性：切到后台停止心跳，回到前台重新发 online 抢回主连接
     document.addEventListener('visibilitychange', function() {
         if (document.hidden) {
-            stopHeartbeat();
+            suspendPresence();
         } else {
-            if (ws && ws.readyState === WebSocket.OPEN) {
-                ws.send(JSON.stringify({
-                    type: 'online',
-                    username: username,
-                    page: window.location.pathname + window.location.hash,
-                    userAgent: navigator.userAgent
-                }));
-                startHeartbeat();
-            }
+            resumePresence();
         }
     });
+
+    window.addEventListener('pagehide', suspendPresence);
+    window.addEventListener('pageshow', function() {
+        if (isPresenceForeground()) resumePresence();
+    });
+    window.addEventListener('blur', function() {
+        if (!document.hidden) suspendPresence();
+    });
+    window.addEventListener('focus', function() {
+        if (isPresenceForeground()) resumePresence();
+    });
+    window.addEventListener('beforeunload', suspendPresence);
     
     // DOM加载完成后立即连接（不等待所有资源加载）
-    setTimeout(connect, 100);
+    setTimeout(function() {
+        if (isPresenceForeground()) {
+            resumePresence();
+        }
+    }, 100);
     
     } // 结束 initChatWidget 函数
     
