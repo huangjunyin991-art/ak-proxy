@@ -4971,10 +4971,21 @@ async def ak_web_proxy(request: Request, path: str):
     if request.headers.get("referer"):
         fwd_headers["Referer"] = request.headers["referer"]
 
+    # 优先通过SOCKS5出口节点访问（绕过服务器IP被CDN封锁）
+    socks_proxy = None
+    try:
+        healthy = [e for e in dispatcher.exits if e.healthy and not e.is_direct]
+        if healthy:
+            socks_proxy = f"socks5://127.0.0.1:{healthy[0].port}"
+    except Exception:
+        pass
+
     try:
         body = await request.body()
-        async with httpx.AsyncClient(verify=False, timeout=20, cookies=cookies,
-                                     follow_redirects=True) as client:
+        client_kwargs = dict(verify=False, timeout=20, cookies=cookies, follow_redirects=True)
+        if socks_proxy:
+            client_kwargs["proxies"] = {"https://": socks_proxy, "http://": socks_proxy}
+        async with httpx.AsyncClient(**client_kwargs) as client:
             resp = await client.request(
                 method=request.method,
                 url=target_url,
