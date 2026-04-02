@@ -4296,7 +4296,10 @@
         }
 
         let currentPanelName = 'dashboard';
-        const mobileLayoutMedia = window.matchMedia('(max-width: 1024px)');
+
+        function getMobileLayoutMedia() {
+            return window.matchMedia('(max-width: 1024px)');
+        }
 
         function setMobileNavOpen(open) {
             const drawer = document.getElementById('mobileTabDrawer');
@@ -4332,7 +4335,8 @@
         }
 
         function syncResponsiveShell() {
-            if (!mobileLayoutMedia.matches) {
+            const media = getMobileLayoutMedia();
+            if (!media.matches) {
                 setMobileNavOpen(false);
             }
             syncMobileTabLabel();
@@ -4401,6 +4405,7 @@
             setMobileNavOpen(!drawer.classList.contains('open'));
         });
 
+        const mobileLayoutMedia = getMobileLayoutMedia();
         if (mobileLayoutMedia.addEventListener) {
             mobileLayoutMedia.addEventListener('change', syncResponsiveShell);
         } else {
