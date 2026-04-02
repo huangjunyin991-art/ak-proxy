@@ -4984,24 +4984,11 @@ async def ak_web_proxy(request: Request, path: str):
     )
     fwd_headers = {
         "User-Agent": _ua,
-        "Accept": request.headers.get("accept") or (
-            "text/html,application/xhtml+xml,application/xml;q=0.9,"
-            "image/avif,image/webp,image/apng,*/*;q=0.8"
-        ),
-        "Accept-Language": request.headers.get("accept-language") or "zh-CN,zh;q=0.9,en;q=0.8",
-        "Accept-Encoding": "gzip, deflate, br",
-        "Upgrade-Insecure-Requests": "1",
-        "Sec-Fetch-Dest": "document",
-        "Sec-Fetch-Mode": "navigate",
-        "Sec-Fetch-Site": "none",
-        "Sec-Ch-Ua": '"Chromium";v="124", "Google Chrome";v="124", "Not-A.Brand";v="99"',
-        "Sec-Ch-Ua-Mobile": "?0",
-        "Sec-Ch-Ua-Platform": '"Windows"',
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "zh-CN,zh;q=0.9",
     }
     if request.headers.get("content-type"):
         fwd_headers["Content-Type"] = request.headers["content-type"]
-    if request.headers.get("referer"):
-        fwd_headers["Referer"] = request.headers["referer"]
 
     try:
         body = await request.body()
