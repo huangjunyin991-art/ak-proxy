@@ -1311,6 +1311,24 @@
             right: 0;
         }
 
+        .ak-browser-stage {
+            position: relative;
+            flex: 1;
+            min-height: 0;
+            display: flex;
+            align-items: stretch;
+            justify-content: stretch;
+            overflow: hidden;
+        }
+
+        .ak-browser-stage-frame {
+            position: relative;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background: var(--bg-primary);
+        }
+
         .ak-browser-header {
             display:flex;
             align-items:center;
@@ -1540,11 +1558,23 @@
                 right: -100% !important;
                 border-left: none !important;
                 box-shadow: none !important;
-                z-index: 180;
+                z-index: 1300 !important;
             }
 
             .ak-browser-panel.open {
                 right: 0 !important;
+            }
+
+            .ak-browser-stage {
+                align-items: center;
+                justify-content: center;
+                padding: 12px;
+            }
+
+            .ak-browser-panel.mobile-portrait-mode .ak-browser-stage-frame {
+                border-radius: 18px;
+                box-shadow: 0 12px 36px rgba(0, 0, 0, 0.45);
+                border: 1px solid rgba(255, 255, 255, 0.08);
             }
 
             .ak-browser-header {
@@ -2537,13 +2567,15 @@
                 cursor:pointer; font-size:13px;">✕ 关闭</button>
             </div>
         </div>
-        <div style="position:relative; flex:1; min-height:0;">
-            <div id="akBrowserLoading" style="position:absolute; inset:0; display:none; align-items:center; justify-content:center; flex-direction:column; gap:12px; background:var(--bg-primary); z-index:1;">
-                <div style="width:28px; height:28px; border:3px solid rgba(0,212,255,0.18); border-top-color:var(--accent); border-radius:50%; animation:spin 0.8s linear infinite;"></div>
-                <div id="akBrowserLoadingText" style="color:var(--text-secondary); font-size:13px;">正在进入AK后台...</div>
+        <div class="ak-browser-stage" id="akBrowserStage">
+            <div class="ak-browser-stage-frame" id="akBrowserStageFrame">
+                <div id="akBrowserLoading" style="position:absolute; inset:0; display:none; align-items:center; justify-content:center; flex-direction:column; gap:12px; background:var(--bg-primary); z-index:1;">
+                    <div style="width:28px; height:28px; border:3px solid rgba(0,212,255,0.18); border-top-color:var(--accent); border-radius:50%; animation:spin 0.8s linear infinite;"></div>
+                    <div id="akBrowserLoadingText" style="color:var(--text-secondary); font-size:13px;">正在进入AK后台...</div>
+                </div>
+                <iframe id="akBrowserFrame" src="about:blank" style="border:none; width:100%; height:100%; visibility:hidden; background:var(--bg-primary);"
+                        sandbox="allow-scripts allow-same-origin allow-forms allow-popups"></iframe>
             </div>
-            <iframe id="akBrowserFrame" src="about:blank" style="border:none; width:100%; height:100%; visibility:hidden; background:var(--bg-primary);"
-                    sandbox="allow-scripts allow-same-origin allow-forms allow-popups"></iframe>
         </div>
     </div>
     <!-- 遮罩层 -->
@@ -2742,8 +2774,25 @@
         }
         
         // 显示模式切换
+        const VIEW_MODE_STORAGE_KEY = 'admin_view_mode';
         let isCompactMode = false;
+        function getSavedViewMode() {
+            try {
+                return localStorage.getItem(VIEW_MODE_STORAGE_KEY);
+            } catch (e) {
+                return null;
+            }
+        }
+
+        function saveViewMode(compact) {
+            try {
+                localStorage.setItem(VIEW_MODE_STORAGE_KEY, compact ? 'compact' : 'full');
+            } catch (e) {
+            }
+        }
+
         function setViewMode(compact) {
+            saveViewMode(compact);
             if (isCompactMode === compact) return;
             isCompactMode = compact;
             const fullBtn = document.getElementById('modeFullBtn');
@@ -2770,6 +2819,17 @@
                 fullBtn.style.color = 'white';
                 compactBtn.style.background = 'transparent';
                 compactBtn.style.color = 'var(--text-secondary)';
+            }
+        }
+
+        function restoreViewMode() {
+            const savedMode = getSavedViewMode();
+            if (savedMode === 'compact') {
+                setViewMode(true);
+                return;
+            }
+            if (savedMode === 'full') {
+                setViewMode(false);
             }
         }
         
@@ -2860,6 +2920,7 @@
             initApp();
             renderMobileTabList();
             syncResponsiveShell();
+            restoreViewMode();
             lockAdminPortraitOrientation();
         }
         
@@ -4433,6 +4494,29 @@
             if (title) title.textContent = activeTab ? activeTab.textContent.trim() : '功能导航';
         }
 
+        function syncAkBrowserViewport() {
+            const panel = document.getElementById('akBrowserPanel');
+            const overlay = document.getElementById('akBrowserOverlay');
+            const stage = document.getElementById('akBrowserStage');
+            const stageFrame = document.getElementById('akBrowserStageFrame');
+            if (!panel || !overlay || !stage || !stageFrame) return;
+            const isMobile = getMobileLayoutMedia().matches;
+            const isOpen = panel.classList.contains('open');
+            const usePortraitViewport = isMobile && isOpen && window.innerWidth > window.innerHeight;
+            panel.classList.toggle('mobile-portrait-mode', usePortraitViewport);
+            overlay.style.display = isOpen && !isMobile ? 'block' : 'none';
+            if (!usePortraitViewport) {
+                stageFrame.style.width = '100%';
+                stageFrame.style.height = '100%';
+                return;
+            }
+            const stageRect = stage.getBoundingClientRect();
+            const width = Math.max(280, Math.floor(Math.min(stageRect.width, stageRect.height * 9 / 16, 430)));
+            const height = Math.floor(width * 16 / 9);
+            stageFrame.style.width = `${width}px`;
+            stageFrame.style.height = `${Math.min(height, stageRect.height)}px`;
+        }
+
         function renderMobileTabList() {
             const list = document.getElementById('mobileTabList');
             if (!list) return;
@@ -4469,6 +4553,7 @@
             }
             renderMobileTabList();
             syncMobileTabLabel();
+            syncAkBrowserViewport();
             checkOrientation();
         }
 
@@ -7137,7 +7222,8 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
             frame.onload = null;
             frame.src = 'about:blank';
             panel.classList.add('open');
-            overlay.style.display = 'block';
+            overlay.style.display = getMobileLayoutMedia().matches ? 'none' : 'block';
+            syncAkBrowserViewport();
             try {
                 const res = await fetch(`${API_BASE}/admin/api/browse_login`, {
                     method: 'POST',
@@ -7182,6 +7268,7 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
             const panel = document.getElementById('akBrowserPanel');
             const overlay = document.getElementById('akBrowserOverlay');
             const frame = document.getElementById('akBrowserFrame');
+            const stageFrame = document.getElementById('akBrowserStageFrame');
             akBrowserLoadSeq++;
             if (akBrowserRetryTimer) {
                 clearTimeout(akBrowserRetryTimer);
@@ -7189,6 +7276,11 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
             }
             panel.classList.remove('open');
             overlay.style.display = 'none';
+            panel.classList.remove('mobile-portrait-mode');
+            if (stageFrame) {
+                stageFrame.style.width = '100%';
+                stageFrame.style.height = '100%';
+            }
             setAkBrowserLoading(false);
             frame.onload = null;
             frame.src = 'about:blank';
