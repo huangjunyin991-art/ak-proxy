@@ -4869,6 +4869,7 @@ _ak_auth_cache: dict = {}
 _BROWSE_SESSION_TTL = 3600           # session 有效期 1 小时
 _AK_BASE = "https://ak928.vip"  # AK 网站根地址
 _AK_HOME_PATH = "/pages/home.html?first=true"
+_BROWSE_SESSION_COOKIE = "ak_admin_bs"
 _AK_WEB_PREFIX = "/admin/ak-web"
 _AK_SITE_PREFIX = "/admin/ak-site"
 _AK_SITE_API_NAMES = {"public_IndexData"}
@@ -4943,6 +4944,9 @@ def _resolve_browse_bs_id(request: Request) -> str:
     bs_id = (request.query_params.get("bs") or "").strip()
     if bs_id:
         return bs_id
+    bs_id = (request.cookies.get(_BROWSE_SESSION_COOKIE) or "").strip()
+    if bs_id:
+        return bs_id
     referer = (request.headers.get("referer") or "").strip()
     if not referer:
         return ""
@@ -4962,6 +4966,20 @@ def _resolve_browse_session(request: Request):
         _browse_sessions.pop(bs_id, None)
         session = None
     return bs_id, session
+
+
+def _set_browse_session_cookie(response: Response, bs_id: str):
+    if not bs_id:
+        return response
+    response.set_cookie(
+        key=_BROWSE_SESSION_COOKIE,
+        value=bs_id,
+        max_age=_BROWSE_SESSION_TTL,
+        path="/admin",
+        httponly=True,
+        samesite="lax",
+    )
+    return response
 
 
 def _rewrite_site_root_url(url: str, site_prefix: str) -> str:
@@ -5126,7 +5144,10 @@ async def admin_browse_login(request: Request):
                 "login_result": cached.get("login_result", {}),
                 "expires": time.time() + _BROWSE_SESSION_TTL,
             }
-            return JSONResponse({"success": True, "bs_id": bs_id, "entry_url": _make_browse_entry_url(bs_id)})
+            return _set_browse_session_cookie(
+                JSONResponse({"success": True, "bs_id": bs_id, "entry_url": _make_browse_entry_url(bs_id)}),
+                bs_id,
+            )
         # 走 dispatcher 负载均衡，和普通用户登录逻辑完全一致
         resp = await forward_request(
             "POST", "Login",
@@ -5160,7 +5181,10 @@ async def admin_browse_login(request: Request):
             "login_result": cached.get("login_result", {}),
             "expires": time.time() + _BROWSE_SESSION_TTL,
         }
-        return JSONResponse({"success": True, "bs_id": bs_id, "entry_url": _make_browse_entry_url(bs_id)})
+        return _set_browse_session_cookie(
+            JSONResponse({"success": True, "bs_id": bs_id, "entry_url": _make_browse_entry_url(bs_id)}),
+            bs_id,
+        )
     except Exception as e:
         return JSONResponse({"success": False, "message": f"登录失败: {str(e)}"})
 
@@ -5344,8 +5368,11 @@ async def ak_web_proxy(request: Request, path: str):
                     text = injector + text
             content = text.encode("utf-8")
 
-        return Response(content=content, status_code=resp.status_code,
-                        headers=resp_headers, media_type=content_type or "application/octet-stream")
+        response = Response(content=content, status_code=resp.status_code,
+                            headers=resp_headers, media_type=content_type or "application/octet-stream")
+        if bs_id:
+            _set_browse_session_cookie(response, bs_id)
+        return response
     except Exception as e:
         logger.error(f"[AkWebProxy] {path}: {e}")
         return Response(content=f"代理错误: {str(e)}".encode(), status_code=502)
