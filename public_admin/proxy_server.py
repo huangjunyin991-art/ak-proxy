@@ -4846,6 +4846,27 @@ _BROWSE_SESSION_TTL = 3600           # session 有效期 1 小时
 _AK_BASE = "https://ak928.vip"  # AK 网站根地址
 
 
+@app.get("/admin/api/ak_test")
+async def admin_ak_test():
+    """临时调试：测试服务器 httpx 访问 ak928.vip 的实际结果"""
+    url = f"{_AK_BASE}/pages/account/login.html"
+    try:
+        async with httpx.AsyncClient(verify=False, follow_redirects=True, timeout=15) as c:
+            r = await c.get(url, headers={
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/124.0",
+                "Accept": "text/html,*/*;q=0.9",
+            })
+        return {
+            "status": r.status_code,
+            "final_url": str(r.url),
+            "content_type": r.headers.get("content-type", ""),
+            "content_len": len(r.content),
+            "body_head": r.content[:300].decode("utf-8", errors="replace"),
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
+
 @app.post("/admin/api/browse_login")
 async def admin_browse_login(request: Request):
     """用指定用户的账号密码登录 AK，缓存 session，返回 bs_id 供 /ak-web/* 代理使用"""
