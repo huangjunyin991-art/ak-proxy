@@ -71,6 +71,7 @@
         .header h1 {
             font-size: 24px;
             background: linear-gradient(90deg, var(--accent), var(--accent-green));
+            background-clip: text;
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
         }
@@ -1076,6 +1077,7 @@
             margin-bottom: 10px;
             font-size: 28px;
             background: linear-gradient(90deg, var(--accent), var(--accent-green));
+            background-clip: text;
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
         }
@@ -1137,6 +1139,185 @@
         .main-content.visible {
             display: block;
         }
+
+        .header-controls {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            flex-wrap: wrap;
+        }
+
+        .mobile-shell-bar {
+            display: none;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            padding: 12px 15px;
+            background: var(--bg-secondary);
+            border-bottom: 1px solid var(--border);
+            position: sticky;
+            top: 0;
+            z-index: 150;
+        }
+
+        .mobile-shell-left {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            min-width: 0;
+            flex: 1;
+        }
+
+        .mobile-shell-title {
+            min-width: 0;
+        }
+
+        .mobile-shell-title-main {
+            color: var(--text-primary);
+            font-size: 14px;
+            font-weight: 600;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .mobile-shell-title-sub {
+            color: var(--text-secondary);
+            font-size: 11px;
+            margin-top: 2px;
+        }
+
+        .mobile-nav-btn {
+            min-width: 38px;
+            height: 38px;
+            padding: 0 12px;
+            border-radius: 10px;
+            border: 1px solid var(--border);
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 16px;
+        }
+
+        .mobile-tab-overlay {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.45);
+            z-index: 169;
+        }
+
+        .mobile-tab-overlay.active {
+            display: block;
+        }
+
+        .mobile-tab-drawer {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: min(84vw, 320px);
+            height: 100vh;
+            background: var(--bg-card);
+            border-right: 1px solid var(--border);
+            box-shadow: 4px 0 24px rgba(0, 0, 0, 0.35);
+            transform: translateX(-100%);
+            transition: transform 0.25s ease;
+            z-index: 170;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .mobile-tab-drawer.open {
+            transform: translateX(0);
+        }
+
+        .mobile-tab-drawer-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            padding: 16px;
+            border-bottom: 1px solid var(--border);
+            color: var(--accent);
+            font-weight: bold;
+            flex-shrink: 0;
+        }
+
+        .mobile-tab-list {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            padding: 12px;
+            overflow-y: auto;
+            flex: 1;
+        }
+
+        .mobile-tab-item {
+            width: 100%;
+            border: 1px solid var(--border);
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            border-radius: 12px;
+            padding: 12px 14px;
+            text-align: left;
+            cursor: pointer;
+            font-size: 14px;
+        }
+
+        .mobile-tab-item.active {
+            border-color: var(--accent);
+            color: var(--accent);
+            background: rgba(0, 212, 255, 0.08);
+            box-shadow: 0 0 0 1px rgba(0, 212, 255, 0.15) inset;
+        }
+
+        .ak-browser-panel {
+            position: fixed;
+            top: 0;
+            right: -55%;
+            width: 55%;
+            height: 100vh;
+            background: var(--bg-primary);
+            border-left: 1px solid var(--border);
+            z-index: 1200;
+            display: flex;
+            flex-direction: column;
+            transition: right 0.3s ease;
+            box-shadow: -4px 0 20px rgba(0,0,0,0.5);
+        }
+
+        .ak-browser-panel.open {
+            right: 0;
+        }
+
+        .ak-browser-header {
+            display:flex;
+            align-items:center;
+            gap:10px;
+            padding:10px 16px;
+            background:var(--bg-card);
+            border-bottom:1px solid var(--border);
+            flex-shrink:0;
+        }
+
+        .ak-browser-toolbar {
+            display:flex;
+            align-items:center;
+            gap:8px;
+        }
+
+        .ak-browser-tool-btn {
+            padding:4px 12px;
+            border-radius:6px;
+            cursor:pointer;
+            font-size:13px;
+            border:1px solid var(--border);
+            background: var(--bg-primary);
+            color: var(--text-primary);
+        }
         
         /* ===== 横屏提示 ===== */
         .rotate-hint {
@@ -1185,6 +1366,21 @@
                 padding: 12px 15px;
                 flex-wrap: wrap;
                 gap: 10px;
+            }
+
+            .header-controls {
+                width: 100%;
+                gap: 8px;
+                align-items: center;
+                justify-content: flex-start;
+            }
+
+            .mobile-shell-bar {
+                display: flex;
+            }
+
+            .desktop-tabs {
+                display: none;
             }
             
             .header h1 {
@@ -1238,7 +1434,7 @@
             }
             
             .content {
-                padding: 10px;
+                padding: 10px 10px 24px;
             }
             
             .table-container {
@@ -1252,6 +1448,37 @@
             .btn {
                 padding: 5px 8px;
                 font-size: 11px;
+            }
+
+            .rotate-hint {
+                display: none !important;
+            }
+
+            .ak-browser-panel {
+                width: 100% !important;
+                right: -100% !important;
+                border-left: none !important;
+                box-shadow: none !important;
+                z-index: 180;
+            }
+
+            .ak-browser-panel.open {
+                right: 0 !important;
+            }
+
+            .ak-browser-header {
+                padding: 12px;
+                gap: 8px;
+            }
+
+            .ak-browser-toolbar {
+                gap: 6px;
+            }
+
+            .ak-browser-tool-btn {
+                min-height: 36px;
+                padding: 0 10px;
+                font-size: 12px;
             }
             
             .login-box {
@@ -1312,7 +1539,7 @@
         /* 竖屏且是移动设备时显示提示 */
         @media screen and (orientation: portrait) and (max-width: 768px) {
             .rotate-hint {
-                display: flex !important;
+                display: none !important;
             }
         }
         /* Lucide图标样式 */
@@ -1353,9 +1580,27 @@
     
     <!-- 主内容 -->
     <div class="main-content" id="mainContent">
+    <div class="mobile-shell-bar" id="mobileShellBar">
+        <div class="mobile-shell-left">
+            <button type="button" class="mobile-nav-btn" id="mobileNavToggle">☰</button>
+            <div class="mobile-shell-title">
+                <div class="mobile-shell-title-main" id="mobileCurrentTab">流量仪表盘</div>
+                <div class="mobile-shell-title-sub">移动端导航</div>
+            </div>
+        </div>
+        <button type="button" class="mobile-nav-btn" onclick="refreshCurrentPanel()">↻</button>
+    </div>
+    <div class="mobile-tab-overlay" id="mobileTabOverlay" onclick="setMobileNavOpen(false)"></div>
+    <div class="mobile-tab-drawer" id="mobileTabDrawer">
+        <div class="mobile-tab-drawer-header">
+            <span>功能导航</span>
+            <button type="button" class="mobile-nav-btn" onclick="setMobileNavOpen(false)">✕</button>
+        </div>
+        <div class="mobile-tab-list" id="mobileTabList"></div>
+    </div>
     <header class="header">
         <h1>AK后台监控系统</h1>
-        <div style="display: flex; align-items: center; gap: 15px;">
+        <div class="header-controls">
             <!-- 显示模式切换 -->
             <div style="display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-secondary);">
                 <span>显示模式:</span>
@@ -1427,7 +1672,7 @@
     </div>
     
     <!-- 标签页 -->
-    <div class="tabs">
+    <div class="tabs desktop-tabs" id="desktopTabs">
         <div class="tab active" data-panel="dashboard" id="tabDashboard"><svg class="tab-icon" viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg> 流量仪表盘</div>
         <div class="tab" data-panel="online"><svg class="tab-icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4" fill="rgba(0,255,136,0.3)"/><circle cx="12" cy="12" r="2" fill="#00ff88"/></svg> 在线用户</div>
         <div class="tab" data-panel="usage"><svg class="tab-icon" viewBox="0 0 24 24"><line x1="12" y1="20" x2="12" y2="10"/><line x1="18" y1="20" x2="18" y2="4"/><line x1="6" y1="20" x2="6" y2="16"/></svg> 使用情况</div>
@@ -2201,18 +2446,16 @@
     </div><!-- 主内容结束 -->
 
     <!-- AK 网页浏览面板（右侧滑入，占50%宽） -->
-    <div id="akBrowserPanel" style="
-        position: fixed; top: 0; right: -55%; width: 55%; height: 100vh;
-        background: var(--bg-primary); border-left: 1px solid var(--border);
-        z-index: 1200; display: flex; flex-direction: column;
-        transition: right 0.3s ease; box-shadow: -4px 0 20px rgba(0,0,0,0.5);">
+    <div id="akBrowserPanel" class="ak-browser-panel">
         <!-- 标题栏 -->
-        <div style="display:flex; align-items:center; gap:10px; padding:10px 16px;
-                    background:var(--bg-card); border-bottom:1px solid var(--border); flex-shrink:0;">
+        <div class="ak-browser-header">
             <span id="akBrowserTitle" style="color:var(--accent); font-weight:bold; font-size:14px; flex:1;">AK 网页</span>
-            <button onclick="closeAkBrowser()" style="padding:4px 12px; border-radius:6px;
+            <div class="ak-browser-toolbar">
+                <button onclick="refreshAkBrowser()" class="ak-browser-tool-btn">刷新</button>
+                <button onclick="closeAkBrowser()" style="padding:4px 12px; border-radius:6px;
                 background:rgba(255,82,82,0.15); color:#ff5252; border:1px solid rgba(255,82,82,0.3);
                 cursor:pointer; font-size:13px;">✕ 关闭</button>
+            </div>
         </div>
         <div style="position:relative; flex:1; min-height:0;">
             <div id="akBrowserLoading" style="position:absolute; inset:0; display:none; align-items:center; justify-content:center; flex-direction:column; gap:12px; background:var(--bg-primary); z-index:1;">
@@ -2530,6 +2773,8 @@
             applyPermissions();
             // 初始化应用
             initApp();
+            renderMobileTabList();
+            syncResponsiveShell();
         }
         
         function applyPermissions() {
@@ -2563,6 +2808,7 @@
                 const firstVisible = document.querySelector('.tab:not([style*="display: none"])');
                 if (firstVisible) firstVisible.click();
             }
+            renderMobileTabList();
         }
         
         function logout() {
@@ -4049,6 +4295,54 @@
             }).join('');
         }
 
+        let currentPanelName = 'dashboard';
+        const mobileLayoutMedia = window.matchMedia('(max-width: 1024px)');
+
+        function setMobileNavOpen(open) {
+            const drawer = document.getElementById('mobileTabDrawer');
+            const overlay = document.getElementById('mobileTabOverlay');
+            if (!drawer || !overlay) return;
+            drawer.classList.toggle('open', !!open);
+            overlay.classList.toggle('active', !!open);
+        }
+
+        function getVisibleTabs() {
+            return Array.from(document.querySelectorAll('.tab')).filter(tab => tab.style.display !== 'none');
+        }
+
+        function syncMobileTabLabel() {
+            const title = document.getElementById('mobileCurrentTab');
+            const activeTab = document.querySelector('.tab.active');
+            if (title) title.textContent = activeTab ? activeTab.textContent.trim() : '功能导航';
+        }
+
+        function renderMobileTabList() {
+            const list = document.getElementById('mobileTabList');
+            if (!list) return;
+            const tabs = getVisibleTabs();
+            list.innerHTML = tabs.map(tab => `<button type="button" class="mobile-tab-item${tab.classList.contains('active') ? ' active' : ''}" data-panel="${tab.dataset.panel}">${tab.textContent.trim()}</button>`).join('');
+            list.querySelectorAll('.mobile-tab-item').forEach(item => {
+                item.addEventListener('click', () => {
+                    const targetTab = document.querySelector(`.tab[data-panel="${item.dataset.panel}"]`);
+                    if (targetTab) targetTab.click();
+                    setMobileNavOpen(false);
+                });
+            });
+            syncMobileTabLabel();
+        }
+
+        function syncResponsiveShell() {
+            if (!mobileLayoutMedia.matches) {
+                setMobileNavOpen(false);
+            }
+            syncMobileTabLabel();
+        }
+
+        function refreshCurrentPanel() {
+            const activeTab = document.querySelector('.tab.active');
+            if (activeTab) activeTab.click();
+        }
+
         // 标签页切换
         document.querySelectorAll('.tab').forEach(tab => {
             tab.addEventListener('click', () => {
@@ -4057,6 +4351,7 @@
                 
                 tab.classList.add('active');
                 document.getElementById(tab.dataset.panel).classList.add('active');
+                currentPanelName = tab.dataset.panel;
                 
                 // 加载对应数据
                 if (tab.dataset.panel === 'dashboard') {
@@ -4096,8 +4391,24 @@
                     stopSubAdminStatusRefresh();
                     stopLbRefresh();
                 }
+                renderMobileTabList();
+                syncResponsiveShell();
             });
         });
+
+        document.getElementById('mobileNavToggle').addEventListener('click', () => {
+            const drawer = document.getElementById('mobileTabDrawer');
+            setMobileNavOpen(!drawer.classList.contains('open'));
+        });
+
+        if (mobileLayoutMedia.addEventListener) {
+            mobileLayoutMedia.addEventListener('change', syncResponsiveShell);
+        } else {
+            mobileLayoutMedia.addListener(syncResponsiveShell);
+        }
+
+        syncResponsiveShell();
+        renderMobileTabList();
         
         // 刷新所有数据
         async function refreshAll() {
@@ -6672,7 +6983,7 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
             setAkBrowserLoading(true, `正在进入 ${username} 的AK后台...`);
             frame.onload = null;
             frame.src = 'about:blank';
-            panel.style.right = '0';
+            panel.classList.add('open');
             overlay.style.display = 'block';
             try {
                 const res = await fetch(`${API_BASE}/admin/api/browse_login`, {
@@ -6702,6 +7013,18 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
             }
         }
 
+        function refreshAkBrowser() {
+            const frame = document.getElementById('akBrowserFrame');
+            if (!frame || frame.src === 'about:blank') return;
+            setAkBrowserLoading(true, '正在刷新AK后台...');
+            try {
+                const href = frame.contentWindow.location.href || frame.src;
+                frame.src = href || frame.src;
+            } catch (e) {
+                frame.src = frame.src;
+            }
+        }
+
         function closeAkBrowser() {
             const panel = document.getElementById('akBrowserPanel');
             const overlay = document.getElementById('akBrowserOverlay');
@@ -6711,7 +7034,7 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                 clearTimeout(akBrowserRetryTimer);
                 akBrowserRetryTimer = null;
             }
-            panel.style.right = '-55%';
+            panel.classList.remove('open');
             overlay.style.display = 'none';
             setAkBrowserLoading(false);
             frame.onload = null;
