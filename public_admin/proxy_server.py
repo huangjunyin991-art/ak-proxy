@@ -4867,6 +4867,9 @@ _ak_auth_cache: dict = {}
 _BROWSE_SESSION_TTL = 3600           # session 有效期 1 小时
 _AK_BASE = "https://ak928.vip"  # AK 网站根地址
 _AK_HOME_PATH = "/pages/home.html?first=true"
+_AK_WEB_PREFIX = "/admin/ak-web"
+_AK_SITE_PREFIX = "/admin/ak-site"
+_AK_SITE_API_NAMES = {"public_IndexData"}
 
 
 def _extract_cookie_map(headers) -> dict:
@@ -4915,9 +4918,9 @@ def _cache_ak_auth(username: str, password: str, result: dict, headers) -> dict:
     return cached
 
 
-def _make_browse_entry_url(bs_id: str) -> str:
+def _make_browse_entry_url(bs_id: str, site_prefix: str = _AK_SITE_PREFIX) -> str:
     sep = "&" if "?" in _AK_HOME_PATH else "?"
-    return f"/admin/ak-web{_AK_HOME_PATH}{sep}bs={bs_id}"
+    return f"{site_prefix}{_AK_HOME_PATH}{sep}bs={bs_id}"
 
 
 def _build_cookie_header(cookies: dict) -> str:
@@ -4926,25 +4929,24 @@ def _build_cookie_header(cookies: dict) -> str:
     return "; ".join(f"{k}={v}" for k, v in cookies.items() if k)
 
 
-def _rewrite_admin_ak_web_root_url(url: str) -> str:
+def _rewrite_site_root_url(url: str, site_prefix: str) -> str:
     if not url or not url.startswith("/"):
         return url
     if url.startswith("//"):
         return url
-    if url.startswith("/admin/ak-web") or url.startswith("/admin/ak-rpc") or url.startswith("/admin") or url.startswith("/RPC"):
+    if url.startswith(site_prefix) or url.startswith("/admin/ak-rpc") or url.startswith("/admin") or url.startswith("/RPC"):
         return url
-    return "/admin/ak-web" + url
+    return site_prefix + url
 
 
-def _rewrite_admin_ak_web_html_roots(text: str) -> str:
-    pattern = re.compile(r'(?P<prefix>\b(?:src|href|action|poster)=\s*["\"])(?P<url>/[^"\
-\n>]*)(?P<suffix>["\"])', re.IGNORECASE)
-    return pattern.sub(lambda m: f"{m.group('prefix')}{_rewrite_admin_ak_web_root_url(m.group('url'))}{m.group('suffix')}", text)
+def _rewrite_site_html_roots(text: str, site_prefix: str) -> str:
+    pattern = re.compile(r'(?P<prefix>\b(?:src|href|action|poster)=\s*["\"])(?P<url>/[^"\\r\\n>]*)(?P<suffix>["\"])', re.IGNORECASE)
+    return pattern.sub(lambda m: f"{m.group('prefix')}{_rewrite_site_root_url(m.group('url'), site_prefix)}{m.group('suffix')}", text)
 
 
-def _rewrite_admin_ak_web_css_roots(text: str) -> str:
+def _rewrite_site_css_roots(text: str, site_prefix: str) -> str:
     pattern = re.compile(r'url\((?P<quote>[\"\']?)(?P<url>/[^)\"\']+)(?P=quote)\)', re.IGNORECASE)
-    return pattern.sub(lambda m: f"url({m.group('quote')}{_rewrite_admin_ak_web_root_url(m.group('url'))}{m.group('quote')})", text)
+    return pattern.sub(lambda m: f"url({m.group('quote')}{_rewrite_site_root_url(m.group('url'), site_prefix)}{m.group('quote')})", text)
 
 
 async def _load_cached_ak_auth(username: str, password: str = "") -> dict:
@@ -5128,11 +5130,13 @@ async def admin_browse_login(request: Request):
         return JSONResponse({"success": False, "message": f"登录失败: {str(e)}"})
 
 
-def _build_injector(bs_id: str, username: str = "", password: str = "", userkey: str = "", login_result: dict = None) -> str:
+def _build_injector(bs_id: str, username: str = "", password: str = "", userkey: str = "", login_result: dict = None,
+                    site_prefix: str = _AK_SITE_PREFIX) -> str:
     """生成注入到 HTML 的 JS 拦截器：劫持 fetch/XHR + 自动登录（如在登录页）"""
     safe_user = username.replace("\\", "\\\\").replace("'", "\\'")
     safe_pwd = password.replace("\\", "\\\\").replace("'", "\\'")
     login_result_json = json.dumps(login_result or {}, ensure_ascii=False).replace("</", "<\\/")
+    api_names_json = json.dumps(sorted(_AK_SITE_API_NAMES), ensure_ascii=False)
     ak_list = ",".join(
         f"'{d}'" for d in [_AK_BASE, "https://ak928.vip", "http://ak928.vip",
                            "https://www.ak928.vip", "https://k937.com", "http://k937.com"]
@@ -5157,10 +5161,11 @@ def _build_injector(bs_id: str, username: str = "", password: str = "", userkey:
         # 禁用SW注册，防止AK的service worker注册到代理域名并拦截请求
         "if('serviceWorker' in navigator){navigator.serviceWorker.register=function(){return Promise.reject(new Error('SW disabled'));};}"
         "try{var UK=" + json.dumps(userkey or "", ensure_ascii=False) + ";var LR=" + login_result_json + ";if(UK){localStorage.setItem('userkey',UK);localStorage.setItem('UserKey',UK);sessionStorage.setItem('userkey',UK);sessionStorage.setItem('UserKey',UK);window.userkey=UK;}if(LR&&typeof LR==='object'){localStorage.setItem('ak_login_result',JSON.stringify(LR));sessionStorage.setItem('ak_login_result',JSON.stringify(LR));if(LR.UserData){localStorage.setItem('UserData',JSON.stringify(LR.UserData));sessionStorage.setItem('UserData',JSON.stringify(LR.UserData));}}}catch(_e){}"
-        "var P='/admin/ak-web',B='" + bs_id + "';"
+        "var P=" + json.dumps(site_prefix, ensure_ascii=False) + ",B='" + bs_id + "';"
         "var R='/admin/ak-rpc';"
         "var API='" + api_base + "';"
         "var AK=[" + ak_list + "];"
+        "var SITE_API=" + api_names_json + ";"
         "function withBs(u){return u+((u.indexOf('?')<0)?'?':'&')+'bs='+B;}"
         "function pickAdminApi(u,n){var rel=u.replace(/^https?:\\/\\/[^\\/]+/,'');if(rel===n||rel.startsWith(n+'?')||rel.startsWith(n+'/'))return rel;var m=rel.match(new RegExp('(?:^|\\\\/)'+n+'(?:[\\\\/?].*)?$'));return m?m[0].replace(/^\\//,''):'';}"
         "function rw(u){"
@@ -5168,7 +5173,7 @@ def _build_injector(bs_id: str, username: str = "", password: str = "", userkey:
         # API 请求重写到 /RPC/（走代理自身的出口节点负载均衡）
         "if(u.startsWith(API)){return withBs(R+'/'+u.slice(API.length).replace(/^\\/RPC\\//,'').replace(/^\\//,''));}"
         "if(u.startsWith('/RPC/')){return withBs(R+'/'+u.slice(5));}"
-        "var _pia=pickAdminApi(u,'public_IndexData');if(_pia){return withBs(R+'/'+_pia.replace(/^\\//,''));}"
+        "for(var j=0;j<SITE_API.length;j++){var _pia=pickAdminApi(u,SITE_API[j]);if(_pia){return withBs(R+'/'+_pia.replace(/^\\//,''));}}"
         "for(var i=0;i<AK.length;i++){"
         "if(u.startsWith(AK[i])){u=P+(u.slice(AK[i].length)||'/');break;}"
         "}"
@@ -5190,10 +5195,16 @@ def _build_injector(bs_id: str, username: str = "", password: str = "", userkey:
     return js
 
 
+@app.api_route("/admin/ak-site/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"])
 @app.api_route("/admin/ak-web/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"])
 @app.api_route("/ak-web/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"])
 async def ak_web_proxy(request: Request, path: str):
     """AK 网页透明代理：所有请求通过后端转发，携带缓存 session，注入 JS 拦截器实现 VPN 式体验"""
+    request_path = request.url.path
+    if request_path.startswith(_AK_SITE_PREFIX):
+        site_prefix = _AK_SITE_PREFIX
+    else:
+        site_prefix = _AK_WEB_PREFIX
     if path.startswith("cdn-cgi/"):
         if request.method == "GET":
             return Response(content=";", media_type="application/javascript")
@@ -5259,20 +5270,20 @@ async def ak_web_proxy(request: Request, path: str):
         if any(t in content_type for t in ("text/html", "text/javascript", "application/javascript",
                                            "text/css", "application/json")):
             text = content.decode("utf-8", errors="replace")
-            # 替换 AK 网页绝对 URL 为 /admin/ak-web/ 代理路径
+            # 替换 AK 网页绝对 URL 为当前代理路径
             for base in [_AK_BASE, "https://ak928.vip", "http://ak928.vip",
                              "https://www.ak928.vip", "https://k937.com", "http://k937.com"]:
-                text = text.replace(base + "/", "/admin/ak-web/")
-                text = text.replace(base + '"', '/admin/ak-web"')
-                text = text.replace(base + "'", "/admin/ak-web'")
+                text = text.replace(base + "/", site_prefix + "/")
+                text = text.replace(base + '"', site_prefix + '"')
+                text = text.replace(base + "'", site_prefix + "'")
             if "text/html" in content_type:
-                text = _rewrite_admin_ak_web_html_roots(text)
+                text = _rewrite_site_html_roots(text, site_prefix)
             if "text/css" in content_type:
-                text = _rewrite_admin_ak_web_css_roots(text)
+                text = _rewrite_site_css_roots(text, site_prefix)
             # HTML：注入 JS 拦截器
             if "text/html" in content_type and bs_id:
                 _sess = _browse_sessions.get(bs_id, {})
-                injector = _build_injector(bs_id, _sess.get("username", ""), _sess.get("password", ""), _sess.get("userkey", ""), _sess.get("login_result", {}))
+                injector = _build_injector(bs_id, _sess.get("username", ""), _sess.get("password", ""), _sess.get("userkey", ""), _sess.get("login_result", {}), site_prefix=site_prefix)
                 if "<head>" in text:
                     text = text.replace("<head>", "<head>" + injector, 1)
                 elif "<head " in text:
