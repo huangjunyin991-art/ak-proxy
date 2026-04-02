@@ -1568,13 +1568,7 @@
             .ak-browser-stage {
                 align-items: center;
                 justify-content: center;
-                padding: 12px;
-            }
-
-            .ak-browser-panel.mobile-portrait-mode .ak-browser-stage-frame {
-                border-radius: 18px;
-                box-shadow: 0 12px 36px rgba(0, 0, 0, 0.45);
-                border: 1px solid rgba(255, 255, 255, 0.08);
+                padding: 0;
             }
 
             .ak-browser-header {
@@ -4497,24 +4491,46 @@
         function syncAkBrowserViewport() {
             const panel = document.getElementById('akBrowserPanel');
             const overlay = document.getElementById('akBrowserOverlay');
-            const stage = document.getElementById('akBrowserStage');
             const stageFrame = document.getElementById('akBrowserStageFrame');
-            if (!panel || !overlay || !stage || !stageFrame) return;
+            if (!panel || !overlay || !stageFrame) return;
             const isMobile = getMobileLayoutMedia().matches;
             const isOpen = panel.classList.contains('open');
-            const usePortraitViewport = isMobile && isOpen && window.innerWidth > window.innerHeight;
-            panel.classList.toggle('mobile-portrait-mode', usePortraitViewport);
             overlay.style.display = isOpen && !isMobile ? 'block' : 'none';
-            if (!usePortraitViewport) {
-                stageFrame.style.width = '100%';
-                stageFrame.style.height = '100%';
-                return;
+            stageFrame.style.width = '100%';
+            stageFrame.style.height = '100%';
+        }
+
+        async function enterAkFullscreenPortrait() {
+            const panel = document.getElementById('akBrowserPanel');
+            if (!panel || !getMobileLayoutMedia().matches) return;
+            if (window.innerWidth <= window.innerHeight) return;
+            try {
+                if (!document.fullscreenElement && panel.requestFullscreen) {
+                    await panel.requestFullscreen();
+                }
+            } catch (e) {
             }
-            const stageRect = stage.getBoundingClientRect();
-            const width = Math.max(280, Math.floor(Math.min(stageRect.width, stageRect.height * 9 / 16, 430)));
-            const height = Math.floor(width * 16 / 9);
-            stageFrame.style.width = `${width}px`;
-            stageFrame.style.height = `${Math.min(height, stageRect.height)}px`;
+            try {
+                if (screen.orientation && typeof screen.orientation.lock === 'function') {
+                    await screen.orientation.lock('portrait');
+                }
+            } catch (e) {
+            }
+        }
+
+        async function exitAkFullscreenPortrait() {
+            try {
+                if (screen.orientation && typeof screen.orientation.unlock === 'function') {
+                    screen.orientation.unlock();
+                }
+            } catch (e) {
+            }
+            try {
+                if (document.fullscreenElement && document.exitFullscreen) {
+                    await document.exitFullscreen();
+                }
+            } catch (e) {
+            }
         }
 
         function renderMobileTabList() {
@@ -7224,6 +7240,7 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
             panel.classList.add('open');
             overlay.style.display = getMobileLayoutMedia().matches ? 'none' : 'block';
             syncAkBrowserViewport();
+            enterAkFullscreenPortrait();
             try {
                 const res = await fetch(`${API_BASE}/admin/api/browse_login`, {
                     method: 'POST',
@@ -7276,11 +7293,11 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
             }
             panel.classList.remove('open');
             overlay.style.display = 'none';
-            panel.classList.remove('mobile-portrait-mode');
             if (stageFrame) {
                 stageFrame.style.width = '100%';
                 stageFrame.style.height = '100%';
             }
+            exitAkFullscreenPortrait();
             setAkBrowserLoading(false);
             frame.onload = null;
             frame.src = 'about:blank';
