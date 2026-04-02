@@ -434,6 +434,7 @@ async def record_login(username: str, ip_address: str, user_agent: str = "",
     pool = _get_pool()
     now = datetime.now().replace(microsecond=0)
     username = username.lower() if username else username
+    record_username = username if is_success else ''
 
     async with pool.acquire() as conn:
         async with conn.transaction():
@@ -441,38 +442,39 @@ async def record_login(username: str, ip_address: str, user_agent: str = "",
             await conn.execute('''
                 INSERT INTO login_records (username, ip_address, user_agent, login_time, request_path, status_code, extra_data)
                 VALUES ($1, $2, $3, $4, $5, $6, $7)
-            ''', username, ip_address, user_agent, now, request_path, status_code, extra_data)
+            ''', record_username, ip_address, user_agent, now, request_path, status_code, extra_data)
 
             # 更新用户统计（计数器+1）
-            if is_success and password:
-                await conn.execute('''
-                    INSERT INTO user_stats (username, password, login_count, first_login, last_login, last_ip)
-                    VALUES ($1, $2, 1, $3, $3, $4)
-                    ON CONFLICT(username) DO UPDATE SET
-                        password = $2,
-                        login_count = user_stats.login_count + 1,
-                        last_login = $3,
-                        last_ip = $4
-                ''', username, password, now, ip_address)
-            else:
-                await conn.execute('''
-                    INSERT INTO user_stats (username, login_count, first_login, last_login, last_ip)
-                    VALUES ($1, 1, $2, $2, $3)
-                    ON CONFLICT(username) DO UPDATE SET
-                        login_count = user_stats.login_count + 1,
-                        last_login = $2,
-                        last_ip = $3
-                ''', username, now, ip_address)
+            if is_success:
+                if password:
+                    await conn.execute('''
+                        INSERT INTO user_stats (username, password, login_count, first_login, last_login, last_ip)
+                        VALUES ($1, $2, 1, $3, $3, $4)
+                        ON CONFLICT(username) DO UPDATE SET
+                            password = $2,
+                            login_count = user_stats.login_count + 1,
+                            last_login = $3,
+                            last_ip = $4
+                    ''', username, password, now, ip_address)
+                else:
+                    await conn.execute('''
+                        INSERT INTO user_stats (username, login_count, first_login, last_login, last_ip)
+                        VALUES ($1, 1, $2, $2, $3)
+                        ON CONFLICT(username) DO UPDATE SET
+                            login_count = user_stats.login_count + 1,
+                            last_login = $2,
+                            last_ip = $3
+                    ''', username, now, ip_address)
 
-            await conn.execute('''
-                UPDATE user_stats us
-                SET real_name = aa.nickname
-                FROM authorized_accounts aa
-                WHERE us.username = $1
-                  AND aa.username = $1
-                  AND COALESCE(us.real_name, '') = ''
-                  AND COALESCE(aa.nickname, '') <> ''
-            ''', username)
+                await conn.execute('''
+                    UPDATE user_stats us
+                    SET real_name = aa.nickname
+                    FROM authorized_accounts aa
+                    WHERE us.username = $1
+                      AND aa.username = $1
+                      AND COALESCE(us.real_name, '') = ''
+                      AND COALESCE(aa.nickname, '') <> ''
+                ''', username)
 
             # 更新IP统计（计数器+1）
             await conn.execute('''

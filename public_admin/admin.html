@@ -3389,9 +3389,27 @@
             input.value = oldValue;
             input.placeholder = '输入姓名';
             input.maxLength = 32;
+            input.autocomplete = 'off';
+            input.autocorrect = 'off';
+            input.autocapitalize = 'off';
+            input.spellcheck = false;
+            input.name = 'real_name_editor';
+            input.setAttribute('data-form-type', 'other');
+            input.setAttribute('data-lpignore', 'true');
+            input.setAttribute('data-1p-ignore', 'true');
             cell.appendChild(input);
             input.focus();
             input.select();
+            requestAnimationFrame(() => {
+                if (input.value !== oldValue) {
+                    input.value = oldValue;
+                }
+                if (oldValue) {
+                    input.select();
+                } else {
+                    input.setSelectionRange(0, 0);
+                }
+            });
             let done = false;
             const cancel = () => {
                 if (done) return;
@@ -3612,9 +3630,10 @@
                 const banBtn = banned
                     ? `<button class="btn btn-success" onclick="unban('user', '${user.username}')" style="padding: 4px 12px; font-size: 12px;">解封</button>`
                     : `<button class="btn btn-danger" onclick="showBanModal('user', '${user.username}')" style="padding: 4px 12px; font-size: 12px;">封禁</button>`;
+                const realName = escapeHtml(user.real_name || '-');
                 return `<tr class="${banned ? 'banned-row' : ''}" onclick="selectUsersRow(this)">
                     <td style="position:sticky;left:0;z-index:2;background:${banned ? '#1a1a2e' : 'var(--bg-card)'};"><strong>${escapeHtml(user.username || '')}</strong></td>
-                    ${renderRealNameCell(user.username, user.real_name)}
+                    <td>${realName}</td>
                     <td style="color: #78e8c6;">${formatNumber(user.login_count || 0)}</td>
                     <td style="color: var(--accent);">${formatNumber(user.ace_count)}</td>
                     <td>${formatNumber(user.total_ace)}</td>
