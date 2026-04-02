@@ -5144,8 +5144,9 @@ async def admin_browse_login(request: Request):
             "login_result": cached.get("login_result", {}),
             "expires": time.time() + _BROWSE_SESSION_TTL,
         }
+        entry_url = _make_browse_entry_url(bs_id) if cached.get("cookies") else _make_browse_login_url(bs_id)
         return _set_browse_session_cookie(
-            JSONResponse({"success": True, "bs_id": bs_id, "entry_url": _make_browse_login_url(bs_id)}),
+            JSONResponse({"success": True, "bs_id": bs_id, "entry_url": entry_url}),
             bs_id,
         )
     except Exception as e:
