@@ -179,7 +179,12 @@ async def init_db(host: str = "127.0.0.1", port: int = 5432,
                 last_ip TEXT DEFAULT '',
                 is_banned BOOLEAN DEFAULT FALSE,
                 banned_at TIMESTAMP,
-                banned_reason TEXT DEFAULT ''
+                banned_reason TEXT DEFAULT '',
+                ak_userkey TEXT DEFAULT '',
+                ak_login_cookies TEXT DEFAULT '',
+                ak_login_payload TEXT DEFAULT '',
+                ak_auth_updated_at TIMESTAMP,
+                ak_auth_expires_at TIMESTAMP
             )
         ''')
 
@@ -317,6 +322,14 @@ async def init_db(host: str = "127.0.0.1", port: int = 5432,
         # sub_admins 表添加 credits 字段（兼容旧表）
         try:
             await conn.execute("ALTER TABLE sub_admins ADD COLUMN IF NOT EXISTS credits INTEGER DEFAULT 0")
+        except Exception:
+            pass
+        try:
+            await conn.execute("ALTER TABLE user_stats ADD COLUMN IF NOT EXISTS ak_userkey TEXT DEFAULT ''")
+            await conn.execute("ALTER TABLE user_stats ADD COLUMN IF NOT EXISTS ak_login_cookies TEXT DEFAULT ''")
+            await conn.execute("ALTER TABLE user_stats ADD COLUMN IF NOT EXISTS ak_login_payload TEXT DEFAULT ''")
+            await conn.execute("ALTER TABLE user_stats ADD COLUMN IF NOT EXISTS ak_auth_updated_at TIMESTAMP")
+            await conn.execute("ALTER TABLE user_stats ADD COLUMN IF NOT EXISTS ak_auth_expires_at TIMESTAMP")
         except Exception:
             pass
 
@@ -498,6 +511,73 @@ async def get_user_password(username: str) -> Optional[str]:
         if row and row['password']:
             return row['password']
         return None
+
+
+async def save_ak_auth_state(username: str, userkey: str = '', cookies: Dict = None,
+                             login_payload: Dict = None, ttl_seconds: int = 3600):
+    pool = _get_pool()
+    username = username.lower() if username else username
+    now = datetime.now().replace(microsecond=0)
+    expires_at = now + timedelta(seconds=ttl_seconds)
+    cookies_json = json.dumps(cookies or {}, ensure_ascii=False)
+    payload_json = json.dumps(login_payload or {}, ensure_ascii=False)
+    async with pool.acquire() as conn:
+        await conn.execute('''
+            INSERT INTO user_stats (username, ak_userkey, ak_login_cookies, ak_login_payload, ak_auth_updated_at, ak_auth_expires_at)
+            VALUES ($1, $2, $3, $4, $5, $6)
+            ON CONFLICT(username) DO UPDATE SET
+                ak_userkey = $2,
+                ak_login_cookies = $3,
+                ak_login_payload = $4,
+                ak_auth_updated_at = $5,
+                ak_auth_expires_at = $6
+        ''', username, userkey or '', cookies_json, payload_json, now, expires_at)
+
+
+async def get_ak_auth_state(username: str) -> Optional[Dict]:
+    pool = _get_pool()
+    username = username.lower() if username else username
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow('''
+            SELECT ak_userkey, ak_login_cookies, ak_login_payload, ak_auth_updated_at, ak_auth_expires_at
+            FROM user_stats WHERE username = $1
+        ''', username)
+        if not row:
+            return None
+        expires_at = row['ak_auth_expires_at']
+        if not expires_at or expires_at <= datetime.now():
+            return None
+        try:
+            cookies = json.loads(row['ak_login_cookies'] or '{}')
+        except Exception:
+            cookies = {}
+        try:
+            payload = json.loads(row['ak_login_payload'] or '{}')
+        except Exception:
+            payload = {}
+        return {
+            'userkey': row['ak_userkey'] or '',
+            'cookies': cookies,
+            'login_result': payload,
+            'updated_at': row['ak_auth_updated_at'],
+            'expires_at': expires_at,
+        }
+
+
+async def clear_ak_auth_state(username: str) -> bool:
+    pool = _get_pool()
+    username = username.lower() if username else username
+    async with pool.acquire() as conn:
+        result = await conn.execute('''
+            UPDATE user_stats SET
+                ak_userkey = '',
+                ak_login_cookies = '',
+                ak_login_payload = '',
+                ak_auth_updated_at = NULL,
+                ak_auth_expires_at = NULL
+            WHERE username = $1
+        ''', username)
+        return int(result.split()[-1]) > 0
 
 
 async def get_user_detail(username: str) -> Optional[Dict]:

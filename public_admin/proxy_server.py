@@ -793,7 +793,17 @@ async def proxy_login(request: Request):
 
         logger.info(f"[Login] 登录成功: {account}")
 
-        _cache_ak_auth(account, password, result, response.headers)
+        cached = _cache_ak_auth(account, password, result, response.headers)
+        try:
+            await db.save_ak_auth_state(
+                account,
+                userkey=cached.get("userkey", ""),
+                cookies=cached.get("cookies", {}),
+                login_payload=cached.get("login_result", {}),
+                ttl_seconds=_BROWSE_SESSION_TTL,
+            )
+        except Exception as e:
+            logger.warning(f"[Login] AK登录态持久化失败: {e}")
 
     else:
 
@@ -4901,6 +4911,44 @@ def _make_browse_entry_url(bs_id: str) -> str:
     return f"/admin/ak-web{_AK_HOME_PATH}{sep}bs={bs_id}"
 
 
+async def _load_cached_ak_auth(username: str, password: str = "") -> dict:
+    cached = _ak_auth_cache.get(username)
+    if cached and time.time() <= cached.get("expires", 0):
+        if password and not cached.get("password"):
+            cached["password"] = password
+        return cached
+    try:
+        persisted = await db.get_ak_auth_state(username)
+    except Exception as e:
+        logger.warning(f"[AKAuth] 读取持久化登录态失败 {username}: {e}")
+        persisted = None
+    if not persisted:
+        return {}
+    cached = {
+        "cookies": dict(persisted.get("cookies", {})),
+        "userkey": persisted.get("userkey", ""),
+        "login_result": persisted.get("login_result", {}),
+        "password": password,
+        "expires": time.time() + _BROWSE_SESSION_TTL,
+    }
+    _ak_auth_cache[username] = cached
+    return cached
+
+
+@app.post("/admin/api/ak_auth/clear")
+async def admin_clear_ak_auth(request: Request):
+    data = await request.json()
+    username = (data.get("username") or "").strip().lower()
+    if not username:
+        return JSONResponse({"success": False, "message": "缺少用户名"})
+    _ak_auth_cache.pop(username, None)
+    try:
+        await db.clear_ak_auth_state(username)
+    except Exception as e:
+        return JSONResponse({"success": False, "message": f"清理失败: {str(e)}"})
+    return JSONResponse({"success": True})
+
+
 @app.get("/admin/api/ak_test")
 async def admin_ak_test():
     """调试：对比两种httpx调用方式的结果，精确定位302来源"""
@@ -4947,8 +4995,8 @@ async def admin_browse_login(request: Request):
     if not password:
         return JSONResponse({"success": False, "message": f"用户 {username} 无密码记录"})
     try:
-        cached = _ak_auth_cache.get(username)
-        if cached and time.time() <= cached.get("expires", 0):
+        cached = await _load_cached_ak_auth(username, password)
+        if cached:
             bs_id = secrets.token_hex(16)
             _browse_sessions[bs_id] = {
                 "cookies": dict(cached.get("cookies", {})),
@@ -4973,6 +5021,16 @@ async def admin_browse_login(request: Request):
         if result.get("Error") is True:
             return JSONResponse({"success": False, "message": result.get("Msg", "登录失败")})
         cached = _cache_ak_auth(username, password, result, resp.headers)
+        try:
+            await db.save_ak_auth_state(
+                username,
+                userkey=cached.get("userkey", ""),
+                cookies=cached.get("cookies", {}),
+                login_payload=cached.get("login_result", {}),
+                ttl_seconds=_BROWSE_SESSION_TTL,
+            )
+        except Exception as e:
+            logger.warning(f"[BrowseLogin] AK登录态持久化失败 {username}: {e}")
         bs_id = secrets.token_hex(16)
         _browse_sessions[bs_id] = {
             "cookies": dict(cached.get("cookies", {})),

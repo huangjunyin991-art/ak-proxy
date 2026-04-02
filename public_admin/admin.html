@@ -6623,6 +6623,7 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
 
         // ===== AK 网页浏览面板 =====
         let akBrowserLoadSeq = 0;
+        let akBrowserRetryTimer = null;
 
         function setAkBrowserLoading(visible, text = '正在进入AK后台...') {
             const loading = document.getElementById('akBrowserLoading');
@@ -6633,17 +6634,38 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
             frame.style.visibility = visible ? 'hidden' : 'visible';
         }
 
-        function bindAkBrowserFrame(username, seq) {
+        function bindAkBrowserFrame(username, seq, allowRetry) {
             const frame = document.getElementById('akBrowserFrame');
             const title = document.getElementById('akBrowserTitle');
             frame.onload = () => {
                 if (seq !== akBrowserLoadSeq) return;
+                if (akBrowserRetryTimer) {
+                    clearTimeout(akBrowserRetryTimer);
+                    akBrowserRetryTimer = null;
+                }
                 try {
                     const href = frame.contentWindow.location.href || '';
                     const path = new URL(href, window.location.origin).pathname;
                     if (path.includes('/pages/account/login.html')) {
                         title.textContent = `正在进入 ${username} 的AK后台...`;
                         setAkBrowserLoading(true, `正在进入 ${username} 的AK后台...`);
+                        if (allowRetry) {
+                            akBrowserRetryTimer = setTimeout(async () => {
+                                if (seq !== akBrowserLoadSeq) return;
+                                try {
+                                    const currentHref = frame.contentWindow.location.href || '';
+                                    const currentPath = new URL(currentHref, window.location.origin).pathname;
+                                    if (!currentPath.includes('/pages/account/login.html')) return;
+                                    await fetch(`${API_BASE}/admin/api/ak_auth/clear`, {
+                                        method: 'POST',
+                                        headers: {'Content-Type': 'application/json'},
+                                        body: JSON.stringify({username})
+                                    });
+                                    openAkBrowser(username, true);
+                                } catch (e) {
+                                }
+                            }, 2500);
+                        }
                         return;
                     }
                 } catch (e) {
@@ -6653,12 +6675,16 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
             };
         }
 
-        async function openAkBrowser(username) {
+        async function openAkBrowser(username, hasRetried = false) {
             const panel = document.getElementById('akBrowserPanel');
             const overlay = document.getElementById('akBrowserOverlay');
             const frame = document.getElementById('akBrowserFrame');
             const title = document.getElementById('akBrowserTitle');
             const seq = ++akBrowserLoadSeq;
+            if (akBrowserRetryTimer) {
+                clearTimeout(akBrowserRetryTimer);
+                akBrowserRetryTimer = null;
+            }
             title.textContent = `正在进入 ${username} 的AK后台...`;
             setAkBrowserLoading(true, `正在进入 ${username} 的AK后台...`);
             frame.onload = null;
@@ -6678,7 +6704,7 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                         const regs = await navigator.serviceWorker.getRegistrations();
                         await Promise.all(regs.map(r => r.unregister()));
                     }
-                    bindAkBrowserFrame(username, seq);
+                    bindAkBrowserFrame(username, seq, !hasRetried);
                     const entryUrl = data.entry_url
                         ? (data.entry_url.startsWith('http') ? data.entry_url : `${API_BASE}${data.entry_url}`)
                         : `${API_BASE}/admin/ak-web/pages/home.html?first=true&bs=${data.bs_id}`;
@@ -6698,6 +6724,10 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
             const overlay = document.getElementById('akBrowserOverlay');
             const frame = document.getElementById('akBrowserFrame');
             akBrowserLoadSeq++;
+            if (akBrowserRetryTimer) {
+                clearTimeout(akBrowserRetryTimer);
+                akBrowserRetryTimer = null;
+            }
             panel.style.right = '-55%';
             overlay.style.display = 'none';
             setAkBrowserLoading(false);
