@@ -7623,7 +7623,7 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
             };
         }
 
-        function bindAkBrowserFrame(username, seq, allowRetry) {
+        function bindAkBrowserFrame(username, seq) {
             const frame = document.getElementById('akBrowserFrame');
             const title = document.getElementById('akBrowserTitle');
             frame.onload = () => {
@@ -7638,7 +7638,7 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                     const path = new URL(href, window.location.origin).pathname;
                     if (path.includes('/pages/account/login.html')) {
                         title.textContent = username;
-                        setAkBrowserLoading(true, `正在进入 ${username} 的AK后台...`);
+                        setAkBrowserLoading(true, `正在为 ${username} 自动登录...`);
                         return;
                     }
                 } catch (e) {
@@ -7648,7 +7648,7 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
             };
         }
 
-        async function openAkBrowser(username, hasRetried = false) {
+        async function openAkBrowser(username) {
             const panel = document.getElementById('akBrowserPanel');
             const overlay = document.getElementById('akBrowserOverlay');
             const frame = document.getElementById('akBrowserFrame');
@@ -7660,7 +7660,7 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
             }
             clearAkBrowserSwipeBinding();
             title.textContent = username;
-            setAkBrowserLoading(true, `正在进入 ${username} 的AK后台...`);
+            setAkBrowserLoading(true, `正在为 ${username} 准备登录页面...`);
             frame.onload = null;
             frame.src = 'about:blank';
             panel.classList.add('open');
@@ -7679,7 +7679,7 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                         const regs = await navigator.serviceWorker.getRegistrations();
                         await Promise.all(regs.map(r => r.unregister()));
                     }
-                    bindAkBrowserFrame(username, seq, !hasRetried);
+                    bindAkBrowserFrame(username, seq);
                     const entryUrl = data.entry_url
                         ? (data.entry_url.startsWith('http') ? data.entry_url : `${API_BASE}${data.entry_url}`)
                         : `${API_BASE}/admin/ak-web/pages/account/login.html?bs=${data.bs_id}`;

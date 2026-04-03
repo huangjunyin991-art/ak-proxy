@@ -5368,70 +5368,20 @@ async def _forward_admin_ak_rpc_request(path: str, request: Request, session: di
     query_params = {k: v for k, v in dict(request.query_params).items() if k != "bs"}
     params = parse_request_params(content_type, query_params, raw_body)
     is_login_path = path.strip("/").lower() == "login"
-    protected_paths = {
-        "question_get1",
-        "public_ep_sellrecords1",
-        "public_ep_sellrecords2",
-        "public_ep_sellrecords3",
-        "check_transactionpassword",
-        "check_answer",
-        "logout",
-    }
-    normalized_path = path.strip("/").lower()
-    is_protected_path = normalized_path in protected_paths
-    auth_replaced = False
     selected_exit = None
     pinned_exit_name = str(session.get("ak_exit_name") or "").strip()
-    if is_login_path:
-        selected_exit = _select_forward_exit(path, is_login=True, preferred_exit_name=pinned_exit_name)
-        logger.warning(
-            f"[AdminAkRpcExit/{path}] pinned={int(bool(pinned_exit_name))} preferred={pinned_exit_name or '-'} "
-            f"using={selected_exit.name} referer={referer}"
-        )
-    elif is_protected_path:
-        selected_exit = _select_forward_exit(path, preferred_exit_name=pinned_exit_name)
-        logger.warning(
-            f"[AdminAkRpcExit/{path}] pinned={int(bool(pinned_exit_name))} preferred={pinned_exit_name or '-'} "
-            f"using={selected_exit.name} referer={referer}"
-        )
-    if is_protected_path:
-        login_result = session.get("login_result", {})
-        if not isinstance(login_result, dict):
-            login_result = {}
-        user_data = login_result.get("UserData")
-        if not isinstance(user_data, dict):
-            user_data = {}
-        session_userkey = str(session.get("userkey") or _extract_userkey(login_result) or "").strip()
-        session_user_id = str(user_data.get("Id") or user_data.get("ID") or "").strip()
-        current_key = str(params.get("key") or "").strip()
-        current_user_id = str(params.get("UserID") or params.get("userid") or "").strip()
-        if session_userkey and current_key in {"", "123"}:
-            params["key"] = session_userkey
-            auth_replaced = True
-        if session_user_id and current_user_id in {"", "123"}:
-            params["UserID"] = session_user_id
-            auth_replaced = True
-        if auth_replaced and request.method in ["POST", "PUT"]:
-            if "application/json" in content_type:
-                raw_body = json.dumps(params, ensure_ascii=False).encode("utf-8")
-            else:
-                raw_body = urlencode(params).encode("utf-8")
-        logger.warning(
-            f"[AdminAkRpcAuth/{path}] replaced={int(auth_replaced)} key={str(params.get('key') or '')[:8]} "
-            f"userId={str(params.get('UserID') or params.get('userid') or '')} referer={referer}"
-        )
-        logger.warning(
-            f"[AdminAkRpcCookies/{path}] bs={session.get('id', '')} count={len(session.get('cookies', {}))} "
-            f"names={_summarize_cookie_names(session.get('cookies', {}))} referer={referer}"
-        )
+    selected_exit = _select_forward_exit(path, is_login=is_login_path, preferred_exit_name=pinned_exit_name)
+    logger.warning(
+        f"[AdminAkRpcExit/{path}] pinned={int(bool(pinned_exit_name))} preferred={pinned_exit_name or '-'} "
+        f"using={selected_exit.name} referer={referer}"
+    )
     headers = dict(request.headers)
-    if is_login_path or is_protected_path:
-        headers = _apply_ak_rpc_browser_headers(headers, request, referer=referer)
-        logger.warning(
-            f"[AdminAkRpcHeaders/{path}] origin={headers.get('origin', '-') or '-'} "
-            f"referer={headers.get('referer', '-') or '-'} "
-            f"fetch={headers.get('sec-fetch-site', '-') or '-'}/{headers.get('sec-fetch-mode', '-') or '-'}/{headers.get('sec-fetch-dest', '-') or '-'}"
-        )
+    headers = _apply_ak_rpc_browser_headers(headers, request, referer=referer)
+    logger.warning(
+        f"[AdminAkRpcHeaders/{path}] origin={headers.get('origin', '-') or '-'} "
+        f"referer={headers.get('referer', '-') or '-'} "
+        f"fetch={headers.get('sec-fetch-site', '-') or '-'}/{headers.get('sec-fetch-mode', '-') or '-'}/{headers.get('sec-fetch-dest', '-') or '-'}"
+    )
     cookie_header = _build_cookie_header(session.get("cookies", {}))
     if cookie_header:
         headers["cookie"] = cookie_header
@@ -5513,7 +5463,7 @@ async def admin_ak_rpc(path: str, request: Request):
 
 @app.post("/admin/api/browse_login")
 async def admin_browse_login(request: Request):
-    """用指定用户的账号密码登录 AK，通过 dispatcher 负载均衡，缓存 session，返回 bs_id"""
+    """为后台内嵌网页创建全新浏览 session，始终从登录页进入"""
     data = await request.json()
     username = data.get("username", "").strip()
     if not username:
@@ -5522,17 +5472,16 @@ async def admin_browse_login(request: Request):
     if not password:
         return JSONResponse({"success": False, "message": f"用户 {username} 无密码记录"})
     try:
-        cached = await _load_cached_ak_auth(username, password)
         bs_id = secrets.token_hex(16)
         _browse_sessions[bs_id] = {
-            "cookies": dict(cached.get("cookies", {})),
+            "cookies": {},
             "username": username,
             "password": password,
-            "userkey": cached.get("userkey", ""),
-            "login_result": cached.get("login_result", {}),
+            "userkey": "",
+            "login_result": {},
             "expires": time.time() + _BROWSE_SESSION_TTL,
         }
-        entry_url = _make_browse_entry_url(bs_id) if cached.get("cookies") else _make_browse_login_url(bs_id)
+        entry_url = _make_browse_login_url(bs_id)
         return _set_browse_session_cookie(
             JSONResponse({"success": True, "bs_id": bs_id, "entry_url": entry_url}),
             bs_id,
