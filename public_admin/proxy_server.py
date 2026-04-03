@@ -5099,18 +5099,44 @@ def _rewrite_site_html_roots(text: str, site_prefix: str) -> str:
 
 
 def _rewrite_site_css_roots(text: str, site_prefix: str) -> str:
-    pattern = re.compile(r'url\((?P<quote>[\"\']?)(?P<url>/[^)\"\']+)(?P=quote)\)', re.IGNORECASE)
+    pattern = re.compile(r'url\((?P<quote>["\']?)(?P<url>/[^)"\']+)(?P=quote)\)', re.IGNORECASE)
     return pattern.sub(lambda m: f"url({m.group('quote')}{_rewrite_site_root_url(m.group('url'), site_prefix)}{m.group('quote')})", text)
 
 
+def _inject_base_js_no_login_probe(text: str) -> tuple[str, bool]:
+    marker = "[AKBaseNoLogin]"
+    if marker in text:
+        return text, False
+    pattern = re.compile(r"if\s*\(\s*json\.Error\s*&&\s*json\.IsLogin\s*===\s*false\s*\)\s*\{")
+    replacement = (
+        "if (json.Error && json.IsLogin === false) {"
+        "try{if(window.console&&typeof console.warn==='function'){console.warn('[AKBaseNoLogin]',{"
+        "optionUrl:(option&&option.url)||'',"
+        "actualUrl:(xhr&&(xhr.responseURL||''))||'',"
+        "status:(xhr&&xhr.status)||0,"
+        "data:(option&&option.data)||null,"
+        "userkey:(window.APP&&APP.USER&&APP.USER.MODEL&&APP.USER.MODEL.Key)||'',"
+        "responseHead:String((xhr&&(xhr.responseText||xhr.response))||'').slice(0,300),"
+        "current:location.href"
+        "});}}catch(__e){}"
+    )
+    new_text, count = pattern.subn(replacement, text, count=1)
+    return new_text, count > 0
+
+
 async def _load_cached_ak_auth(username: str, password: str = "") -> dict:
+    username = (username or "").strip()
+    if not username:
+        return {}
     cached = _ak_auth_cache.get(username)
-    if cached and time.time() <= cached.get("expires", 0):
+    if cached and time.time() < cached.get("expires", 0):
         if password and not cached.get("password"):
             cached["password"] = password
         return cached
+    _ak_auth_cache.pop(username, None)
+    persisted = None
     try:
-        persisted = await db.get_ak_auth_state(username)
+        persisted = await db.load_ak_auth_state(username)
     except Exception as e:
         logger.warning(f"[AKAuth] 读取持久化登录态失败 {username}: {e}")
         persisted = None
@@ -5461,6 +5487,13 @@ async def ak_web_proxy(request: Request, path: str):
             normalized_body = lowered_body.replace(" ", "")
             if "用戶未登錄" in body_head or '"islogin":false' in normalized_body or '"error":true' in normalized_body:
                 logger.warning(f"[AkSiteJsonLoginReject/{path}] bs={bs_id} source={bs_source} cookie_bs={cookie_bs} referer={referer} dest={fetch_dest} accept={accept} target={target_url} final_url={resp.url} body_head={body_head}")
+
+        if path.lower().endswith("base.js") and any(t in content_type.lower() for t in ("javascript", "ecmascript")):
+            text = content.decode("utf-8", errors="replace")
+            text, base_probe_injected = _inject_base_js_no_login_probe(text)
+            if base_probe_injected:
+                logger.warning(f"[AkBaseJsProbe/{path}] bs={bs_id} source={bs_source} cookie_bs={cookie_bs} referer={referer} target={target_url} final_url={resp.url}")
+                content = text.encode("utf-8")
 
         # 对文本内容（HTML/CSS）做 URL 替换 + HTML 注入拦截器
         if any(t in content_type for t in ("text/html", "text/css")):
