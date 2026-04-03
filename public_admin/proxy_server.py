@@ -28,7 +28,7 @@ import re
 
 import logging
 
-from urllib.parse import parse_qs, urlsplit
+from urllib.parse import parse_qs, urlsplit, urlencode
 
 from logging.handlers import RotatingFileHandler
 
@@ -5272,6 +5272,44 @@ async def _forward_admin_ak_rpc_request(path: str, request: Request, session: di
     query_params = {k: v for k, v in dict(request.query_params).items() if k != "bs"}
     params = parse_request_params(content_type, query_params, raw_body)
     is_login_path = path.strip("/").lower() == "login"
+    protected_paths = {
+        "question_get1",
+        "public_ep_sellrecords1",
+        "public_ep_sellrecords2",
+        "public_ep_sellrecords3",
+        "check_transactionpassword",
+        "check_answer",
+        "logout",
+    }
+    normalized_path = path.strip("/").lower()
+    is_protected_path = normalized_path in protected_paths
+    auth_replaced = False
+    if is_protected_path:
+        login_result = session.get("login_result", {})
+        if not isinstance(login_result, dict):
+            login_result = {}
+        user_data = login_result.get("UserData")
+        if not isinstance(user_data, dict):
+            user_data = {}
+        session_userkey = str(session.get("userkey") or _extract_userkey(login_result) or "").strip()
+        session_user_id = str(user_data.get("Id") or user_data.get("ID") or "").strip()
+        current_key = str(params.get("key") or "").strip()
+        current_user_id = str(params.get("UserID") or params.get("userid") or "").strip()
+        if session_userkey and current_key in {"", "123"}:
+            params["key"] = session_userkey
+            auth_replaced = True
+        if session_user_id and current_user_id in {"", "123"}:
+            params["UserID"] = session_user_id
+            auth_replaced = True
+        if auth_replaced and request.method in ["POST", "PUT"]:
+            if "application/json" in content_type:
+                raw_body = json.dumps(params, ensure_ascii=False).encode("utf-8")
+            else:
+                raw_body = urlencode(params).encode("utf-8")
+        logger.warning(
+            f"[AdminAkRpcAuth/{path}] replaced={int(auth_replaced)} key={str(params.get('key') or '')[:8]} "
+            f"userId={str(params.get('UserID') or params.get('userid') or '')} referer={referer}"
+        )
     headers = dict(request.headers)
     cookie_header = _build_cookie_header(session.get("cookies", {}))
     if cookie_header:
