@@ -5107,21 +5107,20 @@ def _inject_base_js_no_login_probe(text: str) -> tuple[str, bool]:
     marker = "[AKBaseNoLogin]"
     if marker in text:
         return text, False
-    pattern = re.compile(r"if\s*\(\s*json\.Error\s*&&\s*json\.IsLogin\s*===\s*false\s*\)\s*\{")
-    replacement = (
-        "if (json.Error && json.IsLogin === false) {"
-        "try{if(window.console&&typeof console.warn==='function'){console.warn('[AKBaseNoLogin]',{"
-        "optionUrl:(option&&option.url)||'',"
-        "actualUrl:(xhr&&(xhr.responseURL||''))||'',"
-        "status:(xhr&&xhr.status)||0,"
-        "data:(option&&option.data)||null,"
-        "userkey:(window.APP&&APP.USER&&APP.USER.MODEL&&APP.USER.MODEL.Key)||'',"
-        "responseHead:String((xhr&&(xhr.responseText||xhr.response))||'').slice(0,300),"
-        "current:location.href"
-        "});}}catch(__e){}"
+    probe = (
+        "(function(){"
+        "try{if(window.__akBaseNoLoginProbeInstalled)return;window.__akBaseNoLoginProbeInstalled=true;"
+        "function akBaseUserKey(){try{return(window.APP&&APP.USER&&APP.USER.MODEL&&APP.USER.MODEL.Key)||'';}catch(_e){return '';}}"
+        "function akBaseBody(body){try{if(body==null)return null;if(typeof body==='string')return body.slice(0,500);if(typeof URLSearchParams!=='undefined'&&body instanceof URLSearchParams)return body.toString().slice(0,500);if(typeof FormData!=='undefined'&&body instanceof FormData){var out=[];body.forEach(function(v,k){out.push([k,typeof v==='string'?v:String(v)]);});return JSON.stringify(out).slice(0,500);}if(typeof body==='object')return JSON.stringify(body).slice(0,500);return String(body).slice(0,500);}catch(_e){try{return String(body).slice(0,500);}catch(__e){return '[unserializable]';}}}"
+        "function akBaseHasNoLogin(body){try{if(body==null)return false;var txt=typeof body==='string'?body:String(body),norm=txt.toLowerCase().replace(/\\s+/g,'');if(txt.indexOf('用戶未登錄')>=0)return true;return norm.indexOf('\\\"islogin\\\":false')>=0&&norm.indexOf('\\\"error\\\":true')>=0;}catch(_e){return false;}}"
+        "function akBaseEmit(meta){try{if(window.console&&typeof console.warn==='function'){console.warn('[AKBaseNoLogin]',meta);}}catch(_e){}}"
+        "var xo=XMLHttpRequest.prototype.open,xs=XMLHttpRequest.prototype.send;"
+        "XMLHttpRequest.prototype.open=function(method,url){this.__akBaseMethod=method||'GET';this.__akBaseUrl=url||'';return xo.apply(this,arguments);};"
+        "XMLHttpRequest.prototype.send=function(body){try{this.__akBaseBody=akBaseBody(body);}catch(_e){}if(!this.__akBaseNoLoginBound){this.__akBaseNoLoginBound=true;this.addEventListener('loadend',function(){try{var resp=this.responseText||this.response||'';if(!akBaseHasNoLogin(resp))return;akBaseEmit({transport:'xhr',method:this.__akBaseMethod||'',optionUrl:this.__akBaseUrl||'',actualUrl:this.responseURL||'',status:this.status||0,data:this.__akBaseBody||null,userkey:akBaseUserKey(),responseHead:String(resp).slice(0,300),current:location.href});}catch(__e){}});}return xs.apply(this,arguments);};"
+        "if(typeof window.fetch==='function'){var of=window.fetch;window.fetch=function(input,init){var method='GET',url='',body=null;try{if(typeof input==='string'){url=input;method=(init&&init.method)||'GET';body=init&&Object.prototype.hasOwnProperty.call(init,'body')?init.body:null;}else if(input&&typeof input==='object'){url=input.url||'';method=(init&&init.method)||(input.method)||'GET';body=init&&Object.prototype.hasOwnProperty.call(init,'body')?init.body:(Object.prototype.hasOwnProperty.call(input,'_bodyInit')?input._bodyInit:null);}}catch(_e){}return of.apply(this,arguments).then(function(resp){try{resp.clone().text().then(function(txt){if(!akBaseHasNoLogin(txt))return;akBaseEmit({transport:'fetch',method:method||'GET',optionUrl:url||'',actualUrl:(resp&&resp.url)||'',status:(resp&&resp.status)||0,data:akBaseBody(body),userkey:akBaseUserKey(),responseHead:String(txt).slice(0,300),current:location.href});}).catch(function(){});}catch(_e){}return resp;});};}"
+        "}catch(__akBaseProbeError){}})();"
     )
-    new_text, count = pattern.subn(replacement, text, count=1)
-    return new_text, count > 0
+    return probe + text, True
 
 
 async def _load_cached_ak_auth(username: str, password: str = "") -> dict:
