@@ -5308,6 +5308,7 @@ def _build_injector(bs_id: str, username: str = "", password: str = "", userkey:
         "var R='/admin/ak-rpc';"
         "var API='" + api_base + "';"
         "var AK=[" + ak_list + "];"
+        "try{if(!window.__AK_INJECTOR_BOOTED__){window.__AK_INJECTOR_BOOTED__=1;if(window.console&&typeof console.warn==='function'){console.warn('[AKInjectorBoot]',{href:location.href,ready:document.readyState||'',isTop:window.top===window,referrer:document.referrer||'',base:document.baseURI||'',bs:B});}}}catch(_e){}"
         "function withBs(u){return u+((u.indexOf('?')<0)?'?':'&')+'bs='+B;}"
         "function logrw(kind,from,to){try{if(from!==to&&window.console&&typeof console.warn==='function'){console.warn('[AKNavDebug]',kind,{from:from,to:to,bs:B});}}catch(_e){}}"
         "function rw(u){"
