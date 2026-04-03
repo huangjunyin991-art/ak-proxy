@@ -5310,6 +5310,7 @@ def _build_injector(bs_id: str, username: str = "", password: str = "", userkey:
         "var API='" + api_base + "';"
         "var AK=[" + ak_list + "];"
         "function withBs(u){return u+((u.indexOf('?')<0)?'?':'&')+'bs='+B;}"
+        "function logrw(kind,from,to){try{if(from!==to&&window.console&&typeof console.warn==='function'){console.warn('[AKNavDebug]',kind,{from:from,to:to,bs:B});}}catch(_e){}}"
         "function rw(u){"
         "if(!u||typeof u!=='string')return u;"
         "for(var i=0;i<AK.length;i++){if(u.startsWith(AK[i]+'/cdn-cgi/')){return u.slice(AK[i].length);}}"
@@ -5324,9 +5325,9 @@ def _build_injector(bs_id: str, username: str = "", password: str = "", userkey:
         "if(u.startsWith(P)){u+=((u.indexOf('?')<0)?'?':'&')+'bs='+B;}"
         "return u;"
         "}"
-        "try{var la=Location.prototype.assign;if(la){Location.prototype.assign=function(u){return la.call(this,rw(String(u)));};}var lr=Location.prototype.replace;if(lr){Location.prototype.replace=function(u){return lr.call(this,rw(String(u)));};}var lh=Object.getOwnPropertyDescriptor(Location.prototype,'href');if(lh&&lh.configurable&&lh.set){Object.defineProperty(Location.prototype,'href',{get:function(){return lh.get?lh.get.call(this):String(this);},set:function(v){return lh.set.call(this,rw(String(v)));}});}}catch(_e){}"
-        "try{var hp=history.pushState;if(hp){history.pushState=function(s,t,u){return hp.call(this,s,t,typeof u==='string'?rw(u):u);};}var hr=history.replaceState;if(hr){history.replaceState=function(s,t,u){return hr.call(this,s,t,typeof u==='string'?rw(u):u);};}}catch(_e){}"
-        "try{var wo=window.open;if(wo){window.open=function(){var args=[].slice.call(arguments);if(typeof args[0]==='string'){args[0]=rw(args[0]);}return wo.apply(this,args);};}}catch(_e){}"
+        "try{var la=Location.prototype.assign;if(la){Location.prototype.assign=function(u){var from=String(u),to=rw(from);logrw('location.assign',from,to);return la.call(this,to);};}var lr=Location.prototype.replace;if(lr){Location.prototype.replace=function(u){var from=String(u),to=rw(from);logrw('location.replace',from,to);return lr.call(this,to);};}var lh=Object.getOwnPropertyDescriptor(Location.prototype,'href');if(lh&&lh.configurable&&lh.set){Object.defineProperty(Location.prototype,'href',{get:function(){return lh.get?lh.get.call(this):String(this);},set:function(v){var from=String(v),to=rw(from);logrw('location.href',from,to);return lh.set.call(this,to);}});}}catch(_e){}"
+        "try{var hp=history.pushState;if(hp){history.pushState=function(s,t,u){var to=typeof u==='string'?rw(u):u;logrw('history.pushState',typeof u==='string'?u:String(u),typeof to==='string'?to:String(to));return hp.call(this,s,t,to);};}var hr=history.replaceState;if(hr){history.replaceState=function(s,t,u){var to=typeof u==='string'?rw(u):u;logrw('history.replaceState',typeof u==='string'?u:String(u),typeof to==='string'?to:String(to));return hr.call(this,s,t,to);};}}catch(_e){}"
+        "try{var wo=window.open;if(wo){window.open=function(){var args=[].slice.call(arguments);if(typeof args[0]==='string'){var from=args[0],to=rw(args[0]);logrw('window.open',from,to);args[0]=to;}return wo.apply(this,args);};}}catch(_e){}"
         "var of=window.fetch;"
         "window.fetch=function(r,init){"
         "return of.call(this,typeof r==='string'?rw(r):(r instanceof Request?new Request(rw(r.url),r):r),init);"
@@ -5395,6 +5396,10 @@ async def ak_web_proxy(request: Request, path: str):
                 follow_redirects=True,
             )
         logger.warning(f"[AkWebProxy] target={target_url} httpx_status={resp.status_code} final_url={resp.url}")
+        final_url_str = str(resp.url)
+        if "/pages/account/login.html" in final_url_str and "/pages/account/login.html" not in target_url:
+            history_chain = " -> ".join(str(item.url) for item in resp.history) if resp.history else ""
+            logger.warning(f"[AkWebLoginBounce/{path}] bs={bs_id} source={bs_source} cookie_bs={cookie_bs} referer={referer} target={target_url} final_url={final_url_str} history={history_chain}")
 
         # 同步响应中的 Set-Cookie 到缓存 session，保持 session 刷新
         if session and bs_id:
