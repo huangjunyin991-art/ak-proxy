@@ -4915,6 +4915,8 @@ async def pwa_icon(size: int):
 
 @app.api_route("/cdn-cgi/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"])
 async def cdn_cgi_proxy(path: str, request: Request):
+    if path == "rum":
+        return Response(status_code=204)
     return await ak_web_proxy(request, f"cdn-cgi/{path}")
 
 
@@ -5310,6 +5312,8 @@ def _build_injector(bs_id: str, username: str = "", password: str = "", userkey:
         "function withBs(u){return u+((u.indexOf('?')<0)?'?':'&')+'bs='+B;}"
         "function rw(u){"
         "if(!u||typeof u!=='string')return u;"
+        "for(var i=0;i<AK.length;i++){if(u.startsWith(AK[i]+'/cdn-cgi/')){return u.slice(AK[i].length);}}"
+        "if(u.startsWith('/cdn-cgi/')){return u;}"
         # API 请求重写到 /RPC/（走代理自身的出口节点负载均衡）
         "if(u.startsWith(API)){return withBs(R+'/'+u.slice(API.length).replace(/^\\/RPC\\//,'').replace(/^\\/+/,''));}"
         "if(u.startsWith('/RPC/')){return withBs(R+'/'+u.slice(5));}"
