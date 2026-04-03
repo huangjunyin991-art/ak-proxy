@@ -1128,6 +1128,14 @@ async def proxy_rpc(path: str, request: Request):
 
     content_type = request.headers.get("content-type", "")
 
+    referer = request.headers.get("referer", "")
+
+    fetch_dest = request.headers.get("sec-fetch-dest", "")
+
+    accept = request.headers.get("accept", "")
+
+    cookie_bs = (request.cookies.get(_BROWSE_SESSION_COOKIE) or "").strip()
+
     
 
     # 封禁检查（优先数据库）
@@ -1145,6 +1153,20 @@ async def proxy_rpc(path: str, request: Request):
             if client_ip in stats.banned_ips:
 
                 return JSONResponse({"Error": True, "Msg": "您的IP已被封禁"})
+
+    
+
+    if "/admin/ak-web/" in referer or "/admin/ak-site/" in referer:
+        bs_id, session, bs_source = _resolve_browse_session(request)
+        logger.warning(f"[IframeRPCLeak] path={path} dest={fetch_dest} accept={accept} referer={referer}")
+        if session:
+            logger.warning(f"[IframeRPCBridge] path={path} bs={bs_id} source={bs_source} cookie_bs={cookie_bs} referer={referer}")
+            try:
+                return await _forward_admin_ak_rpc_request(path, request, session, referer, fetch_dest, accept)
+            except Exception as e:
+                stats.errors += 1
+                logger.error(f"[IframeRPCBridge/{path}] 转发失败: {e}")
+                return JSONResponse({"Error": True, "IsLogin": False, "Msg": f"请求失败: {str(e)}"}, status_code=500)
 
     
 
@@ -1171,11 +1193,6 @@ async def proxy_rpc(path: str, request: Request):
     
 
     logger.debug(f"[RPC/{path}] 转发请求")
-    referer = request.headers.get("referer", "")
-    fetch_dest = request.headers.get("sec-fetch-dest", "")
-    accept = request.headers.get("accept", "")
-    if "/admin/ak-web/" in referer:
-        logger.warning(f"[IframeRPCLeak] path={path} dest={fetch_dest} accept={accept} referer={referer}")
 
     
 
