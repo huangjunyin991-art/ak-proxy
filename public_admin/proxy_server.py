@@ -5638,6 +5638,23 @@ async def ak_web_proxy(request: Request, path: str):
                 f"[AkWebExit/{path}] bind={selected_exit.name} bs={bs_id} referer={referer}"
             )
 
+    normalized_path = path.lstrip("/").lower()
+    requested_bs = (request.query_params.get("bs") or "").strip()
+    if request.method == "GET" and session and bs_id and normalized_path.startswith("pages/") and normalized_path.endswith(".html") and requested_bs != bs_id:
+        canonical_query = [(k, v) for k, v in request.query_params.multi_items() if k != "bs"]
+        canonical_query.append(("bs", bs_id))
+        canonical_url = request.url.path
+        if canonical_query:
+            canonical_url += "?" + urlencode(canonical_query, doseq=True)
+        logger.warning(
+            f"[AkPageBsCanonical/{path}] requested_bs={requested_bs or '-'} canonical_bs={bs_id} "
+            f"source={bs_source} cookie_bs={cookie_bs} referer={referer} redirect={canonical_url}"
+        )
+        return _set_browse_session_cookie(
+            Response(status_code=307, headers={"location": canonical_url}),
+            bs_id,
+        )
+
     # 构建目标 URL（去掉代理专用参数 bs）
     query_parts = [p for p in str(request.url.query).split("&") if p and not p.startswith("bs=")]
     target_url = f"{_AK_BASE}/{path}" if path else f"{_AK_BASE}/"
