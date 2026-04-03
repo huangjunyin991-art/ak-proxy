@@ -5358,6 +5358,7 @@ def _build_ak_site_forward_headers(request: Request) -> dict:
     if request.headers.get("content-type"):
         headers["Content-Type"] = request.headers["content-type"]
     return headers
+@app.api_route("/admin/ak-site/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"])
 @app.api_route("/admin/ak-web/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"])
 @app.api_route("/ak-web/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"])
 async def ak_web_proxy(request: Request, path: str):
