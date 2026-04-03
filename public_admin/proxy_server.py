@@ -5640,6 +5640,11 @@ async def ak_web_proxy(request: Request, path: str):
 
     normalized_path = path.lstrip("/").lower()
     requested_bs = (request.query_params.get("bs") or "").strip()
+    if request.method == "GET" and normalized_path.startswith("pages/") and normalized_path.endswith(".html"):
+        logger.warning(
+            f"[AkPageEntry/{path}] requested_bs={requested_bs or '-'} resolved_bs={bs_id or '-'} "
+            f"has_session={int(bool(session))} source={bs_source} cookie_bs={cookie_bs or '-'} referer={referer}"
+        )
     if request.method == "GET" and session and bs_id and normalized_path.startswith("pages/") and normalized_path.endswith(".html") and requested_bs != bs_id:
         canonical_query = [(k, v) for k, v in request.query_params.multi_items() if k != "bs"]
         canonical_query.append(("bs", bs_id))
