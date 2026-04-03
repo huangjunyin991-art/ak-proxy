@@ -485,9 +485,6 @@ async def report_to_monitor(endpoint: str, data: dict):
         logger.debug(f"上报异常 [{endpoint}]: {e}")
 
 
-
-
-
 async def forward_request(method: str, api_path: str, content_type: str,
 
                           params: dict, raw_body: bytes, headers: dict,
@@ -513,6 +510,10 @@ async def forward_request(method: str, api_path: str, content_type: str,
         "Accept": headers.get("accept", "*/*"),
 
     }
+
+    if headers.get("cookie"):
+
+        fwd_headers["Cookie"] = headers.get("cookie", "")
 
     if real_ip:
 
