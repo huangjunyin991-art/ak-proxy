@@ -5368,6 +5368,23 @@ async def _forward_admin_ak_rpc_request(path: str, request: Request, session: di
     query_params = {k: v for k, v in dict(request.query_params).items() if k != "bs"}
     params = parse_request_params(content_type, query_params, raw_body)
     is_login_path = path.strip("/").lower() == "login"
+    normalized_path = path.strip("/").lower()
+    protected_paths = {
+        "public_ep_sellrecords1",
+        "public_ep_sellrecords2",
+        "public_ep_sellrecords3",
+        "question_get1",
+        "check_transactionpassword",
+        "check_answer",
+        "logout",
+    }
+    trace_paths = {
+        "public_ace",
+        "public_ep_sellrecords1",
+        "question_get1",
+    }
+    trace_params_before = dict(params) if normalized_path in trace_paths else None
+    auth_replaced = False
     selected_exit = None
     pinned_exit_name = str(session.get("ak_exit_name") or "").strip()
     selected_exit = _select_forward_exit(path, is_login=is_login_path, preferred_exit_name=pinned_exit_name)
@@ -5375,6 +5392,42 @@ async def _forward_admin_ak_rpc_request(path: str, request: Request, session: di
         f"[AdminAkRpcExit/{path}] pinned={int(bool(pinned_exit_name))} preferred={pinned_exit_name or '-'} "
         f"using={selected_exit.name} referer={referer}"
     )
+    if trace_params_before is not None:
+        logger.warning(
+            f"[AdminAkRpcParams/{path}] phase=incoming referer={referer} "
+            f"params={json.dumps(trace_params_before, ensure_ascii=False)}"
+        )
+    if normalized_path in protected_paths:
+        login_result = session.get("login_result", {})
+        if not isinstance(login_result, dict):
+            login_result = {}
+        user_data = login_result.get("UserData")
+        if not isinstance(user_data, dict):
+            user_data = {}
+        session_userkey = str(session.get("userkey") or _extract_userkey(login_result) or "").strip()
+        session_user_id = str(user_data.get("Id") or user_data.get("ID") or "").strip()
+        current_key = str(params.get("key") or "").strip().lower()
+        current_user_id = str(params.get("UserID") or params.get("userid") or "").strip().lower()
+        if session_userkey and current_key in {"", "123", "undefined", "null"}:
+            params["key"] = session_userkey
+            auth_replaced = True
+        if session_user_id and current_user_id in {"", "123", "undefined", "null"}:
+            params["UserID"] = session_user_id
+            auth_replaced = True
+        if auth_replaced and request.method in ["POST", "PUT"]:
+            if "application/json" in content_type:
+                raw_body = json.dumps(params, ensure_ascii=False).encode("utf-8")
+            else:
+                raw_body = urlencode(params).encode("utf-8")
+        logger.warning(
+            f"[AdminAkRpcAuth/{path}] replaced={int(auth_replaced)} key={str(params.get('key') or '')[:8]} "
+            f"userId={str(params.get('UserID') or params.get('userid') or '')} referer={referer}"
+        )
+    if trace_params_before is not None:
+        logger.warning(
+            f"[AdminAkRpcParams/{path}] phase=forward referer={referer} "
+            f"params={json.dumps(params, ensure_ascii=False)}"
+        )
     headers = dict(request.headers)
     headers = _apply_ak_rpc_browser_headers(headers, request, referer=referer)
     logger.warning(
