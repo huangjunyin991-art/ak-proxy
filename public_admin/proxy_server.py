@@ -28,7 +28,7 @@ import re
 
 import logging
 
-from urllib.parse import parse_qs, urlsplit, urlencode
+from urllib.parse import parse_qs, urlsplit, urlencode, urlunsplit
 
 from logging.handlers import RotatingFileHandler
 
@@ -5098,6 +5098,62 @@ def _build_cookie_header(cookies: dict) -> str:
     return "; ".join(f"{k}={v}" for k, v in cookies.items() if k)
 
 
+def _normalize_ak_rpc_referer(raw_url: str) -> str:
+    raw_url = (raw_url or "").strip()
+    if not raw_url:
+        return ""
+    try:
+        parts = urlsplit(raw_url)
+        path = parts.path or "/"
+        if path.startswith(_AK_WEB_PREFIX):
+            path = path[len(_AK_WEB_PREFIX):] or "/"
+        elif path.startswith(_AK_SITE_PREFIX):
+            path = path[len(_AK_SITE_PREFIX):] or "/"
+        query_items = []
+        for key, values in parse_qs(parts.query, keep_blank_values=True).items():
+            if key == "bs":
+                continue
+            for value in values:
+                query_items.append((key, value))
+        query = urlencode(query_items)
+        return urlunsplit((parts.scheme, parts.netloc, path, query, parts.fragment))
+    except Exception:
+        return raw_url
+
+
+def _apply_ak_rpc_browser_headers(headers: dict, request: Request, referer: str = "") -> dict:
+    rpc_headers = dict(headers or {})
+    normalized_referer = _normalize_ak_rpc_referer(referer or request.headers.get("referer", ""))
+    origin = (request.headers.get("origin") or "").strip()
+    if normalized_referer:
+        rpc_headers["referer"] = normalized_referer
+        try:
+            parts = urlsplit(normalized_referer)
+            if parts.scheme and parts.netloc:
+                origin = f"{parts.scheme}://{parts.netloc}"
+        except Exception:
+            pass
+    if origin:
+        rpc_headers["origin"] = origin
+    copy_keys = (
+        "accept-language",
+        "accept-encoding",
+        "priority",
+        "sec-ch-ua",
+        "sec-ch-ua-mobile",
+        "sec-ch-ua-platform",
+        "sec-fetch-site",
+        "sec-fetch-mode",
+        "sec-fetch-dest",
+        "x-requested-with",
+    )
+    for key in copy_keys:
+        value = request.headers.get(key)
+        if value:
+            rpc_headers[key] = value
+    return rpc_headers
+
+
 def _summarize_cookie_names(cookies: dict) -> str:
     if not isinstance(cookies, dict) or not cookies:
         return "-"
@@ -5369,6 +5425,13 @@ async def _forward_admin_ak_rpc_request(path: str, request: Request, session: di
             f"names={_summarize_cookie_names(session.get('cookies', {}))} referer={referer}"
         )
     headers = dict(request.headers)
+    if is_login_path or is_protected_path:
+        headers = _apply_ak_rpc_browser_headers(headers, request, referer=referer)
+        logger.warning(
+            f"[AdminAkRpcHeaders/{path}] origin={headers.get('origin', '-') or '-'} "
+            f"referer={headers.get('referer', '-') or '-'} "
+            f"fetch={headers.get('sec-fetch-site', '-') or '-'}/{headers.get('sec-fetch-mode', '-') or '-'}/{headers.get('sec-fetch-dest', '-') or '-'}"
+        )
     cookie_header = _build_cookie_header(session.get("cookies", {}))
     if cookie_header:
         headers["cookie"] = cookie_header
