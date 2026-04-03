@@ -491,7 +491,9 @@ async def forward_request(method: str, api_path: str, content_type: str,
 
                           client_ip: str = "",
 
-                          is_login: bool = False) -> httpx.Response:
+                          is_login: bool = False,
+
+                          selected_exit=None) -> httpx.Response:
 
     """转发请求到真实API服务器（通过出口调度器选择出口IP）"""
 
@@ -525,17 +527,7 @@ async def forward_request(method: str, api_path: str, content_type: str,
 
     # 通过调度器选择出口
 
-    if is_login:
-
-        exit_obj = dispatcher.pick_login_exit()
-
-    elif api_path == "ACE_Sell":
-
-        exit_obj = ace_sell_dispatcher.acquire()
-
-    else:
-
-        exit_obj = dispatcher.pick_api_exit()
+    exit_obj = selected_exit or _select_forward_exit(api_path, is_login=is_login)
 
     logger.debug(f"[Forward] {api_path} -> 出口[{exit_obj.name}]")
 
@@ -574,6 +566,40 @@ async def forward_request(method: str, api_path: str, content_type: str,
         raw_body=raw_body, timeout=REQUEST_TIMEOUT
 
     )
+
+
+
+def _select_forward_exit(api_path: str, is_login: bool = False, preferred_exit_name: str = ""):
+
+    preferred = (preferred_exit_name or "").strip()
+
+    if preferred and api_path != "ACE_Sell":
+
+        for ex in getattr(dispatcher, "exits", []):
+
+            if ex.name != preferred:
+
+                continue
+
+            if (ex.healthy or ex.is_direct) and not ex.is_frozen:
+
+                ex.record_request()
+
+                return ex
+
+            logger.warning(f"[ForwardExitFallback] api={api_path} preferred={preferred} reason=unavailable")
+
+            break
+
+    if is_login:
+
+        return dispatcher.pick_login_exit()
+
+    if api_path == "ACE_Sell":
+
+        return ace_sell_dispatcher.acquire()
+
+    return dispatcher.pick_api_exit()
 
 
 
@@ -5298,6 +5324,16 @@ async def _forward_admin_ak_rpc_request(path: str, request: Request, session: di
     normalized_path = path.strip("/").lower()
     is_protected_path = normalized_path in protected_paths
     auth_replaced = False
+    selected_exit = None
+    pinned_exit_name = str(session.get("ak_exit_name") or "").strip()
+    if is_login_path:
+        selected_exit = _select_forward_exit(path, is_login=True)
+    elif is_protected_path:
+        selected_exit = _select_forward_exit(path, preferred_exit_name=pinned_exit_name)
+        logger.warning(
+            f"[AdminAkRpcExit/{path}] pinned={int(bool(pinned_exit_name))} preferred={pinned_exit_name or '-'} "
+            f"using={selected_exit.name} referer={referer}"
+        )
     if is_protected_path:
         login_result = session.get("login_result", {})
         if not isinstance(login_result, dict):
@@ -5336,7 +5372,8 @@ async def _forward_admin_ak_rpc_request(path: str, request: Request, session: di
     response = await forward_request(
         request.method, path, content_type, params, raw_body, headers,
         client_ip=request.client.host if request.client else "admin-panel",
-        is_login=is_login_path
+        is_login=is_login_path,
+        selected_exit=selected_exit
     )
     set_cookie_values = response.headers.get_list("set-cookie")
     for sc in response.headers.get_list("set-cookie"):
@@ -5353,6 +5390,9 @@ async def _forward_admin_ak_rpc_request(path: str, request: Request, session: di
             password = (params.get("password") or session.get("password") or "").strip()
             cached = _cache_ak_auth(account, password, result, response.headers)
             await _apply_cached_auth_to_browse_session(session, cached, result, account, password)
+            if selected_exit:
+                session["ak_exit_name"] = selected_exit.name
+                logger.warning(f"[AdminAkRpcExit/{path}] bind={selected_exit.name} referer={referer}")
             logger.warning(
                 f"[AdminAkRpcLoginCookies/{path}] bs={session.get('id', '')} set_cookie_count={len(cached.get('cookies', {}))} "
                 f"set_cookie_names={_summarize_cookie_names(cached.get('cookies', {}))} "
