@@ -816,12 +816,8 @@ async def proxy_login(request: Request):
         admin_bs_id, admin_session, admin_bs_source = _resolve_browse_session(request, preferred_username=account)
         admin_referer = request.headers.get("referer", "")
         if admin_session:
-            admin_session["cookies"].update(cached.get("cookies", {}))
-            admin_session["login_result"] = result
-            if cached.get("userkey"):
-                admin_session["userkey"] = cached.get("userkey", "")
             try:
-                await _persist_browse_session_auth(admin_session)
+                await _apply_cached_auth_to_browse_session(admin_session, cached, result, account, password)
                 logger.warning(f"[BrowseLoginBridge] account={account} bs={admin_bs_id} source={admin_bs_source} referer={admin_referer} cookies={len(admin_session.get('cookies', {}))}")
             except Exception as e:
                 logger.warning(f"[BrowseLoginBridge] 持久化失败 account={account} bs={admin_bs_id} source={admin_bs_source} referer={admin_referer}: {e}")
@@ -5023,6 +5019,19 @@ def _cache_ak_auth(username: str, password: str, result: dict, headers) -> dict:
     return cached
 
 
+async def _apply_cached_auth_to_browse_session(session: dict, cached: dict, result: dict,
+                                               username: str = "", password: str = ""):
+    if username:
+        session["username"] = username
+    if password:
+        session["password"] = password
+    session["cookies"].update(cached.get("cookies", {}))
+    session["login_result"] = result
+    if cached.get("userkey"):
+        session["userkey"] = cached.get("userkey", "")
+    await _persist_browse_session_auth(session)
+
+
 async def _persist_browse_session_auth(session: dict):
     username = (session.get("username") or "").strip()
     if not username:
@@ -5262,6 +5271,7 @@ async def _forward_admin_ak_rpc_request(path: str, request: Request, session: di
     raw_body = await request.body() if request.method in ["POST", "PUT"] else b""
     query_params = {k: v for k, v in dict(request.query_params).items() if k != "bs"}
     params = parse_request_params(content_type, query_params, raw_body)
+    is_login_path = path.strip("/").lower() == "login"
     headers = dict(request.headers)
     cookie_header = _build_cookie_header(session.get("cookies", {}))
     if cookie_header:
@@ -5269,7 +5279,8 @@ async def _forward_admin_ak_rpc_request(path: str, request: Request, session: di
 
     response = await forward_request(
         request.method, path, content_type, params, raw_body, headers,
-        client_ip="admin-panel"
+        client_ip=request.client.host if request.client else "admin-panel",
+        is_login=is_login_path
     )
     set_cookie_values = response.headers.get_list("set-cookie")
     for sc in response.headers.get_list("set-cookie"):
@@ -5280,16 +5291,16 @@ async def _forward_admin_ak_rpc_request(path: str, request: Request, session: di
     try:
         result = response.json()
         should_persist = bool(set_cookie_values)
-        is_login_success = path.strip("/").lower() == "login" and (result.get("Error") is False or (not result.get("Error") and result.get("UserData")))
+        is_login_success = is_login_path and (result.get("Error") is False or (not result.get("Error") and result.get("UserData")))
         if is_login_success:
-            session["login_result"] = result
-            userkey = _extract_userkey(result)
-            if userkey:
-                session["userkey"] = userkey
+            account = (params.get("account") or params.get("username") or session.get("username") or "").strip()
+            password = (params.get("password") or session.get("password") or "").strip()
+            cached = _cache_ak_auth(account, password, result, response.headers)
+            await _apply_cached_auth_to_browse_session(session, cached, result, account, password)
             should_persist = True
         if should_persist:
             await _persist_browse_session_auth(session)
-        if path.strip("/").lower() == "login":
+        if is_login_path:
             logger.warning(f"[IframeLoginApi] route=/admin/ak-rpc/Login phase=response status={response.status_code} referer={referer} body_head={json.dumps(result, ensure_ascii=False)[:200]}")
         logger.warning(f"[AdminAkRpc/{path}] status={response.status_code} dest={fetch_dest} accept={accept} referer={referer} body_head={json.dumps(result, ensure_ascii=False)[:200]}")
         return JSONResponse(content=result, status_code=response.status_code)
