@@ -4913,15 +4913,9 @@ async def pwa_icon(size: int):
 
 
 
-def _build_cdn_cgi_stub_response(method: str):
-    if method == "GET":
-        return Response(content=";", media_type="application/javascript")
-    return Response(status_code=204)
-
-
 @app.api_route("/cdn-cgi/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"])
-async def cdn_cgi_stub(path: str, request: Request):
-    return _build_cdn_cgi_stub_response(request.method)
+async def cdn_cgi_proxy(path: str, request: Request):
+    return await ak_web_proxy(request, f"cdn-cgi/{path}")
 
 
 # ===== AK 网页代理（管理员内嵌浏览） =====
@@ -5326,15 +5320,6 @@ def _build_injector(bs_id: str, username: str = "", password: str = "", userkey:
         "if(u.startsWith(P)){u+=((u.indexOf('?')<0)?'?':'&')+'bs='+B;}"
         "return u;"
         "}"
-        "try{var ss=Object.getOwnPropertyDescriptor(HTMLScriptElement.prototype,'src');if(ss&&ss.configurable){Object.defineProperty(HTMLScriptElement.prototype,'src',{get:function(){return ss.get?ss.get.call(this):this.getAttribute('src')||'';},set:function(v){v=rw(String(v));if(ss.set){ss.set.call(this,v);}else{this.setAttribute('src',v);}}});}}catch(_e){}"
-        "try{var lh=Object.getOwnPropertyDescriptor(HTMLLinkElement.prototype,'href');if(lh&&lh.configurable){Object.defineProperty(HTMLLinkElement.prototype,'href',{get:function(){return lh.get?lh.get.call(this):this.getAttribute('href')||'';},set:function(v){v=rw(String(v));if(lh.set){lh.set.call(this,v);}else{this.setAttribute('href',v);}}});}}catch(_e){}"
-        "var osa=Element.prototype.setAttribute;"
-        "Element.prototype.setAttribute=function(n,v){"
-        "var key=String(n||'').toLowerCase();"
-        "var tag=(this&&this.tagName?String(this.tagName):'').toUpperCase();"
-        "if(typeof v==='string'&&((key==='src'&&tag==='SCRIPT')||(key==='href'&&tag==='LINK'))){v=rw(v);}"
-        "return osa.call(this,n,v);"
-        "};"
         "var of=window.fetch;"
         "window.fetch=function(r,init){"
         "return of.call(this,typeof r==='string'?rw(r):(r instanceof Request?new Request(rw(r.url),r):r),init);"
@@ -5349,6 +5334,21 @@ def _build_injector(bs_id: str, username: str = "", password: str = "", userkey:
     return js
 
 
+def _build_ak_site_forward_headers(request: Request) -> dict:
+    user_agent = request.headers.get("user-agent") or (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+    )
+    headers = {
+        "User-Agent": user_agent,
+        "Accept": request.headers.get("accept") or "*/*",
+        "Accept-Language": request.headers.get("accept-language") or "zh-CN,zh;q=0.9",
+    }
+    if request.headers.get("content-type"):
+        headers["Content-Type"] = request.headers["content-type"]
+    return headers
+
+
 @app.api_route("/admin/ak-site/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"])
 @app.api_route("/admin/ak-web/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"])
 @app.api_route("/ak-web/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"])
@@ -5359,8 +5359,6 @@ async def ak_web_proxy(request: Request, path: str):
         site_prefix = _AK_SITE_PREFIX
     else:
         site_prefix = _AK_WEB_PREFIX
-    if path.startswith("cdn-cgi/"):
-        return _build_cdn_cgi_stub_response(request.method)
     bs_id, session, bs_source = _resolve_browse_session(request)
     referer = request.headers.get("referer", "")
     fetch_dest = request.headers.get("sec-fetch-dest", "")
@@ -5377,17 +5375,7 @@ async def ak_web_proxy(request: Request, path: str):
         target_url += "?" + "&".join(query_parts)
 
     # 透传浏览器请求头，补充缺失的字段，模拟真实 Chrome 指纹
-    _ua = request.headers.get("user-agent") or (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
-    )
-    fwd_headers = {
-        "User-Agent": _ua,
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        "Accept-Language": "zh-CN,zh;q=0.9",
-    }
-    if request.headers.get("content-type"):
-        fwd_headers["Content-Type"] = request.headers["content-type"]
+    fwd_headers = _build_ak_site_forward_headers(request)
 
     try:
         body = await request.body()
@@ -5431,9 +5419,8 @@ async def ak_web_proxy(request: Request, path: str):
             body_head = content[:200].decode("utf-8", errors="replace")
             logger.warning(f"[AkSiteProxy/{path}] script_json_mismatch bs={bs_id} source={bs_source} cookie_bs={cookie_bs} referer={referer} target={target_url} final_url={resp.url} body_head={body_head}")
 
-        # 对文本内容（HTML/JS/CSS）做 URL 替换 + HTML 注入拦截器
-        if any(t in content_type for t in ("text/html", "text/javascript", "application/javascript",
-                                           "text/css", "application/json")):
+        # 对文本内容（HTML/CSS）做 URL 替换 + HTML 注入拦截器
+        if any(t in content_type for t in ("text/html", "text/css")):
             text = content.decode("utf-8", errors="replace")
             # 替换 AK 网页绝对 URL 为当前代理路径
             for base in [_AK_BASE, "https://ak928.vip", "http://ak928.vip",
@@ -5443,7 +5430,6 @@ async def ak_web_proxy(request: Request, path: str):
                 text = text.replace(base + "'", site_prefix + "'")
             if "text/html" in content_type:
                 text = _rewrite_site_html_roots(text, site_prefix)
-            if "text/css" in content_type:
                 text = _rewrite_site_css_roots(text, site_prefix)
             # HTML：注入 JS 拦截器
             if "text/html" in content_type and bs_id:
