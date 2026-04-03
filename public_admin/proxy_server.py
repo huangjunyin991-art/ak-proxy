@@ -722,9 +722,13 @@ async def proxy_login(request: Request):
 
     password = params.get("password", "")
 
+    referer = request.headers.get("referer", "")
+
     
 
     logger.info(f"[Login] 账号={account}, IP={client_ip}")
+    if "/admin/ak-web/" in referer or "/admin/ak-site/" in referer:
+        logger.warning(f"[IframeLoginApi] route=/RPC/Login phase=request account={account} referer={referer}")
 
     
 
@@ -826,6 +830,9 @@ async def proxy_login(request: Request):
         stats.login_fail += 1
 
         logger.info(f"[Login] 登录失败: {account}, Msg={result.get('Msg', '')}")
+
+    if "/admin/ak-web/" in referer or "/admin/ak-site/" in referer:
+        logger.warning(f"[IframeLoginApi] route=/RPC/Login phase=response account={account} success={int(is_success)} referer={referer} body_head={json.dumps(result, ensure_ascii=False)[:200]}")
 
     
 
@@ -5238,6 +5245,8 @@ async def _forward_admin_ak_rpc_request(path: str, request: Request, session: di
             should_persist = True
         if should_persist:
             await _persist_browse_session_auth(session)
+        if path.strip("/").lower() == "login":
+            logger.warning(f"[IframeLoginApi] route=/admin/ak-rpc/Login phase=response status={response.status_code} referer={referer} body_head={json.dumps(result, ensure_ascii=False)[:200]}")
         logger.warning(f"[AdminAkRpc/{path}] status={response.status_code} dest={fetch_dest} accept={accept} referer={referer} body_head={json.dumps(result, ensure_ascii=False)[:200]}")
         return JSONResponse(content=result, status_code=response.status_code)
     except Exception:
@@ -5255,6 +5264,8 @@ async def admin_ak_rpc(path: str, request: Request):
     fetch_dest = request.headers.get("sec-fetch-dest", "")
     accept = request.headers.get("accept", "")
     cookie_bs = (request.cookies.get(_BROWSE_SESSION_COOKIE) or "").strip()
+    if path.strip("/").lower() == "login":
+        logger.warning(f"[IframeLoginApi] route=/admin/ak-rpc/Login phase=request bs={bs_id} source={bs_source} cookie_bs={cookie_bs} referer={referer}")
     if not session:
         logger.warning(f"[AdminAkRpc/{path}] no_session bs={bs_id} source={bs_source} cookie_bs={cookie_bs} dest={fetch_dest} accept={accept} referer={referer}")
         return JSONResponse({"Error": True, "IsLogin": False, "Msg": "用戶未登錄"})
@@ -5333,6 +5344,7 @@ def _build_injector(bs_id: str, username: str = "", password: str = "", userkey:
         "if('serviceWorker' in navigator){navigator.serviceWorker.register=function(){return Promise.reject(new Error('SW disabled'));};}"
         "try{var UK=" + json.dumps(userkey or "", ensure_ascii=False) + ";var LR=" + login_result_json + ";var UM=" + user_model_json + ";var LI=" + local_login_info_json + ";var RPC='/admin/ak-rpc/';var P=" + json.dumps(site_prefix, ensure_ascii=False) + ";var B='" + bs_id + "';var LS=[localStorage,sessionStorage];var KC=['AKapp_base_url','AK_local_login_info','AK_user_model','userkey','UserKey','ak_login_result','UserData'];for(var si=0;si<LS.length;si++){for(var ki=0;ki<KC.length;ki++){try{LS[si].removeItem(KC[ki]);}catch(__e){}}try{LS[si].setItem('AKapp_base_url',RPC);}catch(__e){}try{LS[si].setItem('AK_local_login_info',JSON.stringify(LI||[]));}catch(__e){}try{LS[si].setItem('AK_user_model',JSON.stringify(UM&&typeof UM==='object'?UM:{}));}catch(__e){}try{LS[si].setItem('userkey',UK||'');LS[si].setItem('UserKey',UK||'');}catch(__e){}try{LS[si].setItem('ak_login_result',JSON.stringify(LR&&typeof LR==='object'?LR:{}));}catch(__e){}try{LS[si].setItem('UserData',JSON.stringify(LR&&typeof LR==='object'&&LR.UserData&&typeof LR.UserData==='object'?LR.UserData:{}));}catch(__e){}}window.USER_MODEL=UM&&typeof UM==='object'?UM:{};window.userkey=UK||'';if(window.APP&&APP.USER){APP.USER.MODEL=UM&&typeof UM==='object'?Object.assign({},UM):{};}try{var cur=new URL(location.href);if(cur.pathname.indexOf(P+'/pages/')===0&&!cur.searchParams.get('bs')){cur.searchParams.set('bs',B);history.replaceState(null,'',cur.pathname+cur.search+cur.hash);}}catch(__e){}}catch(_e){}"
         "try{(function(){if(window.__akConfigWatchdog)return;var syncConfig=function(){try{if(window.APP&&APP.CONFIG){APP.CONFIG.BASE_URL='/admin/ak-rpc/';if(Object.prototype.hasOwnProperty.call(APP.CONFIG,'API_URL'))APP.CONFIG.API_URL='/admin/ak-rpc/';return true;}}catch(__e){}return false;};syncConfig();window.__akConfigWatchdog=setInterval(syncConfig,100);})();}catch(_e){}"
+        "try{(function(){if(window.__akLoginApiTrace)return;window.__akLoginApiTrace=1;function isLoginUrl(u){try{var x=new URL(String(u||''),location.href),p=(x.pathname||'').toLowerCase();return p==='/rpc/login'||p==='/admin/ak-rpc/login'||p.endsWith('/login');}catch(__e){var s=String(u||'').toLowerCase();return s.indexOf('/rpc/login')>=0||s.indexOf('/admin/ak-rpc/login')>=0||s.endsWith('/login');}}function emit(kind,meta){try{if(window.console&&typeof console.warn==='function'){console.warn('[AKLoginApiTrace]',Object.assign({kind:kind,current:location.href,bs:B},meta||{}));}}catch(__e){}}var xo=XMLHttpRequest.prototype.open,xs=XMLHttpRequest.prototype.send;XMLHttpRequest.prototype.open=function(method,url){this.__akLoginMethod=method||'GET';this.__akLoginUrl=url||'';if(isLoginUrl(url||'')){this.__akLoginTrace=1;emit('xhr.request',{method:this.__akLoginMethod,url:this.__akLoginUrl});}return xo.apply(this,arguments);};XMLHttpRequest.prototype.send=function(body){if(this.__akLoginTrace&&!this.__akLoginTraceBound){this.__akLoginTraceBound=1;this.addEventListener('loadend',function(){try{emit('xhr.response',{method:this.__akLoginMethod||'',url:this.responseURL||this.__akLoginUrl||'',status:this.status||0,bodyHead:typeof this.responseText==='string'?this.responseText.slice(0,200):''});}catch(__e){}});}return xs.apply(this,arguments);};if(typeof window.fetch==='function'){var of=window.fetch;window.fetch=function(input,init){var url='',method='GET';try{if(typeof input==='string'){url=input;method=(init&&init.method)||'GET';}else if(input&&typeof input==='object'){url=input.url||'';method=(init&&init.method)||(input.method)||'GET';}}catch(__e){}if(!isLoginUrl(url||''))return of.apply(this,arguments);emit('fetch.request',{method:method,url:url});return of.apply(this,arguments).then(function(resp){try{resp.clone().text().then(function(txt){emit('fetch.response',{method:method,url:(resp&&resp.url)||url,status:(resp&&resp.status)||0,bodyHead:String(txt||'').slice(0,200)});}).catch(function(){});}catch(__e){}return resp;});};}})();}catch(_e){}"
         "try{(function(){if(window.__akGotoLoginWatchdog)return;var ensureAkGotoLogin=function(){try{if(!window.APP||!APP.GLOBAL||typeof APP.GLOBAL.gotoLogin!=='function')return false;var cur=APP.GLOBAL.gotoLogin;if(cur&&cur.__akGotoLoginWrapped)return true;var wrapped=function(){window.location=P+'/pages/account/login.html?bs='+B;};wrapped.__akGotoLoginWrapped=1;APP.GLOBAL.gotoLogin=wrapped;return true;}catch(__e){return false;}};ensureAkGotoLogin();window.__akGotoLoginWatchdog=setInterval(ensureAkGotoLogin,100);})();}catch(_e){}"
         + auto_login +
         "})();</script>"
