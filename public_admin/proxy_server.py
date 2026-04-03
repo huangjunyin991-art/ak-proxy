@@ -5241,6 +5241,13 @@ def _set_browse_session_cookie(response: Response, bs_id: str):
     return response
 
 
+def _apply_no_store_headers(response: Response):
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+    return response
+
+
 def _rewrite_site_root_url(url: str, site_prefix: str) -> str:
     if not url or not url.startswith("/"):
         return url
@@ -5656,7 +5663,7 @@ async def ak_web_proxy(request: Request, path: str):
             f"source={bs_source} cookie_bs={cookie_bs} referer={referer} redirect={canonical_url}"
         )
         return _set_browse_session_cookie(
-            Response(status_code=307, headers={"location": canonical_url}),
+            _apply_no_store_headers(Response(status_code=307, headers={"location": canonical_url})),
             bs_id,
         )
 
@@ -5766,6 +5773,8 @@ async def ak_web_proxy(request: Request, path: str):
 
         response = Response(content=content, status_code=resp.status_code,
                             headers=resp_headers, media_type=content_type or "application/octet-stream")
+        if "text/html" in content_type and normalized_path.startswith("pages/") and normalized_path.endswith(".html"):
+            _apply_no_store_headers(response)
         if bs_id:
             _set_browse_session_cookie(response, bs_id)
         return response
