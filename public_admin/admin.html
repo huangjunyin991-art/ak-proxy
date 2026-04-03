@@ -7563,79 +7563,6 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
         // ===== AK 网页浏览面板 =====
         let akBrowserLoadSeq = 0;
         let akBrowserRetryTimer = null;
-        let akBrowserTraceTimer = null;
-        let akBrowserTraceLastKey = '';
-
-        function getAkBrowserFrameTraceState(frame) {
-            const state = {
-                attrSrc: '',
-                propSrc: '',
-                href: '',
-                path: '',
-                isProxyPath: false,
-                sameOrigin: false,
-                accessError: ''
-            };
-            if (!frame) return state;
-            try {
-                state.attrSrc = frame.getAttribute('src') || '';
-            } catch (e) {
-            }
-            try {
-                state.propSrc = frame.src || '';
-            } catch (e) {
-            }
-            try {
-                if (frame.contentWindow && frame.contentWindow.location) {
-                    state.href = frame.contentWindow.location.href || '';
-                    state.path = new URL(state.href || state.propSrc || window.location.href, window.location.origin).pathname || '';
-                    state.isProxyPath = state.path.startsWith('/admin/ak-site/') || state.path.startsWith('/admin/ak-web/') || state.path.startsWith('/ak-web/');
-                    state.sameOrigin = true;
-                }
-            } catch (e) {
-                state.accessError = e && e.message ? e.message : String(e);
-            }
-            return state;
-        }
-
-        function logAkBrowserFrameTrace(kind, extra = {}) {
-            try {
-                const frame = document.getElementById('akBrowserFrame');
-                const state = getAkBrowserFrameTraceState(frame);
-                console.warn('[AKOuterFrameTrace]', Object.assign({kind, seq: akBrowserLoadSeq}, state, extra || {}));
-            } catch (e) {
-            }
-        }
-
-        function clearAkBrowserTraceMonitor() {
-            if (akBrowserTraceTimer) {
-                clearInterval(akBrowserTraceTimer);
-                akBrowserTraceTimer = null;
-            }
-            akBrowserTraceLastKey = '';
-        }
-
-        function startAkBrowserTraceMonitor(username, seq) {
-            const frame = document.getElementById('akBrowserFrame');
-            let tick = 0;
-            clearAkBrowserTraceMonitor();
-            akBrowserTraceTimer = setInterval(() => {
-                if (seq !== akBrowserLoadSeq) {
-                    clearAkBrowserTraceMonitor();
-                    return;
-                }
-                tick += 1;
-                const state = getAkBrowserFrameTraceState(frame);
-                const key = [state.attrSrc, state.propSrc, state.href, state.path, state.isProxyPath ? '1' : '0', state.sameOrigin ? '1' : '0', state.accessError].join('||');
-                if (key !== akBrowserTraceLastKey) {
-                    akBrowserTraceLastKey = key;
-                    logAkBrowserFrameTrace('poll', {username, tick});
-                }
-                if (tick >= 60) {
-                    clearAkBrowserTraceMonitor();
-                }
-            }, 500);
-        }
 
         function setAkBrowserLoading(visible, text = '正在进入AK后台...') {
             const loading = document.getElementById('akBrowserLoading');
@@ -7701,7 +7628,6 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
             const title = document.getElementById('akBrowserTitle');
             frame.onload = () => {
                 if (seq !== akBrowserLoadSeq) return;
-                logAkBrowserFrameTrace('load', {username, allowRetry: !!allowRetry});
                 if (akBrowserRetryTimer) {
                     clearTimeout(akBrowserRetryTimer);
                     akBrowserRetryTimer = null;
@@ -7728,7 +7654,6 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
             const frame = document.getElementById('akBrowserFrame');
             const title = document.getElementById('akBrowserTitle');
             const seq = ++akBrowserLoadSeq;
-            clearAkBrowserTraceMonitor();
             if (akBrowserRetryTimer) {
                 clearTimeout(akBrowserRetryTimer);
                 akBrowserRetryTimer = null;
@@ -7738,7 +7663,6 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
             setAkBrowserLoading(true, `正在进入 ${username} 的AK后台...`);
             frame.onload = null;
             frame.src = 'about:blank';
-            logAkBrowserFrameTrace('open.reset', {username, hasRetried: !!hasRetried});
             panel.classList.add('open');
             overlay.style.display = getMobileLayoutMedia().matches ? 'none' : 'block';
             syncAkBrowserViewport();
@@ -7758,19 +7682,15 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                     bindAkBrowserFrame(username, seq, !hasRetried);
                     const entryUrl = data.entry_url
                         ? (data.entry_url.startsWith('http') ? data.entry_url : `${API_BASE}${data.entry_url}`)
-                        : `${API_BASE}/admin/ak-site/pages/account/login.html?bs=${data.bs_id}`;
-                    logAkBrowserFrameTrace('open.entry', {username, bsId: data.bs_id || '', entryUrl});
-                    startAkBrowserTraceMonitor(username, seq);
+                        : `${API_BASE}/admin/ak-web/pages/account/login.html?bs=${data.bs_id}`;
                     frame.src = entryUrl;
                 } else {
                     setAkBrowserLoading(false);
                     title.textContent = `登录失败: ${data.message}`;
-                    logAkBrowserFrameTrace('open.reject', {username, message: data.message || ''});
                 }
             } catch (e) {
                 setAkBrowserLoading(false);
                 title.textContent = `登录失败: ${e.message}`;
-                logAkBrowserFrameTrace('open.error', {username, message: e && e.message ? e.message : String(e)});
             }
         }
 
@@ -7780,12 +7700,8 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
             setAkBrowserLoading(true, '正在刷新AK后台...');
             try {
                 const href = frame.contentWindow.location.href || frame.src;
-                logAkBrowserFrameTrace('refresh', {targetUrl: href || frame.src});
-                startAkBrowserTraceMonitor(document.getElementById('akBrowserTitle').textContent || '', akBrowserLoadSeq);
                 frame.src = href || frame.src;
             } catch (e) {
-                logAkBrowserFrameTrace('refresh.fallback', {message: e && e.message ? e.message : String(e), targetUrl: frame.src || ''});
-                startAkBrowserTraceMonitor(document.getElementById('akBrowserTitle').textContent || '', akBrowserLoadSeq);
                 frame.src = frame.src;
             }
         }
@@ -7801,8 +7717,6 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                 clearTimeout(akBrowserRetryTimer);
                 akBrowserRetryTimer = null;
             }
-            logAkBrowserFrameTrace('close', {});
-            clearAkBrowserTraceMonitor();
             panel.classList.remove('open');
             overlay.style.display = 'none';
             if (stageFrame) {
