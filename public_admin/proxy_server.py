@@ -4975,7 +4975,7 @@ def _extract_cookie_map(headers) -> dict:
 def _extract_userkey(data):
     if isinstance(data, dict):
         for k, v in data.items():
-            if str(k).lower() in {"userkey", "user_key", "ukey"} and v not in (None, ""):
+            if str(k).lower() in {"key", "userkey", "user_key", "ukey"} and v not in (None, ""):
                 return str(v)
         for v in data.values():
             found = _extract_userkey(v)
