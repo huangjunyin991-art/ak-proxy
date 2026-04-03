@@ -5433,6 +5433,12 @@ async def ak_web_proxy(request: Request, path: str):
         if fetch_dest == "script" and "application/json" in content_type.lower():
             body_head = content[:200].decode("utf-8", errors="replace")
             logger.warning(f"[AkSiteProxy/{path}] script_json_mismatch bs={bs_id} source={bs_source} cookie_bs={cookie_bs} referer={referer} target={target_url} final_url={resp.url} body_head={body_head}")
+        if "application/json" in content_type.lower():
+            body_head = content[:300].decode("utf-8", errors="replace")
+            lowered_body = body_head.lower()
+            normalized_body = lowered_body.replace(" ", "")
+            if "用戶未登錄" in body_head or '"islogin":false' in normalized_body or '"error":true' in normalized_body:
+                logger.warning(f"[AkSiteJsonLoginReject/{path}] bs={bs_id} source={bs_source} cookie_bs={cookie_bs} referer={referer} dest={fetch_dest} accept={accept} target={target_url} final_url={resp.url} body_head={body_head}")
 
         # 对文本内容（HTML/CSS）做 URL 替换 + HTML 注入拦截器
         if any(t in content_type for t in ("text/html", "text/css")):
