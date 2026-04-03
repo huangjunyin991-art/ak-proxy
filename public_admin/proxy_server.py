@@ -5314,6 +5314,9 @@ def _build_injector(bs_id: str, username: str = "", password: str = "", userkey:
         "function rw(u){"
         "if(!u||typeof u!=='string')return u;"
         "for(var i=0;i<AK.length;i++){if(u.startsWith(AK[i]+'/cdn-cgi/')){return u.slice(AK[i].length);}}"
+        "if(u.startsWith(P+'/cdn-cgi/')){return u;}"
+        "if(u.startsWith('cdn-cgi/')){return '/'+u;}"
+        "if(u.startsWith('./cdn-cgi/')){return u.slice(1);}"
         "if(u.startsWith('/cdn-cgi/')){return u;}"
         # API 请求重写到 /RPC/（走代理自身的出口节点负载均衡）
         "if(u.startsWith(API)){return withBs(R+'/'+u.slice(API.length).replace(/^\\/RPC\\//,'').replace(/^\\/+/,''));}"
@@ -5356,9 +5359,6 @@ def _build_ak_site_forward_headers(request: Request) -> dict:
     if request.headers.get("content-type"):
         headers["Content-Type"] = request.headers["content-type"]
     return headers
-
-
-@app.api_route("/admin/ak-site/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"])
 @app.api_route("/admin/ak-web/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"])
 @app.api_route("/ak-web/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"])
 async def ak_web_proxy(request: Request, path: str):
@@ -5368,6 +5368,8 @@ async def ak_web_proxy(request: Request, path: str):
         site_prefix = _AK_SITE_PREFIX
     else:
         site_prefix = _AK_WEB_PREFIX
+    if path.lstrip("/") == "cdn-cgi/rum":
+        return Response(status_code=204)
     bs_id, session, bs_source = _resolve_browse_session(request)
     referer = request.headers.get("referer", "")
     fetch_dest = request.headers.get("sec-fetch-dest", "")
