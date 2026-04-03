@@ -5495,7 +5495,7 @@ async def admin_ak_rpc(path: str, request: Request):
         content_type = request.headers.get("content-type", "")
         raw_body = await request.body() if request.method in ["POST", "PUT"] else b""
         params = parse_request_params(content_type, dict(request.query_params), raw_body)
-        preferred_username = _extract_login_username(request)
+        preferred_username = str(params.get("account") or params.get("username") or "").strip()
     bs_id, session, bs_source = _resolve_browse_session(
         request,
         preferred_username=preferred_username,
