@@ -5023,8 +5023,7 @@ async def _persist_browse_session_auth(session: dict):
 
 
 def _make_browse_entry_url(bs_id: str, site_prefix: str = _AK_SITE_PREFIX) -> str:
-    sep = "&" if "?" in _AK_HOME_PATH else "?"
-    return f"{site_prefix}{_AK_HOME_PATH}{sep}bs={bs_id}"
+    return _make_browse_login_url(bs_id, site_prefix)
 
 
 def _make_browse_login_url(bs_id: str, site_prefix: str = _AK_SITE_PREFIX) -> str:
