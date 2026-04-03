@@ -5072,6 +5072,13 @@ def _build_cookie_header(cookies: dict) -> str:
     return "; ".join(f"{k}={v}" for k, v in cookies.items() if k)
 
 
+def _summarize_cookie_names(cookies: dict) -> str:
+    if not isinstance(cookies, dict) or not cookies:
+        return "-"
+    names = sorted(str(k).strip() for k in cookies.keys() if str(k).strip())
+    return ",".join(names) if names else "-"
+
+
 def _resolve_browse_bs_candidates(request: Request, source_order=None):
     candidates = []
     seen = set()
@@ -5317,6 +5324,10 @@ async def _forward_admin_ak_rpc_request(path: str, request: Request, session: di
             f"[AdminAkRpcAuth/{path}] replaced={int(auth_replaced)} key={str(params.get('key') or '')[:8]} "
             f"userId={str(params.get('UserID') or params.get('userid') or '')} referer={referer}"
         )
+        logger.warning(
+            f"[AdminAkRpcCookies/{path}] bs={session.get('id', '')} count={len(session.get('cookies', {}))} "
+            f"names={_summarize_cookie_names(session.get('cookies', {}))} referer={referer}"
+        )
     headers = dict(request.headers)
     cookie_header = _build_cookie_header(session.get("cookies", {}))
     if cookie_header:
@@ -5342,6 +5353,12 @@ async def _forward_admin_ak_rpc_request(path: str, request: Request, session: di
             password = (params.get("password") or session.get("password") or "").strip()
             cached = _cache_ak_auth(account, password, result, response.headers)
             await _apply_cached_auth_to_browse_session(session, cached, result, account, password)
+            logger.warning(
+                f"[AdminAkRpcLoginCookies/{path}] bs={session.get('id', '')} set_cookie_count={len(cached.get('cookies', {}))} "
+                f"set_cookie_names={_summarize_cookie_names(cached.get('cookies', {}))} "
+                f"session_cookie_count={len(session.get('cookies', {}))} "
+                f"session_cookie_names={_summarize_cookie_names(session.get('cookies', {}))}"
+            )
             should_persist = True
         if should_persist:
             await _persist_browse_session_auth(session)
