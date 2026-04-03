@@ -5348,6 +5348,7 @@ def _build_injector(bs_id: str, username: str = "", password: str = "", userkey:
         # API 请求重写到 /RPC/（走代理自身的出口节点负载均衡）
         "if(u.startsWith(API)){return withBs(R+'/'+u.slice(API.length).replace(/^\\/RPC\\//,'').replace(/^\\/+/,''));}"
         "if(u.startsWith('/RPC/')){return withBs(R+'/'+u.slice(5));}"
+        "try{var sameOriginRpc=new URL(u,location.href);if(sameOriginRpc.origin===location.origin&&sameOriginRpc.pathname.indexOf('/RPC/')===0){return withBs(R+'/'+sameOriginRpc.pathname.slice(5).replace(/^\\/+/, '')+(sameOriginRpc.search||'')+(sameOriginRpc.hash||''));}}catch(_e){}"
         "for(var i=0;i<AK.length;i++){"
         "if(u.startsWith(AK[i])){u=P+(u.slice(AK[i].length)||'/');break;}"
         "}"
