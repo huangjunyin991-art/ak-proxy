@@ -5327,7 +5327,11 @@ async def _forward_admin_ak_rpc_request(path: str, request: Request, session: di
     selected_exit = None
     pinned_exit_name = str(session.get("ak_exit_name") or "").strip()
     if is_login_path:
-        selected_exit = _select_forward_exit(path, is_login=True)
+        selected_exit = _select_forward_exit(path, is_login=True, preferred_exit_name=pinned_exit_name)
+        logger.warning(
+            f"[AdminAkRpcExit/{path}] pinned={int(bool(pinned_exit_name))} preferred={pinned_exit_name or '-'} "
+            f"using={selected_exit.name} referer={referer}"
+        )
     elif is_protected_path:
         selected_exit = _select_forward_exit(path, preferred_exit_name=pinned_exit_name)
         logger.warning(
@@ -5553,8 +5557,21 @@ async def ak_web_proxy(request: Request, path: str):
     accept = request.headers.get("accept", "")
     cookie_bs = (request.cookies.get(_BROWSE_SESSION_COOKIE) or "").strip()
     cookies = {}
+    selected_exit = None
     if session:
         cookies = session["cookies"]
+        pinned_exit_name = str(session.get("ak_exit_name") or "").strip()
+        selected_exit = _select_forward_exit(path or "web", preferred_exit_name=pinned_exit_name)
+        if pinned_exit_name:
+            logger.warning(
+                f"[AkWebExit/{path}] pinned=1 preferred={pinned_exit_name} using={selected_exit.name} "
+                f"bs={bs_id} referer={referer}"
+            )
+        else:
+            session["ak_exit_name"] = selected_exit.name
+            logger.warning(
+                f"[AkWebExit/{path}] bind={selected_exit.name} bs={bs_id} referer={referer}"
+            )
 
     # 构建目标 URL（去掉代理专用参数 bs）
     query_parts = [p for p in str(request.url.query).split("&") if p and not p.startswith("bs=")]
@@ -5567,7 +5584,10 @@ async def ak_web_proxy(request: Request, path: str):
 
     try:
         body = await request.body()
-        async with httpx.AsyncClient(verify=False, timeout=20, cookies=cookies) as client:
+        client_kwargs = {"verify": False, "timeout": 20, "cookies": cookies}
+        if selected_exit and selected_exit.proxy_url:
+            client_kwargs["proxy"] = selected_exit.proxy_url
+        async with httpx.AsyncClient(**client_kwargs) as client:
             resp = await client.request(
                 method=request.method,
                 url=target_url,
