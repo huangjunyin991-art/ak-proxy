@@ -1154,7 +1154,9 @@ async def proxy_rpc(path: str, request: Request):
     
 
     if "/admin/ak-web/" in referer or "/admin/ak-site/" in referer:
-        bs_id, session, bs_source = _resolve_browse_session(request)
+        bs_id, session, bs_source = _resolve_browse_session(
+            request, source_order=("cookie", "query", "referer")
+        )
         logger.warning(f"[IframeRPCLeak] path={path} dest={fetch_dest} accept={accept} referer={referer}")
         if session:
             logger.warning(f"[IframeRPCBridge] path={path} bs={bs_id} source={bs_source} cookie_bs={cookie_bs} referer={referer}")
@@ -5070,7 +5072,7 @@ def _build_cookie_header(cookies: dict) -> str:
     return "; ".join(f"{k}={v}" for k, v in cookies.items() if k)
 
 
-def _resolve_browse_bs_candidates(request: Request):
+def _resolve_browse_bs_candidates(request: Request, source_order=None):
     candidates = []
     seen = set()
 
@@ -5081,28 +5083,33 @@ def _resolve_browse_bs_candidates(request: Request):
         seen.add(bs_id)
         candidates.append((bs_id, source))
 
-    add_candidate(request.query_params.get("bs") or "", "query")
     referer = (request.headers.get("referer") or "").strip()
-    if referer:
-        try:
-            parts = urlsplit(referer)
-            if parts.path.startswith((_AK_SITE_PREFIX, _AK_WEB_PREFIX, "/ak-web")):
-                add_candidate((parse_qs(parts.query).get("bs") or [""])[0], "referer")
-        except Exception:
-            pass
-    add_candidate(request.cookies.get(_BROWSE_SESSION_COOKIE) or "", "cookie")
+    source_order = tuple(source_order or ("query", "referer", "cookie"))
+    for source in source_order:
+        if source == "query":
+            add_candidate(request.query_params.get("bs") or "", "query")
+        elif source == "referer":
+            if referer:
+                try:
+                    parts = urlsplit(referer)
+                    if parts.path.startswith((_AK_SITE_PREFIX, _AK_WEB_PREFIX, "/ak-web")):
+                        add_candidate((parse_qs(parts.query).get("bs") or [""])[0], "referer")
+                except Exception:
+                    pass
+        elif source == "cookie":
+            add_candidate(request.cookies.get(_BROWSE_SESSION_COOKIE) or "", "cookie")
     return candidates
 
 
-def _resolve_browse_bs_context(request: Request):
-    candidates = _resolve_browse_bs_candidates(request)
+def _resolve_browse_bs_context(request: Request, source_order=None):
+    candidates = _resolve_browse_bs_candidates(request, source_order=source_order)
     if candidates:
         return candidates[0]
     return "", "none"
 
 
-def _resolve_browse_bs_id(request: Request) -> str:
-    return _resolve_browse_bs_context(request)[0]
+def _resolve_browse_bs_id(request: Request, source_order=None) -> str:
+    return _resolve_browse_bs_context(request, source_order=source_order)[0]
 
 
 def _get_browse_session(bs_id: str):
@@ -5113,8 +5120,8 @@ def _get_browse_session(bs_id: str):
     return session
 
 
-def _resolve_browse_session(request: Request, preferred_username: str = ""):
-    candidates = _resolve_browse_bs_candidates(request)
+def _resolve_browse_session(request: Request, preferred_username: str = "", source_order=None):
+    candidates = _resolve_browse_bs_candidates(request, source_order=source_order)
     wanted = (preferred_username or "").strip().lower()
     if wanted:
         for bs_id, bs_source in candidates:
@@ -5362,7 +5369,11 @@ async def admin_ak_rpc(path: str, request: Request):
         raw_body = await request.body() if request.method in ["POST", "PUT"] else b""
         params = parse_request_params(content_type, dict(request.query_params), raw_body)
         preferred_username = (params.get("account") or params.get("username") or "").strip()
-    bs_id, session, bs_source = _resolve_browse_session(request, preferred_username=preferred_username)
+    bs_id, session, bs_source = _resolve_browse_session(
+        request,
+        preferred_username=preferred_username,
+        source_order=("cookie", "query", "referer"),
+    )
     if path.strip("/").lower() == "login":
         logger.warning(f"[IframeLoginApi] route=/admin/ak-rpc/Login phase=request bs={bs_id} source={bs_source} cookie_bs={cookie_bs} referer={referer}")
     if not session:
