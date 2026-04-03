@@ -493,7 +493,9 @@ async def forward_request(method: str, api_path: str, content_type: str,
 
                           is_login: bool = False,
 
-                          selected_exit=None) -> httpx.Response:
+                          selected_exit=None,
+
+                          force_direct: bool = False) -> httpx.Response:
 
     """转发请求到真实API服务器（通过出口调度器选择出口IP）"""
 
@@ -527,7 +529,13 @@ async def forward_request(method: str, api_path: str, content_type: str,
 
     # 通过调度器选择出口
 
-    exit_obj = selected_exit or _select_forward_exit(api_path, is_login=is_login)
+    if force_direct:
+
+        exit_obj = _get_direct_exit()
+
+    else:
+
+        exit_obj = selected_exit or _select_forward_exit(api_path, is_login=is_login)
 
     logger.debug(f"[Forward] {api_path} -> 出口[{exit_obj.name}]")
 
@@ -602,7 +610,15 @@ def _select_forward_exit(api_path: str, is_login: bool = False, preferred_exit_n
     return dispatcher.pick_api_exit()
 
 
+def _get_direct_exit() -> OutboundExit:
 
+    exits = getattr(dispatcher, "exits", []) or []
+
+    if exits:
+
+        return exits[0]
+
+    return OutboundExit("direct", None)
 
 
 # ===== 状态页 =====
@@ -4975,6 +4991,7 @@ _ak_auth_cache: dict = {}
 _BROWSE_SESSION_TTL = 3600           # session 有效期 1 小时
 _AK_BASE = "https://ak928.vip"  # AK 网站根地址
 _AK_HOME_PATH = "/pages/home.html?first=true"
+_ADMIN_AK_FORCE_DIRECT = True
 _BROWSE_SESSION_COOKIE = "ak_admin_bs"
 _AK_WEB_PREFIX = "/admin/ak-web"
 _AK_SITE_PREFIX = "/admin/ak-site"
@@ -5394,11 +5411,19 @@ async def _forward_admin_ak_rpc_request(path: str, request: Request, session: di
     auth_replaced = False
     selected_exit = None
     pinned_exit_name = str(session.get("ak_exit_name") or "").strip()
-    selected_exit = _select_forward_exit(path, is_login=is_login_path, preferred_exit_name=pinned_exit_name)
-    logger.warning(
-        f"[AdminAkRpcExit/{path}] pinned={int(bool(pinned_exit_name))} preferred={pinned_exit_name or '-'} "
-        f"using={selected_exit.name} referer={referer}"
-    )
+    if _ADMIN_AK_FORCE_DIRECT:
+        selected_exit = _get_direct_exit()
+        session.pop("ak_exit_name", None)
+        logger.warning(
+            f"[AdminAkRpcExit/{path}] force_direct=1 preferred={pinned_exit_name or '-'} "
+            f"using={selected_exit.name} referer={referer}"
+        )
+    else:
+        selected_exit = _select_forward_exit(path, is_login=is_login_path, preferred_exit_name=pinned_exit_name)
+        logger.warning(
+            f"[AdminAkRpcExit/{path}] pinned={int(bool(pinned_exit_name))} preferred={pinned_exit_name or '-'} "
+            f"using={selected_exit.name} referer={referer}"
+        )
     if trace_params_before is not None:
         logger.warning(
             f"[AdminAkRpcParams/{path}] phase=incoming referer={referer} "
@@ -5450,7 +5475,8 @@ async def _forward_admin_ak_rpc_request(path: str, request: Request, session: di
         request.method, path, content_type, params, raw_body, headers,
         client_ip=request.client.host if request.client else "admin-panel",
         is_login=is_login_path,
-        selected_exit=selected_exit
+        selected_exit=selected_exit,
+        force_direct=_ADMIN_AK_FORCE_DIRECT
     )
     set_cookie_values = response.headers.get_list("set-cookie")
     for sc in response.headers.get_list("set-cookie"):
@@ -5467,7 +5493,7 @@ async def _forward_admin_ak_rpc_request(path: str, request: Request, session: di
             password = (params.get("password") or session.get("password") or "").strip()
             cached = _cache_ak_auth(account, password, result, response.headers)
             await _apply_cached_auth_to_browse_session(session, cached, result, account, password)
-            if selected_exit:
+            if selected_exit and not _ADMIN_AK_FORCE_DIRECT:
                 session["ak_exit_name"] = selected_exit.name
                 logger.warning(f"[AdminAkRpcExit/{path}] bind={selected_exit.name} referer={referer}")
             logger.warning(
@@ -5634,17 +5660,25 @@ async def ak_web_proxy(request: Request, path: str):
     if session:
         cookies = session["cookies"]
         pinned_exit_name = str(session.get("ak_exit_name") or "").strip()
-        selected_exit = _select_forward_exit(path or "web", preferred_exit_name=pinned_exit_name)
-        if pinned_exit_name:
+        if _ADMIN_AK_FORCE_DIRECT:
+            selected_exit = _get_direct_exit()
+            session.pop("ak_exit_name", None)
             logger.warning(
-                f"[AkWebExit/{path}] pinned=1 preferred={pinned_exit_name} using={selected_exit.name} "
+                f"[AkWebExit/{path}] force_direct=1 preferred={pinned_exit_name or '-'} using={selected_exit.name} "
                 f"bs={bs_id} referer={referer}"
             )
         else:
-            session["ak_exit_name"] = selected_exit.name
-            logger.warning(
-                f"[AkWebExit/{path}] bind={selected_exit.name} bs={bs_id} referer={referer}"
-            )
+            selected_exit = _select_forward_exit(path or "web", preferred_exit_name=pinned_exit_name)
+            if pinned_exit_name:
+                logger.warning(
+                    f"[AkWebExit/{path}] pinned=1 preferred={pinned_exit_name} using={selected_exit.name} "
+                    f"bs={bs_id} referer={referer}"
+                )
+            else:
+                session["ak_exit_name"] = selected_exit.name
+                logger.warning(
+                    f"[AkWebExit/{path}] bind={selected_exit.name} bs={bs_id} referer={referer}"
+                )
 
     normalized_path = path.lstrip("/").lower()
     requested_bs = (request.query_params.get("bs") or "").strip()
