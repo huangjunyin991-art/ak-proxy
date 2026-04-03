@@ -5072,11 +5072,13 @@ def _resolve_browse_session(request: Request):
 def _set_browse_session_cookie(response: Response, bs_id: str):
     if not bs_id:
         return response
+    response.delete_cookie(key=_BROWSE_SESSION_COOKIE, path="/")
+    response.delete_cookie(key=_BROWSE_SESSION_COOKIE, path="/admin")
     response.set_cookie(
         key=_BROWSE_SESSION_COOKIE,
         value=bs_id,
         max_age=_BROWSE_SESSION_TTL,
-        path="/admin",
+        path="/",
         httponly=True,
         samesite="lax",
     )
