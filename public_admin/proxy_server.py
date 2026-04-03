@@ -5462,6 +5462,7 @@ async def ak_web_proxy(request: Request, path: str):
                 text = text.replace(base + '"', site_prefix + '"')
                 text = text.replace(base + "'", site_prefix + "'")
             if "text/html" in content_type:
+                html_injected = False
                 text = _rewrite_site_html_roots(text, site_prefix)
                 text = _rewrite_site_css_roots(text, site_prefix)
             # HTML：注入 JS 拦截器
@@ -5478,6 +5479,10 @@ async def ak_web_proxy(request: Request, path: str):
                     text = text.replace("<body", injector + "<body", 1)
                 else:
                     text = injector + text
+                html_injected = True
+            if "text/html" in content_type:
+                inject_reason = "ok" if html_injected else ("no_bs" if not bs_id else "miss")
+                logger.warning(f"[AkHtmlInject/{path}] bs={bs_id or '-'} source={bs_source} cookie_bs={cookie_bs} reason={inject_reason} injected={int(html_injected)} referer={referer} target={target_url} final_url={resp.url} content_type={content_type}")
             content = text.encode("utf-8")
 
         response = Response(content=content, status_code=resp.status_code,
