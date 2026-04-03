@@ -1181,7 +1181,7 @@ async def proxy_rpc(path: str, request: Request):
 
     if "/admin/ak-web/" in referer or "/admin/ak-site/" in referer:
         bs_id, session, bs_source = _resolve_browse_session(
-            request, source_order=("cookie", "query", "referer")
+            request, source_order=("query", "referer", "cookie")
         )
         logger.warning(f"[IframeRPCLeak] path={path} dest={fetch_dest} accept={accept} referer={referer}")
         if session:
@@ -5495,11 +5495,11 @@ async def admin_ak_rpc(path: str, request: Request):
         content_type = request.headers.get("content-type", "")
         raw_body = await request.body() if request.method in ["POST", "PUT"] else b""
         params = parse_request_params(content_type, dict(request.query_params), raw_body)
-        preferred_username = (params.get("account") or params.get("username") or "").strip()
+        preferred_username = _extract_login_username(request)
     bs_id, session, bs_source = _resolve_browse_session(
         request,
         preferred_username=preferred_username,
-        source_order=("cookie", "query", "referer"),
+        source_order=("query", "referer", "cookie"),
     )
     if path.strip("/").lower() == "login":
         logger.warning(f"[IframeLoginApi] route=/admin/ak-rpc/Login phase=request bs={bs_id} source={bs_source} cookie_bs={cookie_bs} referer={referer}")
