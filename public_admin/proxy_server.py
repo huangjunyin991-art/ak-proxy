@@ -5981,6 +5981,15 @@ async def ak_web_proxy(request: Request, path: str):
                 text = _rewrite_site_html_roots(text, site_prefix)
                 text = _rewrite_site_css_roots(text, site_prefix)
                 logger.warning(f"[HtmlRewrite/{path}] bs={bs_id} final_url={resp.url} head_sample={text[:400]!r}")
+                if normalized_path == "pages/home.html":
+                    logger.warning(
+                        f"[AkHomeHtmlScan/{path}] bs={bs_id} referer={referer} final_url={resp.url} "
+                        f"has_home_css={int('/assets/css/home.css' in text)} "
+                        f"has_proxy_home_css={int('/admin/ak-web/assets/css/home.css' in text)} "
+                        f"has_message_svg={int('/assets/images/home/message.svg' in text)} "
+                        f"has_proxy_message_svg={int('/admin/ak-web/assets/images/home/message.svg' in text)} "
+                        f"has_old_host={int(any(token in text for token in ('ak928.vip', 'www.ak928.vip', '404.html')))}"
+                    )
             if "text/css" in content_type and normalized_path in debug_body_targets:
                 css_has_old_host = int(any(token in text for token in ("ak928.vip", "www.ak928.vip", "404.html")))
                 logger.warning(f"[AkCssBody/{path}] bs={bs_id} referer={referer} target={target_url} final_url={resp.url} old_host={css_has_old_host} body_head={text[:400]!r}")
