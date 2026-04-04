@@ -5793,7 +5793,7 @@ def _build_native_injector(username: str = "", password: str = "", userkey: str 
     return (
         "<script>(function(){"
         "if('serviceWorker' in navigator){navigator.serviceWorker.register=function(){return Promise.reject(new Error('SW disabled'));};}"
-        + auth_patch +
+        + auth_patch
         + auto_login +
         "})();</script>"
     )
