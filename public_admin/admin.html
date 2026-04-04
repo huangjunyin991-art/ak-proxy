@@ -1309,10 +1309,47 @@
             overscroll-behavior-x: contain;
             scrollbar-width: none;
             -ms-overflow-style: none;
+            position: relative;
         }
 
         #usersTableContainer::-webkit-scrollbar {
             display: none;
+        }
+
+        #usersStickyGlow {
+            position: absolute;
+            top: 0;
+            bottom: 0;
+            width: 46px;
+            pointer-events: none;
+            z-index: 4;
+            opacity: 0;
+            transition: opacity 0.18s ease;
+        }
+
+        #usersStickyGlow::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            bottom: 0;
+            left: 0;
+            width: 2px;
+            background: linear-gradient(180deg, rgba(120, 248, 255, 0), rgba(120, 248, 255, 0.82) 18%, rgba(120, 248, 255, 0.95) 50%, rgba(120, 248, 255, 0.82) 82%, rgba(120, 248, 255, 0));
+            box-shadow: 0 0 10px rgba(0, 212, 255, 0.55), 0 0 22px rgba(0, 212, 255, 0.28);
+        }
+
+        #usersStickyGlow::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            bottom: 0;
+            left: 0;
+            width: 46px;
+            background: linear-gradient(90deg, rgba(70, 229, 255, 0.24) 0%, rgba(70, 229, 255, 0.11) 28%, rgba(70, 229, 255, 0.05) 55%, rgba(70, 229, 255, 0) 100%);
+        }
+
+        #usersTableContainer.users-sticky-glow-active #usersStickyGlow {
+            opacity: 1;
         }
 
         .editable-real-name-cell {
@@ -2360,6 +2397,7 @@
                         <tr><td colspan="17" style="text-align: center; color: var(--text-secondary);">加载中...</td></tr>
                     </tbody>
                 </table>
+                <div id="usersStickyGlow" aria-hidden="true"></div>
             </div>
             <!-- 分页控件 -->
             <div id="usersPagination" style="display: flex; align-items: center; justify-content: center; gap: 10px; margin-top: 15px; padding: 10px 0;">
@@ -3902,6 +3940,7 @@
             
             if (users.length === 0) {
                 tbody.innerHTML = '<tr><td colspan="17" style="text-align: center; color: var(--text-secondary);">暂无数据</td></tr>';
+                if (window.syncUsersStickyGlow) syncUsersStickyGlow();
                 return;
             }
             
@@ -3932,6 +3971,7 @@
                 </tr>`;
             }).join('');
             if (window.syncUsersScrollWidth) syncUsersScrollWidth();
+            if (window.syncUsersStickyGlow) syncUsersStickyGlow();
         }
         
         // 更新分页控件
@@ -7704,7 +7744,21 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
             var container = document.getElementById('usersTableContainer');
             var floatScroll = document.getElementById('usersFloatScroll');
             var floatInner = document.getElementById('usersFloatScrollInner');
+            var stickyGlow = document.getElementById('usersStickyGlow');
             var syncing = false;
+            function updateStickyGlow() {
+                if (!container || !stickyGlow) return;
+                var firstCell = container.querySelector('thead th:first-child') || container.querySelector('tbody td:first-child');
+                if (!firstCell) {
+                    container.classList.remove('users-sticky-glow-active');
+                    return;
+                }
+                var containerRect = container.getBoundingClientRect();
+                var firstRect = firstCell.getBoundingClientRect();
+                stickyGlow.style.left = Math.max(0, Math.round(firstRect.right - containerRect.left - 1)) + 'px';
+                var active = container.scrollLeft > 0 && container.scrollWidth > container.clientWidth + 1;
+                container.classList.toggle('users-sticky-glow-active', active);
+            }
             floatScroll.addEventListener('scroll', function() {
                 if (syncing) return; syncing = true;
                 container.scrollLeft = floatScroll.scrollLeft;
@@ -7714,6 +7768,7 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                 if (syncing) return; syncing = true;
                 floatScroll.scrollLeft = container.scrollLeft;
                 syncing = false;
+                updateStickyGlow();
             });
             function alignFloatScroll() {
                 var rect = container.getBoundingClientRect();
@@ -7723,18 +7778,26 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
             window.syncUsersScrollWidth = function() {
                 var table = container.querySelector('table');
                 if (table) floatInner.style.width = table.scrollWidth + 'px';
+                updateStickyGlow();
+            };
+            window.syncUsersStickyGlow = function() {
+                updateStickyGlow();
             };
             window.showUsersFloatScroll = function() {
                 floatScroll.style.display = '';
                 alignFloatScroll();
                 syncUsersScrollWidth();
+                updateStickyGlow();
             };
             window.hideUsersFloatScroll = function() {
                 floatScroll.style.display = 'none';
+                container.classList.remove('users-sticky-glow-active');
             };
             window.addEventListener('resize', function() {
                 if (floatScroll.style.display !== 'none') alignFloatScroll();
+                updateStickyGlow();
             });
+            updateStickyGlow();
         })();
 
         // ===== AK 网页浏览面板 =====
