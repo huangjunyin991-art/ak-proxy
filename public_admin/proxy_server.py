@@ -6010,6 +6010,14 @@ async def ak_web_proxy(request: Request, path: str):
             # HTML：注入 JS 拦截器
             if "text/html" in content_type and bs_id:
                 _sess = _browse_sessions.get(bs_id, {})
+                inject_user_model = _build_ak_user_model(_sess.get("login_result", {}), _sess.get("userkey", ""))
+                inject_model_key = str(inject_user_model.get("Key") or "").strip()
+                inject_user_id = str(inject_user_model.get("Id") or inject_user_model.get("ID") or _extract_login_user_id(_sess.get("login_result", {})) or "").strip()
+                logger.warning(
+                    f"[AkInjectAuth/{path}] bs={bs_id} source={bs_source} cookie_bs={cookie_bs or '-'} "
+                    f"username={_sess.get('username', '') or '-'} session_key={str(_sess.get('userkey', '') or '')[:12]} "
+                    f"inject_key={inject_model_key[:12]} inject_user_id={inject_user_id or '-'} referer={referer}"
+                )
                 if _use_native_ak_rpc(site_prefix):
                     injector = _build_native_injector(_sess.get("username", ""), _sess.get("password", ""), _sess.get("userkey", ""), _sess.get("login_result", {}))
                 else:
