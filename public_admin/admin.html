@@ -1447,12 +1447,19 @@
 
         .ak-browser-header {
             display:flex;
-            align-items:center;
-            gap:10px;
-            padding:10px 16px;
-            background:var(--bg-card);
-            border-bottom:1px solid var(--border);
+            justify-content:flex-end;
+            padding:10px 16px 8px;
+            background:linear-gradient(180deg, rgba(10, 20, 36, 0.92), rgba(10, 20, 36, 0.72));
+            border-bottom:1px solid rgba(255, 255, 255, 0.08);
             flex-shrink:0;
+        }
+
+        .ak-browser-header-main {
+            display:flex;
+            flex-direction:column;
+            align-items:flex-end;
+            gap:6px;
+            margin-left:auto;
         }
 
         .ak-browser-toolbar {
@@ -1462,20 +1469,63 @@
         }
 
         .ak-browser-title-text {
-            color: var(--accent);
-            font-weight: bold;
-            font-size: 14px;
-            flex: 1;
+            color: rgba(255, 255, 255, 0.42);
+            font-weight: 500;
+            font-size: 12px;
+            line-height: 1.2;
+            letter-spacing: 0.02em;
+            text-align: right;
         }
 
         .ak-browser-tool-btn {
-            padding:4px 12px;
-            border-radius:6px;
+            min-width: 48px;
+            min-height: 32px;
+            padding:0 12px;
+            border-radius:999px;
             cursor:pointer;
+            font-size:12px;
+            font-weight: 500;
+            border:1px solid rgba(255, 255, 255, 0.12);
+            background: rgba(11, 22, 46, 0.58);
+            color: rgba(255, 255, 255, 0.92);
+            transition: background 0.2s ease, border-color 0.2s ease, transform 0.2s ease;
+        }
+
+        .ak-browser-tool-btn:hover {
+            background: rgba(11, 22, 46, 0.74);
+            border-color: rgba(255, 255, 255, 0.22);
+        }
+
+        .ak-browser-tool-btn:active {
+            transform: translateY(1px);
+        }
+
+        .ak-browser-loading {
+            position:absolute;
+            inset:0;
+            display:none;
+            align-items:center;
+            justify-content:center;
+            flex-direction:column;
+            gap:10px;
+            background:linear-gradient(180deg, rgba(10, 20, 36, 0.96), rgba(10, 20, 36, 0.84));
+            z-index:1;
+        }
+
+        .ak-browser-loading-spinner {
+            width:26px;
+            height:26px;
+            border:3px solid rgba(0,212,255,0.18);
+            border-top-color:var(--accent);
+            border-radius:50%;
+            animation:spin 0.8s linear infinite;
+        }
+
+        .ak-browser-loading-text {
+            color:rgba(255, 255, 255, 0.72);
             font-size:13px;
-            border:1px solid var(--border);
-            background: var(--bg-primary);
-            color: var(--text-primary);
+            line-height:1.4;
+            text-align:center;
         }
         
         /* ===== 横屏提示 ===== */
@@ -1833,36 +1883,36 @@
 
             .ak-browser-header {
                 position: absolute;
-                top: max(6px, env(safe-area-inset-top));
-                left: 50%;
-                right: auto;
-                transform: translateX(-50%);
+                top: max(8px, env(safe-area-inset-top));
+                right: 12px;
+                left: auto;
+                transform: none;
                 z-index: 2;
                 padding: 0;
-                gap: 0;
                 background: transparent;
                 border-bottom: none;
                 pointer-events: none;
                 max-width: calc(100% - 16px);
             }
 
+            .ak-browser-header-main {
+                gap: 5px;
+            }
+
             .ak-browser-toolbar {
-                margin-left: 6px;
                 gap: 6px;
                 pointer-events: auto;
+                margin-left: 0;
             }
 
             .ak-browser-title-text {
-                flex: 0 1 auto;
-                max-width: calc(100% - 132px);
-                padding: 6px 10px;
-                border-radius: 10px;
-                background: rgba(11, 22, 46, 0.82);
-                backdrop-filter: blur(10px);
-                font-size: 12px;
+                max-width: 220px;
+                padding: 0 4px;
+                font-size: 11px;
                 line-height: 1.2;
-                color: var(--text-primary);
-                border: 1px solid rgba(255, 255, 255, 0.12);
+                color: rgba(255, 255, 255, 0.4);
+                background: none;
+                border: none;
                 pointer-events: auto;
             }
 
@@ -1872,10 +1922,10 @@
                 padding: 0 10px;
                 font-size: 12px;
                 line-height: 1;
-                border-radius: 10px;
-                background: rgba(11, 22, 46, 0.82);
+                border-radius: 999px;
+                background: rgba(11, 22, 46, 0.64);
                 border: 1px solid rgba(255, 255, 255, 0.12);
-                color: var(--text-primary);
+                color: rgba(255, 255, 255, 0.9);
                 pointer-events: auto;
             }
             
@@ -2860,17 +2910,19 @@
     <div id="akBrowserPanel" class="ak-browser-panel">
         <!-- 标题栏 -->
         <div class="ak-browser-header">
-            <span id="akBrowserTitle" class="ak-browser-title-text">AK 网页</span>
-            <div class="ak-browser-toolbar">
-                <button onclick="refreshAkBrowser()" class="ak-browser-tool-btn" aria-label="刷新后台" title="刷新后台">刷新</button>
-                <button onclick="closeAkBrowser()" class="ak-browser-tool-btn" aria-label="关闭后台" title="关闭后台">关闭</button>
+            <div class="ak-browser-header-main">
+                <div class="ak-browser-toolbar">
+                    <button onclick="refreshAkBrowser()" class="ak-browser-tool-btn" aria-label="刷新后台" title="刷新后台">刷新</button>
+                    <button onclick="closeAkBrowser()" class="ak-browser-tool-btn" aria-label="关闭后台" title="关闭后台">关闭</button>
+                </div>
+                <span id="akBrowserTitle" class="ak-browser-title-text">AK 后台</span>
             </div>
         </div>
         <div class="ak-browser-stage" id="akBrowserStage">
             <div class="ak-browser-stage-frame" id="akBrowserStageFrame">
-                <div id="akBrowserLoading" style="position:absolute; inset:0; display:none; align-items:center; justify-content:center; flex-direction:column; gap:12px; background:var(--bg-primary); z-index:1;">
-                    <div style="width:28px; height:28px; border:3px solid rgba(0,212,255,0.18); border-top-color:var(--accent); border-radius:50%; animation:spin 0.8s linear infinite;"></div>
-                    <div id="akBrowserLoadingText" style="color:var(--text-secondary); font-size:13px;">正在进入AK后台...</div>
+                <div id="akBrowserLoading" class="ak-browser-loading">
+                    <div class="ak-browser-loading-spinner"></div>
+                    <div id="akBrowserLoadingText" class="ak-browser-loading-text">正在进入后台</div>
                 </div>
                 <iframe id="akBrowserFrame" src="about:blank" style="border:none; width:100%; height:100%; visibility:hidden; background:var(--bg-primary);"
                         sandbox="allow-scripts allow-same-origin allow-forms allow-popups"></iframe>
@@ -7606,12 +7658,35 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
         let akBrowserLoadSeq = 0;
         let akBrowserRetryTimer = null;
 
-        function setAkBrowserLoading(visible, text = '正在进入AK后台...') {
+        function formatAkBrowserTitle(username) {
+            const name = String(username || '').trim();
+            return name ? `${name} 的后台` : 'AK 后台';
+        }
+
+        function formatAkBrowserLoadingText(username) {
+            const name = String(username || '').trim();
+            return name ? `正在进入 ${name} 的后台` : '正在进入后台';
+        }
+
+        function setAkBrowserTitle(username) {
+            const title = document.getElementById('akBrowserTitle');
+            if (!title) return;
+            const name = String(username || '').trim();
+            title.dataset.username = name;
+            title.textContent = formatAkBrowserTitle(name);
+        }
+
+        function getAkBrowserCurrentUsername() {
+            const title = document.getElementById('akBrowserTitle');
+            return title ? (title.dataset.username || '') : '';
+        }
+
+        function setAkBrowserLoading(visible, username = '') {
             const loading = document.getElementById('akBrowserLoading');
             const loadingText = document.getElementById('akBrowserLoadingText');
             const frame = document.getElementById('akBrowserFrame');
             loading.style.display = visible ? 'flex' : 'none';
-            loadingText.textContent = text;
+            loadingText.textContent = formatAkBrowserLoadingText(username || getAkBrowserCurrentUsername());
             frame.style.visibility = visible ? 'hidden' : 'visible';
         }
 
@@ -7667,7 +7742,6 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
 
         function bindAkBrowserFrame(username, seq) {
             const frame = document.getElementById('akBrowserFrame');
-            const title = document.getElementById('akBrowserTitle');
             frame.onload = () => {
                 if (seq !== akBrowserLoadSeq) return;
                 if (akBrowserRetryTimer) {
@@ -7679,14 +7753,14 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                     const href = frame.contentWindow.location.href || '';
                     const path = new URL(href, window.location.origin).pathname;
                     if (path.includes('/pages/account/login.html')) {
-                        title.textContent = username;
-                        setAkBrowserLoading(true, `正在为 ${username} 自动登录...`);
+                        setAkBrowserTitle(username);
+                        setAkBrowserLoading(true, username);
                         return;
                     }
                 } catch (e) {
                 }
-                title.textContent = username;
-                setAkBrowserLoading(false);
+                setAkBrowserTitle(username);
+                setAkBrowserLoading(false, username);
             };
         }
 
@@ -7694,15 +7768,14 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
             const panel = document.getElementById('akBrowserPanel');
             const overlay = document.getElementById('akBrowserOverlay');
             const frame = document.getElementById('akBrowserFrame');
-            const title = document.getElementById('akBrowserTitle');
             const seq = ++akBrowserLoadSeq;
             if (akBrowserRetryTimer) {
                 clearTimeout(akBrowserRetryTimer);
                 akBrowserRetryTimer = null;
             }
             clearAkBrowserSwipeBinding();
-            title.textContent = username;
-            setAkBrowserLoading(true, `正在为 ${username} 准备登录页面...`);
+            setAkBrowserTitle(username);
+            setAkBrowserLoading(true, username);
             frame.onload = null;
             frame.src = 'about:blank';
             panel.classList.add('open');
@@ -7716,7 +7789,7 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                 });
                 const data = await res.json();
                 if (data.success) {
-                    title.textContent = username;
+                    setAkBrowserTitle(username);
                     if ('serviceWorker' in navigator) {
                         const regs = await navigator.serviceWorker.getRegistrations();
                         await Promise.all(regs.map(r => r.unregister()));
@@ -7726,18 +7799,18 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                     frame.src = entryUrl;
                 } else {
                     setAkBrowserLoading(false);
-                    title.textContent = `登录失败: ${data.message}`;
+                    document.getElementById('akBrowserTitle').textContent = `登录失败: ${data.message}`;
                 }
             } catch (e) {
                 setAkBrowserLoading(false);
-                title.textContent = `登录失败: ${e.message}`;
+                document.getElementById('akBrowserTitle').textContent = `登录失败: ${e.message}`;
             }
         }
 
         function refreshAkBrowser() {
             const frame = document.getElementById('akBrowserFrame');
             if (!frame || frame.src === 'about:blank') return;
-            setAkBrowserLoading(true, '正在刷新AK后台...');
+            setAkBrowserLoading(true, getAkBrowserCurrentUsername());
             frame.src = `${API_BASE}/admin/ak-web/pages/account/login.html`;
         }
 
