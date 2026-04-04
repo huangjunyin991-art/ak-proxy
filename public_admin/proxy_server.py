@@ -1275,7 +1275,21 @@ async def proxy_rpc(path: str, request: Request):
 
             pass
 
-    
+    trace_rpc_paths = {
+        "public_ace",
+        "public_ep_sellrecords1",
+        "public_ep_sellrecords2",
+        "public_ep_sellrecords3",
+    }
+    normalized_path = path.strip("/").lower()
+    if normalized_path in trace_rpc_paths:
+        logger.warning(
+            f"[RpcInput/{path}] referer={referer} cookie_bs={cookie_bs or '-'} "
+            f"key={str(params.get('key') or params.get('Key') or '')[:32]} "
+            f"user_id={str(params.get('UserID') or params.get('userid') or params.get('Id') or '')} "
+            f"account={params.get('account') or ''} type={params.get('type') or ''} "
+            f"content_type={content_type or '-'}"
+        )
 
     logger.debug(f"[RPC/{path}] 转发请求")
 
