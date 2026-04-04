@@ -5035,7 +5035,7 @@ async def cdn_cgi_proxy(path: str, request: Request):
 _browse_sessions: dict = {}          # {bs_id: {cookies, username, expires}}
 _ak_auth_cache: dict = {}
 _BROWSE_SESSION_TTL = 3600           # session 有效期 1 小时
-_AK_BASE = "https://ak928.vip"  # AK 网站根地址
+_AK_BASE = "https://k937.com"  # AK 网站根地址
 _AK_HOME_PATH = "/pages/home.html?first=true"
 _ADMIN_AK_FORCE_DIRECT = True
 _BROWSE_SESSION_COOKIE = "ak_admin_bs"
