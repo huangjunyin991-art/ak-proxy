@@ -5861,6 +5861,14 @@ async def ak_web_proxy(request: Request, path: str):
 
     normalized_path = path.lstrip("/").lower()
     requested_bs = (request.query_params.get("bs") or "").strip()
+    debug_body_targets = {
+        "content/js/base.js",
+        "content/js/pages/home.js",
+        "content/js/vue-component.js",
+        "assets/css/home.css",
+        "assets/css/vue-component.css",
+        "assets/css/notice.css",
+    }
     if request.method == "GET" and normalized_path.startswith("pages/") and normalized_path.endswith(".html"):
         logger.warning(
             f"[AkPageEntry/{path}] requested_bs={requested_bs or '-'} resolved_bs={bs_id or '-'} "
@@ -5954,6 +5962,11 @@ async def ak_web_proxy(request: Request, path: str):
                 logger.warning(f"[AkBaseJsRewrite/{path}] bs={bs_id} source={bs_source} cookie_bs={cookie_bs} referer={referer} target={target_url} final_url={resp.url}")
                 content = text.encode("utf-8")
 
+        if any(t in content_type.lower() for t in ("javascript", "ecmascript")) and normalized_path in debug_body_targets:
+            js_text = content.decode("utf-8", errors="replace")
+            js_has_old_host = int(any(token in js_text for token in ("ak928.vip", "www.ak928.vip", "404.html")))
+            logger.warning(f"[AkJsBody/{path}] bs={bs_id} referer={referer} target={target_url} final_url={resp.url} old_host={js_has_old_host} body_head={js_text[:400]!r}")
+
         # 对文本内容（HTML/CSS）做 URL 替换 + HTML 注入拦截器
         if any(t in content_type for t in ("text/html", "text/css")):
             text = content.decode("utf-8", errors="replace")
@@ -5968,6 +5981,9 @@ async def ak_web_proxy(request: Request, path: str):
                 text = _rewrite_site_html_roots(text, site_prefix)
                 text = _rewrite_site_css_roots(text, site_prefix)
                 logger.warning(f"[HtmlRewrite/{path}] bs={bs_id} final_url={resp.url} head_sample={text[:400]!r}")
+            if "text/css" in content_type and normalized_path in debug_body_targets:
+                css_has_old_host = int(any(token in text for token in ("ak928.vip", "www.ak928.vip", "404.html")))
+                logger.warning(f"[AkCssBody/{path}] bs={bs_id} referer={referer} target={target_url} final_url={resp.url} old_host={css_has_old_host} body_head={text[:400]!r}")
             # HTML：注入 JS 拦截器
             if "text/html" in content_type and bs_id:
                 _sess = _browse_sessions.get(bs_id, {})
