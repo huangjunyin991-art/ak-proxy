@@ -5330,6 +5330,7 @@ def _get_browse_session(bs_id: str):
 
 def _resolve_browse_session(request: Request, preferred_username: str = "", source_order=None):
     candidates = _resolve_browse_bs_candidates(request, source_order=source_order)
+    session = None
     wanted = (preferred_username or "").strip().lower()
     if wanted:
         for bs_id, bs_source in candidates:
