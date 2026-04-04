@@ -1634,6 +1634,44 @@
                 white-space: nowrap;
             }
 
+            #usage {
+                padding-bottom: 156px;
+            }
+
+            #usage .table-container {
+                margin-bottom: 16px;
+            }
+
+            #usagePagination {
+                position: fixed;
+                left: 12px;
+                right: 12px;
+                bottom: calc(env(safe-area-inset-bottom, 0px) + 18px);
+                z-index: 1001;
+                margin-top: 0 !important;
+                padding: 8px 10px !important;
+                border: 1px solid var(--border);
+                border-radius: 12px;
+                background: rgba(11, 22, 46, 0.92);
+                backdrop-filter: blur(8px);
+                box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
+                flex-wrap: wrap;
+                gap: 8px !important;
+            }
+
+            #usagePagination .btn-page {
+                min-height: 34px;
+                padding: 0 10px !important;
+                font-size: 11px;
+            }
+
+            #usagePageInfo {
+                width: 100%;
+                min-width: 0 !important;
+                font-size: 12px !important;
+                order: -1;
+            }
+
             #users {
                 padding-bottom: 156px;
             }
@@ -3567,9 +3605,13 @@
             return getMobileLayoutMedia().matches ? 20 : 100;
         }
 
+        function getUsagePageSize() {
+            return 100;
+        }
+
         async function loadUsage(page = 0) {
             usageCurrentPage = page;
-            const pageSize = getAdminListPageSize();
+            const pageSize = getUsagePageSize();
             const offset = page * pageSize;
             try {
                 let url = `${API_BASE}/admin/api/usage?limit=${pageSize}&offset=${offset}`;
