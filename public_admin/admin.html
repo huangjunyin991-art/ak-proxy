@@ -1170,12 +1170,12 @@
             align-items: center;
             justify-content: space-between;
             gap: 12px;
-            padding: 12px 15px;
-            background: var(--bg-secondary);
+            background: rgba(11, 22, 46, 0.96);
+            backdrop-filter: blur(14px);
             border-bottom: 1px solid var(--border);
             position: sticky;
             top: 0;
-            z-index: 150;
+            z-index: 1102;
         }
 
         .mobile-shell-left {
@@ -1378,7 +1378,7 @@
             position: fixed;
             inset: 0;
             background: rgba(0, 0, 0, 0.45);
-            z-index: 169;
+            z-index: 1103;
         }
 
         .mobile-tab-overlay.active {
@@ -1396,7 +1396,7 @@
             box-shadow: 4px 0 24px rgba(0, 0, 0, 0.35);
             transform: translateX(-100%);
             transition: transform 0.25s ease;
-            z-index: 170;
+            z-index: 1104;
             display: flex;
             flex-direction: column;
         }
