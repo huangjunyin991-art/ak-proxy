@@ -2025,7 +2025,9 @@
             <h2>AK后台监控系统</h2>
             <p class="subtitle">管理员登录</p>
             <input type="password" class="login-input" id="loginPassword" 
-                   placeholder="请输入管理员密码" onkeypress="if(event.keyCode===13)doLogin()">
+                   placeholder="请输入管理员密码" onkeypress="if(event.keyCode===13)doLogin()"
+                   autocomplete="new-password" autocorrect="off" autocapitalize="off" spellcheck="false"
+                   data-form-type="other" data-lpignore="true" data-1p-ignore="true">
             <button class="login-btn" onclick="doLogin()"> 登 录</button>
             <p class="login-error" id="loginError">密码错误，请重试</p>
         </div>
@@ -2726,18 +2728,24 @@
                                 <div style="flex: 1; min-width: 100px;">
                                     <label style="display: block; margin-bottom: 4px; color: var(--text-secondary); font-size: 11px;">登录密码</label>
                                     <input type="password" id="newSubAdminPassword" placeholder="至少6位" 
+                                           autocomplete="new-password" autocorrect="off" autocapitalize="off" spellcheck="false"
+                                           data-form-type="other" data-lpignore="true" data-1p-ignore="true"
                                            style="width: 100%; padding: 8px 10px; background: var(--bg-secondary); border: 1px solid var(--border); 
                                                   border-radius: 6px; color: var(--text-primary); font-size: 13px;">
                                 </div>
                                 <div style="flex: 1; min-width: 100px;">
                                     <label style="display: block; margin-bottom: 4px; color: var(--text-secondary); font-size: 11px;">总管理密码</label>
                                     <input type="password" id="subAdminSuperPassword" placeholder="验证身份" 
+                                           autocomplete="new-password" autocorrect="off" autocapitalize="off" spellcheck="false"
+                                           data-form-type="other" data-lpignore="true" data-1p-ignore="true"
                                            style="width: 100%; padding: 8px 10px; background: var(--bg-secondary); border: 1px solid var(--border); 
                                                   border-radius: 6px; color: var(--text-primary); font-size: 13px;">
                                 </div>
                                 <div style="flex: 1; min-width: 100px;">
                                     <label style="display: block; margin-bottom: 4px; color: var(--accent-yellow); font-size: 11px;">🔑 二级密码</label>
                                     <input type="password" id="subAdminSecondaryPassword" placeholder="确认操作" 
+                                           autocomplete="new-password" autocorrect="off" autocapitalize="off" spellcheck="false"
+                                           data-form-type="other" data-lpignore="true" data-1p-ignore="true"
                                            style="width: 100%; padding: 8px 10px; background: var(--bg-secondary); border: 1px solid var(--accent-yellow); 
                                                   border-radius: 6px; color: var(--text-primary); font-size: 13px;">
                                 </div>
@@ -3064,6 +3072,8 @@
             </p>
             <input type="password" id="dbSecondaryPassword" placeholder="请输入二级密码" 
                    onkeypress="if(event.keyCode===13)verifyDbPassword()"
+                   autocomplete="new-password" autocorrect="off" autocapitalize="off" spellcheck="false"
+                   data-form-type="other" data-lpignore="true" data-1p-ignore="true"
                    style="width: 100%; padding: 14px 18px; background: var(--bg-primary); border: 1px solid var(--border); 
                           border-radius: 10px; color: var(--text-primary); font-size: 15px; margin-bottom: 10px; text-align: center;">
             <p id="dbAuthError" style="color: var(--accent-red); margin-bottom: 10px; font-size: 14px; display: none;"></p>
@@ -3527,6 +3537,73 @@
             return data.data || {username, real_name: realName};
         }
 
+        function buildAutofillGuardName(field, index) {
+            const base = String(field.id || field.type || field.placeholder || 'field')
+                .toLowerCase()
+                .replace(/[^a-z0-9]+/g, '_')
+                .replace(/^_+|_+$/g, '') || 'field';
+            return `ak_guard_${base}_${index}`;
+        }
+
+        function setupPasswordAutofillGuard(field) {
+            if (!field || field.dataset.akPasswordGuard === '1') return;
+            field.dataset.akPasswordGuard = '1';
+            const unlock = () => {
+                if (field.readOnly) {
+                    field.readOnly = false;
+                }
+            };
+            if (document.activeElement !== field) {
+                field.readOnly = true;
+            }
+            field.addEventListener('focus', unlock);
+            field.addEventListener('pointerdown', unlock, { passive: true });
+            field.addEventListener('touchstart', unlock, { passive: true });
+        }
+
+        function applyInputAutofillGuard(root = document) {
+            const scope = root && typeof root.querySelectorAll === 'function' ? root : document;
+            const fields = scope.querySelectorAll('input, textarea');
+            fields.forEach((field, index) => {
+                if (!(field instanceof HTMLElement) || field.dataset.akAutofillGuard === '1') return;
+                field.dataset.akAutofillGuard = '1';
+                const type = String(field.type || 'text').toLowerCase();
+                field.setAttribute('autocomplete', type === 'password' ? 'new-password' : 'off');
+                field.setAttribute('autocorrect', 'off');
+                field.setAttribute('autocapitalize', 'off');
+                field.setAttribute('spellcheck', 'false');
+                field.setAttribute('data-form-type', 'other');
+                field.setAttribute('data-lpignore', 'true');
+                field.setAttribute('data-1p-ignore', 'true');
+                if (!field.name || /^(username|email|password|pass|search|account)$/i.test(field.name)) {
+                    field.name = buildAutofillGuardName(field, index);
+                }
+                if (type === 'password') {
+                    setupPasswordAutofillGuard(field);
+                }
+            });
+        }
+
+        if (document.body && !window.__akAutofillGuardObserver) {
+            window.__akAutofillGuardObserver = new MutationObserver((mutations) => {
+                mutations.forEach((mutation) => {
+                    mutation.addedNodes.forEach((node) => {
+                        if (!(node instanceof HTMLElement)) return;
+                        if (node.matches && node.matches('input, textarea')) {
+                            applyInputAutofillGuard(node.parentElement || node);
+                            return;
+                        }
+                        if (node.querySelector && node.querySelector('input, textarea')) {
+                            applyInputAutofillGuard(node);
+                        }
+                    });
+                });
+            });
+            window.__akAutofillGuardObserver.observe(document.body, { childList: true, subtree: true });
+        }
+
+        applyInputAutofillGuard(document);
+
         async function commitRealNameEdit(cell, input) {
             if (cell.dataset.saving === '1') return;
             const username = decodeURIComponent(cell.dataset.username || '');
@@ -3570,6 +3647,7 @@
             input.setAttribute('data-lpignore', 'true');
             input.setAttribute('data-1p-ignore', 'true');
             cell.appendChild(input);
+            applyInputAutofillGuard(cell);
             input.focus();
             input.select();
             requestAnimationFrame(() => {
