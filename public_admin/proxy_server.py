@@ -5564,13 +5564,14 @@ async def _forward_admin_ak_rpc_request(path: str, request: Request, session: di
             user_data = {}
         session_userkey = str(session.get("userkey") or _extract_userkey(login_result) or "").strip()
         session_user_id = str(user_data.get("Id") or user_data.get("ID") or "").strip()
-        current_key = str(params.get("key") or "").strip().lower()
-        current_user_id = str(params.get("UserID") or params.get("userid") or "").strip().lower()
-        if session_userkey and current_key in {"", "123", "undefined", "null"}:
+        current_key = str(params.get("key") or "").strip()
+        current_user_id = str(params.get("UserID") or params.get("userid") or "").strip()
+        if session_userkey and current_key != session_userkey:
             params["key"] = session_userkey
             auth_replaced = True
-        if session_user_id and current_user_id in {"", "123", "undefined", "null"}:
+        if session_user_id and current_user_id != session_user_id:
             params["UserID"] = session_user_id
+            params.pop("userid", None)
             auth_replaced = True
         if auth_replaced and request.method in ["POST", "PUT"]:
             if "application/json" in content_type:
