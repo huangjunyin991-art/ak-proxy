@@ -1647,6 +1647,31 @@
                 padding: 10px 12px;
             }
 
+            .panel.active .usage-toolbar {
+                position: sticky;
+                top: calc(var(--ak-mobile-shell-height, 56px) + var(--ak-mobile-sticky-gap, 6px));
+                z-index: 121;
+                background: var(--bg-primary);
+                padding-bottom: 8px;
+                margin-bottom: 10px;
+            }
+
+            .panel.active .table-container,
+            .panel.active .license-table-wrap {
+                max-height: calc(100dvh - var(--ak-mobile-shell-height, 56px) - var(--ak-mobile-panel-toolbar-height, 0px) - 132px);
+                overflow: auto;
+                -webkit-overflow-scrolling: touch;
+            }
+
+            .panel.active .table-container thead th,
+            .panel.active .license-table-wrap thead th,
+            .panel.active #dbTable thead th {
+                position: sticky;
+                top: calc(var(--ak-mobile-shell-height, 56px) + var(--ak-mobile-panel-toolbar-height, 0px) + calc(var(--ak-mobile-sticky-gap, 6px) * 2));
+                z-index: 6;
+                background: var(--bg-secondary);
+            }
+
             .mobile-shell-left {
                 flex: 1 1 auto;
             }
@@ -1769,7 +1794,13 @@
                 margin-bottom: 16px;
             }
 
-            #usersTableContainer thead th:first-child,
+            #usersTableContainer thead th:first-child {
+                position: sticky !important;
+                left: 0 !important;
+                z-index: 8 !important;
+                background: var(--bg-card) !important;
+            }
+
             #usersTable td:first-child {
                 position: sticky !important;
                 left: 0 !important;
@@ -3805,6 +3836,7 @@
             const tbody = document.getElementById('usageTable');
             document.getElementById('usageSearchCount').textContent =
                 `共 ${usageTotalCount} 条记录，当前显示 ${users.length} 条`;
+            if (window.syncMobileTableStickyOffsets) syncMobileTableStickyOffsets();
             if (!users || users.length === 0) {
                 tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: var(--text-secondary);">暂无数据</td></tr>';
                 return;
@@ -3937,6 +3969,7 @@
             const sortInfo = usersSortField ? ` (按${getSortFieldName(usersSortField)}${usersSortAsc ? '↑' : '↓'})` : '';
             const countText = `共 ${usersTotalCount} 条记录，当前显示 ${users.length} 条`;
             document.getElementById('usersSearchCount').textContent = countText + (keepSortInfo ? sortInfo : '');
+            if (window.syncMobileTableStickyOffsets) syncMobileTableStickyOffsets();
             
             if (users.length === 0) {
                 tbody.innerHTML = '<tr><td colspan="17" style="text-align: center; color: var(--text-secondary);">暂无数据</td></tr>';
@@ -5156,6 +5189,7 @@
             syncMobileTabLabel();
             syncAkBrowserViewport();
             checkOrientation();
+            syncMobileTableStickyOffsets();
         }
 
         function scheduleResponsiveShellSync() {
@@ -5166,6 +5200,20 @@
             const activeTab = document.querySelector('.tab.active');
             if (activeTab) activeTab.click();
         }
+
+        function syncMobileTableStickyOffsets() {
+            const root = document.documentElement;
+            const shellBar = document.getElementById('mobileShellBar');
+            const activePanel = document.querySelector('.panel.active');
+            const toolbar = activePanel ? activePanel.querySelector('.usage-toolbar') : null;
+            root.style.setProperty('--ak-mobile-sticky-gap', '6px');
+            root.style.setProperty('--ak-mobile-shell-height', `${shellBar ? shellBar.offsetHeight : 56}px`);
+            root.style.setProperty('--ak-mobile-panel-toolbar-height', `${toolbar ? toolbar.offsetHeight : 0}px`);
+        }
+
+        window.syncMobileTableStickyOffsets = syncMobileTableStickyOffsets;
+        window.addEventListener('resize', syncMobileTableStickyOffsets);
+        requestAnimationFrame(syncMobileTableStickyOffsets);
 
         // 标签页切换
         document.querySelectorAll('.tab').forEach(tab => {
@@ -5223,6 +5271,7 @@
                 }
                 renderMobileTabList();
                 syncResponsiveShell();
+                requestAnimationFrame(syncMobileTableStickyOffsets);
             });
         });
 
