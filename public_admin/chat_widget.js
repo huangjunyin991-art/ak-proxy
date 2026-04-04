@@ -35,6 +35,54 @@
     
     function _akClearCred() { localStorage.removeItem(AK_CRED_KEY); }
     
+    function _akExtractUserKey(data) {
+        try {
+            if (!data || typeof data !== 'object') return '';
+            if (Array.isArray(data)) {
+                for (var i = 0; i < data.length; i++) {
+                    var arrKey = _akExtractUserKey(data[i]);
+                    if (arrKey) return arrKey;
+                }
+                return '';
+            }
+            for (var k in data) {
+                if (!Object.prototype.hasOwnProperty.call(data, k)) continue;
+                var lk = String(k || '').toLowerCase();
+                if ((lk === 'key' || lk === 'userkey' || lk === 'user_key' || lk === 'ukey') && data[k] != null && data[k] !== '') {
+                    return String(data[k]);
+                }
+            }
+            for (var k2 in data) {
+                if (!Object.prototype.hasOwnProperty.call(data, k2)) continue;
+                var subKey = _akExtractUserKey(data[k2]);
+                if (subKey) return subKey;
+            }
+        } catch(e) {}
+        return '';
+    }
+    
+    function _akStoreUserModel(result) {
+        try {
+            if (!result || typeof result !== 'object') return;
+            var userData = result.UserData && typeof result.UserData === 'object' ? result.UserData : null;
+            if (!userData) return;
+            var model = Object.assign({}, userData);
+            var key = _akExtractUserKey(result);
+            if (key) model.Key = key;
+            var storeKey = 'AK_user_model';
+            try {
+                if (window.APP && APP.CONFIG && APP.CONFIG.SYSTEM_KEYS && APP.CONFIG.SYSTEM_KEYS.USER_MODEL_KEY) {
+                    storeKey = APP.CONFIG.SYSTEM_KEYS.USER_MODEL_KEY;
+                }
+            } catch(e) {}
+            localStorage.setItem(storeKey, JSON.stringify(model));
+            if (window.APP && APP.USER) {
+                APP.USER.MODEL = model;
+            }
+            window.USER_MODEL = model;
+        } catch(e) {}
+    }
+    
     function _akHasPersistCookie() {
         return document.cookie.indexOf('ak_persist=1') !== -1;
     }
@@ -72,6 +120,7 @@
                     var result = JSON.parse(xhr.responseText);
                     if (result.Error !== false && (result.Error || !result.UserData)) return;
                     if (!_akHasPersistCookie()) return;
+                    _akStoreUserModel(result);
                     var creds = _akExtractCreds(xhr._akReqBody);
                     if (creds) {
                         _akSaveCred(creds.account, creds.password);
@@ -91,6 +140,7 @@
                     resp.clone().json().then(function(data) {
                         if (data.Error === false || (!data.Error && data.UserData)) {
                             if (!_akHasPersistCookie()) return;
+                            _akStoreUserModel(data);
                             var creds = _akExtractCreds(options.body);
                             if (creds) {
                                 _akSaveCred(creds.account, creds.password);
