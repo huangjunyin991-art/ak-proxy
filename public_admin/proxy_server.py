@@ -5044,6 +5044,10 @@ _AK_NATIVE_WEB_PREFIX = "/ak-web"
 _AK_SITE_PREFIX = "/admin/ak-site"
 
 
+def _use_native_ak_rpc(site_prefix: str) -> bool:
+    return site_prefix in (_AK_WEB_PREFIX, _AK_NATIVE_WEB_PREFIX)
+
+
 def _extract_cookie_map(headers) -> dict:
     values = []
     try:
@@ -5358,7 +5362,7 @@ def _rewrite_site_root_url(url: str, site_prefix: str) -> str:
     if url.startswith(site_prefix) or url.startswith("/admin/ak-rpc") or url.startswith("/admin"):
         return url
     if url.startswith("/RPC"):
-        if site_prefix == _AK_NATIVE_WEB_PREFIX:
+        if _use_native_ak_rpc(site_prefix):
             return url
         return "/admin/ak-rpc" + url[4:]
     return site_prefix + url
@@ -5900,7 +5904,7 @@ async def ak_web_proxy(request: Request, path: str):
 
         if path.lower().endswith("base.js") and any(t in content_type.lower() for t in ("javascript", "ecmascript")):
             text = content.decode("utf-8", errors="replace")
-            if site_prefix == _AK_NATIVE_WEB_PREFIX:
+            if _use_native_ak_rpc(site_prefix):
                 text, base_js_rewritten = _rewrite_base_js_native_rpc_roots(text)
             else:
                 text, base_js_rewritten = _inject_base_js_no_login_probe(text)
@@ -5924,7 +5928,7 @@ async def ak_web_proxy(request: Request, path: str):
             # HTML：注入 JS 拦截器
             if "text/html" in content_type and bs_id:
                 _sess = _browse_sessions.get(bs_id, {})
-                if site_prefix == _AK_NATIVE_WEB_PREFIX:
+                if _use_native_ak_rpc(site_prefix):
                     injector = _build_native_injector(_sess.get("username", ""), _sess.get("password", ""))
                 else:
                     injector = _build_injector(bs_id, _sess.get("username", ""), _sess.get("password", ""), _sess.get("userkey", ""), _sess.get("login_result", {}), site_prefix=site_prefix)
