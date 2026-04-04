@@ -5383,7 +5383,7 @@ def _rewrite_site_root_url(url: str, site_prefix: str) -> str:
 
 
 def _rewrite_site_html_roots(text: str, site_prefix: str) -> str:
-    pattern = re.compile(r'(?P<prefix>\b(?:src|href|action|poster)=\s*["\"])(?P<url>/[^"\\r\\n>]*)(?P<suffix>["\"])', re.IGNORECASE)
+    pattern = re.compile(r'(?P<prefix>\b(?:src|href|action|poster)=\s*["\'])(?P<url>/[^"\'>\r\n]*)(?P<suffix>["\'])', re.IGNORECASE)
     return pattern.sub(lambda m: f"{m.group('prefix')}{_rewrite_site_root_url(m.group('url'), site_prefix)}{m.group('suffix')}", text)
 
 
