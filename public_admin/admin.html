@@ -7680,9 +7680,7 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                         await Promise.all(regs.map(r => r.unregister()));
                     }
                     bindAkBrowserFrame(username, seq);
-                    const entryUrl = data.entry_url
-                        ? (data.entry_url.startsWith('http') ? data.entry_url : `${API_BASE}${data.entry_url}`)
-                        : `${API_BASE}/admin/ak-web/pages/account/login.html?bs=${data.bs_id}`;
+                    const entryUrl = `${API_BASE}/admin/ak-web/pages/account/login.html`;
                     frame.src = entryUrl;
                 } else {
                     setAkBrowserLoading(false);
@@ -7698,12 +7696,7 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
             const frame = document.getElementById('akBrowserFrame');
             if (!frame || frame.src === 'about:blank') return;
             setAkBrowserLoading(true, '正在刷新AK后台...');
-            try {
-                const href = frame.contentWindow.location.href || frame.src;
-                frame.src = href || frame.src;
-            } catch (e) {
-                frame.src = frame.src;
-            }
+            frame.src = `${API_BASE}/admin/ak-web/pages/account/login.html`;
         }
 
         function closeAkBrowser() {
