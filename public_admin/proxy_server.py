@@ -5120,6 +5120,22 @@ def _extract_userkey(data):
     return ""
 
 
+def _extract_login_result_userkey(login_result: dict) -> str:
+    if not isinstance(login_result, dict):
+        return ""
+    result_key = login_result.get("Key")
+    if result_key not in (None, ""):
+        return str(result_key)
+    user_data = login_result.get("UserData")
+    if not isinstance(user_data, dict):
+        return ""
+    for key in ("Key", "key", "UserKey", "userkey", "ukey"):
+        value = user_data.get(key)
+        if value not in (None, ""):
+            return str(value)
+    return ""
+
+
 def _extract_login_user_id(login_result: dict) -> str:
     if not isinstance(login_result, dict):
         return ""
@@ -5142,7 +5158,7 @@ def _build_ak_user_model(login_result: dict, userkey: str = "") -> dict:
         result_key = login_result.get("Key")
         if result_key not in (None, ""):
             user_model["Key"] = str(result_key)
-    key = userkey or user_model.get("Key") or _extract_userkey(login_result)
+    key = userkey or _extract_login_result_userkey(login_result)
     if key:
         user_model["Key"] = key
     return user_model
@@ -5157,7 +5173,7 @@ def _build_ak_local_login_info(username: str, password: str) -> list:
 def _cache_ak_auth(username: str, password: str, result: dict, headers) -> dict:
     cached = {
         "cookies": _extract_cookie_map(headers),
-        "userkey": _extract_userkey(result),
+        "userkey": _extract_login_result_userkey(result),
         "login_result": result,
         "password": password,
         "expires": time.time() + _BROWSE_SESSION_TTL,
@@ -5562,7 +5578,7 @@ async def _forward_admin_ak_rpc_request(path: str, request: Request, session: di
         user_data = login_result.get("UserData")
         if not isinstance(user_data, dict):
             user_data = {}
-        session_userkey = str(session.get("userkey") or _extract_userkey(login_result) or "").strip()
+        session_userkey = str(session.get("userkey") or _extract_login_result_userkey(login_result) or "").strip()
         session_user_id = str(user_data.get("Id") or user_data.get("ID") or "").strip()
         current_key = str(params.get("key") or "").strip()
         current_user_id = str(params.get("UserID") or params.get("userid") or "").strip()
