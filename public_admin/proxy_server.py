@@ -5278,10 +5278,16 @@ def _rewrite_site_css_roots(text: str, site_prefix: str) -> str:
     return pattern.sub(lambda m: f"url({m.group('quote')}{_rewrite_site_root_url(m.group('url'), site_prefix)}{m.group('quote')})", text)
 
 
+def _rewrite_base_js_rpc_roots(text: str) -> tuple[str, bool]:
+    rewritten = re.sub(r'https?://[^/"\'\s]+/RPC/', '/admin/ak-rpc/', text, flags=re.IGNORECASE)
+    return rewritten, rewritten != text
+
+
 def _inject_base_js_no_login_probe(text: str) -> tuple[str, bool]:
+    text, rewritten = _rewrite_base_js_rpc_roots(text)
     marker = "[AKBaseNoLogin]"
     if marker in text:
-        return text, False
+        return text, rewritten
     probe = (
         "(function(){"
         "try{if(window.__akBaseNoLoginProbeInstalled)return;window.__akBaseNoLoginProbeInstalled=true;"
@@ -5760,9 +5766,9 @@ async def ak_web_proxy(request: Request, path: str):
 
         if path.lower().endswith("base.js") and any(t in content_type.lower() for t in ("javascript", "ecmascript")):
             text = content.decode("utf-8", errors="replace")
-            text, base_probe_injected = _inject_base_js_no_login_probe(text)
-            if base_probe_injected:
-                logger.warning(f"[AkBaseJsProbe/{path}] bs={bs_id} source={bs_source} cookie_bs={cookie_bs} referer={referer} target={target_url} final_url={resp.url}")
+            text, base_js_rewritten = _inject_base_js_no_login_probe(text)
+            if base_js_rewritten:
+                logger.warning(f"[AkBaseJsRewrite/{path}] bs={bs_id} source={bs_source} cookie_bs={cookie_bs} referer={referer} target={target_url} final_url={resp.url}")
                 content = text.encode("utf-8")
 
         # 对文本内容（HTML/CSS）做 URL 替换 + HTML 注入拦截器
