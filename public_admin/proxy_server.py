@@ -771,7 +771,8 @@ async def proxy_login(request: Request):
 
     logger.info(f"[Login] 账号={account}, IP={client_ip}")
     if "/admin/ak-web/" in referer or "/admin/ak-site/" in referer:
-        logger.warning(f"[IframeLoginApi] route=/RPC/Login phase=request account={account} referer={referer}")
+        logger.warning(f"[IframeLoginApi] route=/RPC/Login phase=blocked account={account} referer={referer}")
+        return JSONResponse({"Error": True, "IsLogin": False, "Msg": "管理內嵌頁僅支持 /admin/ak-rpc/Login"}, status_code=400)
 
     
 
@@ -1196,20 +1197,8 @@ async def proxy_rpc(path: str, request: Request):
     
 
     if "/admin/ak-web/" in referer or "/admin/ak-site/" in referer:
-        bs_id, session, bs_source = _resolve_browse_session(
-            request, source_order=("cookie",)
-        )
-        logger.warning(f"[IframeRPCLeak] path={path} dest={fetch_dest} accept={accept} referer={referer}")
-        if session:
-            logger.warning(f"[IframeRPCBridge] path={path} bs={bs_id} source={bs_source} cookie_bs={cookie_bs} referer={referer}")
-            try:
-                return await _forward_admin_ak_rpc_request(path, request, session, referer, fetch_dest, accept)
-            except Exception as e:
-                stats.errors += 1
-                logger.error(f"[IframeRPCBridge/{path}] 转发失败: {e}")
-                return JSONResponse({"Error": True, "IsLogin": False, "Msg": f"请求失败: {str(e)}"}, status_code=500)
-        logger.warning(f"[IframeRPCNoSession] path={path} bs={bs_id} source={bs_source} cookie_bs={cookie_bs} referer={referer}")
-        return JSONResponse({"Error": True, "IsLogin": False, "Msg": "用戶未登錄"})
+        logger.warning(f"[IframeRPCBlocked] path={path} dest={fetch_dest} accept={accept} cookie_bs={cookie_bs} referer={referer}")
+        return JSONResponse({"Error": True, "IsLogin": False, "Msg": "管理內嵌頁僅支持 /admin/ak-rpc/*"}, status_code=400)
 
     
 
@@ -5569,9 +5558,8 @@ async def admin_browse_login(request: Request):
             "login_result": {},
             "expires": time.time() + _BROWSE_SESSION_TTL,
         }
-        entry_url = _make_browse_login_url(bs_id)
         return _set_browse_session_cookie(
-            JSONResponse({"success": True, "bs_id": bs_id, "entry_url": entry_url}),
+            JSONResponse({"success": True, "bs_id": bs_id}),
             bs_id,
         )
     except Exception as e:
