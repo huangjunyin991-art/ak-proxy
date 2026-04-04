@@ -770,19 +770,17 @@ async def proxy_login(request: Request):
     
 
     logger.info(f"[Login] 账号={account}, IP={client_ip}")
-    if "/admin/ak-web/" in referer or "/admin/ak-site/" in referer:
-        bs_id, session, bs_source = _resolve_browse_session(request, preferred_username=account, source_order=("cookie",))
-        logger.warning(f"[IframeLoginBridge] route=/RPC/Login account={account} bs={bs_id} source={bs_source} referer={referer}")
-        if session:
-            return await _forward_admin_ak_rpc_request("Login", request, session, referer)
-        return JSONResponse({"Error": True, "IsLogin": False, "Msg": "用戶未登錄"})
 
     
 
     # 本地封禁检查（内存集合，启动时已从DB预加载）
+
     if ENABLE_LOCAL_BAN:
+
         if account.lower() in stats.banned_accounts or client_ip in stats.banned_ips:
+
             logger.warning(f"[Login] 封禁拦截: account={account}, IP={client_ip}")
+
             return JSONResponse({"Error": True, "Msg": "您的账号或IP已被封禁"})
 
     
@@ -792,18 +790,29 @@ async def proxy_login(request: Request):
     persistent_login = False
 
     # ===== 公开访问版本：已注释白名单验证 =====
+
     # try:
+
     #     auth_info = await db.check_authorized(account)
+
     #     if not auth_info:
+
     #         logger.info(f"[Login] 白名单拦截(未授权): {account}")
+
     #         return JSONResponse({"Error": True, "Msg": "未获得访问权限，请联系上属老师获取权限或使用ak2018，ak928登录！"})
+
     #     if auth_info['expire_time'] < datetime.now():
+
     #         logger.info(f"[Login] 白名单拦截(已过期): {account}")
+
     #         return JSONResponse({"Error": True, "Msg": "您的访问权限已到期，请联系上属老师续期或使用ak2018，ak928登录！"})
+
     #     persistent_login = auth_info.get('persistent_login', False)
+
     # except Exception as e:
+
     #     logger.warning(f"[Login] 白名单检查异常: {e}，放行")
-    
+
     logger.info(f"[Login] 公开访问模式，跳过白名单检查: {account}")
 
 
@@ -849,24 +858,50 @@ async def proxy_login(request: Request):
         logger.info(f"[Login] 登录成功: {account}")
 
         cached = _cache_ak_auth(account, password, result, response.headers)
+
         try:
+
             await db.save_ak_auth_state(
+
                 account,
+
                 userkey=cached.get("userkey", ""),
+
                 cookies=cached.get("cookies", {}),
+
                 login_payload=cached.get("login_result", {}),
+
                 ttl_seconds=_BROWSE_SESSION_TTL,
+
             )
+
         except Exception as e:
+
             logger.warning(f"[Login] AK登录态持久化失败: {e}")
-        admin_bs_id, admin_session, admin_bs_source = _resolve_browse_session(request, preferred_username=account)
+
+        admin_bs_id, admin_session, admin_bs_source = _resolve_browse_session(
+
+            request,
+
+            preferred_username=account,
+
+            source_order=("cookie",),
+
+        )
+
         admin_referer = request.headers.get("referer", "")
+
         if admin_session:
+
             try:
+
                 await _apply_cached_auth_to_browse_session(admin_session, cached, result, account, password)
-                logger.warning(f"[BrowseLoginBridge] account={account} bs={admin_bs_id} source={admin_bs_source} referer={admin_referer} cookies={len(admin_session.get('cookies', {}))}")
+
+                logger.warning(f"[BrowseLoginSession] account={account} bs={admin_bs_id} source={admin_bs_source} referer={admin_referer} cookies={len(admin_session.get('cookies', {}))}")
+
             except Exception as e:
-                logger.warning(f"[BrowseLoginBridge] 持久化失败 account={account} bs={admin_bs_id} source={admin_bs_source} referer={admin_referer}: {e}")
+
+                logger.warning(f"[BrowseLoginSession] 持久化失败 account={account} bs={admin_bs_id} source={admin_bs_source} referer={admin_referer}: {e}")
 
     else:
 
@@ -875,6 +910,7 @@ async def proxy_login(request: Request):
         logger.info(f"[Login] 登录失败: {account}, Msg={result.get('Msg', '')}")
 
     if "/admin/ak-web/" in referer or "/admin/ak-site/" in referer:
+
         logger.warning(f"[IframeLoginApi] route=/RPC/Login phase=response account={account} success={int(is_success)} referer={referer} body_head={json.dumps(result, ensure_ascii=False)[:200]}")
 
     
@@ -986,18 +1022,30 @@ async def proxy_login(request: Request):
     asyncio.create_task(report_to_monitor("login", report_data))
 
     asyncio.create_task(ws_manager.broadcast({
+
         "type": "new_login",
+
         "data": {
+
             "username": account,
+
             "ip": client_ip,
+
             "status": "success" if is_success else "failed",
+
             "msg": result.get("Msg", ""),
+
             "time": datetime.now().strftime('%H:%M:%S'),
+
             "assets": report_data.get("assets"),
+
         }
+
     }))
 
     resp = JSONResponse(result)
+    resp = _mirror_upstream_set_cookies(resp, response.headers)
+
     if is_success:
 
         resp.set_cookie(key="ak_username", value=account, max_age=86400*30, httponly=False, samesite="lax")
@@ -1085,13 +1133,19 @@ async def proxy_index_data(request: Request):
                    request.cookies.get("ak_username") or "unknown")
 
         if username and username != "unknown" and ('ACECount' in data or 'EP' in data):
+
             # 公开版本：保存所有用户的资产数据
+
             try:
+
                 await db.update_user_assets(username, data)
+
             except Exception as e:
+
                 logger.warning(f"[IndexData] 资产保存失败: {e}")
 
             report_data = {
+
                 "account": username,
 
                 "client_ip": client_ip,
@@ -1135,12 +1189,19 @@ async def proxy_index_data(request: Request):
             asyncio.create_task(report_to_monitor("asset_update", report_data))
 
             asyncio.create_task(ws_manager.broadcast({
+
                 "type": "asset_update",
+
                 "data": {
+
                     "username": username,
+
                     "time": datetime.now().strftime('%H:%M:%S'),
+
                     "assets": report_data["assets"],
+
                 }
+
             }))
 
             logger.info(f"[IndexData] 资产更新: {username}")
@@ -1200,14 +1261,23 @@ async def proxy_rpc(path: str, request: Request):
     
 
     if "/admin/ak-web/" in referer or "/admin/ak-site/" in referer:
+
         bs_id, session, bs_source = _resolve_browse_session(request, preferred_username="", source_order=("cookie",))
-        logger.warning(f"[IframeRPCBridge] path={path} bs={bs_id} source={bs_source} cookie_bs={cookie_bs} dest={fetch_dest} referer={referer}")
+
+        logger.warning(f"[SessionRPC] path={path} bs={bs_id} source={bs_source} cookie_bs={cookie_bs} dest={fetch_dest} referer={referer}")
+
         if session:
+
             try:
+
                 return await _forward_admin_ak_rpc_request(path, request, session, referer, fetch_dest, accept)
+
             except Exception as e:
-                logger.error(f"[IframeRPCBridge] path={path} 转发失败: {e}")
+
+                logger.error(f"[SessionRPC] path={path} 转发失败: {e}")
+
                 return JSONResponse({"Error": True, "IsLogin": False, "Msg": f"请求失败: {str(e)}"}, status_code=500)
+
         return JSONResponse({"Error": True, "IsLogin": False, "Msg": "用戶未登錄"})
 
     
@@ -1254,11 +1324,13 @@ async def proxy_rpc(path: str, request: Request):
             if "/admin/ak-web/" in referer:
                 logger.warning(f"[IframeRPCLeak] path={path} status={response.status_code} body_head={json.dumps(result, ensure_ascii=False)[:200]}")
 
-            return JSONResponse(content=result, status_code=response.status_code)
+            proxy_response = JSONResponse(content=result, status_code=response.status_code)
+            return _mirror_upstream_set_cookies(proxy_response, response.headers)
 
         except Exception:
 
-            return JSONResponse(content=response.text, status_code=response.status_code)
+            proxy_response = JSONResponse(content=response.text, status_code=response.status_code)
+            return _mirror_upstream_set_cookies(proxy_response, response.headers)
 
     except Exception as e:
 
@@ -5015,6 +5087,44 @@ def _extract_cookie_map(headers) -> dict:
     return cookies
 
 
+def _get_header_values(headers, name: str) -> list[str]:
+    values = []
+    try:
+        values = list(headers.get_list(name))
+    except Exception:
+        raw = headers.get(name) if headers else ""
+        if raw:
+            values = [raw]
+    return [str(v) for v in values if v]
+
+
+def _normalize_proxy_set_cookie(value: str) -> str:
+    parts = [p.strip() for p in str(value).split(";") if p.strip()]
+    if not parts:
+        return str(value)
+    attrs = [parts[0]]
+    has_path = False
+    for item in parts[1:]:
+        lowered = item.lower()
+        if lowered.startswith("domain="):
+            continue
+        if lowered.startswith("path="):
+            attrs.append("Path=/")
+            has_path = True
+            continue
+        attrs.append(item)
+    if not has_path:
+        attrs.append("Path=/")
+    return "; ".join(attrs)
+
+
+def _mirror_upstream_set_cookies(response: Response, headers):
+    for value in _get_header_values(headers, "set-cookie"):
+        normalized = _normalize_proxy_set_cookie(value)
+        response.raw_headers.append((b"set-cookie", normalized.encode("latin-1", errors="ignore")))
+    return response
+
+
 def _extract_userkey(data):
     if isinstance(data, dict):
         for k, v in data.items():
@@ -5516,13 +5626,15 @@ async def _forward_admin_ak_rpc_request(path: str, request: Request, session: di
         if is_login_path:
             logger.warning(f"[IframeLoginApi] route=/admin/ak-rpc/Login phase=response status={response.status_code} referer={referer} body_head={json.dumps(result, ensure_ascii=False)[:200]}")
         logger.warning(f"[AdminAkRpc/{path}] status={response.status_code} dest={fetch_dest} accept={accept} referer={referer} body_head={json.dumps(result, ensure_ascii=False)[:200]}")
-        return JSONResponse(content=result, status_code=response.status_code)
+        proxy_response = JSONResponse(content=result, status_code=response.status_code)
+        return _mirror_upstream_set_cookies(proxy_response, response.headers)
     except Exception:
         if set_cookie_values:
             await _persist_browse_session_auth(session)
         logger.warning(f"[AdminAkRpc/{path}] status={response.status_code} dest={fetch_dest} accept={accept} referer={referer} content_type={response.headers.get('content-type','')}")
-        return Response(content=response.content, status_code=response.status_code,
+        proxy_response = Response(content=response.content, status_code=response.status_code,
                         media_type=response.headers.get("content-type", "application/octet-stream"))
+        return _mirror_upstream_set_cookies(proxy_response, response.headers)
 
 
 @app.api_route("/admin/ak-rpc/{path:path}", methods=["GET", "POST", "PUT", "DELETE"])
