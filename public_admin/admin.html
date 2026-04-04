@@ -1310,7 +1310,7 @@
             scrollbar-width: none;
             -ms-overflow-style: none;
             position: relative;
-            --users-sticky-col-width: 128px;
+            --users-sticky-col-width: 96px;
         }
 
         #usersTableContainer::-webkit-scrollbar {
@@ -1338,7 +1338,7 @@
 
         #usersTableContainer.users-sticky-glow-active thead th:first-child,
         #usersTableContainer.users-sticky-glow-active #usersTable td:first-child {
-            box-shadow: 12px 0 18px rgba(0, 212, 255, 0.12);
+            box-shadow: 8px 0 12px rgba(0, 212, 255, 0.08);
         }
 
         #usersTableContainer.users-sticky-glow-active thead th:first-child::after,
@@ -1347,10 +1347,10 @@
             position: absolute;
             top: 0;
             right: -1px;
-            width: 34px;
+            width: 18px;
             height: 100%;
             pointer-events: none;
-            background: linear-gradient(90deg, rgba(120, 248, 255, 0.88) 0%, rgba(120, 248, 255, 0.24) 12%, rgba(70, 229, 255, 0.12) 34%, rgba(70, 229, 255, 0.04) 62%, rgba(70, 229, 255, 0) 100%);
+            background: linear-gradient(90deg, rgba(120, 248, 255, 0.82) 0%, rgba(120, 248, 255, 0.18) 18%, rgba(70, 229, 255, 0.06) 48%, rgba(70, 229, 255, 0) 100%);
         }
 
         .editable-real-name-cell {
@@ -1792,6 +1792,27 @@
             #usersTableContainer {
                 touch-action: pan-x pan-y;
                 margin-bottom: 16px;
+            }
+
+            #usersTableContainer table {
+                min-width: 1480px !important;
+            }
+
+            #usersTableContainer th,
+            #usersTableContainer td {
+                padding: 7px 5px !important;
+                font-size: 11px;
+                white-space: nowrap;
+            }
+
+            #usersTable td .badge {
+                padding: 3px 5px;
+                font-size: 10px;
+            }
+
+            #usersTable td:last-child .btn {
+                padding: 4px 8px !important;
+                font-size: 11px !important;
             }
 
             #usersTableContainer thead th:first-child {
@@ -2403,7 +2424,7 @@
                 <span id="usersSearchCount" class="usage-toolbar-count"></span>
             </div>
             <div class="table-container" id="usersTableContainer" style="overflow-x: auto;">
-                <table style="min-width: 1920px;">
+                <table style="min-width: 1480px;">
                     <thead>
                         <tr>
                             <th style="position: sticky; left: 0; z-index: 3; background: var(--bg-card);">账号</th>
