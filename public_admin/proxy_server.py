@@ -5120,6 +5120,19 @@ def _extract_userkey(data):
     return ""
 
 
+def _extract_login_user_id(login_result: dict) -> str:
+    if not isinstance(login_result, dict):
+        return ""
+    user_data = login_result.get("UserData")
+    if not isinstance(user_data, dict):
+        return ""
+    for key in ("Id", "ID", "UserID", "userid"):
+        value = user_data.get(key)
+        if value not in (None, ""):
+            return str(value)
+    return ""
+
+
 def _build_ak_user_model(login_result: dict, userkey: str = "") -> dict:
     user_model = {}
     if isinstance(login_result, dict):
@@ -5730,9 +5743,35 @@ def _build_injector(bs_id: str, username: str = "", password: str = "", userkey:
     return js
 
 
-def _build_native_injector(username: str = "", password: str = "") -> str:
+def _build_native_rpc_auth_patch(userkey: str = "", user_id: str = "") -> str:
+    protected_paths_json = json.dumps([
+        "Public_EP_SellRecords1",
+        "Public_EP_SellRecords2",
+        "Public_EP_SellRecords3",
+        "Question_Get1",
+        "Check_TransactionPassword",
+        "Check_Answer",
+        "Logout",
+    ], ensure_ascii=False)
+    return (
+        "try{(function(){if(window.__akNativeRpcAuthWatchdog)return;"
+        "var PATHS=" + protected_paths_json + ";"
+        "var UK=" + json.dumps(userkey or "", ensure_ascii=False) + ";"
+        "var UID=" + json.dumps(user_id or "", ensure_ascii=False) + ";"
+        "function bad(v){var s=String(v==null?'':v).trim().toLowerCase();return !s||s==='123'||s==='undefined'||s==='null';}"
+        "function auth(){try{var m=(window.APP&&APP.USER&&APP.USER.MODEL&&typeof APP.USER.MODEL==='object')?APP.USER.MODEL:{};return{key:String(UK||m.Key||m.key||''),userId:String(UID||m.Id||m.id||'')};}catch(__e){return{key:String(UK||''),userId:String(UID||'')};}}"
+        "function nameOf(u){try{var s=String(u||'');if(/^[A-Za-z][A-Za-z0-9_]*$/.test(s))return s.toLowerCase();var x=new URL(s,location.href),p=(x.pathname||'').replace(/^\\/RPC\\//i,'');if(p.indexOf('/')>=0)p=p.split('/').pop();return String(p||'').toLowerCase();}catch(__e){var s2=String(u||'');var m=s2.match(/([A-Za-z0-9_]+)(?:\\?|$)/);return m?String(m[1]).toLowerCase():s2.toLowerCase();}}"
+        "function need(u){var n=nameOf(u);for(var i=0;i<PATHS.length;i++){if(n===String(PATHS[i]).toLowerCase())return true;}return false;}"
+        "function fix(d){var a=auth();if(!a.key&&!a.userId)return d;if(d==null)d={};if(typeof d==='string'){try{var ps=new URLSearchParams(d),chg=false;var k=ps.get('key');var uid=ps.get('UserID')||ps.get('userid');if(a.key&&bad(k)){ps.set('key',a.key);chg=true;}if(a.userId&&bad(uid)){ps.set('UserID',a.userId);if(ps.has('userid'))ps.delete('userid');chg=true;}return chg?ps.toString():d;}catch(__e){return d;}}if(typeof URLSearchParams!=='undefined'&&d instanceof URLSearchParams){var chg2=false;var k2=d.get('key');var uid2=d.get('UserID')||d.get('userid');if(a.key&&bad(k2)){d.set('key',a.key);chg2=true;}if(a.userId&&bad(uid2)){d.set('UserID',a.userId);if(d.has('userid'))d.delete('userid');chg2=true;}return d;}if(typeof d!=='object'||Array.isArray(d))return d;var out=Object.assign({},d),chg3=false;var k3=out.key;var uid3=out.UserID!=null?out.UserID:out.userid;if(a.key&&bad(k3)){out.key=a.key;chg3=true;}if(a.userId&&bad(uid3)){out.UserID=a.userId;if(Object.prototype.hasOwnProperty.call(out,'userid'))delete out.userid;chg3=true;}return chg3?out:d;}"
+        "function wrap(){try{if(!window.APP||!APP.GLOBAL||typeof APP.GLOBAL.ajax!=='function')return false;var cur=APP.GLOBAL.ajax;if(cur&&cur.__akNativeRpcAuthWrapped)return true;var wrapped=function(options){if(!options||typeof options!=='object')return cur.apply(this,arguments);var before=options.url||options.api||'';if(!need(before))return cur.apply(this,arguments);var opt=Object.assign({},options);if(Object.prototype.hasOwnProperty.call(opt,'data'))opt.data=fix(opt.data);else opt.data=fix({});return cur.call(this,opt);};wrapped.__akNativeRpcAuthWrapped=1;APP.GLOBAL.ajax=wrapped;return true;}catch(__e){return false;}}"
+        "wrap();window.__akNativeRpcAuthWatchdog=setInterval(wrap,100);})();}catch(_e){}"
+    )
+
+
+def _build_native_injector(username: str = "", password: str = "", userkey: str = "", login_result: dict = None) -> str:
     safe_user = username.replace("\\", "\\\\").replace("'", "\\'")
     safe_pwd = password.replace("\\", "\\\\").replace("'", "\\'")
+    auth_patch = _build_native_rpc_auth_patch(userkey, _extract_login_user_id(login_result or {}))
     auto_login = ""
     if safe_user and safe_pwd:
         auto_login = (
@@ -5753,6 +5792,7 @@ def _build_native_injector(username: str = "", password: str = "") -> str:
     return (
         "<script>(function(){"
         "if('serviceWorker' in navigator){navigator.serviceWorker.register=function(){return Promise.reject(new Error('SW disabled'));};}"
+        + auth_patch +
         + auto_login +
         "})();</script>"
     )
@@ -5929,7 +5969,7 @@ async def ak_web_proxy(request: Request, path: str):
             if "text/html" in content_type and bs_id:
                 _sess = _browse_sessions.get(bs_id, {})
                 if _use_native_ak_rpc(site_prefix):
-                    injector = _build_native_injector(_sess.get("username", ""), _sess.get("password", ""))
+                    injector = _build_native_injector(_sess.get("username", ""), _sess.get("password", ""), _sess.get("userkey", ""), _sess.get("login_result", {}))
                 else:
                     injector = _build_injector(bs_id, _sess.get("username", ""), _sess.get("password", ""), _sess.get("userkey", ""), _sess.get("login_result", {}), site_prefix=site_prefix)
                 if "<head>" in text:
