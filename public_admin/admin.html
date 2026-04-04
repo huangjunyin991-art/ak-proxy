@@ -822,14 +822,10 @@
         }
 
         .table-scroll-hint.is-right {
-            right: 10px;
-            left: auto;
             background: linear-gradient(90deg, rgba(245, 205, 96, 0) 0%, rgba(245, 205, 96, 0.04) 45%, rgba(245, 205, 96, 0.18) 100%);
         }
 
         .table-scroll-hint.is-left {
-            left: 10px;
-            right: auto;
             background: linear-gradient(90deg, rgba(245, 205, 96, 0.18) 0%, rgba(245, 205, 96, 0.04) 55%, rgba(245, 205, 96, 0) 100%);
         }
 
@@ -8034,6 +8030,14 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                         : '<span>&gt;</span><span>&gt;</span><span>&gt;</span>';
                     hintButton.setAttribute('aria-label', isLeft ? '滚动到最左侧' : '滚动到最右侧');
                 };
+                const updatePosition = () => {
+                    const direction = container.dataset.scrollHintDirection || 'right';
+                    const buttonWidth = hintButton.offsetWidth || 36;
+                    const nextLeft = direction === 'left'
+                        ? container.scrollLeft + 10
+                        : container.scrollLeft + container.clientWidth - buttonWidth - 10;
+                    hintButton.style.left = `${Math.max(0, nextLeft)}px`;
+                };
                 const sync = () => {
                     const maxScrollLeft = Math.max(0, ((table ? table.scrollWidth : container.scrollWidth) - container.clientWidth));
                     if (maxScrollLeft <= 12 || !isVisible(container)) {
@@ -8048,6 +8052,7 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                         setDirection('right');
                     }
                     const direction = container.dataset.scrollHintDirection || 'right';
+                    updatePosition();
                     const visible = direction === 'right'
                         ? container.scrollLeft < maxScrollLeft - SCROLL_EDGE_THRESHOLD
                         : container.scrollLeft > SCROLL_EDGE_THRESHOLD;
