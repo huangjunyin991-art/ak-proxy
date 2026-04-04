@@ -1762,13 +1762,13 @@
                 bottom: calc(env(safe-area-inset-bottom, 0px) + 18px);
                 z-index: 1001;
                 margin-top: 0 !important;
-                padding: 8px 10px !important;
-                border: 1px solid var(--border);
-                border-radius: 12px;
-                background: rgba(11, 22, 46, 0.92);
-                backdrop-filter: blur(8px);
-                box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
-                flex-wrap: wrap;
+                padding: 0 !important;
+                border: none;
+                border-radius: 0;
+                background: transparent;
+                backdrop-filter: none;
+                box-shadow: none;
+                flex-wrap: nowrap;
                 gap: 8px !important;
             }
 
@@ -1776,13 +1776,14 @@
                 min-height: 34px;
                 padding: 0 10px !important;
                 font-size: 11px;
+                background: rgba(11, 22, 46, 0.42);
+                border: 1px solid rgba(255, 255, 255, 0.1);
+                color: rgba(255, 255, 255, 0.92);
+                box-shadow: none;
             }
 
             #usagePageInfo {
-                width: 100%;
-                min-width: 0 !important;
-                font-size: 12px !important;
-                order: -1;
+                display: none !important;
             }
 
             #users {
@@ -1836,13 +1837,13 @@
                 bottom: calc(env(safe-area-inset-bottom, 0px) + 18px);
                 z-index: 1001;
                 margin-top: 0 !important;
-                padding: 8px 10px !important;
-                border: 1px solid var(--border);
-                border-radius: 12px;
-                background: rgba(11, 22, 46, 0.92);
-                backdrop-filter: blur(8px);
-                box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
-                flex-wrap: wrap;
+                padding: 0 !important;
+                border: none;
+                border-radius: 0;
+                background: transparent;
+                backdrop-filter: none;
+                box-shadow: none;
+                flex-wrap: nowrap;
                 gap: 8px !important;
             }
 
@@ -1850,13 +1851,14 @@
                 min-height: 34px;
                 padding: 0 10px !important;
                 font-size: 11px;
+                background: rgba(11, 22, 46, 0.42);
+                border: 1px solid rgba(255, 255, 255, 0.1);
+                color: rgba(255, 255, 255, 0.92);
+                box-shadow: none;
             }
 
             #usersPageInfo {
-                width: 100%;
-                min-width: 0 !important;
-                font-size: 12px !important;
-                order: -1;
+                display: none !important;
             }
             
             .header h1 {
@@ -3855,8 +3857,7 @@
 
         function renderUsageTable(users) {
             const tbody = document.getElementById('usageTable');
-            document.getElementById('usageSearchCount').textContent =
-                `共 ${usageTotalCount} 条记录，当前显示 ${users.length} 条`;
+            updateUsageSummaryText(users.length);
             if (window.syncMobileTableStickyOffsets) syncMobileTableStickyOffsets();
             if (!users || users.length === 0) {
                 tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: var(--text-secondary);">暂无数据</td></tr>';
@@ -3882,6 +3883,13 @@
             `).join('');
         }
 
+        function updateUsageSummaryText(displayCount = 0) {
+            const count = Number.isFinite(displayCount) ? displayCount : 0;
+            const totalPages = usageTotalPages || 1;
+            document.getElementById('usageSearchCount').textContent =
+                `共 ${usageTotalCount} 条记录，当前显示 ${count} 条 · 第 ${usageCurrentPage + 1} / ${totalPages} 页`;
+        }
+
         function updateUsagePagination() {
             document.getElementById('usageFirstBtn').disabled = usageCurrentPage <= 0;
             document.getElementById('usagePrevBtn').disabled = usageCurrentPage <= 0;
@@ -3889,6 +3897,7 @@
             document.getElementById('usageLastBtn').disabled = usageCurrentPage >= usageTotalPages - 1;
             document.getElementById('usagePageInfo').textContent =
                 `第 ${usageCurrentPage + 1} / ${usageTotalPages} 页`;
+            updateUsageSummaryText(Array.isArray(usageDataCache) ? usageDataCache.length : 0);
         }
 
         function usageGoPage(page) {
@@ -3987,9 +3996,7 @@
         // 渲染用户表格
         function renderUsersTable(users, keepSortInfo = false) {
             const tbody = document.getElementById('usersTable');
-            const sortInfo = usersSortField ? ` (按${getSortFieldName(usersSortField)}${usersSortAsc ? '↑' : '↓'})` : '';
-            const countText = `共 ${usersTotalCount} 条记录，当前显示 ${users.length} 条`;
-            document.getElementById('usersSearchCount').textContent = countText + (keepSortInfo ? sortInfo : '');
+            updateUsersSummaryText(users.length, keepSortInfo);
             if (window.syncMobileTableStickyOffsets) syncMobileTableStickyOffsets();
             
             if (users.length === 0) {
@@ -4028,6 +4035,16 @@
             if (window.syncUsersStickyGlow) syncUsersStickyGlow();
         }
         
+        function updateUsersSummaryText(displayCount = 0, keepSortInfo = false) {
+            const count = Number.isFinite(displayCount) ? displayCount : 0;
+            const totalPages = usersTotalPages || 1;
+            const sortInfo = keepSortInfo && usersSortField
+                ? ` (按${getSortFieldName(usersSortField)}${usersSortAsc ? '↑' : '↓'})`
+                : '';
+            document.getElementById('usersSearchCount').textContent =
+                `共 ${usersTotalCount} 条记录，当前显示 ${count} 条 · 第 ${usersCurrentPage + 1} / ${totalPages} 页${sortInfo}`;
+        }
+
         // 更新分页控件
         function updateUsersPagination() {
             const pagination = document.getElementById('usersPagination');
@@ -4038,6 +4055,7 @@
             document.getElementById('usersNextBtn').disabled = usersCurrentPage >= usersTotalPages - 1;
             document.getElementById('usersLastBtn').disabled = usersCurrentPage >= usersTotalPages - 1;
             document.getElementById('usersPageInfo').textContent = `第 ${usersCurrentPage + 1} / ${usersTotalPages} 页`;
+            updateUsersSummaryText(Array.isArray(usersDataCache) ? usersDataCache.length : 0, true);
         }
         
         // 跳转到指定页
