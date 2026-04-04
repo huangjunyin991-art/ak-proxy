@@ -5928,7 +5928,7 @@ async def ak_web_proxy(request: Request, path: str):
 
         # 过滤阻止 iframe 嵌入和影响解压的响应头
         skip_headers = {"x-frame-options", "content-security-policy", "x-xss-protection",
-                        "content-encoding", "transfer-encoding", "content-length"}
+                        "content-encoding", "transfer-encoding", "content-length", "set-cookie"}
         resp_headers = {k: v for k, v in resp.headers.items() if k.lower() not in skip_headers}
 
         content = resp.content
