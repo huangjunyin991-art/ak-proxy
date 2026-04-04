@@ -810,7 +810,7 @@
             gap: 1px;
             padding: 4px 6px;
             border: none;
-            background: linear-gradient(90deg, rgba(245, 205, 96, 0.16) 0%, rgba(245, 205, 96, 0.04) 55%, rgba(245, 205, 96, 0) 100%);
+            background: linear-gradient(90deg, rgba(245, 205, 96, 0) 0%, rgba(245, 205, 96, 0.04) 45%, rgba(245, 205, 96, 0.18) 100%);
             color: rgba(245, 205, 96, 0.78);
             font-size: 18px;
             font-weight: 700;
@@ -7994,8 +7994,9 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                 container.dataset.scrollHintBound = '1';
 
                 const hintButton = createScrollHintButton();
+                const table = container.querySelector('table');
                 const sync = () => {
-                    const maxScrollLeft = Math.max(0, container.scrollWidth - container.clientWidth);
+                    const maxScrollLeft = Math.max(0, ((table ? table.scrollWidth : container.scrollWidth) - container.clientWidth));
                     const visible = maxScrollLeft > 12 && container.scrollLeft < maxScrollLeft - 8 && isVisible(container);
                     hintButton.classList.toggle('is-visible', visible);
                 };
@@ -8003,7 +8004,9 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                 hintButton.addEventListener('click', event => {
                     event.preventDefault();
                     event.stopPropagation();
-                    container.scrollTo({ left: container.scrollWidth, behavior: 'smooth' });
+                    const maxScrollLeft = Math.max(0, ((table ? table.scrollWidth : container.scrollWidth) - container.clientWidth));
+                    container.scrollTo({ left: maxScrollLeft, behavior: 'auto' });
+                    sync();
                 });
 
                 container.appendChild(hintButton);
@@ -8013,7 +8016,6 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                 if ('ResizeObserver' in window) {
                     const observer = new ResizeObserver(sync);
                     observer.observe(container);
-                    const table = container.querySelector('table');
                     if (table) observer.observe(table);
                 }
 
