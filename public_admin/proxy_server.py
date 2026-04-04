@@ -5040,6 +5040,7 @@ _AK_HOME_PATH = "/pages/home.html?first=true"
 _ADMIN_AK_FORCE_DIRECT = True
 _BROWSE_SESSION_COOKIE = "ak_admin_bs"
 _AK_WEB_PREFIX = "/admin/ak-web"
+_AK_NATIVE_WEB_PREFIX = "/ak-web"
 _AK_SITE_PREFIX = "/admin/ak-site"
 
 
@@ -5357,6 +5358,8 @@ def _rewrite_site_root_url(url: str, site_prefix: str) -> str:
     if url.startswith(site_prefix) or url.startswith("/admin/ak-rpc") or url.startswith("/admin"):
         return url
     if url.startswith("/RPC"):
+        if site_prefix == _AK_NATIVE_WEB_PREFIX:
+            return url
         return "/admin/ak-rpc" + url[4:]
     return site_prefix + url
 
@@ -5373,6 +5376,11 @@ def _rewrite_site_css_roots(text: str, site_prefix: str) -> str:
 
 def _rewrite_base_js_rpc_roots(text: str) -> tuple[str, bool]:
     rewritten = re.sub(r'https?://[^/"\'\s]+/RPC/', '/admin/ak-rpc/', text, flags=re.IGNORECASE)
+    return rewritten, rewritten != text
+
+
+def _rewrite_base_js_native_rpc_roots(text: str) -> tuple[str, bool]:
+    rewritten = re.sub(r'https?://[^/"\'\s]+/RPC/', '/RPC/', text, flags=re.IGNORECASE)
     return rewritten, rewritten != text
 
 
@@ -5718,6 +5726,34 @@ def _build_injector(bs_id: str, username: str = "", password: str = "", userkey:
     return js
 
 
+def _build_native_injector(username: str = "", password: str = "") -> str:
+    safe_user = username.replace("\\", "\\\\").replace("'", "\\'")
+    safe_pwd = password.replace("\\", "\\\\").replace("'", "\\'")
+    auto_login = ""
+    if safe_user and safe_pwd:
+        auto_login = (
+            "var _t=0,_iv=setInterval(function(){"
+            "if(++_t>100){clearInterval(_iv);return;}"
+            "if(typeof _vue!=='undefined'&&_vue&&_vue.form&&!_vue.isLogin){"
+            "clearInterval(_iv);"
+            "_vue.form.account='" + safe_user + "';"
+            "_vue.form.password='" + safe_pwd + "';"
+            "setTimeout(function(){"
+            "_vue.checkInput&&_vue.checkInput();"
+            "try{if(typeof _vue.login==='function'){_vue.login();return;}if(typeof _vue.Login==='function'){_vue.Login();return;}if(typeof _vue.submit==='function'){_vue.submit();return;}if(typeof _vue.onSubmit==='function'){_vue.onSubmit();return;}}catch(_e){}"
+            "var _btn=document.querySelector('button[type=submit],.login-btn,.btn-login,.el-button--primary');if(_btn){_btn.click();}"
+            "},200);"
+            "}"
+            "},100);"
+        )
+    return (
+        "<script>(function(){"
+        "if('serviceWorker' in navigator){navigator.serviceWorker.register=function(){return Promise.reject(new Error('SW disabled'));};}"
+        + auto_login +
+        "})();</script>"
+    )
+
+
 def _build_ak_site_forward_headers(request: Request) -> dict:
     user_agent = request.headers.get("user-agent") or (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -5739,6 +5775,8 @@ async def ak_web_proxy(request: Request, path: str):
     request_path = request.url.path
     if request_path.startswith(_AK_SITE_PREFIX):
         site_prefix = _AK_SITE_PREFIX
+    elif request_path.startswith(_AK_NATIVE_WEB_PREFIX):
+        site_prefix = _AK_NATIVE_WEB_PREFIX
     else:
         site_prefix = _AK_WEB_PREFIX
     if path.lstrip("/") == "cdn-cgi/rum":
@@ -5862,7 +5900,10 @@ async def ak_web_proxy(request: Request, path: str):
 
         if path.lower().endswith("base.js") and any(t in content_type.lower() for t in ("javascript", "ecmascript")):
             text = content.decode("utf-8", errors="replace")
-            text, base_js_rewritten = _inject_base_js_no_login_probe(text)
+            if site_prefix == _AK_NATIVE_WEB_PREFIX:
+                text, base_js_rewritten = _rewrite_base_js_native_rpc_roots(text)
+            else:
+                text, base_js_rewritten = _inject_base_js_no_login_probe(text)
             if base_js_rewritten:
                 logger.warning(f"[AkBaseJsRewrite/{path}] bs={bs_id} source={bs_source} cookie_bs={cookie_bs} referer={referer} target={target_url} final_url={resp.url}")
                 content = text.encode("utf-8")
@@ -5883,7 +5924,10 @@ async def ak_web_proxy(request: Request, path: str):
             # HTML：注入 JS 拦截器
             if "text/html" in content_type and bs_id:
                 _sess = _browse_sessions.get(bs_id, {})
-                injector = _build_injector(bs_id, _sess.get("username", ""), _sess.get("password", ""), _sess.get("userkey", ""), _sess.get("login_result", {}), site_prefix=site_prefix)
+                if site_prefix == _AK_NATIVE_WEB_PREFIX:
+                    injector = _build_native_injector(_sess.get("username", ""), _sess.get("password", ""))
+                else:
+                    injector = _build_injector(bs_id, _sess.get("username", ""), _sess.get("password", ""), _sess.get("userkey", ""), _sess.get("login_result", {}), site_prefix=site_prefix)
                 if "<head>" in text:
                     text = text.replace("<head>", "<head>" + injector, 1)
                 elif "<head " in text:
