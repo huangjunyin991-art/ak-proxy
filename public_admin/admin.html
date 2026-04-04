@@ -1310,46 +1310,47 @@
             scrollbar-width: none;
             -ms-overflow-style: none;
             position: relative;
+            --users-sticky-col-width: 128px;
         }
 
         #usersTableContainer::-webkit-scrollbar {
             display: none;
         }
 
-        #usersStickyGlow {
+        #usersTableContainer thead th:first-child,
+        #usersTable td:first-child {
+            width: var(--users-sticky-col-width);
+            min-width: var(--users-sticky-col-width);
+            max-width: var(--users-sticky-col-width);
+            overflow: visible;
+        }
+
+        #usersTableContainer thead th:first-child {
+            white-space: nowrap;
+        }
+
+        #usersTable td:first-child strong {
+            display: block;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        #usersTableContainer.users-sticky-glow-active thead th:first-child,
+        #usersTableContainer.users-sticky-glow-active #usersTable td:first-child {
+            box-shadow: 12px 0 18px rgba(0, 212, 255, 0.12);
+        }
+
+        #usersTableContainer.users-sticky-glow-active thead th:first-child::after,
+        #usersTableContainer.users-sticky-glow-active #usersTable td:first-child::after {
+            content: '';
             position: absolute;
             top: 0;
-            bottom: 0;
-            width: 46px;
+            right: -1px;
+            width: 34px;
+            height: 100%;
             pointer-events: none;
-            z-index: 4;
-            opacity: 0;
-            transition: opacity 0.18s ease;
-        }
-
-        #usersStickyGlow::before {
-            content: '';
-            position: absolute;
-            top: 0;
-            bottom: 0;
-            left: 0;
-            width: 2px;
-            background: linear-gradient(180deg, rgba(120, 248, 255, 0), rgba(120, 248, 255, 0.82) 18%, rgba(120, 248, 255, 0.95) 50%, rgba(120, 248, 255, 0.82) 82%, rgba(120, 248, 255, 0));
-            box-shadow: 0 0 10px rgba(0, 212, 255, 0.55), 0 0 22px rgba(0, 212, 255, 0.28);
-        }
-
-        #usersStickyGlow::after {
-            content: '';
-            position: absolute;
-            top: 0;
-            bottom: 0;
-            left: 0;
-            width: 46px;
-            background: linear-gradient(90deg, rgba(70, 229, 255, 0.24) 0%, rgba(70, 229, 255, 0.11) 28%, rgba(70, 229, 255, 0.05) 55%, rgba(70, 229, 255, 0) 100%);
-        }
-
-        #usersTableContainer.users-sticky-glow-active #usersStickyGlow {
-            opacity: 1;
+            background: linear-gradient(90deg, rgba(120, 248, 255, 0.88) 0%, rgba(120, 248, 255, 0.24) 12%, rgba(70, 229, 255, 0.12) 34%, rgba(70, 229, 255, 0.04) 62%, rgba(70, 229, 255, 0) 100%);
         }
 
         .editable-real-name-cell {
@@ -2397,7 +2398,6 @@
                         <tr><td colspan="17" style="text-align: center; color: var(--text-secondary);">加载中...</td></tr>
                     </tbody>
                 </table>
-                <div id="usersStickyGlow" aria-hidden="true"></div>
             </div>
             <!-- 分页控件 -->
             <div id="usersPagination" style="display: flex; align-items: center; justify-content: center; gap: 10px; margin-top: 15px; padding: 10px 0;">
@@ -7744,18 +7744,13 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
             var container = document.getElementById('usersTableContainer');
             var floatScroll = document.getElementById('usersFloatScroll');
             var floatInner = document.getElementById('usersFloatScrollInner');
-            var stickyGlow = document.getElementById('usersStickyGlow');
             var syncing = false;
             function updateStickyGlow() {
-                if (!container || !stickyGlow) return;
-                var firstCell = container.querySelector('thead th:first-child') || container.querySelector('tbody td:first-child');
-                if (!firstCell) {
+                if (!container) return;
+                if (!container.querySelector('thead th:first-child')) {
                     container.classList.remove('users-sticky-glow-active');
                     return;
                 }
-                var containerRect = container.getBoundingClientRect();
-                var firstRect = firstCell.getBoundingClientRect();
-                stickyGlow.style.left = Math.max(0, Math.round(firstRect.right - containerRect.left - 1)) + 'px';
                 var active = container.scrollLeft > 0 && container.scrollWidth > container.clientWidth + 1;
                 container.classList.toggle('users-sticky-glow-active', active);
             }
