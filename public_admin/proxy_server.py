@@ -1255,37 +1255,10 @@ async def proxy_rpc(path: str, request: Request):
         except Exception:
 
             if client_ip in stats.banned_ips:
-
                 return JSONResponse({"Error": True, "Msg": "您的IP已被封禁"})
-
     
-
-    if "/admin/ak-web/" in referer or "/admin/ak-site/" in referer:
-
-        bs_id, session, bs_source = _resolve_browse_session(request, preferred_username="", source_order=("cookie",))
-
-        logger.warning(f"[SessionRPC] path={path} bs={bs_id} source={bs_source} cookie_bs={cookie_bs} dest={fetch_dest} referer={referer}")
-
-        if session:
-
-            try:
-
-                return await _forward_admin_ak_rpc_request(path, request, session, referer, fetch_dest, accept)
-
-            except Exception as e:
-
-                logger.error(f"[SessionRPC] path={path} 转发失败: {e}")
-
-                return JSONResponse({"Error": True, "IsLogin": False, "Msg": f"请求失败: {str(e)}"}, status_code=500)
-
-        return JSONResponse({"Error": True, "IsLogin": False, "Msg": "用戶未登錄"})
-
-    
-
     raw_body = None
-
     if request.method in ["POST", "PUT"]:
-
         raw_body = await request.body()
 
     
