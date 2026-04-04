@@ -5392,6 +5392,15 @@ def _rewrite_site_css_roots(text: str, site_prefix: str) -> str:
     return pattern.sub(lambda m: f"url({m.group('quote')}{_rewrite_site_root_url(m.group('url'), site_prefix)}{m.group('quote')})", text)
 
 
+def _extract_debug_snippet(text: str, needle: str, radius: int = 120) -> str:
+    idx = text.find(needle)
+    if idx < 0:
+        return ""
+    start = max(0, idx - radius)
+    end = min(len(text), idx + len(needle) + radius)
+    return text[start:end]
+
+
 def _rewrite_base_js_rpc_roots(text: str) -> tuple[str, bool]:
     rewritten = re.sub(r'https?://[^/"\'\s]+/RPC/', '/admin/ak-rpc/', text, flags=re.IGNORECASE)
     return rewritten, rewritten != text
@@ -5989,6 +5998,10 @@ async def ak_web_proxy(request: Request, path: str):
                         f"has_message_svg={int('/assets/images/home/message.svg' in text)} "
                         f"has_proxy_message_svg={int('/admin/ak-web/assets/images/home/message.svg' in text)} "
                         f"has_old_host={int(any(token in text for token in ('ak928.vip', 'www.ak928.vip', '404.html')))}"
+                    )
+                    logger.warning(
+                        f"[AkHomeHtmlSnippet/{path}] home_css={_extract_debug_snippet(text, '/admin/ak-web/assets/css/home.css')!r} "
+                        f"message_svg={_extract_debug_snippet(text, '/admin/ak-web/assets/images/home/message.svg')!r}"
                     )
             if "text/css" in content_type and normalized_path in debug_body_targets:
                 css_has_old_host = int(any(token in text for token in ("ak928.vip", "www.ak928.vip", "404.html")))
