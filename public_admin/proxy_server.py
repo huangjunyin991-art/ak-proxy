@@ -5824,6 +5824,7 @@ async def ak_web_proxy(request: Request, path: str):
         site_prefix = _AK_NATIVE_WEB_PREFIX
     else:
         site_prefix = _AK_WEB_PREFIX
+    logger.warning(f"[AkWebProxy/IN] method={request.method} path={request_path} referer={request.headers.get('referer','')}")
     if path.lstrip("/") == "cdn-cgi/rum":
         return Response(status_code=204)
     bs_id, session, bs_source = _resolve_browse_session(
@@ -5966,6 +5967,7 @@ async def ak_web_proxy(request: Request, path: str):
                 html_injected = False
                 text = _rewrite_site_html_roots(text, site_prefix)
                 text = _rewrite_site_css_roots(text, site_prefix)
+                logger.warning(f"[HtmlRewrite/{path}] bs={bs_id} final_url={resp.url} head_sample={text[:400]!r}")
             # HTML：注入 JS 拦截器
             if "text/html" in content_type and bs_id:
                 _sess = _browse_sessions.get(bs_id, {})
