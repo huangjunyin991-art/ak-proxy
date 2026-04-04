@@ -1208,6 +1208,8 @@ async def proxy_rpc(path: str, request: Request):
                 stats.errors += 1
                 logger.error(f"[IframeRPCBridge/{path}] 转发失败: {e}")
                 return JSONResponse({"Error": True, "IsLogin": False, "Msg": f"请求失败: {str(e)}"}, status_code=500)
+        logger.warning(f"[IframeRPCNoSession] path={path} bs={bs_id} source={bs_source} cookie_bs={cookie_bs} referer={referer}")
+        return JSONResponse({"Error": True, "IsLogin": False, "Msg": "用戶未登錄"})
 
     
 
