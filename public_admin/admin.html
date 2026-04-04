@@ -1647,27 +1647,28 @@
                 padding: 10px 12px;
             }
 
-            .panel.active .usage-toolbar {
+            .panel.active .panel-sticky-summary {
                 position: sticky;
                 top: calc(var(--ak-mobile-shell-height, 56px) + var(--ak-mobile-sticky-gap, 6px));
                 z-index: 121;
                 background: var(--bg-primary);
-                padding-bottom: 8px;
+                padding: 2px 0 8px;
                 margin-bottom: 10px;
             }
 
             .panel.active .table-container,
             .panel.active .license-table-wrap {
-                max-height: calc(100dvh - var(--ak-mobile-shell-height, 56px) - var(--ak-mobile-panel-toolbar-height, 0px) - 132px);
+                max-height: calc(100dvh - var(--ak-mobile-shell-height, 56px) - var(--ak-mobile-panel-summary-height, 0px) - 132px);
                 overflow: auto;
                 -webkit-overflow-scrolling: touch;
+                overscroll-behavior: contain;
             }
 
             .panel.active .table-container thead th,
             .panel.active .license-table-wrap thead th,
             .panel.active #dbTable thead th {
                 position: sticky;
-                top: calc(var(--ak-mobile-shell-height, 56px) + var(--ak-mobile-panel-toolbar-height, 0px) + calc(var(--ak-mobile-sticky-gap, 6px) * 2));
+                top: 0;
                 z-index: 6;
                 background: var(--bg-secondary);
             }
@@ -1706,6 +1707,14 @@
             }
 
             .usage-toolbar {
+                display: flex;
+                flex-direction: column;
+                gap: 8px;
+            }
+
+            .usage-toolbar-controls {
+                display: flex;
+                flex-wrap: wrap;
                 gap: 8px;
                 align-items: stretch;
             }
@@ -1724,8 +1733,7 @@
             }
 
             .usage-toolbar-count {
-                flex: 1 0 100%;
-                margin-left: 0;
+                display: block;
                 font-size: 12px;
             }
 
@@ -2372,11 +2380,15 @@
         <!-- 使用情况（登录尝试记录） -->
         <div class="panel" id="usage">
             <div class="usage-toolbar">
-                <input type="text" id="usageSearchInput" placeholder="搜索账号/姓名..." 
-                       class="usage-toolbar-input"
-                       oninput="searchUsage()" onkeypress="if(event.keyCode===13)searchUsage()">
-                <button class="btn btn-primary" onclick="searchUsage()" style="padding: 10px 20px;">搜索</button>
-                <button class="btn-page" onclick="clearUsageSearch()" style="padding: 10px 20px;">清除</button>
+                <div class="usage-toolbar-controls">
+                    <input type="text" id="usageSearchInput" placeholder="搜索账号/姓名..." 
+                           class="usage-toolbar-input"
+                           oninput="searchUsage()" onkeypress="if(event.keyCode===13)searchUsage()">
+                    <button class="btn btn-primary" onclick="searchUsage()" style="padding: 10px 20px;">搜索</button>
+                    <button class="btn-page" onclick="clearUsageSearch()" style="padding: 10px 20px;">清除</button>
+                </div>
+            </div>
+            <div class="panel-sticky-summary">
                 <span id="usageSearchCount" class="usage-toolbar-count"></span>
             </div>
             <div class="table-container" style="overflow-x: auto;">
@@ -2408,21 +2420,25 @@
         <!-- 用户管理（用户资产信息） -->
         <div class="panel" id="users">
             <div class="usage-toolbar">
-                <input type="text" id="usersSearchInput" placeholder="搜索账号/姓名..." 
-                       class="usage-toolbar-input"
-                       name="users_data_search_keyword"
-                       inputmode="search"
-                       autocomplete="new-password"
-                       autocorrect="off"
-                       autocapitalize="off"
-                       spellcheck="false"
-                       readonly
-                       onpointerdown="unlockUsersSearchInput(this)"
-                       onfocus="unlockUsersSearchInput(this)"
-                       onblur="lockUsersSearchInput(this)"
-                       oninput="searchUsers()" onkeypress="if(event.keyCode===13)searchUsers()">
-                <button class="btn btn-primary" onclick="searchUsers()" style="padding: 10px 20px;">搜索</button>
-                <button class="btn-page" onclick="clearUsersSearch()" style="padding: 10px 20px;">清除</button>
+                <div class="usage-toolbar-controls">
+                    <input type="text" id="usersSearchInput" placeholder="搜索账号/姓名..." 
+                           class="usage-toolbar-input"
+                           name="users_data_search_keyword"
+                           inputmode="search"
+                           autocomplete="new-password"
+                           autocorrect="off"
+                           autocapitalize="off"
+                           spellcheck="false"
+                           readonly
+                           onpointerdown="unlockUsersSearchInput(this)"
+                           onfocus="unlockUsersSearchInput(this)"
+                           onblur="lockUsersSearchInput(this)"
+                           oninput="searchUsers()" onkeypress="if(event.keyCode===13)searchUsers()">
+                    <button class="btn btn-primary" onclick="searchUsers()" style="padding: 10px 20px;">搜索</button>
+                    <button class="btn-page" onclick="clearUsersSearch()" style="padding: 10px 20px;">清除</button>
+                </div>
+            </div>
+            <div class="panel-sticky-summary">
                 <span id="usersSearchCount" class="usage-toolbar-count"></span>
             </div>
             <div class="table-container" id="usersTableContainer" style="overflow-x: auto;">
@@ -5244,10 +5260,10 @@
             const root = document.documentElement;
             const shellBar = document.getElementById('mobileShellBar');
             const activePanel = document.querySelector('.panel.active');
-            const toolbar = activePanel ? activePanel.querySelector('.usage-toolbar') : null;
+            const summaryBar = activePanel ? activePanel.querySelector('.panel-sticky-summary') : null;
             root.style.setProperty('--ak-mobile-sticky-gap', '6px');
             root.style.setProperty('--ak-mobile-shell-height', `${shellBar ? shellBar.offsetHeight : 56}px`);
-            root.style.setProperty('--ak-mobile-panel-toolbar-height', `${toolbar ? toolbar.offsetHeight : 0}px`);
+            root.style.setProperty('--ak-mobile-panel-summary-height', `${summaryBar ? summaryBar.offsetHeight : 0}px`);
         }
 
         window.syncMobileTableStickyOffsets = syncMobileTableStickyOffsets;
