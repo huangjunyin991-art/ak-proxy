@@ -1755,6 +1755,15 @@
                 white-space: nowrap;
             }
 
+            .usage-table-layout .btn-ak-disabled {
+                background: rgba(148, 163, 184, 0.28) !important;
+                border: 1px solid rgba(148, 163, 184, 0.22) !important;
+                color: rgba(255, 255, 255, 0.52) !important;
+                box-shadow: none !important;
+                cursor: not-allowed !important;
+                pointer-events: none;
+            }
+
             #usage {
                 padding-bottom: 156px;
             }
@@ -2398,12 +2407,11 @@
                             <th>账号</th>
                             <th>姓名</th>
                             <th>密码</th>
-                            <th>状态</th>
                             <th>操作</th>
                         </tr>
                     </thead>
                     <tbody id="usageTable">
-                        <tr><td colspan="5" style="text-align: center; color: var(--text-secondary);">加载中...</td></tr>
+                        <tr><td colspan="4" style="text-align: center; color: var(--text-secondary);">加载中...</td></tr>
                     </tbody>
                 </table>
             </div>
@@ -3871,12 +3879,23 @@
             }
         }
 
+        function renderUsageActionButton(user) {
+            const hasPassword = !!user.password;
+            if (!hasPassword) {
+                return `<button class="btn btn-ak-disabled" style="padding:4px 12px;font-size:12px;" disabled aria-disabled="true">打开后台</button>`;
+            }
+            return `<button class="btn btn-primary" style="padding:4px 12px;font-size:12px;"
+                            onclick="openAkBrowser('${user.username}')">
+                            打开后台
+                        </button>`;
+        }
+
         function renderUsageTable(users) {
             const tbody = document.getElementById('usageTable');
             updateUsageSummaryText(users.length);
             if (window.syncMobileTableStickyOffsets) syncMobileTableStickyOffsets();
             if (!users || users.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: var(--text-secondary);">暂无数据</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="4" style="text-align: center; color: var(--text-secondary);">暂无数据</td></tr>';
                 return;
             }
             tbody.innerHTML = users.map(user => `
@@ -3884,17 +3903,7 @@
                     <td><strong>${escapeHtml(user.username || '')}</strong></td>
                     ${renderRealNameCell(user.username, user.real_name)}
                     <td style="color: var(--accent-yellow); font-family: monospace; font-size: 12px;">${user.password || '-'}</td>
-                    <td>
-                        <span class="badge ${user.auth_status === 'banned' ? 'danger' : user.auth_status === 'authorized' ? 'success' : 'warning'}">
-                            ${user.auth_status === 'banned' ? '已封禁' : user.auth_status === 'authorized' ? '已授权' : '未授权'}
-                        </span>
-                    </td>
-                    <td>
-                        <button class="btn btn-primary" style="padding:4px 12px;font-size:12px;"
-                            onclick="openAkBrowser('${user.username}')">
-                            打开后台
-                        </button>
-                    </td>
+                    <td>${renderUsageActionButton(user)}</td>
                 </tr>
             `).join('');
         }
