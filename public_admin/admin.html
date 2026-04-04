@@ -1884,9 +1884,9 @@
             .ak-browser-header {
                 position: absolute;
                 top: max(8px, env(safe-area-inset-top));
-                right: 12px;
-                left: auto;
-                transform: none;
+                left: 50%;
+                right: auto;
+                transform: translateX(-50%);
                 z-index: 2;
                 padding: 0;
                 background: transparent;
@@ -1897,12 +1897,16 @@
 
             .ak-browser-header-main {
                 gap: 5px;
+                align-items: center;
+                width: max-content;
+                max-width: calc(100vw - 24px);
             }
 
             .ak-browser-toolbar {
                 gap: 6px;
                 pointer-events: auto;
                 margin-left: 0;
+                justify-content: center;
             }
 
             .ak-browser-title-text {
@@ -1914,6 +1918,7 @@
                 background: none;
                 border: none;
                 pointer-events: auto;
+                text-align: center;
             }
 
             .ak-browser-tool-btn {
