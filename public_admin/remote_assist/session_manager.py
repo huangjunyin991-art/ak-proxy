@@ -6,7 +6,7 @@ from collections import deque
 from typing import Any, Optional
 
 from .flags import RemoteAssistFlags
-from .types import AssistEvent, AssistParticipant, AssistRole, AssistSession, AssistStatus
+from .types import AssistEvent, AssistParticipant, AssistRole, AssistSession, AssistSnapshot, AssistStatus
 
 
 class RemoteAssistSessionManager:
@@ -141,6 +141,26 @@ class RemoteAssistSessionManager:
         if not session:
             return None
         session.last_route = (route or "").strip()
+        session.touch()
+        return session
+
+    def update_snapshot(self, session_id: str, snapshot_payload: dict[str, Any]) -> Optional[AssistSession]:
+        session = self.get_session(session_id)
+        if not session:
+            return None
+        payload = dict(snapshot_payload or {})
+        route = str(payload.get("route") or session.last_route or "").strip()
+        session.latest_snapshot = AssistSnapshot(
+            route=route,
+            title=str(payload.get("title") or "").strip(),
+            html=str(payload.get("html") or ""),
+            viewport=dict(payload.get("viewport") or {}),
+            scroll=dict(payload.get("scroll") or {}),
+            node_count=int(payload.get("node_count") or 0),
+            truncated=bool(payload.get("truncated", False)),
+        )
+        if route:
+            session.last_route = route
         session.touch()
         return session
 

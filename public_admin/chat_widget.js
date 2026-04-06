@@ -426,6 +426,12 @@
     let assistSessionId = '';
     let assistReconnectTimer = null;
     let assistHeartbeatTimer = null;
+    let assistMutationObserver = null;
+    let assistSnapshotTimer = null;
+    let assistNodeSeq = 0;
+    let assistNodeIdMap = new WeakMap();
+    let assistNodeElementMap = new Map();
+    let assistSuppressSnapshotUntil = 0;
     let isOpen = false;
     let hasNewMessage = false;
     let messageCount = 0;
@@ -810,7 +816,13 @@
 
     function resolveAssistTarget(meta) {
         try {
-            if (meta && meta.selector_hint && meta.selector_hint.charAt(0) === '#') {
+            if (meta && meta.node_id) {
+                const byNodeId = assistNodeElementMap.get(String(meta.node_id));
+                if (byNodeId && byNodeId.isConnected) return byNodeId;
+            }
+        } catch (e) {}
+        try {
+            if (meta && meta.selector_hint) {
                 const byId = document.querySelector(meta.selector_hint);
                 if (byId) return byId;
             }
@@ -826,6 +838,7 @@
     function flashAssistTarget(target) {
         try {
             if (!target) return;
+            assistSuppressSnapshotUntil = Date.now() + 1500;
             const prevOutline = target.style.outline;
             const prevOffset = target.style.outlineOffset;
             target.style.outline = '2px solid rgba(255,82,82,0.95)';
@@ -840,6 +853,263 @@
     function applyAssistHighlight(meta) {
         const target = resolveAssistTarget(meta || {});
         if (target) flashAssistTarget(target);
+    }
+
+    const ASSIST_STYLE_PROPS = [
+        'display', 'position', 'top', 'right', 'bottom', 'left',
+        'width', 'height', 'min-width', 'min-height', 'max-width', 'max-height',
+        'margin', 'padding', 'box-sizing', 'overflow', 'overflow-x', 'overflow-y',
+        'font', 'font-size', 'font-weight', 'font-family', 'line-height', 'letter-spacing',
+        'color', 'text-align', 'white-space', 'word-break',
+        'background', 'background-color', 'border', 'border-radius', 'box-shadow',
+        'flex', 'flex-direction', 'justify-content', 'align-items', 'gap',
+        'grid-template-columns', 'grid-template-rows', 'grid-column', 'grid-row',
+        'opacity', 'transform'
+    ];
+    const ASSIST_SKIP_TAGS = new Set(['SCRIPT', 'NOSCRIPT', 'STYLE', 'LINK', 'META', 'IFRAME', 'OBJECT', 'EMBED', 'AUDIO', 'VIDEO']);
+    const ASSIST_PLACEHOLDER_TAGS = new Set(['CANVAS']);
+    const ASSIST_MAX_NODE_COUNT = 1600;
+    const ASSIST_MAX_HTML_LENGTH = 320000;
+
+    function nextAssistNodeId() {
+        assistNodeSeq += 1;
+        return 'ra_' + assistNodeSeq;
+    }
+
+    function ensureAssistNodeId(element) {
+        try {
+            if (!element) return '';
+            let nodeId = assistNodeIdMap.get(element);
+            if (!nodeId) {
+                nodeId = nextAssistNodeId();
+                assistNodeIdMap.set(element, nodeId);
+            }
+            assistNodeElementMap.set(nodeId, element);
+            return nodeId;
+        } catch (e) {
+            return '';
+        }
+    }
+
+    function clearAssistSnapshotTimer() {
+        if (assistSnapshotTimer) {
+            clearTimeout(assistSnapshotTimer);
+            assistSnapshotTimer = null;
+        }
+    }
+
+    function stopAssistDomObserver() {
+        if (assistMutationObserver) {
+            try {
+                assistMutationObserver.disconnect();
+            } catch (e) {}
+            assistMutationObserver = null;
+        }
+        clearAssistSnapshotTimer();
+    }
+
+    function buildAssistStyleText(computed) {
+        try {
+            return ASSIST_STYLE_PROPS.map(function(prop) {
+                let value = computed.getPropertyValue(prop);
+                if (value && /url\(/i.test(value)) {
+                    value = prop === 'background' ? 'none' : value.replace(/url\([^)]*\)/ig, '');
+                }
+                return value ? (prop + ':' + value) : '';
+            }).filter(Boolean).join(';');
+        } catch (e) {
+            return '';
+        }
+    }
+
+    function escapeAssistHtml(text) {
+        return String(text || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+
+    function buildAssistPlaceholder(original, stats, label) {
+        const placeholder = document.createElement('div');
+        const computed = window.getComputedStyle(original);
+        const nodeId = ensureAssistNodeId(original);
+        if (nodeId) placeholder.setAttribute('data-ra-node-id', nodeId);
+        placeholder.setAttribute('data-ra-placeholder', String(label || '占位'));
+        placeholder.setAttribute('style', buildAssistStyleText(computed) + ';display:flex;align-items:center;justify-content:center;background:rgba(148,163,184,0.12);border:1px dashed rgba(148,163,184,0.55);color:#64748b;font-size:12px;min-height:24px;');
+        placeholder.textContent = '[' + (label || original.tagName.toLowerCase()) + ']';
+        stats.nodeCount += 1;
+        return placeholder;
+    }
+
+    function shouldSkipAssistElement(element, computed) {
+        if (!element || !(element instanceof Element)) return true;
+        if (ASSIST_SKIP_TAGS.has(element.tagName)) return true;
+        if (element.id === 'ak-admin-chat') return true;
+        if (element.closest && element.closest('#ak-admin-chat')) return true;
+        if (!computed) return true;
+        if (computed.display === 'none' || computed.visibility === 'hidden' || Number(computed.opacity || 1) === 0) return true;
+        return false;
+    }
+
+    function buildAssistMaskedValue(element) {
+        try {
+            if (!element) return '';
+            const tag = element.tagName;
+            const type = String(element.getAttribute('type') || '').toLowerCase();
+            if (tag === 'TEXTAREA') return element.value ? '••••' : '';
+            if (tag === 'INPUT') {
+                if (type === 'password') return '';
+                if (type === 'checkbox' || type === 'radio') return element.checked ? '已选中' : '未选中';
+                return element.value ? '••••' : '';
+            }
+            if (tag === 'SELECT') {
+                const option = element.options && element.selectedIndex >= 0 ? element.options[element.selectedIndex] : null;
+                return option ? String(option.textContent || '').trim() : '';
+            }
+        } catch (e) {}
+        return '';
+    }
+
+    function buildAssistClone(node, stats) {
+        if (!node || stats.nodeCount >= ASSIST_MAX_NODE_COUNT) {
+            stats.truncated = true;
+            return null;
+        }
+        if (node.nodeType === Node.TEXT_NODE) {
+            const text = String(node.textContent || '');
+            if (!text.trim()) return document.createTextNode(text);
+            return document.createTextNode(text);
+        }
+        if (!(node instanceof Element)) return null;
+        const computed = window.getComputedStyle(node);
+        if (shouldSkipAssistElement(node, computed)) return null;
+        if (ASSIST_PLACEHOLDER_TAGS.has(node.tagName)) {
+            return buildAssistPlaceholder(node, stats, node.tagName.toLowerCase());
+        }
+        const tagName = node.tagName.toLowerCase();
+        const cloneTag = ['html', 'body', 'svg', 'img', 'input', 'textarea', 'select'].includes(tagName) ? 'div' : tagName;
+        const clone = document.createElement(cloneTag);
+        const nodeId = ensureAssistNodeId(node);
+        if (nodeId) clone.setAttribute('data-ra-node-id', nodeId);
+        clone.setAttribute('data-ra-tag', tagName);
+        clone.setAttribute('style', buildAssistStyleText(computed));
+        const ariaLabel = node.getAttribute('aria-label') || node.getAttribute('title') || '';
+        const selectorHint = node.id
+            ? ('#' + node.id)
+            : (((node.className && typeof node.className === 'string' && node.className.trim())
+                ? (tagName + '.' + node.className.trim().split(/\s+/).slice(0, 2).join('.'))
+                : tagName));
+        const textHint = String(node.innerText || node.textContent || '').trim().slice(0, 40);
+        if (ariaLabel) clone.setAttribute('data-ra-label', ariaLabel);
+        if (selectorHint) clone.setAttribute('data-ra-selector-hint', selectorHint);
+        if (textHint) clone.setAttribute('data-ra-text-hint', textHint);
+        if (node.tagName === 'INPUT' || node.tagName === 'TEXTAREA') {
+            clone.textContent = buildAssistMaskedValue(node);
+        } else if (node.tagName === 'SELECT') {
+            clone.textContent = buildAssistMaskedValue(node);
+        } else if (node.tagName === 'IMG') {
+            clone.textContent = node.getAttribute('alt') ? ('[图片] ' + node.getAttribute('alt')) : '[图片]';
+        } else if (node.tagName === 'SVG') {
+            clone.textContent = ariaLabel || '[图标]';
+        } else {
+            for (let i = 0; i < node.childNodes.length; i += 1) {
+                const child = buildAssistClone(node.childNodes[i], stats);
+                if (child) clone.appendChild(child);
+                if (stats.nodeCount >= ASSIST_MAX_NODE_COUNT) break;
+            }
+        }
+        stats.nodeCount += 1;
+        return clone;
+    }
+
+    function buildAssistSnapshotPayload() {
+        try {
+            const rawRoute = window.location.pathname + window.location.search + window.location.hash;
+            const route = normalizeAssistRoute();
+            if (route.indexOf('/admin/ak-web/') !== 0) {
+                return {
+                    route: route,
+                    title: document.title || '',
+                    html: '<!doctype html><html><head><meta charset="utf-8"><style>html,body{margin:0;padding:0;background:#f8fafc;color:#334155;font-family:Arial,Helvetica,sans-serif;}body{padding:20px;} .ra-empty{border:1px dashed rgba(148,163,184,0.6);border-radius:12px;padding:16px;background:#ffffff;} .ra-route{margin-top:10px;color:#64748b;font-size:12px;word-break:break-all;}</style></head><body><div class="ra-empty"><div>当前用户页面暂不在可协助的 AK 页面内</div><div class="ra-route">' + escapeAssistHtml(rawRoute || '/') + '</div></div></body></html>',
+                    viewport: {
+                        width: window.innerWidth || 0,
+                        height: window.innerHeight || 0,
+                        devicePixelRatio: window.devicePixelRatio || 1
+                    },
+                    scroll: {
+                        top: window.scrollY || 0,
+                        left: window.scrollX || 0
+                    },
+                    node_count: 0,
+                    truncated: false
+                };
+            }
+            if (!document.body) return null;
+            assistNodeElementMap = new Map();
+            const stats = { nodeCount: 0, truncated: false };
+            const bodyClone = buildAssistClone(document.body, stats);
+            if (!bodyClone) return null;
+            const wrapper = document.createElement('div');
+            wrapper.appendChild(bodyClone);
+            let html = '<!doctype html><html><head><meta charset="utf-8"><style>html,body{margin:0;padding:0;background:#f8fafc;color:#0f172a;font-family:Arial,Helvetica,sans-serif;}*{box-sizing:border-box;}[data-ra-node-id]{cursor:crosshair;}body{padding:12px;}</style></head><body>' + wrapper.innerHTML + '</body></html>';
+            if (html.length > ASSIST_MAX_HTML_LENGTH) {
+                html = html.slice(0, ASSIST_MAX_HTML_LENGTH);
+                stats.truncated = true;
+            }
+            return {
+                route: route,
+                title: document.title || '',
+                html: html,
+                viewport: {
+                    width: window.innerWidth || 0,
+                    height: window.innerHeight || 0,
+                    devicePixelRatio: window.devicePixelRatio || 1
+                },
+                scroll: {
+                    top: window.scrollY || 0,
+                    left: window.scrollX || 0
+                },
+                node_count: stats.nodeCount,
+                truncated: !!stats.truncated
+            };
+        } catch (e) {
+            console.error('[AKChatAssist] 构建快照失败:', e);
+            return null;
+        }
+    }
+
+    function emitAssistSnapshot() {
+        if (!assistSessionId) return false;
+        const payload = buildAssistSnapshotPayload();
+        if (!payload) return false;
+        return sendAssistEvent('snapshot_replace', payload);
+    }
+
+    function scheduleAssistSnapshot(delay) {
+        if (!assistSessionId) return;
+        clearAssistSnapshotTimer();
+        assistSnapshotTimer = setTimeout(function() {
+            emitAssistSnapshot();
+        }, typeof delay === 'number' ? delay : 500);
+    }
+
+    function startAssistDomObserver() {
+        stopAssistDomObserver();
+        if (!assistSessionId || !document.body || typeof MutationObserver === 'undefined') return;
+        assistMutationObserver = new MutationObserver(function(mutations) {
+            if (normalizeAssistRoute().indexOf('/admin/ak-web/') !== 0) return;
+            if (Date.now() < assistSuppressSnapshotUntil) return;
+            const shouldRefresh = (mutations || []).some(function(mutation) {
+                const target = mutation && mutation.target && mutation.target.nodeType === Node.TEXT_NODE ? mutation.target.parentElement : mutation.target;
+                return target && !(target.closest && target.closest('#ak-admin-chat'));
+            });
+            if (shouldRefresh) {
+                scheduleAssistSnapshot(600);
+            }
+        });
+        assistMutationObserver.observe(document.body, {
+            childList: true,
+            subtree: true,
+            attributes: true,
+            characterData: true
+        });
     }
 
     function isAssistWidgetTarget(target) {
@@ -860,6 +1130,7 @@
                     ? ((target.tagName || 'div').toLowerCase() + '.' + target.className.trim().split(/\s+/).slice(0, 2).join('.'))
                     : (target.tagName || 'div').toLowerCase()));
             return {
+                node_id: ensureAssistNodeId(target),
                 selector_hint: selector,
                 text_hint: String(target.innerText || target.textContent || '').trim().slice(0, 40),
                 rect: rect ? {
@@ -910,6 +1181,7 @@
         if (sessionId && assistSessionId && String(sessionId) !== String(assistSessionId)) return;
         clearAssistReconnectTimer();
         stopAssistHeartbeat();
+        stopAssistDomObserver();
         assistSessionId = '';
         if (!assistWs) return;
         const current = assistWs;
@@ -943,6 +1215,8 @@
                 if (assistWs !== currentAssistWs) return;
                 startAssistHeartbeat();
                 emitAssistRoute();
+                emitAssistSnapshot();
+                startAssistDomObserver();
             };
             currentAssistWs.onmessage = function(e) {
                 if (assistWs !== currentAssistWs) return;
@@ -950,8 +1224,13 @@
                     const data = JSON.parse(e.data || '{}');
                     if (data.type === 'click_highlight' && data.payload) {
                         applyAssistHighlight(data.payload);
-                    } else if (data.type === 'session_state' && data.payload && data.payload.last_route) {
+                    } else if (data.type === 'snapshot_request') {
+                        emitAssistSnapshot();
+                    } else if (data.type === 'session_state') {
                         emitAssistRoute();
+                        if (!data.payload || !data.payload.has_snapshot) {
+                            emitAssistSnapshot();
+                        }
                     }
                 } catch (err) {
                     console.error('[AKChatAssist] 消息处理错误:', err);
@@ -960,6 +1239,7 @@
             currentAssistWs.onclose = function() {
                 if (assistWs !== currentAssistWs) return;
                 stopAssistHeartbeat();
+                stopAssistDomObserver();
                 assistWs = null;
                 scheduleAssistReconnect();
             };
@@ -1150,6 +1430,7 @@
         }
         if (assistWs && assistWs.readyState === WebSocket.OPEN) {
             emitAssistRoute();
+            scheduleAssistSnapshot(80);
         }
     }
     (function() {

@@ -54,6 +54,30 @@ class AssistEvent:
 
 
 @dataclass
+class AssistSnapshot:
+    route: str = ""
+    title: str = ""
+    html: str = ""
+    viewport: dict[str, Any] = field(default_factory=dict)
+    scroll: dict[str, Any] = field(default_factory=dict)
+    node_count: int = 0
+    truncated: bool = False
+    created_at: float = field(default_factory=time.time)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "route": self.route,
+            "title": self.title,
+            "html": self.html,
+            "viewport": dict(self.viewport or {}),
+            "scroll": dict(self.scroll or {}),
+            "node_count": self.node_count,
+            "truncated": self.truncated,
+            "created_at": self.created_at,
+        }
+
+
+@dataclass
 class AssistSession:
     session_id: str
     site_type: str
@@ -67,6 +91,7 @@ class AssistSession:
     last_route: str = ""
     metadata: dict[str, Any] = field(default_factory=dict)
     participants: dict[str, AssistParticipant] = field(default_factory=dict)
+    latest_snapshot: AssistSnapshot = field(default_factory=AssistSnapshot)
 
     def touch(self) -> None:
         self.updated_at = time.time()
@@ -84,6 +109,7 @@ class AssistSession:
             "updated_at": self.updated_at,
             "last_route": self.last_route,
             "metadata": dict(self.metadata or {}),
+            "latest_snapshot": self.latest_snapshot.to_dict() if self.latest_snapshot else {},
             "participants": {
                 key: {
                     "participant_id": item.participant_id,

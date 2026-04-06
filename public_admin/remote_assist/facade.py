@@ -68,6 +68,9 @@ class RemoteAssistFacade:
     def update_route(self, session_id: str, route: str) -> Optional[AssistSession]:
         return self.sessions.update_route(session_id, route)
 
+    def update_snapshot(self, session_id: str, snapshot_payload: Optional[dict[str, Any]] = None) -> Optional[AssistSession]:
+        return self.sessions.update_snapshot(session_id, dict(snapshot_payload or {}))
+
     def build_bridge_script(
         self,
         site_type: str,
@@ -109,6 +112,8 @@ class RemoteAssistFacade:
             route = str(event.payload.get("route") or "").strip()
             if route:
                 self.sessions.update_route(event.session_id, route)
+        elif event.type == "snapshot_replace":
+            self.sessions.update_snapshot(event.session_id, event.payload)
         return event
 
     async def publish_event(

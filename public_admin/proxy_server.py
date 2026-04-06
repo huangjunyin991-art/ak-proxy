@@ -4810,7 +4810,7 @@ async def remote_assist_websocket(websocket: WebSocket):
         websocket=websocket,
         participant_id=participant_id,
         readonly=readonly,
-        capabilities=['route_sync', 'click_highlight'],
+        capabilities=['route_sync', 'click_highlight', 'snapshot_replace', 'snapshot_request'],
         client_meta={'site': site},
     )
 
@@ -4830,6 +4830,7 @@ async def remote_assist_websocket(websocket: WebSocket):
                 'role': role.value,
                 'readonly': readonly,
                 'last_route': session.last_route,
+                'has_snapshot': bool(session.latest_snapshot and session.latest_snapshot.html),
             },
         })
 
@@ -4842,6 +4843,17 @@ async def remote_assist_websocket(websocket: WebSocket):
                 'source': 'assist_core',
                 'ts': int(time.time() * 1000),
                 'payload': {'route': session.last_route, 'replace': False},
+            })
+
+        if role == AssistRole.ADMIN and session.latest_snapshot and session.latest_snapshot.html:
+            await remote_assist.event_bus.send(session.session_id, connection_id, {
+                'v': 1,
+                'type': 'snapshot_replace',
+                'session_id': session.session_id,
+                'site': site,
+                'source': 'assist_core',
+                'ts': int(time.time() * 1000),
+                'payload': session.latest_snapshot.to_dict(),
             })
 
         while True:
@@ -4870,6 +4882,32 @@ async def remote_assist_websocket(websocket: WebSocket):
                         f'{role.value}_bridge',
                         payload,
                         include_roles={'admin'},
+                        exclude_connection_id=connection_id,
+                    )
+                continue
+
+            if msg_type == 'snapshot_replace':
+                if role == AssistRole.USER:
+                    await remote_assist.publish_event(
+                        'snapshot_replace',
+                        session.session_id,
+                        site,
+                        f'{role.value}_bridge',
+                        payload,
+                        include_roles={'admin'},
+                        exclude_connection_id=connection_id,
+                    )
+                continue
+
+            if msg_type == 'snapshot_request':
+                if role == AssistRole.ADMIN:
+                    await remote_assist.publish_event(
+                        'snapshot_request',
+                        session.session_id,
+                        site,
+                        f'{role.value}_bridge',
+                        payload,
+                        include_roles={'user'},
                         exclude_connection_id=connection_id,
                     )
                 continue
@@ -5926,12 +5964,10 @@ async def admin_remote_assist_start(request: Request):
     username = (data.get("username") or "").strip()
     if not username:
         return JSONResponse({"success": False, "message": "缺少用户名"})
-    password = await db.get_user_password(username)
-    if not password:
-        return JSONResponse({"success": False, "message": f"用户 {username} 无密码记录"})
     session = remote_assist.find_session_by_target_username(username)
     if session and role != ROLE_SUPER_ADMIN and session.admin_username != (admin_name or role):
         return JSONResponse({"success": False, "message": f"用户 {username} 已有进行中的远程协助"}, status_code=409)
+    created_new_session = False
     if not session:
         session = remote_assist.create_session(
             site_type="ak_web",
@@ -5940,28 +5976,31 @@ async def admin_remote_assist_start(request: Request):
             readonly=True,
             metadata={"admin_role": role},
         )
+        created_new_session = bool(session)
     if not session:
         return JSONResponse({"success": False, "message": "创建协助会话失败"}, status_code=500)
-    bs_id, _ = _create_browse_session(username, password, extra={
-        "assist_session_id": session.session_id,
-        "assist_role": "admin",
-        "assist_readonly": True,
-    })
-    remote_assist.attach_browse_session(session.session_id, bs_id)
+    if username not in online_manager.users:
+        if created_new_session:
+            remote_assist.close_session(session.session_id)
+        return JSONResponse({"success": False, "message": f"用户 {username} 当前不在线，无法发起远程协助"}, status_code=409)
     response = JSONResponse({
         "success": True,
         "session_id": session.session_id,
         "target_username": username,
         "readonly": True,
         "site": "ak_web",
-        "entry_url": "/admin/ak-web/pages/account/login.html",
+        "mode": "html_snapshot",
     })
-    await online_manager.send_payload_to_user(username, {
+    delivered = await online_manager.send_payload_to_user(username, {
         'type': 'remote_assist_bind',
         'session_id': session.session_id,
         'site': 'ak_web',
     })
-    return _set_browse_session_cookie(response, bs_id)
+    if not delivered:
+        if created_new_session:
+            remote_assist.close_session(session.session_id)
+        return JSONResponse({"success": False, "message": f"用户 {username} 协助绑定失败，请稍后重试"}, status_code=409)
+    return response
 
 
 @app.post("/admin/api/remote_assist/close")

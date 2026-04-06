@@ -3147,6 +3147,32 @@
         display:none; position:fixed; top:0; left:0; width:100%; height:100%;
         background:rgba(0,0,0,0.4); z-index:1199;"></div>
 
+    <div id="remoteAssistPanel" class="ak-browser-panel">
+        <div class="ak-browser-header">
+            <div class="ak-browser-header-main">
+                <div class="ak-browser-toolbar">
+                    <button onclick="requestRemoteAssistSnapshot()" class="ak-browser-tool-btn" aria-label="刷新协助快照" title="刷新协助快照">刷新快照</button>
+                    <button onclick="closeRemoteAssistPanel()" class="ak-browser-tool-btn" aria-label="关闭远程协助" title="关闭远程协助">关闭</button>
+                </div>
+                <span id="remoteAssistTitle" class="ak-browser-title-text">远程协助</span>
+            </div>
+            <div id="remoteAssistMeta" style="margin-top:8px; font-size:12px; color:var(--text-secondary); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">等待用户页面快照</div>
+        </div>
+        <div class="ak-browser-stage" id="remoteAssistStage">
+            <div class="ak-browser-stage-frame" id="remoteAssistStageFrame">
+                <div id="remoteAssistLoading" class="ak-browser-loading">
+                    <div class="ak-browser-loading-spinner"></div>
+                    <div id="remoteAssistLoadingText" class="ak-browser-loading-text">正在等待用户页面快照</div>
+                </div>
+                <iframe id="remoteAssistFrame" src="about:blank" style="border:none; width:100%; height:100%; visibility:hidden; background:var(--bg-primary);"
+                        sandbox="allow-same-origin"></iframe>
+            </div>
+        </div>
+    </div>
+    <div id="remoteAssistOverlay" onclick="closeRemoteAssistPanel()" style="
+        display:none; position:fixed; top:0; left:0; width:100%; height:100%;
+        background:rgba(0,0,0,0.4); z-index:1199;"></div>
+
     <!-- 封禁弹窗 -->
     <div class="modal" id="banModal">
         <div class="modal-content" style="max-width: 400px; border: 1px solid rgba(255,50,50,0.3);">
@@ -8257,6 +8283,7 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
         }
 
         async function openAkBrowser(username) {
+            await closeRemoteAssistPanel();
             await releaseAkAssistSession();
             setAkBrowserMode('browser');
             const panel = document.getElementById('akBrowserPanel');
@@ -8301,25 +8328,246 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
             }
         }
 
-        async function openRemoteAssist(username) {
-            await releaseAkAssistSession();
-            setAkBrowserMode('assist');
-            const panel = document.getElementById('akBrowserPanel');
-            const overlay = document.getElementById('akBrowserOverlay');
-            const frame = document.getElementById('akBrowserFrame');
-            const seq = ++akBrowserLoadSeq;
-            if (akBrowserRetryTimer) {
-                clearTimeout(akBrowserRetryTimer);
-                akBrowserRetryTimer = null;
+        let remoteAssistPanelSessionId = '';
+        let remoteAssistPanelUsername = '';
+        let remoteAssistPanelWs = null;
+        let remoteAssistPanelReconnectTimer = null;
+        let remoteAssistPanelHeartbeatTimer = null;
+        let remoteAssistPanelLastSnapshot = null;
+
+        function clearRemoteAssistReconnectTimer() {
+            if (remoteAssistPanelReconnectTimer) {
+                clearTimeout(remoteAssistPanelReconnectTimer);
+                remoteAssistPanelReconnectTimer = null;
             }
-            clearAkBrowserSwipeBinding();
-            setAkBrowserTitle(username, 'assist');
-            setAkBrowserLoading(true, username, 'assist');
-            frame.onload = null;
-            frame.src = 'about:blank';
+        }
+
+        function stopRemoteAssistHeartbeat() {
+            if (remoteAssistPanelHeartbeatTimer) {
+                clearInterval(remoteAssistPanelHeartbeatTimer);
+                remoteAssistPanelHeartbeatTimer = null;
+            }
+        }
+
+        function startRemoteAssistHeartbeat() {
+            stopRemoteAssistHeartbeat();
+            if (!remoteAssistPanelSessionId) return;
+            remoteAssistPanelHeartbeatTimer = setInterval(() => {
+                sendRemoteAssistMessage('heartbeat', { session_id: remoteAssistPanelSessionId });
+            }, 8000);
+        }
+
+        function setRemoteAssistLoading(visible, text = '') {
+            const loading = document.getElementById('remoteAssistLoading');
+            const loadingText = document.getElementById('remoteAssistLoadingText');
+            const frame = document.getElementById('remoteAssistFrame');
+            if (!loading || !loadingText || !frame) return;
+            loading.style.display = visible ? 'flex' : 'none';
+            if (text) loadingText.textContent = text;
+            frame.style.visibility = visible ? 'hidden' : 'visible';
+        }
+
+        function setRemoteAssistMeta(text) {
+            const meta = document.getElementById('remoteAssistMeta');
+            if (!meta) return;
+            meta.textContent = text || '等待用户页面快照';
+        }
+
+        function setRemoteAssistTitle(username) {
+            remoteAssistPanelUsername = String(username || '').trim();
+            const title = document.getElementById('remoteAssistTitle');
+            if (!title) return;
+            title.textContent = remoteAssistPanelUsername ? `${remoteAssistPanelUsername} 的远程协助` : '远程协助';
+        }
+
+        function buildRemoteAssistWsUrl(sessionId) {
+            const proto = window.location.protocol === 'https:' ? 'wss://' : 'ws://';
+            return `${proto}${window.location.host}/admin/assist/ws?session_id=${encodeURIComponent(sessionId)}&role=admin&site=ak_web&readonly=1`;
+        }
+
+        function flashRemoteAssistSnapshotNode(meta) {
+            try {
+                const frame = document.getElementById('remoteAssistFrame');
+                const doc = frame && frame.contentDocument;
+                if (!doc) return;
+                let target = null;
+                if (meta && meta.node_id) {
+                    target = doc.querySelector(`[data-ra-node-id="${String(meta.node_id).replace(/"/g, '\\"')}"]`);
+                }
+                if (!target && meta && meta.selector_hint) {
+                    target = doc.querySelector(meta.selector_hint);
+                }
+                if (!target && meta && meta.rect) {
+                    target = doc.elementFromPoint(Number(meta.rect.x) || 0, Number(meta.rect.y) || 0);
+                }
+                if (!target) return;
+                const prevOutline = target.style.outline;
+                const prevOffset = target.style.outlineOffset;
+                target.style.outline = '2px solid rgba(255,82,82,0.95)';
+                target.style.outlineOffset = '2px';
+                setTimeout(() => {
+                    target.style.outline = prevOutline || '';
+                    target.style.outlineOffset = prevOffset || '';
+                }, 1200);
+            } catch (e) {
+            }
+        }
+
+        function bindRemoteAssistSnapshotFrame() {
+            const frame = document.getElementById('remoteAssistFrame');
+            const doc = frame && frame.contentDocument;
+            if (!frame || !doc) return;
+            doc.addEventListener('click', function(event) {
+                event.preventDefault();
+                event.stopPropagation();
+                const target = event.target && event.target.closest ? event.target.closest('[data-ra-node-id]') || event.target : event.target;
+                if (!target) return;
+                const rect = target.getBoundingClientRect ? target.getBoundingClientRect() : null;
+                const payload = {
+                    node_id: target.getAttribute && target.getAttribute('data-ra-node-id') ? target.getAttribute('data-ra-node-id') : '',
+                    selector_hint: target.getAttribute && target.getAttribute('data-ra-selector-hint') ? target.getAttribute('data-ra-selector-hint') : (target.id ? `#${target.id}` : String((target.tagName || 'div')).toLowerCase()),
+                    text_hint: target.getAttribute && target.getAttribute('data-ra-text-hint') ? target.getAttribute('data-ra-text-hint') : String(target.innerText || target.textContent || '').trim().slice(0, 40),
+                    rect: rect ? {
+                        x: Math.round(rect.left + rect.width / 2),
+                        y: Math.round(rect.top + rect.height / 2),
+                        w: Math.round(rect.width),
+                        h: Math.round(rect.height)
+                    } : null
+                };
+                flashRemoteAssistSnapshotNode(payload);
+                sendRemoteAssistMessage('click_highlight', payload);
+            }, true);
+        }
+
+        function renderRemoteAssistSnapshot(snapshot) {
+            remoteAssistPanelLastSnapshot = snapshot || null;
+            const frame = document.getElementById('remoteAssistFrame');
+            if (!frame) return;
+            const route = String(snapshot && snapshot.route || '').trim();
+            const title = String(snapshot && snapshot.title || '').trim();
+            const metaText = [route || '未知路由', title || '', snapshot && snapshot.truncated ? '快照已裁剪' : ''].filter(Boolean).join(' · ');
+            setRemoteAssistMeta(metaText || '已接收用户页面快照');
+            setRemoteAssistLoading(false);
+            frame.onload = function() {
+                bindRemoteAssistSnapshotFrame();
+            };
+            frame.srcdoc = String(snapshot && snapshot.html || '<!doctype html><html><body style="font-family:Arial;padding:16px;color:#64748b;">暂无可渲染快照</body></html>');
+        }
+
+        function sendRemoteAssistMessage(type, payload = {}) {
+            try {
+                if (!remoteAssistPanelWs || remoteAssistPanelWs.readyState !== WebSocket.OPEN) return false;
+                remoteAssistPanelWs.send(JSON.stringify({ type, payload }));
+                return true;
+            } catch (e) {
+                return false;
+            }
+        }
+
+        function requestRemoteAssistSnapshot() {
+            if (!remoteAssistPanelSessionId) return;
+            setRemoteAssistLoading(true, '正在请求用户页面快照');
+            if (!sendRemoteAssistMessage('snapshot_request', { reason: 'admin_refresh' })) {
+                setRemoteAssistLoading(false);
+                setRemoteAssistMeta('协助连接未就绪，正在等待重连');
+            }
+        }
+
+        function scheduleRemoteAssistReconnect() {
+            clearRemoteAssistReconnectTimer();
+            if (!remoteAssistPanelSessionId) return;
+            remoteAssistPanelReconnectTimer = setTimeout(() => {
+                connectRemoteAssistPanelSocket(remoteAssistPanelSessionId);
+            }, 1500);
+        }
+
+        function connectRemoteAssistPanelSocket(sessionId) {
+            const wantedSessionId = String(sessionId || '').trim();
+            if (!wantedSessionId) return;
+            if (remoteAssistPanelWs && (remoteAssistPanelWs.readyState === WebSocket.OPEN || remoteAssistPanelWs.readyState === WebSocket.CONNECTING) && remoteAssistPanelSessionId === wantedSessionId) {
+                return;
+            }
+            clearRemoteAssistReconnectTimer();
+            const currentWs = new WebSocket(buildRemoteAssistWsUrl(wantedSessionId));
+            remoteAssistPanelWs = currentWs;
+            currentWs.onopen = function() {
+                if (remoteAssistPanelWs !== currentWs) return;
+                startRemoteAssistHeartbeat();
+                requestRemoteAssistSnapshot();
+            };
+            currentWs.onmessage = function(event) {
+                if (remoteAssistPanelWs !== currentWs) return;
+                try {
+                    const data = JSON.parse(event.data || '{}');
+                    if (!data || !data.type) return;
+                    if (data.type === 'session_state') {
+                        const payload = data.payload || {};
+                        if (!payload.has_snapshot) {
+                            const route = String(payload.last_route || '').trim();
+                            setRemoteAssistMeta(route ? `${route} · 等待页面快照` : '用户已接入，等待页面快照');
+                            setRemoteAssistLoading(true, '正在等待用户页面快照');
+                            requestRemoteAssistSnapshot();
+                        }
+                        return;
+                    }
+                    if (data.type === 'snapshot_replace' && data.payload) {
+                        renderRemoteAssistSnapshot(data.payload);
+                        return;
+                    }
+                    if (data.type === 'route_changed' && data.payload) {
+                        const route = String(data.payload.route || '').trim();
+                        if (route) {
+                            setRemoteAssistMeta(`${route} · 页面切换中`);
+                        }
+                        return;
+                    }
+                    if (data.type === 'click_highlight' && data.payload) {
+                        flashRemoteAssistSnapshotNode(data.payload);
+                    }
+                } catch (e) {
+                }
+            };
+            currentWs.onclose = function() {
+                if (remoteAssistPanelWs !== currentWs) return;
+                stopRemoteAssistHeartbeat();
+                remoteAssistPanelWs = null;
+                setRemoteAssistLoading(true, '协助连接断开，正在重连');
+                setRemoteAssistMeta('协助连接断开，正在重连');
+                scheduleRemoteAssistReconnect();
+            };
+            currentWs.onerror = function() {
+            };
+        }
+
+        async function releaseRemoteAssistPanelSession(sessionId = remoteAssistPanelSessionId) {
+            const activeSessionId = String(sessionId || '').trim();
+            if (!activeSessionId) return;
+            try {
+                await fetch(`${API_BASE}/admin/api/remote_assist/close`, {
+                    method: 'POST',
+                    headers: {
+                        ...getHeaders(),
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ session_id: activeSessionId })
+                });
+            } catch (e) {
+            }
+        }
+
+        async function openRemoteAssist(username) {
+            await closeAkBrowser();
+            await closeRemoteAssistPanel();
+            remoteAssistPanelUsername = String(username || '').trim();
+            const panel = document.getElementById('remoteAssistPanel');
+            const overlay = document.getElementById('remoteAssistOverlay');
+            const frame = document.getElementById('remoteAssistFrame');
+            setRemoteAssistTitle(remoteAssistPanelUsername);
+            setRemoteAssistMeta('正在创建远程协助会话');
+            setRemoteAssistLoading(true, '正在等待用户页面快照');
             panel.classList.add('open');
             overlay.style.display = getMobileLayoutMedia().matches ? 'none' : 'block';
-            syncAkBrowserViewport();
+            frame.srcdoc = '<!doctype html><html><body style="font-family:Arial;padding:16px;color:#64748b;">正在等待用户页面快照</body></html>';
             try {
                 const res = await fetch(`${API_BASE}/admin/api/remote_assist/start`, {
                     method: 'POST',
@@ -8327,21 +8575,45 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                         ...getHeaders(),
                         'Content-Type': 'application/json'
                     },
-                    body: JSON.stringify({ username })
+                    body: JSON.stringify({ username: remoteAssistPanelUsername })
                 });
                 const data = await res.json();
-                if (data.success) {
-                    setAkBrowserMode('assist', data.session_id || '');
-                    setAkBrowserTitle(username, 'assist');
-                    bindAkBrowserFrame(username, seq);
-                    frame.src = `${API_BASE}${data.entry_url || '/admin/ak-web/pages/account/login.html'}`;
-                } else {
-                    setAkBrowserLoading(false, username, 'assist');
-                    document.getElementById('akBrowserTitle').textContent = `远程协助失败: ${data.message || '未知错误'}`;
+                if (!data.success) {
+                    setRemoteAssistLoading(false);
+                    setRemoteAssistMeta(`远程协助失败：${data.message || '未知错误'}`);
+                    return;
                 }
+                remoteAssistPanelSessionId = String(data.session_id || '').trim();
+                connectRemoteAssistPanelSocket(remoteAssistPanelSessionId);
             } catch (e) {
-                setAkBrowserLoading(false, username, 'assist');
-                document.getElementById('akBrowserTitle').textContent = `远程协助失败: ${e.message}`;
+                setRemoteAssistLoading(false);
+                setRemoteAssistMeta(`远程协助失败：${e.message}`);
+            }
+        }
+
+        async function closeRemoteAssistPanel(releaseSession = true) {
+            const panel = document.getElementById('remoteAssistPanel');
+            const overlay = document.getElementById('remoteAssistOverlay');
+            const frame = document.getElementById('remoteAssistFrame');
+            const closingSessionId = remoteAssistPanelSessionId;
+            remoteAssistPanelSessionId = '';
+            remoteAssistPanelLastSnapshot = null;
+            clearRemoteAssistReconnectTimer();
+            stopRemoteAssistHeartbeat();
+            if (remoteAssistPanelWs) {
+                try {
+                    remoteAssistPanelWs.close();
+                } catch (e) {
+                }
+                remoteAssistPanelWs = null;
+            }
+            panel.classList.remove('open');
+            overlay.style.display = 'none';
+            setRemoteAssistLoading(false, '正在等待用户页面快照');
+            setRemoteAssistMeta('等待用户页面快照');
+            frame.srcdoc = '<!doctype html><html><body></body></html>';
+            if (releaseSession && closingSessionId) {
+                await releaseRemoteAssistPanelSession(closingSessionId);
             }
         }
 

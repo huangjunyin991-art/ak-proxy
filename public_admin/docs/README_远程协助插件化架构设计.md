@@ -220,9 +220,9 @@
 
 这意味着：
 
-- 第一阶段远程协助若围绕 AK 页面展开，应优先复用现有 `akBrowserPanel`
-- 不建议重新发明第二套完全独立的页面承载容器
-- 当前已确认真实在用的管理员入口是 `POST /admin/api/browse_login` + `iframe -> /admin/ak-web/pages/account/login.html`
+- `akBrowserPanel` 仍然是“打开后台”的真实入口，但它不应再被等同为“远程协助”
+- 真正的远程协助应围绕**在线用户当前页面**展开，而不是管理员重新打开一套后台
+- 当前阶段已改为：管理员通过独立只读协助面板承载用户侧 HTML 快照，而不是复用 `POST /admin/api/browse_login` + `iframe -> /admin/ak-web/pages/account/login.html`
 
 #### B. 浏览态会话机制已存在
 
@@ -283,7 +283,7 @@
 以下内容目前是**经过约束优化后的推荐架构**，但尚不是仓库中已经存在的现实实现：
 
 - `snapshot_cache.py` 快照缓存模块
-- 结构化页面快照 / DOM 镜像缓存
+- HTML 快照增量 patch / 压缩同步
 - 事件审计持久化与回放能力
 
 ### 3.5 当前代码已落地范围（第一阶段截至目前）
@@ -297,18 +297,18 @@
   - `POST /admin/api/remote_assist/start`
   - `POST /admin/api/remote_assist/close`
   - `WS /admin/assist/ws`
-  - `ak_web_proxy(...)` 中的协助桥接脚本条件注入
 - 用户侧绑定链路：
   - `chat_widget.js` 处理 `remote_assist_bind` / `remote_assist_unbind`
   - 用户在线链路 `WS /chat/ws`
   - `OnlineUserManager.send_payload_to_user(...)` 用于向目标用户下发协助绑定/解绑消息
-- 管理员前端入口：`admin.html` 中在现有使用情况表增加“远程协助”按钮，并复用既有 `akBrowserPanel` 作为只读协助承载面板
+  - 用户侧通过 `snapshot_replace` / `route_changed` / `click_highlight` 上报 HTML 快照与定位事件
+- 管理员前端入口：`admin.html` 中在现有使用情况表增加“远程协助”按钮，并使用独立 `remoteAssistPanel` 渲染用户侧 HTML 快照
 
 当前实现刻意保持的边界：
 
-- 只对**显式带有协助标签**的浏览会话注入远程协助桥接脚本，避免误伤普通 `admin/ak-web` 浏览
+- 远程协助不再依赖 `browse_login` 打开管理员后台，也不再把“打开后台”误当成“协助用户页面”
 - 用户侧协助绑定只复用当前已在用的 `chat_widget.js -> /chat/ws` 在线链路，不额外引入新的用户代理入口
-- 快照缓存、结构化 DOM 镜像、审计持久化等增强能力目前尚未落地
+- 第一阶段只做**全量 HTML 快照 + 路由同步 + 精准描红**，暂不做快照增量 patch、审计持久化和更重的可视化能力
 
 这些内容的性质是：
 
