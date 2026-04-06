@@ -4933,6 +4933,19 @@ async def remote_assist_websocket(websocket: WebSocket):
                     )
                 continue
 
+            if msg_type == 'scroll_changed':
+                if role == AssistRole.USER:
+                    await remote_assist.publish_event(
+                        'scroll_changed',
+                        session.session_id,
+                        site,
+                        f'{role.value}_bridge',
+                        payload,
+                        include_roles={'admin'},
+                        exclude_connection_id=connection_id,
+                    )
+                continue
+
             if msg_type == 'click_highlight':
                 include_roles = {'user'} if role == AssistRole.ADMIN else {'admin'}
                 await remote_assist.publish_event(

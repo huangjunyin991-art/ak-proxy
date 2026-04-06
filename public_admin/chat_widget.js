@@ -428,6 +428,7 @@
     let assistHeartbeatTimer = null;
     let assistMutationObserver = null;
     let assistSnapshotTimer = null;
+    let assistScrollTimer = null;
     let assistNodeSeq = 0;
     let assistNodeIdMap = new WeakMap();
     let assistNodeElementMap = new Map();
@@ -436,6 +437,7 @@
     let assistCachedHeadMarkup = '';
     let assistLastSnapshotPayload = null;
     let assistLastSnapshotSentAt = 0;
+    let assistLastScrollPayload = null;
     let isOpen = false;
     let hasNewMessage = false;
     let messageCount = 0;
@@ -902,6 +904,13 @@
         }
     }
 
+    function clearAssistScrollTimer() {
+        if (assistScrollTimer) {
+            clearTimeout(assistScrollTimer);
+            assistScrollTimer = null;
+        }
+    }
+
     function stopAssistDomObserver() {
         if (assistMutationObserver) {
             try {
@@ -1135,6 +1144,8 @@
             const clone = document.createElement('img');
             decorateAssistClone(node, clone, tagName, computed);
             clone.setAttribute('src', src);
+            clone.setAttribute('loading', 'lazy');
+            clone.setAttribute('decoding', 'async');
             const alt = String(node.getAttribute('alt') || '').trim();
             if (alt) clone.setAttribute('alt', alt);
             stats.nodeCount += 1;
@@ -1224,6 +1235,39 @@
             assistLastSnapshotSentAt = Date.now();
         }
         return sent;
+    }
+
+    function buildAssistScrollPayload() {
+        return {
+            top: Math.max(0, Math.round(window.scrollY || window.pageYOffset || 0)),
+            left: Math.max(0, Math.round(window.scrollX || window.pageXOffset || 0)),
+            viewport_height: Math.max(0, Math.round(window.innerHeight || 0)),
+            viewport_width: Math.max(0, Math.round(window.innerWidth || 0))
+        };
+    }
+
+    function emitAssistScroll(force) {
+        if (!assistSessionId) return false;
+        const payload = buildAssistScrollPayload();
+        if (!force
+            && assistLastScrollPayload
+            && assistLastScrollPayload.top === payload.top
+            && assistLastScrollPayload.left === payload.left) {
+            return false;
+        }
+        const sent = sendAssistEvent('scroll_changed', payload);
+        if (sent) {
+            assistLastScrollPayload = payload;
+        }
+        return sent;
+    }
+
+    function scheduleAssistScroll(delay) {
+        if (!assistSessionId) return;
+        clearAssistScrollTimer();
+        assistScrollTimer = setTimeout(function() {
+            emitAssistScroll(false);
+        }, typeof delay === 'number' ? delay : 120);
     }
 
     function emitAssistSnapshot(reason) {
@@ -1354,11 +1398,13 @@
         clearAssistReconnectTimer();
         stopAssistHeartbeat();
         stopAssistDomObserver();
+        clearAssistScrollTimer();
         assistSessionId = '';
         assistCachedHeadRoute = '';
         assistCachedHeadMarkup = '';
         assistLastSnapshotPayload = null;
         assistLastSnapshotSentAt = 0;
+        assistLastScrollPayload = null;
         if (!assistWs) return;
         const current = assistWs;
         assistWs = null;
@@ -1392,6 +1438,7 @@
                 startAssistHeartbeat();
                 emitAssistRoute();
                 emitAssistSnapshot('connect_open');
+                emitAssistScroll(true);
                 startAssistDomObserver();
             };
             currentAssistWs.onmessage = function(e) {
@@ -1607,6 +1654,7 @@
         if (assistWs && assistWs.readyState === WebSocket.OPEN) {
             emitAssistRoute();
             scheduleAssistSnapshot(80, 'route_change');
+            scheduleAssistScroll(40);
         }
     }
     (function() {
@@ -1616,6 +1664,11 @@
         history.replaceState = function() { origReplace.apply(history, arguments); onUrlChange(); };
     })();
     window.addEventListener('popstate', onUrlChange);
+    window.addEventListener('scroll', function() {
+        if (!assistWs || assistWs.readyState !== WebSocket.OPEN || !assistSessionId) return;
+        if (normalizeAssistRoute().indexOf('/admin/ak-web/') !== 0) return;
+        scheduleAssistScroll(120);
+    }, { passive: true });
     document.addEventListener('click', function(event) {
         if (!assistWs || assistWs.readyState !== WebSocket.OPEN || !assistSessionId) return;
         if (isAssistWidgetTarget(event.target)) return;

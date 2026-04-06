@@ -8335,6 +8335,7 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
         let remoteAssistPanelHeartbeatTimer = null;
         let remoteAssistPanelLastSnapshot = null;
         let remoteAssistPanelLastHtml = '';
+        let remoteAssistPanelLastScroll = null;
 
         function clearRemoteAssistReconnectTimer() {
             if (remoteAssistPanelReconnectTimer) {
@@ -8441,13 +8442,53 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
         }
 
         function sanitizeRemoteAssistSrcdocHtml(html) {
-            return String(html || '')
-                .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
-                .replace(/<iframe\b[^<]*(?:(?!<\/iframe>)<[^<]*)*<\/iframe>/gi, '')
-                .replace(/<(object|embed)\b[^>]*>/gi, '')
-                .replace(/\son[a-z]+\s*=\s*(["']).*?\1/gi, '')
-                .replace(/\s(?:href|src|xlink:href|formaction)\s*=\s*(["'])\s*javascript:[^"']*\1/gi, '')
-                .replace(/\ssrcset\s*=\s*(["'])[^"']*javascript:[^"']*\1/gi, '');
+            const rawHtml = String(html || '<!doctype html><html><body style="font-family:Arial;padding:16px;color:#64748b;">暂无可渲染快照</body></html>');
+            try {
+                const doc = new DOMParser().parseFromString(rawHtml, 'text/html');
+                const root = doc.documentElement || doc.body;
+                if (!root) return rawHtml;
+                doc.querySelectorAll('script,iframe,object,embed').forEach(node => node.remove());
+                root.querySelectorAll('*').forEach(node => {
+                    Array.from(node.attributes || []).forEach(attr => {
+                        const name = String(attr.name || '').toLowerCase();
+                        const value = String(attr.value || '');
+                        if (!name) return;
+                        if (name.indexOf('on') === 0) {
+                            node.removeAttribute(attr.name);
+                            return;
+                        }
+                        if ((name === 'href' || name === 'src' || name === 'xlink:href' || name === 'formaction') && /^\s*javascript:/i.test(value)) {
+                            node.removeAttribute(attr.name);
+                            return;
+                        }
+                        if (name === 'srcset' && /javascript:/i.test(value)) {
+                            node.removeAttribute(attr.name);
+                        }
+                    });
+                });
+                return '<!doctype html>' + root.outerHTML;
+            } catch (e) {
+                return rawHtml
+                    .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
+                    .replace(/<iframe\b[^<]*(?:(?!<\/iframe>)<[^<]*)*<\/iframe>/gi, '')
+                    .replace(/<(object|embed)\b[^>]*>/gi, '')
+                    .replace(/\son[a-z]+\s*=\s*(["']).*?\1/gi, '')
+                    .replace(/\s(?:href|src|xlink:href|formaction)\s*=\s*(["'])\s*javascript:[^"']*\1/gi, '')
+                    .replace(/\ssrcset\s*=\s*(["'])[^"']*javascript:[^"']*\1/gi, '');
+            }
+        }
+
+        function applyRemoteAssistScroll(scroll) {
+            remoteAssistPanelLastScroll = scroll || null;
+            try {
+                const frame = document.getElementById('remoteAssistFrame');
+                const win = frame && frame.contentWindow;
+                if (!frame || !win) return;
+                const top = Math.max(0, Math.round(scroll && scroll.top || 0));
+                const left = Math.max(0, Math.round(scroll && scroll.left || 0));
+                win.scrollTo(left, top);
+            } catch (e) {
+            }
         }
 
         function renderRemoteAssistSnapshot(snapshot) {
@@ -8456,16 +8497,19 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
             if (!frame) return;
             const route = String(snapshot && snapshot.route || '').trim();
             const title = String(snapshot && snapshot.title || '').trim();
+            const scrollPayload = snapshot && snapshot.scroll ? snapshot.scroll : remoteAssistPanelLastScroll;
             const metaText = [route || '未知路由', title || '', snapshot && snapshot.truncated ? '快照已裁剪' : ''].filter(Boolean).join(' · ');
             setRemoteAssistMeta(metaText || '已接收用户页面快照');
             setRemoteAssistLoading(false);
             const sanitizedHtml = sanitizeRemoteAssistSrcdocHtml(snapshot && snapshot.html || '<!doctype html><html><body style="font-family:Arial;padding:16px;color:#64748b;">暂无可渲染快照</body></html>');
             if (remoteAssistPanelLastHtml === sanitizedHtml) {
+                applyRemoteAssistScroll(scrollPayload);
                 return;
             }
             remoteAssistPanelLastHtml = sanitizedHtml;
             frame.onload = function() {
                 bindRemoteAssistSnapshotFrame();
+                applyRemoteAssistScroll(scrollPayload);
             };
             frame.srcdoc = sanitizedHtml;
         }
@@ -8537,6 +8581,10 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                         }
                         return;
                     }
+                    if (data.type === 'scroll_changed' && data.payload) {
+                        applyRemoteAssistScroll(data.payload);
+                        return;
+                    }
                     if (data.type === 'click_highlight' && data.payload) {
                         flashRemoteAssistSnapshotNode(data.payload);
                     }
@@ -8582,6 +8630,7 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
             setRemoteAssistMeta('正在创建远程协助会话');
             setRemoteAssistLoading(true, '正在等待用户页面快照');
             remoteAssistPanelLastHtml = '';
+            remoteAssistPanelLastScroll = null;
             panel.classList.add('open');
             overlay.style.display = getMobileLayoutMedia().matches ? 'none' : 'block';
             frame.srcdoc = '<!doctype html><html><body style="font-family:Arial;padding:16px;color:#64748b;">正在等待用户页面快照</body></html>';
@@ -8616,6 +8665,7 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
             remoteAssistPanelSessionId = '';
             remoteAssistPanelLastSnapshot = null;
             remoteAssistPanelLastHtml = '';
+            remoteAssistPanelLastScroll = null;
             clearRemoteAssistReconnectTimer();
             stopRemoteAssistHeartbeat();
             if (remoteAssistPanelWs) {
