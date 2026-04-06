@@ -8439,6 +8439,15 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
             }, true);
         }
 
+        function sanitizeRemoteAssistSrcdocHtml(html) {
+            return String(html || '')
+                .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
+                .replace(/<iframe\b[^<]*(?:(?!<\/iframe>)<[^<]*)*<\/iframe>/gi, '')
+                .replace(/<(object|embed)\b[^>]*>/gi, '')
+                .replace(/\son[a-z]+\s*=\s*(["']).*?\1/gi, '')
+                .replace(/\s(?:href|src)\s*=\s*(["'])\s*javascript:[^"']*\1/gi, '');
+        }
+
         function renderRemoteAssistSnapshot(snapshot) {
             remoteAssistPanelLastSnapshot = snapshot || null;
             const frame = document.getElementById('remoteAssistFrame');
@@ -8451,7 +8460,7 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
             frame.onload = function() {
                 bindRemoteAssistSnapshotFrame();
             };
-            frame.srcdoc = String(snapshot && snapshot.html || '<!doctype html><html><body style="font-family:Arial;padding:16px;color:#64748b;">暂无可渲染快照</body></html>');
+            frame.srcdoc = sanitizeRemoteAssistSrcdocHtml(snapshot && snapshot.html || '<!doctype html><html><body style="font-family:Arial;padding:16px;color:#64748b;">暂无可渲染快照</body></html>');
         }
 
         function sendRemoteAssistMessage(type, payload = {}) {
