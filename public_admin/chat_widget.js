@@ -945,15 +945,23 @@
 
     function sanitizeAssistUrl(url) {
         const raw = String(url || '').trim();
-        if (!raw || /^\s*javascript:/i.test(raw)) return '';
+        if (!raw) return '';
+        if (/^#/i.test(raw)) return raw;
+        if (/^(?:https?:|blob:|\/|\.{1,2}\/|\?)/i.test(raw)) return raw;
+        if (/^data:image\/(?:png|jpe?g|gif|webp|bmp|avif)(?:;|,)/i.test(raw)) return raw;
+        if (/^[a-z][a-z0-9+.-]*:/i.test(raw)) return '';
         return raw;
     }
 
     function sanitizeAssistCssText(cssText) {
         return String(cssText || '')
             .replace(/@import\s+(?:url\()?\s*(['"]?)\s*javascript:[^;]+;?/ig, '')
-            .replace(/url\(\s*(['"]?)\s*javascript:[^)]*\1\s*\)/ig, 'none')
-            .replace(/expression\s*\([^)]*\)/ig, '');
+            .replace(/@import\s+(?:url\()?\s*(['"]?)\s*(?:vbscript:|data:text\/html|data:text\/javascript)[^;]+;?/ig, '')
+            .replace(/url\(\s*(['"]?)\s*(?:javascript:|vbscript:|data:text\/html|data:text\/javascript)[^)]*\1\s*\)/ig, 'none')
+            .replace(/url\(\s*(['"]?)\s*data:image\/svg\+xml[^)]*\1\s*\)/ig, 'none')
+            .replace(/expression\s*\([^)]*\)/ig, '')
+            .replace(/behavior\s*:[^;]+;?/ig, '')
+            .replace(/-moz-binding\s*:[^;]+;?/ig, '');
     }
 
     function buildAssistSelectorHint(node, tagName) {
@@ -999,22 +1007,6 @@
         try {
             const head = document.head;
             if (!head) return parts.join('');
-            const metas = head.querySelectorAll('meta[name],meta[http-equiv],meta[property],meta[charset]');
-            for (let i = 0; i < metas.length; i += 1) {
-                const meta = metas[i];
-                const attrs = [];
-                const charset = String(meta.getAttribute('charset') || '').trim();
-                const name = String(meta.getAttribute('name') || '').trim();
-                const property = String(meta.getAttribute('property') || '').trim();
-                const httpEquiv = String(meta.getAttribute('http-equiv') || '').trim();
-                const content = String(meta.getAttribute('content') || '').trim();
-                if (charset) attrs.push('charset="' + sanitizeAssistHtmlAttr(charset) + '"');
-                if (name) attrs.push('name="' + sanitizeAssistHtmlAttr(name) + '"');
-                if (property) attrs.push('property="' + sanitizeAssistHtmlAttr(property) + '"');
-                if (httpEquiv) attrs.push('http-equiv="' + sanitizeAssistHtmlAttr(httpEquiv) + '"');
-                if (content) attrs.push('content="' + sanitizeAssistHtmlAttr(content) + '"');
-                if (attrs.length) parts.push('<meta ' + attrs.join(' ') + '>');
-            }
             const links = head.querySelectorAll('link[rel]');
             for (let i = 0; i < links.length; i += 1) {
                 const link = links[i];
@@ -1054,6 +1046,9 @@
         try {
             const clone = node.cloneNode(true);
             if (!(clone instanceof Element)) return buildAssistPlaceholder(node, stats, 'svg');
+            Array.prototype.slice.call(clone.querySelectorAll('script,foreignObject')).forEach(function(dangerNode) {
+                dangerNode.remove();
+            });
             const svgNodes = [clone].concat(Array.prototype.slice.call(clone.querySelectorAll('*')));
             svgNodes.forEach(function(element) {
                 Array.prototype.slice.call(element.attributes || []).forEach(function(attr) {
@@ -1064,7 +1059,7 @@
                         element.removeAttribute(name);
                         return;
                     }
-                    if ((lowered === 'href' || lowered === 'xlink:href' || lowered === 'src') && /^\s*javascript:/i.test(value)) {
+                    if ((lowered === 'href' || lowered === 'xlink:href' || lowered === 'src') && !sanitizeAssistUrl(value)) {
                         element.removeAttribute(name);
                     }
                 });
