@@ -3128,6 +3128,7 @@
                     <button onclick="closeAkBrowser()" class="ak-browser-tool-btn" aria-label="关闭后台" title="关闭后台">关闭</button>
                 </div>
                 <span id="akBrowserTitle" class="ak-browser-title-text">AK 后台</span>
+                <span id="akAssistModeBadge" style="display:none; margin-left:8px; padding:2px 8px; border-radius:999px; font-size:11px; color:#fff3d6; background:rgba(255, 148, 64, 0.22); border:1px solid rgba(255, 148, 64, 0.38);">远程协助 · 只读</span>
             </div>
         </div>
         <div class="ak-browser-stage" id="akBrowserStage">
@@ -3965,12 +3966,21 @@
         function renderUsageActionButton(user) {
             const hasPassword = !!user.password;
             if (!hasPassword) {
-                return `<button class="btn btn-ak-disabled" style="padding:4px 12px;font-size:12px;" disabled aria-disabled="true">打开后台</button>`;
+                return `<div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:center;">
+                            <button class="btn btn-ak-disabled" style="padding:4px 12px;font-size:12px;" disabled aria-disabled="true">打开后台</button>
+                            <button class="btn btn-ak-disabled" style="padding:4px 12px;font-size:12px;" disabled aria-disabled="true">远程协助</button>
+                        </div>`;
             }
-            return `<button class="btn btn-primary" style="padding:4px 12px;font-size:12px;"
-                            onclick="openAkBrowser('${user.username}')">
-                            打开后台
-                        </button>`;
+            return `<div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:center;">
+                            <button class="btn btn-primary" style="padding:4px 12px;font-size:12px;"
+                                onclick="openAkBrowser('${user.username}')">
+                                打开后台
+                            </button>
+                            <button class="btn" style="padding:4px 12px;font-size:12px;border:1px solid rgba(255,148,64,0.35);background:rgba(255,148,64,0.12);color:#ffd9b3;"
+                                onclick="openRemoteAssist('${user.username}')">
+                                远程协助
+                            </button>
+                        </div>`;
         }
 
         function renderUsageTable(users) {
@@ -8098,23 +8108,45 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
         // ===== AK 网页浏览面板 =====
         let akBrowserLoadSeq = 0;
         let akBrowserRetryTimer = null;
+        let akBrowserMode = 'browser';
+        let akAssistSessionId = '';
 
-        function formatAkBrowserTitle(username) {
+        function getAkBrowserMode() {
+            return akBrowserMode === 'assist' ? 'assist' : 'browser';
+        }
+
+        function setAkBrowserMode(mode = 'browser', assistSessionId = '') {
+            akBrowserMode = mode === 'assist' ? 'assist' : 'browser';
+            akAssistSessionId = akBrowserMode === 'assist' ? String(assistSessionId || '').trim() : '';
+            const badge = document.getElementById('akAssistModeBadge');
+            if (badge) {
+                badge.style.display = akBrowserMode === 'assist' ? 'inline-flex' : 'none';
+            }
+        }
+
+        function formatAkBrowserTitle(username, mode = getAkBrowserMode()) {
             const name = String(username || '').trim();
+            if (mode === 'assist') {
+                return name ? `${name} 的远程协助` : '远程协助';
+            }
             return name ? `${name} 的后台` : 'AK 后台';
         }
 
-        function formatAkBrowserLoadingText(username) {
+        function formatAkBrowserLoadingText(username, mode = getAkBrowserMode()) {
             const name = String(username || '').trim();
+            if (mode === 'assist') {
+                return name ? `正在进入 ${name} 的远程协助` : '正在进入远程协助';
+            }
             return name ? `正在进入 ${name} 的后台` : '正在进入后台';
         }
 
-        function setAkBrowserTitle(username) {
+        function setAkBrowserTitle(username, mode = getAkBrowserMode()) {
             const title = document.getElementById('akBrowserTitle');
             if (!title) return;
             const name = String(username || '').trim();
             title.dataset.username = name;
-            title.textContent = formatAkBrowserTitle(name);
+            title.dataset.mode = mode;
+            title.textContent = formatAkBrowserTitle(name, mode);
         }
 
         function getAkBrowserCurrentUsername() {
@@ -8122,12 +8154,12 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
             return title ? (title.dataset.username || '') : '';
         }
 
-        function setAkBrowserLoading(visible, username = '') {
+        function setAkBrowserLoading(visible, username = '', mode = getAkBrowserMode()) {
             const loading = document.getElementById('akBrowserLoading');
             const loadingText = document.getElementById('akBrowserLoadingText');
             const frame = document.getElementById('akBrowserFrame');
             loading.style.display = visible ? 'flex' : 'none';
-            loadingText.textContent = formatAkBrowserLoadingText(username || getAkBrowserCurrentUsername());
+            loadingText.textContent = formatAkBrowserLoadingText(username || getAkBrowserCurrentUsername(), mode);
             frame.style.visibility = visible ? 'hidden' : 'visible';
         }
 
@@ -8200,12 +8232,33 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                     }
                 } catch (e) {
                 }
-                setAkBrowserTitle(username);
-                setAkBrowserLoading(false, username);
+                setAkBrowserTitle(username, getAkBrowserMode());
+                setAkBrowserLoading(false, username, getAkBrowserMode());
             };
         }
 
+        async function releaseAkAssistSession(sessionId = akAssistSessionId) {
+            const activeSessionId = String(sessionId || '').trim();
+            if (!activeSessionId) return;
+            try {
+                await fetch(`${API_BASE}/admin/api/remote_assist/close`, {
+                    method: 'POST',
+                    headers: {
+                        ...getHeaders(),
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ session_id: activeSessionId })
+                });
+            } catch (e) {
+            }
+            if (activeSessionId === akAssistSessionId) {
+                setAkBrowserMode('browser');
+            }
+        }
+
         async function openAkBrowser(username) {
+            await releaseAkAssistSession();
+            setAkBrowserMode('browser');
             const panel = document.getElementById('akBrowserPanel');
             const overlay = document.getElementById('akBrowserOverlay');
             const frame = document.getElementById('akBrowserFrame');
@@ -8215,8 +8268,8 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                 akBrowserRetryTimer = null;
             }
             clearAkBrowserSwipeBinding();
-            setAkBrowserTitle(username);
-            setAkBrowserLoading(true, username);
+            setAkBrowserTitle(username, 'browser');
+            setAkBrowserLoading(true, username, 'browser');
             frame.onload = null;
             frame.src = 'about:blank';
             panel.classList.add('open');
@@ -8230,7 +8283,7 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                 });
                 const data = await res.json();
                 if (data.success) {
-                    setAkBrowserTitle(username);
+                    setAkBrowserTitle(username, 'browser');
                     if ('serviceWorker' in navigator) {
                         const regs = await navigator.serviceWorker.getRegistrations();
                         await Promise.all(regs.map(r => r.unregister()));
@@ -8248,6 +8301,50 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
             }
         }
 
+        async function openRemoteAssist(username) {
+            await releaseAkAssistSession();
+            setAkBrowserMode('assist');
+            const panel = document.getElementById('akBrowserPanel');
+            const overlay = document.getElementById('akBrowserOverlay');
+            const frame = document.getElementById('akBrowserFrame');
+            const seq = ++akBrowserLoadSeq;
+            if (akBrowserRetryTimer) {
+                clearTimeout(akBrowserRetryTimer);
+                akBrowserRetryTimer = null;
+            }
+            clearAkBrowserSwipeBinding();
+            setAkBrowserTitle(username, 'assist');
+            setAkBrowserLoading(true, username, 'assist');
+            frame.onload = null;
+            frame.src = 'about:blank';
+            panel.classList.add('open');
+            overlay.style.display = getMobileLayoutMedia().matches ? 'none' : 'block';
+            syncAkBrowserViewport();
+            try {
+                const res = await fetch(`${API_BASE}/admin/api/remote_assist/start`, {
+                    method: 'POST',
+                    headers: {
+                        ...getHeaders(),
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ username })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    setAkBrowserMode('assist', data.session_id || '');
+                    setAkBrowserTitle(username, 'assist');
+                    bindAkBrowserFrame(username, seq);
+                    frame.src = `${API_BASE}${data.entry_url || '/admin/ak-web/pages/account/login.html'}`;
+                } else {
+                    setAkBrowserLoading(false, username, 'assist');
+                    document.getElementById('akBrowserTitle').textContent = `远程协助失败: ${data.message || '未知错误'}`;
+                }
+            } catch (e) {
+                setAkBrowserLoading(false, username, 'assist');
+                document.getElementById('akBrowserTitle').textContent = `远程协助失败: ${e.message}`;
+            }
+        }
+
         function refreshAkBrowser() {
             const frame = document.getElementById('akBrowserFrame');
             if (!frame || frame.src === 'about:blank') return;
@@ -8255,11 +8352,12 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
             frame.src = `${API_BASE}/admin/ak-web/pages/account/login.html`;
         }
 
-        function closeAkBrowser() {
+        async function closeAkBrowser() {
             const panel = document.getElementById('akBrowserPanel');
             const overlay = document.getElementById('akBrowserOverlay');
             const frame = document.getElementById('akBrowserFrame');
             const stageFrame = document.getElementById('akBrowserStageFrame');
+            const closingAssistSessionId = akAssistSessionId;
             akBrowserLoadSeq++;
             clearAkBrowserSwipeBinding();
             if (akBrowserRetryTimer) {
@@ -8275,6 +8373,8 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
             setAkBrowserLoading(false);
             frame.onload = null;
             frame.src = 'about:blank';
+            setAkBrowserMode('browser');
+            await releaseAkAssistSession(closingAssistSessionId);
         }
     </script>
 </body>

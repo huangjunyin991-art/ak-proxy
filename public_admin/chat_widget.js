@@ -417,10 +417,15 @@
     // 配置
     const WS_PROTOCOL = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const WS_URL = `${WS_PROTOCOL}//${window.location.host}/chat/ws`;
+    const ASSIST_WS_URL = `${WS_PROTOCOL}//${window.location.host}/admin/assist/ws`;
     const HEARTBEAT_INTERVAL = 5000; // 5秒心跳间隔
     
     // 状态
     let ws = null;
+    let assistWs = null;
+    let assistSessionId = '';
+    let assistReconnectTimer = null;
+    let assistHeartbeatTimer = null;
     let isOpen = false;
     let hasNewMessage = false;
     let messageCount = 0;
@@ -770,6 +775,203 @@
         }
     }
 
+    function clearAssistReconnectTimer() {
+        if (assistReconnectTimer) {
+            clearTimeout(assistReconnectTimer);
+            assistReconnectTimer = null;
+        }
+    }
+
+    function stopAssistHeartbeat() {
+        if (assistHeartbeatTimer) {
+            clearInterval(assistHeartbeatTimer);
+            assistHeartbeatTimer = null;
+        }
+    }
+
+    function startAssistHeartbeat() {
+        stopAssistHeartbeat();
+        if (!assistSessionId) return;
+        assistHeartbeatTimer = setInterval(function() {
+            if (assistWs && assistWs.readyState === WebSocket.OPEN) {
+                assistWs.send(JSON.stringify({ type: 'heartbeat', payload: { username: username } }));
+            }
+        }, 8000);
+    }
+
+    function normalizeAssistRoute() {
+        const raw = window.location.pathname + window.location.search + window.location.hash;
+        if (raw.indexOf('/admin/ak-web/') === 0) return raw;
+        if (raw.indexOf('/pages/') === 0 || raw.indexOf('/content/') === 0 || raw.indexOf('/assets/') === 0) {
+            return '/admin/ak-web' + raw;
+        }
+        return raw;
+    }
+
+    function resolveAssistTarget(meta) {
+        try {
+            if (meta && meta.selector_hint && meta.selector_hint.charAt(0) === '#') {
+                const byId = document.querySelector(meta.selector_hint);
+                if (byId) return byId;
+            }
+        } catch (e) {}
+        try {
+            if (meta && meta.rect) {
+                return document.elementFromPoint(Number(meta.rect.x) || 0, Number(meta.rect.y) || 0);
+            }
+        } catch (e) {}
+        return null;
+    }
+
+    function flashAssistTarget(target) {
+        try {
+            if (!target) return;
+            const prevOutline = target.style.outline;
+            const prevOffset = target.style.outlineOffset;
+            target.style.outline = '2px solid rgba(255,82,82,0.95)';
+            target.style.outlineOffset = '2px';
+            setTimeout(function() {
+                target.style.outline = prevOutline || '';
+                target.style.outlineOffset = prevOffset || '';
+            }, 1200);
+        } catch (e) {}
+    }
+
+    function applyAssistHighlight(meta) {
+        const target = resolveAssistTarget(meta || {});
+        if (target) flashAssistTarget(target);
+    }
+
+    function isAssistWidgetTarget(target) {
+        try {
+            return !!(target && target.closest && target.closest('#ak-admin-chat'));
+        } catch (e) {
+            return false;
+        }
+    }
+
+    function pickAssistMeta(target) {
+        try {
+            if (!target) return {};
+            const rect = target.getBoundingClientRect ? target.getBoundingClientRect() : null;
+            const selector = target.id
+                ? ('#' + target.id)
+                : (((target.className && typeof target.className === 'string' && target.className.trim())
+                    ? ((target.tagName || 'div').toLowerCase() + '.' + target.className.trim().split(/\s+/).slice(0, 2).join('.'))
+                    : (target.tagName || 'div').toLowerCase()));
+            return {
+                selector_hint: selector,
+                text_hint: String(target.innerText || target.textContent || '').trim().slice(0, 40),
+                rect: rect ? {
+                    x: Math.round(rect.left + rect.width / 2),
+                    y: Math.round(rect.top + rect.height / 2),
+                    w: Math.round(rect.width),
+                    h: Math.round(rect.height)
+                } : null
+            };
+        } catch (e) {
+            return {};
+        }
+    }
+
+    function sendAssistEvent(type, payload) {
+        try {
+            if (!assistWs || assistWs.readyState !== WebSocket.OPEN || !assistSessionId) return false;
+            assistWs.send(JSON.stringify({
+                type: type,
+                payload: payload || {}
+            }));
+            return true;
+        } catch (e) {
+            return false;
+        }
+    }
+
+    function emitAssistRoute() {
+        if (!assistSessionId) return;
+        const route = normalizeAssistRoute();
+        if (route.indexOf('/admin/ak-web/') !== 0) return;
+        sendAssistEvent('route_changed', {
+            route: route,
+            title: document.title || '',
+            replace: false
+        });
+    }
+
+    function scheduleAssistReconnect() {
+        clearAssistReconnectTimer();
+        if (!assistSessionId) return;
+        assistReconnectTimer = setTimeout(function() {
+            connectAssist(assistSessionId);
+        }, 1500);
+    }
+
+    function disconnectAssist(sessionId, silent) {
+        if (sessionId && assistSessionId && String(sessionId) !== String(assistSessionId)) return;
+        clearAssistReconnectTimer();
+        stopAssistHeartbeat();
+        assistSessionId = '';
+        if (!assistWs) return;
+        const current = assistWs;
+        assistWs = null;
+        try {
+            if (!silent && current.readyState === WebSocket.OPEN) {
+                current.close();
+                return;
+            }
+            if (current.readyState === WebSocket.OPEN || current.readyState === WebSocket.CONNECTING) {
+                current.close();
+            }
+        } catch (e) {}
+    }
+
+    function connectAssist(sessionId) {
+        const wantedSessionId = String(sessionId || '').trim();
+        if (!wantedSessionId) return;
+        if (assistWs && (assistWs.readyState === WebSocket.OPEN || assistWs.readyState === WebSocket.CONNECTING) && assistSessionId === wantedSessionId) {
+            return;
+        }
+        if (assistSessionId && assistSessionId !== wantedSessionId) {
+            disconnectAssist('', true);
+        }
+        clearAssistReconnectTimer();
+        assistSessionId = wantedSessionId;
+        try {
+            const currentAssistWs = new WebSocket(ASSIST_WS_URL + '?session_id=' + encodeURIComponent(wantedSessionId) + '&role=user&site=ak_web&readonly=0');
+            assistWs = currentAssistWs;
+            currentAssistWs.onopen = function() {
+                if (assistWs !== currentAssistWs) return;
+                startAssistHeartbeat();
+                emitAssistRoute();
+            };
+            currentAssistWs.onmessage = function(e) {
+                if (assistWs !== currentAssistWs) return;
+                try {
+                    const data = JSON.parse(e.data || '{}');
+                    if (data.type === 'click_highlight' && data.payload) {
+                        applyAssistHighlight(data.payload);
+                    } else if (data.type === 'session_state' && data.payload && data.payload.last_route) {
+                        emitAssistRoute();
+                    }
+                } catch (err) {
+                    console.error('[AKChatAssist] 消息处理错误:', err);
+                }
+            };
+            currentAssistWs.onclose = function() {
+                if (assistWs !== currentAssistWs) return;
+                stopAssistHeartbeat();
+                assistWs = null;
+                scheduleAssistReconnect();
+            };
+            currentAssistWs.onerror = function(err) {
+                if (assistWs !== currentAssistWs) return;
+                console.error('[AKChatAssist] WebSocket 错误:', err);
+            };
+        } catch (e) {
+            scheduleAssistReconnect();
+        }
+    }
+
     function isPresenceForeground() {
         return !document.hidden;
     }
@@ -853,6 +1055,10 @@
                         addMessage(data.content, true, data.time);
                         showChat();
                         playNotificationSound();
+                    } else if (data.type === 'remote_assist_bind') {
+                        connectAssist(data.session_id || '');
+                    } else if (data.type === 'remote_assist_unbind') {
+                        disconnectAssist(data.session_id || '', true);
                     } else if (data.type === 'history') {
                         // 加载历史消息 - 静默加载，不弹出窗口
                         if (data.messages && data.messages.length > 0) {
@@ -942,6 +1148,9 @@
         if (ws && ws.readyState === WebSocket.OPEN && !document.hidden) {
             sendPresence('online');
         }
+        if (assistWs && assistWs.readyState === WebSocket.OPEN) {
+            emitAssistRoute();
+        }
     }
     (function() {
         var origPush = history.pushState.bind(history);
@@ -950,6 +1159,12 @@
         history.replaceState = function() { origReplace.apply(history, arguments); onUrlChange(); };
     })();
     window.addEventListener('popstate', onUrlChange);
+    document.addEventListener('click', function(event) {
+        if (!assistWs || assistWs.readyState !== WebSocket.OPEN || !assistSessionId) return;
+        if (isAssistWidgetTarget(event.target)) return;
+        if (normalizeAssistRoute().indexOf('/admin/ak-web/') !== 0) return;
+        sendAssistEvent('click_highlight', pickAssistMeta(event.target));
+    }, true);
 
     document.addEventListener('visibilitychange', function() {
         if (document.hidden) {
@@ -959,7 +1174,10 @@
         }
     });
 
-    window.addEventListener('pagehide', suspendPresence);
+    window.addEventListener('pagehide', function() {
+        disconnectAssist('', true);
+        suspendPresence();
+    });
     window.addEventListener('pageshow', function() {
         if (isPresenceForeground()) resumePresence();
     });
@@ -969,7 +1187,10 @@
     window.addEventListener('focus', function() {
         if (isPresenceForeground()) resumePresence();
     });
-    window.addEventListener('beforeunload', suspendPresence);
+    window.addEventListener('beforeunload', function() {
+        disconnectAssist('', true);
+        suspendPresence();
+    });
     
     // DOM加载完成后立即连接（不等待所有资源加载）
     setTimeout(function() {

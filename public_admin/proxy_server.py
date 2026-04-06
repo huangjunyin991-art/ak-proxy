@@ -118,6 +118,10 @@ except ImportError:
 
 import database_pg as db
 
+from remote_assist import remote_assist
+
+from remote_assist.types import AssistRole
+
 # 出口IP调度模块
 
 from outbound_dispatcher import dispatcher, ace_sell_dispatcher, OutboundExit
@@ -2339,6 +2343,40 @@ def get_token_sub_name(token: str) -> str:
 
 
 
+def _extract_admin_bearer_token(request: Request) -> str:
+
+    auth_header = (request.headers.get('Authorization') or '').strip()
+
+    if auth_header.lower().startswith('bearer '):
+
+        return auth_header[7:].strip()
+
+    return ''
+
+
+
+async def _resolve_admin_identity(request: Request):
+
+    token = _extract_admin_bearer_token(request)
+
+    if not token or not await verify_admin_token(token):
+
+        return '', '', ''
+
+    role = get_token_role(token) or ''
+
+    if role == ROLE_SUB_ADMIN:
+
+        return token, role, get_token_sub_name(token) or ''
+
+    if role == ROLE_SUPER_ADMIN:
+
+        return token, role, '__super__'
+
+    return token, role, ''
+
+
+
 async def kick_sub_admins(target_name: str = None) -> int:
 
     if target_name:
@@ -2600,6 +2638,24 @@ class OnlineUserManager:
             del self.users[u]
 
         return online
+
+
+
+    async def send_payload_to_user(self, username, payload):
+
+        if username in self.users:
+
+            try:
+
+                await self.users[username]['websocket'].send_json(payload)
+
+                return True
+
+            except Exception:
+
+                return False
+
+        return False
 
 
 
@@ -4734,8 +4790,110 @@ async def admin_websocket(websocket: WebSocket):
 
 
 
-@app.websocket("/chat/ws")
+@app.websocket("/admin/assist/ws")
+async def remote_assist_websocket(websocket: WebSocket):
 
+    session_id = (websocket.query_params.get('session_id') or '').strip()
+    role_name = (websocket.query_params.get('role') or 'user').strip().lower()
+    site = (websocket.query_params.get('site') or 'ak_web').strip() or 'ak_web'
+    readonly = (websocket.query_params.get('readonly') or '1').strip() != '0'
+    role = AssistRole.ADMIN if role_name == 'admin' else AssistRole.USER
+    participant_id = f"{role.value}_{secrets.token_hex(8)}"
+
+    if not session_id or site != 'ak_web' or not remote_assist.is_enabled():
+        await websocket.close(code=1008)
+        return
+
+    session, connection_id = await remote_assist.connect_websocket(
+        session_id=session_id,
+        role=role,
+        websocket=websocket,
+        participant_id=participant_id,
+        readonly=readonly,
+        capabilities=['route_sync', 'click_highlight'],
+        client_meta={'site': site},
+    )
+
+    if not session:
+        await websocket.close(code=1008)
+        return
+
+    try:
+        await websocket.send_json({
+            'v': 1,
+            'type': 'session_state',
+            'session_id': session.session_id,
+            'site': site,
+            'source': 'assist_core',
+            'ts': int(time.time() * 1000),
+            'payload': {
+                'role': role.value,
+                'readonly': readonly,
+                'last_route': session.last_route,
+            },
+        })
+
+        if role == AssistRole.ADMIN and session.last_route:
+            await remote_assist.event_bus.send(session.session_id, connection_id, {
+                'v': 1,
+                'type': 'route_changed',
+                'session_id': session.session_id,
+                'site': site,
+                'source': 'assist_core',
+                'ts': int(time.time() * 1000),
+                'payload': {'route': session.last_route, 'replace': False},
+            })
+
+        while True:
+            data = await websocket.receive_json()
+            msg_type = (data.get('type') or '').strip()
+            payload = data.get('payload') or {}
+
+            if msg_type == 'heartbeat':
+                active_session = remote_assist.heartbeat(session.session_id, participant_id)
+                if not active_session:
+                    await websocket.close(code=1000)
+                    break
+                await websocket.send_json({'type': 'pong', 'payload': {'session_id': session.session_id}})
+                continue
+
+            if not remote_assist.get_session(session.session_id):
+                await websocket.close(code=1000)
+                break
+
+            if msg_type == 'route_changed':
+                if role == AssistRole.USER:
+                    await remote_assist.publish_event(
+                        'route_changed',
+                        session.session_id,
+                        site,
+                        f'{role.value}_bridge',
+                        payload,
+                        include_roles={'admin'},
+                        exclude_connection_id=connection_id,
+                    )
+                continue
+
+            if msg_type == 'click_highlight':
+                include_roles = {'user'} if role == AssistRole.ADMIN else {'admin'}
+                await remote_assist.publish_event(
+                    'click_highlight',
+                    session.session_id,
+                    site,
+                    f'{role.value}_bridge',
+                    payload,
+                    include_roles=include_roles,
+                    exclude_connection_id=connection_id,
+                )
+
+    except (WebSocketDisconnect, Exception):
+        pass
+    finally:
+        await remote_assist.disconnect_websocket(session_id, participant_id, connection_id)
+
+
+
+@app.websocket("/chat/ws")
 async def chat_websocket(websocket: WebSocket):
 
     await websocket.accept()
@@ -4763,6 +4921,20 @@ async def chat_websocket(websocket: WebSocket):
                 username = data.get('username', username)
 
                 if prev_ws_id != id(websocket):
+
+                    assist_session = remote_assist.find_session_by_target_username(username)
+
+                    if assist_session and assist_session.site_type == 'ak_web':
+
+                        await online_manager.send_payload_to_user(username, {
+
+                            'type': 'remote_assist_bind',
+
+                            'session_id': assist_session.session_id,
+
+                            'site': 'ak_web',
+
+                        })
 
                     history = online_manager.get_messages(username)
 
@@ -5457,7 +5629,7 @@ def _inject_base_js_no_login_probe(text: str) -> tuple[str, bool]:
         "var xo=XMLHttpRequest.prototype.open,xs=XMLHttpRequest.prototype.send;"
         "XMLHttpRequest.prototype.open=function(method,url){var nextUrl=akBaseRw(url||'');this.__akBaseMethod=method||'GET';this.__akBaseUrl=nextUrl||'';return xo.apply(this,[method,nextUrl].concat([].slice.call(arguments,2)));};"
         "XMLHttpRequest.prototype.send=function(body){try{this.__akBaseBody=akBaseBody(body);}catch(_e){}if(!this.__akBaseNoLoginBound){this.__akBaseNoLoginBound=true;this.addEventListener('loadend',function(){try{var resp=this.responseText||this.response||'';if(!akBaseHasNoLogin(resp))return;akBaseEmit({transport:'xhr',method:this.__akBaseMethod||'',optionUrl:this.__akBaseUrl||'',actualUrl:this.responseURL||'',status:this.status||0,data:this.__akBaseBody||null,userkey:akBaseUserKey(),responseHead:String(resp).slice(0,300),current:location.href});}catch(__e){}});}return xs.apply(this,arguments);};"
-        "if(typeof window.fetch==='function'){var of=window.fetch;window.fetch=function(input,init){var method='GET',url='',body=null;try{if(typeof input==='string'){url=akBaseRw(input);method=(init&&init.method)||'GET';body=init&&Object.prototype.hasOwnProperty.call(init,'body')?init.body:null;input=url;}else if(input&&typeof input==='object'){url=akBaseRw(input.url||'');method=(init&&init.method)||(input.method)||'GET';body=init&&Object.prototype.hasOwnProperty.call(init,'body')?init.body:(Object.prototype.hasOwnProperty.call(input,'_bodyInit')?input._bodyInit:null);if(url!==(input.url||''))input=new Request(url,input);}}catch(_e){}return of.apply(this,[input,init]).then(function(resp){try{resp.clone().text().then(function(txt){if(!akBaseHasNoLogin(txt))return;akBaseEmit({transport:'fetch',method:method||'GET',optionUrl:url||'',actualUrl:(resp&&resp.url)||'',status:(resp&&resp.status)||0,data:akBaseBody(body),userkey:akBaseUserKey(),responseHead:String(txt).slice(0,300),current:location.href});}).catch(function(){});}catch(_e){}return resp;});};}"
+        "if(typeof window.fetch==='function'){var of=window.fetch;window.fetch=function(input,init){var method='GET',url='',body=null;try{if(typeof input==='string'){url=input;method=(init&&init.method)||'GET';body=init&&Object.prototype.hasOwnProperty.call(init,'body')?init.body:null;input=url;}else if(input&&typeof input==='object'){url=input.url||'';method=(init&&init.method)||(input.method)||'GET';body=init&&Object.prototype.hasOwnProperty.call(init,'body')?init.body:(Object.prototype.hasOwnProperty.call(input,'_bodyInit')?input._bodyInit:null);if(url!==(input.url||''))input=new Request(url,input);}}catch(_e){}return of.apply(this,[input,init]).then(function(resp){try{resp.clone().text().then(function(txt){if(!akBaseHasNoLogin(txt))return;akBaseEmit({transport:'fetch',method:method||'GET',optionUrl:url||'',actualUrl:(resp&&resp.url)||'',status:(resp&&resp.status)||0,data:akBaseBody(body),userkey:akBaseUserKey(),responseHead:String(txt).slice(0,300),current:location.href});}).catch(function(){});}catch(_e){}return resp;});};}"
         "}catch(__akBaseProbeError){}})();"
     )
     return probe + text, True
@@ -5706,6 +5878,23 @@ async def admin_ak_rpc(path: str, request: Request):
         return JSONResponse({"Error": True, "IsLogin": False, "Msg": f"请求失败: {str(e)}"}, status_code=500)
 
 
+def _create_browse_session(username: str, password: str, extra: Optional[dict] = None):
+    bs_id = secrets.token_hex(16)
+    session = {
+        "id": bs_id,
+        "cookies": {},
+        "username": username,
+        "password": password,
+        "userkey": "",
+        "login_result": {},
+        "expires": time.time() + _BROWSE_SESSION_TTL,
+    }
+    if extra:
+        session.update(dict(extra))
+    _browse_sessions[bs_id] = session
+    return bs_id, session
+
+
 @app.post("/admin/api/browse_login")
 async def admin_browse_login(request: Request):
     """为后台内嵌网页创建全新浏览 session，始终从登录页进入"""
@@ -5717,21 +5906,85 @@ async def admin_browse_login(request: Request):
     if not password:
         return JSONResponse({"success": False, "message": f"用户 {username} 无密码记录"})
     try:
-        bs_id = secrets.token_hex(16)
-        _browse_sessions[bs_id] = {
-            "cookies": {},
-            "username": username,
-            "password": password,
-            "userkey": "",
-            "login_result": {},
-            "expires": time.time() + _BROWSE_SESSION_TTL,
-        }
+        bs_id, _ = _create_browse_session(username, password)
         return _set_browse_session_cookie(
             JSONResponse({"success": True, "bs_id": bs_id}),
             bs_id,
         )
     except Exception as e:
         return JSONResponse({"success": False, "message": f"登录失败: {str(e)}"})
+
+
+@app.post("/admin/api/remote_assist/start")
+async def admin_remote_assist_start(request: Request):
+    token, role, admin_name = await _resolve_admin_identity(request)
+    if not token or not role:
+        return JSONResponse({"success": False, "message": "未登录或登录已失效"}, status_code=401)
+    if not remote_assist.is_enabled() or not remote_assist.supports_site("ak_web"):
+        return JSONResponse({"success": False, "message": "远程协助未启用"}, status_code=503)
+    data = await request.json()
+    username = (data.get("username") or "").strip()
+    if not username:
+        return JSONResponse({"success": False, "message": "缺少用户名"})
+    password = await db.get_user_password(username)
+    if not password:
+        return JSONResponse({"success": False, "message": f"用户 {username} 无密码记录"})
+    session = remote_assist.find_session_by_target_username(username)
+    if session and role != ROLE_SUPER_ADMIN and session.admin_username != (admin_name or role):
+        return JSONResponse({"success": False, "message": f"用户 {username} 已有进行中的远程协助"}, status_code=409)
+    if not session:
+        session = remote_assist.create_session(
+            site_type="ak_web",
+            target_username=username,
+            admin_username=admin_name or role,
+            readonly=True,
+            metadata={"admin_role": role},
+        )
+    if not session:
+        return JSONResponse({"success": False, "message": "创建协助会话失败"}, status_code=500)
+    bs_id, _ = _create_browse_session(username, password, extra={
+        "assist_session_id": session.session_id,
+        "assist_role": "admin",
+        "assist_readonly": True,
+    })
+    remote_assist.attach_browse_session(session.session_id, bs_id)
+    response = JSONResponse({
+        "success": True,
+        "session_id": session.session_id,
+        "target_username": username,
+        "readonly": True,
+        "site": "ak_web",
+        "entry_url": "/admin/ak-web/pages/account/login.html",
+    })
+    await online_manager.send_payload_to_user(username, {
+        'type': 'remote_assist_bind',
+        'session_id': session.session_id,
+        'site': 'ak_web',
+    })
+    return _set_browse_session_cookie(response, bs_id)
+
+
+@app.post("/admin/api/remote_assist/close")
+async def admin_remote_assist_close(request: Request):
+    token, role, admin_name = await _resolve_admin_identity(request)
+    if not token or not role:
+        return JSONResponse({"success": False, "message": "未登录或登录已失效"}, status_code=401)
+    data = await request.json()
+    session_id = (data.get("session_id") or "").strip()
+    if not session_id:
+        return JSONResponse({"success": False, "message": "缺少会话ID"})
+    session = remote_assist.get_session(session_id)
+    if not session:
+        return JSONResponse({"success": False, "message": "协助会话不存在"}, status_code=404)
+    if role != ROLE_SUPER_ADMIN and session.admin_username != (admin_name or role):
+        return JSONResponse({"success": False, "message": "无权关闭该协助会话"}, status_code=403)
+    await online_manager.send_payload_to_user(session.target_username, {
+        'type': 'remote_assist_unbind',
+        'session_id': session.session_id,
+        'site': session.site_type,
+    })
+    remote_assist.close_session(session_id)
+    return JSONResponse({"success": True})
 
 
 def _build_injector(bs_id: str, username: str = "", password: str = "", userkey: str = "", login_result: dict = None,
@@ -6063,6 +6316,32 @@ async def ak_web_proxy(request: Request, path: str):
                 else:
                     text = injector + text
                 html_injected = True
+                if site_prefix == _AK_WEB_PREFIX and remote_assist.is_enabled():
+                    assist_session = None
+                    assist_role = ''
+                    tagged_assist_session_id = str(_sess.get('assist_session_id') or '').strip()
+                    tagged_assist_role = str(_sess.get('assist_role') or '').strip().lower()
+                    if tagged_assist_session_id and tagged_assist_role in {'admin', 'user'}:
+                        active_session = remote_assist.get_session(tagged_assist_session_id)
+                        if active_session and active_session.site_type == 'ak_web':
+                            assist_session = active_session
+                            assist_role = tagged_assist_role
+                            if tagged_assist_role == 'admin':
+                                remote_assist.attach_browse_session(active_session.session_id, bs_id)
+                    if assist_session and assist_role:
+                        assist_script = remote_assist.build_bridge_script(
+                            'ak_web',
+                            assist_session.session_id,
+                            '/admin/assist/ws',
+                            assist_role,
+                            readonly=(assist_role == 'admin'),
+                            extra={'browseSessionId': bs_id},
+                        )
+                        if assist_script:
+                            if '</body>' in text:
+                                text = text.replace('</body>', assist_script + '</body>', 1)
+                            else:
+                                text += assist_script
             if "text/html" in content_type:
                 inject_reason = "ok" if html_injected else ("no_bs" if not bs_id else "miss")
                 logger.warning(f"[AkHtmlInject/{path}] bs={bs_id or '-'} source={bs_source} cookie_bs={cookie_bs} reason={inject_reason} injected={int(html_injected)} referer={referer} target={target_url} final_url={resp.url} content_type={content_type}")
