@@ -432,6 +432,10 @@
     let assistNodeIdMap = new WeakMap();
     let assistNodeElementMap = new Map();
     let assistSuppressSnapshotUntil = 0;
+    let assistCachedHeadRoute = '';
+    let assistCachedHeadMarkup = '';
+    let assistLastSnapshotPayload = null;
+    let assistLastSnapshotSentAt = 0;
     let isOpen = false;
     let hasNewMessage = false;
     let messageCount = 0;
@@ -974,6 +978,10 @@
     }
 
     function buildAssistHeadMarkup() {
+        const routeKey = normalizeAssistRoute();
+        if (assistCachedHeadMarkup && assistCachedHeadRoute === routeKey) {
+            return assistCachedHeadMarkup;
+        }
         const parts = ['<meta charset="utf-8">'];
         try {
             const baseHref = sanitizeAssistUrl(window.location.href || '');
@@ -1014,7 +1022,10 @@
                 if (cssText) parts.push('<style>' + cssText.replace(/<\/style/ig, '<\\/style') + '</style>');
             }
         } catch (e) {}
-        return parts.join('');
+        const markup = parts.join('');
+        assistCachedHeadRoute = routeKey;
+        assistCachedHeadMarkup = markup;
+        return markup;
     }
 
     function buildAssistBodyAttrs() {
@@ -1205,18 +1216,49 @@
         }
     }
 
-    function emitAssistSnapshot() {
-        if (!assistSessionId) return false;
-        const payload = buildAssistSnapshotPayload();
+    function sendAssistSnapshotPayload(payload) {
         if (!payload) return false;
-        return sendAssistEvent('snapshot_replace', payload);
+        const sent = sendAssistEvent('snapshot_replace', payload);
+        if (sent) {
+            assistLastSnapshotPayload = payload;
+            assistLastSnapshotSentAt = Date.now();
+        }
+        return sent;
     }
 
-    function scheduleAssistSnapshot(delay) {
+    function emitAssistSnapshot(reason) {
+        if (!assistSessionId) return false;
+        const now = Date.now();
+        const route = normalizeAssistRoute();
+        if (reason === 'snapshot_request'
+            && assistLastSnapshotPayload
+            && assistLastSnapshotPayload.route === route
+            && (now - assistLastSnapshotSentAt) < 3000) {
+            return sendAssistSnapshotPayload(assistLastSnapshotPayload);
+        }
+        if ((reason === 'connect_open' || reason === 'session_state')
+            && assistLastSnapshotPayload
+            && assistLastSnapshotPayload.route === route
+            && (now - assistLastSnapshotSentAt) < 1200) {
+            return false;
+        }
+        const payload = buildAssistSnapshotPayload();
+        if (!payload) return false;
+        if (assistLastSnapshotPayload
+            && assistLastSnapshotPayload.route === payload.route
+            && assistLastSnapshotPayload.html === payload.html
+            && (now - assistLastSnapshotSentAt) < 5000
+            && reason !== 'snapshot_request') {
+            return false;
+        }
+        return sendAssistSnapshotPayload(payload);
+    }
+
+    function scheduleAssistSnapshot(delay, reason) {
         if (!assistSessionId) return;
         clearAssistSnapshotTimer();
         assistSnapshotTimer = setTimeout(function() {
-            emitAssistSnapshot();
+            emitAssistSnapshot(reason || 'mutation');
         }, typeof delay === 'number' ? delay : 500);
     }
 
@@ -1231,7 +1273,7 @@
                 return target && !(target.closest && target.closest('#ak-admin-chat'));
             });
             if (shouldRefresh) {
-                scheduleAssistSnapshot(600);
+                scheduleAssistSnapshot(600, 'mutation');
             }
         });
         assistMutationObserver.observe(document.body, {
@@ -1313,6 +1355,10 @@
         stopAssistHeartbeat();
         stopAssistDomObserver();
         assistSessionId = '';
+        assistCachedHeadRoute = '';
+        assistCachedHeadMarkup = '';
+        assistLastSnapshotPayload = null;
+        assistLastSnapshotSentAt = 0;
         if (!assistWs) return;
         const current = assistWs;
         assistWs = null;
@@ -1345,7 +1391,7 @@
                 if (assistWs !== currentAssistWs) return;
                 startAssistHeartbeat();
                 emitAssistRoute();
-                emitAssistSnapshot();
+                emitAssistSnapshot('connect_open');
                 startAssistDomObserver();
             };
             currentAssistWs.onmessage = function(e) {
@@ -1355,11 +1401,11 @@
                     if (data.type === 'click_highlight' && data.payload) {
                         applyAssistHighlight(data.payload);
                     } else if (data.type === 'snapshot_request') {
-                        emitAssistSnapshot();
+                        emitAssistSnapshot('snapshot_request');
                     } else if (data.type === 'session_state') {
                         emitAssistRoute();
                         if (!data.payload || !data.payload.has_snapshot) {
-                            emitAssistSnapshot();
+                            emitAssistSnapshot('session_state');
                         }
                     }
                 } catch (err) {
@@ -1560,7 +1606,7 @@
         }
         if (assistWs && assistWs.readyState === WebSocket.OPEN) {
             emitAssistRoute();
-            scheduleAssistSnapshot(80);
+            scheduleAssistSnapshot(80, 'route_change');
         }
     }
     (function() {

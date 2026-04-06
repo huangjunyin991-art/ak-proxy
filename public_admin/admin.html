@@ -8334,6 +8334,7 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
         let remoteAssistPanelReconnectTimer = null;
         let remoteAssistPanelHeartbeatTimer = null;
         let remoteAssistPanelLastSnapshot = null;
+        let remoteAssistPanelLastHtml = '';
 
         function clearRemoteAssistReconnectTimer() {
             if (remoteAssistPanelReconnectTimer) {
@@ -8458,10 +8459,15 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
             const metaText = [route || '未知路由', title || '', snapshot && snapshot.truncated ? '快照已裁剪' : ''].filter(Boolean).join(' · ');
             setRemoteAssistMeta(metaText || '已接收用户页面快照');
             setRemoteAssistLoading(false);
+            const sanitizedHtml = sanitizeRemoteAssistSrcdocHtml(snapshot && snapshot.html || '<!doctype html><html><body style="font-family:Arial;padding:16px;color:#64748b;">暂无可渲染快照</body></html>');
+            if (remoteAssistPanelLastHtml === sanitizedHtml) {
+                return;
+            }
+            remoteAssistPanelLastHtml = sanitizedHtml;
             frame.onload = function() {
                 bindRemoteAssistSnapshotFrame();
             };
-            frame.srcdoc = sanitizeRemoteAssistSrcdocHtml(snapshot && snapshot.html || '<!doctype html><html><body style="font-family:Arial;padding:16px;color:#64748b;">暂无可渲染快照</body></html>');
+            frame.srcdoc = sanitizedHtml;
         }
 
         function sendRemoteAssistMessage(type, payload = {}) {
@@ -8575,6 +8581,7 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
             setRemoteAssistTitle(remoteAssistPanelUsername);
             setRemoteAssistMeta('正在创建远程协助会话');
             setRemoteAssistLoading(true, '正在等待用户页面快照');
+            remoteAssistPanelLastHtml = '';
             panel.classList.add('open');
             overlay.style.display = getMobileLayoutMedia().matches ? 'none' : 'block';
             frame.srcdoc = '<!doctype html><html><body style="font-family:Arial;padding:16px;color:#64748b;">正在等待用户页面快照</body></html>';
@@ -8608,6 +8615,7 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
             const closingSessionId = remoteAssistPanelSessionId;
             remoteAssistPanelSessionId = '';
             remoteAssistPanelLastSnapshot = null;
+            remoteAssistPanelLastHtml = '';
             clearRemoteAssistReconnectTimer();
             stopRemoteAssistHeartbeat();
             if (remoteAssistPanelWs) {
