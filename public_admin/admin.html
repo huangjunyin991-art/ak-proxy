@@ -8445,7 +8445,8 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                 .replace(/<iframe\b[^<]*(?:(?!<\/iframe>)<[^<]*)*<\/iframe>/gi, '')
                 .replace(/<(object|embed)\b[^>]*>/gi, '')
                 .replace(/\son[a-z]+\s*=\s*(["']).*?\1/gi, '')
-                .replace(/\s(?:href|src)\s*=\s*(["'])\s*javascript:[^"']*\1/gi, '');
+                .replace(/\s(?:href|src|xlink:href|formaction)\s*=\s*(["'])\s*javascript:[^"']*\1/gi, '')
+                .replace(/\ssrcset\s*=\s*(["'])[^"']*javascript:[^"']*\1/gi, '');
         }
 
         function renderRemoteAssistSnapshot(snapshot) {

@@ -856,15 +856,15 @@
     }
 
     const ASSIST_STYLE_PROPS = [
-        'display', 'position', 'top', 'right', 'bottom', 'left',
+        'display', 'position', 'z-index', 'top', 'right', 'bottom', 'left',
         'width', 'height', 'min-width', 'min-height', 'max-width', 'max-height',
         'margin', 'padding', 'box-sizing', 'overflow', 'overflow-x', 'overflow-y',
         'font', 'font-size', 'font-weight', 'font-family', 'line-height', 'letter-spacing',
-        'color', 'text-align', 'white-space', 'word-break',
-        'background', 'background-color', 'border', 'border-radius', 'box-shadow',
+        'color', 'text-align', 'white-space', 'word-break', 'text-decoration',
+        'background', 'background-color', 'background-size', 'background-position', 'background-repeat', 'border', 'border-radius', 'box-shadow',
         'flex', 'flex-direction', 'justify-content', 'align-items', 'gap',
         'grid-template-columns', 'grid-template-rows', 'grid-column', 'grid-row',
-        'opacity', 'transform'
+        'opacity', 'transform', 'object-fit', 'object-position'
     ];
     const ASSIST_SKIP_TAGS = new Set(['SCRIPT', 'NOSCRIPT', 'STYLE', 'LINK', 'META', 'IFRAME', 'OBJECT', 'EMBED', 'AUDIO', 'VIDEO']);
     const ASSIST_PLACEHOLDER_TAGS = new Set(['CANVAS']);
@@ -913,7 +913,7 @@
             return ASSIST_STYLE_PROPS.map(function(prop) {
                 let value = computed.getPropertyValue(prop);
                 if (value && /url\(/i.test(value)) {
-                    value = prop === 'background' ? 'none' : value.replace(/url\([^)]*\)/ig, '');
+                    value = value.replace(/url\(\s*(['"]?)\s*javascript:[^)]*\1\s*\)/ig, 'none');
                 }
                 return value ? (prop + ':' + value) : '';
             }).filter(Boolean).join(';');
@@ -924,6 +924,137 @@
 
     function escapeAssistHtml(text) {
         return String(text || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+
+    function sanitizeAssistHtmlAttr(text) {
+        return escapeAssistHtml(String(text || '')).replace(/`/g, '&#96;');
+    }
+
+    function sanitizeAssistUrl(url) {
+        const raw = String(url || '').trim();
+        if (!raw || /^\s*javascript:/i.test(raw)) return '';
+        return raw;
+    }
+
+    function sanitizeAssistCssText(cssText) {
+        return String(cssText || '')
+            .replace(/@import\s+(?:url\()?\s*(['"]?)\s*javascript:[^;]+;?/ig, '')
+            .replace(/url\(\s*(['"]?)\s*javascript:[^)]*\1\s*\)/ig, 'none')
+            .replace(/expression\s*\([^)]*\)/ig, '');
+    }
+
+    function buildAssistSelectorHint(node, tagName) {
+        const className = String(node.getAttribute('class') || '').trim();
+        return node.id
+            ? ('#' + node.id)
+            : (className ? (tagName + '.' + className.split(/\s+/).slice(0, 2).join('.')) : tagName);
+    }
+
+    function decorateAssistClone(node, clone, tagName, computed) {
+        const nodeId = ensureAssistNodeId(node);
+        if (nodeId) clone.setAttribute('data-ra-node-id', nodeId);
+        clone.setAttribute('data-ra-tag', tagName);
+        clone.setAttribute('style', buildAssistStyleText(computed));
+        if (tagName !== 'body') {
+            try {
+                const originalId = String(node.getAttribute('id') || '').trim();
+                if (originalId && originalId !== 'ak-admin-chat') clone.setAttribute('id', originalId);
+            } catch (e) {}
+            try {
+                const className = String(node.getAttribute('class') || '').trim();
+                if (className) clone.setAttribute('class', className);
+            } catch (e) {}
+        }
+        const ariaLabel = node.getAttribute('aria-label') || node.getAttribute('title') || '';
+        const selectorHint = buildAssistSelectorHint(node, tagName);
+        const textHint = String(node.innerText || node.textContent || '').trim().slice(0, 40);
+        if (ariaLabel) clone.setAttribute('data-ra-label', ariaLabel);
+        if (selectorHint) clone.setAttribute('data-ra-selector-hint', selectorHint);
+        if (textHint) clone.setAttribute('data-ra-text-hint', textHint);
+    }
+
+    function buildAssistHeadMarkup() {
+        const parts = ['<meta charset="utf-8">'];
+        try {
+            const baseHref = sanitizeAssistUrl(window.location.href || '');
+            if (baseHref) parts.push('<base href="' + sanitizeAssistHtmlAttr(baseHref) + '">');
+        } catch (e) {}
+        try {
+            const head = document.head;
+            if (!head) return parts.join('');
+            const metas = head.querySelectorAll('meta[name],meta[http-equiv],meta[property],meta[charset]');
+            for (let i = 0; i < metas.length; i += 1) {
+                const meta = metas[i];
+                const attrs = [];
+                const charset = String(meta.getAttribute('charset') || '').trim();
+                const name = String(meta.getAttribute('name') || '').trim();
+                const property = String(meta.getAttribute('property') || '').trim();
+                const httpEquiv = String(meta.getAttribute('http-equiv') || '').trim();
+                const content = String(meta.getAttribute('content') || '').trim();
+                if (charset) attrs.push('charset="' + sanitizeAssistHtmlAttr(charset) + '"');
+                if (name) attrs.push('name="' + sanitizeAssistHtmlAttr(name) + '"');
+                if (property) attrs.push('property="' + sanitizeAssistHtmlAttr(property) + '"');
+                if (httpEquiv) attrs.push('http-equiv="' + sanitizeAssistHtmlAttr(httpEquiv) + '"');
+                if (content) attrs.push('content="' + sanitizeAssistHtmlAttr(content) + '"');
+                if (attrs.length) parts.push('<meta ' + attrs.join(' ') + '>');
+            }
+            const links = head.querySelectorAll('link[rel]');
+            for (let i = 0; i < links.length; i += 1) {
+                const link = links[i];
+                const rel = String(link.getAttribute('rel') || '').trim().toLowerCase();
+                if (rel.indexOf('stylesheet') === -1) continue;
+                const href = sanitizeAssistUrl(link.href || link.getAttribute('href') || '');
+                if (!href) continue;
+                const media = String(link.getAttribute('media') || '').trim();
+                parts.push('<link rel="stylesheet" href="' + sanitizeAssistHtmlAttr(href) + '"' + (media ? ' media="' + sanitizeAssistHtmlAttr(media) + '"' : '') + '>');
+            }
+            const styles = head.querySelectorAll('style');
+            for (let i = 0; i < styles.length; i += 1) {
+                const cssText = sanitizeAssistCssText(styles[i].textContent || '');
+                if (cssText) parts.push('<style>' + cssText.replace(/<\/style/ig, '<\\/style') + '</style>');
+            }
+        } catch (e) {}
+        return parts.join('');
+    }
+
+    function buildAssistBodyAttrs() {
+        const attrs = [];
+        try {
+            const bodyId = String((document.body && document.body.getAttribute('id')) || '').trim();
+            if (bodyId) attrs.push(' id="' + sanitizeAssistHtmlAttr(bodyId) + '"');
+        } catch (e) {}
+        try {
+            const bodyClass = String((document.body && document.body.getAttribute('class')) || '').trim();
+            if (bodyClass) attrs.push(' class="' + sanitizeAssistHtmlAttr(bodyClass) + '"');
+        } catch (e) {}
+        return attrs.join('');
+    }
+
+    function buildAssistSvgClone(node, stats, computed) {
+        try {
+            const clone = node.cloneNode(true);
+            if (!(clone instanceof Element)) return buildAssistPlaceholder(node, stats, 'svg');
+            const svgNodes = [clone].concat(Array.prototype.slice.call(clone.querySelectorAll('*')));
+            svgNodes.forEach(function(element) {
+                Array.prototype.slice.call(element.attributes || []).forEach(function(attr) {
+                    const name = String(attr.name || '');
+                    const lowered = name.toLowerCase();
+                    const value = String(attr.value || '');
+                    if (lowered.indexOf('on') === 0) {
+                        element.removeAttribute(name);
+                        return;
+                    }
+                    if ((lowered === 'href' || lowered === 'xlink:href' || lowered === 'src') && /^\s*javascript:/i.test(value)) {
+                        element.removeAttribute(name);
+                    }
+                });
+            });
+            decorateAssistClone(node, clone, 'svg', computed);
+            stats.nodeCount += 1;
+            return clone;
+        } catch (e) {
+            return buildAssistPlaceholder(node, stats, 'svg');
+        }
     }
 
     function buildAssistPlaceholder(original, stats, label) {
@@ -984,30 +1115,27 @@
             return buildAssistPlaceholder(node, stats, node.tagName.toLowerCase());
         }
         const tagName = node.tagName.toLowerCase();
-        const cloneTag = ['html', 'body', 'svg', 'img', 'input', 'textarea', 'select'].includes(tagName) ? 'div' : tagName;
+        if (tagName === 'svg') {
+            return buildAssistSvgClone(node, stats, computed);
+        }
+        if (tagName === 'img') {
+            const src = sanitizeAssistUrl(node.currentSrc || node.src || node.getAttribute('src') || '');
+            if (!src) return buildAssistPlaceholder(node, stats, 'img');
+            const clone = document.createElement('img');
+            decorateAssistClone(node, clone, tagName, computed);
+            clone.setAttribute('src', src);
+            const alt = String(node.getAttribute('alt') || '').trim();
+            if (alt) clone.setAttribute('alt', alt);
+            stats.nodeCount += 1;
+            return clone;
+        }
+        const cloneTag = ['html', 'body', 'input', 'textarea', 'select'].includes(tagName) ? 'div' : tagName;
         const clone = document.createElement(cloneTag);
-        const nodeId = ensureAssistNodeId(node);
-        if (nodeId) clone.setAttribute('data-ra-node-id', nodeId);
-        clone.setAttribute('data-ra-tag', tagName);
-        clone.setAttribute('style', buildAssistStyleText(computed));
-        const ariaLabel = node.getAttribute('aria-label') || node.getAttribute('title') || '';
-        const selectorHint = node.id
-            ? ('#' + node.id)
-            : (((node.className && typeof node.className === 'string' && node.className.trim())
-                ? (tagName + '.' + node.className.trim().split(/\s+/).slice(0, 2).join('.'))
-                : tagName));
-        const textHint = String(node.innerText || node.textContent || '').trim().slice(0, 40);
-        if (ariaLabel) clone.setAttribute('data-ra-label', ariaLabel);
-        if (selectorHint) clone.setAttribute('data-ra-selector-hint', selectorHint);
-        if (textHint) clone.setAttribute('data-ra-text-hint', textHint);
+        decorateAssistClone(node, clone, tagName, computed);
         if (node.tagName === 'INPUT' || node.tagName === 'TEXTAREA') {
             clone.textContent = buildAssistMaskedValue(node);
         } else if (node.tagName === 'SELECT') {
             clone.textContent = buildAssistMaskedValue(node);
-        } else if (node.tagName === 'IMG') {
-            clone.textContent = node.getAttribute('alt') ? ('[图片] ' + node.getAttribute('alt')) : '[图片]';
-        } else if (node.tagName === 'SVG') {
-            clone.textContent = ariaLabel || '[图标]';
         } else {
             for (let i = 0; i < node.childNodes.length; i += 1) {
                 const child = buildAssistClone(node.childNodes[i], stats);
@@ -1046,9 +1174,11 @@
             const stats = { nodeCount: 0, truncated: false };
             const bodyClone = buildAssistClone(document.body, stats);
             if (!bodyClone) return null;
+            const headMarkup = buildAssistHeadMarkup();
+            const bodyAttrs = buildAssistBodyAttrs();
             const wrapper = document.createElement('div');
             wrapper.appendChild(bodyClone);
-            let html = '<!doctype html><html><head><meta charset="utf-8"><style>html,body{margin:0;padding:0;background:#f8fafc;color:#0f172a;font-family:Arial,Helvetica,sans-serif;}*{box-sizing:border-box;}[data-ra-node-id]{cursor:crosshair;}body{padding:12px;}</style></head><body>' + wrapper.innerHTML + '</body></html>';
+            let html = '<!doctype html><html><head>' + headMarkup + '<style>html,body{margin:0;padding:0;background:#f8fafc;color:#0f172a;font-family:Arial,Helvetica,sans-serif;}*{box-sizing:border-box;}[data-ra-node-id]{cursor:crosshair;}img{max-width:100%;}</style></head><body' + bodyAttrs + '>' + wrapper.innerHTML + '</body></html>';
             if (html.length > ASSIST_MAX_HTML_LENGTH) {
                 html = html.slice(0, ASSIST_MAX_HTML_LENGTH);
                 stats.truncated = true;
