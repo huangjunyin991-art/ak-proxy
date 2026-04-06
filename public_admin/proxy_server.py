@@ -4799,8 +4799,16 @@ async def remote_assist_websocket(websocket: WebSocket):
     readonly = (websocket.query_params.get('readonly') or '1').strip() != '0'
     role = AssistRole.ADMIN if role_name == 'admin' else AssistRole.USER
     participant_id = f"{role.value}_{secrets.token_hex(8)}"
+    logger.warning(
+        f"[RemoteAssistWS] incoming client={websocket.client} session={session_id or '-'} "
+        f"role={role.value} site={site} readonly={int(readonly)} enabled={int(remote_assist.is_enabled())}"
+    )
 
     if not session_id or site != 'ak_web' or not remote_assist.is_enabled():
+        logger.warning(
+            f"[RemoteAssistWS] reject_invalid session={session_id or '-'} role={role.value} "
+            f"site={site} enabled={int(remote_assist.is_enabled())}"
+        )
         await websocket.close(code=1008)
         return
 
@@ -4815,10 +4823,17 @@ async def remote_assist_websocket(websocket: WebSocket):
     )
 
     if not session:
+        logger.warning(
+            f"[RemoteAssistWS] reject_connect_failed session={session_id or '-'} role={role.value} site={site}"
+        )
         await websocket.close(code=1008)
         return
 
     try:
+        logger.warning(
+            f"[RemoteAssistWS] connected session={session.session_id} role={role.value} "
+            f"participant={participant_id} connection={connection_id}"
+        )
         await websocket.send_json({
             'v': 1,
             'type': 'session_state',
@@ -4864,12 +4879,18 @@ async def remote_assist_websocket(websocket: WebSocket):
             if msg_type == 'heartbeat':
                 active_session = remote_assist.heartbeat(session.session_id, participant_id)
                 if not active_session:
+                    logger.warning(
+                        f"[RemoteAssistWS] close_inactive session={session.session_id} role={role.value} participant={participant_id}"
+                    )
                     await websocket.close(code=1000)
                     break
                 await websocket.send_json({'type': 'pong', 'payload': {'session_id': session.session_id}})
                 continue
 
             if not remote_assist.get_session(session.session_id):
+                logger.warning(
+                    f"[RemoteAssistWS] close_session_missing session={session.session_id} role={role.value} participant={participant_id}"
+                )
                 await websocket.close(code=1000)
                 break
 
@@ -4924,9 +4945,18 @@ async def remote_assist_websocket(websocket: WebSocket):
                     exclude_connection_id=connection_id,
                 )
 
-    except (WebSocketDisconnect, Exception):
-        pass
+    except WebSocketDisconnect:
+        logger.warning(
+            f"[RemoteAssistWS] disconnected session={session_id or '-'} role={role.value} participant={participant_id}"
+        )
+    except Exception as e:
+        logger.warning(
+            f"[RemoteAssistWS] error session={session_id or '-'} role={role.value} participant={participant_id}: {e}"
+        )
     finally:
+        logger.warning(
+            f"[RemoteAssistWS] cleanup session={session_id or '-'} role={role.value} participant={participant_id}"
+        )
         await remote_assist.disconnect_websocket(session_id, participant_id, connection_id)
 
 
