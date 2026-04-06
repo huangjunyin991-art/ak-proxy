@@ -5005,7 +5005,16 @@ async def chat_websocket(websocket: WebSocket):
 
                     assist_session = remote_assist.find_session_by_target_username(username)
 
-                    if assist_session and assist_session.site_type == 'ak_web':
+                    has_connected_admin = bool(
+                        assist_session
+                        and assist_session.site_type == 'ak_web'
+                        and any(
+                            participant.role == AssistRole.ADMIN and participant.connected
+                            for participant in assist_session.participants.values()
+                        )
+                    )
+
+                    if has_connected_admin:
 
                         await online_manager.send_payload_to_user(username, {
 
