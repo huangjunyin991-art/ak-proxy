@@ -2048,6 +2048,62 @@
         return clone;
     }
 
+    function buildAssistSnapshotHtml(headMarkup, bodyAttrs, bodyClone) {
+        const wrapper = document.createElement('div');
+        wrapper.appendChild(bodyClone);
+        return '<!doctype html><html><head>' + headMarkup + '<style>html,body{margin:0;padding:0;background:#f8fafc;color:#0f172a;font-family:Arial,Helvetica,sans-serif;}*{box-sizing:border-box;}[data-ra-node-id]{cursor:crosshair;}img{max-width:100%;}</style></head><body' + bodyAttrs + '>' + wrapper.innerHTML + '</body></html>';
+    }
+
+    function trimAssistViewportContentTail(bodyClone) {
+        try {
+            if (!bodyClone || !(bodyClone instanceof Element)) return false;
+            const scrollStages = Array.prototype.slice.call(bodyClone.querySelectorAll('[data-ra-scroll-stage="1"]')).reverse();
+            for (let i = 0; i < scrollStages.length; i += 1) {
+                const stage = scrollStages[i];
+                if (stage && stage.lastChild) {
+                    stage.removeChild(stage.lastChild);
+                    return true;
+                }
+            }
+            const viewportStage = bodyClone.querySelector('[data-ra-viewport-stage="1"]');
+            if (viewportStage && viewportStage.lastChild) {
+                viewportStage.removeChild(viewportStage.lastChild);
+                return true;
+            }
+            return false;
+        } catch (e) {
+            return false;
+        }
+    }
+
+    function fitAssistSnapshotHtmlWithinLimit(headMarkup, bodyAttrs, bodyClone, stats, useViewportMode, route) {
+        let html = buildAssistSnapshotHtml(headMarkup, bodyAttrs, bodyClone);
+        let trimmedNodes = 0;
+        let slicedFallback = false;
+        if (useViewportMode) {
+            while (html.length > ASSIST_MAX_HTML_LENGTH && trimAssistViewportContentTail(bodyClone)) {
+                trimmedNodes += 1;
+                if (stats) stats.truncated = true;
+                html = buildAssistSnapshotHtml(headMarkup, bodyAttrs, bodyClone);
+            }
+        }
+        if (html.length > ASSIST_MAX_HTML_LENGTH) {
+            html = html.slice(0, ASSIST_MAX_HTML_LENGTH);
+            slicedFallback = true;
+            if (stats) stats.truncated = true;
+        }
+        if (trimmedNodes || slicedFallback) {
+            logAssistDebug('snapshot_html_trimmed', {
+                route: route,
+                use_viewport_mode: !!useViewportMode,
+                trimmed_nodes: trimmedNodes,
+                sliced_fallback: slicedFallback,
+                final_html_length: html.length
+            }, [route || '', !!useViewportMode, trimmedNodes, slicedFallback, html.length].join('|'));
+        }
+        return html;
+    }
+
     function buildAssistSnapshotPayload(reason) {
         try {
             const rawRoute = window.location.pathname + window.location.search + window.location.hash;
@@ -2096,13 +2152,7 @@
             }
             const headMarkup = buildAssistHeadMarkup();
             const bodyAttrs = buildAssistBodyAttrs();
-            const wrapper = document.createElement('div');
-            wrapper.appendChild(bodyClone);
-            let html = '<!doctype html><html><head>' + headMarkup + '<style>html,body{margin:0;padding:0;background:#f8fafc;color:#0f172a;font-family:Arial,Helvetica,sans-serif;}*{box-sizing:border-box;}[data-ra-node-id]{cursor:crosshair;}img{max-width:100%;}</style></head><body' + bodyAttrs + '>' + wrapper.innerHTML + '</body></html>';
-            if (html.length > ASSIST_MAX_HTML_LENGTH) {
-                html = html.slice(0, ASSIST_MAX_HTML_LENGTH);
-                stats.truncated = true;
-            }
+            const html = fitAssistSnapshotHtmlWithinLimit(headMarkup, bodyAttrs, bodyClone, stats, useViewportMode, route);
             const scrollPayload = buildAssistScrollPayload(useViewportMode ? viewportTarget : assistScrollTarget);
             logAssistDebug('snapshot_payload_ready', {
                 reason: reason || '',
