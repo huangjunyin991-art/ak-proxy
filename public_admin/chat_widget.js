@@ -877,6 +877,8 @@
     const ASSIST_PLACEHOLDER_TAGS = new Set(['CANVAS']);
     const ASSIST_MAX_NODE_COUNT = 1600;
     const ASSIST_MAX_HTML_LENGTH = 320000;
+    const ASSIST_PINNED_BOTTOM_LIMIT = 2;
+    const ASSIST_PINNED_BOTTOM_NODE_BUDGET = 180;
 
     function nextAssistNodeId() {
         assistNodeSeq += 1;
@@ -1110,6 +1112,64 @@
         return false;
     }
 
+    function isAssistPinnedBottomCandidate(element, computed) {
+        try {
+            if (!element || !(element instanceof Element)) return false;
+            if (element === document.body || element === document.documentElement) return false;
+            if (shouldSkipAssistElement(element, computed)) return false;
+            const position = String(computed && computed.position || '').toLowerCase();
+            if (position !== 'fixed' && position !== 'sticky') return false;
+            const rect = element.getBoundingClientRect ? element.getBoundingClientRect() : null;
+            const viewportHeight = Math.max(0, Math.round(window.innerHeight || 0));
+            const viewportWidth = Math.max(0, Math.round(window.innerWidth || 0));
+            if (!rect || rect.height < 24 || rect.width < Math.max(120, Math.round(viewportWidth * 0.35))) return false;
+            if (rect.bottom < Math.round(viewportHeight * 0.82) || rect.top > viewportHeight) return false;
+            return true;
+        } catch (e) {
+            return false;
+        }
+    }
+
+    function collectAssistPinnedBottomElements(limit) {
+        try {
+            if (!document.body) return [];
+            const selected = [];
+            const elements = Array.prototype.slice.call(document.body.querySelectorAll('*')).reverse();
+            for (let i = 0; i < elements.length; i += 1) {
+                if (selected.length >= limit) break;
+                const element = elements[i];
+                const computed = window.getComputedStyle(element);
+                if (!isAssistPinnedBottomCandidate(element, computed)) continue;
+                if (selected.some(function(existing) { return existing === element || existing.contains(element) || element.contains(existing); })) continue;
+                selected.push(element);
+            }
+            return selected.reverse();
+        } catch (e) {
+            return [];
+        }
+    }
+
+    function prependAssistPinnedBottomClones(container, stats) {
+        try {
+            if (!container || !(container instanceof Element)) return;
+            const pinnedElements = collectAssistPinnedBottomElements(ASSIST_PINNED_BOTTOM_LIMIT);
+            pinnedElements.forEach(function(element) {
+                const nodeId = ensureAssistNodeId(element);
+                if (nodeId && container.querySelector(`[data-ra-node-id="${String(nodeId).replace(/"/g, '\\"')}"]`)) return;
+                const seededCount = Math.max(0, ASSIST_MAX_NODE_COUNT - ASSIST_PINNED_BOTTOM_NODE_BUDGET);
+                const pinnedStats = { nodeCount: seededCount, truncated: false };
+                const pinnedClone = buildAssistClone(element, pinnedStats);
+                if (!pinnedClone) return;
+                container.appendChild(pinnedClone);
+                if (stats) {
+                    const usedCount = Math.max(0, pinnedStats.nodeCount - seededCount);
+                    stats.nodeCount += usedCount;
+                    if (pinnedStats.truncated) stats.truncated = true;
+                }
+            });
+        } catch (e) {}
+    }
+
     function buildAssistMaskedValue(element) {
         try {
             if (!element) return '';
@@ -1230,6 +1290,7 @@
             const stats = { nodeCount: 0, truncated: false };
             const bodyClone = buildAssistClone(document.body, stats);
             if (!bodyClone) return null;
+            prependAssistPinnedBottomClones(bodyClone, stats);
             const headMarkup = buildAssistHeadMarkup();
             const bodyAttrs = buildAssistBodyAttrs();
             const wrapper = document.createElement('div');
