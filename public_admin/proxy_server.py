@@ -5127,6 +5127,14 @@ async def chat_websocket(websocket: WebSocket):
 
     username = websocket.query_params.get('username', 'visitor')
 
+    client = getattr(websocket, 'client', None)
+
+    logger.warning(
+
+        f"[ChatWS] accepted query_username={username or '-'} client={client}"
+
+    )
+
     try:
 
         while True:
@@ -5139,6 +5147,14 @@ async def chat_websocket(websocket: WebSocket):
 
                 incoming_username = data.get('username', username)
 
+                logger.warning(
+
+                    f"[ChatWS] online_received query_username={username or '-'} incoming_username={incoming_username or '-'} "
+
+                    f"client={client} page={(data.get('page') or '')}"
+
+                )
+
                 prev_ws_id = (online_manager.get_user(incoming_username) or {}).get('ws_id')
 
                 current_user = await online_manager.user_online(
@@ -5148,6 +5164,12 @@ async def chat_websocket(websocket: WebSocket):
                     data.get('page', ''), data.get('userAgent', ''))
 
                 username = (current_user or {}).get('username') or str(incoming_username or '').strip()
+
+                logger.warning(
+
+                    f"[ChatWS] user_online username={username or '-'} client={client} prev_ws_id={prev_ws_id or '-'} ws_id={id(websocket)}"
+
+                )
 
                 if prev_ws_id != id(websocket):
 
@@ -5201,13 +5223,35 @@ async def chat_websocket(websocket: WebSocket):
 
             elif msg_type == 'offline':
 
+                logger.warning(
+
+                    f"[ChatWS] offline_received username={username or '-'} client={client} page={(data.get('page') or '')}"
+
+                )
+
                 online_manager.user_offline(username)
 
                 await ws_manager.broadcast({'type': 'user_offline', 'data': {'username': username}})
 
                 break
 
-    except (WebSocketDisconnect, Exception):
+    except WebSocketDisconnect:
+
+        logger.warning(
+
+            f"[ChatWS] disconnected username={username or '-'} client={client}"
+
+        )
+
+        online_manager.user_offline(username, websocket)
+
+    except Exception as e:
+
+        logger.warning(
+
+            f"[ChatWS] error username={username or '-'} client={client}: {e}"
+
+        )
 
         online_manager.user_offline(username, websocket)
 

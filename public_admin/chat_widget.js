@@ -447,6 +447,33 @@
     let heartbeatTimer = null;
     let reconnectTimer = null;
     let presenceSuspended = false;
+
+    function getChatWsReadyStateLabel(targetWs) {
+        if (!targetWs) return 'NULL';
+        if (targetWs.readyState === WebSocket.CONNECTING) return 'CONNECTING';
+        if (targetWs.readyState === WebSocket.OPEN) return 'OPEN';
+        if (targetWs.readyState === WebSocket.CLOSING) return 'CLOSING';
+        if (targetWs.readyState === WebSocket.CLOSED) return 'CLOSED';
+        return String(targetWs.readyState);
+    }
+
+    function logChatWsDebug(eventName, extra) {
+        try {
+            console.warn('[AKChatDebug]', JSON.stringify(Object.assign({
+                event: String(eventName || ''),
+                username: String(username || ''),
+                route: window.location.pathname + window.location.hash,
+                hidden: !!document.hidden,
+                presenceSuspended: !!presenceSuspended,
+                readyState: getChatWsReadyStateLabel(ws),
+                ts: new Date().toISOString()
+            }, extra || {})));
+        } catch (e) {
+            try {
+                console.warn('[AKChatDebug]', eventName, extra || {});
+            } catch (_) {}
+        }
+    }
     
     // 从cookie获取值
     function getCookie(name) {
@@ -2239,7 +2266,10 @@
     }
 
     function sendPresence(type) {
-        if (!ws || ws.readyState !== WebSocket.OPEN) return false;
+        if (!ws || ws.readyState !== WebSocket.OPEN) {
+            logChatWsDebug('send_presence_skipped', { type: type });
+            return false;
+        }
         try {
             ws.send(JSON.stringify({
                 type: type,
@@ -2247,21 +2277,40 @@
                 page: window.location.pathname + window.location.hash,
                 userAgent: navigator.userAgent
             }));
+            logChatWsDebug('send_presence', { type: type });
             return true;
         } catch(e) {
+            logChatWsDebug('send_presence_error', {
+                type: type,
+                message: String((e && e.message) || e || '')
+            });
             return false;
         }
     }
 
-    function scheduleReconnect() {
+    function scheduleReconnect(reason) {
         clearReconnectTimer();
-        if (presenceSuspended) return;
+        if (presenceSuspended) {
+            logChatWsDebug('schedule_reconnect_skipped', {
+                reason: String(reason || ''),
+                cause: 'presence_suspended'
+            });
+            return;
+        }
+        logChatWsDebug('schedule_reconnect', {
+            reason: String(reason || ''),
+            delay_ms: 5000
+        });
         reconnectTimer = setTimeout(function() {
             connect();
         }, 5000);
     }
 
-    function suspendPresence() {
+    function suspendPresence(reason) {
+        logChatWsDebug('suspend_presence', {
+            reason: String(reason || ''),
+            wsStateBeforeClose: getChatWsReadyStateLabel(ws)
+        });
         presenceSuspended = true;
         stopHeartbeat();
         clearReconnectTimer();
@@ -2275,7 +2324,11 @@
         }, 80);
     }
 
-    function resumePresence() {
+    function resumePresence(reason) {
+        logChatWsDebug('resume_presence', {
+            reason: String(reason || ''),
+            wsStateBeforeResume: getChatWsReadyStateLabel(ws)
+        });
         presenceSuspended = false;
         clearReconnectTimer();
         if (ws && ws.readyState === WebSocket.OPEN) {
@@ -2292,13 +2345,23 @@
         username = getUsername();
         clearReconnectTimer();
         if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
+            logChatWsDebug('connect_skipped_existing', {
+                wsState: getChatWsReadyStateLabel(ws)
+            });
             return;
         }
         
         try {
+            logChatWsDebug('connect_start', {
+                username: String(username || ''),
+                wsUrl: WS_URL
+            });
             ws = new WebSocket(WS_URL + '?username=' + encodeURIComponent(username));
             
             ws.onopen = function() {
+                logChatWsDebug('ws_open', {
+                    username: String(username || '')
+                });
                 if (!isPresenceForeground() || presenceSuspended) {
                     presenceSuspended = true;
                     ws.close();
@@ -2334,17 +2397,29 @@
                 }
             };
             
-            ws.onclose = function() {
+            ws.onclose = function(event) {
+                logChatWsDebug('ws_close', {
+                    code: Number((event && event.code) || 0),
+                    reason: String((event && event.reason) || ''),
+                    wasClean: !!(event && event.wasClean)
+                });
                 stopHeartbeat();
                 ws = null;
-                scheduleReconnect();
+                scheduleReconnect('ws_onclose');
             };
             
             ws.onerror = function(err) {
+                logChatWsDebug('ws_error', {
+                    type: String((err && err.type) || ''),
+                    wsState: getChatWsReadyStateLabel(ws)
+                });
                 console.error('[AKChat] WebSocket 错误:', err);
             };
         } catch(e) {
-            scheduleReconnect();
+            logChatWsDebug('connect_exception', {
+                message: String((e && e.message) || e || '')
+            });
+            scheduleReconnect('connect_exception');
         }
     }
     
@@ -2389,11 +2464,11 @@
     
     // 重连WebSocket（登录后调用）
     function reconnect() {
-        suspendPresence();
+        suspendPresence('manual_reconnect');
         // 重新获取用户名并连接
         username = getUsername();
         if (isPresenceForeground()) {
-            resumePresence();
+            resumePresence('manual_reconnect');
         }
     }
     
@@ -2454,35 +2529,47 @@
     document.addEventListener('change', handleAssistFormValueChange, true);
 
     document.addEventListener('visibilitychange', function() {
+        logChatWsDebug('dom_visibilitychange', {
+            hidden: !!document.hidden
+        });
         if (document.hidden) {
-            suspendPresence();
+            suspendPresence('visibilitychange:hidden');
         } else {
-            resumePresence();
+            resumePresence('visibilitychange:visible');
         }
     });
 
     window.addEventListener('pagehide', function() {
+        logChatWsDebug('window_pagehide');
         disconnectAssist('', true);
-        suspendPresence();
+        suspendPresence('pagehide');
     });
     window.addEventListener('pageshow', function() {
-        if (isPresenceForeground()) resumePresence();
+        logChatWsDebug('window_pageshow');
+        if (isPresenceForeground()) resumePresence('pageshow');
     });
     window.addEventListener('blur', function() {
-        if (!document.hidden) suspendPresence();
+        logChatWsDebug('window_blur', {
+            hidden: !!document.hidden
+        });
+        if (!document.hidden) suspendPresence('blur');
     });
     window.addEventListener('focus', function() {
-        if (isPresenceForeground()) resumePresence();
+        logChatWsDebug('window_focus', {
+            hidden: !!document.hidden
+        });
+        if (isPresenceForeground()) resumePresence('focus');
     });
     window.addEventListener('beforeunload', function() {
+        logChatWsDebug('window_beforeunload');
         disconnectAssist('', true);
-        suspendPresence();
+        suspendPresence('beforeunload');
     });
     
     // DOM加载完成后立即连接（不等待所有资源加载）
     setTimeout(function() {
         if (isPresenceForeground()) {
-            resumePresence();
+            resumePresence('initial_boot');
         }
     }, 100);
     
