@@ -438,6 +438,7 @@
     let assistLastSnapshotPayload = null;
     let assistLastSnapshotSentAt = 0;
     let assistLastScrollPayload = null;
+    let assistScrollTarget = window;
     let isOpen = false;
     let hasNewMessage = false;
     let messageCount = 0;
@@ -1247,10 +1248,7 @@
                     height: window.innerHeight || 0,
                     devicePixelRatio: window.devicePixelRatio || 1
                 },
-                scroll: {
-                    top: window.scrollY || 0,
-                    left: window.scrollX || 0
-                },
+                scroll: buildAssistScrollPayload(),
                 node_count: stats.nodeCount,
                 truncated: !!stats.truncated
             };
@@ -1270,13 +1268,40 @@
         return sent;
     }
 
-    function buildAssistScrollPayload() {
-        return {
+    function rememberAssistScrollTarget(target) {
+        try {
+            if (!target || target === window || target === document || target === document.body || target === document.documentElement) {
+                assistScrollTarget = window;
+                return;
+            }
+            assistScrollTarget = target instanceof Element ? target : window;
+        } catch (e) {
+            assistScrollTarget = window;
+        }
+    }
+
+    function buildAssistScrollPayload(target) {
+        const payload = {
             top: Math.max(0, Math.round(window.scrollY || window.pageYOffset || 0)),
             left: Math.max(0, Math.round(window.scrollX || window.pageXOffset || 0)),
             viewport_height: Math.max(0, Math.round(window.innerHeight || 0)),
-            viewport_width: Math.max(0, Math.round(window.innerWidth || 0))
+            viewport_width: Math.max(0, Math.round(window.innerWidth || 0)),
+            mode: 'window'
         };
+        try {
+            const activeTarget = target || assistScrollTarget || window;
+            if (activeTarget && activeTarget !== window && activeTarget instanceof Element) {
+                const tagName = String(activeTarget.tagName || 'div').toLowerCase();
+                payload.top = Math.max(0, Math.round(activeTarget.scrollTop || 0));
+                payload.left = Math.max(0, Math.round(activeTarget.scrollLeft || 0));
+                payload.viewport_height = Math.max(0, Math.round(activeTarget.clientHeight || window.innerHeight || 0));
+                payload.viewport_width = Math.max(0, Math.round(activeTarget.clientWidth || window.innerWidth || 0));
+                payload.mode = 'element';
+                payload.node_id = ensureAssistNodeId(activeTarget);
+                payload.selector_hint = buildAssistSelectorHint(activeTarget, tagName);
+            }
+        } catch (e) {}
+        return payload;
     }
 
     function emitAssistScroll(force) {
@@ -1284,6 +1309,8 @@
         const payload = buildAssistScrollPayload();
         if (!force
             && assistLastScrollPayload
+            && assistLastScrollPayload.mode === payload.mode
+            && (assistLastScrollPayload.node_id || '') === (payload.node_id || '')
             && assistLastScrollPayload.top === payload.top
             && assistLastScrollPayload.left === payload.left) {
             return false;
@@ -1450,6 +1477,7 @@
         stopAssistDomObserver();
         clearAssistScrollTimer();
         assistSessionId = '';
+        assistScrollTarget = window;
         assistCachedHeadRoute = '';
         assistCachedHeadMarkup = '';
         assistLastSnapshotPayload = null;
@@ -1702,6 +1730,7 @@
             sendPresence('online');
         }
         if (assistWs && assistWs.readyState === WebSocket.OPEN) {
+            assistScrollTarget = window;
             emitAssistRoute();
             scheduleAssistSnapshot(80, 'route_change');
             scheduleAssistScroll(40);
@@ -1717,8 +1746,17 @@
     window.addEventListener('scroll', function() {
         if (!assistWs || assistWs.readyState !== WebSocket.OPEN || !assistSessionId) return;
         if (normalizeAssistRoute().indexOf('/admin/ak-web/') !== 0) return;
+        rememberAssistScrollTarget(window);
         scheduleAssistScroll(120);
     }, { passive: true });
+    document.addEventListener('scroll', function(event) {
+        if (!assistWs || assistWs.readyState !== WebSocket.OPEN || !assistSessionId) return;
+        if (normalizeAssistRoute().indexOf('/admin/ak-web/') !== 0) return;
+        const target = event && event.target;
+        if (isAssistWidgetTarget(target)) return;
+        rememberAssistScrollTarget(target);
+        scheduleAssistScroll(120);
+    }, true);
     document.addEventListener('click', function(event) {
         if (!assistWs || assistWs.readyState !== WebSocket.OPEN || !assistSessionId) return;
         if (isAssistWidgetTarget(event.target)) return;

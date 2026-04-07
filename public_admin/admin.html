@@ -8389,19 +8389,7 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
 
         function flashRemoteAssistSnapshotNode(meta) {
             try {
-                const frame = document.getElementById('remoteAssistFrame');
-                const doc = frame && frame.contentDocument;
-                if (!doc) return;
-                let target = null;
-                if (meta && meta.node_id) {
-                    target = doc.querySelector(`[data-ra-node-id="${String(meta.node_id).replace(/"/g, '\\"')}"]`);
-                }
-                if (!target && meta && meta.selector_hint) {
-                    target = doc.querySelector(meta.selector_hint);
-                }
-                if (!target && meta && meta.rect) {
-                    target = doc.elementFromPoint(Number(meta.rect.x) || 0, Number(meta.rect.y) || 0);
-                }
+                const target = findRemoteAssistSnapshotNode(meta);
                 if (!target) return;
                 const prevOutline = target.style.outline;
                 const prevOffset = target.style.outlineOffset;
@@ -8412,6 +8400,27 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                     target.style.outlineOffset = prevOffset || '';
                 }, 1200);
             } catch (e) {
+            }
+        }
+
+        function findRemoteAssistSnapshotNode(meta) {
+            try {
+                const frame = document.getElementById('remoteAssistFrame');
+                const doc = frame && frame.contentDocument;
+                if (!doc) return null;
+                let target = null;
+                if (meta && meta.node_id) {
+                    target = doc.querySelector(`[data-ra-node-id="${String(meta.node_id).replace(/"/g, '\\"')}"]`);
+                }
+                if (!target && meta && meta.selector_hint) {
+                    target = doc.querySelector(meta.selector_hint);
+                }
+                if (!target && meta && meta.rect) {
+                    target = doc.elementFromPoint(Number(meta.rect.x) || 0, Number(meta.rect.y) || 0);
+                }
+                return target || null;
+            } catch (e) {
+                return null;
             }
         }
 
@@ -8514,6 +8523,15 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                 if (!frame || !win) return;
                 const top = Math.max(0, Math.round(scroll && scroll.top || 0));
                 const left = Math.max(0, Math.round(scroll && scroll.left || 0));
+                const mode = String(scroll && scroll.mode || 'window').toLowerCase();
+                if (mode === 'element') {
+                    const target = findRemoteAssistSnapshotNode(scroll);
+                    if (target) {
+                        target.scrollTop = top;
+                        target.scrollLeft = left;
+                        return;
+                    }
+                }
                 win.scrollTo(left, top);
             } catch (e) {
             }
