@@ -4882,11 +4882,6 @@ def _schedule_remote_assist_auto_unbind(session) -> None:
 
     target_username = (session.target_username or '').strip()
 
-    logger.warning(
-        f"[RemoteAssistWS] auto_unbind_scheduled session={session_id} user={target_username or '-'} "
-        f"delay={_REMOTE_ASSIST_AUTO_UNBIND_DELAY_SECONDS}"
-    )
-
     async def _unbind_later():
 
         try:
@@ -4963,11 +4958,6 @@ async def remote_assist_websocket(websocket: WebSocket):
     )
 
     if not session:
-        existing_session = remote_assist.get_session(session_id)
-        logger.warning(
-            f"[RemoteAssistWS] reject_connect_failed session={session_id or '-'} role={role.value} site={site} "
-            f"session_exists={int(bool(existing_session))}"
-        )
         await websocket.close(code=1008)
         return
 
@@ -6222,10 +6212,6 @@ async def admin_remote_assist_start(request: Request):
         return JSONResponse({"success": False, "message": "缺少用户名"})
     session = remote_assist.find_session_by_target_username(username)
     if session and not _assist_session_has_connected_admin(session):
-        logger.warning(
-            f"[RemoteAssistStart] recycle_stale_session username={username} session={session.session_id} "
-            f"admin={session.admin_username or '-'}"
-        )
         _cancel_remote_assist_auto_unbind(session.session_id)
         remote_assist.close_session(session.session_id)
         session = None
@@ -6243,15 +6229,8 @@ async def admin_remote_assist_start(request: Request):
         created_new_session = bool(session)
     if not session:
         return JSONResponse({"success": False, "message": "创建协助会话失败"}, status_code=500)
-    logger.warning(
-        f"[RemoteAssistStart] session_ready username={username} session={session.session_id} "
-        f"created_new={int(created_new_session)} admin={session.admin_username or '-'}"
-    )
     if not online_manager.get_user(username):
         if created_new_session:
-            logger.warning(
-                f"[RemoteAssistStart] user_offline_close username={username} session={session.session_id}"
-            )
             remote_assist.close_session(session.session_id)
         return JSONResponse({"success": False, "message": f"用户 {username} 当前不在线，无法发起远程协助"}, status_code=409)
     response = JSONResponse({
@@ -6267,10 +6246,6 @@ async def admin_remote_assist_start(request: Request):
         'session_id': session.session_id,
         'site': 'ak_web',
     })
-    logger.warning(
-        f"[RemoteAssistStart] bind_dispatched username={username} session={session.session_id} "
-        f"delivered={int(bool(delivered))} created_new={int(created_new_session)}"
-    )
     if not delivered:
         _cancel_remote_assist_auto_unbind(session.session_id)
         remote_assist.close_session(session.session_id)
@@ -6292,10 +6267,6 @@ async def admin_remote_assist_close(request: Request):
         return JSONResponse({"success": False, "message": "协助会话不存在"}, status_code=404)
     if role != ROLE_SUPER_ADMIN and session.admin_username != (admin_name or role):
         return JSONResponse({"success": False, "message": "无权关闭该协助会话"}, status_code=403)
-    logger.warning(
-        f"[RemoteAssistClose] manual_close session={session.session_id} user={session.target_username or '-'} "
-        f"admin={admin_name or role}"
-    )
     _cancel_remote_assist_auto_unbind(session.session_id)
     await online_manager.send_payload_to_user(session.target_username, {
         'type': 'remote_assist_unbind',

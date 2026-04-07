@@ -439,7 +439,6 @@
     let assistLastSnapshotSentAt = 0;
     let assistLastScrollPayload = null;
     let assistScrollTarget = window;
-    let assistDebugSignatures = Object.create(null);
     let isOpen = false;
     let hasNewMessage = false;
     let messageCount = 0;
@@ -935,27 +934,6 @@
         } catch (e) {
             return '';
         }
-    }
-
-    function getAssistDebugTargetMode(target) {
-        try {
-            if (!target || target === window || target === document || target === document.body || target === document.documentElement) {
-                return 'window';
-            }
-            return target instanceof Element ? 'element' : 'unknown';
-        } catch (e) {
-            return 'unknown';
-        }
-    }
-
-    function logAssistDebug(stage, payload, signature) {
-        try {
-            if (signature) {
-                if (assistDebugSignatures[stage] === signature) return;
-                assistDebugSignatures[stage] = signature;
-            }
-            console.log('[AKChatAssistDebug]', stage, payload || {});
-        } catch (e) {}
     }
 
     function clearAssistSnapshotTimer() {
@@ -1576,19 +1554,6 @@
                 width = viewportWidth;
             }
             clone.setAttribute('style', (clone.getAttribute('style') || '') + ';position:fixed;left:' + left + 'px;' + (anchor === 'bottom' ? ('top:auto;right:auto;bottom:' + bottom + 'px;') : ('top:' + top + 'px;right:auto;bottom:auto;')) + 'width:' + width + 'px;min-height:' + minHeight + 'px;margin:0;transform:none;');
-            logAssistDebug('sticky_pinned_clone_fixed', {
-                route: normalizeAssistRoute(),
-                scroll_target: getAssistDebugTargetMode(assistScrollTarget),
-                node_id: ensureAssistNodeId(element),
-                selector_hint: buildAssistSelectorHint(element, String(element.tagName || 'div').toLowerCase()),
-                anchor: anchor,
-                rect: {
-                    top: top,
-                    bottom: Math.max(0, Math.round(rect.bottom || 0)),
-                    width: width,
-                    height: minHeight
-                }
-            }, [normalizeAssistRoute(), getAssistDebugTargetMode(assistScrollTarget), ensureAssistNodeId(element) || buildAssistSelectorHint(element, String(element.tagName || 'div').toLowerCase()), anchor, top, bottom, width, minHeight].join('|'));
             return true;
         } catch (e) {
             return false;
@@ -1649,14 +1614,7 @@
         try {
             if (!document.body) return null;
             const viewportRoots = collectAssistViewportRoots(ASSIST_VIEWPORT_ROOT_LIMIT);
-            if (!viewportRoots.length) {
-                logAssistDebug('viewport_body_clone_empty', {
-                    scroll_target: getAssistDebugTargetMode(assistScrollTarget),
-                    doc_height: Math.round(getAssistDocumentScrollHeight()),
-                    route: normalizeAssistRoute()
-                }, [getAssistDebugTargetMode(assistScrollTarget), Math.round(getAssistDocumentScrollHeight()), normalizeAssistRoute()].join('|'));
-                return null;
-            }
+            if (!viewportRoots.length) return null;
             const bodyComputed = window.getComputedStyle(document.body);
             const bodyClone = document.createElement('div');
             const docHeight = Math.max(Math.round(getAssistDocumentScrollHeight()), Math.round(window.innerHeight || 0));
@@ -1678,15 +1636,6 @@
                 appendAssistViewportClone(stage, element, stats, usedNodeIds, false);
             });
             if (!stage.childNodes.length) return null;
-            logAssistDebug('viewport_body_clone', {
-                scroll_target: getAssistDebugTargetMode(assistScrollTarget),
-                route: normalizeAssistRoute(),
-                doc_height: docHeight,
-                viewport_root_count: viewportRoots.length,
-                pinned_count: pinnedElements.length,
-                node_count: Math.max(0, Number(stats && stats.nodeCount) || 0),
-                truncated: !!(stats && stats.truncated)
-            }, [getAssistDebugTargetMode(assistScrollTarget), normalizeAssistRoute(), docHeight, viewportRoots.length, pinnedElements.length, Math.max(0, Number(stats && stats.nodeCount) || 0), !!(stats && stats.truncated)].join('|'));
             return bodyClone;
         } catch (e) {
             return null;
@@ -1742,18 +1691,6 @@
             outerRoots.forEach(function(element) {
                 appendAssistViewportClone(stage, element, stats, usedNodeIds, false);
             });
-            logAssistDebug('viewport_element_body_clone', {
-                scroll_target: getAssistDebugTargetMode(assistScrollTarget),
-                snapshot_target: getAssistDebugTargetMode(target),
-                route: normalizeAssistRoute(),
-                doc_height: docHeight,
-                outer_root_count: outerRoots.length,
-                inner_root_count: innerRoots.length,
-                pinned_count: pinnedElements.length,
-                node_count: Math.max(0, Number(stats && stats.nodeCount) || 0),
-                truncated: !!(stats && stats.truncated),
-                scroll_height: Math.max(0, Math.round(target.scrollHeight || 0))
-            }, [getAssistDebugTargetMode(assistScrollTarget), getAssistDebugTargetMode(target), normalizeAssistRoute(), docHeight, outerRoots.length, innerRoots.length, pinnedElements.length, Math.max(0, Number(stats && stats.nodeCount) || 0), !!(stats && stats.truncated), Math.max(0, Math.round(target.scrollHeight || 0))].join('|'));
             return bodyClone;
         } catch (e) {
             return null;
@@ -1843,31 +1780,6 @@
         return leftTop - rightTop;
     }
 
-    function buildAssistPinnedBottomDebugEntry(element) {
-        try {
-            if (!element || !(element instanceof Element)) return null;
-            const computed = window.getComputedStyle(element);
-            const rect = element.getBoundingClientRect ? element.getBoundingClientRect() : null;
-            const metrics = getAssistPinnedBottomCandidateMetrics(element);
-            const tagName = String(element.tagName || 'div').toLowerCase();
-            return {
-                node_id: ensureAssistNodeId(element),
-                selector_hint: buildAssistSelectorHint(element, tagName),
-                position: String(computed && computed.position || '').toLowerCase(),
-                rect: rect ? {
-                    top: Math.round(rect.top || 0),
-                    bottom: Math.round(rect.bottom || 0),
-                    width: Math.round(rect.width || 0),
-                    height: Math.round(rect.height || 0)
-                } : null,
-                width_ratio: Math.round((Number(metrics && metrics.widthRatio) || 0) * 1000) / 1000,
-                bottom_gap: Math.round(Number(metrics && metrics.bottomGap) || 0)
-            };
-        } catch (e) {
-            return null;
-        }
-    }
-
     function collectAssistPinnedBottomElements(limit) {
         try {
             if (!document.body) return [];
@@ -1896,20 +1808,6 @@
                 );
             });
             if (selected.length > limit) selected.length = limit;
-            const candidateEntries = candidates.slice(0, Math.min(candidates.length, Math.max(limit + 2, 4))).map(function(candidate) {
-                return buildAssistPinnedBottomDebugEntry(candidate.element);
-            }).filter(Boolean);
-            const selectedEntries = selected.map(function(element) {
-                return buildAssistPinnedBottomDebugEntry(element);
-            }).filter(Boolean);
-            logAssistDebug('pinned_bottom_candidates', {
-                route: normalizeAssistRoute(),
-                scroll_target: getAssistDebugTargetMode(assistScrollTarget),
-                candidate_count: candidates.length,
-                selected_count: selected.length,
-                candidates: candidateEntries,
-                selected: selectedEntries
-            }, [normalizeAssistRoute(), getAssistDebugTargetMode(assistScrollTarget), candidateEntries.map(function(entry) { return (entry.node_id || entry.selector_hint || '-') + '@' + String(entry.position || '-') + ':' + String(entry.bottom_gap || 0); }).join(','), selectedEntries.map(function(entry) { return (entry.node_id || entry.selector_hint || '-') + '@' + String(entry.position || '-') + ':' + String(entry.bottom_gap || 0); }).join(',')].join('|'));
             return selected.sort(function(left, right) {
                 return (left.getBoundingClientRect().top || 0) - (right.getBoundingClientRect().top || 0);
             });
@@ -1922,16 +1820,12 @@
         try {
             if (!container || !(container instanceof Element)) return;
             const pinnedElements = collectAssistPinnedBottomElements(ASSIST_PINNED_BOTTOM_LIMIT);
-            const appendedEntries = [];
-            let duplicateSkipCount = 0;
             pinnedElements.forEach(function(element) {
                 const nodeId = ensureAssistNodeId(element);
                 if (nodeId && usedNodeIds && usedNodeIds.has(nodeId)) {
-                    duplicateSkipCount += 1;
                     return;
                 }
                 if (nodeId && container.querySelector(`[data-ra-node-id="${String(nodeId).replace(/"/g, '\\"')}"]`)) {
-                    duplicateSkipCount += 1;
                     return;
                 }
                 const pinnedStats = { nodeCount: 0, truncated: false, maxNodeCount: ASSIST_PINNED_BOTTOM_NODE_BUDGET };
@@ -1941,22 +1835,12 @@
                     pinnedClone.setAttribute('style', (pinnedClone.getAttribute('style') || '') + ';pointer-events:auto;');
                 }
                 container.appendChild(pinnedClone);
-                const debugEntry = buildAssistPinnedBottomDebugEntry(element);
-                if (debugEntry) appendedEntries.push(debugEntry);
                 if (nodeId && usedNodeIds) usedNodeIds.add(nodeId);
                 if (stats) {
                     stats.nodeCount += pinnedStats.nodeCount;
                     if (pinnedStats.truncated) stats.truncated = true;
                 }
             });
-            logAssistDebug('pinned_bottom_clone_result', {
-                route: normalizeAssistRoute(),
-                scroll_target: getAssistDebugTargetMode(assistScrollTarget),
-                selected_count: pinnedElements.length,
-                appended_count: appendedEntries.length,
-                duplicate_skip_count: duplicateSkipCount,
-                appended: appendedEntries
-            }, [normalizeAssistRoute(), getAssistDebugTargetMode(assistScrollTarget), pinnedElements.length, appendedEntries.map(function(entry) { return (entry.node_id || entry.selector_hint || '-') + ':' + String(entry.bottom_gap || 0); }).join(','), duplicateSkipCount].join('|'));
         } catch (e) {}
     }
 
@@ -2098,15 +1982,6 @@
             slicedFallback = true;
             if (stats) stats.truncated = true;
         }
-        if (trimmedNodes || slicedFallback) {
-            logAssistDebug('snapshot_html_trimmed', {
-                route: route,
-                use_viewport_mode: !!useViewportMode,
-                trimmed_nodes: trimmedNodes,
-                sliced_fallback: slicedFallback,
-                final_html_length: html.length
-            }, [route || '', !!useViewportMode, trimmedNodes, slicedFallback, html.length].join('|'));
-        }
         return html;
     }
 
@@ -2135,14 +2010,6 @@
             if (!document.body) return null;
             assistNodeElementMap = new Map();
             const useViewportMode = shouldUseAssistViewportSnapshot(reason);
-            logAssistDebug('snapshot_mode', {
-                reason: reason || '',
-                route: route,
-                use_viewport_mode: useViewportMode,
-                scroll_target: getAssistDebugTargetMode(assistScrollTarget),
-                doc_height: Math.round(getAssistDocumentScrollHeight()),
-                last_truncated: !!(assistLastSnapshotPayload && assistLastSnapshotPayload.truncated)
-            }, [reason || '', route, useViewportMode ? 'viewport' : 'full', getAssistDebugTargetMode(assistScrollTarget), Math.round(getAssistDocumentScrollHeight()), !!(assistLastSnapshotPayload && assistLastSnapshotPayload.truncated)].join('|'));
             const stats = { nodeCount: 0, truncated: false, maxNodeCount: useViewportMode ? ASSIST_VIEWPORT_NODE_LIMIT : ASSIST_MAX_NODE_COUNT };
             const viewportTarget = useViewportMode ? getAssistActiveViewportTarget() : assistScrollTarget;
             let bodyClone = useViewportMode ? buildAssistViewportBodyClone(stats, viewportTarget) : buildAssistClone(document.body, stats);
@@ -2160,18 +2027,6 @@
             const bodyAttrs = buildAssistBodyAttrs();
             const html = fitAssistSnapshotHtmlWithinLimit(headMarkup, bodyAttrs, bodyClone, stats, useViewportMode, route);
             const scrollPayload = buildAssistScrollPayload(useViewportMode ? viewportTarget : assistScrollTarget);
-            logAssistDebug('snapshot_payload_ready', {
-                reason: reason || '',
-                route: route,
-                use_viewport_mode: useViewportMode,
-                scroll_target: getAssistDebugTargetMode(assistScrollTarget),
-                viewport_target: getAssistDebugTargetMode(viewportTarget),
-                node_count: stats.nodeCount,
-                truncated: !!stats.truncated,
-                html_length: html.length,
-                scroll_mode: String(scrollPayload && scrollPayload.mode || ''),
-                scroll_top: Math.max(0, Math.round(scrollPayload && scrollPayload.top || 0))
-            });
             return {
                 route: route,
                 title: document.title || '',
@@ -2286,14 +2141,6 @@
             && assistLastSnapshotPayload.html === payload.html
             && (now - assistLastSnapshotSentAt) < 5000
             && reason !== 'snapshot_request') {
-            logAssistDebug('snapshot_send_skipped_same_html', {
-                reason: reason || '',
-                route: payload.route,
-                scroll_target: getAssistDebugTargetMode(assistScrollTarget),
-                scroll_mode: String((assistLastScrollPayload && assistLastScrollPayload.mode) || ''),
-                scroll_top: Math.max(0, Math.round((assistLastScrollPayload && assistLastScrollPayload.top) || 0)),
-                elapsed_ms: now - assistLastSnapshotSentAt
-            }, [reason || '', payload.route, getAssistDebugTargetMode(assistScrollTarget), String((assistLastScrollPayload && assistLastScrollPayload.mode) || ''), Math.max(0, Math.round((assistLastScrollPayload && assistLastScrollPayload.top) || 0)), now - assistLastSnapshotSentAt].join('|'));
             return false;
         }
         return sendAssistSnapshotPayload(payload);
@@ -2419,7 +2266,6 @@
         clearAssistScrollTimer();
         assistSessionId = '';
         assistScrollTarget = window;
-        assistDebugSignatures = Object.create(null);
         assistCachedHeadRoute = '';
         assistCachedHeadMarkup = '';
         assistLastSnapshotPayload = null;
@@ -2505,7 +2351,6 @@
 
     function sendPresence(type) {
         if (!ws || ws.readyState !== WebSocket.OPEN) {
-            logChatWsDebug('send_presence_skipped', { type: type });
             return false;
         }
         try {
@@ -2515,7 +2360,6 @@
                 page: window.location.pathname + window.location.hash,
                 userAgent: navigator.userAgent
             }));
-            logChatWsDebug('send_presence', { type: type });
             return true;
         } catch(e) {
             logChatWsDebug('send_presence_error', {
@@ -2529,26 +2373,14 @@
     function scheduleReconnect(reason) {
         clearReconnectTimer();
         if (presenceSuspended) {
-            logChatWsDebug('schedule_reconnect_skipped', {
-                reason: String(reason || ''),
-                cause: 'presence_suspended'
-            });
             return;
         }
-        logChatWsDebug('schedule_reconnect', {
-            reason: String(reason || ''),
-            delay_ms: 5000
-        });
         reconnectTimer = setTimeout(function() {
             connect();
         }, 5000);
     }
 
     function suspendPresence(reason) {
-        logChatWsDebug('suspend_presence', {
-            reason: String(reason || ''),
-            wsStateBeforeClose: getChatWsReadyStateLabel(ws)
-        });
         presenceSuspended = true;
         stopHeartbeat();
         clearReconnectTimer();
@@ -2563,10 +2395,6 @@
     }
 
     function resumePresence(reason) {
-        logChatWsDebug('resume_presence', {
-            reason: String(reason || ''),
-            wsStateBeforeResume: getChatWsReadyStateLabel(ws)
-        });
         presenceSuspended = false;
         clearReconnectTimer();
         if (ws && ws.readyState === WebSocket.OPEN) {
@@ -2582,24 +2410,12 @@
         // 获取用户名
         username = getUsername();
         clearReconnectTimer();
-        if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
-            logChatWsDebug('connect_skipped_existing', {
-                wsState: getChatWsReadyStateLabel(ws)
-            });
-            return;
-        }
+        if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return;
         
         try {
-            logChatWsDebug('connect_start', {
-                username: String(username || ''),
-                wsUrl: WS_URL
-            });
             ws = new WebSocket(WS_URL + '?username=' + encodeURIComponent(username));
             
             ws.onopen = function() {
-                logChatWsDebug('ws_open', {
-                    username: String(username || '')
-                });
                 if (!isPresenceForeground() || presenceSuspended) {
                     presenceSuspended = true;
                     ws.close();
@@ -2636,11 +2452,6 @@
             };
             
             ws.onclose = function(event) {
-                logChatWsDebug('ws_close', {
-                    code: Number((event && event.code) || 0),
-                    reason: String((event && event.reason) || ''),
-                    wasClean: !!(event && event.wasClean)
-                });
                 stopHeartbeat();
                 ws = null;
                 scheduleReconnect('ws_onclose');
@@ -2767,9 +2578,6 @@
     document.addEventListener('change', handleAssistFormValueChange, true);
 
     document.addEventListener('visibilitychange', function() {
-        logChatWsDebug('dom_visibilitychange', {
-            hidden: !!document.hidden
-        });
         if (document.hidden) {
             suspendPresence('visibilitychange:hidden');
         } else {
@@ -2778,27 +2586,16 @@
     });
 
     window.addEventListener('pagehide', function() {
-        logChatWsDebug('window_pagehide');
         disconnectAssist('', true);
         suspendPresence('pagehide');
     });
     window.addEventListener('pageshow', function() {
-        logChatWsDebug('window_pageshow');
         if (isPresenceForeground()) resumePresence('pageshow');
     });
-    window.addEventListener('blur', function() {
-        logChatWsDebug('window_blur', {
-            hidden: !!document.hidden
-        });
-    });
     window.addEventListener('focus', function() {
-        logChatWsDebug('window_focus', {
-            hidden: !!document.hidden
-        });
         if (isPresenceForeground()) resumePresence('focus');
     });
     window.addEventListener('beforeunload', function() {
-        logChatWsDebug('window_beforeunload');
         disconnectAssist('', true);
         suspendPresence('beforeunload');
     });

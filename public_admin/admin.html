@@ -8647,17 +8647,6 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
             setRemoteAssistMeta(metaText || '用户页面快照');
             setRemoteAssistLoading(false);
             const sanitizedHtml = sanitizeRemoteAssistSrcdocHtml(snapshot && snapshot.html || '<!doctype html><html><body style="font-family:Arial;padding:16px;color:#64748b;">暂无可渲染快照</body></html>');
-            logRemoteAssistDebug('render_snapshot', {
-                route: route,
-                title: title,
-                truncated: !!(snapshot && snapshot.truncated),
-                node_count: Math.max(0, Number(snapshot && snapshot.node_count) || 0),
-                html_length: Math.max(0, Number((snapshot && snapshot.html && snapshot.html.length) || 0)),
-                sanitized_html_length: sanitizedHtml.length,
-                scroll_mode: String(scrollPayload && scrollPayload.mode || ''),
-                scroll_top: Math.max(0, Math.round(scrollPayload && scrollPayload.top || 0)),
-                same_html: remoteAssistPanelLastHtml === sanitizedHtml
-            });
             if (remoteAssistPanelLastHtml === sanitizedHtml) {
                 applyRemoteAssistScroll(scrollPayload);
                 return;
@@ -8692,10 +8681,6 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
         function scheduleRemoteAssistReconnect() {
             clearRemoteAssistReconnectTimer();
             if (!remoteAssistPanelSessionId) return;
-            logRemoteAssistDebug('admin_socket_reconnect_scheduled', {
-                session_id: remoteAssistPanelSessionId,
-                delay_ms: 1500
-            });
             remoteAssistPanelReconnectTimer = setTimeout(() => {
                 connectRemoteAssistPanelSocket(remoteAssistPanelSessionId);
             }, 1500);
@@ -8704,25 +8689,12 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
         function connectRemoteAssistPanelSocket(sessionId) {
             const wantedSessionId = String(sessionId || '').trim();
             if (!wantedSessionId) return;
-            if (remoteAssistPanelWs && (remoteAssistPanelWs.readyState === WebSocket.OPEN || remoteAssistPanelWs.readyState === WebSocket.CONNECTING) && remoteAssistPanelSessionId === wantedSessionId) {
-                logRemoteAssistDebug('admin_socket_connect_skipped_existing', {
-                    session_id: wantedSessionId,
-                    ready_state: getRemoteAssistWsReadyStateLabel(remoteAssistPanelWs)
-                });
-                return;
-            }
+            if (remoteAssistPanelWs && (remoteAssistPanelWs.readyState === WebSocket.OPEN || remoteAssistPanelWs.readyState === WebSocket.CONNECTING) && remoteAssistPanelSessionId === wantedSessionId) return;
             clearRemoteAssistReconnectTimer();
-            logRemoteAssistDebug('admin_socket_connect_start', {
-                session_id: wantedSessionId,
-                ws_url: buildRemoteAssistWsUrl(wantedSessionId)
-            });
             const currentWs = new WebSocket(buildRemoteAssistWsUrl(wantedSessionId));
             remoteAssistPanelWs = currentWs;
             currentWs.onopen = function() {
                 if (remoteAssistPanelWs !== currentWs) return;
-                logRemoteAssistDebug('admin_socket_open', {
-                    session_id: wantedSessionId
-                });
                 startRemoteAssistHeartbeat();
                 requestRemoteAssistSnapshot();
             };
@@ -8742,14 +8714,6 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                         return;
                     }
                     if (data.type === 'snapshot_replace' && data.payload) {
-                        logRemoteAssistDebug('socket_snapshot_replace', {
-                            route: String(data.payload.route || '').trim(),
-                            truncated: !!data.payload.truncated,
-                            node_count: Math.max(0, Number(data.payload.node_count) || 0),
-                            html_length: Math.max(0, Number((data.payload.html && data.payload.html.length) || 0)),
-                            scroll_mode: String(data.payload.scroll && data.payload.scroll.mode || ''),
-                            scroll_top: Math.max(0, Math.round(data.payload.scroll && data.payload.scroll.top || 0))
-                        });
                         renderRemoteAssistSnapshot(data.payload);
                         return;
                     }
@@ -8761,13 +8725,6 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                         return;
                     }
                     if (data.type === 'scroll_changed' && data.payload) {
-                        logRemoteAssistDebug('socket_scroll_changed', {
-                            mode: String(data.payload.mode || ''),
-                            top: Math.max(0, Math.round(data.payload.top || 0)),
-                            left: Math.max(0, Math.round(data.payload.left || 0)),
-                            node_id: String(data.payload.node_id || ''),
-                            selector_hint: String(data.payload.selector_hint || '')
-                        });
                         applyRemoteAssistScroll(data.payload);
                         return;
                     }
@@ -8777,14 +8734,8 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                 } catch (e) {
                 }
             };
-            currentWs.onclose = function(event) {
+            currentWs.onclose = function() {
                 if (remoteAssistPanelWs !== currentWs) return;
-                logRemoteAssistDebug('admin_socket_close', {
-                    session_id: wantedSessionId,
-                    code: Math.max(0, Number((event && event.code) || 0)),
-                    reason: String((event && event.reason) || ''),
-                    was_clean: !!(event && event.wasClean)
-                });
                 stopRemoteAssistHeartbeat();
                 remoteAssistPanelWs = null;
                 setRemoteAssistLoading(true, '协助连接断开，正在重连');
@@ -8804,9 +8755,6 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
             const activeSessionId = String(sessionId || '').trim();
             if (!activeSessionId) return;
             try {
-                logRemoteAssistDebug('release_remote_assist_session_start', {
-                    session_id: activeSessionId
-                });
                 await fetch(`${API_BASE}/admin/api/remote_assist/close`, {
                     method: 'POST',
                     headers: {
@@ -8814,9 +8762,6 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                         'Content-Type': 'application/json'
                     },
                     body: JSON.stringify({ session_id: activeSessionId })
-                });
-                logRemoteAssistDebug('release_remote_assist_session_done', {
-                    session_id: activeSessionId
                 });
             } catch (e) {
                 logRemoteAssistDebug('release_remote_assist_session_error', {
@@ -8830,9 +8775,6 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
             await closeAkBrowser();
             await closeRemoteAssistPanel();
             remoteAssistPanelUsername = String(username || '').trim();
-            logRemoteAssistDebug('open_remote_assist_start', {
-                username: remoteAssistPanelUsername
-            });
             const panel = document.getElementById('remoteAssistPanel');
             const overlay = document.getElementById('remoteAssistOverlay');
             const frame = document.getElementById('remoteAssistFrame');
@@ -8856,12 +8798,6 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                     body: JSON.stringify({ username: remoteAssistPanelUsername })
                 });
                 const data = await res.json();
-                logRemoteAssistDebug('open_remote_assist_response', {
-                    username: remoteAssistPanelUsername,
-                    success: !!data.success,
-                    session_id: String(data.session_id || ''),
-                    message: String(data.message || '')
-                });
                 if (!data.success) {
                     setRemoteAssistLoading(false);
                     setRemoteAssistMeta(`远程协助失败：${data.message || '未知错误'}`);
@@ -8884,10 +8820,6 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
             const overlay = document.getElementById('remoteAssistOverlay');
             const frame = document.getElementById('remoteAssistFrame');
             const closingSessionId = remoteAssistPanelSessionId;
-            logRemoteAssistDebug('close_remote_assist_panel_start', {
-                release_session: !!releaseSession,
-                session_id: closingSessionId
-            });
             remoteAssistPanelSessionId = '';
             remoteAssistPanelLastSnapshot = null;
             remoteAssistPanelLastHtml = '';
