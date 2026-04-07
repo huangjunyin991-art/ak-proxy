@@ -6170,6 +6170,10 @@ async def admin_remote_assist_start(request: Request):
     if not username:
         return JSONResponse({"success": False, "message": "缺少用户名"})
     session = remote_assist.find_session_by_target_username(username)
+    if session and not _assist_session_has_connected_admin(session):
+        _cancel_remote_assist_auto_unbind(session.session_id)
+        remote_assist.close_session(session.session_id)
+        session = None
     if session and role != ROLE_SUPER_ADMIN and session.admin_username != (admin_name or role):
         return JSONResponse({"success": False, "message": f"用户 {username} 已有进行中的远程协助"}, status_code=409)
     created_new_session = False
@@ -6202,8 +6206,8 @@ async def admin_remote_assist_start(request: Request):
         'site': 'ak_web',
     })
     if not delivered:
-        if created_new_session:
-            remote_assist.close_session(session.session_id)
+        _cancel_remote_assist_auto_unbind(session.session_id)
+        remote_assist.close_session(session.session_id)
         return JSONResponse({"success": False, "message": f"用户 {username} 协助绑定失败，请稍后重试"}, status_code=409)
     return response
 
