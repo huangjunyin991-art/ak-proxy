@@ -8537,6 +8537,13 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
             }
         }
 
+        function logRemoteAssistDebug(stage, payload) {
+            try {
+                console.log('[AKRemoteAssistDebug]', stage, payload || {});
+            } catch (e) {
+            }
+        }
+
         function renderRemoteAssistSnapshot(snapshot) {
             remoteAssistPanelLastSnapshot = snapshot || null;
             const frame = document.getElementById('remoteAssistFrame');
@@ -8548,6 +8555,17 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
             setRemoteAssistMeta(metaText || '已接收用户页面快照');
             setRemoteAssistLoading(false);
             const sanitizedHtml = sanitizeRemoteAssistSrcdocHtml(snapshot && snapshot.html || '<!doctype html><html><body style="font-family:Arial;padding:16px;color:#64748b;">暂无可渲染快照</body></html>');
+            logRemoteAssistDebug('render_snapshot', {
+                route: route,
+                title: title,
+                truncated: !!(snapshot && snapshot.truncated),
+                node_count: Math.max(0, Number(snapshot && snapshot.node_count) || 0),
+                html_length: Math.max(0, Number((snapshot && snapshot.html && snapshot.html.length) || 0)),
+                sanitized_html_length: sanitizedHtml.length,
+                scroll_mode: String(scrollPayload && scrollPayload.mode || ''),
+                scroll_top: Math.max(0, Math.round(scrollPayload && scrollPayload.top || 0)),
+                same_html: remoteAssistPanelLastHtml === sanitizedHtml
+            });
             if (remoteAssistPanelLastHtml === sanitizedHtml) {
                 applyRemoteAssistScroll(scrollPayload);
                 return;
@@ -8617,6 +8635,14 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                         return;
                     }
                     if (data.type === 'snapshot_replace' && data.payload) {
+                        logRemoteAssistDebug('socket_snapshot_replace', {
+                            route: String(data.payload.route || '').trim(),
+                            truncated: !!data.payload.truncated,
+                            node_count: Math.max(0, Number(data.payload.node_count) || 0),
+                            html_length: Math.max(0, Number((data.payload.html && data.payload.html.length) || 0)),
+                            scroll_mode: String(data.payload.scroll && data.payload.scroll.mode || ''),
+                            scroll_top: Math.max(0, Math.round(data.payload.scroll && data.payload.scroll.top || 0))
+                        });
                         renderRemoteAssistSnapshot(data.payload);
                         return;
                     }
@@ -8628,6 +8654,13 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                         return;
                     }
                     if (data.type === 'scroll_changed' && data.payload) {
+                        logRemoteAssistDebug('socket_scroll_changed', {
+                            mode: String(data.payload.mode || ''),
+                            top: Math.max(0, Math.round(data.payload.top || 0)),
+                            left: Math.max(0, Math.round(data.payload.left || 0)),
+                            node_id: String(data.payload.node_id || ''),
+                            selector_hint: String(data.payload.selector_hint || '')
+                        });
                         applyRemoteAssistScroll(data.payload);
                         return;
                     }

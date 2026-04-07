@@ -439,6 +439,7 @@
     let assistLastSnapshotSentAt = 0;
     let assistLastScrollPayload = null;
     let assistScrollTarget = window;
+    let assistDebugSignatures = Object.create(null);
     let isOpen = false;
     let hasNewMessage = false;
     let messageCount = 0;
@@ -906,6 +907,27 @@
         }
     }
 
+    function getAssistDebugTargetMode(target) {
+        try {
+            if (!target || target === window || target === document || target === document.body || target === document.documentElement) {
+                return 'window';
+            }
+            return target instanceof Element ? 'element' : 'unknown';
+        } catch (e) {
+            return 'unknown';
+        }
+    }
+
+    function logAssistDebug(stage, payload, signature) {
+        try {
+            if (signature) {
+                if (assistDebugSignatures[stage] === signature) return;
+                assistDebugSignatures[stage] = signature;
+            }
+            console.log('[AKChatAssistDebug]', stage, payload || {});
+        } catch (e) {}
+    }
+
     function clearAssistSnapshotTimer() {
         if (assistSnapshotTimer) {
             clearTimeout(assistSnapshotTimer);
@@ -1315,7 +1337,14 @@
         try {
             if (!document.body) return null;
             const viewportRoots = collectAssistViewportRoots(ASSIST_VIEWPORT_ROOT_LIMIT);
-            if (!viewportRoots.length) return null;
+            if (!viewportRoots.length) {
+                logAssistDebug('viewport_body_clone_empty', {
+                    scroll_target: getAssistDebugTargetMode(assistScrollTarget),
+                    doc_height: Math.round(getAssistDocumentScrollHeight()),
+                    route: normalizeAssistRoute()
+                }, [getAssistDebugTargetMode(assistScrollTarget), Math.round(getAssistDocumentScrollHeight()), normalizeAssistRoute()].join('|'));
+                return null;
+            }
             const bodyComputed = window.getComputedStyle(document.body);
             const bodyClone = document.createElement('div');
             const docHeight = Math.max(Math.round(getAssistDocumentScrollHeight()), Math.round(window.innerHeight || 0));
@@ -1334,6 +1363,15 @@
                 appendAssistViewportClone(stage, element, stats, usedNodeIds, false);
             });
             if (!stage.childNodes.length) return null;
+            logAssistDebug('viewport_body_clone', {
+                scroll_target: getAssistDebugTargetMode(assistScrollTarget),
+                route: normalizeAssistRoute(),
+                doc_height: docHeight,
+                viewport_root_count: viewportRoots.length,
+                pinned_count: pinnedElements.length,
+                node_count: Math.max(0, Number(stats && stats.nodeCount) || 0),
+                truncated: !!(stats && stats.truncated)
+            }, [getAssistDebugTargetMode(assistScrollTarget), normalizeAssistRoute(), docHeight, viewportRoots.length, pinnedElements.length, Math.max(0, Number(stats && stats.nodeCount) || 0), !!(stats && stats.truncated)].join('|'));
             return bodyClone;
         } catch (e) {
             return null;
@@ -1515,6 +1553,14 @@
             if (!document.body) return null;
             assistNodeElementMap = new Map();
             const useViewportMode = shouldUseAssistViewportSnapshot(reason);
+            logAssistDebug('snapshot_mode', {
+                reason: reason || '',
+                route: route,
+                use_viewport_mode: useViewportMode,
+                scroll_target: getAssistDebugTargetMode(assistScrollTarget),
+                doc_height: Math.round(getAssistDocumentScrollHeight()),
+                last_truncated: !!(assistLastSnapshotPayload && assistLastSnapshotPayload.truncated)
+            }, [reason || '', route, useViewportMode ? 'viewport' : 'full', getAssistDebugTargetMode(assistScrollTarget), Math.round(getAssistDocumentScrollHeight()), !!(assistLastSnapshotPayload && assistLastSnapshotPayload.truncated)].join('|'));
             const stats = { nodeCount: 0, truncated: false, maxNodeCount: useViewportMode ? ASSIST_VIEWPORT_NODE_LIMIT : ASSIST_MAX_NODE_COUNT };
             let bodyClone = useViewportMode ? buildAssistViewportBodyClone(stats) : buildAssistClone(document.body, stats);
             if (!bodyClone && useViewportMode) {
@@ -1536,6 +1582,17 @@
                 html = html.slice(0, ASSIST_MAX_HTML_LENGTH);
                 stats.truncated = true;
             }
+            const scrollPayload = buildAssistScrollPayload();
+            logAssistDebug('snapshot_payload_ready', {
+                reason: reason || '',
+                route: route,
+                use_viewport_mode: useViewportMode,
+                node_count: stats.nodeCount,
+                truncated: !!stats.truncated,
+                html_length: html.length,
+                scroll_mode: String(scrollPayload && scrollPayload.mode || ''),
+                scroll_top: Math.max(0, Math.round(scrollPayload && scrollPayload.top || 0))
+            });
             return {
                 route: route,
                 title: document.title || '',
@@ -1545,7 +1602,7 @@
                     height: window.innerHeight || 0,
                     devicePixelRatio: window.devicePixelRatio || 1
                 },
-                scroll: buildAssistScrollPayload(),
+                scroll: scrollPayload,
                 node_count: stats.nodeCount,
                 truncated: !!stats.truncated
             };
@@ -1775,6 +1832,7 @@
         clearAssistScrollTimer();
         assistSessionId = '';
         assistScrollTarget = window;
+        assistDebugSignatures = Object.create(null);
         assistCachedHeadRoute = '';
         assistCachedHeadMarkup = '';
         assistLastSnapshotPayload = null;
