@@ -1556,6 +1556,45 @@
         }
     }
 
+    function applyAssistStickyViewportClonePosition(clone, element, computed) {
+        try {
+            if (!clone || !element || !(clone instanceof Element) || !(element instanceof Element)) return false;
+            const position = String(computed && computed.position || '').toLowerCase();
+            if (position !== 'sticky') return false;
+            const rect = element.getBoundingClientRect ? element.getBoundingClientRect() : null;
+            const viewportWidth = Math.max(1, Math.round(window.innerWidth || 0));
+            const viewportHeight = Math.max(1, Math.round(window.innerHeight || 0));
+            if (!rect || rect.width < 8 || rect.height < 8) return false;
+            let left = Math.max(0, Math.round(rect.left || 0));
+            let width = Math.max(1, Math.round(rect.width || 1));
+            const top = Math.max(0, Math.round(rect.top || 0));
+            const bottom = Math.max(0, Math.round(viewportHeight - (rect.bottom || 0)));
+            const minHeight = Math.max(1, Math.round(rect.height || 1));
+            const anchor = isAssistPinnedBottomCandidate(element, computed) ? 'bottom' : 'top';
+            if (left <= 4 && Math.abs((rect.right || 0) - viewportWidth) <= 4) {
+                left = 0;
+                width = viewportWidth;
+            }
+            clone.setAttribute('style', (clone.getAttribute('style') || '') + ';position:fixed;left:' + left + 'px;' + (anchor === 'bottom' ? ('top:auto;right:auto;bottom:' + bottom + 'px;') : ('top:' + top + 'px;right:auto;bottom:auto;')) + 'width:' + width + 'px;min-height:' + minHeight + 'px;margin:0;transform:none;');
+            logAssistDebug('sticky_pinned_clone_fixed', {
+                route: normalizeAssistRoute(),
+                scroll_target: getAssistDebugTargetMode(assistScrollTarget),
+                node_id: ensureAssistNodeId(element),
+                selector_hint: buildAssistSelectorHint(element, String(element.tagName || 'div').toLowerCase()),
+                anchor: anchor,
+                rect: {
+                    top: top,
+                    bottom: Math.max(0, Math.round(rect.bottom || 0)),
+                    width: width,
+                    height: minHeight
+                }
+            }, [normalizeAssistRoute(), getAssistDebugTargetMode(assistScrollTarget), ensureAssistNodeId(element) || buildAssistSelectorHint(element, String(element.tagName || 'div').toLowerCase()), anchor, top, bottom, width, minHeight].join('|'));
+            return true;
+        } catch (e) {
+            return false;
+        }
+    }
+
     function appendAssistViewportClone(container, element, stats, usedNodeIds, preservePosition, layout) {
         try {
             if (!container || !element || !(container instanceof Element)) return;
@@ -1572,7 +1611,10 @@
                 if (stats && cloneStats.truncated) stats.truncated = true;
                 return;
             }
-            if (!preservePosition) {
+            if (preservePosition) {
+                const computed = window.getComputedStyle(element);
+                applyAssistStickyViewportClonePosition(clone, element, computed);
+            } else {
                 const rect = element.getBoundingClientRect ? element.getBoundingClientRect() : null;
                 let top = Math.max(0, Math.round((window.scrollY || window.pageYOffset || 0) + (rect ? rect.top : 0)));
                 let left = Math.max(0, Math.round((window.scrollX || window.pageXOffset || 0) + (rect ? rect.left : 0)));
