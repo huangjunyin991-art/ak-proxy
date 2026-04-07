@@ -1798,58 +1798,6 @@
         return leftTop - rightTop;
     }
 
-    function resolveAssistPinnedBottomRoot(element) {
-        try {
-            if (!element || !(element instanceof Element)) return null;
-            const viewportWidth = Math.max(1, Math.round(window.innerWidth || 0));
-            const viewportHeight = Math.max(1, Math.round(window.innerHeight || 0));
-            let candidate = element;
-            let current = element;
-            let candidateMetrics = getAssistPinnedBottomCandidateMetrics(element);
-            let depth = 0;
-            while (current && current.parentElement && current.parentElement !== document.body && depth < 6) {
-                const parent = current.parentElement;
-                if (!parent || isAssistWidgetTarget(parent)) break;
-                const computed = window.getComputedStyle(parent);
-                if (shouldSkipAssistElement(parent, computed)) break;
-                const rect = parent.getBoundingClientRect ? parent.getBoundingClientRect() : null;
-                if (!rect || rect.width < 24 || rect.height < 16) break;
-                if (rect.bottom < Math.round(viewportHeight * 0.76) || rect.top > viewportHeight) break;
-                const width = Math.max(0, Math.round(rect.width || 0));
-                const height = Math.max(0, Math.round(rect.height || 0));
-                if (width < Math.round(Math.max(1, candidateMetrics.width) * 0.9)) break;
-                if (height > Math.max(Math.round(Math.max(1, candidateMetrics.height) * 2.8), Math.round(viewportHeight * 0.3))) break;
-                candidate = parent;
-                current = parent;
-                candidateMetrics = getAssistPinnedBottomCandidateMetrics(candidate);
-                depth += 1;
-                if (candidateMetrics.width >= Math.round(viewportWidth * 0.9) && candidateMetrics.bottomGap <= 18) break;
-            }
-            return candidate;
-        } catch (e) {
-            return element instanceof Element ? element : null;
-        }
-    }
-
-    function applyAssistPinnedBottomClonePosition(clone, element) {
-        try {
-            if (!clone || !element || !(clone instanceof Element) || !(element instanceof Element)) return;
-            const rect = element.getBoundingClientRect ? element.getBoundingClientRect() : null;
-            const viewportWidth = Math.max(1, Math.round(window.innerWidth || 0));
-            const viewportHeight = Math.max(1, Math.round(window.innerHeight || 0));
-            if (!rect || rect.width < 8 || rect.height < 8) return;
-            let left = Math.max(0, Math.round(rect.left || 0));
-            let width = Math.max(1, Math.round(rect.width || 1));
-            const bottom = Math.max(0, Math.round(viewportHeight - (rect.bottom || 0)));
-            const minHeight = Math.max(1, Math.round(rect.height || 1));
-            if (left <= 4 && Math.abs((rect.right || 0) - viewportWidth) <= 4) {
-                left = 0;
-                width = viewportWidth;
-            }
-            clone.setAttribute('style', (clone.getAttribute('style') || '') + ';position:fixed;left:' + left + 'px;top:auto;right:auto;bottom:' + bottom + 'px;width:' + width + 'px;min-height:' + minHeight + 'px;max-height:none;margin:0;transform:none;z-index:2147483001;');
-        } catch (e) {}
-    }
-
     function collectAssistPinnedBottomElements(limit) {
         try {
             if (!document.body) return [];
@@ -1860,10 +1808,9 @@
                 const element = elements[i];
                 const computed = window.getComputedStyle(element);
                 if (!isAssistPinnedBottomCandidate(element, computed)) continue;
-                const root = resolveAssistPinnedBottomRoot(element) || element;
                 candidates.push({
-                    element: root,
-                    metrics: getAssistPinnedBottomCandidateMetrics(root)
+                    element: element,
+                    metrics: getAssistPinnedBottomCandidateMetrics(element)
                 });
             }
             candidates.sort(function(left, right) {
@@ -1893,18 +1840,11 @@
             const pinnedElements = collectAssistPinnedBottomElements(ASSIST_PINNED_BOTTOM_LIMIT);
             pinnedElements.forEach(function(element) {
                 const nodeId = ensureAssistNodeId(element);
-                const rootContainer = container.parentElement || container;
-                const existingClone = nodeId ? rootContainer.querySelector(`[data-ra-node-id="${String(nodeId).replace(/"/g, '\\"')}"]`) : null;
-                if (existingClone) {
-                    applyAssistPinnedBottomClonePosition(existingClone, element);
-                    if (nodeId && usedNodeIds) usedNodeIds.add(nodeId);
-                    return;
-                }
                 if (nodeId && usedNodeIds && usedNodeIds.has(nodeId)) return;
+                if (nodeId && container.querySelector(`[data-ra-node-id="${String(nodeId).replace(/"/g, '\\"')}"]`)) return;
                 const pinnedStats = { nodeCount: 0, truncated: false, maxNodeCount: ASSIST_PINNED_BOTTOM_NODE_BUDGET };
                 const pinnedClone = buildAssistClone(element, pinnedStats);
                 if (!pinnedClone) return;
-                applyAssistPinnedBottomClonePosition(pinnedClone, element);
                 container.appendChild(pinnedClone);
                 if (nodeId && usedNodeIds) usedNodeIds.add(nodeId);
                 if (stats) {
