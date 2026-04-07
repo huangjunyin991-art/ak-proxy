@@ -1114,11 +1114,11 @@
             if (!element) return '';
             const tag = element.tagName;
             const type = String(element.getAttribute('type') || '').toLowerCase();
-            if (tag === 'TEXTAREA') return element.value ? '••••' : '';
+            if (tag === 'TEXTAREA') return String(element.value || '');
             if (tag === 'INPUT') {
-                if (type === 'password') return '';
+                if (type === 'password') return element.value ? '••••' : '';
                 if (type === 'checkbox' || type === 'radio') return element.checked ? '已选中' : '未选中';
-                return element.value ? '••••' : '';
+                return String(element.value || '');
             }
             if (tag === 'SELECT') {
                 const option = element.options && element.selectedIndex >= 0 ? element.options[element.selectedIndex] : null;
@@ -1126,6 +1126,24 @@
             }
         } catch (e) {}
         return '';
+    }
+
+    function buildAssistFieldDisplayState(element) {
+        const text = buildAssistMaskedValue(element);
+        if (text) {
+            return { text: text, placeholder: false };
+        }
+        try {
+            if (!element) return { text: '', placeholder: false };
+            const tag = element.tagName;
+            if (tag === 'INPUT' || tag === 'TEXTAREA') {
+                const placeholder = String(element.getAttribute('placeholder') || '').trim();
+                if (placeholder) {
+                    return { text: placeholder, placeholder: true };
+                }
+            }
+        } catch (e) {}
+        return { text: '', placeholder: false };
     }
 
     function buildAssistClone(node, stats) {
@@ -1165,7 +1183,12 @@
         const clone = document.createElement(cloneTag);
         decorateAssistClone(node, clone, tagName, computed);
         if (node.tagName === 'INPUT' || node.tagName === 'TEXTAREA') {
-            clone.textContent = buildAssistMaskedValue(node);
+            const displayState = buildAssistFieldDisplayState(node);
+            clone.textContent = displayState.text;
+            if (displayState.placeholder) {
+                clone.setAttribute('data-ra-input-placeholder', '1');
+                clone.setAttribute('style', (clone.getAttribute('style') || '') + ';color:#94a3b8;');
+            }
         } else if (node.tagName === 'SELECT') {
             clone.textContent = buildAssistMaskedValue(node);
         } else {
@@ -1344,6 +1367,23 @@
         } catch (e) {
             return false;
         }
+    }
+
+    function isAssistFormFieldTarget(target) {
+        try {
+            const tagName = String(target && target.tagName || '').toUpperCase();
+            return tagName === 'INPUT' || tagName === 'TEXTAREA' || tagName === 'SELECT';
+        } catch (e) {
+            return false;
+        }
+    }
+
+    function handleAssistFormValueChange(event) {
+        const target = event && event.target;
+        if (!assistWs || assistWs.readyState !== WebSocket.OPEN || !assistSessionId) return;
+        if (!isAssistFormFieldTarget(target) || isAssistWidgetTarget(target)) return;
+        if (normalizeAssistRoute().indexOf('/admin/ak-web/') !== 0) return;
+        scheduleAssistSnapshot(120, 'form_input');
     }
 
     function pickAssistMeta(target) {
@@ -1685,6 +1725,8 @@
         if (normalizeAssistRoute().indexOf('/admin/ak-web/') !== 0) return;
         sendAssistEvent('click_highlight', pickAssistMeta(event.target));
     }, true);
+    document.addEventListener('input', handleAssistFormValueChange, true);
+    document.addEventListener('change', handleAssistFormValueChange, true);
 
     document.addEventListener('visibilitychange', function() {
         if (document.hidden) {
