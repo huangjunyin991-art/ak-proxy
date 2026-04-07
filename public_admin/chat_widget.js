@@ -1798,6 +1798,31 @@
         return leftTop - rightTop;
     }
 
+    function buildAssistPinnedBottomDebugEntry(element) {
+        try {
+            if (!element || !(element instanceof Element)) return null;
+            const computed = window.getComputedStyle(element);
+            const rect = element.getBoundingClientRect ? element.getBoundingClientRect() : null;
+            const metrics = getAssistPinnedBottomCandidateMetrics(element);
+            const tagName = String(element.tagName || 'div').toLowerCase();
+            return {
+                node_id: ensureAssistNodeId(element),
+                selector_hint: buildAssistSelectorHint(element, tagName),
+                position: String(computed && computed.position || '').toLowerCase(),
+                rect: rect ? {
+                    top: Math.round(rect.top || 0),
+                    bottom: Math.round(rect.bottom || 0),
+                    width: Math.round(rect.width || 0),
+                    height: Math.round(rect.height || 0)
+                } : null,
+                width_ratio: Math.round((Number(metrics && metrics.widthRatio) || 0) * 1000) / 1000,
+                bottom_gap: Math.round(Number(metrics && metrics.bottomGap) || 0)
+            };
+        } catch (e) {
+            return null;
+        }
+    }
+
     function collectAssistPinnedBottomElements(limit) {
         try {
             if (!document.body) return [];
@@ -1826,6 +1851,20 @@
                 );
             });
             if (selected.length > limit) selected.length = limit;
+            const candidateEntries = candidates.slice(0, Math.min(candidates.length, Math.max(limit + 2, 4))).map(function(candidate) {
+                return buildAssistPinnedBottomDebugEntry(candidate.element);
+            }).filter(Boolean);
+            const selectedEntries = selected.map(function(element) {
+                return buildAssistPinnedBottomDebugEntry(element);
+            }).filter(Boolean);
+            logAssistDebug('pinned_bottom_candidates', {
+                route: normalizeAssistRoute(),
+                scroll_target: getAssistDebugTargetMode(assistScrollTarget),
+                candidate_count: candidates.length,
+                selected_count: selected.length,
+                candidates: candidateEntries,
+                selected: selectedEntries
+            }, [normalizeAssistRoute(), getAssistDebugTargetMode(assistScrollTarget), candidateEntries.map(function(entry) { return (entry.node_id || entry.selector_hint || '-') + '@' + String(entry.position || '-') + ':' + String(entry.bottom_gap || 0); }).join(','), selectedEntries.map(function(entry) { return (entry.node_id || entry.selector_hint || '-') + '@' + String(entry.position || '-') + ':' + String(entry.bottom_gap || 0); }).join(',')].join('|'));
             return selected.sort(function(left, right) {
                 return (left.getBoundingClientRect().top || 0) - (right.getBoundingClientRect().top || 0);
             });
@@ -1838,20 +1877,38 @@
         try {
             if (!container || !(container instanceof Element)) return;
             const pinnedElements = collectAssistPinnedBottomElements(ASSIST_PINNED_BOTTOM_LIMIT);
+            const appendedEntries = [];
+            let duplicateSkipCount = 0;
             pinnedElements.forEach(function(element) {
                 const nodeId = ensureAssistNodeId(element);
-                if (nodeId && usedNodeIds && usedNodeIds.has(nodeId)) return;
-                if (nodeId && container.querySelector(`[data-ra-node-id="${String(nodeId).replace(/"/g, '\\"')}"]`)) return;
+                if (nodeId && usedNodeIds && usedNodeIds.has(nodeId)) {
+                    duplicateSkipCount += 1;
+                    return;
+                }
+                if (nodeId && container.querySelector(`[data-ra-node-id="${String(nodeId).replace(/"/g, '\\"')}"]`)) {
+                    duplicateSkipCount += 1;
+                    return;
+                }
                 const pinnedStats = { nodeCount: 0, truncated: false, maxNodeCount: ASSIST_PINNED_BOTTOM_NODE_BUDGET };
                 const pinnedClone = buildAssistClone(element, pinnedStats);
                 if (!pinnedClone) return;
                 container.appendChild(pinnedClone);
+                const debugEntry = buildAssistPinnedBottomDebugEntry(element);
+                if (debugEntry) appendedEntries.push(debugEntry);
                 if (nodeId && usedNodeIds) usedNodeIds.add(nodeId);
                 if (stats) {
                     stats.nodeCount += pinnedStats.nodeCount;
                     if (pinnedStats.truncated) stats.truncated = true;
                 }
             });
+            logAssistDebug('pinned_bottom_clone_result', {
+                route: normalizeAssistRoute(),
+                scroll_target: getAssistDebugTargetMode(assistScrollTarget),
+                selected_count: pinnedElements.length,
+                appended_count: appendedEntries.length,
+                duplicate_skip_count: duplicateSkipCount,
+                appended: appendedEntries
+            }, [normalizeAssistRoute(), getAssistDebugTargetMode(assistScrollTarget), pinnedElements.length, appendedEntries.map(function(entry) { return (entry.node_id || entry.selector_hint || '-') + ':' + String(entry.bottom_gap || 0); }).join(','), duplicateSkipCount].join('|'));
         } catch (e) {}
     }
 
@@ -2009,6 +2066,8 @@
                 reason: reason || '',
                 route: route,
                 use_viewport_mode: useViewportMode,
+                scroll_target: getAssistDebugTargetMode(assistScrollTarget),
+                viewport_target: getAssistDebugTargetMode(viewportTarget),
                 node_count: stats.nodeCount,
                 truncated: !!stats.truncated,
                 html_length: html.length,
@@ -2129,6 +2188,14 @@
             && assistLastSnapshotPayload.html === payload.html
             && (now - assistLastSnapshotSentAt) < 5000
             && reason !== 'snapshot_request') {
+            logAssistDebug('snapshot_send_skipped_same_html', {
+                reason: reason || '',
+                route: payload.route,
+                scroll_target: getAssistDebugTargetMode(assistScrollTarget),
+                scroll_mode: String((assistLastScrollPayload && assistLastScrollPayload.mode) || ''),
+                scroll_top: Math.max(0, Math.round((assistLastScrollPayload && assistLastScrollPayload.top) || 0)),
+                elapsed_ms: now - assistLastSnapshotSentAt
+            }, [reason || '', payload.route, getAssistDebugTargetMode(assistScrollTarget), String((assistLastScrollPayload && assistLastScrollPayload.mode) || ''), Math.max(0, Math.round((assistLastScrollPayload && assistLastScrollPayload.top) || 0)), now - assistLastSnapshotSentAt].join('|'));
             return false;
         }
         return sendAssistSnapshotPayload(payload);
