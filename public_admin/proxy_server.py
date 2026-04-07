@@ -2577,11 +2577,39 @@ class OnlineUserManager:
 
 
 
+    def normalize_username(self, username):
+
+        return (str(username or '').strip().lower())
+
+
+
+    def get_user(self, username):
+
+        normalized = self.normalize_username(username)
+
+        if not normalized:
+
+            return None
+
+        return self.users.get(normalized)
+
+
+
     async def user_online(self, username, websocket, page, user_agent):
 
-        existing = self.users.get(username, {})
+        normalized = self.normalize_username(username)
 
-        self.users[username] = {
+        display_username = str(username or '').strip()
+
+        if not normalized:
+
+            return None
+
+        existing = self.users.get(normalized, {})
+
+        self.users[normalized] = {
+
+            'username': display_username or existing.get('username') or normalized,
 
             'websocket': websocket, 'ws_id': id(websocket), 'page': page, 'user_agent': user_agent,
 
@@ -2591,25 +2619,31 @@ class OnlineUserManager:
 
         }
 
+        return self.users[normalized]
+
 
 
     def user_offline(self, username, websocket=None):
 
-        if username not in self.users:
+        normalized = self.normalize_username(username)
+
+        if normalized not in self.users:
 
             return
 
-        if websocket is None or self.users[username].get('websocket') is websocket:
+        if websocket is None or self.users[normalized].get('websocket') is websocket:
 
-            del self.users[username]
+            del self.users[normalized]
 
 
 
     def update_heartbeat(self, username):
 
-        if username in self.users:
+        user = self.get_user(username)
 
-            self.users[username]['last_heartbeat'] = datetime.now()
+        if user:
+
+            user['last_heartbeat'] = datetime.now()
 
 
 
@@ -2627,7 +2661,7 @@ class OnlineUserManager:
 
             else:
 
-                online.append({'username': u, 'page': d['page'],
+                online.append({'username': d.get('username') or u, 'page': d['page'],
 
                                'user_agent': (d['user_agent'] or '')[:50],
 
@@ -2643,11 +2677,13 @@ class OnlineUserManager:
 
     async def send_payload_to_user(self, username, payload):
 
-        if username in self.users:
+        user = self.get_user(username)
+
+        if user:
 
             try:
 
-                await self.users[username]['websocket'].send_json(payload)
+                await user['websocket'].send_json(payload)
 
                 return True
 
@@ -2661,11 +2697,15 @@ class OnlineUserManager:
 
     async def send_to_user(self, username, content, save_history=True):
 
-        if username in self.users:
+        user = self.get_user(username)
+
+        normalized = self.normalize_username(username)
+
+        if user and normalized:
 
             try:
 
-                await self.users[username]['websocket'].send_json({
+                await user['websocket'].send_json({
 
                     'type': 'admin_message', 'content': content,
 
@@ -2675,7 +2715,7 @@ class OnlineUserManager:
 
                 if save_history:
 
-                    self.messages.setdefault(username, []).append(
+                    self.messages.setdefault(normalized, []).append(
 
                         {'content': content, 'is_admin': True, 'time': datetime.now().strftime('%H:%M:%S')})
 
@@ -2691,7 +2731,13 @@ class OnlineUserManager:
 
     def save_user_message(self, username, content):
 
-        self.messages.setdefault(username, []).append(
+        normalized = self.normalize_username(username)
+
+        if not normalized:
+
+            return
+
+        self.messages.setdefault(normalized, []).append(
 
             {'content': content, 'is_admin': False, 'time': datetime.now().strftime('%H:%M:%S')})
 
@@ -2699,7 +2745,13 @@ class OnlineUserManager:
 
     def get_messages(self, username):
 
-        return self.messages.get(username, [])[-50:]
+        normalized = self.normalize_username(username)
+
+        if not normalized:
+
+            return []
+
+        return self.messages.get(normalized, [])[-50:]
 
 
 
@@ -5085,15 +5137,17 @@ async def chat_websocket(websocket: WebSocket):
 
             if msg_type == 'online':
 
-                prev_ws_id = online_manager.users.get(data.get('username', username), {}).get('ws_id')
+                incoming_username = data.get('username', username)
 
-                await online_manager.user_online(
+                prev_ws_id = (online_manager.get_user(incoming_username) or {}).get('ws_id')
 
-                    data.get('username', username), websocket,
+                current_user = await online_manager.user_online(
+
+                    incoming_username, websocket,
 
                     data.get('page', ''), data.get('userAgent', ''))
 
-                username = data.get('username', username)
+                username = (current_user or {}).get('username') or str(incoming_username or '').strip()
 
                 if prev_ws_id != id(websocket):
 
@@ -5125,9 +5179,11 @@ async def chat_websocket(websocket: WebSocket):
 
                 hp = data.get('page', '')
 
-                if hp and username in online_manager.users:
+                current_user = online_manager.get_user(username)
 
-                    online_manager.users[username]['page'] = hp
+                if hp and current_user:
+
+                    current_user['page'] = hp
 
             elif msg_type == 'user_message':
 
@@ -6118,7 +6174,7 @@ async def admin_remote_assist_start(request: Request):
         created_new_session = bool(session)
     if not session:
         return JSONResponse({"success": False, "message": "创建协助会话失败"}, status_code=500)
-    if username not in online_manager.users:
+    if not online_manager.get_user(username):
         if created_new_session:
             remote_assist.close_session(session.session_id)
         return JSONResponse({"success": False, "message": f"用户 {username} 当前不在线，无法发起远程协助"}, status_code=409)

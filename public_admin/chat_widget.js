@@ -458,7 +458,7 @@
     function getUsername() {
         // 1. 优先从cookie读取
         let cookieUser = getCookie('ak_username');
-        if (cookieUser) return cookieUser;
+        if (cookieUser) return String(cookieUser).trim();
         
         // 2. 从localStorage遍历找用户名
         try {
@@ -467,8 +467,8 @@
                 try {
                     let data = JSON.parse(value);
                     if (data && typeof data === 'object') {
-                        if (data.UserName && typeof data.UserName === 'string') return data.UserName;
-                        if (data.Account && typeof data.Account === 'string') return data.Account;
+                        if (data.UserName && typeof data.UserName === 'string') return String(data.UserName).trim();
+                        if (data.Account && typeof data.Account === 'string') return String(data.Account).trim();
                     }
                 } catch(e) {}
             }
@@ -477,7 +477,7 @@
         // 3. 从已保存的持久化登录凭据读取
         try {
             var saved = _akDecode();
-            if (saved && saved.account) return saved.account;
+            if (saved && saved.account) return String(saved.account).trim();
         } catch(e) {}
         
         // 获取不到就用访客名
@@ -883,6 +883,9 @@
     const ASSIST_VIEWPORT_SAMPLE_ROWS = 7;
     const ASSIST_VIEWPORT_SAMPLE_COLS = 3;
     const ASSIST_VIEWPORT_ROOT_LIMIT = 18;
+    const ASSIST_VIEWPORT_OUTER_ROOT_LIMIT = 8;
+    const ASSIST_ELEMENT_VIEWPORT_ROOT_LIMIT = 20;
+    const ASSIST_ELEMENT_VIEWPORT_SCAN_LIMIT = 220;
     const ASSIST_VIEWPORT_NODE_LIMIT = 1200;
     const ASSIST_VIEWPORT_SCROLL_HEIGHT_FACTOR = 2.4;
     const ASSIST_VIEWPORT_SCROLL_SNAPSHOT_DELAY = 220;
@@ -1167,12 +1170,88 @@
         } catch (e) {}
     }
 
+    function findAssistPrimaryScrollableElement() {
+        try {
+            if (!document.body) return null;
+            const elements = document.body.querySelectorAll('*');
+            const viewportWidth = Math.max(1, Math.round(window.innerWidth || 0));
+            const viewportHeight = Math.max(1, Math.round(window.innerHeight || 0));
+            let best = null;
+            let bestScore = 0;
+            for (let i = 0; i < elements.length; i += 1) {
+                const element = elements[i];
+                if (!element || isAssistWidgetTarget(element)) continue;
+                const computed = window.getComputedStyle(element);
+                if (shouldSkipAssistElement(element, computed)) continue;
+                const overflowValue = String(computed.overflowY || computed.overflow || '').toLowerCase();
+                if (overflowValue.indexOf('auto') === -1 && overflowValue.indexOf('scroll') === -1 && overflowValue.indexOf('overlay') === -1) continue;
+                const rect = element.getBoundingClientRect ? element.getBoundingClientRect() : null;
+                if (!isAssistViewportRectVisible(rect, 24)) continue;
+                const clientHeight = Math.max(0, Math.round(element.clientHeight || 0));
+                const clientWidth = Math.max(0, Math.round(element.clientWidth || 0));
+                const scrollHeight = Math.max(0, Math.round(element.scrollHeight || 0));
+                if (clientHeight < Math.round(viewportHeight * 0.35) || clientWidth < Math.round(viewportWidth * 0.45)) continue;
+                if (scrollHeight < Math.round(Math.max(1, clientHeight) * ASSIST_VIEWPORT_SCROLL_HEIGHT_FACTOR)) continue;
+                const score = clientHeight * clientWidth;
+                if (score > bestScore) {
+                    best = element;
+                    bestScore = score;
+                }
+            }
+            return best;
+        } catch (e) {
+            return null;
+        }
+    }
+
+    function getAssistActiveViewportTarget() {
+        try {
+            if (assistScrollTarget && assistScrollTarget !== window && assistScrollTarget instanceof Element) {
+                return assistScrollTarget;
+            }
+            return findAssistPrimaryScrollableElement() || window;
+        } catch (e) {
+            return window;
+        }
+    }
+
+    function getAssistActiveViewportMetrics() {
+        try {
+            const target = getAssistActiveViewportTarget();
+            if (target && target !== window && target instanceof Element) {
+                return {
+                    mode: 'element',
+                    target: target,
+                    viewportHeight: Math.max(1, Math.round(target.clientHeight || window.innerHeight || 0)),
+                    viewportWidth: Math.max(1, Math.round(target.clientWidth || window.innerWidth || 0)),
+                    scrollHeight: Math.max(1, Math.round(target.scrollHeight || target.clientHeight || 0))
+                };
+            }
+            return {
+                mode: 'window',
+                target: window,
+                viewportHeight: Math.max(1, Math.round(window.innerHeight || 0)),
+                viewportWidth: Math.max(1, Math.round(window.innerWidth || 0)),
+                scrollHeight: Math.max(1, Math.round(getAssistDocumentScrollHeight()))
+            };
+        } catch (e) {
+            return {
+                mode: 'window',
+                target: window,
+                viewportHeight: Math.max(1, Math.round(window.innerHeight || 0)),
+                viewportWidth: Math.max(1, Math.round(window.innerWidth || 0)),
+                scrollHeight: Math.max(1, Math.round(getAssistDocumentScrollHeight()))
+            };
+        }
+    }
+
     function isAssistViewportModeEligible() {
         try {
-            if (!document.body || assistScrollTarget !== window) return false;
+            if (!document.body) return false;
             const route = normalizeAssistRoute();
             if (route.indexOf('/admin/ak-web/') !== 0) return false;
-            return getAssistDocumentScrollHeight() >= Math.round(Math.max(1, window.innerHeight || 0) * ASSIST_VIEWPORT_SCROLL_HEIGHT_FACTOR);
+            const metrics = getAssistActiveViewportMetrics();
+            return metrics.scrollHeight >= Math.round(Math.max(1, metrics.viewportHeight || 0) * ASSIST_VIEWPORT_SCROLL_HEIGHT_FACTOR);
         } catch (e) {
             return false;
         }
@@ -1181,7 +1260,6 @@
     function shouldUseAssistViewportSnapshot(reason) {
         try {
             if (isAssistViewportModeEligible()) return true;
-            if (assistScrollTarget !== window) return false;
             if (!assistLastSnapshotPayload || !assistLastSnapshotPayload.truncated) return false;
             return String(reason || '').toLowerCase() !== 'snapshot_request';
         } catch (e) {
@@ -1199,15 +1277,24 @@
         return true;
     }
 
-    function pickAssistViewportRoot(target) {
+    function isAssistContainerRectVisible(rect, containerRect, padding) {
+        const extra = typeof padding === 'number' ? padding : 0;
+        if (!rect || !containerRect || rect.width < 8 || rect.height < 8) return false;
+        if (rect.bottom < containerRect.top - extra || rect.top > containerRect.bottom + extra) return false;
+        if (rect.right < containerRect.left - extra || rect.left > containerRect.right + extra) return false;
+        return true;
+    }
+
+    function pickAssistViewportRoot(target, boundaryElement, viewportWidth, viewportHeight) {
         try {
             let candidate = target instanceof Element ? target : null;
             let current = candidate;
-            const viewportWidth = Math.max(1, Math.round(window.innerWidth || 0));
-            const viewportHeight = Math.max(1, Math.round(window.innerHeight || 0));
+            const maxWidth = Math.max(1, Math.round(viewportWidth || window.innerWidth || 0));
+            const maxHeight = Math.max(1, Math.round(viewportHeight || window.innerHeight || 0));
             let depth = 0;
             while (current && current.parentElement && current.parentElement !== document.body && depth < 6) {
                 const parent = current.parentElement;
+                if (boundaryElement && parent === boundaryElement) break;
                 const computed = window.getComputedStyle(parent);
                 if (shouldSkipAssistElement(parent, computed)) break;
                 const rect = parent.getBoundingClientRect ? parent.getBoundingClientRect() : null;
@@ -1217,8 +1304,8 @@
                     candidate = parent;
                     break;
                 }
-                if (rect.width > viewportWidth * 1.08) break;
-                if (rect.height > viewportHeight * 0.92) break;
+                if (rect.width > maxWidth * 1.08) break;
+                if (rect.height > maxHeight * 0.92) break;
                 candidate = parent;
                 current = parent;
                 depth += 1;
@@ -1277,7 +1364,7 @@
                     const x = Math.max(1, Math.min(viewportWidth - 2, Math.round((viewportWidth * col) / (ASSIST_VIEWPORT_SAMPLE_COLS + 1))));
                     const target = document.elementFromPoint(x, y);
                     if (!target || isAssistWidgetTarget(target)) continue;
-                    const root = pickAssistViewportRoot(target);
+                    const root = pickAssistViewportRoot(target, null, viewportWidth, viewportHeight);
                     const rect = root && root.getBoundingClientRect ? root.getBoundingClientRect() : null;
                     if (!root || !isAssistViewportRectVisible(rect, 18)) continue;
                     pushAssistElementCandidate(selected, root);
@@ -1300,7 +1387,85 @@
         }
     }
 
-    function appendAssistViewportClone(container, element, stats, usedNodeIds, preservePosition) {
+    function collectAssistOuterViewportRootsForElement(container, limit) {
+        try {
+            if (!container || !(container instanceof Element)) return [];
+            const selected = [];
+            const roots = collectAssistViewportRoots(Math.max(limit * 3, limit));
+            roots.forEach(function(element) {
+                if (selected.length >= limit) return;
+                if (!element || element === container) return;
+                if (container.contains(element) || element.contains(container)) return;
+                pushAssistElementCandidate(selected, element);
+            });
+            return selected;
+        } catch (e) {
+            return [];
+        }
+    }
+
+    function collectAssistElementViewportRoots(container, limit) {
+        try {
+            if (!container || !(container instanceof Element)) return [];
+            const selected = [];
+            const containerRect = container.getBoundingClientRect ? container.getBoundingClientRect() : null;
+            const viewportWidth = Math.max(1, Math.round(container.clientWidth || window.innerWidth || 0));
+            const viewportHeight = Math.max(1, Math.round(container.clientHeight || window.innerHeight || 0));
+            const buffer = Math.max(120, Math.round(viewportHeight * 0.6));
+            const queue = Array.prototype.slice.call(container.children || []);
+            let scanned = 0;
+            while (queue.length && selected.length < limit && scanned < ASSIST_ELEMENT_VIEWPORT_SCAN_LIMIT) {
+                const element = queue.shift();
+                scanned += 1;
+                if (!element || isAssistWidgetTarget(element)) continue;
+                const computed = window.getComputedStyle(element);
+                if (shouldSkipAssistElement(element, computed)) continue;
+                const rect = element.getBoundingClientRect ? element.getBoundingClientRect() : null;
+                if (!isAssistContainerRectVisible(rect, containerRect, buffer)) continue;
+                const isHugeWrapper = rect && rect.height > Math.max(120, Math.round(viewportHeight * 0.92)) && element.children && element.children.length;
+                if (isHugeWrapper) {
+                    const childElements = Array.prototype.slice.call(element.children || []);
+                    childElements.forEach(function(child) {
+                        queue.push(child);
+                    });
+                    continue;
+                }
+                const root = pickAssistViewportRoot(element, container, viewportWidth, viewportHeight);
+                const rootRect = root && root.getBoundingClientRect ? root.getBoundingClientRect() : null;
+                if (!root || !isAssistContainerRectVisible(rootRect, containerRect, buffer)) continue;
+                pushAssistElementCandidate(selected, root);
+            }
+            if (!selected.length && containerRect) {
+                const visibleLeft = Math.max(1, Math.round(containerRect.left));
+                const visibleRight = Math.max(visibleLeft + 1, Math.min(Math.round(window.innerWidth || 0) - 2, Math.round(containerRect.right)));
+                const visibleTop = Math.max(1, Math.round(containerRect.top));
+                const visibleBottom = Math.max(visibleTop + 1, Math.min(Math.round(window.innerHeight || 0) - 2, Math.round(containerRect.bottom)));
+                for (let row = 1; row <= ASSIST_VIEWPORT_SAMPLE_ROWS; row += 1) {
+                    const y = Math.max(1, Math.min(visibleBottom, Math.round(visibleTop + ((visibleBottom - visibleTop) * row) / (ASSIST_VIEWPORT_SAMPLE_ROWS + 1))));
+                    for (let col = 1; col <= ASSIST_VIEWPORT_SAMPLE_COLS; col += 1) {
+                        const x = Math.max(1, Math.min(visibleRight, Math.round(visibleLeft + ((visibleRight - visibleLeft) * col) / (ASSIST_VIEWPORT_SAMPLE_COLS + 1))));
+                        const target = document.elementFromPoint(x, y);
+                        if (!target || !container.contains(target) || isAssistWidgetTarget(target)) continue;
+                        const root = pickAssistViewportRoot(target, container, viewportWidth, viewportHeight);
+                        const rootRect = root && root.getBoundingClientRect ? root.getBoundingClientRect() : null;
+                        if (!root || !isAssistContainerRectVisible(rootRect, containerRect, buffer)) continue;
+                        pushAssistElementCandidate(selected, root);
+                        if (selected.length >= limit) break;
+                    }
+                    if (selected.length >= limit) break;
+                }
+            }
+            return selected.sort(function(a, b) {
+                const aRect = a.getBoundingClientRect();
+                const bRect = b.getBoundingClientRect();
+                return (aRect.top || 0) - (bRect.top || 0) || (aRect.left || 0) - (bRect.left || 0);
+            });
+        } catch (e) {
+            return [];
+        }
+    }
+
+    function appendAssistViewportClone(container, element, stats, usedNodeIds, preservePosition, layout) {
         try {
             if (!container || !element || !(container instanceof Element)) return;
             const nodeId = ensureAssistNodeId(element);
@@ -1318,8 +1483,12 @@
             }
             if (!preservePosition) {
                 const rect = element.getBoundingClientRect ? element.getBoundingClientRect() : null;
-                const top = Math.max(0, Math.round((window.scrollY || window.pageYOffset || 0) + (rect ? rect.top : 0)));
-                const left = Math.max(0, Math.round((window.scrollX || window.pageXOffset || 0) + (rect ? rect.left : 0)));
+                let top = Math.max(0, Math.round((window.scrollY || window.pageYOffset || 0) + (rect ? rect.top : 0)));
+                let left = Math.max(0, Math.round((window.scrollX || window.pageXOffset || 0) + (rect ? rect.left : 0)));
+                if (layout && layout.mode === 'element' && layout.containerRect && layout.scrollTarget) {
+                    top = Math.max(0, Math.round((layout.scrollTarget.scrollTop || 0) + ((rect ? rect.top : 0) - layout.containerRect.top)));
+                    left = Math.max(0, Math.round((layout.scrollTarget.scrollLeft || 0) + ((rect ? rect.left : 0) - layout.containerRect.left)));
+                }
                 const width = Math.max(1, Math.round(rect ? rect.width : element.clientWidth || 1));
                 const minHeight = Math.max(1, Math.round(rect ? rect.height : element.clientHeight || 1));
                 clone.setAttribute('style', (clone.getAttribute('style') || '') + ';position:absolute;left:' + left + 'px;top:' + top + 'px;right:auto;bottom:auto;width:' + width + 'px;min-height:' + minHeight + 'px;margin:0;transform:none;');
@@ -1333,7 +1502,7 @@
         } catch (e) {}
     }
 
-    function buildAssistViewportBodyClone(stats) {
+    function buildAssistWindowViewportBodyClone(stats) {
         try {
             if (!document.body) return null;
             const viewportRoots = collectAssistViewportRoots(ASSIST_VIEWPORT_ROOT_LIMIT);
@@ -1373,6 +1542,83 @@
                 truncated: !!(stats && stats.truncated)
             }, [getAssistDebugTargetMode(assistScrollTarget), normalizeAssistRoute(), docHeight, viewportRoots.length, pinnedElements.length, Math.max(0, Number(stats && stats.nodeCount) || 0), !!(stats && stats.truncated)].join('|'));
             return bodyClone;
+        } catch (e) {
+            return null;
+        }
+    }
+
+    function buildAssistElementViewportBodyClone(target, stats) {
+        try {
+            if (!document.body || !target || !(target instanceof Element)) return null;
+            const targetRect = target.getBoundingClientRect ? target.getBoundingClientRect() : null;
+            if (!isAssistViewportRectVisible(targetRect, 24)) return null;
+            const innerRoots = collectAssistElementViewportRoots(target, ASSIST_ELEMENT_VIEWPORT_ROOT_LIMIT);
+            if (!innerRoots.length) return null;
+            const bodyComputed = window.getComputedStyle(document.body);
+            const bodyClone = document.createElement('div');
+            const docHeight = Math.max(Math.round(getAssistDocumentScrollHeight()), Math.round(window.innerHeight || 0));
+            decorateAssistClone(document.body, bodyClone, 'body', bodyComputed);
+            bodyClone.setAttribute('style', (bodyClone.getAttribute('style') || '') + ';position:relative;min-height:' + docHeight + 'px;');
+            const stage = document.createElement('div');
+            stage.setAttribute('data-ra-viewport-stage', '1');
+            stage.setAttribute('style', 'position:relative;min-height:' + docHeight + 'px;');
+            bodyClone.appendChild(stage);
+            const usedNodeIds = new Set();
+            const pinnedElements = collectAssistPinnedViewportElements(ASSIST_PINNED_BOTTOM_LIMIT + 2);
+            pinnedElements.forEach(function(element) {
+                appendAssistViewportClone(bodyClone, element, stats, usedNodeIds, true);
+            });
+            const outerRoots = collectAssistOuterViewportRootsForElement(target, ASSIST_VIEWPORT_OUTER_ROOT_LIMIT);
+            const targetComputed = window.getComputedStyle(target);
+            const targetTag = String(target.tagName || 'div').toLowerCase();
+            const targetClone = document.createElement(targetTag);
+            decorateAssistClone(target, targetClone, targetTag, targetComputed);
+            const targetNodeId = ensureAssistNodeId(target);
+            if (targetNodeId) usedNodeIds.add(targetNodeId);
+            const shellTop = Math.max(0, Math.round((window.scrollY || window.pageYOffset || 0) + (targetRect ? targetRect.top : 0)));
+            const shellLeft = Math.max(0, Math.round((window.scrollX || window.pageXOffset || 0) + (targetRect ? targetRect.left : 0)));
+            const shellWidth = Math.max(1, Math.round(targetRect ? targetRect.width : target.clientWidth || 1));
+            const shellHeight = Math.max(1, Math.round(targetRect ? targetRect.height : target.clientHeight || 1));
+            targetClone.setAttribute('style', (targetClone.getAttribute('style') || '') + ';position:absolute;left:' + shellLeft + 'px;top:' + shellTop + 'px;right:auto;bottom:auto;width:' + shellWidth + 'px;height:' + shellHeight + 'px;min-height:' + shellHeight + 'px;max-height:none;overflow:auto;margin:0;transform:none;');
+            const contentStage = document.createElement('div');
+            contentStage.setAttribute('data-ra-scroll-stage', '1');
+            contentStage.setAttribute('style', 'position:relative;min-height:' + Math.max(Math.round(target.scrollHeight || 0), shellHeight) + 'px;width:100%;');
+            targetClone.appendChild(contentStage);
+            const layout = { mode: 'element', containerRect: targetRect, scrollTarget: target };
+            innerRoots.forEach(function(element) {
+                appendAssistViewportClone(contentStage, element, stats, usedNodeIds, false, layout);
+            });
+            if (!contentStage.childNodes.length) return null;
+            stage.appendChild(targetClone);
+            outerRoots.forEach(function(element) {
+                appendAssistViewportClone(stage, element, stats, usedNodeIds, false);
+            });
+            logAssistDebug('viewport_element_body_clone', {
+                scroll_target: getAssistDebugTargetMode(assistScrollTarget),
+                snapshot_target: getAssistDebugTargetMode(target),
+                route: normalizeAssistRoute(),
+                doc_height: docHeight,
+                outer_root_count: outerRoots.length,
+                inner_root_count: innerRoots.length,
+                pinned_count: pinnedElements.length,
+                node_count: Math.max(0, Number(stats && stats.nodeCount) || 0),
+                truncated: !!(stats && stats.truncated),
+                scroll_height: Math.max(0, Math.round(target.scrollHeight || 0))
+            }, [getAssistDebugTargetMode(assistScrollTarget), getAssistDebugTargetMode(target), normalizeAssistRoute(), docHeight, outerRoots.length, innerRoots.length, pinnedElements.length, Math.max(0, Number(stats && stats.nodeCount) || 0), !!(stats && stats.truncated), Math.max(0, Math.round(target.scrollHeight || 0))].join('|'));
+            return bodyClone;
+        } catch (e) {
+            return null;
+        }
+    }
+
+    function buildAssistViewportBodyClone(stats, target) {
+        try {
+            const viewportTarget = target || getAssistActiveViewportTarget();
+            if (viewportTarget && viewportTarget !== window && viewportTarget instanceof Element) {
+                const elementClone = buildAssistElementViewportBodyClone(viewportTarget, stats);
+                if (elementClone) return elementClone;
+            }
+            return buildAssistWindowViewportBodyClone(stats);
         } catch (e) {
             return null;
         }
@@ -1562,7 +1808,8 @@
                 last_truncated: !!(assistLastSnapshotPayload && assistLastSnapshotPayload.truncated)
             }, [reason || '', route, useViewportMode ? 'viewport' : 'full', getAssistDebugTargetMode(assistScrollTarget), Math.round(getAssistDocumentScrollHeight()), !!(assistLastSnapshotPayload && assistLastSnapshotPayload.truncated)].join('|'));
             const stats = { nodeCount: 0, truncated: false, maxNodeCount: useViewportMode ? ASSIST_VIEWPORT_NODE_LIMIT : ASSIST_MAX_NODE_COUNT };
-            let bodyClone = useViewportMode ? buildAssistViewportBodyClone(stats) : buildAssistClone(document.body, stats);
+            const viewportTarget = useViewportMode ? getAssistActiveViewportTarget() : assistScrollTarget;
+            let bodyClone = useViewportMode ? buildAssistViewportBodyClone(stats, viewportTarget) : buildAssistClone(document.body, stats);
             if (!bodyClone && useViewportMode) {
                 stats.nodeCount = 0;
                 stats.truncated = false;
@@ -1582,7 +1829,7 @@
                 html = html.slice(0, ASSIST_MAX_HTML_LENGTH);
                 stats.truncated = true;
             }
-            const scrollPayload = buildAssistScrollPayload();
+            const scrollPayload = buildAssistScrollPayload(useViewportMode ? viewportTarget : assistScrollTarget);
             logAssistDebug('snapshot_payload_ready', {
                 reason: reason || '',
                 route: route,
