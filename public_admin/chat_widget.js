@@ -1746,20 +1746,89 @@
         }
     }
 
+    function getAssistPinnedBottomCandidateMetrics(element) {
+        try {
+            const rect = element && element.getBoundingClientRect ? element.getBoundingClientRect() : null;
+            const viewportWidth = Math.max(1, Math.round(window.innerWidth || 0));
+            const viewportHeight = Math.max(1, Math.round(window.innerHeight || 0));
+            const width = Math.max(0, Math.round(rect ? rect.width : 0));
+            const height = Math.max(0, Math.round(rect ? rect.height : 0));
+            const top = Math.max(0, Math.round(rect ? rect.top : 0));
+            const bottom = Math.max(0, Math.round(rect ? rect.bottom : 0));
+            return {
+                width: width,
+                height: height,
+                top: top,
+                bottomGap: Math.abs(viewportHeight - bottom),
+                widthRatio: width / Math.max(1, viewportWidth),
+                area: width * height,
+                fullWidthPriority: width >= Math.round(viewportWidth * 0.72) ? 1 : 0
+            };
+        } catch (e) {
+            return {
+                width: 0,
+                height: 0,
+                top: Number.MAX_SAFE_INTEGER,
+                bottomGap: Number.MAX_SAFE_INTEGER,
+                widthRatio: 0,
+                area: 0,
+                fullWidthPriority: 0
+            };
+        }
+    }
+
+    function compareAssistPinnedBottomCandidateMetrics(left, right) {
+        const leftFullWidth = Math.max(0, Number(left && left.fullWidthPriority) || 0);
+        const rightFullWidth = Math.max(0, Number(right && right.fullWidthPriority) || 0);
+        if (leftFullWidth !== rightFullWidth) return rightFullWidth - leftFullWidth;
+        const leftWidthRatio = Math.max(0, Number(left && left.widthRatio) || 0);
+        const rightWidthRatio = Math.max(0, Number(right && right.widthRatio) || 0);
+        if (Math.abs(leftWidthRatio - rightWidthRatio) > 0.001) return rightWidthRatio - leftWidthRatio;
+        const leftBottomGap = Math.max(0, Number(left && left.bottomGap) || 0);
+        const rightBottomGap = Math.max(0, Number(right && right.bottomGap) || 0);
+        if (leftBottomGap !== rightBottomGap) return leftBottomGap - rightBottomGap;
+        const leftArea = Math.max(0, Number(left && left.area) || 0);
+        const rightArea = Math.max(0, Number(right && right.area) || 0);
+        if (leftArea !== rightArea) return rightArea - leftArea;
+        const leftHeight = Math.max(0, Number(left && left.height) || 0);
+        const rightHeight = Math.max(0, Number(right && right.height) || 0);
+        if (leftHeight !== rightHeight) return rightHeight - leftHeight;
+        const leftTop = Math.max(0, Number(left && left.top) || 0);
+        const rightTop = Math.max(0, Number(right && right.top) || 0);
+        return leftTop - rightTop;
+    }
+
     function collectAssistPinnedBottomElements(limit) {
         try {
             if (!document.body) return [];
             const selected = [];
-            const elements = Array.prototype.slice.call(document.body.querySelectorAll('*')).reverse();
+            const candidates = [];
+            const elements = Array.prototype.slice.call(document.body.querySelectorAll('*'));
             for (let i = 0; i < elements.length; i += 1) {
-                if (selected.length >= limit) break;
                 const element = elements[i];
                 const computed = window.getComputedStyle(element);
                 if (!isAssistPinnedBottomCandidate(element, computed)) continue;
-                if (selected.some(function(existing) { return existing === element || existing.contains(element) || element.contains(existing); })) continue;
-                selected.push(element);
+                candidates.push({
+                    element: element,
+                    metrics: getAssistPinnedBottomCandidateMetrics(element)
+                });
             }
-            return selected.reverse();
+            candidates.sort(function(left, right) {
+                return compareAssistPinnedBottomCandidateMetrics(left.metrics, right.metrics);
+            });
+            candidates.forEach(function(candidate) {
+                pushAssistElementCandidate(selected, candidate.element);
+            });
+            selected.sort(function(left, right) {
+                return compareAssistPinnedBottomCandidateMetrics(
+                    getAssistPinnedBottomCandidateMetrics(left),
+                    getAssistPinnedBottomCandidateMetrics(right)
+                );
+            });
+            if (selected.length > limit) selected.length = limit;
+            return selected.sort(function(left, right) {
+                return (left.getBoundingClientRect().top || 0) - (right.getBoundingClientRect().top || 0);
+            });
         } catch (e) {
             return [];
         }
