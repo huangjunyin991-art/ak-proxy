@@ -8336,6 +8336,8 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
         let remoteAssistPanelLastSnapshot = null;
         let remoteAssistPanelLastHtml = '';
         let remoteAssistPanelLastScroll = null;
+        let remoteAssistPanelApplyingScrollDepth = 0;
+        let remoteAssistPanelRestoreScrollTimer = null;
 
         function clearRemoteAssistReconnectTimer() {
             if (remoteAssistPanelReconnectTimer) {
@@ -8424,10 +8426,76 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
             }
         }
 
+        function clearRemoteAssistScrollRestoreTimer() {
+            if (remoteAssistPanelRestoreScrollTimer) {
+                clearTimeout(remoteAssistPanelRestoreScrollTimer);
+                remoteAssistPanelRestoreScrollTimer = null;
+            }
+        }
+
+        function withRemoteAssistProgrammaticScroll(task) {
+            remoteAssistPanelApplyingScrollDepth += 1;
+            try {
+                return typeof task === 'function' ? task() : undefined;
+            } finally {
+                const release = function() {
+                    remoteAssistPanelApplyingScrollDepth = Math.max(0, remoteAssistPanelApplyingScrollDepth - 1);
+                };
+                if (typeof requestAnimationFrame === 'function') {
+                    requestAnimationFrame(release);
+                } else {
+                    setTimeout(release, 16);
+                }
+            }
+        }
+
+        function isRemoteAssistScrollKey(event) {
+            const key = String(event && event.key || '');
+            return key === 'ArrowUp'
+                || key === 'ArrowDown'
+                || key === 'PageUp'
+                || key === 'PageDown'
+                || key === 'Home'
+                || key === 'End'
+                || key === ' '
+                || key === 'Spacebar';
+        }
+
+        function scheduleRemoteAssistScrollRestore() {
+            if (remoteAssistPanelApplyingScrollDepth > 0 || !remoteAssistPanelLastScroll) return;
+            if (remoteAssistPanelRestoreScrollTimer) return;
+            remoteAssistPanelRestoreScrollTimer = setTimeout(function() {
+                remoteAssistPanelRestoreScrollTimer = null;
+                if (remoteAssistPanelApplyingScrollDepth > 0 || !remoteAssistPanelLastScroll) return;
+                applyRemoteAssistScroll(remoteAssistPanelLastScroll);
+            }, 0);
+        }
+
+        function blockRemoteAssistManualScroll(event) {
+            if (remoteAssistPanelApplyingScrollDepth > 0) return;
+            if (event && event.cancelable) {
+                event.preventDefault();
+            }
+            if (event && event.stopPropagation) {
+                event.stopPropagation();
+            }
+            scheduleRemoteAssistScrollRestore();
+        }
+
         function bindRemoteAssistSnapshotFrame() {
             const frame = document.getElementById('remoteAssistFrame');
             const doc = frame && frame.contentDocument;
-            if (!frame || !doc) return;
+            const win = frame && frame.contentWindow;
+            if (!frame || !doc || !win) return;
+            try {
+                if (doc.documentElement) {
+                    doc.documentElement.style.overscrollBehavior = 'none';
+                }
+                if (doc.body) {
+                    doc.body.style.overscrollBehavior = 'none';
+                }
+            } catch (e) {
+            }
             doc.addEventListener('click', function(event) {
                 event.preventDefault();
                 event.stopPropagation();
@@ -8448,6 +8516,18 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                 flashRemoteAssistSnapshotNode(payload);
                 sendRemoteAssistMessage('click_highlight', payload);
             }, true);
+            doc.addEventListener('wheel', blockRemoteAssistManualScroll, { capture: true, passive: false });
+            doc.addEventListener('touchmove', blockRemoteAssistManualScroll, { capture: true, passive: false });
+            doc.addEventListener('keydown', function(event) {
+                if (!isRemoteAssistScrollKey(event)) return;
+                blockRemoteAssistManualScroll(event);
+            }, true);
+            const handleManualScrollDrift = function() {
+                if (remoteAssistPanelApplyingScrollDepth > 0) return;
+                scheduleRemoteAssistScrollRestore();
+            };
+            doc.addEventListener('scroll', handleManualScrollDrift, true);
+            win.addEventListener('scroll', handleManualScrollDrift, true);
         }
 
         function sanitizeRemoteAssistCssText(cssText) {
@@ -8517,6 +8597,7 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
 
         function applyRemoteAssistScroll(scroll) {
             remoteAssistPanelLastScroll = scroll || null;
+            clearRemoteAssistScrollRestoreTimer();
             try {
                 const frame = document.getElementById('remoteAssistFrame');
                 const win = frame && frame.contentWindow;
@@ -8524,15 +8605,17 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                 const top = Math.max(0, Math.round(scroll && scroll.top || 0));
                 const left = Math.max(0, Math.round(scroll && scroll.left || 0));
                 const mode = String(scroll && scroll.mode || 'window').toLowerCase();
-                if (mode === 'element') {
-                    const target = findRemoteAssistSnapshotNode(scroll);
-                    if (target) {
-                        target.scrollTop = top;
-                        target.scrollLeft = left;
-                        return;
+                withRemoteAssistProgrammaticScroll(function() {
+                    if (mode === 'element') {
+                        const target = findRemoteAssistSnapshotNode(scroll);
+                        if (target) {
+                            target.scrollTop = top;
+                            target.scrollLeft = left;
+                            return;
+                        }
                     }
-                }
-                win.scrollTo(left, top);
+                    win.scrollTo(left, top);
+                });
             } catch (e) {
             }
         }
@@ -8758,6 +8841,8 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
             setRemoteAssistLoading(true, '正在等待用户页面快照');
             remoteAssistPanelLastHtml = '';
             remoteAssistPanelLastScroll = null;
+            remoteAssistPanelApplyingScrollDepth = 0;
+            clearRemoteAssistScrollRestoreTimer();
             panel.classList.add('open');
             overlay.style.display = getMobileLayoutMedia().matches ? 'none' : 'block';
             frame.srcdoc = '<!doctype html><html><body style="font-family:Arial;padding:16px;color:#64748b;">正在等待用户页面快照</body></html>';
@@ -8807,6 +8892,8 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
             remoteAssistPanelLastSnapshot = null;
             remoteAssistPanelLastHtml = '';
             remoteAssistPanelLastScroll = null;
+            remoteAssistPanelApplyingScrollDepth = 0;
+            clearRemoteAssistScrollRestoreTimer();
             clearRemoteAssistReconnectTimer();
             stopRemoteAssistHeartbeat();
             if (remoteAssistPanelWs) {
