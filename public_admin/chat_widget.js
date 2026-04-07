@@ -2245,8 +2245,12 @@
                     console.error('[AKChatAssist] 消息处理错误:', err);
                 }
             };
-            currentAssistWs.onclose = function() {
+            currentAssistWs.onclose = function(event) {
                 if (assistWs !== currentAssistWs) return;
+                if (Number((event && event.code) || 0) === 1008) {
+                    disconnectAssist(wantedSessionId, true);
+                    return;
+                }
                 stopAssistHeartbeat();
                 stopAssistDomObserver();
                 assistWs = null;
@@ -2552,7 +2556,6 @@
         logChatWsDebug('window_blur', {
             hidden: !!document.hidden
         });
-        if (!document.hidden) suspendPresence('blur');
     });
     window.addEventListener('focus', function() {
         logChatWsDebug('window_focus', {
