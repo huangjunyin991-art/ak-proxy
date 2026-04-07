@@ -5313,6 +5313,16 @@ async def pwa_sw_api():
 
                           headers={"Service-Worker-Allowed": "/"})
 
+    return Response(
+
+        content="self.addEventListener('install',function(){if(self.skipWaiting){self.skipWaiting();}});self.addEventListener('activate',function(event){if(event&&event.waitUntil&&self.clients&&self.clients.claim){event.waitUntil(self.clients.claim());}});",
+
+        media_type="application/javascript",
+
+        headers={"Service-Worker-Allowed": "/"},
+
+    )
+
 
 
 @app.get("/admin/api/pwa-manifest")
