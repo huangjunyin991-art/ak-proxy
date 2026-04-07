@@ -8441,13 +8441,32 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
             }, true);
         }
 
+        function sanitizeRemoteAssistCssText(cssText) {
+            return String(cssText || '')
+                .replace(/@import\s+(?:url\()?\s*(['"]?)\s*javascript:[^;]+;?/ig, '')
+                .replace(/@import\s+(?:url\()?\s*(['"]?)\s*(?:vbscript:|data:text\/html|data:text\/javascript)[^;]+;?/ig, '')
+                .replace(/url\(\s*(['"]?)\s*(?:javascript:|vbscript:|data:text\/html|data:text\/javascript)[^)]*\1\s*\)/ig, 'none')
+                .replace(/url\(\s*(['"]?)\s*data:image\/svg\+xml[^)]*\1\s*\)/ig, 'none')
+                .replace(/expression\s*\([^)]*\)/ig, '')
+                .replace(/behavior\s*:[^;]+;?/ig, '')
+                .replace(/-moz-binding\s*:[^;]+;?/ig, '');
+        }
+
         function sanitizeRemoteAssistSrcdocHtml(html) {
             const rawHtml = String(html || '<!doctype html><html><body style="font-family:Arial;padding:16px;color:#64748b;">暂无可渲染快照</body></html>');
             try {
                 const doc = new DOMParser().parseFromString(rawHtml, 'text/html');
                 const root = doc.documentElement || doc.body;
                 if (!root) return rawHtml;
-                doc.querySelectorAll('script,iframe,object,embed').forEach(node => node.remove());
+                doc.querySelectorAll('script,iframe,object,embed,foreignObject').forEach(node => node.remove());
+                doc.querySelectorAll('style').forEach(node => {
+                    const cssText = sanitizeRemoteAssistCssText(node.textContent || '');
+                    if (cssText) {
+                        node.textContent = cssText;
+                    } else {
+                        node.remove();
+                    }
+                });
                 root.querySelectorAll('*').forEach(node => {
                     Array.from(node.attributes || []).forEach(attr => {
                         const name = String(attr.name || '').toLowerCase();
@@ -8457,11 +8476,20 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                             node.removeAttribute(attr.name);
                             return;
                         }
-                        if ((name === 'href' || name === 'src' || name === 'xlink:href' || name === 'formaction') && /^\s*javascript:/i.test(value)) {
+                        if (name === 'style') {
+                            const cssText = sanitizeRemoteAssistCssText(value);
+                            if (cssText) {
+                                node.setAttribute(attr.name, cssText);
+                            } else {
+                                node.removeAttribute(attr.name);
+                            }
+                            return;
+                        }
+                        if ((name === 'href' || name === 'src' || name === 'xlink:href' || name === 'formaction') && /^\s*(?:javascript:|vbscript:|data:text\/html|data:text\/javascript|data:image\/svg\+xml)/i.test(value)) {
                             node.removeAttribute(attr.name);
                             return;
                         }
-                        if (name === 'srcset' && /javascript:/i.test(value)) {
+                        if (name === 'srcset' && /(?:javascript:|vbscript:|data:text\/html|data:text\/javascript|data:image\/svg\+xml)/i.test(value)) {
                             node.removeAttribute(attr.name);
                         }
                     });
@@ -8471,10 +8499,10 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                 return rawHtml
                     .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
                     .replace(/<iframe\b[^<]*(?:(?!<\/iframe>)<[^<]*)*<\/iframe>/gi, '')
-                    .replace(/<(object|embed)\b[^>]*>/gi, '')
+                    .replace(/<(object|embed|foreignObject)\b[^>]*>/gi, '')
                     .replace(/\son[a-z]+\s*=\s*(["']).*?\1/gi, '')
-                    .replace(/\s(?:href|src|xlink:href|formaction)\s*=\s*(["'])\s*javascript:[^"']*\1/gi, '')
-                    .replace(/\ssrcset\s*=\s*(["'])[^"']*javascript:[^"']*\1/gi, '');
+                    .replace(/\s(?:href|src|xlink:href|formaction)\s*=\s*(["'])\s*(?:javascript:|vbscript:|data:text\/html|data:text\/javascript|data:image\/svg\+xml)[^"']*\1/gi, '')
+                    .replace(/\ssrcset\s*=\s*(["'])[^"']*(?:javascript:|vbscript:|data:text\/html|data:text\/javascript|data:image\/svg\+xml)[^"']*\1/gi, '');
             }
         }
 

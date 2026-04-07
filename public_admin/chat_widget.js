@@ -925,9 +925,7 @@
         try {
             return ASSIST_STYLE_PROPS.map(function(prop) {
                 let value = computed.getPropertyValue(prop);
-                if (value && /url\(/i.test(value)) {
-                    value = value.replace(/url\(\s*(['"]?)\s*javascript:[^)]*\1\s*\)/ig, 'none');
-                }
+                value = sanitizeAssistCssText(value);
                 return value ? (prop + ':' + value) : '';
             }).filter(Boolean).join(';');
         } catch (e) {
@@ -1049,6 +1047,14 @@
             Array.prototype.slice.call(clone.querySelectorAll('script,foreignObject')).forEach(function(dangerNode) {
                 dangerNode.remove();
             });
+            Array.prototype.slice.call(clone.querySelectorAll('style')).forEach(function(styleNode) {
+                const cssText = sanitizeAssistCssText(styleNode.textContent || '');
+                if (cssText) {
+                    styleNode.textContent = cssText;
+                } else {
+                    styleNode.remove();
+                }
+            });
             const svgNodes = [clone].concat(Array.prototype.slice.call(clone.querySelectorAll('*')));
             svgNodes.forEach(function(element) {
                 Array.prototype.slice.call(element.attributes || []).forEach(function(attr) {
@@ -1057,6 +1063,15 @@
                     const value = String(attr.value || '');
                     if (lowered.indexOf('on') === 0) {
                         element.removeAttribute(name);
+                        return;
+                    }
+                    if (lowered === 'style') {
+                        const cssText = sanitizeAssistCssText(value);
+                        if (cssText) {
+                            element.setAttribute(name, cssText);
+                        } else {
+                            element.removeAttribute(name);
+                        }
                         return;
                     }
                     if ((lowered === 'href' || lowered === 'xlink:href' || lowered === 'src') && !sanitizeAssistUrl(value)) {
