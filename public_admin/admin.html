@@ -8544,6 +8544,15 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
             }
         }
 
+        function getRemoteAssistWsReadyStateLabel(targetWs) {
+            if (!targetWs) return 'NULL';
+            if (targetWs.readyState === WebSocket.CONNECTING) return 'CONNECTING';
+            if (targetWs.readyState === WebSocket.OPEN) return 'OPEN';
+            if (targetWs.readyState === WebSocket.CLOSING) return 'CLOSING';
+            if (targetWs.readyState === WebSocket.CLOSED) return 'CLOSED';
+            return String(targetWs.readyState);
+        }
+
         function renderRemoteAssistSnapshot(snapshot) {
             remoteAssistPanelLastSnapshot = snapshot || null;
             const frame = document.getElementById('remoteAssistFrame');
@@ -8551,8 +8560,8 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
             const route = String(snapshot && snapshot.route || '').trim();
             const title = String(snapshot && snapshot.title || '').trim();
             const scrollPayload = snapshot && snapshot.scroll ? snapshot.scroll : remoteAssistPanelLastScroll;
-            const metaText = [route || '未知路由', title || '', snapshot && snapshot.truncated ? '快照已裁剪' : ''].filter(Boolean).join(' · ');
-            setRemoteAssistMeta(metaText || '已接收用户页面快照');
+            const metaText = [route || '用户页面', title || '', snapshot && snapshot.truncated ? '已截断' : ''].filter(Boolean).join(' · ');
+            setRemoteAssistMeta(metaText || '用户页面快照');
             setRemoteAssistLoading(false);
             const sanitizedHtml = sanitizeRemoteAssistSrcdocHtml(snapshot && snapshot.html || '<!doctype html><html><body style="font-family:Arial;padding:16px;color:#64748b;">暂无可渲染快照</body></html>');
             logRemoteAssistDebug('render_snapshot', {
@@ -8600,6 +8609,10 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
         function scheduleRemoteAssistReconnect() {
             clearRemoteAssistReconnectTimer();
             if (!remoteAssistPanelSessionId) return;
+            logRemoteAssistDebug('admin_socket_reconnect_scheduled', {
+                session_id: remoteAssistPanelSessionId,
+                delay_ms: 1500
+            });
             remoteAssistPanelReconnectTimer = setTimeout(() => {
                 connectRemoteAssistPanelSocket(remoteAssistPanelSessionId);
             }, 1500);
@@ -8609,13 +8622,24 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
             const wantedSessionId = String(sessionId || '').trim();
             if (!wantedSessionId) return;
             if (remoteAssistPanelWs && (remoteAssistPanelWs.readyState === WebSocket.OPEN || remoteAssistPanelWs.readyState === WebSocket.CONNECTING) && remoteAssistPanelSessionId === wantedSessionId) {
+                logRemoteAssistDebug('admin_socket_connect_skipped_existing', {
+                    session_id: wantedSessionId,
+                    ready_state: getRemoteAssistWsReadyStateLabel(remoteAssistPanelWs)
+                });
                 return;
             }
             clearRemoteAssistReconnectTimer();
+            logRemoteAssistDebug('admin_socket_connect_start', {
+                session_id: wantedSessionId,
+                ws_url: buildRemoteAssistWsUrl(wantedSessionId)
+            });
             const currentWs = new WebSocket(buildRemoteAssistWsUrl(wantedSessionId));
             remoteAssistPanelWs = currentWs;
             currentWs.onopen = function() {
                 if (remoteAssistPanelWs !== currentWs) return;
+                logRemoteAssistDebug('admin_socket_open', {
+                    session_id: wantedSessionId
+                });
                 startRemoteAssistHeartbeat();
                 requestRemoteAssistSnapshot();
             };
@@ -8670,15 +8694,26 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                 } catch (e) {
                 }
             };
-            currentWs.onclose = function() {
+            currentWs.onclose = function(event) {
                 if (remoteAssistPanelWs !== currentWs) return;
+                logRemoteAssistDebug('admin_socket_close', {
+                    session_id: wantedSessionId,
+                    code: Math.max(0, Number((event && event.code) || 0)),
+                    reason: String((event && event.reason) || ''),
+                    was_clean: !!(event && event.wasClean)
+                });
                 stopRemoteAssistHeartbeat();
                 remoteAssistPanelWs = null;
                 setRemoteAssistLoading(true, '协助连接断开，正在重连');
                 setRemoteAssistMeta('协助连接断开，正在重连');
                 scheduleRemoteAssistReconnect();
             };
-            currentWs.onerror = function() {
+            currentWs.onerror = function(err) {
+                logRemoteAssistDebug('admin_socket_error', {
+                    session_id: wantedSessionId,
+                    type: String((err && err.type) || ''),
+                    ready_state: getRemoteAssistWsReadyStateLabel(currentWs)
+                });
             };
         }
 
@@ -8686,6 +8721,9 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
             const activeSessionId = String(sessionId || '').trim();
             if (!activeSessionId) return;
             try {
+                logRemoteAssistDebug('release_remote_assist_session_start', {
+                    session_id: activeSessionId
+                });
                 await fetch(`${API_BASE}/admin/api/remote_assist/close`, {
                     method: 'POST',
                     headers: {
@@ -8694,7 +8732,14 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                     },
                     body: JSON.stringify({ session_id: activeSessionId })
                 });
+                logRemoteAssistDebug('release_remote_assist_session_done', {
+                    session_id: activeSessionId
+                });
             } catch (e) {
+                logRemoteAssistDebug('release_remote_assist_session_error', {
+                    session_id: activeSessionId,
+                    message: String((e && e.message) || e || '')
+                });
             }
         }
 
@@ -8702,6 +8747,9 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
             await closeAkBrowser();
             await closeRemoteAssistPanel();
             remoteAssistPanelUsername = String(username || '').trim();
+            logRemoteAssistDebug('open_remote_assist_start', {
+                username: remoteAssistPanelUsername
+            });
             const panel = document.getElementById('remoteAssistPanel');
             const overlay = document.getElementById('remoteAssistOverlay');
             const frame = document.getElementById('remoteAssistFrame');
@@ -8723,6 +8771,12 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                     body: JSON.stringify({ username: remoteAssistPanelUsername })
                 });
                 const data = await res.json();
+                logRemoteAssistDebug('open_remote_assist_response', {
+                    username: remoteAssistPanelUsername,
+                    success: !!data.success,
+                    session_id: String(data.session_id || ''),
+                    message: String(data.message || '')
+                });
                 if (!data.success) {
                     setRemoteAssistLoading(false);
                     setRemoteAssistMeta(`远程协助失败：${data.message || '未知错误'}`);
@@ -8731,6 +8785,10 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                 remoteAssistPanelSessionId = String(data.session_id || '').trim();
                 connectRemoteAssistPanelSocket(remoteAssistPanelSessionId);
             } catch (e) {
+                logRemoteAssistDebug('open_remote_assist_error', {
+                    username: remoteAssistPanelUsername,
+                    message: String((e && e.message) || e || '')
+                });
                 setRemoteAssistLoading(false);
                 setRemoteAssistMeta(`远程协助失败：${e.message}`);
             }
@@ -8741,6 +8799,10 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
             const overlay = document.getElementById('remoteAssistOverlay');
             const frame = document.getElementById('remoteAssistFrame');
             const closingSessionId = remoteAssistPanelSessionId;
+            logRemoteAssistDebug('close_remote_assist_panel_start', {
+                release_session: !!releaseSession,
+                session_id: closingSessionId
+            });
             remoteAssistPanelSessionId = '';
             remoteAssistPanelLastSnapshot = null;
             remoteAssistPanelLastHtml = '';
