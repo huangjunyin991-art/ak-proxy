@@ -1566,6 +1566,13 @@
         } catch (e) {}
     }
 
+    function createAssistViewportOverlayStage(docHeight) {
+        const overlayStage = document.createElement('div');
+        overlayStage.setAttribute('data-ra-viewport-overlay', '1');
+        overlayStage.setAttribute('style', 'position:absolute;left:0;top:0;right:0;bottom:0;min-height:' + docHeight + 'px;z-index:2147483000;');
+        return overlayStage;
+    }
+
     function buildAssistWindowViewportBodyClone(stats) {
         try {
             if (!document.body) return null;
@@ -1587,10 +1594,12 @@
             stage.setAttribute('data-ra-viewport-stage', '1');
             stage.setAttribute('style', 'position:relative;min-height:' + docHeight + 'px;');
             bodyClone.appendChild(stage);
+            const overlayStage = createAssistViewportOverlayStage(docHeight);
+            bodyClone.appendChild(overlayStage);
             const usedNodeIds = new Set();
             const pinnedElements = collectAssistPinnedViewportElements(ASSIST_PINNED_BOTTOM_LIMIT + 2);
             pinnedElements.forEach(function(element) {
-                appendAssistViewportClone(bodyClone, element, stats, usedNodeIds, true);
+                appendAssistViewportClone(overlayStage, element, stats, usedNodeIds, true);
             });
             viewportRoots.forEach(function(element) {
                 appendAssistViewportClone(stage, element, stats, usedNodeIds, false);
@@ -1627,10 +1636,12 @@
             stage.setAttribute('data-ra-viewport-stage', '1');
             stage.setAttribute('style', 'position:relative;min-height:' + docHeight + 'px;');
             bodyClone.appendChild(stage);
+            const overlayStage = createAssistViewportOverlayStage(docHeight);
+            bodyClone.appendChild(overlayStage);
             const usedNodeIds = new Set();
             const pinnedElements = collectAssistPinnedViewportElements(ASSIST_PINNED_BOTTOM_LIMIT + 2);
             pinnedElements.forEach(function(element) {
-                appendAssistViewportClone(bodyClone, element, stats, usedNodeIds, true);
+                appendAssistViewportClone(overlayStage, element, stats, usedNodeIds, true);
             });
             const outerRoots = collectAssistOuterViewportRootsForElement(target, ASSIST_VIEWPORT_OUTER_ROOT_LIMIT);
             const targetComputed = window.getComputedStyle(target);
