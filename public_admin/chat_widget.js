@@ -879,6 +879,12 @@
     const ASSIST_MAX_HTML_LENGTH = 320000;
     const ASSIST_PINNED_BOTTOM_LIMIT = 2;
     const ASSIST_PINNED_BOTTOM_NODE_BUDGET = 180;
+    const ASSIST_VIEWPORT_SAMPLE_ROWS = 7;
+    const ASSIST_VIEWPORT_SAMPLE_COLS = 3;
+    const ASSIST_VIEWPORT_ROOT_LIMIT = 18;
+    const ASSIST_VIEWPORT_NODE_LIMIT = 1200;
+    const ASSIST_VIEWPORT_SCROLL_HEIGHT_FACTOR = 2.4;
+    const ASSIST_VIEWPORT_SCROLL_SNAPSHOT_DELAY = 220;
 
     function nextAssistNodeId() {
         assistNodeSeq += 1;
@@ -1112,6 +1118,228 @@
         return false;
     }
 
+    function getAssistDocumentScrollHeight() {
+        try {
+            return Math.max(
+                Number((document.documentElement && document.documentElement.scrollHeight) || 0),
+                Number((document.body && document.body.scrollHeight) || 0),
+                Number(window.innerHeight || 0)
+            );
+        } catch (e) {
+            return Math.max(0, Math.round(window.innerHeight || 0));
+        }
+    }
+
+    function pushAssistElementCandidate(list, element) {
+        try {
+            if (!element || !(element instanceof Element)) return;
+            for (let i = 0; i < list.length; i += 1) {
+                const existing = list[i];
+                if (existing === element || (existing.contains && existing.contains(element))) return;
+                if (element.contains && element.contains(existing)) {
+                    list.splice(i, 1);
+                    i -= 1;
+                }
+            }
+            list.push(element);
+        } catch (e) {}
+    }
+
+    function isAssistViewportModeEligible() {
+        try {
+            if (!document.body || assistScrollTarget !== window) return false;
+            const route = normalizeAssistRoute();
+            if (route.indexOf('/admin/ak-web/') !== 0) return false;
+            return getAssistDocumentScrollHeight() >= Math.round(Math.max(1, window.innerHeight || 0) * ASSIST_VIEWPORT_SCROLL_HEIGHT_FACTOR);
+        } catch (e) {
+            return false;
+        }
+    }
+
+    function shouldUseAssistViewportSnapshot(reason) {
+        try {
+            if (isAssistViewportModeEligible()) return true;
+            if (assistScrollTarget !== window) return false;
+            if (!assistLastSnapshotPayload || !assistLastSnapshotPayload.truncated) return false;
+            return String(reason || '').toLowerCase() !== 'snapshot_request';
+        } catch (e) {
+            return false;
+        }
+    }
+
+    function isAssistViewportRectVisible(rect, padding) {
+        const extra = typeof padding === 'number' ? padding : 0;
+        const viewportWidth = Math.max(1, Math.round(window.innerWidth || 0));
+        const viewportHeight = Math.max(1, Math.round(window.innerHeight || 0));
+        if (!rect || rect.width < 8 || rect.height < 8) return false;
+        if (rect.bottom < -extra || rect.top > viewportHeight + extra) return false;
+        if (rect.right < -extra || rect.left > viewportWidth + extra) return false;
+        return true;
+    }
+
+    function pickAssistViewportRoot(target) {
+        try {
+            let candidate = target instanceof Element ? target : null;
+            let current = candidate;
+            const viewportWidth = Math.max(1, Math.round(window.innerWidth || 0));
+            const viewportHeight = Math.max(1, Math.round(window.innerHeight || 0));
+            let depth = 0;
+            while (current && current.parentElement && current.parentElement !== document.body && depth < 6) {
+                const parent = current.parentElement;
+                const computed = window.getComputedStyle(parent);
+                if (shouldSkipAssistElement(parent, computed)) break;
+                const rect = parent.getBoundingClientRect ? parent.getBoundingClientRect() : null;
+                if (!rect || rect.width <= 0 || rect.height <= 0) break;
+                const position = String(computed.position || '').toLowerCase();
+                if (position === 'fixed') {
+                    candidate = parent;
+                    break;
+                }
+                if (rect.width > viewportWidth * 1.08) break;
+                if (rect.height > viewportHeight * 0.92) break;
+                candidate = parent;
+                current = parent;
+                depth += 1;
+            }
+            return candidate;
+        } catch (e) {
+            return target instanceof Element ? target : null;
+        }
+    }
+
+    function isAssistPinnedViewportCandidate(element, computed) {
+        try {
+            if (!element || !(element instanceof Element)) return false;
+            if (element === document.body || element === document.documentElement) return false;
+            if (shouldSkipAssistElement(element, computed)) return false;
+            const position = String(computed && computed.position || '').toLowerCase();
+            if (position !== 'fixed' && position !== 'sticky') return false;
+            const rect = element.getBoundingClientRect ? element.getBoundingClientRect() : null;
+            const viewportWidth = Math.max(1, Math.round(window.innerWidth || 0));
+            if (!isAssistViewportRectVisible(rect, 12)) return false;
+            if (!rect || rect.height < 20 || rect.width < Math.max(80, Math.round(viewportWidth * 0.28))) return false;
+            return true;
+        } catch (e) {
+            return false;
+        }
+    }
+
+    function collectAssistPinnedViewportElements(limit) {
+        try {
+            if (!document.body) return [];
+            const selected = [];
+            const elements = Array.prototype.slice.call(document.body.querySelectorAll('*')).reverse();
+            for (let i = 0; i < elements.length; i += 1) {
+                if (selected.length >= limit) break;
+                const element = elements[i];
+                const computed = window.getComputedStyle(element);
+                if (!isAssistPinnedViewportCandidate(element, computed)) continue;
+                pushAssistElementCandidate(selected, element);
+            }
+            return selected.sort(function(a, b) {
+                return (a.getBoundingClientRect().top || 0) - (b.getBoundingClientRect().top || 0);
+            });
+        } catch (e) {
+            return [];
+        }
+    }
+
+    function collectAssistViewportRoots(limit) {
+        try {
+            const selected = [];
+            const viewportWidth = Math.max(1, Math.round(window.innerWidth || 0));
+            const viewportHeight = Math.max(1, Math.round(window.innerHeight || 0));
+            for (let row = 1; row <= ASSIST_VIEWPORT_SAMPLE_ROWS; row += 1) {
+                const y = Math.max(1, Math.min(viewportHeight - 2, Math.round((viewportHeight * row) / (ASSIST_VIEWPORT_SAMPLE_ROWS + 1))));
+                for (let col = 1; col <= ASSIST_VIEWPORT_SAMPLE_COLS; col += 1) {
+                    const x = Math.max(1, Math.min(viewportWidth - 2, Math.round((viewportWidth * col) / (ASSIST_VIEWPORT_SAMPLE_COLS + 1))));
+                    const target = document.elementFromPoint(x, y);
+                    if (!target || isAssistWidgetTarget(target)) continue;
+                    const root = pickAssistViewportRoot(target);
+                    const rect = root && root.getBoundingClientRect ? root.getBoundingClientRect() : null;
+                    if (!root || !isAssistViewportRectVisible(rect, 18)) continue;
+                    pushAssistElementCandidate(selected, root);
+                    if (selected.length >= limit) {
+                        return selected.sort(function(a, b) {
+                            const aRect = a.getBoundingClientRect();
+                            const bRect = b.getBoundingClientRect();
+                            return (aRect.top || 0) - (bRect.top || 0) || (aRect.left || 0) - (bRect.left || 0);
+                        });
+                    }
+                }
+            }
+            return selected.sort(function(a, b) {
+                const aRect = a.getBoundingClientRect();
+                const bRect = b.getBoundingClientRect();
+                return (aRect.top || 0) - (bRect.top || 0) || (aRect.left || 0) - (bRect.left || 0);
+            });
+        } catch (e) {
+            return [];
+        }
+    }
+
+    function appendAssistViewportClone(container, element, stats, usedNodeIds, preservePosition) {
+        try {
+            if (!container || !element || !(container instanceof Element)) return;
+            const nodeId = ensureAssistNodeId(element);
+            if (nodeId && usedNodeIds && usedNodeIds.has(nodeId)) return;
+            const remaining = Math.max(0, ASSIST_VIEWPORT_NODE_LIMIT - Math.max(0, Number(stats && stats.nodeCount) || 0));
+            if (!remaining) {
+                if (stats) stats.truncated = true;
+                return;
+            }
+            const cloneStats = { nodeCount: 0, truncated: false, maxNodeCount: remaining };
+            const clone = buildAssistClone(element, cloneStats);
+            if (!clone) {
+                if (stats && cloneStats.truncated) stats.truncated = true;
+                return;
+            }
+            if (!preservePosition) {
+                const rect = element.getBoundingClientRect ? element.getBoundingClientRect() : null;
+                const top = Math.max(0, Math.round((window.scrollY || window.pageYOffset || 0) + (rect ? rect.top : 0)));
+                const left = Math.max(0, Math.round((window.scrollX || window.pageXOffset || 0) + (rect ? rect.left : 0)));
+                const width = Math.max(1, Math.round(rect ? rect.width : element.clientWidth || 1));
+                const minHeight = Math.max(1, Math.round(rect ? rect.height : element.clientHeight || 1));
+                clone.setAttribute('style', (clone.getAttribute('style') || '') + ';position:absolute;left:' + left + 'px;top:' + top + 'px;right:auto;bottom:auto;width:' + width + 'px;min-height:' + minHeight + 'px;margin:0;transform:none;');
+            }
+            container.appendChild(clone);
+            if (nodeId && usedNodeIds) usedNodeIds.add(nodeId);
+            if (stats) {
+                stats.nodeCount += cloneStats.nodeCount;
+                if (cloneStats.truncated) stats.truncated = true;
+            }
+        } catch (e) {}
+    }
+
+    function buildAssistViewportBodyClone(stats) {
+        try {
+            if (!document.body) return null;
+            const viewportRoots = collectAssistViewportRoots(ASSIST_VIEWPORT_ROOT_LIMIT);
+            if (!viewportRoots.length) return null;
+            const bodyComputed = window.getComputedStyle(document.body);
+            const bodyClone = document.createElement('div');
+            const docHeight = Math.max(Math.round(getAssistDocumentScrollHeight()), Math.round(window.innerHeight || 0));
+            decorateAssistClone(document.body, bodyClone, 'body', bodyComputed);
+            bodyClone.setAttribute('style', (bodyClone.getAttribute('style') || '') + ';position:relative;min-height:' + docHeight + 'px;');
+            const stage = document.createElement('div');
+            stage.setAttribute('data-ra-viewport-stage', '1');
+            stage.setAttribute('style', 'position:relative;min-height:' + docHeight + 'px;');
+            bodyClone.appendChild(stage);
+            const usedNodeIds = new Set();
+            const pinnedElements = collectAssistPinnedViewportElements(ASSIST_PINNED_BOTTOM_LIMIT + 2);
+            pinnedElements.forEach(function(element) {
+                appendAssistViewportClone(bodyClone, element, stats, usedNodeIds, true);
+            });
+            viewportRoots.forEach(function(element) {
+                appendAssistViewportClone(stage, element, stats, usedNodeIds, false);
+            });
+            if (!stage.childNodes.length) return null;
+            return bodyClone;
+        } catch (e) {
+            return null;
+        }
+    }
+
     function isAssistPinnedBottomCandidate(element, computed) {
         try {
             if (!element || !(element instanceof Element)) return false;
@@ -1156,14 +1384,12 @@
             pinnedElements.forEach(function(element) {
                 const nodeId = ensureAssistNodeId(element);
                 if (nodeId && container.querySelector(`[data-ra-node-id="${String(nodeId).replace(/"/g, '\\"')}"]`)) return;
-                const seededCount = Math.max(0, ASSIST_MAX_NODE_COUNT - ASSIST_PINNED_BOTTOM_NODE_BUDGET);
-                const pinnedStats = { nodeCount: seededCount, truncated: false };
+                const pinnedStats = { nodeCount: 0, truncated: false, maxNodeCount: ASSIST_PINNED_BOTTOM_NODE_BUDGET };
                 const pinnedClone = buildAssistClone(element, pinnedStats);
                 if (!pinnedClone) return;
                 container.appendChild(pinnedClone);
                 if (stats) {
-                    const usedCount = Math.max(0, pinnedStats.nodeCount - seededCount);
-                    stats.nodeCount += usedCount;
+                    stats.nodeCount += pinnedStats.nodeCount;
                     if (pinnedStats.truncated) stats.truncated = true;
                 }
             });
@@ -1208,7 +1434,8 @@
     }
 
     function buildAssistClone(node, stats) {
-        if (!node || stats.nodeCount >= ASSIST_MAX_NODE_COUNT) {
+        const maxNodeCount = Math.max(1, Number(stats && stats.maxNodeCount) || ASSIST_MAX_NODE_COUNT);
+        if (!node || stats.nodeCount >= maxNodeCount) {
             stats.truncated = true;
             return null;
         }
@@ -1256,14 +1483,14 @@
             for (let i = 0; i < node.childNodes.length; i += 1) {
                 const child = buildAssistClone(node.childNodes[i], stats);
                 if (child) clone.appendChild(child);
-                if (stats.nodeCount >= ASSIST_MAX_NODE_COUNT) break;
+                if (stats.nodeCount >= maxNodeCount) break;
             }
         }
         stats.nodeCount += 1;
         return clone;
     }
 
-    function buildAssistSnapshotPayload() {
+    function buildAssistSnapshotPayload(reason) {
         try {
             const rawRoute = window.location.pathname + window.location.search + window.location.hash;
             const route = normalizeAssistRoute();
@@ -1287,10 +1514,19 @@
             }
             if (!document.body) return null;
             assistNodeElementMap = new Map();
-            const stats = { nodeCount: 0, truncated: false };
-            const bodyClone = buildAssistClone(document.body, stats);
+            const useViewportMode = shouldUseAssistViewportSnapshot(reason);
+            const stats = { nodeCount: 0, truncated: false, maxNodeCount: useViewportMode ? ASSIST_VIEWPORT_NODE_LIMIT : ASSIST_MAX_NODE_COUNT };
+            let bodyClone = useViewportMode ? buildAssistViewportBodyClone(stats) : buildAssistClone(document.body, stats);
+            if (!bodyClone && useViewportMode) {
+                stats.nodeCount = 0;
+                stats.truncated = false;
+                stats.maxNodeCount = ASSIST_MAX_NODE_COUNT;
+                bodyClone = buildAssistClone(document.body, stats);
+            }
             if (!bodyClone) return null;
-            prependAssistPinnedBottomClones(bodyClone, stats);
+            if (!useViewportMode) {
+                prependAssistPinnedBottomClones(bodyClone, stats);
+            }
             const headMarkup = buildAssistHeadMarkup();
             const bodyAttrs = buildAssistBodyAttrs();
             const wrapper = document.createElement('div');
@@ -1407,7 +1643,7 @@
             && (now - assistLastSnapshotSentAt) < 1200) {
             return false;
         }
-        const payload = buildAssistSnapshotPayload();
+        const payload = buildAssistSnapshotPayload(reason);
         if (!payload) return false;
         if (assistLastSnapshotPayload
             && assistLastSnapshotPayload.route === payload.route
@@ -1809,6 +2045,9 @@
         if (normalizeAssistRoute().indexOf('/admin/ak-web/') !== 0) return;
         rememberAssistScrollTarget(window);
         scheduleAssistScroll(120);
+        if (shouldUseAssistViewportSnapshot('scroll_viewport')) {
+            scheduleAssistSnapshot(ASSIST_VIEWPORT_SCROLL_SNAPSHOT_DELAY, 'scroll_viewport');
+        }
     }, { passive: true });
     document.addEventListener('scroll', function(event) {
         if (!assistWs || assistWs.readyState !== WebSocket.OPEN || !assistSessionId) return;
@@ -1817,6 +2056,9 @@
         if (isAssistWidgetTarget(target)) return;
         rememberAssistScrollTarget(target);
         scheduleAssistScroll(120);
+        if (shouldUseAssistViewportSnapshot('scroll_viewport')) {
+            scheduleAssistSnapshot(ASSIST_VIEWPORT_SCROLL_SNAPSHOT_DELAY, 'scroll_viewport');
+        }
     }, true);
     document.addEventListener('click', function(event) {
         if (!assistWs || assistWs.readyState !== WebSocket.OPEN || !assistSessionId) return;
