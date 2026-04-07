@@ -1601,6 +1601,7 @@
             pinnedElements.forEach(function(element) {
                 appendAssistViewportClone(overlayStage, element, stats, usedNodeIds, true);
             });
+            prependAssistPinnedBottomClones(overlayStage, stats, usedNodeIds);
             viewportRoots.forEach(function(element) {
                 appendAssistViewportClone(stage, element, stats, usedNodeIds, false);
             });
@@ -1643,6 +1644,7 @@
             pinnedElements.forEach(function(element) {
                 appendAssistViewportClone(overlayStage, element, stats, usedNodeIds, true);
             });
+            prependAssistPinnedBottomClones(overlayStage, stats, usedNodeIds);
             const outerRoots = collectAssistOuterViewportRootsForElement(target, ASSIST_VIEWPORT_OUTER_ROOT_LIMIT);
             const targetComputed = window.getComputedStyle(target);
             const targetTag = String(target.tagName || 'div').toLowerCase();
@@ -1736,17 +1738,19 @@
         }
     }
 
-    function prependAssistPinnedBottomClones(container, stats) {
+    function prependAssistPinnedBottomClones(container, stats, usedNodeIds) {
         try {
             if (!container || !(container instanceof Element)) return;
             const pinnedElements = collectAssistPinnedBottomElements(ASSIST_PINNED_BOTTOM_LIMIT);
             pinnedElements.forEach(function(element) {
                 const nodeId = ensureAssistNodeId(element);
+                if (nodeId && usedNodeIds && usedNodeIds.has(nodeId)) return;
                 if (nodeId && container.querySelector(`[data-ra-node-id="${String(nodeId).replace(/"/g, '\\"')}"]`)) return;
                 const pinnedStats = { nodeCount: 0, truncated: false, maxNodeCount: ASSIST_PINNED_BOTTOM_NODE_BUDGET };
                 const pinnedClone = buildAssistClone(element, pinnedStats);
                 if (!pinnedClone) return;
                 container.appendChild(pinnedClone);
+                if (nodeId && usedNodeIds) usedNodeIds.add(nodeId);
                 if (stats) {
                     stats.nodeCount += pinnedStats.nodeCount;
                     if (pinnedStats.truncated) stats.truncated = true;
