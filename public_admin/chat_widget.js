@@ -1339,13 +1339,26 @@
             const selected = [];
             const elements = Array.prototype.slice.call(document.body.querySelectorAll('*')).reverse();
             for (let i = 0; i < elements.length; i += 1) {
-                if (selected.length >= limit) break;
                 const element = elements[i];
                 const computed = window.getComputedStyle(element);
                 if (!isAssistPinnedViewportCandidate(element, computed)) continue;
                 pushAssistElementCandidate(selected, element);
             }
-            return selected.sort(function(a, b) {
+            selected.sort(function(a, b) {
+                return (a.getBoundingClientRect().top || 0) - (b.getBoundingClientRect().top || 0);
+            });
+            if (selected.length <= limit) return selected;
+            const prioritized = [];
+            let start = 0;
+            let end = selected.length - 1;
+            while (start <= end && prioritized.length < limit) {
+                pushAssistElementCandidate(prioritized, selected[end]);
+                end -= 1;
+                if (prioritized.length >= limit || start > end) break;
+                pushAssistElementCandidate(prioritized, selected[start]);
+                start += 1;
+            }
+            return prioritized.sort(function(a, b) {
                 return (a.getBoundingClientRect().top || 0) - (b.getBoundingClientRect().top || 0);
             });
         } catch (e) {
@@ -1387,18 +1400,69 @@
         }
     }
 
+    function collectAssistContextViewportRootsForElement(container, limit) {
+        try {
+            if (!container || !(container instanceof Element)) return [];
+            const selected = [];
+            const viewportWidth = Math.max(1, Math.round(window.innerWidth || 0));
+            const viewportHeight = Math.max(1, Math.round(window.innerHeight || 0));
+            let branch = container;
+            let parent = container.parentElement;
+            let depth = 0;
+            while (parent && parent !== document.body && selected.length < limit && depth < 6) {
+                const siblings = Array.prototype.slice.call(parent.children || []);
+                for (let i = 0; i < siblings.length; i += 1) {
+                    if (selected.length >= limit) break;
+                    const sibling = siblings[i];
+                    if (!sibling || sibling === branch || isAssistWidgetTarget(sibling)) continue;
+                    const computed = window.getComputedStyle(sibling);
+                    if (shouldSkipAssistElement(sibling, computed)) continue;
+                    const rect = sibling.getBoundingClientRect ? sibling.getBoundingClientRect() : null;
+                    if (!isAssistViewportRectVisible(rect, 32)) continue;
+                    const root = pickAssistViewportRoot(sibling, parent, viewportWidth, viewportHeight) || sibling;
+                    const rootRect = root && root.getBoundingClientRect ? root.getBoundingClientRect() : null;
+                    if (!root || !isAssistViewportRectVisible(rootRect, 32)) continue;
+                    pushAssistElementCandidate(selected, root);
+                }
+                branch = parent;
+                parent = parent.parentElement;
+                depth += 1;
+            }
+            return selected.sort(function(a, b) {
+                const aRect = a.getBoundingClientRect();
+                const bRect = b.getBoundingClientRect();
+                return (aRect.top || 0) - (bRect.top || 0) || (aRect.left || 0) - (bRect.left || 0);
+            });
+        } catch (e) {
+            return [];
+        }
+    }
+
     function collectAssistOuterViewportRootsForElement(container, limit) {
         try {
             if (!container || !(container instanceof Element)) return [];
             const selected = [];
-            const roots = collectAssistViewportRoots(Math.max(limit * 3, limit));
-            roots.forEach(function(element) {
+            const contextRoots = collectAssistContextViewportRootsForElement(container, Math.max(limit, 2));
+            contextRoots.forEach(function(element) {
                 if (selected.length >= limit) return;
                 if (!element || element === container) return;
                 if (container.contains(element) || element.contains(container)) return;
                 pushAssistElementCandidate(selected, element);
             });
-            return selected;
+            if (selected.length < limit) {
+                const roots = collectAssistViewportRoots(Math.max(limit * 3, limit));
+                roots.forEach(function(element) {
+                    if (selected.length >= limit) return;
+                    if (!element || element === container) return;
+                    if (container.contains(element) || element.contains(container)) return;
+                    pushAssistElementCandidate(selected, element);
+                });
+            }
+            return selected.sort(function(a, b) {
+                const aRect = a.getBoundingClientRect();
+                const bRect = b.getBoundingClientRect();
+                return (aRect.top || 0) - (bRect.top || 0) || (aRect.left || 0) - (bRect.left || 0);
+            });
         } catch (e) {
             return [];
         }
