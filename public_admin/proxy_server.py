@@ -3735,7 +3735,6 @@ async def license_statistics(request: Request):
     return await proxy_license_request('GET', '/admin/statistics')
 
 
-
 @app.get("/admin/api/license/list")
 
 async def license_list(request: Request, limit: int = 50, offset: int = 0):
@@ -4790,6 +4789,90 @@ async def admin_websocket(websocket: WebSocket):
 
 
 
+_REMOTE_ASSIST_AUTO_UNBIND_DELAY_SECONDS = 5
+
+_remote_assist_unbind_tasks: dict[str, asyncio.Task] = {}
+
+def _assist_session_has_connected_admin(session) -> bool:
+
+    return bool(
+        session
+        and session.site_type == 'ak_web'
+        and any(
+            participant.role == AssistRole.ADMIN and participant.connected
+            for participant in session.participants.values()
+        )
+    )
+
+
+def _cancel_remote_assist_auto_unbind(session_id: str) -> None:
+
+    task = _remote_assist_unbind_tasks.pop((session_id or '').strip(), None)
+
+    if task:
+
+        task.cancel()
+
+
+def _schedule_remote_assist_auto_unbind(session) -> None:
+
+    if not session or session.site_type != 'ak_web':
+
+        return
+
+    session_id = (session.session_id or '').strip()
+
+    if not session_id:
+
+        return
+
+    _cancel_remote_assist_auto_unbind(session_id)
+
+    target_username = (session.target_username or '').strip()
+
+    async def _unbind_later():
+
+        try:
+
+            await asyncio.sleep(_REMOTE_ASSIST_AUTO_UNBIND_DELAY_SECONDS)
+
+            current_session = remote_assist.get_session(session_id)
+
+            if not current_session or _assist_session_has_connected_admin(current_session):
+
+                return
+
+            await online_manager.send_payload_to_user(target_username, {
+
+                'type': 'remote_assist_unbind',
+
+                'session_id': session_id,
+
+                'site': current_session.site_type,
+
+            })
+
+            remote_assist.close_session(session_id)
+
+            logger.warning(
+                f"[RemoteAssistWS] auto unbind closed session={session_id} user={target_username or '-'}"
+            )
+
+        except asyncio.CancelledError:
+
+            return
+
+        finally:
+
+            current_task = asyncio.current_task()
+
+            if _remote_assist_unbind_tasks.get(session_id) is current_task:
+
+                _remote_assist_unbind_tasks.pop(session_id, None)
+
+    _remote_assist_unbind_tasks[session_id] = asyncio.create_task(_unbind_later())
+
+
 @app.websocket("/admin/assist/ws")
 async def remote_assist_websocket(websocket: WebSocket):
 
@@ -4828,6 +4911,9 @@ async def remote_assist_websocket(websocket: WebSocket):
         )
         await websocket.close(code=1008)
         return
+
+    if role == AssistRole.ADMIN:
+        _cancel_remote_assist_auto_unbind(session.session_id)
 
     try:
         logger.warning(
@@ -4972,6 +5058,14 @@ async def remote_assist_websocket(websocket: WebSocket):
         )
         await remote_assist.disconnect_websocket(session_id, participant_id, connection_id)
 
+        if role == AssistRole.ADMIN:
+
+            current_session = remote_assist.get_session(session_id)
+
+            if current_session and not _assist_session_has_connected_admin(current_session):
+
+                _schedule_remote_assist_auto_unbind(current_session)
+
 
 
 @app.websocket("/chat/ws")
@@ -5005,14 +5099,7 @@ async def chat_websocket(websocket: WebSocket):
 
                     assist_session = remote_assist.find_session_by_target_username(username)
 
-                    has_connected_admin = bool(
-                        assist_session
-                        and assist_session.site_type == 'ak_web'
-                        and any(
-                            participant.role == AssistRole.ADMIN and participant.connected
-                            for participant in assist_session.participants.values()
-                        )
-                    )
+                    has_connected_admin = _assist_session_has_connected_admin(assist_session)
 
                     if has_connected_admin:
 
@@ -6069,6 +6156,7 @@ async def admin_remote_assist_close(request: Request):
         return JSONResponse({"success": False, "message": "协助会话不存在"}, status_code=404)
     if role != ROLE_SUPER_ADMIN and session.admin_username != (admin_name or role):
         return JSONResponse({"success": False, "message": "无权关闭该协助会话"}, status_code=403)
+    _cancel_remote_assist_auto_unbind(session.session_id)
     await online_manager.send_payload_to_user(session.target_username, {
         'type': 'remote_assist_unbind',
         'session_id': session.session_id,
