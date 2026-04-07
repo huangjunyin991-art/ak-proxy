@@ -1626,6 +1626,9 @@
                 const minHeight = Math.max(1, Math.round(rect ? rect.height : element.clientHeight || 1));
                 clone.setAttribute('style', (clone.getAttribute('style') || '') + ';position:absolute;left:' + left + 'px;top:' + top + 'px;right:auto;bottom:auto;width:' + width + 'px;min-height:' + minHeight + 'px;margin:0;transform:none;');
             }
+            if (container.getAttribute && container.getAttribute('data-ra-viewport-overlay') === '1') {
+                clone.setAttribute('style', (clone.getAttribute('style') || '') + ';pointer-events:auto;');
+            }
             container.appendChild(clone);
             if (nodeId && usedNodeIds) usedNodeIds.add(nodeId);
             if (stats) {
@@ -1638,7 +1641,7 @@
     function createAssistViewportOverlayStage(docHeight) {
         const overlayStage = document.createElement('div');
         overlayStage.setAttribute('data-ra-viewport-overlay', '1');
-        overlayStage.setAttribute('style', 'position:absolute;left:0;top:0;right:0;bottom:0;min-height:' + docHeight + 'px;z-index:2147483000;');
+        overlayStage.setAttribute('style', 'position:absolute;left:0;top:0;right:0;bottom:0;min-height:' + docHeight + 'px;z-index:2147483000;pointer-events:none;');
         return overlayStage;
     }
 
@@ -1934,6 +1937,9 @@
                 const pinnedStats = { nodeCount: 0, truncated: false, maxNodeCount: ASSIST_PINNED_BOTTOM_NODE_BUDGET };
                 const pinnedClone = buildAssistClone(element, pinnedStats);
                 if (!pinnedClone) return;
+                if (container.getAttribute && container.getAttribute('data-ra-viewport-overlay') === '1') {
+                    pinnedClone.setAttribute('style', (pinnedClone.getAttribute('style') || '') + ';pointer-events:auto;');
+                }
                 container.appendChild(pinnedClone);
                 const debugEntry = buildAssistPinnedBottomDebugEntry(element);
                 if (debugEntry) appendedEntries.push(debugEntry);
