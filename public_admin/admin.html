@@ -8342,11 +8342,14 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
         let remoteAssistPanelConsentStatus = 'waiting';
         let remoteAssistPanelPendingRoute = '';
         let remoteAssistPanelWaitingForRouteSnapshot = false;
+        let remoteAssistPanelPendingRouteRequestKey = '';
+        let remoteAssistPanelPendingRouteRequestAt = 0;
         let remoteAssistPanelRenderSeq = 0;
         let remoteAssistPanelLoadedRenderSeq = 0;
         let remoteAssistPanelFrameBindingCleanup = null;
         const REMOTE_ASSIST_PREPARE_LOG_THRESHOLD_MS = 80;
         const REMOTE_ASSIST_RENDER_LOG_THRESHOLD_MS = 200;
+        const REMOTE_ASSIST_PENDING_ROUTE_REQUEST_RETRY_MS = 1000;
 
         function clearRemoteAssistReconnectTimer() {
             if (remoteAssistPanelReconnectTimer) {
@@ -8482,9 +8485,30 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
             return String(scroll && scroll.route || '').trim();
         }
 
+        function resetRemoteAssistPendingSnapshotRequest() {
+            remoteAssistPanelPendingRouteRequestKey = '';
+            remoteAssistPanelPendingRouteRequestAt = 0;
+        }
+
+        function hasRecentRemoteAssistPendingSnapshotRequest(route = '') {
+            const normalizedRoute = String(route || '').trim();
+            return !!normalizedRoute
+                && remoteAssistPanelPendingRouteRequestKey === normalizedRoute
+                && (Date.now() - remoteAssistPanelPendingRouteRequestAt) < REMOTE_ASSIST_PENDING_ROUTE_REQUEST_RETRY_MS;
+        }
+
         function setRemoteAssistPendingRoute(route) {
-            remoteAssistPanelPendingRoute = String(route || '').trim();
+            const normalizedRoute = String(route || '').trim();
+            const shouldLogWaitStart = !remoteAssistPanelWaitingForRouteSnapshot || remoteAssistPanelPendingRoute !== normalizedRoute;
+            remoteAssistPanelPendingRoute = normalizedRoute;
             remoteAssistPanelWaitingForRouteSnapshot = true;
+            resetRemoteAssistPendingSnapshotRequest();
+            if (shouldLogWaitStart) {
+                logRemoteAssistDebug('route_wait_started', {
+                    route: normalizedRoute,
+                    current_route: getRemoteAssistSnapshotRoute(remoteAssistPanelLastSnapshot)
+                });
+            }
         }
 
         function clearRemoteAssistPendingRoute(route = '') {
@@ -8494,6 +8518,7 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                 clearRemoteAssistRouteSnapshotTimer();
                 remoteAssistPanelPendingRoute = '';
                 remoteAssistPanelWaitingForRouteSnapshot = false;
+                resetRemoteAssistPendingSnapshotRequest();
             }
         }
 
@@ -8509,7 +8534,15 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                 if (wantedRoute && remoteAssistPanelPendingRoute && wantedRoute !== remoteAssistPanelPendingRoute) {
                     return;
                 }
+                const requestRoute = wantedRoute || remoteAssistPanelPendingRoute;
+                if (hasRecentRemoteAssistPendingSnapshotRequest(requestRoute)) {
+                    return;
+                }
                 const sent = sendRemoteAssistMessage('snapshot_request', { reason: 'route_changed' });
+                if (sent) {
+                    remoteAssistPanelPendingRouteRequestKey = requestRoute;
+                    remoteAssistPanelPendingRouteRequestAt = Date.now();
+                }
                 if (!sent) {
                     logRemoteAssistDebug('route_snapshot_request_failed', {
                         route: wantedRoute,
@@ -8528,13 +8561,15 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
             if (!remoteAssistPanelWaitingForRouteSnapshot || !remoteAssistPanelSessionId) return;
             if (normalizedRoute && remoteAssistPanelPendingRoute && normalizedRoute !== remoteAssistPanelPendingRoute) return;
             if (remoteAssistPanelRouteSnapshotTimer) return;
+            const requestRoute = normalizedRoute || remoteAssistPanelPendingRoute;
+            if (hasRecentRemoteAssistPendingSnapshotRequest(requestRoute)) return;
             logRemoteAssistDebug('pending_snapshot_nudge', {
-                route: normalizedRoute || remoteAssistPanelPendingRoute,
+                route: requestRoute,
                 pending_route: remoteAssistPanelPendingRoute,
                 source: String(source || ''),
                 waiting: !!remoteAssistPanelWaitingForRouteSnapshot
             });
-            scheduleRemoteAssistRouteSnapshotRequest(normalizedRoute || remoteAssistPanelPendingRoute);
+            scheduleRemoteAssistRouteSnapshotRequest(requestRoute);
         }
 
         function resolveRemoteAssistSnapshotScroll(snapshot) {
@@ -8883,6 +8918,17 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                 });
                 return;
             }
+            if (remoteAssistPanelWaitingForRouteSnapshot || previousRenderedRoute !== route) {
+                logRemoteAssistDebug('snapshot_render_received', {
+                    route,
+                    previous_route: previousRenderedRoute,
+                    pending_route: remoteAssistPanelPendingRoute,
+                    waiting: !!remoteAssistPanelWaitingForRouteSnapshot,
+                    html_length: String(snapshot && snapshot.html || '').length,
+                    truncated: !!(snapshot && snapshot.truncated),
+                    node_count: Number(snapshot && snapshot.node_count || 0)
+                });
+            }
             clearRemoteAssistPendingRoute(route);
             const title = String(snapshot && snapshot.title || '').trim();
             const scrollPayload = resolveRemoteAssistSnapshotScroll(snapshot);
@@ -9019,6 +9065,7 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                             clearRemoteAssistRouteSnapshotTimer();
                             remoteAssistPanelPendingRoute = '';
                             remoteAssistPanelWaitingForRouteSnapshot = false;
+                            resetRemoteAssistPendingSnapshotRequest();
                             setRemoteAssistLoading(false);
                             setRemoteAssistMeta('用户已拒绝远程指导');
                             remoteAssistPanelLastSnapshot = null;
@@ -9031,6 +9078,7 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                             clearRemoteAssistRouteSnapshotTimer();
                             remoteAssistPanelPendingRoute = '';
                             remoteAssistPanelWaitingForRouteSnapshot = false;
+                            resetRemoteAssistPendingSnapshotRequest();
                             setRemoteAssistMeta('等待用户确认远程指导');
                             setRemoteAssistLoading(true, '正在等待用户确认远程指导');
                             remoteAssistPanelLastSnapshot = null;
@@ -9135,6 +9183,7 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
             remoteAssistPanelConsentStatus = 'waiting';
             remoteAssistPanelPendingRoute = '';
             remoteAssistPanelWaitingForRouteSnapshot = false;
+            resetRemoteAssistPendingSnapshotRequest();
             clearRemoteAssistScrollRestoreTimer();
             clearRemoteAssistRouteSnapshotTimer();
             panel.classList.add('open');
@@ -9180,6 +9229,7 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
             remoteAssistPanelConsentStatus = 'waiting';
             remoteAssistPanelPendingRoute = '';
             remoteAssistPanelWaitingForRouteSnapshot = false;
+            resetRemoteAssistPendingSnapshotRequest();
             clearRemoteAssistScrollRestoreTimer();
             clearRemoteAssistRouteSnapshotTimer();
             clearRemoteAssistReconnectTimer();
