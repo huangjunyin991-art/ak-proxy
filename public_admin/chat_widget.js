@@ -1143,6 +1143,44 @@
             : (className ? (tagName + '.' + className.split(/\s+/).slice(0, 2).join('.')) : tagName);
     }
 
+    function describeAssistTarget(target) {
+        try {
+            if (!target || target === window) {
+                return {
+                    kind: 'window',
+                    scrollTop: Math.max(0, Math.round(window.scrollY || window.pageYOffset || 0)),
+                    scrollLeft: Math.max(0, Math.round(window.scrollX || window.pageXOffset || 0)),
+                    viewportHeight: Math.max(0, Math.round(window.innerHeight || 0)),
+                    viewportWidth: Math.max(0, Math.round(window.innerWidth || 0)),
+                    scrollHeight: Math.max(0, Math.round(getAssistDocumentScrollHeight()))
+                };
+            }
+            if (target === document) {
+                return { kind: 'document' };
+            }
+            if (!(target instanceof Element)) {
+                return { kind: typeof target };
+            }
+            const tagName = String(target.tagName || 'div').toLowerCase();
+            return {
+                kind: 'element',
+                tag: tagName,
+                id: String(target.id || ''),
+                className: String(target.className || '').trim().slice(0, 120),
+                nodeId: ensureAssistNodeId(target),
+                selector: buildAssistSelectorHint(target, tagName),
+                scrollTop: Math.max(0, Math.round(target.scrollTop || 0)),
+                scrollLeft: Math.max(0, Math.round(target.scrollLeft || 0)),
+                clientHeight: Math.max(0, Math.round(target.clientHeight || 0)),
+                clientWidth: Math.max(0, Math.round(target.clientWidth || 0)),
+                scrollHeight: Math.max(0, Math.round(target.scrollHeight || 0)),
+                scrollWidth: Math.max(0, Math.round(target.scrollWidth || 0))
+            };
+        } catch (e) {
+            return { kind: 'error', message: String((e && e.message) || e || '') };
+        }
+    }
+
     function decorateAssistClone(node, clone, tagName, computed) {
         const nodeId = ensureAssistNodeId(node);
         if (nodeId) clone.setAttribute('data-ra-node-id', nodeId);
@@ -2146,7 +2184,21 @@
             assistNodeElementMap = new Map();
             const useViewportMode = shouldUseAssistViewportSnapshot(reason);
             const stats = { nodeCount: 0, truncated: false, maxNodeCount: useViewportMode ? ASSIST_VIEWPORT_NODE_LIMIT : ASSIST_MAX_NODE_COUNT };
-            const viewportTarget = useViewportMode ? getAssistActiveViewportTarget() : assistScrollTarget;
+            const viewportMetrics = useViewportMode ? getAssistActiveViewportMetrics() : null;
+            const viewportTarget = useViewportMode && viewportMetrics ? viewportMetrics.target : assistScrollTarget;
+            logAssistDebug('snapshot_target_selected', {
+                reason: String(reason || ''),
+                route: String(route || ''),
+                useViewportMode: !!useViewportMode,
+                rememberedScrollTarget: describeAssistTarget(assistScrollTarget),
+                viewportTarget: describeAssistTarget(viewportTarget),
+                viewportMetrics: viewportMetrics ? {
+                    mode: String(viewportMetrics.mode || ''),
+                    viewportHeight: Number(viewportMetrics.viewportHeight || 0),
+                    viewportWidth: Number(viewportMetrics.viewportWidth || 0),
+                    scrollHeight: Number(viewportMetrics.scrollHeight || 0)
+                } : null
+            });
             let bodyClone = useViewportMode ? buildAssistViewportBodyClone(stats, viewportTarget) : buildAssistClone(document.body, stats);
             if (!bodyClone && useViewportMode) {
                 stats.nodeCount = 0;
@@ -2193,13 +2245,30 @@
 
     function rememberAssistScrollTarget(target) {
         try {
+            const previousTarget = assistScrollTarget;
             if (!target || target === window || target === document || target === document.body || target === document.documentElement) {
                 assistScrollTarget = window;
+                logAssistDebug('scroll_target_remembered', {
+                    inputTarget: describeAssistTarget(target),
+                    previousTarget: describeAssistTarget(previousTarget),
+                    nextTarget: describeAssistTarget(assistScrollTarget),
+                    changed: previousTarget !== assistScrollTarget
+                });
                 return;
             }
             assistScrollTarget = target instanceof Element ? target : window;
+            logAssistDebug('scroll_target_remembered', {
+                inputTarget: describeAssistTarget(target),
+                previousTarget: describeAssistTarget(previousTarget),
+                nextTarget: describeAssistTarget(assistScrollTarget),
+                changed: previousTarget !== assistScrollTarget
+            });
         } catch (e) {
             assistScrollTarget = window;
+            logAssistDebug('scroll_target_remembered_error', {
+                message: String((e && e.message) || e || ''),
+                nextTarget: describeAssistTarget(assistScrollTarget)
+            });
         }
     }
 
@@ -2212,8 +2281,8 @@
             route: normalizeAssistRoute(),
             mode: 'window'
         };
+        let activeTarget = target || assistScrollTarget || window;
         try {
-            const activeTarget = target || assistScrollTarget || window;
             if (activeTarget && activeTarget !== window && activeTarget instanceof Element) {
                 const tagName = String(activeTarget.tagName || 'div').toLowerCase();
                 payload.top = Math.max(0, Math.round(activeTarget.scrollTop || 0));
@@ -2225,6 +2294,16 @@
                 payload.selector_hint = buildAssistSelectorHint(activeTarget, tagName);
             }
         } catch (e) {}
+        logAssistDebug('scroll_payload_built', {
+            payloadMode: String(payload.mode || 'window'),
+            payloadRoute: String(payload.route || ''),
+            top: Number(payload.top || 0),
+            left: Number(payload.left || 0),
+            nodeId: String(payload.node_id || ''),
+            selectorHint: String(payload.selector_hint || ''),
+            activeTarget: describeAssistTarget(activeTarget),
+            rememberedTarget: describeAssistTarget(assistScrollTarget)
+        });
         return payload;
     }
 
@@ -2758,6 +2837,10 @@
             sendPresence('online');
         }
         if (assistWs && assistWs.readyState === WebSocket.OPEN) {
+            logAssistDebug('route_change_observed', {
+                nextRoute: normalizeAssistRoute(),
+                previousRememberedTarget: describeAssistTarget(assistScrollTarget)
+            });
             assistScrollTarget = window;
             emitAssistRoute();
             scheduleAssistSnapshot(80, 'route_change');
@@ -2774,6 +2857,10 @@
     window.addEventListener('scroll', function() {
         if (!assistWs || assistWs.readyState !== WebSocket.OPEN || !assistSessionId) return;
         if (normalizeAssistRoute().indexOf('/admin/ak-web/') !== 0) return;
+        logAssistDebug('scroll_event_window', {
+            eventTarget: describeAssistTarget(window),
+            rememberedTarget: describeAssistTarget(assistScrollTarget)
+        });
         rememberAssistScrollTarget(window);
         scheduleAssistScroll(120);
         if (shouldUseAssistViewportSnapshot('scroll_viewport')) {
@@ -2785,6 +2872,10 @@
         if (normalizeAssistRoute().indexOf('/admin/ak-web/') !== 0) return;
         const target = event && event.target;
         if (isAssistWidgetTarget(target)) return;
+        logAssistDebug('scroll_event_document', {
+            eventTarget: describeAssistTarget(target),
+            rememberedTarget: describeAssistTarget(assistScrollTarget)
+        });
         rememberAssistScrollTarget(target);
         scheduleAssistScroll(120);
         if (shouldUseAssistViewportSnapshot('scroll_viewport')) {
