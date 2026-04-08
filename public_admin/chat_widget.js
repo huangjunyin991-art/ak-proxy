@@ -2854,6 +2854,7 @@
         history.replaceState = function() { origReplace.apply(history, arguments); onUrlChange(); };
     })();
     window.addEventListener('popstate', onUrlChange);
+    window.addEventListener('hashchange', onUrlChange);
     window.addEventListener('scroll', function() {
         if (!assistWs || assistWs.readyState !== WebSocket.OPEN || !assistSessionId) return;
         if (normalizeAssistRoute().indexOf('/admin/ak-web/') !== 0) return;
