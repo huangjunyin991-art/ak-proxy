@@ -8339,6 +8339,8 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
         let remoteAssistPanelApplyingScrollDepth = 0;
         let remoteAssistPanelRestoreScrollTimer = null;
         let remoteAssistPanelConsentStatus = 'waiting';
+        let remoteAssistPanelPendingRoute = '';
+        let remoteAssistPanelWaitingForRouteSnapshot = false;
 
         function clearRemoteAssistReconnectTimer() {
             if (remoteAssistPanelReconnectTimer) {
@@ -8439,6 +8441,45 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
             }
         }
 
+        function getRemoteAssistSnapshotRoute(snapshot) {
+            return String(snapshot && snapshot.route || '').trim();
+        }
+
+        function getRemoteAssistScrollRoute(scroll) {
+            return String(scroll && scroll.route || '').trim();
+        }
+
+        function setRemoteAssistPendingRoute(route) {
+            remoteAssistPanelPendingRoute = String(route || '').trim();
+            remoteAssistPanelWaitingForRouteSnapshot = true;
+        }
+
+        function clearRemoteAssistPendingRoute(route = '') {
+            const normalizedRoute = String(route || '').trim();
+            if (!remoteAssistPanelWaitingForRouteSnapshot) return;
+            if (!remoteAssistPanelPendingRoute || !normalizedRoute || remoteAssistPanelPendingRoute === normalizedRoute) {
+                remoteAssistPanelPendingRoute = '';
+                remoteAssistPanelWaitingForRouteSnapshot = false;
+            }
+        }
+
+        function resolveRemoteAssistSnapshotScroll(snapshot) {
+            const snapshotRoute = getRemoteAssistSnapshotRoute(snapshot);
+            const snapshotScroll = snapshot && snapshot.scroll ? { ...snapshot.scroll } : null;
+            const liveScroll = remoteAssistPanelLastScroll ? { ...remoteAssistPanelLastScroll } : null;
+            const liveRoute = getRemoteAssistScrollRoute(liveScroll);
+            if (snapshotScroll && !getRemoteAssistScrollRoute(snapshotScroll) && snapshotRoute) {
+                snapshotScroll.route = snapshotRoute;
+            }
+            if (liveScroll && snapshotRoute && liveRoute === snapshotRoute) {
+                return liveScroll;
+            }
+            if (snapshotScroll) {
+                return snapshotScroll;
+            }
+            return liveScroll;
+        }
+
         function withRemoteAssistProgrammaticScroll(task) {
             remoteAssistPanelApplyingScrollDepth += 1;
             try {
@@ -8468,11 +8509,11 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
         }
 
         function scheduleRemoteAssistScrollRestore() {
-            if (remoteAssistPanelApplyingScrollDepth > 0 || !remoteAssistPanelLastScroll) return;
+            if (remoteAssistPanelApplyingScrollDepth > 0 || !remoteAssistPanelLastScroll || remoteAssistPanelWaitingForRouteSnapshot) return;
             if (remoteAssistPanelRestoreScrollTimer) return;
             remoteAssistPanelRestoreScrollTimer = setTimeout(function() {
                 remoteAssistPanelRestoreScrollTimer = null;
-                if (remoteAssistPanelApplyingScrollDepth > 0 || !remoteAssistPanelLastScroll) return;
+                if (remoteAssistPanelApplyingScrollDepth > 0 || !remoteAssistPanelLastScroll || remoteAssistPanelWaitingForRouteSnapshot) return;
                 applyRemoteAssistScroll(remoteAssistPanelLastScroll);
             }, 0);
         }
@@ -8494,11 +8535,30 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
             const win = frame && frame.contentWindow;
             if (!frame || !doc || !win) return;
             try {
+                const styleHost = doc.head || doc.body || doc.documentElement;
+                const scrollRoot = doc.scrollingElement || doc.documentElement || doc.body;
                 if (doc.documentElement) {
                     doc.documentElement.style.overscrollBehavior = 'none';
+                    doc.documentElement.style.overflow = 'hidden';
+                    doc.documentElement.style.scrollbarWidth = 'none';
                 }
                 if (doc.body) {
                     doc.body.style.overscrollBehavior = 'none';
+                    doc.body.style.overflow = 'hidden';
+                    doc.body.style.scrollbarWidth = 'none';
+                }
+                if (scrollRoot && scrollRoot.style) {
+                    scrollRoot.style.overflow = 'hidden';
+                    scrollRoot.style.scrollbarWidth = 'none';
+                }
+                let scrollLockStyle = doc.getElementById('ra-admin-scroll-lock');
+                if (!scrollLockStyle && styleHost) {
+                    scrollLockStyle = doc.createElement('style');
+                    scrollLockStyle.id = 'ra-admin-scroll-lock';
+                    styleHost.appendChild(scrollLockStyle);
+                }
+                if (scrollLockStyle) {
+                    scrollLockStyle.textContent = 'html::-webkit-scrollbar,body::-webkit-scrollbar{display:none !important;width:0 !important;height:0 !important;}';
                 }
             } catch (e) {
             }
@@ -8604,6 +8664,10 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
         function applyRemoteAssistScroll(scroll) {
             remoteAssistPanelLastScroll = scroll || null;
             clearRemoteAssistScrollRestoreTimer();
+            const currentRoute = getRemoteAssistSnapshotRoute(remoteAssistPanelLastSnapshot);
+            const scrollRoute = getRemoteAssistScrollRoute(scroll);
+            if (remoteAssistPanelWaitingForRouteSnapshot) return;
+            if (scrollRoute && currentRoute && scrollRoute !== currentRoute) return;
             try {
                 const frame = document.getElementById('remoteAssistFrame');
                 const win = frame && frame.contentWindow;
@@ -8646,9 +8710,13 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
             remoteAssistPanelLastSnapshot = snapshot || null;
             const frame = document.getElementById('remoteAssistFrame');
             if (!frame) return;
-            const route = String(snapshot && snapshot.route || '').trim();
+            const route = getRemoteAssistSnapshotRoute(snapshot);
+            if (remoteAssistPanelWaitingForRouteSnapshot && remoteAssistPanelPendingRoute && route && route !== remoteAssistPanelPendingRoute) {
+                return;
+            }
+            clearRemoteAssistPendingRoute(route);
             const title = String(snapshot && snapshot.title || '').trim();
-            const scrollPayload = snapshot && snapshot.scroll ? snapshot.scroll : remoteAssistPanelLastScroll;
+            const scrollPayload = resolveRemoteAssistSnapshotScroll(snapshot);
             const metaText = [route || '用户页面', title || '', snapshot && snapshot.truncated ? '已截断' : ''].filter(Boolean).join(' · ');
             setRemoteAssistMeta(metaText || '用户页面快照');
             setRemoteAssistLoading(false);
@@ -8719,6 +8787,8 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                         const frame = document.getElementById('remoteAssistFrame');
                         remoteAssistPanelConsentStatus = consentStatus;
                         if (consentStatus === 'rejected') {
+                            remoteAssistPanelPendingRoute = '';
+                            remoteAssistPanelWaitingForRouteSnapshot = false;
                             setRemoteAssistLoading(false);
                             setRemoteAssistMeta('用户已拒绝远程指导');
                             remoteAssistPanelLastHtml = '';
@@ -8726,6 +8796,8 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                             return;
                         }
                         if (consentStatus !== 'accepted') {
+                            remoteAssistPanelPendingRoute = '';
+                            remoteAssistPanelWaitingForRouteSnapshot = false;
                             setRemoteAssistMeta('等待用户确认远程指导');
                             setRemoteAssistLoading(true, '正在等待用户确认远程指导');
                             remoteAssistPanelLastHtml = '';
@@ -8734,6 +8806,7 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                         }
                         if (!payload.has_snapshot) {
                             const route = String(payload.last_route || '').trim();
+                            setRemoteAssistPendingRoute(route);
                             setRemoteAssistMeta(route ? `${route} · 用户已确认，等待页面快照` : '用户已确认，等待页面快照');
                             setRemoteAssistLoading(true, '用户已确认，正在等待页面快照');
                             requestRemoteAssistSnapshot();
@@ -8746,8 +8819,12 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                     }
                     if (data.type === 'route_changed' && data.payload) {
                         const route = String(data.payload.route || '').trim();
+                        setRemoteAssistPendingRoute(route);
+                        setRemoteAssistLoading(true, '用户页面切换中，正在等待新页面快照');
                         if (route) {
-                            setRemoteAssistMeta(`${route} · 页面切换中`);
+                            setRemoteAssistMeta(`${route} · 页面切换中，等待新画面`);
+                        } else {
+                            setRemoteAssistMeta('用户页面切换中，等待新画面');
                         }
                         return;
                     }
@@ -8812,6 +8889,8 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
             remoteAssistPanelLastScroll = null;
             remoteAssistPanelApplyingScrollDepth = 0;
             remoteAssistPanelConsentStatus = 'waiting';
+            remoteAssistPanelPendingRoute = '';
+            remoteAssistPanelWaitingForRouteSnapshot = false;
             clearRemoteAssistScrollRestoreTimer();
             panel.classList.add('open');
             overlay.style.display = getMobileLayoutMedia().matches ? 'none' : 'block';
@@ -8855,6 +8934,8 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
             remoteAssistPanelLastScroll = null;
             remoteAssistPanelApplyingScrollDepth = 0;
             remoteAssistPanelConsentStatus = 'waiting';
+            remoteAssistPanelPendingRoute = '';
+            remoteAssistPanelWaitingForRouteSnapshot = false;
             clearRemoteAssistScrollRestoreTimer();
             clearRemoteAssistReconnectTimer();
             stopRemoteAssistHeartbeat();

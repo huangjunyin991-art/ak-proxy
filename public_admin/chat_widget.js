@@ -2191,6 +2191,7 @@
             left: Math.max(0, Math.round(window.scrollX || window.pageXOffset || 0)),
             viewport_height: Math.max(0, Math.round(window.innerHeight || 0)),
             viewport_width: Math.max(0, Math.round(window.innerWidth || 0)),
+            route: normalizeAssistRoute(),
             mode: 'window'
         };
         try {
@@ -2214,6 +2215,7 @@
         const payload = buildAssistScrollPayload();
         if (!force
             && assistLastScrollPayload
+            && (assistLastScrollPayload.route || '') === (payload.route || '')
             && assistLastScrollPayload.mode === payload.mode
             && (assistLastScrollPayload.node_id || '') === (payload.node_id || '')
             && assistLastScrollPayload.top === payload.top
