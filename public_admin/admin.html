@@ -8704,8 +8704,8 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                         if (target) {
                             target.scrollTop = top;
                             target.scrollLeft = left;
-                            return;
                         }
+                        return;
                     }
                     win.scrollTo(left, top);
                 });
