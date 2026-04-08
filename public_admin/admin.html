@@ -8705,6 +8705,16 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                 .replace(/-moz-binding\s*:[^;]+;?/ig, '');
         }
 
+        function stripRemoteAssistUnsafeHtml(rawHtml) {
+            return String(rawHtml || '')
+                .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
+                .replace(/<iframe\b[^<]*(?:(?!<\/iframe>)<[^<]*)*<\/iframe>/gi, '')
+                .replace(/<(object|embed|foreignObject)\b[^>]*>/gi, '')
+                .replace(/\son[a-z]+\s*=\s*(["']).*?\1/gi, '')
+                .replace(/\s(?:href|src|xlink:href|formaction)\s*=\s*(["'])\s*(?:javascript:|vbscript:|data:text\/html|data:text\/javascript|data:image\/svg\+xml)[^"']*\1/gi, '')
+                .replace(/\ssrcset\s*=\s*(["'])[^"']*(?:javascript:|vbscript:|data:text\/html|data:text\/javascript|data:image\/svg\+xml)[^"']*\1/gi, '');
+        }
+
         function sanitizeRemoteAssistSrcdocHtml(html) {
             const rawHtml = String(html || '<!doctype html><html><body style="font-family:Arial;padding:16px;color:#64748b;">暂无可渲染快照</body></html>');
             try {
@@ -8749,14 +8759,24 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                 });
                 return '<!doctype html>' + root.outerHTML;
             } catch (e) {
-                return rawHtml
-                    .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
-                    .replace(/<iframe\b[^<]*(?:(?!<\/iframe>)<[^<]*)*<\/iframe>/gi, '')
-                    .replace(/<(object|embed|foreignObject)\b[^>]*>/gi, '')
-                    .replace(/\son[a-z]+\s*=\s*(["']).*?\1/gi, '')
-                    .replace(/\s(?:href|src|xlink:href|formaction)\s*=\s*(["'])\s*(?:javascript:|vbscript:|data:text\/html|data:text\/javascript|data:image\/svg\+xml)[^"']*\1/gi, '')
-                    .replace(/\ssrcset\s*=\s*(["'])[^"']*(?:javascript:|vbscript:|data:text\/html|data:text\/javascript|data:image\/svg\+xml)[^"']*\1/gi, '');
+                return stripRemoteAssistUnsafeHtml(rawHtml);
             }
+        }
+
+        function isRemoteAssistSerializedSnapshotHtml(rawHtml) {
+            const normalizedHtml = String(rawHtml || '');
+            return normalizedHtml.indexOf('<!doctype html>') === 0
+                && normalizedHtml.indexOf('<meta charset="utf-8">') !== -1
+                && normalizedHtml.indexOf('data-ra-tag=') !== -1
+                && normalizedHtml.indexOf('data-ra-node-id=') !== -1;
+        }
+
+        function prepareRemoteAssistSrcdocHtml(html) {
+            const rawHtml = String(html || '<!doctype html><html><body style="font-family:Arial;padding:16px;color:#64748b;">暂无可渲染快照</body></html>');
+            if (isRemoteAssistSerializedSnapshotHtml(rawHtml)) {
+                return stripRemoteAssistUnsafeHtml(rawHtml);
+            }
+            return sanitizeRemoteAssistSrcdocHtml(rawHtml);
         }
 
         function applyRemoteAssistScroll(scroll) {
@@ -8854,7 +8874,7 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
             const scrollPayload = resolveRemoteAssistSnapshotScroll(snapshot);
             const metaText = [route || '用户页面', title || '', snapshot && snapshot.truncated ? '已截断' : ''].filter(Boolean).join(' · ');
             setRemoteAssistMeta(metaText || '用户页面快照');
-            const sanitizedHtml = sanitizeRemoteAssistSrcdocHtml(snapshot && snapshot.html || '<!doctype html><html><body style="font-family:Arial;padding:16px;color:#64748b;">暂无可渲染快照</body></html>');
+            const sanitizedHtml = prepareRemoteAssistSrcdocHtml(snapshot && snapshot.html || '<!doctype html><html><body style="font-family:Arial;padding:16px;color:#64748b;">暂无可渲染快照</body></html>');
             const canReuseRenderedFrame = remoteAssistPanelLastHtml === sanitizedHtml
                 && previousRenderedRoute === route
                 && remoteAssistPanelLoadedRenderSeq === remoteAssistPanelRenderSeq;
