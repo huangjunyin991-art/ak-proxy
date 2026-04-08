@@ -439,6 +439,10 @@
     let assistLastSnapshotSentAt = 0;
     let assistLastScrollPayload = null;
     let assistScrollTarget = window;
+    let assistRouteSettleTimer = null;
+    let assistRouteSettleUntil = 0;
+    let assistRouteSettleRoute = '';
+    let assistRouteSettleNeedsFreshSnapshot = false;
     let isOpen = false;
     let hasNewMessage = false;
     let messageCount = 0;
@@ -1075,6 +1079,9 @@
     const ASSIST_VIEWPORT_SCROLL_HEIGHT_FACTOR = 2.4;
     const ASSIST_VIEWPORT_SCROLL_SNAPSHOT_DELAY = 220;
 
+    const ASSIST_ROUTE_SETTLE_DELAY = 320;
+    const ASSIST_ROUTE_SETTLE_WINDOW_MS = 1200;
+
     function nextAssistNodeId() {
         assistNodeSeq += 1;
         return 'ra_' + assistNodeSeq;
@@ -1107,6 +1114,105 @@
             clearTimeout(assistScrollTimer);
             assistScrollTimer = null;
         }
+    }
+
+    function clearAssistRouteSettleState() {
+        if (assistRouteSettleTimer) {
+            clearTimeout(assistRouteSettleTimer);
+            assistRouteSettleTimer = null;
+        }
+        assistRouteSettleUntil = 0;
+        assistRouteSettleRoute = '';
+        assistRouteSettleNeedsFreshSnapshot = false;
+    }
+
+    function isAssistRouteSettling(route) {
+        const currentRoute = String(route || normalizeAssistRoute() || '').trim();
+        return !!assistRouteSettleRoute
+            && !!currentRoute
+            && assistRouteSettleRoute === currentRoute
+            && Date.now() < assistRouteSettleUntil;
+    }
+
+    function emitAssistRouteSettledSync(expectedRoute) {
+        if (!assistSessionId) {
+            clearAssistRouteSettleState();
+            return;
+        }
+        const currentRoute = normalizeAssistRoute();
+        if (expectedRoute && currentRoute !== expectedRoute) {
+            logAssistDebug('route_settle_sync_skipped', {
+                reason: 'route_changed_again',
+                expectedRoute: String(expectedRoute || ''),
+                currentRoute: String(currentRoute || '')
+            });
+            if (assistRouteSettleRoute === expectedRoute) {
+                clearAssistRouteSettleState();
+            }
+            return;
+        }
+        const viewportMetrics = getAssistActiveViewportMetrics();
+        const settledTarget = viewportMetrics && viewportMetrics.target ? viewportMetrics.target : window;
+        rememberAssistScrollTarget(settledTarget);
+        const scrollSent = emitAssistScroll(true);
+        const snapshotSent = emitAssistSnapshot(assistRouteSettleNeedsFreshSnapshot ? 'route_settled_request' : 'route_settled');
+        logAssistDebug('route_settle_sync_sent', {
+            route: String(currentRoute || ''),
+            target: describeAssistTarget(settledTarget),
+            viewportMetrics: viewportMetrics ? {
+                mode: String(viewportMetrics.mode || ''),
+                viewportHeight: Number(viewportMetrics.viewportHeight || 0),
+                viewportWidth: Number(viewportMetrics.viewportWidth || 0),
+                scrollHeight: Number(viewportMetrics.scrollHeight || 0)
+            } : null,
+            scrollSent: !!scrollSent,
+            snapshotSent: !!snapshotSent,
+            needsFreshSnapshot: !!assistRouteSettleNeedsFreshSnapshot
+        });
+        if (!assistRouteSettleRoute || assistRouteSettleRoute === expectedRoute) {
+            clearAssistRouteSettleState();
+        }
+    }
+
+    function scheduleAssistRouteSettledSync(route, delay, needsFreshSnapshot) {
+        if (!assistSessionId) return;
+        const expectedRoute = String(route || normalizeAssistRoute() || '').trim();
+        if (!expectedRoute) return;
+        if (assistRouteSettleTimer) {
+            clearTimeout(assistRouteSettleTimer);
+            assistRouteSettleTimer = null;
+        }
+        const isSamePendingRoute = assistRouteSettleRoute === expectedRoute;
+        assistRouteSettleRoute = expectedRoute;
+        assistRouteSettleUntil = Date.now() + ASSIST_ROUTE_SETTLE_WINDOW_MS;
+        assistRouteSettleNeedsFreshSnapshot = (isSamePendingRoute && assistRouteSettleNeedsFreshSnapshot) || !!needsFreshSnapshot;
+        const nextDelay = typeof delay === 'number' ? delay : ASSIST_ROUTE_SETTLE_DELAY;
+        assistRouteSettleTimer = setTimeout(function() {
+            assistRouteSettleTimer = null;
+            emitAssistRouteSettledSync(expectedRoute);
+        }, nextDelay);
+        logAssistDebug('route_settle_sync_scheduled', {
+            route: expectedRoute,
+            delay: nextDelay,
+            needsFreshSnapshot: !!assistRouteSettleNeedsFreshSnapshot
+        });
+    }
+
+    function deferAssistSnapshotUntilRouteSettled(route, reason) {
+        const expectedRoute = String(route || normalizeAssistRoute() || '').trim();
+        if (!expectedRoute || !isAssistRouteSettling(expectedRoute)) {
+            return false;
+        }
+        assistRouteSettleNeedsFreshSnapshot = true;
+        logAssistDebug('snapshot_request_deferred_route_settling', {
+            route: expectedRoute,
+            reason: String(reason || ''),
+            hasPendingTimer: !!assistRouteSettleTimer
+        });
+        if (!assistRouteSettleTimer) {
+            scheduleAssistRouteSettledSync(expectedRoute, ASSIST_ROUTE_SETTLE_DELAY, true);
+        }
+        return true;
     }
 
     function stopAssistDomObserver() {
@@ -2387,6 +2493,7 @@
         if (reason === 'snapshot_request'
             && assistLastSnapshotPayload
             && assistLastSnapshotPayload.route === route
+            && !isAssistRouteSettling(route)
             && (now - assistLastSnapshotSentAt) < 3000) {
             const sent = sendAssistSnapshotPayload(assistLastSnapshotPayload);
             logAssistDebug(sent ? 'snapshot_sent_cached' : 'snapshot_send_failed_cached', {
@@ -2573,6 +2680,7 @@
         stopAssistHeartbeat();
         stopAssistDomObserver();
         clearAssistScrollTimer();
+        clearAssistRouteSettleState();
         assistSessionId = '';
         assistScrollTarget = window;
         assistCachedHeadRoute = '';
@@ -2623,9 +2731,13 @@
                     if (data.type === 'click_highlight' && data.payload) {
                         applyAssistHighlight(data.payload);
                     } else if (data.type === 'snapshot_request') {
+                        const snapshotRequestReason = String(data.payload && data.payload.reason || '');
                         logAssistDebug('snapshot_request_received', {
-                            reason: String(data.payload && data.payload.reason || '')
+                            reason: snapshotRequestReason
                         });
+                        if (deferAssistSnapshotUntilRouteSettled(normalizeAssistRoute(), snapshotRequestReason)) {
+                            return;
+                        }
                         emitAssistSnapshot('snapshot_request');
                     } else if (data.type === 'session_state') {
                         logAssistDebug('session_state_received', {
@@ -2862,14 +2974,16 @@
             sendPresence('online');
         }
         if (assistWs && assistWs.readyState === WebSocket.OPEN) {
+            const nextRoute = normalizeAssistRoute();
             logAssistDebug('route_change_observed', {
-                nextRoute: normalizeAssistRoute(),
+                nextRoute: nextRoute,
                 previousRememberedTarget: describeAssistTarget(assistScrollTarget)
             });
+            clearAssistSnapshotTimer();
+            clearAssistScrollTimer();
             assistScrollTarget = window;
             emitAssistRoute();
-            scheduleAssistSnapshot(80, 'route_change');
-            scheduleAssistScroll(40);
+            scheduleAssistRouteSettledSync(nextRoute, ASSIST_ROUTE_SETTLE_DELAY, false);
         }
     }
     (function() {
