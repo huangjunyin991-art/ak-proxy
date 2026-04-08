@@ -8521,6 +8521,14 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
             }, 80);
         }
 
+        function nudgeRemoteAssistPendingSnapshot(route = '') {
+            const normalizedRoute = String(route || '').trim();
+            if (!remoteAssistPanelWaitingForRouteSnapshot || !remoteAssistPanelSessionId) return;
+            if (normalizedRoute && remoteAssistPanelPendingRoute && normalizedRoute !== remoteAssistPanelPendingRoute) return;
+            if (remoteAssistPanelRouteSnapshotTimer) return;
+            scheduleRemoteAssistRouteSnapshotRequest(normalizedRoute || remoteAssistPanelPendingRoute);
+        }
+
         function resolveRemoteAssistSnapshotScroll(snapshot) {
             const snapshotRoute = getRemoteAssistSnapshotRoute(snapshot);
             const snapshotScroll = snapshot && snapshot.scroll ? { ...snapshot.scroll } : null;
@@ -8989,10 +8997,12 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                         return;
                     }
                     if (data.type === 'scroll_changed' && data.payload) {
+                        nudgeRemoteAssistPendingSnapshot(getRemoteAssistScrollRoute(data.payload));
                         applyRemoteAssistScroll(data.payload);
                         return;
                     }
                     if (data.type === 'click_highlight' && data.payload) {
+                        nudgeRemoteAssistPendingSnapshot();
                         flashRemoteAssistSnapshotNode(data.payload);
                     }
                 } catch (e) {
