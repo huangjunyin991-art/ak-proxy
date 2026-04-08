@@ -1078,6 +1078,10 @@
     const ASSIST_VIEWPORT_NODE_LIMIT = 1200;
     const ASSIST_VIEWPORT_SCROLL_HEIGHT_FACTOR = 2.4;
     const ASSIST_VIEWPORT_SCROLL_SNAPSHOT_DELAY = 220;
+    const ASSIST_SCROLL_TARGET_PREFERRED_LIMIT = 28;
+    const ASSIST_SCROLL_TARGET_MIN_OVERFLOW = 56;
+    const ASSIST_SCROLL_TARGET_MIN_HEIGHT_RATIO = 0.22;
+    const ASSIST_SCROLL_TARGET_MIN_WIDTH_RATIO = 0.35;
 
     const ASSIST_ROUTE_SETTLE_DELAY = 320;
     const ASSIST_ROUTE_SETTLE_WINDOW_MS = 1200;
@@ -1151,9 +1155,8 @@
             }
             return;
         }
+        const settledTarget = refreshAssistScrollTarget('route_settled_sync', true);
         const viewportMetrics = getAssistActiveViewportMetrics();
-        const settledTarget = viewportMetrics && viewportMetrics.target ? viewportMetrics.target : window;
-        rememberAssistScrollTarget(settledTarget);
         const scrollSent = emitAssistScroll(true);
         const snapshotSent = emitAssistSnapshot(assistRouteSettleNeedsFreshSnapshot ? 'route_settled_request' : 'route_settled');
         logAssistDebug('route_settle_sync_sent', {
@@ -1463,6 +1466,124 @@
         }
     }
 
+    function getAssistScrollTargetKeywordScore(element) {
+        try {
+            if (!element || !(element instanceof Element)) return 0;
+            const keywords = String((element.id || '') + ' ' + (element.className || '') + ' ' + (element.tagName || '')).toLowerCase();
+            let score = 0;
+            if (keywords.indexOf('content') !== -1) score += 5;
+            if (keywords.indexOf('list') !== -1) score += 5;
+            if (keywords.indexOf('pull') !== -1 || keywords.indexOf('refresh') !== -1) score += 5;
+            if (keywords.indexOf('tab') !== -1) score += 3;
+            if (keywords.indexOf('page') !== -1) score += 3;
+            if (keywords.indexOf('container') !== -1) score += 2;
+            if (keywords.indexOf('wrap') !== -1 || keywords.indexOf('wrapper') !== -1) score += 2;
+            if (keywords.indexOf('main') !== -1) score += 2;
+            return score;
+        } catch (e) {
+            return 0;
+        }
+    }
+
+    function evaluateAssistScrollableElement(element, viewportWidth, viewportHeight, relaxed) {
+        try {
+            if (!element || !(element instanceof Element)) return null;
+            if (element === document.body || element === document.documentElement) return null;
+            if (isAssistWidgetTarget(element)) return null;
+            const computed = window.getComputedStyle(element);
+            if (shouldSkipAssistElement(element, computed)) return null;
+            const rect = element.getBoundingClientRect ? element.getBoundingClientRect() : null;
+            if (!isAssistViewportRectVisible(rect, 36)) return null;
+            const clientHeight = Math.max(0, Math.round(element.clientHeight || 0));
+            const clientWidth = Math.max(0, Math.round(element.clientWidth || 0));
+            const scrollHeight = Math.max(0, Math.round(element.scrollHeight || 0));
+            const scrollTop = Math.max(0, Math.round(element.scrollTop || 0));
+            const overflowValue = String(computed.overflowY || computed.overflow || '').toLowerCase();
+            const touchScrollValue = String(computed.webkitOverflowScrolling || '').toLowerCase();
+            const hasOverflowHint = overflowValue.indexOf('auto') !== -1 || overflowValue.indexOf('scroll') !== -1 || overflowValue.indexOf('overlay') !== -1;
+            const hasTouchScrollHint = touchScrollValue.indexOf('touch') !== -1;
+            const keywordScore = getAssistScrollTargetKeywordScore(element);
+            const minHeightRatio = relaxed ? Math.max(0.16, ASSIST_SCROLL_TARGET_MIN_HEIGHT_RATIO - 0.06) : ASSIST_SCROLL_TARGET_MIN_HEIGHT_RATIO;
+            const minWidthRatio = relaxed ? Math.max(0.28, ASSIST_SCROLL_TARGET_MIN_WIDTH_RATIO - 0.05) : ASSIST_SCROLL_TARGET_MIN_WIDTH_RATIO;
+            const minHeight = Math.max(140, Math.round(viewportHeight * minHeightRatio));
+            const minWidth = Math.max(140, Math.round(viewportWidth * minWidthRatio));
+            const scrollDelta = Math.max(0, scrollHeight - clientHeight);
+            const minOverflow = relaxed ? Math.max(32, ASSIST_SCROLL_TARGET_MIN_OVERFLOW - 24) : ASSIST_SCROLL_TARGET_MIN_OVERFLOW;
+            if (clientHeight < minHeight || clientWidth < minWidth) return null;
+            if (scrollDelta < minOverflow && scrollTop < 4) return null;
+            if (!hasOverflowHint && !hasTouchScrollHint) {
+                if (!relaxed && keywordScore < 3 && scrollTop < 8) return null;
+                if (scrollDelta < Math.max(80, Math.round(viewportHeight * 0.12))) return null;
+            }
+            let score = clientHeight * clientWidth;
+            score += scrollDelta * 24;
+            score += keywordScore * 220000;
+            if (scrollTop > 0) score += 1400000;
+            if (hasOverflowHint) score += 420000;
+            if (hasTouchScrollHint) score += 260000;
+            if (rect && rect.top <= Math.round(viewportHeight * 0.18)) score += 80000;
+            if (rect && rect.bottom >= Math.round(viewportHeight * 0.82)) score += 80000;
+            return {
+                element: element,
+                score: score
+            };
+        } catch (e) {
+            return null;
+        }
+    }
+
+    function isAssistUsableScrollTarget(target) {
+        try {
+            if (!target || target === window || !(target instanceof Element) || !target.isConnected) return false;
+            const viewportWidth = Math.max(1, Math.round(window.innerWidth || 0));
+            const viewportHeight = Math.max(1, Math.round(window.innerHeight || 0));
+            return !!evaluateAssistScrollableElement(target, viewportWidth, viewportHeight, true);
+        } catch (e) {
+            return false;
+        }
+    }
+
+    function collectAssistPreferredScrollCandidates(limit) {
+        try {
+            if (!document.body) return [];
+            const selected = [];
+            const preferredSelectors = [
+                '#app-content',
+                '#app',
+                'van-pull-refresh',
+                '.van-pull-refresh',
+                '.van-list',
+                '.van-tabs__content',
+                '.van-tab__pane-wrapper',
+                '.items-container',
+                '.page-content',
+                '.main-content',
+                '[class*="pull-refresh"]',
+                '[class*="pull_refresh"]'
+            ];
+            if (assistScrollTarget && assistScrollTarget !== window && assistScrollTarget instanceof Element) {
+                pushAssistElementCandidate(selected, assistScrollTarget);
+            }
+            const viewportRoots = collectAssistViewportRoots(Math.max(8, Math.min(limit, 12)));
+            viewportRoots.forEach(function(element) {
+                pushAssistElementCandidate(selected, element);
+            });
+            for (let i = 0; i < preferredSelectors.length && selected.length < limit; i += 1) {
+                const matches = document.querySelectorAll(preferredSelectors[i]);
+                for (let j = 0; j < matches.length && selected.length < limit; j += 1) {
+                    pushAssistElementCandidate(selected, matches[j]);
+                }
+            }
+            Array.prototype.slice.call(document.body.children || []).forEach(function(element) {
+                if (selected.length >= limit) return;
+                pushAssistElementCandidate(selected, element);
+            });
+            return selected;
+        } catch (e) {
+            return [];
+        }
+    }
+
     function pushAssistElementCandidate(list, element) {
         try {
             if (!element || !(element instanceof Element)) return;
@@ -1481,40 +1602,40 @@
     function findAssistPrimaryScrollableElement() {
         try {
             if (!document.body) return null;
-            const elements = document.body.querySelectorAll('*');
             const viewportWidth = Math.max(1, Math.round(window.innerWidth || 0));
             const viewportHeight = Math.max(1, Math.round(window.innerHeight || 0));
             let best = null;
             let bestScore = 0;
-            for (let i = 0; i < elements.length; i += 1) {
-                const element = elements[i];
-                if (!element || isAssistWidgetTarget(element)) continue;
-                const computed = window.getComputedStyle(element);
-                if (shouldSkipAssistElement(element, computed)) continue;
-                const overflowValue = String(computed.overflowY || computed.overflow || '').toLowerCase();
-                if (overflowValue.indexOf('auto') === -1 && overflowValue.indexOf('scroll') === -1 && overflowValue.indexOf('overlay') === -1) continue;
-                const rect = element.getBoundingClientRect ? element.getBoundingClientRect() : null;
-                if (!isAssistViewportRectVisible(rect, 24)) continue;
-                const clientHeight = Math.max(0, Math.round(element.clientHeight || 0));
-                const clientWidth = Math.max(0, Math.round(element.clientWidth || 0));
-                const scrollHeight = Math.max(0, Math.round(element.scrollHeight || 0));
-                if (clientHeight < Math.round(viewportHeight * 0.35) || clientWidth < Math.round(viewportWidth * 0.45)) continue;
-                if (scrollHeight < Math.round(Math.max(1, clientHeight) * ASSIST_VIEWPORT_SCROLL_HEIGHT_FACTOR)) continue;
-                const score = clientHeight * clientWidth;
-                if (score > bestScore) {
-                    best = element;
-                    bestScore = score;
+            function consider(element, relaxed) {
+                const evaluation = evaluateAssistScrollableElement(element, viewportWidth, viewportHeight, relaxed);
+                if (evaluation && evaluation.score > bestScore) {
+                    best = evaluation.element;
+                    bestScore = evaluation.score;
                 }
             }
+            const preferredCandidates = collectAssistPreferredScrollCandidates(ASSIST_SCROLL_TARGET_PREFERRED_LIMIT);
+            preferredCandidates.forEach(function(element) {
+                consider(element, false);
+            });
+            if (best) return best;
+            const elements = document.body.querySelectorAll('*');
+            for (let i = 0; i < elements.length; i += 1) {
+                consider(elements[i], false);
+            }
+            if (best) return best;
+            preferredCandidates.forEach(function(element) {
+                consider(element, true);
+            });
             return best;
         } catch (e) {
             return null;
         }
     }
 
-    function getAssistActiveViewportTarget() {
+    function getAssistActiveViewportTarget(options) {
         try {
-            if (assistScrollTarget && assistScrollTarget !== window && assistScrollTarget instanceof Element) {
+            const forceRescan = !!(options && options.forceRescan);
+            if (!forceRescan && isAssistUsableScrollTarget(assistScrollTarget)) {
                 return assistScrollTarget;
             }
             return findAssistPrimaryScrollableElement() || window;
@@ -1523,9 +1644,9 @@
         }
     }
 
-    function getAssistActiveViewportMetrics() {
+    function getAssistActiveViewportMetrics(options) {
         try {
-            const target = getAssistActiveViewportTarget();
+            const target = getAssistActiveViewportTarget(options);
             if (target && target !== window && target instanceof Element) {
                 return {
                     mode: 'element',
@@ -1550,6 +1671,31 @@
                 viewportWidth: Math.max(1, Math.round(window.innerWidth || 0)),
                 scrollHeight: Math.max(1, Math.round(getAssistDocumentScrollHeight()))
             };
+        }
+    }
+
+    function refreshAssistScrollTarget(reason, forceRescan) {
+        try {
+            const previousTarget = assistScrollTarget;
+            const nextTarget = getAssistActiveViewportTarget({ forceRescan: !!forceRescan });
+            rememberAssistScrollTarget(nextTarget);
+            if (forceRescan || previousTarget !== nextTarget) {
+                logAssistDebug('scroll_target_resolved', {
+                    reason: String(reason || ''),
+                    forceRescan: !!forceRescan,
+                    previousTarget: describeAssistTarget(previousTarget),
+                    resolvedTarget: describeAssistTarget(nextTarget)
+                });
+            }
+            return nextTarget;
+        } catch (e) {
+            assistScrollTarget = window;
+            logAssistDebug('scroll_target_resolved_error', {
+                reason: String(reason || ''),
+                forceRescan: !!forceRescan,
+                message: String((e && e.message) || e || '')
+            });
+            return window;
         }
     }
 
@@ -2412,6 +2558,16 @@
             mode: 'window'
         };
         let activeTarget = target || assistScrollTarget || window;
+        try {
+            const needsRefresh = !activeTarget
+                || activeTarget === window
+                || (activeTarget instanceof Element && !isAssistUsableScrollTarget(activeTarget));
+            if (needsRefresh) {
+                activeTarget = refreshAssistScrollTarget('build_scroll_payload', !target || activeTarget === window);
+            }
+        } catch (e) {
+            activeTarget = window;
+        }
         try {
             if (activeTarget && activeTarget !== window && activeTarget instanceof Element) {
                 const tagName = String(activeTarget.tagName || 'div').toLowerCase();
