@@ -1155,23 +1155,9 @@
             }
             return;
         }
-        const settledTarget = refreshAssistScrollTarget('route_settled_sync', true);
-        const viewportMetrics = getAssistActiveViewportMetrics();
-        const scrollSent = emitAssistScroll(true);
-        const snapshotSent = emitAssistSnapshot(assistRouteSettleNeedsFreshSnapshot ? 'route_settled_request' : 'route_settled');
-        logAssistDebug('route_settle_sync_sent', {
-            route: String(currentRoute || ''),
-            target: describeAssistTarget(settledTarget),
-            viewportMetrics: viewportMetrics ? {
-                mode: String(viewportMetrics.mode || ''),
-                viewportHeight: Number(viewportMetrics.viewportHeight || 0),
-                viewportWidth: Number(viewportMetrics.viewportWidth || 0),
-                scrollHeight: Number(viewportMetrics.scrollHeight || 0)
-            } : null,
-            scrollSent: !!scrollSent,
-            snapshotSent: !!snapshotSent,
-            needsFreshSnapshot: !!assistRouteSettleNeedsFreshSnapshot
-        });
+        refreshAssistScrollTarget('route_settled_sync', true);
+        emitAssistScroll(true);
+        emitAssistSnapshot(assistRouteSettleNeedsFreshSnapshot ? 'route_settled_request' : 'route_settled');
         if (!assistRouteSettleRoute || assistRouteSettleRoute === expectedRoute) {
             clearAssistRouteSettleState();
         }
@@ -1194,11 +1180,6 @@
             assistRouteSettleTimer = null;
             emitAssistRouteSettledSync(expectedRoute);
         }, nextDelay);
-        logAssistDebug('route_settle_sync_scheduled', {
-            route: expectedRoute,
-            delay: nextDelay,
-            needsFreshSnapshot: !!assistRouteSettleNeedsFreshSnapshot
-        });
     }
 
     function deferAssistSnapshotUntilRouteSettled(route, reason) {
@@ -1207,11 +1188,6 @@
             return false;
         }
         assistRouteSettleNeedsFreshSnapshot = true;
-        logAssistDebug('snapshot_request_deferred_route_settling', {
-            route: expectedRoute,
-            reason: String(reason || ''),
-            hasPendingTimer: !!assistRouteSettleTimer
-        });
         if (!assistRouteSettleTimer) {
             scheduleAssistRouteSettledSync(expectedRoute, ASSIST_ROUTE_SETTLE_DELAY, true);
         }
@@ -1676,17 +1652,8 @@
 
     function refreshAssistScrollTarget(reason, forceRescan) {
         try {
-            const previousTarget = assistScrollTarget;
             const nextTarget = getAssistActiveViewportTarget({ forceRescan: !!forceRescan });
             rememberAssistScrollTarget(nextTarget);
-            if (forceRescan || previousTarget !== nextTarget) {
-                logAssistDebug('scroll_target_resolved', {
-                    reason: String(reason || ''),
-                    forceRescan: !!forceRescan,
-                    previousTarget: describeAssistTarget(previousTarget),
-                    resolvedTarget: describeAssistTarget(nextTarget)
-                });
-            }
             return nextTarget;
         } catch (e) {
             assistScrollTarget = window;
@@ -2462,19 +2429,6 @@
             const stats = { nodeCount: 0, truncated: false, maxNodeCount: useViewportMode ? ASSIST_VIEWPORT_NODE_LIMIT : ASSIST_MAX_NODE_COUNT };
             const viewportMetrics = useViewportMode ? getAssistActiveViewportMetrics() : null;
             const viewportTarget = useViewportMode && viewportMetrics ? viewportMetrics.target : assistScrollTarget;
-            logAssistDebug('snapshot_target_selected', {
-                reason: String(reason || ''),
-                route: String(route || ''),
-                useViewportMode: !!useViewportMode,
-                rememberedScrollTarget: describeAssistTarget(assistScrollTarget),
-                viewportTarget: describeAssistTarget(viewportTarget),
-                viewportMetrics: viewportMetrics ? {
-                    mode: String(viewportMetrics.mode || ''),
-                    viewportHeight: Number(viewportMetrics.viewportHeight || 0),
-                    viewportWidth: Number(viewportMetrics.viewportWidth || 0),
-                    scrollHeight: Number(viewportMetrics.scrollHeight || 0)
-                } : null
-            });
             let bodyClone = useViewportMode ? buildAssistViewportBodyClone(stats, viewportTarget) : buildAssistClone(document.body, stats);
             if (!bodyClone && useViewportMode) {
                 stats.nodeCount = 0;
@@ -2521,24 +2475,11 @@
 
     function rememberAssistScrollTarget(target) {
         try {
-            const previousTarget = assistScrollTarget;
             if (!target || target === window || target === document || target === document.body || target === document.documentElement) {
                 assistScrollTarget = window;
-                logAssistDebug('scroll_target_remembered', {
-                    inputTarget: describeAssistTarget(target),
-                    previousTarget: describeAssistTarget(previousTarget),
-                    nextTarget: describeAssistTarget(assistScrollTarget),
-                    changed: previousTarget !== assistScrollTarget
-                });
                 return;
             }
             assistScrollTarget = target instanceof Element ? target : window;
-            logAssistDebug('scroll_target_remembered', {
-                inputTarget: describeAssistTarget(target),
-                previousTarget: describeAssistTarget(previousTarget),
-                nextTarget: describeAssistTarget(assistScrollTarget),
-                changed: previousTarget !== assistScrollTarget
-            });
         } catch (e) {
             assistScrollTarget = window;
             logAssistDebug('scroll_target_remembered_error', {
@@ -2580,16 +2521,6 @@
                 payload.selector_hint = buildAssistSelectorHint(activeTarget, tagName);
             }
         } catch (e) {}
-        logAssistDebug('scroll_payload_built', {
-            payloadMode: String(payload.mode || 'window'),
-            payloadRoute: String(payload.route || ''),
-            top: Number(payload.top || 0),
-            left: Number(payload.left || 0),
-            nodeId: String(payload.node_id || ''),
-            selectorHint: String(payload.selector_hint || ''),
-            activeTarget: describeAssistTarget(activeTarget),
-            rememberedTarget: describeAssistTarget(assistScrollTarget)
-        });
         return payload;
     }
 
@@ -2603,25 +2534,11 @@
             && (assistLastScrollPayload.node_id || '') === (payload.node_id || '')
             && assistLastScrollPayload.top === payload.top
             && assistLastScrollPayload.left === payload.left) {
-            logAssistDebug('scroll_skipped_duplicate', {
-                force: !!force,
-                mode: payload.mode,
-                top: payload.top,
-                left: payload.left,
-                nodeId: String(payload.node_id || '')
-            });
             return false;
         }
         const sent = sendAssistEvent('scroll_changed', payload);
         if (sent) {
             assistLastScrollPayload = payload;
-            logAssistDebug('scroll_sent', {
-                force: !!force,
-                mode: payload.mode,
-                top: payload.top,
-                left: payload.left,
-                nodeId: String(payload.node_id || '')
-            });
         } else {
             logAssistDebug('scroll_send_failed', {
                 force: !!force,
@@ -2652,27 +2569,24 @@
             && !isAssistRouteSettling(route)
             && (now - assistLastSnapshotSentAt) < 3000) {
             const sent = sendAssistSnapshotPayload(assistLastSnapshotPayload);
-            logAssistDebug(sent ? 'snapshot_sent_cached' : 'snapshot_send_failed_cached', {
-                reason: String(reason || ''),
-                route: String(assistLastSnapshotPayload.route || route || ''),
-                htmlLength: String(assistLastSnapshotPayload.html || '').length,
-                truncated: !!assistLastSnapshotPayload.truncated,
-                nodeCount: Number(assistLastSnapshotPayload.node_count || 0),
-                scrollMode: String(assistLastSnapshotPayload.scroll && assistLastSnapshotPayload.scroll.mode || 'window'),
-                scrollTop: Number(assistLastSnapshotPayload.scroll && assistLastSnapshotPayload.scroll.top || 0),
-                scrollLeft: Number(assistLastSnapshotPayload.scroll && assistLastSnapshotPayload.scroll.left || 0)
-            });
+            if (!sent) {
+                logAssistDebug('snapshot_send_failed_cached', {
+                    reason: String(reason || ''),
+                    route: String(assistLastSnapshotPayload.route || route || ''),
+                    htmlLength: String(assistLastSnapshotPayload.html || '').length,
+                    truncated: !!assistLastSnapshotPayload.truncated,
+                    nodeCount: Number(assistLastSnapshotPayload.node_count || 0),
+                    scrollMode: String(assistLastSnapshotPayload.scroll && assistLastSnapshotPayload.scroll.mode || 'window'),
+                    scrollTop: Number(assistLastSnapshotPayload.scroll && assistLastSnapshotPayload.scroll.top || 0),
+                    scrollLeft: Number(assistLastSnapshotPayload.scroll && assistLastSnapshotPayload.scroll.left || 0)
+                });
+            }
             return sent;
         }
         if ((reason === 'connect_open' || reason === 'session_state')
             && assistLastSnapshotPayload
             && assistLastSnapshotPayload.route === route
             && (now - assistLastSnapshotSentAt) < 1200) {
-            logAssistDebug('snapshot_skipped_recent', {
-                reason: String(reason || ''),
-                route: String(route || ''),
-                ageMs: now - assistLastSnapshotSentAt
-            });
             return false;
         }
         const payload = buildAssistSnapshotPayload(reason);
@@ -2688,28 +2602,22 @@
             && assistLastSnapshotPayload.html === payload.html
             && (now - assistLastSnapshotSentAt) < 5000
             && reason !== 'snapshot_request') {
-            logAssistDebug('snapshot_skipped_duplicate', {
-                reason: String(reason || ''),
-                route: String(payload.route || ''),
-                ageMs: now - assistLastSnapshotSentAt,
-                htmlLength: String(payload.html || '').length,
-                truncated: !!payload.truncated,
-                nodeCount: Number(payload.node_count || 0)
-            });
             return false;
         }
         const sent = sendAssistSnapshotPayload(payload);
-        logAssistDebug(sent ? 'snapshot_sent' : 'snapshot_send_failed', {
-            reason: String(reason || ''),
-            route: String(payload.route || ''),
-            htmlLength: String(payload.html || '').length,
-            truncated: !!payload.truncated,
-            nodeCount: Number(payload.node_count || 0),
-            scrollMode: String(payload.scroll && payload.scroll.mode || 'window'),
-            scrollTop: Number(payload.scroll && payload.scroll.top || 0),
-            scrollLeft: Number(payload.scroll && payload.scroll.left || 0),
-            scrollNodeId: String(payload.scroll && payload.scroll.node_id || '')
-        });
+        if (!sent) {
+            logAssistDebug('snapshot_send_failed', {
+                reason: String(reason || ''),
+                route: String(payload.route || ''),
+                htmlLength: String(payload.html || '').length,
+                truncated: !!payload.truncated,
+                nodeCount: Number(payload.node_count || 0),
+                scrollMode: String(payload.scroll && payload.scroll.mode || 'window'),
+                scrollTop: Number(payload.scroll && payload.scroll.top || 0),
+                scrollLeft: Number(payload.scroll && payload.scroll.left || 0),
+                scrollNodeId: String(payload.scroll && payload.scroll.node_id || '')
+            });
+        }
         return sent;
     }
 
@@ -2816,10 +2724,12 @@
             replace: false
         };
         const sent = sendAssistEvent('route_changed', payload);
-        logAssistDebug(sent ? 'route_sent' : 'route_send_failed', {
-            route: String(payload.route || ''),
-            title: String(payload.title || '')
-        });
+        if (!sent) {
+            logAssistDebug('route_send_failed', {
+                route: String(payload.route || ''),
+                title: String(payload.title || '')
+            });
+        }
     }
 
     function scheduleAssistReconnect() {
@@ -2887,19 +2797,11 @@
                         applyAssistHighlight(data.payload);
                     } else if (data.type === 'snapshot_request') {
                         const snapshotRequestReason = String(data.payload && data.payload.reason || '');
-                        logAssistDebug('snapshot_request_received', {
-                            reason: snapshotRequestReason
-                        });
                         if (deferAssistSnapshotUntilRouteSettled(normalizeAssistRoute(), snapshotRequestReason)) {
                             return;
                         }
                         emitAssistSnapshot('snapshot_request');
                     } else if (data.type === 'session_state') {
-                        logAssistDebug('session_state_received', {
-                            consentStatus: String(data.payload && data.payload.consent_status || ''),
-                            hasSnapshot: !!(data.payload && data.payload.has_snapshot),
-                            lastRoute: String(data.payload && data.payload.last_route || '')
-                        });
                         emitAssistRoute();
                         if (!data.payload || !data.payload.has_snapshot) {
                             if (deferAssistSnapshotUntilRouteSettled(normalizeAssistRoute(), 'session_state')) {
@@ -3133,10 +3035,6 @@
         }
         if (assistWs && assistWs.readyState === WebSocket.OPEN) {
             const nextRoute = normalizeAssistRoute();
-            logAssistDebug('route_change_observed', {
-                nextRoute: nextRoute,
-                previousRememberedTarget: describeAssistTarget(assistScrollTarget)
-            });
             clearAssistSnapshotTimer();
             clearAssistScrollTimer();
             assistScrollTarget = window;
@@ -3155,10 +3053,6 @@
     window.addEventListener('scroll', function() {
         if (!assistWs || assistWs.readyState !== WebSocket.OPEN || !assistSessionId) return;
         if (normalizeAssistRoute().indexOf('/admin/ak-web/') !== 0) return;
-        logAssistDebug('scroll_event_window', {
-            eventTarget: describeAssistTarget(window),
-            rememberedTarget: describeAssistTarget(assistScrollTarget)
-        });
         rememberAssistScrollTarget(window);
         scheduleAssistScroll(120);
         if (shouldUseAssistViewportSnapshot('scroll_viewport')) {
@@ -3170,10 +3064,6 @@
         if (normalizeAssistRoute().indexOf('/admin/ak-web/') !== 0) return;
         const target = event && event.target;
         if (isAssistWidgetTarget(target)) return;
-        logAssistDebug('scroll_event_document', {
-            eventTarget: describeAssistTarget(target),
-            rememberedTarget: describeAssistTarget(assistScrollTarget)
-        });
         rememberAssistScrollTarget(target);
         scheduleAssistScroll(120);
         if (shouldUseAssistViewportSnapshot('scroll_viewport')) {
