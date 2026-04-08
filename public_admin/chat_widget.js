@@ -735,6 +735,7 @@
             padding: 18px 18px 8px;
             font-size: 18px;
             font-weight: 700;
+            text-align: center;
         }
 
         #ak-assist-request-modal .assist-request-body {
@@ -790,7 +791,7 @@
         <div id="ak-assist-request-overlay">
             <div id="ak-assist-request-modal">
                 <div class="assist-request-head">远程指导确认</div>
-                <div class="assist-request-body" id="ak-assist-request-text">管理员正在请求对您进行远程指导，是否接受？</div>
+                <div class="assist-request-body" id="ak-assist-request-text">管理员即将对您进行远程指导，是否接受？</div>
                 <div class="assist-request-actions">
                     <button type="button" class="assist-request-btn cancel" onclick="AKChat.rejectAssistRequest()">取消</button>
                     <button type="button" class="assist-request-btn confirm" onclick="AKChat.acceptAssistRequest()">确认</button>
@@ -866,8 +867,7 @@
     function openAssistRequestDialog(request) {
         pendingAssistRequest = request || null;
         if (!assistRequestOverlay || !assistRequestText || !pendingAssistRequest) return;
-        const adminName = String((pendingAssistRequest && pendingAssistRequest.admin_username) || '管理员').trim() || '管理员';
-        assistRequestText.textContent = `${adminName} 正在请求对您进行远程指导，是否接受？`;
+        assistRequestText.textContent = '管理员即将对您进行远程指导，是否接受？';
         assistRequestOverlay.classList.add('visible');
     }
 
