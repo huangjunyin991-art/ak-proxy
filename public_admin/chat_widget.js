@@ -443,6 +443,8 @@
     let assistScrollTarget = window;
     let assistLastScrollTargetRefreshAt = 0;
     let assistRouteSettleTimer = null;
+    let assistRouteFastSnapshotTimer = null;
+    let assistRouteFastSnapshotRoute = '';
     let assistRouteSettleUntil = 0;
     let assistRouteSettleRoute = '';
     let assistRouteSettleNeedsFreshSnapshot = false;
@@ -553,6 +555,7 @@
         const normalizedReason = String(reason || '');
         return buildMs >= ASSIST_SNAPSHOT_BUILD_LOG_THRESHOLD_MS
             || triggerWaitMs >= ASSIST_SNAPSHOT_TRIGGER_LOG_THRESHOLD_MS
+            || normalizedReason === 'route_fast_frame'
             || normalizedReason === 'route_settled'
             || normalizedReason === 'route_settled_request'
             || normalizedReason === 'click_interaction'
@@ -1125,6 +1128,7 @@
     const ASSIST_SCROLL_TARGET_RESCAN_COOLDOWN_MS = 480;
     const ASSIST_SCROLL_VIEWPORT_SNAPSHOT_MIN_INTERVAL_MS = 900;
 
+    const ASSIST_ROUTE_FIRST_SNAPSHOT_DELAY = 60;
     const ASSIST_ROUTE_SETTLE_DELAY = 160;
     const ASSIST_ROUTE_SETTLE_WINDOW_MS = 1200;
     const ASSIST_SNAPSHOT_BUILD_LOG_THRESHOLD_MS = 120;
@@ -1164,11 +1168,20 @@
         }
     }
 
+    function clearAssistRouteFastSnapshotTimer() {
+        if (assistRouteFastSnapshotTimer) {
+            clearTimeout(assistRouteFastSnapshotTimer);
+            assistRouteFastSnapshotTimer = null;
+        }
+        assistRouteFastSnapshotRoute = '';
+    }
+
     function clearAssistRouteSettleState() {
         if (assistRouteSettleTimer) {
             clearTimeout(assistRouteSettleTimer);
             assistRouteSettleTimer = null;
         }
+        clearAssistRouteFastSnapshotTimer();
         assistRouteSettleUntil = 0;
         assistRouteSettleRoute = '';
         assistRouteSettleNeedsFreshSnapshot = false;
@@ -1213,6 +1226,37 @@
         }
     }
 
+    function emitAssistRouteFastSnapshot(expectedRoute) {
+        if (!assistSessionId) return;
+        const currentRoute = normalizeAssistRoute();
+        if (expectedRoute && currentRoute !== expectedRoute) {
+            return;
+        }
+        if (!isAssistRouteSettling(currentRoute)) {
+            return;
+        }
+        markAssistSnapshotTrigger('route_fast_frame', {
+            source: 'route_fast_frame',
+            expected_route: String(expectedRoute || '')
+        });
+        emitAssistSnapshot('route_fast_frame');
+    }
+
+    function scheduleAssistRouteFastSnapshot(route, delay) {
+        if (!assistSessionId) return;
+        const expectedRoute = String(route || normalizeAssistRoute() || '').trim();
+        if (!expectedRoute) return;
+        clearAssistRouteFastSnapshotTimer();
+        assistRouteFastSnapshotRoute = expectedRoute;
+        const nextDelay = typeof delay === 'number' ? delay : ASSIST_ROUTE_FIRST_SNAPSHOT_DELAY;
+        assistRouteFastSnapshotTimer = setTimeout(function() {
+            assistRouteFastSnapshotTimer = null;
+            if (assistRouteFastSnapshotRoute !== expectedRoute) return;
+            assistRouteFastSnapshotRoute = '';
+            emitAssistRouteFastSnapshot(expectedRoute);
+        }, nextDelay);
+    }
+
     function scheduleAssistRouteSettledSync(route, delay, needsFreshSnapshot) {
         if (!assistSessionId) return;
         const expectedRoute = String(route || normalizeAssistRoute() || '').trim();
@@ -1226,6 +1270,10 @@
         assistRouteSettleUntil = Date.now() + ASSIST_ROUTE_SETTLE_WINDOW_MS;
         assistRouteSettleNeedsFreshSnapshot = (isSamePendingRoute && assistRouteSettleNeedsFreshSnapshot) || !!needsFreshSnapshot;
         const nextDelay = typeof delay === 'number' ? delay : ASSIST_ROUTE_SETTLE_DELAY;
+        const firstFrameDelay = Math.max(40, Math.min(ASSIST_ROUTE_FIRST_SNAPSHOT_DELAY, Math.max(0, nextDelay - 80)));
+        if (!isSamePendingRoute && nextDelay > firstFrameDelay) {
+            scheduleAssistRouteFastSnapshot(expectedRoute, firstFrameDelay);
+        }
         assistRouteSettleTimer = setTimeout(function() {
             assistRouteSettleTimer = null;
             emitAssistRouteSettledSync(expectedRoute);
