@@ -8476,11 +8476,37 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
             const wantedRoute = String(route || '').trim();
             clearRemoteAssistRouteSnapshotTimer();
             if (!remoteAssistPanelSessionId) return;
+            logRemoteAssistDebug('route_snapshot_request_scheduled', {
+                session_id: remoteAssistPanelSessionId,
+                route: wantedRoute,
+                pending_route: remoteAssistPanelPendingRoute,
+                waiting: !!remoteAssistPanelWaitingForRouteSnapshot
+            });
             remoteAssistPanelRouteSnapshotTimer = setTimeout(function() {
                 remoteAssistPanelRouteSnapshotTimer = null;
-                if (!remoteAssistPanelWaitingForRouteSnapshot) return;
-                if (wantedRoute && remoteAssistPanelPendingRoute && wantedRoute !== remoteAssistPanelPendingRoute) return;
-                if (!sendRemoteAssistMessage('snapshot_request', { reason: 'route_changed' })) {
+                if (!remoteAssistPanelWaitingForRouteSnapshot) {
+                    logRemoteAssistDebug('route_snapshot_request_skipped', {
+                        reason: 'waiting_cleared',
+                        route: wantedRoute,
+                        pending_route: remoteAssistPanelPendingRoute
+                    });
+                    return;
+                }
+                if (wantedRoute && remoteAssistPanelPendingRoute && wantedRoute !== remoteAssistPanelPendingRoute) {
+                    logRemoteAssistDebug('route_snapshot_request_skipped', {
+                        reason: 'pending_route_mismatch',
+                        route: wantedRoute,
+                        pending_route: remoteAssistPanelPendingRoute
+                    });
+                    return;
+                }
+                const sent = sendRemoteAssistMessage('snapshot_request', { reason: 'route_changed' });
+                logRemoteAssistDebug(sent ? 'route_snapshot_request_sent' : 'route_snapshot_request_failed', {
+                    route: wantedRoute,
+                    pending_route: remoteAssistPanelPendingRoute,
+                    waiting: !!remoteAssistPanelWaitingForRouteSnapshot
+                });
+                if (!sent) {
                     setRemoteAssistMeta('指导连接未就绪，正在等待重连');
                 }
             }, 160);
@@ -8689,12 +8715,40 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
             clearRemoteAssistScrollRestoreTimer();
             const currentRoute = getRemoteAssistSnapshotRoute(remoteAssistPanelLastSnapshot);
             const scrollRoute = getRemoteAssistScrollRoute(scroll);
-            if (remoteAssistPanelWaitingForRouteSnapshot) return;
-            if (scrollRoute && currentRoute && scrollRoute !== currentRoute) return;
+            if (remoteAssistPanelWaitingForRouteSnapshot) {
+                logRemoteAssistDebug('scroll_apply_skipped', {
+                    reason: 'waiting_for_route_snapshot',
+                    current_route: currentRoute,
+                    scroll_route: scrollRoute,
+                    mode: String(scroll && scroll.mode || 'window'),
+                    top: Number(scroll && scroll.top || 0),
+                    left: Number(scroll && scroll.left || 0)
+                });
+                return;
+            }
+            if (scrollRoute && currentRoute && scrollRoute !== currentRoute) {
+                logRemoteAssistDebug('scroll_apply_skipped', {
+                    reason: 'route_mismatch',
+                    current_route: currentRoute,
+                    scroll_route: scrollRoute,
+                    mode: String(scroll && scroll.mode || 'window'),
+                    top: Number(scroll && scroll.top || 0),
+                    left: Number(scroll && scroll.left || 0)
+                });
+                return;
+            }
             try {
                 const frame = document.getElementById('remoteAssistFrame');
                 const win = frame && frame.contentWindow;
-                if (!frame || !win) return;
+                if (!frame || !win) {
+                    logRemoteAssistDebug('scroll_apply_skipped', {
+                        reason: 'frame_missing',
+                        current_route: currentRoute,
+                        scroll_route: scrollRoute,
+                        mode: String(scroll && scroll.mode || 'window')
+                    });
+                    return;
+                }
                 const top = Math.max(0, Math.round(scroll && scroll.top || 0));
                 const left = Math.max(0, Math.round(scroll && scroll.left || 0));
                 const mode = String(scroll && scroll.mode || 'window').toLowerCase();
@@ -8704,12 +8758,40 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                         if (target) {
                             target.scrollTop = top;
                             target.scrollLeft = left;
+                            logRemoteAssistDebug('scroll_apply_element', {
+                                current_route: currentRoute,
+                                scroll_route: scrollRoute,
+                                top,
+                                left,
+                                node_id: String(scroll && scroll.node_id || ''),
+                                selector_hint: String(scroll && scroll.selector_hint || '')
+                            });
+                        } else {
+                            logRemoteAssistDebug('scroll_apply_element_missing_target', {
+                                current_route: currentRoute,
+                                scroll_route: scrollRoute,
+                                top,
+                                left,
+                                node_id: String(scroll && scroll.node_id || ''),
+                                selector_hint: String(scroll && scroll.selector_hint || '')
+                            });
                         }
                         return;
                     }
                     win.scrollTo(left, top);
+                    logRemoteAssistDebug('scroll_apply_window', {
+                        current_route: currentRoute,
+                        scroll_route: scrollRoute,
+                        top,
+                        left
+                    });
                 });
             } catch (e) {
+                logRemoteAssistDebug('scroll_apply_error', {
+                    current_route: currentRoute,
+                    scroll_route: scrollRoute,
+                    message: String((e && e.message) || e || '')
+                });
             }
         }
 
@@ -8735,24 +8817,58 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
             if (!frame) return;
             const route = getRemoteAssistSnapshotRoute(snapshot);
             if (remoteAssistPanelWaitingForRouteSnapshot && remoteAssistPanelPendingRoute && route && route !== remoteAssistPanelPendingRoute) {
+                logRemoteAssistDebug('snapshot_render_dropped_pending_route', {
+                    route,
+                    pending_route: remoteAssistPanelPendingRoute,
+                    waiting: !!remoteAssistPanelWaitingForRouteSnapshot,
+                    html_length: String(snapshot && snapshot.html || '').length,
+                    truncated: !!(snapshot && snapshot.truncated),
+                    node_count: Number(snapshot && snapshot.node_count || 0)
+                });
                 return;
             }
             clearRemoteAssistPendingRoute(route);
             const title = String(snapshot && snapshot.title || '').trim();
             const scrollPayload = resolveRemoteAssistSnapshotScroll(snapshot);
+            logRemoteAssistDebug('snapshot_render_received', {
+                route,
+                title,
+                waiting: !!remoteAssistPanelWaitingForRouteSnapshot,
+                pending_route: remoteAssistPanelPendingRoute,
+                html_length: String(snapshot && snapshot.html || '').length,
+                truncated: !!(snapshot && snapshot.truncated),
+                node_count: Number(snapshot && snapshot.node_count || 0),
+                scroll_mode: String(scrollPayload && scrollPayload.mode || 'window'),
+                scroll_route: String(scrollPayload && scrollPayload.route || ''),
+                scroll_top: Number(scrollPayload && scrollPayload.top || 0),
+                scroll_left: Number(scrollPayload && scrollPayload.left || 0),
+                scroll_node_id: String(scrollPayload && scrollPayload.node_id || '')
+            });
             const metaText = [route || '用户页面', title || '', snapshot && snapshot.truncated ? '已截断' : ''].filter(Boolean).join(' · ');
             setRemoteAssistMeta(metaText || '用户页面快照');
             setRemoteAssistLoading(false);
             const sanitizedHtml = sanitizeRemoteAssistSrcdocHtml(snapshot && snapshot.html || '<!doctype html><html><body style="font-family:Arial;padding:16px;color:#64748b;">暂无可渲染快照</body></html>');
             if (remoteAssistPanelLastHtml === sanitizedHtml) {
+                logRemoteAssistDebug('snapshot_render_reuse_html', {
+                    route,
+                    html_length: sanitizedHtml.length
+                });
                 applyRemoteAssistScroll(scrollPayload);
                 return;
             }
             remoteAssistPanelLastHtml = sanitizedHtml;
             frame.onload = function() {
                 bindRemoteAssistSnapshotFrame();
+                logRemoteAssistDebug('snapshot_frame_loaded', {
+                    route,
+                    html_length: sanitizedHtml.length
+                });
                 applyRemoteAssistScroll(scrollPayload);
             };
+            logRemoteAssistDebug('snapshot_render_set_srcdoc', {
+                route,
+                html_length: sanitizedHtml.length
+            });
             frame.srcdoc = sanitizedHtml;
         }
 
@@ -8774,7 +8890,14 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                 return;
             }
             setRemoteAssistLoading(true, '正在请求用户页面快照');
-            if (!sendRemoteAssistMessage('snapshot_request', { reason: 'admin_refresh' })) {
+            const sent = sendRemoteAssistMessage('snapshot_request', { reason: 'admin_refresh' });
+            logRemoteAssistDebug(sent ? 'snapshot_request_sent' : 'snapshot_request_failed', {
+                session_id: remoteAssistPanelSessionId,
+                reason: 'admin_refresh',
+                pending_route: remoteAssistPanelPendingRoute,
+                waiting: !!remoteAssistPanelWaitingForRouteSnapshot
+            });
+            if (!sent) {
                 setRemoteAssistLoading(false);
                 setRemoteAssistMeta('指导连接未就绪，正在等待重连');
             }
@@ -8808,6 +8931,13 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                         const payload = data.payload || {};
                         const consentStatus = String(payload.consent_status || remoteAssistPanelConsentStatus || 'waiting');
                         const frame = document.getElementById('remoteAssistFrame');
+                        logRemoteAssistDebug('session_state_received', {
+                            consent_status: consentStatus,
+                            has_snapshot: !!payload.has_snapshot,
+                            last_route: String(payload.last_route || ''),
+                            target_username: String(payload.target_username || ''),
+                            admin_username: String(payload.admin_username || '')
+                        });
                         remoteAssistPanelConsentStatus = consentStatus;
                         if (consentStatus === 'rejected') {
                             clearRemoteAssistRouteSnapshotTimer();
@@ -8845,9 +8975,19 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                     if (data.type === 'route_changed' && data.payload) {
                         const route = String(data.payload.route || '').trim();
                         const currentRoute = getRemoteAssistSnapshotRoute(remoteAssistPanelLastSnapshot);
+                        logRemoteAssistDebug('route_changed_received', {
+                            route,
+                            current_route: currentRoute,
+                            pending_route: remoteAssistPanelPendingRoute,
+                            waiting: !!remoteAssistPanelWaitingForRouteSnapshot
+                        });
                         if (route && currentRoute && route === currentRoute) {
                             clearRemoteAssistPendingRoute(route);
                             setRemoteAssistLoading(false);
+                            logRemoteAssistDebug('route_changed_ignored_same_route', {
+                                route,
+                                current_route: currentRoute
+                            });
                             return;
                         }
                         setRemoteAssistPendingRoute(route);
@@ -8861,6 +9001,17 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                         return;
                     }
                     if (data.type === 'scroll_changed' && data.payload) {
+                        logRemoteAssistDebug('scroll_received', {
+                            route: String(data.payload.route || ''),
+                            mode: String(data.payload.mode || 'window'),
+                            top: Number(data.payload.top || 0),
+                            left: Number(data.payload.left || 0),
+                            node_id: String(data.payload.node_id || ''),
+                            selector_hint: String(data.payload.selector_hint || ''),
+                            current_route: getRemoteAssistSnapshotRoute(remoteAssistPanelLastSnapshot),
+                            pending_route: remoteAssistPanelPendingRoute,
+                            waiting: !!remoteAssistPanelWaitingForRouteSnapshot
+                        });
                         applyRemoteAssistScroll(data.payload);
                         return;
                     }

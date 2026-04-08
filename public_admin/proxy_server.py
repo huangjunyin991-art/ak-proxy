@@ -4890,6 +4890,30 @@ def _build_remote_assist_session_state_payload(session, role: Optional[AssistRol
     }
 
 
+def _summarize_remote_assist_payload(payload: Any) -> dict:
+
+    data = payload if isinstance(payload, dict) else {}
+    scroll_payload = data.get('scroll') if isinstance(data.get('scroll'), dict) else {}
+    return {
+        'route': str(data.get('route') or '').strip(),
+        'title': str(data.get('title') or '').strip(),
+        'replace': bool(data.get('replace')),
+        'mode': str(data.get('mode') or '').strip(),
+        'top': int(data.get('top') or 0),
+        'left': int(data.get('left') or 0),
+        'node_id': str(data.get('node_id') or '').strip(),
+        'selector_hint': str(data.get('selector_hint') or '').strip()[:120],
+        'html_length': len(str(data.get('html') or '')),
+        'truncated': bool(data.get('truncated')),
+        'node_count': int(data.get('node_count') or 0),
+        'scroll_mode': str(scroll_payload.get('mode') or '').strip(),
+        'scroll_route': str(scroll_payload.get('route') or '').strip(),
+        'scroll_top': int(scroll_payload.get('top') or 0),
+        'scroll_left': int(scroll_payload.get('left') or 0),
+        'scroll_node_id': str(scroll_payload.get('node_id') or '').strip(),
+    }
+
+
 async def _publish_remote_assist_session_state(session, include_roles: Optional[set[str]] = None) -> None:
 
     if not session or session.site_type != 'ak_web':
@@ -5180,6 +5204,10 @@ async def remote_assist_websocket(websocket: WebSocket):
 
             if msg_type == 'route_changed':
                 if role == AssistRole.USER:
+                    logger.warning(
+                        f"[RemoteAssistWS] relay route_changed session={session.session_id} role={role.value} "
+                        f"participant={participant_id} summary={_summarize_remote_assist_payload(payload)}"
+                    )
                     await remote_assist.publish_event(
                         'route_changed',
                         session.session_id,
@@ -5193,6 +5221,10 @@ async def remote_assist_websocket(websocket: WebSocket):
 
             if msg_type == 'snapshot_replace':
                 if role == AssistRole.USER:
+                    logger.warning(
+                        f"[RemoteAssistWS] relay snapshot_replace session={session.session_id} role={role.value} "
+                        f"participant={participant_id} summary={_summarize_remote_assist_payload(payload)}"
+                    )
                     await remote_assist.publish_event(
                         'snapshot_replace',
                         session.session_id,
@@ -5206,6 +5238,10 @@ async def remote_assist_websocket(websocket: WebSocket):
 
             if msg_type == 'snapshot_request':
                 if role == AssistRole.ADMIN and _assist_session_has_accepted_consent(remote_assist.get_session(session.session_id)):
+                    logger.warning(
+                        f"[RemoteAssistWS] relay snapshot_request session={session.session_id} role={role.value} "
+                        f"participant={participant_id} summary={_summarize_remote_assist_payload(payload)}"
+                    )
                     await remote_assist.publish_event(
                         'snapshot_request',
                         session.session_id,
@@ -5219,6 +5255,10 @@ async def remote_assist_websocket(websocket: WebSocket):
 
             if msg_type == 'scroll_changed':
                 if role == AssistRole.USER:
+                    logger.warning(
+                        f"[RemoteAssistWS] relay scroll_changed session={session.session_id} role={role.value} "
+                        f"participant={participant_id} summary={_summarize_remote_assist_payload(payload)}"
+                    )
                     await remote_assist.publish_event(
                         'scroll_changed',
                         session.session_id,

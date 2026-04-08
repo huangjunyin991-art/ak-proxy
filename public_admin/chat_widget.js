@@ -474,6 +474,24 @@
             } catch (_) {}
         }
     }
+
+    function logAssistDebug(eventName, extra) {
+        try {
+            console.warn('[AKChatAssistDebug]', JSON.stringify(Object.assign({
+                event: String(eventName || ''),
+                username: String(username || ''),
+                sessionId: String(assistSessionId || ''),
+                route: normalizeAssistRoute(),
+                hidden: !!document.hidden,
+                wsState: getChatWsReadyStateLabel(assistWs),
+                ts: new Date().toISOString()
+            }, extra || {})));
+        } catch (e) {
+            try {
+                console.warn('[AKChatAssistDebug]', eventName, extra || {});
+            } catch (_) {}
+        }
+    }
     
     // 从cookie获取值
     function getCookie(name) {
@@ -2220,11 +2238,33 @@
             && (assistLastScrollPayload.node_id || '') === (payload.node_id || '')
             && assistLastScrollPayload.top === payload.top
             && assistLastScrollPayload.left === payload.left) {
+            logAssistDebug('scroll_skipped_duplicate', {
+                force: !!force,
+                mode: payload.mode,
+                top: payload.top,
+                left: payload.left,
+                nodeId: String(payload.node_id || '')
+            });
             return false;
         }
         const sent = sendAssistEvent('scroll_changed', payload);
         if (sent) {
             assistLastScrollPayload = payload;
+            logAssistDebug('scroll_sent', {
+                force: !!force,
+                mode: payload.mode,
+                top: payload.top,
+                left: payload.left,
+                nodeId: String(payload.node_id || '')
+            });
+        } else {
+            logAssistDebug('scroll_send_failed', {
+                force: !!force,
+                mode: payload.mode,
+                top: payload.top,
+                left: payload.left,
+                nodeId: String(payload.node_id || '')
+            });
         }
         return sent;
     }
@@ -2245,24 +2285,66 @@
             && assistLastSnapshotPayload
             && assistLastSnapshotPayload.route === route
             && (now - assistLastSnapshotSentAt) < 3000) {
-            return sendAssistSnapshotPayload(assistLastSnapshotPayload);
+            const sent = sendAssistSnapshotPayload(assistLastSnapshotPayload);
+            logAssistDebug(sent ? 'snapshot_sent_cached' : 'snapshot_send_failed_cached', {
+                reason: String(reason || ''),
+                route: String(assistLastSnapshotPayload.route || route || ''),
+                htmlLength: String(assistLastSnapshotPayload.html || '').length,
+                truncated: !!assistLastSnapshotPayload.truncated,
+                nodeCount: Number(assistLastSnapshotPayload.node_count || 0),
+                scrollMode: String(assistLastSnapshotPayload.scroll && assistLastSnapshotPayload.scroll.mode || 'window'),
+                scrollTop: Number(assistLastSnapshotPayload.scroll && assistLastSnapshotPayload.scroll.top || 0),
+                scrollLeft: Number(assistLastSnapshotPayload.scroll && assistLastSnapshotPayload.scroll.left || 0)
+            });
+            return sent;
         }
         if ((reason === 'connect_open' || reason === 'session_state')
             && assistLastSnapshotPayload
             && assistLastSnapshotPayload.route === route
             && (now - assistLastSnapshotSentAt) < 1200) {
+            logAssistDebug('snapshot_skipped_recent', {
+                reason: String(reason || ''),
+                route: String(route || ''),
+                ageMs: now - assistLastSnapshotSentAt
+            });
             return false;
         }
         const payload = buildAssistSnapshotPayload(reason);
-        if (!payload) return false;
+        if (!payload) {
+            logAssistDebug('snapshot_build_empty', {
+                reason: String(reason || ''),
+                route: String(route || '')
+            });
+            return false;
+        }
         if (assistLastSnapshotPayload
             && assistLastSnapshotPayload.route === payload.route
             && assistLastSnapshotPayload.html === payload.html
             && (now - assistLastSnapshotSentAt) < 5000
             && reason !== 'snapshot_request') {
+            logAssistDebug('snapshot_skipped_duplicate', {
+                reason: String(reason || ''),
+                route: String(payload.route || ''),
+                ageMs: now - assistLastSnapshotSentAt,
+                htmlLength: String(payload.html || '').length,
+                truncated: !!payload.truncated,
+                nodeCount: Number(payload.node_count || 0)
+            });
             return false;
         }
-        return sendAssistSnapshotPayload(payload);
+        const sent = sendAssistSnapshotPayload(payload);
+        logAssistDebug(sent ? 'snapshot_sent' : 'snapshot_send_failed', {
+            reason: String(reason || ''),
+            route: String(payload.route || ''),
+            htmlLength: String(payload.html || '').length,
+            truncated: !!payload.truncated,
+            nodeCount: Number(payload.node_count || 0),
+            scrollMode: String(payload.scroll && payload.scroll.mode || 'window'),
+            scrollTop: Number(payload.scroll && payload.scroll.top || 0),
+            scrollLeft: Number(payload.scroll && payload.scroll.left || 0),
+            scrollNodeId: String(payload.scroll && payload.scroll.node_id || '')
+        });
+        return sent;
     }
 
     function scheduleAssistSnapshot(delay, reason) {
@@ -2362,10 +2444,15 @@
         if (!assistSessionId) return;
         const route = normalizeAssistRoute();
         if (route.indexOf('/admin/ak-web/') !== 0) return;
-        sendAssistEvent('route_changed', {
+        const payload = {
             route: route,
             title: document.title || '',
             replace: false
+        };
+        const sent = sendAssistEvent('route_changed', payload);
+        logAssistDebug(sent ? 'route_sent' : 'route_send_failed', {
+            route: String(payload.route || ''),
+            title: String(payload.title || '')
         });
     }
 
@@ -2433,8 +2520,16 @@
                     if (data.type === 'click_highlight' && data.payload) {
                         applyAssistHighlight(data.payload);
                     } else if (data.type === 'snapshot_request') {
+                        logAssistDebug('snapshot_request_received', {
+                            reason: String(data.payload && data.payload.reason || '')
+                        });
                         emitAssistSnapshot('snapshot_request');
                     } else if (data.type === 'session_state') {
+                        logAssistDebug('session_state_received', {
+                            consentStatus: String(data.payload && data.payload.consent_status || ''),
+                            hasSnapshot: !!(data.payload && data.payload.has_snapshot),
+                            lastRoute: String(data.payload && data.payload.last_route || '')
+                        });
                         emitAssistRoute();
                         if (!data.payload || !data.payload.has_snapshot) {
                             emitAssistSnapshot('session_state');
