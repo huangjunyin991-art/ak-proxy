@@ -2720,9 +2720,8 @@
                 if (assistWs !== currentAssistWs) return;
                 startAssistHeartbeat();
                 emitAssistRoute();
-                emitAssistSnapshot('connect_open');
-                emitAssistScroll(true);
                 startAssistDomObserver();
+                scheduleAssistRouteSettledSync(normalizeAssistRoute(), ASSIST_ROUTE_SETTLE_DELAY, false);
             };
             currentAssistWs.onmessage = function(e) {
                 if (assistWs !== currentAssistWs) return;
@@ -2747,6 +2746,9 @@
                         });
                         emitAssistRoute();
                         if (!data.payload || !data.payload.has_snapshot) {
+                            if (deferAssistSnapshotUntilRouteSettled(normalizeAssistRoute(), 'session_state')) {
+                                return;
+                            }
                             emitAssistSnapshot('session_state');
                         }
                     }
