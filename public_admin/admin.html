@@ -8346,7 +8346,9 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
         let remoteAssistPanelPendingRouteRequestAt = 0;
         let remoteAssistPanelRenderSeq = 0;
         let remoteAssistPanelLoadedRenderSeq = 0;
+        let remoteAssistPanelReadyRenderSeq = 0;
         let remoteAssistPanelFrameBindingCleanup = null;
+        let remoteAssistPanelRenderReadyTimer = null;
         const REMOTE_ASSIST_PREPARE_LOG_THRESHOLD_MS = 80;
         const REMOTE_ASSIST_RENDER_LOG_THRESHOLD_MS = 200;
         const REMOTE_ASSIST_PENDING_ROUTE_REQUEST_RETRY_MS = 1000;
@@ -8457,6 +8459,13 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
             }
         }
 
+        function clearRemoteAssistRenderReadyTimer() {
+            if (remoteAssistPanelRenderReadyTimer) {
+                clearTimeout(remoteAssistPanelRenderReadyTimer);
+                remoteAssistPanelRenderReadyTimer = null;
+            }
+        }
+
         function clearRemoteAssistFrameBinding() {
             if (typeof remoteAssistPanelFrameBindingCleanup === 'function') {
                 try {
@@ -8471,6 +8480,8 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
             const frame = document.getElementById('remoteAssistFrame');
             remoteAssistPanelRenderSeq += 1;
             remoteAssistPanelLoadedRenderSeq = 0;
+            remoteAssistPanelReadyRenderSeq = 0;
+            clearRemoteAssistRenderReadyTimer();
             clearRemoteAssistFrameBinding();
             if (!frame) return;
             frame.onload = null;
@@ -8639,7 +8650,7 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
         }
 
         function bindRemoteAssistSnapshotFrame(renderSeq) {
-            if (typeof renderSeq === 'number' && (renderSeq !== remoteAssistPanelRenderSeq || remoteAssistPanelLoadedRenderSeq !== renderSeq)) {
+            if (typeof renderSeq === 'number' && (renderSeq !== remoteAssistPanelRenderSeq || (remoteAssistPanelLoadedRenderSeq !== renderSeq && remoteAssistPanelReadyRenderSeq !== renderSeq))) {
                 return;
             }
             const frame = document.getElementById('remoteAssistFrame');
@@ -8893,6 +8904,53 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                 : Date.now();
         }
 
+        function markRemoteAssistRenderReady(renderSeq, scrollPayload, route, prepareMs, isFastPath, renderStartedAt, stage = 'load') {
+            if (renderSeq !== remoteAssistPanelRenderSeq) return false;
+            const frame = document.getElementById('remoteAssistFrame');
+            const doc = frame && frame.contentDocument;
+            const body = doc && doc.body;
+            if (!frame || !doc || !body) return false;
+            if (remoteAssistPanelReadyRenderSeq === renderSeq) return true;
+            remoteAssistPanelReadyRenderSeq = renderSeq;
+            clearRemoteAssistRenderReadyTimer();
+            if (stage !== 'load') {
+                logRemoteAssistDebug('snapshot_render_ready', {
+                    route,
+                    render_seq: renderSeq,
+                    ready_ms: Math.max(0, Math.round(getRemoteAssistPerfNow() - renderStartedAt)),
+                    prepare_ms: prepareMs,
+                    is_fast_path: !!isFastPath,
+                    stage: String(stage || 'early_ready')
+                });
+            }
+            setRemoteAssistLoading(false);
+            bindRemoteAssistSnapshotFrame(renderSeq);
+            applyRemoteAssistScroll(resolveRemoteAssistSnapshotScroll(remoteAssistPanelLastSnapshot) || scrollPayload);
+            return true;
+        }
+
+        function scheduleRemoteAssistRenderReady(renderSeq, scrollPayload, route, prepareMs, isFastPath, renderStartedAt) {
+            clearRemoteAssistRenderReadyTimer();
+            let attempt = 0;
+            const tryMarkReady = function() {
+                if (renderSeq !== remoteAssistPanelRenderSeq) {
+                    remoteAssistPanelRenderReadyTimer = null;
+                    return;
+                }
+                attempt += 1;
+                if (markRemoteAssistRenderReady(renderSeq, scrollPayload, route, prepareMs, isFastPath, renderStartedAt, 'early_ready')) {
+                    remoteAssistPanelRenderReadyTimer = null;
+                    return;
+                }
+                if (attempt >= 60) {
+                    remoteAssistPanelRenderReadyTimer = null;
+                    return;
+                }
+                remoteAssistPanelRenderReadyTimer = setTimeout(tryMarkReady, 16);
+            };
+            tryMarkReady();
+        }
+
         function getRemoteAssistWsReadyStateLabel(targetWs) {
             if (!targetWs) return 'NULL';
             if (targetWs.readyState === WebSocket.CONNECTING) return 'CONNECTING';
@@ -8977,6 +9035,8 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
             const renderStartedAt = getRemoteAssistPerfNow();
             remoteAssistPanelRenderSeq = renderSeq;
             remoteAssistPanelLoadedRenderSeq = 0;
+            remoteAssistPanelReadyRenderSeq = 0;
+            clearRemoteAssistRenderReadyTimer();
             clearRemoteAssistFrameBinding();
             frame.onload = null;
             frame.onload = function() {
@@ -8993,11 +9053,14 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                         is_fast_path: !!isFastPath
                     });
                 }
-                setRemoteAssistLoading(false);
-                bindRemoteAssistSnapshotFrame(renderSeq);
-                applyRemoteAssistScroll(resolveRemoteAssistSnapshotScroll(remoteAssistPanelLastSnapshot) || scrollPayload);
+                const readyBeforeLoad = remoteAssistPanelReadyRenderSeq === renderSeq;
+                markRemoteAssistRenderReady(renderSeq, scrollPayload, route, prepareMs, isFastPath, renderStartedAt, 'load');
+                if (readyBeforeLoad) {
+                    applyRemoteAssistScroll(resolveRemoteAssistSnapshotScroll(remoteAssistPanelLastSnapshot) || scrollPayload);
+                }
             };
             frame.srcdoc = sanitizedHtml;
+            scheduleRemoteAssistRenderReady(renderSeq, scrollPayload, route, prepareMs, isFastPath, renderStartedAt);
         }
 
         function sendRemoteAssistMessage(type, payload = {}) {
