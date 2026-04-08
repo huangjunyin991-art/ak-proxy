@@ -2569,6 +2569,8 @@ ws_manager = ConnectionManager()
 
 class OnlineUserManager:
 
+    CHAT_CONNECTION_STALE_SECONDS = 15
+
     def __init__(self):
 
         self.users = {}
@@ -2583,6 +2585,136 @@ class OnlineUserManager:
 
 
 
+    def get_websocket_id(self, websocket):
+
+        if not websocket:
+
+            return ''
+
+        return f"cw_{id(websocket)}"
+
+
+
+    def is_login_page(self, page):
+
+        path = str(page or '').strip().lower()
+
+        return '/pages/account/login.html' in path or '/login' in path
+
+
+
+    def _is_connection_active(self, connection, now=None):
+
+        heartbeat = connection.get('last_heartbeat') if isinstance(connection, dict) else None
+
+        if not isinstance(heartbeat, datetime):
+
+            return False
+
+        current = now or datetime.now()
+
+        return (current - heartbeat).total_seconds() <= self.CHAT_CONNECTION_STALE_SECONDS
+
+
+
+    def _prune_stale_connections(self, normalized):
+
+        user = self.users.get(normalized)
+
+        if not user:
+
+            return None
+
+        now = datetime.now()
+
+        connections = user.setdefault('connections', {})
+
+        expired = [ws_id for ws_id, conn in connections.items() if not self._is_connection_active(conn, now)]
+
+        for ws_id in expired:
+
+            connections.pop(ws_id, None)
+
+        if not connections:
+
+            self.users.pop(normalized, None)
+
+            return None
+
+        return user
+
+
+
+    def _pick_primary_connection(self, user, prefer_non_login=True):
+
+        if not user:
+
+            return None
+
+        connections = list((user.get('connections') or {}).values())
+
+        if not connections:
+
+            return None
+
+        now = datetime.now()
+
+        active_connections = [item for item in connections if self._is_connection_active(item, now)]
+
+        pool = active_connections or connections
+
+        def _score(item):
+
+            non_login = 0 if (prefer_non_login and self.is_login_page(item.get('page'))) else 1
+
+            heartbeat = item.get('last_heartbeat')
+
+            heartbeat_ts = heartbeat.timestamp() if isinstance(heartbeat, datetime) else 0
+
+            return (non_login, heartbeat_ts)
+
+        return max(pool, key=_score)
+
+
+
+    def _refresh_user_summary(self, normalized, preferred_ws_id=''):
+
+        user = self._prune_stale_connections(normalized)
+
+        if not user:
+
+            return None
+
+        connections = user.get('connections') or {}
+
+        preferred = connections.get((preferred_ws_id or '').strip()) if preferred_ws_id else None
+
+        current = preferred or self._pick_primary_connection(user, prefer_non_login=False)
+
+        if not current:
+
+            self.users.pop(normalized, None)
+
+            return None
+
+        user['username'] = user.get('username') or current.get('username') or normalized
+
+        user['websocket'] = current.get('websocket')
+
+        user['ws_id'] = current.get('ws_id', '')
+
+        user['page'] = current.get('page', '')
+
+        user['user_agent'] = current.get('user_agent', '')
+
+        user['last_heartbeat'] = current.get('last_heartbeat')
+
+        user['online_time'] = user.get('online_time') or current.get('online_time') or datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+
+        return user
+
+
+
     def get_user(self, username):
 
         normalized = self.normalize_username(username)
@@ -2591,7 +2723,49 @@ class OnlineUserManager:
 
             return None
 
-        return self.users.get(normalized)
+        return self._refresh_user_summary(normalized)
+
+
+
+    def get_user_connection(self, username, websocket_id):
+
+        normalized = self.normalize_username(username)
+
+        if not normalized:
+
+            return None
+
+        user = self._prune_stale_connections(normalized)
+
+        if not user:
+
+            return None
+
+        return (user.get('connections') or {}).get((str(websocket_id or '')).strip())
+
+
+
+    def pick_remote_assist_connection(self, username):
+
+        normalized = self.normalize_username(username)
+
+        if not normalized:
+
+            return None
+
+        user = self._prune_stale_connections(normalized)
+
+        if not user:
+
+            return None
+
+        candidate = self._pick_primary_connection(user, prefer_non_login=True)
+
+        if not candidate or self.is_login_page(candidate.get('page')):
+
+            return None
+
+        return candidate
 
 
 
@@ -2605,21 +2779,45 @@ class OnlineUserManager:
 
             return None
 
+        ws_id = self.get_websocket_id(websocket)
+
+        now = datetime.now()
+
         existing = self.users.get(normalized, {})
+
+        connections = dict(existing.get('connections') or {})
+
+        current_connection = connections.get(ws_id, {})
+
+        connections[ws_id] = {
+
+            'username': display_username or existing.get('username') or current_connection.get('username') or normalized,
+
+            'websocket': websocket,
+
+            'ws_id': ws_id,
+
+            'page': str(page or current_connection.get('page') or ''),
+
+            'user_agent': str(user_agent or current_connection.get('user_agent') or ''),
+
+            'online_time': current_connection.get('online_time') or now.strftime('%Y-%m-%d %H:%M:%S'),
+
+            'last_heartbeat': now,
+
+        }
 
         self.users[normalized] = {
 
             'username': display_username or existing.get('username') or normalized,
 
-            'websocket': websocket, 'ws_id': id(websocket), 'page': page, 'user_agent': user_agent,
+            'online_time': existing.get('online_time') or connections[ws_id]['online_time'],
 
-            'online_time': existing.get('online_time', datetime.now().strftime('%Y-%m-%d %H:%M:%S')),
-
-            'last_heartbeat': datetime.now()
+            'connections': connections,
 
         }
 
-        return self.users[normalized]
+        return self._refresh_user_summary(normalized, preferred_ws_id=ws_id)
 
 
 
@@ -2631,47 +2829,113 @@ class OnlineUserManager:
 
             return
 
-        if websocket is None or self.users[normalized].get('websocket') is websocket:
+        if websocket is None:
 
-            del self.users[normalized]
+            self.users.pop(normalized, None)
+
+            return None
+
+        user = self.users.get(normalized)
+
+        if not user:
+
+            return None
+
+        connections = user.get('connections') or {}
+
+        connections.pop(self.get_websocket_id(websocket), None)
+
+        if not connections:
+
+            self.users.pop(normalized, None)
+
+            return None
+
+        user['connections'] = connections
+
+        return self._refresh_user_summary(normalized)
 
 
 
-    def update_heartbeat(self, username):
+    def update_heartbeat(self, username, websocket=None, page=''):
 
-        user = self.get_user(username)
+        normalized = self.normalize_username(username)
 
-        if user:
+        if not normalized:
 
-            user['last_heartbeat'] = datetime.now()
+            return None
+
+        user = self._prune_stale_connections(normalized)
+
+        if not user:
+
+            return None
+
+        ws_id = self.get_websocket_id(websocket) if websocket else ''
+
+        connection = (user.get('connections') or {}).get(ws_id) if ws_id else None
+
+        if connection:
+
+            connection['last_heartbeat'] = datetime.now()
+
+            if page:
+
+                connection['page'] = page
+
+            return self._refresh_user_summary(normalized, preferred_ws_id=ws_id)
+
+        summary = self._refresh_user_summary(normalized)
+
+        if summary:
+
+            summary['last_heartbeat'] = datetime.now()
+
+        return summary
 
 
 
     def get_online_users(self):
 
-        now = datetime.now()
+        online = []
 
-        online, offline = [], []
+        for normalized in list(self.users.keys()):
 
-        for u, d in self.users.items():
+            user = self._refresh_user_summary(normalized)
 
-            if (now - d['last_heartbeat']).total_seconds() > 15:
+            if not user:
 
-                offline.append(u)
+                continue
 
-            else:
+            online.append({'username': user.get('username') or normalized, 'page': user.get('page', ''),
 
-                online.append({'username': d.get('username') or u, 'page': d['page'],
+                           'user_agent': (user.get('user_agent') or '')[:50],
 
-                               'user_agent': (d['user_agent'] or '')[:50],
-
-                               'online_time': d['online_time']})
-
-        for u in offline:
-
-            del self.users[u]
+                           'online_time': user.get('online_time')})
 
         return online
+
+
+
+    async def send_payload_to_connection(self, username, websocket_id, payload):
+
+        target = self.get_user_connection(username, websocket_id)
+
+        if target:
+
+            try:
+
+                await target['websocket'].send_json(payload)
+
+                return True
+
+            except Exception:
+
+                self.user_offline(username, target.get('websocket'))
+
+                return False
+
+        return False
 
 
 
@@ -2679,17 +2943,9 @@ class OnlineUserManager:
 
         user = self.get_user(username)
 
-        if user:
+        if user and user.get('ws_id'):
 
-            try:
-
-                await user['websocket'].send_json(payload)
-
-                return True
-
-            except Exception:
-
-                return False
+            return await self.send_payload_to_connection(username, user.get('ws_id'), payload)
 
         return False
 
@@ -2697,35 +2953,27 @@ class OnlineUserManager:
 
     async def send_to_user(self, username, content, save_history=True):
 
-        user = self.get_user(username)
-
         normalized = self.normalize_username(username)
 
-        if user and normalized:
+        if not normalized:
 
-            try:
+            return False
 
-                await user['websocket'].send_json({
+        sent = await self.send_payload_to_user(username, {
 
-                    'type': 'admin_message', 'content': content,
+            'type': 'admin_message', 'content': content,
 
-                    'time': datetime.now().strftime('%H:%M:%S')
+            'time': datetime.now().strftime('%H:%M:%S')
 
-                })
+        })
 
-                if save_history:
+        if sent and save_history:
 
-                    self.messages.setdefault(normalized, []).append(
+            self.messages.setdefault(normalized, []).append(
 
-                        {'content': content, 'is_admin': True, 'time': datetime.now().strftime('%H:%M:%S')})
+                {'content': content, 'is_admin': True, 'time': datetime.now().strftime('%H:%M:%S')})
 
-                return True
-
-            except Exception:
-
-                return False
-
-        return False
+        return sent
 
 
 
@@ -4950,14 +5198,103 @@ def _build_remote_assist_bind_message(session) -> dict:
     }
 
 
+def _build_remote_assist_unbind_message(session) -> dict:
+
+    return {
+        'type': 'remote_assist_unbind',
+        'session_id': session.session_id,
+        'site': session.site_type,
+    }
+
+
+def _resolve_remote_assist_request_connection(session):
+
+    if not session or session.site_type != 'ak_web':
+
+        return None
+
+    request_chat_ws_id = str(getattr(session, 'request_chat_ws_id', '') or '').strip()
+
+    if request_chat_ws_id:
+
+        target = online_manager.get_user_connection(session.target_username, request_chat_ws_id)
+
+        if target and not online_manager.is_login_page(target.get('page')):
+
+            return target
+
+        remote_assist.clear_chat_ws_locks(session.session_id, websocket_id=request_chat_ws_id, clear_request=True, clear_bound=False)
+
+    target = online_manager.pick_remote_assist_connection(session.target_username)
+
+    if target:
+
+        remote_assist.set_request_chat_ws(session.session_id, str(target.get('ws_id') or ''))
+
+    return target
+
+
+def _resolve_remote_assist_bound_connection(session):
+
+    if not session or session.site_type != 'ak_web':
+
+        return None
+
+    session_id = str(session.session_id or '').strip()
+
+    request_chat_ws_id = str(getattr(session, 'request_chat_ws_id', '') or '').strip()
+
+    bound_chat_ws_id = str(getattr(session, 'bound_chat_ws_id', '') or '').strip()
+
+    if bound_chat_ws_id:
+
+        target = online_manager.get_user_connection(session.target_username, bound_chat_ws_id)
+
+        if target and not online_manager.is_login_page(target.get('page')):
+
+            return target
+
+        remote_assist.clear_chat_ws_locks(
+            session_id,
+            websocket_id=bound_chat_ws_id,
+            clear_request=request_chat_ws_id == bound_chat_ws_id,
+            clear_bound=True,
+        )
+
+        session = remote_assist.get_session(session_id) or session
+
+        request_chat_ws_id = str(getattr(session, 'request_chat_ws_id', '') or '').strip()
+
+    if request_chat_ws_id:
+
+        target = online_manager.get_user_connection(session.target_username, request_chat_ws_id)
+
+        if target and not online_manager.is_login_page(target.get('page')):
+
+            remote_assist.set_bound_chat_ws(session_id, request_chat_ws_id)
+
+            return target
+
+        remote_assist.clear_chat_ws_locks(session_id, websocket_id=request_chat_ws_id, clear_request=True, clear_bound=False)
+
+    return None
+
+
 async def _send_remote_assist_request_to_user(session) -> bool:
 
     if not session or session.site_type != 'ak_web':
 
         return False
 
-    return await online_manager.send_payload_to_user(
+    target = _resolve_remote_assist_request_connection(session)
+
+    if not target:
+
+        return False
+
+    return await online_manager.send_payload_to_connection(
         session.target_username,
+        str(target.get('ws_id') or ''),
         _build_remote_assist_request_message(session),
     )
 
@@ -4968,19 +5305,115 @@ async def _send_remote_assist_bind_to_user(session) -> bool:
 
         return False
 
-    return await online_manager.send_payload_to_user(
+    target = _resolve_remote_assist_bound_connection(session)
+
+    if not target:
+
+        return False
+
+    return await online_manager.send_payload_to_connection(
         session.target_username,
+        str(target.get('ws_id') or ''),
         _build_remote_assist_bind_message(session),
     )
 
 
-async def _handle_remote_assist_request_response(username: str, payload: dict) -> None:
+async def _send_remote_assist_unbind_to_user(session, websocket_id: str = '') -> bool:
+
+    if not session or session.site_type != 'ak_web':
+
+        return False
+
+    payload = _build_remote_assist_unbind_message(session)
+
+    target_username = session.target_username
+
+    preferred_ids = []
+
+    requested_ws_id = str(websocket_id or '').strip()
+
+    if requested_ws_id:
+
+        preferred_ids.append(requested_ws_id)
+
+    bound_chat_ws_id = str(getattr(session, 'bound_chat_ws_id', '') or '').strip()
+
+    request_chat_ws_id = str(getattr(session, 'request_chat_ws_id', '') or '').strip()
+
+    for candidate_ws_id in (bound_chat_ws_id, request_chat_ws_id):
+
+        if candidate_ws_id and candidate_ws_id not in preferred_ids:
+
+            preferred_ids.append(candidate_ws_id)
+
+    for candidate_ws_id in preferred_ids:
+
+        delivered = await online_manager.send_payload_to_connection(target_username, candidate_ws_id, payload)
+
+        if delivered:
+
+            return True
+
+    return False
+
+
+async def _handle_chat_connection_offline(username: str, websocket=None):
+
+    current_username = (username or '').strip()
+
+    current_chat_ws_id = online_manager.get_websocket_id(websocket)
+
+    remaining_user = online_manager.user_offline(current_username, websocket)
+
+    if not current_username or not current_chat_ws_id:
+
+        return remaining_user
+
+    session = remote_assist.find_session_by_target_username(current_username)
+
+    if not session or session.site_type != 'ak_web':
+
+        return remaining_user
+
+    request_chat_ws_id = str(getattr(session, 'request_chat_ws_id', '') or '').strip()
+
+    bound_chat_ws_id = str(getattr(session, 'bound_chat_ws_id', '') or '').strip()
+
+    request_match = request_chat_ws_id == current_chat_ws_id
+
+    bound_match = bound_chat_ws_id == current_chat_ws_id
+
+    if not request_match and not bound_match:
+
+        return remaining_user
+
+    remote_assist.clear_chat_ws_locks(
+        session.session_id,
+        websocket_id=current_chat_ws_id,
+        clear_request=request_match,
+        clear_bound=bound_match,
+    )
+
+    current_session = remote_assist.get_session(session.session_id) or session
+
+    if request_match and getattr(current_session, 'consent_status', AssistConsentStatus.ACCEPTED) == AssistConsentStatus.WAITING:
+
+        if _assist_session_has_connected_admin(current_session):
+
+            await _send_remote_assist_request_to_user(current_session)
+
+    return remaining_user
+
+
+async def _handle_remote_assist_request_response(username: str, payload: dict, websocket=None) -> None:
 
     session_id = str((payload or {}).get('session_id') or '').strip()
 
     accepted = bool((payload or {}).get('accepted'))
 
     current_username = (username or '').strip()
+
+    current_chat_ws_id = online_manager.get_websocket_id(websocket)
 
     if not session_id or not current_username:
 
@@ -4996,7 +5429,28 @@ async def _handle_remote_assist_request_response(username: str, payload: dict) -
 
         return
 
+    locked_request_chat_ws_id = str(getattr(session, 'request_chat_ws_id', '') or '').strip()
+
+    if locked_request_chat_ws_id and current_chat_ws_id and locked_request_chat_ws_id != current_chat_ws_id:
+
+        logger.warning(
+            f"[RemoteAssistWS] ignored request response session={session_id} user={current_username} "
+            f"expected_chat_ws={locked_request_chat_ws_id} actual_chat_ws={current_chat_ws_id} accepted={int(accepted)}"
+        )
+
+        return
+
+    response_chat_ws_id = current_chat_ws_id or locked_request_chat_ws_id
+
+    if response_chat_ws_id:
+
+        session = remote_assist.set_request_chat_ws(session_id, response_chat_ws_id) or session
+
     if accepted:
+
+        if response_chat_ws_id:
+
+            session = remote_assist.set_bound_chat_ws(session_id, response_chat_ws_id) or session
 
         session = remote_assist.update_consent_status(session_id, AssistConsentStatus.ACCEPTED)
 
@@ -5016,21 +5470,15 @@ async def _handle_remote_assist_request_response(username: str, payload: dict) -
 
         return
 
+    remote_assist.clear_chat_ws_locks(session_id, clear_bound=True, clear_request=False)
+
     session = remote_assist.update_consent_status(session_id, AssistConsentStatus.REJECTED)
 
     if not session:
 
         return
 
-    await online_manager.send_payload_to_user(current_username, {
-
-        'type': 'remote_assist_unbind',
-
-        'session_id': session.session_id,
-
-        'site': session.site_type,
-
-    })
+    await _send_remote_assist_unbind_to_user(session, websocket_id=response_chat_ws_id)
 
     await _publish_remote_assist_session_state(session)
 
@@ -5058,8 +5506,6 @@ def _schedule_remote_assist_auto_unbind(session) -> None:
 
     _cancel_remote_assist_auto_unbind(session_id)
 
-    target_username = (session.target_username or '').strip()
-
     async def _unbind_later():
 
         try:
@@ -5072,20 +5518,12 @@ def _schedule_remote_assist_auto_unbind(session) -> None:
 
                 return
 
-            await online_manager.send_payload_to_user(target_username, {
-
-                'type': 'remote_assist_unbind',
-
-                'session_id': session_id,
-
-                'site': current_session.site_type,
-
-            })
+            await _send_remote_assist_unbind_to_user(current_session)
 
             remote_assist.close_session(session_id)
 
             logger.warning(
-                f"[RemoteAssistWS] auto unbind closed session={session_id} user={target_username or '-'}"
+                f"[RemoteAssistWS] auto unbind closed session={session_id} user={(current_session.target_username or '').strip() or '-'}"
             )
 
         except asyncio.CancelledError:
@@ -5343,6 +5781,8 @@ async def chat_websocket(websocket: WebSocket):
 
                 prev_ws_id = (online_manager.get_user(incoming_username) or {}).get('ws_id')
 
+                current_ws_id = online_manager.get_websocket_id(websocket)
+
                 current_user = await online_manager.user_online(
 
                     incoming_username, websocket,
@@ -5353,11 +5793,11 @@ async def chat_websocket(websocket: WebSocket):
 
                 logger.warning(
 
-                    f"[ChatWS] user_online username={username or '-'} client={client} prev_ws_id={prev_ws_id or '-'} ws_id={id(websocket)}"
+                    f"[ChatWS] user_online username={username or '-'} client={client} prev_ws_id={prev_ws_id or '-'} ws_id={current_ws_id or '-'}"
 
                 )
 
-                if prev_ws_id != id(websocket):
+                if prev_ws_id != current_ws_id:
 
                     assist_session = remote_assist.find_session_by_target_username(username)
 
@@ -5381,15 +5821,9 @@ async def chat_websocket(websocket: WebSocket):
 
             elif msg_type == 'heartbeat':
 
-                online_manager.update_heartbeat(username)
-
                 hp = data.get('page', '')
 
-                current_user = online_manager.get_user(username)
-
-                if hp and current_user:
-
-                    current_user['page'] = hp
+                online_manager.update_heartbeat(username, websocket=websocket, page=hp)
 
             elif msg_type == 'user_message':
 
@@ -5407,7 +5841,7 @@ async def chat_websocket(websocket: WebSocket):
 
             elif msg_type == 'remote_assist_request_response':
 
-                await _handle_remote_assist_request_response(username, data)
+                await _handle_remote_assist_request_response(username, data, websocket=websocket)
 
             elif msg_type == 'offline':
 
@@ -5417,9 +5851,11 @@ async def chat_websocket(websocket: WebSocket):
 
                 )
 
-                online_manager.user_offline(username)
+                remaining_user = await _handle_chat_connection_offline(username, websocket)
 
-                await ws_manager.broadcast({'type': 'user_offline', 'data': {'username': username}})
+                if not remaining_user:
+
+                    await ws_manager.broadcast({'type': 'user_offline', 'data': {'username': username}})
 
                 break
 
@@ -5431,7 +5867,11 @@ async def chat_websocket(websocket: WebSocket):
 
         )
 
-        online_manager.user_offline(username, websocket)
+        remaining_user = await _handle_chat_connection_offline(username, websocket)
+
+        if not remaining_user:
+
+            await ws_manager.broadcast({'type': 'user_offline', 'data': {'username': username}})
 
     except Exception as e:
 
@@ -5441,7 +5881,11 @@ async def chat_websocket(websocket: WebSocket):
 
         )
 
-        online_manager.user_offline(username, websocket)
+        remaining_user = await _handle_chat_connection_offline(username, websocket)
+
+        if not remaining_user:
+
+            await ws_manager.broadcast({'type': 'user_offline', 'data': {'username': username}})
 
 
 
@@ -6425,6 +6869,10 @@ async def admin_remote_assist_start(request: Request):
         if created_new_session:
             remote_assist.close_session(session.session_id)
         return JSONResponse({"success": False, "message": f"用户 {username} 当前不在线，无法发起远程指导"}, status_code=409)
+    if not online_manager.pick_remote_assist_connection(username):
+        if created_new_session:
+            remote_assist.close_session(session.session_id)
+        return JSONResponse({"success": False, "message": f"用户 {username} 当前没有可接收远程指导的已登录页面"}, status_code=409)
     response = JSONResponse({
         "success": True,
         "session_id": session.session_id,
@@ -6460,11 +6908,7 @@ async def admin_remote_assist_close(request: Request):
     if role != ROLE_SUPER_ADMIN and session.admin_username != (admin_name or role):
         return JSONResponse({"success": False, "message": "无权关闭该远程指导会话"}, status_code=403)
     _cancel_remote_assist_auto_unbind(session.session_id)
-    await online_manager.send_payload_to_user(session.target_username, {
-        'type': 'remote_assist_unbind',
-        'session_id': session.session_id,
-        'site': session.site_type,
-    })
+    await _send_remote_assist_unbind_to_user(session)
     remote_assist.close_session(session_id)
     return JSONResponse({"success": True})
 
