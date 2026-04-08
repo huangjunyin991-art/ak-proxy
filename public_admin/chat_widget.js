@@ -3098,9 +3098,13 @@
     }, true);
     document.addEventListener('click', function(event) {
         if (!assistWs || assistWs.readyState !== WebSocket.OPEN || !assistSessionId) return;
-        if (isAssistWidgetTarget(event.target)) return;
+        const target = event && event.target;
+        if (isAssistWidgetTarget(target)) return;
         if (normalizeAssistRoute().indexOf('/admin/ak-web/') !== 0) return;
-        sendAssistEvent('click_highlight', pickAssistMeta(event.target));
+        sendAssistEvent('click_highlight', pickAssistMeta(target));
+        if (!isAssistFormFieldTarget(target)) {
+            scheduleAssistSnapshot(180, 'click_interaction');
+        }
     }, true);
     document.addEventListener('input', handleAssistFormValueChange, true);
     document.addEventListener('change', handleAssistFormValueChange, true);
