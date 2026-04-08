@@ -8338,6 +8338,7 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
         let remoteAssistPanelLastScroll = null;
         let remoteAssistPanelApplyingScrollDepth = 0;
         let remoteAssistPanelRestoreScrollTimer = null;
+        let remoteAssistPanelRouteSnapshotTimer = null;
         let remoteAssistPanelConsentStatus = 'waiting';
         let remoteAssistPanelPendingRoute = '';
         let remoteAssistPanelWaitingForRouteSnapshot = false;
@@ -8441,6 +8442,13 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
             }
         }
 
+        function clearRemoteAssistRouteSnapshotTimer() {
+            if (remoteAssistPanelRouteSnapshotTimer) {
+                clearTimeout(remoteAssistPanelRouteSnapshotTimer);
+                remoteAssistPanelRouteSnapshotTimer = null;
+            }
+        }
+
         function getRemoteAssistSnapshotRoute(snapshot) {
             return String(snapshot && snapshot.route || '').trim();
         }
@@ -8458,9 +8466,24 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
             const normalizedRoute = String(route || '').trim();
             if (!remoteAssistPanelWaitingForRouteSnapshot) return;
             if (!remoteAssistPanelPendingRoute || !normalizedRoute || remoteAssistPanelPendingRoute === normalizedRoute) {
+                clearRemoteAssistRouteSnapshotTimer();
                 remoteAssistPanelPendingRoute = '';
                 remoteAssistPanelWaitingForRouteSnapshot = false;
             }
+        }
+
+        function scheduleRemoteAssistRouteSnapshotRequest(route = '') {
+            const wantedRoute = String(route || '').trim();
+            clearRemoteAssistRouteSnapshotTimer();
+            if (!remoteAssistPanelSessionId) return;
+            remoteAssistPanelRouteSnapshotTimer = setTimeout(function() {
+                remoteAssistPanelRouteSnapshotTimer = null;
+                if (!remoteAssistPanelWaitingForRouteSnapshot) return;
+                if (wantedRoute && remoteAssistPanelPendingRoute && wantedRoute !== remoteAssistPanelPendingRoute) return;
+                if (!sendRemoteAssistMessage('snapshot_request', { reason: 'route_changed' })) {
+                    setRemoteAssistMeta('指导连接未就绪，正在等待重连');
+                }
+            }, 160);
         }
 
         function resolveRemoteAssistSnapshotScroll(snapshot) {
@@ -8787,6 +8810,7 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                         const frame = document.getElementById('remoteAssistFrame');
                         remoteAssistPanelConsentStatus = consentStatus;
                         if (consentStatus === 'rejected') {
+                            clearRemoteAssistRouteSnapshotTimer();
                             remoteAssistPanelPendingRoute = '';
                             remoteAssistPanelWaitingForRouteSnapshot = false;
                             setRemoteAssistLoading(false);
@@ -8796,6 +8820,7 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                             return;
                         }
                         if (consentStatus !== 'accepted') {
+                            clearRemoteAssistRouteSnapshotTimer();
                             remoteAssistPanelPendingRoute = '';
                             remoteAssistPanelWaitingForRouteSnapshot = false;
                             setRemoteAssistMeta('等待用户确认远程指导');
@@ -8819,6 +8844,12 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                     }
                     if (data.type === 'route_changed' && data.payload) {
                         const route = String(data.payload.route || '').trim();
+                        const currentRoute = getRemoteAssistSnapshotRoute(remoteAssistPanelLastSnapshot);
+                        if (route && currentRoute && route === currentRoute) {
+                            clearRemoteAssistPendingRoute(route);
+                            setRemoteAssistLoading(false);
+                            return;
+                        }
                         setRemoteAssistPendingRoute(route);
                         setRemoteAssistLoading(true, '用户页面切换中，正在等待新页面快照');
                         if (route) {
@@ -8826,6 +8857,7 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                         } else {
                             setRemoteAssistMeta('用户页面切换中，等待新画面');
                         }
+                        scheduleRemoteAssistRouteSnapshotRequest(route);
                         return;
                     }
                     if (data.type === 'scroll_changed' && data.payload) {
@@ -8841,6 +8873,7 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
             currentWs.onclose = function() {
                 if (remoteAssistPanelWs !== currentWs) return;
                 stopRemoteAssistHeartbeat();
+                clearRemoteAssistRouteSnapshotTimer();
                 remoteAssistPanelWs = null;
                 setRemoteAssistLoading(true, '指导连接断开，正在重连');
                 setRemoteAssistMeta('指导连接断开，正在重连');
@@ -8892,6 +8925,7 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
             remoteAssistPanelPendingRoute = '';
             remoteAssistPanelWaitingForRouteSnapshot = false;
             clearRemoteAssistScrollRestoreTimer();
+            clearRemoteAssistRouteSnapshotTimer();
             panel.classList.add('open');
             overlay.style.display = getMobileLayoutMedia().matches ? 'none' : 'block';
             frame.srcdoc = buildRemoteAssistPlaceholderHtml('正在等待用户确认远程指导');
@@ -8937,6 +8971,7 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
             remoteAssistPanelPendingRoute = '';
             remoteAssistPanelWaitingForRouteSnapshot = false;
             clearRemoteAssistScrollRestoreTimer();
+            clearRemoteAssistRouteSnapshotTimer();
             clearRemoteAssistReconnectTimer();
             stopRemoteAssistHeartbeat();
             if (remoteAssistPanelWs) {
