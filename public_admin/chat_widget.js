@@ -439,6 +439,7 @@
     let assistLastSnapshotSentAt = 0;
     let assistLastScrollPayload = null;
     let assistScrollTarget = window;
+    let assistLastScrollTargetRefreshAt = 0;
     let assistRouteSettleTimer = null;
     let assistRouteSettleUntil = 0;
     let assistRouteSettleRoute = '';
@@ -1082,6 +1083,8 @@
     const ASSIST_SCROLL_TARGET_MIN_OVERFLOW = 56;
     const ASSIST_SCROLL_TARGET_MIN_HEIGHT_RATIO = 0.22;
     const ASSIST_SCROLL_TARGET_MIN_WIDTH_RATIO = 0.35;
+    const ASSIST_SCROLL_TARGET_RESCAN_COOLDOWN_MS = 480;
+    const ASSIST_SCROLL_VIEWPORT_SNAPSHOT_MIN_INTERVAL_MS = 900;
 
     const ASSIST_ROUTE_SETTLE_DELAY = 320;
     const ASSIST_ROUTE_SETTLE_WINDOW_MS = 1200;
@@ -1650,10 +1653,25 @@
         }
     }
 
+    function shouldDeferAssistScrollTargetRefresh(reason, forceRescan) {
+        try {
+            if (forceRescan) return false;
+            if (String(reason || '').toLowerCase() !== 'build_scroll_payload') return false;
+            if (assistScrollTarget && assistScrollTarget !== window) return false;
+            return (Date.now() - assistLastScrollTargetRefreshAt) < ASSIST_SCROLL_TARGET_RESCAN_COOLDOWN_MS;
+        } catch (e) {
+            return false;
+        }
+    }
+
     function refreshAssistScrollTarget(reason, forceRescan) {
         try {
+            if (shouldDeferAssistScrollTargetRefresh(reason, !!forceRescan)) {
+                return assistScrollTarget || window;
+            }
             const nextTarget = getAssistActiveViewportTarget({ forceRescan: !!forceRescan });
             rememberAssistScrollTarget(nextTarget);
+            assistLastScrollTargetRefreshAt = Date.now();
             return nextTarget;
         } catch (e) {
             assistScrollTarget = window;
@@ -1680,9 +1698,15 @@
 
     function shouldUseAssistViewportSnapshot(reason) {
         try {
+            const normalizedReason = String(reason || '').toLowerCase();
+            if (normalizedReason === 'scroll_viewport') {
+                return !!assistLastSnapshotPayload
+                    && !!assistLastSnapshotPayload.truncated
+                    && (Date.now() - assistLastSnapshotSentAt) >= ASSIST_SCROLL_VIEWPORT_SNAPSHOT_MIN_INTERVAL_MS;
+            }
             if (isAssistViewportModeEligible()) return true;
             if (!assistLastSnapshotPayload || !assistLastSnapshotPayload.truncated) return false;
-            return String(reason || '').toLowerCase() !== 'snapshot_request';
+            return normalizedReason !== 'snapshot_request';
         } catch (e) {
             return false;
         }
@@ -2754,6 +2778,7 @@
         assistLastSnapshotPayload = null;
         assistLastSnapshotSentAt = 0;
         assistLastScrollPayload = null;
+        assistLastScrollTargetRefreshAt = 0;
         if (!assistWs) return;
         const current = assistWs;
         assistWs = null;
@@ -3038,6 +3063,7 @@
             clearAssistSnapshotTimer();
             clearAssistScrollTimer();
             assistScrollTarget = window;
+            assistLastScrollTargetRefreshAt = 0;
             emitAssistRoute();
             scheduleAssistRouteSettledSync(nextRoute, ASSIST_ROUTE_SETTLE_DELAY, false);
         }
