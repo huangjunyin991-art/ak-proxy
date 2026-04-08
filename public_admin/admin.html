@@ -8345,6 +8345,8 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
         let remoteAssistPanelRenderSeq = 0;
         let remoteAssistPanelLoadedRenderSeq = 0;
         let remoteAssistPanelFrameBindingCleanup = null;
+        const REMOTE_ASSIST_PREPARE_LOG_THRESHOLD_MS = 80;
+        const REMOTE_ASSIST_RENDER_LOG_THRESHOLD_MS = 200;
 
         function clearRemoteAssistReconnectTimer() {
             if (remoteAssistPanelReconnectTimer) {
@@ -8521,11 +8523,17 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
             }, 80);
         }
 
-        function nudgeRemoteAssistPendingSnapshot(route = '') {
+        function nudgeRemoteAssistPendingSnapshot(route = '', source = '') {
             const normalizedRoute = String(route || '').trim();
             if (!remoteAssistPanelWaitingForRouteSnapshot || !remoteAssistPanelSessionId) return;
             if (normalizedRoute && remoteAssistPanelPendingRoute && normalizedRoute !== remoteAssistPanelPendingRoute) return;
             if (remoteAssistPanelRouteSnapshotTimer) return;
+            logRemoteAssistDebug('pending_snapshot_nudge', {
+                route: normalizedRoute || remoteAssistPanelPendingRoute,
+                pending_route: remoteAssistPanelPendingRoute,
+                source: String(source || ''),
+                waiting: !!remoteAssistPanelWaitingForRouteSnapshot
+            });
             scheduleRemoteAssistRouteSnapshotRequest(normalizedRoute || remoteAssistPanelPendingRoute);
         }
 
@@ -8844,6 +8852,12 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
             }
         }
 
+        function getRemoteAssistPerfNow() {
+            return (typeof performance !== 'undefined' && performance && typeof performance.now === 'function')
+                ? performance.now()
+                : Date.now();
+        }
+
         function getRemoteAssistWsReadyStateLabel(targetWs) {
             if (!targetWs) return 'NULL';
             if (targetWs.readyState === WebSocket.CONNECTING) return 'CONNECTING';
@@ -8874,7 +8888,22 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
             const scrollPayload = resolveRemoteAssistSnapshotScroll(snapshot);
             const metaText = [route || '用户页面', title || '', snapshot && snapshot.truncated ? '已截断' : ''].filter(Boolean).join(' · ');
             setRemoteAssistMeta(metaText || '用户页面快照');
-            const sanitizedHtml = prepareRemoteAssistSrcdocHtml(snapshot && snapshot.html || '<!doctype html><html><body style="font-family:Arial;padding:16px;color:#64748b;">暂无可渲染快照</body></html>');
+            const rawHtml = String(snapshot && snapshot.html || '<!doctype html><html><body style="font-family:Arial;padding:16px;color:#64748b;">暂无可渲染快照</body></html>');
+            const prepareStartedAt = getRemoteAssistPerfNow();
+            const isFastPath = isRemoteAssistSerializedSnapshotHtml(rawHtml);
+            const sanitizedHtml = prepareRemoteAssistSrcdocHtml(rawHtml);
+            const prepareMs = Math.max(0, Math.round(getRemoteAssistPerfNow() - prepareStartedAt));
+            if (prepareMs >= REMOTE_ASSIST_PREPARE_LOG_THRESHOLD_MS) {
+                logRemoteAssistDebug('snapshot_prepare_timing', {
+                    route,
+                    html_length: rawHtml.length,
+                    sanitized_html_length: sanitizedHtml.length,
+                    prepare_ms: prepareMs,
+                    is_fast_path: !!isFastPath,
+                    truncated: !!(snapshot && snapshot.truncated),
+                    node_count: Number(snapshot && snapshot.node_count || 0)
+                });
+            }
             const isSameInFlightFrame = remoteAssistPanelLastHtml === sanitizedHtml
                 && previousRenderedRoute === route
                 && remoteAssistPanelRenderSeq > 0
@@ -8884,6 +8913,12 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                 && remoteAssistPanelLoadedRenderSeq === remoteAssistPanelRenderSeq;
             remoteAssistPanelLastSnapshot = snapshot || null;
             if (isSameInFlightFrame) {
+                logRemoteAssistDebug('inflight_dedupe_hit', {
+                    route,
+                    html_length: sanitizedHtml.length,
+                    prepare_ms: prepareMs,
+                    render_seq: remoteAssistPanelRenderSeq
+                });
                 return;
             }
             if (canReuseRenderedFrame) {
@@ -8893,6 +8928,7 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
             }
             remoteAssistPanelLastHtml = sanitizedHtml;
             const renderSeq = remoteAssistPanelRenderSeq + 1;
+            const renderStartedAt = getRemoteAssistPerfNow();
             remoteAssistPanelRenderSeq = renderSeq;
             remoteAssistPanelLoadedRenderSeq = 0;
             clearRemoteAssistFrameBinding();
@@ -8900,6 +8936,17 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
             frame.onload = function() {
                 if (renderSeq !== remoteAssistPanelRenderSeq) return;
                 remoteAssistPanelLoadedRenderSeq = renderSeq;
+                const renderMs = Math.max(0, Math.round(getRemoteAssistPerfNow() - renderStartedAt));
+                if (renderMs >= REMOTE_ASSIST_RENDER_LOG_THRESHOLD_MS) {
+                    logRemoteAssistDebug('snapshot_render_timing', {
+                        route,
+                        render_seq: renderSeq,
+                        html_length: sanitizedHtml.length,
+                        prepare_ms: prepareMs,
+                        render_ms: renderMs,
+                        is_fast_path: !!isFastPath
+                    });
+                }
                 setRemoteAssistLoading(false);
                 bindRemoteAssistSnapshotFrame(renderSeq);
                 applyRemoteAssistScroll(resolveRemoteAssistSnapshotScroll(remoteAssistPanelLastSnapshot) || scrollPayload);
@@ -9024,12 +9071,12 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                         return;
                     }
                     if (data.type === 'scroll_changed' && data.payload) {
-                        nudgeRemoteAssistPendingSnapshot(getRemoteAssistScrollRoute(data.payload));
+                        nudgeRemoteAssistPendingSnapshot(getRemoteAssistScrollRoute(data.payload), 'scroll_changed');
                         applyRemoteAssistScroll(data.payload);
                         return;
                     }
                     if (data.type === 'click_highlight' && data.payload) {
-                        nudgeRemoteAssistPendingSnapshot();
+                        nudgeRemoteAssistPendingSnapshot('', 'click_highlight');
                         flashRemoteAssistSnapshotNode(data.payload);
                     }
                 } catch (e) {

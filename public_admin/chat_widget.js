@@ -437,6 +437,7 @@
     let assistCachedHeadMarkup = '';
     let assistLastSnapshotPayload = null;
     let assistLastSnapshotSentAt = 0;
+    let assistLastSnapshotTriggerMeta = null;
     let assistLastScrollPayload = null;
     let assistScrollTarget = window;
     let assistLastScrollTargetRefreshAt = 0;
@@ -519,6 +520,31 @@
                 console.warn('[AKChatAssistDebug]', eventName, extra || {});
             } catch (_) {}
         }
+    }
+
+    function getAssistPerfNow() {
+        return (typeof performance !== 'undefined' && performance && typeof performance.now === 'function')
+            ? performance.now()
+            : Date.now();
+    }
+
+    function markAssistSnapshotTrigger(reason, extra) {
+        assistLastSnapshotTriggerMeta = {
+            reason: String(reason || ''),
+            at: getAssistPerfNow(),
+            extra: extra || {}
+        };
+    }
+
+    function shouldLogAssistSnapshotBuild(reason, buildMs, triggerWaitMs) {
+        const normalizedReason = String(reason || '');
+        return buildMs >= ASSIST_SNAPSHOT_BUILD_LOG_THRESHOLD_MS
+            || triggerWaitMs >= ASSIST_SNAPSHOT_TRIGGER_LOG_THRESHOLD_MS
+            || normalizedReason === 'route_settled'
+            || normalizedReason === 'route_settled_request'
+            || normalizedReason === 'click_interaction'
+            || normalizedReason === 'snapshot_request'
+            || normalizedReason === 'session_state';
     }
     
     // 从cookie获取值
@@ -1088,6 +1114,8 @@
 
     const ASSIST_ROUTE_SETTLE_DELAY = 160;
     const ASSIST_ROUTE_SETTLE_WINDOW_MS = 1200;
+    const ASSIST_SNAPSHOT_BUILD_LOG_THRESHOLD_MS = 120;
+    const ASSIST_SNAPSHOT_TRIGGER_LOG_THRESHOLD_MS = 180;
 
     function nextAssistNodeId() {
         assistNodeSeq += 1;
@@ -1160,7 +1188,13 @@
         }
         refreshAssistScrollTarget('route_settled_sync', true);
         emitAssistScroll(true);
-        emitAssistSnapshot(assistRouteSettleNeedsFreshSnapshot ? 'route_settled_request' : 'route_settled');
+        const snapshotReason = assistRouteSettleNeedsFreshSnapshot ? 'route_settled_request' : 'route_settled';
+        markAssistSnapshotTrigger(snapshotReason, {
+            source: 'route_settled_sync',
+            expected_route: String(expectedRoute || ''),
+            needs_fresh_snapshot: !!assistRouteSettleNeedsFreshSnapshot
+        });
+        emitAssistSnapshot(snapshotReason);
         if (!assistRouteSettleRoute || assistRouteSettleRoute === expectedRoute) {
             clearAssistRouteSettleState();
         }
@@ -2587,15 +2621,51 @@
         if (!assistSessionId) return false;
         const now = Date.now();
         const route = normalizeAssistRoute();
-        if (reason === 'snapshot_request'
+        const snapshotReason = String(reason || '');
+        const emitStartedAt = getAssistPerfNow();
+        const triggerMeta = assistLastSnapshotTriggerMeta && assistLastSnapshotTriggerMeta.reason === snapshotReason
+            ? assistLastSnapshotTriggerMeta
+            : null;
+        if (triggerMeta) {
+            assistLastSnapshotTriggerMeta = null;
+        }
+        const triggerWaitMs = triggerMeta ? Math.max(0, Math.round(emitStartedAt - triggerMeta.at)) : 0;
+        if (triggerWaitMs >= ASSIST_SNAPSHOT_TRIGGER_LOG_THRESHOLD_MS) {
+            logAssistDebug('snapshot_trigger_timing', {
+                reason: snapshotReason,
+                triggerWaitMs,
+                source: String(triggerMeta && triggerMeta.extra && triggerMeta.extra.source || ''),
+                scheduledDelayMs: Number(triggerMeta && triggerMeta.extra && triggerMeta.extra.scheduled_delay_ms || 0),
+                requestReason: String(triggerMeta && triggerMeta.extra && triggerMeta.extra.request_reason || '')
+            });
+        }
+        if (snapshotReason === 'snapshot_request'
             && assistLastSnapshotPayload
             && assistLastSnapshotPayload.route === route
             && !isAssistRouteSettling(route)
             && (now - assistLastSnapshotSentAt) < 3000) {
+            const sendStartedAt = getAssistPerfNow();
             const sent = sendAssistSnapshotPayload(assistLastSnapshotPayload);
+            const sendMs = Math.max(0, Math.round(getAssistPerfNow() - sendStartedAt));
+            if (sent && shouldLogAssistSnapshotBuild(snapshotReason, 0, triggerWaitMs)) {
+                logAssistDebug('snapshot_build_timing', {
+                    reason: snapshotReason,
+                    mode: 'cached',
+                    route: String(assistLastSnapshotPayload.route || route || ''),
+                    htmlLength: String(assistLastSnapshotPayload.html || '').length,
+                    truncated: !!assistLastSnapshotPayload.truncated,
+                    nodeCount: Number(assistLastSnapshotPayload.node_count || 0),
+                    buildMs: 0,
+                    sendMs,
+                    triggerWaitMs,
+                    source: String(triggerMeta && triggerMeta.extra && triggerMeta.extra.source || ''),
+                    scheduledDelayMs: Number(triggerMeta && triggerMeta.extra && triggerMeta.extra.scheduled_delay_ms || 0),
+                    requestReason: String(triggerMeta && triggerMeta.extra && triggerMeta.extra.request_reason || '')
+                });
+            }
             if (!sent) {
                 logAssistDebug('snapshot_send_failed_cached', {
-                    reason: String(reason || ''),
+                    reason: snapshotReason,
                     route: String(assistLastSnapshotPayload.route || route || ''),
                     htmlLength: String(assistLastSnapshotPayload.html || '').length,
                     truncated: !!assistLastSnapshotPayload.truncated,
@@ -2607,16 +2677,29 @@
             }
             return sent;
         }
-        if ((reason === 'connect_open' || reason === 'session_state')
+        if ((snapshotReason === 'connect_open' || snapshotReason === 'session_state')
             && assistLastSnapshotPayload
             && assistLastSnapshotPayload.route === route
             && (now - assistLastSnapshotSentAt) < 1200) {
             return false;
         }
-        const payload = buildAssistSnapshotPayload(reason);
+        const buildStartedAt = getAssistPerfNow();
+        const payload = buildAssistSnapshotPayload(snapshotReason);
+        const buildMs = Math.max(0, Math.round(getAssistPerfNow() - buildStartedAt));
         if (!payload) {
+            if (shouldLogAssistSnapshotBuild(snapshotReason, buildMs, triggerWaitMs)) {
+                logAssistDebug('snapshot_trigger_timing', {
+                    reason: snapshotReason,
+                    outcome: 'build_empty',
+                    triggerWaitMs,
+                    buildMs,
+                    source: String(triggerMeta && triggerMeta.extra && triggerMeta.extra.source || ''),
+                    scheduledDelayMs: Number(triggerMeta && triggerMeta.extra && triggerMeta.extra.scheduled_delay_ms || 0),
+                    requestReason: String(triggerMeta && triggerMeta.extra && triggerMeta.extra.request_reason || '')
+                });
+            }
             logAssistDebug('snapshot_build_empty', {
-                reason: String(reason || ''),
+                reason: snapshotReason,
                 route: String(route || '')
             });
             return false;
@@ -2625,13 +2708,42 @@
             && assistLastSnapshotPayload.route === payload.route
             && assistLastSnapshotPayload.html === payload.html
             && (now - assistLastSnapshotSentAt) < 5000
-            && reason !== 'snapshot_request') {
+            && snapshotReason !== 'snapshot_request') {
+            if (shouldLogAssistSnapshotBuild(snapshotReason, buildMs, triggerWaitMs)) {
+                logAssistDebug('snapshot_trigger_timing', {
+                    reason: snapshotReason,
+                    outcome: 'skip_same_payload',
+                    triggerWaitMs,
+                    buildMs,
+                    source: String(triggerMeta && triggerMeta.extra && triggerMeta.extra.source || ''),
+                    scheduledDelayMs: Number(triggerMeta && triggerMeta.extra && triggerMeta.extra.scheduled_delay_ms || 0),
+                    requestReason: String(triggerMeta && triggerMeta.extra && triggerMeta.extra.request_reason || '')
+                });
+            }
             return false;
         }
+        const sendStartedAt = getAssistPerfNow();
         const sent = sendAssistSnapshotPayload(payload);
+        const sendMs = Math.max(0, Math.round(getAssistPerfNow() - sendStartedAt));
+        if (sent && shouldLogAssistSnapshotBuild(snapshotReason, buildMs, triggerWaitMs)) {
+            logAssistDebug('snapshot_build_timing', {
+                reason: snapshotReason,
+                mode: 'fresh',
+                route: String(payload.route || ''),
+                htmlLength: String(payload.html || '').length,
+                truncated: !!payload.truncated,
+                nodeCount: Number(payload.node_count || 0),
+                buildMs,
+                sendMs,
+                triggerWaitMs,
+                source: String(triggerMeta && triggerMeta.extra && triggerMeta.extra.source || ''),
+                scheduledDelayMs: Number(triggerMeta && triggerMeta.extra && triggerMeta.extra.scheduled_delay_ms || 0),
+                requestReason: String(triggerMeta && triggerMeta.extra && triggerMeta.extra.request_reason || '')
+            });
+        }
         if (!sent) {
             logAssistDebug('snapshot_send_failed', {
-                reason: String(reason || ''),
+                reason: snapshotReason,
                 route: String(payload.route || ''),
                 htmlLength: String(payload.html || '').length,
                 truncated: !!payload.truncated,
@@ -2648,9 +2760,15 @@
     function scheduleAssistSnapshot(delay, reason) {
         if (!assistSessionId) return;
         clearAssistSnapshotTimer();
+        const snapshotReason = reason || 'mutation';
+        const nextDelay = typeof delay === 'number' ? delay : 500;
+        markAssistSnapshotTrigger(snapshotReason, {
+            source: 'schedule',
+            scheduled_delay_ms: nextDelay
+        });
         assistSnapshotTimer = setTimeout(function() {
-            emitAssistSnapshot(reason || 'mutation');
-        }, typeof delay === 'number' ? delay : 500);
+            emitAssistSnapshot(snapshotReason);
+        }, nextDelay);
     }
 
     function startAssistDomObserver() {
@@ -2825,6 +2943,10 @@
                         if (deferAssistSnapshotUntilRouteSettled(normalizeAssistRoute(), snapshotRequestReason)) {
                             return;
                         }
+                        markAssistSnapshotTrigger('snapshot_request', {
+                            source: 'snapshot_request',
+                            request_reason: snapshotRequestReason
+                        });
                         emitAssistSnapshot('snapshot_request');
                     } else if (data.type === 'session_state') {
                         emitAssistRoute();
@@ -2832,6 +2954,9 @@
                             if (deferAssistSnapshotUntilRouteSettled(normalizeAssistRoute(), 'session_state')) {
                                 return;
                             }
+                            markAssistSnapshotTrigger('session_state', {
+                                source: 'session_state'
+                            });
                             emitAssistSnapshot('session_state');
                         }
                     }
