@@ -96,8 +96,6 @@ class AssistSession:
     created_at: float = field(default_factory=time.time)
     updated_at: float = field(default_factory=time.time)
     last_route: str = ""
-    request_chat_ws_id: str = ""
-    bound_chat_ws_id: str = ""
     metadata: dict[str, Any] = field(default_factory=dict)
     participants: dict[str, AssistParticipant] = field(default_factory=dict)
     latest_snapshot: AssistSnapshot = field(default_factory=AssistSnapshot)
@@ -118,8 +116,6 @@ class AssistSession:
             "created_at": self.created_at,
             "updated_at": self.updated_at,
             "last_route": self.last_route,
-            "request_chat_ws_id": self.request_chat_ws_id,
-            "bound_chat_ws_id": self.bound_chat_ws_id,
             "metadata": dict(self.metadata or {}),
             "latest_snapshot": self.latest_snapshot.to_dict() if self.latest_snapshot else {},
             "participants": {
