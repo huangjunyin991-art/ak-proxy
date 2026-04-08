@@ -8508,7 +8508,7 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                 && (Date.now() - remoteAssistPanelPendingRouteRequestAt) < REMOTE_ASSIST_PENDING_ROUTE_REQUEST_RETRY_MS;
         }
 
-        function setRemoteAssistPendingRoute(route) {
+        function setRemoteAssistPendingRoute(route, traceMeta = null) {
             const normalizedRoute = String(route || '').trim();
             const shouldLogWaitStart = !remoteAssistPanelWaitingForRouteSnapshot || remoteAssistPanelPendingRoute !== normalizedRoute;
             remoteAssistPanelPendingRoute = normalizedRoute;
@@ -8517,7 +8517,10 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
             if (shouldLogWaitStart) {
                 logRemoteAssistDebug('route_wait_started', {
                     route: normalizedRoute,
-                    current_route: getRemoteAssistSnapshotRoute(remoteAssistPanelLastSnapshot)
+                    current_route: getRemoteAssistSnapshotRoute(remoteAssistPanelLastSnapshot),
+                    trace_id: String(traceMeta && traceMeta.trace_id || ''),
+                    client_emit_ts: Number(traceMeta && traceMeta.client_emit_ts || 0),
+                    admin_wait_started_ts: Date.now()
                 });
             }
         }
@@ -8904,23 +8907,59 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                 : Date.now();
         }
 
-        function markRemoteAssistRenderReady(renderSeq, scrollPayload, route, prepareMs, isFastPath, renderStartedAt, stage = 'load') {
+        function getRemoteAssistTraceMeta(payload) {
+            const clientEmitTs = Number(payload && payload.client_emit_ts || 0);
+            const normalizedClientEmitTs = Number.isFinite(clientEmitTs) && clientEmitTs > 0 ? clientEmitTs : 0;
+            return {
+                trace_id: String(payload && payload.trace_id || ''),
+                client_emit_ts: normalizedClientEmitTs,
+                trace_type: String(payload && payload.trace_type || ''),
+                trace_reason: String(payload && payload.trace_reason || '')
+            };
+        }
+
+        function getRemoteAssistVisibleSignal(doc) {
+            const body = doc && doc.body;
+            const root = doc && doc.documentElement;
+            const scrollHeight = Math.max(
+                Number(root && root.scrollHeight || 0),
+                Number(body && body.scrollHeight || 0)
+            );
+            const childCount = Number(body && body.childElementCount || 0);
+            const textLength = String(body && (body.innerText || body.textContent) || '').trim().length;
+            return {
+                scroll_height: scrollHeight,
+                child_count: childCount,
+                text_length: textLength,
+                is_visible: scrollHeight > 0 && (childCount > 0 || textLength > 0)
+            };
+        }
+
+        function markRemoteAssistRenderReady(renderSeq, scrollPayload, route, prepareMs, isFastPath, renderStartedAt, traceMeta = null, stage = 'load', visibleSignal = null) {
             if (renderSeq !== remoteAssistPanelRenderSeq) return false;
             const frame = document.getElementById('remoteAssistFrame');
             const doc = frame && frame.contentDocument;
             const body = doc && doc.body;
             if (!frame || !doc || !body) return false;
+            const nextVisibleSignal = visibleSignal || getRemoteAssistVisibleSignal(doc);
+            if (stage !== 'load' && !nextVisibleSignal.is_visible) return false;
             if (remoteAssistPanelReadyRenderSeq === renderSeq) return true;
             remoteAssistPanelReadyRenderSeq = renderSeq;
             clearRemoteAssistRenderReadyTimer();
             if (stage !== 'load') {
                 logRemoteAssistDebug('snapshot_render_ready', {
                     route,
+                    trace_id: String(traceMeta && traceMeta.trace_id || ''),
+                    client_emit_ts: Number(traceMeta && traceMeta.client_emit_ts || 0),
+                    admin_ready_ts: Date.now(),
                     render_seq: renderSeq,
                     ready_ms: Math.max(0, Math.round(getRemoteAssistPerfNow() - renderStartedAt)),
                     prepare_ms: prepareMs,
                     is_fast_path: !!isFastPath,
-                    stage: String(stage || 'early_ready')
+                    stage: String(stage || 'early_ready'),
+                    scroll_height: Number(nextVisibleSignal.scroll_height || 0),
+                    child_count: Number(nextVisibleSignal.child_count || 0),
+                    text_length: Number(nextVisibleSignal.text_length || 0)
                 });
             }
             setRemoteAssistLoading(false);
@@ -8929,16 +8968,20 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
             return true;
         }
 
-        function scheduleRemoteAssistRenderReady(renderSeq, scrollPayload, route, prepareMs, isFastPath, renderStartedAt) {
+        function scheduleRemoteAssistRenderReady(renderSeq, scrollPayload, route, prepareMs, isFastPath, renderStartedAt, traceMeta = null) {
             clearRemoteAssistRenderReadyTimer();
             let attempt = 0;
+            let visibleStableFrames = 0;
             const tryMarkReady = function() {
                 if (renderSeq !== remoteAssistPanelRenderSeq) {
                     remoteAssistPanelRenderReadyTimer = null;
                     return;
                 }
                 attempt += 1;
-                if (markRemoteAssistRenderReady(renderSeq, scrollPayload, route, prepareMs, isFastPath, renderStartedAt, 'early_ready')) {
+                const frame = document.getElementById('remoteAssistFrame');
+                const visibleSignal = getRemoteAssistVisibleSignal(frame && frame.contentDocument);
+                visibleStableFrames = visibleSignal.is_visible ? (visibleStableFrames + 1) : 0;
+                if (visibleStableFrames >= 2 && markRemoteAssistRenderReady(renderSeq, scrollPayload, route, prepareMs, isFastPath, renderStartedAt, traceMeta, 'early_ready', visibleSignal)) {
                     remoteAssistPanelRenderReadyTimer = null;
                     return;
                 }
@@ -8964,10 +9007,12 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
             const frame = document.getElementById('remoteAssistFrame');
             if (!frame) return;
             const route = getRemoteAssistSnapshotRoute(snapshot);
+            const traceMeta = getRemoteAssistTraceMeta(snapshot);
             const previousRenderedRoute = getRemoteAssistSnapshotRoute(remoteAssistPanelLastSnapshot);
             if (remoteAssistPanelWaitingForRouteSnapshot && remoteAssistPanelPendingRoute && route && route !== remoteAssistPanelPendingRoute) {
                 logRemoteAssistDebug('snapshot_render_dropped_pending_route', {
                     route,
+                    trace_id: String(traceMeta.trace_id || ''),
                     pending_route: remoteAssistPanelPendingRoute,
                     waiting: !!remoteAssistPanelWaitingForRouteSnapshot,
                     html_length: String(snapshot && snapshot.html || '').length,
@@ -8979,6 +9024,9 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
             if (remoteAssistPanelWaitingForRouteSnapshot || previousRenderedRoute !== route) {
                 logRemoteAssistDebug('snapshot_render_received', {
                     route,
+                    trace_id: String(traceMeta.trace_id || ''),
+                    client_emit_ts: Number(traceMeta.client_emit_ts || 0),
+                    admin_received_ts: Date.now(),
                     previous_route: previousRenderedRoute,
                     pending_route: remoteAssistPanelPendingRoute,
                     waiting: !!remoteAssistPanelWaitingForRouteSnapshot,
@@ -9000,6 +9048,7 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
             if (prepareMs >= REMOTE_ASSIST_PREPARE_LOG_THRESHOLD_MS) {
                 logRemoteAssistDebug('snapshot_prepare_timing', {
                     route,
+                    trace_id: String(traceMeta.trace_id || ''),
                     html_length: rawHtml.length,
                     sanitized_html_length: sanitizedHtml.length,
                     prepare_ms: prepareMs,
@@ -9019,6 +9068,7 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
             if (isSameInFlightFrame) {
                 logRemoteAssistDebug('inflight_dedupe_hit', {
                     route,
+                    trace_id: String(traceMeta.trace_id || ''),
                     html_length: sanitizedHtml.length,
                     prepare_ms: prepareMs,
                     render_seq: remoteAssistPanelRenderSeq
@@ -9046,6 +9096,9 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                 if (renderMs >= REMOTE_ASSIST_RENDER_LOG_THRESHOLD_MS) {
                     logRemoteAssistDebug('snapshot_render_timing', {
                         route,
+                        trace_id: String(traceMeta.trace_id || ''),
+                        client_emit_ts: Number(traceMeta.client_emit_ts || 0),
+                        admin_load_ts: Date.now(),
                         render_seq: renderSeq,
                         html_length: sanitizedHtml.length,
                         prepare_ms: prepareMs,
@@ -9054,13 +9107,13 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                     });
                 }
                 const readyBeforeLoad = remoteAssistPanelReadyRenderSeq === renderSeq;
-                markRemoteAssistRenderReady(renderSeq, scrollPayload, route, prepareMs, isFastPath, renderStartedAt, 'load');
+                markRemoteAssistRenderReady(renderSeq, scrollPayload, route, prepareMs, isFastPath, renderStartedAt, traceMeta, 'load', getRemoteAssistVisibleSignal(frame && frame.contentDocument));
                 if (readyBeforeLoad) {
                     applyRemoteAssistScroll(resolveRemoteAssistSnapshotScroll(remoteAssistPanelLastSnapshot) || scrollPayload);
                 }
             };
             frame.srcdoc = sanitizedHtml;
-            scheduleRemoteAssistRenderReady(renderSeq, scrollPayload, route, prepareMs, isFastPath, renderStartedAt);
+            scheduleRemoteAssistRenderReady(renderSeq, scrollPayload, route, prepareMs, isFastPath, renderStartedAt, traceMeta);
         }
 
         function sendRemoteAssistMessage(type, payload = {}) {
@@ -9165,13 +9218,21 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                     }
                     if (data.type === 'route_changed' && data.payload) {
                         const route = String(data.payload.route || '').trim();
+                        const traceMeta = getRemoteAssistTraceMeta(data.payload);
+                        logRemoteAssistDebug('route_changed_received', {
+                            route,
+                            trace_id: String(traceMeta.trace_id || ''),
+                            client_emit_ts: Number(traceMeta.client_emit_ts || 0),
+                            admin_received_ts: Date.now(),
+                            current_route: getRemoteAssistSnapshotRoute(remoteAssistPanelLastSnapshot)
+                        });
                         const currentRoute = getRemoteAssistSnapshotRoute(remoteAssistPanelLastSnapshot);
                         if (route && currentRoute && route === currentRoute) {
                             clearRemoteAssistPendingRoute(route);
                             setRemoteAssistLoading(false);
                             return;
                         }
-                        setRemoteAssistPendingRoute(route);
+                        setRemoteAssistPendingRoute(route, traceMeta);
                         setRemoteAssistLoading(true, '用户页面切换中，正在等待新页面快照');
                         if (route) {
                             setRemoteAssistMeta(`${route} · 页面切换中，等待新画面`);

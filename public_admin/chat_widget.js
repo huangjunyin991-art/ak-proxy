@@ -437,6 +437,7 @@
     let assistCachedHeadMarkup = '';
     let assistLastSnapshotPayload = null;
     let assistLastSnapshotSentAt = 0;
+    let assistTraceSeq = 0;
     let assistLastSnapshotTriggerMeta = null;
     let assistLastScrollPayload = null;
     let assistScrollTarget = window;
@@ -526,6 +527,18 @@
         return (typeof performance !== 'undefined' && performance && typeof performance.now === 'function')
             ? performance.now()
             : Date.now();
+    }
+
+    function buildAssistTraceMeta(type, route, reason) {
+        assistTraceSeq += 1;
+        const clientEmitTs = Date.now();
+        return {
+            trace_id: `rat_${clientEmitTs.toString(36)}_${assistTraceSeq.toString(36)}`,
+            client_emit_ts: clientEmitTs,
+            trace_type: String(type || ''),
+            trace_reason: String(reason || ''),
+            trace_route: String(route || '')
+        };
     }
 
     function markAssistSnapshotTrigger(reason, extra) {
@@ -2521,11 +2534,12 @@
         }
     }
 
-    function sendAssistSnapshotPayload(payload) {
+    function sendAssistSnapshotPayload(payload, traceMeta = null) {
         if (!payload) return false;
-        const sent = sendAssistEvent('snapshot_replace', payload);
+        const nextPayload = traceMeta ? Object.assign({}, payload, traceMeta) : payload;
+        const sent = sendAssistEvent('snapshot_replace', nextPayload);
         if (sent) {
-            assistLastSnapshotPayload = payload;
+            assistLastSnapshotPayload = nextPayload;
             assistLastSnapshotSentAt = Date.now();
         }
         return sent;
@@ -2622,6 +2636,7 @@
         const now = Date.now();
         const route = normalizeAssistRoute();
         const snapshotReason = String(reason || '');
+        const snapshotTraceMeta = buildAssistTraceMeta('snapshot_replace', route, snapshotReason);
         const emitStartedAt = getAssistPerfNow();
         const triggerMeta = assistLastSnapshotTriggerMeta && assistLastSnapshotTriggerMeta.reason === snapshotReason
             ? assistLastSnapshotTriggerMeta
@@ -2645,10 +2660,11 @@
             && !isAssistRouteSettling(route)
             && (now - assistLastSnapshotSentAt) < 3000) {
             const sendStartedAt = getAssistPerfNow();
-            const sent = sendAssistSnapshotPayload(assistLastSnapshotPayload);
+            const sent = sendAssistSnapshotPayload(assistLastSnapshotPayload, snapshotTraceMeta);
             const sendMs = Math.max(0, Math.round(getAssistPerfNow() - sendStartedAt));
             if (sent && shouldLogAssistSnapshotBuild(snapshotReason, 0, triggerWaitMs)) {
                 logAssistDebug('snapshot_build_timing', {
+                    traceId: snapshotTraceMeta.trace_id,
                     reason: snapshotReason,
                     mode: 'cached',
                     route: String(assistLastSnapshotPayload.route || route || ''),
@@ -2665,6 +2681,7 @@
             }
             if (!sent) {
                 logAssistDebug('snapshot_send_failed_cached', {
+                    traceId: snapshotTraceMeta.trace_id,
                     reason: snapshotReason,
                     route: String(assistLastSnapshotPayload.route || route || ''),
                     htmlLength: String(assistLastSnapshotPayload.html || '').length,
@@ -2723,10 +2740,11 @@
             return false;
         }
         const sendStartedAt = getAssistPerfNow();
-        const sent = sendAssistSnapshotPayload(payload);
+        const sent = sendAssistSnapshotPayload(payload, snapshotTraceMeta);
         const sendMs = Math.max(0, Math.round(getAssistPerfNow() - sendStartedAt));
         if (sent && shouldLogAssistSnapshotBuild(snapshotReason, buildMs, triggerWaitMs)) {
             logAssistDebug('snapshot_build_timing', {
+                traceId: snapshotTraceMeta.trace_id,
                 reason: snapshotReason,
                 mode: 'fresh',
                 route: String(payload.route || ''),
@@ -2743,6 +2761,7 @@
         }
         if (!sent) {
             logAssistDebug('snapshot_send_failed', {
+                traceId: snapshotTraceMeta.trace_id,
                 reason: snapshotReason,
                 route: String(payload.route || ''),
                 htmlLength: String(payload.html || '').length,
@@ -2860,14 +2879,24 @@
         if (!assistSessionId) return;
         const route = normalizeAssistRoute();
         if (route.indexOf('/admin/ak-web/') !== 0) return;
+        const traceMeta = buildAssistTraceMeta('route_changed', route, 'route_changed');
         const payload = {
             route: route,
             title: document.title || '',
-            replace: false
+            replace: false,
+            ...traceMeta
         };
         const sent = sendAssistEvent('route_changed', payload);
+        if (sent) {
+            logAssistDebug('route_emit_trace', {
+                traceId: traceMeta.trace_id,
+                route: String(payload.route || ''),
+                title: String(payload.title || '')
+            });
+        }
         if (!sent) {
             logAssistDebug('route_send_failed', {
+                traceId: traceMeta.trace_id,
                 route: String(payload.route || ''),
                 title: String(payload.title || '')
             });
