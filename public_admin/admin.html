@@ -8875,10 +8875,17 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
             const metaText = [route || '用户页面', title || '', snapshot && snapshot.truncated ? '已截断' : ''].filter(Boolean).join(' · ');
             setRemoteAssistMeta(metaText || '用户页面快照');
             const sanitizedHtml = prepareRemoteAssistSrcdocHtml(snapshot && snapshot.html || '<!doctype html><html><body style="font-family:Arial;padding:16px;color:#64748b;">暂无可渲染快照</body></html>');
+            const isSameInFlightFrame = remoteAssistPanelLastHtml === sanitizedHtml
+                && previousRenderedRoute === route
+                && remoteAssistPanelRenderSeq > 0
+                && remoteAssistPanelLoadedRenderSeq !== remoteAssistPanelRenderSeq;
             const canReuseRenderedFrame = remoteAssistPanelLastHtml === sanitizedHtml
                 && previousRenderedRoute === route
                 && remoteAssistPanelLoadedRenderSeq === remoteAssistPanelRenderSeq;
             remoteAssistPanelLastSnapshot = snapshot || null;
+            if (isSameInFlightFrame) {
+                return;
+            }
             if (canReuseRenderedFrame) {
                 setRemoteAssistLoading(false);
                 applyRemoteAssistScroll(scrollPayload);
