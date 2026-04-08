@@ -447,6 +447,29 @@
     let reconnectTimer = null;
     let presenceSuspended = false;
     let pendingAssistRequest = null;
+    const CHAT_PAGE_CLIENT_ID_STORAGE_KEY = 'ak_chat_page_client_id';
+    let pageClientId = '';
+
+    function generatePageClientId() {
+        return 'cp_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 10);
+    }
+
+    function getPageClientId() {
+        if (pageClientId) return pageClientId;
+        try {
+            const stored = String(sessionStorage.getItem(CHAT_PAGE_CLIENT_ID_STORAGE_KEY) || '').trim();
+            if (stored) {
+                pageClientId = stored;
+                return pageClientId;
+            }
+            pageClientId = generatePageClientId();
+            sessionStorage.setItem(CHAT_PAGE_CLIENT_ID_STORAGE_KEY, pageClientId);
+            return pageClientId;
+        } catch (e) {
+            pageClientId = pageClientId || generatePageClientId();
+            return pageClientId;
+        }
+    }
 
     function getChatWsReadyStateLabel(targetWs) {
         if (!targetWs) return 'NULL';
@@ -929,7 +952,8 @@
                     type: 'online',
                     username: username,
                     page: window.location.pathname + window.location.hash,
-                    userAgent: navigator.userAgent
+                    userAgent: navigator.userAgent,
+                    pageClientId: getPageClientId()
                 }));
             }
         }, HEARTBEAT_INTERVAL);
@@ -2651,7 +2675,8 @@
                 type: type,
                 username: username,
                 page: window.location.pathname + window.location.hash,
-                userAgent: navigator.userAgent
+                userAgent: navigator.userAgent,
+                pageClientId: getPageClientId()
             }));
             return true;
         } catch(e) {

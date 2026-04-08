@@ -144,22 +144,39 @@ class RemoteAssistSessionManager:
         session.touch()
         return session
 
-    def set_request_chat_ws(self, session_id: str, websocket_id: str) -> Optional[AssistSession]:
+    def set_request_chat_ws(
+        self,
+        session_id: str,
+        websocket_id: str,
+        page_client_id: Optional[str] = None,
+    ) -> Optional[AssistSession]:
         session = self.get_session(session_id)
         if not session:
             return None
         session.request_chat_ws_id = (websocket_id or "").strip()
+        if page_client_id is not None:
+            session.request_chat_page_id = (page_client_id or "").strip()
         session.touch()
         return session
 
-    def set_bound_chat_ws(self, session_id: str, websocket_id: str) -> Optional[AssistSession]:
+    def set_bound_chat_ws(
+        self,
+        session_id: str,
+        websocket_id: str,
+        page_client_id: Optional[str] = None,
+    ) -> Optional[AssistSession]:
         session = self.get_session(session_id)
         if not session:
             return None
         ws_id = (websocket_id or "").strip()
+        page_id = (page_client_id or "").strip() if page_client_id is not None else None
         session.bound_chat_ws_id = ws_id
+        if page_id is not None:
+            session.bound_chat_page_id = page_id
         if ws_id and not session.request_chat_ws_id:
             session.request_chat_ws_id = ws_id
+        if page_id and not session.request_chat_page_id:
+            session.request_chat_page_id = page_id
         session.touch()
         return session
 
@@ -169,6 +186,8 @@ class RemoteAssistSessionManager:
         websocket_id: str = "",
         clear_request: bool = True,
         clear_bound: bool = True,
+        clear_request_page: bool = True,
+        clear_bound_page: bool = True,
     ) -> Optional[AssistSession]:
         session = self.get_session(session_id)
         if not session:
@@ -176,8 +195,12 @@ class RemoteAssistSessionManager:
         ws_id = (websocket_id or "").strip()
         if clear_request and (not ws_id or session.request_chat_ws_id == ws_id):
             session.request_chat_ws_id = ""
+            if clear_request_page:
+                session.request_chat_page_id = ""
         if clear_bound and (not ws_id or session.bound_chat_ws_id == ws_id):
             session.bound_chat_ws_id = ""
+            if clear_bound_page:
+                session.bound_chat_page_id = ""
         session.touch()
         return session
 

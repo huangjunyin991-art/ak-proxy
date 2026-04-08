@@ -2639,6 +2639,7 @@ class OnlineUserManager:
         user['ws_id'] = current.get('ws_id', '')
         user['page'] = current.get('page', '')
         user['user_agent'] = current.get('user_agent', '')
+        user['page_client_id'] = current.get('page_client_id', '')
         user['last_heartbeat'] = current.get('last_heartbeat')
         user['online_time'] = user.get('online_time') or current.get('online_time') or datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         return user
@@ -2658,6 +2659,32 @@ class OnlineUserManager:
             return None
         return (user.get('connections') or {}).get((str(websocket_id or '')).strip())
 
+    def get_user_connection_by_page_client_id(self, username, page_client_id):
+        normalized = self.normalize_username(username)
+        page_id = str(page_client_id or '').strip()
+        if not normalized or not page_id:
+            return None
+        user = self._prune_stale_connections(normalized)
+        if not user:
+            return None
+        connections = [
+            item for item in (user.get('connections') or {}).values()
+            if str(item.get('page_client_id') or '').strip() == page_id
+        ]
+        if not connections:
+            return None
+        now = datetime.now()
+        active_connections = [item for item in connections if self._is_connection_active(item, now)]
+        pool = active_connections or connections
+
+        def _score(item):
+            non_login = 0 if self.is_login_page(item.get('page')) else 1
+            heartbeat = item.get('last_heartbeat')
+            heartbeat_ts = heartbeat.timestamp() if isinstance(heartbeat, datetime) else 0
+            return (non_login, heartbeat_ts)
+
+        return max(pool, key=_score)
+
     def pick_remote_assist_connection(self, username):
         normalized = self.normalize_username(username)
         if not normalized:
@@ -2670,7 +2697,7 @@ class OnlineUserManager:
             return None
         return candidate
 
-    async def user_online(self, username, websocket, page, user_agent):
+    async def user_online(self, username, websocket, page, user_agent, page_client_id=''):
         normalized = self.normalize_username(username)
         display_username = str(username or '').strip()
         if not normalized:
@@ -2686,6 +2713,7 @@ class OnlineUserManager:
             'ws_id': ws_id,
             'page': str(page or current_connection.get('page') or ''),
             'user_agent': str(user_agent or current_connection.get('user_agent') or ''),
+            'page_client_id': str(page_client_id or current_connection.get('page_client_id') or ''),
             'online_time': current_connection.get('online_time') or now.strftime('%Y-%m-%d %H:%M:%S'),
             'last_heartbeat': now,
         }
@@ -2714,7 +2742,7 @@ class OnlineUserManager:
         user['connections'] = connections
         return self._refresh_user_summary(normalized)
 
-    def update_heartbeat(self, username, websocket=None, page=''):
+    def update_heartbeat(self, username, websocket=None, page='', page_client_id=''):
         normalized = self.normalize_username(username)
         if not normalized:
             return None
@@ -2727,6 +2755,8 @@ class OnlineUserManager:
             connection['last_heartbeat'] = datetime.now()
             if page:
                 connection['page'] = page
+            if page_client_id:
+                connection['page_client_id'] = str(page_client_id)
             return self._refresh_user_summary(normalized, preferred_ws_id=ws_id)
         summary = self._refresh_user_summary(normalized)
         if summary:
@@ -5001,6 +5031,65 @@ def _build_remote_assist_unbind_message(session) -> dict:
     }
 
 
+def _get_connection_page_client_id(connection) -> str:
+
+    if not isinstance(connection, dict):
+
+        return ''
+
+    return str(connection.get('page_client_id') or '').strip()
+
+
+def _set_remote_assist_request_lock(session, connection) -> None:
+
+    if not session or not isinstance(connection, dict):
+
+        return
+
+    kwargs = {}
+
+    page_client_id = _get_connection_page_client_id(connection)
+
+    if page_client_id:
+
+        kwargs['page_client_id'] = page_client_id
+
+    remote_assist.set_request_chat_ws(
+        session.session_id,
+        str(connection.get('ws_id') or ''),
+        **kwargs,
+    )
+
+
+def _set_remote_assist_bound_lock(session, connection, sync_request: bool = True) -> None:
+
+    if not session or not isinstance(connection, dict):
+
+        return
+
+    kwargs = {}
+
+    page_client_id = _get_connection_page_client_id(connection)
+
+    if page_client_id:
+
+        kwargs['page_client_id'] = page_client_id
+
+    remote_assist.set_bound_chat_ws(
+        session.session_id,
+        str(connection.get('ws_id') or ''),
+        **kwargs,
+    )
+
+    if sync_request:
+
+        remote_assist.set_request_chat_ws(
+            session.session_id,
+            str(connection.get('ws_id') or ''),
+            **kwargs,
+        )
+
+
 def _resolve_remote_assist_request_connection(session):
 
     if not session or session.site_type != 'ak_web':
@@ -5015,15 +5104,24 @@ def _resolve_remote_assist_request_connection(session):
 
         if target and not online_manager.is_login_page(target.get('page')):
 
+            _set_remote_assist_request_lock(session, target)
+
             return target
 
-        remote_assist.clear_chat_ws_locks(session.session_id, websocket_id=request_chat_ws_id, clear_request=True, clear_bound=False)
+        remote_assist.clear_chat_ws_locks(
+            session.session_id,
+            websocket_id=request_chat_ws_id,
+            clear_request=True,
+            clear_bound=False,
+            clear_request_page=True,
+            clear_bound_page=False,
+        )
 
     target = online_manager.pick_remote_assist_connection(session.target_username)
 
     if target:
 
-        remote_assist.set_request_chat_ws(session.session_id, str(target.get('ws_id') or ''))
+        _set_remote_assist_request_lock(session, target)
 
     return target
 
@@ -5040,11 +5138,31 @@ def _resolve_remote_assist_bound_connection(session):
 
     bound_chat_ws_id = str(getattr(session, 'bound_chat_ws_id', '') or '').strip()
 
+    request_chat_page_id = str(getattr(session, 'request_chat_page_id', '') or '').strip()
+
+    bound_chat_page_id = str(getattr(session, 'bound_chat_page_id', '') or '').strip()
+
+    for locked_page_id in (bound_chat_page_id, request_chat_page_id):
+
+        if not locked_page_id:
+
+            continue
+
+        target = online_manager.get_user_connection_by_page_client_id(session.target_username, locked_page_id)
+
+        if target and not online_manager.is_login_page(target.get('page')):
+
+            _set_remote_assist_bound_lock(session, target, sync_request=True)
+
+            return target
+
     if bound_chat_ws_id:
 
         target = online_manager.get_user_connection(session.target_username, bound_chat_ws_id)
 
         if target and not online_manager.is_login_page(target.get('page')):
+
+            _set_remote_assist_bound_lock(session, target, sync_request=True)
 
             return target
 
@@ -5053,6 +5171,8 @@ def _resolve_remote_assist_bound_connection(session):
             websocket_id=bound_chat_ws_id,
             clear_request=request_chat_ws_id == bound_chat_ws_id,
             clear_bound=True,
+            clear_request_page=False,
+            clear_bound_page=False,
         )
 
         session = remote_assist.get_session(session_id) or session
@@ -5065,11 +5185,28 @@ def _resolve_remote_assist_bound_connection(session):
 
         if target and not online_manager.is_login_page(target.get('page')):
 
-            remote_assist.set_bound_chat_ws(session_id, request_chat_ws_id)
+            _set_remote_assist_bound_lock(session, target, sync_request=True)
 
             return target
 
-        remote_assist.clear_chat_ws_locks(session_id, websocket_id=request_chat_ws_id, clear_request=True, clear_bound=False)
+        remote_assist.clear_chat_ws_locks(
+            session_id,
+            websocket_id=request_chat_ws_id,
+            clear_request=True,
+            clear_bound=False,
+            clear_request_page=False,
+            clear_bound_page=False,
+        )
+
+    if request_chat_page_id:
+
+        target = online_manager.get_user_connection_by_page_client_id(session.target_username, request_chat_page_id)
+
+        if target and not online_manager.is_login_page(target.get('page')):
+
+            _set_remote_assist_bound_lock(session, target, sync_request=True)
+
+            return target
 
     return None
 
@@ -5134,7 +5271,25 @@ async def _send_remote_assist_unbind_to_user(session, websocket_id: str = '') ->
 
     request_chat_ws_id = str(getattr(session, 'request_chat_ws_id', '') or '').strip()
 
+    bound_chat_page_id = str(getattr(session, 'bound_chat_page_id', '') or '').strip()
+
+    request_chat_page_id = str(getattr(session, 'request_chat_page_id', '') or '').strip()
+
     for candidate_ws_id in (bound_chat_ws_id, request_chat_ws_id):
+
+        if candidate_ws_id and candidate_ws_id not in preferred_ids:
+
+            preferred_ids.append(candidate_ws_id)
+
+    for candidate_page_id in (bound_chat_page_id, request_chat_page_id):
+
+        if not candidate_page_id:
+
+            continue
+
+        target = online_manager.get_user_connection_by_page_client_id(target_username, candidate_page_id)
+
+        candidate_ws_id = str((target or {}).get('ws_id') or '').strip()
 
         if candidate_ws_id and candidate_ws_id not in preferred_ids:
 
@@ -5157,6 +5312,8 @@ async def _handle_chat_connection_offline(username: str, websocket=None):
 
     current_chat_ws_id = online_manager.get_websocket_id(websocket)
 
+    current_connection = online_manager.get_user_connection(current_username, current_chat_ws_id)
+
     remaining_user = online_manager.user_offline(current_username, websocket)
 
     if not current_username or not current_chat_ws_id:
@@ -5173,6 +5330,8 @@ async def _handle_chat_connection_offline(username: str, websocket=None):
 
     bound_chat_ws_id = str(getattr(session, 'bound_chat_ws_id', '') or '').strip()
 
+    current_chat_page_id = _get_connection_page_client_id(current_connection)
+
     request_match = request_chat_ws_id == current_chat_ws_id
 
     bound_match = bound_chat_ws_id == current_chat_ws_id
@@ -5186,6 +5345,12 @@ async def _handle_chat_connection_offline(username: str, websocket=None):
         websocket_id=current_chat_ws_id,
         clear_request=request_match,
         clear_bound=bound_match,
+        clear_request_page=not (
+            request_match and current_chat_page_id and _assist_session_has_accepted_consent(session)
+        ),
+        clear_bound_page=not (
+            bound_match and current_chat_page_id and _assist_session_has_accepted_consent(session)
+        ),
     )
 
     current_session = remote_assist.get_session(session.session_id) or session
@@ -5195,6 +5360,10 @@ async def _handle_chat_connection_offline(username: str, websocket=None):
         if _assist_session_has_connected_admin(current_session):
 
             await _send_remote_assist_request_to_user(current_session)
+
+    elif _assist_session_has_accepted_consent(current_session) and _assist_session_has_connected_admin(current_session):
+
+        await _send_remote_assist_bind_to_user(current_session)
 
     return remaining_user
 
@@ -5208,6 +5377,10 @@ async def _handle_remote_assist_request_response(username: str, payload: dict, w
     current_username = (username or '').strip()
 
     current_chat_ws_id = online_manager.get_websocket_id(websocket)
+
+    current_connection = online_manager.get_user_connection(current_username, current_chat_ws_id)
+
+    current_chat_page_id = _get_connection_page_client_id(current_connection)
 
     if not session_id or not current_username:
 
@@ -5238,13 +5411,21 @@ async def _handle_remote_assist_request_response(username: str, payload: dict, w
 
     if response_chat_ws_id:
 
-        session = remote_assist.set_request_chat_ws(session_id, response_chat_ws_id) or session
+        session = remote_assist.set_request_chat_ws(
+            session_id,
+            response_chat_ws_id,
+            page_client_id=current_chat_page_id or None,
+        ) or session
 
     if accepted:
 
         if response_chat_ws_id:
 
-            session = remote_assist.set_bound_chat_ws(session_id, response_chat_ws_id) or session
+            session = remote_assist.set_bound_chat_ws(
+                session_id,
+                response_chat_ws_id,
+                page_client_id=current_chat_page_id or None,
+            ) or session
 
         session = remote_assist.update_consent_status(session_id, AssistConsentStatus.ACCEPTED)
 
@@ -5569,7 +5750,7 @@ async def chat_websocket(websocket: WebSocket):
 
                     f"[ChatWS] online_received query_username={username or '-'} incoming_username={incoming_username or '-'} "
 
-                    f"client={client} page={(data.get('page') or '')}"
+                    f"client={client} page={(data.get('page') or '')} page_client_id={(data.get('pageClientId') or '')}"
 
                 )
 
@@ -5581,7 +5762,7 @@ async def chat_websocket(websocket: WebSocket):
 
                     incoming_username, websocket,
 
-                    data.get('page', ''), data.get('userAgent', ''))
+                    data.get('page', ''), data.get('userAgent', ''), data.get('pageClientId', ''))
 
                 username = (current_user or {}).get('username') or str(incoming_username or '').strip()
 
@@ -5617,7 +5798,12 @@ async def chat_websocket(websocket: WebSocket):
 
                 hp = data.get('page', '')
 
-                online_manager.update_heartbeat(username, websocket=websocket, page=hp)
+                online_manager.update_heartbeat(
+                    username,
+                    websocket=websocket,
+                    page=hp,
+                    page_client_id=data.get('pageClientId', ''),
+                )
 
             elif msg_type == 'user_message':
 

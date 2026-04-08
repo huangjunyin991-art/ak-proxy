@@ -67,11 +67,21 @@ class RemoteAssistFacade:
     def update_consent_status(self, session_id: str, consent_status: AssistConsentStatus) -> Optional[AssistSession]:
         return self.sessions.update_consent_status(session_id, consent_status)
 
-    def set_request_chat_ws(self, session_id: str, websocket_id: str) -> Optional[AssistSession]:
-        return self.sessions.set_request_chat_ws(session_id, websocket_id)
+    def set_request_chat_ws(
+        self,
+        session_id: str,
+        websocket_id: str,
+        page_client_id: Optional[str] = None,
+    ) -> Optional[AssistSession]:
+        return self.sessions.set_request_chat_ws(session_id, websocket_id, page_client_id=page_client_id)
 
-    def set_bound_chat_ws(self, session_id: str, websocket_id: str) -> Optional[AssistSession]:
-        return self.sessions.set_bound_chat_ws(session_id, websocket_id)
+    def set_bound_chat_ws(
+        self,
+        session_id: str,
+        websocket_id: str,
+        page_client_id: Optional[str] = None,
+    ) -> Optional[AssistSession]:
+        return self.sessions.set_bound_chat_ws(session_id, websocket_id, page_client_id=page_client_id)
 
     def clear_chat_ws_locks(
         self,
@@ -79,12 +89,16 @@ class RemoteAssistFacade:
         websocket_id: str = "",
         clear_request: bool = True,
         clear_bound: bool = True,
+        clear_request_page: bool = True,
+        clear_bound_page: bool = True,
     ) -> Optional[AssistSession]:
         return self.sessions.clear_chat_ws_locks(
             session_id,
             websocket_id=websocket_id,
             clear_request=clear_request,
             clear_bound=clear_bound,
+            clear_request_page=clear_request_page,
+            clear_bound_page=clear_bound_page,
         )
 
     def attach_browse_session(self, session_id: str, browse_session_id: str) -> Optional[AssistSession]:
