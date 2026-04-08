@@ -1086,7 +1086,7 @@
     const ASSIST_SCROLL_TARGET_RESCAN_COOLDOWN_MS = 480;
     const ASSIST_SCROLL_VIEWPORT_SNAPSHOT_MIN_INTERVAL_MS = 900;
 
-    const ASSIST_ROUTE_SETTLE_DELAY = 320;
+    const ASSIST_ROUTE_SETTLE_DELAY = 160;
     const ASSIST_ROUTE_SETTLE_WINDOW_MS = 1200;
 
     function nextAssistNodeId() {
@@ -3103,7 +3103,7 @@
         if (normalizeAssistRoute().indexOf('/admin/ak-web/') !== 0) return;
         sendAssistEvent('click_highlight', pickAssistMeta(target));
         if (!isAssistFormFieldTarget(target)) {
-            scheduleAssistSnapshot(180, 'click_interaction');
+            scheduleAssistSnapshot(100, 'click_interaction');
         }
     }, true);
     document.addEventListener('input', handleAssistFormValueChange, true);
