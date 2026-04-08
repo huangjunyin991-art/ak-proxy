@@ -6,7 +6,7 @@ from .adapters import AkWebAdapter
 from .event_bus import RemoteAssistEventBus
 from .flags import load_flags
 from .session_manager import RemoteAssistSessionManager
-from .types import AssistEvent, AssistRole, AssistSession
+from .types import AssistConsentStatus, AssistEvent, AssistRole, AssistSession
 
 
 class RemoteAssistFacade:
@@ -40,6 +40,7 @@ class RemoteAssistFacade:
         admin_username: str,
         browse_session_id: str = "",
         readonly: bool = True,
+        consent_status: AssistConsentStatus = AssistConsentStatus.ACCEPTED,
         metadata: Optional[dict[str, Any]] = None,
     ) -> Optional[AssistSession]:
         if not self.supports_site(site_type):
@@ -50,6 +51,7 @@ class RemoteAssistFacade:
             admin_username=admin_username,
             browse_session_id=browse_session_id,
             readonly=readonly,
+            consent_status=consent_status,
             metadata=metadata,
         )
 
@@ -61,6 +63,9 @@ class RemoteAssistFacade:
 
     def close_session(self, session_id: str) -> Optional[AssistSession]:
         return self.sessions.close_session(session_id)
+
+    def update_consent_status(self, session_id: str, consent_status: AssistConsentStatus) -> Optional[AssistSession]:
+        return self.sessions.update_consent_status(session_id, consent_status)
 
     def attach_browse_session(self, session_id: str, browse_session_id: str) -> Optional[AssistSession]:
         return self.sessions.attach_browse_session(session_id, browse_session_id)
@@ -140,7 +145,7 @@ class RemoteAssistFacade:
         capabilities: Optional[list[str]] = None,
         client_meta: Optional[dict[str, Any]] = None,
     ) -> Tuple[Optional[AssistSession], str]:
-        session = self.sessions.ensure_active(session_id)
+        session = self.sessions.ensure_active(session_id, role=role)
         if not session:
             return None, ""
         connection_id = await self.event_bus.connect(session_id, role.value, websocket)

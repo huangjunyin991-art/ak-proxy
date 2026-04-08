@@ -120,7 +120,7 @@ import database_pg as db
 
 from remote_assist import remote_assist
 
-from remote_assist.types import AssistRole
+from remote_assist.types import AssistConsentStatus, AssistRole
 
 # 出口IP调度模块
 
@@ -4857,6 +4857,160 @@ def _assist_session_has_connected_admin(session) -> bool:
     )
 
 
+def _assist_session_has_accepted_consent(session) -> bool:
+
+    return bool(
+        session
+        and getattr(session, 'consent_status', AssistConsentStatus.ACCEPTED) == AssistConsentStatus.ACCEPTED
+    )
+
+
+def _build_remote_assist_session_state_payload(session, role: Optional[AssistRole] = None, readonly: Optional[bool] = None) -> dict:
+
+    if not session:
+
+        return {
+            'role': role.value if role else '',
+            'readonly': bool(readonly),
+            'last_route': '',
+            'has_snapshot': False,
+            'consent_status': AssistConsentStatus.WAITING.value,
+            'target_username': '',
+            'admin_username': '',
+        }
+
+    return {
+        'role': role.value if role else '',
+        'readonly': session.readonly if readonly is None else bool(readonly),
+        'last_route': session.last_route,
+        'has_snapshot': bool(_assist_session_has_accepted_consent(session) and session.latest_snapshot and session.latest_snapshot.html),
+        'consent_status': getattr(session.consent_status, 'value', AssistConsentStatus.ACCEPTED.value),
+        'target_username': session.target_username,
+        'admin_username': session.admin_username,
+    }
+
+
+async def _publish_remote_assist_session_state(session, include_roles: Optional[set[str]] = None) -> None:
+
+    if not session or session.site_type != 'ak_web':
+
+        return
+
+    await remote_assist.publish_event(
+        'session_state',
+        session.session_id,
+        session.site_type,
+        'assist_core',
+        _build_remote_assist_session_state_payload(session),
+        include_roles=include_roles,
+    )
+
+
+def _build_remote_assist_request_message(session) -> dict:
+
+    return {
+        'type': 'remote_assist_request',
+        'session_id': session.session_id,
+        'site': session.site_type,
+        'admin_username': session.admin_username,
+        'readonly': bool(session.readonly),
+    }
+
+
+def _build_remote_assist_bind_message(session) -> dict:
+
+    return {
+        'type': 'remote_assist_bind',
+        'session_id': session.session_id,
+        'site': session.site_type,
+    }
+
+
+async def _send_remote_assist_request_to_user(session) -> bool:
+
+    if not session or session.site_type != 'ak_web':
+
+        return False
+
+    return await online_manager.send_payload_to_user(
+        session.target_username,
+        _build_remote_assist_request_message(session),
+    )
+
+
+async def _send_remote_assist_bind_to_user(session) -> bool:
+
+    if not session or session.site_type != 'ak_web' or not _assist_session_has_accepted_consent(session):
+
+        return False
+
+    return await online_manager.send_payload_to_user(
+        session.target_username,
+        _build_remote_assist_bind_message(session),
+    )
+
+
+async def _handle_remote_assist_request_response(username: str, payload: dict) -> None:
+
+    session_id = str((payload or {}).get('session_id') or '').strip()
+
+    accepted = bool((payload or {}).get('accepted'))
+
+    current_username = (username or '').strip()
+
+    if not session_id or not current_username:
+
+        return
+
+    session = remote_assist.get_session(session_id)
+
+    if not session or session.site_type != 'ak_web':
+
+        return
+
+    if (session.target_username or '').strip() != current_username:
+
+        return
+
+    if accepted:
+
+        session = remote_assist.update_consent_status(session_id, AssistConsentStatus.ACCEPTED)
+
+        if not session:
+
+            return
+
+        delivered = await _send_remote_assist_bind_to_user(session)
+
+        if not delivered:
+
+            remote_assist.close_session(session_id)
+
+            return
+
+        await _publish_remote_assist_session_state(session)
+
+        return
+
+    session = remote_assist.update_consent_status(session_id, AssistConsentStatus.REJECTED)
+
+    if not session:
+
+        return
+
+    await online_manager.send_payload_to_user(current_username, {
+
+        'type': 'remote_assist_unbind',
+
+        'session_id': session.session_id,
+
+        'site': session.site_type,
+
+    })
+
+    await _publish_remote_assist_session_state(session)
+
+
 def _cancel_remote_assist_auto_unbind(session_id: str) -> None:
 
     task = _remote_assist_unbind_tasks.pop((session_id or '').strip(), None)
@@ -4976,15 +5130,10 @@ async def remote_assist_websocket(websocket: WebSocket):
             'site': site,
             'source': 'assist_core',
             'ts': int(time.time() * 1000),
-            'payload': {
-                'role': role.value,
-                'readonly': readonly,
-                'last_route': session.last_route,
-                'has_snapshot': bool(session.latest_snapshot and session.latest_snapshot.html),
-            },
+            'payload': _build_remote_assist_session_state_payload(session, role=role, readonly=readonly),
         })
 
-        if role == AssistRole.ADMIN and session.last_route:
+        if role == AssistRole.ADMIN and _assist_session_has_accepted_consent(session) and session.last_route:
             await remote_assist.event_bus.send(session.session_id, connection_id, {
                 'v': 1,
                 'type': 'route_changed',
@@ -4995,7 +5144,7 @@ async def remote_assist_websocket(websocket: WebSocket):
                 'payload': {'route': session.last_route, 'replace': False},
             })
 
-        if role == AssistRole.ADMIN and session.latest_snapshot and session.latest_snapshot.html:
+        if role == AssistRole.ADMIN and _assist_session_has_accepted_consent(session) and session.latest_snapshot and session.latest_snapshot.html:
             await remote_assist.event_bus.send(session.session_id, connection_id, {
                 'v': 1,
                 'type': 'snapshot_replace',
@@ -5056,7 +5205,7 @@ async def remote_assist_websocket(websocket: WebSocket):
                 continue
 
             if msg_type == 'snapshot_request':
-                if role == AssistRole.ADMIN:
+                if role == AssistRole.ADMIN and _assist_session_has_accepted_consent(remote_assist.get_session(session.session_id)):
                     await remote_assist.publish_event(
                         'snapshot_request',
                         session.session_id,
@@ -5174,17 +5323,15 @@ async def chat_websocket(websocket: WebSocket):
 
                     has_connected_admin = _assist_session_has_connected_admin(assist_session)
 
-                    if has_connected_admin:
+                    if has_connected_admin and assist_session:
 
-                        await online_manager.send_payload_to_user(username, {
+                        if _assist_session_has_accepted_consent(assist_session):
 
-                            'type': 'remote_assist_bind',
+                            await _send_remote_assist_bind_to_user(assist_session)
 
-                            'session_id': assist_session.session_id,
+                        elif getattr(assist_session, 'consent_status', AssistConsentStatus.ACCEPTED) == AssistConsentStatus.WAITING:
 
-                            'site': 'ak_web',
-
-                        })
+                            await _send_remote_assist_request_to_user(assist_session)
 
                     history = online_manager.get_messages(username)
 
@@ -5217,6 +5364,10 @@ async def chat_websocket(websocket: WebSocket):
                         'username': username, 'content': content,
 
                         'time': datetime.now().strftime('%H:%M:%S'), 'is_admin': False}})
+
+            elif msg_type == 'remote_assist_request_response':
+
+                await _handle_remote_assist_request_response(username, data)
 
             elif msg_type == 'offline':
 
@@ -6205,7 +6356,7 @@ async def admin_remote_assist_start(request: Request):
     if not token or not role:
         return JSONResponse({"success": False, "message": "未登录或登录已失效"}, status_code=401)
     if not remote_assist.is_enabled() or not remote_assist.supports_site("ak_web"):
-        return JSONResponse({"success": False, "message": "远程协助未启用"}, status_code=503)
+        return JSONResponse({"success": False, "message": "远程指导未启用"}, status_code=503)
     data = await request.json()
     username = (data.get("username") or "").strip()
     if not username:
@@ -6216,7 +6367,7 @@ async def admin_remote_assist_start(request: Request):
         remote_assist.close_session(session.session_id)
         session = None
     if session and role != ROLE_SUPER_ADMIN and session.admin_username != (admin_name or role):
-        return JSONResponse({"success": False, "message": f"用户 {username} 已有进行中的远程协助"}, status_code=409)
+        return JSONResponse({"success": False, "message": f"用户 {username} 已有进行中的远程指导"}, status_code=409)
     created_new_session = False
     if not session:
         session = remote_assist.create_session(
@@ -6224,15 +6375,16 @@ async def admin_remote_assist_start(request: Request):
             target_username=username,
             admin_username=admin_name or role,
             readonly=True,
+            consent_status=AssistConsentStatus.WAITING,
             metadata={"admin_role": role},
         )
         created_new_session = bool(session)
     if not session:
-        return JSONResponse({"success": False, "message": "创建协助会话失败"}, status_code=500)
+        return JSONResponse({"success": False, "message": "创建远程指导会话失败"}, status_code=500)
     if not online_manager.get_user(username):
         if created_new_session:
             remote_assist.close_session(session.session_id)
-        return JSONResponse({"success": False, "message": f"用户 {username} 当前不在线，无法发起远程协助"}, status_code=409)
+        return JSONResponse({"success": False, "message": f"用户 {username} 当前不在线，无法发起远程指导"}, status_code=409)
     response = JSONResponse({
         "success": True,
         "session_id": session.session_id,
@@ -6240,16 +6392,16 @@ async def admin_remote_assist_start(request: Request):
         "readonly": True,
         "site": "ak_web",
         "mode": "html_snapshot",
+        "consent_status": getattr(session.consent_status, 'value', AssistConsentStatus.ACCEPTED.value),
     })
-    delivered = await online_manager.send_payload_to_user(username, {
-        'type': 'remote_assist_bind',
-        'session_id': session.session_id,
-        'site': 'ak_web',
-    })
+    delivered = await (_send_remote_assist_bind_to_user(session) if _assist_session_has_accepted_consent(session) else _send_remote_assist_request_to_user(session))
     if not delivered:
         _cancel_remote_assist_auto_unbind(session.session_id)
         remote_assist.close_session(session.session_id)
-        return JSONResponse({"success": False, "message": f"用户 {username} 协助绑定失败，请稍后重试"}, status_code=409)
+        failure_message = f"用户 {username} 远程指导请求下发失败，请稍后重试"
+        if _assist_session_has_accepted_consent(session):
+            failure_message = f"用户 {username} 远程指导绑定失败，请稍后重试"
+        return JSONResponse({"success": False, "message": failure_message}, status_code=409)
     return response
 
 
@@ -6264,9 +6416,9 @@ async def admin_remote_assist_close(request: Request):
         return JSONResponse({"success": False, "message": "缺少会话ID"})
     session = remote_assist.get_session(session_id)
     if not session:
-        return JSONResponse({"success": False, "message": "协助会话不存在"}, status_code=404)
+        return JSONResponse({"success": False, "message": "远程指导会话不存在"}, status_code=404)
     if role != ROLE_SUPER_ADMIN and session.admin_username != (admin_name or role):
-        return JSONResponse({"success": False, "message": "无权关闭该协助会话"}, status_code=403)
+        return JSONResponse({"success": False, "message": "无权关闭该远程指导会话"}, status_code=403)
     _cancel_remote_assist_auto_unbind(session.session_id)
     await online_manager.send_payload_to_user(session.target_username, {
         'type': 'remote_assist_unbind',

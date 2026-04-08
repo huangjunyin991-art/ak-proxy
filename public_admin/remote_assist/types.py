@@ -19,6 +19,12 @@ class AssistStatus(str, Enum):
     CLOSED = "closed"
 
 
+class AssistConsentStatus(str, Enum):
+    WAITING = "waiting"
+    ACCEPTED = "accepted"
+    REJECTED = "rejected"
+
+
 @dataclass
 class AssistParticipant:
     participant_id: str
@@ -85,6 +91,7 @@ class AssistSession:
     admin_username: str
     browse_session_id: str = ""
     status: AssistStatus = AssistStatus.PENDING
+    consent_status: AssistConsentStatus = AssistConsentStatus.ACCEPTED
     readonly: bool = True
     created_at: float = field(default_factory=time.time)
     updated_at: float = field(default_factory=time.time)
@@ -104,6 +111,7 @@ class AssistSession:
             "admin_username": self.admin_username,
             "browse_session_id": self.browse_session_id,
             "status": self.status.value,
+            "consent_status": self.consent_status.value,
             "readonly": self.readonly,
             "created_at": self.created_at,
             "updated_at": self.updated_at,

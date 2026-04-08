@@ -6,7 +6,7 @@ from collections import deque
 from typing import Any, Optional
 
 from .flags import RemoteAssistFlags
-from .types import AssistEvent, AssistParticipant, AssistRole, AssistSession, AssistSnapshot, AssistStatus
+from .types import AssistConsentStatus, AssistEvent, AssistParticipant, AssistRole, AssistSession, AssistSnapshot, AssistStatus
 
 
 class RemoteAssistSessionManager:
@@ -52,6 +52,7 @@ class RemoteAssistSessionManager:
         admin_username: str,
         browse_session_id: str = "",
         readonly: bool = True,
+        consent_status: AssistConsentStatus = AssistConsentStatus.ACCEPTED,
         metadata: Optional[dict[str, Any]] = None,
     ) -> Optional[AssistSession]:
         self.prune()
@@ -63,6 +64,7 @@ class RemoteAssistSessionManager:
             target_username=(target_username or "").strip(),
             admin_username=(admin_username or "").strip(),
             browse_session_id=(browse_session_id or "").strip(),
+            consent_status=consent_status,
             readonly=readonly,
             metadata=dict(metadata or {}),
         )
@@ -78,10 +80,17 @@ class RemoteAssistSessionManager:
         session.touch()
         return session
 
-    def ensure_active(self, session_id: str) -> Optional[AssistSession]:
+    def ensure_active(self, session_id: str, role: Optional[AssistRole] = None) -> Optional[AssistSession]:
         session = self.get_session(session_id)
         if not session:
             return None
+        if session.consent_status == AssistConsentStatus.REJECTED:
+            return None
+        if role == AssistRole.USER and session.consent_status != AssistConsentStatus.ACCEPTED:
+            return None
+        if role == AssistRole.ADMIN and session.status == AssistStatus.PENDING and session.consent_status != AssistConsentStatus.ACCEPTED:
+            session.touch()
+            return session
         if session.status in {AssistStatus.PENDING, AssistStatus.ACTIVE}:
             session.status = AssistStatus.ACTIVE
             session.touch()
@@ -97,7 +106,7 @@ class RemoteAssistSessionManager:
         capabilities: Optional[list[str]] = None,
         client_meta: Optional[dict[str, Any]] = None,
     ) -> Optional[AssistParticipant]:
-        session = self.ensure_active(session_id)
+        session = self.ensure_active(session_id, role=role)
         if not session:
             return None
         participant = AssistParticipant(
@@ -122,6 +131,16 @@ class RemoteAssistSessionManager:
             participant.connected = False
             participant.websocket_id = ""
             participant.last_heartbeat = time.time()
+        session.touch()
+        return session
+
+    def update_consent_status(self, session_id: str, consent_status: AssistConsentStatus) -> Optional[AssistSession]:
+        session = self.get_session(session_id)
+        if not session:
+            return None
+        session.consent_status = consent_status
+        if consent_status == AssistConsentStatus.ACCEPTED and session.status == AssistStatus.PENDING:
+            session.status = AssistStatus.ACTIVE
         session.touch()
         return session
 

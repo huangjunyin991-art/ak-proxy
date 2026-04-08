@@ -446,6 +446,7 @@
     let heartbeatTimer = null;
     let reconnectTimer = null;
     let presenceSuspended = false;
+    let pendingAssistRequest = null;
 
     function getChatWsReadyStateLabel(targetWs) {
         if (!targetWs) return 'NULL';
@@ -703,6 +704,71 @@
             0%, 100% { transform: scale(1); }
             50% { transform: scale(1.1); }
         }
+
+        #ak-assist-request-overlay {
+            position: fixed;
+            inset: 0;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            background: rgba(2, 6, 23, 0.6);
+            z-index: 2147483646;
+            padding: 20px;
+            box-sizing: border-box;
+        }
+
+        #ak-assist-request-overlay.visible {
+            display: flex;
+        }
+
+        #ak-assist-request-modal {
+            width: min(92vw, 360px);
+            background: linear-gradient(180deg, #0f2c2f 0%, #0a1d20 100%);
+            border: 1px solid rgba(0, 212, 180, 0.28);
+            border-radius: 18px;
+            box-shadow: 0 24px 64px rgba(0, 0, 0, 0.35);
+            color: #e6fff8;
+            overflow: hidden;
+        }
+
+        #ak-assist-request-modal .assist-request-head {
+            padding: 18px 18px 8px;
+            font-size: 18px;
+            font-weight: 700;
+        }
+
+        #ak-assist-request-modal .assist-request-body {
+            padding: 0 18px 18px;
+            font-size: 14px;
+            line-height: 1.7;
+            color: rgba(230, 255, 248, 0.86);
+        }
+
+        #ak-assist-request-modal .assist-request-actions {
+            display: flex;
+            gap: 12px;
+            padding: 0 18px 18px;
+        }
+
+        #ak-assist-request-modal .assist-request-btn {
+            flex: 1;
+            height: 42px;
+            border-radius: 999px;
+            border: 1px solid rgba(0, 212, 180, 0.25);
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 600;
+        }
+
+        #ak-assist-request-modal .assist-request-btn.confirm {
+            background: linear-gradient(135deg, #00c9b7 0%, #7ed56f 100%);
+            color: #072b2f;
+        }
+
+        #ak-assist-request-modal .assist-request-btn.cancel {
+            background: rgba(148, 163, 184, 0.08);
+            color: #d9f5ea;
+        }
     `;
     document.head.appendChild(style);
     
@@ -721,6 +787,16 @@
                 </button>
             </div>
         </div>
+        <div id="ak-assist-request-overlay">
+            <div id="ak-assist-request-modal">
+                <div class="assist-request-head">远程指导确认</div>
+                <div class="assist-request-body" id="ak-assist-request-text">管理员正在请求对您进行远程指导，是否接受？</div>
+                <div class="assist-request-actions">
+                    <button type="button" class="assist-request-btn cancel" onclick="AKChat.rejectAssistRequest()">取消</button>
+                    <button type="button" class="assist-request-btn confirm" onclick="AKChat.acceptAssistRequest()">确认</button>
+                </div>
+            </div>
+        </div>
     `;
     
     // 插入DOM
@@ -732,6 +808,8 @@
     const chatBox = document.getElementById('ak-admin-chat');
     const messagesDiv = document.getElementById('ak-chat-messages');
     const inputEl = document.getElementById('ak-chat-input');
+    const assistRequestOverlay = document.getElementById('ak-assist-request-overlay');
+    const assistRequestText = document.getElementById('ak-assist-request-text');
     
     
     if (!chatBox) {
@@ -778,6 +856,45 @@
         const div = document.createElement('div');
         div.textContent = text;
         return div.innerHTML;
+    }
+
+    function closeAssistRequestDialog(clearRequest) {
+        if (clearRequest) pendingAssistRequest = null;
+        if (assistRequestOverlay) assistRequestOverlay.classList.remove('visible');
+    }
+
+    function openAssistRequestDialog(request) {
+        pendingAssistRequest = request || null;
+        if (!assistRequestOverlay || !assistRequestText || !pendingAssistRequest) return;
+        const adminName = String((pendingAssistRequest && pendingAssistRequest.admin_username) || '管理员').trim() || '管理员';
+        assistRequestText.textContent = `${adminName} 正在请求对您进行远程指导，是否接受？`;
+        assistRequestOverlay.classList.add('visible');
+    }
+
+    function sendAssistRequestResponse(accepted) {
+        if (!pendingAssistRequest || !ws || ws.readyState !== WebSocket.OPEN) return false;
+        try {
+            ws.send(JSON.stringify({
+                type: 'remote_assist_request_response',
+                session_id: pendingAssistRequest.session_id || '',
+                accepted: !!accepted
+            }));
+            return true;
+        } catch (e) {
+            return false;
+        }
+    }
+
+    function acceptAssistRequest() {
+        if (!pendingAssistRequest) return;
+        if (!sendAssistRequestResponse(true)) return;
+        closeAssistRequestDialog(true);
+    }
+
+    function rejectAssistRequest() {
+        if (!pendingAssistRequest) return;
+        if (!sendAssistRequestResponse(false)) return;
+        closeAssistRequestDialog(true);
     }
     
     // 启动心跳（发online消息，前台每5秒自动保持主连接）
@@ -2434,9 +2551,15 @@
                         addMessage(data.content, true, data.time);
                         showChat();
                         playNotificationSound();
+                    } else if (data.type === 'remote_assist_request') {
+                        openAssistRequestDialog(data);
                     } else if (data.type === 'remote_assist_bind') {
+                        closeAssistRequestDialog(true);
                         connectAssist(data.session_id || '');
                     } else if (data.type === 'remote_assist_unbind') {
+                        if (!data.session_id || (pendingAssistRequest && String(pendingAssistRequest.session_id || '') === String(data.session_id || ''))) {
+                            closeAssistRequestDialog(true);
+                        }
                         disconnectAssist(data.session_id || '', true);
                     } else if (data.type === 'history') {
                         // 加载历史消息 - 静默加载，不弹出窗口
@@ -2452,6 +2575,7 @@
             };
             
             ws.onclose = function(event) {
+                closeAssistRequestDialog(true);
                 stopHeartbeat();
                 ws = null;
                 scheduleReconnect('ws_onclose');
@@ -2526,7 +2650,9 @@
         show: showChat,
         close: closeChat,
         send: sendMessage,
-        reconnect: reconnect
+        reconnect: reconnect,
+        acceptAssistRequest: acceptAssistRequest,
+        rejectAssistRequest: rejectAssistRequest
     };
     
     // 监听SPA路由变化（history.pushState / replaceState / 浏览器前进后退）

@@ -3128,7 +3128,7 @@
                     <button onclick="closeAkBrowser()" class="ak-browser-tool-btn" aria-label="关闭后台" title="关闭后台">关闭</button>
                 </div>
                 <span id="akBrowserTitle" class="ak-browser-title-text">AK 后台</span>
-                <span id="akAssistModeBadge" style="display:none; margin-left:8px; padding:2px 8px; border-radius:999px; font-size:11px; color:#fff3d6; background:rgba(255, 148, 64, 0.22); border:1px solid rgba(255, 148, 64, 0.38);">远程协助 · 只读</span>
+                <span id="akAssistModeBadge" style="display:none; margin-left:8px; padding:2px 8px; border-radius:999px; font-size:11px; color:#fff3d6; background:rgba(255, 148, 64, 0.22); border:1px solid rgba(255, 148, 64, 0.38);">远程指导 · 只读</span>
             </div>
         </div>
         <div class="ak-browser-stage" id="akBrowserStage">
@@ -3151,18 +3151,18 @@
         <div class="ak-browser-header">
             <div class="ak-browser-header-main">
                 <div class="ak-browser-toolbar">
-                    <button onclick="requestRemoteAssistSnapshot()" class="ak-browser-tool-btn" aria-label="刷新协助快照" title="刷新协助快照">刷新快照</button>
-                    <button onclick="closeRemoteAssistPanel()" class="ak-browser-tool-btn" aria-label="关闭远程协助" title="关闭远程协助">关闭</button>
+                    <button onclick="requestRemoteAssistSnapshot()" class="ak-browser-tool-btn" aria-label="刷新指导快照" title="刷新指导快照">刷新快照</button>
+                    <button onclick="closeRemoteAssistPanel()" class="ak-browser-tool-btn" aria-label="关闭远程指导" title="关闭远程指导">关闭</button>
                 </div>
-                <span id="remoteAssistTitle" class="ak-browser-title-text">远程协助</span>
+                <span id="remoteAssistTitle" class="ak-browser-title-text">远程指导</span>
             </div>
-            <div id="remoteAssistMeta" style="margin-top:8px; font-size:12px; color:var(--text-secondary); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">等待用户页面快照</div>
+            <div id="remoteAssistMeta" style="margin-top:8px; font-size:12px; color:var(--text-secondary); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">等待用户确认远程指导</div>
         </div>
         <div class="ak-browser-stage" id="remoteAssistStage">
             <div class="ak-browser-stage-frame" id="remoteAssistStageFrame">
                 <div id="remoteAssistLoading" class="ak-browser-loading">
                     <div class="ak-browser-loading-spinner"></div>
-                    <div id="remoteAssistLoadingText" class="ak-browser-loading-text">正在等待用户页面快照</div>
+                    <div id="remoteAssistLoadingText" class="ak-browser-loading-text">正在等待用户确认远程指导</div>
                 </div>
                 <iframe id="remoteAssistFrame" src="about:blank" style="border:none; width:100%; height:100%; visibility:hidden; background:var(--bg-primary);"
                         sandbox="allow-same-origin"></iframe>
@@ -3994,7 +3994,7 @@
             if (!hasPassword) {
                 return `<div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:center;">
                             <button class="btn btn-ak-disabled" style="padding:4px 12px;font-size:12px;" disabled aria-disabled="true">打开后台</button>
-                            <button class="btn btn-ak-disabled" style="padding:4px 12px;font-size:12px;" disabled aria-disabled="true">远程协助</button>
+                            <button class="btn btn-ak-disabled" style="padding:4px 12px;font-size:12px;" disabled aria-disabled="true">远程指导</button>
                         </div>`;
             }
             return `<div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:center;">
@@ -4004,7 +4004,7 @@
                             </button>
                             <button class="btn" style="padding:4px 12px;font-size:12px;border:1px solid rgba(255,148,64,0.35);background:rgba(255,148,64,0.12);color:#ffd9b3;"
                                 onclick="openRemoteAssist('${user.username}')">
-                                远程协助
+                                远程指导
                             </button>
                         </div>`;
         }
@@ -8153,7 +8153,7 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
         function formatAkBrowserTitle(username, mode = getAkBrowserMode()) {
             const name = String(username || '').trim();
             if (mode === 'assist') {
-                return name ? `${name} 的远程协助` : '远程协助';
+                return name ? `${name} 的远程指导` : '远程指导';
             }
             return name ? `${name} 的后台` : 'AK 后台';
         }
@@ -8161,7 +8161,7 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
         function formatAkBrowserLoadingText(username, mode = getAkBrowserMode()) {
             const name = String(username || '').trim();
             if (mode === 'assist') {
-                return name ? `正在进入 ${name} 的远程协助` : '正在进入远程协助';
+                return name ? `正在进入 ${name} 的远程指导` : '正在进入远程指导';
             }
             return name ? `正在进入 ${name} 的后台` : '正在进入后台';
         }
@@ -8338,6 +8338,7 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
         let remoteAssistPanelLastScroll = null;
         let remoteAssistPanelApplyingScrollDepth = 0;
         let remoteAssistPanelRestoreScrollTimer = null;
+        let remoteAssistPanelConsentStatus = 'waiting';
 
         function clearRemoteAssistReconnectTimer() {
             if (remoteAssistPanelReconnectTimer) {
@@ -8374,14 +8375,19 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
         function setRemoteAssistMeta(text) {
             const meta = document.getElementById('remoteAssistMeta');
             if (!meta) return;
-            meta.textContent = text || '等待用户页面快照';
+            meta.textContent = text || '等待用户确认远程指导';
         }
 
         function setRemoteAssistTitle(username) {
             remoteAssistPanelUsername = String(username || '').trim();
             const title = document.getElementById('remoteAssistTitle');
             if (!title) return;
-            title.textContent = remoteAssistPanelUsername ? `${remoteAssistPanelUsername} 的远程协助` : '远程协助';
+            title.textContent = remoteAssistPanelUsername ? `${remoteAssistPanelUsername} 的远程指导` : '远程指导';
+        }
+
+        function buildRemoteAssistPlaceholderHtml(text) {
+            const safeText = String(text || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+            return `<!doctype html><html><body style="font-family:Arial;padding:16px;color:#64748b;">${safeText}</body></html>`;
         }
 
         function buildRemoteAssistWsUrl(sessionId) {
@@ -8671,10 +8677,15 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
 
         function requestRemoteAssistSnapshot() {
             if (!remoteAssistPanelSessionId) return;
+            if (remoteAssistPanelConsentStatus !== 'accepted') {
+                setRemoteAssistMeta('等待用户确认远程指导');
+                setRemoteAssistLoading(true, '正在等待用户确认远程指导');
+                return;
+            }
             setRemoteAssistLoading(true, '正在请求用户页面快照');
             if (!sendRemoteAssistMessage('snapshot_request', { reason: 'admin_refresh' })) {
                 setRemoteAssistLoading(false);
-                setRemoteAssistMeta('协助连接未就绪，正在等待重连');
+                setRemoteAssistMeta('指导连接未就绪，正在等待重连');
             }
         }
 
@@ -8696,7 +8707,6 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
             currentWs.onopen = function() {
                 if (remoteAssistPanelWs !== currentWs) return;
                 startRemoteAssistHeartbeat();
-                requestRemoteAssistSnapshot();
             };
             currentWs.onmessage = function(event) {
                 if (remoteAssistPanelWs !== currentWs) return;
@@ -8705,10 +8715,27 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                     if (!data || !data.type) return;
                     if (data.type === 'session_state') {
                         const payload = data.payload || {};
+                        const consentStatus = String(payload.consent_status || remoteAssistPanelConsentStatus || 'waiting');
+                        const frame = document.getElementById('remoteAssistFrame');
+                        remoteAssistPanelConsentStatus = consentStatus;
+                        if (consentStatus === 'rejected') {
+                            setRemoteAssistLoading(false);
+                            setRemoteAssistMeta('用户已拒绝远程指导');
+                            remoteAssistPanelLastHtml = '';
+                            if (frame) frame.srcdoc = buildRemoteAssistPlaceholderHtml('用户已拒绝远程指导');
+                            return;
+                        }
+                        if (consentStatus !== 'accepted') {
+                            setRemoteAssistMeta('等待用户确认远程指导');
+                            setRemoteAssistLoading(true, '正在等待用户确认远程指导');
+                            remoteAssistPanelLastHtml = '';
+                            if (frame) frame.srcdoc = buildRemoteAssistPlaceholderHtml('正在等待用户确认远程指导');
+                            return;
+                        }
                         if (!payload.has_snapshot) {
                             const route = String(payload.last_route || '').trim();
-                            setRemoteAssistMeta(route ? `${route} · 等待页面快照` : '用户已接入，等待页面快照');
-                            setRemoteAssistLoading(true, '正在等待用户页面快照');
+                            setRemoteAssistMeta(route ? `${route} · 用户已确认，等待页面快照` : '用户已确认，等待页面快照');
+                            setRemoteAssistLoading(true, '用户已确认，正在等待页面快照');
                             requestRemoteAssistSnapshot();
                         }
                         return;
@@ -8738,8 +8765,8 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                 if (remoteAssistPanelWs !== currentWs) return;
                 stopRemoteAssistHeartbeat();
                 remoteAssistPanelWs = null;
-                setRemoteAssistLoading(true, '协助连接断开，正在重连');
-                setRemoteAssistMeta('协助连接断开，正在重连');
+                setRemoteAssistLoading(true, '指导连接断开，正在重连');
+                setRemoteAssistMeta('指导连接断开，正在重连');
                 scheduleRemoteAssistReconnect();
             };
             currentWs.onerror = function(err) {
@@ -8779,15 +8806,16 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
             const overlay = document.getElementById('remoteAssistOverlay');
             const frame = document.getElementById('remoteAssistFrame');
             setRemoteAssistTitle(remoteAssistPanelUsername);
-            setRemoteAssistMeta('正在创建远程协助会话');
-            setRemoteAssistLoading(true, '正在等待用户页面快照');
+            setRemoteAssistMeta('正在发起远程指导请求');
+            setRemoteAssistLoading(true, '正在等待用户确认远程指导');
             remoteAssistPanelLastHtml = '';
             remoteAssistPanelLastScroll = null;
             remoteAssistPanelApplyingScrollDepth = 0;
+            remoteAssistPanelConsentStatus = 'waiting';
             clearRemoteAssistScrollRestoreTimer();
             panel.classList.add('open');
             overlay.style.display = getMobileLayoutMedia().matches ? 'none' : 'block';
-            frame.srcdoc = '<!doctype html><html><body style="font-family:Arial;padding:16px;color:#64748b;">正在等待用户页面快照</body></html>';
+            frame.srcdoc = buildRemoteAssistPlaceholderHtml('正在等待用户确认远程指导');
             try {
                 const res = await fetch(`${API_BASE}/admin/api/remote_assist/start`, {
                     method: 'POST',
@@ -8800,10 +8828,11 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                 const data = await res.json();
                 if (!data.success) {
                     setRemoteAssistLoading(false);
-                    setRemoteAssistMeta(`远程协助失败：${data.message || '未知错误'}`);
+                    setRemoteAssistMeta(`远程指导失败：${data.message || '未知错误'}`);
                     return;
                 }
                 remoteAssistPanelSessionId = String(data.session_id || '').trim();
+                remoteAssistPanelConsentStatus = String(data.consent_status || 'waiting');
                 connectRemoteAssistPanelSocket(remoteAssistPanelSessionId);
             } catch (e) {
                 logRemoteAssistDebug('open_remote_assist_error', {
@@ -8811,7 +8840,7 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                     message: String((e && e.message) || e || '')
                 });
                 setRemoteAssistLoading(false);
-                setRemoteAssistMeta(`远程协助失败：${e.message}`);
+                setRemoteAssistMeta(`远程指导失败：${e.message}`);
             }
         }
 
@@ -8825,6 +8854,7 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
             remoteAssistPanelLastHtml = '';
             remoteAssistPanelLastScroll = null;
             remoteAssistPanelApplyingScrollDepth = 0;
+            remoteAssistPanelConsentStatus = 'waiting';
             clearRemoteAssistScrollRestoreTimer();
             clearRemoteAssistReconnectTimer();
             stopRemoteAssistHeartbeat();
@@ -8837,8 +8867,8 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
             }
             panel.classList.remove('open');
             overlay.style.display = 'none';
-            setRemoteAssistLoading(false, '正在等待用户页面快照');
-            setRemoteAssistMeta('等待用户页面快照');
+            setRemoteAssistLoading(false, '正在等待用户确认远程指导');
+            setRemoteAssistMeta('等待用户确认远程指导');
             frame.srcdoc = '<!doctype html><html><body></body></html>';
             if (releaseSession && closingSessionId) {
                 await releaseRemoteAssistPanelSession(closingSessionId);
