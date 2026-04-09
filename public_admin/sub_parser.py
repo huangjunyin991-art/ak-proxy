@@ -305,6 +305,57 @@ def _parse_hysteria2_links(text: str) -> list[dict]:
     return nodes
 
 
+def _parse_anytls_links(text: str) -> list[dict]:
+    nodes = []
+    for line in text.strip().split('\n'):
+        line = line.strip()
+        if line.startswith('anytls://'):
+            try:
+                parts = line.replace('anytls://', '', 1).split('@', 1)
+                if len(parts) != 2:
+                    continue
+
+                password = parts[0]
+                rest = parts[1]
+                name = ''
+                if '#' in rest:
+                    rest, name = rest.split('#', 1)
+                    name = urllib.parse.unquote(name)
+
+                if '?' in rest:
+                    server_port, params_str = rest.split('?', 1)
+                else:
+                    server_port = rest
+                    params_str = ''
+
+                server, port = server_port.rsplit(':', 1)
+                params = dict(urllib.parse.parse_qsl(params_str))
+                insecure = str(params.get('insecure', '')).lower() in ('1', 'true', 'yes', 'on')
+
+                if any(k in name for k in SKIP_KEYWORDS):
+                    continue
+                region_code, region_label = detect_region(name)
+                nodes.append({
+                    'name': name or f'AnyTLS-{server}',
+                    'type': 'anytls',
+                    'server': server,
+                    'port': int(port),
+                    'region_code': region_code,
+                    'region_label': region_label,
+                    'raw': {
+                        'type': 'anytls',
+                        'password': password,
+                        'sni': params.get('sni', server),
+                        'insecure': insecure,
+                    },
+                })
+            except Exception as e:
+                logger.debug(f"[SubParser] AnyTLS解析失败: {e}")
+                continue
+
+    return nodes
+
+
 def parse_subscription_text(text: str) -> dict:
     """
     解析订阅内容（自动识别格式）
@@ -330,13 +381,14 @@ def parse_subscription_text(text: str) -> dict:
     nodes = _parse_clash_yaml(text)
     fmt = "clash_yaml"
 
-    # 尝试VLESS/Hysteria2链接
+    # 尝试VLESS/Hysteria2/AnyTLS链接
     if not nodes:
+        anytls_nodes = _parse_anytls_links(text)
         vless_nodes = _parse_vless_links(text)
         hy2_nodes = _parse_hysteria2_links(text)
-        if vless_nodes or hy2_nodes:
-            nodes = vless_nodes + hy2_nodes
-            fmt = "vless_hy2_links"
+        if anytls_nodes or vless_nodes or hy2_nodes:
+            nodes = anytls_nodes + vless_nodes + hy2_nodes
+            fmt = "proxy_links"
 
     # 尝试SS/VMess链接
     if not nodes:

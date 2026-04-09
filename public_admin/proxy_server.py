@@ -1586,7 +1586,7 @@ async def api_dispatcher_parse_sub(request: Request):
                 servers = {}
                 regions = {}
                 for ob in outbounds:
-                    if ob.get("type") in ["vless", "hysteria2", "vmess", "trojan", "shadowsocks", "ss"]:
+                    if ob.get("type") in ["anytls", "vless", "hysteria2", "vmess", "trojan", "shadowsocks", "ss"]:
                         tag = ob.get("tag", "Unknown")
                         server = ob.get("server", "")
                         port = ob.get("server_port", 0)

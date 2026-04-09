@@ -164,6 +164,21 @@ def _make_outbound(node: dict, tag: str) -> dict:
             ob["tls"]["server_name"] = raw["sni"]
         return ob
 
+    elif proto in ("anytls",):
+        ob = {
+            "type": "anytls",
+            "tag": tag,
+            "server": server,
+            "server_port": int(port),
+            "password": raw.get("password", ""),
+            "tls": {"enabled": True},
+        }
+        if raw.get("sni"):
+            ob["tls"]["server_name"] = raw["sni"]
+        if raw.get("insecure"):
+            ob["tls"]["insecure"] = True
+        return ob
+
     else:
         # 未知协议，生成占位 (direct)
         return {
