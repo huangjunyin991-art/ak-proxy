@@ -1552,12 +1552,16 @@ async def api_dispatcher_exit_logs(index: int):
 
 @app.post("/api/dispatcher/parse_sub")
 
-async def api_dispatcher_parse_sub(request: Request):
+async def api_dispatcher_parse_sub(request: Request, response: Response):
 
     """解析订阅: 支持URL自动获取、文本解析或JSON配置提取"""
 
     from sub_parser import fetch_subscription, parse_subscription_text
     import json as json_lib
+
+    PUBLIC_ADMIN_PARSE_SUB_SOURCE = "public_admin-parse-sub-v1"
+
+    response.headers["X-AK-Parse-Sub-Source"] = PUBLIC_ADMIN_PARSE_SUB_SOURCE
 
     try:
         data = await request.json()
@@ -5888,6 +5892,8 @@ async def admin_page():
             content = f.read()
 
         return HTMLResponse(content=content, headers={
+
+            "X-AK-Admin-Source": "public_admin-admin-page-v1",
 
             "Cache-Control": "no-cache, no-store, must-revalidate",
 
