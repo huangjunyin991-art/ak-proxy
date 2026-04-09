@@ -425,6 +425,22 @@ def parse_subscription_text(text: str) -> dict:
     }
 
 
+def _detect_subscription_response_kind(text: str) -> str:
+    stripped = text.strip()
+    if not stripped:
+        return "empty"
+    if stripped.startswith("{") or stripped.startswith("["):
+        return "json"
+    if any(stripped.startswith(prefix) for prefix in ("mixed-port:", "port:", "proxies:", "proxy-groups:", "rules:")):
+        return "clash_yaml"
+    if any(token in stripped for token in ("anytls://", "vless://", "hysteria2://", "ss://", "vmess://")):
+        return "proxy_links"
+    decoded = _try_base64_decode(stripped)
+    if decoded and any(token in decoded for token in ("anytls://", "vless://", "hysteria2://", "ss://", "vmess://")):
+        return "base64_proxy_links"
+    return "other"
+
+
 def _fetch_subscription_text(url: str, timeout: int) -> str:
     ctx = ssl._create_unverified_context()
     req = Request(url, headers={
@@ -446,9 +462,16 @@ def fetch_subscription(url: str, timeout: int = 15) -> dict:
     """
     try:
         raw = _fetch_subscription_text(url, timeout)
+        response_kind = _detect_subscription_response_kind(raw)
 
         result = parse_subscription_text(raw)
         result["url"] = url
+        if result.get("total_nodes", 0) == 0:
+            logger.warning(
+                f"[SubParser] 订阅解析结果为空: url={url} raw_length={len(raw)} "
+                f"response_kind={response_kind} parse_format={result.get('format')} "
+                f"total_nodes={result.get('total_nodes')}"
+            )
         return result
 
     except Exception as e:
