@@ -11,9 +11,10 @@ import ssl
 import re
 import urllib.parse
 from typing import Optional
-from urllib.request import Request, urlopen
+from urllib.request import Request, build_opener, ProxyHandler, HTTPSHandler
 
 logger = logging.getLogger("TransparentProxy")
+SUBSCRIPTION_FETCH_USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36'
 
 # 地区识别规则
 REGION_RULES = [
@@ -196,6 +197,139 @@ def _parse_ss_links(text: str) -> list[dict]:
             except Exception:
                 continue
 
+    return nodes
+
+
+def _parse_vless_links(text: str) -> list[dict]:
+    nodes = []
+    for line in text.strip().split('\n'):
+        line = line.strip()
+        if line.startswith('vless://'):
+            try:
+                parts = line.replace('vless://', '').split('@')
+                if len(parts) != 2:
+                    continue
+                uuid = parts[0]
+                rest = parts[1]
+                if '?' not in rest:
+                    continue
+                server_port, params_and_name = rest.split('?', 1)
+                server, port = server_port.rsplit(':', 1)
+                name = ''
+                if '#' in params_and_name:
+                    params_str, name = params_and_name.split('#', 1)
+                    name = urllib.parse.unquote(name)
+                else:
+                    params_str = params_and_name
+                params = dict(urllib.parse.parse_qsl(params_str))
+                if any(k in name for k in SKIP_KEYWORDS):
+                    continue
+                region_code, region_label = detect_region(name)
+                nodes.append({
+                    'name': name or f'VLESS-{server}',
+                    'type': 'vless',
+                    'server': server,
+                    'port': int(port),
+                    'region_code': region_code,
+                    'region_label': region_label,
+                    'raw': {
+                        'uuid': uuid,
+                        'security': params.get('security', 'none'),
+                        'flow': params.get('flow', ''),
+                        'sni': params.get('sni', server),
+                        'network': params.get('type', 'tcp'),
+                        'pbk': params.get('pbk', ''),
+                        'sid': params.get('sid', ''),
+                        'fp': params.get('fp', 'chrome'),
+                        'host': params.get('host', ''),
+                        'path': params.get('path', ''),
+                    },
+                })
+            except Exception:
+                continue
+    return nodes
+
+
+def _parse_hysteria2_links(text: str) -> list[dict]:
+    nodes = []
+    for line in text.strip().split('\n'):
+        line = line.strip()
+        if line.startswith('hysteria2://'):
+            try:
+                parts = line.replace('hysteria2://', '').split('@')
+                if len(parts) != 2:
+                    continue
+                password = parts[0]
+                rest = parts[1]
+                if '?' in rest or '/' in rest:
+                    server_port = rest.split('?')[0].split('/')[0]
+                else:
+                    server_port = rest.split('#')[0]
+                name = ''
+                if '#' in rest:
+                    name = urllib.parse.unquote(rest.split('#')[1])
+                server, port = server_port.rsplit(':', 1)
+                if any(k in name for k in SKIP_KEYWORDS):
+                    continue
+                region_code, region_label = detect_region(name)
+                nodes.append({
+                    'name': name or f'Hysteria2-{server}',
+                    'type': 'hysteria2',
+                    'server': server,
+                    'port': int(port),
+                    'region_code': region_code,
+                    'region_label': region_label,
+                    'raw': {
+                        'password': password,
+                    },
+                })
+            except Exception:
+                continue
+    return nodes
+
+
+def _parse_anytls_links(text: str) -> list[dict]:
+    nodes = []
+    for line in text.strip().split('\n'):
+        line = line.strip()
+        if line.startswith('anytls://'):
+            try:
+                parts = line.replace('anytls://', '', 1).split('@', 1)
+                if len(parts) != 2:
+                    continue
+                password = parts[0]
+                rest = parts[1]
+                name = ''
+                if '#' in rest:
+                    rest, name = rest.split('#', 1)
+                    name = urllib.parse.unquote(name)
+                if '?' in rest:
+                    server_port, params_str = rest.split('?', 1)
+                else:
+                    server_port = rest
+                    params_str = ''
+                server, port = server_port.rsplit(':', 1)
+                params = dict(urllib.parse.parse_qsl(params_str))
+                insecure = str(params.get('insecure', '')).lower() in ('1', 'true', 'yes', 'on')
+                if any(k in name for k in SKIP_KEYWORDS):
+                    continue
+                region_code, region_label = detect_region(name)
+                nodes.append({
+                    'name': name or f'AnyTLS-{server}',
+                    'type': 'anytls',
+                    'server': server,
+                    'port': int(port),
+                    'region_code': region_code,
+                    'region_label': region_label,
+                    'raw': {
+                        'type': 'anytls',
+                        'password': password,
+                        'sni': params.get('sni', server),
+                        'insecure': insecure,
+                    },
+                })
+            except Exception:
+                continue
     return nodes
 
 
@@ -390,6 +524,14 @@ def parse_subscription_text(text: str) -> dict:
     nodes = _parse_clash_yaml(text)
     fmt = "clash_yaml"
 
+    if not nodes:
+        anytls_nodes = _parse_anytls_links(text)
+        vless_nodes = _parse_vless_links(text)
+        hy2_nodes = _parse_hysteria2_links(text)
+        if anytls_nodes or vless_nodes or hy2_nodes:
+            nodes = anytls_nodes + vless_nodes + hy2_nodes
+            fmt = "proxy_links"
+
     # 尝试SS/VMess链接
     if not nodes:
         nodes = _parse_ss_links(text)
@@ -426,6 +568,33 @@ def parse_subscription_text(text: str) -> dict:
     }
 
 
+def _detect_subscription_response_kind(text: str) -> str:
+    stripped = text.strip()
+    if not stripped:
+        return "empty"
+    if stripped.startswith("{") or stripped.startswith("["):
+        return "json"
+    if any(stripped.startswith(prefix) for prefix in ("mixed-port:", "port:", "proxies:", "proxy-groups:", "rules:")):
+        return "clash_yaml"
+    if any(token in stripped for token in ("anytls://", "vless://", "hysteria2://", "ss://", "vmess://")):
+        return "proxy_links"
+    decoded = _try_base64_decode(stripped)
+    if decoded and any(token in decoded for token in ("anytls://", "vless://", "hysteria2://", "ss://", "vmess://")):
+        return "base64_proxy_links"
+    return "other"
+
+
+def _fetch_subscription_text(url: str, timeout: int) -> str:
+    ctx = ssl._create_unverified_context()
+    req = Request(url, headers={
+        'User-Agent': SUBSCRIPTION_FETCH_USER_AGENT,
+        'Accept': '*/*',
+    })
+    opener = build_opener(ProxyHandler({}), HTTPSHandler(context=ctx))
+    with opener.open(req, timeout=timeout) as resp:
+        return resp.read().decode('utf-8', errors='replace').strip()
+
+
 def fetch_subscription(url: str, timeout: int = 15) -> dict:
     """
     从URL获取并解析订阅
@@ -435,16 +604,17 @@ def fetch_subscription(url: str, timeout: int = 15) -> dict:
         出错时返回 {"error": "..."}
     """
     try:
-        ctx = ssl._create_unverified_context()
-        req = Request(url, headers={
-            'User-Agent': 'ClashForWindows/0.20.39 (Windows NT 10.0; Win64; x64)',
-            'Accept': '*/*',
-        })
-        resp = urlopen(req, context=ctx, timeout=timeout)
-        raw = resp.read().decode('utf-8').strip()
+        raw = _fetch_subscription_text(url, timeout)
+        response_kind = _detect_subscription_response_kind(raw)
 
         result = parse_subscription_text(raw)
         result["url"] = url
+        if result.get("total_nodes", 0) == 0:
+            logger.warning(
+                f"[SubParser] 订阅解析结果为空: url={url} raw_length={len(raw)} "
+                f"response_kind={response_kind} parse_format={result.get('format')} "
+                f"total_nodes={result.get('total_nodes')}"
+            )
         return result
 
     except Exception as e:
