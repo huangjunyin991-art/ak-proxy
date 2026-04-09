@@ -11,9 +11,11 @@ import ssl
 import re
 import urllib.parse
 from typing import Optional
-from urllib.request import Request, urlopen
+from urllib.request import HTTPSHandler, ProxyHandler, Request, build_opener
 
 logger = logging.getLogger("TransparentProxy")
+
+SUBSCRIPTION_FETCH_USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36'
 
 # 地区识别规则
 REGION_RULES = [
@@ -423,6 +425,17 @@ def parse_subscription_text(text: str) -> dict:
     }
 
 
+def _fetch_subscription_text(url: str, timeout: int) -> str:
+    ctx = ssl._create_unverified_context()
+    req = Request(url, headers={
+        'User-Agent': SUBSCRIPTION_FETCH_USER_AGENT,
+        'Accept': '*/*',
+    })
+    opener = build_opener(ProxyHandler({}), HTTPSHandler(context=ctx))
+    with opener.open(req, timeout=timeout) as resp:
+        return resp.read().decode('utf-8', errors='replace').strip()
+
+
 def fetch_subscription(url: str, timeout: int = 15) -> dict:
     """
     从URL获取并解析订阅
@@ -432,13 +445,7 @@ def fetch_subscription(url: str, timeout: int = 15) -> dict:
         出错时返回 {"error": "..."}
     """
     try:
-        ctx = ssl._create_unverified_context()
-        req = Request(url, headers={
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
-            'Accept': '*/*',
-        })
-        resp = urlopen(req, context=ctx, timeout=timeout)
-        raw = resp.read().decode('utf-8').strip()
+        raw = _fetch_subscription_text(url, timeout)
 
         result = parse_subscription_text(raw)
         result["url"] = url
