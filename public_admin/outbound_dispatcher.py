@@ -34,7 +34,7 @@ ALERT_STATUS_CODES = {
 class OutboundExit:
     """单个出口通道"""
     __slots__ = ('name', 'proxy_url', 'healthy', '_ever_healthy', 'total', 'login_count', 'errors',
-                 'warn_403', 'warn_429', 'active', 'exit_ip', '_login_timestamps',
+                 'warn_403', 'warn_429', 'active', 'exit_ip', 'ip_detecting', '_login_timestamps',
                  '_error_logs', '_req_timestamps', 'rate_limit', '_rate_lock',
                  '_inflight_logins', '_frozen_until', '_ip_detect_failures',
                  '_client', '_client_lock')
@@ -51,6 +51,7 @@ class OutboundExit:
         self.warn_429 = 0       # 429次数
         self.active = 0         # 当前正在处理的并发请求数
         self.exit_ip = ""       # 检测到的出口IP
+        self.ip_detecting = False
         self._login_timestamps: list[float] = []
         self._error_logs: list[dict] = []  # [{time, msg}] 最多保留50条
         self._req_timestamps: list[float] = []  # 最近60秒请求时间戳
@@ -592,23 +593,35 @@ class OutboundDispatcher:
                 if was_healthy and ex._ever_healthy and self._started:
                     logger.warning(f"[Dispatcher] 出口离线: #{idx} {ex.name}")
 
+    IP_SERVICES = (
+        "https://api4.ipify.org",
+        "https://api.ip.sb/ip",
+        "https://ipv4.icanhazip.com",
+    )
+    IP_DETECT_TOTAL_TIMEOUT = 4.0
+    IP_DETECT_CONNECT_TIMEOUT = 2.0
+
     async def _detect_exit_ip(self, ex: OutboundExit) -> bool:
         """通过外部服务检测出口的公网IP（复用持久连接），返回 True 表示本次探测成功"""
-        IP_SERVICES = [
-            "https://httpbin.org/ip",
-            "https://api4.ipify.org",
-            "https://ipv4.icanhazip.com",
-            "https://api.ip.sb/ip",
-            "https://ifconfig.me/ip",
-            "http://ip.3322.net",
-        ]
         try:
             client = await ex.get_client()
         except Exception:
             return False
-        for svc in IP_SERVICES:
-            try:
-                resp = await client.get(svc, timeout=httpx.Timeout(8, connect=5))
+        tasks = [
+            asyncio.create_task(
+                client.get(
+                    svc,
+                    timeout=httpx.Timeout(IP_DETECT_TOTAL_TIMEOUT, connect=IP_DETECT_CONNECT_TIMEOUT),
+                )
+            )
+            for svc in IP_SERVICES
+        ]
+        try:
+            for task in asyncio.as_completed(tasks):
+                try:
+                    resp = await task
+                except Exception:
+                    continue
                 if resp.status_code == 200:
                     text = resp.text.strip()
                     # httpbin 返回 JSON {"origin": "x.x.x.x"}
@@ -616,15 +629,18 @@ class OutboundDispatcher:
                         import json as _json
                         text = _json.loads(text).get("origin", "").split(",")[0].strip()
                     ip = text.strip()
-                    if ip and ip != ex.exit_ip:
-                        logger.info(f"[Dispatcher] 出口IP检测: {ex.name} -> {ip}")
-                        ex.exit_ip = ip
-                    ex._ip_detect_failures = 0  # 连通成功，重置失败计数
-                    return True  # 连通即成功，不管 IP 是否变化
-            except (httpx.ConnectError, httpx.ConnectTimeout, httpx.ProxyError):
-                break  # 代理连接失败，节点不通，无需尝试其他服务
-            except Exception:
-                continue  # 网络波动等，尝试下一个服务
+                    if ip:
+                        if ip != ex.exit_ip:
+                            logger.info(f"[Dispatcher] 出口IP检测: {ex.name} -> {ip}")
+                            ex.exit_ip = ip
+                        ex._ip_detect_failures = 0  # 连通成功，重置失败计数
+                        return True  # 连通即成功，不管 IP 是否变化
+        finally:
+            for task in tasks:
+                if not task.done():
+                    task.cancel()
+            if tasks:
+                await asyncio.gather(*tasks, return_exceptions=True)
         # 所有服务均失败
         if not ex.is_direct:
             ex._ip_detect_failures += 1
@@ -634,13 +650,16 @@ class OutboundDispatcher:
         return False
 
     async def detect_all_ips(self):
-        """全量IP检测：两轮检测，两轮均失败才标记死节点下线（Semaphore=10 限并发）"""
-        sem = asyncio.Semaphore(20)
+        """全量IP检测：两轮检测，两轮均失败才标记死节点下线（Semaphore=40 限并发）"""
+        sem = asyncio.Semaphore(40)
 
         async def _probe(ex: OutboundExit) -> bool:
             async with sem:
-                ex.exit_ip = ""  # 轮到自己时才清空，已检测完的立即显示，未排到的保持旧值
-                return await self._detect_exit_ip(ex)
+                ex.ip_detecting = True
+                try:
+                    return await self._detect_exit_ip(ex)
+                finally:
+                    ex.ip_detecting = False
 
         # 第一轮：并发检测（逐个清空、逐个更新，前端实时可见）
         results = await asyncio.gather(*[_probe(ex) for ex in self.exits], return_exceptions=True)
@@ -678,6 +697,7 @@ class OutboundDispatcher:
                     "proxy": ex.proxy_url,
                     "healthy": ex.healthy,
                     "exit_ip": ex.exit_ip,
+                    "ip_detecting": ex.ip_detecting,
                     "active": ex.active,
                     "total_requests": ex.total,
                     "login_requests": ex.login_count,

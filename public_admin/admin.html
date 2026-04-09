@@ -6925,6 +6925,12 @@
                 }
 
                 const serverLabel = isDirect ? '直连服务器' : `负载均衡服务器${i}`;
+                const exitIpText = ex.exit_ip || (ex.ip_detecting ? '检测中...' : '未检测');
+                const exitIpColor = ex.exit_ip ? healthColor : (ex.ip_detecting ? '#00d4ff' : 'var(--text-secondary)');
+                const exitIpTitle = ex.exit_ip || (ex.ip_detecting ? '出口IP检测中' : '暂未检测到出口IP');
+                const exitIpBadge = ex.ip_detecting
+                    ? `<span style="display:inline-flex;align-items:center;margin-left:6px;padding:1px 6px;border-radius:999px;font-size:10px;color:#001018;background:rgba(0,212,255,0.85);font-weight:bold;">检测中</span>`
+                    : '';
 
                 return `<div style="background:var(--bg-card);border-radius:10px;padding:14px;border:1px solid ${borderColor};position:relative;overflow:hidden;">
                     <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px;">
@@ -6940,8 +6946,8 @@
                     </div>
                     <div style="display:flex;gap:6px;margin-bottom:8px;flex-wrap:nowrap;">
                         <div style="background:${healthBg};border-radius:6px;padding:6px 8px;flex:3;min-width:0;overflow:hidden;">
-                            <div style="font-size:10px;color:var(--text-secondary);">出口IP</div>
-                            <div style="font-size:12px;font-weight:bold;color:${healthColor};font-family:monospace;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${ex.exit_ip || ''}">${ex.exit_ip || '检测中...'}</div>
+                            <div style="font-size:10px;color:var(--text-secondary);display:flex;align-items:center;">出口IP${exitIpBadge}</div>
+                            <div style="font-size:12px;font-weight:bold;color:${exitIpColor};font-family:monospace;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${exitIpTitle}">${exitIpText}</div>
                         </div>
                         <div style="background:rgba(102,126,234,0.1);border-radius:6px;padding:6px 8px;flex:1;min-width:0;text-align:center;">
                             <div style="font-size:10px;color:var(--text-secondary);">并发</div>
