@@ -621,10 +621,10 @@ class OutboundDispatcher:
             asyncio.create_task(
                 client.get(
                     svc,
-                    timeout=httpx.Timeout(IP_DETECT_TOTAL_TIMEOUT, connect=IP_DETECT_CONNECT_TIMEOUT),
+                    timeout=httpx.Timeout(self.IP_DETECT_TOTAL_TIMEOUT, connect=self.IP_DETECT_CONNECT_TIMEOUT),
                 )
             )
-            for svc in IP_SERVICES
+            for svc in self.IP_SERVICES
         ]
         try:
             for task in asyncio.as_completed(tasks):
