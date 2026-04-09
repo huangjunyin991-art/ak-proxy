@@ -259,6 +259,7 @@ class OutboundDispatcher:
         self.exits.append(OutboundExit(name, proxy_url))
         idx = len(self.exits) - 1
         logger.info(f"[Dispatcher] 添加出口 #{idx}: {name} -> :{port}")
+        self._ensure_health_check_started()
         return idx
 
     def remove_exit(self, index: int) -> bool:
@@ -281,6 +282,17 @@ class OutboundDispatcher:
             self.add_socks5(item["name"], item["port"])
         logger.info(f"[Dispatcher] 共 {len(self.exits)} 个出口 (1直连 + {len(self.exits)-1}隧道)")
 
+    def _ensure_health_check_started(self):
+        """确保健康检查后台任务已启动"""
+        if not self._started:
+            return
+        if len(self.exits) <= 1:
+            return
+        if self._health_task and not self._health_task.done():
+            return
+        self._health_task = self._safe_create_task(self._health_check_loop(), "health_check_loop")
+        logger.info("[Dispatcher] 健康检查已启动")
+
     # ===== 启停 =====
 
     async def start(self):
@@ -288,9 +300,7 @@ class OutboundDispatcher:
         if self._started:
             return
         self._started = True
-        if len(self.exits) > 1:
-            self._health_task = self._safe_create_task(self._health_check_loop(), "health_check_loop")
-            logger.info("[Dispatcher] 健康检查已启动")
+        self._ensure_health_check_started()
         # 启动每日凌晨4点定时IP检测任务
         self._safe_create_task(self._scheduled_ip_detect_loop(), "scheduled_ip_detect")
         logger.info(f"[Dispatcher] 调度器就绪: {len(self.exits)} 个出口")
