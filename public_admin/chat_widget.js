@@ -903,12 +903,42 @@
             transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease, background 0.18s ease, color 0.18s ease;
         }
 
+        #ak-remote-voice-bar .voice-fab-btn .voice-fab-icon-stack {
+            position: relative;
+            width: 26px;
+            height: 26px;
+            display: inline-block;
+            flex: 0 0 26px;
+            pointer-events: none;
+        }
+
         #ak-remote-voice-bar .voice-fab-btn .voice-fab-icon {
             width: 26px;
             height: 26px;
             display: block;
-            color: currentColor;
             pointer-events: none;
+        }
+
+        #ak-remote-voice-bar .voice-fab-btn .voice-fab-icon-base {
+            color: rgba(244, 255, 252, 0.34);
+        }
+
+        #ak-remote-voice-bar .voice-fab-btn .voice-fab-icon-fill-wrap {
+            position: absolute;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            height: var(--voice-fill-percent, 24%);
+            overflow: hidden;
+            transition: height 0.12s ease;
+            pointer-events: none;
+        }
+
+        #ak-remote-voice-bar .voice-fab-btn .voice-fab-icon-fill {
+            position: absolute;
+            left: 0;
+            bottom: 0;
+            color: var(--voice-fill-color, #7af3e3);
         }
 
         #ak-remote-voice-bar .voice-fab-btn .voice-fab-status-dot {
@@ -939,17 +969,20 @@
             border-color: rgba(22, 92, 92, 0.92);
             background: linear-gradient(180deg, rgba(11, 41, 44, 0.98) 0%, rgba(8, 28, 31, 0.98) 100%);
             color: #6bf3de;
+            --voice-fill-color: #26e7c9;
         }
 
         #ak-remote-voice-bar .voice-fab-btn[data-state="pending"] {
             border-color: rgba(11, 48, 53, 0.9);
             color: rgba(244, 255, 252, 0.94);
+            --voice-fill-color: #7af3e3;
         }
 
         #ak-remote-voice-bar .voice-fab-btn[data-state="muted"] {
             color: #ffb1b1;
             border-color: rgba(88, 33, 39, 0.92);
             background: linear-gradient(180deg, rgba(43, 19, 24, 0.98) 0%, rgba(27, 12, 16, 0.98) 100%);
+            --voice-fill-color: #ff7474;
         }
 
         #ak-remote-voice-bar .voice-fab-btn[data-state="muted"] .voice-fab-status-dot {
@@ -1012,9 +1045,16 @@
         <div id="ak-remote-voice-bar">
             <div class="voice-fab-pulse" id="ak-remote-voice-level"></div>
             <button type="button" class="voice-fab-btn" id="ak-remote-voice-mute-btn" onclick="AKChat.toggleVoiceMute()" aria-label="切换麦克风" title="切换本地麦克风">
-                <svg class="voice-fab-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                    <path fill="currentColor" d="M12 15a3.75 3.75 0 0 0 3.75-3.75V7.25a3.75 3.75 0 0 0-7.5 0v4A3.75 3.75 0 0 0 12 15Zm6-3.75a.75.75 0 0 1 1.5 0A7.5 7.5 0 0 1 12.75 18.7V21a.75.75 0 0 1-1.5 0v-2.3A7.5 7.5 0 0 1 4.5 11.25a.75.75 0 0 1 1.5 0 6 6 0 0 0 12 0Z"/>
-                </svg>
+                <span class="voice-fab-icon-stack" aria-hidden="true">
+                    <svg class="voice-fab-icon voice-fab-icon-base" viewBox="0 0 24 24" focusable="false">
+                        <path fill="currentColor" d="M12 15a3.75 3.75 0 0 0 3.75-3.75V7.25a3.75 3.75 0 0 0-7.5 0v4A3.75 3.75 0 0 0 12 15Zm6-3.75a.75.75 0 0 1 1.5 0A7.5 7.5 0 0 1 12.75 18.7V21a.75.75 0 0 1-1.5 0v-2.3A7.5 7.5 0 0 1 4.5 11.25a.75.75 0 0 1 1.5 0 6 6 0 0 0 12 0Z"/>
+                    </svg>
+                    <span class="voice-fab-icon-fill-wrap">
+                        <svg class="voice-fab-icon voice-fab-icon-fill" viewBox="0 0 24 24" focusable="false">
+                            <path fill="currentColor" d="M12 15a3.75 3.75 0 0 0 3.75-3.75V7.25a3.75 3.75 0 0 0-7.5 0v4A3.75 3.75 0 0 0 12 15Zm6-3.75a.75.75 0 0 1 1.5 0A7.5 7.5 0 0 1 12.75 18.7V21a.75.75 0 0 1-1.5 0v-2.3A7.5 7.5 0 0 1 4.5 11.25a.75.75 0 0 1 1.5 0 6 6 0 0 0 12 0Z"/>
+                        </svg>
+                    </span>
+                </span>
                 <span class="voice-fab-status-dot" aria-hidden="true"></span>
                 <span class="voice-fab-slash" aria-hidden="true"></span>
             </button>
@@ -1087,6 +1127,7 @@
     function closeAssistRequestDialog(clearRequest) {
         if (clearRequest) pendingAssistRequest = null;
         if (assistRequestOverlay) assistRequestOverlay.classList.remove('visible');
+        syncAssistOverlaySnapshot('assist_request_close', 80);
     }
 
     function openAssistRequestDialog(request) {
@@ -1096,11 +1137,20 @@
         if (assistRequestTitle) assistRequestTitle.textContent = '远程指导确认';
         assistRequestText.textContent = '管理员即将对您进行远程指导，是否接受？';
         assistRequestOverlay.classList.add('visible');
+        syncAssistOverlaySnapshot('assist_request_open', 80);
     }
 
     function closeVoiceRequestDialog(clearRequest) {
         if (clearRequest) pendingVoiceRequest = null;
         if (assistRequestOverlay) assistRequestOverlay.classList.remove('visible');
+        syncAssistOverlaySnapshot('voice_request_close', 80);
+    }
+
+    function syncAssistOverlaySnapshot(reason, delay = 80) {
+        if (!assistSessionId) return;
+        try {
+            scheduleAssistSnapshot(delay, reason || 'overlay_state_changed');
+        } catch (e) {}
     }
 
     function emitRemoteVoiceEvent(eventType, payload) {
@@ -1152,16 +1202,27 @@
         return remoteVoiceConnectedRoles.indexOf('admin') >= 0 ? '管理员已就绪，正在等待音频建立' : '等待管理员进入语音';
     }
 
+    function getRemoteVoiceFillPercent(level, state, muted) {
+        const num = Math.max(0, Math.min(1, Number(level || 0)));
+        if (muted) return 38;
+        if (state === 'active') return Math.round(14 + (num * 72));
+        if (state === 'connecting') return 28;
+        return 20;
+    }
+
     function renderRemoteVoiceBar() {
         const visible = !!remoteVoiceSessionId || isRemoteVoiceCountedStatus(remoteVoiceStatus);
         if (remoteVoiceBar) remoteVoiceBar.classList.toggle('visible', !!visible);
-        setRemoteVoiceLevel(remoteVoicePulse, Math.max(remoteVoiceLocalLevel, remoteVoiceRemoteLevel));
+        const currentStatus = String(remoteVoiceStatus || '').trim().toLowerCase();
+        const level = Math.max(remoteVoiceLocalLevel, remoteVoiceRemoteLevel);
+        setRemoteVoiceLevel(remoteVoicePulse, level);
         const canControl = !!(remoteVoiceClient && remoteVoiceSessionId && isRemoteVoiceCountedStatus(remoteVoiceStatus));
         if (remoteVoiceMuteBtn) {
             remoteVoiceMuteBtn.disabled = !canControl;
+            remoteVoiceMuteBtn.style.setProperty('--voice-fill-percent', `${getRemoteVoiceFillPercent(level, currentStatus, remoteVoiceMutedSelf)}%`);
             remoteVoiceMuteBtn.dataset.state = remoteVoiceMutedSelf
                 ? 'muted'
-                : (String(remoteVoiceStatus || '').trim().toLowerCase() === 'active' ? 'active' : 'pending');
+                : (currentStatus === 'active' ? 'active' : 'pending');
             remoteVoiceMuteBtn.setAttribute('aria-label', remoteVoiceMutedSelf ? '恢复麦克风' : '切换麦克风');
             remoteVoiceMuteBtn.title = `${getRemoteVoiceStatusLabel()} · ${getRemoteVoiceSubLabel()}${canControl ? (remoteVoiceMutedSelf ? ' · 点击恢复麦克风' : ' · 点击静音麦克风') : ''}`;
         }
@@ -1329,6 +1390,7 @@
         if (assistRequestTitle) assistRequestTitle.textContent = '实时语音邀请';
         assistRequestText.textContent = '管理员邀请您开启一对一实时语音，是否接受？';
         assistRequestOverlay.classList.add('visible');
+        syncAssistOverlaySnapshot('voice_request_open', 80);
         emitRemoteVoiceEvent('request', pendingVoiceRequest);
     }
 

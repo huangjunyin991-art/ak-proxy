@@ -8660,12 +8660,21 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
             return `${getRemoteAssistVoiceIconHtml(16)}<span style="white-space:nowrap;">${label}</span>`;
         }
 
+        function getRemoteAssistVoiceFillPercent(level, status, muted) {
+            const num = Math.max(0, Math.min(1, Number(level || 0)));
+            if (muted) return 38;
+            if (String(status || '').trim().toLowerCase() === 'active') return Math.round(14 + (num * 72));
+            if (String(status || '').trim().toLowerCase() === 'connecting') return 28;
+            return 20;
+        }
+
         function buildRemoteAssistVoiceMuteHtml(muted, pending) {
             const dotColor = muted ? 'rgba(255, 82, 82, 0.96)' : (pending ? 'rgba(0, 212, 180, 0.58)' : 'rgba(0, 212, 180, 0.96)');
+            const fillColor = muted ? '#ff7474' : (pending ? '#7af3e3' : '#26e7c9');
             const slashStyle = muted
                 ? 'transform:rotate(-42deg) scaleX(1); opacity:1;'
                 : 'transform:rotate(-42deg) scaleX(0); opacity:0;';
-            return `${getRemoteAssistVoiceIconHtml(18)}<span aria-hidden="true" style="position:absolute; width:24px; height:3px; border-radius:999px; background:currentColor; transition:transform 0.18s ease, opacity 0.18s ease; ${slashStyle}"></span><span aria-hidden="true" style="position:absolute; right:10px; bottom:8px; width:7px; height:7px; border-radius:50%; background:${dotColor}; box-shadow:0 0 0 3px rgba(0, 0, 0, 0.16);"></span>`;
+            return `<span style="position:relative; display:inline-block; width:18px; height:18px; flex:0 0 18px;" aria-hidden="true"><svg viewBox="0 0 24 24" style="width:18px; height:18px; display:block; color:rgba(244, 255, 252, 0.34);" focusable="false"><path fill="currentColor" d="M12 15a3.75 3.75 0 0 0 3.75-3.75V7.25a3.75 3.75 0 0 0-7.5 0v4A3.75 3.75 0 0 0 12 15Zm6-3.75a.75.75 0 0 1 1.5 0A7.5 7.5 0 0 1 12.75 18.7V21a.75.75 0 0 1-1.5 0v-2.3A7.5 7.5 0 0 1 4.5 11.25a.75.75 0 0 1 1.5 0 6 6 0 0 0 12 0Z"></path></svg><span style="position:absolute; left:0; right:0; bottom:0; height:var(--remote-assist-voice-fill-percent, 24%); overflow:hidden; transition:height 0.12s ease;"><svg viewBox="0 0 24 24" style="width:18px; height:18px; display:block; position:absolute; left:0; bottom:0; color:${fillColor};" focusable="false"><path fill="currentColor" d="M12 15a3.75 3.75 0 0 0 3.75-3.75V7.25a3.75 3.75 0 0 0-7.5 0v4A3.75 3.75 0 0 0 12 15Zm6-3.75a.75.75 0 0 1 1.5 0A7.5 7.5 0 0 1 12.75 18.7V21a.75.75 0 0 1-1.5 0v-2.3A7.5 7.5 0 0 1 4.5 11.25a.75.75 0 0 1 1.5 0 6 6 0 0 0 12 0Z"></path></svg></span></span><span aria-hidden="true" style="position:absolute; width:24px; height:3px; border-radius:999px; background:currentColor; transition:transform 0.18s ease, opacity 0.18s ease; ${slashStyle}"></span><span aria-hidden="true" style="position:absolute; right:10px; bottom:8px; width:7px; height:7px; border-radius:50%; background:${dotColor}; box-shadow:0 0 0 3px rgba(0, 0, 0, 0.16);"></span>`;
         }
 
         function updateRemoteAssistVoiceButton() {
@@ -8742,6 +8751,7 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                 const canControl = !!(remoteAssistVoiceClient && remoteAssistVoiceSessionId && isRemoteAssistVoiceCountedStatus(remoteAssistVoiceStatus));
                 muteBtn.style.display = visible ? 'inline-flex' : 'none';
                 muteBtn.disabled = !canControl;
+                muteBtn.style.setProperty('--remote-assist-voice-fill-percent', `${getRemoteAssistVoiceFillPercent(level, currentStatus, remoteAssistVoiceMutedSelf)}%`);
                 muteBtn.innerHTML = buildRemoteAssistVoiceMuteHtml(remoteAssistVoiceMutedSelf, currentStatus !== 'active');
                 muteBtn.setAttribute('aria-label', remoteAssistVoiceMutedSelf ? '恢复麦克风' : '切换麦克风');
                 muteBtn.style.width = '56px';
