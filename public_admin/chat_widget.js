@@ -1122,7 +1122,7 @@
     const ASSIST_ELEMENT_VIEWPORT_SCAN_LIMIT = 220;
     const ASSIST_VIEWPORT_NODE_LIMIT = 1200;
     const ASSIST_VIEWPORT_SCROLL_HEIGHT_FACTOR = 2.4;
-    const ASSIST_VIEWPORT_SCROLL_SNAPSHOT_DELAY = 220;
+    const ASSIST_SCROLL_SETTLE_DELAY = 1500;
     const ASSIST_SCROLL_TARGET_PREFERRED_LIMIT = 28;
     const ASSIST_SCROLL_TARGET_MIN_OVERFLOW = 56;
     const ASSIST_SCROLL_TARGET_MIN_HEIGHT_RATIO = 0.22;
@@ -2708,12 +2708,24 @@
         return sent;
     }
 
+    function isAssistScrollSettling() {
+        return !!assistScrollTimer;
+    }
+
     function scheduleAssistScroll(delay) {
         if (!assistSessionId) return;
         clearAssistScrollTimer();
+        const nextDelay = typeof delay === 'number' ? delay : ASSIST_SCROLL_SETTLE_DELAY;
         assistScrollTimer = setTimeout(function() {
-            emitAssistScroll(false);
-        }, typeof delay === 'number' ? delay : 120);
+            assistScrollTimer = null;
+            refreshAssistScrollTarget('scroll_settled_sync', false);
+            emitAssistScroll(true);
+            markAssistSnapshotTrigger('scroll_settled', {
+                source: 'scroll_settled_sync',
+                scheduled_delay_ms: nextDelay
+            });
+            emitAssistSnapshot('scroll_settled');
+        }, nextDelay);
     }
 
     function emitAssistSnapshot(reason) {
@@ -2886,6 +2898,7 @@
                 return target && !(target.closest && target.closest('#ak-admin-chat'));
             });
             if (shouldRefresh) {
+                if (isAssistScrollSettling()) return;
                 scheduleAssistSnapshot(600, 'mutation');
             }
         });
@@ -3321,10 +3334,7 @@
         if (!assistWs || assistWs.readyState !== WebSocket.OPEN || !assistSessionId) return;
         if (normalizeAssistRoute().indexOf('/admin/ak-web/') !== 0) return;
         rememberAssistScrollTarget(window);
-        scheduleAssistScroll(120);
-        if (shouldUseAssistViewportSnapshot('scroll_viewport')) {
-            scheduleAssistSnapshot(ASSIST_VIEWPORT_SCROLL_SNAPSHOT_DELAY, 'scroll_viewport');
-        }
+        scheduleAssistScroll(ASSIST_SCROLL_SETTLE_DELAY);
     }, { passive: true });
     document.addEventListener('scroll', function(event) {
         if (!assistWs || assistWs.readyState !== WebSocket.OPEN || !assistSessionId) return;
@@ -3332,10 +3342,7 @@
         const target = event && event.target;
         if (isAssistWidgetTarget(target)) return;
         rememberAssistScrollTarget(target);
-        scheduleAssistScroll(120);
-        if (shouldUseAssistViewportSnapshot('scroll_viewport')) {
-            scheduleAssistSnapshot(ASSIST_VIEWPORT_SCROLL_SNAPSHOT_DELAY, 'scroll_viewport');
-        }
+        scheduleAssistScroll(ASSIST_SCROLL_SETTLE_DELAY);
     }, true);
     document.addEventListener('click', function(event) {
         if (!assistWs || assistWs.readyState !== WebSocket.OPEN || !assistSessionId) return;
