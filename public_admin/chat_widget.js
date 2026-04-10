@@ -957,8 +957,8 @@
 
         #ak-remote-voice-bar .voice-fab-btn .voice-fab-slash {
             position: absolute;
-            width: 30px;
-            height: 3px;
+            width: 22px;
+            height: 2.5px;
             border-radius: 999px;
             background: currentColor;
             transform: rotate(-42deg) scaleX(0);
@@ -1234,7 +1234,7 @@
 
     function getRemoteVoiceFillPercent(level, state, muted) {
         const num = Math.max(0, Math.min(1, Number(level || 0)));
-        if (muted) return 38;
+        if (muted) return 22;
         if (state === 'active') return Math.round(14 + (num * 72));
         if (state === 'connecting') return 28;
         return 20;

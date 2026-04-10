@@ -8671,12 +8671,16 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
         }
 
         function buildRemoteAssistVoiceToggleHtml(label) {
-            return `${getRemoteAssistVoiceIconHtml(16)}<span style="white-space:nowrap;">${label}</span>`;
+            const textHtml = `<span style="white-space:nowrap;">${label}</span>`;
+            if (String(label || '').trim() === '关闭语音') {
+                return textHtml;
+            }
+            return `${getRemoteAssistVoiceIconHtml(16)}${textHtml}`;
         }
 
         function getRemoteAssistVoiceFillPercent(level, status, muted) {
             const num = Math.max(0, Math.min(1, Number(level || 0)));
-            if (muted) return 38;
+            if (muted) return 22;
             if (String(status || '').trim().toLowerCase() === 'active') return Math.round(14 + (num * 72));
             if (String(status || '').trim().toLowerCase() === 'connecting') return 28;
             return 20;
@@ -8688,7 +8692,7 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
             const slashStyle = muted
                 ? 'transform:rotate(-42deg) scaleX(1); opacity:1;'
                 : 'transform:rotate(-42deg) scaleX(0); opacity:0;';
-            return `<span style="position:relative; display:inline-block; width:18px; height:18px; flex:0 0 18px;" aria-hidden="true"><svg viewBox="0 0 24 24" style="width:18px; height:18px; display:block; color:rgba(244, 255, 252, 0.34);" focusable="false"><path fill="currentColor" d="M12 15a3.75 3.75 0 0 0 3.75-3.75V7.25a3.75 3.75 0 0 0-7.5 0v4A3.75 3.75 0 0 0 12 15Zm6-3.75a.75.75 0 0 1 1.5 0A7.5 7.5 0 0 1 12.75 18.7V21a.75.75 0 0 1-1.5 0v-2.3A7.5 7.5 0 0 1 4.5 11.25a.75.75 0 0 1 1.5 0 6 6 0 0 0 12 0Z"></path></svg><span style="position:absolute; left:0; right:0; bottom:0; height:var(--remote-assist-voice-fill-percent, 24%); overflow:hidden; transition:height 0.12s ease;"><svg viewBox="0 0 24 24" style="width:18px; height:18px; display:block; position:absolute; left:0; bottom:0; color:${fillColor};" focusable="false"><path fill="currentColor" d="M12 15a3.75 3.75 0 0 0 3.75-3.75V7.25a3.75 3.75 0 0 0-7.5 0v4A3.75 3.75 0 0 0 12 15Zm6-3.75a.75.75 0 0 1 1.5 0A7.5 7.5 0 0 1 12.75 18.7V21a.75.75 0 0 1-1.5 0v-2.3A7.5 7.5 0 0 1 4.5 11.25a.75.75 0 0 1 1.5 0 6 6 0 0 0 12 0Z"></path></svg></span></span><span aria-hidden="true" style="position:absolute; width:24px; height:3px; border-radius:999px; background:currentColor; transition:transform 0.18s ease, opacity 0.18s ease; ${slashStyle}"></span><span aria-hidden="true" style="position:absolute; right:10px; bottom:8px; width:7px; height:7px; border-radius:50%; background:${dotColor}; box-shadow:0 0 0 3px rgba(0, 0, 0, 0.16);"></span>`;
+            return `<span style="position:relative; display:inline-block; width:18px; height:18px; flex:0 0 18px;" aria-hidden="true"><svg viewBox="0 0 24 24" style="width:18px; height:18px; display:block; color:rgba(244, 255, 252, 0.34);" focusable="false"><path fill="currentColor" d="M12 15a3.75 3.75 0 0 0 3.75-3.75V7.25a3.75 3.75 0 0 0-7.5 0v4A3.75 3.75 0 0 0 12 15Zm6-3.75a.75.75 0 0 1 1.5 0A7.5 7.5 0 0 1 12.75 18.7V21a.75.75 0 0 1-1.5 0v-2.3A7.5 7.5 0 0 1 4.5 11.25a.75.75 0 0 1 1.5 0 6 6 0 0 0 12 0Z"></path></svg><span style="position:absolute; left:0; right:0; bottom:0; height:var(--remote-assist-voice-fill-percent, 24%); overflow:hidden; transition:height 0.12s ease;"><svg viewBox="0 0 24 24" style="width:18px; height:18px; display:block; position:absolute; left:0; bottom:0; color:${fillColor};" focusable="false"><path fill="currentColor" d="M12 15a3.75 3.75 0 0 0 3.75-3.75V7.25a3.75 3.75 0 0 0-7.5 0v4A3.75 3.75 0 0 0 12 15Zm6-3.75a.75.75 0 0 1 1.5 0A7.5 7.5 0 0 1 12.75 18.7V21a.75.75 0 0 1-1.5 0v-2.3A7.5 7.5 0 0 1 4.5 11.25a.75.75 0 0 1 1.5 0 6 6 0 0 0 12 0Z"></path></svg></span></span><span aria-hidden="true" style="position:absolute; width:20px; height:2.5px; border-radius:999px; background:currentColor; transition:transform 0.18s ease, opacity 0.18s ease; ${slashStyle}"></span><span aria-hidden="true" style="position:absolute; right:10px; bottom:8px; width:7px; height:7px; border-radius:50%; background:${dotColor}; box-shadow:0 0 0 3px rgba(0, 0, 0, 0.16);"></span>`;
         }
 
         function updateRemoteAssistVoiceButton() {
@@ -8710,13 +8714,14 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
             } else if (remoteAssistVoiceStatus) {
                 title = `当前语音状态：${remoteAssistVoiceStatus}`;
             }
+            const showIcon = label !== '关闭语音';
             button.innerHTML = buildRemoteAssistVoiceToggleHtml(label);
             button.disabled = !!disabled;
             button.setAttribute('aria-label', label);
             button.style.display = 'inline-flex';
             button.style.alignItems = 'center';
             button.style.justifyContent = 'center';
-            button.style.gap = '6px';
+            button.style.gap = showIcon ? '6px' : '0';
             button.style.opacity = disabled ? '0.6' : '1';
             button.style.cursor = disabled ? 'not-allowed' : 'pointer';
             button.title = title;
@@ -9800,8 +9805,11 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
             clearRemoteAssistPendingRoute(route);
             const title = String(snapshot && snapshot.title || '').trim();
             const scrollPayload = resolveRemoteAssistSnapshotScroll(snapshot);
-            const metaText = [route || '用户页面', title || '', snapshot && snapshot.truncated ? '已截断' : ''].filter(Boolean).join(' · ');
-            setRemoteAssistMeta(metaText || '用户页面快照');
+            const hasReadableTitle = !!title;
+            const metaText = snapshot && snapshot.truncated
+                ? `用户页面已同步 · 当前画面已截断${hasReadableTitle ? '，请以当前可见区域为准' : ''}`
+                : '用户页面已同步';
+            setRemoteAssistMeta(metaText);
             const rawHtml = String(snapshot && snapshot.html || '<!doctype html><html><body style="font-family:Arial;padding:16px;color:#64748b;">暂无可渲染快照</body></html>');
             const prepareStartedAt = getRemoteAssistPerfNow();
             const isFastPath = isRemoteAssistSerializedSnapshotHtml(rawHtml);
@@ -9984,7 +9992,7 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                         if (!payload.has_snapshot) {
                             const route = String(payload.last_route || '').trim();
                             setRemoteAssistPendingRoute(route);
-                            setRemoteAssistMeta(route ? `${route} · 用户已确认，等待页面快照` : '用户已确认，等待页面快照');
+                            setRemoteAssistMeta('用户已确认，等待页面快照');
                             setRemoteAssistLoading(true, '用户已确认，正在等待页面快照');
                             requestRemoteAssistSnapshot();
                         }
@@ -10012,11 +10020,7 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                         }
                         setRemoteAssistPendingRoute(route, traceMeta);
                         setRemoteAssistLoading(true, '用户页面切换中，正在等待新页面快照');
-                        if (route) {
-                            setRemoteAssistMeta(`${route} · 页面切换中，等待新画面`);
-                        } else {
-                            setRemoteAssistMeta('用户页面切换中，等待新画面');
-                        }
+                        setRemoteAssistMeta('用户页面切换中，等待新画面');
                         scheduleRemoteAssistRouteSnapshotRequest(route);
                         return;
                     }
