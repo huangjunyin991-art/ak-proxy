@@ -871,104 +871,61 @@
             z-index: 2147483645;
             display: none;
             align-items: center;
-            gap: 10px;
-            min-width: 240px;
-            max-width: min(92vw, 360px);
-            padding: 10px 12px;
-            border-radius: 16px;
-            background: linear-gradient(180deg, rgba(10, 29, 32, 0.96) 0%, rgba(8, 19, 24, 0.96) 100%);
-            border: 1px solid rgba(0, 212, 180, 0.24);
-            box-shadow: 0 16px 40px rgba(0, 0, 0, 0.28);
-            color: #e6fff8;
-            box-sizing: border-box;
-            backdrop-filter: blur(10px);
+            justify-content: center;
+            width: 72px;
+            height: 72px;
         }
 
         #ak-remote-voice-bar.visible {
             display: flex;
         }
 
-        #ak-remote-voice-bar .voice-main {
-            flex: 1;
-            min-width: 0;
+        #ak-remote-voice-bar .voice-fab-pulse {
+            position: absolute;
+            width: 68px;
+            height: 68px;
+            border-radius: 50%;
+            background: radial-gradient(circle, rgba(0, 212, 180, 0.34) 0%, rgba(0, 212, 180, 0.14) 55%, rgba(0, 212, 180, 0) 72%);
+            transform: scale(0.82);
+            opacity: 0.18;
+            transition: transform 0.12s ease, opacity 0.12s ease, background 0.12s ease;
+            pointer-events: none;
         }
 
-        #ak-remote-voice-bar .voice-status {
-            font-size: 13px;
-            font-weight: 700;
-            color: #f0fffb;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-        }
-
-        #ak-remote-voice-bar .voice-sub {
-            margin-top: 4px;
-            font-size: 11px;
-            color: rgba(230, 255, 248, 0.72);
-        }
-
-        #ak-remote-voice-bar .voice-meter-group {
-            margin-top: 7px;
-            display: flex;
-            flex-direction: column;
-            gap: 5px;
-        }
-
-        #ak-remote-voice-bar .voice-meter-row {
-            display: flex;
-            align-items: center;
-            gap: 6px;
-        }
-
-        #ak-remote-voice-bar .voice-meter-label {
-            width: 22px;
-            font-size: 11px;
-            color: rgba(230, 255, 248, 0.64);
-            flex: 0 0 auto;
-        }
-
-        #ak-remote-voice-bar .voice-meter-track {
-            flex: 1;
-            height: 6px;
+        #ak-remote-voice-bar .voice-fab-btn {
+            position: relative;
+            z-index: 1;
+            width: 56px;
+            height: 56px;
             border-radius: 999px;
-            overflow: hidden;
-            background: rgba(148, 163, 184, 0.18);
-        }
-
-        #ak-remote-voice-bar .voice-meter-fill {
-            width: 0%;
-            height: 100%;
-            border-radius: inherit;
-            transition: width 0.12s ease, background 0.12s ease;
-            background: linear-gradient(90deg, #00d4b4 0%, #7ed56f 100%);
-        }
-
-        #ak-remote-voice-bar .voice-actions {
-            display: flex;
-            gap: 8px;
-            flex-shrink: 0;
-        }
-
-        #ak-remote-voice-bar .voice-btn {
             border: 1px solid rgba(0, 212, 180, 0.24);
-            border-radius: 999px;
-            background: rgba(148, 163, 184, 0.08);
+            background: linear-gradient(180deg, rgba(10, 29, 32, 0.96) 0%, rgba(8, 19, 24, 0.96) 100%);
             color: #e6fff8;
             font-size: 12px;
             font-weight: 700;
-            min-width: 68px;
-            height: 34px;
-            padding: 0 12px;
+            letter-spacing: 0.5px;
             cursor: pointer;
+            box-shadow: 0 12px 28px rgba(0, 0, 0, 0.24);
+            backdrop-filter: blur(8px);
         }
 
-        #ak-remote-voice-bar .voice-btn.danger {
+        #ak-remote-voice-bar .voice-fab-btn[data-state="active"] {
+            border-color: rgba(0, 212, 180, 0.42);
+            color: #dffdf7;
+        }
+
+        #ak-remote-voice-bar .voice-fab-btn[data-state="pending"] {
+            border-color: rgba(0, 212, 180, 0.18);
+            color: rgba(230, 255, 248, 0.82);
+        }
+
+        #ak-remote-voice-bar .voice-fab-btn[data-state="muted"] {
             color: #ffb4b4;
             border-color: rgba(255, 82, 82, 0.32);
+            background: linear-gradient(180deg, rgba(38, 16, 20, 0.96) 0%, rgba(24, 10, 14, 0.96) 100%);
         }
 
-        #ak-remote-voice-bar .voice-btn:disabled {
+        #ak-remote-voice-bar .voice-fab-btn:disabled {
             opacity: 0.45;
             cursor: not-allowed;
         }
@@ -976,9 +933,7 @@
         @media (max-width: 768px) {
             #ak-remote-voice-bar {
                 right: 12px;
-                left: 12px;
                 bottom: 88px;
-                max-width: none;
             }
         }
     `;
@@ -1010,24 +965,8 @@
             </div>
         </div>
         <div id="ak-remote-voice-bar">
-            <div class="voice-main">
-                <div class="voice-status" id="ak-remote-voice-status">实时语音准备中</div>
-                <div class="voice-sub" id="ak-remote-voice-sub">等待管理员和您完成连接</div>
-                <div class="voice-meter-group">
-                    <div class="voice-meter-row">
-                        <span class="voice-meter-label">我方</span>
-                        <span class="voice-meter-track"><span class="voice-meter-fill" id="ak-remote-voice-local-level"></span></span>
-                    </div>
-                    <div class="voice-meter-row">
-                        <span class="voice-meter-label">对方</span>
-                        <span class="voice-meter-track"><span class="voice-meter-fill" id="ak-remote-voice-remote-level"></span></span>
-                    </div>
-                </div>
-            </div>
-            <div class="voice-actions">
-                <button type="button" class="voice-btn" id="ak-remote-voice-mute-btn" onclick="AKChat.toggleVoiceMute()">静音</button>
-                <button type="button" class="voice-btn danger" id="ak-remote-voice-hangup-btn" onclick="AKChat.hangupVoice()">挂断</button>
-            </div>
+            <div class="voice-fab-pulse" id="ak-remote-voice-level"></div>
+            <button type="button" class="voice-fab-btn" id="ak-remote-voice-mute-btn" onclick="AKChat.toggleVoiceMute()" aria-label="切换麦克风" title="切换本地麦克风">话筒</button>
             <audio id="ak-remote-voice-audio" autoplay playsinline style="display:none;"></audio>
         </div>
     `;
@@ -1044,12 +983,8 @@
     const assistRequestTitle = document.getElementById('ak-assist-request-title');
     const assistRequestText = document.getElementById('ak-assist-request-text');
     const remoteVoiceBar = document.getElementById('ak-remote-voice-bar');
-    const remoteVoiceStatusText = document.getElementById('ak-remote-voice-status');
-    const remoteVoiceSubText = document.getElementById('ak-remote-voice-sub');
-    const remoteVoiceLocalLevelFill = document.getElementById('ak-remote-voice-local-level');
-    const remoteVoiceRemoteLevelFill = document.getElementById('ak-remote-voice-remote-level');
+    const remoteVoicePulse = document.getElementById('ak-remote-voice-level');
     const remoteVoiceMuteBtn = document.getElementById('ak-remote-voice-mute-btn');
-    const remoteVoiceHangupBtn = document.getElementById('ak-remote-voice-hangup-btn');
     const remoteVoiceAudio = document.getElementById('ak-remote-voice-audio');
     
     if (!chatBox) {
@@ -1133,12 +1068,13 @@
     function setRemoteVoiceLevel(fillEl, value) {
         if (!fillEl) return;
         const num = Math.max(0, Math.min(1, Number(value || 0)));
-        fillEl.style.width = `${Math.round(num * 100)}%`;
+        fillEl.style.transform = `scale(${(0.82 + (num * 0.56)).toFixed(3)})`;
+        fillEl.style.opacity = `${(0.18 + (num * 0.5)).toFixed(3)}`;
         fillEl.style.background = num >= 0.62
-            ? 'linear-gradient(90deg, #00d4b4 0%, #7ed56f 100%)'
+            ? 'radial-gradient(circle, rgba(126, 213, 111, 0.42) 0%, rgba(0, 212, 180, 0.16) 55%, rgba(0, 212, 180, 0) 72%)'
             : (num >= 0.28
-                ? 'linear-gradient(90deg, #00d4ff 0%, #00d4b4 100%)'
-                : 'linear-gradient(90deg, rgba(0, 212, 180, 0.42) 0%, rgba(126, 213, 111, 0.42) 100%)');
+                ? 'radial-gradient(circle, rgba(0, 212, 255, 0.32) 0%, rgba(0, 212, 180, 0.14) 55%, rgba(0, 212, 180, 0) 72%)'
+                : 'radial-gradient(circle, rgba(0, 212, 180, 0.24) 0%, rgba(0, 212, 180, 0.08) 55%, rgba(0, 212, 180, 0) 72%)');
     }
 
     function getRemoteVoiceStatusLabel() {
@@ -1168,18 +1104,18 @@
     function renderRemoteVoiceBar() {
         const visible = !!remoteVoiceSessionId || isRemoteVoiceCountedStatus(remoteVoiceStatus);
         if (remoteVoiceBar) remoteVoiceBar.classList.toggle('visible', !!visible);
-        if (remoteVoiceStatusText) remoteVoiceStatusText.textContent = getRemoteVoiceStatusLabel();
-        if (remoteVoiceSubText) remoteVoiceSubText.textContent = getRemoteVoiceSubLabel();
-        setRemoteVoiceLevel(remoteVoiceLocalLevelFill, remoteVoiceLocalLevel);
-        setRemoteVoiceLevel(remoteVoiceRemoteLevelFill, remoteVoiceRemoteLevel);
+        setRemoteVoiceLevel(remoteVoicePulse, Math.max(remoteVoiceLocalLevel, remoteVoiceRemoteLevel));
         const canControl = !!(remoteVoiceClient && remoteVoiceSessionId && isRemoteVoiceCountedStatus(remoteVoiceStatus));
         if (remoteVoiceMuteBtn) {
             remoteVoiceMuteBtn.disabled = !canControl;
-            remoteVoiceMuteBtn.textContent = remoteVoiceMutedSelf ? '取消静音' : '静音';
-            remoteVoiceMuteBtn.title = remoteVoiceMutedSelf ? '恢复本地麦克风' : '关闭本地麦克风';
+            remoteVoiceMuteBtn.textContent = '话筒';
+            remoteVoiceMuteBtn.dataset.state = remoteVoiceMutedSelf
+                ? 'muted'
+                : (String(remoteVoiceStatus || '').trim().toLowerCase() === 'active' ? 'active' : 'pending');
+            remoteVoiceMuteBtn.title = `${getRemoteVoiceStatusLabel()} · ${getRemoteVoiceSubLabel()}${canControl ? (remoteVoiceMutedSelf ? ' · 点击恢复麦克风' : ' · 点击静音麦克风') : ''}`;
         }
-        if (remoteVoiceHangupBtn) {
-            remoteVoiceHangupBtn.disabled = !canControl;
+        if (remoteVoiceBar) {
+            remoteVoiceBar.title = `${getRemoteVoiceStatusLabel()} · ${getRemoteVoiceSubLabel()}`;
         }
     }
 
@@ -3895,8 +3831,7 @@
         rejectAssistRequest: rejectAssistRequest,
         acceptVoiceRequest: acceptVoiceRequest,
         rejectVoiceRequest: rejectVoiceRequest,
-        toggleVoiceMute: toggleRemoteVoiceMute,
-        hangupVoice: hangupRemoteVoice
+        toggleVoiceMute: toggleRemoteVoiceMute
     };
     
     // 监听SPA路由变化（history.pushState / replaceState / 浏览器前进后退）

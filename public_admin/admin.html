@@ -3209,32 +3209,14 @@
             <div class="ak-browser-header-main">
                 <div class="ak-browser-toolbar">
                     <button id="remoteAssistVoiceBtn" onclick="toggleRemoteAssistVoice()" class="ak-browser-tool-btn" aria-label="发起实时语音" title="发起实时语音">发起语音</button>
+                    <button id="remoteAssistVoiceMuteBtn" onclick="toggleRemoteAssistVoiceMute()" class="ak-browser-tool-btn" aria-label="切换麦克风" title="切换本地麦克风" style="display:none; min-width:58px; justify-content:center;">话筒</button>
                     <button onclick="requestRemoteAssistSnapshot()" class="ak-browser-tool-btn" aria-label="刷新指导快照" title="刷新指导快照">刷新快照</button>
                     <button onclick="closeRemoteAssistPanel()" class="ak-browser-tool-btn" aria-label="关闭远程指导" title="关闭远程指导">关闭</button>
                 </div>
                 <span id="remoteAssistTitle" class="ak-browser-title-text">远程指导</span>
             </div>
             <div id="remoteAssistMeta" style="margin-top:8px; font-size:12px; color:var(--text-secondary); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">等待用户确认远程指导</div>
-            <div id="remoteAssistVoiceStrip" style="display:none; margin-top:10px; padding:10px 12px; border:1px solid rgba(0,212,180,0.18); border-radius:12px; background:rgba(15,23,42,0.32); align-items:center; gap:12px; flex-wrap:wrap;">
-                <div style="flex:1; min-width:220px;">
-                    <div id="remoteAssistVoiceStripState" style="font-size:13px; font-weight:700; color:var(--text-primary);">实时语音未连接</div>
-                    <div id="remoteAssistVoiceStripSub" style="margin-top:4px; font-size:11px; color:var(--text-secondary);">等待管理员发起语音邀请</div>
-                    <div style="margin-top:8px; display:flex; flex-direction:column; gap:6px;">
-                        <div style="display:flex; align-items:center; gap:8px;">
-                            <span style="width:24px; font-size:11px; color:var(--text-secondary); flex:0 0 auto;">我方</span>
-                            <span style="flex:1; height:6px; border-radius:999px; background:rgba(148,163,184,0.18); overflow:hidden;"><span id="remoteAssistVoiceLocalLevel" style="display:block; width:0%; height:100%; border-radius:inherit; background:linear-gradient(90deg, #00d4b4 0%, #7ed56f 100%);"></span></span>
-                        </div>
-                        <div style="display:flex; align-items:center; gap:8px;">
-                            <span style="width:24px; font-size:11px; color:var(--text-secondary); flex:0 0 auto;">对方</span>
-                            <span style="flex:1; height:6px; border-radius:999px; background:rgba(148,163,184,0.18); overflow:hidden;"><span id="remoteAssistVoiceRemoteLevel" style="display:block; width:0%; height:100%; border-radius:inherit; background:linear-gradient(90deg, #00d4b4 0%, #7ed56f 100%);"></span></span>
-                        </div>
-                    </div>
-                </div>
-                <div style="display:flex; gap:8px; align-items:center;">
-                    <button id="remoteAssistVoiceMuteBtn" onclick="toggleRemoteAssistVoiceMute()" class="ak-browser-tool-btn" aria-label="切换麦克风" title="切换本地麦克风" disabled>静音</button>
-                </div>
-                <audio id="remoteAssistVoiceAudio" autoplay playsinline style="display:none;"></audio>
-            </div>
+            <audio id="remoteAssistVoiceAudio" autoplay playsinline style="display:none;"></audio>
         </div>
         <div class="ak-browser-stage" id="remoteAssistStage">
             <div class="ak-browser-stage-frame" id="remoteAssistStageFrame">
@@ -8674,16 +8656,12 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
             renderRemoteAssistVoiceStrip();
         }
 
-        function setRemoteAssistVoiceLevel(elementId, value) {
-            const fill = document.getElementById(elementId);
-            if (!fill) return;
-            const num = Math.max(0, Math.min(1, Number(value || 0)));
-            fill.style.width = `${Math.round(num * 100)}%`;
-            fill.style.background = num >= 0.62
-                ? 'linear-gradient(90deg, #00d4b4 0%, #7ed56f 100%)'
-                : (num >= 0.28
-                    ? 'linear-gradient(90deg, #00d4ff 0%, #00d4b4 100%)'
-                    : 'linear-gradient(90deg, rgba(0, 212, 180, 0.42) 0%, rgba(126, 213, 111, 0.42) 100%)');
+        function buildRemoteAssistVoiceGlow(level, muted) {
+            const num = Math.max(0, Math.min(1, Number(level || 0)));
+            if (muted) {
+                return `0 0 0 ${Math.round(5 + (num * 6))}px rgba(255, 82, 82, ${(0.06 + (num * 0.1)).toFixed(3)}), 0 10px 24px rgba(0, 0, 0, 0.22)`;
+            }
+            return `0 0 0 ${Math.round(5 + (num * 8))}px rgba(0, 212, 180, ${(0.05 + (num * 0.14)).toFixed(3)}), 0 10px 24px rgba(0, 0, 0, 0.22)`;
         }
 
         function getRemoteAssistVoiceStripStateText() {
@@ -8711,22 +8689,26 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
         }
 
         function renderRemoteAssistVoiceStrip() {
-            const strip = document.getElementById('remoteAssistVoiceStrip');
-            const stateText = document.getElementById('remoteAssistVoiceStripState');
-            const subText = document.getElementById('remoteAssistVoiceStripSub');
             const muteBtn = document.getElementById('remoteAssistVoiceMuteBtn');
-            if (!strip || !stateText || !subText) return;
-            const visible = !!remoteAssistVoiceSessionId || isRemoteAssistVoiceCountedStatus(remoteAssistVoiceStatus);
-            strip.style.display = visible ? 'flex' : 'none';
-            stateText.textContent = getRemoteAssistVoiceStripStateText();
-            subText.textContent = getRemoteAssistVoiceStripSubText();
-            setRemoteAssistVoiceLevel('remoteAssistVoiceLocalLevel', remoteAssistVoiceLocalLevel);
-            setRemoteAssistVoiceLevel('remoteAssistVoiceRemoteLevel', remoteAssistVoiceRemoteLevel);
+            if (!muteBtn) return;
+            const visible = !!(remoteAssistVoiceSessionId && isRemoteAssistVoiceCountedStatus(remoteAssistVoiceStatus));
+            const currentStatus = String(remoteAssistVoiceStatus || '').trim().toLowerCase();
+            const level = Math.max(0, Math.min(1, Math.max(Number(remoteAssistVoiceLocalLevel || 0), Number(remoteAssistVoiceRemoteLevel || 0))));
             if (muteBtn) {
                 const canControl = !!(remoteAssistVoiceClient && remoteAssistVoiceSessionId && isRemoteAssistVoiceCountedStatus(remoteAssistVoiceStatus));
+                muteBtn.style.display = visible ? 'inline-flex' : 'none';
                 muteBtn.disabled = !canControl;
-                muteBtn.textContent = remoteAssistVoiceMutedSelf ? '取消静音' : '静音';
-                muteBtn.title = remoteAssistVoiceMutedSelf ? '恢复本地麦克风' : '关闭本地麦克风';
+                muteBtn.textContent = '话筒';
+                muteBtn.title = `${getRemoteAssistVoiceStripStateText()} · ${getRemoteAssistVoiceStripSubText()}${canControl ? (remoteAssistVoiceMutedSelf ? ' · 点击恢复麦克风' : ' · 点击静音麦克风') : ''}`;
+                muteBtn.style.background = remoteAssistVoiceMutedSelf
+                    ? 'linear-gradient(180deg, rgba(38, 16, 20, 0.96) 0%, rgba(24, 10, 14, 0.96) 100%)'
+                    : 'linear-gradient(180deg, rgba(10, 29, 32, 0.96) 0%, rgba(8, 19, 24, 0.96) 100%)';
+                muteBtn.style.color = remoteAssistVoiceMutedSelf ? '#ffb4b4' : '#e6fff8';
+                muteBtn.style.border = remoteAssistVoiceMutedSelf
+                    ? '1px solid rgba(255, 82, 82, 0.32)'
+                    : (currentStatus === 'active' ? '1px solid rgba(0, 212, 180, 0.42)' : '1px solid rgba(0, 212, 180, 0.18)');
+                muteBtn.style.boxShadow = buildRemoteAssistVoiceGlow(level, remoteAssistVoiceMutedSelf);
+                muteBtn.style.opacity = canControl ? '1' : '0.45';
             }
         }
 
