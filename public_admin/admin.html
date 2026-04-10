@@ -8866,12 +8866,15 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                 });
                 return;
             }
-            if (remoteAssistPanelLoadedRenderSeq !== remoteAssistPanelRenderSeq) {
+            const isRenderReady = remoteAssistPanelLoadedRenderSeq === remoteAssistPanelRenderSeq
+                || remoteAssistPanelReadyRenderSeq === remoteAssistPanelRenderSeq;
+            if (!isRenderReady) {
                 logRemoteAssistDebug('scroll_apply_skipped', {
                     reason: 'render_not_ready',
                     current_route: currentRoute,
                     scroll_route: scrollRoute,
                     loaded_render_seq: remoteAssistPanelLoadedRenderSeq,
+                    ready_render_seq: remoteAssistPanelReadyRenderSeq,
                     render_seq: remoteAssistPanelRenderSeq,
                     mode: String(scroll && scroll.mode || 'window')
                 });
