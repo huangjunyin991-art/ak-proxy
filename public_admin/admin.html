@@ -5375,6 +5375,7 @@
             renderMobileTabList();
             syncMobileTabLabel();
             syncAkBrowserViewport();
+            syncRemoteAssistViewport();
             checkOrientation();
             syncMobileTableStickyOffsets();
         }
@@ -8415,6 +8416,59 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
             return `${proto}${window.location.host}/admin/assist/ws?session_id=${encodeURIComponent(sessionId)}&role=admin&site=ak_web&readonly=1`;
         }
 
+        function getRemoteAssistSnapshotViewport(snapshot = remoteAssistPanelLastSnapshot) {
+            try {
+                const viewport = snapshot && snapshot.viewport ? snapshot.viewport : null;
+                const width = Math.max(0, Math.round(viewport && viewport.width || 0));
+                const height = Math.max(0, Math.round(viewport && viewport.height || 0));
+                if (!width || !height) return null;
+                return {
+                    width,
+                    height,
+                    devicePixelRatio: Math.max(0, Number(viewport && viewport.devicePixelRatio || 0))
+                };
+            } catch (e) {
+                return null;
+            }
+        }
+
+        function syncRemoteAssistViewport(snapshot = remoteAssistPanelLastSnapshot) {
+            try {
+                const stage = document.getElementById('remoteAssistStage');
+                const stageFrame = document.getElementById('remoteAssistStageFrame');
+                const frame = document.getElementById('remoteAssistFrame');
+                if (!stage || !stageFrame || !frame) return;
+                const viewport = getRemoteAssistSnapshotViewport(snapshot);
+                if (!viewport) {
+                    stageFrame.style.position = 'relative';
+                    stageFrame.style.left = '';
+                    stageFrame.style.top = '';
+                    stageFrame.style.width = '100%';
+                    stageFrame.style.height = '100%';
+                    stageFrame.style.transform = 'none';
+                    stageFrame.style.transformOrigin = '';
+                    frame.style.width = '100%';
+                    frame.style.height = '100%';
+                    return;
+                }
+                const stageWidth = Math.max(1, Math.round(stage.clientWidth || 0));
+                const stageHeight = Math.max(1, Math.round(stage.clientHeight || 0));
+                const viewportWidth = Math.max(1, Math.round(viewport.width || stageWidth));
+                const viewportHeight = Math.max(1, Math.round(viewport.height || stageHeight));
+                const scale = Math.max(0.1, Math.min(stageWidth / viewportWidth, stageHeight / viewportHeight));
+                stageFrame.style.position = 'absolute';
+                stageFrame.style.left = '50%';
+                stageFrame.style.top = '0';
+                stageFrame.style.width = viewportWidth + 'px';
+                stageFrame.style.height = viewportHeight + 'px';
+                stageFrame.style.transform = 'translateX(-50%) scale(' + scale + ')';
+                stageFrame.style.transformOrigin = 'top center';
+                frame.style.width = '100%';
+                frame.style.height = '100%';
+            } catch (e) {
+            }
+        }
+
         function flashRemoteAssistSnapshotNode(meta) {
             try {
                 const target = findRemoteAssistSnapshotNode(meta);
@@ -8490,6 +8544,7 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
             remoteAssistPanelReadyRenderSeq = 0;
             clearRemoteAssistRenderReadyTimer();
             clearRemoteAssistFrameBinding();
+            syncRemoteAssistViewport(null);
             if (!frame) return;
             frame.onload = null;
             frame.srcdoc = html;
@@ -9121,10 +9176,12 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
             }
             if (canReuseRenderedFrame) {
                 setRemoteAssistLoading(false);
+                syncRemoteAssistViewport(snapshot);
                 applyRemoteAssistScroll(scrollPayload);
                 return;
             }
             remoteAssistPanelLastHtml = sanitizedHtml;
+            syncRemoteAssistViewport(snapshot);
             const renderSeq = remoteAssistPanelRenderSeq + 1;
             const renderStartedAt = getRemoteAssistPerfNow();
             remoteAssistPanelRenderSeq = renderSeq;
