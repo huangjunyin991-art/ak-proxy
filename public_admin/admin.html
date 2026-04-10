@@ -8759,17 +8759,18 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                 const scrollRoot = doc.scrollingElement || doc.documentElement || doc.body;
                 if (doc.documentElement) {
                     doc.documentElement.style.overscrollBehavior = 'none';
-                    doc.documentElement.style.overflow = 'hidden';
                     doc.documentElement.style.scrollbarWidth = 'none';
                 }
                 if (doc.body) {
                     doc.body.style.overscrollBehavior = 'none';
-                    doc.body.style.overflow = 'hidden';
                     doc.body.style.scrollbarWidth = 'none';
                 }
                 if (scrollRoot && scrollRoot.style) {
-                    scrollRoot.style.overflow = 'hidden';
+                    scrollRoot.style.overscrollBehavior = 'none';
                     scrollRoot.style.scrollbarWidth = 'none';
+                    if (scrollRoot !== doc.documentElement && scrollRoot !== doc.body && scrollRoot.setAttribute) {
+                        scrollRoot.setAttribute('data-ra-admin-scroll-root', '1');
+                    }
                 }
                 let scrollLockStyle = doc.getElementById('ra-admin-scroll-lock');
                 if (!scrollLockStyle && styleHost) {
@@ -8778,7 +8779,7 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                     styleHost.appendChild(scrollLockStyle);
                 }
                 if (scrollLockStyle) {
-                    scrollLockStyle.textContent = 'html::-webkit-scrollbar,body::-webkit-scrollbar{display:none !important;width:0 !important;height:0 !important;}';
+                    scrollLockStyle.textContent = 'html::-webkit-scrollbar,body::-webkit-scrollbar,[data-ra-admin-scroll-root="1"]::-webkit-scrollbar{display:none !important;width:0 !important;height:0 !important;}';
                 }
             } catch (e) {
             }
@@ -8839,6 +8840,13 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                 }
                 try {
                     win.removeEventListener('scroll', handleManualScrollDrift, true);
+                } catch (e) {
+                }
+                try {
+                    const markedScrollRoot = doc.querySelector('[data-ra-admin-scroll-root="1"]');
+                    if (markedScrollRoot) {
+                        markedScrollRoot.removeAttribute('data-ra-admin-scroll-root');
+                    }
                 } catch (e) {
                 }
             };
