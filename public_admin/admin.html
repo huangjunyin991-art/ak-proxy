@@ -8741,7 +8741,7 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                     return;
                 }
                 const script = document.createElement('script');
-                script.src = `${window.location.origin}/voice/client.js`;
+                script.src = `${window.location.origin}/admin/api/remote-voice-client`;
                 script.async = true;
                 script.dataset.akVoiceClient = '1';
                 script.onload = () => resolve(window.AKRemoteVoiceClient);

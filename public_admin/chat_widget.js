@@ -418,7 +418,7 @@
     const WS_PROTOCOL = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const WS_URL = `${WS_PROTOCOL}//${window.location.host}/chat/ws`;
     const ASSIST_WS_URL = `${WS_PROTOCOL}//${window.location.host}/admin/assist/ws`;
-    const REMOTE_VOICE_CLIENT_URL = `${window.location.origin}/voice/client.js`;
+    const REMOTE_VOICE_CLIENT_URL = `${window.location.origin}/admin/api/remote-voice-client`;
     const HEARTBEAT_INTERVAL = 5000; // 5秒心跳间隔
     
     // 状态

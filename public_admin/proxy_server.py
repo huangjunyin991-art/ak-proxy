@@ -6556,6 +6556,8 @@ async def chat_widget_js():
 
 
 
+@app.get("/admin/api/remote-voice-client")
+
 @app.get("/voice/client.js")
 
 async def remote_voice_client_js():
