@@ -9008,11 +9008,22 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                         return;
                     }
                     win.scrollTo(left, top);
+                    const doc = win.document;
+                    const docEl = doc && doc.documentElement;
+                    const body = doc && doc.body;
+                    const actualTop = Math.max(0, Math.round(win.scrollY || win.pageYOffset || (docEl && docEl.scrollTop) || (body && body.scrollTop) || 0));
+                    const actualLeft = Math.max(0, Math.round(win.scrollX || win.pageXOffset || (docEl && docEl.scrollLeft) || (body && body.scrollLeft) || 0));
                     logRemoteAssistDebug('scroll_apply_window_success', {
                         current_route: currentRoute,
                         scroll_route: scrollRoute,
                         top,
-                        left
+                        left,
+                        actual_top: actualTop,
+                        actual_left: actualLeft,
+                        doc_scroll_top: Math.max(0, Math.round(docEl && docEl.scrollTop || 0)),
+                        body_scroll_top: Math.max(0, Math.round(body && body.scrollTop || 0)),
+                        scroll_height: Math.max(0, Math.round(docEl && docEl.scrollHeight || body && body.scrollHeight || 0)),
+                        client_height: Math.max(0, Math.round(docEl && docEl.clientHeight || body && body.clientHeight || 0))
                     });
                 });
             } catch (e) {
