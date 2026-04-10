@@ -515,21 +515,7 @@
     }
 
     function logAssistDebug(eventName, extra) {
-        try {
-            console.warn('[AKChatAssistDebug]', JSON.stringify(Object.assign({
-                event: String(eventName || ''),
-                username: String(username || ''),
-                sessionId: String(assistSessionId || ''),
-                route: normalizeAssistRoute(),
-                hidden: !!document.hidden,
-                wsState: getChatWsReadyStateLabel(assistWs),
-                ts: new Date().toISOString()
-            }, extra || {})));
-        } catch (e) {
-            try {
-                console.warn('[AKChatAssistDebug]', eventName, extra || {});
-            } catch (_) {}
-        }
+        return;
     }
 
     function getAssistPerfNow() {
@@ -2879,12 +2865,6 @@
         assistScrollTimer = setTimeout(function() {
             assistScrollTimer = null;
             const settledTarget = refreshAssistScrollTarget('scroll_settled_sync', false);
-            logAssistDebug('scroll_settle_fire', {
-                route: normalizeAssistRoute(),
-                delay_ms: nextDelay,
-                settled_target: describeAssistTarget(settledTarget),
-                remembered_target: describeAssistTarget(assistScrollTarget)
-            });
             emitAssistScroll(true);
             markAssistSnapshotTrigger('scroll_settled', {
                 source: 'scroll_settled_sync',

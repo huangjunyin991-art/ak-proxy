@@ -9044,10 +9044,7 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
         }
 
         function logRemoteAssistDebug(stage, payload) {
-            try {
-                console.log('[AKRemoteAssistDebug]', stage, payload || {});
-            } catch (e) {
-            }
+            return;
         }
 
         function getRemoteAssistPerfNow() {
