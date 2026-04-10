@@ -9213,6 +9213,14 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                 if (remoteAssistPanelWs !== currentWs) return;
                 try {
                     const data = JSON.parse(event.data || '{}');
+                    logRemoteAssistDebug('ws_message_received', {
+                        type: String(data && data.type || ''),
+                        source: String(data && data.source || ''),
+                        session_id: String(data && data.session_id || ''),
+                        site: String(data && data.site || ''),
+                        has_payload: !!(data && data.payload),
+                        current_route: getRemoteAssistSnapshotRoute(remoteAssistPanelLastSnapshot)
+                    });
                     if (!data || !data.type) return;
                     if (data.type === 'session_state') {
                         const payload = data.payload || {};
