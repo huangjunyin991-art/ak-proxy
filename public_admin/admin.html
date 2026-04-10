@@ -8849,12 +8849,32 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
             const currentRoute = getRemoteAssistSnapshotRoute(remoteAssistPanelLastSnapshot);
             const scrollRoute = getRemoteAssistScrollRoute(scroll);
             if (remoteAssistPanelWaitingForRouteSnapshot) {
+                logRemoteAssistDebug('scroll_apply_skipped', {
+                    reason: 'waiting_for_route_snapshot',
+                    current_route: currentRoute,
+                    scroll_route: scrollRoute,
+                    mode: String(scroll && scroll.mode || 'window')
+                });
                 return;
             }
             if (scrollRoute && currentRoute && scrollRoute !== currentRoute) {
+                logRemoteAssistDebug('scroll_apply_skipped', {
+                    reason: 'route_mismatch',
+                    current_route: currentRoute,
+                    scroll_route: scrollRoute,
+                    mode: String(scroll && scroll.mode || 'window')
+                });
                 return;
             }
             if (remoteAssistPanelLoadedRenderSeq !== remoteAssistPanelRenderSeq) {
+                logRemoteAssistDebug('scroll_apply_skipped', {
+                    reason: 'render_not_ready',
+                    current_route: currentRoute,
+                    scroll_route: scrollRoute,
+                    loaded_render_seq: remoteAssistPanelLoadedRenderSeq,
+                    render_seq: remoteAssistPanelRenderSeq,
+                    mode: String(scroll && scroll.mode || 'window')
+                });
                 return;
             }
             try {
@@ -8878,6 +8898,14 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                         if (target) {
                             target.scrollTop = top;
                             target.scrollLeft = left;
+                            logRemoteAssistDebug('scroll_apply_element_success', {
+                                current_route: currentRoute,
+                                scroll_route: scrollRoute,
+                                top,
+                                left,
+                                node_id: String(scroll && scroll.node_id || ''),
+                                selector_hint: String(scroll && scroll.selector_hint || '')
+                            });
                         } else {
                             logRemoteAssistDebug('scroll_apply_element_missing_target', {
                                 current_route: currentRoute,
@@ -8891,6 +8919,12 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                         return;
                     }
                     win.scrollTo(left, top);
+                    logRemoteAssistDebug('scroll_apply_window_success', {
+                        current_route: currentRoute,
+                        scroll_route: scrollRoute,
+                        top,
+                        left
+                    });
                 });
             } catch (e) {
                 logRemoteAssistDebug('scroll_apply_error', {
@@ -9250,6 +9284,15 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                         return;
                     }
                     if (data.type === 'scroll_changed' && data.payload) {
+                        logRemoteAssistDebug('scroll_changed_received', {
+                            current_route: getRemoteAssistSnapshotRoute(remoteAssistPanelLastSnapshot),
+                            scroll_route: getRemoteAssistScrollRoute(data.payload),
+                            mode: String(data.payload.mode || 'window'),
+                            top: Number(data.payload.top || 0),
+                            left: Number(data.payload.left || 0),
+                            node_id: String(data.payload.node_id || ''),
+                            selector_hint: String(data.payload.selector_hint || '')
+                        });
                         nudgeRemoteAssistPendingSnapshot(getRemoteAssistScrollRoute(data.payload), 'scroll_changed');
                         applyRemoteAssistScroll(data.payload);
                         return;

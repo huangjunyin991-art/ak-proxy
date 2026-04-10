@@ -444,6 +444,8 @@
     let assistLastElementScrollTarget = null;
     let assistLastElementScrollAt = 0;
     let assistLastScrollTargetRefreshAt = 0;
+    let assistLastScrollCaptureDebugKey = '';
+    let assistLastScrollCaptureDebugAt = 0;
     let assistRouteSettleTimer = null;
     let assistRouteFastSnapshotTimer = null;
     let assistRouteFastSnapshotRoute = '';
@@ -1389,6 +1391,30 @@
         } catch (e) {
             return { kind: 'error', message: String((e && e.message) || e || '') };
         }
+    }
+
+    function logAssistScrollCapture(source, target) {
+        try {
+            const targetMeta = describeAssistTarget(target);
+            const debugKey = [
+                String(source || ''),
+                String(targetMeta && targetMeta.kind || ''),
+                String(targetMeta && targetMeta.nodeId || ''),
+                String(targetMeta && targetMeta.selector || ''),
+                String(targetMeta && targetMeta.id || '')
+            ].join('|');
+            const now = Date.now();
+            if (debugKey === assistLastScrollCaptureDebugKey && (now - assistLastScrollCaptureDebugAt) < 280) {
+                return;
+            }
+            assistLastScrollCaptureDebugKey = debugKey;
+            assistLastScrollCaptureDebugAt = now;
+            logAssistDebug('scroll_capture', {
+                source: String(source || ''),
+                route: normalizeAssistRoute(),
+                target: targetMeta
+            });
+        } catch (e) {}
     }
 
     function decorateAssistClone(node, clone, tagName, computed) {
@@ -2696,13 +2722,26 @@
         const sent = sendAssistEvent('scroll_changed', payload);
         if (sent) {
             assistLastScrollPayload = payload;
+            logAssistDebug('scroll_emit', {
+                force: !!force,
+                route: String(payload.route || ''),
+                mode: String(payload.mode || ''),
+                top: Number(payload.top || 0),
+                left: Number(payload.left || 0),
+                node_id: String(payload.node_id || ''),
+                selector_hint: String(payload.selector_hint || ''),
+                remembered_target: describeAssistTarget(assistScrollTarget)
+            });
         } else {
             logAssistDebug('scroll_send_failed', {
                 force: !!force,
+                route: String(payload.route || ''),
                 mode: payload.mode,
                 top: payload.top,
                 left: payload.left,
-                nodeId: String(payload.node_id || '')
+                nodeId: String(payload.node_id || ''),
+                selector_hint: String(payload.selector_hint || ''),
+                remembered_target: describeAssistTarget(assistScrollTarget)
             });
         }
         return sent;
@@ -2718,7 +2757,13 @@
         const nextDelay = typeof delay === 'number' ? delay : ASSIST_SCROLL_SETTLE_DELAY;
         assistScrollTimer = setTimeout(function() {
             assistScrollTimer = null;
-            refreshAssistScrollTarget('scroll_settled_sync', false);
+            const settledTarget = refreshAssistScrollTarget('scroll_settled_sync', false);
+            logAssistDebug('scroll_settle_fire', {
+                route: normalizeAssistRoute(),
+                delay_ms: nextDelay,
+                settled_target: describeAssistTarget(settledTarget),
+                remembered_target: describeAssistTarget(assistScrollTarget)
+            });
             emitAssistScroll(true);
             markAssistSnapshotTrigger('scroll_settled', {
                 source: 'scroll_settled_sync',
@@ -3333,6 +3378,7 @@
     window.addEventListener('scroll', function() {
         if (!assistWs || assistWs.readyState !== WebSocket.OPEN || !assistSessionId) return;
         if (normalizeAssistRoute().indexOf('/admin/ak-web/') !== 0) return;
+        logAssistScrollCapture('window', window);
         rememberAssistScrollTarget(window);
         scheduleAssistScroll(ASSIST_SCROLL_SETTLE_DELAY);
     }, { passive: true });
@@ -3341,6 +3387,7 @@
         if (normalizeAssistRoute().indexOf('/admin/ak-web/') !== 0) return;
         const target = event && event.target;
         if (isAssistWidgetTarget(target)) return;
+        logAssistScrollCapture('document', target);
         rememberAssistScrollTarget(target);
         scheduleAssistScroll(ASSIST_SCROLL_SETTLE_DELAY);
     }, true);
