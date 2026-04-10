@@ -441,6 +441,8 @@
     let assistLastSnapshotTriggerMeta = null;
     let assistLastScrollPayload = null;
     let assistScrollTarget = window;
+    let assistLastElementScrollTarget = null;
+    let assistLastElementScrollAt = 0;
     let assistLastScrollTargetRefreshAt = 0;
     let assistRouteSettleTimer = null;
     let assistRouteFastSnapshotTimer = null;
@@ -1125,6 +1127,7 @@
     const ASSIST_SCROLL_TARGET_MIN_OVERFLOW = 56;
     const ASSIST_SCROLL_TARGET_MIN_HEIGHT_RATIO = 0.22;
     const ASSIST_SCROLL_TARGET_MIN_WIDTH_RATIO = 0.35;
+    const ASSIST_SCROLL_ELEMENT_STICKY_WINDOW_MS = 420;
     const ASSIST_SCROLL_TARGET_RESCAN_COOLDOWN_MS = 480;
     const ASSIST_SCROLL_VIEWPORT_SNAPSHOT_MIN_INTERVAL_MS = 900;
 
@@ -1617,6 +1620,20 @@
         }
     }
 
+    function getRecentAssistElementScrollTarget() {
+        try {
+            if (!assistLastElementScrollTarget || !(assistLastElementScrollTarget instanceof Element) || !assistLastElementScrollTarget.isConnected) {
+                return null;
+            }
+            if ((Date.now() - assistLastElementScrollAt) > ASSIST_SCROLL_ELEMENT_STICKY_WINDOW_MS) {
+                return null;
+            }
+            return isAssistUsableScrollTarget(assistLastElementScrollTarget) ? assistLastElementScrollTarget : null;
+        } catch (e) {
+            return null;
+        }
+    }
+
     function collectAssistPreferredScrollCandidates(limit) {
         try {
             if (!document.body) return [];
@@ -1709,8 +1726,15 @@
     function getAssistActiveViewportTarget(options) {
         try {
             const forceRescan = !!(options && options.forceRescan);
-            if (!forceRescan && isAssistUsableScrollTarget(assistScrollTarget)) {
-                return assistScrollTarget;
+            if (!forceRescan) {
+                const recentTarget = getRecentAssistElementScrollTarget();
+                if (recentTarget) {
+                    assistScrollTarget = recentTarget;
+                    return recentTarget;
+                }
+                if (isAssistUsableScrollTarget(assistScrollTarget)) {
+                    return assistScrollTarget;
+                }
             }
             return findAssistPrimaryScrollableElement() || window;
         } catch (e) {
@@ -2595,11 +2619,24 @@
 
     function rememberAssistScrollTarget(target) {
         try {
+            const recentTarget = getRecentAssistElementScrollTarget();
+            if (recentTarget && (!target || target === window || target === document || target === document.body || target === document.documentElement)) {
+                assistScrollTarget = recentTarget;
+                return;
+            }
             if (!target || target === window || target === document || target === document.body || target === document.documentElement) {
                 assistScrollTarget = window;
                 return;
             }
-            assistScrollTarget = target instanceof Element ? target : window;
+            if (target instanceof Element) {
+                assistScrollTarget = target;
+                if (isAssistUsableScrollTarget(target)) {
+                    assistLastElementScrollTarget = target;
+                    assistLastElementScrollAt = Date.now();
+                }
+                return;
+            }
+            assistScrollTarget = window;
         } catch (e) {
             assistScrollTarget = window;
             logAssistDebug('scroll_target_remembered_error', {
@@ -2618,7 +2655,7 @@
             route: normalizeAssistRoute(),
             mode: 'window'
         };
-        let activeTarget = target || assistScrollTarget || window;
+        let activeTarget = target || getRecentAssistElementScrollTarget() || assistScrollTarget || window;
         try {
             const needsRefresh = !activeTarget
                 || activeTarget === window
@@ -2968,6 +3005,8 @@
         clearAssistRouteSettleState();
         assistSessionId = '';
         assistScrollTarget = window;
+        assistLastElementScrollTarget = null;
+        assistLastElementScrollAt = 0;
         assistCachedHeadRoute = '';
         assistCachedHeadMarkup = '';
         assistLastSnapshotPayload = null;
