@@ -3209,13 +3209,13 @@
             <div class="ak-browser-header-main">
                 <div class="ak-browser-toolbar">
                     <button id="remoteAssistVoiceBtn" onclick="toggleRemoteAssistVoice()" class="ak-browser-tool-btn" aria-label="发起实时语音" title="发起实时语音"><span style="display:inline-flex; align-items:center; justify-content:center; width:16px; height:16px; flex:0 0 16px;" aria-hidden="true"><svg viewBox="0 0 24 24" style="width:16px; height:16px; display:block;" focusable="false"><path fill="currentColor" d="M12 15a3.75 3.75 0 0 0 3.75-3.75V7.25a3.75 3.75 0 0 0-7.5 0v4A3.75 3.75 0 0 0 12 15Zm6-3.75a.75.75 0 0 1 1.5 0A7.5 7.5 0 0 1 12.75 18.7V21a.75.75 0 0 1-1.5 0v-2.3A7.5 7.5 0 0 1 4.5 11.25a.75.75 0 0 1 1.5 0 6 6 0 0 0 12 0Z"></path></svg></span><span>发起语音</span></button>
-                    <button id="remoteAssistVoiceMuteBtn" onclick="toggleRemoteAssistVoiceMute()" class="ak-browser-tool-btn" aria-label="切换麦克风" title="切换本地麦克风" style="display:none; min-width:56px; width:56px; height:36px; padding:0; justify-content:center; position:relative;"><span style="display:inline-flex; align-items:center; justify-content:center; width:18px; height:18px;" aria-hidden="true"><svg viewBox="0 0 24 24" style="width:18px; height:18px; display:block;" focusable="false"><path fill="currentColor" d="M12 15a3.75 3.75 0 0 0 3.75-3.75V7.25a3.75 3.75 0 0 0-7.5 0v4A3.75 3.75 0 0 0 12 15Zm6-3.75a.75.75 0 0 1 1.5 0A7.5 7.5 0 0 1 12.75 18.7V21a.75.75 0 0 1-1.5 0v-2.3A7.5 7.5 0 0 1 4.5 11.25a.75.75 0 0 1 1.5 0 6 6 0 0 0 12 0Z"></path></svg></span><span aria-hidden="true" style="position:absolute; width:24px; height:3px; border-radius:999px; background:currentColor; transform:rotate(-42deg) scaleX(0); opacity:0;"></span><span aria-hidden="true" style="position:absolute; right:10px; bottom:8px; width:7px; height:7px; border-radius:50%; background:rgba(0, 212, 180, 0.96); box-shadow:0 0 0 3px rgba(0, 0, 0, 0.16);"></span></button>
-                    <button onclick="requestRemoteAssistSnapshot()" class="ak-browser-tool-btn" aria-label="刷新指导快照" title="刷新指导快照">刷新快照</button>
+                    <button id="remoteAssistVoiceMuteBtn" onclick="toggleRemoteAssistVoiceMute()" class="ak-browser-tool-btn" aria-label="切换麦克风" title="切换本地麦克风" style="display:none; min-width:56px; width:56px; height:36px; padding:0; justify-content:center; position:relative;"><span style="display:inline-flex; align-items:center; justify-content:center; width:18px; height:18px;" aria-hidden="true"><svg viewBox="0 0 24 24" style="width:18px; height:18px; display:block;" focusable="false"><path fill="currentColor" d="M12 15a3.75 3.75 0 0 0 3.75-3.75V7.25a3.75 3.75 0 0 0-7.5 0v4A3.75 3.75 0 0 0 12 15Zm6-3.75a.75.75 0 0 1 1.5 0A7.5 7.5 0 0 1 12.75 18.7V21a.75.75 0 0 1-1.5 0v-2.3A7.5 7.5 0 0 1 4.5 11.25a.75.75 0 0 1 1.5 0 6 6 0 0 0 12 0Z"></path></svg></span><span aria-hidden="true" style="position:absolute; right:10px; bottom:8px; width:7px; height:7px; border-radius:50%; background:rgba(0, 212, 180, 0.96); box-shadow:0 0 0 3px rgba(0, 0, 0, 0.16);"></span></button>
+                    <button onclick="reconnectRemoteAssistPanel()" class="ak-browser-tool-btn" aria-label="重连远程指导" title="重连远程指导">重连</button>
                     <button onclick="closeRemoteAssistPanel()" class="ak-browser-tool-btn" aria-label="关闭远程指导" title="关闭远程指导">关闭</button>
                 </div>
                 <span id="remoteAssistTitle" class="ak-browser-title-text">远程指导</span>
             </div>
-            <div id="remoteAssistMeta" style="margin-top:8px; font-size:12px; color:var(--text-secondary); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">等待用户确认远程指导</div>
+            <div id="remoteAssistMeta" style="display:none; margin-top:8px; font-size:12px; color:var(--text-secondary); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;"></div>
             <audio id="remoteAssistVoiceAudio" autoplay playsinline style="display:none;"></audio>
         </div>
         <div class="ak-browser-stage" id="remoteAssistStage">
@@ -8622,7 +8622,9 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
         function setRemoteAssistMeta(text) {
             const meta = document.getElementById('remoteAssistMeta');
             if (!meta) return;
-            meta.textContent = text || '等待用户确认远程指导';
+            const content = String(text || '').trim();
+            meta.textContent = content;
+            meta.style.display = content ? 'block' : 'none';
         }
 
         function isRemoteAssistVoiceCountedStatus(status) {
@@ -8689,10 +8691,7 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
         function buildRemoteAssistVoiceMuteHtml(muted, pending) {
             const dotColor = muted ? 'rgba(255, 82, 82, 0.96)' : (pending ? 'rgba(0, 212, 180, 0.58)' : 'rgba(0, 212, 180, 0.96)');
             const fillColor = muted ? '#ff7474' : (pending ? '#7af3e3' : '#26e7c9');
-            const slashStyle = muted
-                ? 'transform:rotate(-42deg) scaleX(1); opacity:1;'
-                : 'transform:rotate(-42deg) scaleX(0); opacity:0;';
-            return `<span style="position:relative; display:inline-block; width:18px; height:18px; flex:0 0 18px;" aria-hidden="true"><svg viewBox="0 0 24 24" style="width:18px; height:18px; display:block; color:rgba(244, 255, 252, 0.34);" focusable="false"><path fill="currentColor" d="M12 15a3.75 3.75 0 0 0 3.75-3.75V7.25a3.75 3.75 0 0 0-7.5 0v4A3.75 3.75 0 0 0 12 15Zm6-3.75a.75.75 0 0 1 1.5 0A7.5 7.5 0 0 1 12.75 18.7V21a.75.75 0 0 1-1.5 0v-2.3A7.5 7.5 0 0 1 4.5 11.25a.75.75 0 0 1 1.5 0 6 6 0 0 0 12 0Z"></path></svg><span style="position:absolute; left:0; right:0; bottom:0; height:var(--remote-assist-voice-fill-percent, 24%); overflow:hidden; transition:height 0.12s ease;"><svg viewBox="0 0 24 24" style="width:18px; height:18px; display:block; position:absolute; left:0; bottom:0; color:${fillColor};" focusable="false"><path fill="currentColor" d="M12 15a3.75 3.75 0 0 0 3.75-3.75V7.25a3.75 3.75 0 0 0-7.5 0v4A3.75 3.75 0 0 0 12 15Zm6-3.75a.75.75 0 0 1 1.5 0A7.5 7.5 0 0 1 12.75 18.7V21a.75.75 0 0 1-1.5 0v-2.3A7.5 7.5 0 0 1 4.5 11.25a.75.75 0 0 1 1.5 0 6 6 0 0 0 12 0Z"></path></svg></span></span><span aria-hidden="true" style="position:absolute; width:20px; height:2.5px; border-radius:999px; background:currentColor; transition:transform 0.18s ease, opacity 0.18s ease; ${slashStyle}"></span><span aria-hidden="true" style="position:absolute; right:10px; bottom:8px; width:7px; height:7px; border-radius:50%; background:${dotColor}; box-shadow:0 0 0 3px rgba(0, 0, 0, 0.16);"></span>`;
+            return `<span style="position:relative; display:inline-block; width:18px; height:18px; flex:0 0 18px;" aria-hidden="true"><svg viewBox="0 0 24 24" style="width:18px; height:18px; display:block; color:rgba(244, 255, 252, 0.34);" focusable="false"><path fill="currentColor" d="M12 15a3.75 3.75 0 0 0 3.75-3.75V7.25a3.75 3.75 0 0 0-7.5 0v4A3.75 3.75 0 0 0 12 15Zm6-3.75a.75.75 0 0 1 1.5 0A7.5 7.5 0 0 1 12.75 18.7V21a.75.75 0 0 1-1.5 0v-2.3A7.5 7.5 0 0 1 4.5 11.25a.75.75 0 0 1 1.5 0 6 6 0 0 0 12 0Z"></path></svg><span style="position:absolute; left:0; right:0; bottom:0; height:var(--remote-assist-voice-fill-percent, 24%); overflow:hidden; transition:height 0.12s ease;"><svg viewBox="0 0 24 24" style="width:18px; height:18px; display:block; position:absolute; left:0; bottom:0; color:${fillColor};" focusable="false"><path fill="currentColor" d="M12 15a3.75 3.75 0 0 0 3.75-3.75V7.25a3.75 3.75 0 0 0-7.5 0v4A3.75 3.75 0 0 0 12 15Zm6-3.75a.75.75 0 0 1 1.5 0A7.5 7.5 0 0 1 12.75 18.7V21a.75.75 0 0 1-1.5 0v-2.3A7.5 7.5 0 0 1 4.5 11.25a.75.75 0 0 1 1.5 0 6 6 0 0 0 12 0Z"></path></svg></span></span><span aria-hidden="true" style="position:absolute; right:10px; bottom:8px; width:7px; height:7px; border-radius:50%; background:${dotColor}; box-shadow:0 0 0 3px rgba(0, 0, 0, 0.16);"></span>`;
         }
 
         function updateRemoteAssistVoiceButton() {
@@ -9803,12 +9802,10 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                 });
             }
             clearRemoteAssistPendingRoute(route);
-            const title = String(snapshot && snapshot.title || '').trim();
             const scrollPayload = resolveRemoteAssistSnapshotScroll(snapshot);
-            const hasReadableTitle = !!title;
             const metaText = snapshot && snapshot.truncated
-                ? `用户页面已同步 · 当前画面已截断${hasReadableTitle ? '，请以当前可见区域为准' : ''}`
-                : '用户页面已同步';
+                ? '当前画面已截断，请以当前可见区域为准'
+                : '';
             setRemoteAssistMeta(metaText);
             const rawHtml = String(snapshot && snapshot.html || '<!doctype html><html><body style="font-family:Arial;padding:16px;color:#64748b;">暂无可渲染快照</body></html>');
             const prepareStartedAt = getRemoteAssistPerfNow();
@@ -9920,6 +9917,28 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                 setRemoteAssistLoading(false);
                 setRemoteAssistMeta('指导连接未就绪，正在等待重连');
             }
+        }
+
+        function reconnectRemoteAssistPanel() {
+            const sessionId = String(remoteAssistPanelSessionId || '').trim();
+            if (!sessionId) return;
+            clearRemoteAssistReconnectTimer();
+            clearRemoteAssistRouteSnapshotTimer();
+            stopRemoteAssistHeartbeat();
+            remoteAssistPanelPendingRoute = '';
+            remoteAssistPanelWaitingForRouteSnapshot = false;
+            resetRemoteAssistPendingSnapshotRequest();
+            const currentWs = remoteAssistPanelWs;
+            remoteAssistPanelWs = null;
+            if (currentWs) {
+                try {
+                    currentWs.close();
+                } catch (e) {
+                }
+            }
+            setRemoteAssistLoading(true, '正在重连远程指导');
+            setRemoteAssistMeta('指导连接断开，正在重连');
+            connectRemoteAssistPanelSocket(sessionId);
         }
 
         function scheduleRemoteAssistReconnect() {
