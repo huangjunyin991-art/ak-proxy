@@ -5375,7 +5375,9 @@
             renderMobileTabList();
             syncMobileTabLabel();
             syncAkBrowserViewport();
-            syncRemoteAssistViewport();
+            if (typeof window.syncRemoteAssistViewport === 'function') {
+                window.syncRemoteAssistViewport();
+            }
             checkOrientation();
             syncMobileTableStickyOffsets();
         }
@@ -8468,6 +8470,7 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
             } catch (e) {
             }
         }
+        window.syncRemoteAssistViewport = syncRemoteAssistViewport;
 
         function flashRemoteAssistSnapshotNode(meta) {
             try {
