@@ -429,6 +429,8 @@
     let assistHeartbeatTimer = null;
     let assistMutationObserver = null;
     let assistSnapshotTimer = null;
+    let assistOverlaySnapshotTimer = null;
+    let assistOverlaySnapshotToken = 0;
     let assistScrollTimer = null;
     let assistNodeSeq = 0;
     let assistNodeIdMap = new WeakMap();
@@ -1146,11 +1148,39 @@
         syncAssistOverlaySnapshot('voice_request_close', 80);
     }
 
+    function emitAssistOverlaySnapshotIfCurrent(token, reason, phase) {
+        if (token !== assistOverlaySnapshotToken || !assistSessionId) return;
+        markAssistSnapshotTrigger(reason || 'overlay_state_changed', {
+            source: 'overlay_sync',
+            phase: String(phase || '')
+        });
+        emitAssistSnapshot(reason || 'overlay_state_changed');
+    }
+
     function syncAssistOverlaySnapshot(reason, delay = 80) {
         if (!assistSessionId) return;
+        const snapshotReason = reason || 'overlay_state_changed';
+        const nextDelay = Math.max(120, Number(delay || 0) + 80);
+        assistOverlaySnapshotToken += 1;
+        const token = assistOverlaySnapshotToken;
+        clearAssistOverlaySnapshotTimer();
+        clearAssistSnapshotTimer();
         try {
-            scheduleAssistSnapshot(delay, reason || 'overlay_state_changed');
-        } catch (e) {}
+            const raf = typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function'
+                ? window.requestAnimationFrame.bind(window)
+                : function(callback) { return setTimeout(callback, 16); };
+            raf(function() {
+                raf(function() {
+                    emitAssistOverlaySnapshotIfCurrent(token, snapshotReason, 'raf');
+                    assistOverlaySnapshotTimer = setTimeout(function() {
+                        assistOverlaySnapshotTimer = null;
+                        emitAssistOverlaySnapshotIfCurrent(token, snapshotReason, 'followup');
+                    }, nextDelay);
+                });
+            });
+        } catch (e) {
+            scheduleAssistSnapshot(nextDelay, snapshotReason);
+        }
     }
 
     function emitRemoteVoiceEvent(eventType, payload) {
@@ -1640,6 +1670,13 @@
         }
     }
 
+    function clearAssistOverlaySnapshotTimer() {
+        if (assistOverlaySnapshotTimer) {
+            clearTimeout(assistOverlaySnapshotTimer);
+            assistOverlaySnapshotTimer = null;
+        }
+    }
+
     function clearAssistScrollTimer() {
         if (assistScrollTimer) {
             clearTimeout(assistScrollTimer);
@@ -1840,6 +1877,7 @@
             assistMutationObserver = null;
         }
         clearAssistSnapshotTimer();
+        clearAssistOverlaySnapshotTimer();
     }
 
     function buildAssistStyleText(computed) {

@@ -8573,10 +8573,10 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
         let remoteAssistPanelRestoreScrollTimer = null;
         let remoteAssistPanelRouteSnapshotTimer = null;
         let remoteAssistPanelConsentStatus = 'waiting';
+        let remoteAssistVoiceSnapshotRequestAt = 0;
+        let remoteAssistVoiceSnapshotRequestKey = '';
         let remoteAssistPanelPendingRoute = '';
         let remoteAssistPanelWaitingForRouteSnapshot = false;
-        let remoteAssistPanelPendingRouteRequestKey = '';
-        let remoteAssistPanelPendingRouteRequestAt = 0;
         let remoteAssistPanelRenderSeq = 0;
         let remoteAssistPanelLoadedRenderSeq = 0;
         let remoteAssistPanelReadyRenderSeq = 0;
@@ -8650,6 +8650,20 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                 remoteAssistVoiceStatePollTimer = null;
                 await loadRemoteAssistVoiceState();
             }, Math.max(200, Number(delay || 0)));
+        }
+
+        function maybeRequestRemoteAssistSnapshotForVoiceStatus(previousStatus, nextStatus) {
+            const prev = String(previousStatus || '').trim().toLowerCase();
+            const next = String(nextStatus || '').trim().toLowerCase();
+            if (!remoteAssistPanelSessionId || remoteAssistPanelConsentStatus !== 'accepted') return;
+            if (next !== 'connecting' && next !== 'active') return;
+            if (prev === next && (next === 'connecting' || next === 'active')) return;
+            const now = Date.now();
+            const requestKey = `${String(remoteAssistPanelSessionId || '').trim()}|${next}`;
+            if (remoteAssistVoiceSnapshotRequestKey === requestKey && (now - remoteAssistVoiceSnapshotRequestAt) < 1500) return;
+            remoteAssistVoiceSnapshotRequestKey = requestKey;
+            remoteAssistVoiceSnapshotRequestAt = now;
+            requestRemoteAssistSnapshot('voice_state_change');
         }
 
         function getRemoteAssistVoiceIconHtml(size = 16) {
@@ -8857,6 +8871,7 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                 wsUrlBuilder: buildRemoteVoiceWsUrl,
                 onStateChange: function(state) {
                     if (remoteAssistVoiceClient !== client) return;
+                    const previousVoiceStatus = String(remoteAssistVoiceStatus || '').trim();
                     remoteAssistVoiceStatus = String(state && state.status || remoteAssistVoiceStatus || '').trim() || remoteAssistVoiceStatus;
                     remoteAssistVoiceMutedSelf = !!(state && state.mutedSelf);
                     remoteAssistVoiceMutedPeer = !!(state && state.mutedPeer);
@@ -8875,6 +8890,7 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                     } else {
                         clearRemoteAssistVoiceStatePollTimer();
                     }
+                    maybeRequestRemoteAssistSnapshotForVoiceStatus(previousVoiceStatus, remoteAssistVoiceStatus);
                     renderRemoteAssistVoiceStrip();
                     updateRemoteAssistVoiceButton();
                 },
@@ -8914,6 +8930,7 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                 return;
             }
             try {
+                const previousVoiceStatus = String(remoteAssistVoiceStatus || '').trim();
                 const res = await fetch(`${API_BASE}/admin/api/remote_voice/status?assist_session_id=${encodeURIComponent(remoteAssistPanelSessionId)}`, {
                     headers: getHeaders()
                 });
@@ -8932,6 +8949,7 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                 } else {
                     clearRemoteAssistVoiceStatePollTimer();
                 }
+                maybeRequestRemoteAssistSnapshotForVoiceStatus(previousVoiceStatus, remoteAssistVoiceStatus);
                 if (remoteAssistVoiceSessionId && isRemoteAssistVoiceCountedStatus(remoteAssistVoiceStatus)) {
                     await ensureRemoteAssistVoiceClient();
                 } else {
@@ -9872,7 +9890,7 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
             }
         }
 
-        function requestRemoteAssistSnapshot() {
+        function requestRemoteAssistSnapshot(reason = 'admin_refresh') {
             if (!remoteAssistPanelSessionId) return;
             if (remoteAssistPanelConsentStatus !== 'accepted') {
                 setRemoteAssistMeta('等待用户确认远程指导');
@@ -9880,11 +9898,12 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                 return;
             }
             setRemoteAssistLoading(true, '正在请求用户页面快照');
-            const sent = sendRemoteAssistMessage('snapshot_request', { reason: 'admin_refresh' });
+            const requestReason = String(reason || 'admin_refresh');
+            const sent = sendRemoteAssistMessage('snapshot_request', { reason: requestReason });
             if (!sent) {
                 logRemoteAssistDebug('snapshot_request_failed', {
                     session_id: remoteAssistPanelSessionId,
-                    reason: 'admin_refresh',
+                    reason: requestReason,
                     pending_route: remoteAssistPanelPendingRoute,
                     waiting: !!remoteAssistPanelWaitingForRouteSnapshot
                 });
