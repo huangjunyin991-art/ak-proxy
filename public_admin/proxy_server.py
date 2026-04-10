@@ -122,6 +122,10 @@ from remote_assist import remote_assist
 
 from remote_voice import remote_voice, VoiceSessionStatus
 
+from remote_voice.signal_bus import remote_voice_signal_bus
+
+from remote_voice.types import COUNTED_VOICE_SESSION_STATUSES
+
 from remote_assist.types import AssistConsentStatus, AssistRole
 
 # 出口IP调度模块
@@ -5070,6 +5074,93 @@ def _build_remote_voice_unbind_message(voice_session) -> dict:
     }
 
 
+def _build_remote_voice_signal_message(
+    voice_session,
+    msg_type: str,
+    payload: Optional[dict[str, Any]] = None,
+    source: str = 'voice_core',
+) -> dict:
+
+    return {
+        'v': 1,
+        'type': str(msg_type or '').strip(),
+        'voice_session_id': str(getattr(voice_session, 'voice_session_id', '') or '').strip(),
+        'assist_session_id': str(getattr(voice_session, 'assist_session_id', '') or '').strip(),
+        'site': str(getattr(voice_session, 'site_type', '') or 'ak_web').strip() or 'ak_web',
+        'source': str(source or 'voice_core').strip() or 'voice_core',
+        'ts': int(time.time() * 1000),
+        'payload': dict(payload or {}),
+    }
+
+
+def _build_remote_voice_session_state_payload(
+    voice_session,
+    connected_roles: Optional[set[str]] = None,
+) -> dict:
+
+    if not voice_session:
+
+        return {
+            'voice_session_id': '',
+            'assist_session_id': '',
+            'status': '',
+            'admin_username': '',
+            'target_username': '',
+            'admin_muted': False,
+            'user_muted': False,
+            'connected_roles': [],
+            'counted': False,
+            'accepted_at': None,
+            'connected_at': None,
+            'duration_seconds': 0,
+        }
+
+    normalized_roles = sorted({
+        str(role or '').strip()
+        for role in (connected_roles or set())
+        if str(role or '').strip()
+    })
+
+    return {
+        'voice_session_id': voice_session.voice_session_id,
+        'assist_session_id': voice_session.assist_session_id,
+        'status': getattr(voice_session.status, 'value', str(voice_session.status or '')),
+        'admin_username': str(getattr(voice_session, 'admin_username', '') or '').strip(),
+        'target_username': str(getattr(voice_session, 'target_username', '') or '').strip(),
+        'admin_muted': bool(getattr(voice_session, 'admin_muted', False)),
+        'user_muted': bool(getattr(voice_session, 'user_muted', False)),
+        'connected_roles': normalized_roles,
+        'counted': bool(voice_session.is_counted()),
+        'accepted_at': float(getattr(voice_session, 'accepted_at', 0) or 0) or None,
+        'connected_at': float(getattr(voice_session, 'connected_at', 0) or 0) or None,
+        'duration_seconds': int(voice_session.duration_seconds()),
+    }
+
+
+async def _publish_remote_voice_session_state(
+    voice_session,
+    include_roles: Optional[set[str]] = None,
+    exclude_connection_id: str = '',
+) -> None:
+
+    if not voice_session or voice_session.site_type != 'ak_web':
+
+        return
+
+    connected_roles = await remote_voice_signal_bus.get_roles(voice_session.voice_session_id)
+
+    await remote_voice_signal_bus.publish(
+        voice_session.voice_session_id,
+        _build_remote_voice_signal_message(
+            voice_session,
+            'session_state',
+            _build_remote_voice_session_state_payload(voice_session, connected_roles=connected_roles),
+        ),
+        include_roles=include_roles,
+        exclude_connection_id=exclude_connection_id,
+    )
+
+
 def _get_connection_page_client_id(connection) -> str:
 
     if not isinstance(connection, dict):
@@ -5572,6 +5663,20 @@ async def _close_remote_voice_for_assist_session(assist_session, status: VoiceSe
 
         return False
 
+    await remote_voice_signal_bus.publish(
+        closed_session.voice_session_id,
+        _build_remote_voice_signal_message(
+            closed_session,
+            'hangup',
+            {
+                'reason': getattr(status, 'value', str(status or 'closed')),
+                'status': closed_session.status.value,
+            },
+        ),
+    )
+
+    await _publish_remote_voice_session_state(closed_session)
+
     await _send_remote_voice_unbind_to_user(closed_session, websocket_id=websocket_id)
 
     return True
@@ -5812,7 +5917,15 @@ async def _handle_remote_voice_request_response(username: str, payload: dict, we
 
         if not delivered:
 
-            remote_voice.mark_failed(voice_session_id)
+            voice_session = remote_voice.mark_failed(voice_session_id)
+
+            if voice_session:
+
+                await _publish_remote_voice_session_state(voice_session)
+
+            return
+
+        await _publish_remote_voice_session_state(voice_session)
 
         return
 
@@ -5823,6 +5936,8 @@ async def _handle_remote_voice_request_response(username: str, payload: dict, we
         return
 
     await _send_remote_voice_unbind_to_user(voice_session, websocket_id=response_chat_ws_id)
+
+    await _publish_remote_voice_session_state(voice_session)
 
 
 def _cancel_remote_assist_auto_unbind(session_id: str) -> None:
@@ -6086,6 +6201,145 @@ async def remote_assist_websocket(websocket: WebSocket):
 
 
 
+@app.websocket("/voice/ws")
+async def remote_voice_websocket(websocket: WebSocket):
+
+    voice_session_id = (websocket.query_params.get('voice_session_id') or '').strip()
+    role_name = (websocket.query_params.get('role') or 'user').strip().lower()
+    role_name = 'admin' if role_name == 'admin' else 'user'
+    site = (websocket.query_params.get('site') or 'ak_web').strip() or 'ak_web'
+    connection_id = ''
+    voice_session = remote_voice.get_session(voice_session_id)
+
+    if (
+        not voice_session_id
+        or site != 'ak_web'
+        or not voice_session
+        or voice_session.site_type != 'ak_web'
+        or voice_session.status not in COUNTED_VOICE_SESSION_STATUSES
+    ):
+        await websocket.close(code=1008)
+        return
+
+    connection_id = await remote_voice_signal_bus.connect(voice_session_id, role_name, websocket)
+
+    try:
+        current_session = remote_voice.heartbeat(voice_session_id, role_name) or voice_session
+        connected_roles = await remote_voice_signal_bus.get_roles(voice_session_id)
+        await remote_voice_signal_bus.send(
+            voice_session_id,
+            connection_id,
+            _build_remote_voice_signal_message(
+                current_session,
+                'session_state',
+                _build_remote_voice_session_state_payload(current_session, connected_roles=connected_roles),
+            ),
+        )
+        await _publish_remote_voice_session_state(current_session)
+
+        while True:
+            data = await websocket.receive_json()
+            msg_type = str((data.get('type') or '')).strip()
+            payload = data.get('payload') or {}
+            current_session = remote_voice.get_session(voice_session_id)
+
+            if (
+                not current_session
+                or current_session.site_type != 'ak_web'
+                or current_session.status not in COUNTED_VOICE_SESSION_STATUSES
+            ):
+                await websocket.close(code=1000)
+                break
+
+            if msg_type == 'heartbeat':
+                current_session = remote_voice.heartbeat(voice_session_id, role_name)
+                if not current_session:
+                    await websocket.close(code=1000)
+                    break
+                await websocket.send_json({'type': 'pong', 'payload': {'voice_session_id': voice_session_id}})
+                continue
+
+            if msg_type == 'mute_state':
+                current_session = remote_voice.set_mute_state(voice_session_id, role_name, bool(payload.get('muted')))
+                if current_session:
+                    await _publish_remote_voice_session_state(current_session)
+                continue
+
+            if msg_type == 'media_connected':
+                current_session = remote_voice.mark_active(voice_session_id)
+                if current_session:
+                    await _publish_remote_voice_session_state(current_session)
+                continue
+
+            if msg_type in {'offer', 'answer', 'ice_candidate'}:
+                include_roles = {'user'} if role_name == 'admin' else {'admin'}
+                await remote_voice_signal_bus.publish(
+                    voice_session_id,
+                    _build_remote_voice_signal_message(
+                        current_session,
+                        msg_type,
+                        payload,
+                        source=f'{role_name}_bridge',
+                    ),
+                    include_roles=include_roles,
+                    exclude_connection_id=connection_id,
+                )
+                continue
+
+            if msg_type == 'hangup':
+                closed_session = remote_voice.close_session(voice_session_id, status=VoiceSessionStatus.CLOSED)
+                if closed_session:
+                    await remote_voice_signal_bus.publish(
+                        voice_session_id,
+                        _build_remote_voice_signal_message(
+                            closed_session,
+                            'hangup',
+                            {
+                                'reason': str(payload.get('reason') or 'manual_hangup'),
+                                'status': closed_session.status.value,
+                            },
+                            source=f'{role_name}_bridge',
+                        ),
+                        exclude_connection_id=connection_id,
+                    )
+                    await _publish_remote_voice_session_state(closed_session)
+                    await _send_remote_voice_unbind_to_user(closed_session)
+                await websocket.close(code=1000)
+                break
+
+    except WebSocketDisconnect:
+        pass
+    except Exception as e:
+        logger.warning(
+            f"[RemoteVoiceWS] error voice_session={voice_session_id or '-'} role={role_name}: {e}"
+        )
+    finally:
+        if connection_id:
+            await remote_voice_signal_bus.disconnect(voice_session_id, connection_id)
+
+        current_session = remote_voice.get_session(voice_session_id)
+
+        if current_session and current_session.status in COUNTED_VOICE_SESSION_STATUSES:
+            remaining_roles = await remote_voice_signal_bus.get_roles(voice_session_id)
+            if role_name not in remaining_roles:
+                closed_session = remote_voice.close_session(voice_session_id, status=VoiceSessionStatus.FAILED)
+                if closed_session:
+                    await remote_voice_signal_bus.publish(
+                        voice_session_id,
+                        _build_remote_voice_signal_message(
+                            closed_session,
+                            'hangup',
+                            {
+                                'reason': f'{role_name}_disconnected',
+                                'status': closed_session.status.value,
+                            },
+                        ),
+                    )
+                    await _publish_remote_voice_session_state(closed_session)
+                    await _send_remote_voice_unbind_to_user(closed_session)
+
+
+
 @app.websocket("/chat/ws")
 async def chat_websocket(websocket: WebSocket):
 
@@ -6287,6 +6541,26 @@ async def admin_page():
 async def chat_widget_js():
 
     js_path = os.path.join(os.path.dirname(__file__), "chat_widget.js")
+
+    if os.path.exists(js_path):
+
+        with open(js_path, "r", encoding="utf-8") as f:
+
+            return Response(content=f.read(), media_type="application/javascript",
+
+                            headers={"Cache-Control": "no-cache, no-store, must-revalidate",
+
+                                     "Pragma": "no-cache", "Expires": "0"})
+
+    return Response(content="// not found", media_type="application/javascript")
+
+
+
+@app.get("/voice/client.js")
+
+async def remote_voice_client_js():
+
+    js_path = os.path.join(os.path.dirname(__file__), "remote_voice_client.js")
 
     if os.path.exists(js_path):
 
@@ -7333,13 +7607,20 @@ async def admin_remote_voice_status(request: Request):
             "active": False,
             "voice_session_id": "",
             "status": "",
+            "admin_muted": False,
+            "user_muted": False,
+            "connected_roles": [],
         })
+    connected_roles = sorted(await remote_voice_signal_bus.get_roles(voice_session.voice_session_id))
     return JSONResponse({
         "success": True,
         "assist_session_id": assist_session_id,
         "active": voice_session.is_counted(),
         "voice_session_id": voice_session.voice_session_id,
         "status": voice_session.status.value,
+        "admin_muted": bool(getattr(voice_session, 'admin_muted', False)),
+        "user_muted": bool(getattr(voice_session, 'user_muted', False)),
+        "connected_roles": connected_roles,
     })
 
 
@@ -7417,8 +7698,24 @@ async def admin_remote_voice_close(request: Request):
     closed_session = remote_voice.close_session(voice_session.voice_session_id, status=VoiceSessionStatus.CLOSED)
     if not closed_session:
         return JSONResponse({"success": False, "message": "实时语音会话不存在"}, status_code=404)
+    await remote_voice_signal_bus.publish(
+        closed_session.voice_session_id,
+        _build_remote_voice_signal_message(
+            closed_session,
+            'hangup',
+            {
+                'reason': 'admin_close',
+                'status': closed_session.status.value,
+            },
+        ),
+    )
+    await _publish_remote_voice_session_state(closed_session)
     await _send_remote_voice_unbind_to_user(closed_session)
-    return JSONResponse({"success": True})
+    return JSONResponse({
+        "success": True,
+        "voice_session_id": closed_session.voice_session_id,
+        "status": closed_session.status.value,
+    })
 
 
 def _build_injector(bs_id: str, username: str = "", password: str = "", userkey: str = "", login_result: dict = None,

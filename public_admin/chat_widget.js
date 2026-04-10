@@ -418,6 +418,7 @@
     const WS_PROTOCOL = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const WS_URL = `${WS_PROTOCOL}//${window.location.host}/chat/ws`;
     const ASSIST_WS_URL = `${WS_PROTOCOL}//${window.location.host}/admin/assist/ws`;
+    const REMOTE_VOICE_CLIENT_URL = `${window.location.origin}/voice/client.js`;
     const HEARTBEAT_INTERVAL = 5000; // 5秒心跳间隔
     
     // 状态
@@ -466,6 +467,15 @@
     let pendingVoiceRequest = null;
     const CHAT_PAGE_CLIENT_ID_STORAGE_KEY = 'ak_chat_page_client_id';
     let pageClientId = '';
+    let remoteVoiceLibraryPromise = null;
+    let remoteVoiceClient = null;
+    let remoteVoiceSessionId = '';
+    let remoteVoiceStatus = '';
+    let remoteVoiceMutedSelf = false;
+    let remoteVoiceMutedPeer = false;
+    let remoteVoiceLocalLevel = 0;
+    let remoteVoiceRemoteLevel = 0;
+    let remoteVoiceConnectedRoles = [];
 
     function generatePageClientId() {
         return 'cp_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 10);
@@ -853,6 +863,124 @@
             background: rgba(148, 163, 184, 0.08);
             color: #d9f5ea;
         }
+
+        #ak-remote-voice-bar {
+            position: fixed;
+            right: 20px;
+            bottom: 394px;
+            z-index: 2147483645;
+            display: none;
+            align-items: center;
+            gap: 10px;
+            min-width: 240px;
+            max-width: min(92vw, 360px);
+            padding: 10px 12px;
+            border-radius: 16px;
+            background: linear-gradient(180deg, rgba(10, 29, 32, 0.96) 0%, rgba(8, 19, 24, 0.96) 100%);
+            border: 1px solid rgba(0, 212, 180, 0.24);
+            box-shadow: 0 16px 40px rgba(0, 0, 0, 0.28);
+            color: #e6fff8;
+            box-sizing: border-box;
+            backdrop-filter: blur(10px);
+        }
+
+        #ak-remote-voice-bar.visible {
+            display: flex;
+        }
+
+        #ak-remote-voice-bar .voice-main {
+            flex: 1;
+            min-width: 0;
+        }
+
+        #ak-remote-voice-bar .voice-status {
+            font-size: 13px;
+            font-weight: 700;
+            color: #f0fffb;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        #ak-remote-voice-bar .voice-sub {
+            margin-top: 4px;
+            font-size: 11px;
+            color: rgba(230, 255, 248, 0.72);
+        }
+
+        #ak-remote-voice-bar .voice-meter-group {
+            margin-top: 7px;
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+
+        #ak-remote-voice-bar .voice-meter-row {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        #ak-remote-voice-bar .voice-meter-label {
+            width: 22px;
+            font-size: 11px;
+            color: rgba(230, 255, 248, 0.64);
+            flex: 0 0 auto;
+        }
+
+        #ak-remote-voice-bar .voice-meter-track {
+            flex: 1;
+            height: 6px;
+            border-radius: 999px;
+            overflow: hidden;
+            background: rgba(148, 163, 184, 0.18);
+        }
+
+        #ak-remote-voice-bar .voice-meter-fill {
+            width: 0%;
+            height: 100%;
+            border-radius: inherit;
+            transition: width 0.12s ease, background 0.12s ease;
+            background: linear-gradient(90deg, #00d4b4 0%, #7ed56f 100%);
+        }
+
+        #ak-remote-voice-bar .voice-actions {
+            display: flex;
+            gap: 8px;
+            flex-shrink: 0;
+        }
+
+        #ak-remote-voice-bar .voice-btn {
+            border: 1px solid rgba(0, 212, 180, 0.24);
+            border-radius: 999px;
+            background: rgba(148, 163, 184, 0.08);
+            color: #e6fff8;
+            font-size: 12px;
+            font-weight: 700;
+            min-width: 68px;
+            height: 34px;
+            padding: 0 12px;
+            cursor: pointer;
+        }
+
+        #ak-remote-voice-bar .voice-btn.danger {
+            color: #ffb4b4;
+            border-color: rgba(255, 82, 82, 0.32);
+        }
+
+        #ak-remote-voice-bar .voice-btn:disabled {
+            opacity: 0.45;
+            cursor: not-allowed;
+        }
+
+        @media (max-width: 768px) {
+            #ak-remote-voice-bar {
+                right: 12px;
+                left: 12px;
+                bottom: 88px;
+                max-width: none;
+            }
+        }
     `;
     document.head.appendChild(style);
     
@@ -881,6 +1009,27 @@
                 </div>
             </div>
         </div>
+        <div id="ak-remote-voice-bar">
+            <div class="voice-main">
+                <div class="voice-status" id="ak-remote-voice-status">实时语音准备中</div>
+                <div class="voice-sub" id="ak-remote-voice-sub">等待管理员和您完成连接</div>
+                <div class="voice-meter-group">
+                    <div class="voice-meter-row">
+                        <span class="voice-meter-label">我方</span>
+                        <span class="voice-meter-track"><span class="voice-meter-fill" id="ak-remote-voice-local-level"></span></span>
+                    </div>
+                    <div class="voice-meter-row">
+                        <span class="voice-meter-label">对方</span>
+                        <span class="voice-meter-track"><span class="voice-meter-fill" id="ak-remote-voice-remote-level"></span></span>
+                    </div>
+                </div>
+            </div>
+            <div class="voice-actions">
+                <button type="button" class="voice-btn" id="ak-remote-voice-mute-btn" onclick="AKChat.toggleVoiceMute()">静音</button>
+                <button type="button" class="voice-btn danger" id="ak-remote-voice-hangup-btn" onclick="AKChat.hangupVoice()">挂断</button>
+            </div>
+            <audio id="ak-remote-voice-audio" autoplay playsinline style="display:none;"></audio>
+        </div>
     `;
     
     // 插入DOM
@@ -894,6 +1043,14 @@
     const assistRequestOverlay = document.getElementById('ak-assist-request-overlay');
     const assistRequestTitle = document.getElementById('ak-assist-request-title');
     const assistRequestText = document.getElementById('ak-assist-request-text');
+    const remoteVoiceBar = document.getElementById('ak-remote-voice-bar');
+    const remoteVoiceStatusText = document.getElementById('ak-remote-voice-status');
+    const remoteVoiceSubText = document.getElementById('ak-remote-voice-sub');
+    const remoteVoiceLocalLevelFill = document.getElementById('ak-remote-voice-local-level');
+    const remoteVoiceRemoteLevelFill = document.getElementById('ak-remote-voice-remote-level');
+    const remoteVoiceMuteBtn = document.getElementById('ak-remote-voice-mute-btn');
+    const remoteVoiceHangupBtn = document.getElementById('ak-remote-voice-hangup-btn');
+    const remoteVoiceAudio = document.getElementById('ak-remote-voice-audio');
     
     if (!chatBox) {
         console.error('[AKChat] 聊天窗口元素未找到！');
@@ -967,6 +1124,209 @@
             }));
         } catch (e) {}
     }
+
+    function isRemoteVoiceCountedStatus(status) {
+        const current = String(status || '').trim().toLowerCase();
+        return current === 'reserved' || current === 'ringing' || current === 'connecting' || current === 'active';
+    }
+
+    function setRemoteVoiceLevel(fillEl, value) {
+        if (!fillEl) return;
+        const num = Math.max(0, Math.min(1, Number(value || 0)));
+        fillEl.style.width = `${Math.round(num * 100)}%`;
+        fillEl.style.background = num >= 0.62
+            ? 'linear-gradient(90deg, #00d4b4 0%, #7ed56f 100%)'
+            : (num >= 0.28
+                ? 'linear-gradient(90deg, #00d4ff 0%, #00d4b4 100%)'
+                : 'linear-gradient(90deg, rgba(0, 212, 180, 0.42) 0%, rgba(126, 213, 111, 0.42) 100%)');
+    }
+
+    function getRemoteVoiceStatusLabel() {
+        const status = String(remoteVoiceStatus || '').trim().toLowerCase();
+        if (status === 'active') return '实时语音通话中';
+        if (status === 'connecting') return '实时语音连接中';
+        if (status === 'ringing' || status === 'reserved') return '等待管理员接通';
+        if (status === 'rejected') return '实时语音已拒绝';
+        if (status === 'timeout') return '实时语音已超时';
+        if (status === 'failed' || status === 'socket_closed') return '实时语音已断开';
+        if (status === 'closed') return '实时语音已结束';
+        return remoteVoiceSessionId ? '实时语音准备中' : '实时语音未连接';
+    }
+
+    function getRemoteVoiceSubLabel() {
+        if (!remoteVoiceSessionId) return '等待管理员发起语音邀请';
+        const bothConnected = remoteVoiceConnectedRoles.indexOf('admin') >= 0 && remoteVoiceConnectedRoles.indexOf('user') >= 0;
+        if (String(remoteVoiceStatus || '').trim().toLowerCase() === 'active') {
+            return `${remoteVoiceMutedSelf ? '您已静音' : '您的麦克风已开启'} · ${remoteVoiceMutedPeer ? '管理员已静音' : '管理员可听见'}`;
+        }
+        if (bothConnected) {
+            return '双方已连入信令，正在建立音频通道';
+        }
+        return remoteVoiceConnectedRoles.indexOf('admin') >= 0 ? '管理员已就绪，正在等待音频建立' : '等待管理员进入语音';
+    }
+
+    function renderRemoteVoiceBar() {
+        const visible = !!remoteVoiceSessionId || isRemoteVoiceCountedStatus(remoteVoiceStatus);
+        if (remoteVoiceBar) remoteVoiceBar.classList.toggle('visible', !!visible);
+        if (remoteVoiceStatusText) remoteVoiceStatusText.textContent = getRemoteVoiceStatusLabel();
+        if (remoteVoiceSubText) remoteVoiceSubText.textContent = getRemoteVoiceSubLabel();
+        setRemoteVoiceLevel(remoteVoiceLocalLevelFill, remoteVoiceLocalLevel);
+        setRemoteVoiceLevel(remoteVoiceRemoteLevelFill, remoteVoiceRemoteLevel);
+        const canControl = !!(remoteVoiceClient && remoteVoiceSessionId && isRemoteVoiceCountedStatus(remoteVoiceStatus));
+        if (remoteVoiceMuteBtn) {
+            remoteVoiceMuteBtn.disabled = !canControl;
+            remoteVoiceMuteBtn.textContent = remoteVoiceMutedSelf ? '取消静音' : '静音';
+            remoteVoiceMuteBtn.title = remoteVoiceMutedSelf ? '恢复本地麦克风' : '关闭本地麦克风';
+        }
+        if (remoteVoiceHangupBtn) {
+            remoteVoiceHangupBtn.disabled = !canControl;
+        }
+    }
+
+    function resetRemoteVoiceUiState(reason, clearSession = true) {
+        remoteVoiceStatus = String(reason || '').trim() || (clearSession ? '' : remoteVoiceStatus);
+        if (clearSession) remoteVoiceSessionId = '';
+        remoteVoiceMutedSelf = false;
+        remoteVoiceMutedPeer = false;
+        remoteVoiceLocalLevel = 0;
+        remoteVoiceRemoteLevel = 0;
+        remoteVoiceConnectedRoles = [];
+        renderRemoteVoiceBar();
+    }
+
+    function ensureRemoteVoiceLibrary() {
+        if (window.AKRemoteVoiceClient) {
+            return Promise.resolve(window.AKRemoteVoiceClient);
+        }
+        if (remoteVoiceLibraryPromise) return remoteVoiceLibraryPromise;
+        remoteVoiceLibraryPromise = new Promise((resolve, reject) => {
+            const existing = document.querySelector(`script[data-ak-voice-client="1"]`);
+            if (existing) {
+                existing.addEventListener('load', () => resolve(window.AKRemoteVoiceClient));
+                existing.addEventListener('error', () => reject(new Error('加载实时语音脚本失败')));
+                return;
+            }
+            const script = document.createElement('script');
+            script.src = REMOTE_VOICE_CLIENT_URL;
+            script.async = true;
+            script.dataset.akVoiceClient = '1';
+            script.onload = () => resolve(window.AKRemoteVoiceClient);
+            script.onerror = () => reject(new Error('加载实时语音脚本失败'));
+            document.head.appendChild(script);
+        }).catch(error => {
+            remoteVoiceLibraryPromise = null;
+            throw error;
+        });
+        return remoteVoiceLibraryPromise;
+    }
+
+    async function stopRemoteVoiceClient(notifyServer, reason, clearSession = true) {
+        const client = remoteVoiceClient;
+        remoteVoiceClient = null;
+        try {
+            if (client) {
+                if (notifyServer && typeof client.hangup === 'function') {
+                    await client.hangup(reason || 'manual_hangup');
+                } else if (typeof client.stop === 'function') {
+                    await client.stop(false, reason || 'closed');
+                }
+            }
+        } catch (e) {
+        }
+        resetRemoteVoiceUiState(reason, clearSession);
+    }
+
+    async function startRemoteVoiceClient(bindPayload) {
+        const payload = bindPayload || {};
+        const nextSessionId = String(payload.voice_session_id || '').trim();
+        if (!nextSessionId) return;
+        if (remoteVoiceClient && remoteVoiceSessionId === nextSessionId && isRemoteVoiceCountedStatus(remoteVoiceStatus)) {
+            renderRemoteVoiceBar();
+            return;
+        }
+        await ensureRemoteVoiceLibrary();
+        await stopRemoteVoiceClient(false, 'switch_session', true);
+        remoteVoiceSessionId = nextSessionId;
+        remoteVoiceStatus = String(payload.status || 'connecting');
+        renderRemoteVoiceBar();
+        const ClientCtor = window.AKRemoteVoiceClient;
+        const client = new ClientCtor({
+            voiceSessionId: nextSessionId,
+            role: 'user',
+            site: String(payload.site || 'ak_web').trim() || 'ak_web',
+            remoteAudio: remoteVoiceAudio,
+            onStateChange: function(state) {
+                if (remoteVoiceClient !== client) return;
+                remoteVoiceStatus = String(state && state.status || remoteVoiceStatus || '').trim() || remoteVoiceStatus;
+                remoteVoiceMutedSelf = !!(state && state.mutedSelf);
+                remoteVoiceMutedPeer = !!(state && state.mutedPeer);
+                remoteVoiceLocalLevel = Number(state && state.localLevel || 0);
+                remoteVoiceRemoteLevel = Number(state && state.remoteLevel || 0);
+                remoteVoiceConnectedRoles = Array.isArray(state && state.connectedRoles) ? state.connectedRoles.slice() : [];
+                if (!isRemoteVoiceCountedStatus(remoteVoiceStatus) && String(state && state.phase || '').trim() === 'closed') {
+                    remoteVoiceClient = null;
+                    resetRemoteVoiceUiState(remoteVoiceStatus, true);
+                    emitRemoteVoiceEvent('state_closed', { voice_session_id: nextSessionId, status: remoteVoiceStatus });
+                    return;
+                }
+                renderRemoteVoiceBar();
+            },
+            onError: function(error) {
+                console.error('[AKChat] remote voice error:', error);
+            }
+        });
+        remoteVoiceClient = client;
+        try {
+            await client.start();
+            emitRemoteVoiceEvent('client_started', { voice_session_id: nextSessionId });
+        } catch (error) {
+            console.error('[AKChat] 启动实时语音失败:', error);
+            await stopRemoteVoiceClient(true, 'media_error', true);
+        }
+    }
+
+    async function toggleRemoteVoiceMute() {
+        if (!remoteVoiceClient || !remoteVoiceSessionId) return false;
+        try {
+            await remoteVoiceClient.toggleMuted();
+            return true;
+        } catch (e) {
+            return false;
+        }
+    }
+
+    async function hangupRemoteVoice() {
+        if (!remoteVoiceSessionId) return false;
+        await stopRemoteVoiceClient(true, 'user_hangup', true);
+        return true;
+    }
+
+    async function handleRemoteVoiceBind(payload) {
+        closeVoiceRequestDialog(true);
+        remoteVoiceSessionId = String(payload && payload.voice_session_id || '').trim();
+        remoteVoiceStatus = String(payload && payload.status || 'connecting');
+        renderRemoteVoiceBar();
+        await startRemoteVoiceClient(payload || {});
+    }
+
+    async function handleRemoteVoiceUnbind(payload) {
+        const nextSessionId = String(payload && payload.voice_session_id || '').trim();
+        if (nextSessionId && remoteVoiceSessionId && nextSessionId !== remoteVoiceSessionId) return;
+        closeVoiceRequestDialog(true);
+        await stopRemoteVoiceClient(false, String(payload && payload.status || 'closed'), true);
+    }
+
+    window.addEventListener('ak-remote-voice', function(event) {
+        const detail = event && event.detail ? event.detail : {};
+        const eventType = String(detail.event_type || '').trim();
+        if (eventType === 'bind') {
+            handleRemoteVoiceBind(detail);
+            return;
+        }
+        if (eventType === 'unbind') {
+            handleRemoteVoiceUnbind(detail);
+        }
+    });
 
     function openVoiceRequestDialog(request) {
         pendingVoiceRequest = request || null;
@@ -3453,6 +3813,7 @@
             ws.onclose = function(event) {
                 closeAssistRequestDialog(true);
                 closeVoiceRequestDialog(true);
+                stopRemoteVoiceClient(false, 'chat_socket_closed', true);
                 stopHeartbeat();
                 ws = null;
                 scheduleReconnect('ws_onclose');
@@ -3533,7 +3894,9 @@
         acceptAssistRequest: acceptAssistRequest,
         rejectAssistRequest: rejectAssistRequest,
         acceptVoiceRequest: acceptVoiceRequest,
-        rejectVoiceRequest: rejectVoiceRequest
+        rejectVoiceRequest: rejectVoiceRequest,
+        toggleVoiceMute: toggleRemoteVoiceMute,
+        hangupVoice: hangupRemoteVoice
     };
     
     // 监听SPA路由变化（history.pushState / replaceState / 浏览器前进后退）
@@ -3600,6 +3963,7 @@
 
     window.addEventListener('pagehide', function() {
         disconnectAssist('', true);
+        stopRemoteVoiceClient(false, 'pagehide', true);
         suspendPresence('pagehide');
     });
     window.addEventListener('pageshow', function() {

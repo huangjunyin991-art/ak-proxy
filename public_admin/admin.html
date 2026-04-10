@@ -3215,6 +3215,26 @@
                 <span id="remoteAssistTitle" class="ak-browser-title-text">远程指导</span>
             </div>
             <div id="remoteAssistMeta" style="margin-top:8px; font-size:12px; color:var(--text-secondary); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">等待用户确认远程指导</div>
+            <div id="remoteAssistVoiceStrip" style="display:none; margin-top:10px; padding:10px 12px; border:1px solid rgba(0,212,180,0.18); border-radius:12px; background:rgba(15,23,42,0.32); align-items:center; gap:12px; flex-wrap:wrap;">
+                <div style="flex:1; min-width:220px;">
+                    <div id="remoteAssistVoiceStripState" style="font-size:13px; font-weight:700; color:var(--text-primary);">实时语音未连接</div>
+                    <div id="remoteAssistVoiceStripSub" style="margin-top:4px; font-size:11px; color:var(--text-secondary);">等待管理员发起语音邀请</div>
+                    <div style="margin-top:8px; display:flex; flex-direction:column; gap:6px;">
+                        <div style="display:flex; align-items:center; gap:8px;">
+                            <span style="width:24px; font-size:11px; color:var(--text-secondary); flex:0 0 auto;">我方</span>
+                            <span style="flex:1; height:6px; border-radius:999px; background:rgba(148,163,184,0.18); overflow:hidden;"><span id="remoteAssistVoiceLocalLevel" style="display:block; width:0%; height:100%; border-radius:inherit; background:linear-gradient(90deg, #00d4b4 0%, #7ed56f 100%);"></span></span>
+                        </div>
+                        <div style="display:flex; align-items:center; gap:8px;">
+                            <span style="width:24px; font-size:11px; color:var(--text-secondary); flex:0 0 auto;">对方</span>
+                            <span style="flex:1; height:6px; border-radius:999px; background:rgba(148,163,184,0.18); overflow:hidden;"><span id="remoteAssistVoiceRemoteLevel" style="display:block; width:0%; height:100%; border-radius:inherit; background:linear-gradient(90deg, #00d4b4 0%, #7ed56f 100%);"></span></span>
+                        </div>
+                    </div>
+                </div>
+                <div style="display:flex; gap:8px; align-items:center;">
+                    <button id="remoteAssistVoiceMuteBtn" onclick="toggleRemoteAssistVoiceMute()" class="ak-browser-tool-btn" aria-label="切换麦克风" title="切换本地麦克风" disabled>静音</button>
+                </div>
+                <audio id="remoteAssistVoiceAudio" autoplay playsinline style="display:none;"></audio>
+            </div>
         </div>
         <div class="ak-browser-stage" id="remoteAssistStage">
             <div class="ak-browser-stage-frame" id="remoteAssistStageFrame">
@@ -8556,6 +8576,13 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
         let remoteAssistPanelHeartbeatTimer = null;
         let remoteAssistVoiceSessionId = '';
         let remoteAssistVoiceStatus = '';
+        let remoteAssistVoiceLibraryPromise = null;
+        let remoteAssistVoiceClient = null;
+        let remoteAssistVoiceMutedSelf = false;
+        let remoteAssistVoiceMutedPeer = false;
+        let remoteAssistVoiceLocalLevel = 0;
+        let remoteAssistVoiceRemoteLevel = 0;
+        let remoteAssistVoiceConnectedRoles = [];
         let remoteAssistPanelLastSnapshot = null;
         let remoteAssistPanelLastHtml = '';
         let remoteAssistPanelLastScroll = null;
@@ -8644,12 +8671,195 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
             button.style.opacity = disabled ? '0.6' : '1';
             button.style.cursor = disabled ? 'not-allowed' : 'pointer';
             button.title = title;
+            renderRemoteAssistVoiceStrip();
+        }
+
+        function setRemoteAssistVoiceLevel(elementId, value) {
+            const fill = document.getElementById(elementId);
+            if (!fill) return;
+            const num = Math.max(0, Math.min(1, Number(value || 0)));
+            fill.style.width = `${Math.round(num * 100)}%`;
+            fill.style.background = num >= 0.62
+                ? 'linear-gradient(90deg, #00d4b4 0%, #7ed56f 100%)'
+                : (num >= 0.28
+                    ? 'linear-gradient(90deg, #00d4ff 0%, #00d4b4 100%)'
+                    : 'linear-gradient(90deg, rgba(0, 212, 180, 0.42) 0%, rgba(126, 213, 111, 0.42) 100%)');
+        }
+
+        function getRemoteAssistVoiceStripStateText() {
+            const status = String(remoteAssistVoiceStatus || '').trim().toLowerCase();
+            if (status === 'active') return '实时语音通话中';
+            if (status === 'connecting') return '实时语音连接中';
+            if (status === 'ringing' || status === 'reserved') return '等待用户接听实时语音';
+            if (status === 'rejected') return '用户已拒绝实时语音';
+            if (status === 'timeout') return '实时语音已超时';
+            if (status === 'failed' || status === 'socket_closed') return '实时语音已断开';
+            if (status === 'closed') return '实时语音已结束';
+            return remoteAssistVoiceSessionId ? '实时语音准备中' : '实时语音未连接';
+        }
+
+        function getRemoteAssistVoiceStripSubText() {
+            if (!remoteAssistVoiceSessionId) return '等待管理员发起语音邀请';
+            const bothConnected = remoteAssistVoiceConnectedRoles.includes('admin') && remoteAssistVoiceConnectedRoles.includes('user');
+            if (String(remoteAssistVoiceStatus || '').trim().toLowerCase() === 'active') {
+                return `${remoteAssistVoiceMutedSelf ? '您的麦克风已静音' : '您的麦克风已开启'} · ${remoteAssistVoiceMutedPeer ? '用户已静音' : '用户可正常说话'}`;
+            }
+            if (bothConnected) {
+                return '双方已连入信令，正在建立音频通道';
+            }
+            return remoteAssistVoiceConnectedRoles.includes('user') ? '用户已就绪，正在建立音频通道' : '等待用户进入语音';
+        }
+
+        function renderRemoteAssistVoiceStrip() {
+            const strip = document.getElementById('remoteAssistVoiceStrip');
+            const stateText = document.getElementById('remoteAssistVoiceStripState');
+            const subText = document.getElementById('remoteAssistVoiceStripSub');
+            const muteBtn = document.getElementById('remoteAssistVoiceMuteBtn');
+            if (!strip || !stateText || !subText) return;
+            const visible = !!remoteAssistVoiceSessionId || isRemoteAssistVoiceCountedStatus(remoteAssistVoiceStatus);
+            strip.style.display = visible ? 'flex' : 'none';
+            stateText.textContent = getRemoteAssistVoiceStripStateText();
+            subText.textContent = getRemoteAssistVoiceStripSubText();
+            setRemoteAssistVoiceLevel('remoteAssistVoiceLocalLevel', remoteAssistVoiceLocalLevel);
+            setRemoteAssistVoiceLevel('remoteAssistVoiceRemoteLevel', remoteAssistVoiceRemoteLevel);
+            if (muteBtn) {
+                const canControl = !!(remoteAssistVoiceClient && remoteAssistVoiceSessionId && isRemoteAssistVoiceCountedStatus(remoteAssistVoiceStatus));
+                muteBtn.disabled = !canControl;
+                muteBtn.textContent = remoteAssistVoiceMutedSelf ? '取消静音' : '静音';
+                muteBtn.title = remoteAssistVoiceMutedSelf ? '恢复本地麦克风' : '关闭本地麦克风';
+            }
+        }
+
+        function resetRemoteAssistVoiceUi(reason = '', clearSession = true) {
+            remoteAssistVoiceStatus = String(reason || '').trim() || (clearSession ? '' : remoteAssistVoiceStatus);
+            if (clearSession) remoteAssistVoiceSessionId = '';
+            remoteAssistVoiceMutedSelf = false;
+            remoteAssistVoiceMutedPeer = false;
+            remoteAssistVoiceLocalLevel = 0;
+            remoteAssistVoiceRemoteLevel = 0;
+            remoteAssistVoiceConnectedRoles = [];
+            renderRemoteAssistVoiceStrip();
+        }
+
+        function buildRemoteVoiceWsUrl(voiceSessionId, role, site) {
+            const proto = window.location.protocol === 'https:' ? 'wss://' : 'ws://';
+            return `${proto}${window.location.host}/voice/ws?voice_session_id=${encodeURIComponent(String(voiceSessionId || ''))}&role=${encodeURIComponent(String(role || 'admin'))}&site=${encodeURIComponent(String(site || 'ak_web'))}`;
+        }
+
+        function ensureRemoteAssistVoiceLibrary() {
+            if (window.AKRemoteVoiceClient) {
+                return Promise.resolve(window.AKRemoteVoiceClient);
+            }
+            if (remoteAssistVoiceLibraryPromise) return remoteAssistVoiceLibraryPromise;
+            remoteAssistVoiceLibraryPromise = new Promise((resolve, reject) => {
+                const existing = document.querySelector('script[data-ak-voice-client="1"]');
+                if (existing) {
+                    existing.addEventListener('load', () => resolve(window.AKRemoteVoiceClient));
+                    existing.addEventListener('error', () => reject(new Error('加载实时语音脚本失败')));
+                    return;
+                }
+                const script = document.createElement('script');
+                script.src = `${window.location.origin}/voice/client.js`;
+                script.async = true;
+                script.dataset.akVoiceClient = '1';
+                script.onload = () => resolve(window.AKRemoteVoiceClient);
+                script.onerror = () => reject(new Error('加载实时语音脚本失败'));
+                document.head.appendChild(script);
+            }).catch(error => {
+                remoteAssistVoiceLibraryPromise = null;
+                throw error;
+            });
+            return remoteAssistVoiceLibraryPromise;
+        }
+
+        async function disconnectRemoteAssistVoiceClient(notifyServer = false, reason = 'closed', clearSession = false) {
+            const client = remoteAssistVoiceClient;
+            remoteAssistVoiceClient = null;
+            try {
+                if (client) {
+                    if (notifyServer && typeof client.hangup === 'function') {
+                        await client.hangup(reason || 'manual_hangup');
+                    } else if (typeof client.stop === 'function') {
+                        await client.stop(false, reason || 'closed');
+                    }
+                }
+            } catch (e) {
+            }
+            resetRemoteAssistVoiceUi(reason, clearSession);
+            updateRemoteAssistVoiceButton();
+        }
+
+        async function ensureRemoteAssistVoiceClient() {
+            if (!remoteAssistPanelSessionId || !remoteAssistVoiceSessionId || !isRemoteAssistVoiceCountedStatus(remoteAssistVoiceStatus)) {
+                if (!remoteAssistVoiceSessionId) {
+                    await disconnectRemoteAssistVoiceClient(false, remoteAssistVoiceStatus || 'closed', true);
+                }
+                return;
+            }
+            if (remoteAssistVoiceClient && remoteAssistVoiceClient.voiceSessionId === remoteAssistVoiceSessionId) {
+                renderRemoteAssistVoiceStrip();
+                return;
+            }
+            await ensureRemoteAssistVoiceLibrary();
+            await disconnectRemoteAssistVoiceClient(false, '', false);
+            const ClientCtor = window.AKRemoteVoiceClient;
+            const voiceAudioEl = document.getElementById('remoteAssistVoiceAudio');
+            const currentVoiceSessionId = remoteAssistVoiceSessionId;
+            const client = new ClientCtor({
+                voiceSessionId: currentVoiceSessionId,
+                role: 'admin',
+                site: 'ak_web',
+                lazyMedia: true,
+                remoteAudio: voiceAudioEl,
+                wsUrlBuilder: buildRemoteVoiceWsUrl,
+                onStateChange: function(state) {
+                    if (remoteAssistVoiceClient !== client) return;
+                    remoteAssistVoiceStatus = String(state && state.status || remoteAssistVoiceStatus || '').trim() || remoteAssistVoiceStatus;
+                    remoteAssistVoiceMutedSelf = !!(state && state.mutedSelf);
+                    remoteAssistVoiceMutedPeer = !!(state && state.mutedPeer);
+                    remoteAssistVoiceLocalLevel = Number(state && state.localLevel || 0);
+                    remoteAssistVoiceRemoteLevel = Number(state && state.remoteLevel || 0);
+                    remoteAssistVoiceConnectedRoles = Array.isArray(state && state.connectedRoles) ? state.connectedRoles.slice() : [];
+                    if (!isRemoteAssistVoiceCountedStatus(remoteAssistVoiceStatus) && String(state && state.phase || '').trim() === 'closed') {
+                        remoteAssistVoiceClient = null;
+                        resetRemoteAssistVoiceUi(remoteAssistVoiceStatus, true);
+                        updateRemoteAssistVoiceButton();
+                        return;
+                    }
+                    renderRemoteAssistVoiceStrip();
+                    updateRemoteAssistVoiceButton();
+                },
+                onError: function(error) {
+                    if (remoteAssistVoiceClient !== client) return;
+                    showToast(`实时语音异常：${(error && error.message) || '未知错误'}`, 'error');
+                }
+            });
+            remoteAssistVoiceClient = client;
+            renderRemoteAssistVoiceStrip();
+            try {
+                await client.start();
+            } catch (e) {
+                if (remoteAssistVoiceClient === client) {
+                    remoteAssistVoiceClient = null;
+                    resetRemoteAssistVoiceUi('failed', true);
+                }
+                updateRemoteAssistVoiceButton();
+                showToast(`启动实时语音失败: ${e.message}`, 'error');
+            }
+        }
+
+        async function toggleRemoteAssistVoiceMute() {
+            if (!remoteAssistVoiceClient) return;
+            try {
+                await remoteAssistVoiceClient.toggleMuted();
+            } catch (e) {
+                showToast(`切换麦克风失败: ${e.message}`, 'error');
+            }
         }
 
         async function loadRemoteAssistVoiceState() {
             if (!remoteAssistPanelSessionId) {
-                remoteAssistVoiceSessionId = '';
-                remoteAssistVoiceStatus = '';
+                await disconnectRemoteAssistVoiceClient(false, 'closed', true);
                 updateRemoteAssistVoiceButton();
                 return;
             }
@@ -8663,10 +8873,19 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                 }
                 remoteAssistVoiceSessionId = data.active ? String(data.voice_session_id || '') : '';
                 remoteAssistVoiceStatus = String(data.status || '');
+                remoteAssistVoiceMutedSelf = !!data.admin_muted;
+                remoteAssistVoiceMutedPeer = !!data.user_muted;
+                remoteAssistVoiceConnectedRoles = Array.isArray(data.connected_roles) ? data.connected_roles.slice() : [];
                 updateRemoteAssistVoiceButton();
+                if (remoteAssistVoiceSessionId && isRemoteAssistVoiceCountedStatus(remoteAssistVoiceStatus)) {
+                    await ensureRemoteAssistVoiceClient();
+                } else {
+                    await disconnectRemoteAssistVoiceClient(false, remoteAssistVoiceStatus || 'closed', true);
+                }
             } catch (e) {
-                remoteAssistVoiceSessionId = '';
-                remoteAssistVoiceStatus = '';
+                if (!remoteAssistVoiceClient) {
+                    resetRemoteAssistVoiceUi('', true);
+                }
                 updateRemoteAssistVoiceButton();
             }
         }
@@ -8700,6 +8919,16 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                 }
                 remoteAssistVoiceSessionId = shouldClose ? '' : String(data.voice_session_id || '');
                 remoteAssistVoiceStatus = String(data.status || (shouldClose ? '' : 'ringing'));
+                if (shouldClose) {
+                    await disconnectRemoteAssistVoiceClient(false, 'closed', true);
+                } else {
+                    remoteAssistVoiceMutedSelf = false;
+                    remoteAssistVoiceMutedPeer = false;
+                    remoteAssistVoiceLocalLevel = 0;
+                    remoteAssistVoiceRemoteLevel = 0;
+                    remoteAssistVoiceConnectedRoles = [];
+                    await ensureRemoteAssistVoiceClient();
+                }
                 updateRemoteAssistVoiceButton();
                 showToast(data.message || (shouldClose ? '已关闭实时语音' : '已发起实时语音邀请'));
                 await loadRemoteAssistVoiceState();
@@ -9641,8 +9870,7 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                         const consentStatus = String(payload.consent_status || remoteAssistPanelConsentStatus || 'waiting');
                         remoteAssistPanelConsentStatus = consentStatus;
                         if (consentStatus !== 'accepted') {
-                            remoteAssistVoiceSessionId = '';
-                            remoteAssistVoiceStatus = '';
+                            disconnectRemoteAssistVoiceClient(false, 'closed', true);
                         }
                         updateRemoteAssistVoiceButton();
                         if (consentStatus === 'rejected') {
@@ -9783,8 +10011,7 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
             remoteAssistPanelLastScroll = null;
             remoteAssistPanelApplyingScrollDepth = 0;
             remoteAssistPanelConsentStatus = 'waiting';
-            remoteAssistVoiceSessionId = '';
-            remoteAssistVoiceStatus = '';
+            resetRemoteAssistVoiceUi('', true);
             remoteAssistPanelPendingRoute = '';
             remoteAssistPanelWaitingForRouteSnapshot = false;
             resetRemoteAssistPendingSnapshotRequest();
@@ -9834,8 +10061,6 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
             remoteAssistPanelLastScroll = null;
             remoteAssistPanelApplyingScrollDepth = 0;
             remoteAssistPanelConsentStatus = 'waiting';
-            remoteAssistVoiceSessionId = '';
-            remoteAssistVoiceStatus = '';
             remoteAssistPanelPendingRoute = '';
             remoteAssistPanelWaitingForRouteSnapshot = false;
             resetRemoteAssistPendingSnapshotRequest();
@@ -9859,6 +10084,7 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
             if (releaseSession && closingSessionId) {
                 await releaseRemoteAssistPanelSession(closingSessionId);
             }
+            await disconnectRemoteAssistVoiceClient(false, 'closed', true);
         }
 
         function refreshAkBrowser() {
