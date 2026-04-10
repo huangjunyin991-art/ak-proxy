@@ -8359,6 +8359,7 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
         let remoteAssistPanelReadyRenderSeq = 0;
         let remoteAssistPanelFrameBindingCleanup = null;
         let remoteAssistPanelRenderReadyTimer = null;
+        let remoteAssistPanelLastViewportSyncDebugKey = '';
         const REMOTE_ASSIST_PREPARE_LOG_THRESHOLD_MS = 80;
         const REMOTE_ASSIST_RENDER_LOG_THRESHOLD_MS = 200;
         const REMOTE_ASSIST_PENDING_ROUTE_REQUEST_RETRY_MS = 1000;
@@ -8442,6 +8443,7 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                 if (!stage || !stageFrame || !frame) return;
                 const viewport = getRemoteAssistSnapshotViewport(snapshot);
                 if (!viewport) {
+                    remoteAssistPanelLastViewportSyncDebugKey = '';
                     stageFrame.style.position = 'relative';
                     stageFrame.style.left = '';
                     stageFrame.style.top = '';
@@ -8467,6 +8469,32 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                 stageFrame.style.transformOrigin = 'top center';
                 frame.style.width = '100%';
                 frame.style.height = '100%';
+                const route = getRemoteAssistSnapshotRoute(snapshot);
+                const debugKey = [
+                    route,
+                    viewportWidth,
+                    viewportHeight,
+                    stageWidth,
+                    stageHeight,
+                    scale.toFixed(4),
+                    stageFrame.style.width,
+                    stageFrame.style.height,
+                    stageFrame.style.transform
+                ].join('|');
+                if (remoteAssistPanelLastViewportSyncDebugKey !== debugKey) {
+                    remoteAssistPanelLastViewportSyncDebugKey = debugKey;
+                    logRemoteAssistDebug('viewport_sync_applied', {
+                        route,
+                        viewport_width: viewportWidth,
+                        viewport_height: viewportHeight,
+                        stage_width: stageWidth,
+                        stage_height: stageHeight,
+                        scale: Number(scale.toFixed(4)),
+                        frame_width: String(stageFrame.style.width || ''),
+                        frame_height: String(stageFrame.style.height || ''),
+                        frame_transform: String(stageFrame.style.transform || '')
+                    });
+                }
             } catch (e) {
             }
         }
