@@ -881,15 +881,7 @@
         }
 
         #ak-remote-voice-bar .voice-fab-pulse {
-            position: absolute;
-            width: 68px;
-            height: 68px;
-            border-radius: 50%;
-            background: radial-gradient(circle, rgba(0, 212, 180, 0.34) 0%, rgba(0, 212, 180, 0.14) 55%, rgba(0, 212, 180, 0) 72%);
-            transform: scale(0.82);
-            opacity: 0.18;
-            transition: transform 0.12s ease, opacity 0.12s ease, background 0.12s ease;
-            pointer-events: none;
+            display: none;
         }
 
         #ak-remote-voice-bar .voice-fab-btn {
@@ -898,23 +890,22 @@
             width: 56px;
             height: 56px;
             border-radius: 50%;
-            border: 1px solid rgba(0, 212, 180, 0.22);
-            background: linear-gradient(180deg, rgba(9, 28, 31, 0.96) 0%, rgba(6, 16, 20, 0.98) 100%);
-            color: #e6fff8;
+            border: 1px solid rgba(11, 48, 53, 0.9);
+            background: linear-gradient(180deg, rgba(12, 39, 43, 0.98) 0%, rgba(7, 24, 28, 0.98) 100%);
+            color: #f4fffc;
             display: inline-flex;
             align-items: center;
             justify-content: center;
             font-size: 0;
             font-weight: 700;
             cursor: pointer;
-            box-shadow: 0 10px 26px rgba(0, 0, 0, 0.28);
+            box-shadow: 0 10px 18px rgba(0, 0, 0, 0.2);
             transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease, background 0.18s ease, color 0.18s ease;
-            backdrop-filter: blur(8px);
         }
 
         #ak-remote-voice-bar .voice-fab-btn .voice-fab-icon {
-            width: 24px;
-            height: 24px;
+            width: 26px;
+            height: 26px;
             display: block;
             color: currentColor;
             pointer-events: none;
@@ -945,19 +936,20 @@
         }
 
         #ak-remote-voice-bar .voice-fab-btn[data-state="active"] {
-            border-color: rgba(0, 212, 180, 0.42);
-            color: #dffdf7;
+            border-color: rgba(22, 92, 92, 0.92);
+            background: linear-gradient(180deg, rgba(11, 41, 44, 0.98) 0%, rgba(8, 28, 31, 0.98) 100%);
+            color: #6bf3de;
         }
 
         #ak-remote-voice-bar .voice-fab-btn[data-state="pending"] {
-            border-color: rgba(0, 212, 180, 0.18);
-            color: rgba(230, 255, 248, 0.82);
+            border-color: rgba(11, 48, 53, 0.9);
+            color: rgba(244, 255, 252, 0.94);
         }
 
         #ak-remote-voice-bar .voice-fab-btn[data-state="muted"] {
-            color: #ffb4b4;
-            border-color: rgba(255, 82, 82, 0.32);
-            background: linear-gradient(180deg, rgba(38, 16, 20, 0.96) 0%, rgba(24, 10, 14, 0.96) 100%);
+            color: #ffb1b1;
+            border-color: rgba(88, 33, 39, 0.92);
+            background: linear-gradient(180deg, rgba(43, 19, 24, 0.98) 0%, rgba(27, 12, 16, 0.98) 100%);
         }
 
         #ak-remote-voice-bar .voice-fab-btn[data-state="muted"] .voice-fab-status-dot {
@@ -971,6 +963,11 @@
         #ak-remote-voice-bar .voice-fab-btn[data-state="muted"] .voice-fab-slash {
             transform: rotate(-42deg) scaleX(1);
             opacity: 1;
+        }
+
+        #ak-remote-voice-bar .voice-fab-btn:hover:not(:disabled) {
+            transform: translateY(-1px);
+            box-shadow: 0 12px 20px rgba(0, 0, 0, 0.22);
         }
 
         #ak-remote-voice-bar .voice-fab-btn:disabled {

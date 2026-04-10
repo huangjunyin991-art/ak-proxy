@@ -8558,6 +8558,7 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
         let remoteAssistPanelHeartbeatTimer = null;
         let remoteAssistVoiceSessionId = '';
         let remoteAssistVoiceStatus = '';
+        let remoteAssistVoiceStatePollTimer = null;
         let remoteAssistVoiceLibraryPromise = null;
         let remoteAssistVoiceClient = null;
         let remoteAssistVoiceMutedSelf = false;
@@ -8627,6 +8628,28 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
         function isRemoteAssistVoiceCountedStatus(status) {
             const current = String(status || '').trim().toLowerCase();
             return current === 'reserved' || current === 'ringing' || current === 'connecting' || current === 'active';
+        }
+
+        function clearRemoteAssistVoiceStatePollTimer() {
+            if (remoteAssistVoiceStatePollTimer) {
+                clearTimeout(remoteAssistVoiceStatePollTimer);
+                remoteAssistVoiceStatePollTimer = null;
+            }
+        }
+
+        function shouldRefreshRemoteAssistVoicePendingState(status = remoteAssistVoiceStatus) {
+            const current = String(status || '').trim().toLowerCase();
+            return current === 'reserved' || current === 'ringing' || current === 'connecting';
+        }
+
+        function scheduleRemoteAssistVoiceStateRefresh(delay = 900) {
+            clearRemoteAssistVoiceStatePollTimer();
+            if (!remoteAssistPanelSessionId || !remoteAssistVoiceSessionId) return;
+            if (!shouldRefreshRemoteAssistVoicePendingState(remoteAssistVoiceStatus)) return;
+            remoteAssistVoiceStatePollTimer = setTimeout(async () => {
+                remoteAssistVoiceStatePollTimer = null;
+                await loadRemoteAssistVoiceState();
+            }, Math.max(200, Number(delay || 0)));
         }
 
         function getRemoteAssistVoiceIconHtml(size = 16) {
@@ -8728,13 +8751,13 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                 muteBtn.style.justifyContent = 'center';
                 muteBtn.title = `${getRemoteAssistVoiceStripStateText()} · ${getRemoteAssistVoiceStripSubText()}${canControl ? (remoteAssistVoiceMutedSelf ? ' · 点击恢复麦克风' : ' · 点击静音麦克风') : ''}`;
                 muteBtn.style.background = remoteAssistVoiceMutedSelf
-                    ? 'linear-gradient(180deg, rgba(38, 16, 20, 0.96) 0%, rgba(24, 10, 14, 0.96) 100%)'
-                    : 'linear-gradient(180deg, rgba(10, 29, 32, 0.96) 0%, rgba(8, 19, 24, 0.96) 100%)';
-                muteBtn.style.color = remoteAssistVoiceMutedSelf ? '#ffb4b4' : '#e6fff8';
+                    ? 'linear-gradient(180deg, rgba(43, 19, 24, 0.98) 0%, rgba(27, 12, 16, 0.98) 100%)'
+                    : 'linear-gradient(180deg, rgba(12, 39, 43, 0.98) 0%, rgba(7, 24, 28, 0.98) 100%)';
+                muteBtn.style.color = remoteAssistVoiceMutedSelf ? '#ffb1b1' : (currentStatus === 'active' ? '#6bf3de' : '#f4fffc');
                 muteBtn.style.border = remoteAssistVoiceMutedSelf
-                    ? '1px solid rgba(255, 82, 82, 0.32)'
-                    : (currentStatus === 'active' ? '1px solid rgba(0, 212, 180, 0.42)' : '1px solid rgba(0, 212, 180, 0.18)');
-                muteBtn.style.boxShadow = buildRemoteAssistVoiceGlow(level, remoteAssistVoiceMutedSelf);
+                    ? '1px solid rgba(88, 33, 39, 0.92)'
+                    : (currentStatus === 'active' ? '1px solid rgba(22, 92, 92, 0.92)' : '1px solid rgba(11, 48, 53, 0.9)');
+                muteBtn.style.boxShadow = '0 10px 18px rgba(0, 0, 0, 0.2)';
                 muteBtn.style.opacity = canControl ? '1' : '0.45';
             }
         }
@@ -8784,6 +8807,7 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
         async function disconnectRemoteAssistVoiceClient(notifyServer = false, reason = 'closed', clearSession = false) {
             const client = remoteAssistVoiceClient;
             remoteAssistVoiceClient = null;
+            clearRemoteAssistVoiceStatePollTimer();
             try {
                 if (client) {
                     if (notifyServer && typeof client.hangup === 'function') {
@@ -8830,10 +8854,16 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                     remoteAssistVoiceRemoteLevel = Number(state && state.remoteLevel || 0);
                     remoteAssistVoiceConnectedRoles = Array.isArray(state && state.connectedRoles) ? state.connectedRoles.slice() : [];
                     if (!isRemoteAssistVoiceCountedStatus(remoteAssistVoiceStatus) && String(state && state.phase || '').trim() === 'closed') {
+                        clearRemoteAssistVoiceStatePollTimer();
                         remoteAssistVoiceClient = null;
                         resetRemoteAssistVoiceUi(remoteAssistVoiceStatus, true);
                         updateRemoteAssistVoiceButton();
                         return;
+                    }
+                    if (shouldRefreshRemoteAssistVoicePendingState(remoteAssistVoiceStatus)) {
+                        scheduleRemoteAssistVoiceStateRefresh(900);
+                    } else {
+                        clearRemoteAssistVoiceStatePollTimer();
                     }
                     renderRemoteAssistVoiceStrip();
                     updateRemoteAssistVoiceButton();
@@ -8868,6 +8898,7 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
 
         async function loadRemoteAssistVoiceState() {
             if (!remoteAssistPanelSessionId) {
+                clearRemoteAssistVoiceStatePollTimer();
                 await disconnectRemoteAssistVoiceClient(false, 'closed', true);
                 updateRemoteAssistVoiceButton();
                 return;
@@ -8886,12 +8917,22 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                 remoteAssistVoiceMutedPeer = !!data.user_muted;
                 remoteAssistVoiceConnectedRoles = Array.isArray(data.connected_roles) ? data.connected_roles.slice() : [];
                 updateRemoteAssistVoiceButton();
+                if (shouldRefreshRemoteAssistVoicePendingState(remoteAssistVoiceStatus)) {
+                    scheduleRemoteAssistVoiceStateRefresh(900);
+                } else {
+                    clearRemoteAssistVoiceStatePollTimer();
+                }
                 if (remoteAssistVoiceSessionId && isRemoteAssistVoiceCountedStatus(remoteAssistVoiceStatus)) {
                     await ensureRemoteAssistVoiceClient();
                 } else {
                     await disconnectRemoteAssistVoiceClient(false, remoteAssistVoiceStatus || 'closed', true);
                 }
             } catch (e) {
+                if (shouldRefreshRemoteAssistVoicePendingState(remoteAssistVoiceStatus)) {
+                    scheduleRemoteAssistVoiceStateRefresh(1200);
+                } else {
+                    clearRemoteAssistVoiceStatePollTimer();
+                }
                 if (!remoteAssistVoiceClient) {
                     resetRemoteAssistVoiceUi('', true);
                 }
@@ -8929,6 +8970,7 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                 remoteAssistVoiceSessionId = shouldClose ? '' : String(data.voice_session_id || '');
                 remoteAssistVoiceStatus = String(data.status || (shouldClose ? '' : 'ringing'));
                 if (shouldClose) {
+                    clearRemoteAssistVoiceStatePollTimer();
                     await disconnectRemoteAssistVoiceClient(false, 'closed', true);
                 } else {
                     remoteAssistVoiceMutedSelf = false;
@@ -8936,6 +8978,7 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                     remoteAssistVoiceLocalLevel = 0;
                     remoteAssistVoiceRemoteLevel = 0;
                     remoteAssistVoiceConnectedRoles = [];
+                    scheduleRemoteAssistVoiceStateRefresh(700);
                     await ensureRemoteAssistVoiceClient();
                 }
                 updateRemoteAssistVoiceButton();
