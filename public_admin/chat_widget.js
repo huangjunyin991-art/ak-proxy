@@ -449,6 +449,9 @@
     let assistRouteSettleTimer = null;
     let assistRouteFastSnapshotTimer = null;
     let assistRouteFastSnapshotRoute = '';
+    let assistRouteFastScrollTimer = null;
+    let assistRouteFastScrollRoute = '';
+    let assistRouteFastScrollDispatched = false;
     let assistRouteSettleUntil = 0;
     let assistRouteSettleRoute = '';
     let assistRouteSettleNeedsFreshSnapshot = false;
@@ -560,6 +563,7 @@
         return buildMs >= ASSIST_SNAPSHOT_BUILD_LOG_THRESHOLD_MS
             || triggerWaitMs >= ASSIST_SNAPSHOT_TRIGGER_LOG_THRESHOLD_MS
             || normalizedReason === 'route_fast_frame'
+            || normalizedReason === 'route_fast_scroll'
             || normalizedReason === 'route_settled'
             || normalizedReason === 'route_settled_request'
             || normalizedReason === 'click_interaction'
@@ -1134,6 +1138,7 @@
     const ASSIST_SCROLL_VIEWPORT_SNAPSHOT_MIN_INTERVAL_MS = 900;
 
     const ASSIST_ROUTE_FIRST_SNAPSHOT_DELAY = 60;
+    const ASSIST_ROUTE_FAST_SCROLL_DELAY = 120;
     const ASSIST_ROUTE_SETTLE_DELAY = 160;
     const ASSIST_ROUTE_SETTLE_WINDOW_MS = 1200;
     const ASSIST_SNAPSHOT_BUILD_LOG_THRESHOLD_MS = 120;
@@ -1181,12 +1186,26 @@
         assistRouteFastSnapshotRoute = '';
     }
 
+    function clearAssistRouteFastScrollTimer() {
+        if (assistRouteFastScrollTimer) {
+            clearTimeout(assistRouteFastScrollTimer);
+            assistRouteFastScrollTimer = null;
+        }
+    }
+
+    function resetAssistRouteFastScrollState() {
+        clearAssistRouteFastScrollTimer();
+        assistRouteFastScrollRoute = '';
+        assistRouteFastScrollDispatched = false;
+    }
+
     function clearAssistRouteSettleState() {
         if (assistRouteSettleTimer) {
             clearTimeout(assistRouteSettleTimer);
             assistRouteSettleTimer = null;
         }
         clearAssistRouteFastSnapshotTimer();
+        resetAssistRouteFastScrollState();
         assistRouteSettleUntil = 0;
         assistRouteSettleRoute = '';
         assistRouteSettleNeedsFreshSnapshot = false;
@@ -1262,6 +1281,49 @@
         }, nextDelay);
     }
 
+    function emitAssistRouteFastScrollSync(expectedRoute) {
+        if (!assistSessionId) return;
+        const currentRoute = normalizeAssistRoute();
+        if (expectedRoute && currentRoute !== expectedRoute) {
+            return;
+        }
+        if (!isAssistRouteSettling(currentRoute)) {
+            return;
+        }
+        if (assistRouteFastScrollDispatched && assistRouteFastScrollRoute === currentRoute) {
+            return;
+        }
+        assistRouteFastScrollDispatched = true;
+        assistRouteFastScrollRoute = currentRoute;
+        refreshAssistScrollTarget('route_fast_scroll_sync', false);
+        emitAssistScroll(true);
+        markAssistSnapshotTrigger('route_fast_scroll', {
+            source: 'route_fast_scroll_sync',
+            expected_route: String(expectedRoute || currentRoute || '')
+        });
+        emitAssistSnapshot('route_fast_scroll');
+    }
+
+    function scheduleAssistRouteFastScrollSync(route, delay) {
+        if (!assistSessionId) return;
+        const expectedRoute = String(route || normalizeAssistRoute() || '').trim();
+        if (!expectedRoute) return;
+        if (!isAssistRouteSettling(expectedRoute)) return;
+        if (assistRouteFastScrollDispatched && assistRouteFastScrollRoute === expectedRoute) {
+            return;
+        }
+        assistRouteFastScrollRoute = expectedRoute;
+        clearAssistRouteFastScrollTimer();
+        const nextDelay = typeof delay === 'number' ? delay : ASSIST_ROUTE_FAST_SCROLL_DELAY;
+        assistRouteFastScrollTimer = setTimeout(function() {
+            assistRouteFastScrollTimer = null;
+            if (assistRouteFastScrollRoute !== expectedRoute || assistRouteFastScrollDispatched) {
+                return;
+            }
+            emitAssistRouteFastScrollSync(expectedRoute);
+        }, nextDelay);
+    }
+
     function scheduleAssistRouteSettledSync(route, delay, needsFreshSnapshot) {
         if (!assistSessionId) return;
         const expectedRoute = String(route || normalizeAssistRoute() || '').trim();
@@ -1274,6 +1336,10 @@
         assistRouteSettleRoute = expectedRoute;
         assistRouteSettleUntil = Date.now() + ASSIST_ROUTE_SETTLE_WINDOW_MS;
         assistRouteSettleNeedsFreshSnapshot = (isSamePendingRoute && assistRouteSettleNeedsFreshSnapshot) || !!needsFreshSnapshot;
+        if (!isSamePendingRoute) {
+            resetAssistRouteFastScrollState();
+            assistRouteFastScrollRoute = expectedRoute;
+        }
         const nextDelay = typeof delay === 'number' ? delay : ASSIST_ROUTE_SETTLE_DELAY;
         const firstFrameDelay = Math.max(40, Math.min(ASSIST_ROUTE_FIRST_SNAPSHOT_DELAY, Math.max(0, nextDelay - 80)));
         if (!isSamePendingRoute && nextDelay > firstFrameDelay) {
@@ -3435,6 +3501,7 @@
         if (normalizeAssistRoute().indexOf('/admin/ak-web/') !== 0) return;
         logAssistScrollCapture('window', window);
         rememberAssistScrollTarget(window);
+        scheduleAssistRouteFastScrollSync(normalizeAssistRoute(), ASSIST_ROUTE_FAST_SCROLL_DELAY);
         scheduleAssistScroll(ASSIST_SCROLL_SETTLE_DELAY);
     }, { passive: true });
     document.addEventListener('scroll', function(event) {
@@ -3444,6 +3511,7 @@
         if (isAssistWidgetTarget(target)) return;
         logAssistScrollCapture('document', target);
         rememberAssistScrollTarget(target);
+        scheduleAssistRouteFastScrollSync(normalizeAssistRoute(), ASSIST_ROUTE_FAST_SCROLL_DELAY);
         scheduleAssistScroll(ASSIST_SCROLL_SETTLE_DELAY);
     }, true);
     document.addEventListener('click', function(event) {
