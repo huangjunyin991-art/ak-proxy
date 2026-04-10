@@ -1569,6 +1569,34 @@
         }
     }
 
+    function isAssistWindowScrollFallbackTarget(element, computed, metrics) {
+        try {
+            if (!element || !(element instanceof Element) || !element.isConnected) return false;
+            const windowTop = Math.max(0, Math.round(window.scrollY || window.pageYOffset || 0));
+            if (windowTop < 8) return false;
+            const scrollTop = Math.max(0, Math.round(metrics && metrics.scrollTop || element.scrollTop || 0));
+            if (scrollTop >= 4) return false;
+            const overflowValue = String((metrics && metrics.overflowValue) || (computed && (computed.overflowY || computed.overflow)) || '').toLowerCase();
+            const touchScrollValue = String((metrics && metrics.touchScrollValue) || (computed && computed.webkitOverflowScrolling) || '').toLowerCase();
+            const hasOverflowHint = overflowValue.indexOf('auto') !== -1 || overflowValue.indexOf('scroll') !== -1 || overflowValue.indexOf('overlay') !== -1;
+            const hasTouchScrollHint = touchScrollValue.indexOf('touch') !== -1;
+            if (hasOverflowHint || hasTouchScrollHint) return false;
+            const viewportHeight = Math.max(0, Math.round(window.innerHeight || 0));
+            const clientHeight = Math.max(0, Math.round(metrics && metrics.clientHeight || element.clientHeight || 0));
+            const scrollHeight = Math.max(0, Math.round(metrics && metrics.scrollHeight || element.scrollHeight || 0));
+            const rect = metrics && metrics.rect ? metrics.rect : (element.getBoundingClientRect ? element.getBoundingClientRect() : null);
+            const sameAsViewport = Math.abs(clientHeight - viewportHeight) <= 24;
+            const sameAsDocument = Math.abs(scrollHeight - Math.max(0, Math.round(getAssistDocumentScrollHeight()))) <= Math.max(48, Math.round(viewportHeight * 0.08));
+            const nearViewportRoot = !!rect && Math.abs(Math.round(rect.top || 0)) <= 24 && Math.abs(Math.round(rect.left || 0)) <= 24;
+            const looksLikeRoot = String(element.id || '').toLowerCase() === 'app'
+                || element === (document.body && document.body.firstElementChild)
+                || (element.parentElement === document.body && nearViewportRoot);
+            return looksLikeRoot && sameAsViewport && sameAsDocument;
+        } catch (e) {
+            return false;
+        }
+    }
+
     function getAssistScrollTargetKeywordScore(element) {
         try {
             if (!element || !(element instanceof Element)) return 0;
@@ -1605,6 +1633,14 @@
             const touchScrollValue = String(computed.webkitOverflowScrolling || '').toLowerCase();
             const hasOverflowHint = overflowValue.indexOf('auto') !== -1 || overflowValue.indexOf('scroll') !== -1 || overflowValue.indexOf('overlay') !== -1;
             const hasTouchScrollHint = touchScrollValue.indexOf('touch') !== -1;
+            if (isAssistWindowScrollFallbackTarget(element, computed, {
+                rect,
+                clientHeight,
+                scrollHeight,
+                scrollTop,
+                overflowValue,
+                touchScrollValue
+            })) return null;
             const keywordScore = getAssistScrollTargetKeywordScore(element);
             const minHeightRatio = relaxed ? Math.max(0.16, ASSIST_SCROLL_TARGET_MIN_HEIGHT_RATIO - 0.06) : ASSIST_SCROLL_TARGET_MIN_HEIGHT_RATIO;
             const minWidthRatio = relaxed ? Math.max(0.28, ASSIST_SCROLL_TARGET_MIN_WIDTH_RATIO - 0.05) : ASSIST_SCROLL_TARGET_MIN_WIDTH_RATIO;
@@ -2693,6 +2729,25 @@
             activeTarget = window;
         }
         try {
+            if (activeTarget && activeTarget !== window && activeTarget instanceof Element) {
+                const computed = window.getComputedStyle(activeTarget);
+                const targetMetrics = {
+                    rect: activeTarget.getBoundingClientRect ? activeTarget.getBoundingClientRect() : null,
+                    clientHeight: Math.max(0, Math.round(activeTarget.clientHeight || window.innerHeight || 0)),
+                    scrollHeight: Math.max(0, Math.round(activeTarget.scrollHeight || activeTarget.clientHeight || 0)),
+                    scrollTop: Math.max(0, Math.round(activeTarget.scrollTop || 0)),
+                    overflowValue: String(computed.overflowY || computed.overflow || '').toLowerCase(),
+                    touchScrollValue: String(computed.webkitOverflowScrolling || '').toLowerCase()
+                };
+                if (isAssistWindowScrollFallbackTarget(activeTarget, computed, targetMetrics)) {
+                    logAssistDebug('scroll_target_forced_window', {
+                        route: String(payload.route || ''),
+                        window_top: Number(payload.top || 0),
+                        target: describeAssistTarget(activeTarget)
+                    });
+                    activeTarget = window;
+                }
+            }
             if (activeTarget && activeTarget !== window && activeTarget instanceof Element) {
                 const tagName = String(activeTarget.tagName || 'div').toLowerCase();
                 payload.top = Math.max(0, Math.round(activeTarget.scrollTop || 0));
