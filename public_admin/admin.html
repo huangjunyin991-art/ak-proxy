@@ -3208,8 +3208,8 @@
         <div class="ak-browser-header">
             <div class="ak-browser-header-main">
                 <div class="ak-browser-toolbar">
-                    <button id="remoteAssistVoiceBtn" onclick="toggleRemoteAssistVoice()" class="ak-browser-tool-btn" aria-label="发起实时语音" title="发起实时语音">发起语音</button>
-                    <button id="remoteAssistVoiceMuteBtn" onclick="toggleRemoteAssistVoiceMute()" class="ak-browser-tool-btn" aria-label="切换麦克风" title="切换本地麦克风" style="display:none; min-width:58px; justify-content:center;">话筒</button>
+                    <button id="remoteAssistVoiceBtn" onclick="toggleRemoteAssistVoice()" class="ak-browser-tool-btn" aria-label="发起实时语音" title="发起实时语音"><span style="display:inline-flex; align-items:center; justify-content:center; width:16px; height:16px; flex:0 0 16px;" aria-hidden="true"><svg viewBox="0 0 24 24" style="width:16px; height:16px; display:block;" focusable="false"><path fill="currentColor" d="M12 15a3.75 3.75 0 0 0 3.75-3.75V7.25a3.75 3.75 0 0 0-7.5 0v4A3.75 3.75 0 0 0 12 15Zm6-3.75a.75.75 0 0 1 1.5 0A7.5 7.5 0 0 1 12.75 18.7V21a.75.75 0 0 1-1.5 0v-2.3A7.5 7.5 0 0 1 4.5 11.25a.75.75 0 0 1 1.5 0 6 6 0 0 0 12 0Z"></path></svg></span><span>发起语音</span></button>
+                    <button id="remoteAssistVoiceMuteBtn" onclick="toggleRemoteAssistVoiceMute()" class="ak-browser-tool-btn" aria-label="切换麦克风" title="切换本地麦克风" style="display:none; min-width:56px; width:56px; height:36px; padding:0; justify-content:center; position:relative;"><span style="display:inline-flex; align-items:center; justify-content:center; width:18px; height:18px;" aria-hidden="true"><svg viewBox="0 0 24 24" style="width:18px; height:18px; display:block;" focusable="false"><path fill="currentColor" d="M12 15a3.75 3.75 0 0 0 3.75-3.75V7.25a3.75 3.75 0 0 0-7.5 0v4A3.75 3.75 0 0 0 12 15Zm6-3.75a.75.75 0 0 1 1.5 0A7.5 7.5 0 0 1 12.75 18.7V21a.75.75 0 0 1-1.5 0v-2.3A7.5 7.5 0 0 1 4.5 11.25a.75.75 0 0 1 1.5 0 6 6 0 0 0 12 0Z"></path></svg></span><span aria-hidden="true" style="position:absolute; width:24px; height:3px; border-radius:999px; background:currentColor; transform:rotate(-42deg) scaleX(0); opacity:0;"></span><span aria-hidden="true" style="position:absolute; right:10px; bottom:8px; width:7px; height:7px; border-radius:50%; background:rgba(0, 212, 180, 0.96); box-shadow:0 0 0 3px rgba(0, 0, 0, 0.16);"></span></button>
                     <button onclick="requestRemoteAssistSnapshot()" class="ak-browser-tool-btn" aria-label="刷新指导快照" title="刷新指导快照">刷新快照</button>
                     <button onclick="closeRemoteAssistPanel()" class="ak-browser-tool-btn" aria-label="关闭远程指导" title="关闭远程指导">关闭</button>
                 </div>
@@ -8629,6 +8629,22 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
             return current === 'reserved' || current === 'ringing' || current === 'connecting' || current === 'active';
         }
 
+        function getRemoteAssistVoiceIconHtml(size = 16) {
+            return `<span style="display:inline-flex; align-items:center; justify-content:center; width:${size}px; height:${size}px; flex:0 0 ${size}px;" aria-hidden="true"><svg viewBox="0 0 24 24" style="width:${size}px; height:${size}px; display:block;" focusable="false"><path fill="currentColor" d="M12 15a3.75 3.75 0 0 0 3.75-3.75V7.25a3.75 3.75 0 0 0-7.5 0v4A3.75 3.75 0 0 0 12 15Zm6-3.75a.75.75 0 0 1 1.5 0A7.5 7.5 0 0 1 12.75 18.7V21a.75.75 0 0 1-1.5 0v-2.3A7.5 7.5 0 0 1 4.5 11.25a.75.75 0 0 1 1.5 0 6 6 0 0 0 12 0Z"></path></svg></span>`;
+        }
+
+        function buildRemoteAssistVoiceToggleHtml(label) {
+            return `${getRemoteAssistVoiceIconHtml(16)}<span style="white-space:nowrap;">${label}</span>`;
+        }
+
+        function buildRemoteAssistVoiceMuteHtml(muted, pending) {
+            const dotColor = muted ? 'rgba(255, 82, 82, 0.96)' : (pending ? 'rgba(0, 212, 180, 0.58)' : 'rgba(0, 212, 180, 0.96)');
+            const slashStyle = muted
+                ? 'transform:rotate(-42deg) scaleX(1); opacity:1;'
+                : 'transform:rotate(-42deg) scaleX(0); opacity:0;';
+            return `${getRemoteAssistVoiceIconHtml(18)}<span aria-hidden="true" style="position:absolute; width:24px; height:3px; border-radius:999px; background:currentColor; transition:transform 0.18s ease, opacity 0.18s ease; ${slashStyle}"></span><span aria-hidden="true" style="position:absolute; right:10px; bottom:8px; width:7px; height:7px; border-radius:50%; background:${dotColor}; box-shadow:0 0 0 3px rgba(0, 0, 0, 0.16);"></span>`;
+        }
+
         function updateRemoteAssistVoiceButton() {
             const button = document.getElementById('remoteAssistVoiceBtn');
             if (!button) return;
@@ -8648,8 +8664,13 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
             } else if (remoteAssistVoiceStatus) {
                 title = `当前语音状态：${remoteAssistVoiceStatus}`;
             }
-            button.textContent = label;
+            button.innerHTML = buildRemoteAssistVoiceToggleHtml(label);
             button.disabled = !!disabled;
+            button.setAttribute('aria-label', label);
+            button.style.display = 'inline-flex';
+            button.style.alignItems = 'center';
+            button.style.justifyContent = 'center';
+            button.style.gap = '6px';
             button.style.opacity = disabled ? '0.6' : '1';
             button.style.cursor = disabled ? 'not-allowed' : 'pointer';
             button.title = title;
@@ -8698,7 +8719,13 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                 const canControl = !!(remoteAssistVoiceClient && remoteAssistVoiceSessionId && isRemoteAssistVoiceCountedStatus(remoteAssistVoiceStatus));
                 muteBtn.style.display = visible ? 'inline-flex' : 'none';
                 muteBtn.disabled = !canControl;
-                muteBtn.textContent = '话筒';
+                muteBtn.innerHTML = buildRemoteAssistVoiceMuteHtml(remoteAssistVoiceMutedSelf, currentStatus !== 'active');
+                muteBtn.setAttribute('aria-label', remoteAssistVoiceMutedSelf ? '恢复麦克风' : '切换麦克风');
+                muteBtn.style.width = '56px';
+                muteBtn.style.height = '36px';
+                muteBtn.style.padding = '0';
+                muteBtn.style.position = 'relative';
+                muteBtn.style.justifyContent = 'center';
                 muteBtn.title = `${getRemoteAssistVoiceStripStateText()} · ${getRemoteAssistVoiceStripSubText()}${canControl ? (remoteAssistVoiceMutedSelf ? ' · 点击恢复麦克风' : ' · 点击静音麦克风') : ''}`;
                 muteBtn.style.background = remoteAssistVoiceMutedSelf
                     ? 'linear-gradient(180deg, rgba(38, 16, 20, 0.96) 0%, rgba(24, 10, 14, 0.96) 100%)'

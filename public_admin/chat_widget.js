@@ -897,16 +897,51 @@
             z-index: 1;
             width: 56px;
             height: 56px;
-            border-radius: 999px;
-            border: 1px solid rgba(0, 212, 180, 0.24);
-            background: linear-gradient(180deg, rgba(10, 29, 32, 0.96) 0%, rgba(8, 19, 24, 0.96) 100%);
+            border-radius: 50%;
+            border: 1px solid rgba(0, 212, 180, 0.22);
+            background: linear-gradient(180deg, rgba(9, 28, 31, 0.96) 0%, rgba(6, 16, 20, 0.98) 100%);
             color: #e6fff8;
-            font-size: 12px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0;
             font-weight: 700;
-            letter-spacing: 0.5px;
             cursor: pointer;
-            box-shadow: 0 12px 28px rgba(0, 0, 0, 0.24);
+            box-shadow: 0 10px 26px rgba(0, 0, 0, 0.28);
+            transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease, background 0.18s ease, color 0.18s ease;
             backdrop-filter: blur(8px);
+        }
+
+        #ak-remote-voice-bar .voice-fab-btn .voice-fab-icon {
+            width: 24px;
+            height: 24px;
+            display: block;
+            color: currentColor;
+            pointer-events: none;
+        }
+
+        #ak-remote-voice-bar .voice-fab-btn .voice-fab-status-dot {
+            position: absolute;
+            right: 9px;
+            bottom: 9px;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: rgba(0, 212, 180, 0.95);
+            box-shadow: 0 0 0 3px rgba(0, 0, 0, 0.2);
+            pointer-events: none;
+        }
+
+        #ak-remote-voice-bar .voice-fab-btn .voice-fab-slash {
+            position: absolute;
+            width: 30px;
+            height: 3px;
+            border-radius: 999px;
+            background: currentColor;
+            transform: rotate(-42deg) scaleX(0);
+            opacity: 0;
+            transition: transform 0.18s ease, opacity 0.18s ease;
+            pointer-events: none;
         }
 
         #ak-remote-voice-bar .voice-fab-btn[data-state="active"] {
@@ -923,6 +958,19 @@
             color: #ffb4b4;
             border-color: rgba(255, 82, 82, 0.32);
             background: linear-gradient(180deg, rgba(38, 16, 20, 0.96) 0%, rgba(24, 10, 14, 0.96) 100%);
+        }
+
+        #ak-remote-voice-bar .voice-fab-btn[data-state="muted"] .voice-fab-status-dot {
+            background: rgba(255, 82, 82, 0.96);
+        }
+
+        #ak-remote-voice-bar .voice-fab-btn[data-state="pending"] .voice-fab-status-dot {
+            background: rgba(0, 212, 180, 0.58);
+        }
+
+        #ak-remote-voice-bar .voice-fab-btn[data-state="muted"] .voice-fab-slash {
+            transform: rotate(-42deg) scaleX(1);
+            opacity: 1;
         }
 
         #ak-remote-voice-bar .voice-fab-btn:disabled {
@@ -966,7 +1014,13 @@
         </div>
         <div id="ak-remote-voice-bar">
             <div class="voice-fab-pulse" id="ak-remote-voice-level"></div>
-            <button type="button" class="voice-fab-btn" id="ak-remote-voice-mute-btn" onclick="AKChat.toggleVoiceMute()" aria-label="切换麦克风" title="切换本地麦克风">话筒</button>
+            <button type="button" class="voice-fab-btn" id="ak-remote-voice-mute-btn" onclick="AKChat.toggleVoiceMute()" aria-label="切换麦克风" title="切换本地麦克风">
+                <svg class="voice-fab-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                    <path fill="currentColor" d="M12 15a3.75 3.75 0 0 0 3.75-3.75V7.25a3.75 3.75 0 0 0-7.5 0v4A3.75 3.75 0 0 0 12 15Zm6-3.75a.75.75 0 0 1 1.5 0A7.5 7.5 0 0 1 12.75 18.7V21a.75.75 0 0 1-1.5 0v-2.3A7.5 7.5 0 0 1 4.5 11.25a.75.75 0 0 1 1.5 0 6 6 0 0 0 12 0Z"/>
+                </svg>
+                <span class="voice-fab-status-dot" aria-hidden="true"></span>
+                <span class="voice-fab-slash" aria-hidden="true"></span>
+            </button>
             <audio id="ak-remote-voice-audio" autoplay playsinline style="display:none;"></audio>
         </div>
     `;
@@ -1108,15 +1162,22 @@
         const canControl = !!(remoteVoiceClient && remoteVoiceSessionId && isRemoteVoiceCountedStatus(remoteVoiceStatus));
         if (remoteVoiceMuteBtn) {
             remoteVoiceMuteBtn.disabled = !canControl;
-            remoteVoiceMuteBtn.textContent = '话筒';
             remoteVoiceMuteBtn.dataset.state = remoteVoiceMutedSelf
                 ? 'muted'
                 : (String(remoteVoiceStatus || '').trim().toLowerCase() === 'active' ? 'active' : 'pending');
+            remoteVoiceMuteBtn.setAttribute('aria-label', remoteVoiceMutedSelf ? '恢复麦克风' : '切换麦克风');
             remoteVoiceMuteBtn.title = `${getRemoteVoiceStatusLabel()} · ${getRemoteVoiceSubLabel()}${canControl ? (remoteVoiceMutedSelf ? ' · 点击恢复麦克风' : ' · 点击静音麦克风') : ''}`;
         }
         if (remoteVoiceBar) {
             remoteVoiceBar.title = `${getRemoteVoiceStatusLabel()} · ${getRemoteVoiceSubLabel()}`;
         }
+    }
+
+    function hasForegroundProtectedRealtimeSession() {
+        return !!(
+            assistSessionId
+            || (remoteVoiceSessionId && isRemoteVoiceCountedStatus(remoteVoiceStatus))
+        );
     }
 
     function resetRemoteVoiceUiState(reason, clearSession = true) {
@@ -3749,7 +3810,9 @@
             ws.onclose = function(event) {
                 closeAssistRequestDialog(true);
                 closeVoiceRequestDialog(true);
-                stopRemoteVoiceClient(false, 'chat_socket_closed', true);
+                if (!hasForegroundProtectedRealtimeSession()) {
+                    stopRemoteVoiceClient(false, 'chat_socket_closed', true);
+                }
                 stopHeartbeat();
                 ws = null;
                 scheduleReconnect('ws_onclose');
@@ -3890,6 +3953,9 @@
 
     document.addEventListener('visibilitychange', function() {
         if (document.hidden) {
+            if (hasForegroundProtectedRealtimeSession()) {
+                return;
+            }
             suspendPresence('visibilitychange:hidden');
         } else {
             resumePresence('visibilitychange:visible');
@@ -3897,6 +3963,9 @@
     });
 
     window.addEventListener('pagehide', function() {
+        if (hasForegroundProtectedRealtimeSession()) {
+            return;
+        }
         disconnectAssist('', true);
         stopRemoteVoiceClient(false, 'pagehide', true);
         suspendPresence('pagehide');
