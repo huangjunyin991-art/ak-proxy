@@ -463,6 +463,7 @@
     let reconnectTimer = null;
     let presenceSuspended = false;
     let pendingAssistRequest = null;
+    let pendingVoiceRequest = null;
     const CHAT_PAGE_CLIENT_ID_STORAGE_KEY = 'ak_chat_page_client_id';
     let pageClientId = '';
 
@@ -872,11 +873,11 @@
         </div>
         <div id="ak-assist-request-overlay">
             <div id="ak-assist-request-modal">
-                <div class="assist-request-head">远程指导确认</div>
+                <div class="assist-request-head" id="ak-assist-request-title">远程指导确认</div>
                 <div class="assist-request-body" id="ak-assist-request-text">管理员即将对您进行远程指导，是否接受？</div>
                 <div class="assist-request-actions">
-                    <button type="button" class="assist-request-btn cancel" onclick="AKChat.rejectAssistRequest()">取消</button>
-                    <button type="button" class="assist-request-btn confirm" onclick="AKChat.acceptAssistRequest()">确认</button>
+                    <button type="button" class="assist-request-btn cancel" onclick="AKChat.rejectRequest()">取消</button>
+                    <button type="button" class="assist-request-btn confirm" onclick="AKChat.acceptRequest()">确认</button>
                 </div>
             </div>
         </div>
@@ -887,13 +888,12 @@
     container.innerHTML = chatHTML;
     document.body.appendChild(container);
     
-    // 获取元素
     const chatBox = document.getElementById('ak-admin-chat');
     const messagesDiv = document.getElementById('ak-chat-messages');
     const inputEl = document.getElementById('ak-chat-input');
     const assistRequestOverlay = document.getElementById('ak-assist-request-overlay');
+    const assistRequestTitle = document.getElementById('ak-assist-request-title');
     const assistRequestText = document.getElementById('ak-assist-request-text');
-    
     
     if (!chatBox) {
         console.error('[AKChat] 聊天窗口元素未找到！');
@@ -948,9 +948,34 @@
 
     function openAssistRequestDialog(request) {
         pendingAssistRequest = request || null;
+        pendingVoiceRequest = null;
         if (!assistRequestOverlay || !assistRequestText || !pendingAssistRequest) return;
+        if (assistRequestTitle) assistRequestTitle.textContent = '远程指导确认';
         assistRequestText.textContent = '管理员即将对您进行远程指导，是否接受？';
         assistRequestOverlay.classList.add('visible');
+    }
+
+    function closeVoiceRequestDialog(clearRequest) {
+        if (clearRequest) pendingVoiceRequest = null;
+        if (assistRequestOverlay) assistRequestOverlay.classList.remove('visible');
+    }
+
+    function emitRemoteVoiceEvent(eventType, payload) {
+        try {
+            window.dispatchEvent(new CustomEvent('ak-remote-voice', {
+                detail: Object.assign({ event_type: eventType }, payload || {})
+            }));
+        } catch (e) {}
+    }
+
+    function openVoiceRequestDialog(request) {
+        pendingVoiceRequest = request || null;
+        pendingAssistRequest = null;
+        if (!assistRequestOverlay || !assistRequestText || !pendingVoiceRequest) return;
+        if (assistRequestTitle) assistRequestTitle.textContent = '实时语音邀请';
+        assistRequestText.textContent = '管理员邀请您开启一对一实时语音，是否接受？';
+        assistRequestOverlay.classList.add('visible');
+        emitRemoteVoiceEvent('request', pendingVoiceRequest);
     }
 
     function sendAssistRequestResponse(accepted) {
@@ -959,6 +984,20 @@
             ws.send(JSON.stringify({
                 type: 'remote_assist_request_response',
                 session_id: pendingAssistRequest.session_id || '',
+                accepted: !!accepted
+            }));
+            return true;
+        } catch (e) {
+            return false;
+        }
+    }
+
+    function sendVoiceRequestResponse(accepted) {
+        if (!pendingVoiceRequest || !ws || ws.readyState !== WebSocket.OPEN) return false;
+        try {
+            ws.send(JSON.stringify({
+                type: 'remote_voice_request_response',
+                voice_session_id: pendingVoiceRequest.voice_session_id || '',
                 accepted: !!accepted
             }));
             return true;
@@ -977,6 +1016,34 @@
         if (!pendingAssistRequest) return;
         if (!sendAssistRequestResponse(false)) return;
         closeAssistRequestDialog(true);
+    }
+
+    function acceptVoiceRequest() {
+        if (!pendingVoiceRequest) return;
+        if (!sendVoiceRequestResponse(true)) return;
+        closeVoiceRequestDialog(true);
+    }
+
+    function rejectVoiceRequest() {
+        if (!pendingVoiceRequest) return;
+        if (!sendVoiceRequestResponse(false)) return;
+        closeVoiceRequestDialog(true);
+    }
+
+    function acceptRequest() {
+        if (pendingVoiceRequest) {
+            acceptVoiceRequest();
+            return;
+        }
+        acceptAssistRequest();
+    }
+
+    function rejectRequest() {
+        if (pendingVoiceRequest) {
+            rejectVoiceRequest();
+            return;
+        }
+        rejectAssistRequest();
     }
     
     // 启动心跳（发online消息，前台每5秒自动保持主连接）
@@ -3359,6 +3426,17 @@
                             closeAssistRequestDialog(true);
                         }
                         disconnectAssist(data.session_id || '', true);
+                    } else if (data.type === 'remote_voice_request') {
+                        openVoiceRequestDialog(data);
+                        playNotificationSound();
+                    } else if (data.type === 'remote_voice_bind') {
+                        closeVoiceRequestDialog(true);
+                        emitRemoteVoiceEvent('bind', data);
+                    } else if (data.type === 'remote_voice_unbind') {
+                        if (!data.voice_session_id || (pendingVoiceRequest && String(pendingVoiceRequest.voice_session_id || '') === String(data.voice_session_id || ''))) {
+                            closeVoiceRequestDialog(true);
+                        }
+                        emitRemoteVoiceEvent('unbind', data);
                     } else if (data.type === 'history') {
                         // 加载历史消息 - 静默加载，不弹出窗口
                         if (data.messages && data.messages.length > 0) {
@@ -3374,6 +3452,7 @@
             
             ws.onclose = function(event) {
                 closeAssistRequestDialog(true);
+                closeVoiceRequestDialog(true);
                 stopHeartbeat();
                 ws = null;
                 scheduleReconnect('ws_onclose');
@@ -3449,8 +3528,12 @@
         close: closeChat,
         send: sendMessage,
         reconnect: reconnect,
+        acceptRequest: acceptRequest,
+        rejectRequest: rejectRequest,
         acceptAssistRequest: acceptAssistRequest,
-        rejectAssistRequest: rejectAssistRequest
+        rejectAssistRequest: rejectAssistRequest,
+        acceptVoiceRequest: acceptVoiceRequest,
+        rejectVoiceRequest: rejectVoiceRequest
     };
     
     // 监听SPA路由变化（history.pushState / replaceState / 浏览器前进后退）

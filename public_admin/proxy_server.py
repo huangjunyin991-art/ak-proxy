@@ -120,11 +120,14 @@ import database_pg as db
 
 from remote_assist import remote_assist
 
+from remote_voice import remote_voice, VoiceSessionStatus
+
 from remote_assist.types import AssistConsentStatus, AssistRole
 
 # 出口IP调度模块
 
 from outbound_dispatcher import dispatcher, ace_sell_dispatcher, OutboundExit
+
 
 
 
@@ -5018,7 +5021,6 @@ def _build_remote_assist_request_message(session) -> dict:
 
 
 def _build_remote_assist_bind_message(session) -> dict:
-
     return {
         'type': 'remote_assist_bind',
         'session_id': session.session_id,
@@ -5035,6 +5037,39 @@ def _build_remote_assist_unbind_message(session) -> dict:
     }
 
 
+def _build_remote_voice_request_message(voice_session) -> dict:
+
+    return {
+        'type': 'remote_voice_request',
+        'voice_session_id': voice_session.voice_session_id,
+        'assist_session_id': voice_session.assist_session_id,
+        'site': voice_session.site_type,
+        'admin_username': voice_session.admin_username,
+    }
+
+
+def _build_remote_voice_bind_message(voice_session) -> dict:
+
+    return {
+        'type': 'remote_voice_bind',
+        'voice_session_id': voice_session.voice_session_id,
+        'assist_session_id': voice_session.assist_session_id,
+        'site': voice_session.site_type,
+        'status': voice_session.status.value,
+    }
+
+
+def _build_remote_voice_unbind_message(voice_session) -> dict:
+
+    return {
+        'type': 'remote_voice_unbind',
+        'voice_session_id': voice_session.voice_session_id,
+        'assist_session_id': voice_session.assist_session_id,
+        'site': voice_session.site_type,
+        'status': voice_session.status.value,
+    }
+
+
 def _get_connection_page_client_id(connection) -> str:
 
     if not isinstance(connection, dict):
@@ -5042,6 +5077,114 @@ def _get_connection_page_client_id(connection) -> str:
         return ''
 
     return str(connection.get('page_client_id') or '').strip()
+
+
+def _sync_remote_voice_connection(voice_session, connection, bind: bool = False) -> None:
+
+    if not voice_session or not isinstance(connection, dict):
+
+        return
+
+    ws_id = str(connection.get('ws_id') or '').strip()
+
+    page_client_id = _get_connection_page_client_id(connection)
+
+    if ws_id:
+
+        voice_session.request_chat_ws_id = ws_id
+
+        if bind:
+
+            voice_session.bound_chat_ws_id = ws_id
+
+    if page_client_id:
+
+        voice_session.request_chat_page_id = page_client_id
+
+        if bind:
+
+            voice_session.bound_chat_page_id = page_client_id
+
+    voice_session.touch()
+
+
+def _resolve_remote_voice_connection(voice_session, bind: bool = False):
+
+    if not voice_session or voice_session.site_type != 'ak_web':
+
+        return None
+
+    preferred_ws_ids = []
+
+    preferred_page_ids = []
+
+    if bind:
+
+        preferred_ws_ids.extend([
+            str(getattr(voice_session, 'bound_chat_ws_id', '') or '').strip(),
+            str(getattr(voice_session, 'request_chat_ws_id', '') or '').strip(),
+        ])
+
+        preferred_page_ids.extend([
+            str(getattr(voice_session, 'bound_chat_page_id', '') or '').strip(),
+            str(getattr(voice_session, 'request_chat_page_id', '') or '').strip(),
+        ])
+
+    else:
+
+        preferred_ws_ids.extend([
+            str(getattr(voice_session, 'request_chat_ws_id', '') or '').strip(),
+            str(getattr(voice_session, 'bound_chat_ws_id', '') or '').strip(),
+        ])
+
+        preferred_page_ids.extend([
+            str(getattr(voice_session, 'request_chat_page_id', '') or '').strip(),
+            str(getattr(voice_session, 'bound_chat_page_id', '') or '').strip(),
+        ])
+
+    for preferred_ws_id in preferred_ws_ids:
+
+        if not preferred_ws_id:
+
+            continue
+
+        target = online_manager.get_user_connection(voice_session.target_username, preferred_ws_id)
+
+        if target and not online_manager.is_login_page(target.get('page')):
+
+            _sync_remote_voice_connection(voice_session, target, bind=bind)
+
+            return target
+
+    for preferred_page_id in preferred_page_ids:
+
+        if not preferred_page_id:
+
+            continue
+
+        target = online_manager.get_user_connection_by_page_client_id(voice_session.target_username, preferred_page_id)
+
+        if target and not online_manager.is_login_page(target.get('page')):
+
+            _sync_remote_voice_connection(voice_session, target, bind=bind)
+
+            return target
+
+    assist_session = remote_assist.get_session(voice_session.assist_session_id)
+
+    if not assist_session or assist_session.site_type != 'ak_web':
+
+        return None
+
+    target = _resolve_remote_assist_bound_connection(assist_session) or _resolve_remote_assist_request_connection(assist_session)
+
+    if target and not online_manager.is_login_page(target.get('page')):
+
+        _sync_remote_voice_connection(voice_session, target, bind=bind)
+
+        return target
+
+    return None
 
 
 def _set_remote_assist_request_lock(session, connection) -> None:
@@ -5310,6 +5453,130 @@ async def _send_remote_assist_unbind_to_user(session, websocket_id: str = '') ->
     return False
 
 
+async def _send_remote_voice_request_to_user(voice_session) -> bool:
+
+    if not voice_session or voice_session.site_type != 'ak_web':
+
+        return False
+
+    target = _resolve_remote_voice_connection(voice_session, bind=False)
+
+    if not target:
+
+        return False
+
+    return await online_manager.send_payload_to_connection(
+        voice_session.target_username,
+        str(target.get('ws_id') or ''),
+        _build_remote_voice_request_message(voice_session),
+    )
+
+
+async def _send_remote_voice_bind_to_user(voice_session) -> bool:
+
+    if not voice_session or voice_session.site_type != 'ak_web':
+
+        return False
+
+    target = _resolve_remote_voice_connection(voice_session, bind=True)
+
+    if not target:
+
+        return False
+
+    return await online_manager.send_payload_to_connection(
+        voice_session.target_username,
+        str(target.get('ws_id') or ''),
+        _build_remote_voice_bind_message(voice_session),
+    )
+
+
+async def _send_remote_voice_unbind_to_user(voice_session, websocket_id: str = '') -> bool:
+
+    if not voice_session or voice_session.site_type != 'ak_web':
+
+        return False
+
+    payload = _build_remote_voice_unbind_message(voice_session)
+
+    preferred_ids = []
+
+    requested_ws_id = str(websocket_id or '').strip()
+
+    if requested_ws_id:
+
+        preferred_ids.append(requested_ws_id)
+
+    for candidate_ws_id in (
+        str(getattr(voice_session, 'bound_chat_ws_id', '') or '').strip(),
+        str(getattr(voice_session, 'request_chat_ws_id', '') or '').strip(),
+    ):
+
+        if candidate_ws_id and candidate_ws_id not in preferred_ids:
+
+            preferred_ids.append(candidate_ws_id)
+
+    for candidate_page_id in (
+        str(getattr(voice_session, 'bound_chat_page_id', '') or '').strip(),
+        str(getattr(voice_session, 'request_chat_page_id', '') or '').strip(),
+    ):
+
+        if not candidate_page_id:
+
+            continue
+
+        target = online_manager.get_user_connection_by_page_client_id(voice_session.target_username, candidate_page_id)
+
+        candidate_ws_id = str((target or {}).get('ws_id') or '').strip()
+
+        if candidate_ws_id and candidate_ws_id not in preferred_ids:
+
+            preferred_ids.append(candidate_ws_id)
+
+    if not preferred_ids:
+
+        fallback_target = _resolve_remote_voice_connection(voice_session, bind=True)
+
+        fallback_ws_id = str((fallback_target or {}).get('ws_id') or '').strip()
+
+        if fallback_ws_id:
+
+            preferred_ids.append(fallback_ws_id)
+
+    for candidate_ws_id in preferred_ids:
+
+        delivered = await online_manager.send_payload_to_connection(voice_session.target_username, candidate_ws_id, payload)
+
+        if delivered:
+
+            return True
+
+    return False
+
+
+async def _close_remote_voice_for_assist_session(assist_session, status: VoiceSessionStatus = VoiceSessionStatus.CLOSED, websocket_id: str = '') -> bool:
+
+    if not assist_session:
+
+        return False
+
+    voice_session = remote_voice.get_session_by_assist(getattr(assist_session, 'session_id', '') or '')
+
+    if not voice_session:
+
+        return False
+
+    closed_session = remote_voice.close_by_assist_session(voice_session.assist_session_id, status=status)
+
+    if not closed_session:
+
+        return False
+
+    await _send_remote_voice_unbind_to_user(closed_session, websocket_id=websocket_id)
+
+    return True
+
+
 async def _handle_chat_connection_offline(username: str, websocket=None):
 
     current_username = (username or '').strip()
@@ -5358,6 +5625,22 @@ async def _handle_chat_connection_offline(username: str, websocket=None):
     )
 
     current_session = remote_assist.get_session(session.session_id) or session
+
+    voice_session = remote_voice.get_session_by_assist(current_session.session_id)
+
+    if voice_session:
+
+        request_voice_ws_id = str(getattr(voice_session, 'request_chat_ws_id', '') or '').strip()
+
+        bound_voice_ws_id = str(getattr(voice_session, 'bound_chat_ws_id', '') or '').strip()
+
+        if current_chat_ws_id in {request_voice_ws_id, bound_voice_ws_id}:
+
+            await _close_remote_voice_for_assist_session(
+                current_session,
+                status=VoiceSessionStatus.FAILED,
+                websocket_id=current_chat_ws_id,
+            )
 
     if request_match and getattr(current_session, 'consent_status', AssistConsentStatus.ACCEPTED) == AssistConsentStatus.WAITING:
 
@@ -5462,6 +5745,86 @@ async def _handle_remote_assist_request_response(username: str, payload: dict, w
     await _publish_remote_assist_session_state(session)
 
 
+async def _handle_remote_voice_request_response(username: str, payload: dict, websocket=None) -> None:
+
+    voice_session_id = str((payload or {}).get('voice_session_id') or '').strip()
+
+    accepted = bool((payload or {}).get('accepted'))
+
+    current_username = (username or '').strip()
+
+    current_chat_ws_id = online_manager.get_websocket_id(websocket)
+
+    current_connection = online_manager.get_user_connection(current_username, current_chat_ws_id)
+
+    current_chat_page_id = _get_connection_page_client_id(current_connection)
+
+    if not voice_session_id or not current_username:
+
+        return
+
+    voice_session = remote_voice.get_session(voice_session_id)
+
+    if not voice_session or voice_session.site_type != 'ak_web':
+
+        return
+
+    if (voice_session.target_username or '').strip() != current_username:
+
+        return
+
+    locked_request_chat_ws_id = str(getattr(voice_session, 'request_chat_ws_id', '') or '').strip()
+
+    if locked_request_chat_ws_id and current_chat_ws_id and locked_request_chat_ws_id != current_chat_ws_id:
+
+        logger.warning(
+            f"[RemoteVoice] ignored request response voice_session={voice_session_id} user={current_username} "
+            f"expected_chat_ws={locked_request_chat_ws_id} actual_chat_ws={current_chat_ws_id} accepted={int(accepted)}"
+        )
+
+        return
+
+    response_chat_ws_id = current_chat_ws_id or locked_request_chat_ws_id
+
+    if response_chat_ws_id:
+
+        voice_session.request_chat_ws_id = response_chat_ws_id
+
+        if current_chat_page_id:
+
+            voice_session.request_chat_page_id = current_chat_page_id
+
+        voice_session.touch()
+
+    if accepted:
+
+        voice_session = remote_voice.accept_session(
+            voice_session_id,
+            bound_chat_ws_id=response_chat_ws_id,
+            bound_chat_page_id=current_chat_page_id or '',
+        )
+
+        if not voice_session:
+
+            return
+
+        delivered = await _send_remote_voice_bind_to_user(voice_session)
+
+        if not delivered:
+
+            remote_voice.mark_failed(voice_session_id)
+
+        return
+
+    voice_session = remote_voice.reject_session(voice_session_id)
+
+    if not voice_session:
+
+        return
+
+    await _send_remote_voice_unbind_to_user(voice_session, websocket_id=response_chat_ws_id)
+
+
 def _cancel_remote_assist_auto_unbind(session_id: str) -> None:
 
     task = _remote_assist_unbind_tasks.pop((session_id or '').strip(), None)
@@ -5494,10 +5857,11 @@ def _schedule_remote_assist_auto_unbind(session) -> None:
             current_session = remote_assist.get_session(session_id)
 
             if not current_session or _assist_session_has_connected_admin(current_session):
-
                 return
 
             await _send_remote_assist_unbind_to_user(current_session)
+
+            await _close_remote_voice_for_assist_session(current_session, status=VoiceSessionStatus.CLOSED)
 
             remote_assist.close_session(session_id)
 
@@ -5506,7 +5870,6 @@ def _schedule_remote_assist_auto_unbind(session) -> None:
             )
 
         except asyncio.CancelledError:
-
             return
 
         finally:
@@ -5792,6 +6155,16 @@ async def chat_websocket(websocket: WebSocket):
 
                             await _send_remote_assist_request_to_user(assist_session)
 
+                    voice_session = remote_voice.get_session_by_assist(getattr(assist_session, 'session_id', '') or '') if assist_session else None
+
+                    if voice_session and voice_session.status == VoiceSessionStatus.RINGING:
+
+                        await _send_remote_voice_request_to_user(voice_session)
+
+                    elif voice_session and voice_session.status in {VoiceSessionStatus.CONNECTING, VoiceSessionStatus.ACTIVE}:
+
+                        await _send_remote_voice_bind_to_user(voice_session)
+
                     history = online_manager.get_messages(username)
 
                     if history:
@@ -5826,6 +6199,10 @@ async def chat_websocket(websocket: WebSocket):
             elif msg_type == 'remote_assist_request_response':
 
                 await _handle_remote_assist_request_response(username, data, websocket=websocket)
+
+            elif msg_type == 'remote_voice_request_response':
+
+                await _handle_remote_voice_request_response(username, data, websocket=websocket)
 
             elif msg_type == 'offline':
 
@@ -6895,7 +7272,152 @@ async def admin_remote_assist_close(request: Request):
         return JSONResponse({"success": False, "message": "无权关闭该远程指导会话"}, status_code=403)
     _cancel_remote_assist_auto_unbind(session.session_id)
     await _send_remote_assist_unbind_to_user(session)
+    await _close_remote_voice_for_assist_session(session, status=VoiceSessionStatus.CLOSED)
     remote_assist.close_session(session_id)
+    return JSONResponse({"success": True})
+
+
+@app.get("/admin/api/remote_voice/config")
+async def admin_remote_voice_config(request: Request):
+    token, role, admin_name = await _resolve_admin_identity(request)
+    if not token or not role:
+        return JSONResponse({"success": False, "message": "未登录或登录已失效"}, status_code=401)
+    return JSONResponse(remote_voice.get_config_snapshot())
+
+
+@app.post("/admin/api/remote_voice/config")
+async def admin_remote_voice_config_update(request: Request):
+    token, role, admin_name = await _resolve_admin_identity(request)
+    if not token or not role:
+        return JSONResponse({"success": False, "message": "未登录或登录已失效"}, status_code=401)
+    if role != ROLE_SUPER_ADMIN:
+        return JSONResponse({"success": False, "message": "仅系统总管理员可修改实时语音并发上限"}, status_code=403)
+    data = await request.json()
+    try:
+        max_active_sessions = int(data.get("max_active_sessions") or 0)
+    except Exception:
+        max_active_sessions = 0
+    if max_active_sessions < 1:
+        return JSONResponse({"success": False, "message": "并发上限必须大于等于 1"}, status_code=400)
+    snapshot = remote_voice.update_limit(max_active_sessions, updated_by='super_admin')
+    snapshot["message"] = f"实时语音并发上限已更新为 {snapshot['max_active_sessions']} 路"
+    return JSONResponse(snapshot)
+
+
+@app.get("/admin/api/remote_voice/usage")
+async def admin_remote_voice_usage(request: Request):
+    token, role, admin_name = await _resolve_admin_identity(request)
+    if not token or not role:
+        return JSONResponse({"success": False, "message": "未登录或登录已失效"}, status_code=401)
+    if role != ROLE_SUPER_ADMIN:
+        return JSONResponse({"success": False, "message": "仅系统总管理员可查看实时语音账号明细"}, status_code=403)
+    return JSONResponse(remote_voice.get_usage_snapshot(include_sessions=True))
+
+
+@app.get("/admin/api/remote_voice/status")
+async def admin_remote_voice_status(request: Request):
+    token, role, admin_name = await _resolve_admin_identity(request)
+    if not token or not role:
+        return JSONResponse({"success": False, "message": "未登录或登录已失效"}, status_code=401)
+    assist_session_id = (request.query_params.get("assist_session_id") or "").strip()
+    if not assist_session_id:
+        return JSONResponse({"success": False, "message": "缺少远程指导会话ID"}, status_code=400)
+    assist_session = remote_assist.get_session(assist_session_id)
+    if assist_session and role != ROLE_SUPER_ADMIN and assist_session.admin_username != (admin_name or role):
+        return JSONResponse({"success": False, "message": "无权查看该实时语音会话状态"}, status_code=403)
+    voice_session = remote_voice.get_session_by_assist(assist_session_id)
+    if not voice_session:
+        return JSONResponse({
+            "success": True,
+            "assist_session_id": assist_session_id,
+            "active": False,
+            "voice_session_id": "",
+            "status": "",
+        })
+    return JSONResponse({
+        "success": True,
+        "assist_session_id": assist_session_id,
+        "active": voice_session.is_counted(),
+        "voice_session_id": voice_session.voice_session_id,
+        "status": voice_session.status.value,
+    })
+
+
+@app.post("/admin/api/remote_voice/start")
+async def admin_remote_voice_start(request: Request):
+    token, role, admin_name = await _resolve_admin_identity(request)
+    if not token or not role:
+        return JSONResponse({"success": False, "message": "未登录或登录已失效"}, status_code=401)
+    data = await request.json()
+    assist_session_id = (data.get("assist_session_id") or "").strip()
+    if not assist_session_id:
+        return JSONResponse({"success": False, "message": "缺少远程指导会话ID"}, status_code=400)
+    assist_session = remote_assist.get_session(assist_session_id)
+    if not assist_session:
+        return JSONResponse({"success": False, "message": "远程指导会话不存在"}, status_code=404)
+    if role != ROLE_SUPER_ADMIN and assist_session.admin_username != (admin_name or role):
+        return JSONResponse({"success": False, "message": "无权发起该实时语音会话"}, status_code=403)
+    if not _assist_session_has_accepted_consent(assist_session):
+        return JSONResponse({"success": False, "message": "用户尚未接受远程指导，暂无法发起实时语音"}, status_code=409)
+    target = _resolve_remote_assist_bound_connection(assist_session) or _resolve_remote_assist_request_connection(assist_session)
+    if not target:
+        return JSONResponse({"success": False, "message": f"用户 {assist_session.target_username} 当前没有可接收实时语音的页面"}, status_code=409)
+    display_admin_name = 'super_admin' if assist_session.admin_username == '__super__' else assist_session.admin_username
+    voice_session, created_new, error_code = remote_voice.start_session(
+        assist_session_id=assist_session.session_id,
+        site_type=assist_session.site_type,
+        admin_username=display_admin_name,
+        target_username=assist_session.target_username,
+        admin_role=role,
+        request_chat_ws_id=str(target.get('ws_id') or ''),
+        request_chat_page_id=_get_connection_page_client_id(target),
+        metadata={"assist_admin_username": assist_session.admin_username},
+    )
+    if error_code == 'voice_limit_reached':
+        snapshot = remote_voice.get_config_snapshot()
+        return JSONResponse({
+            "success": False,
+            "code": "voice_limit_reached",
+            "message": "当前实时语音使用人数超过上限，请稍后重试",
+            "current_sessions": snapshot.get("current_sessions", 0),
+            "max_active_sessions": snapshot.get("max_active_sessions", 0),
+        }, status_code=409)
+    if not voice_session:
+        return JSONResponse({"success": False, "message": "创建实时语音会话失败"}, status_code=500)
+    if created_new:
+        delivered = await _send_remote_voice_request_to_user(voice_session)
+        if not delivered:
+            remote_voice.mark_failed(voice_session.voice_session_id)
+            return JSONResponse({"success": False, "message": f"用户 {assist_session.target_username} 语音邀请下发失败，请稍后重试"}, status_code=409)
+    snapshot = remote_voice.get_config_snapshot()
+    return JSONResponse({
+        "success": True,
+        "message": "已向用户发送语音邀请" if created_new else "当前远程指导已存在实时语音会话",
+        "voice_session_id": voice_session.voice_session_id,
+        "assist_session_id": voice_session.assist_session_id,
+        "status": voice_session.status.value,
+        "current_sessions": snapshot.get("current_sessions", 0),
+        "max_active_sessions": snapshot.get("max_active_sessions", 0),
+    })
+
+
+@app.post("/admin/api/remote_voice/close")
+async def admin_remote_voice_close(request: Request):
+    token, role, admin_name = await _resolve_admin_identity(request)
+    if not token or not role:
+        return JSONResponse({"success": False, "message": "未登录或登录已失效"}, status_code=401)
+    data = await request.json()
+    voice_session_id = (data.get("voice_session_id") or "").strip()
+    assist_session_id = (data.get("assist_session_id") or "").strip()
+    voice_session = remote_voice.get_session(voice_session_id) if voice_session_id else remote_voice.get_session_by_assist(assist_session_id)
+    if not voice_session:
+        return JSONResponse({"success": False, "message": "实时语音会话不存在"}, status_code=404)
+    if role != ROLE_SUPER_ADMIN and voice_session.admin_username != (admin_name or role):
+        return JSONResponse({"success": False, "message": "无权关闭该实时语音会话"}, status_code=403)
+    closed_session = remote_voice.close_session(voice_session.voice_session_id, status=VoiceSessionStatus.CLOSED)
+    if not closed_session:
+        return JSONResponse({"success": False, "message": "实时语音会话不存在"}, status_code=404)
+    await _send_remote_voice_unbind_to_user(closed_session)
     return JSONResponse({"success": True})
 
 

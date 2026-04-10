@@ -3072,6 +3072,62 @@
                     </div>
                 </div>
 
+                <div id="remoteVoiceSection" style="display: none; margin-top: 15px;">
+                    <div style="background: linear-gradient(135deg, var(--bg-card), #14273b); border-radius: 12px; padding: 15px; border: 1px solid rgba(0,229,255,0.28);">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; flex-wrap: wrap; gap: 8px;">
+                            <h4 style="margin: 0; color: #00d4ff; display: flex; align-items: center; gap: 8px;">
+                                <span style="font-size: 22px;">🎙️</span> 实时语音并发
+                            </h4>
+                            <div style="display: flex; gap: 6px; align-items: center; flex-wrap: wrap;">
+                                <span id="rvSummary" style="font-size: 12px; color: var(--text-secondary);"></span>
+                                <button class="btn" onclick="loadRemoteVoicePanel()" style="padding: 4px 10px; font-size: 12px; background: rgba(102,126,234,0.15); color: #667eea; border: 1px solid rgba(102,126,234,0.3);">刷新</button>
+                            </div>
+                        </div>
+                        <div id="rvStatsRow" style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 10px;">
+                            <div style="background: var(--bg-primary); border-radius: 8px; padding: 10px; border: 1px solid var(--border); cursor:pointer;" onclick="showRemoteVoiceLimitModal()" title="点击调整实时语音并发上限">
+                                <div style="color: var(--text-secondary); font-size: 11px;">语音并发上限 ✏️</div>
+                                <div style="color: #00d4ff; font-size: 20px; font-weight: bold;" id="rvMaxSessions">-</div>
+                            </div>
+                            <div style="background: var(--bg-primary); border-radius: 8px; padding: 10px; border: 1px solid var(--border);">
+                                <div style="color: var(--text-secondary); font-size: 11px;">当前会话</div>
+                                <div style="color: #7ed56f; font-size: 20px; font-weight: bold;" id="rvCurrentSessions">-</div>
+                            </div>
+                            <div style="background: var(--bg-primary); border-radius: 8px; padding: 10px; border: 1px solid var(--border);">
+                                <div style="color: var(--text-secondary); font-size: 11px;">通话中/连接中</div>
+                                <div style="color: var(--accent-yellow); font-size: 20px; font-weight: bold;" id="rvActiveSessions">-</div>
+                            </div>
+                            <div style="background: var(--bg-primary); border-radius: 8px; padding: 10px; border: 1px solid var(--border);">
+                                <div style="color: var(--text-secondary); font-size: 11px;">剩余名额</div>
+                                <div style="color: #667eea; font-size: 20px; font-weight: bold;" id="rvAvailableSlots">-</div>
+                            </div>
+                        </div>
+                        <div style="background: var(--bg-primary); border-radius: 8px; border: 1px solid var(--border); overflow: hidden;">
+                            <div style="padding: 10px 12px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap;">
+                                <div style="font-size: 13px; color: var(--text-primary); font-weight: bold;">活跃实时语音会话明细</div>
+                                <div id="rvUpdatedMeta" style="font-size: 11px; color: var(--text-secondary);"></div>
+                            </div>
+                            <div style="overflow-x: auto;">
+                                <table style="width: 100%; min-width: 820px; border-collapse: collapse;">
+                                    <thead>
+                                        <tr>
+                                            <th style="text-align: left; padding: 10px 12px; color: var(--text-secondary); font-size: 12px; border-bottom: 1px solid var(--border);">管理员</th>
+                                            <th style="text-align: left; padding: 10px 12px; color: var(--text-secondary); font-size: 12px; border-bottom: 1px solid var(--border);">用户</th>
+                                            <th style="text-align: left; padding: 10px 12px; color: var(--text-secondary); font-size: 12px; border-bottom: 1px solid var(--border);">状态</th>
+                                            <th style="text-align: left; padding: 10px 12px; color: var(--text-secondary); font-size: 12px; border-bottom: 1px solid var(--border);">开始时间</th>
+                                            <th style="text-align: left; padding: 10px 12px; color: var(--text-secondary); font-size: 12px; border-bottom: 1px solid var(--border);">时长</th>
+                                            <th style="text-align: left; padding: 10px 12px; color: var(--text-secondary); font-size: 12px; border-bottom: 1px solid var(--border);">当前阶段</th>
+                                            <th style="text-align: left; padding: 10px 12px; color: var(--text-secondary); font-size: 12px; border-bottom: 1px solid var(--border);">心跳</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="rvSessionTableBody">
+                                        <tr><td colspan="7" style="padding: 18px 12px; text-align: center; color: var(--text-secondary);">加载中...</td></tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- 代理池状态原始内容(保留但永远隐藏) -->
                 <div id="proxyPoolSectionOld" style="display: none !important; margin-top: 15px;">
                     <div style="background: linear-gradient(135deg, var(--bg-card), #1a2e3a); border-radius: 12px; padding: 15px; border: 1px solid #00c8ff;">
@@ -3152,6 +3208,7 @@
         <div class="ak-browser-header">
             <div class="ak-browser-header-main">
                 <div class="ak-browser-toolbar">
+                    <button id="remoteAssistVoiceBtn" onclick="toggleRemoteAssistVoice()" class="ak-browser-tool-btn" aria-label="发起实时语音" title="发起实时语音">发起语音</button>
                     <button onclick="requestRemoteAssistSnapshot()" class="ak-browser-tool-btn" aria-label="刷新指导快照" title="刷新指导快照">刷新快照</button>
                     <button onclick="closeRemoteAssistPanel()" class="ak-browser-tool-btn" aria-label="关闭远程指导" title="关闭远程指导">关闭</button>
                 </div>
@@ -4906,13 +4963,19 @@
             if (!isSuperAdmin()) {
                 document.getElementById('subAdminSection').style.display = 'none';
                 document.getElementById('proxyPoolSection').style.display = 'none';
+                document.getElementById('remoteVoiceSection').style.display = 'none';
+                stopLbRefresh();
+                stopRemoteVoiceRefresh();
                 return;
             }
             
             document.getElementById('subAdminSection').style.display = 'block';
             document.getElementById('loadBalanceSection').style.display = 'block';
+            document.getElementById('remoteVoiceSection').style.display = 'block';
             loadLbStatus();
             startLbRefresh();
+            loadRemoteVoicePanel();
+            startRemoteVoiceRefresh();
             
             try {
                 const res = await fetch(`${API_BASE}/admin/api/sub_admin`);
@@ -5458,6 +5521,7 @@
                     // 离开设置页面时停止刷新
                     stopSubAdminStatusRefresh();
                     stopLbRefresh();
+                    stopRemoteVoiceRefresh();
                 }
                 renderMobileTabList();
                 syncResponsiveShell();
@@ -6842,6 +6906,7 @@
         // ===== 负载均衡管理 =====
         let lbRefreshTimer = null;
         let lbData = null;
+        let remoteVoiceRefreshTimer = null;
 
         async function loadLbStatus() {
             try {
@@ -6878,6 +6943,152 @@
 
         function stopLbRefresh() {
             if (lbRefreshTimer) { clearInterval(lbRefreshTimer); lbRefreshTimer = null; }
+        }
+
+        function startRemoteVoiceRefresh() {
+            stopRemoteVoiceRefresh();
+            remoteVoiceRefreshTimer = setInterval(loadRemoteVoicePanel, 8000);
+        }
+
+        function stopRemoteVoiceRefresh() {
+            if (remoteVoiceRefreshTimer) {
+                clearInterval(remoteVoiceRefreshTimer);
+                remoteVoiceRefreshTimer = null;
+            }
+        }
+
+        function formatRemoteVoiceTime(value) {
+            if (!value) return '-';
+            try {
+                return new Date(Number(value) * 1000).toLocaleString('zh-CN', {
+                    month: '2-digit',
+                    day: '2-digit',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    second: '2-digit'
+                });
+            } catch (e) {
+                return '-';
+            }
+        }
+
+        function formatRemoteVoiceDuration(totalSeconds) {
+            const seconds = Math.max(0, parseInt(totalSeconds || 0, 10) || 0);
+            const hours = Math.floor(seconds / 3600);
+            const minutes = Math.floor((seconds % 3600) / 60);
+            const secs = seconds % 60;
+            if (hours > 0) return `${hours}小时${String(minutes).padStart(2, '0')}分${String(secs).padStart(2, '0')}秒`;
+            if (minutes > 0) return `${minutes}分${String(secs).padStart(2, '0')}秒`;
+            return `${secs}秒`;
+        }
+
+        function getRemoteVoiceStatusMeta(status) {
+            const current = String(status || '').trim().toLowerCase();
+            const mapping = {
+                reserved: {label: '已预留', color: '#a78bfa', phase: '等待分配'},
+                ringing: {label: '振铃中', color: '#00d4ff', phase: '等待用户接听'},
+                connecting: {label: '连接中', color: '#ffa502', phase: '正在建立语音链路'},
+                active: {label: '通话中', color: '#00ff88', phase: '语音已建立'},
+                rejected: {label: '已拒绝', color: '#ff6b81', phase: '用户拒绝'},
+                timeout: {label: '超时', color: '#ff4757', phase: '等待超时'},
+                closed: {label: '已关闭', color: '#94a3b8', phase: '管理员或系统关闭'},
+                failed: {label: '失败', color: '#ff4757', phase: '链路异常结束'}
+            };
+            return mapping[current] || {label: current || '-', color: '#94a3b8', phase: '-'};
+        }
+
+        function renderRemoteVoicePanel(data) {
+            if (!data) return;
+            document.getElementById('rvMaxSessions').textContent = data.max_active_sessions ?? '-';
+            document.getElementById('rvCurrentSessions').textContent = data.current_sessions ?? 0;
+            document.getElementById('rvActiveSessions').textContent = data.active_sessions ?? 0;
+            document.getElementById('rvAvailableSlots').textContent = data.available_slots ?? 0;
+            document.getElementById('rvSummary').textContent = `${data.current_sessions || 0}/${data.max_active_sessions || 0} 路 | 振铃 ${data.ringing_sessions || 0} | 通话 ${data.active_sessions || 0}`;
+            const updatedMeta = [];
+            if (data.updated_by) updatedMeta.push(`更新人: ${data.updated_by}`);
+            if (data.updated_at) updatedMeta.push(`更新时间: ${formatRemoteVoiceTime(data.updated_at)}`);
+            document.getElementById('rvUpdatedMeta').textContent = updatedMeta.join(' · ');
+
+            const body = document.getElementById('rvSessionTableBody');
+            const sessions = Array.isArray(data.sessions) ? data.sessions : [];
+            if (!sessions.length) {
+                body.innerHTML = '<tr><td colspan="7" style="padding: 18px 12px; text-align: center; color: var(--text-secondary);">当前没有占用名额的实时语音会话</td></tr>';
+                return;
+            }
+            body.innerHTML = sessions.map(item => {
+                const meta = getRemoteVoiceStatusMeta(item.status);
+                const heartbeatAge = item.last_heartbeat_age_seconds;
+                const heartbeatText = heartbeatAge === null || heartbeatAge === undefined ? '-' : `${heartbeatAge} 秒前`;
+                return `
+                    <tr>
+                        <td style="padding: 10px 12px; border-bottom: 1px solid var(--border); color: var(--text-primary);">${escapeHtml(item.admin_name || '-')}</td>
+                        <td style="padding: 10px 12px; border-bottom: 1px solid var(--border); color: var(--text-primary);">${escapeHtml(item.user_name || '-')}</td>
+                        <td style="padding: 10px 12px; border-bottom: 1px solid var(--border);"><span style="display:inline-flex; align-items:center; gap:6px; padding:2px 8px; border-radius:999px; background:${meta.color}22; color:${meta.color}; font-size:12px; font-weight:bold;">${escapeHtml(meta.label)}</span></td>
+                        <td style="padding: 10px 12px; border-bottom: 1px solid var(--border); color: var(--text-secondary);">${escapeHtml(formatRemoteVoiceTime(item.started_at))}</td>
+                        <td style="padding: 10px 12px; border-bottom: 1px solid var(--border); color: var(--text-primary);">${escapeHtml(formatRemoteVoiceDuration(item.duration_seconds))}</td>
+                        <td style="padding: 10px 12px; border-bottom: 1px solid var(--border); color: var(--text-secondary);">${escapeHtml(meta.phase)}</td>
+                        <td style="padding: 10px 12px; border-bottom: 1px solid var(--border); color: var(--text-secondary);">${escapeHtml(heartbeatText)}</td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        async function loadRemoteVoicePanel() {
+            if (!isSuperAdmin()) return;
+            try {
+                const res = await fetch(`${API_BASE}/admin/api/remote_voice/usage`, { headers: getHeaders() });
+                const data = await res.json();
+                if (!res.ok || data.success === false) {
+                    throw new Error(data.message || '加载实时语音数据失败');
+                }
+                renderRemoteVoicePanel(data);
+            } catch (e) {
+                document.getElementById('rvSummary').textContent = '加载失败';
+                document.getElementById('rvSessionTableBody').innerHTML = `<tr><td colspan="7" style="padding: 18px 12px; text-align: center; color: var(--accent-red);">${escapeHtml(e.message || '加载实时语音数据失败')}</td></tr>`;
+            }
+        }
+
+        function showRemoteVoiceLimitModal() {
+            const current = document.getElementById('rvMaxSessions').textContent || '10';
+            const content = `
+                <div style="margin-bottom:12px;">
+                    <div style="font-size:12px;color:var(--text-secondary);margin-bottom:12px;">
+                        控制当前系统允许同时占用名额的实时语音会话数量，超限时管理员发起会收到稍后重试提示。
+                    </div>
+                    <div style="display:flex;flex-direction:column;gap:8px;">
+                        <label style="font-size:13px;color:var(--text-primary);">实时语音并发上限:</label>
+                        <input id="remoteVoiceLimitInput" type="number" min="1" step="1" value="${current}"
+                            style="background:var(--bg-primary);border:1px solid var(--border);border-radius:6px;padding:8px 12px;color:var(--text-primary);font-size:14px;width:100%;">
+                    </div>
+                    <div style="display:flex;gap:8px;margin-top:12px;">
+                        <button onclick="setRemoteVoiceLimit(5)" style="flex:1;padding:6px;border-radius:6px;border:1px solid rgba(255,165,0,0.3);background:rgba(255,165,0,0.1);color:#ffa502;cursor:pointer;font-size:12px;">5路</button>
+                        <button onclick="setRemoteVoiceLimit(10)" style="flex:1;padding:6px;border-radius:6px;border:1px solid rgba(0,212,255,0.3);background:rgba(0,212,255,0.1);color:var(--accent);cursor:pointer;font-size:12px;">10路</button>
+                        <button onclick="setRemoteVoiceLimit(20)" style="flex:1;padding:6px;border-radius:6px;border:1px solid rgba(0,255,136,0.3);background:rgba(0,255,136,0.1);color:#00ff88;cursor:pointer;font-size:12px;">20路</button>
+                        <button onclick="setRemoteVoiceLimit(30)" style="flex:1;padding:6px;border-radius:6px;border:1px solid var(--border);background:var(--bg-secondary);color:var(--text-primary);cursor:pointer;font-size:12px;">30路</button>
+                    </div>
+                </div>
+            `;
+            showModal('🎙️ 调整实时语音并发上限', content, async () => {
+                const val = parseInt(document.getElementById('remoteVoiceLimitInput')?.value || '10', 10);
+                await setRemoteVoiceLimit(val);
+            }, '应用');
+        }
+
+        async function setRemoteVoiceLimit(value) {
+            try {
+                const res = await fetch(`${API_BASE}/admin/api/remote_voice/config`, {
+                    method: 'POST',
+                    headers: Object.assign({ 'Content-Type': 'application/json' }, getHeaders()),
+                    body: JSON.stringify({ max_active_sessions: value })
+                });
+                const data = await res.json();
+                showToast(data.message || (data.success ? '设置成功' : '设置失败'), res.ok ? 'success' : 'error');
+                if (!res.ok || data.success === false) return;
+                closeModal();
+                renderRemoteVoicePanel(data);
+            } catch (e) {
+                showToast('设置失败: ' + e.message, 'error');
+            }
         }
 
         function renderLbStatus(data) {
@@ -8343,6 +8554,8 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
         let remoteAssistPanelWs = null;
         let remoteAssistPanelReconnectTimer = null;
         let remoteAssistPanelHeartbeatTimer = null;
+        let remoteAssistVoiceSessionId = '';
+        let remoteAssistVoiceStatus = '';
         let remoteAssistPanelLastSnapshot = null;
         let remoteAssistPanelLastHtml = '';
         let remoteAssistPanelLastScroll = null;
@@ -8400,6 +8613,100 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
             const meta = document.getElementById('remoteAssistMeta');
             if (!meta) return;
             meta.textContent = text || '等待用户确认远程指导';
+        }
+
+        function isRemoteAssistVoiceCountedStatus(status) {
+            const current = String(status || '').trim().toLowerCase();
+            return current === 'reserved' || current === 'ringing' || current === 'connecting' || current === 'active';
+        }
+
+        function updateRemoteAssistVoiceButton() {
+            const button = document.getElementById('remoteAssistVoiceBtn');
+            if (!button) return;
+            let label = '发起语音';
+            let disabled = !remoteAssistPanelSessionId;
+            let title = '向用户发起实时语音';
+            if (!remoteAssistPanelSessionId) {
+                title = '远程指导会话未建立';
+            } else if (remoteAssistPanelConsentStatus !== 'accepted') {
+                label = '等待确认';
+                disabled = true;
+                title = '用户接受远程指导后才能发起实时语音';
+            } else if (isRemoteAssistVoiceCountedStatus(remoteAssistVoiceStatus)) {
+                label = '关闭语音';
+                disabled = false;
+                title = `当前语音状态：${remoteAssistVoiceStatus}`;
+            } else if (remoteAssistVoiceStatus) {
+                title = `当前语音状态：${remoteAssistVoiceStatus}`;
+            }
+            button.textContent = label;
+            button.disabled = !!disabled;
+            button.style.opacity = disabled ? '0.6' : '1';
+            button.style.cursor = disabled ? 'not-allowed' : 'pointer';
+            button.title = title;
+        }
+
+        async function loadRemoteAssistVoiceState() {
+            if (!remoteAssistPanelSessionId) {
+                remoteAssistVoiceSessionId = '';
+                remoteAssistVoiceStatus = '';
+                updateRemoteAssistVoiceButton();
+                return;
+            }
+            try {
+                const res = await fetch(`${API_BASE}/admin/api/remote_voice/status?assist_session_id=${encodeURIComponent(remoteAssistPanelSessionId)}`, {
+                    headers: getHeaders()
+                });
+                const data = await res.json();
+                if (!res.ok || data.success === false) {
+                    throw new Error(data.message || '加载实时语音状态失败');
+                }
+                remoteAssistVoiceSessionId = data.active ? String(data.voice_session_id || '') : '';
+                remoteAssistVoiceStatus = String(data.status || '');
+                updateRemoteAssistVoiceButton();
+            } catch (e) {
+                remoteAssistVoiceSessionId = '';
+                remoteAssistVoiceStatus = '';
+                updateRemoteAssistVoiceButton();
+            }
+        }
+
+        async function toggleRemoteAssistVoice() {
+            if (!remoteAssistPanelSessionId) return;
+            if (remoteAssistPanelConsentStatus !== 'accepted') {
+                showToast('用户尚未接受远程指导，暂无法发起实时语音', 'error');
+                return;
+            }
+            const shouldClose = isRemoteAssistVoiceCountedStatus(remoteAssistVoiceStatus);
+            try {
+                const res = await fetch(`${API_BASE}/admin/api/remote_voice/${shouldClose ? 'close' : 'start'}`, {
+                    method: 'POST',
+                    headers: {
+                        ...getHeaders(),
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(shouldClose ? {
+                        assist_session_id: remoteAssistPanelSessionId,
+                        voice_session_id: remoteAssistVoiceSessionId
+                    } : {
+                        assist_session_id: remoteAssistPanelSessionId
+                    })
+                });
+                const data = await res.json();
+                if (!res.ok || data.success === false) {
+                    showToast(data.message || (shouldClose ? '关闭实时语音失败' : '发起实时语音失败'), 'error');
+                    await loadRemoteAssistVoiceState();
+                    return;
+                }
+                remoteAssistVoiceSessionId = shouldClose ? '' : String(data.voice_session_id || '');
+                remoteAssistVoiceStatus = String(data.status || (shouldClose ? '' : 'ringing'));
+                updateRemoteAssistVoiceButton();
+                showToast(data.message || (shouldClose ? '已关闭实时语音' : '已发起实时语音邀请'));
+                await loadRemoteAssistVoiceState();
+            } catch (e) {
+                showToast((shouldClose ? '关闭实时语音失败: ' : '发起实时语音失败: ') + e.message, 'error');
+                await loadRemoteAssistVoiceState();
+            }
         }
 
         function setRemoteAssistTitle(username) {
@@ -9333,6 +9640,11 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                         const payload = data.payload || {};
                         const consentStatus = String(payload.consent_status || remoteAssistPanelConsentStatus || 'waiting');
                         remoteAssistPanelConsentStatus = consentStatus;
+                        if (consentStatus !== 'accepted') {
+                            remoteAssistVoiceSessionId = '';
+                            remoteAssistVoiceStatus = '';
+                        }
+                        updateRemoteAssistVoiceButton();
                         if (consentStatus === 'rejected') {
                             clearRemoteAssistRouteSnapshotTimer();
                             remoteAssistPanelPendingRoute = '';
@@ -9359,6 +9671,7 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                             resetRemoteAssistFrameDocument(buildRemoteAssistPlaceholderHtml('正在等待用户确认远程指导'));
                             return;
                         }
+                        loadRemoteAssistVoiceState();
                         if (!payload.has_snapshot) {
                             const route = String(payload.last_route || '').trim();
                             setRemoteAssistPendingRoute(route);
@@ -9470,11 +9783,14 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
             remoteAssistPanelLastScroll = null;
             remoteAssistPanelApplyingScrollDepth = 0;
             remoteAssistPanelConsentStatus = 'waiting';
+            remoteAssistVoiceSessionId = '';
+            remoteAssistVoiceStatus = '';
             remoteAssistPanelPendingRoute = '';
             remoteAssistPanelWaitingForRouteSnapshot = false;
             resetRemoteAssistPendingSnapshotRequest();
             clearRemoteAssistScrollRestoreTimer();
             clearRemoteAssistRouteSnapshotTimer();
+            updateRemoteAssistVoiceButton();
             panel.classList.add('open');
             overlay.style.display = getMobileLayoutMedia().matches ? 'none' : 'block';
             resetRemoteAssistFrameDocument(buildRemoteAssistPlaceholderHtml('正在等待用户确认远程指导'));
@@ -9495,6 +9811,8 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                 }
                 remoteAssistPanelSessionId = String(data.session_id || '').trim();
                 remoteAssistPanelConsentStatus = String(data.consent_status || 'waiting');
+                updateRemoteAssistVoiceButton();
+                loadRemoteAssistVoiceState();
                 connectRemoteAssistPanelSocket(remoteAssistPanelSessionId);
             } catch (e) {
                 logRemoteAssistDebug('open_remote_assist_error', {
@@ -9516,6 +9834,8 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
             remoteAssistPanelLastScroll = null;
             remoteAssistPanelApplyingScrollDepth = 0;
             remoteAssistPanelConsentStatus = 'waiting';
+            remoteAssistVoiceSessionId = '';
+            remoteAssistVoiceStatus = '';
             remoteAssistPanelPendingRoute = '';
             remoteAssistPanelWaitingForRouteSnapshot = false;
             resetRemoteAssistPendingSnapshotRequest();
@@ -9532,6 +9852,7 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
             }
             panel.classList.remove('open');
             overlay.style.display = 'none';
+            updateRemoteAssistVoiceButton();
             setRemoteAssistLoading(false, '正在等待用户确认远程指导');
             setRemoteAssistMeta('等待用户确认远程指导');
             resetRemoteAssistFrameDocument('<!doctype html><html><body></body></html>');
