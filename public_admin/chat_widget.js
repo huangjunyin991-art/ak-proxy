@@ -629,7 +629,11 @@
     
     // 获取用户名
     function getUsername() {
-        // 1. 优先从运行时用户模型读取
+        // 1. 优先从cookie读取（服务端登录成功后会显式下发 ak_username）
+        let cookieUser = getCookie('ak_username');
+        if (cookieUser) return String(cookieUser).trim();
+
+        // 2. 从运行时用户模型读取
         try {
             if (window.APP && APP.USER && APP.USER.MODEL) {
                 let runtimeUser = pickUsernameFromObject(APP.USER.MODEL);
@@ -641,13 +645,9 @@
             if (globalUser) return globalUser;
         } catch(e) {}
 
-        // 2. 从固定用户模型存储读取
+        // 3. 从固定用户模型存储读取
         let storedUserModel = getStoredUserModelUsername();
         if (storedUserModel) return storedUserModel;
-
-        // 3. 从cookie读取
-        let cookieUser = getCookie('ak_username');
-        if (cookieUser) return String(cookieUser).trim();
         
         // 4. 从localStorage遍历找用户名
         try {
