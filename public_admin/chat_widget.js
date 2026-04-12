@@ -518,6 +518,28 @@
         return '';
     }
 
+    function getStoredCanonicalUsername() {
+        const storageKeys = ['UserData', 'ak_login_result'];
+        const stores = [localStorage, sessionStorage];
+        try {
+            for (let si = 0; si < stores.length; si++) {
+                const store = stores[si];
+                if (!store) continue;
+                for (let i = 0; i < storageKeys.length; i++) {
+                    const raw = store.getItem(storageKeys[i]);
+                    if (!raw) continue;
+                    const parsed = JSON.parse(raw);
+                    const target = storageKeys[i] === 'ak_login_result'
+                        ? (parsed && parsed.UserData && typeof parsed.UserData === 'object' ? parsed.UserData : null)
+                        : parsed;
+                    const resolved = pickUsernameFromObject(target);
+                    if (resolved) return resolved;
+                }
+            }
+        } catch (e) {}
+        return '';
+    }
+
     function schedulePresenceIdentityRefresh() {
         [1200, 4200].forEach(function(delay) {
             setTimeout(function() {
@@ -629,11 +651,7 @@
     
     // 获取用户名
     function getUsername() {
-        // 1. 优先从cookie读取（服务端登录成功后会显式下发 ak_username）
-        let cookieUser = getCookie('ak_username');
-        if (cookieUser) return String(cookieUser).trim();
-
-        // 2. 从运行时用户模型读取
+        // 1. 优先从运行时用户模型读取规范用户名
         try {
             if (window.APP && APP.USER && APP.USER.MODEL) {
                 let runtimeUser = pickUsernameFromObject(APP.USER.MODEL);
@@ -645,11 +663,19 @@
             if (globalUser) return globalUser;
         } catch(e) {}
 
-        // 3. 从固定用户模型存储读取
+        // 2. 从固定用户模型存储读取规范用户名
         let storedUserModel = getStoredUserModelUsername();
         if (storedUserModel) return storedUserModel;
+
+        // 3. 从登录返回落库的 UserData / ak_login_result 读取规范用户名
+        let canonicalUser = getStoredCanonicalUsername();
+        if (canonicalUser) return canonicalUser;
+
+        // 4. 规范用户名缺失时再回退到cookie输入值
+        let cookieUser = getCookie('ak_username');
+        if (cookieUser) return String(cookieUser).trim();
         
-        // 4. 从localStorage遍历找用户名
+        // 5. 从localStorage遍历找用户名
         try {
             for (let i = 0; i < localStorage.length; i++) {
                 let value = localStorage.getItem(localStorage.key(i));
@@ -661,7 +687,7 @@
             }
         } catch(e) {}
         
-        // 5. 从已保存的持久化登录凭据读取
+        // 6. 从已保存的持久化登录凭据读取
         try {
             var saved = _akDecode();
             if (saved && saved.account) return String(saved.account).trim();
