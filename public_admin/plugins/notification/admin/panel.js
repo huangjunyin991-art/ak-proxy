@@ -343,6 +343,12 @@
     margin-top: 16px;
     flex-wrap: wrap;
 }
+#notificationAdminMount .ak-notify-action-buttons {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+}
 #notificationAdminMount .ak-notify-status-text {
     color: var(--text-secondary);
     font-size: 12px;
@@ -420,18 +426,16 @@
                                     <input type="text" class="ak-notify-input" id="akNotifyTitle" maxlength="120" placeholder="一般通知可只填标题；会议通知建议填写会议标题">
                                 </div>
                                 <div class="ak-notify-field full">
-                                    <div class="ak-notify-source-toolbar">
-                                        <span class="ak-notify-label">内容</span>
-                                        <div class="ak-notify-source-actions">
-                                            <button type="button" class="ak-notify-mini-btn ak-notify-hidden" id="akNotifyResolveMeetingBtn" title="点击可获取此会议链接的详细信息并自动填充到内容中">会议解析</button>
-                                        </div>
-                                    </div>
+                                    <span class="ak-notify-label">内容</span>
                                     <textarea class="ak-notify-textarea" id="akNotifyContent" placeholder="通知正文"></textarea>
                                 </div>
                             </div>
                             <div class="ak-notify-actions-row">
                                 <div class="ak-notify-status-text" id="akNotifySendStatus">未发送</div>
-                                <button type="button" class="ak-notify-primary-btn" id="akNotifySendBtn">发送通知</button>
+                                <div class="ak-notify-action-buttons">
+                                    <button type="button" class="ak-notify-primary-btn ak-notify-hidden" id="akNotifyResolveMeetingBtn" title="点击可获取此会议链接的详细信息并自动填充到内容中">会议解析</button>
+                                    <button type="button" class="ak-notify-primary-btn" id="akNotifySendBtn">发送通知</button>
+                                </div>
                             </div>
                         </div>
                     </section>
