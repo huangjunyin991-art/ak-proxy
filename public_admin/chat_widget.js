@@ -480,6 +480,56 @@
     let remoteVoiceRemoteLevel = 0;
     let remoteVoiceConnectedRoles = [];
 
+    function buildGuestUsername() {
+        return 'guest_' + Math.random().toString(36).substr(2, 6);
+    }
+
+    function pickUsernameFromObject(source) {
+        if (!source || typeof source !== 'object') return '';
+        const fields = ['UserName', 'username', 'Account', 'account'];
+        for (let i = 0; i < fields.length; i++) {
+            const value = source[fields[i]];
+            if (typeof value === 'string' && value.trim()) {
+                return String(value).trim();
+            }
+        }
+        return '';
+    }
+
+    function getStoredUserModelUsername() {
+        const keys = ['AK_user_model'];
+        try {
+            if (window.APP && APP.CONFIG && APP.CONFIG.SYSTEM_KEYS && APP.CONFIG.SYSTEM_KEYS.USER_MODEL_KEY) {
+                const storeKey = String(APP.CONFIG.SYSTEM_KEYS.USER_MODEL_KEY || '').trim();
+                if (storeKey && keys.indexOf(storeKey) === -1) {
+                    keys.unshift(storeKey);
+                }
+            }
+        } catch (e) {}
+        try {
+            for (let i = 0; i < keys.length; i++) {
+                const raw = localStorage.getItem(keys[i]);
+                if (!raw) continue;
+                const parsed = JSON.parse(raw);
+                const resolved = pickUsernameFromObject(parsed);
+                if (resolved) return resolved;
+            }
+        } catch (e) {}
+        return '';
+    }
+
+    function schedulePresenceIdentityRefresh() {
+        [1200, 4200].forEach(function(delay) {
+            setTimeout(function() {
+                if (!ws || ws.readyState !== WebSocket.OPEN) return;
+                if (!isPresenceForeground() || presenceSuspended) return;
+                const nextUsername = getUsername();
+                if (!nextUsername || nextUsername === username) return;
+                sendPresence('online');
+            }, delay);
+        });
+    }
+
     function generatePageClientId() {
         return 'cp_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 10);
     }
@@ -579,32 +629,51 @@
     
     // 获取用户名
     function getUsername() {
-        // 1. 优先从cookie读取
+        // 1. 优先从运行时用户模型读取
+        try {
+            if (window.APP && APP.USER && APP.USER.MODEL) {
+                let runtimeUser = pickUsernameFromObject(APP.USER.MODEL);
+                if (runtimeUser) return runtimeUser;
+            }
+        } catch(e) {}
+        try {
+            let globalUser = pickUsernameFromObject(window.USER_MODEL);
+            if (globalUser) return globalUser;
+        } catch(e) {}
+
+        // 2. 从固定用户模型存储读取
+        let storedUserModel = getStoredUserModelUsername();
+        if (storedUserModel) return storedUserModel;
+
+        // 3. 从cookie读取
         let cookieUser = getCookie('ak_username');
         if (cookieUser) return String(cookieUser).trim();
         
-        // 2. 从localStorage遍历找用户名
+        // 4. 从localStorage遍历找用户名
         try {
             for (let i = 0; i < localStorage.length; i++) {
                 let value = localStorage.getItem(localStorage.key(i));
                 try {
                     let data = JSON.parse(value);
-                    if (data && typeof data === 'object') {
-                        if (data.UserName && typeof data.UserName === 'string') return String(data.UserName).trim();
-                        if (data.Account && typeof data.Account === 'string') return String(data.Account).trim();
-                    }
+                    let resolved = pickUsernameFromObject(data);
+                    if (resolved) return resolved;
                 } catch(e) {}
             }
         } catch(e) {}
         
-        // 3. 从已保存的持久化登录凭据读取
+        // 5. 从已保存的持久化登录凭据读取
         try {
             var saved = _akDecode();
             if (saved && saved.account) return String(saved.account).trim();
         } catch(e) {}
         
-        // 获取不到就用访客名
-        return 'guest_' + Math.random().toString(36).substr(2, 6);
+        // 获取不到就保持当前身份，避免每次生成新的访客名
+        let currentUsername = String(username || '').trim();
+        if (currentUsername) {
+            if (currentUsername === 'visitor') return buildGuestUsername();
+            return currentUsername;
+        }
+        return buildGuestUsername();
     }
     
     // 创建样式 - 青绿渐变风格
@@ -3808,6 +3877,9 @@
             return false;
         }
         try {
+            if (type === 'online') {
+                username = getUsername();
+            }
             ws.send(JSON.stringify({
                 type: type,
                 username: username,
@@ -3878,6 +3950,7 @@
                 }
                 sendPresence('online');
                 startHeartbeat();
+                schedulePresenceIdentityRefresh();
                 emitChatBridgeEvent('ak-chat-ws-open', { username: username || '' });
             };
             
