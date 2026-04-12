@@ -5,8 +5,8 @@ from typing import Any, Awaitable, Callable
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 
-from notification_providers import NotificationProviderError, get_notification_types
-from notification_service import NotificationService
+from .notification_providers import NotificationProviderError, get_notification_types
+from .notification_service import NotificationService
 
 
 VerifyAdminTokenCallable = Callable[[str], Awaitable[bool]]

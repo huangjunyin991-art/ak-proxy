@@ -38,7 +38,7 @@ class AkWebAdapter(BaseAssistAdapter):
         }
         options = json.dumps(payload, ensure_ascii=False).replace("</", "<\\/")
         return (
-            """
+            r"""
 <script>(function(){
 try{
 if(window.__akRemoteAssistBridgeInstalled)return;

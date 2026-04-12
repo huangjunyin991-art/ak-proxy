@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from typing import Any, Awaitable, Callable
 
-import database_pg as db
-from notification_providers import NotificationProviderError, normalize_notification_payload
+from server import database_pg as db
+from .notification_providers import NotificationProviderError, normalize_notification_payload
 
 
 PushUserPayloadCallable = Callable[[str, dict[str, Any]], Awaitable[bool]]
