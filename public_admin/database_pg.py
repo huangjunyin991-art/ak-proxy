@@ -9,7 +9,7 @@ import asyncpg
 import asyncio
 import json
 import logging
-import os
+import os先
 from datetime import datetime, timedelta
 from typing import Optional, List, Dict, Any
 
@@ -357,7 +357,6 @@ async def init_db(host: str = "127.0.0.1", port: int = 5432,
                 ('yearly', '年付', 1000, 365)
             ''')
 
-        # 订阅组表
         await conn.execute('''
             CREATE TABLE IF NOT EXISTS subscription_groups (
                 id TEXT PRIMARY KEY,
@@ -391,6 +390,36 @@ async def init_db(host: str = "127.0.0.1", port: int = 5432,
         await conn.execute('CREATE INDEX IF NOT EXISTS idx_exit_events_name ON exit_events(exit_name)')
         await conn.execute('CREATE INDEX IF NOT EXISTS idx_exit_events_ts ON exit_events(ts)')
 
+        # 通知系统表
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS notification_campaigns (
+                id BIGSERIAL PRIMARY KEY,
+                notification_type TEXT NOT NULL,
+                title TEXT DEFAULT '',
+                content TEXT DEFAULT '',
+                payload_json TEXT DEFAULT '{}',
+                audience_mode TEXT NOT NULL DEFAULT 'manual',
+                audience_snapshot_json TEXT DEFAULT '{}',
+                created_by TEXT NOT NULL DEFAULT 'system',
+                target_count INTEGER NOT NULL DEFAULT 0,
+                created_at TIMESTAMP DEFAULT NOW(),
+                published_at TIMESTAMP DEFAULT NOW()
+            )
+        ''')
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS notification_deliveries (
+                id BIGSERIAL PRIMARY KEY,
+                campaign_id BIGINT NOT NULL REFERENCES notification_campaigns(id) ON DELETE CASCADE,
+                username TEXT NOT NULL,
+                delivery_status TEXT NOT NULL DEFAULT 'sent',
+                delivered_at TIMESTAMP DEFAULT NOW(),
+                read_at TIMESTAMP,
+                last_push_at TIMESTAMP DEFAULT NOW(),
+                created_at TIMESTAMP DEFAULT NOW(),
+                UNIQUE(campaign_id, username)
+            )
+        ''')
+
         # 创建索引
         await conn.execute('CREATE INDEX IF NOT EXISTS idx_sub_groups_created_by ON subscription_groups(created_by)')
         await conn.execute('CREATE INDEX IF NOT EXISTS idx_login_username ON login_records(username)')
@@ -403,6 +432,11 @@ async def init_db(host: str = "127.0.0.1", port: int = 5432,
         await conn.execute('CREATE INDEX IF NOT EXISTS idx_auth_accounts_expire ON authorized_accounts(expire_time)')
         await conn.execute('CREATE INDEX IF NOT EXISTS idx_credit_tx_admin ON credit_transactions(admin_name)')
         await conn.execute('CREATE INDEX IF NOT EXISTS idx_credit_tx_time ON credit_transactions(created_at)')
+        await conn.execute('CREATE INDEX IF NOT EXISTS idx_notification_campaigns_created_at ON notification_campaigns(created_at DESC)')
+        await conn.execute('CREATE INDEX IF NOT EXISTS idx_notification_campaigns_created_by ON notification_campaigns(created_by)')
+        await conn.execute('CREATE INDEX IF NOT EXISTS idx_notification_deliveries_username ON notification_deliveries(username)')
+        await conn.execute('CREATE INDEX IF NOT EXISTS idx_notification_deliveries_campaign_id ON notification_deliveries(campaign_id)')
+        await conn.execute('CREATE INDEX IF NOT EXISTS idx_notification_deliveries_unread ON notification_deliveries(username, read_at)')
 
     logger.info("PostgreSQL 数据库表和索引已就绪")
 
@@ -1602,6 +1636,172 @@ async def expire_overdue_accounts() -> int:
         result = await conn.execute(
             "UPDATE authorized_accounts SET status='expired', updated_at=NOW() WHERE status='active' AND expire_time < NOW()")
         return int(result.split()[-1])
+
+
+def _load_json_object(raw: Any, default: Any) -> Any:
+    try:
+        if raw in (None, ''):
+            return default
+        data = json.loads(raw)
+        if isinstance(default, dict) and isinstance(data, dict):
+            return data
+        if isinstance(default, list) and isinstance(data, list):
+            return data
+    except Exception:
+        pass
+    return default
+
+
+def _serialize_notification_campaign(row: Dict[str, Any]) -> Dict:
+    data = dict(row)
+    data['payload'] = _load_json_object(data.pop('payload_json', '{}'), {})
+    data['audience_snapshot'] = _load_json_object(data.pop('audience_snapshot_json', '{}'), {})
+    data['target_count'] = int(data.get('target_count') or 0)
+    if 'read_count' in data:
+        data['read_count'] = int(data.get('read_count') or 0)
+    if 'unread_count' in data:
+        data['unread_count'] = int(data.get('unread_count') or 0)
+    return data
+
+
+def _serialize_notification_item(row: Dict[str, Any]) -> Dict:
+    return {
+        'id': int(row.get('id') or 0),
+        'notification_type': str(row.get('notification_type') or ''),
+        'title': str(row.get('title') or ''),
+        'content': str(row.get('content') or ''),
+        'payload': _load_json_object(row.get('payload_json', '{}'), {}),
+        'created_by': str(row.get('created_by') or ''),
+        'created_at': row.get('created_at'),
+        'published_at': row.get('published_at'),
+        'delivered_at': row.get('delivered_at'),
+        'read_at': row.get('read_at'),
+        'read': bool(row.get('read_at')),
+    }
+
+
+async def create_notification_campaign(notification_type: str, title: str, content: str,
+                                      payload: Dict[str, Any], audience_mode: str,
+                                      audience_snapshot: Dict[str, Any], created_by: str,
+                                      usernames: List[str]) -> Dict:
+    pool = _get_pool()
+    normalized_usernames: List[str] = []
+    seen: set[str] = set()
+    for item in usernames or []:
+        username = str(item or '').strip().lower()
+        if not username or username in seen:
+            continue
+        seen.add(username)
+        normalized_usernames.append(username)
+    now = datetime.now().replace(microsecond=0)
+    payload_json = json.dumps(payload or {}, ensure_ascii=False)
+    audience_snapshot_json = json.dumps(audience_snapshot or {}, ensure_ascii=False)
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            row = await conn.fetchrow('''
+                INSERT INTO notification_campaigns
+                    (notification_type, title, content, payload_json, audience_mode, audience_snapshot_json, created_by, target_count, created_at, published_at)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9)
+                RETURNING id, notification_type, title, content, payload_json, audience_mode, audience_snapshot_json, created_by, target_count, created_at, published_at
+            ''', notification_type, title, content, payload_json, audience_mode, audience_snapshot_json, created_by, len(normalized_usernames), now)
+            if normalized_usernames:
+                await conn.executemany('''
+                    INSERT INTO notification_deliveries
+                        (campaign_id, username, delivery_status, delivered_at, last_push_at, created_at)
+                    VALUES ($1, $2, 'sent', $3, $3, $3)
+                ''', [(row['id'], username, now) for username in normalized_usernames])
+    return _serialize_notification_campaign(dict(row))
+
+
+async def get_notification_campaign_item(campaign_id: int) -> Optional[Dict]:
+    pool = _get_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow('''
+            SELECT id, notification_type, title, content, payload_json, created_by, created_at, published_at
+            FROM notification_campaigns
+            WHERE id = $1
+        ''', campaign_id)
+    if not row:
+        return None
+    return _serialize_notification_item({**dict(row), 'delivered_at': row['published_at'], 'read_at': None})
+
+
+async def get_user_notification_items(username: str, limit: int = 20) -> List[Dict]:
+    pool = _get_pool()
+    normalized_username = str(username or '').strip().lower()
+    if not normalized_username:
+        return []
+    async with pool.acquire() as conn:
+        rows = await conn.fetch('''
+            SELECT c.id, c.notification_type, c.title, c.content, c.payload_json,
+                   c.created_by, c.created_at, c.published_at,
+                   d.delivered_at, d.read_at
+            FROM notification_deliveries d
+            JOIN notification_campaigns c ON c.id = d.campaign_id
+            WHERE d.username = $1
+            ORDER BY c.id DESC
+            LIMIT $2
+        ''', normalized_username, limit)
+    return [_serialize_notification_item(dict(row)) for row in rows]
+
+
+async def get_notification_unread_count(username: str) -> int:
+    pool = _get_pool()
+    normalized_username = str(username or '').strip().lower()
+    if not normalized_username:
+        return 0
+    async with pool.acquire() as conn:
+        count = await conn.fetchval('''
+            SELECT COUNT(*)
+            FROM notification_deliveries
+            WHERE username = $1 AND read_at IS NULL
+        ''', normalized_username)
+    return int(count or 0)
+
+
+async def mark_all_notifications_read(username: str) -> List[int]:
+    pool = _get_pool()
+    normalized_username = str(username or '').strip().lower()
+    if not normalized_username:
+        return []
+    now = datetime.now().replace(microsecond=0)
+    async with pool.acquire() as conn:
+        rows = await conn.fetch('''
+            UPDATE notification_deliveries
+            SET read_at = $2
+            WHERE username = $1 AND read_at IS NULL
+            RETURNING campaign_id
+        ''', normalized_username, now)
+    return [int(row['campaign_id']) for row in rows]
+
+
+async def get_notification_campaigns(limit: int = 20, offset: int = 0,
+                                    created_by: str = None) -> Dict:
+    pool = _get_pool()
+    params: List[Any] = []
+    where = ''
+    if created_by:
+        params.append(created_by)
+        where = ' WHERE c.created_by = $1'
+    async with pool.acquire() as conn:
+        total = await conn.fetchval(f'SELECT COUNT(*) FROM notification_campaigns c{where}', *params)
+        params.extend([limit, offset])
+        limit_idx = len(params) - 1
+        offset_idx = len(params)
+        rows = await conn.fetch(f'''
+            SELECT c.id, c.notification_type, c.title, c.content, c.payload_json,
+                   c.audience_mode, c.audience_snapshot_json, c.created_by,
+                   c.target_count, c.created_at, c.published_at,
+                   COALESCE(SUM(CASE WHEN d.id IS NOT NULL AND d.read_at IS NOT NULL THEN 1 ELSE 0 END), 0) AS read_count,
+                   COALESCE(SUM(CASE WHEN d.id IS NOT NULL AND d.read_at IS NULL THEN 1 ELSE 0 END), 0) AS unread_count
+            FROM notification_campaigns c
+            LEFT JOIN notification_deliveries d ON d.campaign_id = c.id
+            {where}
+            GROUP BY c.id
+            ORDER BY c.id DESC
+            LIMIT ${limit_idx} OFFSET ${offset_idx}
+        ''', *params)
+    return {'total': int(total or 0), 'rows': [_serialize_notification_campaign(dict(row)) for row in rows]}
 
 
 # ===== 积分配置 =====

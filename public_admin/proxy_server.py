@@ -132,19 +132,16 @@ from remote_assist.types import AssistConsentStatus, AssistRole
 
 from outbound_dispatcher import dispatcher, ace_sell_dispatcher, OutboundExit
 
-
-
-
-# 初始化调度器配置
-
 if SOCKS5_EXITS:
-
     dispatcher.configure_from_list(SOCKS5_EXITS)
 
 dispatcher.MAX_LOGIN_PER_MIN = LOGIN_RATE_PER_EXIT
 
+# 通知模块
 
+from notification_router import create_notification_router
 
+from notification_service import NotificationService
 
 # ===== 日志配置 =====
 
@@ -243,141 +240,6 @@ app.add_middleware(
     allow_headers=["*"],
 
 )
-
-
-
-
-
-@app.on_event("startup")
-
-async def startup():
-
-    """启动时初始化数据库连接池"""
-
-    try:
-
-        await db.init_db(
-
-            host=DB_HOST, port=DB_PORT, database=DB_NAME,
-
-            user=DB_USER, password=DB_PASSWORD,
-
-            min_size=DB_MIN_POOL, max_size=DB_MAX_POOL
-
-        )
-
-        logger.info("PostgreSQL 数据库连接成功")
-
-        # 启动定期清理任务
-
-        asyncio.create_task(_periodic_cleanup())
-
-    except Exception as e:
-
-        logger.error(f"PostgreSQL 连接失败: {e}，将使用内存模式")
-
-    # 启动出口调度器
-
-    await dispatcher.start()
-
-    # 注入403/429持久化回调
-    dispatcher.alert_callback = db.insert_exit_event
-
-    # 预加载封禁集合到内存，避免热路径查DB
-    try:
-        banned_usernames, banned_ips = await db.load_banned_sets()
-        stats.banned_accounts.update(banned_usernames)
-        stats.banned_ips.update(banned_ips)
-        logger.info(f"封禁集合已加载: {len(banned_usernames)} 账号, {len(banned_ips)} IP")
-    except Exception as e:
-        logger.warning(f"加载封禁集合失败: {e}")
-
-    # 自动恢复上次保存的节点配置
-    await _restore_dispatcher_exits()
-    # 节点全部加载完毕后触发一次IP检测（fire-and-forget，不阻塞启动）
-    asyncio.create_task(dispatcher.detect_all_ips())
-
-
-
-
-
-async def _restore_dispatcher_exits():
-    """启动时自动恢复上次保存的节点配置"""
-    try:
-        config_file = os.path.join(os.path.dirname(__file__), "dispatcher_exits.json")
-        if not os.path.exists(config_file):
-            logger.info("[Dispatcher] 未找到保存的节点配置，跳过恢复")
-            return
-        
-        with open(config_file, "r", encoding="utf-8") as f:
-            exits_config = json.load(f)
-        
-        nodes_to_restore = exits_config.get("nodes", [])
-        base_port = exits_config.get("base_port", 10001)
-        
-        if not nodes_to_restore:
-            logger.info("[Dispatcher] 节点配置为空，跳过恢复")
-            return
-        
-        # 生成sing-box配置并重载
-        import singbox_manager as sbm
-        apply_result = sbm.apply_nodes(nodes_to_restore, base_port)
-        
-        if not apply_result["success"]:
-            logger.warning(f"[Dispatcher] sing-box配置恢复失败: {apply_result.get('message', '')}")
-            return
-        
-        # 等待sing-box启动
-        await asyncio.sleep(2)
-        
-        # 清除旧的隧道出口（保留#0直连）
-        while len(dispatcher.exits) > 1:
-            dispatcher.exits.pop()
-        
-        # 注册节点到dispatcher
-        for i, node in enumerate(nodes_to_restore):
-            port = base_port + i
-            name = node.get("display_name", node.get("name", f"node_{i}"))
-            dispatcher.add_socks5(name, port)
-        
-        logger.info(f"[Dispatcher] 已自动恢复 {len(nodes_to_restore)} 个节点配置")
-        
-    except Exception as e:
-        logger.warning(f"[Dispatcher] 恢复节点配置失败: {e}")
-
-async def _periodic_cleanup():
-
-    """每6小时清理旧数据，平衡性能和存储"""
-
-    while True:
-
-        await asyncio.sleep(6 * 3600)  # 6小时
-
-        try:
-
-            await db.cleanup_old_records(
-
-                login_days=90,           # 登录记录保留90天
-
-                max_login_rows=500000    # 最多50万条登录记录
-
-            )
-
-        except Exception as e:
-
-            logger.warning(f"定期清理失败: {e}")
-
-
-
-
-
-@app.on_event("shutdown")
-
-async def shutdown():
-
-    """关闭时释放数据库连接池"""
-
-    await db.close_db()
 
 
 
@@ -2376,13 +2238,15 @@ async def _resolve_admin_identity(request: Request):
 
     role = get_token_role(token) or ''
 
-    if role == ROLE_SUB_ADMIN:
-
-        return token, role, get_token_sub_name(token) or ''
-
     if role == ROLE_SUPER_ADMIN:
 
         return token, role, '__super__'
+
+    if role == ROLE_SUB_ADMIN:
+
+        sub_name = get_token_sub_name(token) or ''
+
+        return token, role, sub_name
 
     return token, role, ''
 
@@ -2651,8 +2515,8 @@ class OnlineUserManager:
         user['page'] = current.get('page', '')
         user['user_agent'] = current.get('user_agent', '')
         user['page_client_id'] = current.get('page_client_id', '')
-        user['last_heartbeat'] = current.get('last_heartbeat')
         user['online_time'] = user.get('online_time') or current.get('online_time') or datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        user['last_heartbeat'] = current.get('last_heartbeat')
         return user
 
     def get_user(self, username):
@@ -2824,8 +2688,6 @@ class OnlineUserManager:
 
             {'content': content, 'is_admin': False, 'time': datetime.now().strftime('%H:%M:%S')})
 
-
-
     def get_messages(self, username):
 
         normalized = self.normalize_username(username)
@@ -2836,11 +2698,36 @@ class OnlineUserManager:
 
         return self.messages.get(normalized, [])[-50:]
 
-
+    async def send_payload_to_all_connections(self, username, payload):
+        normalized = self.normalize_username(username)
+        if not normalized:
+            return False
+        user = self._prune_stale_connections(normalized)
+        if not user:
+            return False
+        sent = False
+        for connection in list((user.get('connections') or {}).values()):
+            try:
+                await connection['websocket'].send_json(payload)
+                sent = True
+            except Exception:
+                self.user_offline(username, connection.get('websocket'))
+        return sent
 
 online_manager = OnlineUserManager()
 
+notification_service = NotificationService(
+    push_user_payload=online_manager.send_payload_to_all_connections,
+    broadcast_admin_event=ws_manager.broadcast,
+    online_users_supplier=online_manager.get_online_users,
+)
 
+app.include_router(create_notification_router(
+    service=notification_service,
+    verify_admin_token=verify_admin_token,
+    get_token_role=get_token_role,
+    get_token_sub_name=get_token_sub_name,
+))
 
 
 
@@ -6425,6 +6312,8 @@ async def chat_websocket(websocket: WebSocket):
 
                         await websocket.send_json({'type': 'history', 'messages': history})
 
+                    await notification_service.push_snapshot_to_user(username, reason='connect_open')
+
             elif msg_type == 'heartbeat':
 
                 hp = data.get('page', '')
@@ -6435,6 +6324,21 @@ async def chat_websocket(websocket: WebSocket):
                     page=hp,
                     page_client_id=data.get('pageClientId', ''),
                 )
+
+            elif msg_type == 'notification_request_snapshot':
+
+                snapshot = await notification_service.build_snapshot(username)
+
+                await websocket.send_json({
+                    'type': 'notification_snapshot',
+                    'items': snapshot.get('items', []),
+                    'unread_count': snapshot.get('unread_count', 0),
+                    'reason': 'client_request',
+                })
+
+            elif msg_type == 'notification_read_all':
+
+                await notification_service.mark_all_read(username)
 
             elif msg_type == 'user_message':
 
@@ -6541,6 +6445,46 @@ async def admin_page():
 async def chat_widget_js():
 
     js_path = os.path.join(os.path.dirname(__file__), "chat_widget.js")
+
+    if os.path.exists(js_path):
+
+        with open(js_path, "r", encoding="utf-8") as f:
+
+            return Response(content=f.read(), media_type="application/javascript",
+
+                            headers={"Cache-Control": "no-cache, no-store, must-revalidate",
+
+                                     "Pragma": "no-cache", "Expires": "0"})
+
+    return Response(content="// not found", media_type="application/javascript")
+
+
+
+@app.get("/chat/notification-widget.js")
+
+async def notification_widget_js():
+
+    js_path = os.path.join(os.path.dirname(__file__), "notification_widget.js")
+
+    if os.path.exists(js_path):
+
+        with open(js_path, "r", encoding="utf-8") as f:
+
+            return Response(content=f.read(), media_type="application/javascript",
+
+                            headers={"Cache-Control": "no-cache, no-store, must-revalidate",
+
+                                     "Pragma": "no-cache", "Expires": "0"})
+
+    return Response(content="// not found", media_type="application/javascript")
+
+
+
+@app.get("/admin/api/notification-panel.js")
+
+async def notification_admin_panel_js():
+
+    js_path = os.path.join(os.path.dirname(__file__), "notification_admin_panel.js")
 
     if os.path.exists(js_path):
 

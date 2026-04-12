@@ -419,6 +419,7 @@
     const WS_URL = `${WS_PROTOCOL}//${window.location.host}/chat/ws`;
     const ASSIST_WS_URL = `${WS_PROTOCOL}//${window.location.host}/admin/assist/ws`;
     const REMOTE_VOICE_CLIENT_URL = `${window.location.origin}/admin/api/remote-voice-client`;
+    const NOTIFICATION_WIDGET_URL = `${window.location.origin}/chat/notification-widget.js`;
     const HEARTBEAT_INTERVAL = 5000; // 5秒心跳间隔
     
     // 状态
@@ -1099,6 +1100,24 @@
             gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.3);
             oscillator.start(audioCtx.currentTime);
             oscillator.stop(audioCtx.currentTime + 0.3);
+        } catch(e) {}
+    }
+
+    function emitChatBridgeEvent(name, detail) {
+        try {
+            window.dispatchEvent(new CustomEvent(name, { detail: detail || {} }));
+        } catch(e) {}
+    }
+
+    function ensureNotificationWidget() {
+        try {
+            if (window.AKNotificationWidgetLoaded) return;
+            if (document.querySelector('script[data-ak-notification-widget="1"]')) return;
+            const script = document.createElement('script');
+            script.src = NOTIFICATION_WIDGET_URL;
+            script.async = true;
+            script.dataset.akNotificationWidget = '1';
+            document.head.appendChild(script);
         } catch(e) {}
     }
     
@@ -3859,11 +3878,13 @@
                 }
                 sendPresence('online');
                 startHeartbeat();
+                emitChatBridgeEvent('ak-chat-ws-open', { username: username || '' });
             };
             
             ws.onmessage = function(e) {
                 try {
                     const data = JSON.parse(e.data);
+                    emitChatBridgeEvent('ak-chat-ws-message', data);
                     
                     if (data.type === 'admin_message') {
                         // 收到管理员消息 - 唯一可以弹出窗口的情况
@@ -3912,6 +3933,10 @@
                 }
                 stopHeartbeat();
                 ws = null;
+                emitChatBridgeEvent('ak-chat-ws-close', {
+                    code: Number((event && event.code) || 0),
+                    reason: String((event && event.reason) || '')
+                });
                 scheduleReconnect('ws_onclose');
             };
             
@@ -3978,12 +4003,25 @@
             resumePresence('manual_reconnect');
         }
     }
+
+    function sendWsPayload(payload) {
+        if (!payload || typeof payload !== 'object') return false;
+        if (!ws || ws.readyState !== WebSocket.OPEN) return false;
+        try {
+            ws.send(JSON.stringify(payload));
+            return true;
+        } catch(e) {
+            return false;
+        }
+    }
     
     // 暴露全局API
     window.AKChat = {
         show: showChat,
         close: closeChat,
         send: sendMessage,
+        sendWsPayload: sendWsPayload,
+        playNotificationSound: playNotificationSound,
         reconnect: reconnect,
         acceptRequest: acceptRequest,
         rejectRequest: rejectRequest,
@@ -3993,6 +4031,8 @@
         rejectVoiceRequest: rejectVoiceRequest,
         toggleVoiceMute: toggleRemoteVoiceMute
     };
+    ensureNotificationWidget();
+    emitChatBridgeEvent('ak-chat-ready', { api: window.AKChat });
     
     // 监听SPA路由变化（history.pushState / replaceState / 浏览器前进后退）
     function onUrlChange() {
