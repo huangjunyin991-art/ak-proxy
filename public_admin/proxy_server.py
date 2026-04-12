@@ -2737,6 +2737,26 @@ app.include_router(create_notification_router(
 
 async def admin_startup():
 
+    try:
+
+        await db.init_db(
+
+            host=DB_HOST, port=DB_PORT, database=DB_NAME,
+
+            user=DB_USER, password=DB_PASSWORD,
+
+            min_size=DB_MIN_POOL, max_size=DB_MAX_POOL
+
+        )
+
+        logger.info("PostgreSQL 数据库连接成功")
+
+    except Exception as e:
+
+        logger.error(f"PostgreSQL 连接失败: {e}")
+
+        raise
+
     await _load_tokens_from_db()
 
     try:
