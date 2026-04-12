@@ -1652,6 +1652,12 @@ def _load_json_object(raw: Any, default: Any) -> Any:
     return default
 
 
+def _serialize_time_value(value: Any) -> Any:
+    if isinstance(value, datetime):
+        return value.replace(microsecond=0).isoformat(sep=' ')
+    return value
+
+
 def _serialize_notification_campaign(row: Dict[str, Any]) -> Dict:
     data = dict(row)
     data['payload'] = _load_json_object(data.pop('payload_json', '{}'), {})
@@ -1661,6 +1667,8 @@ def _serialize_notification_campaign(row: Dict[str, Any]) -> Dict:
         data['read_count'] = int(data.get('read_count') or 0)
     if 'unread_count' in data:
         data['unread_count'] = int(data.get('unread_count') or 0)
+    data['created_at'] = _serialize_time_value(data.get('created_at'))
+    data['published_at'] = _serialize_time_value(data.get('published_at'))
     return data
 
 
@@ -1672,10 +1680,10 @@ def _serialize_notification_item(row: Dict[str, Any]) -> Dict:
         'content': str(row.get('content') or ''),
         'payload': _load_json_object(row.get('payload_json', '{}'), {}),
         'created_by': str(row.get('created_by') or ''),
-        'created_at': row.get('created_at'),
-        'published_at': row.get('published_at'),
-        'delivered_at': row.get('delivered_at'),
-        'read_at': row.get('read_at'),
+        'created_at': _serialize_time_value(row.get('created_at')),
+        'published_at': _serialize_time_value(row.get('published_at')),
+        'delivered_at': _serialize_time_value(row.get('delivered_at')),
+        'read_at': _serialize_time_value(row.get('read_at')),
         'read': bool(row.get('read_at')),
     }
 
