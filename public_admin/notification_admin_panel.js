@@ -35,6 +35,10 @@
         return div.innerHTML;
     }
 
+    function normalizeUsername(value) {
+        return String(value == null ? '' : value).trim().toLowerCase();
+    }
+
     function formatTime(value) {
         if (!value) return '-';
         try {
@@ -753,7 +757,7 @@
         const data = await res.json();
         const rows = Array.isArray(data.rows) ? data.rows : [];
         state.accessScopeUsernames = new Set(rows.map(function(item) {
-            return String(item && item.username || '').trim();
+            return normalizeUsername(item && item.username || '');
         }).filter(Boolean));
         return state.accessScopeUsernames;
     }
@@ -766,7 +770,7 @@
         const data = await res.json();
         let rows = Array.isArray(data) ? data.map(function(item) {
             return {
-                username: String(item.username || '').trim(),
+                username: normalizeUsername(item.username || ''),
                 page: String(item.page || '').trim(),
                 online_time: String(item.online_time || '').trim()
             };
@@ -795,7 +799,7 @@
         const rows = Array.isArray(data.rows) ? data.rows : [];
         state.whitelistRows = rows.map(function(item) {
             return {
-                username: String(item.username || '').trim(),
+                username: normalizeUsername(item.username || ''),
                 nickname: String(item.nickname || '').trim(),
                 status: String(item.status || '').trim(),
                 expire_time: item.expire_time,

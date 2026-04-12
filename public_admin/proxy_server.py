@@ -6300,6 +6300,14 @@ async def chat_websocket(websocket: WebSocket):
 
                 )
 
+                await ws_manager.broadcast({'type': 'user_online', 'data': {
+
+                    'username': username,
+
+                    'page': (current_user or {}).get('page') or data.get('page', '')
+
+                }})
+
                 if prev_ws_id != current_ws_id:
 
                     assist_session = remote_assist.find_session_by_target_username(username)
