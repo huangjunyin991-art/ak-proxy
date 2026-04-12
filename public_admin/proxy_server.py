@@ -6254,6 +6254,8 @@ async def chat_websocket(websocket: WebSocket):
 
     username = websocket.query_params.get('username', 'visitor')
 
+    normalized_query_username = online_manager.normalize_username(username)
+
     client = getattr(websocket, 'client', None)
 
     logger.warning(
@@ -6261,6 +6263,24 @@ async def chat_websocket(websocket: WebSocket):
         f"[ChatWS] accepted query_username={username or '-'} client={client}"
 
     )
+
+    if normalized_query_username and normalized_query_username != 'visitor' and not normalized_query_username.startswith('guest_'):
+
+        current_user = await online_manager.user_online(
+
+            username, websocket,
+
+            '', websocket.headers.get('user-agent', ''), '')
+
+        username = (current_user or {}).get('username') or str(username or '').strip()
+
+        await ws_manager.broadcast({'type': 'user_online', 'data': {
+
+            'username': username,
+
+            'page': (current_user or {}).get('page') or ''
+
+        }})
 
     try:
 
