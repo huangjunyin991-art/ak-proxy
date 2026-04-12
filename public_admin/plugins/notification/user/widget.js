@@ -97,8 +97,14 @@
     }
 
     function getActionLabel(item) {
-        if (isMeetingNotification(item)) return '进入会议';
         const payload = item && item.payload && typeof item.payload === 'object' ? item.payload : {};
+        if (isMeetingNotification(item)) {
+            const hasTargets = Array.isArray(payload.launch_targets) && payload.launch_targets.some(function(target) {
+                return target && typeof target === 'object' && String(target.url || '').trim();
+            });
+            const hasFallback = String(payload.web_fallback_url || '').trim();
+            return hasTargets || hasFallback ? '进入会议' : '';
+        }
         if (payload.url) return '立即查看';
         return '';
     }

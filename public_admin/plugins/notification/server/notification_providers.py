@@ -44,6 +44,35 @@ class TencentMeetingNotificationProvider(BaseNotificationProvider):
 
     def normalize(self, title: str, content: str, raw_payload: dict[str, Any]) -> dict[str, Any]:
         meeting = raw_payload.get('meeting') if isinstance(raw_payload.get('meeting'), dict) else {}
+        resolve_mode = _normalize_text(meeting.get('resolve_mode'), 16)
+        if resolve_mode == 'raw':
+            raw_title = _normalize_text(title, 120)
+            raw_content = _normalize_text(content or meeting.get('content'), 4000)
+            if not raw_title and not raw_content:
+                raise NotificationProviderError('会议通知至少需要标题或内容')
+            return {
+                'notification_type': self.notification_type,
+                'title': raw_title or '会议通知',
+                'content': raw_content,
+                'payload': {
+                    'kind': 'meeting',
+                    'provider': 'tencent_meeting',
+                    'meeting_title': raw_title,
+                    'creator_name': '',
+                    'meeting_code': '',
+                    'meeting_password': '',
+                    'start_time': '',
+                    'end_time': '',
+                    'duration_text': '',
+                    'time_zone': '',
+                    'start_timestamp': '',
+                    'end_timestamp': '',
+                    'web_fallback_url': '',
+                    'launch_targets': [],
+                    'source_url': '',
+                    'resolution_source': 'raw',
+                },
+            }
         share_url = _normalize_url(
             meeting.get('share_url')
             or meeting.get('meeting_share_url')

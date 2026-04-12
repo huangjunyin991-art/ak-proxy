@@ -12,6 +12,7 @@
         loadingTypes: false,
         loadingHistory: false,
         loadingAudience: false,
+        meetingResolveBusy: false,
         sending: false,
         types: [],
         historyRows: [],
@@ -24,6 +25,7 @@
         selectedOnline: new Set(),
         selectedWhitelist: new Set(),
         accessScopeUsernames: null,
+        meetingResolvedPayload: null,
         sourceRefreshTimer: null
     };
 
@@ -413,33 +415,18 @@
                                         <div class="ak-notify-source-list" id="akNotifyAudienceList"></div>
                                     </div>
                                 </div>
-                                <div class="ak-notify-field full">
+                                <div class="ak-notify-field full" id="akNotifyTitleWrap">
                                     <span class="ak-notify-label">标题</span>
                                     <input type="text" class="ak-notify-input" id="akNotifyTitle" maxlength="120" placeholder="一般通知可只填标题；会议通知建议填写会议标题">
                                 </div>
                                 <div class="ak-notify-field full">
-                                    <span class="ak-notify-label">内容</span>
-                                    <textarea class="ak-notify-textarea" id="akNotifyContent" placeholder="通知正文"></textarea>
-                                </div>
-                                <div class="ak-notify-field full ak-notify-hidden" id="akNotifyMeetingWrap">
-                                    <div class="ak-notify-form-grid">
-                                        <div class="ak-notify-field">
-                                            <span class="ak-notify-label">会议标题</span>
-                                            <input type="text" class="ak-notify-input" id="akNotifyMeetingTitle" maxlength="120" placeholder="例如：周会 / 培训会">
-                                        </div>
-                                        <div class="ak-notify-field">
-                                            <span class="ak-notify-label">开始时间</span>
-                                            <input type="text" class="ak-notify-input" id="akNotifyMeetingStartTime" maxlength="64" placeholder="例如：今天 19:30">
-                                        </div>
-                                        <div class="ak-notify-field">
-                                            <span class="ak-notify-label">会议号</span>
-                                            <input type="text" class="ak-notify-input" id="akNotifyMeetingCode" maxlength="64" placeholder="腾讯会议号">
-                                        </div>
-                                        <div class="ak-notify-field full">
-                                            <span class="ak-notify-label">腾讯会议分享链接</span>
-                                            <input type="text" class="ak-notify-input" id="akNotifyMeetingShareUrl" placeholder="https://meeting.tencent.com/dm/...">
+                                    <div class="ak-notify-source-toolbar">
+                                        <span class="ak-notify-label">内容</span>
+                                        <div class="ak-notify-source-actions">
+                                            <button type="button" class="ak-notify-mini-btn ak-notify-hidden" id="akNotifyResolveMeetingBtn" title="点击可获取此会议链接的详细信息并自动填充到内容中">会议解析</button>
                                         </div>
                                     </div>
+                                    <textarea class="ak-notify-textarea" id="akNotifyContent" placeholder="通知正文"></textarea>
                                 </div>
                             </div>
                             <div class="ak-notify-actions-row">
@@ -472,13 +459,10 @@
         refs.audienceMeta = document.getElementById('akNotifyAudienceMeta');
         refs.audienceList = document.getElementById('akNotifyAudienceList');
         refs.whitelistSearch = document.getElementById('akNotifyWhitelistSearch');
+        refs.titleWrap = document.getElementById('akNotifyTitleWrap');
         refs.title = document.getElementById('akNotifyTitle');
         refs.content = document.getElementById('akNotifyContent');
-        refs.meetingWrap = document.getElementById('akNotifyMeetingWrap');
-        refs.meetingTitle = document.getElementById('akNotifyMeetingTitle');
-        refs.meetingStartTime = document.getElementById('akNotifyMeetingStartTime');
-        refs.meetingCode = document.getElementById('akNotifyMeetingCode');
-        refs.meetingShareUrl = document.getElementById('akNotifyMeetingShareUrl');
+        refs.resolveMeetingBtn = document.getElementById('akNotifyResolveMeetingBtn');
         refs.sendStatus = document.getElementById('akNotifySendStatus');
         refs.sendBtn = document.getElementById('akNotifySendBtn');
         refs.historyList = document.getElementById('akNotifyHistoryList');
@@ -496,7 +480,11 @@
             });
         });
         refs.typeSelect.addEventListener('change', function() {
-            state.notificationType = String(refs.typeSelect.value || 'general');
+            const nextType = String(refs.typeSelect.value || 'general').trim().toLowerCase() || 'general';
+            if (nextType !== 'meeting') {
+                state.meetingResolvedPayload = null;
+            }
+            state.notificationType = nextType;
             syncFormState();
         });
         refs.whitelistSearch.addEventListener('keydown', function(event) {
@@ -515,6 +503,9 @@
         refs.loadAudienceBtn.addEventListener('click', function() {
             state.whitelistSearch = String(refs.whitelistSearch.value || '').trim();
             loadAudience(true);
+        });
+        refs.resolveMeetingBtn.addEventListener('click', function() {
+            resolveMeetingContent();
         });
         refs.selectAllBtn.addEventListener('click', function() {
             selectAllAudience();
@@ -562,10 +553,16 @@
         refs.manualWrap.classList.toggle('ak-notify-hidden', state.audienceMode !== 'manual');
         refs.audienceWrap.classList.toggle('ak-notify-hidden', state.audienceMode === 'manual');
         refs.whitelistSearch.classList.toggle('ak-notify-hidden', state.audienceMode !== 'whitelist');
-        refs.meetingWrap.classList.toggle('ak-notify-hidden', state.notificationType !== 'meeting');
+        refs.titleWrap.classList.toggle('ak-notify-hidden', state.notificationType === 'meeting');
+        refs.resolveMeetingBtn.classList.toggle('ak-notify-hidden', state.notificationType !== 'meeting');
+        refs.resolveMeetingBtn.disabled = state.notificationType !== 'meeting' || state.meetingResolveBusy;
         refs.audienceLabel.textContent = state.audienceMode === 'online' ? '在线用户候选' : '白名单候选';
         const selectedCount = getSelectedAudienceSet().size;
-        if (state.audienceMode === 'manual') {
+        if (state.notificationType === 'meeting') {
+            refs.composeMeta.textContent = state.meetingResolvedPayload
+                ? '会议通知：已解析会议内容，可继续修改内容后发送'
+                : '会议通知：可原样发送，或点击“会议解析”自动填充内容';
+        } else if (state.audienceMode === 'manual') {
             refs.composeMeta.textContent = '通过手动输入用户名发送通知';
         } else if (state.audienceMode === 'online') {
             refs.composeMeta.textContent = `从在线用户中选择目标，当前已选 ${selectedCount} 个`;
@@ -842,8 +839,7 @@
 
     function buildPayload() {
         const baseType = String(refs.typeSelect.value || state.notificationType || 'general').trim().toLowerCase();
-        const meetingTitle = String(refs.meetingTitle.value || '').trim();
-        const title = String(refs.title.value || '').trim() || (baseType === 'meeting' ? meetingTitle : '');
+        const title = baseType === 'meeting' ? '' : String(refs.title.value || '').trim();
         const content = String(refs.content.value || '').trim();
         const audience = { mode: state.audienceMode };
         if (state.audienceMode === 'manual') {
@@ -864,14 +860,51 @@
             audience: audience
         };
         if (baseType === 'meeting') {
-            payload.meeting = {
-                meeting_title: meetingTitle,
-                meeting_code: String(refs.meetingCode.value || '').trim(),
-                start_time: String(refs.meetingStartTime.value || '').trim(),
-                share_url: String(refs.meetingShareUrl.value || '').trim()
-            };
+            payload.meeting = Object.assign(
+                { resolve_mode: state.meetingResolvedPayload ? 'parsed' : 'raw' },
+                state.meetingResolvedPayload && typeof state.meetingResolvedPayload === 'object' ? state.meetingResolvedPayload : {}
+            );
         }
         return payload;
+    }
+
+
+    async function resolveMeetingContent() {
+        if (state.meetingResolveBusy || state.notificationType !== 'meeting') return;
+        const content = String(refs.content.value || '').trim();
+        if (!content) {
+            const message = '请先在内容框里粘贴会议链接或邀请文案';
+            refs.sendStatus.textContent = message;
+            showToastSafe(message, 'error');
+            return;
+        }
+        state.meetingResolveBusy = true;
+        syncFormState();
+        refs.sendStatus.textContent = '解析会议中...';
+        try {
+            const res = await fetch(`${API_ROOT}/admin/api/notifications/meeting/resolve`, {
+                method: 'POST',
+                headers: getHeadersSafe({ 'Content-Type': 'application/json' }),
+                body: JSON.stringify({ content: content })
+            });
+            if (!checkResponseSafe(res)) return;
+            const data = await res.json();
+            if (!res.ok || !data.success) {
+                throw new Error(data.message || '会议解析失败');
+            }
+            const detail = data.data && typeof data.data === 'object' ? data.data : {};
+            refs.content.value = String(detail.generated_content || '').trim() || content;
+            state.meetingResolvedPayload = detail.meeting && typeof detail.meeting === 'object' ? detail.meeting : null;
+            refs.sendStatus.textContent = data.message || '会议内容已自动填充';
+            showToastSafe(data.message || '会议内容已自动填充', 'success');
+        } catch (e) {
+            const message = String((e && e.message) || e || '会议解析失败');
+            refs.sendStatus.textContent = message;
+            showToastSafe(message, 'error');
+        } finally {
+            state.meetingResolveBusy = false;
+            syncFormState();
+        }
     }
 
     async function sendNotification() {

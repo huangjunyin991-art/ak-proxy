@@ -15,6 +15,7 @@ _HTML_TAG_RE = re.compile(r'<[^>]+>')
 _WHITESPACE_RE = re.compile(r'\s+')
 _MEETING_CODE_RE = re.compile(r'[\s-]+')
 _BASE64_TEXT_RE = re.compile(r'^[A-Za-z0-9+/=_-]+$')
+_SHARE_URL_RE = re.compile(r'https?://(?:meeting\.tencent\.com/(?:dm|dw|dp|s)/[^\s<>"\'\u3002\uff0c\uff1b\uff09\u3001]+|wemeet\.qq\.com/w/[^\s<>"\'\u3002\uff0c\uff1b\uff09\u3001]+)', re.I)
 _SUPPORTED_HOSTS = ('meeting.tencent.com', 'wemeet.qq.com')
 
 
@@ -113,6 +114,44 @@ class TencentMeetingShareLinkResolver:
         except Exception:
             html_text = body.decode('utf-8', errors='replace')
         return final_url, html_text
+
+
+def extract_tencent_meeting_share_url(value: Any) -> str:
+    text = str(value or '').strip()
+    if not text:
+        return ''
+    match = _SHARE_URL_RE.search(text)
+    if not match:
+        return ''
+    return _normalize_http_url(match.group(0))
+
+
+def build_tencent_meeting_content(meeting: dict[str, Any], *, share_url: str = '') -> str:
+    if not isinstance(meeting, dict):
+        return ''
+    lines: list[str] = []
+    meeting_title = _normalize_text(meeting.get('meeting_title'), 120)
+    creator_name = _normalize_text(meeting.get('creator_name'), 120)
+    start_time = _normalize_text(meeting.get('start_time'), 64)
+    end_time = _normalize_text(meeting.get('end_time'), 64)
+    duration_text = _normalize_text(meeting.get('duration_text'), 64)
+    meeting_code = _normalize_meeting_code(meeting.get('meeting_code'))
+    resolved_share_url = _normalize_http_url(share_url or meeting.get('source_url') or meeting.get('web_fallback_url'))
+    if meeting_title:
+        lines.append(f'会议标题：{meeting_title}')
+    if creator_name:
+        lines.append(f'发起人：{creator_name}')
+    if start_time:
+        lines.append(f'开始时间：{start_time}')
+    if end_time:
+        lines.append(f'结束时间：{end_time}')
+    if duration_text:
+        lines.append(f'会议时长：{duration_text}')
+    if meeting_code:
+        lines.append(f'会议号：{meeting_code}')
+    if resolved_share_url:
+        lines.append(f'会议链接：{resolved_share_url}')
+    return '\n'.join(lines)
 
 
 def _extract_next_data(html_text: str) -> dict[str, Any]:
