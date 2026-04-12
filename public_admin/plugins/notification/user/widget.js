@@ -209,32 +209,24 @@
     position: absolute;
     top: 8px;
     right: 8px;
-    min-width: 14px;
-    width: 14px;
-    height: 14px;
+    min-width: 9px;
+    width: 9px;
+    height: 9px;
     padding: 0;
     border-radius: 999px;
-    background: radial-gradient(circle at 32% 30%, rgba(255, 255, 255, 0.95) 0%, rgba(255, 183, 188, 0.96) 18%, #ff555f 36%, #ef1f36 58%, #bf0b1f 76%, #7a000f 100%);
+    background: linear-gradient(180deg, #ff2f43 0%, #f30023 100%);
     color: transparent;
     font-size: 0;
     line-height: 0;
     display: none;
     align-items: center;
     justify-content: center;
-    border: 1px solid rgba(92, 8, 20, 0.92);
-    box-shadow: 0 0 0 2px rgba(15, 16, 26, 0.88), 0 0 14px rgba(255, 42, 76, 0.34), inset 0 1px 1px rgba(255, 255, 255, 0.45), inset 0 -2px 3px rgba(87, 0, 16, 0.35);
+    border: 1px solid rgba(255, 140, 150, 0.22);
+    box-shadow: 0 0 8px rgba(255, 39, 66, 0.24);
     z-index: 2;
 }
 #ak-notification-widget-root .ak-notification-dot::after {
-    content: '';
-    position: absolute;
-    top: 2px;
-    left: 2px;
-    width: 6px;
-    height: 4px;
-    border-radius: 999px;
-    background: rgba(255, 255, 255, 0.72);
-    filter: blur(0.3px);
+    display: none;
 }
 #ak-notification-widget-root .ak-notification-dot.visible {
     display: inline-flex;
