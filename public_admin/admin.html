@@ -10254,6 +10254,81 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
             await releaseAkAssistSession(closingAssistSessionId);
         }
     </script>
-    <script src="/admin/api/notification-panel.js"></script>
+    <script>
+        (function() {
+            var notificationPanelBuildVersion = '20260412-01';
+
+            function reportNotificationPanelLoadFailure(message) {
+                try {
+                    if (typeof showToast === 'function') {
+                        showToast(message, 'error');
+                    }
+                } catch (e) {}
+                console.error('[NotificationAdminPanelLoader]', message);
+            }
+
+            function resetNotificationPanelGlobals() {
+                try {
+                    delete window.AKNotificationAdminPanel;
+                } catch (e) {
+                    window.AKNotificationAdminPanel = undefined;
+                }
+                try {
+                    delete window.AKNotificationAdminPanelLoaded;
+                } catch (e) {
+                    window.AKNotificationAdminPanelLoaded = undefined;
+                }
+            }
+
+            function removeNotificationPanelScripts() {
+                Array.prototype.slice.call(document.querySelectorAll('script[data-notification-panel-loader="1"]')).forEach(function(node) {
+                    if (node && node.parentNode) {
+                        node.parentNode.removeChild(node);
+                    }
+                });
+            }
+
+            function buildNotificationPanelUrl(forceRefresh) {
+                if (forceRefresh) {
+                    return '/admin/api/notification-panel.js?t=' + Date.now();
+                }
+                return '/admin/api/notification-panel.js?v=' + encodeURIComponent(notificationPanelBuildVersion);
+            }
+
+            function loadNotificationPanelScript(forceRefresh, attempt) {
+                var script = document.createElement('script');
+                script.src = buildNotificationPanelUrl(forceRefresh);
+                script.async = false;
+                script.defer = false;
+                script.setAttribute('data-notification-panel-loader', '1');
+                script.onload = function() {
+                    if (window.AKNotificationAdminPanel) {
+                        return;
+                    }
+                    if (attempt < 2) {
+                        resetNotificationPanelGlobals();
+                        removeNotificationPanelScripts();
+                        loadNotificationPanelScript(true, attempt + 1);
+                        return;
+                    }
+                    reportNotificationPanelLoadFailure('通知面板脚本加载失败，请强制刷新后重试');
+                };
+                script.onerror = function() {
+                    if (attempt < 2) {
+                        resetNotificationPanelGlobals();
+                        removeNotificationPanelScripts();
+                        loadNotificationPanelScript(true, attempt + 1);
+                        return;
+                    }
+                    reportNotificationPanelLoadFailure('通知面板脚本请求失败，请强制刷新后重试');
+                };
+                (document.body || document.head || document.documentElement).appendChild(script);
+            }
+
+            resetNotificationPanelGlobals();
+            removeNotificationPanelScripts();
+            loadNotificationPanelScript(false, 1);
+        })();
+    </script>
 </body>
 </html>
