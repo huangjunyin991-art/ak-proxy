@@ -435,21 +435,9 @@
                                             <span class="ak-notify-label">会议号</span>
                                             <input type="text" class="ak-notify-input" id="akNotifyMeetingCode" maxlength="64" placeholder="腾讯会议号">
                                         </div>
-                                        <div class="ak-notify-field">
-                                            <span class="ak-notify-label">会议密码</span>
-                                            <input type="text" class="ak-notify-input" id="akNotifyMeetingPassword" maxlength="64" placeholder="可选">
-                                        </div>
                                         <div class="ak-notify-field full">
-                                            <span class="ak-notify-label">网页回退地址</span>
-                                            <input type="text" class="ak-notify-input" id="akNotifyMeetingWebFallback" placeholder="https://meeting.tencent.com/...">
-                                        </div>
-                                        <div class="ak-notify-field">
-                                            <span class="ak-notify-label">桌面端拉起地址</span>
-                                            <input type="text" class="ak-notify-input" id="akNotifyMeetingDesktopUrl" placeholder="wemeet://page/inmeeting?...">
-                                        </div>
-                                        <div class="ak-notify-field">
-                                            <span class="ak-notify-label">移动端拉起地址</span>
-                                            <input type="text" class="ak-notify-input" id="akNotifyMeetingMobileUrl" placeholder="wemeet://page/inmeeting?...">
+                                            <span class="ak-notify-label">腾讯会议分享链接</span>
+                                            <input type="text" class="ak-notify-input" id="akNotifyMeetingShareUrl" placeholder="https://meeting.tencent.com/dm/...">
                                         </div>
                                     </div>
                                 </div>
@@ -490,10 +478,7 @@
         refs.meetingTitle = document.getElementById('akNotifyMeetingTitle');
         refs.meetingStartTime = document.getElementById('akNotifyMeetingStartTime');
         refs.meetingCode = document.getElementById('akNotifyMeetingCode');
-        refs.meetingPassword = document.getElementById('akNotifyMeetingPassword');
-        refs.meetingWebFallback = document.getElementById('akNotifyMeetingWebFallback');
-        refs.meetingDesktopUrl = document.getElementById('akNotifyMeetingDesktopUrl');
-        refs.meetingMobileUrl = document.getElementById('akNotifyMeetingMobileUrl');
+        refs.meetingShareUrl = document.getElementById('akNotifyMeetingShareUrl');
         refs.sendStatus = document.getElementById('akNotifySendStatus');
         refs.sendBtn = document.getElementById('akNotifySendBtn');
         refs.historyList = document.getElementById('akNotifyHistoryList');
@@ -882,11 +867,8 @@
             payload.meeting = {
                 meeting_title: meetingTitle,
                 meeting_code: String(refs.meetingCode.value || '').trim(),
-                meeting_password: String(refs.meetingPassword.value || '').trim(),
                 start_time: String(refs.meetingStartTime.value || '').trim(),
-                web_fallback_url: String(refs.meetingWebFallback.value || '').trim(),
-                desktop_launch_url: String(refs.meetingDesktopUrl.value || '').trim(),
-                mobile_launch_url: String(refs.meetingMobileUrl.value || '').trim()
+                share_url: String(refs.meetingShareUrl.value || '').trim()
             };
         }
         return payload;
