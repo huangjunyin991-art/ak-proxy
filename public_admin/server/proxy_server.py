@@ -6581,7 +6581,7 @@ async def notification_user_plugin_widget_js():
 
 async def notification_admin_panel_js():
 
-    js_path = os.path.join(PLUGINS_DIR, "notification", "admin", "index.js")
+    js_path = os.path.join(PLUGINS_DIR, "notification", "admin", "panel.js")
 
     if os.path.exists(js_path):
 
