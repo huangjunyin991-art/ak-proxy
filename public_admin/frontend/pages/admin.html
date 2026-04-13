@@ -2804,22 +2804,18 @@
         <!-- 白名单管理 -->
         <div class="panel" id="whitelist">
             <div>
-                <div id="wlGlobalSwitch" style="background: linear-gradient(135deg, rgba(102,126,234,0.15), rgba(118,75,162,0.15)); border: 2px solid var(--accent); border-radius: 12px; padding: 15px 20px; margin-bottom: 18px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
-                    <div style="flex: 1; min-width: 200px;">
-                        <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 6px;">
-                            <span style="font-size: 28px;">🌐</span>
-                            <h4 style="margin: 0; color: var(--accent); font-size: 16px; font-weight: bold;">白名单生效控制</h4>
-                        </div>
-                        <p id="wlGlobalDesc" style="margin: 0; font-size: 12px; color: var(--text-secondary); line-height: 1.5;">
-                            加载中...
-                        </p>
+                <div id="wlGlobalSwitch" style="background: var(--bg-card); border: 1px solid var(--border); border-radius: 16px; padding: 20px 24px; margin-bottom: 20px; display: flex; align-items: center; gap: 20px; flex-wrap: wrap;">
+                    <div style="width: 48px; height: 48px; border-radius: 14px; display: flex; align-items: center; justify-content: center; flex-shrink: 0;" id="wlGlobalIcon">
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
                     </div>
-                    <div style="display: flex; align-items: center; gap: 12px;">
-                        <div id="wlGlobalStatus" style="padding: 8px 16px; background: rgba(0,0,0,0.2); border-radius: 8px; font-size: 13px; font-weight: bold;">
-                            检测中...
-                        </div>
-                        <button id="wlGlobalToggleBtn" onclick="toggleWhitelistGlobal()" class="btn" style="padding: 8px 20px; font-size: 14px; font-weight: bold; min-width: 100px;" disabled>
-                            <span id="wlGlobalToggleBtnText">加载中</span>
+                    <div style="flex: 1; min-width: 180px;">
+                        <div style="font-size: 15px; font-weight: 600; color: var(--text-primary); margin-bottom: 4px;">白名单生效控制</div>
+                        <div id="wlGlobalDesc" style="font-size: 12px; color: var(--text-secondary); line-height: 1.5;">加载中...</div>
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 16px; flex-shrink: 0;">
+                        <div id="wlGlobalStatus" style="padding: 6px 14px; border-radius: 20px; font-size: 12px; font-weight: 600; letter-spacing: 0.3px;">检测中...</div>
+                        <button id="wlGlobalToggleBtn" onclick="toggleWhitelistGlobal()" style="position: relative; width: 52px; height: 28px; border-radius: 14px; border: none; cursor: pointer; transition: all 0.3s ease; outline: none;" disabled>
+                            <span id="wlGlobalToggleKnob" style="position: absolute; top: 3px; width: 22px; height: 22px; border-radius: 50%; background: white; transition: all 0.3s ease; box-shadow: 0 1px 4px rgba(0,0,0,0.3);"></span>
                         </button>
                     </div>
                 </div>
@@ -7652,23 +7648,26 @@
         function updateWhitelistGlobalUI(enabled) {
             const statusEl = document.getElementById('wlGlobalStatus');
             const btnEl = document.getElementById('wlGlobalToggleBtn');
-            const btnTextEl = document.getElementById('wlGlobalToggleBtnText');
+            const knobEl = document.getElementById('wlGlobalToggleKnob');
             const descEl = document.getElementById('wlGlobalDesc');
-            if (!statusEl || !btnEl || !btnTextEl || !descEl) return;
+            const iconEl = document.getElementById('wlGlobalIcon');
+            if (!statusEl || !btnEl || !knobEl || !descEl || !iconEl) return;
             if (enabled) {
-                statusEl.textContent = '⭕ 未生效';
+                statusEl.textContent = '未生效';
                 statusEl.style.color = '#ffa502';
-                statusEl.style.background = 'rgba(255,165,2,0.18)';
-                btnEl.className = 'btn btn-success';
-                btnTextEl.textContent = '让白名单生效';
-                descEl.innerHTML = '<strong style="color:#00ff88;">当前所有人可登录AK服务器</strong>（部署后会保持这个状态，只有你手动点击后白名单才会生效）';
+                statusEl.style.background = 'rgba(255,165,2,0.12)';
+                iconEl.style.background = 'linear-gradient(135deg, #ffa502, #e67e22)';
+                btnEl.style.background = '#3a3a3a';
+                knobEl.style.left = '3px';
+                descEl.innerHTML = '当前所有人可登录AK服务器，点击开关让白名单生效';
             } else {
-                statusEl.textContent = '✅ 已生效';
+                statusEl.textContent = '已生效';
                 statusEl.style.color = '#00ff88';
-                statusEl.style.background = 'rgba(0,255,136,0.2)';
-                btnEl.className = 'btn btn-danger';
-                btnTextEl.textContent = '取消白名单生效';
-                descEl.innerHTML = '<strong style="color:#ffa502;">当前仅白名单用户可登录</strong>（白名单已经手动生效）';
+                statusEl.style.background = 'rgba(0,255,136,0.12)';
+                iconEl.style.background = 'linear-gradient(135deg, #00ff88, #00cc6a)';
+                btnEl.style.background = '#00cc6a';
+                knobEl.style.left = '27px';
+                descEl.innerHTML = '当前仅白名单用户可登录，点击开关取消白名单生效';
             }
             btnEl.disabled = false;
         }
