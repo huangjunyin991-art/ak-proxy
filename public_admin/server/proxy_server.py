@@ -131,6 +131,15 @@ except NameError:
     ADMIN_AK_TRACE_ENABLED = False
 
 
+try:
+
+    USER_RPC_TRACE_ENABLED
+
+except NameError:
+
+    USER_RPC_TRACE_ENABLED = False
+
+
 
 # 数据库模块
 
@@ -305,6 +314,8 @@ class ProxyStats:
         self.banned_accounts: set = set()
 
         self.banned_ips: set = set()
+
+        self.banned_cache_ready = False
 
 
 
@@ -1106,13 +1117,7 @@ async def proxy_index_data(request: Request):
 
             # 公开版本：保存所有用户的资产数据
 
-            try:
-
-                await db.update_user_assets(username, data)
-
-            except Exception as e:
-
-                logger.warning(f"[IndexData] 资产保存失败: {e}")
+            _user_asset_persist_queue.schedule(username, data)
 
             report_data = {
 
@@ -1178,7 +1183,7 @@ async def proxy_index_data(request: Request):
 
     
 
-    return JSONResponse(result)
+    return _build_proxy_passthrough_response(response)
 
 
 
@@ -1212,20 +1217,29 @@ async def proxy_rpc(path: str, request: Request):
 
     
 
-    # 封禁检查（优先数据库）
+    # 封禁检查（优先内存缓存）
 
     if ENABLE_LOCAL_BAN:
 
-        try:
-
-            if await db.is_banned(ip_address=client_ip):
-
-                return JSONResponse({"Error": True, "Msg": "您的IP已被封禁"})
-
-        except Exception:
+        if stats.banned_cache_ready:
 
             if client_ip in stats.banned_ips:
+
                 return JSONResponse({"Error": True, "Msg": "您的IP已被封禁"})
+
+        else:
+
+            try:
+
+                if await db.is_banned(ip_address=client_ip):
+
+                    return JSONResponse({"Error": True, "Msg": "您的IP已被封禁"})
+
+            except Exception:
+
+                if client_ip in stats.banned_ips:
+
+                    return JSONResponse({"Error": True, "Msg": "您的IP已被封禁"})
     
     raw_body = None
     if request.method in ["POST", "PUT"]:
@@ -1253,13 +1267,13 @@ async def proxy_rpc(path: str, request: Request):
     }
     normalized_path = path.strip("/").lower()
     if normalized_path in trace_rpc_paths:
-        logger.warning(
+        _user_rpc_trace(lambda: (
             f"[RpcInput/{path}] referer={referer} cookie_bs={cookie_bs or '-'} "
             f"key={str(params.get('key') or params.get('Key') or '')[:32]} "
             f"user_id={str(params.get('UserID') or params.get('userid') or params.get('Id') or '')} "
             f"account={params.get('account') or ''} type={params.get('type') or ''} "
             f"content_type={content_type or '-'}"
-        )
+        ))
 
     logger.debug(f"[RPC/{path}] 转发请求")
 
@@ -1274,20 +1288,19 @@ async def proxy_rpc(path: str, request: Request):
             client_ip=client_ip
 
         )
+        if ADMIN_AK_TRACE_ENABLED and ("/admin/ak-web/" in referer or "/admin/ak-site/" in referer):
 
-        try:
+            try:
 
-            result = response.json()
-            if "/admin/ak-web/" in referer:
-                logger.warning(f"[IframeRPCLeak] path={path} status={response.status_code} body_head={json.dumps(result, ensure_ascii=False)[:200]}")
+                result = response.json()
 
-            proxy_response = JSONResponse(content=result, status_code=response.status_code)
-            return _mirror_upstream_set_cookies(proxy_response, response.headers)
+                _admin_ak_trace(lambda: f"[IframeRPCLeak] path={path} status={response.status_code} body_head={json.dumps(result, ensure_ascii=False)[:200]}")
 
-        except Exception:
+            except Exception:
 
-            proxy_response = JSONResponse(content=response.text, status_code=response.status_code)
-            return _mirror_upstream_set_cookies(proxy_response, response.headers)
+                pass
+
+        return _build_proxy_passthrough_response(response)
 
     except Exception as e:
 
@@ -2854,7 +2867,29 @@ async def admin_startup():
 
         raise
 
+    if ENABLE_LOCAL_BAN:
+
+        try:
+
+            stats.banned_accounts, stats.banned_ips = await db.load_banned_sets()
+
+            stats.banned_cache_ready = True
+
+            logger.info(f"[BanCache] 已加载 username={len(stats.banned_accounts)} ip={len(stats.banned_ips)}")
+
+        except Exception as e:
+
+            stats.banned_accounts = set()
+
+            stats.banned_ips = set()
+
+            stats.banned_cache_ready = False
+
+            logger.warning(f"[BanCache] 加载失败，RPC封禁检查回退数据库: {e}")
+
     await _browse_session_persist_queue.start()
+
+    await _user_asset_persist_queue.start()
 
     _restore_dispatcher_exits_from_disk()
 
@@ -2926,6 +2961,8 @@ async def admin_startup():
 async def admin_shutdown():
 
     await _browse_session_persist_queue.stop()
+
+    await _user_asset_persist_queue.stop()
 
     await _ak_web_client_pool.close_all()
 
@@ -6965,15 +7002,23 @@ _AK_NATIVE_WEB_PREFIX = "/ak-web"
 _AK_SITE_PREFIX = "/admin/ak-site"
 
 
-def _admin_ak_trace(message_or_factory):
-    if not ADMIN_AK_TRACE_ENABLED:
+def _lazy_warning(enabled: bool, message_or_factory):
+    if not enabled:
         return
     try:
         message = message_or_factory() if callable(message_or_factory) else message_or_factory
     except Exception as e:
-        logger.debug(f"[AdminAkTrace] 构造日志失败: {e}")
+        logger.debug(f"[LazyWarning] 构造日志失败: {e}")
         return
     logger.warning(message)
+
+
+def _admin_ak_trace(message_or_factory):
+    _lazy_warning(ADMIN_AK_TRACE_ENABLED, message_or_factory)
+
+
+def _user_rpc_trace(message_or_factory):
+    _lazy_warning(USER_RPC_TRACE_ENABLED, message_or_factory)
 
 
 def _elapsed_ms(started_at: float) -> int:
@@ -7102,8 +7147,67 @@ class BrowseSessionPersistQueue:
         self._task = None
 
 
+class UserAssetPersistQueue:
+    def __init__(self):
+        self._pending: dict[str, dict] = {}
+        self._event = asyncio.Event()
+        self._task: Optional[asyncio.Task] = None
+        self._started = False
+
+    async def start(self):
+        if self._started:
+            return
+        self._started = True
+        self._task = asyncio.create_task(self._run())
+
+    def schedule(self, username: str, asset_data: dict):
+        username = (username or "").strip().lower()
+        if not username or not isinstance(asset_data, dict):
+            return
+        self._pending[username] = dict(asset_data)
+        self._event.set()
+
+    async def _flush_pending(self):
+        if not self._pending:
+            return
+        pending = self._pending
+        self._pending = {}
+        for username, asset_data in pending.items():
+            try:
+                await db.update_user_assets(username, asset_data)
+            except Exception as e:
+                logger.warning(f"[AssetPersist] 资产保存失败 {username}: {e}")
+
+    async def _run(self):
+        while self._started:
+            try:
+                await self._event.wait()
+                self._event.clear()
+                await asyncio.sleep(0.25)
+                await self._flush_pending()
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.warning(f"[AssetPersist] 异步资产队列异常: {e}")
+        await self._flush_pending()
+
+    async def stop(self):
+        if not self._started:
+            await self._flush_pending()
+            return
+        self._started = False
+        self._event.set()
+        if self._task:
+            try:
+                await self._task
+            except asyncio.CancelledError:
+                pass
+        self._task = None
+
+
 _ak_web_client_pool = AkWebClientPool()
 _browse_session_persist_queue = BrowseSessionPersistQueue()
+_user_asset_persist_queue = UserAssetPersistQueue()
 
 
 def _use_native_ak_rpc(site_prefix: str) -> bool:
@@ -7163,6 +7267,18 @@ def _mirror_upstream_set_cookies(response: Response, headers):
         normalized = _normalize_proxy_set_cookie(value)
         response.raw_headers.append((b"set-cookie", normalized.encode("latin-1", errors="ignore")))
     return response
+
+
+def _build_proxy_passthrough_response(response: httpx.Response) -> Response:
+    skip_headers = {"content-encoding", "transfer-encoding", "content-length", "set-cookie"}
+    proxy_headers = {k: v for k, v in response.headers.items() if k.lower() not in skip_headers}
+    proxy_response = Response(
+        content=response.content,
+        status_code=response.status_code,
+        headers=proxy_headers,
+        media_type=response.headers.get("content-type", "application/octet-stream"),
+    )
+    return _mirror_upstream_set_cookies(proxy_response, response.headers)
 
 
 def _extract_userkey(data):
