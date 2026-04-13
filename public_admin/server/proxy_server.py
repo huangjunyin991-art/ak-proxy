@@ -6976,6 +6976,10 @@ def _admin_ak_trace(message_or_factory):
     logger.warning(message)
 
 
+def _elapsed_ms(started_at: float) -> int:
+    return max(0, int((time.perf_counter() - started_at) * 1000))
+
+
 class AkWebClientPool:
     def __init__(self):
         self._clients: dict[str, httpx.AsyncClient] = {}
@@ -8155,6 +8159,10 @@ def _build_ak_site_forward_headers(request: Request) -> dict:
 @app.api_route("/ak-web/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"])
 async def ak_web_proxy(request: Request, path: str):
     """AK 网页透明代理：所有请求通过后端转发，携带缓存 session，注入 JS 拦截器实现 VPN 式体验"""
+    request_started_at = time.perf_counter()
+    upstream_ms = 0
+    rewrite_ms = 0
+    inject_ms = 0
     request_path = request.url.path
     if request_path.startswith(_AK_SITE_PREFIX):
         site_prefix = _AK_SITE_PREFIX
@@ -8242,12 +8250,14 @@ async def ak_web_proxy(request: Request, path: str):
         body = await request.body()
         proxy_url = selected_exit.proxy_url if selected_exit and selected_exit.proxy_url else None
         client = await _ak_web_client_pool.get_client(proxy_url=proxy_url)
+        upstream_started_at = time.perf_counter()
         resp = await client.request(
             method=request.method,
             url=target_url,
             headers=fwd_headers,
             content=body or None,
         )
+        upstream_ms = _elapsed_ms(upstream_started_at)
         _admin_ak_trace(lambda: f"[AkWebProxy] target={target_url} httpx_status={resp.status_code} final_url={resp.url}")
         final_url_str = str(resp.url)
         if "/pages/account/login.html" in final_url_str and "/pages/account/login.html" not in target_url:
@@ -8274,6 +8284,7 @@ async def ak_web_proxy(request: Request, path: str):
 
         content = resp.content
         content_type = resp.headers.get("content-type", "")
+        rewrite_started_at = time.perf_counter()
         if fetch_dest == "script" and "application/json" in content_type.lower():
             body_head = content[:200].decode("utf-8", errors="replace")
             logger.warning(f"[AkSiteProxy/{path}] script_json_mismatch bs={bs_id} source={bs_source} cookie_bs={cookie_bs} referer={referer} target={target_url} final_url={resp.url} body_head={body_head}")
@@ -8291,13 +8302,13 @@ async def ak_web_proxy(request: Request, path: str):
             else:
                 text, base_js_rewritten = _inject_base_js_no_login_probe(text)
             if base_js_rewritten:
-                logger.warning(f"[AkBaseJsRewrite/{path}] bs={bs_id} source={bs_source} cookie_bs={cookie_bs} referer={referer} target={target_url} final_url={resp.url}")
+                _admin_ak_trace(lambda: f"[AkBaseJsRewrite/{path}] bs={bs_id} source={bs_source} cookie_bs={cookie_bs} referer={referer} target={target_url} final_url={resp.url}")
                 content = text.encode("utf-8")
 
         if any(t in content_type.lower() for t in ("javascript", "ecmascript")) and normalized_path in debug_body_targets:
             js_text = content.decode("utf-8", errors="replace")
             js_has_old_host = int(any(token in js_text for token in ("ak928.vip", "www.ak928.vip", "404.html")))
-            logger.warning(f"[AkJsBody/{path}] bs={bs_id} referer={referer} target={target_url} final_url={resp.url} old_host={js_has_old_host} body_head={js_text[:400]!r}")
+            _admin_ak_trace(lambda: f"[AkJsBody/{path}] bs={bs_id} referer={referer} target={target_url} final_url={resp.url} old_host={js_has_old_host} body_head={js_text[:400]!r}")
 
         # 对文本内容（HTML/CSS）做 URL 替换 + HTML 注入拦截器
         if any(t in content_type for t in ("text/html", "text/css")):
@@ -8312,34 +8323,35 @@ async def ak_web_proxy(request: Request, path: str):
                 html_injected = False
                 text = _rewrite_site_html_roots(text, site_prefix)
                 text = _rewrite_site_css_roots(text, site_prefix)
-                logger.warning(f"[HtmlRewrite/{path}] bs={bs_id} final_url={resp.url} head_sample={text[:400]!r}")
+                _admin_ak_trace(lambda: f"[HtmlRewrite/{path}] bs={bs_id} final_url={resp.url} head_sample={text[:400]!r}")
                 if normalized_path == "pages/home.html":
-                    logger.warning(
+                    _admin_ak_trace(lambda: (
                         f"[AkHomeHtmlScan/{path}] bs={bs_id} referer={referer} final_url={resp.url} "
                         f"has_home_css={int('/assets/css/home.css' in text)} "
                         f"has_proxy_home_css={int('/admin/ak-web/assets/css/home.css' in text)} "
                         f"has_message_svg={int('/assets/images/home/message.svg' in text)} "
                         f"has_proxy_message_svg={int('/admin/ak-web/assets/images/home/message.svg' in text)} "
                         f"has_old_host={int(any(token in text for token in ('ak928.vip', 'www.ak928.vip', '404.html')))}"
-                    )
-                    logger.warning(
+                    ))
+                    _admin_ak_trace(lambda: (
                         f"[AkHomeHtmlSnippet/{path}] home_css={_extract_debug_snippet(text, '/admin/ak-web/assets/css/home.css')!r} "
                         f"message_svg={_extract_debug_snippet(text, '/admin/ak-web/assets/images/home/message.svg')!r}"
-                    )
+                    ))
             if "text/css" in content_type and normalized_path in debug_body_targets:
                 css_has_old_host = int(any(token in text for token in ("ak928.vip", "www.ak928.vip", "404.html")))
-                logger.warning(f"[AkCssBody/{path}] bs={bs_id} referer={referer} target={target_url} final_url={resp.url} old_host={css_has_old_host} body_head={text[:400]!r}")
+                _admin_ak_trace(lambda: f"[AkCssBody/{path}] bs={bs_id} referer={referer} target={target_url} final_url={resp.url} old_host={css_has_old_host} body_head={text[:400]!r}")
             # HTML：注入 JS 拦截器
             if "text/html" in content_type and bs_id:
+                inject_started_at = time.perf_counter()
                 _sess = _browse_sessions.get(bs_id, {})
                 inject_user_model = _build_ak_user_model(_sess.get("login_result", {}), _sess.get("userkey", ""))
                 inject_model_key = str(inject_user_model.get("Key") or "").strip()
                 inject_user_id = str(inject_user_model.get("Id") or inject_user_model.get("ID") or _extract_login_user_id(_sess.get("login_result", {})) or "").strip()
-                logger.warning(
+                _admin_ak_trace(lambda: (
                     f"[AkInjectAuth/{path}] bs={bs_id} source={bs_source} cookie_bs={cookie_bs or '-'} "
                     f"username={_sess.get('username', '') or '-'} session_key={str(_sess.get('userkey', '') or '')[:12]} "
                     f"inject_key={inject_model_key[:12]} inject_user_id={inject_user_id or '-'} referer={referer}"
-                )
+                ))
                 if _use_native_ak_rpc(site_prefix):
                     injector = _build_native_injector(_sess.get("username", ""), _sess.get("password", ""), _sess.get("userkey", ""), _sess.get("login_result", {}))
                 else:
@@ -8381,10 +8393,13 @@ async def ak_web_proxy(request: Request, path: str):
                                 text = text.replace('</body>', assist_script + '</body>', 1)
                             else:
                                 text += assist_script
+                inject_ms = _elapsed_ms(inject_started_at)
             if "text/html" in content_type:
                 inject_reason = "ok" if html_injected else ("no_bs" if not bs_id else "miss")
-                logger.warning(f"[AkHtmlInject/{path}] bs={bs_id or '-'} source={bs_source} cookie_bs={cookie_bs} reason={inject_reason} injected={int(html_injected)} referer={referer} target={target_url} final_url={resp.url} content_type={content_type}")
+                _admin_ak_trace(lambda: f"[AkHtmlInject/{path}] bs={bs_id or '-'} source={bs_source} cookie_bs={cookie_bs} reason={inject_reason} injected={int(html_injected)} referer={referer} target={target_url} final_url={resp.url} content_type={content_type}")
             content = text.encode("utf-8")
+
+        rewrite_ms = _elapsed_ms(rewrite_started_at)
 
         response = Response(content=content, status_code=resp.status_code,
                             headers=resp_headers, media_type=content_type or "application/octet-stream")
@@ -8392,6 +8407,11 @@ async def ak_web_proxy(request: Request, path: str):
             _apply_no_store_headers(response)
         if bs_id:
             _set_browse_session_cookie(response, bs_id)
+        _admin_ak_trace(lambda: (
+            f"[AkWebTiming/{path}] upstream_ms={upstream_ms} rewrite_ms={rewrite_ms} inject_ms={inject_ms} "
+            f"total_ms={_elapsed_ms(request_started_at)} status={resp.status_code} "
+            f"content_type={content_type or '-'} bytes={len(content)} dest={fetch_dest or '-'}"
+        ))
         return response
     except Exception as e:
         logger.error(f"[AkWebProxy] {path}: {e}")
