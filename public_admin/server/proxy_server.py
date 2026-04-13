@@ -5285,6 +5285,32 @@ def _list_online_user_connections(username: str) -> list[dict[str, Any]]:
     return items
 
 
+def _summarize_remote_assist_rebind_state(session, target=None) -> str:
+
+    if not session:
+
+        return (
+            "session=- user=- consent=- connected_admin=0 request_ws=- bound_ws=- "
+            "request_page=- bound_page=- target_ws=- target_page=- target_page_client=-"
+        )
+
+    target_ws_id = str((target or {}).get('ws_id') or '').strip() or '-'
+    target_page = str((target or {}).get('page') or '').strip() or '-'
+    target_page_client_id = _get_connection_page_client_id(target) or '-'
+
+    return (
+        f"session={str(getattr(session, 'session_id', '') or '').strip() or '-'} "
+        f"user={str(getattr(session, 'target_username', '') or '').strip() or '-'} "
+        f"consent={getattr(getattr(session, 'consent_status', None), 'value', '') or '-'} "
+        f"connected_admin={int(_assist_session_has_connected_admin(session))} "
+        f"request_ws={str(getattr(session, 'request_chat_ws_id', '') or '').strip() or '-'} "
+        f"bound_ws={str(getattr(session, 'bound_chat_ws_id', '') or '').strip() or '-'} "
+        f"request_page={str(getattr(session, 'request_chat_page_id', '') or '').strip() or '-'} "
+        f"bound_page={str(getattr(session, 'bound_chat_page_id', '') or '').strip() or '-'} "
+        f"target_ws={target_ws_id} target_page={target_page} target_page_client={target_page_client_id}"
+    )
+
+
 def _sync_remote_voice_connection(voice_session, connection, bind: bool = False) -> None:
 
     if not voice_session or not isinstance(connection, dict):
@@ -5587,19 +5613,33 @@ async def _send_remote_assist_bind_to_user(session) -> bool:
 
     if not session or session.site_type != 'ak_web' or not _assist_session_has_accepted_consent(session):
 
+        logger.warning(
+            f"[RemoteAssistRebind] bind_skipped_invalid {_summarize_remote_assist_rebind_state(session)}"
+        )
+
         return False
 
     target = _resolve_remote_assist_bound_connection(session)
 
     if not target:
 
+        logger.warning(
+            f"[RemoteAssistRebind] bind_skipped_no_target {_summarize_remote_assist_rebind_state(session)}"
+        )
+
         return False
 
-    return await online_manager.send_payload_to_connection(
+    delivered = await online_manager.send_payload_to_connection(
         session.target_username,
         str(target.get('ws_id') or ''),
         _build_remote_assist_bind_message(session),
     )
+
+    logger.warning(
+        f"[RemoteAssistRebind] bind_attempt delivered={int(delivered)} {_summarize_remote_assist_rebind_state(session, target)}"
+    )
+
+    return delivered
 
 
 async def _send_remote_assist_unbind_to_user(session, websocket_id: str = '') -> bool:
@@ -5827,6 +5867,12 @@ async def _handle_chat_connection_offline(username: str, websocket=None):
 
     bound_match = bound_chat_ws_id == current_chat_ws_id
 
+    logger.warning(
+        f"[RemoteAssistRebind] chat_offline username={current_username or '-'} ws_id={current_chat_ws_id or '-'} "
+        f"page_client_id={current_chat_page_id or '-'} request_match={int(request_match)} bound_match={int(bound_match)} "
+        f"{_summarize_remote_assist_rebind_state(session)}"
+    )
+
     if not request_match and not bound_match:
 
         return remaining_user
@@ -5866,11 +5912,23 @@ async def _handle_chat_connection_offline(username: str, websocket=None):
 
         if _assist_session_has_connected_admin(current_session):
 
-            await _send_remote_assist_request_to_user(current_session)
+            delivered = await _send_remote_assist_request_to_user(current_session)
+
+            logger.warning(
+                f"[RemoteAssistRebind] chat_offline_request_redeliver delivered={int(delivered)} "
+                f"username={current_username or '-'} ws_id={current_chat_ws_id or '-'} page_client_id={current_chat_page_id or '-'} "
+                f"{_summarize_remote_assist_rebind_state(current_session)}"
+            )
 
     elif _assist_session_has_accepted_consent(current_session) and _assist_session_has_connected_admin(current_session):
 
-        await _send_remote_assist_bind_to_user(current_session)
+        delivered = await _send_remote_assist_bind_to_user(current_session)
+
+        logger.warning(
+            f"[RemoteAssistRebind] chat_offline_bind_redeliver delivered={int(delivered)} "
+            f"username={current_username or '-'} ws_id={current_chat_ws_id or '-'} page_client_id={current_chat_page_id or '-'} "
+            f"{_summarize_remote_assist_rebind_state(current_session)}"
+        )
 
     return remaining_user
 
@@ -6542,15 +6600,36 @@ async def chat_websocket(websocket: WebSocket):
 
                     has_connected_admin = _assist_session_has_connected_admin(assist_session)
 
+                    logger.warning(
+                        f"[RemoteAssistRebind] chat_online username={username or '-'} prev_ws_id={prev_ws_id or '-'} "
+                        f"ws_id={current_ws_id or '-'} page={(data.get('page') or '') or '-'} "
+                        f"page_client_id={(data.get('pageClientId') or '') or '-'} has_connected_admin={int(has_connected_admin)} "
+                        f"{_summarize_remote_assist_rebind_state(assist_session)}"
+                    )
+
                     if has_connected_admin and assist_session:
 
                         if _assist_session_has_accepted_consent(assist_session):
 
-                            await _send_remote_assist_bind_to_user(assist_session)
+                            delivered = await _send_remote_assist_bind_to_user(assist_session)
+
+                            logger.warning(
+                                f"[RemoteAssistRebind] chat_online_bind delivered={int(delivered)} username={username or '-'} "
+                                f"ws_id={current_ws_id or '-'} page={(data.get('page') or '') or '-'} "
+                                f"page_client_id={(data.get('pageClientId') or '') or '-'} "
+                                f"{_summarize_remote_assist_rebind_state(assist_session)}"
+                            )
 
                         elif getattr(assist_session, 'consent_status', AssistConsentStatus.ACCEPTED) == AssistConsentStatus.WAITING:
 
-                            await _send_remote_assist_request_to_user(assist_session)
+                            delivered = await _send_remote_assist_request_to_user(assist_session)
+
+                            logger.warning(
+                                f"[RemoteAssistRebind] chat_online_request delivered={int(delivered)} username={username or '-'} "
+                                f"ws_id={current_ws_id or '-'} page={(data.get('page') or '') or '-'} "
+                                f"page_client_id={(data.get('pageClientId') or '') or '-'} "
+                                f"{_summarize_remote_assist_rebind_state(assist_session)}"
+                            )
 
                     voice_session = remote_voice.get_session_by_assist(getattr(assist_session, 'session_id', '') or '') if assist_session else None
 
