@@ -6656,84 +6656,116 @@ async def admin_page():
 
 
 
+_WIDGET_CACHE_MAX_AGE = 31536000
+_WIDGET_REVALIDATE_MAX_AGE = 300
+
+
+def _iter_widget_asset_paths() -> list[str]:
+    return [
+        os.path.join(FRONTEND_HOST_DIR, "chat_widget.js"),
+        os.path.join(PLUGINS_DIR, "notification", "user", "index.js"),
+        os.path.join(PLUGINS_DIR, "notification", "user", "widget.js"),
+    ]
+
+
+def _get_widget_asset_version() -> str:
+    latest_mtime = 0
+    for asset_path in _iter_widget_asset_paths():
+        try:
+            latest_mtime = max(latest_mtime, int(os.path.getmtime(asset_path)))
+        except OSError:
+            continue
+    return str(latest_mtime or 1)
+
+
+def _build_widget_cache_headers(request: Request, asset_version: str) -> dict[str, str]:
+    requested_version = (request.query_params.get("v") or "").strip()
+    headers = {
+        "ETag": f'W/"widget-{asset_version}"',
+        "X-AK-Widget-Version": asset_version,
+    }
+    if requested_version and requested_version == asset_version:
+        headers["Cache-Control"] = f"public, max-age={_WIDGET_CACHE_MAX_AGE}, immutable"
+    else:
+        headers["Cache-Control"] = f"public, max-age={_WIDGET_REVALIDATE_MAX_AGE}, must-revalidate"
+    return headers
+
+
+def _version_widget_asset_url(url: str, asset_version: str = "") -> str:
+    version = (asset_version or _get_widget_asset_version()).strip()
+    if not url or not version:
+        return url
+    try:
+        parsed = urlsplit(url)
+        query = parse_qs(parsed.query, keep_blank_values=True)
+        query["v"] = [version]
+        return urlunsplit((parsed.scheme, parsed.netloc, parsed.path, urlencode(query, doseq=True), parsed.fragment))
+    except Exception:
+        return url
+
+
+def _rewrite_widget_asset_urls(text: str, asset_version: str = "") -> str:
+    version = (asset_version or _get_widget_asset_version()).strip()
+    if not text or not version:
+        return text
+    pattern = re.compile(
+        r'(?P<quote>["\'])(?P<url>(?:/admin/api/pwa-widget|/chat/widget\.js|/chat/notification-widget\.js|/chat/plugins/notification/user/widget\.js)(?:\?[^"\']*)?)(?P=quote)',
+        re.IGNORECASE,
+    )
+    return pattern.sub(
+        lambda m: f"{m.group('quote')}{_version_widget_asset_url(m.group('url'), version)}{m.group('quote')}",
+        text,
+    )
+
+
+def _build_widget_script_response(request: Request, js_path: str) -> Response:
+    if not os.path.exists(js_path):
+        return Response(content="// not found", media_type="application/javascript")
+    with open(js_path, "r", encoding="utf-8") as f:
+        content = f.read()
+    asset_version = _get_widget_asset_version()
+    prelude = f"window.__AK_WIDGET_ASSET_VERSION__ = {json.dumps(asset_version)};\n"
+    return Response(
+        content=prelude + content,
+        media_type="application/javascript",
+        headers=_build_widget_cache_headers(request, asset_version),
+    )
+
+
 @app.get("/chat/widget.js")
 
-async def chat_widget_js():
+async def chat_widget_js(request: Request):
 
     js_path = os.path.join(FRONTEND_HOST_DIR, "chat_widget.js")
 
-    if os.path.exists(js_path):
-
-        with open(js_path, "r", encoding="utf-8") as f:
-
-            return Response(content=f.read(), media_type="application/javascript",
-
-                            headers={"Cache-Control": "no-cache, no-store, must-revalidate",
-
-                                     "Pragma": "no-cache", "Expires": "0"})
-
-    return Response(content="// not found", media_type="application/javascript")
-
+    return _build_widget_script_response(request, js_path)
 
 
 @app.get("/chat/notification-widget.js")
 
-async def notification_widget_js():
+async def notification_widget_js(request: Request):
 
     js_path = os.path.join(PLUGINS_DIR, "notification", "user", "index.js")
 
-    if os.path.exists(js_path):
-
-        with open(js_path, "r", encoding="utf-8") as f:
-
-            return Response(content=f.read(), media_type="application/javascript",
-
-                            headers={"Cache-Control": "no-cache, no-store, must-revalidate",
-
-                                     "Pragma": "no-cache", "Expires": "0"})
-
-    return Response(content="// not found", media_type="application/javascript")
-
+    return _build_widget_script_response(request, js_path)
 
 
 @app.get("/chat/plugins/notification/user/index.js")
 
-async def notification_user_plugin_index_js():
+async def notification_user_plugin_index_js(request: Request):
 
     js_path = os.path.join(PLUGINS_DIR, "notification", "user", "index.js")
 
-    if os.path.exists(js_path):
-
-        with open(js_path, "r", encoding="utf-8") as f:
-
-            return Response(content=f.read(), media_type="application/javascript",
-
-                            headers={"Cache-Control": "no-cache, no-store, must-revalidate",
-
-                                     "Pragma": "no-cache", "Expires": "0"})
-
-    return Response(content="// not found", media_type="application/javascript")
-
+    return _build_widget_script_response(request, js_path)
 
 
 @app.get("/chat/plugins/notification/user/widget.js")
 
-async def notification_user_plugin_widget_js():
+async def notification_user_plugin_widget_js(request: Request):
 
     js_path = os.path.join(PLUGINS_DIR, "notification", "user", "widget.js")
 
-    if os.path.exists(js_path):
-
-        with open(js_path, "r", encoding="utf-8") as f:
-
-            return Response(content=f.read(), media_type="application/javascript",
-
-                            headers={"Cache-Control": "no-cache, no-store, must-revalidate",
-
-                                     "Pragma": "no-cache", "Expires": "0"})
-
-    return Response(content="// not found", media_type="application/javascript")
-
+    return _build_widget_script_response(request, js_path)
 
 
 @app.get("/admin/api/notification-panel.js")
@@ -6964,23 +6996,13 @@ async def pwa_icon_maskable_api(size: int):
 
 @app.get("/admin/api/pwa-widget")
 
-async def pwa_widget_api():
+async def pwa_widget_api(request: Request):
 
     """通过API路径提供widget.js（绕过CDN对.js文件的拦截）"""
 
     js_path = os.path.join(FRONTEND_HOST_DIR, "chat_widget.js")
 
-    if os.path.exists(js_path):
-
-        with open(js_path, "r", encoding="utf-8") as f:
-
-            return Response(content=f.read(), media_type="application/javascript",
-
-                            headers={"Cache-Control": "no-cache, no-store, must-revalidate",
-
-                                     "Pragma": "no-cache", "Expires": "0"})
-
-    return Response(content="// not found", media_type="application/javascript")
+    return _build_widget_script_response(request, js_path)
 
 
 
@@ -8529,6 +8551,7 @@ async def ak_web_proxy(request: Request, path: str):
                 html_injected = False
                 text = _rewrite_site_html_roots(text, site_prefix)
                 text = _rewrite_site_css_roots(text, site_prefix)
+                text = _rewrite_widget_asset_urls(text)
                 _admin_ak_trace(lambda: f"[HtmlRewrite/{path}] bs={bs_id} final_url={resp.url} head_sample={text[:400]!r}")
                 if normalized_path == "pages/home.html":
                     _admin_ak_trace(lambda: (

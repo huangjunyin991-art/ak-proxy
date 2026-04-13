@@ -419,7 +419,17 @@
     const WS_URL = `${WS_PROTOCOL}//${window.location.host}/chat/ws`;
     const ASSIST_WS_URL = `${WS_PROTOCOL}//${window.location.host}/admin/assist/ws`;
     const REMOTE_VOICE_CLIENT_URL = `${window.location.origin}/admin/api/remote-voice-client`;
-    const NOTIFICATION_WIDGET_URL = `${window.location.origin}/chat/notification-widget.js`;
+    const WIDGET_ASSET_VERSION = String(window.__AK_WIDGET_ASSET_VERSION__ || '').trim();
+    function withWidgetAssetVersion(url) {
+        try {
+            const finalUrl = new URL(String(url || ''), window.location.origin);
+            if (WIDGET_ASSET_VERSION) finalUrl.searchParams.set('v', WIDGET_ASSET_VERSION);
+            return finalUrl.toString();
+        } catch (e) {
+            return String(url || '');
+        }
+    }
+    const NOTIFICATION_WIDGET_URL = withWidgetAssetVersion(`${window.location.origin}/chat/notification-widget.js`);
     const HEARTBEAT_INTERVAL = 5000; // 5秒心跳间隔
     
     // 状态
