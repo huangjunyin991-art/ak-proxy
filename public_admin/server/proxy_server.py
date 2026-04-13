@@ -146,6 +146,79 @@ if SOCKS5_EXITS:
 
 dispatcher.MAX_LOGIN_PER_MIN = LOGIN_RATE_PER_EXIT
 
+
+def _restore_dispatcher_exits_from_disk() -> int:
+
+    from . import singbox_manager as sbm
+
+    config_file = os.path.join(PUBLIC_ADMIN_DIR, "dispatcher_exits.json")
+
+    nodes_to_restore: list[dict[str, Any]] = []
+
+    base_port = 10001
+
+    try:
+
+        if os.path.exists(config_file):
+
+            with open(config_file, "r", encoding="utf-8") as f:
+
+                payload = json.load(f)
+
+            if isinstance(payload, dict):
+
+                raw_nodes = payload.get("nodes")
+
+                raw_base_port = payload.get("base_port")
+
+                if isinstance(raw_nodes, list):
+
+                    nodes_to_restore = [item for item in raw_nodes if isinstance(item, dict)]
+
+                try:
+
+                    base_port = max(1, int(raw_base_port or 10001))
+
+                except Exception:
+
+                    base_port = 10001
+
+        if not nodes_to_restore:
+
+            saved_nodes = sbm.load_saved_nodes()
+
+            if isinstance(saved_nodes, list):
+
+                nodes_to_restore = [item for item in saved_nodes if isinstance(item, dict)]
+
+        if not nodes_to_restore:
+
+            logger.info("[Dispatcher] 启动时未发现可恢复的隧道出口配置")
+
+            return 0
+
+        while len(dispatcher.exits) > 1:
+
+            dispatcher.exits.pop()
+
+        for idx, node in enumerate(nodes_to_restore):
+
+            port = base_port + idx
+
+            name = node.get("display_name") or node.get("name") or f"node_{idx}"
+
+            dispatcher.add_socks5(str(name), port)
+
+        logger.info(f"[Dispatcher] 启动恢复 {len(nodes_to_restore)} 个隧道出口 (base_port={base_port})")
+
+        return len(nodes_to_restore)
+
+    except Exception as e:
+
+        logger.warning(f"[Dispatcher] 启动恢复出口失败: {e}")
+
+        return 0
+
 # 通知模块
 
 from plugins.notification.server.notification_router import create_notification_router
@@ -671,31 +744,37 @@ async def proxy_login(request: Request):
 
     persistent_login = False
 
-    # ===== 公开访问版本：已注释白名单验证 =====
+    try:
 
-    # try:
+        whitelist_open_to_all = await db.get_whitelist_global_status()
 
-    #     auth_info = await db.check_authorized(account)
+        if whitelist_open_to_all:
 
-    #     if not auth_info:
+            logger.info(f"[Login] 公开访问模式，跳过白名单检查: {account}")
 
-    #         logger.info(f"[Login] 白名单拦截(未授权): {account}")
+        else:
 
-    #         return JSONResponse({"Error": True, "Msg": "未获得访问权限，请联系上属老师获取权限或使用ak2018，ak928登录！"})
+            auth_info = await db.check_authorized(account)
 
-    #     if auth_info['expire_time'] < datetime.now():
+            if not auth_info:
 
-    #         logger.info(f"[Login] 白名单拦截(已过期): {account}")
+                logger.info(f"[Login] 白名单拦截(未授权): {account}")
 
-    #         return JSONResponse({"Error": True, "Msg": "您的访问权限已到期，请联系上属老师续期或使用ak2018，ak928登录！"})
+                return JSONResponse({"Error": True, "Msg": "未获得访问权限，请联系上属老师获取权限或使用ak2018，ak928登录！"})
 
-    #     persistent_login = auth_info.get('persistent_login', False)
+            if auth_info['expire_time'] < datetime.now():
 
-    # except Exception as e:
+                logger.info(f"[Login] 白名单拦截(已过期): {account}")
 
-    #     logger.warning(f"[Login] 白名单检查异常: {e}，放行")
+                return JSONResponse({"Error": True, "Msg": "您的访问权限已到期，请联系上属老师续期或使用ak2018，ak928登录！"})
 
-    logger.info(f"[Login] 公开访问模式，跳过白名单检查: {account}")
+            persistent_login = auth_info.get('persistent_login', False)
+
+            logger.info(f"[Login] 白名单生效，允许登录: {account}")
+
+    except Exception as e:
+
+        logger.warning(f"[Login] 白名单检查异常: {e}，按公开访问模式放行")
 
 
 
@@ -2766,6 +2845,10 @@ async def admin_startup():
 
         raise
 
+    _restore_dispatcher_exits_from_disk()
+
+    await dispatcher.start()
+
     await _load_tokens_from_db()
 
     try:
@@ -4401,7 +4484,7 @@ async def admin_whitelist_global_status(request: Request):
         return {
             "success": True,
             "enabled": enabled,
-            "description": "全体白名单：开启后所有人可登录AK服务器，关闭后仅白名单用户可登录"
+            "description": "公开登录开关：开启时所有人可登录，关闭时白名单生效，仅白名单用户可登录"
         }
     except Exception as e:
         logger.error(f"[Whitelist] 获取全局开关失败: {e}")
@@ -4419,11 +4502,11 @@ async def admin_whitelist_set_global(request: Request):
     try:
         ok = await db.set_whitelist_global_status(enabled)
         if ok:
-            status_text = "开启" if enabled else "关闭"
-            logger.info(f"[Whitelist] 全体白名单已{status_text}")
+            status_text = "公开登录已开启" if enabled else "白名单已生效"
+            logger.info(f"[Whitelist] {status_text}")
             return {
                 "success": True, "enabled": enabled,
-                "message": f"全体白名单已{status_text}（{'所有人可登录' if enabled else '仅白名单用户可登录'}）"
+                "message": f"{status_text}（{'当前所有人可登录' if enabled else '当前仅白名单用户可登录'}）"
             }
         return {"success": False, "message": "设置失败"}
     except Exception as e:
