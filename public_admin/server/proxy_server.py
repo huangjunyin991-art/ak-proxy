@@ -6559,30 +6559,35 @@ async def chat_websocket(websocket: WebSocket):
             if msg_type == 'online':
 
                 incoming_username = data.get('username', username)
+                incoming_page = str(data.get('page') or '')
+                incoming_page_client_id = str(data.get('pageClientId') or '')
 
                 logger.warning(
 
                     f"[ChatWS] online_received query_username={username or '-'} incoming_username={incoming_username or '-'} "
 
-                    f"client={client} page={(data.get('page') or '')} page_client_id={(data.get('pageClientId') or '')}"
+                    f"client={client} page={incoming_page} page_client_id={incoming_page_client_id}"
 
                 )
 
                 prev_ws_id = (online_manager.get_user(incoming_username) or {}).get('ws_id')
 
                 current_ws_id = online_manager.get_websocket_id(websocket)
+                existing_current_connection = online_manager.get_user_connection(incoming_username, current_ws_id)
+                current_ws_was_query_seeded = bool(existing_current_connection) and not str((existing_current_connection or {}).get('page') or '').strip() and not _get_connection_page_client_id(existing_current_connection)
 
                 current_user = await online_manager.user_online(
 
                     incoming_username, websocket,
 
-                    data.get('page', ''), data.get('userAgent', ''), data.get('pageClientId', ''))
+                    incoming_page, data.get('userAgent', ''), incoming_page_client_id)
 
                 username = (current_user or {}).get('username') or str(incoming_username or '').strip()
+                should_process_rebind = prev_ws_id != current_ws_id or (current_ws_was_query_seeded and bool(incoming_page or incoming_page_client_id))
 
                 logger.warning(
 
-                    f"[ChatWS] user_online username={username or '-'} client={client} prev_ws_id={prev_ws_id or '-'} ws_id={current_ws_id or '-'}"
+                    f"[ChatWS] user_online username={username or '-'} client={client} prev_ws_id={prev_ws_id or '-'} ws_id={current_ws_id or '-'} seeded_current_ws={int(current_ws_was_query_seeded)} should_process_rebind={int(should_process_rebind)}"
 
                 )
 
@@ -6594,7 +6599,7 @@ async def chat_websocket(websocket: WebSocket):
 
                 }})
 
-                if prev_ws_id != current_ws_id:
+                if should_process_rebind:
 
                     assist_session = remote_assist.find_session_by_target_username(username)
 
