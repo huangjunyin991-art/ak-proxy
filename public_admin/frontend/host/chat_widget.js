@@ -3960,7 +3960,9 @@
         const releasedSessionId = String(assistSessionId || sessionId || '').trim();
         assistSessionId = '';
         if (preserveSession) {
-            persistAssistSessionId(releasedSessionId);
+            if (releasedSessionId) {
+                persistAssistSessionId(releasedSessionId);
+            }
         } else {
             persistAssistSessionId('');
         }
