@@ -4201,6 +4201,57 @@
             requestAnimationFrame(syncUsersSearchInputValue);
             setTimeout(syncUsersSearchInputValue, 80);
         }
+
+        const USERS_STICKY_COL_MIN_WIDTH = 96;
+        const USERS_STICKY_COL_MAX_WIDTH = 220;
+        let usersStickyMeasureCanvas = null;
+
+        function isUsersDesktopAutoWidthMode() {
+            return window.innerWidth > 768;
+        }
+
+        function measureUsersStickyTextWidth(text) {
+            if (!usersStickyMeasureCanvas) {
+                usersStickyMeasureCanvas = document.createElement('canvas');
+            }
+            const ctx = usersStickyMeasureCanvas.getContext('2d');
+            if (!ctx) return USERS_STICKY_COL_MIN_WIDTH;
+            const sampleEl = document.querySelector('#usersTable td:first-child strong') || document.querySelector('#usersTableContainer thead th:first-child');
+            const computed = sampleEl ? getComputedStyle(sampleEl) : null;
+            const fontStyle = computed?.fontStyle || 'normal';
+            const fontWeight = computed?.fontWeight || '700';
+            const fontSize = computed?.fontSize || '16px';
+            const fontFamily = computed?.fontFamily || '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+            ctx.font = `${fontStyle} ${fontWeight} ${fontSize} ${fontFamily}`;
+            return Math.ceil(ctx.measureText(String(text || '')).width);
+        }
+
+        function syncUsersStickyColWidth(users = usersDataCache) {
+            const container = document.getElementById('usersTableContainer');
+            if (!container) return;
+            if (!isUsersDesktopAutoWidthMode()) {
+                container.style.setProperty('--users-sticky-col-width', `${USERS_STICKY_COL_MIN_WIDTH}px`);
+                return;
+            }
+            const items = Array.isArray(users) ? users : [];
+            let contentWidth = measureUsersStickyTextWidth('账号');
+            items.forEach(user => {
+                const username = String(user?.username || '').trim();
+                if (!username) return;
+                contentWidth = Math.max(contentWidth, measureUsersStickyTextWidth(username));
+            });
+            const nextWidth = Math.max(
+                USERS_STICKY_COL_MIN_WIDTH,
+                Math.min(USERS_STICKY_COL_MAX_WIDTH, contentWidth + 28)
+            );
+            container.style.setProperty('--users-sticky-col-width', `${nextWidth}px`);
+        }
+
+        window.addEventListener('resize', function() {
+            syncUsersStickyColWidth(usersDataCache);
+            if (window.syncUsersScrollWidth) syncUsersScrollWidth();
+            if (window.syncUsersStickyGlow) syncUsersStickyGlow();
+        });
         
         // 加载用户列表（user_assets表 - 只显示资产信息）
         async function loadUsers(page = 0) {
@@ -4249,6 +4300,8 @@
             
             if (users.length === 0) {
                 tbody.innerHTML = '<tr><td colspan="17" style="text-align: center; color: var(--text-secondary);">暂无数据</td></tr>';
+                syncUsersStickyColWidth([]);
+                if (window.syncUsersScrollWidth) syncUsersScrollWidth();
                 if (window.syncUsersStickyGlow) syncUsersStickyGlow();
                 if (window.syncHorizontalScrollHints) syncHorizontalScrollHints();
                 return;
@@ -4280,6 +4333,7 @@
                     <td>${banBtn}</td>
                 </tr>`;
             }).join('');
+            syncUsersStickyColWidth(users);
             if (window.syncUsersScrollWidth) syncUsersScrollWidth();
             if (window.syncUsersStickyGlow) syncUsersStickyGlow();
         }
