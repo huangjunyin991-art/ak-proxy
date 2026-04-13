@@ -6996,6 +6996,7 @@ _BROWSE_SESSION_TTL = 3600           # session 有效期 1 小时
 _AK_BASE = "https://k937.com"  # AK 网站根地址
 _AK_HOME_PATH = "/pages/home.html?first=true"
 _ADMIN_AK_FORCE_DIRECT = True
+_USER_AK_WEB_SLOW_MS = 800
 _BROWSE_SESSION_COOKIE = "ak_admin_bs"
 _AK_WEB_PREFIX = "/admin/ak-web"
 _AK_NATIVE_WEB_PREFIX = "/ak-web"
@@ -7023,6 +7024,32 @@ def _user_rpc_trace(message_or_factory):
 
 def _elapsed_ms(started_at: float) -> int:
     return max(0, int((time.perf_counter() - started_at) * 1000))
+
+
+def _should_force_direct_ak_web(site_prefix: str) -> bool:
+    if not _ADMIN_AK_FORCE_DIRECT:
+        return False
+    return site_prefix in (_AK_WEB_PREFIX, _AK_SITE_PREFIX)
+
+
+def _log_user_ak_web_slow_html_request(path: str, site_prefix: str, selected_exit: Optional[OutboundExit],
+                                       content_type: str, upstream_ms: int, rewrite_ms: int, inject_ms: int,
+                                       total_ms: int, status_code: int, bs_id: str = ""):
+    if site_prefix != _AK_NATIVE_WEB_PREFIX:
+        return
+    normalized_content_type = (content_type or "").lower()
+    normalized_path = path.lstrip("/").lower()
+    if "text/html" not in normalized_content_type:
+        return
+    if not normalized_path.startswith("pages/") or not normalized_path.endswith(".html"):
+        return
+    if total_ms < _USER_AK_WEB_SLOW_MS:
+        return
+    exit_name = selected_exit.name if selected_exit else "direct"
+    logger.info(
+        f"[UserAkWebSlow/{path}] exit={exit_name} upstream_ms={upstream_ms} rewrite_ms={rewrite_ms} "
+        f"inject_ms={inject_ms} total_ms={total_ms} status={status_code} bs={bs_id or '-'}"
+    )
 
 
 class AkWebClientPool:
@@ -8298,18 +8325,21 @@ async def ak_web_proxy(request: Request, path: str):
     cookie_bs = (request.cookies.get(_BROWSE_SESSION_COOKIE) or "").strip()
     cookies = {}
     selected_exit = None
+    force_direct_ak_web = _should_force_direct_ak_web(site_prefix)
+    pinned_exit_name = str(session.get("ak_exit_name") or "").strip() if session else ""
     if session:
         cookies = session["cookies"]
-        pinned_exit_name = str(session.get("ak_exit_name") or "").strip()
-        if _ADMIN_AK_FORCE_DIRECT:
-            selected_exit = _get_direct_exit()
+    if force_direct_ak_web:
+        selected_exit = _get_direct_exit()
+        if session:
             session.pop("ak_exit_name", None)
-            _admin_ak_trace(lambda: (
-                f"[AkWebExit/{path}] force_direct=1 preferred={pinned_exit_name or '-'} using={selected_exit.name} "
-                f"bs={bs_id} referer={referer}"
-            ))
-        else:
-            selected_exit = _select_forward_exit(path or "web", preferred_exit_name=pinned_exit_name)
+        _admin_ak_trace(lambda: (
+            f"[AkWebExit/{path}] force_direct=1 preferred={pinned_exit_name or '-'} using={selected_exit.name} "
+            f"bs={bs_id} referer={referer}"
+        ))
+    else:
+        selected_exit = _select_forward_exit(path or "web", preferred_exit_name=pinned_exit_name)
+        if session:
             if pinned_exit_name:
                 _admin_ak_trace(lambda: (
                     f"[AkWebExit/{path}] pinned=1 preferred={pinned_exit_name} using={selected_exit.name} "
@@ -8523,9 +8553,22 @@ async def ak_web_proxy(request: Request, path: str):
             _apply_no_store_headers(response)
         if bs_id:
             _set_browse_session_cookie(response, bs_id)
+        total_ms = _elapsed_ms(request_started_at)
+        _log_user_ak_web_slow_html_request(
+            path=path,
+            site_prefix=site_prefix,
+            selected_exit=selected_exit,
+            content_type=content_type,
+            upstream_ms=upstream_ms,
+            rewrite_ms=rewrite_ms,
+            inject_ms=inject_ms,
+            total_ms=total_ms,
+            status_code=resp.status_code,
+            bs_id=bs_id,
+        )
         _admin_ak_trace(lambda: (
             f"[AkWebTiming/{path}] upstream_ms={upstream_ms} rewrite_ms={rewrite_ms} inject_ms={inject_ms} "
-            f"total_ms={_elapsed_ms(request_started_at)} status={resp.status_code} "
+            f"total_ms={total_ms} status={resp.status_code} "
             f"content_type={content_type or '-'} bytes={len(content)} dest={fetch_dest or '-'}"
         ))
         return response
