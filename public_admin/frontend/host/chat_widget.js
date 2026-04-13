@@ -3810,6 +3810,12 @@
         }, 1500);
     }
 
+    function resumeAssistConnection(reason) {
+        if (!assistSessionId) return;
+        if (assistWs && (assistWs.readyState === WebSocket.OPEN || assistWs.readyState === WebSocket.CONNECTING)) return;
+        connectAssist(assistSessionId);
+    }
+
     function disconnectAssist(sessionId, silent) {
         if (sessionId && assistSessionId && String(sessionId) !== String(assistSessionId)) return;
         clearAssistReconnectTimer();
@@ -3973,9 +3979,11 @@
         if (ws && ws.readyState === WebSocket.OPEN) {
             sendPresence('online');
             startHeartbeat();
+            resumeAssistConnection(String(reason || 'resume_presence_ws_open'));
             return;
         }
         connect();
+        resumeAssistConnection(String(reason || 'resume_presence_connect'));
     }
     
     // 连接WebSocket
@@ -3998,6 +4006,7 @@
                 startHeartbeat();
                 schedulePresenceIdentityRefresh();
                 emitChatBridgeEvent('ak-chat-ws-open', { username: username || '' });
+                resumeAssistConnection('chat_ws_open');
             };
             
             ws.onmessage = function(e) {
