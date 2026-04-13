@@ -8,6 +8,7 @@ PostgreSQL 数据库模块 (asyncpg)
 import asyncpg
 import asyncio
 import json
+import time
 import logging
 import os
 from datetime import datetime, timedelta
@@ -2108,3 +2109,87 @@ async def get_all_sub_admin_credits() -> List[Dict]:
             FROM sub_admins s ORDER BY s.name
         ''')
         return [dict(r) for r in rows]
+
+
+class SystemConfig:
+    _instance = None
+    _cache: Dict[str, Any] = {}
+    _cache_lock = asyncio.Lock()
+    _cache_ttl = 60
+    _cache_time = 0.0
+
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+        return cls._instance
+
+    async def _ensure_table(self):
+        pool = _get_pool()
+        async with pool.acquire() as conn:
+            await conn.execute('''
+                CREATE TABLE IF NOT EXISTS system_config (
+                    key VARCHAR(100) PRIMARY KEY,
+                    value JSONB NOT NULL,
+                    description TEXT,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+            await conn.execute('''
+                CREATE INDEX IF NOT EXISTS idx_system_config_key ON system_config(key)
+            ''')
+
+    async def get(self, key: str, default: Any = None) -> Any:
+        now = time.time()
+        async with self._cache_lock:
+            if now - self._cache_time < self._cache_ttl and key in self._cache:
+                return self._cache.get(key, default)
+        await self._ensure_table()
+        pool = _get_pool()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                'SELECT value FROM system_config WHERE key = $1', key
+            )
+            if row:
+                value = json.loads(row['value'])
+            else:
+                value = default
+        async with self._cache_lock:
+            self._cache[key] = value
+            if now - self._cache_time >= self._cache_ttl:
+                self._cache_time = now
+        return value
+
+    async def set(self, key: str, value: Any, description: str = '') -> bool:
+        try:
+            await self._ensure_table()
+            pool = _get_pool()
+            async with pool.acquire() as conn:
+                await conn.execute('''
+                    INSERT INTO system_config (key, value, description, updated_at)
+                    VALUES ($1, $2, $3, NOW())
+                    ON CONFLICT (key) DO UPDATE SET
+                        value = $2, description = $3, updated_at = NOW()
+                ''', key, json.dumps(value), description)
+            async with self._cache_lock:
+                self._cache.pop(key, None)
+                self._cache_time = 0.0
+            logger.info(f'[SystemConfig] 配置已更新: {key} = {value}')
+            return True
+        except Exception as e:
+            logger.error(f'[SystemConfig] 设置配置失败: {key} = {value}, {e}')
+            return False
+
+
+system_config = SystemConfig()
+
+
+async def get_whitelist_global_status() -> bool:
+    return bool(await system_config.get('whitelist_open_to_all', True))
+
+
+async def set_whitelist_global_status(enabled: bool) -> bool:
+    return await system_config.set(
+        'whitelist_open_to_all',
+        bool(enabled),
+        '全体白名单：开启后所有人可登录AK服务器，关闭后仅白名单用户可登录'
+    )
