@@ -5245,6 +5245,46 @@ def _get_connection_page_client_id(connection) -> str:
     return str(connection.get('page_client_id') or '').strip()
 
 
+def _serialize_online_connection(connection) -> dict[str, Any]:
+
+    if not isinstance(connection, dict):
+
+        return {}
+
+    heartbeat = connection.get('last_heartbeat')
+
+    return {
+        'ws_id': str(connection.get('ws_id') or '').strip(),
+        'page': str(connection.get('page') or '').strip(),
+        'page_client_id': str(connection.get('page_client_id') or '').strip(),
+        'last_heartbeat': heartbeat.isoformat() if isinstance(heartbeat, datetime) else str(heartbeat or ''),
+    }
+
+
+def _list_online_user_connections(username: str) -> list[dict[str, Any]]:
+
+    normalized = online_manager.normalize_username(username)
+
+    if not normalized:
+
+        return []
+
+    user = online_manager._prune_stale_connections(normalized)
+
+    if not user:
+
+        return []
+
+    items = [
+        _serialize_online_connection(item)
+        for item in (user.get('connections') or {}).values()
+    ]
+
+    items.sort(key=lambda item: (str(item.get('page') or ''), str(item.get('ws_id') or '')))
+
+    return items
+
+
 def _sync_remote_voice_connection(voice_session, connection, bind: bool = False) -> None:
 
     if not voice_session or not isinstance(connection, dict):
@@ -8074,6 +8114,13 @@ async def admin_remote_assist_start(request: Request):
         remote_assist.close_session(session.session_id)
         session = None
     if session and role != ROLE_SUPER_ADMIN and session.admin_username != (admin_name or role):
+        logger.warning(
+            f"[RemoteAssistStart409] reason=existing_session username={username} requester={admin_name or role} "
+            f"session={session.session_id} session_admin={session.admin_username} "
+            f"consent={getattr(session.consent_status, 'value', '')} connected_admin={int(_assist_session_has_connected_admin(session))} "
+            f"request_ws={getattr(session, 'request_chat_ws_id', '') or '-'} bound_ws={getattr(session, 'bound_chat_ws_id', '') or '-'} "
+            f"request_page={getattr(session, 'request_chat_page_id', '') or '-'} bound_page={getattr(session, 'bound_chat_page_id', '') or '-'}"
+        )
         return JSONResponse({"success": False, "message": f"用户 {username} 已有进行中的远程指导"}, status_code=409)
     created_new_session = False
     if not session:
@@ -8091,10 +8138,18 @@ async def admin_remote_assist_start(request: Request):
     if not online_manager.get_user(username):
         if created_new_session:
             remote_assist.close_session(session.session_id)
+        logger.warning(
+            f"[RemoteAssistStart409] reason=user_offline username={username} requester={admin_name or role} "
+            f"session={getattr(session, 'session_id', '') or '-'} online_connections={json.dumps(_list_online_user_connections(username), ensure_ascii=False)}"
+        )
         return JSONResponse({"success": False, "message": f"用户 {username} 当前不在线，无法发起远程指导"}, status_code=409)
     if not online_manager.pick_remote_assist_connection(username):
         if created_new_session:
             remote_assist.close_session(session.session_id)
+        logger.warning(
+            f"[RemoteAssistStart409] reason=no_candidate_connection username={username} requester={admin_name or role} "
+            f"session={getattr(session, 'session_id', '') or '-'} online_connections={json.dumps(_list_online_user_connections(username), ensure_ascii=False)}"
+        )
         return JSONResponse({"success": False, "message": f"用户 {username} 当前没有可接收远程指导的已登录页面"}, status_code=409)
     response = JSONResponse({
         "success": True,
@@ -8112,6 +8167,11 @@ async def admin_remote_assist_start(request: Request):
         failure_message = f"用户 {username} 远程指导请求下发失败，请稍后重试"
         if _assist_session_has_accepted_consent(session):
             failure_message = f"用户 {username} 远程指导绑定失败，请稍后重试"
+        logger.warning(
+            f"[RemoteAssistStart409] reason=deliver_failed username={username} requester={admin_name or role} "
+            f"session={getattr(session, 'session_id', '') or '-'} consent={getattr(session.consent_status, 'value', '')} "
+            f"online_connections={json.dumps(_list_online_user_connections(username), ensure_ascii=False)}"
+        )
         return JSONResponse({"success": False, "message": failure_message}, status_code=409)
     return response
 
