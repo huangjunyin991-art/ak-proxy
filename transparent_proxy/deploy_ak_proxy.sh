@@ -10,7 +10,8 @@ APP_DIR="$REPO_DIR/public_admin"
 LOG_FILE="$APP_DIR/proxy.log"
 VENV_BIN="$REPO_DIR/venv/bin"
 NGINX_CONF_SRC="$REPO_DIR/transparent_proxy/nginx.conf"
-NGINX_CONF_DST="/etc/nginx/sites-enabled/ak2025.conf"
+NGINX_CONF_DST="/etc/nginx/sites-enabled/nginx.conf"
+LEGACY_NGINX_CONF="/etc/nginx/sites-enabled/ak2025.conf"
 SERVICE_NAME="ak-proxy"
 
 echo "========================================="
@@ -74,8 +75,17 @@ if [ ! -f "$NGINX_CONF_SRC" ]; then
     echo "❌ nginx 配置文件不存在: $NGINX_CONF_SRC"
     exit 1
 fi
+if [ -f "$LEGACY_NGINX_CONF" ] && [ "$LEGACY_NGINX_CONF" != "$NGINX_CONF_DST" ]; then
+    LEGACY_MIGRATION_BACKUP="${LEGACY_NGINX_CONF}.migrated_$(date +%Y%m%d_%H%M%S)"
+    sudo cp "$LEGACY_NGINX_CONF" "$LEGACY_MIGRATION_BACKUP"
+    echo "✅ 已备份旧 nginx 配置: $LEGACY_MIGRATION_BACKUP"
+fi
 sudo cp "$NGINX_CONF_SRC" "$NGINX_CONF_DST"
 echo "✅ nginx 配置已复制到 $NGINX_CONF_DST"
+if [ -f "$LEGACY_NGINX_CONF" ] && [ "$LEGACY_NGINX_CONF" != "$NGINX_CONF_DST" ]; then
+    sudo rm -f "$LEGACY_NGINX_CONF"
+    echo "✅ 已移除旧 nginx 配置: $LEGACY_NGINX_CONF"
+fi
 
 # ===== [5/7] 清理 nginx 冲突的 backup 文件 =====
 echo -e "\n[5/7] 清理 nginx sites-enabled 中的旧 backup 文件..."
