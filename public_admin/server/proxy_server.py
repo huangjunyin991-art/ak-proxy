@@ -7201,6 +7201,8 @@ async def pwa_icon_maskable_api(size: int):
 
 
 
+@app.get("/admin/api/chat-widget-loader")
+
 @app.get("/admin/api/pwa-widget")
 
 async def pwa_widget_api():
