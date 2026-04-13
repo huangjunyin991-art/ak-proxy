@@ -122,6 +122,15 @@ except ImportError:
     LOGIN_RATE_PER_EXIT = 8
 
 
+try:
+
+    ADMIN_AK_TRACE_ENABLED
+
+except NameError:
+
+    ADMIN_AK_TRACE_ENABLED = False
+
+
 
 # 数据库模块
 
@@ -2845,6 +2854,8 @@ async def admin_startup():
 
         raise
 
+    await _browse_session_persist_queue.start()
+
     _restore_dispatcher_exits_from_disk()
 
     await dispatcher.start()
@@ -2910,11 +2921,13 @@ async def admin_startup():
     asyncio.create_task(_expire_accounts())
 
 
+@app.on_event("shutdown")
 
+async def admin_shutdown():
 
+    await _browse_session_persist_queue.stop()
 
-# ===== 管理后台 API =====
-
+    await _ak_web_client_pool.close_all()
 
 
 @app.post("/admin/api/login")
@@ -6952,6 +6965,143 @@ _AK_NATIVE_WEB_PREFIX = "/ak-web"
 _AK_SITE_PREFIX = "/admin/ak-site"
 
 
+def _admin_ak_trace(message_or_factory):
+    if not ADMIN_AK_TRACE_ENABLED:
+        return
+    try:
+        message = message_or_factory() if callable(message_or_factory) else message_or_factory
+    except Exception as e:
+        logger.debug(f"[AdminAkTrace] 构造日志失败: {e}")
+        return
+    logger.warning(message)
+
+
+class AkWebClientPool:
+    def __init__(self):
+        self._clients: dict[str, httpx.AsyncClient] = {}
+        self._locks: dict[str, asyncio.Lock] = {}
+
+    @staticmethod
+    def _make_key(proxy_url: Optional[str]) -> str:
+        return str(proxy_url or "__direct__")
+
+    async def get_client(self, proxy_url: Optional[str] = None) -> httpx.AsyncClient:
+        key = self._make_key(proxy_url)
+        client = self._clients.get(key)
+        if client and not client.is_closed:
+            return client
+        lock = self._locks.setdefault(key, asyncio.Lock())
+        async with lock:
+            client = self._clients.get(key)
+            if client and not client.is_closed:
+                return client
+            old_client = self._clients.pop(key, None)
+            if old_client and not old_client.is_closed:
+                try:
+                    await old_client.aclose()
+                except Exception:
+                    pass
+            limits = httpx.Limits(
+                max_connections=40,
+                max_keepalive_connections=20,
+                keepalive_expiry=120,
+            )
+            client = httpx.AsyncClient(
+                verify=False,
+                proxy=proxy_url,
+                timeout=httpx.Timeout(20, connect=10),
+                follow_redirects=True,
+                limits=limits,
+            )
+            self._clients[key] = client
+            return client
+
+    async def close_all(self):
+        clients = list(self._clients.values())
+        self._clients.clear()
+        self._locks.clear()
+        for client in clients:
+            if client and not client.is_closed:
+                try:
+                    await client.aclose()
+                except Exception:
+                    pass
+
+
+class BrowseSessionPersistQueue:
+    def __init__(self):
+        self._pending: dict[str, dict] = {}
+        self._event = asyncio.Event()
+        self._task: Optional[asyncio.Task] = None
+        self._started = False
+
+    async def start(self):
+        if self._started:
+            return
+        self._started = True
+        self._task = asyncio.create_task(self._run())
+
+    def schedule(self, username: str, cached: dict):
+        username = (username or "").strip()
+        if not username:
+            return
+        self._pending[username] = {
+            "cookies": dict(cached.get("cookies", {})),
+            "userkey": cached.get("userkey", ""),
+            "login_result": cached.get("login_result", {}),
+            "password": cached.get("password", ""),
+            "expires": cached.get("expires", time.time() + _BROWSE_SESSION_TTL),
+        }
+        self._event.set()
+
+    async def _flush_pending(self):
+        if not self._pending:
+            return
+        pending = self._pending
+        self._pending = {}
+        for username, cached in pending.items():
+            try:
+                await db.save_ak_auth_state(
+                    username,
+                    userkey=cached.get("userkey", ""),
+                    cookies=cached.get("cookies", {}),
+                    login_payload=cached.get("login_result", {}),
+                    ttl_seconds=_BROWSE_SESSION_TTL,
+                )
+            except Exception as e:
+                logger.warning(f"[BrowseSession] 站点登录态持久化失败 {username}: {e}")
+
+    async def _run(self):
+        while self._started:
+            try:
+                await self._event.wait()
+                self._event.clear()
+                await asyncio.sleep(0.25)
+                await self._flush_pending()
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.warning(f"[BrowseSession] 异步持久化队列异常: {e}")
+        await self._flush_pending()
+
+    async def stop(self):
+        if not self._started:
+            await self._flush_pending()
+            return
+        self._started = False
+        self._event.set()
+        if self._task:
+            try:
+                await self._task
+            except asyncio.CancelledError:
+                pass
+        self._task = None
+
+
+_ak_web_client_pool = AkWebClientPool()
+_browse_session_persist_queue = BrowseSessionPersistQueue()
+
+
 def _use_native_ak_rpc(site_prefix: str) -> bool:
     return site_prefix in (_AK_WEB_PREFIX, _AK_NATIVE_WEB_PREFIX)
 
@@ -7090,6 +7240,20 @@ def _cache_ak_auth(username: str, password: str, result: dict, headers) -> dict:
     return cached
 
 
+def _build_browse_session_persist_payload(session: dict) -> tuple[str, Optional[dict]]:
+    username = (session.get("username") or "").strip()
+    if not username:
+        return "", None
+    cached = {
+        "cookies": dict(session.get("cookies", {})),
+        "userkey": session.get("userkey", ""),
+        "login_result": session.get("login_result", {}),
+        "password": session.get("password", ""),
+        "expires": time.time() + _BROWSE_SESSION_TTL,
+    }
+    return username, cached
+
+
 async def _apply_cached_auth_to_browse_session(session: dict, cached: dict, result: dict,
                                                username: str = "", password: str = ""):
     if username:
@@ -7104,27 +7268,11 @@ async def _apply_cached_auth_to_browse_session(session: dict, cached: dict, resu
 
 
 async def _persist_browse_session_auth(session: dict):
-    username = (session.get("username") or "").strip()
-    if not username:
+    username, cached = _build_browse_session_persist_payload(session)
+    if not username or not cached:
         return
-    cached = {
-        "cookies": dict(session.get("cookies", {})),
-        "userkey": session.get("userkey", ""),
-        "login_result": session.get("login_result", {}),
-        "password": session.get("password", ""),
-        "expires": time.time() + _BROWSE_SESSION_TTL,
-    }
     _ak_auth_cache[username] = cached
-    try:
-        await db.save_ak_auth_state(
-            username,
-            userkey=cached.get("userkey", ""),
-            cookies=cached.get("cookies", {}),
-            login_payload=cached.get("login_result", {}),
-            ttl_seconds=_BROWSE_SESSION_TTL,
-        )
-    except Exception as e:
-        logger.warning(f"[BrowseSession] 站点登录态持久化失败 {username}: {e}")
+    _browse_session_persist_queue.schedule(username, cached)
 
 
 def _make_browse_entry_url(bs_id: str, site_prefix: str = _AK_WEB_PREFIX) -> str:
@@ -7464,21 +7612,21 @@ async def _forward_admin_ak_rpc_request(path: str, request: Request, session: di
     if _ADMIN_AK_FORCE_DIRECT:
         selected_exit = _get_direct_exit()
         session.pop("ak_exit_name", None)
-        logger.warning(
+        _admin_ak_trace(lambda: (
             f"[AdminAkRpcExit/{path}] force_direct=1 preferred={pinned_exit_name or '-'} "
             f"using={selected_exit.name} referer={referer}"
-        )
+        ))
     else:
         selected_exit = _select_forward_exit(path, is_login=is_login_path, preferred_exit_name=pinned_exit_name)
-        logger.warning(
+        _admin_ak_trace(lambda: (
             f"[AdminAkRpcExit/{path}] pinned={int(bool(pinned_exit_name))} preferred={pinned_exit_name or '-'} "
             f"using={selected_exit.name} referer={referer}"
-        )
+        ))
     if trace_params_before is not None:
-        logger.warning(
+        _admin_ak_trace(lambda: (
             f"[AdminAkRpcParams/{path}] phase=incoming referer={referer} "
             f"params={json.dumps(trace_params_before, ensure_ascii=False)}"
-        )
+        ))
     if normalized_path in protected_paths:
         login_result = session.get("login_result", {})
         if not isinstance(login_result, dict):
@@ -7502,22 +7650,22 @@ async def _forward_admin_ak_rpc_request(path: str, request: Request, session: di
                 raw_body = json.dumps(params, ensure_ascii=False).encode("utf-8")
             else:
                 raw_body = urlencode(params).encode("utf-8")
-        logger.warning(
+        _admin_ak_trace(lambda: (
             f"[AdminAkRpcAuth/{path}] replaced={int(auth_replaced)} key={str(params.get('key') or '')[:8]} "
             f"userId={str(params.get('UserID') or params.get('userid') or '')} referer={referer}"
-        )
+        ))
     if trace_params_before is not None:
-        logger.warning(
+        _admin_ak_trace(lambda: (
             f"[AdminAkRpcParams/{path}] phase=forward referer={referer} "
             f"params={json.dumps(params, ensure_ascii=False)}"
-        )
+        ))
     headers = dict(request.headers)
     headers = _apply_ak_rpc_browser_headers(headers, request, referer=referer)
-    logger.warning(
+    _admin_ak_trace(lambda: (
         f"[AdminAkRpcHeaders/{path}] origin={headers.get('origin', '-') or '-'} "
         f"referer={headers.get('referer', '-') or '-'} "
         f"fetch={headers.get('sec-fetch-site', '-') or '-'}/{headers.get('sec-fetch-mode', '-') or '-'}/{headers.get('sec-fetch-dest', '-') or '-'}"
-    )
+    ))
     cookie_header = _build_cookie_header(session.get("cookies", {}))
     if cookie_header:
         headers["cookie"] = cookie_header
@@ -7546,25 +7694,25 @@ async def _forward_admin_ak_rpc_request(path: str, request: Request, session: di
             await _apply_cached_auth_to_browse_session(session, cached, result, account, password)
             if selected_exit and not _ADMIN_AK_FORCE_DIRECT:
                 session["ak_exit_name"] = selected_exit.name
-                logger.warning(f"[AdminAkRpcExit/{path}] bind={selected_exit.name} referer={referer}")
-            logger.warning(
+                _admin_ak_trace(lambda: f"[AdminAkRpcExit/{path}] bind={selected_exit.name} referer={referer}")
+            _admin_ak_trace(lambda: (
                 f"[AdminAkRpcLoginCookies/{path}] bs={session.get('id', '')} set_cookie_count={len(cached.get('cookies', {}))} "
                 f"set_cookie_names={_summarize_cookie_names(cached.get('cookies', {}))} "
                 f"session_cookie_count={len(session.get('cookies', {}))} "
                 f"session_cookie_names={_summarize_cookie_names(session.get('cookies', {}))}"
-            )
+            ))
             should_persist = True
         if should_persist:
             await _persist_browse_session_auth(session)
         if is_login_path:
-            logger.warning(f"[IframeLoginApi] route=/admin/ak-rpc/Login phase=response status={response.status_code} referer={referer} body_head={json.dumps(result, ensure_ascii=False)[:200]}")
-        logger.warning(f"[AdminAkRpc/{path}] status={response.status_code} dest={fetch_dest} accept={accept} referer={referer} body_head={json.dumps(result, ensure_ascii=False)[:200]}")
+            _admin_ak_trace(lambda: f"[IframeLoginApi] route=/admin/ak-rpc/Login phase=response status={response.status_code} referer={referer} body_head={json.dumps(result, ensure_ascii=False)[:200]}")
+        _admin_ak_trace(lambda: f"[AdminAkRpc/{path}] status={response.status_code} dest={fetch_dest} accept={accept} referer={referer} body_head={json.dumps(result, ensure_ascii=False)[:200]}")
         proxy_response = JSONResponse(content=result, status_code=response.status_code)
         return _mirror_upstream_set_cookies(proxy_response, response.headers)
     except Exception:
         if set_cookie_values:
             await _persist_browse_session_auth(session)
-        logger.warning(f"[AdminAkRpc/{path}] status={response.status_code} dest={fetch_dest} accept={accept} referer={referer} content_type={response.headers.get('content-type','')}")
+        _admin_ak_trace(lambda: f"[AdminAkRpc/{path}] status={response.status_code} dest={fetch_dest} accept={accept} referer={referer} content_type={response.headers.get('content-type','')}")
         proxy_response = Response(content=response.content, status_code=response.status_code,
                         media_type=response.headers.get("content-type", "application/octet-stream"))
         return _mirror_upstream_set_cookies(proxy_response, response.headers)
@@ -7588,7 +7736,7 @@ async def admin_ak_rpc(path: str, request: Request):
         source_order=("cookie",),
     )
     if path.strip("/").lower() == "login":
-        logger.warning(f"[IframeLoginApi] route=/admin/ak-rpc/Login phase=request bs={bs_id} source={bs_source} cookie_bs={cookie_bs} referer={referer}")
+        _admin_ak_trace(lambda: f"[IframeLoginApi] route=/admin/ak-rpc/Login phase=request bs={bs_id} source={bs_source} cookie_bs={cookie_bs} referer={referer}")
     if not session:
         logger.warning(f"[AdminAkRpc/{path}] no_session bs={bs_id} source={bs_source} cookie_bs={cookie_bs} dest={fetch_dest} accept={accept} referer={referer}")
         return JSONResponse({"Error": True, "IsLogin": False, "Msg": "用戶未登錄"})
@@ -8014,7 +8162,7 @@ async def ak_web_proxy(request: Request, path: str):
         site_prefix = _AK_NATIVE_WEB_PREFIX
     else:
         site_prefix = _AK_WEB_PREFIX
-    logger.warning(f"[AkWebProxy/IN] method={request.method} path={request_path} referer={request.headers.get('referer','')}")
+    _admin_ak_trace(lambda: f"[AkWebProxy/IN] method={request.method} path={request_path} referer={request.headers.get('referer','')}")
     if path.lstrip("/") == "cdn-cgi/rum":
         return Response(status_code=204)
     bs_id, session, bs_source = _resolve_browse_session(
@@ -8032,22 +8180,20 @@ async def ak_web_proxy(request: Request, path: str):
         if _ADMIN_AK_FORCE_DIRECT:
             selected_exit = _get_direct_exit()
             session.pop("ak_exit_name", None)
-            logger.warning(
+            _admin_ak_trace(lambda: (
                 f"[AkWebExit/{path}] force_direct=1 preferred={pinned_exit_name or '-'} using={selected_exit.name} "
                 f"bs={bs_id} referer={referer}"
-            )
+            ))
         else:
             selected_exit = _select_forward_exit(path or "web", preferred_exit_name=pinned_exit_name)
             if pinned_exit_name:
-                logger.warning(
+                _admin_ak_trace(lambda: (
                     f"[AkWebExit/{path}] pinned=1 preferred={pinned_exit_name} using={selected_exit.name} "
                     f"bs={bs_id} referer={referer}"
-                )
+                ))
             else:
                 session["ak_exit_name"] = selected_exit.name
-                logger.warning(
-                    f"[AkWebExit/{path}] bind={selected_exit.name} bs={bs_id} referer={referer}"
-                )
+                _admin_ak_trace(lambda: f"[AkWebExit/{path}] bind={selected_exit.name} bs={bs_id} referer={referer}")
 
     normalized_path = path.lstrip("/").lower()
     requested_bs = (request.query_params.get("bs") or "").strip()
@@ -8060,19 +8206,19 @@ async def ak_web_proxy(request: Request, path: str):
         "assets/css/notice.css",
     }
     if request.method == "GET" and normalized_path.startswith("pages/") and normalized_path.endswith(".html"):
-        logger.warning(
+        _admin_ak_trace(lambda: (
             f"[AkPageEntry/{path}] requested_bs={requested_bs or '-'} resolved_bs={bs_id or '-'} "
             f"has_session={int(bool(session))} source={bs_source} cookie_bs={cookie_bs or '-'} referer={referer}"
-        )
+        ))
     if request.method == "GET" and normalized_path.startswith("pages/") and normalized_path.endswith(".html") and requested_bs:
         canonical_query = [(k, v) for k, v in request.query_params.multi_items() if k != "bs"]
         canonical_url = request.url.path
         if canonical_query:
             canonical_url += "?" + urlencode(canonical_query, doseq=True)
-        logger.warning(
+        _admin_ak_trace(lambda: (
             f"[AkPageBsStrip/{path}] requested_bs={requested_bs or '-'} resolved_bs={bs_id or '-'} "
             f"source={bs_source} cookie_bs={cookie_bs} referer={referer} redirect={canonical_url}"
-        )
+        ))
         response = _apply_no_store_headers(Response(status_code=307, headers={"location": canonical_url}))
         if bs_id:
             _set_browse_session_cookie(response, bs_id)
@@ -8086,21 +8232,23 @@ async def ak_web_proxy(request: Request, path: str):
 
     # 透传浏览器请求头，补充缺失的字段，模拟真实 Chrome 指纹
     fwd_headers = _build_ak_site_forward_headers(request)
+    cookie_header = _build_cookie_header(cookies)
+    if cookie_header:
+        fwd_headers["cookie"] = cookie_header
+    else:
+        fwd_headers.pop("cookie", None)
 
     try:
         body = await request.body()
-        client_kwargs = {"verify": False, "timeout": 20, "cookies": cookies}
-        if selected_exit and selected_exit.proxy_url:
-            client_kwargs["proxy"] = selected_exit.proxy_url
-        async with httpx.AsyncClient(**client_kwargs) as client:
-            resp = await client.request(
-                method=request.method,
-                url=target_url,
-                headers=fwd_headers,
-                content=body or None,
-                follow_redirects=True,
-            )
-        logger.warning(f"[AkWebProxy] target={target_url} httpx_status={resp.status_code} final_url={resp.url}")
+        proxy_url = selected_exit.proxy_url if selected_exit and selected_exit.proxy_url else None
+        client = await _ak_web_client_pool.get_client(proxy_url=proxy_url)
+        resp = await client.request(
+            method=request.method,
+            url=target_url,
+            headers=fwd_headers,
+            content=body or None,
+        )
+        _admin_ak_trace(lambda: f"[AkWebProxy] target={target_url} httpx_status={resp.status_code} final_url={resp.url}")
         final_url_str = str(resp.url)
         if "/pages/account/login.html" in final_url_str and "/pages/account/login.html" not in target_url:
             history_chain = " -> ".join(str(item.url) for item in resp.history) if resp.history else ""
@@ -8115,13 +8263,7 @@ async def ak_web_proxy(request: Request, path: str):
                     session["cookies"][ck.strip()] = cv.strip()
             if resp.headers.get_list("set-cookie") and session.get("username"):
                 try:
-                    await db.save_ak_auth_state(
-                        session.get("username", ""),
-                        userkey=session.get("userkey", ""),
-                        cookies=session.get("cookies", {}),
-                        login_payload=session.get("login_result", {}),
-                        ttl_seconds=_BROWSE_SESSION_TTL,
-                    )
+                    await _persist_browse_session_auth(session)
                 except Exception as e:
                     logger.warning(f"[AkWebProxy] 站点登录态持久化失败 {session.get('username','')}: {e}")
 
