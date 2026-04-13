@@ -6828,6 +6828,15 @@ def _version_widget_asset_url(url: str, asset_version: str = "") -> str:
         return url
 
 
+def _rewrite_widget_asset_url(url: str, asset_version: str = "") -> str:
+    try:
+        if urlsplit(url).path.lower() == "/chat/widget.js":
+            return "/admin/api/chat-widget-loader"
+    except Exception:
+        return url
+    return _version_widget_asset_url(url, asset_version)
+
+
 def _rewrite_widget_asset_urls(text: str, asset_version: str = "") -> str:
     version = (asset_version or _get_widget_asset_version()).strip()
     if not text or not version:
@@ -6837,7 +6846,7 @@ def _rewrite_widget_asset_urls(text: str, asset_version: str = "") -> str:
         re.IGNORECASE,
     )
     return pattern.sub(
-        lambda m: f"{m.group('quote')}{_version_widget_asset_url(m.group('url'), version)}{m.group('quote')}",
+        lambda m: f"{m.group('quote')}{_rewrite_widget_asset_url(m.group('url'), version)}{m.group('quote')}",
         text,
     )
 
