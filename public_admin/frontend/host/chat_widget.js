@@ -420,6 +420,8 @@
     const ASSIST_WS_URL = `${WS_PROTOCOL}//${window.location.host}/admin/assist/ws`;
     const REMOTE_VOICE_CLIENT_URL = `${window.location.origin}/admin/api/remote-voice-client`;
     const WIDGET_ASSET_VERSION = String(window.__AK_WIDGET_ASSET_VERSION__ || '').trim();
+    const ASSIST_ROUTE_PREFIX = '/admin/ak-web';
+    const ASSIST_NATIVE_ROUTE_PREFIX = '/ak-web';
     function withWidgetAssetVersion(url) {
         try {
             const finalUrl = new URL(String(url || ''), window.location.origin);
@@ -1678,11 +1680,19 @@
 
     function normalizeAssistRoute() {
         const raw = window.location.pathname + window.location.search + window.location.hash;
-        if (raw.indexOf('/admin/ak-web/') === 0) return raw;
+        if (raw === ASSIST_ROUTE_PREFIX || raw.indexOf(ASSIST_ROUTE_PREFIX + '/') === 0) return raw;
+        if (raw === ASSIST_NATIVE_ROUTE_PREFIX || raw.indexOf(ASSIST_NATIVE_ROUTE_PREFIX + '/') === 0) {
+            return ASSIST_ROUTE_PREFIX + raw.slice(ASSIST_NATIVE_ROUTE_PREFIX.length);
+        }
         if (raw.indexOf('/pages/') === 0 || raw.indexOf('/content/') === 0 || raw.indexOf('/assets/') === 0) {
-            return '/admin/ak-web' + raw;
+            return ASSIST_ROUTE_PREFIX + raw;
         }
         return raw;
+    }
+
+    function isAssistManagedRoute(route) {
+        const normalized = String(route || normalizeAssistRoute() || '').trim();
+        return normalized === ASSIST_ROUTE_PREFIX || normalized.indexOf(ASSIST_ROUTE_PREFIX + '/') === 0;
     }
 
     function resolveAssistTarget(meta) {
@@ -2566,7 +2576,7 @@
         try {
             if (!document.body) return false;
             const route = normalizeAssistRoute();
-            if (route.indexOf('/admin/ak-web/') !== 0) return false;
+            if (!isAssistManagedRoute(route)) return false;
             const metrics = getAssistActiveViewportMetrics();
             return metrics.scrollHeight >= Math.round(Math.max(1, metrics.viewportHeight || 0) * ASSIST_VIEWPORT_SCROLL_HEIGHT_FACTOR);
         } catch (e) {
@@ -3307,7 +3317,7 @@
         try {
             const rawRoute = window.location.pathname + window.location.search + window.location.hash;
             const route = normalizeAssistRoute();
-            if (route.indexOf('/admin/ak-web/') !== 0) {
+            if (!isAssistManagedRoute(route)) {
                 return {
                     route: route,
                     title: document.title || '',
@@ -3682,7 +3692,7 @@
         stopAssistDomObserver();
         if (!assistSessionId || !document.body || typeof MutationObserver === 'undefined') return;
         assistMutationObserver = new MutationObserver(function(mutations) {
-            if (normalizeAssistRoute().indexOf('/admin/ak-web/') !== 0) return;
+            if (!isAssistManagedRoute()) return;
             if (Date.now() < assistSuppressSnapshotUntil) return;
             const shouldRefresh = (mutations || []).some(function(mutation) {
                 const target = mutation && mutation.target && mutation.target.nodeType === Node.TEXT_NODE ? mutation.target.parentElement : mutation.target;
@@ -3722,7 +3732,7 @@
         const target = event && event.target;
         if (!assistWs || assistWs.readyState !== WebSocket.OPEN || !assistSessionId) return;
         if (!isAssistFormFieldTarget(target) || isAssistWidgetTarget(target)) return;
-        if (normalizeAssistRoute().indexOf('/admin/ak-web/') !== 0) return;
+        if (!isAssistManagedRoute()) return;
         scheduleAssistSnapshot(120, 'form_input');
     }
 
@@ -3767,7 +3777,7 @@
     function emitAssistRoute() {
         if (!assistSessionId) return;
         const route = normalizeAssistRoute();
-        if (route.indexOf('/admin/ak-web/') !== 0) return;
+        if (!isAssistManagedRoute(route)) return;
         const traceMeta = buildAssistTraceMeta('route_changed', route, 'route_changed');
         const payload = {
             route: route,
@@ -4168,27 +4178,29 @@
     window.addEventListener('hashchange', onUrlChange);
     window.addEventListener('scroll', function() {
         if (!assistWs || assistWs.readyState !== WebSocket.OPEN || !assistSessionId) return;
-        if (normalizeAssistRoute().indexOf('/admin/ak-web/') !== 0) return;
+        const route = normalizeAssistRoute();
+        if (!isAssistManagedRoute(route)) return;
         logAssistScrollCapture('window', window);
         rememberAssistScrollTarget(window);
-        scheduleAssistRouteFastScrollSync(normalizeAssistRoute(), ASSIST_ROUTE_FAST_SCROLL_DELAY);
+        scheduleAssistRouteFastScrollSync(route, ASSIST_ROUTE_FAST_SCROLL_DELAY);
         scheduleAssistScroll(ASSIST_SCROLL_SETTLE_DELAY);
     }, { passive: true });
     document.addEventListener('scroll', function(event) {
         if (!assistWs || assistWs.readyState !== WebSocket.OPEN || !assistSessionId) return;
-        if (normalizeAssistRoute().indexOf('/admin/ak-web/') !== 0) return;
+        const route = normalizeAssistRoute();
+        if (!isAssistManagedRoute(route)) return;
         const target = event && event.target;
         if (isAssistWidgetTarget(target)) return;
         logAssistScrollCapture('document', target);
         rememberAssistScrollTarget(target);
-        scheduleAssistRouteFastScrollSync(normalizeAssistRoute(), ASSIST_ROUTE_FAST_SCROLL_DELAY);
+        scheduleAssistRouteFastScrollSync(route, ASSIST_ROUTE_FAST_SCROLL_DELAY);
         scheduleAssistScroll(ASSIST_SCROLL_SETTLE_DELAY);
     }, true);
     document.addEventListener('click', function(event) {
         if (!assistWs || assistWs.readyState !== WebSocket.OPEN || !assistSessionId) return;
         const target = event && event.target;
         if (isAssistWidgetTarget(target)) return;
-        if (normalizeAssistRoute().indexOf('/admin/ak-web/') !== 0) return;
+        if (!isAssistManagedRoute()) return;
         sendAssistEvent('click_highlight', pickAssistMeta(target));
         if (!isAssistFormFieldTarget(target)) {
             scheduleAssistSnapshot(100, 'click_interaction');
