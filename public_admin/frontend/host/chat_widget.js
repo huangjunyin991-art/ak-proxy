@@ -481,6 +481,7 @@
     let pendingAssistRequest = null;
     let pendingVoiceRequest = null;
     const CHAT_PAGE_CLIENT_ID_STORAGE_KEY = 'ak_chat_page_client_id';
+    const ASSIST_SESSION_STORAGE_KEY = 'ak_chat_assist_session_id';
     let pageClientId = '';
     let remoteVoiceLibraryPromise = null;
     let remoteVoiceClient = null;
@@ -701,6 +702,34 @@
             } catch (_) {}
         }
         reportAssistClientDebug(normalizedEvent, extra);
+    }
+
+    function readPersistedAssistSessionId() {
+        try {
+            return String(sessionStorage.getItem(ASSIST_SESSION_STORAGE_KEY) || '').trim();
+        } catch (e) {
+            return '';
+        }
+    }
+
+    function persistAssistSessionId(sessionId) {
+        const nextSessionId = String(sessionId || '').trim();
+        try {
+            if (!nextSessionId) {
+                sessionStorage.removeItem(ASSIST_SESSION_STORAGE_KEY);
+                return '';
+            }
+            sessionStorage.setItem(ASSIST_SESSION_STORAGE_KEY, nextSessionId);
+        } catch (e) {}
+        return nextSessionId;
+    }
+
+    function restoreAssistSessionId() {
+        if (assistSessionId) return String(assistSessionId || '').trim();
+        const storedSessionId = readPersistedAssistSessionId();
+        if (!storedSessionId) return '';
+        assistSessionId = storedSessionId;
+        return storedSessionId;
     }
 
     function getAssistPerfNow() {
@@ -3901,7 +3930,8 @@
     }
 
     function resumeAssistConnection(reason) {
-        if (!assistSessionId) return;
+        const activeSessionId = restoreAssistSessionId();
+        if (!activeSessionId) return;
         if (assistWs && (assistWs.readyState === WebSocket.OPEN || assistWs.readyState === WebSocket.CONNECTING)) {
             logAssistDebug('assist_resume_skipped', {
                 reason: String(reason || ''),
@@ -3912,21 +3942,28 @@
         logAssistDebug('assist_resume_attempt', {
             reason: String(reason || '')
         });
-        connectAssist(assistSessionId);
+        connectAssist(activeSessionId);
     }
 
-    function disconnectAssist(sessionId, silent) {
+    function disconnectAssist(sessionId, silent, preserveSession) {
         if (sessionId && assistSessionId && String(sessionId) !== String(assistSessionId)) return;
         logAssistDebug('assist_disconnect', {
             requestedSessionId: String(sessionId || ''),
-            silent: !!silent
+            silent: !!silent,
+            preserveSession: !!preserveSession
         });
         clearAssistReconnectTimer();
         stopAssistHeartbeat();
         stopAssistDomObserver();
         clearAssistScrollTimer();
         clearAssistRouteSettleState();
+        const releasedSessionId = String(assistSessionId || sessionId || '').trim();
         assistSessionId = '';
+        if (preserveSession) {
+            persistAssistSessionId(releasedSessionId);
+        } else {
+            persistAssistSessionId('');
+        }
         assistScrollTarget = window;
         assistLastElementScrollTarget = null;
         assistLastElementScrollAt = 0;
@@ -3954,6 +3991,7 @@
         const wantedSessionId = String(sessionId || '').trim();
         if (!wantedSessionId) return;
         if (assistWs && (assistWs.readyState === WebSocket.OPEN || assistWs.readyState === WebSocket.CONNECTING) && assistSessionId === wantedSessionId) {
+            persistAssistSessionId(wantedSessionId);
             logAssistDebug('assist_connect_skipped', {
                 wantedSessionId: wantedSessionId,
                 assistReadyState: getChatWsReadyStateLabel(assistWs)
@@ -3965,6 +4003,7 @@
         }
         clearAssistReconnectTimer();
         assistSessionId = wantedSessionId;
+        persistAssistSessionId(wantedSessionId);
         logAssistDebug('assist_connect_start', {
             wantedSessionId: wantedSessionId
         });
@@ -4158,6 +4197,7 @@
                             sessionId: String(data.session_id || '')
                         });
                         closeAssistRequestDialog(true);
+                        persistAssistSessionId(data.session_id || '');
                         connectAssist(data.session_id || '');
                     } else if (data.type === 'remote_assist_unbind') {
                         logAssistDebug('assist_unbind_received', {
@@ -4380,7 +4420,7 @@
         if (hasForegroundProtectedRealtimeSession()) {
             return;
         }
-        disconnectAssist('', true);
+        disconnectAssist('', true, true);
         stopRemoteVoiceClient(false, 'pagehide', true);
         suspendPresence('pagehide');
     });
@@ -4398,7 +4438,7 @@
     });
     window.addEventListener('beforeunload', function() {
         logAssistDebug('page_before_unload', {});
-        disconnectAssist('', true);
+        disconnectAssist('', true, true);
         suspendPresence('beforeunload');
     });
     
