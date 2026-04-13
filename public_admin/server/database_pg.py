@@ -1672,6 +1672,18 @@ def _serialize_notification_campaign(row: Dict[str, Any]) -> Dict:
     return data
 
 
+def _serialize_notification_delivery(row: Dict[str, Any]) -> Dict:
+    return {
+        'username': str(row.get('username') or ''),
+        'delivery_status': str(row.get('delivery_status') or ''),
+        'created_at': _serialize_time_value(row.get('created_at')),
+        'delivered_at': _serialize_time_value(row.get('delivered_at')),
+        'last_push_at': _serialize_time_value(row.get('last_push_at')),
+        'read_at': _serialize_time_value(row.get('read_at')),
+        'read': bool(row.get('read_at')),
+    }
+
+
 def _serialize_notification_item(row: Dict[str, Any]) -> Dict:
     return {
         'id': int(row.get('id') or 0),
@@ -1810,6 +1822,40 @@ async def get_notification_campaigns(limit: int = 20, offset: int = 0,
             LIMIT ${limit_idx} OFFSET ${offset_idx}
         ''', *params)
     return {'total': int(total or 0), 'rows': [_serialize_notification_campaign(dict(row)) for row in rows]}
+
+
+async def get_notification_campaign_detail(campaign_id: int, created_by: str = None) -> Optional[Dict]:
+    pool = _get_pool()
+    if not int(campaign_id or 0):
+        return None
+    params: List[Any] = [int(campaign_id)]
+    where = ' WHERE c.id = $1'
+    if created_by:
+        params.append(created_by)
+        where += ' AND c.created_by = $2'
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(f'''
+            SELECT c.id, c.notification_type, c.title, c.content, c.payload_json,
+                   c.audience_mode, c.audience_snapshot_json, c.created_by,
+                   c.target_count, c.created_at, c.published_at,
+                   COALESCE(SUM(CASE WHEN d.id IS NOT NULL AND d.read_at IS NOT NULL THEN 1 ELSE 0 END), 0) AS read_count,
+                   COALESCE(SUM(CASE WHEN d.id IS NOT NULL AND d.read_at IS NULL THEN 1 ELSE 0 END), 0) AS unread_count
+            FROM notification_campaigns c
+            LEFT JOIN notification_deliveries d ON d.campaign_id = c.id
+            {where}
+            GROUP BY c.id
+        ''', *params)
+        if not row:
+            return None
+        delivery_rows = await conn.fetch('''
+            SELECT username, delivery_status, delivered_at, read_at, last_push_at, created_at
+            FROM notification_deliveries
+            WHERE campaign_id = $1
+            ORDER BY CASE WHEN read_at IS NULL THEN 0 ELSE 1 END, username ASC
+        ''', int(campaign_id))
+    data = _serialize_notification_campaign(dict(row))
+    data['recipients'] = [_serialize_notification_delivery(dict(item)) for item in delivery_rows]
+    return data
 
 
 # ===== 积分配置 =====

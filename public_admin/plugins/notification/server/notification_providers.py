@@ -28,7 +28,7 @@ class GeneralNotificationProvider(BaseNotificationProvider):
 
     def normalize(self, title: str, content: str, raw_payload: dict[str, Any]) -> dict[str, Any]:
         normalized_title = _normalize_text(title, 120)
-        normalized_content = _normalize_text(content, 4000)
+        normalized_content = _normalize_content_text(content, 4000)
         if not normalized_title and not normalized_content:
             raise NotificationProviderError('一般通知至少需要标题或内容')
         return {
@@ -47,7 +47,7 @@ class TencentMeetingNotificationProvider(BaseNotificationProvider):
         resolve_mode = _normalize_text(meeting.get('resolve_mode'), 16)
         if resolve_mode == 'raw':
             raw_title = _normalize_text(title, 120)
-            raw_content = _normalize_text(content or meeting.get('content'), 4000)
+            raw_content = _normalize_content_text(content or meeting.get('content'), 4000)
             if not raw_title and not raw_content:
                 raise NotificationProviderError('会议通知至少需要标题或内容')
             return {
@@ -87,7 +87,7 @@ class TencentMeetingNotificationProvider(BaseNotificationProvider):
                 if not _has_manual_meeting_payload(title=title, content=content, meeting=meeting):
                     raise NotificationProviderError(str(exc)) from exc
         meeting_title = _normalize_text(meeting.get('meeting_title') or title, 120) or _normalize_text(resolved_meeting.get('meeting_title'), 120)
-        meeting_content = _normalize_text(content or meeting.get('content'), 4000)
+        meeting_content = _normalize_content_text(content or meeting.get('content'), 4000)
         meeting_code = _normalize_meeting_code(meeting.get('meeting_code') or resolved_meeting.get('meeting_code'))
         meeting_password = _normalize_text(meeting.get('meeting_password'), 64)
         start_time = _normalize_text(meeting.get('start_time'), 64) or _normalize_text(resolved_meeting.get('start_time'), 64)
@@ -189,6 +189,15 @@ def _normalize_text(value: Any, max_length: int) -> str:
     return text[:max_length]
 
 
+def _normalize_content_text(value: Any, max_length: int) -> str:
+    text = str(value or '').replace('\r\n', '\n').replace('\r', '\n').strip()
+    if not text:
+        return ''
+    lines = [re.sub(r'\s+', ' ', line).strip() for line in text.split('\n')]
+    normalized = '\n'.join([line for line in lines if line])
+    return normalized[:max_length]
+
+
 def _normalize_meeting_code(value: Any) -> str:
     text = _normalize_text(value, 64)
     if not text:
@@ -270,16 +279,16 @@ def _build_meeting_summary(*, creator_name: str, start_time: str, duration_text:
     if creator_name:
         parts.append(f'发起人：{creator_name}')
     if start_time:
-        parts.append(f'开始：{start_time}')
+        parts.append(f'开始时间：{start_time}')
     if duration_text:
-        parts.append(f'时长：{duration_text}')
-    return _normalize_text(' · '.join(parts), 4000)
+        parts.append(f'会议时长：{duration_text}')
+    return _normalize_content_text('\n'.join(parts), 4000)
 
 
 def _has_manual_meeting_payload(*, title: str, content: str, meeting: dict[str, Any]) -> bool:
     return any([
         _normalize_text(meeting.get('meeting_title') or title, 120),
-        _normalize_text(content or meeting.get('content'), 4000),
+        _normalize_content_text(content or meeting.get('content'), 4000),
         _normalize_meeting_code(meeting.get('meeting_code')),
         _normalize_url(meeting.get('web_fallback_url') or meeting.get('web_url')),
         _normalize_url(meeting.get('desktop_launch_url')),

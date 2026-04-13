@@ -96,6 +96,33 @@
             || String(payload.kind || '').trim().toLowerCase() === 'meeting';
     }
 
+    function getMeetingDisplayLines(payload) {
+        if (!payload || typeof payload !== 'object') return [];
+        const lines = [];
+        const creatorName = String(payload.creator_name || '').trim();
+        const startTime = String(payload.start_time || '').trim();
+        const endTime = String(payload.end_time || '').trim();
+        const durationText = String(payload.duration_text || '').trim();
+        const meetingCode = String(payload.meeting_code || '').trim();
+        const meetingUrl = String(payload.source_url || payload.web_fallback_url || '').trim();
+        if (creatorName) lines.push(`发起人：${creatorName}`);
+        if (startTime) lines.push(`开始时间：${startTime}`);
+        if (endTime) lines.push(`结束时间：${endTime}`);
+        if (durationText) lines.push(`会议时长：${durationText}`);
+        if (meetingCode) lines.push(`会议号：${meetingCode}`);
+        if (meetingUrl) lines.push(`会议链接：${meetingUrl}`);
+        return lines;
+    }
+
+    function buildNotificationDisplayContent(item) {
+        const payload = item && item.payload && typeof item.payload === 'object' ? item.payload : {};
+        if (isMeetingNotification(item)) {
+            const meetingLines = getMeetingDisplayLines(payload);
+            if (meetingLines.length) return meetingLines.join('\n');
+        }
+        return String(item && item.content || '').trim();
+    }
+
     function getActionLabel(item) {
         const payload = item && item.payload && typeof item.payload === 'object' ? item.payload : {};
         if (isMeetingNotification(item)) {
@@ -590,13 +617,10 @@
             items.forEach(function(item) {
                 const payload = item && item.payload && typeof item.payload === 'object' ? item.payload : {};
                 const actionLabel = getActionLabel(item);
+                const displayContent = buildNotificationDisplayContent(item);
                 const row = document.createElement('div');
                 row.className = `ak-notification-item ${item.read ? '' : 'ak-unread'}`;
                 const typeLabel = isMeetingNotification(item) ? '会议通知' : '一般通知';
-                const metaChips = [];
-                if (payload.meeting_code) metaChips.push(`<span class="ak-notification-chip">会议号 ${escapeHtml(payload.meeting_code)}</span>`);
-                if (payload.meeting_password) metaChips.push(`<span class="ak-notification-chip">密码 ${escapeHtml(payload.meeting_password)}</span>`);
-                if (payload.start_time) metaChips.push(`<span class="ak-notification-chip">开始时间 ${escapeHtml(payload.start_time)}</span>`);
                 row.innerHTML = `
                     ${item.read ? '' : '<span class="ak-notification-unread-mark"></span>'}
                     <div class="ak-notification-item-head">
@@ -604,8 +628,7 @@
                         <span class="ak-notification-time">${escapeHtml(formatTime(item.published_at || item.created_at || item.delivered_at))}</span>
                     </div>
                     <div class="ak-notification-title">${escapeHtml(item.title || (isMeetingNotification(item) ? '会议通知' : '系统通知'))}</div>
-                    <div class="ak-notification-content">${escapeHtml(item.content || '')}</div>
-                    ${metaChips.length ? `<div class="ak-notification-meta">${metaChips.join('')}</div>` : ''}
+                    ${displayContent ? `<div class="ak-notification-content">${escapeHtml(displayContent)}</div>` : ''}
                     ${actionLabel ? `<div class="ak-notification-actions"><button type="button" class="ak-notification-action-btn" data-action-id="${Number(item.id || 0)}">${actionLabel}</button></div>` : ''}
                 `;
                 const actionBtn = row.querySelector('[data-action-id]');

@@ -14,6 +14,10 @@
         loadingAudience: false,
         meetingResolveBusy: false,
         sending: false,
+        historyDetailBusy: false,
+        historyDetailOpen: false,
+        historyDetailError: '',
+        activeHistoryId: 0,
         types: [],
         historyRows: [],
         historyTotal: 0,
@@ -26,6 +30,7 @@
         selectedWhitelist: new Set(),
         accessScopeUsernames: null,
         meetingResolvedPayload: null,
+        historyDetail: null,
         sourceRefreshTimer: null
     };
 
@@ -335,6 +340,120 @@
     color: var(--text-secondary);
     font-size: 11px;
 }
+#notificationAdminMount .ak-notify-history-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-top: 10px;
+    flex-wrap: wrap;
+}
+#notificationAdminMount .ak-notify-modal {
+    position: fixed;
+    inset: 0;
+    z-index: 2147483646;
+    display: none;
+}
+#notificationAdminMount .ak-notify-modal.visible {
+    display: block;
+}
+#notificationAdminMount .ak-notify-modal-backdrop {
+    position: absolute;
+    inset: 0;
+    background: rgba(5, 10, 18, 0.74);
+    backdrop-filter: blur(4px);
+}
+#notificationAdminMount .ak-notify-modal-dialog {
+    position: relative;
+    width: min(860px, calc(100vw - 24px));
+    margin: 44px auto;
+    border-radius: 18px;
+    overflow: hidden;
+    background: linear-gradient(180deg, rgba(17, 28, 45, 0.98) 0%, rgba(10, 18, 31, 0.99) 100%);
+    border: 1px solid rgba(0, 212, 255, 0.12);
+    box-shadow: 0 18px 42px rgba(0, 0, 0, 0.34);
+}
+#notificationAdminMount .ak-notify-modal-body {
+    padding: 16px 18px 18px;
+    max-height: calc(100vh - 140px);
+    overflow: auto;
+}
+#notificationAdminMount .ak-notify-detail-block {
+    padding: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 14px;
+    background: rgba(255, 255, 255, 0.03);
+}
+#notificationAdminMount .ak-notify-detail-content {
+    color: rgba(224, 243, 247, 0.94);
+    font-size: 13px;
+    line-height: 1.7;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+#notificationAdminMount .ak-notify-detail-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 10px;
+    color: var(--text-secondary);
+    font-size: 12px;
+}
+#notificationAdminMount .ak-notify-detail-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+    margin-top: 12px;
+}
+#notificationAdminMount .ak-notify-detail-panel {
+    padding: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 14px;
+    background: rgba(255, 255, 255, 0.03);
+    min-height: 180px;
+}
+#notificationAdminMount .ak-notify-detail-panel-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-bottom: 10px;
+    color: var(--text-primary);
+    font-size: 13px;
+    font-weight: 700;
+}
+#notificationAdminMount .ak-notify-recipient-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    max-height: 300px;
+    overflow: auto;
+}
+#notificationAdminMount .ak-notify-recipient-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 10px 12px;
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    border-radius: 12px;
+    background: rgba(255, 255, 255, 0.025);
+}
+#notificationAdminMount .ak-notify-recipient-main {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+}
+#notificationAdminMount .ak-notify-recipient-name {
+    color: var(--text-primary);
+    font-size: 13px;
+    font-weight: 600;
+}
+#notificationAdminMount .ak-notify-recipient-time {
+    color: var(--text-secondary);
+    font-size: 11px;
+}
 #notificationAdminMount .ak-notify-actions-row {
     display: flex;
     align-items: center;
@@ -362,6 +481,9 @@
 }
 @media (max-width: 1180px) {
     #notificationAdminMount .ak-notify-grid {
+        grid-template-columns: 1fr;
+    }
+    #notificationAdminMount .ak-notify-detail-grid {
         grid-template-columns: 1fr;
     }
 }
@@ -452,6 +574,19 @@
                         </div>
                     </aside>
                 </div>
+                <div class="ak-notify-modal" id="akNotifyHistoryDetailModal">
+                    <div class="ak-notify-modal-backdrop" id="akNotifyHistoryDetailBackdrop"></div>
+                    <div class="ak-notify-modal-dialog">
+                        <div class="ak-notify-card-head">
+                            <div>
+                                <div class="ak-notify-card-title" id="akNotifyHistoryDetailTitle">通知详情</div>
+                                <div class="ak-notify-card-sub" id="akNotifyHistoryDetailMeta">正在加载...</div>
+                            </div>
+                            <button type="button" class="ak-notify-mini-btn" id="akNotifyHistoryDetailCloseBtn">关闭</button>
+                        </div>
+                        <div class="ak-notify-modal-body" id="akNotifyHistoryDetailBody"></div>
+                    </div>
+                </div>
             </div>
         `;
         refs.typeSelect = document.getElementById('akNotifyTypeSelect');
@@ -471,6 +606,12 @@
         refs.sendBtn = document.getElementById('akNotifySendBtn');
         refs.historyList = document.getElementById('akNotifyHistoryList');
         refs.historyMeta = document.getElementById('akNotifyHistoryMeta');
+        refs.historyDetailModal = document.getElementById('akNotifyHistoryDetailModal');
+        refs.historyDetailBackdrop = document.getElementById('akNotifyHistoryDetailBackdrop');
+        refs.historyDetailTitle = document.getElementById('akNotifyHistoryDetailTitle');
+        refs.historyDetailMeta = document.getElementById('akNotifyHistoryDetailMeta');
+        refs.historyDetailBody = document.getElementById('akNotifyHistoryDetailBody');
+        refs.historyDetailCloseBtn = document.getElementById('akNotifyHistoryDetailCloseBtn');
         refs.composeMeta = document.getElementById('akNotifyComposeMeta');
         refs.reloadAllBtn = document.getElementById('akNotifyReloadAllBtn');
         refs.reloadHistoryBtn = document.getElementById('akNotifyReloadHistoryBtn');
@@ -510,6 +651,12 @@
         });
         refs.resolveMeetingBtn.addEventListener('click', function() {
             resolveMeetingContent();
+        });
+        refs.historyDetailCloseBtn.addEventListener('click', function() {
+            closeHistoryDetail();
+        });
+        refs.historyDetailBackdrop.addEventListener('click', function() {
+            closeHistoryDetail();
         });
         refs.selectAllBtn.addEventListener('click', function() {
             selectAllAudience();
@@ -641,6 +788,151 @@
         });
     }
 
+    function getMeetingDisplayLines(payload) {
+        if (!payload || typeof payload !== 'object') return [];
+        const lines = [];
+        const creatorName = String(payload.creator_name || '').trim();
+        const startTime = String(payload.start_time || '').trim();
+        const endTime = String(payload.end_time || '').trim();
+        const durationText = String(payload.duration_text || '').trim();
+        const meetingCode = String(payload.meeting_code || '').trim();
+        const meetingUrl = String(payload.source_url || payload.web_fallback_url || '').trim();
+        if (creatorName) lines.push(`发起人：${creatorName}`);
+        if (startTime) lines.push(`开始时间：${startTime}`);
+        if (endTime) lines.push(`结束时间：${endTime}`);
+        if (durationText) lines.push(`会议时长：${durationText}`);
+        if (meetingCode) lines.push(`会议号：${meetingCode}`);
+        if (meetingUrl) lines.push(`会议链接：${meetingUrl}`);
+        return lines;
+    }
+
+    function buildNotificationDisplayContent(item) {
+        const payload = item && item.payload && typeof item.payload === 'object' ? item.payload : {};
+        const type = String(item && item.notification_type || '').trim().toLowerCase();
+        if (type === 'meeting' || String(payload.kind || '').trim().toLowerCase() === 'meeting') {
+            const lines = getMeetingDisplayLines(payload);
+            if (lines.length) return lines.join('\n');
+        }
+        return String(item && item.content || '').trim();
+    }
+
+    function renderRecipientRows(rows, emptyText) {
+        if (!rows.length) {
+            return `<div class="ak-notify-empty">${escapeHtml(emptyText)}</div>`;
+        }
+        return `
+            <div class="ak-notify-recipient-list">
+                ${rows.map(function(row) {
+                    const timeLabel = row.read ? '已读时间' : '投递时间';
+                    const timeValue = row.read ? formatTime(row.read_at) : formatTime(row.delivered_at || row.created_at);
+                    return `
+                        <div class="ak-notify-recipient-item">
+                            <div class="ak-notify-recipient-main">
+                                <span class="ak-notify-recipient-name">${escapeHtml(String(row.username || '').trim() || '-')}</span>
+                                <span class="ak-notify-recipient-time">${escapeHtml(timeLabel)}：${escapeHtml(timeValue)}</span>
+                            </div>
+                            <span class="ak-notify-badge ${row.read ? '' : 'meeting'}">${row.read ? '已读' : '未读'}</span>
+                        </div>
+                    `;
+                }).join('')}
+            </div>
+        `;
+    }
+
+    function renderHistoryDetail() {
+        if (!refs.historyDetailModal || !refs.historyDetailBody || !refs.historyDetailTitle || !refs.historyDetailMeta) return;
+        refs.historyDetailModal.classList.toggle('visible', !!state.historyDetailOpen);
+        if (!state.historyDetailOpen) return;
+        if (state.historyDetailBusy) {
+            refs.historyDetailTitle.textContent = '通知详情';
+            refs.historyDetailMeta.textContent = '正在加载...';
+            refs.historyDetailBody.innerHTML = '<div class="ak-notify-empty">正在加载通知详情...</div>';
+            return;
+        }
+        if (state.historyDetailError) {
+            refs.historyDetailTitle.textContent = '通知详情';
+            refs.historyDetailMeta.textContent = '加载失败';
+            refs.historyDetailBody.innerHTML = `<div class="ak-notify-empty">${escapeHtml(state.historyDetailError)}</div>`;
+            return;
+        }
+        const detail = state.historyDetail && typeof state.historyDetail === 'object' ? state.historyDetail : null;
+        if (!detail) {
+            refs.historyDetailTitle.textContent = '通知详情';
+            refs.historyDetailMeta.textContent = '暂无数据';
+            refs.historyDetailBody.innerHTML = '<div class="ak-notify-empty">暂无通知详情</div>';
+            return;
+        }
+        const type = String(detail.notification_type || '').trim().toLowerCase();
+        const typeLabel = type === 'meeting' ? '会议通知' : '一般通知';
+        const createdBy = String(detail.created_by || '').trim() || '-';
+        const recipients = Array.isArray(detail.recipients) ? detail.recipients : [];
+        const readRecipients = recipients.filter(function(row) { return !!row.read; });
+        const unreadRecipients = recipients.filter(function(row) { return !row.read; });
+        const displayContent = buildNotificationDisplayContent(detail);
+        refs.historyDetailTitle.textContent = String(detail.title || (type === 'meeting' ? '会议通知' : '系统通知'));
+        refs.historyDetailMeta.textContent = `${typeLabel} · ${formatTime(detail.published_at || detail.created_at)} · 创建者 ${createdBy}`;
+        refs.historyDetailBody.innerHTML = `
+            <div class="ak-notify-detail-block">
+                ${displayContent ? `<div class="ak-notify-detail-content">${escapeHtml(displayContent)}</div>` : '<div class="ak-notify-empty">该通知无正文内容</div>'}
+                <div class="ak-notify-detail-meta">
+                    <span>目标 ${Number(detail.target_count || recipients.length || 0)} 人</span>
+                    <span>已读 ${Number(detail.read_count || readRecipients.length || 0)}</span>
+                    <span>未读 ${Number(detail.unread_count || unreadRecipients.length || 0)}</span>
+                    <span>创建者 ${escapeHtml(createdBy)}</span>
+                </div>
+            </div>
+            <div class="ak-notify-detail-grid">
+                <section class="ak-notify-detail-panel">
+                    <div class="ak-notify-detail-panel-head">
+                        <span>未读账号</span>
+                        <span>${unreadRecipients.length}</span>
+                    </div>
+                    ${renderRecipientRows(unreadRecipients, '暂无未读账号')}
+                </section>
+                <section class="ak-notify-detail-panel">
+                    <div class="ak-notify-detail-panel-head">
+                        <span>已读账号</span>
+                        <span>${readRecipients.length}</span>
+                    </div>
+                    ${renderRecipientRows(readRecipients, '暂无已读账号')}
+                </section>
+            </div>
+        `;
+    }
+
+    function closeHistoryDetail() {
+        state.historyDetailOpen = false;
+        renderHistoryDetail();
+    }
+
+    async function openHistoryDetail(campaignId) {
+        const normalizedId = Number(campaignId || 0);
+        if (!normalizedId) return;
+        state.activeHistoryId = normalizedId;
+        state.historyDetailOpen = true;
+        state.historyDetailBusy = true;
+        state.historyDetailError = '';
+        state.historyDetail = null;
+        renderHistoryDetail();
+        try {
+            const res = await fetch(`${API_ROOT}/admin/api/notifications/history/${normalizedId}`, {
+                headers: getHeadersSafe()
+            });
+            if (!checkResponseSafe(res)) return;
+            const data = await res.json();
+            if (!res.ok || !data.success) {
+                throw new Error(data.message || '通知详情加载失败');
+            }
+            state.historyDetail = data.data && typeof data.data === 'object' ? data.data : null;
+        } catch (e) {
+            state.historyDetailError = String((e && e.message) || e || '通知详情加载失败');
+            showToastSafe(state.historyDetailError, 'error');
+        } finally {
+            state.historyDetailBusy = false;
+            renderHistoryDetail();
+        }
+    }
+
     function renderHistory() {
         if (!state.mounted) return;
         refs.historyMeta.textContent = state.loadingHistory
@@ -654,6 +946,7 @@
             const type = String(row.notification_type || '').trim().toLowerCase();
             const typeLabel = type === 'meeting' ? '会议通知' : '一般通知';
             const createdBy = String(row.created_by || '').trim() || '-';
+            const displayContent = buildNotificationDisplayContent(row);
             return `
                 <article class="ak-notify-history-item">
                     <div class="ak-notify-history-head">
@@ -661,16 +954,24 @@
                         <span class="ak-notify-muted">${escapeHtml(formatTime(row.published_at || row.created_at))}</span>
                     </div>
                     <div class="ak-notify-history-title">${escapeHtml(row.title || (type === 'meeting' ? '会议通知' : '系统通知'))}</div>
-                    <div class="ak-notify-history-content">${escapeHtml(row.content || '')}</div>
-                    <div class="ak-notify-history-meta">
-                        <span>目标 ${Number(row.target_count || 0)} 人</span>
-                        <span>已读 ${Number(row.read_count || 0)}</span>
-                        <span>未读 ${Number(row.unread_count || 0)}</span>
-                        <span>创建者 ${escapeHtml(createdBy)}</span>
+                    ${displayContent ? `<div class="ak-notify-history-content">${escapeHtml(displayContent)}</div>` : ''}
+                    <div class="ak-notify-history-footer">
+                        <div class="ak-notify-history-meta">
+                            <span>目标 ${Number(row.target_count || 0)} 人</span>
+                            <span>已读 ${Number(row.read_count || 0)}</span>
+                            <span>未读 ${Number(row.unread_count || 0)}</span>
+                            <span>创建者 ${escapeHtml(createdBy)}</span>
+                        </div>
+                        <button type="button" class="ak-notify-mini-btn" data-history-detail-id="${Number(row.id || 0)}">查看详情</button>
                     </div>
                 </article>
             `;
         }).join('');
+        refs.historyList.querySelectorAll('[data-history-detail-id]').forEach(function(button) {
+            button.addEventListener('click', function() {
+                openHistoryDetail(button.dataset.historyDetailId || 0);
+            });
+        });
     }
 
     function selectAllAudience() {

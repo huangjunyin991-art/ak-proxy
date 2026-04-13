@@ -130,15 +130,12 @@ def build_tencent_meeting_content(meeting: dict[str, Any], *, share_url: str = '
     if not isinstance(meeting, dict):
         return ''
     lines: list[str] = []
-    meeting_title = _normalize_text(meeting.get('meeting_title'), 120)
     creator_name = _normalize_text(meeting.get('creator_name'), 120)
     start_time = _normalize_text(meeting.get('start_time'), 64)
     end_time = _normalize_text(meeting.get('end_time'), 64)
     duration_text = _normalize_text(meeting.get('duration_text'), 64)
     meeting_code = _normalize_meeting_code(meeting.get('meeting_code'))
     resolved_share_url = _normalize_http_url(share_url or meeting.get('source_url') or meeting.get('web_fallback_url'))
-    if meeting_title:
-        lines.append(f'会议标题：{meeting_title}')
     if creator_name:
         lines.append(f'发起人：{creator_name}')
     if start_time:
