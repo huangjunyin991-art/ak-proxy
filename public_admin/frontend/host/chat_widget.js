@@ -613,7 +613,27 @@
     }
 
     function logAssistDebug(eventName, extra) {
-        return;
+        const normalizedEvent = String(eventName || '').trim();
+        if (!normalizedEvent || normalizedEvent === 'scroll_capture') return;
+        try {
+            console.warn('[AKChatAssistDebug]', JSON.stringify(Object.assign({
+                event: normalizedEvent,
+                username: String(username || ''),
+                route: window.location.pathname + window.location.hash,
+                normalizedRoute: normalizeAssistRoute(),
+                hidden: !!document.hidden,
+                presenceSuspended: !!presenceSuspended,
+                chatReadyState: getChatWsReadyStateLabel(ws),
+                assistReadyState: getChatWsReadyStateLabel(assistWs),
+                assistSessionId: String(assistSessionId || ''),
+                pageClientId: String(getPageClientId() || ''),
+                ts: new Date().toISOString()
+            }, extra || {})));
+        } catch (e) {
+            try {
+                console.warn('[AKChatAssistDebug]', normalizedEvent, extra || {});
+            } catch (_) {}
+        }
     }
 
     function getAssistPerfNow() {
@@ -3805,6 +3825,9 @@
     function scheduleAssistReconnect() {
         clearAssistReconnectTimer();
         if (!assistSessionId) return;
+        logAssistDebug('assist_reconnect_scheduled', {
+            delayMs: 1500
+        });
         assistReconnectTimer = setTimeout(function() {
             connectAssist(assistSessionId);
         }, 1500);
@@ -3812,12 +3835,25 @@
 
     function resumeAssistConnection(reason) {
         if (!assistSessionId) return;
-        if (assistWs && (assistWs.readyState === WebSocket.OPEN || assistWs.readyState === WebSocket.CONNECTING)) return;
+        if (assistWs && (assistWs.readyState === WebSocket.OPEN || assistWs.readyState === WebSocket.CONNECTING)) {
+            logAssistDebug('assist_resume_skipped', {
+                reason: String(reason || ''),
+                assistReadyState: getChatWsReadyStateLabel(assistWs)
+            });
+            return;
+        }
+        logAssistDebug('assist_resume_attempt', {
+            reason: String(reason || '')
+        });
         connectAssist(assistSessionId);
     }
 
     function disconnectAssist(sessionId, silent) {
         if (sessionId && assistSessionId && String(sessionId) !== String(assistSessionId)) return;
+        logAssistDebug('assist_disconnect', {
+            requestedSessionId: String(sessionId || ''),
+            silent: !!silent
+        });
         clearAssistReconnectTimer();
         stopAssistHeartbeat();
         stopAssistDomObserver();
@@ -3851,6 +3887,10 @@
         const wantedSessionId = String(sessionId || '').trim();
         if (!wantedSessionId) return;
         if (assistWs && (assistWs.readyState === WebSocket.OPEN || assistWs.readyState === WebSocket.CONNECTING) && assistSessionId === wantedSessionId) {
+            logAssistDebug('assist_connect_skipped', {
+                wantedSessionId: wantedSessionId,
+                assistReadyState: getChatWsReadyStateLabel(assistWs)
+            });
             return;
         }
         if (assistSessionId && assistSessionId !== wantedSessionId) {
@@ -3858,11 +3898,17 @@
         }
         clearAssistReconnectTimer();
         assistSessionId = wantedSessionId;
+        logAssistDebug('assist_connect_start', {
+            wantedSessionId: wantedSessionId
+        });
         try {
             const currentAssistWs = new WebSocket(ASSIST_WS_URL + '?session_id=' + encodeURIComponent(wantedSessionId) + '&role=user&site=ak_web&readonly=0');
             assistWs = currentAssistWs;
             currentAssistWs.onopen = function() {
                 if (assistWs !== currentAssistWs) return;
+                logAssistDebug('assist_ws_open', {
+                    wantedSessionId: wantedSessionId
+                });
                 startAssistHeartbeat();
                 emitAssistRoute();
                 startAssistDomObserver();
@@ -3902,6 +3948,11 @@
             };
             currentAssistWs.onclose = function(event) {
                 if (assistWs !== currentAssistWs) return;
+                logAssistDebug('assist_ws_close', {
+                    wantedSessionId: wantedSessionId,
+                    code: Number((event && event.code) || 0),
+                    reason: String((event && event.reason) || '')
+                });
                 if (Number((event && event.code) || 0) === 1008) {
                     disconnectAssist(wantedSessionId, true);
                     return;
@@ -3913,9 +3964,17 @@
             };
             currentAssistWs.onerror = function(err) {
                 if (assistWs !== currentAssistWs) return;
+                logAssistDebug('assist_ws_error', {
+                    wantedSessionId: wantedSessionId,
+                    type: String((err && err.type) || '')
+                });
                 console.error('[AKChatAssist] WebSocket 错误:', err);
             };
         } catch (e) {
+            logAssistDebug('assist_connect_exception', {
+                wantedSessionId: wantedSessionId,
+                message: String((e && e.message) || e || '')
+            });
             scheduleAssistReconnect();
         }
     }
@@ -4006,6 +4065,9 @@
                 startHeartbeat();
                 schedulePresenceIdentityRefresh();
                 emitChatBridgeEvent('ak-chat-ws-open', { username: username || '' });
+                logAssistDebug('chat_ws_open_for_assist', {
+                    username: String(username || '')
+                });
                 resumeAssistConnection('chat_ws_open');
             };
             
@@ -4020,11 +4082,20 @@
                         showChat();
                         playNotificationSound();
                     } else if (data.type === 'remote_assist_request') {
+                        logAssistDebug('assist_request_received', {
+                            sessionId: String(data.session_id || '')
+                        });
                         openAssistRequestDialog(data);
                     } else if (data.type === 'remote_assist_bind') {
+                        logAssistDebug('assist_bind_received', {
+                            sessionId: String(data.session_id || '')
+                        });
                         closeAssistRequestDialog(true);
                         connectAssist(data.session_id || '');
                     } else if (data.type === 'remote_assist_unbind') {
+                        logAssistDebug('assist_unbind_received', {
+                            sessionId: String(data.session_id || '')
+                        });
                         if (!data.session_id || (pendingAssistRequest && String(pendingAssistRequest.session_id || '') === String(data.session_id || ''))) {
                             closeAssistRequestDialog(true);
                         }
@@ -4219,8 +4290,14 @@
     document.addEventListener('change', handleAssistFormValueChange, true);
 
     document.addEventListener('visibilitychange', function() {
+        logAssistDebug('page_visibility_change', {
+            hidden: !!document.hidden
+        });
         if (document.hidden) {
             if (hasForegroundProtectedRealtimeSession()) {
+                logAssistDebug('page_visibility_hidden_keepalive', {
+                    hasProtectedRealtimeSession: true
+                });
                 return;
             }
             suspendPresence('visibilitychange:hidden');
@@ -4230,6 +4307,9 @@
     });
 
     window.addEventListener('pagehide', function() {
+        logAssistDebug('page_hide', {
+            hasProtectedRealtimeSession: hasForegroundProtectedRealtimeSession()
+        });
         if (hasForegroundProtectedRealtimeSession()) {
             return;
         }
@@ -4238,12 +4318,19 @@
         suspendPresence('pagehide');
     });
     window.addEventListener('pageshow', function() {
+        logAssistDebug('page_show', {
+            isPresenceForeground: isPresenceForeground()
+        });
         if (isPresenceForeground()) resumePresence('pageshow');
     });
     window.addEventListener('focus', function() {
+        logAssistDebug('page_focus', {
+            isPresenceForeground: isPresenceForeground()
+        });
         if (isPresenceForeground()) resumePresence('focus');
     });
     window.addEventListener('beforeunload', function() {
+        logAssistDebug('page_before_unload', {});
         disconnectAssist('', true);
         suspendPresence('beforeunload');
     });
