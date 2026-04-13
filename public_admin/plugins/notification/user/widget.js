@@ -20,6 +20,7 @@
     let countEl = null;
     let panelEl = null;
     let bellBtnEl = null;
+    let closeBtnEl = null;
     let mountedApi = null;
 
     function escapeHtml(value) {
@@ -285,15 +286,49 @@
     color: #f2feff;
     font-size: 15px;
     font-weight: 600;
-    display: flex;
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
     align-items: center;
-    justify-content: space-between;
     gap: 12px;
+}
+#ak-notification-widget-root .ak-notification-panel-title {
+    min-width: 0;
+    justify-self: start;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 #ak-notification-widget-root .ak-notification-panel-count {
     color: rgba(179, 233, 241, 0.88);
     font-size: 12px;
     font-weight: 500;
+    justify-self: center;
+    padding: 0 10px;
+    line-height: 24px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+}
+#ak-notification-widget-root .ak-notification-panel-close {
+    justify-self: end;
+    width: 28px;
+    height: 28px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.04);
+    color: rgba(226, 244, 248, 0.9);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: background 0.18s ease, color 0.18s ease, transform 0.18s ease;
+}
+#ak-notification-widget-root .ak-notification-panel-close:hover {
+    background: rgba(255, 255, 255, 0.09);
+    color: #ffffff;
+}
+#ak-notification-widget-root .ak-notification-panel-close:active {
+    transform: scale(0.96);
 }
 #ak-notification-widget-root .ak-notification-list {
     overflow: auto;
@@ -422,8 +457,22 @@
         width: min(420px, calc(100vw - 16px));
         max-height: min(70vh, 620px);
     }
+    #ak-notification-widget-root .ak-notification-panel-head {
+        padding: 16px 16px 14px;
+        gap: 8px;
+    }
+    #ak-notification-widget-root .ak-notification-panel-count {
+        font-size: 11px;
+        padding: 0 9px;
+    }
+    #ak-notification-widget-root .ak-notification-actions.ak-notification-actions-meeting {
+        justify-content: flex-end;
+    }
+    #ak-notification-widget-root .ak-notification-actions.ak-notification-actions-meeting .ak-notification-action-btn {
+        min-width: 96px;
+    }
 }
-        `;
+`;
         document.head.appendChild(style);
     }
 
@@ -436,8 +485,9 @@
         rootEl.innerHTML = `
             <div class="ak-notification-panel" id="ak-notification-panel">
                 <div class="ak-notification-panel-head">
-                    <span id="ak-notification-panel-title">通知中心</span>
+                    <span class="ak-notification-panel-title" id="ak-notification-panel-title">通知中心</span>
                     <span class="ak-notification-panel-count" id="ak-notification-panel-count">0 条通知</span>
+                    <button type="button" class="ak-notification-panel-close" id="ak-notification-panel-close" aria-label="关闭通知中心" title="关闭">✕</button>
                 </div>
                 <div class="ak-notification-empty" id="ak-notification-empty">暂无通知</div>
                 <div class="ak-notification-list" id="ak-notification-list"></div>
@@ -457,6 +507,7 @@
         countEl = document.getElementById('ak-notification-panel-count');
         panelEl = document.getElementById('ak-notification-panel');
         bellBtnEl = document.getElementById('ak-notification-bell');
+        closeBtnEl = document.getElementById('ak-notification-panel-close');
         bellBtnEl.addEventListener('click', function() {
             state.open = !state.open;
             if (state.open && Number(state.unreadCount || 0) > 0) {
@@ -466,6 +517,14 @@
             }
             render();
         });
+        if (closeBtnEl) {
+            closeBtnEl.addEventListener('click', function(event) {
+                event.preventDefault();
+                event.stopPropagation();
+                state.open = false;
+                render();
+            });
+        }
         document.addEventListener('click', function(event) {
             if (!state.open || !rootEl) return;
             const target = event && event.target;
@@ -618,18 +677,19 @@
                 const payload = item && item.payload && typeof item.payload === 'object' ? item.payload : {};
                 const actionLabel = getActionLabel(item);
                 const displayContent = buildNotificationDisplayContent(item);
+                const isMeeting = isMeetingNotification(item);
                 const row = document.createElement('div');
                 row.className = `ak-notification-item ${item.read ? '' : 'ak-unread'}`;
-                const typeLabel = isMeetingNotification(item) ? '会议通知' : '一般通知';
+                const typeLabel = isMeeting ? '会议通知' : '一般通知';
                 row.innerHTML = `
                     ${item.read ? '' : '<span class="ak-notification-unread-mark"></span>'}
                     <div class="ak-notification-item-head">
-                        <span class="ak-notification-type ${isMeetingNotification(item) ? 'meeting' : ''}">${typeLabel}</span>
+                        <span class="ak-notification-type ${isMeeting ? 'meeting' : ''}">${typeLabel}</span>
                         <span class="ak-notification-time">${escapeHtml(formatTime(item.published_at || item.created_at || item.delivered_at))}</span>
                     </div>
-                    <div class="ak-notification-title">${escapeHtml(item.title || (isMeetingNotification(item) ? '会议通知' : '系统通知'))}</div>
+                    <div class="ak-notification-title">${escapeHtml(item.title || (isMeeting ? '会议通知' : '系统通知'))}</div>
                     ${displayContent ? `<div class="ak-notification-content">${escapeHtml(displayContent)}</div>` : ''}
-                    ${actionLabel ? `<div class="ak-notification-actions"><button type="button" class="ak-notification-action-btn" data-action-id="${Number(item.id || 0)}">${actionLabel}</button></div>` : ''}
+                    ${actionLabel ? `<div class="ak-notification-actions${isMeeting ? ' ak-notification-actions-meeting' : ''}"><button type="button" class="ak-notification-action-btn" data-action-id="${Number(item.id || 0)}">${actionLabel}</button></div>` : ''}
                 `;
                 const actionBtn = row.querySelector('[data-action-id]');
                 if (actionBtn) {
@@ -655,7 +715,7 @@
         bellBtnEl.classList.toggle('is-open', shouldShowWidget && !!state.open);
         countEl.textContent = `${items.length} 条通知`;
         const panelTitle = document.getElementById('ak-notification-panel-title');
-        if (panelTitle) panelTitle.textContent = getPanelTitle();
+        if (panelTitle) panelTitle.textContent = '通知中心';
         bellBtnEl.title = getPanelTitle();
         bellBtnEl.setAttribute('aria-label', getPanelTitle());
     }
