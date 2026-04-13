@@ -6826,6 +6826,44 @@ async def chat_widget_bundle_js(request: Request):
     return _build_widget_script_response(request, js_path)
 
 
+@app.post("/chat/assist-debug")
+
+async def chat_assist_debug(request: Request):
+
+    payload: dict[str, Any] = {}
+
+    try:
+
+        parsed = await request.json()
+
+        if isinstance(parsed, dict):
+
+            payload = parsed
+
+    except Exception:
+
+        payload = {}
+
+    extra = payload.get('extra') if isinstance(payload.get('extra'), dict) else {}
+
+    logger.warning(
+        f"[RemoteAssistClientDebug] event={str(payload.get('event') or '').strip() or '-'} "
+        f"user={str(payload.get('username') or '').strip() or '-'} "
+        f"route={str(payload.get('route') or '').strip() or '-'} "
+        f"normalized_route={str(payload.get('normalizedRoute') or '').strip() or '-'} "
+        f"page_client_id={str(payload.get('pageClientId') or '').strip() or '-'} "
+        f"assist_session={str(payload.get('assistSessionId') or '').strip() or '-'} "
+        f"hidden={int(bool(payload.get('hidden')))} "
+        f"presence_suspended={int(bool(payload.get('presenceSuspended')))} "
+        f"chat_state={str(payload.get('chatReadyState') or '').strip() or '-'} "
+        f"assist_state={str(payload.get('assistReadyState') or '').strip() or '-'} "
+        f"extra={json.dumps(extra, ensure_ascii=False)} "
+        f"client={request.client} ts={str(payload.get('ts') or '').strip() or '-'}"
+    )
+
+    return Response(status_code=204)
+
+
 @app.get("/chat/notification-widget.js")
 
 async def notification_widget_js(request: Request):
