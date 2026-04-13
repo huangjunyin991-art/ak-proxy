@@ -1197,6 +1197,8 @@ async def proxy_rpc(path: str, request: Request):
 
     """透明转发所有其他RPC请求"""
 
+    request_started_at = time.perf_counter()
+
     stats.total_requests += 1
 
     stats.other_requests += 1
@@ -1281,11 +1283,15 @@ async def proxy_rpc(path: str, request: Request):
 
     try:
 
+        selected_exit = _select_forward_exit(path)
+
         response = await forward_request(
 
             request.method, path, content_type, params, raw_body, dict(request.headers),
 
-            client_ip=client_ip
+            client_ip=client_ip,
+
+            selected_exit=selected_exit
 
         )
         if ADMIN_AK_TRACE_ENABLED and ("/admin/ak-web/" in referer or "/admin/ak-site/" in referer):
@@ -1299,6 +1305,26 @@ async def proxy_rpc(path: str, request: Request):
             except Exception:
 
                 pass
+
+        total_ms = _elapsed_ms(request_started_at)
+
+        _log_user_rpc_slow_request(
+
+            path=path,
+
+            total_ms=total_ms,
+
+            status_code=response.status_code,
+
+            referer=referer,
+
+            fetch_dest=fetch_dest,
+
+            cookie_bs=cookie_bs,
+
+            picked_exit_name=selected_exit.name,
+
+        )
 
         return _build_proxy_passthrough_response(response)
 
@@ -6997,6 +7023,7 @@ _AK_BASE = "https://k937.com"  # AK 网站根地址
 _AK_HOME_PATH = "/pages/home.html?first=true"
 _ADMIN_AK_FORCE_DIRECT = True
 _USER_AK_WEB_SLOW_MS = 800
+_USER_RPC_SLOW_MS = 300
 _BROWSE_SESSION_COOKIE = "ak_admin_bs"
 _AK_WEB_PREFIX = "/admin/ak-web"
 _AK_NATIVE_WEB_PREFIX = "/ak-web"
@@ -7049,6 +7076,39 @@ def _log_user_ak_web_slow_html_request(path: str, site_prefix: str, selected_exi
     logger.info(
         f"[UserAkWebSlow/{path}] exit={exit_name} upstream_ms={upstream_ms} rewrite_ms={rewrite_ms} "
         f"inject_ms={inject_ms} total_ms={total_ms} status={status_code} bs={bs_id or '-'}"
+    )
+
+
+def _is_user_ak_web_document_request(site_prefix: str, path: str, fetch_dest: str = "") -> bool:
+    if site_prefix != _AK_NATIVE_WEB_PREFIX:
+        return False
+    normalized_path = path.lstrip("/").lower()
+    normalized_fetch_dest = (fetch_dest or "").strip().lower()
+    if normalized_fetch_dest == "document":
+        return True
+    return normalized_path.startswith("pages/") and normalized_path.endswith(".html")
+
+
+def _log_user_ak_web_document_hit(path: str, site_prefix: str, selected_exit: Optional[OutboundExit],
+                                  fetch_dest: str, upstream_ms: int, rewrite_ms: int, inject_ms: int,
+                                  total_ms: int, status_code: int, bs_id: str = ""):
+    if not _is_user_ak_web_document_request(site_prefix, path, fetch_dest):
+        return
+    exit_name = selected_exit.name if selected_exit else "direct"
+    logger.info(
+        f"[UserAkWebDoc/{path}] exit={exit_name} upstream_ms={upstream_ms} rewrite_ms={rewrite_ms} "
+        f"inject_ms={inject_ms} total_ms={total_ms} status={status_code} dest={fetch_dest or '-'} bs={bs_id or '-'}"
+    )
+
+
+def _log_user_rpc_slow_request(path: str, total_ms: int, status_code: int,
+                               referer: str = "", fetch_dest: str = "", cookie_bs: str = "",
+                               picked_exit_name: str = ""):
+    if total_ms < _USER_RPC_SLOW_MS:
+        return
+    logger.info(
+        f"[UserRpcSlow/{path}] pick={picked_exit_name or '-'} total_ms={total_ms} status={status_code} "
+        f"referer={referer or '-'} dest={fetch_dest or '-'} bs={cookie_bs or '-'}"
     )
 
 
@@ -8554,6 +8614,18 @@ async def ak_web_proxy(request: Request, path: str):
         if bs_id:
             _set_browse_session_cookie(response, bs_id)
         total_ms = _elapsed_ms(request_started_at)
+        _log_user_ak_web_document_hit(
+            path=path,
+            site_prefix=site_prefix,
+            selected_exit=selected_exit,
+            fetch_dest=fetch_dest,
+            upstream_ms=upstream_ms,
+            rewrite_ms=rewrite_ms,
+            inject_ms=inject_ms,
+            total_ms=total_ms,
+            status_code=resp.status_code,
+            bs_id=bs_id,
+        )
         _log_user_ak_web_slow_html_request(
             path=path,
             site_prefix=site_prefix,
