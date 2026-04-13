@@ -6833,7 +6833,7 @@ def _rewrite_widget_asset_urls(text: str, asset_version: str = "") -> str:
     if not text or not version:
         return text
     pattern = re.compile(
-        r'(?P<quote>["\'])(?P<url>(?:/chat/notification-widget\.js|/chat/plugins/notification/user/widget\.js)(?:\?[^"\']*)?)(?P=quote)',
+        r'(?P<quote>["\'])(?P<url>(?:/chat/widget\.js|/chat/widget\.bundle\.js|/chat/notification-widget\.js|/chat/plugins/notification/user/widget\.js)(?:\?[^"\']*)?)(?P=quote)',
         re.IGNORECASE,
     )
     return pattern.sub(
