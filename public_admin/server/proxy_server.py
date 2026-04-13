@@ -6709,12 +6709,50 @@ def _rewrite_widget_asset_urls(text: str, asset_version: str = "") -> str:
     if not text or not version:
         return text
     pattern = re.compile(
-        r'(?P<quote>["\'])(?P<url>(?:/admin/api/pwa-widget|/chat/widget\.js|/chat/notification-widget\.js|/chat/plugins/notification/user/widget\.js)(?:\?[^"\']*)?)(?P=quote)',
+        r'(?P<quote>["\'])(?P<url>(?:/chat/notification-widget\.js|/chat/plugins/notification/user/widget\.js)(?:\?[^"\']*)?)(?P=quote)',
         re.IGNORECASE,
     )
     return pattern.sub(
         lambda m: f"{m.group('quote')}{_version_widget_asset_url(m.group('url'), version)}{m.group('quote')}",
         text,
+    )
+
+
+def _build_widget_loader_headers(asset_version: str) -> dict[str, str]:
+    return {
+        "Cache-Control": "no-cache, no-store, must-revalidate",
+        "Pragma": "no-cache",
+        "Expires": "0",
+        "X-AK-Widget-Version": asset_version,
+    }
+
+
+def _build_widget_loader_response() -> Response:
+    asset_version = _get_widget_asset_version()
+    bundle_url = _version_widget_asset_url("/chat/widget.bundle.js", asset_version)
+    loader = (
+        "(function(){"
+        "try{"
+        + "window.__AK_WIDGET_ASSET_VERSION__=" + json.dumps(asset_version, ensure_ascii=False) + ";"
+        + "if(window.__AKChatWidgetBundleRequested)return;"
+        + "window.__AKChatWidgetBundleRequested=1;"
+        + "var src=" + json.dumps(bundle_url, ensure_ascii=False) + ";"
+        + "if(document.currentScript&&document.readyState==='loading'&&typeof document.write==='function'){"
+        + "document.write('<script src=\"'+src+'\" data-ak-chat-widget-bundle=\"1\"><\\/script>');"
+        + "return;"
+        + "}"
+        + "if(document.querySelector('script[data-ak-chat-widget-bundle=\"1\"]'))return;"
+        + "var script=document.createElement('script');"
+        + "script.src=src;"
+        + "script.async=false;"
+        + "script.dataset.akChatWidgetBundle='1';"
+        + "(document.head||document.documentElement||document.body).appendChild(script);"
+        + "}catch(_e){}})();"
+    )
+    return Response(
+        content=loader,
+        media_type="application/javascript",
+        headers=_build_widget_loader_headers(asset_version),
     )
 
 
@@ -6734,7 +6772,14 @@ def _build_widget_script_response(request: Request, js_path: str) -> Response:
 
 @app.get("/chat/widget.js")
 
-async def chat_widget_js(request: Request):
+async def chat_widget_js():
+
+    return _build_widget_loader_response()
+
+
+@app.get("/chat/widget.bundle.js")
+
+async def chat_widget_bundle_js(request: Request):
 
     js_path = os.path.join(FRONTEND_HOST_DIR, "chat_widget.js")
 
@@ -6996,13 +7041,11 @@ async def pwa_icon_maskable_api(size: int):
 
 @app.get("/admin/api/pwa-widget")
 
-async def pwa_widget_api(request: Request):
+async def pwa_widget_api():
 
     """通过API路径提供widget.js（绕过CDN对.js文件的拦截）"""
 
-    js_path = os.path.join(FRONTEND_HOST_DIR, "chat_widget.js")
-
-    return _build_widget_script_response(request, js_path)
+    return _build_widget_loader_response()
 
 
 
