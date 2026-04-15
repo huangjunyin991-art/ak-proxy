@@ -175,63 +175,40 @@
     box-shadow: none;
     cursor: pointer;
     position: relative;
-    transition: color 0.18s ease, transform 0.18s ease, filter 0.18s ease;
-}
-#ak-notification-widget-root .ak-notification-bell::before {
-    content: '';
-    position: absolute;
-    inset: 3px;
-    border-radius: 999px;
-    background: radial-gradient(circle at 50% 40%, rgba(255, 230, 164, 0) 0%, rgba(255, 198, 86, 0) 58%, rgba(255, 174, 46, 0) 100%);
-    opacity: 0;
-    transition: opacity 0.18s ease, background 0.18s ease;
-    pointer-events: none;
+    transition: color 0.18s ease, transform 0.18s ease;
 }
 #ak-notification-widget-root .ak-notification-bell svg {
     position: relative;
     z-index: 1;
     width: 28px;
     height: 28px;
+    transition: filter 0.18s ease;
 }
 #ak-notification-widget-root .ak-notification-bell:hover {
     transform: translateY(-1px);
 }
-#ak-notification-widget-root .ak-notification-bell:hover::before,
-#ak-notification-widget-root .ak-notification-bell.is-open::before {
-    opacity: 1;
-    background: radial-gradient(circle at 50% 40%, rgba(255, 230, 164, 0.14) 0%, rgba(255, 199, 87, 0.08) 58%, rgba(255, 174, 46, 0.02) 100%);
-}
 #ak-notification-widget-root .ak-notification-bell:hover,
 #ak-notification-widget-root .ak-notification-bell.is-open {
     color: #fff0c0;
-    filter: drop-shadow(0 0 12px rgba(255, 213, 100, 0.22));
+}
+#ak-notification-widget-root .ak-notification-bell:hover svg,
+#ak-notification-widget-root .ak-notification-bell.is-open svg {
+    filter: drop-shadow(0 0 10px rgba(255, 213, 100, 0.32)) drop-shadow(0 0 4px rgba(255, 240, 192, 0.22));
 }
 @keyframes ak-notification-bell-gold-flash {
     0%,
     100% {
-        filter: drop-shadow(0 0 12px rgba(255, 210, 88, 0.22));
+        filter: drop-shadow(0 0 10px rgba(255, 210, 88, 0.32)) drop-shadow(0 0 4px rgba(255, 240, 192, 0.22));
     }
     50% {
-        filter: drop-shadow(0 0 22px rgba(255, 229, 124, 0.48));
-    }
-}
-@keyframes ak-notification-bell-aura {
-    0%,
-    100% {
-        opacity: 0.72;
-    }
-    50% {
-        opacity: 1;
+        filter: drop-shadow(0 0 16px rgba(255, 229, 124, 0.5)) drop-shadow(0 0 6px rgba(255, 210, 88, 0.28));
     }
 }
 #ak-notification-widget-root .ak-notification-bell.has-unread {
     color: #f1cf63;
-    animation: ak-notification-bell-gold-flash 1.8s ease-in-out infinite;
 }
-#ak-notification-widget-root .ak-notification-bell.has-unread::before {
-    opacity: 1;
-    background: radial-gradient(circle at 50% 40%, rgba(255, 232, 158, 0.22) 0%, rgba(255, 202, 89, 0.14) 56%, rgba(255, 156, 42, 0.04) 100%);
-    animation: ak-notification-bell-aura 1.8s ease-in-out infinite;
+#ak-notification-widget-root .ak-notification-bell.has-unread svg {
+    animation: ak-notification-bell-gold-flash 1.8s ease-in-out infinite;
 }
 #ak-notification-widget-root .ak-notification-dot {
     position: absolute;

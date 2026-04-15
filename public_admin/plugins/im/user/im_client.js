@@ -23,6 +23,12 @@
         newSessionTarget: '',
         newSessionError: '',
         lastReadSentByConversation: {},
+        actionSheetOpen: false,
+        actionSheetMessageId: 0,
+        actionSheetConversationId: 0,
+        actionSheetCanRecall: false,
+        actionSheetDraftText: '',
+        recalledDraftByMessageId: {},
         inputValue: ''
     };
 
@@ -34,6 +40,9 @@
     let inputEl = null;
     let newSessionInputEl = null;
     let sendBtn = null;
+    let actionSheetEl = null;
+    let actionSheetRecallBtn = null;
+    let actionSheetCancelBtn = null;
 
     function getCookie(name) {
         try {
@@ -143,13 +152,12 @@
                 #ak-im-root.ak-visible{display:block}
                 #ak-im-root.ak-im-open{z-index:2147483647}
                 #ak-im-root .ak-im-launcher{width:56px;height:56px;border:none;border-radius:999px;background:transparent;color:rgba(233,244,255,.84);display:inline-flex;align-items:center;justify-content:center;cursor:pointer;position:relative;transition:color .18s ease,transform .18s ease,filter .18s ease,opacity .18s ease}
-                #ak-im-root .ak-im-launcher::before{content:'';position:absolute;inset:3px;border-radius:999px;background:transparent;box-shadow:none;opacity:0;transition:opacity .18s ease,box-shadow .18s ease;pointer-events:none}
-                #ak-im-root .ak-im-launcher svg{position:relative;z-index:1;width:30px;height:30px}
-                #ak-im-root .ak-im-launcher:hover,#ak-im-root .ak-im-launcher.is-open{transform:translateY(-1px);color:#fff0c0;filter:drop-shadow(0 0 12px rgba(255,213,100,.22))}
-                #ak-im-root .ak-im-launcher:hover::before,#ak-im-root .ak-im-launcher.is-open::before{opacity:1;box-shadow:0 0 0 1px rgba(255,240,192,.46) inset,0 0 12px rgba(255,213,100,.16)}
-                @keyframes ak-im-launcher-green-flash{0%,100%{filter:drop-shadow(0 0 10px rgba(7,193,96,.22))}50%{filter:drop-shadow(0 0 18px rgba(52,211,153,.38))}}
-                #ak-im-root .ak-im-launcher.has-unread{color:#56c57b;animation:ak-im-launcher-green-flash 1.8s ease-in-out infinite}
-                #ak-im-root .ak-im-launcher.has-unread::before{opacity:1;box-shadow:0 0 0 1px rgba(86,197,123,.76) inset,0 0 12px rgba(52,211,153,.22)}
+                #ak-im-root .ak-im-launcher svg{position:relative;z-index:1;width:30px;height:30px;transition:filter .18s ease}
+                #ak-im-root .ak-im-launcher:hover,#ak-im-root .ak-im-launcher.is-open{transform:translateY(-1px);color:#fff0c0}
+                #ak-im-root .ak-im-launcher:hover svg,#ak-im-root .ak-im-launcher.is-open svg{filter:drop-shadow(0 0 10px rgba(255,213,100,.32)) drop-shadow(0 0 4px rgba(255,240,192,.22))}
+                @keyframes ak-im-icon-green-flash{0%,100%{filter:drop-shadow(0 0 8px rgba(7,193,96,.34)) drop-shadow(0 0 3px rgba(52,211,153,.22))}50%{filter:drop-shadow(0 0 14px rgba(52,211,153,.44)) drop-shadow(0 0 6px rgba(7,193,96,.28))}}
+                #ak-im-root .ak-im-launcher.has-unread{color:#56c57b}
+                #ak-im-root .ak-im-launcher.has-unread svg{animation:ak-im-icon-green-flash 1.8s ease-in-out infinite}
                 #ak-im-root .ak-im-launcher-badge{position:absolute;top:8px;right:8px;min-width:9px;width:9px;height:9px;border-radius:999px;background:linear-gradient(180deg,#ff2f43 0%,#f30023 100%);box-shadow:0 0 8px rgba(255,39,66,.24);border:1px solid rgba(255,140,150,.22);display:none}
                 #ak-im-root .ak-im-launcher.has-unread .ak-im-launcher-badge{display:block}
                 #ak-im-root .ak-im-shell{display:none;position:fixed;inset:0;background:#ededed;overflow:hidden}
@@ -212,6 +220,17 @@
                 #ak-im-root .ak-im-compose-btn-secondary{background:#e5e7eb;color:#374151}
                 #ak-im-root .ak-im-compose-btn-primary{background:#07c160;color:#ffffff}
                 #ak-im-root .ak-im-compose-btn:disabled{opacity:.42;cursor:not-allowed}
+                #ak-im-root .ak-im-system-row{align-self:center;background:rgba(0,0,0,.06);color:#6b7280;font-size:12px;line-height:1.6;padding:6px 10px;border-radius:999px;max-width:78%;text-align:center}
+                #ak-im-root .ak-im-system-row a{color:#07c160;text-decoration:none;margin-left:6px;font-size:12px}
+                #ak-im-root .ak-im-system-row a:active{opacity:.7}
+                #ak-im-root .ak-im-action-sheet{display:none;position:fixed;inset:0;z-index:2147483648}
+                #ak-im-root .ak-im-action-sheet.visible{display:block}
+                #ak-im-root .ak-im-action-mask{position:absolute;inset:0;background:rgba(0,0,0,.18)}
+                #ak-im-root .ak-im-action-panel{position:absolute;left:12px;right:12px;bottom:calc(12px + env(safe-area-inset-bottom, 0px));background:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 16px 36px rgba(0,0,0,.18)}
+                #ak-im-root .ak-im-action-btn{width:100%;height:52px;border:none;background:#ffffff;color:#111827;font-size:16px;font-weight:600;cursor:pointer}
+                #ak-im-root .ak-im-action-btn + .ak-im-action-btn{border-top:1px solid rgba(15,23,42,.06)}
+                #ak-im-root .ak-im-action-btn.danger{color:#ef4444}
+                #ak-im-root .ak-im-action-btn:disabled{opacity:.45;cursor:not-allowed}
                 @media (max-width: 640px){#ak-im-root{left:calc(50% + 42px);top:calc(env(safe-area-inset-top, 0px) - 10px)}#ak-im-root .ak-im-topbar{grid-template-columns:48px 1fr 56px}#ak-im-root .ak-im-session-avatar{width:44px;height:44px;border-radius:12px}#ak-im-root .ak-im-message-main{max-width:78%}}
             </style>
             <button class="ak-im-launcher" type="button" aria-label="内部聊天">
@@ -270,6 +289,13 @@
                     </div>
                 </div>
             </div>
+            <div class="ak-im-action-sheet" aria-hidden="true">
+                <div class="ak-im-action-mask"></div>
+                <div class="ak-im-action-panel">
+                    <button class="ak-im-action-btn danger" type="button" data-im-action="recall">撤回</button>
+                    <button class="ak-im-action-btn" type="button" data-im-action="cancel">取消</button>
+                </div>
+            </div>
         `;
         document.body.appendChild(root);
         panel = root.querySelector('.ak-im-shell');
@@ -279,6 +305,9 @@
         inputEl = root.querySelector('.ak-im-input');
         newSessionInputEl = root.querySelector('.ak-im-compose-input');
         sendBtn = root.querySelector('.ak-im-send');
+        actionSheetEl = root.querySelector('.ak-im-action-sheet');
+        actionSheetRecallBtn = root.querySelector('[data-im-action="recall"]');
+        actionSheetCancelBtn = root.querySelector('[data-im-action="cancel"]');
         root.querySelector('.ak-im-launcher').addEventListener('click', function() {
             state.open = true;
             if (state.view !== 'compose' && !state.activeConversationId) state.view = 'sessions';
@@ -325,6 +354,16 @@
                 event.preventDefault();
                 sendCurrentMessage();
             }
+        });
+        actionSheetEl.querySelector('.ak-im-action-mask').addEventListener('click', function() {
+            closeActionSheet();
+        });
+        actionSheetCancelBtn.addEventListener('click', function() {
+            closeActionSheet();
+        });
+        actionSheetRecallBtn.addEventListener('click', function() {
+            if (!state.actionSheetCanRecall || !state.actionSheetMessageId) return;
+            recallMessage(state.actionSheetMessageId, state.actionSheetConversationId, state.actionSheetDraftText);
         });
         syncInputHeight();
         syncComposerState();
@@ -386,6 +425,42 @@
 
     function shouldAutoMarkRead(conversationId) {
         return !!state.open && state.view === 'chat' && Number(state.activeConversationId || 0) === Number(conversationId || 0) && document.visibilityState !== 'hidden';
+    }
+
+    function canRecallMessage(item) {
+        if (!item || typeof item !== 'object') return false;
+        if (String(item.status || '').toLowerCase() === 'recalled') return false;
+        if (String(item.sender_username || '') !== String(state.username || '')) return false;
+        try {
+            const sentAt = new Date(item.sent_at);
+            if (isNaN(sentAt.getTime())) return false;
+            return (Date.now() - sentAt.getTime()) <= 60 * 1000;
+        } catch (e) {
+            return false;
+        }
+    }
+
+    function openActionSheet(messageItem) {
+        if (!actionSheetEl) return;
+        state.actionSheetOpen = true;
+        state.actionSheetMessageId = Number(messageItem && messageItem.id || 0);
+        state.actionSheetConversationId = Number(messageItem && messageItem.conversation_id || state.activeConversationId || 0);
+        state.actionSheetCanRecall = canRecallMessage(messageItem);
+        state.actionSheetDraftText = String(messageItem && (messageItem.content || messageItem.content_preview || '') || '');
+        actionSheetRecallBtn.disabled = !state.actionSheetCanRecall;
+        actionSheetEl.classList.add('visible');
+        actionSheetEl.setAttribute('aria-hidden', 'false');
+    }
+
+    function closeActionSheet() {
+        if (!actionSheetEl) return;
+        state.actionSheetOpen = false;
+        state.actionSheetMessageId = 0;
+        state.actionSheetConversationId = 0;
+        state.actionSheetCanRecall = false;
+        state.actionSheetDraftText = '';
+        actionSheetEl.classList.remove('visible');
+        actionSheetEl.setAttribute('aria-hidden', 'true');
     }
 
     function renderComposeView() {
@@ -506,6 +581,33 @@
         }
         state.activeMessages.forEach(function(item) {
             const isSelf = item.sender_username === state.username;
+            const isRecalled = String(item.status || '').toLowerCase() === 'recalled';
+            if (isRecalled) {
+                const systemRow = document.createElement('div');
+                systemRow.className = 'ak-im-system-row';
+                const systemText = isSelf ? '你撤回了一条消息' : '对方撤回了一条消息';
+                const draftText = String(state.recalledDraftByMessageId[item.id] || '').trim();
+                systemRow.textContent = systemText;
+                if (isSelf && draftText) {
+                    const link = document.createElement('a');
+                    link.href = 'javascript:void(0)';
+                    link.textContent = '重新编辑';
+                    link.addEventListener('click', function(event) {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        inputEl.value = draftText;
+                        state.inputValue = draftText;
+                        state.view = 'chat';
+                        state.open = true;
+                        syncInputHeight();
+                        syncComposerState();
+                        try { inputEl.focus(); } catch (e) {}
+                    });
+                    systemRow.appendChild(link);
+                }
+                messageList.appendChild(systemRow);
+                return;
+            }
             const wrapper = document.createElement('div');
             const displayName = isSelf ? (state.displayName || state.username || '我') : (activeSession ? getSessionDisplayName(activeSession) : (item.sender_username || '对方'));
             const metaText = isSelf && item.read ? '对方已读' : '';
@@ -517,6 +619,34 @@
                         (metaText ? '<div class="ak-im-meta">' + escapeHtml(metaText) + '</div>' : '') +
                     '</div>' +
                 '</div>';
+            if (isSelf) {
+                const bubble = wrapper.querySelector('.ak-im-bubble');
+                if (bubble) {
+                    let pressTimer = null;
+                    const startPress = function(event) {
+                        if (!canRecallMessage(item)) return;
+                        if (pressTimer) clearTimeout(pressTimer);
+                        pressTimer = setTimeout(function() {
+                            openActionSheet(item);
+                        }, 420);
+                    };
+                    const cancelPress = function() {
+                        if (pressTimer) {
+                            clearTimeout(pressTimer);
+                            pressTimer = null;
+                        }
+                    };
+                    bubble.addEventListener('pointerdown', startPress);
+                    bubble.addEventListener('pointerup', cancelPress);
+                    bubble.addEventListener('pointercancel', cancelPress);
+                    bubble.addEventListener('pointerleave', cancelPress);
+                    bubble.addEventListener('contextmenu', function(event) {
+                        event.preventDefault();
+                        if (!canRecallMessage(item)) return;
+                        openActionSheet(item);
+                    });
+                }
+            }
             messageList.appendChild(wrapper);
         });
         messageList.scrollTop = messageList.scrollHeight;
@@ -636,6 +766,49 @@
         });
     }
 
+    function recallMessage(messageId, conversationId, draftText) {
+        closeActionSheet();
+        const mid = Number(messageId || 0);
+        const cid = Number(conversationId || 0);
+        if (!mid || !cid) return;
+        const draft = String(draftText || '').trim();
+        if (draft) state.recalledDraftByMessageId[mid] = draft;
+        request(`${HTTP_ROOT}/messages/recall`, {
+            method: 'POST',
+            body: JSON.stringify({ message_id: mid })
+        }).then(function(data) {
+            const item = data && data.item ? data.item : null;
+            if (item && item.id) {
+                applyMessageRecalled(item);
+            }
+            loadSessions();
+        }).catch(function(error) {
+            window.alert(error && error.message ? error.message : '撤回失败');
+        });
+    }
+
+    function applyMessageRecalled(item) {
+        if (!item || !item.id) return;
+        const cid = Number(item.conversation_id || 0);
+        if (!cid) return;
+        if (Number(cid) === Number(state.activeConversationId || 0)) {
+            const next = [];
+            state.activeMessages.forEach(function(current) {
+                if (!current || Number(current.id || 0) !== Number(item.id || 0)) {
+                    next.push(current);
+                    return;
+                }
+                next.push(Object.assign({}, current, {
+                    status: 'recalled',
+                    content: '',
+                    content_preview: '[消息已撤回]'
+                }));
+            });
+            state.activeMessages = next;
+            renderMessages();
+        }
+    }
+
     function markRead(conversationId) {
         if (!state.ws || state.ws.readyState !== WebSocket.OPEN) return;
         const targetConversationId = Number(conversationId || state.activeConversationId || 0);
@@ -685,6 +858,14 @@
                         const payload = data.payload || null;
                         if (payload && Number(payload.conversation_id || 0) === Number(state.activeConversationId || 0)) {
                             loadMessages(state.activeConversationId);
+                        }
+                        return;
+                    }
+                    if (data.type === 'im.message.recalled') {
+                        const payload = data.payload || null;
+                        if (payload && payload.id) {
+                            applyMessageRecalled(payload);
+                            loadSessions();
                         }
                     }
                 } catch (e) {}

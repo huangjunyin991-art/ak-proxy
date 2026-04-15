@@ -79,6 +79,10 @@ type directSessionRequest struct {
 	TargetUsername string `json:"target_username"`
 }
 
+type recallMessageRequest struct {
+	MessageID int64 `json:"message_id"`
+}
+
 type wsEnvelope struct {
 	Type    string          `json:"type"`
 	Payload json.RawMessage `json:"payload"`
@@ -118,6 +122,7 @@ func New(cfg config.Config) (*App, error) {
 	mux.HandleFunc("/im/api/sessions", app.handleSessions)
 	mux.HandleFunc("/im/api/sessions/direct", app.handleDirectSession)
 	mux.HandleFunc("/im/api/messages", app.handleMessages)
+	mux.HandleFunc("/im/api/messages/recall", app.handleRecallMessage)
 	mux.HandleFunc("/im/ws", app.handleWS)
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"ok": true})
@@ -408,6 +413,34 @@ func (a *App) handleMessages(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func (a *App) handleRecallMessage(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"error": true})
+		return
+	}
+	username, err := a.requireAllowedUser(r)
+	if err != nil {
+		writeJSON(w, http.StatusForbidden, map[string]any{"error": true, "message": err.Error()})
+		return
+	}
+	var req recallMessageRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": true, "message": "invalid payload"})
+		return
+	}
+	if req.MessageID <= 0 {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": true, "message": "invalid message_id"})
+		return
+	}
+	item, err := a.recallMessage(r.Context(), req.MessageID, username)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": true, "message": err.Error()})
+		return
+	}
+	a.broadcastConversation(item.ConversationID, map[string]any{"type": "im.message.recalled", "payload": item})
+	writeJSON(w, http.StatusOK, map[string]any{"item": item})
+}
+
 func (a *App) handleListMessages(w http.ResponseWriter, r *http.Request, username string) {
 	conversationID := strings.TrimSpace(r.URL.Query().Get("conversation_id"))
 	if conversationID == "" {
@@ -509,6 +542,43 @@ func (a *App) insertMessage(ctx context.Context, conversationID int64, username 
 		return MessageItem{}, err
 	}
 	if _, err := tx.Exec(ctx, `UPDATE im_conversation_member SET last_read_seq_no = GREATEST(last_read_seq_no, $1), last_read_at = NOW(), updated_at = NOW() WHERE conversation_id = $2 AND username = $3`, item.SeqNo, conversationID, username); err != nil {
+		return MessageItem{}, err
+	}
+	return item, tx.Commit(ctx)
+}
+
+func (a *App) recallMessage(ctx context.Context, messageID int64, username string) (MessageItem, error) {
+	tx, err := a.db.Begin(ctx)
+	if err != nil {
+		return MessageItem{}, err
+	}
+	defer tx.Rollback(ctx)
+	var item MessageItem
+	var sentAt time.Time
+	err = tx.QueryRow(ctx, `
+		SELECT id, conversation_id, sender_username, seq_no, message_type, content_payload, content_preview, status, sent_at
+		FROM im_message
+		WHERE id = $1 AND deleted_at IS NULL`, messageID).Scan(&item.ID, &item.ConversationID, &item.SenderUsername, &item.SeqNo, &item.MessageType, &item.Content, &item.ContentPreview, &item.Status, &sentAt)
+	if err != nil {
+		return MessageItem{}, errors.New("message not found")
+	}
+	if item.SenderUsername != username {
+		return MessageItem{}, errors.New("forbidden")
+	}
+	if time.Since(sentAt) > time.Minute {
+		return MessageItem{}, errors.New("message recall expired")
+	}
+	if item.Status == "recalled" {
+		return MessageItem{}, errors.New("message already recalled")
+	}
+	item.Content = ""
+	item.ContentPreview = "[消息已撤回]"
+	item.Status = "recalled"
+	item.SentAt = sentAt.Format(time.RFC3339)
+	if _, err := tx.Exec(ctx, `UPDATE im_message SET status = 'recalled', content_preview = $1, content_payload = '', updated_at = NOW() WHERE id = $2`, item.ContentPreview, item.ID); err != nil {
+		return MessageItem{}, err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE im_conversation SET last_message_preview = CASE WHEN last_message_id = $1 THEN $2 ELSE last_message_preview END, updated_at = NOW() WHERE id = $3`, item.ID, item.ContentPreview, item.ConversationID); err != nil {
 		return MessageItem{}, err
 	}
 	return item, tx.Commit(ctx)
