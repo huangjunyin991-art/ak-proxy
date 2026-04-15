@@ -134,11 +134,14 @@
         root.id = 'ak-im-root';
         root.innerHTML = `
             <style>
-                #ak-im-root{display:none;position:fixed;right:18px;bottom:88px;z-index:2147483641;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif}
-                #ak-im-root .ak-im-launcher{width:52px;height:52px;border:none;border-radius:50%;background:#2563eb;color:#fff;box-shadow:0 8px 26px rgba(37,99,235,.28);cursor:pointer;font-size:14px;font-weight:700}
-                #ak-im-root .ak-im-panel{display:none;width:min(360px,calc(100vw - 20px));height:min(520px,calc(100vh - 120px));background:#fff;border-radius:16px;box-shadow:0 14px 48px rgba(15,23,42,.22);overflow:hidden;border:1px solid rgba(15,23,42,.08)}
+                #ak-im-root{display:none;position:fixed;left:calc(50% + 46px);top:calc(env(safe-area-inset-top, 0px) - 10px);z-index:2147483642;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif}
+                #ak-im-root .ak-im-launcher{width:56px;height:56px;border:none;border-radius:999px;background:transparent;color:rgba(114, 235, 165, .92);display:inline-flex;align-items:center;justify-content:center;cursor:pointer;position:relative;transition:color .18s ease,transform .18s ease,filter .18s ease}
+                #ak-im-root .ak-im-launcher::before{content:'';position:absolute;inset:3px;border-radius:999px;background:radial-gradient(circle at 50% 40%,rgba(127,255,179,.16) 0%,rgba(57,214,117,.08) 56%,rgba(16,185,129,.02) 100%);opacity:0;transition:opacity .18s ease,background .18s ease;pointer-events:none}
+                #ak-im-root .ak-im-launcher svg{position:relative;z-index:1;width:30px;height:30px}
+                #ak-im-root .ak-im-launcher:hover,#ak-im-root .ak-im-launcher.is-open{transform:translateY(-1px);color:#8dffc0;filter:drop-shadow(0 0 12px rgba(74,222,128,.28))}
+                #ak-im-root .ak-im-launcher:hover::before,#ak-im-root .ak-im-launcher.is-open::before{opacity:1}
+                #ak-im-root .ak-im-panel{display:none;position:absolute;left:50%;top:68px;transform:translateX(-50%);width:min(420px,calc(100vw - 24px));height:min(520px,calc(100vh - 120px));background:#fff;border-radius:16px;box-shadow:0 14px 48px rgba(15,23,42,.22);overflow:hidden;border:1px solid rgba(15,23,42,.08)}
                 #ak-im-root.ak-im-open .ak-im-panel{display:grid;grid-template-columns:132px 1fr}
-                #ak-im-root.ak-im-open .ak-im-launcher{display:none}
                 #ak-im-root .ak-im-sidebar{background:#f8fafc;border-right:1px solid rgba(15,23,42,.08);display:flex;flex-direction:column;min-height:0}
                 #ak-im-root .ak-im-header{padding:12px 12px 8px;font-size:13px;font-weight:700;color:#0f172a;display:flex;align-items:center;justify-content:space-between;gap:8px}
                 #ak-im-root .ak-im-header button{border:none;background:#e2e8f0;color:#0f172a;border-radius:8px;padding:6px 8px;cursor:pointer;font-size:12px}
@@ -164,9 +167,14 @@
                 #ak-im-root .ak-im-composer textarea{flex:1;resize:none;border:1px solid rgba(15,23,42,.12);border-radius:10px;padding:10px;min-height:44px;max-height:120px;outline:none}
                 #ak-im-root .ak-im-composer button{border:none;background:#2563eb;color:#fff;border-radius:10px;padding:0 14px;cursor:pointer;font-weight:700}
                 #ak-im-root .ak-im-status{padding:0 12px 10px;font-size:11px;color:#64748b;background:#fff}
-                @media (max-width: 640px){#ak-im-root{right:10px;bottom:82px}#ak-im-root.ak-im-open .ak-im-panel{width:calc(100vw - 20px);height:min(72vh,560px);grid-template-columns:118px 1fr}}
+                @media (max-width: 640px){#ak-im-root{left:calc(50% + 42px);top:calc(env(safe-area-inset-top, 0px) - 10px)}#ak-im-root.ak-im-open .ak-im-panel{width:calc(100vw - 24px);height:min(72vh,560px);grid-template-columns:118px 1fr}}
             </style>
-            <button class="ak-im-launcher" type="button">IM</button>
+            <button class="ak-im-launcher" type="button" aria-label="内部聊天">
+                <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                    <path d="M7.5 17.5H6.2C5.21 17.5 4.31 17.1 3.66 16.45C3.01 15.8 2.62 14.9 2.62 13.92V7.58C2.62 6.59 3.01 5.69 3.66 5.04C4.31 4.39 5.21 4 6.2 4H13.05C14.03 4 14.93 4.39 15.58 5.04C16.23 5.69 16.62 6.59 16.62 7.58V13.92C16.62 14.9 16.23 15.8 15.58 16.45C14.93 17.1 14.03 17.5 13.05 17.5H10.7L7.12 20.33C6.92 20.49 6.62 20.34 6.62 20.09V18.27C6.62 17.84 6.97 17.5 7.4 17.5H7.5Z" fill="currentColor" opacity="0.95"/>
+                    <path d="M14.35 8.75H17.55C18.38 8.75 19.12 9.08 19.65 9.61C20.18 10.14 20.5 10.88 20.5 11.71V16.29C20.5 17.12 20.18 17.86 19.65 18.39C19.12 18.92 18.38 19.25 17.55 19.25H16.55V20.83C16.55 21.08 16.26 21.23 16.05 21.08L13.1 19.25H12.2" fill="currentColor" opacity="0.72"/>
+                </svg>
+            </button>
             <div class="ak-im-panel">
                 <div class="ak-im-sidebar">
                     <div class="ak-im-header"><span>聊天</span><button type="button" data-im-action="new">发起</button></div>
@@ -227,6 +235,7 @@
         if (!root) return;
         root.style.display = state.allowed ? '' : 'none';
         root.classList.toggle('ak-im-open', !!state.open);
+        root.querySelector('.ak-im-launcher').classList.toggle('is-open', !!state.open);
         statusLine.textContent = state.allowed ? ('当前账号：' + state.username) : '聊天功能未开放';
         sessionList.innerHTML = '';
         if (!state.sessions.length) {
