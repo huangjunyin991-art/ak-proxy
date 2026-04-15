@@ -151,7 +151,7 @@
     display: none;
     position: fixed;
     left: 50%;
-    top: calc(env(safe-area-inset-top, 0px) + 6px);
+    top: calc(env(safe-area-inset-top, 0px) - 10px);
     transform: translateX(-50%);
     z-index: 2147483642;
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
@@ -446,7 +446,7 @@
 }
 @media (max-width: 768px) {
     #ak-notification-widget-root {
-        top: calc(env(safe-area-inset-top, 0px) + 4px);
+        top: calc(env(safe-area-inset-top, 0px) - 8px);
     }
     #ak-notification-widget-root .ak-notification-bell {
         width: 52px;

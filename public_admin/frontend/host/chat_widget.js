@@ -596,112 +596,15 @@
     }
 
     function logChatWsDebug(eventName, extra) {
-        try {
-            console.warn('[AKChatDebug]', JSON.stringify(Object.assign({
-                event: String(eventName || ''),
-                username: String(username || ''),
-                route: window.location.pathname + window.location.hash,
-                hidden: !!document.hidden,
-                presenceSuspended: !!presenceSuspended,
-                readyState: getChatWsReadyStateLabel(ws),
-                ts: new Date().toISOString()
-            }, extra || {})));
-        } catch (e) {
-            try {
-                console.warn('[AKChatDebug]', eventName, extra || {});
-            } catch (_) {}
-        }
+        return;
     }
 
-    const ASSIST_SERVER_DEBUG_EVENTS = new Set([
-        'page_visibility_change',
-        'page_visibility_hidden_keepalive',
-        'page_hide',
-        'page_show',
-        'page_focus',
-        'page_before_unload',
-        'assist_request_received',
-        'assist_bind_received',
-        'assist_unbind_received',
-        'assist_connect_start',
-        'assist_connect_skipped',
-        'assist_connect_exception',
-        'assist_disconnect',
-        'assist_ws_open',
-        'assist_ws_close',
-        'assist_ws_error',
-        'assist_resume_attempt',
-        'assist_resume_skipped',
-        'assist_reconnect_scheduled',
-        'chat_ws_open_for_assist'
-    ]);
-
     function reportAssistClientDebug(eventName, extra) {
-        const normalizedEvent = String(eventName || '').trim();
-        if (!normalizedEvent || !ASSIST_SERVER_DEBUG_EVENTS.has(normalizedEvent)) return;
-        let payloadJson = '';
-        try {
-            payloadJson = JSON.stringify({
-                event: normalizedEvent,
-                username: String(username || ''),
-                route: window.location.pathname + window.location.hash,
-                normalizedRoute: normalizeAssistRoute(),
-                hidden: !!document.hidden,
-                presenceSuspended: !!presenceSuspended,
-                chatReadyState: getChatWsReadyStateLabel(ws),
-                assistReadyState: getChatWsReadyStateLabel(assistWs),
-                assistSessionId: String(assistSessionId || ''),
-                pageClientId: String(getPageClientId() || ''),
-                ts: new Date().toISOString(),
-                extra: extra || {}
-            });
-        } catch (e) {
-            return;
-        }
-        try {
-            if (navigator && typeof navigator.sendBeacon === 'function') {
-                const beaconPayload = typeof Blob === 'function'
-                    ? new Blob([payloadJson], { type: 'application/json' })
-                    : payloadJson;
-                if (navigator.sendBeacon('/chat/assist-debug', beaconPayload)) {
-                    return;
-                }
-            }
-        } catch (e) {}
-        try {
-            fetch('/chat/assist-debug', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: payloadJson,
-                keepalive: true,
-                credentials: 'same-origin'
-            }).catch(function() {});
-        } catch (e) {}
+        return;
     }
 
     function logAssistDebug(eventName, extra) {
-        const normalizedEvent = String(eventName || '').trim();
-        if (!normalizedEvent || normalizedEvent === 'scroll_capture') return;
-        try {
-            console.warn('[AKChatAssistDebug]', JSON.stringify(Object.assign({
-                event: normalizedEvent,
-                username: String(username || ''),
-                route: window.location.pathname + window.location.hash,
-                normalizedRoute: normalizeAssistRoute(),
-                hidden: !!document.hidden,
-                presenceSuspended: !!presenceSuspended,
-                chatReadyState: getChatWsReadyStateLabel(ws),
-                assistReadyState: getChatWsReadyStateLabel(assistWs),
-                assistSessionId: String(assistSessionId || ''),
-                pageClientId: String(getPageClientId() || ''),
-                ts: new Date().toISOString()
-            }, extra || {})));
-        } catch (e) {
-            try {
-                console.warn('[AKChatAssistDebug]', normalizedEvent, extra || {});
-            } catch (_) {}
-        }
-        reportAssistClientDebug(normalizedEvent, extra);
+        return;
     }
 
     function readPersistedAssistSessionId() {
