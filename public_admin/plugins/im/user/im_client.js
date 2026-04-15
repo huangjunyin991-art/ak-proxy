@@ -135,6 +135,7 @@
         root.innerHTML = `
             <style>
                 #ak-im-root{display:none;position:fixed;left:calc(50% + 46px);top:calc(env(safe-area-inset-top, 0px) - 10px);z-index:2147483642;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif}
+                #ak-im-root.ak-visible{display:block}
                 #ak-im-root .ak-im-launcher{width:56px;height:56px;border:none;border-radius:999px;background:transparent;color:rgba(114, 235, 165, .92);display:inline-flex;align-items:center;justify-content:center;cursor:pointer;position:relative;transition:color .18s ease,transform .18s ease,filter .18s ease}
                 #ak-im-root .ak-im-launcher::before{content:'';position:absolute;inset:3px;border-radius:999px;background:radial-gradient(circle at 50% 40%,rgba(127,255,179,.16) 0%,rgba(57,214,117,.08) 56%,rgba(16,185,129,.02) 100%);opacity:0;transition:opacity .18s ease,background .18s ease;pointer-events:none}
                 #ak-im-root .ak-im-launcher svg{position:relative;z-index:1;width:30px;height:30px}
@@ -233,7 +234,7 @@
 
     function render() {
         if (!root) return;
-        root.style.display = state.allowed ? '' : 'none';
+        root.classList.toggle('ak-visible', !!state.allowed);
         root.classList.toggle('ak-im-open', !!state.open);
         root.querySelector('.ak-im-launcher').classList.toggle('is-open', !!state.open);
         statusLine.textContent = state.allowed ? ('当前账号：' + state.username) : '聊天功能未开放';
