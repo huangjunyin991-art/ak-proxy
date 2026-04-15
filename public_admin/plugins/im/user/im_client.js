@@ -289,7 +289,7 @@
                     </div>
                 </div>
             </div>
-            <div class="ak-im-action-sheet" aria-hidden="true">
+            <div class="ak-im-action-sheet" aria-hidden="true" inert>
                 <div class="ak-im-action-mask"></div>
                 <div class="ak-im-action-panel">
                     <button class="ak-im-action-btn danger" type="button" data-im-action="recall">撤回</button>
@@ -451,18 +451,24 @@
         state.actionSheetCanRecall = canRecallMessage(messageItem);
         state.actionSheetDraftText = String(messageItem && (messageItem.content || messageItem.content_preview || '') || '');
         actionSheetRecallBtn.disabled = !state.actionSheetCanRecall;
+        actionSheetEl.removeAttribute('inert');
         actionSheetEl.classList.add('visible');
         actionSheetEl.setAttribute('aria-hidden', 'false');
     }
 
     function closeActionSheet() {
         if (!actionSheetEl) return;
+        const activeElement = document.activeElement;
+        if (activeElement && actionSheetEl.contains(activeElement) && typeof activeElement.blur === 'function') {
+            activeElement.blur();
+        }
         state.actionSheetOpen = false;
         state.actionSheetMessageId = 0;
         state.actionSheetConversationId = 0;
         state.actionSheetCanRecall = false;
         state.actionSheetDraftText = '';
         actionSheetEl.classList.remove('visible');
+        actionSheetEl.setAttribute('inert', '');
         actionSheetEl.setAttribute('aria-hidden', 'true');
     }
 
@@ -813,6 +819,23 @@
         }
     }
 
+    function clearSessionUnread(conversationId) {
+        const targetConversationId = Number(conversationId || 0);
+        if (!targetConversationId || !Array.isArray(state.sessions) || !state.sessions.length) return;
+        let changed = false;
+        state.sessions = state.sessions.map(function(item) {
+            if (!item || Number(item.conversation_id || 0) !== targetConversationId) return item;
+            const unreadCount = getUnreadCount(item);
+            if (unreadCount <= 0) return item;
+            changed = true;
+            return Object.assign({}, item, {
+                unread_count: 0,
+                unread: 0
+            });
+        });
+        if (changed) render();
+    }
+
     function markRead(conversationId) {
         if (!state.ws || state.ws.readyState !== WebSocket.OPEN) return;
         const targetConversationId = Number(conversationId || state.activeConversationId || 0);
@@ -838,6 +861,7 @@
                 seq_no: lastSeqNo
             }
         }));
+        clearSessionUnread(targetConversationId);
     }
 
     function ensureWebSocket() {
@@ -860,6 +884,9 @@
                     }
                     if (data.type === 'im.message.read') {
                         const payload = data.payload || null;
+                        if (payload && Number(payload.conversation_id || 0) > 0) {
+                            loadSessions();
+                        }
                         if (payload && Number(payload.conversation_id || 0) === Number(state.activeConversationId || 0)) {
                             loadMessages(state.activeConversationId);
                         }
