@@ -314,15 +314,18 @@
             render();
         });
         root.querySelector('.ak-im-close').addEventListener('click', function() {
+            closeActionSheet();
             state.open = false;
             state.view = 'sessions';
             render();
         });
         root.querySelector('.ak-im-back').addEventListener('click', function() {
+            closeActionSheet();
             state.view = 'sessions';
             render();
         });
         root.querySelector('.ak-im-chat-close').addEventListener('click', function() {
+            closeActionSheet();
             state.open = false;
             state.view = 'sessions';
             render();
@@ -486,6 +489,7 @@
     }
 
     function closeComposeView() {
+        closeActionSheet();
         state.newSessionError = '';
         state.newSessionTarget = '';
         state.view = 'sessions';
@@ -893,7 +897,7 @@
 
     window.AKIMClient = {
         open: function() { state.open = true; if (!state.activeConversationId) state.view = 'sessions'; render(); },
-        close: function() { state.open = false; state.view = 'sessions'; render(); },
+        close: function() { closeActionSheet(); state.open = false; state.view = 'sessions'; render(); },
         reloadSessions: loadSessions
     };
 })();
