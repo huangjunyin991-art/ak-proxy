@@ -19,6 +19,7 @@
         activeMessages: [],
         ws: null,
         open: false,
+        view: 'sessions',
         inputValue: ''
     };
 
@@ -136,85 +137,138 @@
             <style>
                 #ak-im-root{display:none;position:fixed;left:calc(50% + 46px);top:calc(env(safe-area-inset-top, 0px) - 10px);z-index:2147483642;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif}
                 #ak-im-root.ak-visible{display:block}
-                #ak-im-root .ak-im-launcher{width:56px;height:56px;border:none;border-radius:999px;background:transparent;color:rgba(114, 235, 165, .92);display:inline-flex;align-items:center;justify-content:center;cursor:pointer;position:relative;transition:color .18s ease,transform .18s ease,filter .18s ease}
-                #ak-im-root .ak-im-launcher::before{content:'';position:absolute;inset:3px;border-radius:999px;background:radial-gradient(circle at 50% 40%,rgba(127,255,179,.16) 0%,rgba(57,214,117,.08) 56%,rgba(16,185,129,.02) 100%);opacity:0;transition:opacity .18s ease,background .18s ease;pointer-events:none}
+                #ak-im-root .ak-im-launcher{width:56px;height:56px;border:none;border-radius:999px;background:transparent;color:rgba(52,63,84,.92);display:inline-flex;align-items:center;justify-content:center;cursor:pointer;position:relative;transition:color .18s ease,transform .18s ease,filter .18s ease,opacity .18s ease}
+                #ak-im-root .ak-im-launcher::before{content:'';position:absolute;inset:3px;border-radius:999px;background:radial-gradient(circle at 50% 40%,rgba(86,197,123,.18) 0%,rgba(86,197,123,.08) 56%,rgba(86,197,123,0) 100%);opacity:0;transition:opacity .18s ease,background .18s ease;pointer-events:none}
                 #ak-im-root .ak-im-launcher svg{position:relative;z-index:1;width:30px;height:30px}
-                #ak-im-root .ak-im-launcher:hover,#ak-im-root .ak-im-launcher.is-open{transform:translateY(-1px);color:#8dffc0;filter:drop-shadow(0 0 12px rgba(74,222,128,.28))}
+                #ak-im-root .ak-im-launcher:hover,#ak-im-root .ak-im-launcher.is-open{transform:translateY(-1px);color:#1f2937;filter:drop-shadow(0 0 10px rgba(86,197,123,.18))}
                 #ak-im-root .ak-im-launcher:hover::before,#ak-im-root .ak-im-launcher.is-open::before{opacity:1}
-                #ak-im-root .ak-im-panel{display:none;position:absolute;left:50%;top:68px;transform:translateX(-50%);width:min(420px,calc(100vw - 24px));height:min(520px,calc(100vh - 120px));background:#fff;border-radius:16px;box-shadow:0 14px 48px rgba(15,23,42,.22);overflow:hidden;border:1px solid rgba(15,23,42,.08)}
-                #ak-im-root.ak-im-open .ak-im-panel{display:grid;grid-template-columns:132px 1fr}
-                #ak-im-root .ak-im-sidebar{background:#f8fafc;border-right:1px solid rgba(15,23,42,.08);display:flex;flex-direction:column;min-height:0}
-                #ak-im-root .ak-im-header{padding:12px 12px 8px;font-size:13px;font-weight:700;color:#0f172a;display:flex;align-items:center;justify-content:space-between;gap:8px}
-                #ak-im-root .ak-im-header button{border:none;background:#e2e8f0;color:#0f172a;border-radius:8px;padding:6px 8px;cursor:pointer;font-size:12px}
-                #ak-im-root .ak-im-session-list{flex:1;overflow:auto;padding:0 8px 8px}
-                #ak-im-root .ak-im-session-item{padding:10px 8px;border-radius:10px;cursor:pointer;margin-top:4px;background:transparent}
-                #ak-im-root .ak-im-session-item.ak-active{background:#dbeafe}
-                #ak-im-root .ak-im-session-title{font-size:12px;font-weight:700;color:#0f172a;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-                #ak-im-root .ak-im-session-preview{font-size:11px;color:#64748b;margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-                #ak-im-root .ak-im-main{display:flex;flex-direction:column;min-width:0;min-height:0}
-                #ak-im-root .ak-im-main-header{padding:12px;border-bottom:1px solid rgba(15,23,42,.08);display:flex;align-items:center;justify-content:space-between;gap:8px}
-                #ak-im-root .ak-im-main-title{font-size:14px;font-weight:700;color:#0f172a}
-                #ak-im-root .ak-im-main-subtitle{font-size:12px;color:#64748b;margin-top:2px}
-                #ak-im-root .ak-im-close{border:none;background:#e2e8f0;color:#0f172a;border-radius:8px;padding:6px 10px;cursor:pointer}
-                #ak-im-root .ak-im-message-list{flex:1;overflow:auto;padding:12px;background:#f8fafc;display:flex;flex-direction:column;gap:8px}
-                #ak-im-root .ak-im-empty{margin:auto;color:#94a3b8;font-size:13px;text-align:center;padding:20px}
-                #ak-im-root .ak-im-row{display:flex;flex-direction:column;max-width:82%}
-                #ak-im-root .ak-im-row.ak-self{align-self:flex-end;align-items:flex-end}
-                #ak-im-root .ak-im-row.ak-peer{align-self:flex-start;align-items:flex-start}
-                #ak-im-root .ak-im-bubble{padding:10px 12px;border-radius:12px;background:#fff;color:#0f172a;box-shadow:0 1px 2px rgba(15,23,42,.06);word-break:break-word;white-space:pre-wrap}
-                #ak-im-root .ak-im-row.ak-self .ak-im-bubble{background:#2563eb;color:#fff}
-                #ak-im-root .ak-im-meta{font-size:11px;color:#94a3b8;margin-top:4px}
-                #ak-im-root .ak-im-composer{padding:10px;border-top:1px solid rgba(15,23,42,.08);display:flex;gap:8px;background:#fff}
-                #ak-im-root .ak-im-composer textarea{flex:1;resize:none;border:1px solid rgba(15,23,42,.12);border-radius:10px;padding:10px;min-height:44px;max-height:120px;outline:none}
-                #ak-im-root .ak-im-composer button{border:none;background:#2563eb;color:#fff;border-radius:10px;padding:0 14px;cursor:pointer;font-weight:700}
-                #ak-im-root .ak-im-status{padding:0 12px 10px;font-size:11px;color:#64748b;background:#fff}
-                @media (max-width: 640px){#ak-im-root{left:calc(50% + 42px);top:calc(env(safe-area-inset-top, 0px) - 10px)}#ak-im-root.ak-im-open .ak-im-panel{width:calc(100vw - 24px);height:min(72vh,560px);grid-template-columns:118px 1fr}}
+                #ak-im-root .ak-im-launcher-badge{position:absolute;top:8px;right:8px;min-width:9px;width:9px;height:9px;border-radius:999px;background:linear-gradient(180deg,#ff4d5e 0%,#ef233c 100%);box-shadow:0 0 8px rgba(255,77,94,.28);display:none}
+                #ak-im-root .ak-im-launcher.has-unread .ak-im-launcher-badge{display:block}
+                #ak-im-root .ak-im-shell{display:none;position:fixed;inset:0;background:#ededed;overflow:hidden}
+                #ak-im-root.ak-im-open .ak-im-shell{display:block}
+                #ak-im-root.ak-im-open .ak-im-launcher{opacity:0;pointer-events:none;transform:scale(.96)}
+                #ak-im-root .ak-im-screen{display:none;position:absolute;inset:0;flex-direction:column;min-height:0}
+                #ak-im-root.ak-view-sessions .ak-im-session-screen{display:flex}
+                #ak-im-root.ak-view-chat .ak-im-chat-screen{display:flex}
+                #ak-im-root .ak-im-topbar{height:calc(56px + env(safe-area-inset-top, 0px));padding:calc(env(safe-area-inset-top, 0px) + 8px) 12px 8px;display:grid;grid-template-columns:52px 1fr 52px;align-items:center;background:#ededed;border-bottom:1px solid rgba(15,23,42,.06);box-sizing:border-box}
+                #ak-im-root .ak-im-topbar-title,#ak-im-root .ak-im-topbar-title-wrap{text-align:center;min-width:0}
+                #ak-im-root .ak-im-topbar-title{font-size:17px;font-weight:600;color:#111827;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+                #ak-im-root .ak-im-chat-title{font-size:17px;font-weight:600;color:#111827;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+                #ak-im-root .ak-im-chat-subtitle{margin-top:2px;font-size:11px;color:#6b7280;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+                #ak-im-root .ak-im-nav-btn{height:34px;border:none;background:transparent;color:#111827;padding:0 8px;font-size:15px;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;border-radius:10px}
+                #ak-im-root .ak-im-nav-btn svg{width:20px;height:20px;stroke:currentColor}
+                #ak-im-root .ak-im-nav-btn.ak-im-new{justify-self:end;font-size:15px;color:#1f2937}
+                #ak-im-root .ak-im-session-page{flex:1;display:flex;flex-direction:column;min-height:0;background:#f7f7f7}
+                #ak-im-root .ak-im-search-bar{padding:8px 12px;background:#ededed;border-bottom:1px solid rgba(15,23,42,.04)}
+                #ak-im-root .ak-im-search-pill{height:36px;border-radius:12px;background:#ffffff;color:#6b7280;display:flex;align-items:center;justify-content:center;font-size:12px}
+                #ak-im-root .ak-im-session-list{flex:1;overflow:auto;background:#ffffff}
+                #ak-im-root .ak-im-session-item{display:flex;align-items:center;gap:12px;padding:12px 14px;border:none;border-bottom:1px solid rgba(15,23,42,.05);background:#fff;cursor:pointer;position:relative}
+                #ak-im-root .ak-im-session-item.ak-active{background:#f0fdf4}
+                #ak-im-root .ak-im-session-avatar{width:48px;height:48px;border-radius:14px;background:linear-gradient(180deg,#8fe3a8 0%,#56c57b 100%);color:#ffffff;display:inline-flex;align-items:center;justify-content:center;font-size:15px;font-weight:700;flex:0 0 auto}
+                #ak-im-root .ak-im-session-body{min-width:0;flex:1;display:grid;grid-template-columns:1fr auto;grid-template-areas:'name time' 'preview unread';align-items:center;column-gap:10px;row-gap:4px}
+                #ak-im-root .ak-im-session-title{grid-area:name;font-size:16px;font-weight:500;color:#111827;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+                #ak-im-root .ak-im-session-time{grid-area:time;font-size:11px;color:#9ca3af;white-space:nowrap}
+                #ak-im-root .ak-im-session-preview{grid-area:preview;font-size:13px;color:#6b7280;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+                #ak-im-root .ak-im-session-unread{grid-area:unread;justify-self:end;min-width:18px;height:18px;padding:0 5px;border-radius:999px;background:#ef4444;color:#fff;font-size:11px;display:none;align-items:center;justify-content:center}
+                #ak-im-root .ak-im-session-unread.visible{display:inline-flex}
+                #ak-im-root .ak-im-message-list{flex:1;overflow:auto;padding:14px 12px 10px;background:#ebebeb;display:flex;flex-direction:column;gap:14px}
+                #ak-im-root .ak-im-empty{margin:auto;color:#94a3b8;font-size:13px;text-align:center;padding:28px 24px;line-height:1.6;white-space:pre-line}
+                #ak-im-root .ak-im-time-divider{text-align:center;font-size:11px;color:#9ca3af;line-height:1.4}
+                #ak-im-root .ak-im-message-row{display:flex;align-items:flex-start;gap:8px;max-width:100%}
+                #ak-im-root .ak-im-message-row.ak-self{flex-direction:row-reverse}
+                #ak-im-root .ak-im-avatar{width:34px;height:34px;border-radius:10px;background:#d1d5db;color:#374151;display:inline-flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;flex:0 0 auto}
+                #ak-im-root .ak-im-message-row.ak-self .ak-im-avatar{background:#7fd88a;color:#ffffff}
+                #ak-im-root .ak-im-message-main{display:flex;flex-direction:column;max-width:min(78%, 420px)}
+                #ak-im-root .ak-im-message-row.ak-self .ak-im-message-main{align-items:flex-end}
+                #ak-im-root .ak-im-bubble{padding:10px 12px;border-radius:8px;background:#ffffff;color:#111827;word-break:break-word;white-space:pre-wrap;box-shadow:0 1px 1px rgba(15,23,42,.04);font-size:15px;line-height:1.45}
+                #ak-im-root .ak-im-message-row.ak-self .ak-im-bubble{background:#95ec69}
+                #ak-im-root .ak-im-meta{margin-top:4px;font-size:11px;color:#9ca3af;line-height:1.4}
+                #ak-im-root .ak-im-composer{padding:8px 10px calc(8px + env(safe-area-inset-bottom, 0px));border-top:1px solid rgba(15,23,42,.06);display:flex;align-items:flex-end;gap:8px;background:#f7f7f7}
+                #ak-im-root .ak-im-input-wrap{flex:1;min-height:36px;display:flex;align-items:flex-end;background:#ffffff;border-radius:8px;border:1px solid rgba(15,23,42,.08);padding:7px 10px}
+                #ak-im-root .ak-im-input{width:100%;resize:none;border:none;outline:none;background:transparent;min-height:22px;max-height:120px;font-size:15px;line-height:1.45;color:#111827}
+                #ak-im-root .ak-im-send{height:36px;border:none;border-radius:8px;padding:0 16px;background:#07c160;color:#ffffff;font-size:14px;font-weight:600;cursor:pointer;transition:opacity .18s ease,transform .18s ease}
+                #ak-im-root .ak-im-send:disabled{opacity:.42;cursor:not-allowed}
+                #ak-im-root .ak-im-status{padding:0 12px calc(8px + env(safe-area-inset-bottom, 0px));background:#f7f7f7;font-size:11px;color:#9ca3af}
+                @media (max-width: 640px){#ak-im-root{left:calc(50% + 42px);top:calc(env(safe-area-inset-top, 0px) - 10px)}#ak-im-root .ak-im-topbar{grid-template-columns:48px 1fr 56px}#ak-im-root .ak-im-session-avatar{width:44px;height:44px;border-radius:12px}#ak-im-root .ak-im-message-main{max-width:78%}}
             </style>
             <button class="ak-im-launcher" type="button" aria-label="内部聊天">
                 <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                    <path d="M7.5 17.5H6.2C5.21 17.5 4.31 17.1 3.66 16.45C3.01 15.8 2.62 14.9 2.62 13.92V7.58C2.62 6.59 3.01 5.69 3.66 5.04C4.31 4.39 5.21 4 6.2 4H13.05C14.03 4 14.93 4.39 15.58 5.04C16.23 5.69 16.62 6.59 16.62 7.58V13.92C16.62 14.9 16.23 15.8 15.58 16.45C14.93 17.1 14.03 17.5 13.05 17.5H10.7L7.12 20.33C6.92 20.49 6.62 20.34 6.62 20.09V18.27C6.62 17.84 6.97 17.5 7.4 17.5H7.5Z" fill="currentColor" opacity="0.95"/>
-                    <path d="M14.35 8.75H17.55C18.38 8.75 19.12 9.08 19.65 9.61C20.18 10.14 20.5 10.88 20.5 11.71V16.29C20.5 17.12 20.18 17.86 19.65 18.39C19.12 18.92 18.38 19.25 17.55 19.25H16.55V20.83C16.55 21.08 16.26 21.23 16.05 21.08L13.1 19.25H12.2" fill="currentColor" opacity="0.72"/>
+                    <path d="M5.4 6.3C5.4 4.92 6.52 3.8 7.9 3.8H13.25C14.63 3.8 15.75 4.92 15.75 6.3V10.95C15.75 12.33 14.63 13.45 13.25 13.45H9.85L6.95 15.72C6.66 15.95 6.23 15.74 6.23 15.37V13.45H5.4V6.3Z" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+                    <circle cx="9.35" cy="8.55" r="0.85" fill="currentColor"/>
+                    <circle cx="12.05" cy="8.55" r="0.85" fill="currentColor"/>
+                    <path d="M13.9 8.2H16.65C17.92 8.2 18.95 9.23 18.95 10.5V13.55C18.95 14.82 17.92 15.85 16.65 15.85H15.45V17.32C15.45 17.68 15.03 17.89 14.73 17.67L12.6 16.12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" opacity="0.72"/>
                 </svg>
+                <span class="ak-im-launcher-badge" aria-hidden="true"></span>
             </button>
-            <div class="ak-im-panel">
-                <div class="ak-im-sidebar">
-                    <div class="ak-im-header"><span>聊天</span><button type="button" data-im-action="new">发起</button></div>
-                    <div class="ak-im-session-list"></div>
+            <div class="ak-im-shell">
+                <div class="ak-im-screen ak-im-session-screen">
+                    <div class="ak-im-topbar">
+                        <button class="ak-im-nav-btn ak-im-close" type="button" aria-label="关闭内部聊天">
+                            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M15 18L9 12L15 6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                        </button>
+                        <div class="ak-im-topbar-title">内部聊天</div>
+                        <button class="ak-im-nav-btn ak-im-new" type="button" data-im-action="new">发起</button>
+                    </div>
+                    <div class="ak-im-session-page">
+                        <div class="ak-im-search-bar"><div class="ak-im-search-pill">仅白名单账号可用</div></div>
+                        <div class="ak-im-session-list"></div>
+                    </div>
                 </div>
-                <div class="ak-im-main">
-                    <div class="ak-im-main-header">
-                        <div><div class="ak-im-main-title">内部聊天</div><div class="ak-im-main-subtitle">仅白名单账号可用</div></div>
-                        <button class="ak-im-close" type="button">关闭</button>
+                <div class="ak-im-screen ak-im-chat-screen">
+                    <div class="ak-im-topbar">
+                        <button class="ak-im-nav-btn ak-im-back" type="button" aria-label="返回会话列表">
+                            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M15 18L9 12L15 6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                        </button>
+                        <div class="ak-im-topbar-title-wrap"><div class="ak-im-chat-title">内部聊天</div><div class="ak-im-chat-subtitle">白名单账号单聊</div></div>
+                        <button class="ak-im-nav-btn ak-im-chat-close" type="button" aria-label="关闭内部聊天">关闭</button>
                     </div>
                     <div class="ak-im-message-list"></div>
-                    <div class="ak-im-composer"><textarea placeholder="输入消息"></textarea><button type="button">发送</button></div>
+                    <div class="ak-im-composer"><div class="ak-im-input-wrap"><textarea class="ak-im-input" placeholder="输入消息"></textarea></div><button class="ak-im-send" type="button">发送</button></div>
                     <div class="ak-im-status"></div>
                 </div>
             </div>
         `;
         document.body.appendChild(root);
-        panel = root.querySelector('.ak-im-panel');
+        panel = root.querySelector('.ak-im-shell');
         sessionList = root.querySelector('.ak-im-session-list');
         messageList = root.querySelector('.ak-im-message-list');
         statusLine = root.querySelector('.ak-im-status');
-        inputEl = root.querySelector('textarea');
-        sendBtn = root.querySelector('.ak-im-composer button');
+        inputEl = root.querySelector('.ak-im-input');
+        sendBtn = root.querySelector('.ak-im-send');
         root.querySelector('.ak-im-launcher').addEventListener('click', function() {
             state.open = true;
+            if (!state.activeConversationId) state.view = 'sessions';
             render();
         });
         root.querySelector('.ak-im-close').addEventListener('click', function() {
             state.open = false;
+            state.view = 'sessions';
+            render();
+        });
+        root.querySelector('.ak-im-back').addEventListener('click', function() {
+            state.view = 'sessions';
+            render();
+        });
+        root.querySelector('.ak-im-chat-close').addEventListener('click', function() {
+            state.open = false;
+            state.view = 'sessions';
             render();
         });
         root.querySelector('[data-im-action="new"]').addEventListener('click', startDirectSession);
         sendBtn.addEventListener('click', sendCurrentMessage);
+        inputEl.addEventListener('input', function() {
+            state.inputValue = inputEl.value || '';
+            syncInputHeight();
+            syncComposerState();
+        });
         inputEl.addEventListener('keydown', function(event) {
             if (event.key === 'Enter' && !event.shiftKey) {
                 event.preventDefault();
                 sendCurrentMessage();
             }
         });
+        syncInputHeight();
+        syncComposerState();
     }
 
     function escapeHtml(value) {
@@ -232,63 +286,140 @@
         }
     }
 
+    function formatSessionTime(value) {
+        if (!value) return '';
+        try {
+            const date = new Date(value);
+            if (isNaN(date.getTime())) return '';
+            const now = new Date();
+            if (date.toDateString() === now.toDateString()) {
+                return date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+            }
+            return date.toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit' });
+        } catch (e) {
+            return '';
+        }
+    }
+
+    function getActiveSession() {
+        return state.sessions.find(function(item) {
+            return Number(item && item.conversation_id || 0) === Number(state.activeConversationId || 0);
+        }) || null;
+    }
+
+    function getSessionDisplayName(item) {
+        return String(item && (item.peer_display_name || item.peer_username || '内部聊天') || '内部聊天').trim();
+    }
+
+    function getSessionPreview(item) {
+        return String(item && item.last_message_preview || '').trim() || '暂无消息';
+    }
+
+    function getAvatarText(value) {
+        const raw = String(value || '').replace(/[^0-9a-zA-Z\u4e00-\u9fa5]/g, '').trim();
+        if (!raw) return '聊';
+        return raw.slice(0, 2).toUpperCase();
+    }
+
+    function getUnreadCount(item) {
+        return Number(item && (item.unread_count || item.unread || 0) || 0);
+    }
+
+    function syncInputHeight() {
+        if (!inputEl) return;
+        inputEl.style.height = '22px';
+        const nextHeight = Math.min(Math.max(inputEl.scrollHeight, 22), 120);
+        inputEl.style.height = `${nextHeight}px`;
+    }
+
+    function syncComposerState() {
+        if (!inputEl || !sendBtn) return;
+        const canSend = !!state.activeConversationId;
+        inputEl.disabled = !canSend;
+        inputEl.placeholder = canSend ? '输入消息' : '先选择一个会话';
+        sendBtn.disabled = !canSend || !String(inputEl.value || '').trim();
+    }
+
     function render() {
         if (!root) return;
+        const activeSession = getActiveSession();
+        const showChat = !!activeSession && state.view === 'chat';
         root.classList.toggle('ak-visible', !!state.allowed);
         root.classList.toggle('ak-im-open', !!state.open);
+        root.classList.toggle('ak-view-sessions', !showChat);
+        root.classList.toggle('ak-view-chat', !!showChat);
         root.querySelector('.ak-im-launcher').classList.toggle('is-open', !!state.open);
+        root.querySelector('.ak-im-launcher').classList.toggle('has-unread', state.sessions.some(function(item) {
+            return getUnreadCount(item) > 0;
+        }));
         statusLine.textContent = state.allowed ? ('当前账号：' + state.username) : '聊天功能未开放';
         sessionList.innerHTML = '';
         if (!state.sessions.length) {
             const empty = document.createElement('div');
             empty.className = 'ak-im-empty';
-            empty.textContent = state.allowed ? '暂无会话，点击“发起”开始单聊' : '当前账号未开通聊天';
+            empty.textContent = state.allowed ? '暂无会话\n点击右上角“发起”开始单聊' : '当前账号未开通聊天';
             sessionList.appendChild(empty);
         } else {
             state.sessions.forEach(function(item) {
                 const node = document.createElement('div');
                 node.className = 'ak-im-session-item' + (item.conversation_id === state.activeConversationId ? ' ak-active' : '');
-                node.innerHTML = '<div class="ak-im-session-title">' + escapeHtml(item.peer_display_name || item.peer_username || '会话') + '</div>' +
-                    '<div class="ak-im-session-preview">' + escapeHtml(item.last_message_preview || '暂无消息') + '</div>';
+                const unreadCount = getUnreadCount(item);
+                node.innerHTML = '<div class="ak-im-session-avatar">' + escapeHtml(getAvatarText(getSessionDisplayName(item))) + '</div>' +
+                    '<div class="ak-im-session-body">' +
+                        '<div class="ak-im-session-title">' + escapeHtml(getSessionDisplayName(item)) + '</div>' +
+                        '<div class="ak-im-session-time">' + escapeHtml(formatSessionTime(item.last_message_at || item.updated_at || item.created_at)) + '</div>' +
+                        '<div class="ak-im-session-preview">' + escapeHtml(getSessionPreview(item)) + '</div>' +
+                        '<div class="ak-im-session-unread' + (unreadCount > 0 ? ' visible' : '') + '">' + escapeHtml(unreadCount > 99 ? '99+' : String(unreadCount || '')) + '</div>' +
+                    '</div>';
                 node.addEventListener('click', function() {
                     state.activeConversationId = item.conversation_id;
+                    state.view = 'chat';
+                    state.activeMessages = [];
                     loadMessages(item.conversation_id);
                     render();
                 });
                 sessionList.appendChild(node);
             });
         }
+        syncComposerState();
+        syncInputHeight();
         renderMessages();
     }
 
     function renderMessages() {
-        const headerTitle = root.querySelector('.ak-im-main-title');
-        const headerSubtitle = root.querySelector('.ak-im-main-subtitle');
-        const activeSession = state.sessions.find(function(item) { return item.conversation_id === state.activeConversationId; }) || null;
-        headerTitle.textContent = activeSession ? (activeSession.peer_display_name || activeSession.peer_username || '会话') : '内部聊天';
-        headerSubtitle.textContent = activeSession ? '白名单账号单聊' : '仅白名单账号可用';
+        const headerTitle = root.querySelector('.ak-im-chat-title');
+        const headerSubtitle = root.querySelector('.ak-im-chat-subtitle');
+        const activeSession = getActiveSession();
+        headerTitle.textContent = activeSession ? getSessionDisplayName(activeSession) : '内部聊天';
+        headerSubtitle.textContent = activeSession ? ('账号：' + (activeSession.peer_username || getSessionDisplayName(activeSession))) : '选择一个会话开始单聊';
         messageList.innerHTML = '';
         if (!state.activeConversationId) {
             const empty = document.createElement('div');
             empty.className = 'ak-im-empty';
-            empty.textContent = state.allowed ? '选择左侧会话或点击“发起”' : '当前账号未开通聊天';
+            empty.textContent = state.allowed ? '选择一个会话\n开始内部单聊' : '当前账号未开通聊天';
             messageList.appendChild(empty);
             return;
         }
         if (!state.activeMessages.length) {
             const empty = document.createElement('div');
             empty.className = 'ak-im-empty';
-            empty.textContent = '还没有消息';
+            empty.textContent = '还没有消息\n发一条试试';
             messageList.appendChild(empty);
             return;
         }
         state.activeMessages.forEach(function(item) {
-            const row = document.createElement('div');
             const isSelf = item.sender_username === state.username;
-            row.className = 'ak-im-row ' + (isSelf ? 'ak-self' : 'ak-peer');
-            row.innerHTML = '<div class="ak-im-bubble">' + escapeHtml(item.content || item.content_preview || '') + '</div>' +
-                '<div class="ak-im-meta">' + escapeHtml(formatTime(item.sent_at)) + (isSelf ? (item.read ? ' · 已读' : ' · 未读') : '') + '</div>';
-            messageList.appendChild(row);
+            const wrapper = document.createElement('div');
+            const displayName = isSelf ? (state.displayName || state.username || '我') : (activeSession ? getSessionDisplayName(activeSession) : (item.sender_username || '对方'));
+            wrapper.innerHTML = '<div class="ak-im-time-divider">' + escapeHtml(formatTime(item.sent_at)) + '</div>' +
+                '<div class="ak-im-message-row ' + (isSelf ? 'ak-self' : 'ak-peer') + '">' +
+                    '<div class="ak-im-avatar">' + escapeHtml(getAvatarText(displayName)) + '</div>' +
+                    '<div class="ak-im-message-main">' +
+                        '<div class="ak-im-bubble">' + escapeHtml(item.content || item.content_preview || '') + '</div>' +
+                        '<div class="ak-im-meta">' + escapeHtml(isSelf ? (item.read ? '已读' : '未读') : displayName) + '</div>' +
+                    '</div>' +
+                '</div>';
+            messageList.appendChild(wrapper);
         });
         messageList.scrollTop = messageList.scrollHeight;
     }
@@ -349,7 +480,11 @@
             body: JSON.stringify({ target_username: String(target || '').trim() })
         }).then(function(data) {
             state.activeConversationId = Number((data && data.conversation_id) || 0);
-            return loadSessions();
+            state.view = 'chat';
+            state.activeMessages = [];
+            return loadSessions().then(function() {
+                return loadMessages(state.activeConversationId);
+            });
         }).catch(function(error) {
             window.alert(error && error.message ? error.message : '发起会话失败');
         });
@@ -368,6 +503,9 @@
                 }
             }));
             inputEl.value = '';
+            state.inputValue = '';
+            syncInputHeight();
+            syncComposerState();
             return;
         }
         request(`${HTTP_ROOT}/messages`, {
@@ -378,6 +516,9 @@
             })
         }).then(function() {
             inputEl.value = '';
+            state.inputValue = '';
+            syncInputHeight();
+            syncComposerState();
             return loadMessages(state.activeConversationId).then(loadSessions);
         }).catch(function(error) {
             window.alert(error && error.message ? error.message : '发送失败');
@@ -443,8 +584,8 @@
     }
 
     window.AKIMClient = {
-        open: function() { state.open = true; render(); },
-        close: function() { state.open = false; render(); },
+        open: function() { state.open = true; if (!state.activeConversationId) state.view = 'sessions'; render(); },
+        close: function() { state.open = false; state.view = 'sessions'; render(); },
         reloadSessions: loadSessions
     };
 })();
