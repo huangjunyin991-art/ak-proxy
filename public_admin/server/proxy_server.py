@@ -6789,6 +6789,8 @@ def _iter_widget_asset_paths() -> list[str]:
         os.path.join(FRONTEND_HOST_DIR, "chat_widget.js"),
         os.path.join(PLUGINS_DIR, "notification", "user", "index.js"),
         os.path.join(PLUGINS_DIR, "notification", "user", "widget.js"),
+        os.path.join(PLUGINS_DIR, "im", "user", "im_entry.js"),
+        os.path.join(PLUGINS_DIR, "im", "user", "im_client.js"),
     ]
 
 
@@ -6942,6 +6944,24 @@ async def notification_user_plugin_index_js(request: Request):
 async def notification_user_plugin_widget_js(request: Request):
 
     js_path = os.path.join(PLUGINS_DIR, "notification", "user", "widget.js")
+
+    return _build_widget_script_response(request, js_path)
+
+
+@app.get("/chat/plugins/im/user/im_entry.js")
+
+async def im_user_plugin_entry_js(request: Request):
+
+    js_path = os.path.join(PLUGINS_DIR, "im", "user", "im_entry.js")
+
+    return _build_widget_script_response(request, js_path)
+
+
+@app.get("/chat/plugins/im/user/im_client.js")
+
+async def im_user_plugin_client_js(request: Request):
+
+    js_path = os.path.join(PLUGINS_DIR, "im", "user", "im_client.js")
 
     return _build_widget_script_response(request, js_path)
 

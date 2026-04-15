@@ -432,6 +432,7 @@
         }
     }
     const NOTIFICATION_WIDGET_URL = withWidgetAssetVersion(`${window.location.origin}/chat/notification-widget.js`);
+    const IM_PLUGIN_ENTRY_URL = withWidgetAssetVersion(`${window.location.origin}/chat/plugins/im/user/im_entry.js`);
     const HEARTBEAT_INTERVAL = 5000; // 5秒心跳间隔
     
     // 状态
@@ -1243,6 +1244,18 @@
             script.src = NOTIFICATION_WIDGET_URL;
             script.async = true;
             script.dataset.akNotificationWidget = '1';
+            document.head.appendChild(script);
+        } catch(e) {}
+    }
+
+    function ensureIMPlugin() {
+        try {
+            if (window.AKIMClientLoaded) return;
+            if (document.querySelector('script[data-ak-im-plugin-entry="1"]')) return;
+            const script = document.createElement('script');
+            script.src = IM_PLUGIN_ENTRY_URL;
+            script.async = true;
+            script.dataset.akImPluginEntry = '1';
             document.head.appendChild(script);
         } catch(e) {}
     }
@@ -4243,6 +4256,7 @@
         toggleVoiceMute: toggleRemoteVoiceMute
     };
     ensureNotificationWidget();
+    ensureIMPlugin();
     emitChatBridgeEvent('ak-chat-ready', { api: window.AKChat });
     
     // 监听SPA路由变化（history.pushState / replaceState / 浏览器前进后退）
