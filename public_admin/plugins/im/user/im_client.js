@@ -141,12 +141,16 @@
                 #ak-im-root{display:none;position:fixed;left:calc(50% + 46px);top:calc(env(safe-area-inset-top, 0px) - 10px);z-index:2147483643;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif}
                 #ak-im-root.ak-visible{display:block}
                 #ak-im-root.ak-im-open{z-index:2147483647}
-                #ak-im-root .ak-im-launcher{width:56px;height:56px;border:none;border-radius:999px;background:transparent;color:rgba(52,63,84,.92);display:inline-flex;align-items:center;justify-content:center;cursor:pointer;position:relative;transition:color .18s ease,transform .18s ease,filter .18s ease,opacity .18s ease}
+                #ak-im-root .ak-im-launcher{width:56px;height:56px;border:none;border-radius:999px;background:transparent;color:rgba(233,244,255,.84);display:inline-flex;align-items:center;justify-content:center;cursor:pointer;position:relative;transition:color .18s ease,transform .18s ease,filter .18s ease,opacity .18s ease}
                 #ak-im-root .ak-im-launcher::before{content:'';position:absolute;inset:3px;border-radius:999px;background:radial-gradient(circle at 50% 40%,rgba(86,197,123,.18) 0%,rgba(86,197,123,.08) 56%,rgba(86,197,123,0) 100%);opacity:0;transition:opacity .18s ease,background .18s ease;pointer-events:none}
                 #ak-im-root .ak-im-launcher svg{position:relative;z-index:1;width:30px;height:30px}
-                #ak-im-root .ak-im-launcher:hover,#ak-im-root .ak-im-launcher.is-open{transform:translateY(-1px);color:#1f2937;filter:drop-shadow(0 0 10px rgba(86,197,123,.18))}
+                #ak-im-root .ak-im-launcher:hover,#ak-im-root .ak-im-launcher.is-open{transform:translateY(-1px);color:#fff0c0;filter:drop-shadow(0 0 12px rgba(255,213,100,.22))}
                 #ak-im-root .ak-im-launcher:hover::before,#ak-im-root .ak-im-launcher.is-open::before{opacity:1}
-                #ak-im-root .ak-im-launcher-badge{position:absolute;top:8px;right:8px;min-width:9px;width:9px;height:9px;border-radius:999px;background:linear-gradient(180deg,#ff4d5e 0%,#ef233c 100%);box-shadow:0 0 8px rgba(255,77,94,.28);display:none}
+                @keyframes ak-im-launcher-green-flash{0%,100%{filter:drop-shadow(0 0 10px rgba(7,193,96,.22))}50%{filter:drop-shadow(0 0 18px rgba(52,211,153,.38))}}
+                @keyframes ak-im-launcher-green-aura{0%,100%{opacity:.72}50%{opacity:1}}
+                #ak-im-root .ak-im-launcher.has-unread{color:#56c57b;animation:ak-im-launcher-green-flash 1.8s ease-in-out infinite}
+                #ak-im-root .ak-im-launcher.has-unread::before{opacity:1;background:radial-gradient(circle at 50% 40%,rgba(134,239,172,.22) 0%,rgba(34,197,94,.14) 56%,rgba(22,163,74,.04) 100%);animation:ak-im-launcher-green-aura 1.8s ease-in-out infinite}
+                #ak-im-root .ak-im-launcher-badge{position:absolute;top:8px;right:8px;min-width:9px;width:9px;height:9px;border-radius:999px;background:linear-gradient(180deg,#ff2f43 0%,#f30023 100%);box-shadow:0 0 8px rgba(255,39,66,.24);border:1px solid rgba(255,140,150,.22);display:none}
                 #ak-im-root .ak-im-launcher.has-unread .ak-im-launcher-badge{display:block}
                 #ak-im-root .ak-im-shell{display:none;position:fixed;inset:0;background:#ededed;overflow:hidden}
                 #ak-im-root.ak-im-open .ak-im-shell{display:block}
@@ -227,7 +231,7 @@
                         <button class="ak-im-nav-btn ak-im-new" type="button" data-im-action="new">发起</button>
                     </div>
                     <div class="ak-im-session-page">
-                        <div class="ak-im-search-bar"><div class="ak-im-search-pill">仅白名单账号可用</div></div>
+                        <div class="ak-im-search-bar"><div class="ak-im-search-pill">点击右上角发起单聊</div></div>
                         <div class="ak-im-session-list"></div>
                     </div>
                 </div>
@@ -236,7 +240,7 @@
                         <button class="ak-im-nav-btn ak-im-back" type="button" aria-label="返回会话列表">
                             <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M15 18L9 12L15 6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
                         </button>
-                        <div class="ak-im-topbar-title-wrap"><div class="ak-im-chat-title">内部聊天</div><div class="ak-im-chat-subtitle">白名单账号单聊</div></div>
+                        <div class="ak-im-topbar-title-wrap"><div class="ak-im-chat-title">内部聊天</div><div class="ak-im-chat-subtitle">选择一个会话开始单聊</div></div>
                         <button class="ak-im-nav-btn ak-im-chat-close" type="button" aria-label="关闭内部聊天">关闭</button>
                     </div>
                     <div class="ak-im-message-list"></div>
@@ -253,9 +257,9 @@
                     </div>
                     <div class="ak-im-compose-page">
                         <div class="ak-im-compose-card">
-                            <div class="ak-im-compose-label">请输入要发起聊天的白名单账号 username</div>
+                            <div class="ak-im-compose-label">请输入要发起聊天的账号 username</div>
                             <input class="ak-im-compose-input" type="text" inputmode="text" autocomplete="off" spellcheck="false" placeholder="例如：hjy574139" />
-                            <div class="ak-im-compose-tip">仅支持白名单内部单聊</div>
+                            <div class="ak-im-compose-tip">输入对方账号后开始单聊</div>
                         </div>
                         <div class="ak-im-compose-actions">
                             <button class="ak-im-compose-btn ak-im-compose-btn-secondary" type="button" data-im-action="compose-cancel">返回</button>
@@ -385,7 +389,7 @@
         newSessionInputEl.value = state.newSessionTarget;
         submitBtn.disabled = !String(state.newSessionTarget || '').trim();
         tipEl.classList.toggle('ak-im-compose-error', !!state.newSessionError);
-        tipEl.textContent = state.newSessionError || '仅支持白名单内部单聊';
+        tipEl.textContent = state.newSessionError || '输入对方账号后开始单聊';
     }
 
     function focusComposeInput() {
@@ -477,7 +481,7 @@
         const headerSubtitle = root.querySelector('.ak-im-chat-subtitle');
         const activeSession = getActiveSession();
         headerTitle.textContent = activeSession ? getSessionDisplayName(activeSession) : '内部聊天';
-        headerSubtitle.textContent = activeSession ? ('账号：' + (activeSession.peer_username || getSessionDisplayName(activeSession))) : '选择一个会话开始单聊';
+        headerSubtitle.textContent = activeSession ? ('账号：' + (activeSession.peer_username || getSessionDisplayName(activeSession))) : '点击右上角发起单聊';
         messageList.innerHTML = '';
         if (!state.activeConversationId) {
             const empty = document.createElement('div');
@@ -569,7 +573,7 @@
         if (!state.allowed) return;
         const target = String(state.newSessionTarget || '').trim();
         if (!target) {
-            state.newSessionError = '请输入要发起聊天的白名单账号 username';
+            state.newSessionError = '请输入要发起聊天的账号 username';
             renderComposeView();
             focusComposeInput();
             return;

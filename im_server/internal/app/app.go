@@ -289,7 +289,7 @@ func (a *App) handleSessions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rows, err := a.db.Query(r.Context(), `
-		SELECT c.id, c.conversation_type, c.last_message_id, c.last_message_preview, c.last_message_at,
+		SELECT c.id, c.conversation_type, COALESCE(c.last_message_id, 0) AS last_message_id, COALESCE(c.last_message_preview, '') AS last_message_preview, c.last_message_at,
 			COALESCE(cm.last_read_seq_no, 0) AS last_read_seq_no,
 			COALESCE((SELECT m2.seq_no FROM im_message m2 WHERE m2.id = c.last_message_id), 0) AS last_seq_no,
 			COALESCE((SELECT peer.username FROM im_conversation_member peer WHERE peer.conversation_id = c.id AND peer.username <> $1 ORDER BY peer.username LIMIT 1), '') AS peer_username
