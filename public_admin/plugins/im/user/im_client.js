@@ -22,6 +22,7 @@
         view: 'sessions',
         newSessionTarget: '',
         newSessionError: '',
+        lastReadSentByConversation: {},
         inputValue: ''
     };
 
@@ -142,14 +143,13 @@
                 #ak-im-root.ak-visible{display:block}
                 #ak-im-root.ak-im-open{z-index:2147483647}
                 #ak-im-root .ak-im-launcher{width:56px;height:56px;border:none;border-radius:999px;background:transparent;color:rgba(233,244,255,.84);display:inline-flex;align-items:center;justify-content:center;cursor:pointer;position:relative;transition:color .18s ease,transform .18s ease,filter .18s ease,opacity .18s ease}
-                #ak-im-root .ak-im-launcher::before{content:'';position:absolute;inset:3px;border-radius:999px;background:radial-gradient(circle at 50% 40%,rgba(86,197,123,.18) 0%,rgba(86,197,123,.08) 56%,rgba(86,197,123,0) 100%);opacity:0;transition:opacity .18s ease,background .18s ease;pointer-events:none}
+                #ak-im-root .ak-im-launcher::before{content:'';position:absolute;inset:3px;border-radius:999px;background:transparent;box-shadow:none;opacity:0;transition:opacity .18s ease,box-shadow .18s ease;pointer-events:none}
                 #ak-im-root .ak-im-launcher svg{position:relative;z-index:1;width:30px;height:30px}
                 #ak-im-root .ak-im-launcher:hover,#ak-im-root .ak-im-launcher.is-open{transform:translateY(-1px);color:#fff0c0;filter:drop-shadow(0 0 12px rgba(255,213,100,.22))}
-                #ak-im-root .ak-im-launcher:hover::before,#ak-im-root .ak-im-launcher.is-open::before{opacity:1}
+                #ak-im-root .ak-im-launcher:hover::before,#ak-im-root .ak-im-launcher.is-open::before{opacity:1;box-shadow:0 0 0 1px rgba(255,240,192,.46) inset,0 0 12px rgba(255,213,100,.16)}
                 @keyframes ak-im-launcher-green-flash{0%,100%{filter:drop-shadow(0 0 10px rgba(7,193,96,.22))}50%{filter:drop-shadow(0 0 18px rgba(52,211,153,.38))}}
-                @keyframes ak-im-launcher-green-aura{0%,100%{opacity:.72}50%{opacity:1}}
                 #ak-im-root .ak-im-launcher.has-unread{color:#56c57b;animation:ak-im-launcher-green-flash 1.8s ease-in-out infinite}
-                #ak-im-root .ak-im-launcher.has-unread::before{opacity:1;background:radial-gradient(circle at 50% 40%,rgba(134,239,172,.22) 0%,rgba(34,197,94,.14) 56%,rgba(22,163,74,.04) 100%);animation:ak-im-launcher-green-aura 1.8s ease-in-out infinite}
+                #ak-im-root .ak-im-launcher.has-unread::before{opacity:1;box-shadow:0 0 0 1px rgba(86,197,123,.76) inset,0 0 12px rgba(52,211,153,.22)}
                 #ak-im-root .ak-im-launcher-badge{position:absolute;top:8px;right:8px;min-width:9px;width:9px;height:9px;border-radius:999px;background:linear-gradient(180deg,#ff2f43 0%,#f30023 100%);box-shadow:0 0 8px rgba(255,39,66,.24);border:1px solid rgba(255,140,150,.22);display:none}
                 #ak-im-root .ak-im-launcher.has-unread .ak-im-launcher-badge{display:block}
                 #ak-im-root .ak-im-shell{display:none;position:fixed;inset:0;background:#ededed;overflow:hidden}
@@ -198,6 +198,8 @@
                 #ak-im-root .ak-im-send{height:36px;border:none;border-radius:8px;padding:0 16px;background:#07c160;color:#ffffff;font-size:14px;font-weight:600;cursor:pointer;transition:opacity .18s ease,transform .18s ease}
                 #ak-im-root .ak-im-send:disabled{opacity:.42;cursor:not-allowed}
                 #ak-im-root .ak-im-status{padding:0 12px calc(8px + env(safe-area-inset-bottom, 0px));background:#f7f7f7;font-size:11px;color:#9ca3af}
+                #ak-im-root .ak-im-status:empty{display:none}
+                #ak-im-root .ak-im-chat-subtitle:empty{display:none}
                 #ak-im-root .ak-im-compose-page{flex:1;background:#f7f7f7;padding:22px 16px calc(24px + env(safe-area-inset-bottom, 0px));display:flex;flex-direction:column;gap:14px}
                 #ak-im-root .ak-im-compose-card{background:#ffffff;border-radius:18px;padding:18px 16px;box-shadow:0 1px 2px rgba(15,23,42,.04)}
                 #ak-im-root .ak-im-compose-label{font-size:13px;line-height:1.6;color:#6b7280}
@@ -382,6 +384,10 @@
         return Number(item && (item.unread_count || item.unread || 0) || 0);
     }
 
+    function shouldAutoMarkRead(conversationId) {
+        return !!state.open && state.view === 'chat' && Number(state.activeConversationId || 0) === Number(conversationId || 0) && document.visibilityState !== 'hidden';
+    }
+
     function renderComposeView() {
         if (!root || !newSessionInputEl) return;
         const tipEl = root.querySelector('.ak-im-compose-tip');
@@ -440,7 +446,7 @@
         root.querySelector('.ak-im-launcher').classList.toggle('has-unread', state.sessions.some(function(item) {
             return getUnreadCount(item) > 0;
         }));
-        statusLine.textContent = state.allowed ? ('当前账号：' + state.username) : '聊天功能未开放';
+        statusLine.textContent = '';
         sessionList.innerHTML = '';
         if (!state.sessions.length) {
             const empty = document.createElement('div');
@@ -473,6 +479,7 @@
         syncInputHeight();
         renderMessages();
         renderComposeView();
+        if (showChat) markRead(state.activeConversationId);
         if (state.open && state.view === 'compose') focusComposeInput();
     }
 
@@ -481,7 +488,7 @@
         const headerSubtitle = root.querySelector('.ak-im-chat-subtitle');
         const activeSession = getActiveSession();
         headerTitle.textContent = activeSession ? getSessionDisplayName(activeSession) : '内部聊天';
-        headerSubtitle.textContent = activeSession ? ('账号：' + (activeSession.peer_username || getSessionDisplayName(activeSession))) : '点击右上角发起单聊';
+        headerSubtitle.textContent = '';
         messageList.innerHTML = '';
         if (!state.activeConversationId) {
             const empty = document.createElement('div');
@@ -501,12 +508,13 @@
             const isSelf = item.sender_username === state.username;
             const wrapper = document.createElement('div');
             const displayName = isSelf ? (state.displayName || state.username || '我') : (activeSession ? getSessionDisplayName(activeSession) : (item.sender_username || '对方'));
+            const metaText = isSelf && item.read ? '对方已读' : '';
             wrapper.innerHTML = '<div class="ak-im-time-divider">' + escapeHtml(formatTime(item.sent_at)) + '</div>' +
                 '<div class="ak-im-message-row ' + (isSelf ? 'ak-self' : 'ak-peer') + '">' +
                     '<div class="ak-im-avatar">' + escapeHtml(getAvatarText(displayName)) + '</div>' +
                     '<div class="ak-im-message-main">' +
                         '<div class="ak-im-bubble">' + escapeHtml(item.content || item.content_preview || '') + '</div>' +
-                        '<div class="ak-im-meta">' + escapeHtml(isSelf ? (item.read ? '已读' : '未读') : displayName) + '</div>' +
+                        (metaText ? '<div class="ak-im-meta">' + escapeHtml(metaText) + '</div>' : '') +
                     '</div>' +
                 '</div>';
             messageList.appendChild(wrapper);
@@ -537,10 +545,6 @@
     function loadSessions() {
         return request(`${HTTP_ROOT}/sessions`).then(function(data) {
             state.sessions = Array.isArray(data && data.items) ? data.items : [];
-            if (!state.activeConversationId && state.sessions.length) {
-                state.activeConversationId = state.sessions[0].conversation_id;
-                return loadMessages(state.activeConversationId);
-            }
             render();
             return null;
         }).catch(function() {
@@ -553,7 +557,7 @@
         return request(`${HTTP_ROOT}/messages?conversation_id=${encodeURIComponent(conversationId)}`).then(function(data) {
             state.activeMessages = Array.isArray(data && data.items) ? data.items : [];
             render();
-            markRead();
+            markRead(conversationId);
             return null;
         }).catch(function() {
             render();
@@ -632,16 +636,29 @@
         });
     }
 
-    function markRead() {
+    function markRead(conversationId) {
         if (!state.ws || state.ws.readyState !== WebSocket.OPEN) return;
-        if (!state.activeConversationId || !state.activeMessages.length) return;
-        const last = state.activeMessages[state.activeMessages.length - 1];
-        if (!last || !last.seq_no) return;
+        const targetConversationId = Number(conversationId || state.activeConversationId || 0);
+        if (!targetConversationId || !shouldAutoMarkRead(targetConversationId) || !state.activeMessages.length) return;
+        let lastPeerMessage = null;
+        for (let index = state.activeMessages.length - 1; index >= 0; index -= 1) {
+            const candidate = state.activeMessages[index];
+            if (candidate && candidate.sender_username !== state.username) {
+                lastPeerMessage = candidate;
+                break;
+            }
+        }
+        if (!lastPeerMessage || !lastPeerMessage.seq_no) return;
+        const lastSeqNo = Number(lastPeerMessage.seq_no || 0);
+        if (!lastSeqNo) return;
+        const previousMarkedSeqNo = Number(state.lastReadSentByConversation[targetConversationId] || 0);
+        if (lastSeqNo <= previousMarkedSeqNo) return;
+        state.lastReadSentByConversation[targetConversationId] = lastSeqNo;
         state.ws.send(JSON.stringify({
             type: 'im.message.read',
             payload: {
-                conversation_id: state.activeConversationId,
-                seq_no: last.seq_no
+                conversation_id: targetConversationId,
+                seq_no: lastSeqNo
             }
         }));
     }
@@ -659,13 +676,16 @@
                         if (Number(item.conversation_id) === Number(state.activeConversationId)) {
                             state.activeMessages.push(item);
                             renderMessages();
-                            if (item.sender_username !== state.username) markRead();
+                            if (item.sender_username !== state.username) markRead(item.conversation_id);
                         }
                         loadSessions();
                         return;
                     }
                     if (data.type === 'im.message.read') {
-                        loadMessages(state.activeConversationId);
+                        const payload = data.payload || null;
+                        if (payload && Number(payload.conversation_id || 0) === Number(state.activeConversationId || 0)) {
+                            loadMessages(state.activeConversationId);
+                        }
                     }
                 } catch (e) {}
             });

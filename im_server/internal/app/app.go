@@ -290,8 +290,7 @@ func (a *App) handleSessions(w http.ResponseWriter, r *http.Request) {
 	}
 	rows, err := a.db.Query(r.Context(), `
 		SELECT c.id, c.conversation_type, COALESCE(c.last_message_id, 0) AS last_message_id, COALESCE(c.last_message_preview, '') AS last_message_preview, c.last_message_at,
-			COALESCE(cm.last_read_seq_no, 0) AS last_read_seq_no,
-			COALESCE((SELECT m2.seq_no FROM im_message m2 WHERE m2.id = c.last_message_id), 0) AS last_seq_no,
+			COALESCE((SELECT COUNT(1) FROM im_message m2 WHERE m2.conversation_id = c.id AND m2.deleted_at IS NULL AND m2.sender_username <> $1 AND m2.seq_no > COALESCE(cm.last_read_seq_no, 0)), 0) AS unread_count,
 			COALESCE((SELECT peer.username FROM im_conversation_member peer WHERE peer.conversation_id = c.id AND peer.username <> $1 ORDER BY peer.username LIMIT 1), '') AS peer_username
 		FROM im_conversation c
 		JOIN im_conversation_member cm ON cm.conversation_id = c.id AND cm.username = $1
@@ -306,14 +305,11 @@ func (a *App) handleSessions(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var item SessionItem
 		var lastMessageAt *time.Time
-		var lastSeqNo int64
-		var lastReadSeqNo int64
-		if err := rows.Scan(&item.ConversationID, &item.ConversationType, &item.LastMessageID, &item.LastMessagePreview, &lastMessageAt, &lastReadSeqNo, &lastSeqNo, &item.PeerUsername); err != nil {
+		if err := rows.Scan(&item.ConversationID, &item.ConversationType, &item.LastMessageID, &item.LastMessagePreview, &lastMessageAt, &item.UnreadCount, &item.PeerUsername); err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
 			return
 		}
 		item.PeerDisplayName = a.fetchDisplayName(r.Context(), item.PeerUsername)
-		item.UnreadCount = maxInt64(lastSeqNo-lastReadSeqNo, 0)
 		if lastMessageAt != nil {
 			item.LastMessageAt = lastMessageAt.Format(time.RFC3339)
 		}
@@ -510,6 +506,9 @@ func (a *App) insertMessage(ctx context.Context, conversationID int64, username 
 	}
 	item.SentAt = sentAt.Format(time.RFC3339)
 	if _, err := tx.Exec(ctx, `UPDATE im_conversation SET last_message_id = $1, last_message_preview = $2, last_message_at = NOW(), updated_at = NOW() WHERE id = $3`, item.ID, item.ContentPreview, conversationID); err != nil {
+		return MessageItem{}, err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE im_conversation_member SET last_read_seq_no = GREATEST(last_read_seq_no, $1), last_read_at = NOW(), updated_at = NOW() WHERE conversation_id = $2 AND username = $3`, item.SeqNo, conversationID, username); err != nil {
 		return MessageItem{}, err
 	}
 	return item, tx.Commit(ctx)
