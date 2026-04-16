@@ -29,7 +29,15 @@
         actionSheetCanRecall: false,
         actionSheetDraftText: '',
         recalledDraftByMessageId: {},
-        inputValue: ''
+        inputValue: '',
+        actionSheetMode: '',
+        actionSheetSessionPinned: false,
+        actionSheetSessionSystemPinned: false,
+        readProgressOpen: false,
+        readProgressLoading: false,
+        readProgressError: '',
+        readProgressMessageId: 0,
+        readProgressData: null
     };
 
     let root = null;
@@ -43,6 +51,8 @@
     let actionSheetEl = null;
     let actionSheetRecallBtn = null;
     let actionSheetCancelBtn = null;
+    let progressPanelEl = null;
+    let progressPanelBodyEl = null;
 
     function getCookie(name) {
         try {
@@ -181,9 +191,14 @@
                 #ak-im-root .ak-im-session-list{flex:1;overflow:auto;background:#ffffff}
                 #ak-im-root .ak-im-session-item{display:flex;align-items:center;gap:12px;padding:12px 14px;border:none;border-bottom:1px solid rgba(15,23,42,.05);background:#fff;cursor:pointer;position:relative}
                 #ak-im-root .ak-im-session-item.ak-active{background:#f0fdf4}
+                #ak-im-root .ak-im-session-item.is-pinned{background:#f7fcf7}
                 #ak-im-root .ak-im-session-avatar{width:48px;height:48px;border-radius:14px;background:linear-gradient(180deg,#8fe3a8 0%,#56c57b 100%);color:#ffffff;display:inline-flex;align-items:center;justify-content:center;font-size:15px;font-weight:700;flex:0 0 auto}
                 #ak-im-root .ak-im-session-body{min-width:0;flex:1;display:grid;grid-template-columns:1fr auto;grid-template-areas:'name time' 'preview unread';align-items:center;column-gap:10px;row-gap:4px}
-                #ak-im-root .ak-im-session-title{grid-area:name;font-size:16px;font-weight:500;color:#111827;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+                #ak-im-root .ak-im-session-title{grid-area:name;display:flex;align-items:center;gap:6px;min-width:0;font-size:16px;font-weight:500;color:#111827}
+                #ak-im-root .ak-im-session-title-text{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+                #ak-im-root .ak-im-session-pin-tag{display:none;align-items:center;justify-content:center;flex:0 0 auto;height:18px;padding:0 6px;border-radius:999px;background:rgba(15,23,42,.06);color:#4b5563;font-size:10px;font-weight:700}
+                #ak-im-root .ak-im-session-pin-tag.visible{display:inline-flex}
+                #ak-im-root .ak-im-session-pin-tag.is-system{background:rgba(7,193,96,.12);color:#07c160}
                 #ak-im-root .ak-im-session-time{grid-area:time;font-size:11px;color:#9ca3af;white-space:nowrap}
                 #ak-im-root .ak-im-session-preview{grid-area:preview;font-size:13px;color:#6b7280;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
                 #ak-im-root .ak-im-session-unread{grid-area:unread;justify-self:end;min-width:18px;height:18px;padding:0 5px;border-radius:999px;background:#ef4444;color:#fff;font-size:11px;display:none;align-items:center;justify-content:center}
@@ -197,9 +212,18 @@
                 #ak-im-root .ak-im-message-row.ak-self .ak-im-avatar{background:#7fd88a;color:#ffffff}
                 #ak-im-root .ak-im-message-main{display:flex;flex-direction:column;max-width:min(78%, 420px)}
                 #ak-im-root .ak-im-message-row.ak-self .ak-im-message-main{align-items:flex-end}
+                #ak-im-root .ak-im-message-sender{margin-bottom:4px;padding:0 2px;font-size:11px;color:#6b7280;line-height:1.4}
                 #ak-im-root .ak-im-bubble{padding:10px 12px;border-radius:8px;background:#ffffff;color:#111827;word-break:break-word;white-space:pre-wrap;box-shadow:0 1px 1px rgba(15,23,42,.04);font-size:15px;line-height:1.45}
                 #ak-im-root .ak-im-message-row.ak-self .ak-im-bubble{background:#95ec69}
                 #ak-im-root .ak-im-meta{margin-top:4px;font-size:11px;color:#9ca3af;line-height:1.4}
+                #ak-im-root .ak-im-progress-btn{width:38px;height:38px;border:none;background:transparent;padding:0;display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto;cursor:pointer;align-self:flex-end}
+                #ak-im-root .ak-im-progress-ring{position:relative;width:36px;height:36px;border-radius:999px;display:inline-flex;align-items:center;justify-content:center;background:conic-gradient(#07c160 calc(var(--ak-progress, 0) * 1%), rgba(7,193,96,.16) 0);transition:transform .18s ease,box-shadow .18s ease}
+                #ak-im-root .ak-im-progress-ring::after{content:'';position:absolute;inset:4px;border-radius:999px;background:#f8fafc}
+                #ak-im-root .ak-im-progress-label{position:relative;z-index:1;font-size:10px;font-weight:700;color:#07c160;line-height:1}
+                #ak-im-root .ak-im-progress-btn:hover .ak-im-progress-ring{transform:translateY(-1px);box-shadow:0 4px 10px rgba(7,193,96,.16)}
+                #ak-im-root .ak-im-progress-btn.is-complete .ak-im-progress-ring{background:linear-gradient(180deg,#22c55e 0%,#07c160 100%)}
+                #ak-im-root .ak-im-progress-btn.is-complete .ak-im-progress-label{font-size:16px;color:#07c160}
+                #ak-im-root .ak-im-progress-btn:focus-visible{outline:none}
                 #ak-im-root .ak-im-composer{padding:8px 10px calc(8px + env(safe-area-inset-bottom, 0px));border-top:1px solid rgba(15,23,42,.06);display:flex;align-items:flex-end;gap:8px;background:#f7f7f7}
                 #ak-im-root .ak-im-input-wrap{flex:1;min-height:36px;display:flex;align-items:flex-end;background:#ffffff;border-radius:8px;border:1px solid rgba(15,23,42,.08);padding:7px 10px}
                 #ak-im-root .ak-im-input{width:100%;resize:none;border:none;outline:none;background:transparent;min-height:22px;max-height:120px;font-size:15px;line-height:1.45;color:#111827}
@@ -231,6 +255,26 @@
                 #ak-im-root .ak-im-action-btn + .ak-im-action-btn{border-top:1px solid rgba(15,23,42,.06)}
                 #ak-im-root .ak-im-action-btn.danger{color:#ef4444}
                 #ak-im-root .ak-im-action-btn:disabled{opacity:.45;cursor:not-allowed}
+                #ak-im-root .ak-im-progress-sheet{display:none;position:fixed;inset:0;z-index:2147483649}
+                #ak-im-root .ak-im-progress-sheet.visible{display:block}
+                #ak-im-root .ak-im-progress-mask{position:absolute;inset:0;background:rgba(0,0,0,.22)}
+                #ak-im-root .ak-im-progress-panel{position:absolute;left:0;right:0;bottom:0;background:#ffffff;border-radius:18px 18px 0 0;box-shadow:0 -12px 36px rgba(0,0,0,.18);max-height:min(72vh,560px);display:flex;flex-direction:column}
+                #ak-im-root .ak-im-progress-header{display:flex;align-items:center;justify-content:space-between;padding:16px 16px 12px;border-bottom:1px solid rgba(15,23,42,.06)}
+                #ak-im-root .ak-im-progress-title{font-size:16px;font-weight:600;color:#111827}
+                #ak-im-root .ak-im-progress-close{height:32px;border:none;background:transparent;color:#6b7280;font-size:14px;cursor:pointer}
+                #ak-im-root .ak-im-progress-panel-body{overflow:auto;padding-bottom:calc(14px + env(safe-area-inset-bottom, 0px))}
+                #ak-im-root .ak-im-progress-summary{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;padding:14px 16px 6px}
+                #ak-im-root .ak-im-progress-stat{background:#f8fafc;border-radius:14px;padding:12px 10px;text-align:center}
+                #ak-im-root .ak-im-progress-stat-value{font-size:18px;font-weight:700;color:#111827;line-height:1.2}
+                #ak-im-root .ak-im-progress-stat-label{margin-top:4px;font-size:12px;color:#6b7280;line-height:1.4}
+                #ak-im-root .ak-im-progress-list{padding:8px 16px 18px}
+                #ak-im-root .ak-im-progress-list-title{margin:0 0 8px;font-size:13px;font-weight:600;color:#374151;line-height:1.4}
+                #ak-im-root .ak-im-progress-member{display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid rgba(15,23,42,.06)}
+                #ak-im-root .ak-im-progress-member:last-child{border-bottom:none}
+                #ak-im-root .ak-im-progress-member-name{font-size:14px;color:#111827;line-height:1.4}
+                #ak-im-root .ak-im-progress-member-username{margin-left:8px;font-size:12px;color:#9ca3af;line-height:1.4}
+                #ak-im-root .ak-im-progress-loading,#ak-im-root .ak-im-progress-error,#ak-im-root .ak-im-progress-empty{padding:18px 16px;color:#6b7280;font-size:13px;line-height:1.6;text-align:center}
+                #ak-im-root .ak-im-progress-error{color:#ef4444}
                 @media (max-width: 640px){#ak-im-root{left:calc(50% + 42px);top:calc(env(safe-area-inset-top, 0px) - 10px)}#ak-im-root .ak-im-topbar{grid-template-columns:48px 1fr 56px}#ak-im-root .ak-im-session-avatar{width:44px;height:44px;border-radius:12px}#ak-im-root .ak-im-message-main{max-width:78%}}
             </style>
             <button class="ak-im-launcher" type="button" aria-label="内部聊天">
@@ -296,6 +340,13 @@
                     <button class="ak-im-action-btn" type="button" data-im-action="cancel">取消</button>
                 </div>
             </div>
+            <div class="ak-im-progress-sheet" aria-hidden="true">
+                <div class="ak-im-progress-mask"></div>
+                <div class="ak-im-progress-panel">
+                    <div class="ak-im-progress-header"><div class="ak-im-progress-title">消息读进度</div><button class="ak-im-progress-close" type="button">关闭</button></div>
+                    <div class="ak-im-progress-panel-body"></div>
+                </div>
+            </div>
         `;
         document.body.appendChild(root);
         panel = root.querySelector('.ak-im-shell');
@@ -308,6 +359,8 @@
         actionSheetEl = root.querySelector('.ak-im-action-sheet');
         actionSheetRecallBtn = root.querySelector('[data-im-action="recall"]');
         actionSheetCancelBtn = root.querySelector('[data-im-action="cancel"]');
+        progressPanelEl = root.querySelector('.ak-im-progress-sheet');
+        progressPanelBodyEl = root.querySelector('.ak-im-progress-panel-body');
         root.querySelector('.ak-im-launcher').addEventListener('click', function() {
             state.open = true;
             if (state.view !== 'compose' && !state.activeConversationId) state.view = 'sessions';
@@ -315,17 +368,20 @@
         });
         root.querySelector('.ak-im-close').addEventListener('click', function() {
             closeActionSheet();
+            closeReadProgressPanel();
             state.open = false;
             state.view = 'sessions';
             render();
         });
         root.querySelector('.ak-im-back').addEventListener('click', function() {
             closeActionSheet();
+            closeReadProgressPanel();
             state.view = 'sessions';
             render();
         });
         root.querySelector('.ak-im-chat-close').addEventListener('click', function() {
             closeActionSheet();
+            closeReadProgressPanel();
             state.open = false;
             state.view = 'sessions';
             render();
@@ -365,8 +421,19 @@
             closeActionSheet();
         });
         actionSheetRecallBtn.addEventListener('click', function() {
+            if (state.actionSheetMode === 'session') {
+                if (!state.actionSheetConversationId || state.actionSheetSessionSystemPinned) return;
+                requestSessionPin(state.actionSheetConversationId, !state.actionSheetSessionPinned);
+                return;
+            }
             if (!state.actionSheetCanRecall || !state.actionSheetMessageId) return;
             recallMessage(state.actionSheetMessageId, state.actionSheetConversationId, state.actionSheetDraftText);
+        });
+        progressPanelEl.querySelector('.ak-im-progress-mask').addEventListener('click', function() {
+            closeReadProgressPanel();
+        });
+        progressPanelEl.querySelector('.ak-im-progress-close').addEventListener('click', function() {
+            closeReadProgressPanel();
         });
         syncInputHeight();
         syncComposerState();
@@ -408,8 +475,32 @@
         }) || null;
     }
 
+    function isGroupSession(item) {
+        return String(item && item.conversation_type || '').toLowerCase() === 'group';
+    }
+
+    function isSessionPinned(item) {
+        return !!(item && (item.is_pinned || String(item.pin_type || '').toLowerCase() === 'manual' || String(item.pin_type || '').toLowerCase() === 'system'));
+    }
+
+    function isSessionSystemPinned(item) {
+        return String(item && item.pin_type || '').toLowerCase() === 'system';
+    }
+
     function getSessionDisplayName(item) {
+        if (isGroupSession(item)) {
+            return String(item && (item.conversation_title || item.peer_display_name || '内部群聊') || '内部群聊').trim();
+        }
         return String(item && (item.peer_display_name || item.peer_username || '内部聊天') || '内部聊天').trim();
+    }
+
+    function getSessionSubtitle(item) {
+        if (isGroupSession(item)) {
+            const memberCount = Math.max(0, Number(item && item.member_count || 0) || 0);
+            return memberCount > 0 ? ('群聊 · ' + memberCount + '人') : '群聊';
+        }
+        const peerUsername = String(item && item.peer_username || '').trim();
+        return peerUsername ? ('账号：' + peerUsername) : '';
     }
 
     function getSessionPreview(item) {
@@ -443,14 +534,78 @@
         }
     }
 
+    function getMessageReadProgress(item) {
+        return item && item.read_progress && typeof item.read_progress === 'object' ? item.read_progress : null;
+    }
+
+    function getProgressPercent(summary) {
+        const percent = Number(summary && summary.progress_percent || 0) || 0;
+        return Math.max(0, Math.min(100, Math.round(percent)));
+    }
+
+    function shouldShowReadProgress(item, activeSession) {
+        const summary = getMessageReadProgress(item);
+        if (!summary) return false;
+        return !!activeSession;
+    }
+
+    function buildReadProgressButtonMarkup(item, activeSession) {
+        const summary = getMessageReadProgress(item);
+        if (!summary || !shouldShowReadProgress(item, activeSession)) return '';
+        const percent = getProgressPercent(summary);
+        const isComplete = !!summary.is_fully_read || percent >= 100;
+        const label = isComplete ? '✓' : (percent + '%');
+        return '<button class="ak-im-progress-btn' + (isComplete ? ' is-complete' : '') + '" type="button" aria-label="查看消息已读进度">' +
+            '<span class="ak-im-progress-ring" style="--ak-progress:' + percent + '"><span class="ak-im-progress-label">' + escapeHtml(label) + '</span></span>' +
+        '</button>';
+    }
+
+    function updateActionSheetUI() {
+        if (!actionSheetRecallBtn || !actionSheetCancelBtn) return;
+        if (state.actionSheetMode === 'session') {
+            actionSheetRecallBtn.classList.remove('danger');
+            if (state.actionSheetSessionSystemPinned) {
+                actionSheetRecallBtn.textContent = '系统置顶';
+                actionSheetRecallBtn.disabled = true;
+            } else {
+                actionSheetRecallBtn.textContent = state.actionSheetSessionPinned ? '取消置顶' : '置顶聊天';
+                actionSheetRecallBtn.disabled = !state.actionSheetConversationId;
+            }
+        } else {
+            actionSheetRecallBtn.classList.add('danger');
+            actionSheetRecallBtn.textContent = '撤回';
+            actionSheetRecallBtn.disabled = !state.actionSheetCanRecall;
+        }
+        actionSheetCancelBtn.textContent = '取消';
+    }
+
     function openActionSheet(messageItem) {
         if (!actionSheetEl) return;
+        state.actionSheetMode = 'message';
         state.actionSheetOpen = true;
         state.actionSheetMessageId = Number(messageItem && messageItem.id || 0);
         state.actionSheetConversationId = Number(messageItem && messageItem.conversation_id || state.activeConversationId || 0);
         state.actionSheetCanRecall = canRecallMessage(messageItem);
         state.actionSheetDraftText = String(messageItem && (messageItem.content || messageItem.content_preview || '') || '');
-        actionSheetRecallBtn.disabled = !state.actionSheetCanRecall;
+        state.actionSheetSessionPinned = false;
+        state.actionSheetSessionSystemPinned = false;
+        updateActionSheetUI();
+        actionSheetEl.removeAttribute('inert');
+        actionSheetEl.classList.add('visible');
+        actionSheetEl.setAttribute('aria-hidden', 'false');
+    }
+
+    function openSessionActionSheet(sessionItem) {
+        if (!actionSheetEl || !sessionItem) return;
+        state.actionSheetMode = 'session';
+        state.actionSheetOpen = true;
+        state.actionSheetMessageId = 0;
+        state.actionSheetConversationId = Number(sessionItem.conversation_id || 0);
+        state.actionSheetCanRecall = false;
+        state.actionSheetDraftText = '';
+        state.actionSheetSessionPinned = isSessionPinned(sessionItem);
+        state.actionSheetSessionSystemPinned = isSessionSystemPinned(sessionItem);
+        updateActionSheetUI();
         actionSheetEl.removeAttribute('inert');
         actionSheetEl.classList.add('visible');
         actionSheetEl.setAttribute('aria-hidden', 'false');
@@ -467,9 +622,101 @@
         state.actionSheetConversationId = 0;
         state.actionSheetCanRecall = false;
         state.actionSheetDraftText = '';
+        state.actionSheetMode = '';
+        state.actionSheetSessionPinned = false;
+        state.actionSheetSessionSystemPinned = false;
+        updateActionSheetUI();
         actionSheetEl.classList.remove('visible');
         actionSheetEl.setAttribute('inert', '');
         actionSheetEl.setAttribute('aria-hidden', 'true');
+    }
+
+    function formatReadProgressMember(member) {
+        const displayName = String(member && member.display_name || '').trim();
+        const username = String(member && member.username || '').trim();
+        if (displayName && username && displayName !== username) {
+            return '<span class="ak-im-progress-member-name">' + escapeHtml(displayName) + '</span><span class="ak-im-progress-member-username">@' + escapeHtml(username) + '</span>';
+        }
+        return '<span class="ak-im-progress-member-name">' + escapeHtml(displayName || username || '未知成员') + '</span>';
+    }
+
+    function renderReadProgressPanel() {
+        if (!progressPanelEl || !progressPanelBodyEl) return;
+        progressPanelEl.classList.toggle('visible', !!state.readProgressOpen);
+        progressPanelEl.setAttribute('aria-hidden', state.readProgressOpen ? 'false' : 'true');
+        if (!state.readProgressOpen) {
+            progressPanelBodyEl.innerHTML = '';
+            return;
+        }
+        if (state.readProgressLoading) {
+            progressPanelBodyEl.innerHTML = '<div class="ak-im-progress-loading">正在加载消息读进度...</div>';
+            return;
+        }
+        if (state.readProgressError) {
+            progressPanelBodyEl.innerHTML = '<div class="ak-im-progress-error">' + escapeHtml(state.readProgressError) + '</div>';
+            return;
+        }
+        const detail = state.readProgressData;
+        const summary = detail && detail.read_progress && typeof detail.read_progress === 'object' ? detail.read_progress : null;
+        if (!detail || !summary) {
+            progressPanelBodyEl.innerHTML = '<div class="ak-im-progress-empty">暂无可用的读进度数据</div>';
+            return;
+        }
+        const unreadMembers = Array.isArray(detail.unread_members) ? detail.unread_members : [];
+        const unreadList = unreadMembers.length ? unreadMembers.map(function(member) {
+            return '<div class="ak-im-progress-member"><div>' + formatReadProgressMember(member) + '</div></div>';
+        }).join('') : '<div class="ak-im-progress-empty">全部成员已读</div>';
+        progressPanelBodyEl.innerHTML = '<div class="ak-im-progress-summary">' +
+            '<div class="ak-im-progress-stat"><div class="ak-im-progress-stat-value">' + escapeHtml(String(getProgressPercent(summary))) + '%</div><div class="ak-im-progress-stat-label">已读进度</div></div>' +
+            '<div class="ak-im-progress-stat"><div class="ak-im-progress-stat-value">' + escapeHtml(String(Number(summary.read_count || 0))) + '</div><div class="ak-im-progress-stat-label">已读人数</div></div>' +
+            '<div class="ak-im-progress-stat"><div class="ak-im-progress-stat-value">' + escapeHtml(String(Number(summary.unread_count || 0))) + '</div><div class="ak-im-progress-stat-label">未读人数</div></div>' +
+        '</div>' +
+        '<div class="ak-im-progress-list"><h4 class="ak-im-progress-list-title">未读成员（共 ' + escapeHtml(String(Number(summary.unread_count || 0))) + ' 人）</h4>' + unreadList + '</div>';
+    }
+
+    function closeReadProgressPanel() {
+        state.readProgressOpen = false;
+        state.readProgressLoading = false;
+        state.readProgressError = '';
+        state.readProgressMessageId = 0;
+        state.readProgressData = null;
+        renderReadProgressPanel();
+    }
+
+    function openReadProgressPanel(messageItem) {
+        const messageId = Number(messageItem && messageItem.id || 0);
+        if (!messageId) return;
+        state.readProgressOpen = true;
+        state.readProgressLoading = true;
+        state.readProgressError = '';
+        state.readProgressMessageId = messageId;
+        state.readProgressData = null;
+        renderReadProgressPanel();
+        request(`${HTTP_ROOT}/messages/read_progress?message_id=${encodeURIComponent(messageId)}`).then(function(data) {
+            if (Number(state.readProgressMessageId || 0) !== messageId) return;
+            state.readProgressLoading = false;
+            state.readProgressData = data && data.item ? data.item : null;
+            renderReadProgressPanel();
+        }).catch(function(error) {
+            if (Number(state.readProgressMessageId || 0) !== messageId) return;
+            state.readProgressLoading = false;
+            state.readProgressError = error && error.message ? error.message : '读取消息读进度失败';
+            renderReadProgressPanel();
+        });
+    }
+
+    function requestSessionPin(conversationId, pinned) {
+        const targetConversationId = Number(conversationId || 0);
+        if (!targetConversationId) return;
+        closeActionSheet();
+        request(`${HTTP_ROOT}/sessions/pin`, {
+            method: 'POST',
+            body: JSON.stringify({ conversation_id: targetConversationId, pinned: !!pinned })
+        }).then(function() {
+            return loadSessions();
+        }).catch(function(error) {
+            window.alert(error && error.message ? error.message : '更新置顶状态失败');
+        });
     }
 
     function renderComposeView() {
@@ -531,6 +778,8 @@
         root.querySelector('.ak-im-launcher').classList.toggle('has-unread', state.sessions.some(function(item) {
             return getUnreadCount(item) > 0;
         }));
+        const searchPill = root.querySelector('.ak-im-search-pill');
+        if (searchPill) searchPill.textContent = state.sessions.length ? '长按会话可置顶，点击进入聊天' : '点击右上角发起单聊';
         statusLine.textContent = '';
         sessionList.innerHTML = '';
         if (!state.sessions.length) {
@@ -541,21 +790,54 @@
         } else {
             state.sessions.forEach(function(item) {
                 const node = document.createElement('div');
-                node.className = 'ak-im-session-item' + (item.conversation_id === state.activeConversationId ? ' ak-active' : '');
+                node.className = 'ak-im-session-item' + (item.conversation_id === state.activeConversationId ? ' ak-active' : '') + (isSessionPinned(item) ? ' is-pinned' : '');
                 const unreadCount = getUnreadCount(item);
+                const subtitle = getSessionSubtitle(item);
+                const previewText = subtitle ? (subtitle + ' · ' + getSessionPreview(item)) : getSessionPreview(item);
+                const pinText = isSessionSystemPinned(item) ? '群置顶' : '置顶';
                 node.innerHTML = '<div class="ak-im-session-avatar">' + escapeHtml(getAvatarText(getSessionDisplayName(item))) + '</div>' +
                     '<div class="ak-im-session-body">' +
-                        '<div class="ak-im-session-title">' + escapeHtml(getSessionDisplayName(item)) + '</div>' +
+                        '<div class="ak-im-session-title"><span class="ak-im-session-title-text">' + escapeHtml(getSessionDisplayName(item)) + '</span><span class="ak-im-session-pin-tag' + (isSessionPinned(item) ? ' visible' : '') + (isSessionSystemPinned(item) ? ' is-system' : '') + '">' + escapeHtml(pinText) + '</span></div>' +
                         '<div class="ak-im-session-time">' + escapeHtml(formatSessionTime(item.last_message_at || item.updated_at || item.created_at)) + '</div>' +
-                        '<div class="ak-im-session-preview">' + escapeHtml(getSessionPreview(item)) + '</div>' +
+                        '<div class="ak-im-session-preview">' + escapeHtml(previewText) + '</div>' +
                         '<div class="ak-im-session-unread' + (unreadCount > 0 ? ' visible' : '') + '">' + escapeHtml(unreadCount > 99 ? '99+' : String(unreadCount || '')) + '</div>' +
                     '</div>';
+                let pressTimer = null;
+                let didOpenActionSheet = false;
+                const startPress = function() {
+                    if (pressTimer) clearTimeout(pressTimer);
+                    pressTimer = setTimeout(function() {
+                        didOpenActionSheet = true;
+                        openSessionActionSheet(item);
+                    }, 420);
+                };
+                const cancelPress = function() {
+                    if (pressTimer) {
+                        clearTimeout(pressTimer);
+                        pressTimer = null;
+                    }
+                };
                 node.addEventListener('click', function() {
+                    if (didOpenActionSheet) {
+                        didOpenActionSheet = false;
+                        return;
+                    }
+                    closeActionSheet();
+                    closeReadProgressPanel();
                     state.activeConversationId = item.conversation_id;
                     state.view = 'chat';
                     state.activeMessages = [];
                     loadMessages(item.conversation_id);
                     render();
+                });
+                node.addEventListener('pointerdown', startPress);
+                node.addEventListener('pointerup', cancelPress);
+                node.addEventListener('pointercancel', cancelPress);
+                node.addEventListener('pointerleave', cancelPress);
+                node.addEventListener('contextmenu', function(event) {
+                    event.preventDefault();
+                    didOpenActionSheet = true;
+                    openSessionActionSheet(item);
                 });
                 sessionList.appendChild(node);
             });
@@ -563,6 +845,7 @@
         syncComposerState();
         syncInputHeight();
         renderMessages();
+        renderReadProgressPanel();
         renderComposeView();
         if (showChat) markRead(state.activeConversationId);
         if (state.open && state.view === 'compose') focusComposeInput();
@@ -573,7 +856,7 @@
         const headerSubtitle = root.querySelector('.ak-im-chat-subtitle');
         const activeSession = getActiveSession();
         headerTitle.textContent = activeSession ? getSessionDisplayName(activeSession) : '内部聊天';
-        headerSubtitle.textContent = '';
+        headerSubtitle.textContent = activeSession ? getSessionSubtitle(activeSession) : '';
         messageList.innerHTML = '';
         if (!state.activeConversationId) {
             const empty = document.createElement('div');
@@ -619,15 +902,19 @@
                 return;
             }
             const wrapper = document.createElement('div');
-            const displayName = isSelf ? (state.displayName || state.username || '我') : (activeSession ? getSessionDisplayName(activeSession) : (item.sender_username || '对方'));
-            const metaText = isSelf && item.read ? '对方已读' : '';
+            const summary = getMessageReadProgress(item);
+            const displayName = isSelf ? (state.displayName || state.username || '我') : (isGroupSession(activeSession) ? (item.sender_username || '群成员') : (activeSession ? getSessionDisplayName(activeSession) : (item.sender_username || '对方')));
+            const metaText = summary && Number(summary.total_count || 0) > 0 ? ('已读 ' + Number(summary.read_count || 0) + '/' + Number(summary.total_count || 0)) : ((isSelf && item.read) ? '对方已读' : '');
+            const senderText = !isSelf && isGroupSession(activeSession) ? String(item.sender_username || '').trim() : '';
             wrapper.innerHTML = '<div class="ak-im-time-divider">' + escapeHtml(formatTime(item.sent_at)) + '</div>' +
                 '<div class="ak-im-message-row ' + (isSelf ? 'ak-self' : 'ak-peer') + '">' +
                     '<div class="ak-im-avatar">' + escapeHtml(getAvatarText(displayName)) + '</div>' +
                     '<div class="ak-im-message-main">' +
+                        (senderText ? '<div class="ak-im-message-sender">' + escapeHtml(senderText) + '</div>' : '') +
                         '<div class="ak-im-bubble">' + escapeHtml(item.content || item.content_preview || '') + '</div>' +
                         (metaText ? '<div class="ak-im-meta">' + escapeHtml(metaText) + '</div>' : '') +
                     '</div>' +
+                    buildReadProgressButtonMarkup(item, activeSession) +
                 '</div>';
             if (isSelf) {
                 const bubble = wrapper.querySelector('.ak-im-bubble');
@@ -657,6 +944,14 @@
                     });
                 }
             }
+            const progressBtn = wrapper.querySelector('.ak-im-progress-btn');
+            if (progressBtn) {
+                progressBtn.addEventListener('click', function(event) {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    openReadProgressPanel(item);
+                });
+            }
             messageList.appendChild(wrapper);
         });
         messageList.scrollTop = messageList.scrollHeight;
@@ -685,6 +980,17 @@
     function loadSessions() {
         return request(`${HTTP_ROOT}/sessions`).then(function(data) {
             state.sessions = Array.isArray(data && data.items) ? data.items : [];
+            if (Number(state.activeConversationId || 0) > 0) {
+                const stillExists = state.sessions.some(function(item) {
+                    return Number(item && item.conversation_id || 0) === Number(state.activeConversationId || 0);
+                });
+                if (!stillExists) {
+                    state.activeConversationId = 0;
+                    state.activeMessages = [];
+                    closeReadProgressPanel();
+                    if (state.view === 'chat') state.view = 'sessions';
+                }
+            }
             render();
             return null;
         }).catch(function() {
@@ -898,6 +1204,14 @@
                             applyMessageRecalled(payload);
                             loadSessions();
                         }
+                        return;
+                    }
+                    if (data.type === 'im.session.updated') {
+                        const payload = data.payload || null;
+                        loadSessions();
+                        if (payload && Number(payload.conversation_id || 0) === Number(state.activeConversationId || 0)) {
+                            loadMessages(state.activeConversationId);
+                        }
                     }
                 } catch (e) {}
             });
@@ -924,7 +1238,7 @@
 
     window.AKIMClient = {
         open: function() { state.open = true; if (!state.activeConversationId) state.view = 'sessions'; render(); },
-        close: function() { closeActionSheet(); state.open = false; state.view = 'sessions'; render(); },
+        close: function() { closeActionSheet(); closeReadProgressPanel(); state.open = false; state.view = 'sessions'; render(); },
         reloadSessions: loadSessions
     };
 })();

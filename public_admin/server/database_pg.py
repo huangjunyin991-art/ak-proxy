@@ -1565,6 +1565,16 @@ async def delete_authorized_account(username: str) -> bool:
         return int(result.split()[-1]) > 0
 
 
+async def get_authorized_account(username: str) -> Optional[Dict]:
+    pool = _get_pool()
+    username = username.lower() if username else username
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT * FROM authorized_accounts WHERE username = $1",
+            username)
+        return dict(row) if row else None
+
+
 async def toggle_persistent_login(username: str, enabled: bool) -> bool:
     """切换账号的强化登录开关"""
     pool = _get_pool()
@@ -1637,6 +1647,14 @@ async def expire_overdue_accounts() -> int:
         result = await conn.execute(
             "UPDATE authorized_accounts SET status='expired', updated_at=NOW() WHERE status='active' AND expire_time < NOW()")
         return int(result.split()[-1])
+
+
+async def get_overdue_authorized_account_owners() -> List[str]:
+    pool = _get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            "SELECT DISTINCT LOWER(added_by) AS added_by FROM authorized_accounts WHERE status='active' AND expire_time < NOW() AND COALESCE(added_by, '') <> ''")
+        return [str(row['added_by']).strip().lower() for row in rows if str(row['added_by']).strip()]
 
 
 def _load_json_object(raw: Any, default: Any) -> Any:

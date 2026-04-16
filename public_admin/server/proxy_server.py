@@ -34,7 +34,7 @@ from logging.handlers import RotatingFileHandler
 
 from datetime import datetime
 
-from typing import Any, Optional
+from typing import Any, Iterable, Optional
 
 
 
@@ -346,6 +346,38 @@ app.add_middleware(
 
 
 # ===== 工具函数 =====
+
+IM_SERVER_INTERNAL_URL = os.getenv("IM_SERVER_INTERNAL_URL", "http://127.0.0.1:18081").rstrip("/")
+
+
+
+async def _sync_im_whitelist_group_owners(owners: Iterable[str]) -> None:
+
+    normalized_owners = sorted({str(item or '').strip().lower() for item in owners if str(item or '').strip()})
+
+    if not normalized_owners:
+
+        return
+
+    url = f"{IM_SERVER_INTERNAL_URL}/im/internal/whitelist_groups/sync"
+
+    for owner in normalized_owners:
+
+        try:
+
+            async with httpx.AsyncClient(timeout=8.0, trust_env=False) as client:
+
+                response = await client.post(url, json={"added_by": owner})
+
+            if response.status_code >= 400:
+
+                logger.warning(f"[IM] 白名单群同步失败 owner={owner} status={response.status_code} body={response.text[:300]}")
+
+        except Exception as e:
+
+            logger.warning(f"[IM] 白名单群同步异常 owner={owner}: {e}")
+
+
 
 def parse_request_params(content_type: str, query_params: dict, raw_body: bytes) -> dict:
 
@@ -2969,11 +3001,15 @@ async def admin_startup():
 
             try:
 
+                owners = await db.get_overdue_authorized_account_owners()
+
                 count = await db.expire_overdue_accounts()
 
                 if count > 0:
 
                     logger.info(f"[Auth] 自动过期了 {count} 个账号")
+
+                    await _sync_im_whitelist_group_owners(owners)
 
             except Exception:
 
@@ -4305,6 +4341,8 @@ async def admin_whitelist_add(request: Request):
 
         return {"success": False, "message": "账号不能为空"}
 
+    existing_account = await db.get_authorized_account(username)
+
 
 
     configs = await db.get_credit_config()
@@ -4353,6 +4391,8 @@ async def admin_whitelist_add(request: Request):
 
             duration_days=duration_days, remark=remark, nickname=nickname)
 
+        await _sync_im_whitelist_group_owners({added_by, (existing_account or {}).get('added_by', '')})
+
         return {"success": True, "message": f"账号 [{username}] 已授权 {plan['plan_name']}({duration_days}天)",
 
                 "data": result}
@@ -4399,6 +4439,8 @@ async def admin_whitelist_renew(request: Request):
 
         return {"success": False, "message": "账号不能为空"}
 
+    existing_account = await db.get_authorized_account(username)
+
 
 
     configs = await db.get_credit_config()
@@ -4441,6 +4483,8 @@ async def admin_whitelist_renew(request: Request):
 
             return {"success": False, "message": f"账号 [{username}] 不存在"}
 
+        await _sync_im_whitelist_group_owners({(existing_account or {}).get('added_by', '')})
+
         return {"success": True, "message": f"账号 [{username}] 已续期 {plan['plan_name']}", "data": result}
 
     except Exception as e:
@@ -4479,9 +4523,13 @@ async def admin_whitelist_delete(request: Request):
 
         return {"success": False, "message": "账号不能为空"}
 
+    existing_account = await db.get_authorized_account(username)
+
     ok = await db.delete_authorized_account(username)
 
     if ok:
+
+        await _sync_im_whitelist_group_owners({(existing_account or {}).get('added_by', '')})
 
         return {"success": True, "message": f"账号 [{username}] 已删除（积分不退还）"}
 

@@ -15,6 +15,7 @@ import (
 	"im_server/internal/config"
 
 	"github.com/gorilla/websocket"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -49,8 +50,15 @@ type BootstrapResponse struct {
 type SessionItem struct {
 	ConversationID     int64  `json:"conversation_id"`
 	ConversationType   string `json:"conversation_type"`
+	ConversationTitle  string `json:"conversation_title,omitempty"`
+	AvatarURL          string `json:"avatar_url,omitempty"`
+	OwnerUsername      string `json:"owner_username,omitempty"`
+	MemberCount        int64  `json:"member_count"`
 	PeerUsername       string `json:"peer_username,omitempty"`
 	PeerDisplayName    string `json:"peer_display_name,omitempty"`
+	PinType            string `json:"pin_type,omitempty"`
+	PinnedAt           string `json:"pinned_at,omitempty"`
+	IsPinned           bool   `json:"is_pinned"`
 	LastMessageID      int64  `json:"last_message_id,omitempty"`
 	LastMessagePreview string `json:"last_message_preview,omitempty"`
 	LastMessageAt      string `json:"last_message_at,omitempty"`
@@ -68,6 +76,7 @@ type MessageItem struct {
 	Status         string `json:"status"`
 	SentAt         string `json:"sent_at"`
 	Read           bool   `json:"read"`
+	ReadProgress   *MessageReadProgressSummary `json:"read_progress,omitempty"`
 }
 
 type sendMessageRequest struct {
@@ -121,8 +130,11 @@ func New(cfg config.Config) (*App, error) {
 	mux.HandleFunc("/im/api/bootstrap", app.handleBootstrap)
 	mux.HandleFunc("/im/api/sessions", app.handleSessions)
 	mux.HandleFunc("/im/api/sessions/direct", app.handleDirectSession)
+	mux.HandleFunc("/im/api/sessions/pin", app.handleSessionPin)
 	mux.HandleFunc("/im/api/messages", app.handleMessages)
+	mux.HandleFunc("/im/api/messages/read_progress", app.handleMessageReadProgress)
 	mux.HandleFunc("/im/api/messages/recall", app.handleRecallMessage)
+	mux.HandleFunc("/im/internal/whitelist_groups/sync", app.handleInternalWhitelistGroupSync)
 	mux.HandleFunc("/im/ws", app.handleWS)
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"ok": true})
@@ -177,14 +189,16 @@ func (a *App) ensureSchema(ctx context.Context) error {
 			username TEXT NOT NULL,
 			role TEXT NOT NULL DEFAULT 'member',
 			joined_at TIMESTAMP NOT NULL DEFAULT NOW(),
+			left_at TIMESTAMP,
 			last_read_seq_no BIGINT NOT NULL DEFAULT 0,
 			last_read_at TIMESTAMP,
 			mute_until TIMESTAMP,
 			is_pinned BOOLEAN NOT NULL DEFAULT FALSE,
+			pin_type TEXT NOT NULL DEFAULT 'none',
+			pinned_at TIMESTAMP,
 			is_archived BOOLEAN NOT NULL DEFAULT FALSE,
 			created_at TIMESTAMP NOT NULL DEFAULT NOW(),
 			updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
-			UNIQUE(conversation_id, username)
 		)`,
 		`CREATE TABLE IF NOT EXISTS im_message (
 			id BIGSERIAL PRIMARY KEY,
@@ -205,7 +219,14 @@ func (a *App) ensureSchema(ctx context.Context) error {
 			deleted_at TIMESTAMP,
 			UNIQUE(conversation_id, seq_no)
 		)`,
+		`ALTER TABLE im_conversation_member ADD COLUMN IF NOT EXISTS left_at TIMESTAMP`,
+		`ALTER TABLE im_conversation_member ADD COLUMN IF NOT EXISTS pin_type TEXT NOT NULL DEFAULT 'none'`,
+		`ALTER TABLE im_conversation_member ADD COLUMN IF NOT EXISTS pinned_at TIMESTAMP`,
+		`ALTER TABLE im_conversation_member DROP CONSTRAINT IF EXISTS im_conversation_member_conversation_id_username_key`,
+		`UPDATE im_conversation_member SET pin_type = CASE WHEN is_pinned THEN 'manual' ELSE 'none' END WHERE COALESCE(pin_type, '') = ''`,
+		`UPDATE im_conversation_member SET pinned_at = COALESCE(pinned_at, updated_at, created_at, NOW()) WHERE is_pinned = TRUE AND pinned_at IS NULL`,
 		`CREATE INDEX IF NOT EXISTS idx_im_conversation_member_username ON im_conversation_member(username)`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_im_conversation_member_active_unique ON im_conversation_member(conversation_id, username) WHERE left_at IS NULL`,
 		`CREATE INDEX IF NOT EXISTS idx_im_message_conversation_id ON im_message(conversation_id, seq_no DESC)`,
 	}
 	for _, stmt := range statements {
@@ -294,13 +315,21 @@ func (a *App) handleSessions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rows, err := a.db.Query(r.Context(), `
-		SELECT c.id, c.conversation_type, COALESCE(c.last_message_id, 0) AS last_message_id, COALESCE(c.last_message_preview, '') AS last_message_preview, c.last_message_at,
-			COALESCE((SELECT COUNT(1) FROM im_message m2 WHERE m2.conversation_id = c.id AND m2.deleted_at IS NULL AND m2.sender_username <> $1 AND m2.seq_no > COALESCE(cm.last_read_seq_no, 0)), 0) AS unread_count,
-			COALESCE((SELECT peer.username FROM im_conversation_member peer WHERE peer.conversation_id = c.id AND peer.username <> $1 ORDER BY peer.username LIMIT 1), '') AS peer_username
+		SELECT c.id, c.conversation_type, COALESCE(c.title, '') AS conversation_title, COALESCE(c.avatar_url, '') AS avatar_url, COALESCE(c.owner_username, '') AS owner_username,
+			COALESCE((SELECT COUNT(1) FROM im_conversation_member member WHERE member.conversation_id = c.id AND member.left_at IS NULL), 0) AS member_count,
+			COALESCE(cm.pin_type, 'none') AS pin_type,
+			cm.pinned_at,
+			COALESCE(c.last_message_id, 0) AS last_message_id,
+			COALESCE(c.last_message_preview, '') AS last_message_preview,
+			c.last_message_at,
+			COALESCE((SELECT COUNT(1) FROM im_message m2 WHERE m2.conversation_id = c.id AND m2.deleted_at IS NULL AND m2.sender_username <> $1 AND m2.seq_no > COALESCE(cm.last_read_seq_no, 0) AND m2.sent_at >= cm.joined_at), 0) AS unread_count,
+			COALESCE((SELECT peer.username FROM im_conversation_member peer WHERE peer.conversation_id = c.id AND peer.username <> $1 AND peer.left_at IS NULL ORDER BY peer.username LIMIT 1), '') AS peer_username
 		FROM im_conversation c
-		JOIN im_conversation_member cm ON cm.conversation_id = c.id AND cm.username = $1
+		JOIN im_conversation_member cm ON cm.conversation_id = c.id AND cm.username = $1 AND cm.left_at IS NULL
 		WHERE c.deleted_at IS NULL
-		ORDER BY COALESCE(c.last_message_at, c.created_at) DESC`, username)
+		ORDER BY CASE COALESCE(cm.pin_type, 'none') WHEN 'system' THEN 2 WHEN 'manual' THEN 1 ELSE 0 END DESC,
+			COALESCE(cm.pinned_at, c.last_message_at, c.created_at) DESC,
+			COALESCE(c.last_message_at, c.created_at) DESC`, username)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
 		return
@@ -310,11 +339,23 @@ func (a *App) handleSessions(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var item SessionItem
 		var lastMessageAt *time.Time
-		if err := rows.Scan(&item.ConversationID, &item.ConversationType, &item.LastMessageID, &item.LastMessagePreview, &lastMessageAt, &item.UnreadCount, &item.PeerUsername); err != nil {
+		var pinnedAt *time.Time
+		if err := rows.Scan(&item.ConversationID, &item.ConversationType, &item.ConversationTitle, &item.AvatarURL, &item.OwnerUsername, &item.MemberCount, &item.PinType, &pinnedAt, &item.LastMessageID, &item.LastMessagePreview, &lastMessageAt, &item.UnreadCount, &item.PeerUsername); err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
 			return
 		}
 		item.PeerDisplayName = a.fetchDisplayName(r.Context(), item.PeerUsername)
+		item.IsPinned = item.PinType == "system" || item.PinType == "manual"
+		if pinnedAt != nil {
+			item.PinnedAt = pinnedAt.Format(time.RFC3339)
+		}
+		if item.ConversationType == "group" && strings.TrimSpace(item.ConversationTitle) == "" {
+			item.ConversationTitle = "内部群聊"
+		}
+		if item.ConversationType == "group" {
+			item.PeerDisplayName = item.ConversationTitle
+			item.PeerUsername = ""
+		}
 		if lastMessageAt != nil {
 			item.LastMessageAt = lastMessageAt.Format(time.RFC3339)
 		}
@@ -380,17 +421,19 @@ func (a *App) ensureDirectConversation(ctx context.Context, username string, tar
 	defer tx.Rollback(ctx)
 	var conversationID int64
 	err = tx.QueryRow(ctx, `SELECT id FROM im_conversation WHERE conversation_key = $1`, key).Scan(&conversationID)
-	if err == nil {
-		return conversationID, tx.Commit(ctx)
-	}
-	if _, err := tx.Exec(ctx, `INSERT INTO im_conversation (conversation_type, conversation_key, owner_username) VALUES ('direct', $1, $2) ON CONFLICT (conversation_key) DO NOTHING`, key, username); err != nil {
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return 0, err
 	}
-	if err := tx.QueryRow(ctx, `SELECT id FROM im_conversation WHERE conversation_key = $1`, key).Scan(&conversationID); err != nil {
-		return 0, err
+	if conversationID == 0 {
+		if _, err := tx.Exec(ctx, `INSERT INTO im_conversation (conversation_type, conversation_key, owner_username) VALUES ('direct', $1, $2) ON CONFLICT (conversation_key) DO NOTHING`, key, username); err != nil {
+			return 0, err
+		}
+		if err := tx.QueryRow(ctx, `SELECT id FROM im_conversation WHERE conversation_key = $1`, key).Scan(&conversationID); err != nil {
+			return 0, err
+		}
 	}
 	for _, member := range users {
-		if _, err := tx.Exec(ctx, `INSERT INTO im_conversation_member (conversation_id, username) VALUES ($1, $2) ON CONFLICT (conversation_id, username) DO NOTHING`, conversationID, member); err != nil {
+		if _, err := tx.Exec(ctx, `INSERT INTO im_conversation_member (conversation_id, username) VALUES ($1, $2) ON CONFLICT DO NOTHING`, conversationID, member); err != nil {
 			return 0, err
 		}
 	}
@@ -447,16 +490,20 @@ func (a *App) handleListMessages(w http.ResponseWriter, r *http.Request, usernam
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": true, "message": "missing conversation_id"})
 		return
 	}
+	var conversationIDValue int64
+	if _, err := fmt.Sscan(conversationID, &conversationIDValue); err != nil || conversationIDValue <= 0 {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": true, "message": "invalid conversation_id"})
+		return
+	}
 	if !a.ensureConversationMember(r.Context(), conversationID, username) {
 		writeJSON(w, http.StatusForbidden, map[string]any{"error": true, "message": "forbidden"})
 		return
 	}
 	rows, err := a.db.Query(r.Context(), `
-		SELECT m.id, m.conversation_id, m.sender_username, m.seq_no, m.message_type, m.content_payload, m.content_preview, m.status, m.sent_at,
-			COALESCE((SELECT cm.last_read_seq_no FROM im_conversation_member cm WHERE cm.conversation_id = m.conversation_id AND cm.username <> $2 ORDER BY cm.username LIMIT 1), 0) AS peer_last_read_seq_no
+		SELECT m.id, m.conversation_id, m.sender_username, m.seq_no, m.message_type, m.content_payload, m.content_preview, m.status, m.sent_at
 		FROM im_message m
 		WHERE m.conversation_id = $1::bigint AND m.deleted_at IS NULL
-		ORDER BY m.seq_no DESC LIMIT 50`, conversationID, username)
+		ORDER BY m.seq_no DESC LIMIT 50`, conversationID)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
 		return
@@ -466,17 +513,19 @@ func (a *App) handleListMessages(w http.ResponseWriter, r *http.Request, usernam
 	for rows.Next() {
 		var item MessageItem
 		var sentAt time.Time
-		var peerLastReadSeqNo int64
-		if err := rows.Scan(&item.ID, &item.ConversationID, &item.SenderUsername, &item.SeqNo, &item.MessageType, &item.Content, &item.ContentPreview, &item.Status, &sentAt, &peerLastReadSeqNo); err != nil {
+		if err := rows.Scan(&item.ID, &item.ConversationID, &item.SenderUsername, &item.SeqNo, &item.MessageType, &item.Content, &item.ContentPreview, &item.Status, &sentAt); err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
 			return
 		}
 		item.SentAt = sentAt.Format(time.RFC3339)
-		item.Read = item.SenderUsername == username && item.SeqNo <= peerLastReadSeqNo
 		items = append(items, item)
 	}
 	for left, right := 0, len(items)-1; left < right; left, right = left+1, right-1 {
 		items[left], items[right] = items[right], items[left]
+	}
+	members, err := a.listConversationMembers(r.Context(), conversationIDValue)
+	if err == nil {
+		a.populateMessageReadProgress(items, members, username)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"items": items})
 }
@@ -544,7 +593,16 @@ func (a *App) insertMessage(ctx context.Context, conversationID int64, username 
 	if _, err := tx.Exec(ctx, `UPDATE im_conversation_member SET last_read_seq_no = GREATEST(last_read_seq_no, $1), last_read_at = NOW(), updated_at = NOW() WHERE conversation_id = $2 AND username = $3`, item.SeqNo, conversationID, username); err != nil {
 		return MessageItem{}, err
 	}
-	return item, tx.Commit(ctx)
+	if err := tx.Commit(ctx); err != nil {
+		return MessageItem{}, err
+	}
+	members, err := a.listConversationMembers(ctx, conversationID)
+	if err == nil {
+		items := []MessageItem{item}
+		a.populateMessageReadProgress(items, members, username)
+		item = items[0]
+	}
+	return item, nil
 }
 
 func (a *App) recallMessage(ctx context.Context, messageID int64, username string) (MessageItem, error) {
@@ -586,7 +644,7 @@ func (a *App) recallMessage(ctx context.Context, messageID int64, username strin
 
 func (a *App) ensureConversationMember(ctx context.Context, conversationID string, username string) bool {
 	var exists bool
-	_ = a.db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM im_conversation_member WHERE conversation_id = $1::bigint AND username = $2)`, conversationID, username).Scan(&exists)
+	_ = a.db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM im_conversation_member WHERE conversation_id = $1::bigint AND username = $2 AND left_at IS NULL)`, conversationID, username).Scan(&exists)
 	return exists
 }
 
@@ -651,7 +709,7 @@ func (a *App) handleWS(w http.ResponseWriter, r *http.Request) {
 func (a *App) broadcastConversation(conversationID int64, payload map[string]any) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	rows, err := a.db.Query(ctx, `SELECT username FROM im_conversation_member WHERE conversation_id = $1`, conversationID)
+	rows, err := a.db.Query(ctx, `SELECT username FROM im_conversation_member WHERE conversation_id = $1 AND left_at IS NULL`, conversationID)
 	if err != nil {
 		return
 	}
