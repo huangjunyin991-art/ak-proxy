@@ -254,6 +254,18 @@ func (a *App) ensureAllowedConversationOwnerTarget(ctx context.Context, username
 	return nil
 }
 
+func (a *App) ensureAllowedConversationAdminTarget(ctx context.Context, meta conversationMeta, username string) error {
+	normalizedUsername := strings.ToLower(strings.TrimSpace(username))
+	normalizedOwner := strings.ToLower(strings.TrimSpace(meta.OwnerUsername))
+	if normalizedUsername == "" {
+		return errors.New("invalid username")
+	}
+	if normalizedOwner != "" && normalizedUsername == normalizedOwner && isWhitelistManagedConversation(meta) {
+		return a.ensureAllowedConversationOwnerTarget(ctx, normalizedUsername)
+	}
+	return a.ensureAllowedConversationTarget(ctx, normalizedUsername)
+}
+
 func (a *App) isConversationAdmin(ctx context.Context, conversationID int64, username string) bool {
 	var exists bool
 	_ = a.db.QueryRow(ctx, `
@@ -1535,12 +1547,9 @@ func (a *App) handleInternalGroupAdminsReplace(w http.ResponseWriter, r *http.Re
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": true, "message": "conversation not group"})
 		return
 	}
-	targets := normalizeUsernames(req.Usernames)
-	if isWhitelistManagedConversation(meta) {
-		targets = collectRequestedUsernames(meta.OwnerUsername, targets)
-	}
+	targets := collectRequestedUsernames(meta.OwnerUsername, req.Usernames)
 	for _, target := range targets {
-		if err := a.ensureAllowedConversationTarget(r.Context(), target); err != nil {
+		if err := a.ensureAllowedConversationAdminTarget(r.Context(), meta, target); err != nil {
 			writeConversationFeatureError(w, err)
 			return
 		}

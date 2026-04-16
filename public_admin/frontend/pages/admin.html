@@ -7998,9 +7998,6 @@
             const textareaEl = document.getElementById('imContactsAdminsInput');
             const currentOwner = String(imContactsDetailItem.owner && imContactsDetailItem.owner.username || '').trim().toLowerCase();
             const usernames = parseImContactUsernames(textareaEl ? textareaEl.value : '');
-            if (currentOwner && !usernames.includes(currentOwner)) {
-                usernames.push(currentOwner);
-            }
             usernames.sort();
             try {
                 const res = await fetch(`${API_BASE}/admin/api/im/groups/admins/replace`, {
