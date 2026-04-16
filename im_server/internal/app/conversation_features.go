@@ -136,8 +136,9 @@ type sessionHistoryClearRequest struct {
 }
 
 type sessionMemberHistoryClearRequest struct {
-	ConversationID int64  `json:"conversation_id"`
-	Username       string `json:"username"`
+	ConversationID int64    `json:"conversation_id"`
+	Username       string   `json:"username"`
+	Usernames      []string `json:"usernames"`
 }
 
 type sessionHideRequest struct {
@@ -1276,7 +1277,8 @@ func (a *App) handleSessionMemberHistoryClear(w http.ResponseWriter, r *http.Req
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": true, "message": "invalid payload"})
 		return
 	}
-	if strings.TrimSpace(req.Username) == "" {
+	targets := collectRequestedUsernames(req.Username, req.Usernames)
+	if len(targets) < 1 {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": true, "message": "invalid username"})
 		return
 	}
@@ -1285,28 +1287,31 @@ func (a *App) handleSessionMemberHistoryClear(w http.ResponseWriter, r *http.Req
 		writeConversationFeatureError(w, err)
 		return
 	}
-	targetUsername := strings.ToLower(strings.TrimSpace(req.Username))
 	tx, err := a.db.Begin(r.Context())
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
 		return
 	}
 	defer tx.Rollback(r.Context())
-	affectedUsers, err := collectConversationAffectedUsersTx(r.Context(), tx, req.ConversationID, targetUsername)
+	affectedUsers, err := collectConversationAffectedUsersTx(r.Context(), tx, req.ConversationID, targets...)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
 		return
 	}
-	commandTag, err := tx.Exec(r.Context(), `
-		UPDATE im_message
-		SET deleted_at = NOW(), updated_at = NOW()
-		WHERE conversation_id = $1
-			AND sender_username = $2
-			AND deleted_at IS NULL
-			AND seq_no > (SELECT COALESCE(purged_before_seq_no, 0) FROM im_conversation WHERE id = $1)`, req.ConversationID, targetUsername)
-	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
-		return
+	var deletedCount int64
+	for _, targetUsername := range targets {
+		commandTag, execErr := tx.Exec(r.Context(), `
+			UPDATE im_message
+			SET deleted_at = NOW(), updated_at = NOW()
+			WHERE conversation_id = $1
+				AND sender_username = $2
+				AND deleted_at IS NULL
+				AND seq_no > (SELECT COALESCE(purged_before_seq_no, 0) FROM im_conversation WHERE id = $1)`, req.ConversationID, targetUsername)
+		if execErr != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": execErr.Error()})
+			return
+		}
+		deletedCount += commandTag.RowsAffected()
 	}
 	if err := refreshConversationSummary(r.Context(), tx, req.ConversationID); err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
@@ -1316,8 +1321,12 @@ func (a *App) handleSessionMemberHistoryClear(w http.ResponseWriter, r *http.Req
 		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
 		return
 	}
-	a.broadcastUsernames(affectedUsers, map[string]any{"type": "im.session.updated", "payload": map[string]any{"conversation_id": req.ConversationID, "reason": "member_history_cleared", "sender_username": targetUsername, "conversation_title": meta.ConversationTitle}})
-	writeJSON(w, http.StatusOK, map[string]any{"success": true, "deleted_count": commandTag.RowsAffected()})
+	payload := map[string]any{"conversation_id": req.ConversationID, "reason": "member_history_cleared", "conversation_title": meta.ConversationTitle, "usernames": targets}
+	if len(targets) == 1 {
+		payload["sender_username"] = targets[0]
+	}
+	a.broadcastUsernames(affectedUsers, map[string]any{"type": "im.session.updated", "payload": payload})
+	writeJSON(w, http.StatusOK, map[string]any{"success": true, "deleted_count": deletedCount, "usernames": targets})
 }
 
 func (a *App) handleSessionHide(w http.ResponseWriter, r *http.Request) {

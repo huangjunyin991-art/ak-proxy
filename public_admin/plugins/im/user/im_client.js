@@ -48,7 +48,24 @@
         groupSettingsError: '',
         groupSettingsConversationId: 0,
         groupSettingsData: null,
-        groupSettingsMembersExpanded: false
+        groupSettingsMembersExpanded: false,
+        memberActionOpen: false,
+        memberActionMode: '',
+        memberActionConversationId: 0,
+        memberActionKeyword: '',
+        memberActionSelectedUsernames: [],
+        memberActionSubmitting: false,
+        memberActionError: '',
+        dialogOpen: false,
+        dialogTitle: '',
+        dialogMessage: '',
+        dialogConfirmText: '',
+        dialogCancelText: '',
+        dialogDanger: false,
+        dialogShowCancel: true,
+        dialogAction: '',
+        dialogSubmitting: false,
+        dialogPayload: null
     };
 
     let root = null;
@@ -71,6 +88,16 @@
     let settingsPanelBodyEl = null;
     let chatMenuBtnEl = null;
     let groupInfoTitleEl = null;
+    let memberActionPageEl = null;
+    let memberActionBodyEl = null;
+    let memberActionSearchEl = null;
+    let memberActionTitleEl = null;
+    let memberActionSubmitBtnEl = null;
+    let dialogEl = null;
+    let dialogTitleEl = null;
+    let dialogMessageEl = null;
+    let dialogCancelBtnEl = null;
+    let dialogConfirmBtnEl = null;
 
     function getCookie(name) {
         try {
@@ -196,6 +223,7 @@
                 #ak-im-root.ak-view-chat .ak-im-chat-screen{display:flex}
                 #ak-im-root.ak-view-compose .ak-im-compose-screen{display:flex}
                 #ak-im-root.ak-view-group-info .ak-im-group-info-screen{display:flex}
+                #ak-im-root.ak-view-member-action .ak-im-member-action-screen{display:flex}
                 #ak-im-root .ak-im-topbar{height:calc(56px + env(safe-area-inset-top, 0px));padding:calc(env(safe-area-inset-top, 0px) + 8px) 12px 8px;display:grid;grid-template-columns:52px 1fr 52px;align-items:center;background:#ededed;border-bottom:1px solid rgba(15,23,42,.06);box-sizing:border-box}
                 #ak-im-root .ak-im-topbar-title,#ak-im-root .ak-im-topbar-title-wrap{text-align:center;min-width:0}
                 #ak-im-root .ak-im-topbar-title{font-size:17px;font-weight:600;color:#111827;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -361,6 +389,55 @@
                 #ak-im-root .ak-im-group-info-hero-subtitle{font-size:12px;color:#6b7280;line-height:1.4}
                 #ak-im-root .ak-im-session-avatar.is-mosaic{padding:0;background:transparent}
                 #ak-im-root .ak-im-session-avatar.is-mosaic .ak-im-avatar-mosaic .ak-im-avatar-cell{font-size:9px}
+                #ak-im-root .ak-im-member-action-screen{background:#ededed}
+                #ak-im-root .ak-im-member-action-page{position:relative;flex:1;display:flex;flex-direction:column;min-height:0;background:#f7f7f7}
+                #ak-im-root .ak-im-member-action-search{padding:10px 12px;background:#ededed;border-bottom:1px solid rgba(15,23,42,.04)}
+                #ak-im-root .ak-im-member-action-search-input{width:100%;height:36px;border:none;border-radius:12px;background:#ffffff;padding:0 14px;font-size:14px;color:#111827;outline:none;box-sizing:border-box}
+                #ak-im-root .ak-im-member-action-search-input:focus{box-shadow:0 0 0 2px rgba(7,193,96,.14) inset}
+                #ak-im-root .ak-im-member-action-body{flex:1;overflow:auto;padding:12px 12px calc(92px + env(safe-area-inset-bottom, 0px));background:#f7f7f7}
+                #ak-im-root .ak-im-member-action-section{background:#ffffff;border-radius:18px;padding:14px 14px 12px;box-shadow:0 1px 2px rgba(15,23,42,.04)}
+                #ak-im-root .ak-im-member-action-section + .ak-im-member-action-section{margin-top:12px}
+                #ak-im-root .ak-im-member-action-section-title{margin:0 0 10px;font-size:13px;font-weight:600;color:#374151;line-height:1.4}
+                #ak-im-root .ak-im-member-action-selected-empty{padding:10px 2px;color:#9ca3af;font-size:13px;line-height:1.6}
+                #ak-im-root .ak-im-member-action-chip-list{display:flex;flex-wrap:wrap;gap:8px}
+                #ak-im-root .ak-im-member-action-chip{max-width:100%;border:none;background:#f0fdf4;color:#166534;min-height:32px;border-radius:999px;padding:0 10px;display:inline-flex;align-items:center;gap:6px;cursor:pointer}
+                #ak-im-root .ak-im-member-action-chip:active{opacity:.78}
+                #ak-im-root .ak-im-member-action-chip-label{min-width:0;max-width:180px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:12px;font-weight:600}
+                #ak-im-root .ak-im-member-action-chip-remove{font-size:14px;line-height:1}
+                #ak-im-root .ak-im-member-action-list{display:flex;flex-direction:column}
+                #ak-im-root .ak-im-member-action-row{width:100%;padding:12px 0;border:none;background:transparent;display:flex;align-items:center;gap:12px;text-align:left;cursor:pointer}
+                #ak-im-root .ak-im-member-action-row + .ak-im-member-action-row{border-top:1px solid rgba(15,23,42,.06)}
+                #ak-im-root .ak-im-member-action-row:disabled{cursor:not-allowed;opacity:1}
+                #ak-im-root .ak-im-member-action-row.is-disabled .ak-im-member-action-name{color:#9ca3af}
+                #ak-im-root .ak-im-member-action-row.is-disabled .ak-im-member-action-meta{color:#c7cdd8}
+                #ak-im-root .ak-im-member-action-avatar{width:44px;height:44px;border-radius:14px;background:linear-gradient(180deg,#8fe3a8 0%,#56c57b 100%);color:#ffffff;display:inline-flex;align-items:center;justify-content:center;font-size:15px;font-weight:700;flex:0 0 auto}
+                #ak-im-root .ak-im-member-action-main{min-width:0;flex:1}
+                #ak-im-root .ak-im-member-action-name{font-size:15px;font-weight:600;color:#111827;line-height:1.4;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+                #ak-im-root .ak-im-member-action-meta{margin-top:4px;display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:12px;color:#6b7280;line-height:1.4}
+                #ak-im-root .ak-im-member-action-role{display:inline-flex;align-items:center;justify-content:center;height:18px;padding:0 6px;border-radius:999px;background:rgba(7,193,96,.12);color:#16a34a;font-size:10px;font-weight:700}
+                #ak-im-root .ak-im-member-action-reason{color:#ef4444}
+                #ak-im-root .ak-im-member-action-reason.is-muted{color:#9ca3af}
+                #ak-im-root .ak-im-member-action-check{width:22px;height:22px;border-radius:999px;border:1.5px solid rgba(156,163,175,.6);display:inline-flex;align-items:center;justify-content:center;color:transparent;font-size:14px;font-weight:700;flex:0 0 auto;box-sizing:border-box}
+                #ak-im-root .ak-im-member-action-check.is-selected{background:#07c160;border-color:#07c160;color:#ffffff}
+                #ak-im-root .ak-im-member-action-check.is-disabled{border-style:dashed;background:#f3f4f6;color:transparent}
+                #ak-im-root .ak-im-member-action-footer{position:absolute;left:0;right:0;bottom:0;padding:12px 12px calc(12px + env(safe-area-inset-bottom, 0px));background:linear-gradient(180deg,rgba(247,247,247,0) 0%,#f7f7f7 28%,#f7f7f7 100%)}
+                #ak-im-root .ak-im-member-action-submit{width:100%;height:48px;border:none;border-radius:14px;background:#07c160;color:#ffffff;font-size:16px;font-weight:700;cursor:pointer;box-shadow:0 10px 24px rgba(7,193,96,.18)}
+                #ak-im-root .ak-im-member-action-submit:disabled{opacity:.42;cursor:not-allowed;box-shadow:none}
+                #ak-im-root .ak-im-member-action-error{margin-bottom:12px;padding:11px 12px;border-radius:14px;background:rgba(239,68,68,.08);color:#dc2626;font-size:13px;line-height:1.6}
+                #ak-im-root .ak-im-member-action-empty{padding:28px 14px;color:#9ca3af;font-size:13px;line-height:1.7;text-align:center}
+                #ak-im-root .ak-im-dialog{display:none;position:fixed;inset:0;z-index:2147483651}
+                #ak-im-root .ak-im-dialog.visible{display:block}
+                #ak-im-root .ak-im-dialog-mask{position:absolute;inset:0;background:rgba(0,0,0,.36)}
+                #ak-im-root .ak-im-dialog-panel{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:min(320px,calc(100vw - 40px));background:#ffffff;border-radius:18px;box-shadow:0 24px 60px rgba(0,0,0,.22);overflow:hidden}
+                #ak-im-root .ak-im-dialog-content{padding:24px 20px 18px;text-align:center}
+                #ak-im-root .ak-im-dialog-title{font-size:18px;font-weight:600;color:#111827;line-height:1.4}
+                #ak-im-root .ak-im-dialog-message{margin-top:12px;font-size:14px;color:#6b7280;line-height:1.7;white-space:pre-line}
+                #ak-im-root .ak-im-dialog-actions{display:flex;border-top:1px solid rgba(15,23,42,.06)}
+                #ak-im-root .ak-im-dialog-actions.is-single .ak-im-dialog-btn + .ak-im-dialog-btn{display:none}
+                #ak-im-root .ak-im-dialog-btn{flex:1;height:52px;border:none;background:#ffffff;color:#111827;font-size:16px;font-weight:500;cursor:pointer}
+                #ak-im-root .ak-im-dialog-btn + .ak-im-dialog-btn{border-left:1px solid rgba(15,23,42,.06)}
+                #ak-im-root .ak-im-dialog-btn.is-danger{color:#ef4444;font-weight:600}
+                #ak-im-root .ak-im-dialog-btn:disabled{opacity:.42;cursor:not-allowed}
                 @media (max-width: 640px){#ak-im-root{left:calc(50% + 42px);top:calc(env(safe-area-inset-top, 0px) - 10px)}#ak-im-root .ak-im-topbar{grid-template-columns:48px 1fr 56px}#ak-im-root .ak-im-session-avatar{width:44px;height:44px;border-radius:12px}#ak-im-root .ak-im-message-main{max-width:78%}}
             </style>
             <button class="ak-im-launcher" type="button" aria-label="内部聊天">
@@ -428,6 +505,20 @@
                     </div>
                     <div class="ak-im-group-info-page"></div>
                 </div>
+                <div class="ak-im-screen ak-im-member-action-screen">
+                    <div class="ak-im-topbar">
+                        <button class="ak-im-nav-btn ak-im-member-action-back" type="button" aria-label="返回群信息页面">
+                            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M15 18L9 12L15 6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                        </button>
+                        <div class="ak-im-topbar-title ak-im-member-action-title">选择成员</div>
+                        <div class="ak-im-group-info-side" aria-hidden="true"></div>
+                    </div>
+                    <div class="ak-im-member-action-page">
+                        <div class="ak-im-member-action-search"><input class="ak-im-member-action-search-input" type="search" inputmode="search" autocomplete="off" spellcheck="false" placeholder="搜索成员" /></div>
+                        <div class="ak-im-member-action-body"></div>
+                        <div class="ak-im-member-action-footer"><button class="ak-im-member-action-submit" type="button">确认</button></div>
+                    </div>
+                </div>
             </div>
             <div class="ak-im-action-sheet" aria-hidden="true" inert>
                 <div class="ak-im-action-mask"></div>
@@ -448,6 +539,13 @@
 	            <div class="ak-im-member-panel">
 	                <div class="ak-im-member-header"><div class="ak-im-member-title">群成员</div><button class="ak-im-member-close" type="button">关闭</button></div>
 	                <div class="ak-im-member-panel-body"></div>
+	            </div>
+	        </div>
+	        <div class="ak-im-dialog" aria-hidden="true" inert>
+	            <div class="ak-im-dialog-mask"></div>
+	            <div class="ak-im-dialog-panel">
+	                <div class="ak-im-dialog-content"><div class="ak-im-dialog-title"></div><div class="ak-im-dialog-message"></div></div>
+	                <div class="ak-im-dialog-actions"><button class="ak-im-dialog-btn" type="button" data-im-dialog="cancel">取消</button><button class="ak-im-dialog-btn is-danger" type="button" data-im-dialog="confirm">确定</button></div>
 	            </div>
 	        </div>
         `;
@@ -471,6 +569,16 @@
 	    settingsPanelBodyEl = root.querySelector('.ak-im-group-info-page');
 	    chatMenuBtnEl = root.querySelector('.ak-im-chat-menu');
 	    groupInfoTitleEl = root.querySelector('.ak-im-group-info-title');
+	    memberActionPageEl = root.querySelector('.ak-im-member-action-screen');
+	    memberActionBodyEl = root.querySelector('.ak-im-member-action-body');
+	    memberActionSearchEl = root.querySelector('.ak-im-member-action-search-input');
+	    memberActionTitleEl = root.querySelector('.ak-im-member-action-title');
+	    memberActionSubmitBtnEl = root.querySelector('.ak-im-member-action-submit');
+	    dialogEl = root.querySelector('.ak-im-dialog');
+	    dialogTitleEl = root.querySelector('.ak-im-dialog-title');
+	    dialogMessageEl = root.querySelector('.ak-im-dialog-message');
+	    dialogCancelBtnEl = root.querySelector('[data-im-dialog="cancel"]');
+	    dialogConfirmBtnEl = root.querySelector('[data-im-dialog="confirm"]');
         root.querySelector('.ak-im-launcher').addEventListener('click', function() {
             state.open = true;
             if (state.view !== 'compose' && !state.activeConversationId) state.view = 'sessions';
@@ -480,6 +588,7 @@
             closeActionSheet();
             closeReadProgressPanel();
 	        closeMemberPanel();
+	        closeDialog({ silent: true, force: true });
 	        closeSettingsPanel();
             state.open = false;
             state.view = 'sessions';
@@ -489,6 +598,7 @@
             closeActionSheet();
             closeReadProgressPanel();
 	        closeMemberPanel();
+	        closeDialog({ silent: true, force: true });
 	        closeSettingsPanel();
             state.view = 'sessions';
             render();
@@ -569,7 +679,28 @@
 	        closeMemberPanel();
 	    });
 	    settingsPanelEl.querySelector('.ak-im-group-info-back').addEventListener('click', function() {
+	        closeDialog({ silent: true, force: true });
 	        closeSettingsPanel();
+	    });
+	    memberActionPageEl.querySelector('.ak-im-member-action-back').addEventListener('click', function() {
+	        closeDialog({ silent: true, force: true });
+	        closeMemberActionPage();
+	    });
+	    memberActionSearchEl.addEventListener('input', function() {
+	        state.memberActionKeyword = memberActionSearchEl.value || '';
+	        renderMemberActionPage();
+	    });
+	    memberActionSubmitBtnEl.addEventListener('click', function() {
+	        submitMemberActionPage();
+	    });
+	    dialogEl.querySelector('.ak-im-dialog-mask').addEventListener('click', function() {
+	        closeDialog();
+	    });
+	    dialogCancelBtnEl.addEventListener('click', function() {
+	        closeDialog();
+	    });
+	    dialogConfirmBtnEl.addEventListener('click', function() {
+	        submitDialogAction();
 	    });
         syncInputHeight();
         syncComposerState();
@@ -947,6 +1078,446 @@
 	    return '<div class="ak-im-settings-chip"><span>' + escapeHtml(displayName + (username && displayName !== username ? ' @' + username : '')) + '</span><span class="ak-im-settings-chip-role">' + escapeHtml(roleText) + '</span></div>';
 	}
 
+	function getGroupMemberRoleLabel(role) {
+	    const key = String(role || '').trim().toLowerCase();
+	    if (key === 'owner') return '群主';
+	    if (key === 'admin') return '管理员';
+	    return '';
+	}
+
+	function getMemberDisplayName(member, fallbackText) {
+	    const displayName = String(member && member.display_name || '').trim();
+	    const username = String(member && member.username || '').trim();
+	    return displayName || username || String(fallbackText || '成员');
+	}
+
+	function getMemberActionConfig(mode) {
+	    if (mode === 'remove') {
+	        return {
+	            title: '移除成员',
+	            selectedTitle: '已选择移除成员',
+	            listTitle: '全部成员',
+	            emptyText: '当前没有可移除的成员',
+	            submitText: '确认移除',
+	            submittingText: '正在移除...',
+	            confirmTitle: '确认移除成员？',
+	            confirmText: '移除',
+	            errorMessage: '移除成员失败',
+	            buildRequestBody: function(conversationId, usernames) {
+	                return { conversation_id: conversationId, usernames: usernames };
+	            },
+	            requestUrl: `${HTTP_ROOT}/sessions/members/remove`,
+	            buildConfirmMessage: function(candidates) {
+	                return '移除后，这些成员将退出当前群聊。\n\n已选择：' + formatMemberActionCandidateSummary(candidates);
+	            }
+	        };
+	    }
+	    if (mode === 'clear_member_history') {
+	        return {
+	            title: '清空指定成员聊天记录',
+	            selectedTitle: '已选择清空聊天记录成员',
+	            listTitle: '全部成员',
+	            emptyText: '当前没有可清空聊天记录的成员',
+	            submitText: '确认清空',
+	            submittingText: '正在清空...',
+	            confirmTitle: '确认清空指定成员聊天记录？',
+	            confirmText: '清空',
+	            errorMessage: '清空指定成员聊天记录失败',
+	            buildRequestBody: function(conversationId, usernames) {
+	                return { conversation_id: conversationId, usernames: usernames };
+	            },
+	            requestUrl: `${HTTP_ROOT}/sessions/history/clear-member`,
+	            buildConfirmMessage: function(candidates) {
+	                return '将删除所选成员在本群发送过的全部消息。\n\n已选择：' + formatMemberActionCandidateSummary(candidates);
+	            }
+	        };
+	    }
+	    return null;
+	}
+
+	function buildMemberActionCandidates(detail, mode) {
+	    const members = sortGroupMembersForDisplay(Array.isArray(detail && detail.members) ? detail.members : []);
+	    const authorSet = {};
+	    (Array.isArray(detail && detail.message_authors) ? detail.message_authors : []).forEach(function(item) {
+	        const username = String(item && item.username || '').trim().toLowerCase();
+	        if (username) authorSet[username] = true;
+	    });
+	    return members.map(function(member) {
+	        const username = String(member && member.username || '').trim().toLowerCase();
+	        const displayName = getMemberDisplayName(member, '成员');
+	        const role = String(member && member.role || '').trim().toLowerCase();
+	        let disabledReason = '';
+	        if (!username) {
+	            disabledReason = '账号无效';
+	        } else if (mode === 'remove') {
+	            if (role === 'owner') disabledReason = '群主不可移除';
+	            else if (role === 'admin') disabledReason = '管理员不可移除';
+	        } else if (mode === 'clear_member_history' && !authorSet[username]) {
+	            disabledReason = '无聊天记录';
+	        }
+	        return {
+	            username: username,
+	            displayName: displayName,
+	            role: role,
+	            roleLabel: getGroupMemberRoleLabel(role),
+	            disabledReason: disabledReason,
+	            selectable: !disabledReason,
+	            searchText: (displayName + '\n' + username).toLowerCase()
+	        };
+	    });
+	}
+
+	function getActiveMemberActionDetail() {
+	    const conversationId = Number(state.memberActionConversationId || 0);
+	    if (!conversationId) return null;
+	    if (Number(state.groupSettingsConversationId || 0) !== conversationId) return null;
+	    return state.groupSettingsData;
+	}
+
+	function getMemberActionCandidates() {
+	    const detail = getActiveMemberActionDetail();
+	    if (!detail) return [];
+	    return buildMemberActionCandidates(detail, state.memberActionMode);
+	}
+
+	function syncMemberActionSelection(candidates) {
+	    const allowedMap = {};
+	    (Array.isArray(candidates) ? candidates : []).forEach(function(candidate) {
+	        if (candidate && candidate.selectable && candidate.username) allowedMap[candidate.username] = true;
+	    });
+	    const nextSelected = (Array.isArray(state.memberActionSelectedUsernames) ? state.memberActionSelectedUsernames : []).filter(function(username) {
+	        return !!allowedMap[username];
+	    });
+	    if (nextSelected.length !== state.memberActionSelectedUsernames.length) {
+	        state.memberActionSelectedUsernames = nextSelected;
+	    }
+	    return nextSelected;
+	}
+
+	function filterMemberActionCandidates(candidates, keyword) {
+	    const normalizedKeyword = String(keyword || '').trim().toLowerCase();
+	    if (!normalizedKeyword) return Array.isArray(candidates) ? candidates : [];
+	    return (Array.isArray(candidates) ? candidates : []).filter(function(candidate) {
+	        return String(candidate && candidate.searchText || '').indexOf(normalizedKeyword) >= 0;
+	    });
+	}
+
+	function formatMemberActionCandidateLabel(candidate) {
+	    const displayName = String(candidate && candidate.displayName || '').trim();
+	    const username = String(candidate && candidate.username || '').trim();
+	    if (displayName && username && displayName.toLowerCase() !== username.toLowerCase()) {
+	        return displayName + ' @' + username;
+	    }
+	    return displayName || username || '成员';
+	}
+
+	function formatMemberActionCandidateSummary(candidates) {
+	    const names = (Array.isArray(candidates) ? candidates : []).map(function(candidate) {
+	        return formatMemberActionCandidateLabel(candidate);
+	    }).filter(Boolean);
+	    if (!names.length) return '暂无成员';
+	    if (names.length <= 3) return names.join('、');
+	    return names.slice(0, 3).join('、') + ' 等 ' + names.length + ' 人';
+	}
+
+	function focusMemberActionSearch() {
+	    if (!memberActionSearchEl) return;
+	    setTimeout(function() {
+	        if (!memberActionSearchEl || !state.memberActionOpen || state.view !== 'member_action') return;
+	        memberActionSearchEl.focus();
+	        try {
+	            const length = memberActionSearchEl.value.length;
+	            memberActionSearchEl.setSelectionRange(length, length);
+	        } catch (e) {}
+	    }, 0);
+	}
+
+	function openMemberActionPage(mode) {
+	    const config = getMemberActionConfig(mode);
+	    const conversationId = Number(state.groupSettingsConversationId || 0);
+	    if (!config || !conversationId || !state.groupSettingsData) return;
+	    state.memberActionOpen = true;
+	    state.memberActionMode = mode;
+	    state.memberActionConversationId = conversationId;
+	    state.memberActionKeyword = '';
+	    state.memberActionSelectedUsernames = [];
+	    state.memberActionSubmitting = false;
+	    state.memberActionError = '';
+	    closeDialog({ silent: true, force: true });
+	    state.view = 'member_action';
+	    render();
+	}
+
+	function closeMemberActionPage(options) {
+	    const silent = !!(options && options.silent);
+	    const fallbackView = options && options.fallbackView ? options.fallbackView : (state.groupSettingsOpen ? 'group_info' : (state.activeConversationId ? 'chat' : 'sessions'));
+	    state.memberActionOpen = false;
+	    state.memberActionMode = '';
+	    state.memberActionConversationId = 0;
+	    state.memberActionKeyword = '';
+	    state.memberActionSelectedUsernames = [];
+	    state.memberActionSubmitting = false;
+	    state.memberActionError = '';
+	    if (state.view === 'member_action') state.view = fallbackView;
+	    if (!silent) render();
+	}
+
+	function toggleMemberActionSelection(username) {
+	    const normalized = String(username || '').trim().toLowerCase();
+	    if (!normalized || state.memberActionSubmitting) return;
+	    const selected = Array.isArray(state.memberActionSelectedUsernames) ? state.memberActionSelectedUsernames.slice() : [];
+	    const index = selected.indexOf(normalized);
+	    if (index >= 0) selected.splice(index, 1);
+	    else selected.push(normalized);
+	    state.memberActionSelectedUsernames = selected;
+	    if (state.memberActionError) state.memberActionError = '';
+	    renderMemberActionPage();
+	}
+
+	function renderMemberActionPage() {
+	    if (!memberActionBodyEl || !memberActionSearchEl || !memberActionTitleEl || !memberActionSubmitBtnEl) return;
+	    const isOpen = !!state.memberActionOpen;
+	    const config = getMemberActionConfig(state.memberActionMode);
+	    memberActionTitleEl.textContent = config ? config.title : '选择成员';
+	    memberActionSearchEl.value = String(state.memberActionKeyword || '');
+	    memberActionSearchEl.disabled = !isOpen || !!state.memberActionSubmitting;
+	    if (!isOpen || !config) {
+	        memberActionBodyEl.innerHTML = '';
+	        memberActionSubmitBtnEl.disabled = true;
+	        memberActionSubmitBtnEl.textContent = '确认';
+	        return;
+	    }
+	    const candidates = getMemberActionCandidates();
+	    const selectedUsernames = syncMemberActionSelection(candidates);
+	    const candidateMap = {};
+	    candidates.forEach(function(candidate) {
+	        if (candidate && candidate.username) candidateMap[candidate.username] = candidate;
+	    });
+	    const selectedCandidates = selectedUsernames.map(function(username) {
+	        return candidateMap[username] || null;
+	    }).filter(Boolean);
+	    const filteredCandidates = filterMemberActionCandidates(candidates, state.memberActionKeyword);
+	    const selectedMarkup = selectedCandidates.length ? '<div class="ak-im-member-action-chip-list">' + selectedCandidates.map(function(candidate) {
+	        return '<button class="ak-im-member-action-chip" type="button" data-im-member-chip="' + escapeHtml(candidate.username) + '"><span class="ak-im-member-action-chip-label">' + escapeHtml(formatMemberActionCandidateLabel(candidate)) + '</span><span class="ak-im-member-action-chip-remove" aria-hidden="true">×</span></button>';
+	    }).join('') + '</div>' : '<div class="ak-im-member-action-selected-empty">暂未选择成员</div>';
+	    const listMarkup = filteredCandidates.length ? '<div class="ak-im-member-action-list">' + filteredCandidates.map(function(candidate) {
+	        const isSelected = selectedUsernames.indexOf(candidate.username) >= 0;
+	        const reasonClass = candidate.disabledReason === '无聊天记录' ? ' is-muted' : '';
+	        return '<button class="ak-im-member-action-row' + (candidate.selectable ? '' : ' is-disabled') + '" type="button" data-im-member-option="' + escapeHtml(candidate.username) + '"' + (candidate.selectable ? '' : ' disabled') + '>' +
+	            '<div class="ak-im-member-action-avatar">' + escapeHtml(getAvatarText(candidate.displayName || candidate.username || '成员')) + '</div>' +
+	            '<div class="ak-im-member-action-main"><div class="ak-im-member-action-name">' + escapeHtml(candidate.displayName || candidate.username || '未知成员') + '</div>' +
+	            '<div class="ak-im-member-action-meta"><span>@' + escapeHtml(candidate.username || 'unknown') + '</span>' +
+	            (candidate.roleLabel ? '<span class="ak-im-member-action-role">' + escapeHtml(candidate.roleLabel) + '</span>' : '') +
+	            (candidate.disabledReason ? '<span class="ak-im-member-action-reason' + reasonClass + '">' + escapeHtml(candidate.disabledReason) + '</span>' : '') +
+	            '</div></div>' +
+	            '<span class="ak-im-member-action-check' + (candidate.selectable ? (isSelected ? ' is-selected' : '') : ' is-disabled') + '">' + (isSelected ? '✓' : '') + '</span>' +
+	        '</button>';
+	    }).join('') + '</div>' : '<div class="ak-im-member-action-empty">' + escapeHtml(state.memberActionKeyword ? '没有匹配的成员' : config.emptyText) + '</div>';
+	    memberActionBodyEl.innerHTML = (state.memberActionError ? '<div class="ak-im-member-action-error">' + escapeHtml(state.memberActionError) + '</div>' : '') +
+	        '<div class="ak-im-member-action-section"><div class="ak-im-member-action-section-title">' + escapeHtml(config.selectedTitle + '（' + selectedCandidates.length + '）') + '</div>' + selectedMarkup + '</div>' +
+	        '<div class="ak-im-member-action-section"><div class="ak-im-member-action-section-title">' + escapeHtml(config.listTitle) + '</div>' + listMarkup + '</div>';
+	    Array.prototype.forEach.call(memberActionBodyEl.querySelectorAll('[data-im-member-option]'), function(button) {
+	        button.addEventListener('click', function() {
+	            toggleMemberActionSelection(button.getAttribute('data-im-member-option'));
+	        });
+	    });
+	    Array.prototype.forEach.call(memberActionBodyEl.querySelectorAll('[data-im-member-chip]'), function(button) {
+	        button.addEventListener('click', function() {
+	            toggleMemberActionSelection(button.getAttribute('data-im-member-chip'));
+	        });
+	    });
+	    memberActionSubmitBtnEl.disabled = !selectedCandidates.length || !!state.memberActionSubmitting;
+	    memberActionSubmitBtnEl.textContent = state.memberActionSubmitting ? config.submittingText : (config.submitText + (selectedCandidates.length ? '（' + selectedCandidates.length + '）' : ''));
+	}
+
+	function openDialog(options) {
+	    state.dialogOpen = true;
+	    state.dialogTitle = String(options && options.title || '提示');
+	    state.dialogMessage = String(options && options.message || '');
+	    state.dialogConfirmText = String(options && options.confirmText || '确定');
+	    state.dialogCancelText = String(options && options.cancelText || '取消');
+	    state.dialogDanger = !!(options && options.danger);
+	    state.dialogShowCancel = options && Object.prototype.hasOwnProperty.call(options, 'showCancel') ? !!options.showCancel : true;
+	    state.dialogAction = String(options && options.action || '');
+	    state.dialogSubmitting = false;
+	    state.dialogPayload = options && options.payload ? options.payload : null;
+	    renderDialog();
+	}
+
+	function closeDialog(options) {
+	    const silent = !!(options && options.silent);
+	    const force = !!(options && options.force);
+	    if (state.dialogSubmitting && !force) return;
+	    state.dialogOpen = false;
+	    state.dialogTitle = '';
+	    state.dialogMessage = '';
+	    state.dialogConfirmText = '';
+	    state.dialogCancelText = '';
+	    state.dialogDanger = false;
+	    state.dialogShowCancel = true;
+	    state.dialogAction = '';
+	    state.dialogSubmitting = false;
+	    state.dialogPayload = null;
+	    if (!silent) renderDialog();
+	}
+
+	function renderDialog() {
+	    if (!dialogEl || !dialogTitleEl || !dialogMessageEl || !dialogCancelBtnEl || !dialogConfirmBtnEl) return;
+	    const isOpen = !!state.dialogOpen;
+	    const actionWrap = dialogEl.querySelector('.ak-im-dialog-actions');
+	    dialogEl.classList.toggle('visible', isOpen);
+	    if (!isOpen) {
+	        const activeElement = document.activeElement;
+	        if (activeElement && dialogEl.contains(activeElement) && typeof activeElement.blur === 'function') activeElement.blur();
+	        dialogEl.setAttribute('inert', '');
+	        dialogEl.setAttribute('aria-hidden', 'true');
+	        if (actionWrap) actionWrap.classList.remove('is-single');
+	        return;
+	    }
+	    dialogEl.removeAttribute('inert');
+	    dialogEl.setAttribute('aria-hidden', 'false');
+	    if (actionWrap) actionWrap.classList.toggle('is-single', !state.dialogShowCancel);
+	    dialogTitleEl.textContent = state.dialogTitle || '提示';
+	    dialogMessageEl.textContent = state.dialogMessage || '';
+	    dialogCancelBtnEl.textContent = state.dialogCancelText || '取消';
+	    dialogCancelBtnEl.style.display = state.dialogShowCancel ? '' : 'none';
+	    dialogCancelBtnEl.disabled = !!state.dialogSubmitting;
+	    dialogConfirmBtnEl.textContent = state.dialogConfirmText || '确定';
+	    dialogConfirmBtnEl.disabled = !!state.dialogSubmitting;
+	    dialogConfirmBtnEl.classList.toggle('is-danger', !!state.dialogDanger);
+	}
+
+	function showSettingsErrorDialog(message) {
+	    openDialog({
+	        title: '操作失败',
+	        message: message,
+	        confirmText: '我知道了',
+	        showCancel: false,
+	        danger: false
+	    });
+	}
+
+	function executeSettingsDialogRequest(requestPromiseFactory, onSuccess, fallbackMessage, onError) {
+	    state.dialogSubmitting = true;
+	    renderDialog();
+	    Promise.resolve().then(requestPromiseFactory).then(function() {
+	        return typeof onSuccess === 'function' ? onSuccess() : null;
+	    }).then(function() {
+	        closeDialog({ silent: true, force: true });
+	        render();
+	    }).catch(function(error) {
+	        const message = error && error.message ? error.message : fallbackMessage;
+	        closeDialog({ silent: true, force: true });
+	        if (typeof onError === 'function' && onError(message) === true) {
+	            render();
+	            return;
+	        }
+	        showSettingsErrorDialog(message);
+	    });
+	}
+
+	function submitMemberActionPage() {
+	    const config = getMemberActionConfig(state.memberActionMode);
+	    const conversationId = Number(state.memberActionConversationId || 0);
+	    if (!config || !conversationId) return;
+	    const candidates = getMemberActionCandidates();
+	    const selectedUsernames = syncMemberActionSelection(candidates);
+	    const candidateMap = {};
+	    candidates.forEach(function(candidate) {
+	        if (candidate && candidate.username) candidateMap[candidate.username] = candidate;
+	    });
+	    const selectedCandidates = selectedUsernames.map(function(username) {
+	        return candidateMap[username] || null;
+	    }).filter(Boolean);
+	    if (!selectedCandidates.length) {
+	        state.memberActionError = '请至少选择一名成员';
+	        renderMemberActionPage();
+	        return;
+	    }
+	    state.memberActionError = '';
+	    openDialog({
+	        title: config.confirmTitle,
+	        message: config.buildConfirmMessage(selectedCandidates),
+	        confirmText: config.confirmText,
+	        cancelText: '取消',
+	        danger: true,
+	        action: 'member_action_submit',
+	        payload: {
+	            mode: state.memberActionMode,
+	            conversationId: conversationId,
+	            usernames: selectedCandidates.map(function(candidate) { return candidate.username; })
+	        }
+	    });
+	}
+
+	function executeMemberActionRequest(payload) {
+	    const mode = String(payload && payload.mode || '');
+	    const conversationId = Number(payload && payload.conversationId || 0);
+	    const config = getMemberActionConfig(mode);
+	    const usernames = Array.isArray(payload && payload.usernames) ? payload.usernames : [];
+	    if (!config || !conversationId || !usernames.length) {
+	        closeDialog({ force: true });
+	        return;
+	    }
+	    state.memberActionSubmitting = true;
+	    renderMemberActionPage();
+	    executeSettingsDialogRequest(function() {
+	        return request(config.requestUrl, {
+	            method: 'POST',
+	            body: JSON.stringify(config.buildRequestBody(conversationId, usernames))
+	        });
+	    }, function() {
+	        return refreshAfterSettingsAction(conversationId).then(function() {
+	            closeMemberActionPage({ silent: true, fallbackView: 'group_info' });
+	        });
+	    }, config.errorMessage, function(message) {
+	        state.memberActionSubmitting = false;
+	        state.memberActionError = message;
+	        renderMemberActionPage();
+	        return true;
+	    });
+	}
+
+	function executeClearHistoryRequest(conversationId) {
+	    executeSettingsDialogRequest(function() {
+	        return request(`${HTTP_ROOT}/sessions/history/clear`, {
+	            method: 'POST',
+	            body: JSON.stringify({ conversation_id: conversationId })
+	        });
+	    }, function() {
+	        return refreshAfterSettingsAction(conversationId);
+	    }, '清空全群聊天记录失败');
+	}
+
+	function executeHideGroupRequest(conversationId) {
+	    executeSettingsDialogRequest(function() {
+	        return request(`${HTTP_ROOT}/sessions/hide`, {
+	            method: 'POST',
+	            body: JSON.stringify({ conversation_id: conversationId })
+	        });
+	    }, function() {
+	        closeSettingsPanel();
+	        return loadSessions();
+	    }, '隐藏本群失败');
+	}
+
+	function submitDialogAction() {
+	    if (!state.dialogOpen || state.dialogSubmitting) return;
+	    if (state.dialogAction === 'member_action_submit') {
+	        executeMemberActionRequest(state.dialogPayload || null);
+	        return;
+	    }
+	    if (state.dialogAction === 'clear_history') {
+	        executeClearHistoryRequest(Number(state.dialogPayload && state.dialogPayload.conversationId || 0));
+	        return;
+	    }
+	    if (state.dialogAction === 'hide_group') {
+	        executeHideGroupRequest(Number(state.dialogPayload && state.dialogPayload.conversationId || 0));
+	        return;
+	    }
+	    closeDialog();
+	}
+
 	function formatGroupInfoMemberText(member, fallbackText) {
 	    const displayName = String(member && member.display_name || '').trim();
 	    const username = String(member && member.username || '').trim();
@@ -1008,7 +1579,7 @@
 	    const memberGridMarkup = (visibleMembers.length || addMemberMarkup) ? '<div class="ak-im-member-list">' + visibleMembers.map(formatSessionMember).join('') + addMemberMarkup + '</div>' : '<div class="ak-im-group-info-empty">当前群里还没有成员</div>';
 	    const ownerText = formatGroupInfoMemberText(detail.owner || { username: detail.owner_username }, '暂无群主');
 	    const adminsText = formatGroupInfoCollectionText(admins, '暂无群管理员');
-	    const authorsText = formatGroupInfoCollectionText(authors, '暂无可删消息成员');
+	    const authorsText = formatGroupInfoCollectionText(authors, '暂无可清空聊天记录成员');
 	    const statusText = detail.hidden_for_all ? '已对全员隐藏' : '正常显示';
 	    if (groupInfoTitleEl) groupInfoTitleEl.textContent = '聊天信息(' + memberCount + ')';
 	    const heroTitle = String(detail.conversation_title || '群聊');
@@ -1023,13 +1594,13 @@
 	            buildGroupInfoCell('群聊名称', String(detail.conversation_title || '群聊')) +
 	            buildGroupInfoCell('群主', ownerText) +
 	            buildGroupInfoCell('群管理员', adminsText) +
-	            buildGroupInfoCell('可删消息成员', authorsText) +
+	            buildGroupInfoCell('可清空聊天记录成员', authorsText) +
 	            buildGroupInfoCell('群状态', statusText) +
 	        '</div>' +
 	        (canManage ? '<div class="ak-im-group-info-section">' +
 	            buildGroupInfoCell('添加成员', '', 'add') +
 	            buildGroupInfoCell('移除成员', '', 'remove') +
-	            buildGroupInfoCell('删除指定成员消息', '', 'clear_member_history') +
+	            buildGroupInfoCell('清空指定成员聊天记录', '', 'clear_member_history') +
 	            buildGroupInfoCell('清空全群聊天记录', '', 'clear_history', 'is-danger') +
 	            buildGroupInfoCell('隐藏本群', '', 'hide_group', 'is-danger') +
 	        '</div>' : '');
@@ -1047,6 +1618,8 @@
 	}
 
 	function closeSettingsPanel() {
+	    closeDialog({ silent: true, force: true });
+	    closeMemberActionPage({ silent: true, fallbackView: state.activeConversationId ? 'chat' : 'sessions' });
 	    state.groupSettingsOpen = false;
 	    state.groupSettingsLoading = false;
 	    state.groupSettingsError = '';
@@ -1087,6 +1660,8 @@
 	    closeActionSheet();
 	    closeReadProgressPanel();
 	    closeMemberPanel();
+	    closeDialog({ silent: true, force: true });
+	    closeMemberActionPage({ silent: true, fallbackView: 'group_info' });
 	    state.groupSettingsOpen = true;
 	    state.groupSettingsLoading = true;
 	    state.groupSettingsError = '';
@@ -1137,60 +1712,34 @@
 	        return;
 	    }
 	    if (action === 'remove') {
-	        const raw = window.prompt('输入要移除的成员账号，多个账号可用空格、逗号或换行分隔', '');
-	        const usernames = normalizePromptUsernames(raw);
-	        if (!usernames.length) return;
-	        if (!window.confirm('确认移除这些成员吗？')) return;
-	        request(`${HTTP_ROOT}/sessions/members/remove`, {
-	            method: 'POST',
-	            body: JSON.stringify({ conversation_id: conversationId, usernames: usernames })
-	        }).then(function() {
-	            return refreshAfterSettingsAction(conversationId);
-	        }).catch(function(error) {
-	            window.alert(error && error.message ? error.message : '移除成员失败');
-	        });
+	        openMemberActionPage('remove');
 	        return;
 	    }
 	    if (action === 'clear_member_history') {
-	        const authorHint = (Array.isArray(detail.message_authors) ? detail.message_authors : []).map(function(item) {
-	            return String(item && item.username || '').trim().toLowerCase();
-	        }).filter(Boolean).join(', ');
-	        const raw = window.prompt(authorHint ? ('输入要删除消息的成员账号\n可选：' + authorHint) : '输入要删除消息的成员账号', '');
-	        const username = normalizePromptUsernames(raw)[0] || '';
-	        if (!username) return;
-	        if (!window.confirm('确认删除该成员在本群发送过的全部消息吗？')) return;
-	        request(`${HTTP_ROOT}/sessions/history/clear-member`, {
-	            method: 'POST',
-	            body: JSON.stringify({ conversation_id: conversationId, username: username })
-	        }).then(function() {
-	            return refreshAfterSettingsAction(conversationId);
-	        }).catch(function(error) {
-	            window.alert(error && error.message ? error.message : '删除指定成员消息失败');
-	        });
+	        openMemberActionPage('clear_member_history');
 	        return;
 	    }
 	    if (action === 'clear_history') {
-	        if (!window.confirm('确认清空本群全部聊天记录吗？此操作会对所有成员立即生效。')) return;
-	        request(`${HTTP_ROOT}/sessions/history/clear`, {
-	            method: 'POST',
-	            body: JSON.stringify({ conversation_id: conversationId })
-	        }).then(function() {
-	            return refreshAfterSettingsAction(conversationId);
-	        }).catch(function(error) {
-	            window.alert(error && error.message ? error.message : '清空全群聊天记录失败');
+	        openDialog({
+	            title: '清空全群聊天记录？',
+	            message: '清空后，本群现有聊天记录会立即对所有成员生效。',
+	            confirmText: '清空',
+	            cancelText: '取消',
+	            danger: true,
+	            action: 'clear_history',
+	            payload: { conversationId: conversationId }
 	        });
 	        return;
 	    }
 	    if (action === 'hide_group') {
-	        if (!window.confirm('确认对所有成员隐藏本群吗？')) return;
-	        request(`${HTTP_ROOT}/sessions/hide`, {
-	            method: 'POST',
-	            body: JSON.stringify({ conversation_id: conversationId })
-	        }).then(function() {
-	            closeSettingsPanel();
-	            return loadSessions();
-	        }).catch(function(error) {
-	            window.alert(error && error.message ? error.message : '隐藏本群失败');
+	        openDialog({
+	            title: '隐藏本群？',
+	            message: '隐藏后，本群会对所有成员生效。',
+	            confirmText: '隐藏',
+	            cancelText: '取消',
+	            danger: true,
+	            action: 'hide_group',
+	            payload: { conversationId: conversationId }
 	        });
 	    }
 	}
@@ -1306,12 +1855,14 @@
         const showChat = !!activeSession && state.view === 'chat';
         const showCompose = state.view === 'compose';
         const showGroupInfo = state.view === 'group_info' && !!state.groupSettingsOpen;
+        const showMemberAction = state.view === 'member_action' && !!state.memberActionOpen;
         root.classList.toggle('ak-visible', !!state.allowed);
         root.classList.toggle('ak-im-open', !!state.open);
-        root.classList.toggle('ak-view-sessions', !showChat && !showCompose && !showGroupInfo);
+        root.classList.toggle('ak-view-sessions', !showChat && !showCompose && !showGroupInfo && !showMemberAction);
         root.classList.toggle('ak-view-chat', !!showChat);
         root.classList.toggle('ak-view-compose', !!showCompose);
         root.classList.toggle('ak-view-group-info', !!showGroupInfo);
+        root.classList.toggle('ak-view-member-action', !!showMemberAction);
         root.querySelector('.ak-im-launcher').classList.toggle('is-open', !!state.open);
         root.querySelector('.ak-im-launcher').classList.toggle('has-unread', state.sessions.some(function(item) {
             return getUnreadCount(item) > 0;
@@ -1387,9 +1938,12 @@
         renderReadProgressPanel();
 	    renderMemberPanel();
 	    renderSettingsPanel();
+	    renderMemberActionPage();
+	    renderDialog();
         renderComposeView();
         if (showChat) markRead(state.activeConversationId);
         if (state.open && state.view === 'compose') focusComposeInput();
+	    if (state.open && showMemberAction) focusMemberActionSearch();
     }
 
     function renderMessages() {
