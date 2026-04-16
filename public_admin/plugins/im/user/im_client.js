@@ -345,6 +345,17 @@
                 #ak-im-root .ak-im-group-info-cell-label{font-size:16px;color:#111827;line-height:1.5;text-align:left}
                 #ak-im-root .ak-im-group-info-cell-value{min-width:0;max-width:70%;font-size:14px;color:#9ca3af;line-height:1.5;text-align:right;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
                 #ak-im-root .ak-im-group-info-cell-arrow{color:#c7cdd8;font-size:20px;line-height:1;flex:0 0 auto}
+                #ak-im-root .ak-im-avatar-mosaic{width:100%;height:100%;display:grid;grid-template-columns:repeat(3,1fr);grid-template-rows:repeat(3,1fr);gap:1px;background:#e5e7eb;padding:1px;box-sizing:border-box;border-radius:inherit;overflow:hidden}
+                #ak-im-root .ak-im-avatar-mosaic .ak-im-avatar-cell{min-width:0;min-height:0;display:flex;align-items:center;justify-content:center;background:linear-gradient(180deg,#8fe3a8 0%,#56c57b 100%);color:#ffffff;font-size:9px;font-weight:700;line-height:1;overflow:hidden;padding:0}
+                #ak-im-root .ak-im-avatar-mosaic.is-single .ak-im-avatar-cell{font-size:16px;grid-column:1/-1;grid-row:1/-1}
+                #ak-im-root .ak-im-group-info-hero{background:#ffffff;padding:20px 16px 16px;display:flex;flex-direction:column;align-items:center;gap:8px}
+                #ak-im-root .ak-im-group-info-hero-avatar{width:72px;height:72px;border-radius:14px;overflow:hidden;box-shadow:0 1px 2px rgba(15,23,42,.06)}
+                #ak-im-root .ak-im-group-info-hero-avatar .ak-im-avatar-mosaic .ak-im-avatar-cell{font-size:11px}
+                #ak-im-root .ak-im-group-info-hero-avatar .ak-im-avatar-mosaic.is-single .ak-im-avatar-cell{font-size:22px}
+                #ak-im-root .ak-im-group-info-hero-title{font-size:17px;font-weight:700;color:#111827;line-height:1.3;text-align:center;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:0 12px}
+                #ak-im-root .ak-im-group-info-hero-subtitle{font-size:12px;color:#6b7280;line-height:1.4}
+                #ak-im-root .ak-im-session-avatar.is-mosaic{padding:0;background:transparent}
+                #ak-im-root .ak-im-session-avatar.is-mosaic .ak-im-avatar-mosaic .ak-im-avatar-cell{font-size:9px}
                 @media (max-width: 640px){#ak-im-root{left:calc(50% + 42px);top:calc(env(safe-area-inset-top, 0px) - 10px)}#ak-im-root .ak-im-topbar{grid-template-columns:48px 1fr 56px}#ak-im-root .ak-im-session-avatar{width:44px;height:44px;border-radius:12px}#ak-im-root .ak-im-message-main{max-width:78%}}
             </style>
             <button class="ak-im-launcher" type="button" aria-label="内部聊天">
@@ -627,6 +638,42 @@
         return String(item && item.last_message_preview || '').trim() || '暂无消息';
     }
 
+    const GROUP_MEMBER_ROLE_WEIGHTS = { owner: 0, admin: 1 };
+
+    function getGroupMemberRoleWeight(role) {
+        const key = String(role || '').trim().toLowerCase();
+        return key in GROUP_MEMBER_ROLE_WEIGHTS ? GROUP_MEMBER_ROLE_WEIGHTS[key] : 2;
+    }
+
+    function sortGroupMembersForDisplay(members) {
+        const list = Array.isArray(members) ? members : [];
+        const decorated = list.map(function(member, index) {
+            return { member: member, weight: getGroupMemberRoleWeight(member && member.role), index: index };
+        });
+        decorated.sort(function(a, b) {
+            if (a.weight !== b.weight) return a.weight - b.weight;
+            return a.index - b.index;
+        });
+        return decorated.map(function(entry) { return entry.member; });
+    }
+
+    function buildGroupAvatarMosaicMarkup(members, fallbackText) {
+        const list = (Array.isArray(members) ? members : []).slice(0, 9);
+        if (!list.length) {
+            return '<div class="ak-im-avatar-mosaic is-single" aria-hidden="true"><span class="ak-im-avatar-cell">' + escapeHtml(getAvatarText(fallbackText || '群')) + '</span></div>';
+        }
+        if (list.length === 1) {
+            const only = list[0];
+            const onlyName = String(only && (only.display_name || only.username) || '').trim() || String(fallbackText || '群');
+            return '<div class="ak-im-avatar-mosaic is-single" aria-hidden="true"><span class="ak-im-avatar-cell">' + escapeHtml(getAvatarText(onlyName)) + '</span></div>';
+        }
+        const cells = list.map(function(member) {
+            const display = String(member && (member.display_name || member.username) || '').trim() || '成员';
+            return '<span class="ak-im-avatar-cell">' + escapeHtml(getAvatarText(display)) + '</span>';
+        }).join('');
+        return '<div class="ak-im-avatar-mosaic" aria-hidden="true">' + cells + '</div>';
+    }
+
     function getAvatarText(value) {
         const raw = String(value || '').replace(/[^0-9a-zA-Z\u4e00-\u9fa5]/g, '').trim();
         if (!raw) return '聊';
@@ -864,7 +911,8 @@
 	        memberPanelBodyEl.innerHTML = '<div class="ak-im-member-empty">暂无可用的成员数据</div>';
 	        return;
 	    }
-	    memberPanelBodyEl.innerHTML = '<div class="ak-im-member-summary">共 ' + escapeHtml(String(Number(detail.member_count || members.length || 0))) + ' 人</div><div class="ak-im-member-list">' + (members.length ? members.map(function(member) {
+	    const sortedMembers = sortGroupMembersForDisplay(members);
+	    memberPanelBodyEl.innerHTML = '<div class="ak-im-member-summary">共 ' + escapeHtml(String(Number(detail.member_count || sortedMembers.length || 0))) + ' 人</div><div class="ak-im-member-list">' + (sortedMembers.length ? sortedMembers.map(function(member) {
 	        return formatSessionMember(member);
 	    }).join('') : '<div class="ak-im-member-empty">当前群里还没有成员</div>') + '</div>';
 	}
@@ -923,7 +971,8 @@
 	        settingsPanelBodyEl.innerHTML = '<div class="ak-im-group-info-empty">暂无可用的群信息</div>';
 	        return;
 	    }
-	    const members = Array.isArray(detail.members) ? detail.members : [];
+	    const rawMembers = Array.isArray(detail.members) ? detail.members : [];
+	    const members = sortGroupMembersForDisplay(rawMembers);
 	    const admins = Array.isArray(detail.admins) ? detail.admins : [];
 	    const authors = Array.isArray(detail.message_authors) ? detail.message_authors : [];
 	    const canManage = !!detail.can_manage;
@@ -940,7 +989,14 @@
 	    const authorsText = formatGroupInfoCollectionText(authors, '暂无可删消息成员');
 	    const statusText = detail.hidden_for_all ? '已对全员隐藏' : '正常显示';
 	    if (groupInfoTitleEl) groupInfoTitleEl.textContent = '聊天信息(' + memberCount + ')';
-	    settingsPanelBodyEl.innerHTML = '<div class="ak-im-group-info-members">' + memberGridMarkup + (showMoreMembers ? '<button class="ak-im-group-info-more" type="button" data-im-settings-action="toggle_members">' + escapeHtml(membersExpanded ? '收起群成员' : '更多群成员') + '<span aria-hidden="true">⌄</span></button>' : '') + '</div>' +
+	    const heroTitle = String(detail.conversation_title || '群聊');
+	    const heroMosaicSource = members.length ? members : (detail.owner ? [detail.owner] : []);
+	    const heroMarkup = '<div class="ak-im-group-info-hero">' +
+	        '<div class="ak-im-group-info-hero-avatar">' + buildGroupAvatarMosaicMarkup(heroMosaicSource, heroTitle) + '</div>' +
+	        '<div class="ak-im-group-info-hero-title">' + escapeHtml(heroTitle) + '</div>' +
+	        '<div class="ak-im-group-info-hero-subtitle">群聊 · ' + memberCount + ' 人</div>' +
+	    '</div>';
+	    settingsPanelBodyEl.innerHTML = heroMarkup + '<div class="ak-im-group-info-members">' + memberGridMarkup + (showMoreMembers ? '<button class="ak-im-group-info-more" type="button" data-im-settings-action="toggle_members">' + escapeHtml(membersExpanded ? '收起群成员' : '更多群成员') + '<span aria-hidden="true">⌄</span></button>' : '') + '</div>' +
 	        '<div class="ak-im-group-info-section">' +
 	            buildGroupInfoCell('群聊名称', String(detail.conversation_title || '群聊')) +
 	            buildGroupInfoCell('群主', ownerText) +
