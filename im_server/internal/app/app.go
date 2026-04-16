@@ -277,9 +277,13 @@ func (a *App) ensureSchema(ctx context.Context) error {
 		`CREATE INDEX IF NOT EXISTS idx_im_conversation_member_override_username ON im_conversation_member_override(username)`,
 		`CREATE INDEX IF NOT EXISTS idx_im_message_conversation_id ON im_message(conversation_id, seq_no DESC)`,
 	}
-	for _, stmt := range statements {
+	for index, stmt := range statements {
 		if _, err := a.db.Exec(ctx, stmt); err != nil {
-			return err
+			snippet := strings.Join(strings.Fields(stmt), " ")
+			if len(snippet) > 220 {
+				snippet = snippet[:220]
+			}
+			return fmt.Errorf("ensure schema statement #%d failed: %w | sql=%s", index+1, err, snippet)
 		}
 	}
 	return nil

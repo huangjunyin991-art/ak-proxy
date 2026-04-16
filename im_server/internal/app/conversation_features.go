@@ -502,10 +502,13 @@ func (a *App) buildConversationGroupProfileItem(ctx context.Context, conversatio
 
 func (a *App) loadConversationMessageAuthors(ctx context.Context, conversationID int64, purgedBeforeSeqNo int64) ([]SessionMemberItem, error) {
 	rows, err := a.db.Query(ctx, `
-		SELECT DISTINCT sender_username
-		FROM im_message
-		WHERE conversation_id = $1 AND deleted_at IS NULL AND seq_no > $2
-		ORDER BY LOWER(sender_username) ASC`, conversationID, purgedBeforeSeqNo)
+		SELECT sender_username
+		FROM (
+			SELECT DISTINCT sender_username
+			FROM im_message
+			WHERE conversation_id = $1 AND deleted_at IS NULL AND seq_no > $2
+		) authors
+		ORDER BY LOWER(sender_username) ASC, sender_username ASC`, conversationID, purgedBeforeSeqNo)
 	if err != nil {
 		return nil, err
 	}
