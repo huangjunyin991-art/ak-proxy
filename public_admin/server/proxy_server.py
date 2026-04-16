@@ -401,7 +401,7 @@ async def _post_im_internal_json(path: str, payload: dict) -> tuple[int, dict]:
 
 async def _find_im_group_conversation(conversation_id: int = 0, owner_username: str = '') -> Optional[dict]:
 
-    normalized_owner = str(owner_username or '').strip().lower()
+    normalized_owner = _normalize_im_group_owner_username(owner_username)
 
     conversation_key = f"group:admin_whitelist:{normalized_owner}" if normalized_owner else ''
 
@@ -439,9 +439,9 @@ async def _find_im_group_conversation(conversation_id: int = 0, owner_username: 
 
 def _can_manage_im_group(role: str, identity: str, owner_username: str) -> bool:
 
-    normalized_owner = str(owner_username or '').strip().lower()
+    normalized_owner = _normalize_im_group_owner_username(owner_username)
 
-    normalized_identity = str(identity or '').strip().lower()
+    normalized_identity = _normalize_im_group_owner_username(identity)
 
     if role == ROLE_SUPER_ADMIN:
 
@@ -452,6 +452,81 @@ def _can_manage_im_group(role: str, identity: str, owner_username: str) -> bool:
         return True
 
     return False
+
+
+
+def _normalize_im_group_owner_username(value: str) -> str:
+
+    normalized = str(value or '').strip().lower()
+
+    if normalized == '__super__':
+
+        return 'super_admin'
+
+    return normalized
+
+
+
+def _list_im_group_owner_candidates() -> list[dict]:
+
+    items = [{"username": "super_admin", "display_name": "系统总管理员"}]
+
+    for name in sorted(SUB_ADMINS.keys(), key=lambda item: str(item or '').strip().lower()):
+
+        normalized = _normalize_im_group_owner_username(name)
+
+        if not normalized or normalized == 'super_admin':
+
+            continue
+
+        display_name = str(name or '').strip() or normalized
+
+        items.append({"username": normalized, "display_name": display_name})
+
+    return items
+
+
+
+def _is_valid_im_group_owner_candidate(owner_username: str) -> bool:
+
+    normalized = _normalize_im_group_owner_username(owner_username)
+
+    if not normalized:
+
+        return False
+
+    if normalized == 'super_admin':
+
+        return True
+
+    return any(_normalize_im_group_owner_username(name) == normalized for name in SUB_ADMINS.keys())
+
+
+
+def _serialize_im_group_summary(row: dict) -> dict:
+
+    updated_at = row.get('updated_at')
+
+    if hasattr(updated_at, 'isoformat'):
+
+        updated_at_text = updated_at.isoformat()
+
+    else:
+
+        updated_at_text = str(updated_at or '')
+
+    title = str(row.get('title') or '').strip() or '玩家主群'
+
+    return {
+        "conversation_id": int(row.get('id') or 0),
+        "conversation_key": str(row.get('conversation_key') or ''),
+        "conversation_title": title,
+        "owner_username": _normalize_im_group_owner_username(row.get('owner_username', '')),
+        "hidden_for_all": bool(row.get('hidden_for_all', False)),
+        "member_count": int(row.get('member_count') or 0),
+        "admin_count": int(row.get('admin_count') or 0),
+        "updated_at": updated_at_text,
+    }
 
 
 
@@ -4715,6 +4790,199 @@ async def admin_whitelist_set_global(request: Request):
 
 
 
+@app.get("/admin/api/im/groups")
+async def admin_im_groups(request: Request, search: str = ''):
+
+    token, role, identity = await _resolve_admin_identity(request)
+
+    if not token:
+
+        return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
+
+    normalized_search = str(search or '').strip().lower()
+
+    where_clauses = ["c.conversation_type = 'group'", "c.deleted_at IS NULL"]
+
+    query_params = []
+
+    if role == ROLE_SUB_ADMIN:
+
+        query_params.append(_normalize_im_group_owner_username(identity))
+
+        where_clauses.append(f"LOWER(COALESCE(c.owner_username, '')) = ${len(query_params)}")
+
+    if normalized_search:
+
+        query_params.append(f"%{normalized_search}%")
+
+        where_clauses.append(
+            f"(LOWER(COALESCE(c.title, '')) LIKE ${len(query_params)} "
+            f"OR LOWER(COALESCE(c.owner_username, '')) LIKE ${len(query_params)} "
+            f"OR CAST(c.id AS TEXT) LIKE ${len(query_params)})"
+        )
+
+    pool = db._get_pool()
+
+    async with pool.acquire() as conn:
+
+        rows = await conn.fetch(f'''
+            SELECT c.id,
+                   COALESCE(c.conversation_key, '') AS conversation_key,
+                   COALESCE(c.title, '') AS title,
+                   COALESCE(c.owner_username, '') AS owner_username,
+                   COALESCE(c.hidden_for_all, FALSE) AS hidden_for_all,
+                   COALESCE(c.updated_at, c.created_at) AS updated_at,
+                   (SELECT COUNT(*) FROM im_conversation_member m WHERE m.conversation_id = c.id AND m.left_at IS NULL) AS member_count,
+                   (SELECT COUNT(*) FROM im_conversation_admin a WHERE a.conversation_id = c.id AND a.revoked_at IS NULL) AS admin_count
+            FROM im_conversation c
+            WHERE {' AND '.join(where_clauses)}
+            ORDER BY COALESCE(c.updated_at, c.created_at) DESC, c.id DESC
+            LIMIT 200
+        ''', *query_params)
+
+    items = [_serialize_im_group_summary(dict(row)) for row in rows]
+
+    return {
+        "success": True,
+        "total": len(items),
+        "items": items,
+        "owner_candidates": _list_im_group_owner_candidates(),
+    }
+
+
+
+@app.get("/admin/api/im/groups/detail")
+async def admin_im_group_detail(request: Request, conversation_id: int = 0, owner_username: str = ''):
+
+    token, role, identity = await _resolve_admin_identity(request)
+
+    if not token:
+
+        return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
+
+    group_row = await _find_im_group_conversation(conversation_id=conversation_id, owner_username=_normalize_im_group_owner_username(owner_username))
+
+    if not group_row:
+
+        return JSONResponse(status_code=404, content={"error": True, "message": "群聊不存在"})
+
+    if not _can_manage_im_group(role, identity, group_row.get('owner_username', '')):
+
+        return JSONResponse(status_code=403, content={"error": True, "message": "仅系统总管理员或所属子管理员可操作"})
+
+    status_code, body = await _post_im_internal_json("/im/internal/group_profile", {
+        "conversation_id": int(group_row['id'])
+    })
+
+    if status_code >= 400:
+
+        if isinstance(body, dict):
+
+            return JSONResponse(status_code=status_code, content=body)
+
+        return JSONResponse(status_code=status_code, content={"error": True, "message": "IM 服务调用失败"})
+
+    item = body.get('item') if isinstance(body, dict) else None
+
+    if not isinstance(item, dict):
+
+        return JSONResponse(status_code=502, content={"error": True, "message": "IM 服务响应无效"})
+
+    item['conversation_key'] = str(group_row.get('conversation_key') or '')
+
+    item['conversation_title'] = str(item.get('conversation_title') or '').strip() or '玩家主群'
+
+    item['owner_candidates'] = _list_im_group_owner_candidates()
+
+    return {"success": True, "item": item}
+
+
+
+@app.post("/admin/api/im/groups/owner/transfer")
+async def admin_im_group_owner_transfer(request: Request):
+
+    token, role, identity = await _resolve_admin_identity(request)
+
+    if not token:
+
+        return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
+
+    try:
+
+        data = await request.json()
+
+    except Exception:
+
+        return JSONResponse(status_code=400, content={"error": True, "message": "请求体无效"})
+
+    conversation_id_raw = data.get('conversation_id', 0)
+
+    try:
+
+        conversation_id = int(conversation_id_raw or 0)
+
+    except Exception:
+
+        conversation_id = 0
+
+    current_owner_username = _normalize_im_group_owner_username(data.get('current_owner_username', '') or data.get('source_owner_username', ''))
+
+    target_owner_username = _normalize_im_group_owner_username(data.get('owner_username', ''))
+
+    if not target_owner_username:
+
+        return JSONResponse(status_code=400, content={"error": True, "message": "请选择新的群主"})
+
+    if not _is_valid_im_group_owner_candidate(target_owner_username):
+
+        return JSONResponse(status_code=400, content={"error": True, "message": "目标群主不存在"})
+
+    group_row = await _find_im_group_conversation(conversation_id=conversation_id, owner_username=current_owner_username)
+
+    if not group_row:
+
+        return JSONResponse(status_code=404, content={"error": True, "message": "群聊不存在"})
+
+    if not _can_manage_im_group(role, identity, group_row.get('owner_username', '')):
+
+        return JSONResponse(status_code=403, content={"error": True, "message": "仅系统总管理员或所属子管理员可操作"})
+
+    transferred_by = _normalize_im_group_owner_username(identity if role == ROLE_SUB_ADMIN else 'super_admin')
+
+    status_code, body = await _post_im_internal_json("/im/internal/group_owner/transfer", {
+        "conversation_id": int(group_row['id']),
+        "owner_username": target_owner_username,
+        "transferred_by": transferred_by,
+    })
+
+    if status_code >= 400:
+
+        if isinstance(body, dict):
+
+            return JSONResponse(status_code=status_code, content=body)
+
+        return JSONResponse(status_code=status_code, content={"error": True, "message": "IM 服务调用失败"})
+
+    item = body.get('item') if isinstance(body, dict) else None
+
+    if not isinstance(item, dict):
+
+        return JSONResponse(status_code=502, content={"error": True, "message": "IM 服务响应无效"})
+
+    refreshed_group_row = await _find_im_group_conversation(conversation_id=int(group_row['id']))
+
+    if refreshed_group_row:
+
+        item['conversation_key'] = str(refreshed_group_row.get('conversation_key') or '')
+
+    item['conversation_title'] = str(item.get('conversation_title') or '').strip() or '玩家主群'
+
+    item['owner_candidates'] = _list_im_group_owner_candidates()
+
+    return {"success": True, "message": "群主已迁移", "item": item}
+
+
+
 @app.get("/admin/api/im/groups/admins")
 async def admin_im_group_admins(request: Request, conversation_id: int = 0, owner_username: str = ''):
 
@@ -4724,7 +4992,7 @@ async def admin_im_group_admins(request: Request, conversation_id: int = 0, owne
 
         return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
 
-    group_row = await _find_im_group_conversation(conversation_id=conversation_id, owner_username=owner_username)
+    group_row = await _find_im_group_conversation(conversation_id=conversation_id, owner_username=_normalize_im_group_owner_username(owner_username))
 
     if not group_row:
 
@@ -4753,7 +5021,7 @@ async def admin_im_group_admins(request: Request, conversation_id: int = 0, owne
             "conversation_id": int(group_row['id']),
             "conversation_key": str(group_row.get('conversation_key') or ''),
             "conversation_title": str(group_row.get('title') or ''),
-            "owner_username": str(group_row.get('owner_username') or '').strip().lower(),
+            "owner_username": _normalize_im_group_owner_username(group_row.get('owner_username', '')),
             "admins": admins,
         }
     }
@@ -4787,7 +5055,7 @@ async def admin_im_group_admins_replace(request: Request):
 
         conversation_id = 0
 
-    owner_username = str(data.get('owner_username', '') or '').strip().lower()
+    owner_username = _normalize_im_group_owner_username(data.get('owner_username', ''))
 
     usernames = data.get('usernames', [])
 
@@ -4807,7 +5075,7 @@ async def admin_im_group_admins_replace(request: Request):
 
         return JSONResponse(status_code=403, content={"error": True, "message": "仅系统总管理员或所属子管理员可操作"})
 
-    assigned_by = identity if role == ROLE_SUB_ADMIN else 'super_admin'
+    assigned_by = _normalize_im_group_owner_username(identity if role == ROLE_SUB_ADMIN else 'super_admin')
 
     status_code, body = await _post_im_internal_json("/im/internal/group_admins/replace", {
         "conversation_id": int(group_row['id']),
@@ -4836,7 +5104,7 @@ async def admin_im_group_admins_replace(request: Request):
             "conversation_id": int(group_row['id']),
             "conversation_key": str(group_row.get('conversation_key') or ''),
             "conversation_title": str(group_row.get('title') or ''),
-            "owner_username": str(group_row.get('owner_username') or '').strip().lower(),
+            "owner_username": _normalize_im_group_owner_username(group_row.get('owner_username', '')),
             "admins": returned_admins,
         }
     }

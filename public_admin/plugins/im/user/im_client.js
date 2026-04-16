@@ -303,16 +303,17 @@
                 #ak-im-root .ak-im-member-header{display:flex;align-items:center;justify-content:space-between;padding:16px 16px 12px;border-bottom:1px solid rgba(15,23,42,.06)}
                 #ak-im-root .ak-im-member-title{font-size:16px;font-weight:600;color:#111827}
                 #ak-im-root .ak-im-member-close{height:32px;border:none;background:transparent;color:#6b7280;font-size:14px;cursor:pointer}
-                #ak-im-root .ak-im-member-panel-body{overflow:auto;padding-bottom:calc(14px + env(safe-area-inset-bottom, 0px))}
-                #ak-im-root .ak-im-member-summary{padding:14px 16px 6px;font-size:13px;color:#6b7280;line-height:1.6}
-                #ak-im-root .ak-im-member-list{padding:0 16px 18px}
-                #ak-im-root .ak-im-member-item{display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid rgba(15,23,42,.06)}
-                #ak-im-root .ak-im-member-item:last-child{border-bottom:none}
-                #ak-im-root .ak-im-member-avatar{width:36px;height:36px;border-radius:12px;background:linear-gradient(180deg,#8fe3a8 0%,#56c57b 100%);color:#ffffff;display:inline-flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;flex:0 0 auto}
-                #ak-im-root .ak-im-member-body{min-width:0;flex:1}
-                #ak-im-root .ak-im-member-name{font-size:14px;color:#111827;line-height:1.4;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-                #ak-im-root .ak-im-member-username{margin-top:2px;font-size:12px;color:#9ca3af;line-height:1.4;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-                #ak-im-root .ak-im-member-role{margin-left:auto;flex:0 0 auto;height:18px;padding:0 6px;border-radius:999px;background:rgba(7,193,96,.12);color:#16a34a;font-size:10px;font-weight:700;display:inline-flex;align-items:center;justify-content:center}
+                #ak-im-root .ak-im-member-panel-body{overflow:auto;padding:14px 16px calc(14px + env(safe-area-inset-bottom, 0px))}
+                #ak-im-root .ak-im-member-summary{padding:0 0 10px;font-size:13px;color:#6b7280;line-height:1.6}
+                #ak-im-root .ak-im-member-list{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px;padding:12px 0 0}
+                #ak-im-root .ak-im-member-item{position:relative;display:flex;flex-direction:column;align-items:center;justify-content:flex-start;gap:8px;padding:10px 6px 8px;border:none;border-radius:14px;background:#f8fafc;min-height:96px}
+                #ak-im-root .ak-im-member-item.is-add{border:1px dashed rgba(79,70,229,.32);background:#ffffff;cursor:pointer}
+                #ak-im-root .ak-im-member-item.is-add:active{opacity:.78}
+                #ak-im-root .ak-im-member-avatar{width:46px;height:46px;border-radius:16px;background:linear-gradient(180deg,#8fe3a8 0%,#56c57b 100%);color:#ffffff;display:inline-flex;align-items:center;justify-content:center;font-size:16px;font-weight:700;flex:0 0 auto}
+                #ak-im-root .ak-im-member-body{min-width:0;width:100%;text-align:center}
+                #ak-im-root .ak-im-member-name{font-size:12px;color:#111827;line-height:1.4;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+                #ak-im-root .ak-im-member-username{display:none}
+                #ak-im-root .ak-im-member-role{position:absolute;top:6px;right:6px;margin:0;height:18px;padding:0 6px;border-radius:999px;background:rgba(7,193,96,.12);color:#16a34a;font-size:10px;font-weight:700;display:inline-flex;align-items:center;justify-content:center}
                 #ak-im-root .ak-im-member-loading,#ak-im-root .ak-im-member-error,#ak-im-root .ak-im-member-empty{padding:18px 16px;color:#6b7280;font-size:13px;line-height:1.6;text-align:center}
                 #ak-im-root .ak-im-member-error{color:#ef4444}
                 #ak-im-root .ak-im-chat-menu.is-hidden{opacity:0;pointer-events:none}
@@ -423,7 +424,7 @@
 	        <div class="ak-im-settings-sheet" aria-hidden="true" inert>
 	            <div class="ak-im-settings-mask"></div>
 	            <div class="ak-im-settings-panel">
-	                <div class="ak-im-settings-header"><div class="ak-im-settings-title">群设置</div><button class="ak-im-settings-close" type="button">关闭</button></div>
+	                <div class="ak-im-settings-header"><div class="ak-im-settings-title">群信息</div><button class="ak-im-settings-close" type="button">关闭</button></div>
 	                <div class="ak-im-settings-panel-body"></div>
 	            </div>
 	        </div>
@@ -473,6 +474,11 @@
             const activeSession = getActiveSession();
             if (!isGroupSession(activeSession)) return;
             openGroupMenu(activeSession);
+        });
+        chatTitleBtnEl.addEventListener('click', function() {
+            const activeSession = getActiveSession();
+            if (!isGroupSession(activeSession)) return;
+            openSettingsPanel(activeSession);
         });
         root.querySelector('.ak-im-compose-back').addEventListener('click', closeComposeView);
         root.querySelector('.ak-im-compose-close').addEventListener('click', closeComposeView);
@@ -719,19 +725,8 @@
     }
 
     function openGroupMenu(sessionItem) {
-        if (!actionSheetEl || !sessionItem || !isGroupSession(sessionItem)) return;
-        state.actionSheetMode = 'group_menu';
-        state.actionSheetOpen = true;
-        state.actionSheetMessageId = 0;
-        state.actionSheetConversationId = Number(sessionItem.conversation_id || 0);
-        state.actionSheetCanRecall = false;
-        state.actionSheetDraftText = '';
-        state.actionSheetSessionPinned = false;
-        state.actionSheetSessionSystemPinned = false;
-        updateActionSheetUI();
-        actionSheetEl.removeAttribute('inert');
-        actionSheetEl.classList.add('visible');
-        actionSheetEl.setAttribute('aria-hidden', 'false');
+        if (!sessionItem || !isGroupSession(sessionItem)) return;
+        openSettingsPanel(sessionItem);
     }
 
     function openSessionActionSheet(sessionItem) {
@@ -825,8 +820,8 @@
 	    const displayName = String(member && member.display_name || '').trim();
 	    const username = String(member && member.username || '').trim();
 	    const role = String(member && member.role || '').trim().toLowerCase();
-	    const roleLabel = role && role !== 'member' ? '<div class="ak-im-member-role">' + escapeHtml(role === 'owner' ? '群主' : role) + '</div>' : '';
-	    return '<div class="ak-im-member-item"><div class="ak-im-member-avatar">' + escapeHtml(getAvatarText(displayName || username || '成员')) + '</div><div class="ak-im-member-body"><div class="ak-im-member-name">' + escapeHtml(displayName || username || '未知成员') + '</div><div class="ak-im-member-username">@' + escapeHtml(username || 'unknown') + '</div></div>' + roleLabel + '</div>';
+	    const roleLabel = role === 'owner' ? '群主' : (role === 'admin' ? '管理员' : '');
+	    return '<div class="ak-im-member-item"><div class="ak-im-member-avatar">' + escapeHtml(getAvatarText(displayName || username || '成员')) + '</div><div class="ak-im-member-body"><div class="ak-im-member-name">' + escapeHtml(displayName || username || '未知成员') + '</div></div>' + (roleLabel ? '<div class="ak-im-member-role">' + escapeHtml(roleLabel) + '</div>' : '') + '</div>';
 	}
 
 	function renderMemberPanel() {
@@ -889,7 +884,7 @@
 	    settingsPanelEl.removeAttribute('inert');
 	    settingsPanelEl.setAttribute('aria-hidden', 'false');
 	    if (state.groupSettingsLoading) {
-	        settingsPanelBodyEl.innerHTML = '<div class="ak-im-settings-loading">正在加载群设置...</div>';
+	        settingsPanelBodyEl.innerHTML = '<div class="ak-im-settings-loading">正在加载群信息...</div>';
 	        return;
 	    }
 	    if (state.groupSettingsError) {
@@ -898,15 +893,21 @@
 	    }
 	    const detail = state.groupSettingsData;
 	    if (!detail) {
-	        settingsPanelBodyEl.innerHTML = '<div class="ak-im-settings-empty">暂无可用的群设置信息</div>';
+	        settingsPanelBodyEl.innerHTML = '<div class="ak-im-settings-empty">暂无可用的群信息</div>';
 	        return;
 	    }
+	    const members = Array.isArray(detail.members) ? detail.members : [];
 	    const admins = Array.isArray(detail.admins) ? detail.admins : [];
 	    const authors = Array.isArray(detail.message_authors) ? detail.message_authors : [];
 	    const adminMarkup = admins.length ? admins.map(formatSettingsMemberChip).join('') : '<div class="ak-im-settings-empty">暂无群管理员</div>';
 	    const authorMarkup = authors.length ? authors.map(formatSettingsMemberChip).join('') : '<div class="ak-im-settings-empty">暂无可删历史的消息发送者</div>';
 	    const canManage = !!detail.can_manage;
+	    const memberCount = Math.max(0, Number(detail.member_count || members.length || 0) || 0);
+	    const showAddMemberTile = canManage && memberCount <= 15;
+	    const addMemberMarkup = showAddMemberTile ? '<button class="ak-im-member-item is-add" type="button" data-im-settings-action="add"><div class="ak-im-member-avatar">+</div><div class="ak-im-member-body"><div class="ak-im-member-name">添加</div></div></button>' : '';
+	    const memberGridMarkup = (members.length || addMemberMarkup) ? '<div class="ak-im-member-list">' + members.map(formatSessionMember).join('') + addMemberMarkup + '</div>' : '<div class="ak-im-settings-empty">当前群里还没有成员</div>';
 	    settingsPanelBodyEl.innerHTML = '<div class="ak-im-settings-summary"><div class="ak-im-settings-summary-title">' + escapeHtml(String(detail.conversation_title || '群聊')) + '</div><div class="ak-im-settings-summary-meta">群聊 · ' + escapeHtml(String(Number(detail.member_count || 0))) + ' 人' + (detail.hidden_for_all ? ' · 已对全员隐藏' : '') + '</div></div>' +
+	        '<div class="ak-im-settings-section"><div class="ak-im-settings-section-title">群成员</div><div class="ak-im-settings-section-desc">共 ' + escapeHtml(String(memberCount)) + ' 人' + (showAddMemberTile ? '，可直接点击最后一个格子添加成员。' : '') + '</div>' + memberGridMarkup + '</div>' +
 	        '<div class="ak-im-settings-section"><div class="ak-im-settings-section-title">群管理员</div><div class="ak-im-settings-section-desc">管理员可以执行成员管理与全员生效操作。</div><div class="ak-im-settings-chip-list">' + adminMarkup + '</div></div>' +
 	        '<div class="ak-im-settings-section"><div class="ak-im-settings-section-title">可删消息成员</div><div class="ak-im-settings-section-desc">这里显示当前有历史消息可清理的发送者。</div><div class="ak-im-settings-chip-list">' + authorMarkup + '</div></div>' +
 	        (canManage ? '<div class="ak-im-settings-section"><div class="ak-im-settings-section-title">管理员操作</div><div class="ak-im-settings-section-desc">本版先使用系统弹窗输入账号，保证功能链路先打通。</div><div class="ak-im-settings-actions"><button class="ak-im-settings-btn" type="button" data-im-settings-action="add">添加成员</button><button class="ak-im-settings-btn secondary" type="button" data-im-settings-action="remove">移除成员</button><button class="ak-im-settings-btn secondary" type="button" data-im-settings-action="clear_member_history">删除指定成员消息</button><button class="ak-im-settings-btn danger" type="button" data-im-settings-action="clear_history">清空全群聊天记录</button><button class="ak-im-settings-btn danger" type="button" data-im-settings-action="hide_group">隐藏本群</button></div></div>' : '<div class="ak-im-settings-note">仅群管理员可执行添加成员、移除成员、删记录和隐藏群聊。</div>');
@@ -933,7 +934,7 @@
 	    state.groupSettingsError = '';
 	    state.groupSettingsConversationId = targetConversationId;
 	    renderSettingsPanel();
-	    return request(`${HTTP_ROOT}/sessions/settings?conversation_id=${encodeURIComponent(targetConversationId)}`).then(function(data) {
+	    return request(`${HTTP_ROOT}/sessions/group_profile?conversation_id=${encodeURIComponent(targetConversationId)}`).then(function(data) {
 	        if (Number(state.groupSettingsConversationId || 0) !== targetConversationId) return null;
 	        state.groupSettingsLoading = false;
 	        state.groupSettingsData = data && data.item ? data.item : null;
@@ -942,7 +943,7 @@
 	    }).catch(function(error) {
 	        if (Number(state.groupSettingsConversationId || 0) !== targetConversationId) return null;
 	        state.groupSettingsLoading = false;
-	        state.groupSettingsError = error && error.message ? error.message : '读取群设置失败';
+	        state.groupSettingsError = error && error.message ? error.message : '读取群信息失败';
 	        renderSettingsPanel();
 	        return null;
 	    });
@@ -951,6 +952,7 @@
 	function openSettingsPanel(sessionItem) {
 	    const conversationId = Number(sessionItem && sessionItem.conversation_id || state.activeConversationId || 0);
 	    if (!conversationId || !isGroupSession(sessionItem || getActiveSession())) return;
+	    closeActionSheet();
 	    closeReadProgressPanel();
 	    closeMemberPanel();
 	    state.groupSettingsOpen = true;
@@ -1099,28 +1101,7 @@
 	}
 
 	function openMemberPanel(sessionItem) {
-	    const conversationId = Number(sessionItem && sessionItem.conversation_id || state.activeConversationId || 0);
-	    if (!conversationId || !isGroupSession(sessionItem || getActiveSession())) return;
-	    closeActionSheet();
-	    closeReadProgressPanel();
-	    closeSettingsPanel();
-	    state.memberPanelOpen = true;
-	    state.memberPanelLoading = true;
-	    state.memberPanelError = '';
-	    state.memberPanelConversationId = conversationId;
-	    state.memberPanelData = null;
-	    renderMemberPanel();
-	    request(`${HTTP_ROOT}/sessions/members?conversation_id=${encodeURIComponent(conversationId)}`).then(function(data) {
-	        if (Number(state.memberPanelConversationId || 0) !== conversationId) return;
-	        state.memberPanelLoading = false;
-	        state.memberPanelData = data && data.item ? data.item : null;
-	        renderMemberPanel();
-	    }).catch(function(error) {
-	        if (Number(state.memberPanelConversationId || 0) !== conversationId) return;
-	        state.memberPanelLoading = false;
-	        state.memberPanelError = error && error.message ? error.message : '读取群成员失败';
-	        renderMemberPanel();
-	    });
+	    openSettingsPanel(sessionItem);
 	}
 
     function requestSessionPin(conversationId, pinned) {
@@ -1275,14 +1256,15 @@
     function renderMessages() {
         const headerTitle = root.querySelector('.ak-im-chat-title');
         const headerSubtitle = root.querySelector('.ak-im-chat-subtitle');
-        const activeSession = getActiveSession();
+	    const activeSession = getActiveSession();
 	    const subtitleText = activeSession ? getSessionSubtitle(activeSession) : '';
         headerTitle.textContent = activeSession ? getSessionDisplayName(activeSession) : '内部聊天';
 	    headerSubtitle.textContent = activeSession ? subtitleText : '';
 	    if (chatTitleBtnEl) {
-	        chatTitleBtnEl.disabled = true;
-	        chatTitleBtnEl.classList.remove('is-clickable');
-	        chatTitleBtnEl.setAttribute('aria-label', '聊天标题');
+	        const canOpenGroupInfo = !!activeSession && isGroupSession(activeSession);
+	        chatTitleBtnEl.disabled = !canOpenGroupInfo;
+	        chatTitleBtnEl.classList.toggle('is-clickable', canOpenGroupInfo);
+	        chatTitleBtnEl.setAttribute('aria-label', canOpenGroupInfo ? '打开群信息' : '聊天标题');
 	    }
 	    if (chatMenuBtnEl) {
 	        const canOpenMenu = !!activeSession && isGroupSession(activeSession);
@@ -1698,7 +1680,7 @@
 
     window.AKIMClient = {
         open: function() { state.open = true; if (!state.activeConversationId) state.view = 'sessions'; render(); },
-        close: function() { closeActionSheet(); closeReadProgressPanel(); state.open = false; state.view = 'sessions'; render(); },
+        close: function() { closeActionSheet(); closeReadProgressPanel(); closeMemberPanel(); closeSettingsPanel(); state.open = false; state.view = 'sessions'; render(); },
         reloadSessions: loadSessions
     };
 })();

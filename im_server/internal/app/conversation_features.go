@@ -85,6 +85,21 @@ type SessionSettingsItem struct {
 	MessageAuthors    []SessionMemberItem `json:"message_authors,omitempty"`
 }
 
+type SessionGroupProfileItem struct {
+	ConversationID     int64               `json:"conversation_id"`
+	ConversationType   string              `json:"conversation_type"`
+	ConversationTitle  string              `json:"conversation_title,omitempty"`
+	MemberCount        int64               `json:"member_count"`
+	HiddenForAll       bool                `json:"hidden_for_all"`
+	IsGroupAdmin       bool                `json:"is_group_admin"`
+	CanManage          bool                `json:"can_manage"`
+	IsWhitelistManaged bool                `json:"is_whitelist_managed"`
+	Owner              SessionMemberItem   `json:"owner"`
+	Members            []SessionMemberItem `json:"members"`
+	Admins             []SessionMemberItem `json:"admins"`
+	MessageAuthors     []SessionMemberItem `json:"message_authors,omitempty"`
+}
+
 type pinSessionRequest struct {
 	ConversationID int64 `json:"conversation_id"`
 	Pinned         bool  `json:"pinned"`
@@ -98,6 +113,16 @@ type internalGroupAdminsReplaceRequest struct {
 	ConversationID int64    `json:"conversation_id"`
 	Usernames      []string `json:"usernames"`
 	AssignedBy     string   `json:"assigned_by"`
+}
+
+type internalGroupProfileRequest struct {
+	ConversationID int64 `json:"conversation_id"`
+}
+
+type internalGroupOwnerTransferRequest struct {
+	ConversationID int64  `json:"conversation_id"`
+	OwnerUsername  string `json:"owner_username"`
+	TransferredBy  string `json:"transferred_by"`
 }
 
 type sessionMembersManageRequest struct {
@@ -207,6 +232,24 @@ func (a *App) ensureAllowedConversationTarget(ctx context.Context, username stri
 	}
 	if !allowed {
 		return errors.New("user not allowed")
+	}
+	return nil
+}
+
+func (a *App) ensureAllowedConversationOwnerTarget(ctx context.Context, username string) error {
+	normalizedUsername := strings.ToLower(strings.TrimSpace(username))
+	if normalizedUsername == "" {
+		return errors.New("invalid owner_username")
+	}
+	if normalizedUsername == "super_admin" {
+		return nil
+	}
+	var exists bool
+	if err := a.db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM sub_admins WHERE LOWER(name) = $1)`, normalizedUsername).Scan(&exists); err != nil {
+		return err
+	}
+	if !exists {
+		return errors.New("owner not found")
 	}
 	return nil
 }
@@ -344,6 +387,117 @@ func (a *App) loadConversationAdmins(ctx context.Context, conversationID int64) 
 		return leftName < rightName
 	})
 	return items, adminSet, nil
+}
+
+func (a *App) loadConversationMemberItems(ctx context.Context, conversationID int64, meta conversationMeta) ([]SessionMemberItem, error) {
+	adminUsernames, err := a.loadConversationAdminUsernames(ctx, conversationID)
+	if err != nil {
+		return nil, err
+	}
+	adminSet := map[string]struct{}{}
+	for _, adminUsername := range adminUsernames {
+		adminSet[adminUsername] = struct{}{}
+	}
+	rows, err := a.db.Query(ctx, `
+		SELECT username, COALESCE(role, 'member') AS role
+		FROM im_conversation_member
+		WHERE conversation_id = $1 AND left_at IS NULL
+		ORDER BY LOWER(username) ASC`, conversationID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	members := make([]SessionMemberItem, 0)
+	for rows.Next() {
+		var item SessionMemberItem
+		if err := rows.Scan(&item.Username, &item.Role); err != nil {
+			return nil, err
+		}
+		item.Username = strings.ToLower(strings.TrimSpace(item.Username))
+		if strings.EqualFold(item.Username, meta.OwnerUsername) {
+			item.Role = "owner"
+		} else if _, ok := adminSet[item.Username]; ok {
+			item.Role = "admin"
+		}
+		item.DisplayName = a.fetchDisplayName(ctx, item.Username)
+		members = append(members, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	sort.Slice(members, func(left int, right int) bool {
+		leftName := strings.TrimSpace(members[left].DisplayName)
+		rightName := strings.TrimSpace(members[right].DisplayName)
+		if leftName == rightName {
+			return members[left].Username < members[right].Username
+		}
+		return leftName < rightName
+	})
+	return members, nil
+}
+
+func (a *App) buildConversationGroupProfileItem(ctx context.Context, conversationID int64, username string, requireMembership bool, forceCanManage bool) (SessionGroupProfileItem, error) {
+	if requireMembership && !a.ensureConversationMember(ctx, fmt.Sprintf("%d", conversationID), username) {
+		return SessionGroupProfileItem{}, errors.New("forbidden")
+	}
+	meta, err := a.loadConversationMeta(ctx, conversationID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return SessionGroupProfileItem{}, errors.New("conversation not found")
+		}
+		return SessionGroupProfileItem{}, err
+	}
+	if meta.ConversationType != "group" {
+		return SessionGroupProfileItem{}, errors.New("conversation not group")
+	}
+	admins, adminSet, err := a.loadConversationAdmins(ctx, conversationID)
+	if err != nil {
+		return SessionGroupProfileItem{}, err
+	}
+	for index := range admins {
+		if strings.EqualFold(admins[index].Username, meta.OwnerUsername) {
+			admins[index].Role = "owner"
+		}
+	}
+	members, err := a.loadConversationMemberItems(ctx, conversationID, meta)
+	if err != nil {
+		return SessionGroupProfileItem{}, err
+	}
+	ownerUsername := strings.ToLower(strings.TrimSpace(meta.OwnerUsername))
+	normalizedUsername := strings.ToLower(strings.TrimSpace(username))
+	_, isGroupAdmin := adminSet[normalizedUsername]
+	if normalizedUsername != "" && strings.EqualFold(normalizedUsername, ownerUsername) {
+		isGroupAdmin = true
+	}
+	canManage := forceCanManage || isGroupAdmin
+	item := SessionGroupProfileItem{
+		ConversationID:     conversationID,
+		ConversationType:   meta.ConversationType,
+		ConversationTitle:  meta.ConversationTitle,
+		MemberCount:        int64(len(members)),
+		HiddenForAll:       meta.HiddenForAll,
+		IsGroupAdmin:       isGroupAdmin,
+		CanManage:          canManage,
+		IsWhitelistManaged: isWhitelistManagedConversation(meta),
+		Owner: SessionMemberItem{
+			Username:    ownerUsername,
+			DisplayName: a.fetchDisplayName(ctx, ownerUsername),
+			Role:        "owner",
+		},
+		Members: members,
+		Admins:  admins,
+	}
+	if strings.TrimSpace(item.ConversationTitle) == "" {
+		item.ConversationTitle = whitelistMainGroupTitle
+	}
+	if canManage {
+		authors, err := a.loadConversationMessageAuthors(ctx, conversationID, meta.PurgedBeforeSeqNo)
+		if err != nil {
+			return SessionGroupProfileItem{}, err
+		}
+		item.MessageAuthors = authors
+	}
+	return item, nil
 }
 
 func (a *App) loadConversationMessageAuthors(ctx context.Context, conversationID int64, purgedBeforeSeqNo int64) ([]SessionMemberItem, error) {
@@ -662,6 +816,34 @@ func (a *App) handleSessionMembers(w http.ResponseWriter, r *http.Request) {
 	}})
 }
 
+func (a *App) handleSessionGroupProfile(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"error": true})
+		return
+	}
+	username, err := a.requireAllowedUser(r)
+	if err != nil {
+		writeJSON(w, http.StatusForbidden, map[string]any{"error": true, "message": err.Error()})
+		return
+	}
+	conversationIDText := strings.TrimSpace(r.URL.Query().Get("conversation_id"))
+	if conversationIDText == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": true, "message": "missing conversation_id"})
+		return
+	}
+	var conversationID int64
+	if _, err := fmt.Sscan(conversationIDText, &conversationID); err != nil || conversationID <= 0 {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": true, "message": "invalid conversation_id"})
+		return
+	}
+	item, err := a.buildConversationGroupProfileItem(r.Context(), conversationID, username, true, false)
+	if err != nil {
+		writeConversationFeatureError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"item": item})
+}
+
 func collectConversationAffectedUsersTx(ctx context.Context, tx pgx.Tx, conversationID int64, extras ...string) (map[string]struct{}, error) {
 	activeUsers, err := loadActiveConversationUsernamesTx(ctx, tx, conversationID)
 	if err != nil {
@@ -687,7 +869,7 @@ func writeConversationFeatureError(w http.ResponseWriter, err error) {
 		statusCode = http.StatusForbidden
 	case "conversation not found":
 		statusCode = http.StatusNotFound
-	case "invalid username", "user not found", "user not allowed", "conversation not group", "cannot remove group admin":
+	case "invalid username", "user not found", "user not allowed", "conversation not group", "cannot remove group admin", "invalid owner_username", "owner not found", "target owner already has whitelist group":
 		statusCode = http.StatusBadRequest
 	default:
 		statusCode = http.StatusInternalServerError
@@ -1164,6 +1346,159 @@ func (a *App) handleSessionHide(w http.ResponseWriter, r *http.Request) {
 	}
 	a.broadcastUsernames(affectedUsers, map[string]any{"type": "im.session.updated", "payload": map[string]any{"conversation_id": req.ConversationID, "reason": "hidden", "conversation_title": meta.ConversationTitle}})
 	writeJSON(w, http.StatusOK, map[string]any{"success": true})
+}
+
+func (a *App) handleInternalGroupProfile(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"error": true})
+		return
+	}
+	if !isLoopbackRequest(r) {
+		writeJSON(w, http.StatusForbidden, map[string]any{"error": true, "message": "forbidden"})
+		return
+	}
+	var req internalGroupProfileRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": true, "message": "invalid payload"})
+		return
+	}
+	if req.ConversationID <= 0 {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": true, "message": "invalid conversation_id"})
+		return
+	}
+	item, err := a.buildConversationGroupProfileItem(r.Context(), req.ConversationID, "", false, true)
+	if err != nil {
+		writeConversationFeatureError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"item": item})
+}
+
+func (a *App) transferConversationOwner(ctx context.Context, conversationID int64, ownerUsername string, transferredBy string) (SessionGroupProfileItem, error) {
+	normalizedOwner := strings.ToLower(strings.TrimSpace(ownerUsername))
+	if normalizedOwner == "" {
+		return SessionGroupProfileItem{}, errors.New("invalid owner_username")
+	}
+	normalizedTransferredBy := strings.ToLower(strings.TrimSpace(transferredBy))
+	if normalizedTransferredBy == "" {
+		normalizedTransferredBy = "system"
+	}
+	meta, err := a.loadConversationMeta(ctx, conversationID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return SessionGroupProfileItem{}, errors.New("conversation not found")
+		}
+		return SessionGroupProfileItem{}, err
+	}
+	if meta.ConversationType != "group" {
+		return SessionGroupProfileItem{}, errors.New("conversation not group")
+	}
+	currentOwner := strings.ToLower(strings.TrimSpace(meta.OwnerUsername))
+	if normalizedOwner == currentOwner {
+		return a.buildConversationGroupProfileItem(ctx, conversationID, normalizedOwner, false, true)
+	}
+	if err := a.ensureAllowedConversationOwnerTarget(ctx, normalizedOwner); err != nil {
+		return SessionGroupProfileItem{}, err
+	}
+	updatedConversationKey := meta.ConversationKey
+	if isWhitelistManagedConversation(meta) {
+		updatedConversationKey = whitelistGroupKeyPrefix + normalizedOwner
+		var existingConversationID int64
+		err := a.db.QueryRow(ctx, `
+			SELECT id
+			FROM im_conversation
+			WHERE conversation_key = $1 AND deleted_at IS NULL`, updatedConversationKey).Scan(&existingConversationID)
+		if err == nil && existingConversationID != conversationID {
+			return SessionGroupProfileItem{}, errors.New("target owner already has whitelist group")
+		}
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return SessionGroupProfileItem{}, err
+		}
+	}
+	tx, err := a.db.Begin(ctx)
+	if err != nil {
+		return SessionGroupProfileItem{}, err
+	}
+	defer tx.Rollback(ctx)
+	affectedUsers, err := collectConversationAffectedUsersTx(ctx, tx, conversationID, currentOwner, normalizedOwner)
+	if err != nil {
+		return SessionGroupProfileItem{}, err
+	}
+	if _, err := tx.Exec(ctx, `
+		UPDATE im_conversation
+		SET owner_username = $2, conversation_key = $3, updated_at = NOW()
+		WHERE id = $1`, conversationID, normalizedOwner, updatedConversationKey); err != nil {
+		return SessionGroupProfileItem{}, err
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO im_conversation_admin (conversation_id, username, assigned_by)
+		SELECT $1, $2, $3
+		WHERE NOT EXISTS (
+			SELECT 1 FROM im_conversation_admin WHERE conversation_id = $1 AND username = $2 AND revoked_at IS NULL
+		)`, conversationID, normalizedOwner, normalizedTransferredBy); err != nil {
+		return SessionGroupProfileItem{}, err
+	}
+	if !isWhitelistManagedConversation(meta) {
+		activeUsers, err := loadActiveConversationUsernamesTx(ctx, tx, conversationID)
+		if err != nil {
+			return SessionGroupProfileItem{}, err
+		}
+		if _, ok := activeUsers[normalizedOwner]; !ok {
+			if _, err := tx.Exec(ctx, `
+				INSERT INTO im_conversation_member (conversation_id, username, role)
+				VALUES ($1, $2, 'member')
+				ON CONFLICT DO NOTHING`, conversationID, normalizedOwner); err != nil {
+				return SessionGroupProfileItem{}, err
+			}
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return SessionGroupProfileItem{}, err
+	}
+	updatedMeta := meta
+	updatedMeta.OwnerUsername = normalizedOwner
+	updatedMeta.ConversationKey = updatedConversationKey
+	if isWhitelistManagedConversation(meta) {
+		if err := a.syncWhitelistConversationAfterRules(ctx, updatedMeta); err != nil {
+			return SessionGroupProfileItem{}, err
+		}
+		if currentOwner != "" && currentOwner != normalizedOwner {
+			if _, err := a.syncWhitelistGroups(ctx, currentOwner); err != nil {
+				return SessionGroupProfileItem{}, err
+			}
+		}
+	} else {
+		affectedUsers[currentOwner] = struct{}{}
+		affectedUsers[normalizedOwner] = struct{}{}
+		a.broadcastUsernames(affectedUsers, map[string]any{"type": "im.session.updated", "payload": map[string]any{"conversation_id": conversationID, "reason": "owner_transferred", "owner_username": normalizedOwner, "conversation_title": updatedMeta.ConversationTitle}})
+	}
+	return a.buildConversationGroupProfileItem(ctx, conversationID, normalizedOwner, false, true)
+}
+
+func (a *App) handleInternalGroupOwnerTransfer(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"error": true})
+		return
+	}
+	if !isLoopbackRequest(r) {
+		writeJSON(w, http.StatusForbidden, map[string]any{"error": true, "message": "forbidden"})
+		return
+	}
+	var req internalGroupOwnerTransferRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": true, "message": "invalid payload"})
+		return
+	}
+	if req.ConversationID <= 0 {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": true, "message": "invalid conversation_id"})
+		return
+	}
+	item, err := a.transferConversationOwner(r.Context(), req.ConversationID, req.OwnerUsername, req.TransferredBy)
+	if err != nil {
+		writeConversationFeatureError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"success": true, "item": item})
 }
 
 func (a *App) handleInternalGroupAdminsReplace(w http.ResponseWriter, r *http.Request) {

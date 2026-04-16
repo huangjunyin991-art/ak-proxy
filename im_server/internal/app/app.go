@@ -130,6 +130,7 @@ func New(cfg config.Config) (*App, error) {
 	mux.HandleFunc("/im/api/bootstrap", app.handleBootstrap)
 	mux.HandleFunc("/im/api/sessions", app.handleSessions)
 	mux.HandleFunc("/im/api/sessions/members", app.handleSessionMembers)
+	mux.HandleFunc("/im/api/sessions/group_profile", app.handleSessionGroupProfile)
 	mux.HandleFunc("/im/api/sessions/settings", app.handleSessionSettings)
 	mux.HandleFunc("/im/api/sessions/members/add", app.handleSessionMembersAdd)
 	mux.HandleFunc("/im/api/sessions/members/remove", app.handleSessionMembersRemove)
@@ -142,7 +143,9 @@ func New(cfg config.Config) (*App, error) {
 	mux.HandleFunc("/im/api/messages/read_progress", app.handleMessageReadProgress)
 	mux.HandleFunc("/im/api/messages/recall", app.handleRecallMessage)
 	mux.HandleFunc("/im/internal/whitelist_groups/sync", app.handleInternalWhitelistGroupSync)
+	mux.HandleFunc("/im/internal/group_profile", app.handleInternalGroupProfile)
 	mux.HandleFunc("/im/internal/group_admins/replace", app.handleInternalGroupAdminsReplace)
+	mux.HandleFunc("/im/internal/group_owner/transfer", app.handleInternalGroupOwnerTransfer)
 	mux.HandleFunc("/im/ws", app.handleWS)
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"ok": true})
