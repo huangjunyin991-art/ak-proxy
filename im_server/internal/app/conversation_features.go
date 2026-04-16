@@ -15,12 +15,18 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
+const whitelistMainGroupTitle = "玩家主群"
+const whitelistGroupKeyPrefix = "group:admin_whitelist:"
+
 type conversationMeta struct {
-	ID               int64
-	ConversationType string
+	ID                int64
+	ConversationType  string
+	ConversationKey   string
 	ConversationTitle string
-	AvatarURL        string
-	OwnerUsername    string
+	AvatarURL         string
+	OwnerUsername     string
+	HiddenForAll      bool
+	PurgedBeforeSeqNo int64
 }
 
 type conversationMemberSnapshot struct {
@@ -53,6 +59,32 @@ type MessageReadProgressDetail struct {
 	UnreadMembers     []MessageReadProgressMember `json:"unread_members"`
 }
 
+type SessionMemberItem struct {
+	Username    string `json:"username"`
+	DisplayName string `json:"display_name"`
+	Role        string `json:"role,omitempty"`
+}
+
+type SessionMembersItem struct {
+	ConversationID    int64               `json:"conversation_id"`
+	ConversationType  string              `json:"conversation_type"`
+	ConversationTitle string              `json:"conversation_title,omitempty"`
+	MemberCount       int64               `json:"member_count"`
+	Members           []SessionMemberItem `json:"members"`
+}
+
+type SessionSettingsItem struct {
+	ConversationID    int64               `json:"conversation_id"`
+	ConversationType  string              `json:"conversation_type"`
+	ConversationTitle string              `json:"conversation_title,omitempty"`
+	MemberCount       int64               `json:"member_count"`
+	HiddenForAll      bool                `json:"hidden_for_all"`
+	IsGroupAdmin      bool                `json:"is_group_admin"`
+	CanManage         bool                `json:"can_manage"`
+	Admins            []SessionMemberItem `json:"admins"`
+	MessageAuthors    []SessionMemberItem `json:"message_authors,omitempty"`
+}
+
 type pinSessionRequest struct {
 	ConversationID int64 `json:"conversation_id"`
 	Pinned         bool  `json:"pinned"`
@@ -60,6 +92,31 @@ type pinSessionRequest struct {
 
 type internalWhitelistGroupSyncRequest struct {
 	AddedBy string `json:"added_by"`
+}
+
+type internalGroupAdminsReplaceRequest struct {
+	ConversationID int64    `json:"conversation_id"`
+	Usernames      []string `json:"usernames"`
+	AssignedBy     string   `json:"assigned_by"`
+}
+
+type sessionMembersManageRequest struct {
+	ConversationID int64    `json:"conversation_id"`
+	Username       string   `json:"username"`
+	Usernames      []string `json:"usernames"`
+}
+
+type sessionHistoryClearRequest struct {
+	ConversationID int64 `json:"conversation_id"`
+}
+
+type sessionMemberHistoryClearRequest struct {
+	ConversationID int64  `json:"conversation_id"`
+	Username       string `json:"username"`
+}
+
+type sessionHideRequest struct {
+	ConversationID int64 `json:"conversation_id"`
 }
 
 func roundProgressPercent(readCount int64, totalCount int64) int {
@@ -88,10 +145,10 @@ func isLoopbackRequest(r *http.Request) bool {
 func (a *App) loadConversationMeta(ctx context.Context, conversationID int64) (conversationMeta, error) {
 	var meta conversationMeta
 	err := a.db.QueryRow(ctx, `
-		SELECT id, conversation_type, COALESCE(title, ''), COALESCE(avatar_url, ''), COALESCE(owner_username, '')
+		SELECT id, conversation_type, COALESCE(conversation_key, ''), COALESCE(title, ''), COALESCE(avatar_url, ''), COALESCE(owner_username, ''), COALESCE(hidden_for_all, FALSE), COALESCE(purged_before_seq_no, 0)
 		FROM im_conversation
 		WHERE id = $1 AND deleted_at IS NULL`, conversationID).
-		Scan(&meta.ID, &meta.ConversationType, &meta.ConversationTitle, &meta.AvatarURL, &meta.OwnerUsername)
+		Scan(&meta.ID, &meta.ConversationType, &meta.ConversationKey, &meta.ConversationTitle, &meta.AvatarURL, &meta.OwnerUsername, &meta.HiddenForAll, &meta.PurgedBeforeSeqNo)
 	if err != nil {
 		return conversationMeta{}, err
 	}
@@ -117,6 +174,243 @@ func (a *App) listConversationMembers(ctx context.Context, conversationID int64)
 		items = append(items, item)
 	}
 	return items, rows.Err()
+}
+
+func collectRequestedUsernames(primary string, items []string) []string {
+	merged := make([]string, 0, len(items)+1)
+	if strings.TrimSpace(primary) != "" {
+		merged = append(merged, primary)
+	}
+	merged = append(merged, items...)
+	return normalizeUsernames(merged)
+}
+
+func isWhitelistManagedConversation(meta conversationMeta) bool {
+	return strings.HasPrefix(strings.ToLower(strings.TrimSpace(meta.ConversationKey)), whitelistGroupKeyPrefix)
+}
+
+func (a *App) ensureAllowedConversationTarget(ctx context.Context, username string) error {
+	normalizedUsername := strings.ToLower(strings.TrimSpace(username))
+	if normalizedUsername == "" {
+		return errors.New("invalid username")
+	}
+	var exists bool
+	if err := a.db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM user_stats WHERE username = $1)`, normalizedUsername).Scan(&exists); err != nil {
+		return err
+	}
+	if !exists {
+		return errors.New("user not found")
+	}
+	var allowed bool
+	if err := a.db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM authorized_accounts WHERE username = $1 AND status = 'active' AND expire_time > NOW())`, normalizedUsername).Scan(&allowed); err != nil {
+		return err
+	}
+	if !allowed {
+		return errors.New("user not allowed")
+	}
+	return nil
+}
+
+func (a *App) isConversationAdmin(ctx context.Context, conversationID int64, username string) bool {
+	var exists bool
+	_ = a.db.QueryRow(ctx, `
+		SELECT EXISTS(
+			SELECT 1
+			FROM im_conversation_admin
+			WHERE conversation_id = $1 AND username = $2 AND revoked_at IS NULL
+		)`, conversationID, strings.ToLower(strings.TrimSpace(username))).Scan(&exists)
+	return exists
+}
+
+func (a *App) loadConversationAdminUsernames(ctx context.Context, conversationID int64) ([]string, error) {
+	rows, err := a.db.Query(ctx, `
+		SELECT username
+		FROM im_conversation_admin
+		WHERE conversation_id = $1 AND revoked_at IS NULL
+		ORDER BY LOWER(username) ASC`, conversationID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := make([]string, 0)
+	for rows.Next() {
+		var username string
+		if err := rows.Scan(&username); err != nil {
+			return nil, err
+		}
+		items = append(items, username)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return normalizeUsernames(items), nil
+}
+
+func loadConversationAdminUsernamesTx(ctx context.Context, tx pgx.Tx, conversationID int64) ([]string, error) {
+	rows, err := tx.Query(ctx, `
+		SELECT username
+		FROM im_conversation_admin
+		WHERE conversation_id = $1 AND revoked_at IS NULL
+		ORDER BY LOWER(username) ASC`, conversationID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := make([]string, 0)
+	for rows.Next() {
+		var username string
+		if err := rows.Scan(&username); err != nil {
+			return nil, err
+		}
+		items = append(items, username)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return normalizeUsernames(items), nil
+}
+
+func loadConversationMemberOverridesTx(ctx context.Context, tx pgx.Tx, conversationID int64) (map[string]string, error) {
+	rows, err := tx.Query(ctx, `
+		SELECT username, override_type
+		FROM im_conversation_member_override
+		WHERE conversation_id = $1
+		ORDER BY id ASC`, conversationID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := map[string]string{}
+	for rows.Next() {
+		var username string
+		var overrideType string
+		if err := rows.Scan(&username, &overrideType); err != nil {
+			return nil, err
+		}
+		normalizedUsername := strings.ToLower(strings.TrimSpace(username))
+		normalizedType := strings.ToLower(strings.TrimSpace(overrideType))
+		if normalizedUsername == "" || (normalizedType != "add" && normalizedType != "remove") {
+			continue
+		}
+		items[normalizedUsername] = normalizedType
+	}
+	return items, rows.Err()
+}
+
+func loadActiveConversationUsernamesTx(ctx context.Context, tx pgx.Tx, conversationID int64) (map[string]struct{}, error) {
+	rows, err := tx.Query(ctx, `
+		SELECT username
+		FROM im_conversation_member
+		WHERE conversation_id = $1 AND left_at IS NULL`, conversationID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := map[string]struct{}{}
+	for rows.Next() {
+		var username string
+		if err := rows.Scan(&username); err != nil {
+			return nil, err
+		}
+		normalizedUsername := strings.ToLower(strings.TrimSpace(username))
+		if normalizedUsername != "" {
+			items[normalizedUsername] = struct{}{}
+		}
+	}
+	return items, rows.Err()
+}
+
+func (a *App) loadConversationAdmins(ctx context.Context, conversationID int64) ([]SessionMemberItem, map[string]struct{}, error) {
+	usernames, err := a.loadConversationAdminUsernames(ctx, conversationID)
+	if err != nil {
+		return nil, nil, err
+	}
+	items := make([]SessionMemberItem, 0, len(usernames))
+	adminSet := map[string]struct{}{}
+	for _, username := range usernames {
+		adminSet[username] = struct{}{}
+		items = append(items, SessionMemberItem{
+			Username:    username,
+			DisplayName: a.fetchDisplayName(ctx, username),
+			Role:        "admin",
+		})
+	}
+	sort.Slice(items, func(left int, right int) bool {
+		leftName := strings.TrimSpace(items[left].DisplayName)
+		rightName := strings.TrimSpace(items[right].DisplayName)
+		if leftName == rightName {
+			return items[left].Username < items[right].Username
+		}
+		return leftName < rightName
+	})
+	return items, adminSet, nil
+}
+
+func (a *App) loadConversationMessageAuthors(ctx context.Context, conversationID int64, purgedBeforeSeqNo int64) ([]SessionMemberItem, error) {
+	rows, err := a.db.Query(ctx, `
+		SELECT DISTINCT sender_username
+		FROM im_message
+		WHERE conversation_id = $1 AND deleted_at IS NULL AND seq_no > $2
+		ORDER BY LOWER(sender_username) ASC`, conversationID, purgedBeforeSeqNo)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := make([]SessionMemberItem, 0)
+	for rows.Next() {
+		var username string
+		if err := rows.Scan(&username); err != nil {
+			return nil, err
+		}
+		normalizedUsername := strings.ToLower(strings.TrimSpace(username))
+		if normalizedUsername == "" {
+			continue
+		}
+		items = append(items, SessionMemberItem{
+			Username:    normalizedUsername,
+			DisplayName: a.fetchDisplayName(ctx, normalizedUsername),
+		})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	sort.Slice(items, func(left int, right int) bool {
+		leftName := strings.TrimSpace(items[left].DisplayName)
+		rightName := strings.TrimSpace(items[right].DisplayName)
+		if leftName == rightName {
+			return items[left].Username < items[right].Username
+		}
+		return leftName < rightName
+	})
+	return items, nil
+}
+
+func refreshConversationSummary(ctx context.Context, tx pgx.Tx, conversationID int64) error {
+	var messageID int64
+	var preview string
+	var sentAt time.Time
+	err := tx.QueryRow(ctx, `
+		SELECT m.id, COALESCE(m.content_preview, '') AS content_preview, m.sent_at
+		FROM im_message m
+		JOIN im_conversation c ON c.id = m.conversation_id
+		WHERE m.conversation_id = $1 AND m.deleted_at IS NULL AND m.seq_no > COALESCE(c.purged_before_seq_no, 0)
+		ORDER BY m.seq_no DESC
+		LIMIT 1`, conversationID).Scan(&messageID, &preview, &sentAt)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			_, execErr := tx.Exec(ctx, `
+				UPDATE im_conversation
+				SET last_message_id = NULL, last_message_preview = '', last_message_at = NULL, updated_at = NOW()
+				WHERE id = $1`, conversationID)
+			return execErr
+		}
+		return err
+	}
+	_, err = tx.Exec(ctx, `
+		UPDATE im_conversation
+		SET last_message_id = $2, last_message_preview = $3, last_message_at = $4, updated_at = NOW()
+		WHERE id = $1`, conversationID, messageID, preview, sentAt)
+	return err
 }
 
 func memberEffectiveAt(item conversationMemberSnapshot, sentAt time.Time) bool {
@@ -276,6 +570,714 @@ func (a *App) handleMessageReadProgress(w http.ResponseWriter, r *http.Request) 
 	writeJSON(w, http.StatusOK, map[string]any{"item": item})
 }
 
+func (a *App) handleSessionMembers(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"error": true})
+		return
+	}
+	username, err := a.requireAllowedUser(r)
+	if err != nil {
+		writeJSON(w, http.StatusForbidden, map[string]any{"error": true, "message": err.Error()})
+		return
+	}
+	conversationIDText := strings.TrimSpace(r.URL.Query().Get("conversation_id"))
+	if conversationIDText == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": true, "message": "missing conversation_id"})
+		return
+	}
+	var conversationID int64
+	if _, err := fmt.Sscan(conversationIDText, &conversationID); err != nil || conversationID <= 0 {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": true, "message": "invalid conversation_id"})
+		return
+	}
+	if !a.ensureConversationMember(r.Context(), conversationIDText, username) {
+		writeJSON(w, http.StatusForbidden, map[string]any{"error": true, "message": "forbidden"})
+		return
+	}
+	meta, err := a.loadConversationMeta(r.Context(), conversationID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			writeJSON(w, http.StatusNotFound, map[string]any{"error": true, "message": "conversation not found"})
+			return
+		}
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
+		return
+	}
+	adminUsernames, err := a.loadConversationAdminUsernames(r.Context(), conversationID)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
+		return
+	}
+	adminSet := map[string]struct{}{}
+	for _, adminUsername := range adminUsernames {
+		adminSet[adminUsername] = struct{}{}
+	}
+	rows, err := a.db.Query(r.Context(), `
+		SELECT username, COALESCE(role, 'member') AS role
+		FROM im_conversation_member
+		WHERE conversation_id = $1 AND left_at IS NULL
+		ORDER BY LOWER(username) ASC`, conversationID)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
+		return
+	}
+	defer rows.Close()
+	members := make([]SessionMemberItem, 0)
+	for rows.Next() {
+		var item SessionMemberItem
+		if err := rows.Scan(&item.Username, &item.Role); err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
+			return
+		}
+		item.Username = strings.ToLower(strings.TrimSpace(item.Username))
+		if strings.EqualFold(item.Username, meta.OwnerUsername) {
+			item.Role = "owner"
+		} else if _, ok := adminSet[item.Username]; ok {
+			item.Role = "admin"
+		}
+		item.DisplayName = a.fetchDisplayName(r.Context(), item.Username)
+		members = append(members, item)
+	}
+	if err := rows.Err(); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
+		return
+	}
+	sort.Slice(members, func(left int, right int) bool {
+		leftName := strings.TrimSpace(members[left].DisplayName)
+		rightName := strings.TrimSpace(members[right].DisplayName)
+		if leftName == rightName {
+			return members[left].Username < members[right].Username
+		}
+		return leftName < rightName
+	})
+	if meta.ConversationType == "group" && strings.TrimSpace(meta.ConversationTitle) == "" {
+		meta.ConversationTitle = whitelistMainGroupTitle
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"item": SessionMembersItem{
+		ConversationID:    conversationID,
+		ConversationType:  meta.ConversationType,
+		ConversationTitle: meta.ConversationTitle,
+		MemberCount:       int64(len(members)),
+		Members:           members,
+	}})
+}
+
+func collectConversationAffectedUsersTx(ctx context.Context, tx pgx.Tx, conversationID int64, extras ...string) (map[string]struct{}, error) {
+	activeUsers, err := loadActiveConversationUsernamesTx(ctx, tx, conversationID)
+	if err != nil {
+		return nil, err
+	}
+	affectedUsers := map[string]struct{}{}
+	for username := range activeUsers {
+		affectedUsers[username] = struct{}{}
+	}
+	for _, item := range extras {
+		normalizedUsername := strings.ToLower(strings.TrimSpace(item))
+		if normalizedUsername != "" {
+			affectedUsers[normalizedUsername] = struct{}{}
+		}
+	}
+	return affectedUsers, nil
+}
+
+func writeConversationFeatureError(w http.ResponseWriter, err error) {
+	statusCode := http.StatusBadRequest
+	switch err.Error() {
+	case "forbidden":
+		statusCode = http.StatusForbidden
+	case "conversation not found":
+		statusCode = http.StatusNotFound
+	case "invalid username", "user not found", "user not allowed", "conversation not group", "cannot remove group admin":
+		statusCode = http.StatusBadRequest
+	default:
+		statusCode = http.StatusInternalServerError
+	}
+	writeJSON(w, statusCode, map[string]any{"error": true, "message": err.Error()})
+}
+
+func (a *App) requireGroupConversationAdmin(ctx context.Context, conversationID int64, username string) (conversationMeta, error) {
+	if !a.ensureConversationMember(ctx, fmt.Sprintf("%d", conversationID), username) {
+		return conversationMeta{}, errors.New("forbidden")
+	}
+	meta, err := a.loadConversationMeta(ctx, conversationID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return conversationMeta{}, errors.New("conversation not found")
+		}
+		return conversationMeta{}, err
+	}
+	if meta.ConversationType != "group" {
+		return conversationMeta{}, errors.New("conversation not group")
+	}
+	if !a.isConversationAdmin(ctx, conversationID, username) {
+		return conversationMeta{}, errors.New("forbidden")
+	}
+	return meta, nil
+}
+
+func (a *App) buildSessionSettingsItem(ctx context.Context, conversationID int64, username string) (SessionSettingsItem, error) {
+	if !a.ensureConversationMember(ctx, fmt.Sprintf("%d", conversationID), username) {
+		return SessionSettingsItem{}, errors.New("forbidden")
+	}
+	meta, err := a.loadConversationMeta(ctx, conversationID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return SessionSettingsItem{}, errors.New("conversation not found")
+		}
+		return SessionSettingsItem{}, err
+	}
+	if meta.ConversationType != "group" {
+		return SessionSettingsItem{}, errors.New("conversation not group")
+	}
+	admins, adminSet, err := a.loadConversationAdmins(ctx, conversationID)
+	if err != nil {
+		return SessionSettingsItem{}, err
+	}
+	for index := range admins {
+		if strings.EqualFold(admins[index].Username, meta.OwnerUsername) {
+			admins[index].Role = "owner"
+		}
+	}
+	members, err := a.listConversationMembers(ctx, conversationID)
+	if err != nil {
+		return SessionSettingsItem{}, err
+	}
+	memberCount := int64(0)
+	for _, member := range members {
+		if member.LeftAt == nil {
+			memberCount += 1
+		}
+	}
+	normalizedUsername := strings.ToLower(strings.TrimSpace(username))
+	_, isGroupAdmin := adminSet[normalizedUsername]
+	item := SessionSettingsItem{
+		ConversationID:    conversationID,
+		ConversationType:  meta.ConversationType,
+		ConversationTitle: meta.ConversationTitle,
+		MemberCount:       memberCount,
+		HiddenForAll:      meta.HiddenForAll,
+		IsGroupAdmin:      isGroupAdmin,
+		CanManage:         isGroupAdmin,
+		Admins:            admins,
+	}
+	if strings.TrimSpace(item.ConversationTitle) == "" {
+		item.ConversationTitle = whitelistMainGroupTitle
+	}
+	if isGroupAdmin {
+		authors, err := a.loadConversationMessageAuthors(ctx, conversationID, meta.PurgedBeforeSeqNo)
+		if err != nil {
+			return SessionSettingsItem{}, err
+		}
+		item.MessageAuthors = authors
+	}
+	return item, nil
+}
+
+func (a *App) handleSessionSettings(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"error": true})
+		return
+	}
+	username, err := a.requireAllowedUser(r)
+	if err != nil {
+		writeJSON(w, http.StatusForbidden, map[string]any{"error": true, "message": err.Error()})
+		return
+	}
+	conversationIDText := strings.TrimSpace(r.URL.Query().Get("conversation_id"))
+	if conversationIDText == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": true, "message": "missing conversation_id"})
+		return
+	}
+	var conversationID int64
+	if _, err := fmt.Sscan(conversationIDText, &conversationID); err != nil || conversationID <= 0 {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": true, "message": "invalid conversation_id"})
+		return
+	}
+	item, err := a.buildSessionSettingsItem(r.Context(), conversationID, username)
+	if err != nil {
+		writeConversationFeatureError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"item": item})
+}
+
+func (a *App) syncWhitelistConversationAfterRules(ctx context.Context, meta conversationMeta) error {
+	normalizedOwner := strings.ToLower(strings.TrimSpace(meta.OwnerUsername))
+	memberMap, err := a.loadWhitelistGroupMembers(ctx, normalizedOwner)
+	if err != nil {
+		return err
+	}
+	return a.syncWhitelistGroupByAdmin(ctx, normalizedOwner, memberMap[normalizedOwner])
+}
+
+func (a *App) handleSessionMembersAdd(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"error": true})
+		return
+	}
+	username, err := a.requireAllowedUser(r)
+	if err != nil {
+		writeJSON(w, http.StatusForbidden, map[string]any{"error": true, "message": err.Error()})
+		return
+	}
+	var req sessionMembersManageRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": true, "message": "invalid payload"})
+		return
+	}
+	if req.ConversationID <= 0 {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": true, "message": "invalid conversation_id"})
+		return
+	}
+	targets := collectRequestedUsernames(req.Username, req.Usernames)
+	if len(targets) < 1 {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": true, "message": "invalid username"})
+		return
+	}
+	meta, err := a.requireGroupConversationAdmin(r.Context(), req.ConversationID, username)
+	if err != nil {
+		writeConversationFeatureError(w, err)
+		return
+	}
+	for _, target := range targets {
+		if err := a.ensureAllowedConversationTarget(r.Context(), target); err != nil {
+			writeConversationFeatureError(w, err)
+			return
+		}
+	}
+	if isWhitelistManagedConversation(meta) {
+		tx, err := a.db.Begin(r.Context())
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
+			return
+		}
+		defer tx.Rollback(r.Context())
+		for _, target := range targets {
+			if _, err := tx.Exec(r.Context(), `
+				INSERT INTO im_conversation_member_override (conversation_id, username, override_type, created_by)
+				VALUES ($1, $2, 'add', $3)
+				ON CONFLICT (conversation_id, username)
+				DO UPDATE SET override_type = 'add', created_by = EXCLUDED.created_by, updated_at = NOW()`, req.ConversationID, target, username); err != nil {
+				writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
+				return
+			}
+		}
+		if err := tx.Commit(r.Context()); err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
+			return
+		}
+		if err := a.syncWhitelistConversationAfterRules(r.Context(), meta); err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"success": true})
+		return
+	}
+	tx, err := a.db.Begin(r.Context())
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
+		return
+	}
+	defer tx.Rollback(r.Context())
+	affectedUsers, err := collectConversationAffectedUsersTx(r.Context(), tx, req.ConversationID, targets...)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
+		return
+	}
+	activeUsers, err := loadActiveConversationUsernamesTx(r.Context(), tx, req.ConversationID)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
+		return
+	}
+	for _, target := range targets {
+		if _, ok := activeUsers[target]; ok {
+			continue
+		}
+		if _, err := tx.Exec(r.Context(), `
+			INSERT INTO im_conversation_member (conversation_id, username, role)
+			VALUES ($1, $2, 'member')
+			ON CONFLICT DO NOTHING`, req.ConversationID, target); err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
+			return
+		}
+	}
+	if err := tx.Commit(r.Context()); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
+		return
+	}
+	a.broadcastUsernames(affectedUsers, map[string]any{"type": "im.session.updated", "payload": map[string]any{"conversation_id": req.ConversationID, "reason": "members_changed"}})
+	writeJSON(w, http.StatusOK, map[string]any{"success": true})
+}
+
+func (a *App) handleSessionMembersRemove(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"error": true})
+		return
+	}
+	username, err := a.requireAllowedUser(r)
+	if err != nil {
+		writeJSON(w, http.StatusForbidden, map[string]any{"error": true, "message": err.Error()})
+		return
+	}
+	var req sessionMembersManageRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": true, "message": "invalid payload"})
+		return
+	}
+	if req.ConversationID <= 0 {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": true, "message": "invalid conversation_id"})
+		return
+	}
+	targets := collectRequestedUsernames(req.Username, req.Usernames)
+	if len(targets) < 1 {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": true, "message": "invalid username"})
+		return
+	}
+	meta, err := a.requireGroupConversationAdmin(r.Context(), req.ConversationID, username)
+	if err != nil {
+		writeConversationFeatureError(w, err)
+		return
+	}
+	adminUsernames, err := a.loadConversationAdminUsernames(r.Context(), req.ConversationID)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
+		return
+	}
+	adminSet := map[string]struct{}{}
+	for _, adminUsername := range adminUsernames {
+		adminSet[adminUsername] = struct{}{}
+	}
+	for _, target := range targets {
+		if _, ok := adminSet[target]; ok {
+			writeConversationFeatureError(w, errors.New("cannot remove group admin"))
+			return
+		}
+	}
+	if isWhitelistManagedConversation(meta) {
+		tx, err := a.db.Begin(r.Context())
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
+			return
+		}
+		defer tx.Rollback(r.Context())
+		for _, target := range targets {
+			if _, err := tx.Exec(r.Context(), `
+				INSERT INTO im_conversation_member_override (conversation_id, username, override_type, created_by)
+				VALUES ($1, $2, 'remove', $3)
+				ON CONFLICT (conversation_id, username)
+				DO UPDATE SET override_type = 'remove', created_by = EXCLUDED.created_by, updated_at = NOW()`, req.ConversationID, target, username); err != nil {
+				writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
+				return
+			}
+		}
+		if err := tx.Commit(r.Context()); err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
+			return
+		}
+		if err := a.syncWhitelistConversationAfterRules(r.Context(), meta); err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"success": true})
+		return
+	}
+	tx, err := a.db.Begin(r.Context())
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
+		return
+	}
+	defer tx.Rollback(r.Context())
+	affectedUsers, err := collectConversationAffectedUsersTx(r.Context(), tx, req.ConversationID, targets...)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
+		return
+	}
+	for _, target := range targets {
+		if _, err := tx.Exec(r.Context(), `
+			UPDATE im_conversation_member
+			SET left_at = NOW(), pin_type = 'none', pinned_at = NULL, is_pinned = FALSE, updated_at = NOW()
+			WHERE conversation_id = $1 AND username = $2 AND left_at IS NULL`, req.ConversationID, target); err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
+			return
+		}
+	}
+	if err := tx.Commit(r.Context()); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
+		return
+	}
+	a.broadcastUsernames(affectedUsers, map[string]any{"type": "im.session.updated", "payload": map[string]any{"conversation_id": req.ConversationID, "reason": "members_changed"}})
+	writeJSON(w, http.StatusOK, map[string]any{"success": true})
+}
+
+func (a *App) handleSessionHistoryClear(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"error": true})
+		return
+	}
+	username, err := a.requireAllowedUser(r)
+	if err != nil {
+		writeJSON(w, http.StatusForbidden, map[string]any{"error": true, "message": err.Error()})
+		return
+	}
+	var req sessionHistoryClearRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": true, "message": "invalid payload"})
+		return
+	}
+	meta, err := a.requireGroupConversationAdmin(r.Context(), req.ConversationID, username)
+	if err != nil {
+		writeConversationFeatureError(w, err)
+		return
+	}
+	tx, err := a.db.Begin(r.Context())
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
+		return
+	}
+	defer tx.Rollback(r.Context())
+	affectedUsers, err := collectConversationAffectedUsersTx(r.Context(), tx, req.ConversationID)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
+		return
+	}
+	var maxSeqNo int64
+	if err := tx.QueryRow(r.Context(), `SELECT COALESCE(MAX(seq_no), 0) FROM im_message WHERE conversation_id = $1 AND deleted_at IS NULL`, req.ConversationID).Scan(&maxSeqNo); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
+		return
+	}
+	if _, err := tx.Exec(r.Context(), `
+		UPDATE im_conversation
+		SET purged_before_seq_no = GREATEST(purged_before_seq_no, $2), updated_at = NOW()
+		WHERE id = $1`, req.ConversationID, maxSeqNo); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
+		return
+	}
+	if err := refreshConversationSummary(r.Context(), tx, req.ConversationID); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
+		return
+	}
+	if err := tx.Commit(r.Context()); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
+		return
+	}
+	a.broadcastUsernames(affectedUsers, map[string]any{"type": "im.session.updated", "payload": map[string]any{"conversation_id": req.ConversationID, "reason": "history_cleared", "conversation_title": meta.ConversationTitle}})
+	writeJSON(w, http.StatusOK, map[string]any{"success": true, "cleared_before_seq_no": maxSeqNo})
+}
+
+func (a *App) handleSessionMemberHistoryClear(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"error": true})
+		return
+	}
+	username, err := a.requireAllowedUser(r)
+	if err != nil {
+		writeJSON(w, http.StatusForbidden, map[string]any{"error": true, "message": err.Error()})
+		return
+	}
+	var req sessionMemberHistoryClearRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": true, "message": "invalid payload"})
+		return
+	}
+	if strings.TrimSpace(req.Username) == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": true, "message": "invalid username"})
+		return
+	}
+	meta, err := a.requireGroupConversationAdmin(r.Context(), req.ConversationID, username)
+	if err != nil {
+		writeConversationFeatureError(w, err)
+		return
+	}
+	targetUsername := strings.ToLower(strings.TrimSpace(req.Username))
+	tx, err := a.db.Begin(r.Context())
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
+		return
+	}
+	defer tx.Rollback(r.Context())
+	affectedUsers, err := collectConversationAffectedUsersTx(r.Context(), tx, req.ConversationID, targetUsername)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
+		return
+	}
+	commandTag, err := tx.Exec(r.Context(), `
+		UPDATE im_message
+		SET deleted_at = NOW(), updated_at = NOW()
+		WHERE conversation_id = $1
+			AND sender_username = $2
+			AND deleted_at IS NULL
+			AND seq_no > (SELECT COALESCE(purged_before_seq_no, 0) FROM im_conversation WHERE id = $1)`, req.ConversationID, targetUsername)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
+		return
+	}
+	if err := refreshConversationSummary(r.Context(), tx, req.ConversationID); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
+		return
+	}
+	if err := tx.Commit(r.Context()); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
+		return
+	}
+	a.broadcastUsernames(affectedUsers, map[string]any{"type": "im.session.updated", "payload": map[string]any{"conversation_id": req.ConversationID, "reason": "member_history_cleared", "sender_username": targetUsername, "conversation_title": meta.ConversationTitle}})
+	writeJSON(w, http.StatusOK, map[string]any{"success": true, "deleted_count": commandTag.RowsAffected()})
+}
+
+func (a *App) handleSessionHide(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"error": true})
+		return
+	}
+	username, err := a.requireAllowedUser(r)
+	if err != nil {
+		writeJSON(w, http.StatusForbidden, map[string]any{"error": true, "message": err.Error()})
+		return
+	}
+	var req sessionHideRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": true, "message": "invalid payload"})
+		return
+	}
+	meta, err := a.requireGroupConversationAdmin(r.Context(), req.ConversationID, username)
+	if err != nil {
+		writeConversationFeatureError(w, err)
+		return
+	}
+	tx, err := a.db.Begin(r.Context())
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
+		return
+	}
+	defer tx.Rollback(r.Context())
+	affectedUsers, err := collectConversationAffectedUsersTx(r.Context(), tx, req.ConversationID)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
+		return
+	}
+	if _, err := tx.Exec(r.Context(), `UPDATE im_conversation SET hidden_for_all = TRUE, updated_at = NOW() WHERE id = $1`, req.ConversationID); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
+		return
+	}
+	if err := tx.Commit(r.Context()); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
+		return
+	}
+	a.broadcastUsernames(affectedUsers, map[string]any{"type": "im.session.updated", "payload": map[string]any{"conversation_id": req.ConversationID, "reason": "hidden", "conversation_title": meta.ConversationTitle}})
+	writeJSON(w, http.StatusOK, map[string]any{"success": true})
+}
+
+func (a *App) handleInternalGroupAdminsReplace(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"error": true})
+		return
+	}
+	if !isLoopbackRequest(r) {
+		writeJSON(w, http.StatusForbidden, map[string]any{"error": true, "message": "forbidden"})
+		return
+	}
+	var req internalGroupAdminsReplaceRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": true, "message": "invalid payload"})
+		return
+	}
+	if req.ConversationID <= 0 {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": true, "message": "invalid conversation_id"})
+		return
+	}
+	meta, err := a.loadConversationMeta(r.Context(), req.ConversationID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			writeJSON(w, http.StatusNotFound, map[string]any{"error": true, "message": "conversation not found"})
+			return
+		}
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
+		return
+	}
+	if meta.ConversationType != "group" {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": true, "message": "conversation not group"})
+		return
+	}
+	targets := normalizeUsernames(req.Usernames)
+	if isWhitelistManagedConversation(meta) {
+		targets = collectRequestedUsernames(meta.OwnerUsername, targets)
+	}
+	for _, target := range targets {
+		if err := a.ensureAllowedConversationTarget(r.Context(), target); err != nil {
+			writeConversationFeatureError(w, err)
+			return
+		}
+	}
+	tx, err := a.db.Begin(r.Context())
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
+		return
+	}
+	defer tx.Rollback(r.Context())
+	oldAdmins, err := loadConversationAdminUsernamesTx(r.Context(), tx, req.ConversationID)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
+		return
+	}
+	affectedUsers, err := collectConversationAffectedUsersTx(r.Context(), tx, req.ConversationID)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
+		return
+	}
+	for _, adminUsername := range oldAdmins {
+		affectedUsers[adminUsername] = struct{}{}
+	}
+	for _, target := range targets {
+		affectedUsers[target] = struct{}{}
+	}
+	if _, err := tx.Exec(r.Context(), `
+		UPDATE im_conversation_admin
+		SET revoked_at = NOW(), updated_at = NOW()
+		WHERE conversation_id = $1 AND revoked_at IS NULL`, req.ConversationID); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
+		return
+	}
+	for _, target := range targets {
+		if _, err := tx.Exec(r.Context(), `
+			INSERT INTO im_conversation_admin (conversation_id, username, assigned_by)
+			VALUES ($1, $2, $3)`, req.ConversationID, target, strings.ToLower(strings.TrimSpace(req.AssignedBy))); err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
+			return
+		}
+	}
+	if !isWhitelistManagedConversation(meta) {
+		activeUsers, err := loadActiveConversationUsernamesTx(r.Context(), tx, req.ConversationID)
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
+			return
+		}
+		for _, target := range targets {
+			if _, ok := activeUsers[target]; ok {
+				continue
+			}
+			if _, err := tx.Exec(r.Context(), `
+				INSERT INTO im_conversation_member (conversation_id, username, role)
+				VALUES ($1, $2, 'member')
+				ON CONFLICT DO NOTHING`, req.ConversationID, target); err != nil {
+				writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
+				return
+			}
+		}
+	}
+	if err := tx.Commit(r.Context()); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
+		return
+	}
+	if isWhitelistManagedConversation(meta) {
+		if err := a.syncWhitelistConversationAfterRules(r.Context(), meta); err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
+			return
+		}
+	} else {
+		a.broadcastUsernames(affectedUsers, map[string]any{"type": "im.session.updated", "payload": map[string]any{"conversation_id": req.ConversationID, "reason": "admins_replaced"}})
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"success": true, "admins": targets})
+}
+
 func (a *App) setConversationPin(ctx context.Context, conversationID int64, username string, pinned bool) error {
 	var pinType string
 	err := a.db.QueryRow(ctx, `
@@ -426,8 +1428,8 @@ func (a *App) syncWhitelistGroupByAdmin(ctx context.Context, addedBy string, mem
 	if normalizedOwner == "" {
 		return nil
 	}
-	desiredMembers := normalizeUsernames(members)
-	conversationKey := "group:admin_whitelist:" + normalizedOwner
+	whitelistMembers := normalizeUsernames(members)
+	conversationKey := whitelistGroupKeyPrefix + normalizedOwner
 	tx, err := a.db.Begin(ctx)
 	if err != nil {
 		return err
@@ -439,8 +1441,63 @@ func (a *App) syncWhitelistGroupByAdmin(ctx context.Context, addedBy string, mem
 		return err
 	}
 	affectedUsers := map[string]struct{}{}
-	if len(desiredMembers) < 2 {
-		if errors.Is(err, pgx.ErrNoRows) {
+	title := whitelistMainGroupTitle
+	conversationExists := !errors.Is(err, pgx.ErrNoRows)
+	if !conversationExists && len(whitelistMembers) < 1 {
+		return tx.Commit(ctx)
+	}
+	if !conversationExists {
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO im_conversation (conversation_type, conversation_key, title, owner_username)
+			VALUES ('group', $1, $2, $3)
+			ON CONFLICT DO NOTHING`, conversationKey, title, normalizedOwner); err != nil {
+			return err
+		}
+		if err := tx.QueryRow(ctx, `SELECT id FROM im_conversation WHERE conversation_key = $1`, conversationKey).Scan(&conversationID); err != nil {
+			return err
+		}
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO im_conversation_admin (conversation_id, username, assigned_by)
+		SELECT $1, $2, $3
+		WHERE NOT EXISTS (
+			SELECT 1 FROM im_conversation_admin WHERE conversation_id = $1 AND username = $2 AND revoked_at IS NULL
+		)`, conversationID, normalizedOwner, normalizedOwner); err != nil {
+		return err
+	}
+	adminUsernames, err := loadConversationAdminUsernamesTx(ctx, tx, conversationID)
+	if err != nil {
+		return err
+	}
+	overrides, err := loadConversationMemberOverridesTx(ctx, tx, conversationID)
+	if err != nil {
+		return err
+	}
+	projectedSet := map[string]struct{}{}
+	for _, member := range whitelistMembers {
+		projectedSet[member] = struct{}{}
+	}
+	for _, adminUsername := range adminUsernames {
+		projectedSet[adminUsername] = struct{}{}
+		affectedUsers[adminUsername] = struct{}{}
+	}
+	for member, overrideType := range overrides {
+		if overrideType == "add" {
+			projectedSet[member] = struct{}{}
+		}
+	}
+	for member, overrideType := range overrides {
+		if overrideType == "remove" {
+			delete(projectedSet, member)
+		}
+	}
+	projectedMembers := make([]string, 0, len(projectedSet))
+	for member := range projectedSet {
+		projectedMembers = append(projectedMembers, member)
+	}
+	sort.Strings(projectedMembers)
+	if len(projectedMembers) < 1 {
+		if !conversationExists {
 			return tx.Commit(ctx)
 		}
 		rows, queryErr := tx.Query(ctx, `SELECT DISTINCT username FROM im_conversation_member WHERE conversation_id = $1 AND left_at IS NULL`, conversationID)
@@ -467,21 +1524,9 @@ func (a *App) syncWhitelistGroupByAdmin(ctx context.Context, addedBy string, mem
 			return commitErr
 		}
 		if len(affectedUsers) > 0 {
-			a.broadcastUsernames(affectedUsers, map[string]any{"type": "im.session.updated", "payload": map[string]any{"conversation_id": conversationID}})
+			a.broadcastUsernames(affectedUsers, map[string]any{"type": "im.session.updated", "payload": map[string]any{"conversation_id": conversationID, "reason": "members_changed"}})
 		}
 		return nil
-	}
-	title := fmt.Sprintf("%s 白名单群", a.fetchDisplayName(ctx, normalizedOwner))
-	if errors.Is(err, pgx.ErrNoRows) {
-		if _, err := tx.Exec(ctx, `
-			INSERT INTO im_conversation (conversation_type, conversation_key, title, owner_username)
-			VALUES ('group', $1, $2, $3)
-			ON CONFLICT DO NOTHING`, conversationKey, title, normalizedOwner); err != nil {
-			return err
-		}
-		if err := tx.QueryRow(ctx, `SELECT id FROM im_conversation WHERE conversation_key = $1`, conversationKey).Scan(&conversationID); err != nil {
-			return err
-		}
 	}
 	if _, err := tx.Exec(ctx, `
 		UPDATE im_conversation
@@ -510,7 +1555,7 @@ func (a *App) syncWhitelistGroupByAdmin(ctx context.Context, addedBy string, mem
 	}
 	activeRows.Close()
 	desiredSet := map[string]struct{}{}
-	for _, member := range desiredMembers {
+	for _, member := range projectedMembers {
 		desiredSet[member] = struct{}{}
 		affectedUsers[member] = struct{}{}
 		if _, ok := activeMembers[member]; ok {
@@ -543,7 +1588,7 @@ func (a *App) syncWhitelistGroupByAdmin(ctx context.Context, addedBy string, mem
 	if commitErr := tx.Commit(ctx); commitErr != nil {
 		return commitErr
 	}
-	a.broadcastUsernames(affectedUsers, map[string]any{"type": "im.session.updated", "payload": map[string]any{"conversation_id": conversationID}})
+	a.broadcastUsernames(affectedUsers, map[string]any{"type": "im.session.updated", "payload": map[string]any{"conversation_id": conversationID, "reason": "members_changed"}})
 	return nil
 }
 

@@ -129,12 +129,20 @@ func New(cfg config.Config) (*App, error) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/im/api/bootstrap", app.handleBootstrap)
 	mux.HandleFunc("/im/api/sessions", app.handleSessions)
+	mux.HandleFunc("/im/api/sessions/members", app.handleSessionMembers)
+	mux.HandleFunc("/im/api/sessions/settings", app.handleSessionSettings)
+	mux.HandleFunc("/im/api/sessions/members/add", app.handleSessionMembersAdd)
+	mux.HandleFunc("/im/api/sessions/members/remove", app.handleSessionMembersRemove)
+	mux.HandleFunc("/im/api/sessions/history/clear", app.handleSessionHistoryClear)
+	mux.HandleFunc("/im/api/sessions/history/clear-member", app.handleSessionMemberHistoryClear)
+	mux.HandleFunc("/im/api/sessions/hide", app.handleSessionHide)
 	mux.HandleFunc("/im/api/sessions/direct", app.handleDirectSession)
 	mux.HandleFunc("/im/api/sessions/pin", app.handleSessionPin)
 	mux.HandleFunc("/im/api/messages", app.handleMessages)
 	mux.HandleFunc("/im/api/messages/read_progress", app.handleMessageReadProgress)
 	mux.HandleFunc("/im/api/messages/recall", app.handleRecallMessage)
 	mux.HandleFunc("/im/internal/whitelist_groups/sync", app.handleInternalWhitelistGroupSync)
+	mux.HandleFunc("/im/internal/group_admins/replace", app.handleInternalGroupAdminsReplace)
 	mux.HandleFunc("/im/ws", app.handleWS)
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"ok": true})
@@ -147,8 +155,20 @@ func New(cfg config.Config) (*App, error) {
 }
 
 func (a *App) Run() error {
+	go a.runWhitelistGroupSelfHeal()
 	log.Printf("im server listen on %s", a.cfg.Addr)
 	return a.server.ListenAndServe()
+}
+
+func (a *App) runWhitelistGroupSelfHeal() {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	syncedCount, err := a.syncWhitelistGroups(ctx, "")
+	if err != nil {
+		log.Printf("im whitelist main group self heal failed: %v", err)
+		return
+	}
+	log.Printf("im whitelist main group self heal synced owners=%d", syncedCount)
 }
 
 func (a *App) withCommonHeaders(next http.Handler) http.Handler {
@@ -183,6 +203,8 @@ func (a *App) ensureSchema(ctx context.Context) error {
 			updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
 			deleted_at TIMESTAMP
 		)`,
+		`ALTER TABLE im_conversation ADD COLUMN IF NOT EXISTS hidden_for_all BOOLEAN NOT NULL DEFAULT FALSE`,
+		`ALTER TABLE im_conversation ADD COLUMN IF NOT EXISTS purged_before_seq_no BIGINT NOT NULL DEFAULT 0`,
 		`CREATE TABLE IF NOT EXISTS im_conversation_member (
 			id BIGSERIAL PRIMARY KEY,
 			conversation_id BIGINT NOT NULL REFERENCES im_conversation(id) ON DELETE CASCADE,
@@ -219,6 +241,26 @@ func (a *App) ensureSchema(ctx context.Context) error {
 			deleted_at TIMESTAMP,
 			UNIQUE(conversation_id, seq_no)
 		)`,
+		`CREATE TABLE IF NOT EXISTS im_conversation_admin (
+			id BIGSERIAL PRIMARY KEY,
+			conversation_id BIGINT NOT NULL REFERENCES im_conversation(id) ON DELETE CASCADE,
+			username TEXT NOT NULL,
+			assigned_by TEXT NOT NULL DEFAULT '',
+			created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+			updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+			revoked_at TIMESTAMP
+		)`,
+		`CREATE TABLE IF NOT EXISTS im_conversation_member_override (
+			id BIGSERIAL PRIMARY KEY,
+			conversation_id BIGINT NOT NULL REFERENCES im_conversation(id) ON DELETE CASCADE,
+			username TEXT NOT NULL,
+			override_type TEXT NOT NULL,
+			created_by TEXT NOT NULL DEFAULT '',
+			created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+			updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+			CHECK (override_type IN ('add', 'remove')),
+			UNIQUE(conversation_id, username)
+		)`,
 		`ALTER TABLE im_conversation_member ADD COLUMN IF NOT EXISTS left_at TIMESTAMP`,
 		`ALTER TABLE im_conversation_member ADD COLUMN IF NOT EXISTS pin_type TEXT NOT NULL DEFAULT 'none'`,
 		`ALTER TABLE im_conversation_member ADD COLUMN IF NOT EXISTS pinned_at TIMESTAMP`,
@@ -227,6 +269,9 @@ func (a *App) ensureSchema(ctx context.Context) error {
 		`UPDATE im_conversation_member SET pinned_at = COALESCE(pinned_at, updated_at, created_at, NOW()) WHERE is_pinned = TRUE AND pinned_at IS NULL`,
 		`CREATE INDEX IF NOT EXISTS idx_im_conversation_member_username ON im_conversation_member(username)`,
 		`CREATE UNIQUE INDEX IF NOT EXISTS idx_im_conversation_member_active_unique ON im_conversation_member(conversation_id, username) WHERE left_at IS NULL`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_im_conversation_admin_active_unique ON im_conversation_admin(conversation_id, username) WHERE revoked_at IS NULL`,
+		`CREATE INDEX IF NOT EXISTS idx_im_conversation_admin_username ON im_conversation_admin(username)`,
+		`CREATE INDEX IF NOT EXISTS idx_im_conversation_member_override_username ON im_conversation_member_override(username)`,
 		`CREATE INDEX IF NOT EXISTS idx_im_message_conversation_id ON im_message(conversation_id, seq_no DESC)`,
 	}
 	for _, stmt := range statements {
@@ -322,11 +367,11 @@ func (a *App) handleSessions(w http.ResponseWriter, r *http.Request) {
 			COALESCE(c.last_message_id, 0) AS last_message_id,
 			COALESCE(c.last_message_preview, '') AS last_message_preview,
 			c.last_message_at,
-			COALESCE((SELECT COUNT(1) FROM im_message m2 WHERE m2.conversation_id = c.id AND m2.deleted_at IS NULL AND m2.sender_username <> $1 AND m2.seq_no > COALESCE(cm.last_read_seq_no, 0) AND m2.sent_at >= cm.joined_at), 0) AS unread_count,
+			COALESCE((SELECT COUNT(1) FROM im_message m2 WHERE m2.conversation_id = c.id AND m2.deleted_at IS NULL AND m2.sender_username <> $1 AND m2.seq_no > COALESCE(cm.last_read_seq_no, 0) AND m2.seq_no > COALESCE(c.purged_before_seq_no, 0) AND m2.sent_at >= cm.joined_at), 0) AS unread_count,
 			COALESCE((SELECT peer.username FROM im_conversation_member peer WHERE peer.conversation_id = c.id AND peer.username <> $1 AND peer.left_at IS NULL ORDER BY peer.username LIMIT 1), '') AS peer_username
 		FROM im_conversation c
 		JOIN im_conversation_member cm ON cm.conversation_id = c.id AND cm.username = $1 AND cm.left_at IS NULL
-		WHERE c.deleted_at IS NULL
+		WHERE c.deleted_at IS NULL AND COALESCE(c.hidden_for_all, FALSE) = FALSE
 		ORDER BY CASE COALESCE(cm.pin_type, 'none') WHEN 'system' THEN 2 WHEN 'manual' THEN 1 ELSE 0 END DESC,
 			COALESCE(cm.pinned_at, c.last_message_at, c.created_at) DESC,
 			COALESCE(c.last_message_at, c.created_at) DESC`, username)
@@ -499,11 +544,20 @@ func (a *App) handleListMessages(w http.ResponseWriter, r *http.Request, usernam
 		writeJSON(w, http.StatusForbidden, map[string]any{"error": true, "message": "forbidden"})
 		return
 	}
+	meta, err := a.loadConversationMeta(r.Context(), conversationIDValue)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			writeJSON(w, http.StatusNotFound, map[string]any{"error": true, "message": "conversation not found"})
+			return
+		}
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
+		return
+	}
 	rows, err := a.db.Query(r.Context(), `
 		SELECT m.id, m.conversation_id, m.sender_username, m.seq_no, m.message_type, m.content_payload, m.content_preview, m.status, m.sent_at
 		FROM im_message m
-		WHERE m.conversation_id = $1::bigint AND m.deleted_at IS NULL
-		ORDER BY m.seq_no DESC LIMIT 50`, conversationID)
+		WHERE m.conversation_id = $1::bigint AND m.deleted_at IS NULL AND m.seq_no > $2
+		ORDER BY m.seq_no DESC LIMIT 50`, conversationID, meta.PurgedBeforeSeqNo)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
 		return
@@ -644,7 +698,17 @@ func (a *App) recallMessage(ctx context.Context, messageID int64, username strin
 
 func (a *App) ensureConversationMember(ctx context.Context, conversationID string, username string) bool {
 	var exists bool
-	_ = a.db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM im_conversation_member WHERE conversation_id = $1::bigint AND username = $2 AND left_at IS NULL)`, conversationID, username).Scan(&exists)
+	_ = a.db.QueryRow(ctx, `
+		SELECT EXISTS(
+			SELECT 1
+			FROM im_conversation_member cm
+			JOIN im_conversation c ON c.id = cm.conversation_id
+			WHERE cm.conversation_id = $1::bigint
+				AND cm.username = $2
+				AND cm.left_at IS NULL
+				AND c.deleted_at IS NULL
+				AND COALESCE(c.hidden_for_all, FALSE) = FALSE
+		)`, conversationID, username).Scan(&exists)
 	return exists
 }
 
