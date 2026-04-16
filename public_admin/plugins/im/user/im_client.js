@@ -47,7 +47,8 @@
         groupSettingsLoading: false,
         groupSettingsError: '',
         groupSettingsConversationId: 0,
-        groupSettingsData: null
+        groupSettingsData: null,
+        groupSettingsMembersExpanded: false
     };
 
     let root = null;
@@ -69,6 +70,7 @@
     let settingsPanelEl = null;
     let settingsPanelBodyEl = null;
     let chatMenuBtnEl = null;
+    let groupInfoTitleEl = null;
 
     function getCookie(name) {
         try {
@@ -193,6 +195,7 @@
                 #ak-im-root.ak-view-sessions .ak-im-session-screen{display:flex}
                 #ak-im-root.ak-view-chat .ak-im-chat-screen{display:flex}
                 #ak-im-root.ak-view-compose .ak-im-compose-screen{display:flex}
+                #ak-im-root.ak-view-group-info .ak-im-group-info-screen{display:flex}
                 #ak-im-root .ak-im-topbar{height:calc(56px + env(safe-area-inset-top, 0px));padding:calc(env(safe-area-inset-top, 0px) + 8px) 12px 8px;display:grid;grid-template-columns:52px 1fr 52px;align-items:center;background:#ededed;border-bottom:1px solid rgba(15,23,42,.06);box-sizing:border-box}
                 #ak-im-root .ak-im-topbar-title,#ak-im-root .ak-im-topbar-title-wrap{text-align:center;min-width:0}
                 #ak-im-root .ak-im-topbar-title{font-size:17px;font-weight:600;color:#111827;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -318,30 +321,30 @@
                 #ak-im-root .ak-im-member-error{color:#ef4444}
                 #ak-im-root .ak-im-chat-menu.is-hidden{opacity:0;pointer-events:none}
                 #ak-im-root .ak-im-chat-menu svg{width:20px;height:20px;stroke:currentColor}
-                #ak-im-root .ak-im-settings-sheet{display:none;position:fixed;inset:0;z-index:2147483651}
-                #ak-im-root .ak-im-settings-sheet.visible{display:block}
-                #ak-im-root .ak-im-settings-mask{position:absolute;inset:0;background:rgba(0,0,0,.22)}
-                #ak-im-root .ak-im-settings-panel{position:absolute;left:0;right:0;bottom:0;background:#ffffff;border-radius:18px 18px 0 0;box-shadow:0 -12px 36px rgba(0,0,0,.18);max-height:min(72vh,560px);display:flex;flex-direction:column}
-                #ak-im-root .ak-im-settings-header{display:flex;align-items:center;justify-content:space-between;padding:16px 16px 12px;border-bottom:1px solid rgba(15,23,42,.06)}
-                #ak-im-root .ak-im-settings-title{font-size:16px;font-weight:600;color:#111827}
-                #ak-im-root .ak-im-settings-close{height:32px;border:none;background:transparent;color:#6b7280;font-size:14px;cursor:pointer}
-                #ak-im-root .ak-im-settings-panel-body{overflow:auto;padding:14px 16px calc(18px + env(safe-area-inset-bottom, 0px))}
-                #ak-im-root .ak-im-settings-loading,#ak-im-root .ak-im-settings-error,#ak-im-root .ak-im-settings-empty{padding:18px 16px;color:#6b7280;font-size:13px;line-height:1.6;text-align:center}
-                #ak-im-root .ak-im-settings-error{color:#ef4444}
-                #ak-im-root .ak-im-settings-summary{padding:14px 16px;border-radius:16px;background:#f8fafc}
-                #ak-im-root .ak-im-settings-summary-title{font-size:16px;font-weight:700;color:#111827;line-height:1.4}
-                #ak-im-root .ak-im-settings-summary-meta{margin-top:6px;font-size:12px;color:#6b7280;line-height:1.6}
-                #ak-im-root .ak-im-settings-section{margin-top:12px;padding:14px 16px;border:1px solid rgba(15,23,42,.06);border-radius:16px;background:#ffffff}
-                #ak-im-root .ak-im-settings-section-title{font-size:14px;font-weight:700;color:#111827;line-height:1.4}
-                #ak-im-root .ak-im-settings-section-desc{margin-top:6px;font-size:12px;color:#6b7280;line-height:1.6}
-                #ak-im-root .ak-im-settings-chip-list{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
-                #ak-im-root .ak-im-settings-chip{display:inline-flex;align-items:center;gap:6px;padding:8px 10px;border-radius:999px;background:#f3f4f6;color:#111827;font-size:12px;line-height:1.3}
-                #ak-im-root .ak-im-settings-chip-role{color:#16a34a;font-weight:700}
-                #ak-im-root .ak-im-settings-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-top:12px}
-                #ak-im-root .ak-im-settings-btn{height:40px;border:none;border-radius:12px;background:#07c160;color:#ffffff;font-size:13px;font-weight:700;cursor:pointer}
-                #ak-im-root .ak-im-settings-btn.secondary{background:#eef2ff;color:#3730a3}
-                #ak-im-root .ak-im-settings-btn.danger{background:#ef4444;color:#ffffff}
-                #ak-im-root .ak-im-settings-note{margin-top:12px;padding:12px 14px;border-radius:12px;background:#f8fafc;color:#6b7280;font-size:12px;line-height:1.6}
+                #ak-im-root .ak-im-group-info-screen{background:#ededed}
+                #ak-im-root .ak-im-group-info-page{flex:1;overflow:auto;background:#f7f7f7;padding:0 0 calc(16px + env(safe-area-inset-bottom, 0px))}
+                #ak-im-root .ak-im-group-info-side{width:34px;height:34px;justify-self:end}
+                #ak-im-root .ak-im-group-info-loading,#ak-im-root .ak-im-group-info-error,#ak-im-root .ak-im-group-info-empty{padding:28px 18px;color:#6b7280;font-size:13px;line-height:1.7;text-align:center}
+                #ak-im-root .ak-im-group-info-error{color:#ef4444}
+                #ak-im-root .ak-im-group-info-members{margin-top:12px;background:#ffffff;padding:18px 14px 12px}
+                #ak-im-root .ak-im-group-info-members .ak-im-member-list{padding:0;gap:16px 10px}
+                #ak-im-root .ak-im-group-info-members .ak-im-member-item{min-height:0;padding:0;border-radius:0;background:transparent}
+                #ak-im-root .ak-im-group-info-members .ak-im-member-avatar{width:54px;height:54px;border-radius:14px;font-size:15px}
+                #ak-im-root .ak-im-group-info-members .ak-im-member-item.is-add .ak-im-member-avatar{background:#ffffff;color:#9ca3af;border:1.5px dashed rgba(156,163,175,.65)}
+                #ak-im-root .ak-im-group-info-members .ak-im-member-item.is-add{border:none}
+                #ak-im-root .ak-im-group-info-members .ak-im-member-name{margin-top:2px;font-size:12px;color:#6b7280}
+                #ak-im-root .ak-im-group-info-members .ak-im-member-role{top:-4px;right:4px}
+                #ak-im-root .ak-im-group-info-more{width:100%;margin-top:16px;border:none;background:transparent;color:#6b7280;font-size:14px;line-height:1.5;display:flex;align-items:center;justify-content:center;gap:6px;cursor:pointer}
+                #ak-im-root .ak-im-group-info-more:active{opacity:.7}
+                #ak-im-root .ak-im-group-info-section{margin-top:12px;background:#ffffff}
+                #ak-im-root .ak-im-group-info-cell{width:100%;border:none;background:#ffffff;padding:0 16px;min-height:56px;display:flex;align-items:center;justify-content:space-between;gap:12px;box-sizing:border-box}
+                #ak-im-root .ak-im-group-info-cell + .ak-im-group-info-cell{border-top:1px solid rgba(15,23,42,.06)}
+                #ak-im-root .ak-im-group-info-cell.is-action{cursor:pointer}
+                #ak-im-root .ak-im-group-info-cell.is-danger .ak-im-group-info-cell-label{color:#ef4444}
+                #ak-im-root .ak-im-group-info-cell-main{min-width:0;flex:1;display:flex;align-items:center;justify-content:space-between;gap:12px}
+                #ak-im-root .ak-im-group-info-cell-label{font-size:16px;color:#111827;line-height:1.5;text-align:left}
+                #ak-im-root .ak-im-group-info-cell-value{min-width:0;max-width:70%;font-size:14px;color:#9ca3af;line-height:1.5;text-align:right;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+                #ak-im-root .ak-im-group-info-cell-arrow{color:#c7cdd8;font-size:20px;line-height:1;flex:0 0 auto}
                 @media (max-width: 640px){#ak-im-root{left:calc(50% + 42px);top:calc(env(safe-area-inset-top, 0px) - 10px)}#ak-im-root .ak-im-topbar{grid-template-columns:48px 1fr 56px}#ak-im-root .ak-im-session-avatar{width:44px;height:44px;border-radius:12px}#ak-im-root .ak-im-message-main{max-width:78%}}
             </style>
             <button class="ak-im-launcher" type="button" aria-label="内部聊天">
@@ -399,6 +402,16 @@
                         </div>
                     </div>
                 </div>
+                <div class="ak-im-screen ak-im-group-info-screen">
+                    <div class="ak-im-topbar">
+                        <button class="ak-im-nav-btn ak-im-group-info-back" type="button" aria-label="返回聊天页面">
+                            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M15 18L9 12L15 6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                        </button>
+                        <div class="ak-im-topbar-title ak-im-group-info-title">聊天信息</div>
+                        <div class="ak-im-group-info-side" aria-hidden="true"></div>
+                    </div>
+                    <div class="ak-im-group-info-page"></div>
+                </div>
             </div>
             <div class="ak-im-action-sheet" aria-hidden="true" inert>
                 <div class="ak-im-action-mask"></div>
@@ -421,13 +434,6 @@
 	                <div class="ak-im-member-panel-body"></div>
 	            </div>
 	        </div>
-	        <div class="ak-im-settings-sheet" aria-hidden="true" inert>
-	            <div class="ak-im-settings-mask"></div>
-	            <div class="ak-im-settings-panel">
-	                <div class="ak-im-settings-header"><div class="ak-im-settings-title">群信息</div><button class="ak-im-settings-close" type="button">关闭</button></div>
-	                <div class="ak-im-settings-panel-body"></div>
-	            </div>
-	        </div>
         `;
         document.body.appendChild(root);
         panel = root.querySelector('.ak-im-shell');
@@ -445,9 +451,10 @@
 	    memberPanelEl = root.querySelector('.ak-im-member-sheet');
 	    memberPanelBodyEl = root.querySelector('.ak-im-member-panel-body');
 	    chatTitleBtnEl = root.querySelector('.ak-im-chat-title-btn');
-	    settingsPanelEl = root.querySelector('.ak-im-settings-sheet');
-	    settingsPanelBodyEl = root.querySelector('.ak-im-settings-panel-body');
+	    settingsPanelEl = root.querySelector('.ak-im-group-info-screen');
+	    settingsPanelBodyEl = root.querySelector('.ak-im-group-info-page');
 	    chatMenuBtnEl = root.querySelector('.ak-im-chat-menu');
+	    groupInfoTitleEl = root.querySelector('.ak-im-group-info-title');
         root.querySelector('.ak-im-launcher').addEventListener('click', function() {
             state.open = true;
             if (state.view !== 'compose' && !state.activeConversationId) state.view = 'sessions';
@@ -545,10 +552,7 @@
 	    memberPanelEl.querySelector('.ak-im-member-close').addEventListener('click', function() {
 	        closeMemberPanel();
 	    });
-	    settingsPanelEl.querySelector('.ak-im-settings-mask').addEventListener('click', function() {
-	        closeSettingsPanel();
-	    });
-	    settingsPanelEl.querySelector('.ak-im-settings-close').addEventListener('click', function() {
+	    settingsPanelEl.querySelector('.ak-im-group-info-back').addEventListener('click', function() {
 	        closeSettingsPanel();
 	    });
         syncInputHeight();
@@ -626,6 +630,12 @@
     function getAvatarText(value) {
         const raw = String(value || '').replace(/[^0-9a-zA-Z\u4e00-\u9fa5]/g, '').trim();
         if (!raw) return '聊';
+        if (/^[\u4e00-\u9fa5]+$/.test(raw)) {
+            return raw.length <= 3 ? raw : raw.slice(-3);
+        }
+        if (/^[0-9a-zA-Z]+$/.test(raw)) {
+            return raw.slice(0, 3).toUpperCase();
+        }
         return raw.slice(0, 2).toUpperCase();
     }
 
@@ -867,53 +877,93 @@
 	    return '<div class="ak-im-settings-chip"><span>' + escapeHtml(displayName + (username && displayName !== username ? ' @' + username : '')) + '</span><span class="ak-im-settings-chip-role">' + escapeHtml(roleText) + '</span></div>';
 	}
 
+	function formatGroupInfoMemberText(member, fallbackText) {
+	    const displayName = String(member && member.display_name || '').trim();
+	    const username = String(member && member.username || '').trim();
+	    if (displayName && username && displayName !== username) return displayName + ' @' + username;
+	    return displayName || username || String(fallbackText || '暂无');
+	}
+
+	function formatGroupInfoCollectionText(members, emptyText) {
+	    const names = (Array.isArray(members) ? members : []).map(function(member) {
+	        return formatGroupInfoMemberText(member, '');
+	    }).filter(Boolean);
+	    if (!names.length) return String(emptyText || '暂无');
+	    if (names.length <= 3) return names.join('、');
+	    return names.slice(0, 3).join('、') + ' 等 ' + names.length + ' 人';
+	}
+
+	function buildGroupInfoCell(label, value, action, extraClass) {
+	    const className = 'ak-im-group-info-cell' + (action ? ' is-action' : '') + (extraClass ? ' ' + extraClass : '');
+	    const tagName = action ? 'button' : 'div';
+	    return '<' + tagName + ' class="' + className + '"' + (action ? ' type="button" data-im-settings-action="' + action + '"' : '') + '>' +
+	        '<div class="ak-im-group-info-cell-main"><div class="ak-im-group-info-cell-label">' + escapeHtml(label) + '</div>' +
+	        (value ? '<div class="ak-im-group-info-cell-value">' + escapeHtml(value) + '</div>' : '') +
+	        '</div>' + (action ? '<div class="ak-im-group-info-cell-arrow">›</div>' : '') + '</' + tagName + '>';
+	}
+
 	function renderSettingsPanel() {
 	    if (!settingsPanelEl || !settingsPanelBodyEl) return;
 	    const isOpen = !!state.groupSettingsOpen;
-	    settingsPanelEl.classList.toggle('visible', isOpen);
+	    if (groupInfoTitleEl) groupInfoTitleEl.textContent = '聊天信息';
 	    if (!isOpen) {
-	        const activeElement = document.activeElement;
-	        if (activeElement && settingsPanelEl.contains(activeElement) && typeof activeElement.blur === 'function') {
-	            activeElement.blur();
-	        }
-	        settingsPanelEl.setAttribute('inert', '');
-	        settingsPanelEl.setAttribute('aria-hidden', 'true');
 	        settingsPanelBodyEl.innerHTML = '';
 	        return;
 	    }
-	    settingsPanelEl.removeAttribute('inert');
-	    settingsPanelEl.setAttribute('aria-hidden', 'false');
 	    if (state.groupSettingsLoading) {
-	        settingsPanelBodyEl.innerHTML = '<div class="ak-im-settings-loading">正在加载群信息...</div>';
+	        settingsPanelBodyEl.innerHTML = '<div class="ak-im-group-info-loading">正在加载群信息...</div>';
 	        return;
 	    }
 	    if (state.groupSettingsError) {
-	        settingsPanelBodyEl.innerHTML = '<div class="ak-im-settings-error">' + escapeHtml(state.groupSettingsError) + '</div>';
+	        settingsPanelBodyEl.innerHTML = '<div class="ak-im-group-info-error">' + escapeHtml(state.groupSettingsError) + '</div>';
 	        return;
 	    }
 	    const detail = state.groupSettingsData;
 	    if (!detail) {
-	        settingsPanelBodyEl.innerHTML = '<div class="ak-im-settings-empty">暂无可用的群信息</div>';
+	        settingsPanelBodyEl.innerHTML = '<div class="ak-im-group-info-empty">暂无可用的群信息</div>';
 	        return;
 	    }
 	    const members = Array.isArray(detail.members) ? detail.members : [];
 	    const admins = Array.isArray(detail.admins) ? detail.admins : [];
 	    const authors = Array.isArray(detail.message_authors) ? detail.message_authors : [];
-	    const adminMarkup = admins.length ? admins.map(formatSettingsMemberChip).join('') : '<div class="ak-im-settings-empty">暂无群管理员</div>';
-	    const authorMarkup = authors.length ? authors.map(formatSettingsMemberChip).join('') : '<div class="ak-im-settings-empty">暂无可删历史的消息发送者</div>';
 	    const canManage = !!detail.can_manage;
 	    const memberCount = Math.max(0, Number(detail.member_count || members.length || 0) || 0);
 	    const showAddMemberTile = canManage && memberCount <= 15;
 	    const addMemberMarkup = showAddMemberTile ? '<button class="ak-im-member-item is-add" type="button" data-im-settings-action="add"><div class="ak-im-member-avatar">+</div><div class="ak-im-member-body"><div class="ak-im-member-name">添加</div></div></button>' : '';
-	    const memberGridMarkup = (members.length || addMemberMarkup) ? '<div class="ak-im-member-list">' + members.map(formatSessionMember).join('') + addMemberMarkup + '</div>' : '<div class="ak-im-settings-empty">当前群里还没有成员</div>';
-	    settingsPanelBodyEl.innerHTML = '<div class="ak-im-settings-summary"><div class="ak-im-settings-summary-title">' + escapeHtml(String(detail.conversation_title || '群聊')) + '</div><div class="ak-im-settings-summary-meta">群聊 · ' + escapeHtml(String(Number(detail.member_count || 0))) + ' 人' + (detail.hidden_for_all ? ' · 已对全员隐藏' : '') + '</div></div>' +
-	        '<div class="ak-im-settings-section"><div class="ak-im-settings-section-title">群成员</div><div class="ak-im-settings-section-desc">共 ' + escapeHtml(String(memberCount)) + ' 人' + (showAddMemberTile ? '，可直接点击最后一个格子添加成员。' : '') + '</div>' + memberGridMarkup + '</div>' +
-	        '<div class="ak-im-settings-section"><div class="ak-im-settings-section-title">群管理员</div><div class="ak-im-settings-section-desc">管理员可以执行成员管理与全员生效操作。</div><div class="ak-im-settings-chip-list">' + adminMarkup + '</div></div>' +
-	        '<div class="ak-im-settings-section"><div class="ak-im-settings-section-title">可删消息成员</div><div class="ak-im-settings-section-desc">这里显示当前有历史消息可清理的发送者。</div><div class="ak-im-settings-chip-list">' + authorMarkup + '</div></div>' +
-	        (canManage ? '<div class="ak-im-settings-section"><div class="ak-im-settings-section-title">管理员操作</div><div class="ak-im-settings-section-desc">本版先使用系统弹窗输入账号，保证功能链路先打通。</div><div class="ak-im-settings-actions"><button class="ak-im-settings-btn" type="button" data-im-settings-action="add">添加成员</button><button class="ak-im-settings-btn secondary" type="button" data-im-settings-action="remove">移除成员</button><button class="ak-im-settings-btn secondary" type="button" data-im-settings-action="clear_member_history">删除指定成员消息</button><button class="ak-im-settings-btn danger" type="button" data-im-settings-action="clear_history">清空全群聊天记录</button><button class="ak-im-settings-btn danger" type="button" data-im-settings-action="hide_group">隐藏本群</button></div></div>' : '<div class="ak-im-settings-note">仅群管理员可执行添加成员、移除成员、删记录和隐藏群聊。</div>');
+	    const previewLimit = showAddMemberTile ? 19 : 20;
+	    const membersExpanded = !!state.groupSettingsMembersExpanded;
+	    const visibleMembers = membersExpanded ? members : members.slice(0, previewLimit);
+	    const showMoreMembers = members.length > previewLimit;
+	    const memberGridMarkup = (visibleMembers.length || addMemberMarkup) ? '<div class="ak-im-member-list">' + visibleMembers.map(formatSessionMember).join('') + addMemberMarkup + '</div>' : '<div class="ak-im-group-info-empty">当前群里还没有成员</div>';
+	    const ownerText = formatGroupInfoMemberText(detail.owner || { username: detail.owner_username }, '暂无群主');
+	    const adminsText = formatGroupInfoCollectionText(admins, '暂无群管理员');
+	    const authorsText = formatGroupInfoCollectionText(authors, '暂无可删消息成员');
+	    const statusText = detail.hidden_for_all ? '已对全员隐藏' : '正常显示';
+	    if (groupInfoTitleEl) groupInfoTitleEl.textContent = '聊天信息(' + memberCount + ')';
+	    settingsPanelBodyEl.innerHTML = '<div class="ak-im-group-info-members">' + memberGridMarkup + (showMoreMembers ? '<button class="ak-im-group-info-more" type="button" data-im-settings-action="toggle_members">' + escapeHtml(membersExpanded ? '收起群成员' : '更多群成员') + '<span aria-hidden="true">⌄</span></button>' : '') + '</div>' +
+	        '<div class="ak-im-group-info-section">' +
+	            buildGroupInfoCell('群聊名称', String(detail.conversation_title || '群聊')) +
+	            buildGroupInfoCell('群主', ownerText) +
+	            buildGroupInfoCell('群管理员', adminsText) +
+	            buildGroupInfoCell('可删消息成员', authorsText) +
+	            buildGroupInfoCell('群状态', statusText) +
+	        '</div>' +
+	        (canManage ? '<div class="ak-im-group-info-section">' +
+	            buildGroupInfoCell('添加成员', '', 'add') +
+	            buildGroupInfoCell('移除成员', '', 'remove') +
+	            buildGroupInfoCell('删除指定成员消息', '', 'clear_member_history') +
+	            buildGroupInfoCell('清空全群聊天记录', '', 'clear_history', 'is-danger') +
+	            buildGroupInfoCell('隐藏本群', '', 'hide_group', 'is-danger') +
+	        '</div>' : '');
 	    Array.prototype.forEach.call(settingsPanelBodyEl.querySelectorAll('[data-im-settings-action]'), function(button) {
 	        button.addEventListener('click', function() {
-	            handleSettingsAction(button.getAttribute('data-im-settings-action'));
+	            const action = button.getAttribute('data-im-settings-action');
+	            if (action === 'toggle_members') {
+	                state.groupSettingsMembersExpanded = !state.groupSettingsMembersExpanded;
+	                renderSettingsPanel();
+	                return;
+	            }
+	            handleSettingsAction(action);
 	        });
 	    });
 	}
@@ -924,7 +974,11 @@
 	    state.groupSettingsError = '';
 	    state.groupSettingsConversationId = 0;
 	    state.groupSettingsData = null;
-	    renderSettingsPanel();
+	    state.groupSettingsMembersExpanded = false;
+	    if (state.view === 'group_info') {
+	        state.view = state.activeConversationId ? 'chat' : 'sessions';
+	    }
+	    render();
 	}
 
 	function loadGroupSettings(conversationId) {
@@ -956,8 +1010,13 @@
 	    closeReadProgressPanel();
 	    closeMemberPanel();
 	    state.groupSettingsOpen = true;
+	    state.groupSettingsLoading = true;
+	    state.groupSettingsError = '';
+	    state.groupSettingsMembersExpanded = false;
 	    state.groupSettingsData = null;
-	    renderSettingsPanel();
+	    state.open = true;
+	    state.view = 'group_info';
+	    render();
 	    loadGroupSettings(conversationId);
 	}
 
@@ -1168,11 +1227,13 @@
         const activeSession = getActiveSession();
         const showChat = !!activeSession && state.view === 'chat';
         const showCompose = state.view === 'compose';
+        const showGroupInfo = state.view === 'group_info' && !!state.groupSettingsOpen;
         root.classList.toggle('ak-visible', !!state.allowed);
         root.classList.toggle('ak-im-open', !!state.open);
-        root.classList.toggle('ak-view-sessions', !showChat && !showCompose);
+        root.classList.toggle('ak-view-sessions', !showChat && !showCompose && !showGroupInfo);
         root.classList.toggle('ak-view-chat', !!showChat);
         root.classList.toggle('ak-view-compose', !!showCompose);
+        root.classList.toggle('ak-view-group-info', !!showGroupInfo);
         root.querySelector('.ak-im-launcher').classList.toggle('is-open', !!state.open);
         root.querySelector('.ak-im-launcher').classList.toggle('has-unread', state.sessions.some(function(item) {
             return getUnreadCount(item) > 0;
