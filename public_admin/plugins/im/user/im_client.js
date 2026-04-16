@@ -345,9 +345,14 @@
                 #ak-im-root .ak-im-group-info-cell-label{font-size:16px;color:#111827;line-height:1.5;text-align:left}
                 #ak-im-root .ak-im-group-info-cell-value{min-width:0;max-width:70%;font-size:14px;color:#9ca3af;line-height:1.5;text-align:right;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
                 #ak-im-root .ak-im-group-info-cell-arrow{color:#c7cdd8;font-size:20px;line-height:1;flex:0 0 auto}
-                #ak-im-root .ak-im-avatar-mosaic{width:100%;height:100%;display:grid;grid-template-columns:repeat(3,1fr);grid-template-rows:repeat(3,1fr);gap:1px;background:#e5e7eb;padding:1px;box-sizing:border-box;border-radius:inherit;overflow:hidden}
+                #ak-im-root .ak-im-avatar-mosaic{width:100%;height:100%;background:#e5e7eb;padding:1px;box-sizing:border-box;border-radius:inherit;overflow:hidden}
+                #ak-im-root .ak-im-avatar-mosaic.is-grid{display:grid;grid-template-columns:repeat(3,1fr);grid-template-rows:repeat(3,1fr);gap:1px}
+                #ak-im-root .ak-im-avatar-mosaic.is-stack{display:flex;flex-direction:column-reverse;justify-content:flex-start;gap:1px}
+                #ak-im-root .ak-im-avatar-mosaic.is-stack .ak-im-avatar-row{display:flex;justify-content:center;align-items:stretch;gap:1px;flex:1 1 0;min-height:0}
+                #ak-im-root .ak-im-avatar-mosaic.is-stack .ak-im-avatar-cell{flex:0 0 calc((100% - 2px) / 3);max-width:calc((100% - 2px) / 3)}
                 #ak-im-root .ak-im-avatar-mosaic .ak-im-avatar-cell{min-width:0;min-height:0;display:flex;align-items:center;justify-content:center;background:linear-gradient(180deg,#8fe3a8 0%,#56c57b 100%);color:#ffffff;font-size:9px;font-weight:700;line-height:1;overflow:hidden;padding:0}
-                #ak-im-root .ak-im-avatar-mosaic.is-single .ak-im-avatar-cell{font-size:16px;grid-column:1/-1;grid-row:1/-1}
+                #ak-im-root .ak-im-avatar-mosaic.is-single{display:flex}
+                #ak-im-root .ak-im-avatar-mosaic.is-single .ak-im-avatar-cell{font-size:16px;flex:1 1 auto}
                 #ak-im-root .ak-im-group-info-hero{background:#ffffff;padding:20px 16px 16px;display:flex;flex-direction:column;align-items:center;gap:8px}
                 #ak-im-root .ak-im-group-info-hero-avatar{width:72px;height:72px;border-radius:14px;overflow:hidden;box-shadow:0 1px 2px rgba(15,23,42,.06)}
                 #ak-im-root .ak-im-group-info-hero-avatar .ak-im-avatar-mosaic .ak-im-avatar-cell{font-size:11px}
@@ -625,6 +630,16 @@
         return String(item && (item.peer_display_name || item.peer_username || '内部聊天') || '内部聊天').trim();
     }
 
+    function buildSessionAvatarMarkup(item) {
+        if (isGroupSession(item)) {
+            const previewMembers = Array.isArray(item && item.members_preview) ? item.members_preview : [];
+            if (previewMembers.length) {
+                return '<div class="ak-im-session-avatar is-mosaic">' + buildGroupAvatarMosaicMarkup(previewMembers, getSessionDisplayName(item)) + '</div>';
+            }
+        }
+        return '<div class="ak-im-session-avatar">' + escapeHtml(getAvatarText(getSessionDisplayName(item))) + '</div>';
+    }
+
     function getSessionSubtitle(item) {
         if (isGroupSession(item)) {
             const memberCount = Math.max(0, Number(item && item.member_count || 0) || 0);
@@ -670,8 +685,15 @@
         const cells = list.map(function(member) {
             const display = String(member && (member.display_name || member.username) || '').trim() || '成员';
             return '<span class="ak-im-avatar-cell">' + escapeHtml(getAvatarText(display)) + '</span>';
-        }).join('');
-        return '<div class="ak-im-avatar-mosaic" aria-hidden="true">' + cells + '</div>';
+        });
+        if (list.length >= 9) {
+            return '<div class="ak-im-avatar-mosaic is-grid" aria-hidden="true">' + cells.join('') + '</div>';
+        }
+        const rows = [];
+        for (let index = 0; index < cells.length; index += 3) {
+            rows.push('<div class="ak-im-avatar-row">' + cells.slice(index, index + 3).join('') + '</div>');
+        }
+        return '<div class="ak-im-avatar-mosaic is-stack" aria-hidden="true">' + rows.join('') + '</div>';
     }
 
     function getAvatarText(value) {
@@ -1311,7 +1333,7 @@
                 const subtitle = getSessionSubtitle(item);
                 const previewText = subtitle ? (subtitle + ' · ' + getSessionPreview(item)) : getSessionPreview(item);
                 const pinText = isSessionSystemPinned(item) ? '群置顶' : '置顶';
-                node.innerHTML = '<div class="ak-im-session-avatar">' + escapeHtml(getAvatarText(getSessionDisplayName(item))) + '</div>' +
+                node.innerHTML = buildSessionAvatarMarkup(item) +
                     '<div class="ak-im-session-body">' +
                         '<div class="ak-im-session-title"><span class="ak-im-session-title-text">' + escapeHtml(getSessionDisplayName(item)) + '</span><span class="ak-im-session-pin-tag' + (isSessionPinned(item) ? ' visible' : '') + (isSessionSystemPinned(item) ? ' is-system' : '') + '">' + escapeHtml(pinText) + '</span></div>' +
                         '<div class="ak-im-session-time">' + escapeHtml(formatSessionTime(item.last_message_at || item.updated_at || item.created_at)) + '</div>' +

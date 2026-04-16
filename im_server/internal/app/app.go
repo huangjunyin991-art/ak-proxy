@@ -54,6 +54,7 @@ type SessionItem struct {
 	AvatarURL          string `json:"avatar_url,omitempty"`
 	OwnerUsername      string `json:"owner_username,omitempty"`
 	MemberCount        int64  `json:"member_count"`
+	MembersPreview     []SessionMemberItem `json:"members_preview,omitempty"`
 	PeerUsername       string `json:"peer_username,omitempty"`
 	PeerDisplayName    string `json:"peer_display_name,omitempty"`
 	PinType            string `json:"pin_type,omitempty"`
@@ -407,6 +408,17 @@ func (a *App) handleSessions(w http.ResponseWriter, r *http.Request) {
 		if item.ConversationType == "group" {
 			item.PeerDisplayName = item.ConversationTitle
 			item.PeerUsername = ""
+			members, membersErr := a.loadConversationMemberItems(r.Context(), item.ConversationID, conversationMeta{
+				ID:                item.ConversationID,
+				ConversationType:  item.ConversationType,
+				ConversationTitle: item.ConversationTitle,
+				OwnerUsername:     item.OwnerUsername,
+			})
+			if membersErr != nil {
+				log.Printf("load session members preview failed: conversation_id=%d err=%v", item.ConversationID, membersErr)
+			} else {
+				item.MembersPreview = sortSessionMembersForPreview(members)
+			}
 		}
 		if lastMessageAt != nil {
 			item.LastMessageAt = lastMessageAt.Format(time.RFC3339)
@@ -414,6 +426,30 @@ func (a *App) handleSessions(w http.ResponseWriter, r *http.Request) {
 		items = append(items, item)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"items": items})
+}
+
+func sortSessionMembersForPreview(items []SessionMemberItem) []SessionMemberItem {
+	if len(items) < 2 {
+		return items
+	}
+	preview := append([]SessionMemberItem(nil), items...)
+	roleWeight := func(role string) int {
+		switch strings.ToLower(strings.TrimSpace(role)) {
+		case "owner":
+			return 0
+		case "admin":
+			return 1
+		default:
+			return 2
+		}
+	}
+	sort.SliceStable(preview, func(left int, right int) bool {
+		return roleWeight(preview[left].Role) < roleWeight(preview[right].Role)
+	})
+	if len(preview) > 9 {
+		preview = preview[:9]
+	}
+	return preview
 }
 
 func (a *App) handleDirectSession(w http.ResponseWriter, r *http.Request) {
