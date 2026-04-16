@@ -198,7 +198,7 @@ func (a *App) ensureSchema(ctx context.Context) error {
 			pinned_at TIMESTAMP,
 			is_archived BOOLEAN NOT NULL DEFAULT FALSE,
 			created_at TIMESTAMP NOT NULL DEFAULT NOW(),
-			updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+			updated_at TIMESTAMP NOT NULL DEFAULT NOW()
 		)`,
 		`CREATE TABLE IF NOT EXISTS im_message (
 			id BIGSERIAL PRIMARY KEY,
