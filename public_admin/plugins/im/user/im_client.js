@@ -317,10 +317,25 @@
                 #ak-im-root .ak-im-profile-subtitle{margin-top:8px;font-size:13px;color:#6b7280;line-height:1.6}
                 #ak-im-root .ak-im-profile-primary-btn{margin-top:16px;width:100%;height:46px;border:none;border-radius:14px;background:#07c160;color:#ffffff;font-size:16px;font-weight:700;cursor:pointer;box-shadow:0 10px 22px rgba(7,193,96,.18)}
                 #ak-im-root .ak-im-profile-primary-btn:disabled{opacity:.42;cursor:not-allowed;box-shadow:none}
+                #ak-im-root .ak-im-profile-history-section + .ak-im-profile-history-section{margin-top:18px}
+                #ak-im-root .ak-im-profile-history-section-head{margin-top:14px;display:flex;align-items:center;justify-content:space-between;gap:12px}
+                #ak-im-root .ak-im-profile-history-section-head .ak-im-profile-entry-label{font-size:18px;font-weight:700;line-height:1.35}
+                #ak-im-root .ak-im-profile-history-section-count{font-size:13px;color:#94a3b8;font-weight:600;line-height:1.4;white-space:nowrap}
                 #ak-im-root .ak-im-profile-history-grid{margin-top:14px;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
-                #ak-im-root .ak-im-profile-history-item{background:#f8fafc;border-radius:16px;padding:12px;display:flex;flex-direction:column;align-items:center;gap:10px;text-align:center}
+                #ak-im-root .ak-im-profile-history-item{position:relative;min-height:188px;background:#f8fafc;border:1px solid #eef2f7;border-radius:18px;padding:14px 12px 16px;box-sizing:border-box}
+                #ak-im-root .ak-im-profile-history-item.is-current{border-color:rgba(7,193,96,.26);box-shadow:0 10px 22px rgba(7,193,96,.08)}
+                #ak-im-root .ak-im-profile-history-card{width:100%;border:none;background:transparent;padding:40px 0 0;display:flex;flex-direction:column;align-items:center;text-align:center;cursor:pointer;color:#0f172a}
+                #ak-im-root .ak-im-profile-history-card:disabled{cursor:default;opacity:1}
                 #ak-im-root .ak-im-profile-history-avatar{width:80px;height:80px;border-radius:22px;background:linear-gradient(180deg,#8fe3a8 0%,#56c57b 100%);color:#ffffff;display:inline-flex;align-items:center;justify-content:center;font-size:22px;font-weight:700;overflow:hidden}
+                #ak-im-root .ak-im-profile-history-current{position:absolute;top:10px;left:10px;display:inline-flex;align-items:center;justify-content:center;min-height:24px;padding:0 9px;border-radius:999px;background:#dcfce7;color:#166534;font-size:11px;font-weight:700;line-height:1;box-shadow:0 1px 2px rgba(22,101,52,.08)}
+                #ak-im-root .ak-im-profile-history-remove{position:absolute;top:10px;right:10px;width:24px;height:24px;border:none;border-radius:999px;background:#ef4444;color:#ffffff;font-size:17px;font-weight:800;line-height:1;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;box-shadow:0 8px 16px rgba(239,68,68,.18)}
+                #ak-im-root .ak-im-profile-history-remove:disabled{opacity:.46;cursor:not-allowed;box-shadow:none}
+                #ak-im-root .ak-im-profile-history-favorite{position:absolute;right:10px;bottom:12px;width:28px;height:28px;border:none;border-radius:999px;background:#ffffff;color:#94a3b8;font-size:16px;font-weight:700;line-height:1;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;box-shadow:0 4px 12px rgba(15,23,42,.08)}
+                #ak-im-root .ak-im-profile-history-favorite.is-active{background:#fef3c7;color:#d97706}
+                #ak-im-root .ak-im-profile-history-favorite:disabled{opacity:.46;cursor:not-allowed;box-shadow:none}
                 #ak-im-root .ak-im-profile-history-time{font-size:12px;color:#6b7280;line-height:1.5}
+                #ak-im-root .ak-im-profile-history-hint{margin-top:2px;font-size:12px;color:#94a3b8;line-height:1.45}
+                #ak-im-root .ak-im-profile-history-item.is-current .ak-im-profile-history-hint{color:#16a34a;font-weight:600}
                 #ak-im-root .ak-im-profile-form{display:flex;flex-direction:column;gap:14px}
                 #ak-im-root .ak-im-profile-form-group{display:flex;flex-direction:column}
                 #ak-im-root .ak-im-profile-form-label{font-size:13px;color:#6b7280;line-height:1.5}
@@ -2372,7 +2387,7 @@
         if (state.view === 'profile_avatar') {
             const historyGroups = splitProfileAvatarHistoryItems(state.profileAvatarHistory);
             const favoriteCount = countProfileAvatarFavorites(state.profileAvatarHistory);
-            const historyGuideText = favoriteCount >= 10 ? '已收藏满 10 个头像，继续换头像时不会再自动写入历史，删除部分收藏后恢复。' : '点击头像可立即切回；右上角可删除，右下角可收藏。';
+            const historyGuideText = favoriteCount >= 10 ? '已收藏满 10 个头像，继续换头像时不会再自动写入历史，删除部分收藏后恢复。' : '点击头像可立即切回；右上角删除，右下角收藏。';
             const historyMarkup = state.profileAvatarHistoryLoading ? '<div class="ak-im-profile-placeholder">正在读取头像历史...</div>' : (state.profileAvatarHistoryError ? '<div class="ak-im-profile-error">' + escapeHtml(state.profileAvatarHistoryError) + '</div>' : (
                 buildProfileAvatarHistorySectionMarkup({
                     title: '收藏头像',
@@ -2405,7 +2420,6 @@
                     '<button class="ak-im-profile-primary-btn" type="button" data-im-profile-action="refresh-avatar"' + (state.profileRefreshing ? ' disabled' : '') + '>' + escapeHtml(state.profileRefreshing ? '正在切换头像...' : '换一个头像') + '</button>' +
                 '</div>' +
                 '<div class="ak-im-profile-panel">' +
-                    '<div class="ak-im-profile-entry-label">头像收藏与历史</div>' +
                     '<div class="ak-im-profile-subtitle">' + escapeHtml(historyGuideText) + '</div>' +
                     historyMarkup +
                 '</div>';
