@@ -98,8 +98,10 @@ type UserProfileItem struct {
 }
 
 type UserAvatarHistoryItem struct {
+	ID          int64  `json:"id"`
 	AvatarStyle string `json:"avatar_style"`
 	AvatarURL   string `json:"avatar_url,omitempty"`
+	IsFavorite  bool   `json:"is_favorite"`
 	CreatedAt   string `json:"created_at"`
 }
 
@@ -121,6 +123,15 @@ type directSessionRequest struct {
 type profileUpdateRequest struct {
 	Nickname string `json:"nickname"`
 	Gender   string `json:"gender"`
+}
+
+type avatarHistoryActionRequest struct {
+	HistoryID int64 `json:"history_id"`
+}
+
+type avatarHistoryFavoriteRequest struct {
+	HistoryID int64 `json:"history_id"`
+	Favorite  bool  `json:"favorite"`
 }
 
 type recallMessageRequest struct {
@@ -167,6 +178,9 @@ func New(cfg config.Config) (*App, error) {
 	mux.HandleFunc("/im/api/profile", app.handleProfile)
 	mux.HandleFunc("/im/api/profile/avatar/history", app.handleProfileAvatarHistory)
 	mux.HandleFunc("/im/api/profile/avatar/refresh", app.handleProfileAvatarRefresh)
+	mux.HandleFunc("/im/api/profile/avatar/select", app.handleProfileAvatarSelect)
+	mux.HandleFunc("/im/api/profile/avatar/favorite", app.handleProfileAvatarFavorite)
+	mux.HandleFunc("/im/api/profile/avatar/remove", app.handleProfileAvatarRemove)
 	mux.HandleFunc("/im/api/sessions", app.handleSessions)
 	mux.HandleFunc("/im/api/sessions/members", app.handleSessionMembers)
 	mux.HandleFunc("/im/api/sessions/group_profile", app.handleSessionGroupProfile)
@@ -317,6 +331,7 @@ func (a *App) ensureSchema(ctx context.Context) error {
 			username TEXT NOT NULL,
 			avatar_style TEXT NOT NULL DEFAULT 'thumbs',
 			avatar_seed TEXT NOT NULL DEFAULT '',
+			is_favorite BOOLEAN NOT NULL DEFAULT FALSE,
 			created_at TIMESTAMP NOT NULL DEFAULT NOW()
 		)`,
 		`ALTER TABLE im_conversation_member ADD COLUMN IF NOT EXISTS left_at TIMESTAMP`,
@@ -324,6 +339,7 @@ func (a *App) ensureSchema(ctx context.Context) error {
 		`ALTER TABLE im_conversation_member ADD COLUMN IF NOT EXISTS pinned_at TIMESTAMP`,
 		`ALTER TABLE im_user_profile ADD COLUMN IF NOT EXISTS nickname TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE im_user_profile ADD COLUMN IF NOT EXISTS gender TEXT NOT NULL DEFAULT 'unknown'`,
+		`ALTER TABLE im_user_avatar_history ADD COLUMN IF NOT EXISTS is_favorite BOOLEAN NOT NULL DEFAULT FALSE`,
 		`ALTER TABLE im_conversation_member DROP CONSTRAINT IF EXISTS im_conversation_member_conversation_id_username_key`,
 		`UPDATE im_conversation_member SET pin_type = CASE WHEN is_pinned THEN 'manual' ELSE 'none' END WHERE COALESCE(pin_type, '') = ''`,
 		`UPDATE im_conversation_member SET pinned_at = COALESCE(pinned_at, updated_at, created_at, NOW()) WHERE is_pinned = TRUE AND pinned_at IS NULL`,
@@ -562,6 +578,90 @@ func (a *App) updateUserProfile(ctx context.Context, username string, nickname s
 	return a.buildUserProfileItem(ctx, normalizedUsername), nil
 }
 
+type avatarHistoryRecord struct {
+	ID          int64
+	Username    string
+	AvatarStyle string
+	AvatarSeed  string
+	IsFavorite  bool
+	CreatedAt   time.Time
+}
+
+func buildUserAvatarHistoryItem(username string, record avatarHistoryRecord) UserAvatarHistoryItem {
+	normalizedUsername := strings.ToLower(strings.TrimSpace(username))
+	avatarStyle := normalizeAvatarStyle(record.AvatarStyle)
+	avatarSeed := strings.TrimSpace(record.AvatarSeed)
+	return UserAvatarHistoryItem{
+		ID:          record.ID,
+		AvatarStyle: avatarStyle,
+		AvatarURL:   buildDicebearAvatarURL(avatarStyle, buildAvatarSeed(normalizedUsername, avatarSeed)),
+		IsFavorite:  record.IsFavorite,
+		CreatedAt:   record.CreatedAt.Format(time.RFC3339),
+	}
+}
+
+func (a *App) loadUserAvatarHistoryRecord(ctx context.Context, username string, historyID int64) (avatarHistoryRecord, error) {
+	normalizedUsername := strings.ToLower(strings.TrimSpace(username))
+	record := avatarHistoryRecord{
+		ID:          historyID,
+		Username:    normalizedUsername,
+		AvatarStyle: defaultAvatarStyle,
+		AvatarSeed:  "",
+		IsFavorite:  false,
+	}
+	if normalizedUsername == "" || historyID <= 0 {
+		return record, pgx.ErrNoRows
+	}
+	err := a.db.QueryRow(ctx, `
+		SELECT id, COALESCE(NULLIF(avatar_style, ''), $3), COALESCE(avatar_seed, ''), COALESCE(is_favorite, FALSE), created_at
+		FROM im_user_avatar_history
+		WHERE id = $1 AND username = $2`, historyID, normalizedUsername, defaultAvatarStyle).Scan(&record.ID, &record.AvatarStyle, &record.AvatarSeed, &record.IsFavorite, &record.CreatedAt)
+	if err != nil {
+		return record, err
+	}
+	record.AvatarStyle = normalizeAvatarStyle(record.AvatarStyle)
+	record.AvatarSeed = strings.TrimSpace(record.AvatarSeed)
+	return record, nil
+}
+
+func (a *App) insertUserAvatarHistory(ctx context.Context, tx pgx.Tx, username string, avatarStyle string, avatarSeed string) (bool, error) {
+	normalizedUsername := strings.ToLower(strings.TrimSpace(username))
+	normalizedStyle := normalizeAvatarStyle(avatarStyle)
+	normalizedSeed := strings.TrimSpace(avatarSeed)
+	if normalizedUsername == "" || normalizedSeed == "" {
+		return false, nil
+	}
+	var favoriteCount int
+	if err := tx.QueryRow(ctx, `SELECT COUNT(1) FROM im_user_avatar_history WHERE username = $1 AND COALESCE(is_favorite, FALSE) = TRUE`, normalizedUsername).Scan(&favoriteCount); err != nil {
+		return false, err
+	}
+	if favoriteCount >= 10 {
+		return false, nil
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO im_user_avatar_history (username, avatar_style, avatar_seed, is_favorite)
+		VALUES ($1, $2, $3, FALSE)`, normalizedUsername, normalizedStyle, normalizedSeed); err != nil {
+		return false, err
+	}
+	if _, err := tx.Exec(ctx, `
+		WITH overflow AS (
+			SELECT GREATEST(COUNT(1) - $2, 0) AS excess
+			FROM im_user_avatar_history
+			WHERE username = $1
+		)
+		DELETE FROM im_user_avatar_history
+		WHERE id IN (
+			SELECT id
+			FROM im_user_avatar_history
+			WHERE username = $1 AND COALESCE(is_favorite, FALSE) = FALSE
+			ORDER BY created_at ASC, id ASC
+			LIMIT (SELECT excess FROM overflow)
+		)`, normalizedUsername, 10); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
 func (a *App) listUserAvatarHistory(ctx context.Context, username string, limit int) ([]UserAvatarHistoryItem, error) {
 	normalizedUsername := strings.ToLower(strings.TrimSpace(username))
 	if normalizedUsername == "" {
@@ -571,10 +671,10 @@ func (a *App) listUserAvatarHistory(ctx context.Context, username string, limit 
 		limit = 10
 	}
 	rows, err := a.db.Query(ctx, `
-		SELECT COALESCE(NULLIF(avatar_style, ''), $2), COALESCE(avatar_seed, ''), created_at
+		SELECT id, COALESCE(NULLIF(avatar_style, ''), $2), COALESCE(avatar_seed, ''), COALESCE(is_favorite, FALSE), created_at
 		FROM im_user_avatar_history
 		WHERE username = $1
-		ORDER BY created_at DESC, id DESC
+		ORDER BY COALESCE(is_favorite, FALSE) DESC, created_at DESC, id DESC
 		LIMIT $3`, normalizedUsername, defaultAvatarStyle, limit)
 	if err != nil {
 		return nil, err
@@ -582,17 +682,11 @@ func (a *App) listUserAvatarHistory(ctx context.Context, username string, limit 
 	defer rows.Close()
 	items := make([]UserAvatarHistoryItem, 0)
 	for rows.Next() {
-		var avatarStyle string
-		var avatarSeed string
-		var createdAt time.Time
-		if err := rows.Scan(&avatarStyle, &avatarSeed, &createdAt); err != nil {
+		record := avatarHistoryRecord{Username: normalizedUsername}
+		if err := rows.Scan(&record.ID, &record.AvatarStyle, &record.AvatarSeed, &record.IsFavorite, &record.CreatedAt); err != nil {
 			return nil, err
 		}
-		items = append(items, UserAvatarHistoryItem{
-			AvatarStyle: normalizeAvatarStyle(avatarStyle),
-			AvatarURL:   buildDicebearAvatarURL(avatarStyle, buildAvatarSeed(normalizedUsername, avatarSeed)),
-			CreatedAt:   createdAt.Format(time.RFC3339),
-		})
+		items = append(items, buildUserAvatarHistoryItem(normalizedUsername, record))
 	}
 	return items, rows.Err()
 }
@@ -617,26 +711,103 @@ func (a *App) refreshUserAvatarProfile(ctx context.Context, username string) (Us
 			updated_at = NOW()`, normalizedUsername, defaultAvatarStyle, avatarSeed); err != nil {
 		return UserProfileItem{}, err
 	}
-	if _, err := tx.Exec(ctx, `
-		INSERT INTO im_user_avatar_history (username, avatar_style, avatar_seed)
-		VALUES ($1, $2, $3)`, normalizedUsername, defaultAvatarStyle, avatarSeed); err != nil {
-		return UserProfileItem{}, err
-	}
-	if _, err := tx.Exec(ctx, `
-		DELETE FROM im_user_avatar_history
-		WHERE id IN (
-			SELECT id
-			FROM im_user_avatar_history
-			WHERE username = $1
-			ORDER BY created_at DESC, id DESC
-			OFFSET 10
-		)`, normalizedUsername); err != nil {
+	if _, err := a.insertUserAvatarHistory(ctx, tx, normalizedUsername, defaultAvatarStyle, avatarSeed); err != nil {
 		return UserProfileItem{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return UserProfileItem{}, err
 	}
 	return a.buildUserProfileItem(ctx, normalizedUsername), nil
+}
+
+func (a *App) selectUserAvatarHistory(ctx context.Context, username string, historyID int64) (UserProfileItem, error) {
+	normalizedUsername := strings.ToLower(strings.TrimSpace(username))
+	if normalizedUsername == "" {
+		return UserProfileItem{}, errors.New("invalid username")
+	}
+	if historyID <= 0 {
+		return UserProfileItem{}, errors.New("invalid history_id")
+	}
+	tx, err := a.db.Begin(ctx)
+	if err != nil {
+		return UserProfileItem{}, err
+	}
+	defer tx.Rollback(ctx)
+	var avatarStyle string
+	var avatarSeed string
+	err = tx.QueryRow(ctx, `
+		SELECT COALESCE(NULLIF(avatar_style, ''), $3), COALESCE(avatar_seed, '')
+		FROM im_user_avatar_history
+		WHERE id = $1 AND username = $2`, historyID, normalizedUsername, defaultAvatarStyle).Scan(&avatarStyle, &avatarSeed)
+	if err != nil {
+		return UserProfileItem{}, err
+	}
+	avatarStyle = normalizeAvatarStyle(avatarStyle)
+	avatarSeed = strings.TrimSpace(avatarSeed)
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO im_user_profile (username, avatar_style, avatar_seed, updated_at)
+		VALUES ($1, $2, $3, NOW())
+		ON CONFLICT (username) DO UPDATE
+		SET avatar_style = EXCLUDED.avatar_style,
+			avatar_seed = EXCLUDED.avatar_seed,
+			updated_at = NOW()`, normalizedUsername, avatarStyle, avatarSeed); err != nil {
+		return UserProfileItem{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return UserProfileItem{}, err
+	}
+	return a.buildUserProfileItem(ctx, normalizedUsername), nil
+}
+
+func (a *App) setUserAvatarHistoryFavorite(ctx context.Context, username string, historyID int64, favorite bool) error {
+	normalizedUsername := strings.ToLower(strings.TrimSpace(username))
+	if normalizedUsername == "" {
+		return errors.New("invalid username")
+	}
+	if historyID <= 0 {
+		return errors.New("invalid history_id")
+	}
+	tx, err := a.db.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	var currentFavorite bool
+	err = tx.QueryRow(ctx, `SELECT COALESCE(is_favorite, FALSE) FROM im_user_avatar_history WHERE id = $1 AND username = $2`, historyID, normalizedUsername).Scan(&currentFavorite)
+	if err != nil {
+		return err
+	}
+	if favorite && !currentFavorite {
+		var favoriteCount int
+		if err := tx.QueryRow(ctx, `SELECT COUNT(1) FROM im_user_avatar_history WHERE username = $1 AND COALESCE(is_favorite, FALSE) = TRUE`, normalizedUsername).Scan(&favoriteCount); err != nil {
+			return err
+		}
+		if favoriteCount >= 10 {
+			return errors.New("最多只能收藏10个头像")
+		}
+	}
+	if _, err := tx.Exec(ctx, `UPDATE im_user_avatar_history SET is_favorite = $3 WHERE id = $1 AND username = $2`, historyID, normalizedUsername, favorite); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+func (a *App) removeUserAvatarHistory(ctx context.Context, username string, historyID int64) error {
+	normalizedUsername := strings.ToLower(strings.TrimSpace(username))
+	if normalizedUsername == "" {
+		return errors.New("invalid username")
+	}
+	if historyID <= 0 {
+		return errors.New("invalid history_id")
+	}
+	commandTag, err := a.db.Exec(ctx, `DELETE FROM im_user_avatar_history WHERE id = $1 AND username = $2`, historyID, normalizedUsername)
+	if err != nil {
+		return err
+	}
+	if commandTag.RowsAffected() <= 0 {
+		return pgx.ErrNoRows
+	}
+	return nil
 }
 
 func (a *App) findWhitelistConversationID(ctx context.Context, username string) (int64, error) {
@@ -795,6 +966,101 @@ func (a *App) handleProfileAvatarRefresh(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"item": item})
+}
+
+func (a *App) handleProfileAvatarSelect(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"error": true})
+		return
+	}
+	username, err := a.requireAllowedUser(r)
+	if err != nil {
+		writeJSON(w, http.StatusForbidden, map[string]any{"error": true, "message": err.Error()})
+		return
+	}
+	var req avatarHistoryActionRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": true, "message": "invalid payload"})
+		return
+	}
+	item, err := a.selectUserAvatarHistory(r.Context(), username, req.HistoryID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			writeJSON(w, http.StatusNotFound, map[string]any{"error": true, "message": "avatar history not found"})
+			return
+		}
+		if strings.Contains(err.Error(), "invalid history_id") {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": true, "message": "invalid history_id"})
+			return
+		}
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"item": item})
+}
+
+func (a *App) handleProfileAvatarFavorite(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"error": true})
+		return
+	}
+	username, err := a.requireAllowedUser(r)
+	if err != nil {
+		writeJSON(w, http.StatusForbidden, map[string]any{"error": true, "message": err.Error()})
+		return
+	}
+	var req avatarHistoryFavoriteRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": true, "message": "invalid payload"})
+		return
+	}
+	if err := a.setUserAvatarHistoryFavorite(r.Context(), username, req.HistoryID, req.Favorite); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			writeJSON(w, http.StatusNotFound, map[string]any{"error": true, "message": "avatar history not found"})
+			return
+		}
+		if strings.Contains(err.Error(), "invalid history_id") {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": true, "message": "invalid history_id"})
+			return
+		}
+		if err.Error() == "最多只能收藏10个头像" {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": true, "message": err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"success": true})
+}
+
+func (a *App) handleProfileAvatarRemove(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"error": true})
+		return
+	}
+	username, err := a.requireAllowedUser(r)
+	if err != nil {
+		writeJSON(w, http.StatusForbidden, map[string]any{"error": true, "message": err.Error()})
+		return
+	}
+	var req avatarHistoryActionRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": true, "message": "invalid payload"})
+		return
+	}
+	if err := a.removeUserAvatarHistory(r.Context(), username, req.HistoryID); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			writeJSON(w, http.StatusNotFound, map[string]any{"error": true, "message": "avatar history not found"})
+			return
+		}
+		if strings.Contains(err.Error(), "invalid history_id") {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": true, "message": "invalid history_id"})
+			return
+		}
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"success": true})
 }
 
 func (a *App) handleSessions(w http.ResponseWriter, r *http.Request) {

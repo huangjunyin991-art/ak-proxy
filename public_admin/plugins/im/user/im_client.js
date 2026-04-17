@@ -30,6 +30,9 @@
         profileAvatarHistoryLoaded: false,
         profileAvatarHistoryLoading: false,
         profileAvatarHistoryError: '',
+        profileAvatarHistoryActionId: 0,
+        profileAvatarHistoryActionType: '',
+        profileAvatarActionError: '',
         profileDraftNickname: '',
         profileDraftGender: 'unknown',
         profileDraftDirty: false,
@@ -1666,6 +1669,10 @@
 	        executeHideGroupRequest(Number(state.dialogPayload && state.dialogPayload.conversationId || 0));
 	        return;
 	    }
+	    if (state.dialogAction === 'profile_avatar_remove') {
+	        executeProfileAvatarRemoveRequest(Number(state.dialogPayload && state.dialogPayload.historyId || 0));
+	        return;
+	    }
 	    closeDialog();
 	}
 
@@ -2047,6 +2054,9 @@
     function closeProfileSubpage() {
         closeDialog({ silent: true, force: true });
         state.profileSaveError = '';
+        state.profileAvatarActionError = '';
+        state.profileAvatarHistoryActionId = 0;
+        state.profileAvatarHistoryActionType = '';
         state.profileDraftDirty = false;
         if (isProfileSubpageView(state.view)) {
             state.homeTab = 'me';
@@ -2066,6 +2076,9 @@
         state.homeTab = 'me';
         state.view = nextView;
         state.profileSaveError = '';
+        state.profileAvatarActionError = '';
+        state.profileAvatarHistoryActionId = 0;
+        state.profileAvatarHistoryActionType = '';
         if (!state.profileLoaded && !state.profileLoading) {
             loadProfile();
         }
@@ -2235,7 +2248,8 @@
         const username = String(profile && profile.username || state.username || '').trim();
         const nickname = String(profile && profile.nickname || '').trim();
         const genderLabel = getProfileGenderLabel(profile && profile.gender);
-        const avatarHistorySummary = state.profileAvatarHistoryLoading ? '正在同步头像历史' : (state.profileAvatarHistoryLoaded ? (state.profileAvatarHistory.length ? ('最近保留 ' + state.profileAvatarHistory.length + ' 个历史头像') : '切换头像后会在这里保留最近 10 个记录') : '可查看最近 10 个历史头像');
+        const favoriteCount = countProfileAvatarFavorites(state.profileAvatarHistory);
+        const avatarHistorySummary = state.profileAvatarHistoryLoading ? '正在同步头像历史' : (state.profileAvatarHistoryLoaded ? (state.profileAvatarHistory.length ? (favoriteCount ? ('已收藏 ' + favoriteCount + ' 个头像，共保存 ' + state.profileAvatarHistory.length + ' 条记录') : ('最近保留 ' + state.profileAvatarHistory.length + ' 个历史头像')) : '切换头像后会在这里保留最近 10 个记录') : '可查看最近 10 个历史头像');
         profilePageEl.innerHTML = (state.profileError ? '<div class="ak-im-profile-error">' + escapeHtml(state.profileError) + '</div>' : '') +
             '<div class="ak-im-profile-card">' +
                 '<div class="ak-im-profile-head">' +
@@ -2266,6 +2280,78 @@
         });
     }
 
+    function countProfileAvatarFavorites(items) {
+        return (Array.isArray(items) ? items : []).reduce(function(total, item) {
+            return total + (item && item.is_favorite ? 1 : 0);
+        }, 0);
+    }
+
+    function splitProfileAvatarHistoryItems(items) {
+        const groups = {
+            favorites: [],
+            history: []
+        };
+        (Array.isArray(items) ? items : []).forEach(function(item) {
+            if (!item) return;
+            if (item.is_favorite) groups.favorites.push(item);
+            else groups.history.push(item);
+        });
+        return groups;
+    }
+
+    function isCurrentProfileAvatarHistoryItem(item) {
+        const currentAvatarUrl = getAvatarUrl(state.profile && state.profile.avatar_url);
+        const historyAvatarUrl = getAvatarUrl(item && item.avatar_url);
+        return !!currentAvatarUrl && !!historyAvatarUrl && currentAvatarUrl === historyAvatarUrl;
+    }
+
+    function isProfileAvatarHistoryActionPending(actionType, historyId) {
+        return Number(state.profileAvatarHistoryActionId || 0) === Number(historyId || 0) && String(state.profileAvatarHistoryActionType || '') === String(actionType || '');
+    }
+
+    function buildProfileAvatarHistoryCardMarkup(item, displayName, username) {
+        const historyId = Number(item && item.id || 0);
+        const hasHistoryId = historyId > 0;
+        const isBusy = !!state.profileAvatarHistoryActionType || !!state.profileRefreshing;
+        const isCurrent = isCurrentProfileAvatarHistoryItem(item);
+        const isFavorite = !!(item && item.is_favorite);
+        const selecting = isProfileAvatarHistoryActionPending('select', historyId);
+        const favoriting = isProfileAvatarHistoryActionPending('favorite', historyId);
+        const removing = isProfileAvatarHistoryActionPending('remove', historyId);
+        const historyTime = formatProfileHistoryTime(item && item.created_at) || '最近使用';
+        const selectHint = !hasHistoryId ? '当前头像记录同步中' : (isCurrent ? '当前头像' : (selecting ? '正在切换...' : '点击设为当前头像'));
+        return '<div class="ak-im-profile-history-item' + (isCurrent ? ' is-current' : '') + '">' +
+            (isCurrent ? '<div class="ak-im-profile-history-current">当前使用</div>' : '') +
+            '<button class="ak-im-profile-history-remove" type="button" data-im-profile-avatar-remove="' + historyId + '"' + (isBusy || !hasHistoryId ? ' disabled' : '') + '>' + (removing ? '…' : '-') + '</button>' +
+            '<button class="ak-im-profile-history-favorite' + (isFavorite ? ' is-active' : '') + '" type="button" data-im-profile-avatar-favorite="' + historyId + '" data-im-profile-avatar-next-favorite="' + (isFavorite ? '0' : '1') + '"' + (isBusy || !hasHistoryId ? ' disabled' : '') + '>' + (favoriting ? '…' : '★') + '</button>' +
+            '<button class="ak-im-profile-history-card" type="button" data-im-profile-avatar-select="' + historyId + '"' + (isBusy || isCurrent || !hasHistoryId ? ' disabled' : '') + '>' +
+                buildAvatarBoxMarkup('ak-im-profile-history-avatar', item && item.avatar_url, displayName || username || '我', '历史头像') +
+                '<div class="ak-im-profile-history-time">' + escapeHtml(historyTime) + '</div>' +
+                '<div class="ak-im-profile-history-hint">' + escapeHtml(selectHint) + '</div>' +
+            '</button>' +
+        '</div>';
+    }
+
+    function buildProfileAvatarHistorySectionMarkup(options) {
+        const items = Array.isArray(options && options.items) ? options.items : [];
+        const title = String(options && options.title || '').trim() || '头像';
+        const subtitle = String(options && options.subtitle || '').trim();
+        const countText = String(options && options.countText || '').trim();
+        const emptyText = String(options && options.emptyText || '').trim() || '暂无头像';
+        const displayName = String(options && options.displayName || '').trim();
+        const username = String(options && options.username || '').trim();
+        return '<div class="ak-im-profile-history-section">' +
+            '<div class="ak-im-profile-history-section-head">' +
+                '<div class="ak-im-profile-entry-label">' + escapeHtml(title) + '</div>' +
+                (countText ? '<div class="ak-im-profile-history-section-count">' + escapeHtml(countText) + '</div>' : '') +
+            '</div>' +
+            (subtitle ? '<div class="ak-im-profile-subtitle">' + escapeHtml(subtitle) + '</div>' : '') +
+            (items.length ? '<div class="ak-im-profile-history-grid">' + items.map(function(item) {
+                return buildProfileAvatarHistoryCardMarkup(item, displayName, username);
+            }).join('') + '</div>' : '<div class="ak-im-profile-placeholder">' + escapeHtml(emptyText) + '</div>') +
+        '</div>';
+    }
+
     function renderProfileSubpage() {
         if (!profileSubpageBodyEl || !profileSubpageTitleEl) return;
         if (!isProfileSubpageView(state.view)) {
@@ -2283,29 +2369,44 @@
         const username = String(profile && profile.username || state.username || '').trim();
         const nickname = String(profile && profile.nickname || '').trim();
         const genderLabel = getProfileGenderLabel(profile && profile.gender);
-        const avatarStyle = String(profile && profile.avatar_style || 'thumbs').trim() || 'thumbs';
         if (state.view === 'profile_avatar') {
-            const historyMarkup = state.profileAvatarHistoryLoading ? '<div class="ak-im-profile-placeholder">正在读取头像历史...</div>' : (state.profileAvatarHistoryError ? '<div class="ak-im-profile-error">' + escapeHtml(state.profileAvatarHistoryError) + '</div>' : (state.profileAvatarHistory.length ? '<div class="ak-im-profile-history-grid">' + state.profileAvatarHistory.map(function(item) {
-                const historyTime = formatProfileHistoryTime(item.created_at) || '最近使用';
-                return '<div class="ak-im-profile-history-item">' +
-                    buildAvatarBoxMarkup('ak-im-profile-history-avatar', item.avatar_url, displayName || username || '我', '历史头像') +
-                    '<div class="ak-im-profile-history-time">' + escapeHtml(historyTime) + '</div>' +
-                '</div>';
-            }).join('') + '</div>' : '<div class="ak-im-profile-placeholder">暂时还没有历史头像，切换一次后会在这里保留最近 10 个记录。</div>'));
+            const historyGroups = splitProfileAvatarHistoryItems(state.profileAvatarHistory);
+            const favoriteCount = countProfileAvatarFavorites(state.profileAvatarHistory);
+            const historyGuideText = favoriteCount >= 10 ? '已收藏满 10 个头像，继续换头像时不会再自动写入历史，删除部分收藏后恢复。' : '点击头像可立即切回；右上角可删除，右下角可收藏。';
+            const historyMarkup = state.profileAvatarHistoryLoading ? '<div class="ak-im-profile-placeholder">正在读取头像历史...</div>' : (state.profileAvatarHistoryError ? '<div class="ak-im-profile-error">' + escapeHtml(state.profileAvatarHistoryError) + '</div>' : (
+                buildProfileAvatarHistorySectionMarkup({
+                    title: '收藏头像',
+                    subtitle: '收藏头像不会被自动替换，最多可保留 10 个。',
+                    countText: favoriteCount + '/10',
+                    items: historyGroups.favorites,
+                    emptyText: '还没有收藏头像，点亮右下角星标后会固定保留在这里。',
+                    displayName: displayName,
+                    username: username
+                }) +
+                buildProfileAvatarHistorySectionMarkup({
+                    title: '历史头像',
+                    subtitle: '按时间倒序展示最近更换过的头像。',
+                    countText: historyGroups.history.length + ' 个',
+                    items: historyGroups.history,
+                    emptyText: '暂时还没有历史头像，切换一次后会在这里保留最近 10 个记录。',
+                    displayName: displayName,
+                    username: username
+                })
+            ));
             profileSubpageBodyEl.innerHTML = (state.profileError ? '<div class="ak-im-profile-error">' + escapeHtml(state.profileError) + '</div>' : '') +
+                (state.profileAvatarActionError ? '<div class="ak-im-profile-error">' + escapeHtml(state.profileAvatarActionError) + '</div>' : '') +
                 '<div class="ak-im-profile-panel">' +
                     '<div class="ak-im-profile-head">' +
                         buildAvatarBoxMarkup('ak-im-profile-avatar', profile && profile.avatar_url, displayName || username || '我', (displayName || username || '我') + '头像') +
                         '<div class="ak-im-profile-name">' + escapeHtml(displayName || '我') + '</div>' +
                         '<div class="ak-im-profile-username">@' + escapeHtml(username || 'unknown') + '</div>' +
-                        '<div class="ak-im-profile-meta">DiceBear ' + escapeHtml(avatarStyle) + '</div>' +
                     '</div>' +
-                    '<div class="ak-im-profile-subtitle">点击下方按钮会生成新的头像，并自动保留最近 10 个历史记录。</div>' +
+                    '<div class="ak-im-profile-subtitle">点击下方按钮会生成新的头像。</div>' +
                     '<button class="ak-im-profile-primary-btn" type="button" data-im-profile-action="refresh-avatar"' + (state.profileRefreshing ? ' disabled' : '') + '>' + escapeHtml(state.profileRefreshing ? '正在切换头像...' : '换一个头像') + '</button>' +
                 '</div>' +
                 '<div class="ak-im-profile-panel">' +
-                    '<div class="ak-im-profile-entry-label">历史头像</div>' +
-                    '<div class="ak-im-profile-subtitle">按时间倒序展示最近更换过的头像。</div>' +
+                    '<div class="ak-im-profile-entry-label">头像收藏与历史</div>' +
+                    '<div class="ak-im-profile-subtitle">' + escapeHtml(historyGuideText) + '</div>' +
                     historyMarkup +
                 '</div>';
             const refreshBtn = profileSubpageBodyEl.querySelector('[data-im-profile-action="refresh-avatar"]');
@@ -2314,6 +2415,27 @@
                     refreshProfileAvatar();
                 });
             }
+            Array.prototype.forEach.call(profileSubpageBodyEl.querySelectorAll('[data-im-profile-avatar-select]'), function(button) {
+                button.addEventListener('click', function(event) {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    selectProfileAvatar(Number(button.getAttribute('data-im-profile-avatar-select') || 0));
+                });
+            });
+            Array.prototype.forEach.call(profileSubpageBodyEl.querySelectorAll('[data-im-profile-avatar-favorite]'), function(button) {
+                button.addEventListener('click', function(event) {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    setProfileAvatarFavorite(Number(button.getAttribute('data-im-profile-avatar-favorite') || 0), button.getAttribute('data-im-profile-avatar-next-favorite') === '1');
+                });
+            });
+            Array.prototype.forEach.call(profileSubpageBodyEl.querySelectorAll('[data-im-profile-avatar-remove]'), function(button) {
+                button.addEventListener('click', function(event) {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    openProfileAvatarRemoveDialog(Number(button.getAttribute('data-im-profile-avatar-remove') || 0));
+                });
+            });
             return;
         }
         if (state.view === 'profile_detail') {
@@ -2581,8 +2703,10 @@
 
     function normalizeProfileAvatarHistoryItem(item) {
         return {
+            id: Number(item && item.id || 0),
             avatar_style: String(item && item.avatar_style || 'thumbs').trim() || 'thumbs',
             avatar_url: getAvatarUrl(item && item.avatar_url),
+            is_favorite: !!(item && item.is_favorite),
             created_at: String(item && item.created_at || '').trim()
         };
     }
@@ -2681,6 +2805,106 @@
         });
     }
 
+    function runProfileAvatarHistoryAction(actionType, historyId, requestFactory, fallbackMessage, options) {
+        if (!state.allowed || state.profileAvatarHistoryActionType) return Promise.resolve(null);
+        const targetHistoryId = Number(historyId || 0);
+        if (!targetHistoryId) return Promise.resolve(null);
+        const config = options || {};
+        state.profileAvatarActionError = '';
+        state.profileAvatarHistoryActionId = targetHistoryId;
+        state.profileAvatarHistoryActionType = String(actionType || '');
+        render();
+        return Promise.resolve().then(requestFactory).then(function(data) {
+            state.profileAvatarHistoryActionId = 0;
+            state.profileAvatarHistoryActionType = '';
+            if (typeof config.onSuccess === 'function') config.onSuccess(data);
+            const tasks = [];
+            if (config.reloadLinkedData) tasks.push(reloadProfileLinkedData());
+            if (state.view === 'profile_avatar' || state.profileAvatarHistoryLoaded) {
+                tasks.push(loadProfileAvatarHistory(true));
+            }
+            if (!tasks.length) {
+                render();
+                return data;
+            }
+            return Promise.all(tasks).then(function() {
+                render();
+                return data;
+            });
+        }).catch(function(error) {
+            state.profileAvatarHistoryActionId = 0;
+            state.profileAvatarHistoryActionType = '';
+            state.profileAvatarActionError = error && error.message ? error.message : fallbackMessage;
+            render();
+            return null;
+        });
+    }
+
+    function selectProfileAvatar(historyId) {
+        return runProfileAvatarHistoryAction('select', historyId, function() {
+            return request(`${HTTP_ROOT}/profile/avatar/select`, {
+                method: 'POST',
+                body: JSON.stringify({ history_id: Number(historyId || 0) })
+            });
+        }, '切换历史头像失败', {
+            onSuccess: function(data) {
+                state.profileLoaded = true;
+                state.profileError = '';
+                applyProfileItem(data && data.item ? data.item : null);
+            },
+            reloadLinkedData: true
+        });
+    }
+
+    function setProfileAvatarFavorite(historyId, favorite) {
+        return runProfileAvatarHistoryAction('favorite', historyId, function() {
+            return request(`${HTTP_ROOT}/profile/avatar/favorite`, {
+                method: 'POST',
+                body: JSON.stringify({
+                    history_id: Number(historyId || 0),
+                    favorite: !!favorite
+                })
+            });
+        }, favorite ? '收藏头像失败' : '取消收藏失败');
+    }
+
+    function requestProfileAvatarRemove(historyId) {
+        return runProfileAvatarHistoryAction('remove', historyId, function() {
+            return request(`${HTTP_ROOT}/profile/avatar/remove`, {
+                method: 'POST',
+                body: JSON.stringify({ history_id: Number(historyId || 0) })
+            });
+        }, '删除头像失败');
+    }
+
+    function openProfileAvatarRemoveDialog(historyId) {
+        const targetHistoryId = Number(historyId || 0);
+        if (!targetHistoryId || state.profileAvatarHistoryActionType) return;
+        openDialog({
+            title: '删除头像',
+            message: '删除后会从收藏或历史中移除；如果它正被当前使用，当前头像不会立即变化。',
+            confirmText: '删除',
+            cancelText: '取消',
+            danger: true,
+            action: 'profile_avatar_remove',
+            payload: { historyId: targetHistoryId }
+        });
+    }
+
+    function executeProfileAvatarRemoveRequest(historyId) {
+        const targetHistoryId = Number(historyId || 0);
+        if (!targetHistoryId) {
+            closeDialog({ force: true });
+            return;
+        }
+        state.dialogSubmitting = true;
+        renderDialog();
+        requestProfileAvatarRemove(targetHistoryId).then(function() {
+            closeDialog({ silent: true, force: true });
+            render();
+        });
+    }
+
     function loadProfile() {
         if (!state.allowed) return Promise.resolve(null);
         state.profileLoading = true;
@@ -2738,6 +2962,9 @@
         if (!state.allowed || state.profileRefreshing) return Promise.resolve(null);
         state.profileRefreshing = true;
         state.profileError = '';
+        state.profileAvatarActionError = '';
+        state.profileAvatarHistoryActionId = 0;
+        state.profileAvatarHistoryActionType = '';
         render();
         return request(`${HTTP_ROOT}/profile/avatar/refresh`, {
             method: 'POST',
@@ -2821,6 +3048,9 @@
             state.profileAvatarHistoryLoaded = false;
             state.profileAvatarHistoryLoading = false;
             state.profileAvatarHistoryError = '';
+            state.profileAvatarHistoryActionId = 0;
+            state.profileAvatarHistoryActionType = '';
+            state.profileAvatarActionError = '';
             state.profileDraftNickname = '';
             state.profileDraftGender = 'unknown';
             state.profileDraftDirty = false;
@@ -2861,6 +3091,9 @@
             state.profileAvatarHistoryLoaded = false;
             state.profileAvatarHistoryLoading = false;
             state.profileAvatarHistoryError = '';
+            state.profileAvatarHistoryActionId = 0;
+            state.profileAvatarHistoryActionType = '';
+            state.profileAvatarActionError = '';
             state.profileDraftNickname = '';
             state.profileDraftGender = 'unknown';
             state.profileDraftDirty = false;
