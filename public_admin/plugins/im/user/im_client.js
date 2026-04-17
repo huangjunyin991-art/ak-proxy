@@ -14,6 +14,16 @@
         ready: false,
         username: '',
         displayName: '',
+        homeTab: 'chats',
+        contacts: [],
+        contactsLoaded: false,
+        contactsLoading: false,
+        contactsError: '',
+        profile: null,
+        profileLoaded: false,
+        profileLoading: false,
+        profileError: '',
+        profileRefreshing: false,
         sessions: [],
         activeConversationId: 0,
         activeMessages: [],
@@ -71,6 +81,8 @@
     let root = null;
     let panel = null;
     let sessionList = null;
+    let contactsListEl = null;
+    let profilePageEl = null;
     let messageList = null;
     let statusLine = null;
     let inputEl = null;
@@ -98,6 +110,8 @@
     let dialogMessageEl = null;
     let dialogCancelBtnEl = null;
     let dialogConfirmBtnEl = null;
+    let sessionTopbarTitleEl = null;
+    let sessionNewBtnEl = null;
 
     function getCookie(name) {
         try {
@@ -234,9 +248,13 @@
                 #ak-im-root .ak-im-chat-title{font-size:17px;font-weight:600;color:#111827;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
                 #ak-im-root .ak-im-chat-subtitle{margin-top:2px;font-size:11px;color:#6b7280;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
                 #ak-im-root .ak-im-nav-btn{height:34px;border:none;background:transparent;color:#111827;padding:0 8px;font-size:15px;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;border-radius:10px}
+                #ak-im-root .ak-im-nav-btn.is-hidden{opacity:0;pointer-events:none}
                 #ak-im-root .ak-im-nav-btn svg{width:20px;height:20px;stroke:currentColor}
                 #ak-im-root .ak-im-nav-btn.ak-im-new{justify-self:end;font-size:15px;color:#1f2937}
                 #ak-im-root .ak-im-session-page{flex:1;display:flex;flex-direction:column;min-height:0;background:#f7f7f7}
+                #ak-im-root .ak-im-home-panels{flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden}
+                #ak-im-root .ak-im-home-panel{display:none;flex:1;min-height:0;flex-direction:column}
+                #ak-im-root .ak-im-home-panel.is-active{display:flex}
                 #ak-im-root .ak-im-search-bar{padding:8px 12px;background:#ededed;border-bottom:1px solid rgba(15,23,42,.04)}
                 #ak-im-root .ak-im-search-pill{height:36px;border-radius:12px;background:#ffffff;color:#6b7280;display:flex;align-items:center;justify-content:center;font-size:12px}
                 #ak-im-root .ak-im-session-list{flex:1;overflow:auto;background:#ffffff}
@@ -244,6 +262,8 @@
                 #ak-im-root .ak-im-session-item.ak-active{background:#f0fdf4}
                 #ak-im-root .ak-im-session-item.is-pinned{background:#f7fcf7}
                 #ak-im-root .ak-im-session-avatar{width:48px;height:48px;border-radius:14px;background:linear-gradient(180deg,#8fe3a8 0%,#56c57b 100%);color:#ffffff;display:inline-flex;align-items:center;justify-content:center;font-size:15px;font-weight:700;flex:0 0 auto}
+                #ak-im-root .ak-im-avatar-photo{width:100%;height:100%;display:block;object-fit:cover}
+                #ak-im-root .ak-im-session-avatar,#ak-im-root .ak-im-avatar,#ak-im-root .ak-im-member-avatar,#ak-im-root .ak-im-member-action-avatar,#ak-im-root .ak-im-contact-avatar,#ak-im-root .ak-im-profile-avatar,#ak-im-root .ak-im-avatar-cell{overflow:hidden}
                 #ak-im-root .ak-im-session-body{min-width:0;flex:1;display:grid;grid-template-columns:1fr auto;grid-template-areas:'name time' 'preview unread';align-items:center;column-gap:10px;row-gap:4px}
                 #ak-im-root .ak-im-session-title{grid-area:name;display:flex;align-items:center;gap:6px;min-width:0;font-size:16px;font-weight:500;color:#111827}
                 #ak-im-root .ak-im-session-title-text{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -254,6 +274,30 @@
                 #ak-im-root .ak-im-session-preview{grid-area:preview;font-size:13px;color:#6b7280;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
                 #ak-im-root .ak-im-session-unread{grid-area:unread;justify-self:end;min-width:18px;height:18px;padding:0 5px;border-radius:999px;background:#ef4444;color:#fff;font-size:11px;display:none;align-items:center;justify-content:center}
                 #ak-im-root .ak-im-session-unread.visible{display:inline-flex}
+                #ak-im-root .ak-im-contacts-list{flex:1;overflow:auto;background:#ffffff}
+                #ak-im-root .ak-im-contact-item{width:100%;border:none;background:#ffffff;padding:13px 16px;display:flex;align-items:center;gap:12px;text-align:left;cursor:pointer}
+                #ak-im-root .ak-im-contact-item + .ak-im-contact-item{border-top:1px solid rgba(15,23,42,.05)}
+                #ak-im-root .ak-im-contact-avatar{width:46px;height:46px;border-radius:14px;background:linear-gradient(180deg,#8fe3a8 0%,#56c57b 100%);color:#ffffff;display:inline-flex;align-items:center;justify-content:center;font-size:15px;font-weight:700;flex:0 0 auto}
+                #ak-im-root .ak-im-contact-body{min-width:0;flex:1}
+                #ak-im-root .ak-im-contact-name{font-size:15px;font-weight:600;color:#111827;line-height:1.4;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+                #ak-im-root .ak-im-contact-meta{margin-top:3px;font-size:12px;color:#9ca3af;line-height:1.4;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+                #ak-im-root .ak-im-profile-page{flex:1;overflow:auto;padding:14px 12px calc(18px + env(safe-area-inset-bottom, 0px));background:#f7f7f7}
+                #ak-im-root .ak-im-profile-card{background:#ffffff;border-radius:22px;padding:22px 18px 18px;box-shadow:0 1px 2px rgba(15,23,42,.04)}
+                #ak-im-root .ak-im-profile-head{display:flex;flex-direction:column;align-items:center;text-align:center}
+                #ak-im-root .ak-im-profile-avatar{width:88px;height:88px;border-radius:24px;background:linear-gradient(180deg,#8fe3a8 0%,#56c57b 100%);color:#ffffff;display:inline-flex;align-items:center;justify-content:center;font-size:26px;font-weight:700;box-shadow:0 10px 22px rgba(7,193,96,.14)}
+                #ak-im-root .ak-im-profile-name{margin-top:14px;font-size:20px;font-weight:700;color:#111827;line-height:1.3}
+                #ak-im-root .ak-im-profile-username{margin-top:6px;font-size:13px;color:#9ca3af;line-height:1.4}
+                #ak-im-root .ak-im-profile-section{margin-top:18px;border-top:1px solid rgba(15,23,42,.06);padding-top:16px}
+                #ak-im-root .ak-im-profile-label{font-size:12px;color:#9ca3af;line-height:1.4}
+                #ak-im-root .ak-im-profile-value{margin-top:6px;font-size:15px;color:#111827;line-height:1.5}
+                #ak-im-root .ak-im-profile-action{margin-top:20px;width:100%;height:46px;border:none;border-radius:14px;background:#07c160;color:#ffffff;font-size:16px;font-weight:700;cursor:pointer;box-shadow:0 10px 22px rgba(7,193,96,.18)}
+                #ak-im-root .ak-im-profile-action:disabled{opacity:.42;cursor:not-allowed;box-shadow:none}
+                #ak-im-root .ak-im-profile-error{margin-bottom:12px;padding:11px 12px;border-radius:14px;background:rgba(239,68,68,.08);color:#dc2626;font-size:13px;line-height:1.6}
+                #ak-im-root .ak-im-home-tabbar{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:4px;padding:8px 8px calc(8px + env(safe-area-inset-bottom, 0px));background:#ffffff;border-top:1px solid rgba(15,23,42,.06)}
+                #ak-im-root .ak-im-home-tab-btn{border:none;background:transparent;min-height:56px;border-radius:14px;color:#6b7280;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;cursor:pointer}
+                #ak-im-root .ak-im-home-tab-btn svg{width:22px;height:22px;stroke:currentColor;fill:none}
+                #ak-im-root .ak-im-home-tab-btn span{font-size:11px;line-height:1.2}
+                #ak-im-root .ak-im-home-tab-btn.is-active{color:#07c160;background:rgba(7,193,96,.06)}
                 #ak-im-root .ak-im-message-list{flex:1;overflow:auto;padding:14px 12px 10px;background:#ebebeb;display:flex;flex-direction:column;gap:14px}
                 #ak-im-root .ak-im-empty{margin:auto;color:#94a3b8;font-size:13px;text-align:center;padding:28px 24px;line-height:1.6;white-space:pre-line}
                 #ak-im-root .ak-im-time-divider{text-align:center;font-size:11px;color:#9ca3af;line-height:1.4}
@@ -455,12 +499,36 @@
                         <button class="ak-im-nav-btn ak-im-close" type="button" aria-label="关闭内部聊天">
                             <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M15 18L9 12L15 6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
                         </button>
-                        <div class="ak-im-topbar-title">内部聊天</div>
+                        <div class="ak-im-topbar-title ak-im-session-topbar-title">聊天</div>
                         <button class="ak-im-nav-btn ak-im-new" type="button" data-im-action="new">发起</button>
                     </div>
                     <div class="ak-im-session-page">
-                        <div class="ak-im-search-bar"><div class="ak-im-search-pill">点击右上角发起单聊</div></div>
-                        <div class="ak-im-session-list"></div>
+                        <div class="ak-im-home-panels">
+                            <div class="ak-im-home-panel is-chats is-active" data-im-home-panel="chats">
+                                <div class="ak-im-search-bar"><div class="ak-im-search-pill">点击右上角发起单聊</div></div>
+                                <div class="ak-im-session-list"></div>
+                            </div>
+                            <div class="ak-im-home-panel" data-im-home-panel="contacts">
+                                <div class="ak-im-contacts-list"></div>
+                            </div>
+                            <div class="ak-im-home-panel" data-im-home-panel="me">
+                                <div class="ak-im-profile-page"></div>
+                            </div>
+                        </div>
+                        <div class="ak-im-home-tabbar">
+                            <button class="ak-im-home-tab-btn is-active" type="button" data-im-home-tab="chats" aria-label="聊天">
+                                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 6.75C6.5 5.78 7.28 5 8.25 5h7.5c.97 0 1.75.78 1.75 1.75v4.6c0 .97-.78 1.75-1.75 1.75h-3.42l-2.78 2.15c-.29.22-.7.02-.7-.34V13.1H8.25c-.97 0-1.75-.78-1.75-1.75v-4.6Z" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                                <span>聊天</span>
+                            </button>
+                            <button class="ak-im-home-tab-btn" type="button" data-im-home-tab="contacts" aria-label="通讯录">
+                                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 12a3.4 3.4 0 1 0 0-6.8 3.4 3.4 0 0 0 0 6.8Zm-5.4 6.3c.42-2.44 2.66-4.2 5.4-4.2s4.98 1.76 5.4 4.2" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><path d="M5.2 7.6h.01M18.8 7.6h.01" stroke-width="2.2" stroke-linecap="round"/></svg>
+                                <span>通讯录</span>
+                            </button>
+                            <button class="ak-im-home-tab-btn" type="button" data-im-home-tab="me" aria-label="我">
+                                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 12.2a3.6 3.6 0 1 0 0-7.2 3.6 3.6 0 0 0 0 7.2Zm-6 6.8c.5-2.9 3.15-5 6-5s5.5 2.1 6 5" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                                <span>我</span>
+                            </button>
+                        </div>
                     </div>
                 </div>
                 <div class="ak-im-screen ak-im-chat-screen">
@@ -552,6 +620,8 @@
         document.body.appendChild(root);
         panel = root.querySelector('.ak-im-shell');
         sessionList = root.querySelector('.ak-im-session-list');
+        contactsListEl = root.querySelector('.ak-im-contacts-list');
+        profilePageEl = root.querySelector('.ak-im-profile-page');
         messageList = root.querySelector('.ak-im-message-list');
         statusLine = root.querySelector('.ak-im-status');
         inputEl = root.querySelector('.ak-im-input');
@@ -579,6 +649,8 @@
 	    dialogMessageEl = root.querySelector('.ak-im-dialog-message');
 	    dialogCancelBtnEl = root.querySelector('[data-im-dialog="cancel"]');
 	    dialogConfirmBtnEl = root.querySelector('[data-im-dialog="confirm"]');
+	    sessionTopbarTitleEl = root.querySelector('.ak-im-session-topbar-title');
+	    sessionNewBtnEl = root.querySelector('.ak-im-new');
         root.querySelector('.ak-im-launcher').addEventListener('click', function() {
             state.open = true;
             if (state.view !== 'compose' && !state.activeConversationId) state.view = 'sessions';
@@ -616,6 +688,11 @@
         root.querySelector('.ak-im-compose-back').addEventListener('click', closeComposeView);
         root.querySelector('.ak-im-compose-close').addEventListener('click', closeComposeView);
         root.querySelector('[data-im-action="new"]').addEventListener('click', startDirectSession);
+        Array.prototype.forEach.call(root.querySelectorAll('[data-im-home-tab]'), function(button) {
+            button.addEventListener('click', function() {
+                switchHomeTab(button.getAttribute('data-im-home-tab'));
+            });
+        });
         root.querySelector('[data-im-action="compose-cancel"]').addEventListener('click', closeComposeView);
         root.querySelector('[data-im-action="compose-submit"]').addEventListener('click', submitDirectSession);
         sendBtn.addEventListener('click', sendCurrentMessage);
@@ -761,6 +838,30 @@
         return String(item && (item.peer_display_name || item.peer_username || '内部聊天') || '内部聊天').trim();
     }
 
+    function getAvatarUrl(value) {
+        return String(value || '').trim();
+    }
+
+    function buildAvatarImageMarkup(avatarUrl, altText) {
+        const normalizedAvatarUrl = getAvatarUrl(avatarUrl);
+        if (!normalizedAvatarUrl) return '';
+        return '<img class="ak-im-avatar-photo" src="' + escapeHtml(normalizedAvatarUrl) + '" alt="' + escapeHtml(String(altText || '头像')) + '" loading="lazy" referrerpolicy="no-referrer">';
+    }
+
+    function buildAvatarInnerMarkup(avatarUrl, fallbackText, altText) {
+        const imageMarkup = buildAvatarImageMarkup(avatarUrl, altText || fallbackText || '头像');
+        if (imageMarkup) return imageMarkup;
+        return escapeHtml(getAvatarText(fallbackText));
+    }
+
+    function buildAvatarBoxMarkup(className, avatarUrl, fallbackText, altText) {
+        return '<div class="' + className + '">' + buildAvatarInnerMarkup(avatarUrl, fallbackText, altText) + '</div>';
+    }
+
+    function buildAvatarCellMarkup(avatarUrl, fallbackText, altText) {
+        return '<span class="ak-im-avatar-cell">' + buildAvatarInnerMarkup(avatarUrl, fallbackText, altText) + '</span>';
+    }
+
     function buildSessionAvatarMarkup(item) {
         if (isGroupSession(item)) {
             const previewMembers = Array.isArray(item && item.members_preview) ? item.members_preview : [];
@@ -768,7 +869,8 @@
                 return '<div class="ak-im-session-avatar is-mosaic">' + buildGroupAvatarMosaicMarkup(previewMembers, getSessionDisplayName(item)) + '</div>';
             }
         }
-        return '<div class="ak-im-session-avatar">' + escapeHtml(getAvatarText(getSessionDisplayName(item))) + '</div>';
+        const displayName = getSessionDisplayName(item);
+        return buildAvatarBoxMarkup('ak-im-session-avatar', item && item.avatar_url, displayName, displayName + '头像');
     }
 
     function getSessionSubtitle(item) {
@@ -806,16 +908,16 @@
     function buildGroupAvatarMosaicMarkup(members, fallbackText) {
         const list = (Array.isArray(members) ? members : []).slice(0, 9);
         if (!list.length) {
-            return '<div class="ak-im-avatar-mosaic is-single" aria-hidden="true"><span class="ak-im-avatar-cell">' + escapeHtml(getAvatarText(fallbackText || '群')) + '</span></div>';
+            return '<div class="ak-im-avatar-mosaic is-single" aria-hidden="true">' + buildAvatarCellMarkup('', fallbackText || '群', String(fallbackText || '群') + '头像') + '</div>';
         }
         if (list.length === 1) {
             const only = list[0];
             const onlyName = String(only && (only.display_name || only.username) || '').trim() || String(fallbackText || '群');
-            return '<div class="ak-im-avatar-mosaic is-single" aria-hidden="true"><span class="ak-im-avatar-cell">' + escapeHtml(getAvatarText(onlyName)) + '</span></div>';
+            return '<div class="ak-im-avatar-mosaic is-single" aria-hidden="true">' + buildAvatarCellMarkup(only && only.avatar_url, onlyName, onlyName + '头像') + '</div>';
         }
         const cells = list.map(function(member) {
             const display = String(member && (member.display_name || member.username) || '').trim() || '成员';
-            return '<span class="ak-im-avatar-cell">' + escapeHtml(getAvatarText(display)) + '</span>';
+            return buildAvatarCellMarkup(member && member.avatar_url, display, display + '头像');
         });
         if (list.length >= 9) {
             return '<div class="ak-im-avatar-mosaic is-grid" aria-hidden="true">' + cells.join('') + '</div>';
@@ -1031,7 +1133,7 @@
 	    const username = String(member && member.username || '').trim();
 	    const role = String(member && member.role || '').trim().toLowerCase();
 	    const roleLabel = role === 'owner' ? '群主' : (role === 'admin' ? '管理员' : '');
-	    return '<div class="ak-im-member-item"><div class="ak-im-member-avatar">' + escapeHtml(getAvatarText(displayName || username || '成员')) + '</div><div class="ak-im-member-body"><div class="ak-im-member-name">' + escapeHtml(displayName || username || '未知成员') + '</div></div>' + (roleLabel ? '<div class="ak-im-member-role">' + escapeHtml(roleLabel) + '</div>' : '') + '</div>';
+	    return '<div class="ak-im-member-item">' + buildAvatarBoxMarkup('ak-im-member-avatar', member && member.avatar_url, displayName || username || '成员', (displayName || username || '成员') + '头像') + '<div class="ak-im-member-body"><div class="ak-im-member-name">' + escapeHtml(displayName || username || '未知成员') + '</div></div>' + (roleLabel ? '<div class="ak-im-member-role">' + escapeHtml(roleLabel) + '</div>' : '') + '</div>';
 	}
 
 	function renderMemberPanel() {
@@ -1158,6 +1260,7 @@
 	        return {
 	            username: username,
 	            displayName: displayName,
+	            avatarUrl: getAvatarUrl(member && member.avatar_url),
 	            role: role,
 	            roleLabel: getGroupMemberRoleLabel(role),
 	            disabledReason: disabledReason,
@@ -1304,7 +1407,7 @@
 	        const isSelected = selectedUsernames.indexOf(candidate.username) >= 0;
 	        const reasonClass = candidate.disabledReason === '无聊天记录' ? ' is-muted' : '';
 	        return '<button class="ak-im-member-action-row' + (candidate.selectable ? '' : ' is-disabled') + '" type="button" data-im-member-option="' + escapeHtml(candidate.username) + '"' + (candidate.selectable ? '' : ' disabled') + '>' +
-	            '<div class="ak-im-member-action-avatar">' + escapeHtml(getAvatarText(candidate.displayName || candidate.username || '成员')) + '</div>' +
+	            buildAvatarBoxMarkup('ak-im-member-action-avatar', candidate.avatarUrl, candidate.displayName || candidate.username || '成员', (candidate.displayName || candidate.username || '成员') + '头像') +
 	            '<div class="ak-im-member-action-main"><div class="ak-im-member-action-name">' + escapeHtml(candidate.displayName || candidate.username || '未知成员') + '</div>' +
 	            '<div class="ak-im-member-action-meta"><span>@' + escapeHtml(candidate.username || 'unknown') + '</span>' +
 	            (candidate.roleLabel ? '<span class="ak-im-member-action-role">' + escapeHtml(candidate.roleLabel) + '</span>' : '') +
@@ -1834,6 +1937,205 @@
         render();
     }
 
+    function normalizeHomeTab(tab) {
+        const candidate = String(tab || '').trim().toLowerCase();
+        if (candidate === 'contacts' || candidate === 'me') return candidate;
+        return 'chats';
+    }
+
+    function getHomeTabTitle(tab) {
+        const normalizedTab = normalizeHomeTab(tab);
+        if (normalizedTab === 'contacts') return '通讯录';
+        if (normalizedTab === 'me') return '我';
+        return '聊天';
+    }
+
+    function ensureHomeTabData(tab) {
+        const normalizedTab = normalizeHomeTab(tab);
+        if (!state.allowed) return;
+        if (normalizedTab === 'contacts') {
+            if (!state.contactsLoading && !state.contactsLoaded) loadContacts();
+            return;
+        }
+        if (normalizedTab === 'me' && !state.profileLoading && !state.profileLoaded) {
+            loadProfile();
+        }
+    }
+
+    function switchHomeTab(tab) {
+        state.homeTab = normalizeHomeTab(tab);
+        state.view = 'sessions';
+        ensureHomeTabData(state.homeTab);
+        render();
+    }
+
+    function renderHomeShell() {
+        if (!root) return;
+        state.homeTab = normalizeHomeTab(state.homeTab);
+        if (sessionTopbarTitleEl) {
+            sessionTopbarTitleEl.textContent = getHomeTabTitle(state.homeTab);
+        }
+        if (sessionNewBtnEl) {
+            sessionNewBtnEl.classList.toggle('is-hidden', state.homeTab !== 'chats');
+        }
+        const searchPill = root.querySelector('.ak-im-search-pill');
+        if (searchPill) {
+            if (state.homeTab === 'contacts') {
+                searchPill.textContent = state.contactsLoading ? '正在同步同白名单通讯录' : '同白名单成员会显示在这里，点击可直接发起聊天';
+            } else if (state.homeTab === 'me') {
+                searchPill.textContent = '在这里查看个人资料并切换默认头像';
+            } else {
+                searchPill.textContent = state.sessions.length ? '长按会话可置顶，点击进入聊天' : '点击右上角发起单聊';
+            }
+        }
+        Array.prototype.forEach.call(root.querySelectorAll('[data-im-home-tab]'), function(button) {
+            button.classList.toggle('is-active', button.getAttribute('data-im-home-tab') === state.homeTab);
+        });
+        Array.prototype.forEach.call(root.querySelectorAll('[data-im-home-panel]'), function(panelNode) {
+            panelNode.classList.toggle('is-active', panelNode.getAttribute('data-im-home-panel') === state.homeTab);
+        });
+    }
+
+    function renderSessionList() {
+        if (!root || !sessionList) return;
+        sessionList.innerHTML = '';
+        if (!state.sessions.length) {
+            const empty = document.createElement('div');
+            empty.className = 'ak-im-empty';
+            empty.textContent = state.allowed ? '暂无会话\n点击右上角“发起”开始单聊' : '当前账号未开通聊天';
+            sessionList.appendChild(empty);
+            return;
+        }
+        state.sessions.forEach(function(item) {
+            const node = document.createElement('div');
+            node.className = 'ak-im-session-item' + (item.conversation_id === state.activeConversationId ? ' ak-active' : '') + (isSessionPinned(item) ? ' is-pinned' : '');
+            const unreadCount = getUnreadCount(item);
+            const subtitle = getSessionSubtitle(item);
+            const previewText = subtitle ? (subtitle + ' · ' + getSessionPreview(item)) : getSessionPreview(item);
+            const pinText = isSessionSystemPinned(item) ? '群置顶' : '置顶';
+            node.innerHTML = buildSessionAvatarMarkup(item) +
+                '<div class="ak-im-session-body">' +
+                    '<div class="ak-im-session-title"><span class="ak-im-session-title-text">' + escapeHtml(getSessionDisplayName(item)) + '</span><span class="ak-im-session-pin-tag' + (isSessionPinned(item) ? ' visible' : '') + (isSessionSystemPinned(item) ? ' is-system' : '') + '">' + escapeHtml(pinText) + '</span></div>' +
+                    '<div class="ak-im-session-time">' + escapeHtml(formatSessionTime(item.last_message_at || item.updated_at || item.created_at)) + '</div>' +
+                    '<div class="ak-im-session-preview">' + escapeHtml(previewText) + '</div>' +
+                    '<div class="ak-im-session-unread' + (unreadCount > 0 ? ' visible' : '') + '">' + escapeHtml(unreadCount > 99 ? '99+' : String(unreadCount || '')) + '</div>' +
+                '</div>';
+            let pressTimer = null;
+            let didOpenActionSheet = false;
+            const startPress = function() {
+                if (pressTimer) clearTimeout(pressTimer);
+                pressTimer = setTimeout(function() {
+                    didOpenActionSheet = true;
+                    openSessionActionSheet(item);
+                }, 420);
+            };
+            const cancelPress = function() {
+                if (pressTimer) {
+                    clearTimeout(pressTimer);
+                    pressTimer = null;
+                }
+            };
+            node.addEventListener('click', function() {
+                if (didOpenActionSheet) {
+                    didOpenActionSheet = false;
+                    return;
+                }
+                closeActionSheet();
+                closeReadProgressPanel();
+	                closeMemberPanel();
+                state.activeConversationId = item.conversation_id;
+                state.view = 'chat';
+                state.activeMessages = [];
+                loadMessages(item.conversation_id);
+                render();
+            });
+            node.addEventListener('pointerdown', startPress);
+            node.addEventListener('pointerup', cancelPress);
+            node.addEventListener('pointercancel', cancelPress);
+            node.addEventListener('pointerleave', cancelPress);
+            node.addEventListener('contextmenu', function(event) {
+                event.preventDefault();
+                didOpenActionSheet = true;
+                openSessionActionSheet(item);
+            });
+            sessionList.appendChild(node);
+        });
+    }
+
+    function renderContactsView() {
+        if (!contactsListEl) return;
+        contactsListEl.innerHTML = '';
+        if (!state.allowed) {
+            contactsListEl.innerHTML = '<div class="ak-im-empty">当前账号未开通聊天</div>';
+            return;
+        }
+        if (state.contactsLoading) {
+            contactsListEl.innerHTML = '<div class="ak-im-empty">正在加载通讯录...</div>';
+            return;
+        }
+        if (state.contactsError) {
+            contactsListEl.innerHTML = '<div class="ak-im-empty">' + escapeHtml(state.contactsError) + '</div>';
+            return;
+        }
+        if (!state.contacts.length) {
+            contactsListEl.innerHTML = '<div class="ak-im-empty">当前白名单暂无其他联系人</div>';
+            return;
+        }
+        state.contacts.forEach(function(contact) {
+            const username = String(contact && contact.username || '').trim();
+            const displayName = String(contact && contact.display_name || '').trim() || username || '联系人';
+            const node = document.createElement('button');
+            node.type = 'button';
+            node.className = 'ak-im-contact-item';
+            node.innerHTML = buildAvatarBoxMarkup('ak-im-contact-avatar', contact && contact.avatar_url, displayName, displayName + '头像') +
+                '<div class="ak-im-contact-body"><div class="ak-im-contact-name">' + escapeHtml(displayName) + '</div><div class="ak-im-contact-meta">@' + escapeHtml(username || 'unknown') + '</div></div>';
+            node.addEventListener('click', function() {
+                openDirectConversation(username);
+            });
+            contactsListEl.appendChild(node);
+        });
+    }
+
+    function renderProfileView() {
+        if (!profilePageEl) return;
+        if (!state.allowed) {
+            profilePageEl.innerHTML = '<div class="ak-im-empty">当前账号未开通聊天</div>';
+            return;
+        }
+        const profile = state.profile || null;
+        const displayName = String(profile && profile.display_name || state.displayName || state.username || '我').trim();
+        const username = String(profile && profile.username || state.username || '').trim();
+        const avatarStyle = String(profile && profile.avatar_style || 'thumbs').trim() || 'thumbs';
+        const contactSummary = state.contactsLoading ? '正在读取同白名单联系人' : (state.contactsError ? '通讯录暂不可用' : (state.contacts.length ? ('同白名单共 ' + state.contacts.length + ' 位联系人') : '切换到通讯录可查看同白名单联系人'));
+        profilePageEl.innerHTML = (state.profileError ? '<div class="ak-im-profile-error">' + escapeHtml(state.profileError) + '</div>' : '') +
+            '<div class="ak-im-profile-card">' +
+                '<div class="ak-im-profile-head">' +
+                    buildAvatarBoxMarkup('ak-im-profile-avatar', profile && profile.avatar_url, displayName || username || '我', (displayName || username || '我') + '头像') +
+                    '<div class="ak-im-profile-name">' + escapeHtml(displayName || '我') + '</div>' +
+                    '<div class="ak-im-profile-username">@' + escapeHtml(username || 'unknown') + '</div>' +
+                '</div>' +
+                '<div class="ak-im-profile-section">' +
+                    '<div class="ak-im-profile-label">默认头像风格</div>' +
+                    '<div class="ak-im-profile-value">DiceBear ' + escapeHtml(avatarStyle) + '</div>' +
+                '</div>' +
+                '<div class="ak-im-profile-section">' +
+                    '<div class="ak-im-profile-label">通讯录</div>' +
+                    '<div class="ak-im-profile-value">' + escapeHtml(contactSummary) + '</div>' +
+                '</div>' +
+                '<div class="ak-im-profile-section">' +
+                    '<div class="ak-im-profile-label">头像说明</div>' +
+                    '<div class="ak-im-profile-value">点击下方按钮会在同一个 Thumbs 风格里切换新的头像种子。</div>' +
+                '</div>' +
+                '<button class="ak-im-profile-action" type="button" data-im-action="refresh-avatar"' + (state.profileRefreshing ? ' disabled' : '') + '>' + escapeHtml(state.profileRefreshing ? '正在切换头像...' : '换一个头像') + '</button>' +
+            '</div>';
+        const refreshBtn = profilePageEl.querySelector('[data-im-action="refresh-avatar"]');
+        if (refreshBtn) {
+            refreshBtn.addEventListener('click', function() {
+                refreshProfileAvatar();
+            });
+        }
+    }
+
     function syncInputHeight() {
         if (!inputEl) return;
         inputEl.style.height = '22px';
@@ -1867,71 +2169,11 @@
         root.querySelector('.ak-im-launcher').classList.toggle('has-unread', state.sessions.some(function(item) {
             return getUnreadCount(item) > 0;
         }));
-        const searchPill = root.querySelector('.ak-im-search-pill');
-        if (searchPill) searchPill.textContent = state.sessions.length ? '长按会话可置顶，点击进入聊天' : '点击右上角发起单聊';
+        renderHomeShell();
         statusLine.textContent = '';
-        sessionList.innerHTML = '';
-        if (!state.sessions.length) {
-            const empty = document.createElement('div');
-            empty.className = 'ak-im-empty';
-            empty.textContent = state.allowed ? '暂无会话\n点击右上角“发起”开始单聊' : '当前账号未开通聊天';
-            sessionList.appendChild(empty);
-        } else {
-            state.sessions.forEach(function(item) {
-                const node = document.createElement('div');
-                node.className = 'ak-im-session-item' + (item.conversation_id === state.activeConversationId ? ' ak-active' : '') + (isSessionPinned(item) ? ' is-pinned' : '');
-                const unreadCount = getUnreadCount(item);
-                const subtitle = getSessionSubtitle(item);
-                const previewText = subtitle ? (subtitle + ' · ' + getSessionPreview(item)) : getSessionPreview(item);
-                const pinText = isSessionSystemPinned(item) ? '群置顶' : '置顶';
-                node.innerHTML = buildSessionAvatarMarkup(item) +
-                    '<div class="ak-im-session-body">' +
-                        '<div class="ak-im-session-title"><span class="ak-im-session-title-text">' + escapeHtml(getSessionDisplayName(item)) + '</span><span class="ak-im-session-pin-tag' + (isSessionPinned(item) ? ' visible' : '') + (isSessionSystemPinned(item) ? ' is-system' : '') + '">' + escapeHtml(pinText) + '</span></div>' +
-                        '<div class="ak-im-session-time">' + escapeHtml(formatSessionTime(item.last_message_at || item.updated_at || item.created_at)) + '</div>' +
-                        '<div class="ak-im-session-preview">' + escapeHtml(previewText) + '</div>' +
-                        '<div class="ak-im-session-unread' + (unreadCount > 0 ? ' visible' : '') + '">' + escapeHtml(unreadCount > 99 ? '99+' : String(unreadCount || '')) + '</div>' +
-                    '</div>';
-                let pressTimer = null;
-                let didOpenActionSheet = false;
-                const startPress = function() {
-                    if (pressTimer) clearTimeout(pressTimer);
-                    pressTimer = setTimeout(function() {
-                        didOpenActionSheet = true;
-                        openSessionActionSheet(item);
-                    }, 420);
-                };
-                const cancelPress = function() {
-                    if (pressTimer) {
-                        clearTimeout(pressTimer);
-                        pressTimer = null;
-                    }
-                };
-                node.addEventListener('click', function() {
-                    if (didOpenActionSheet) {
-                        didOpenActionSheet = false;
-                        return;
-                    }
-                    closeActionSheet();
-                    closeReadProgressPanel();
-	                closeMemberPanel();
-                    state.activeConversationId = item.conversation_id;
-                    state.view = 'chat';
-                    state.activeMessages = [];
-                    loadMessages(item.conversation_id);
-                    render();
-                });
-                node.addEventListener('pointerdown', startPress);
-                node.addEventListener('pointerup', cancelPress);
-                node.addEventListener('pointercancel', cancelPress);
-                node.addEventListener('pointerleave', cancelPress);
-                node.addEventListener('contextmenu', function(event) {
-                    event.preventDefault();
-                    didOpenActionSheet = true;
-                    openSessionActionSheet(item);
-                });
-                sessionList.appendChild(node);
-            });
-        }
+        renderSessionList();
+        renderContactsView();
+        renderProfileView();
         syncComposerState();
         syncInputHeight();
         renderMessages();
@@ -2014,14 +2256,16 @@
             const metaText = summary && Number(summary.total_count || 0) > 0 ? ('已读 ' + Number(summary.read_count || 0) + '/' + Number(summary.total_count || 0)) : ((isSelf && item.read) ? '对方已读' : '');
             const senderText = !isSelf && isGroupSession(activeSession) ? String(item.sender_username || '').trim() : '';
 	        const progressMarkup = buildReadProgressButtonMarkup(item, activeSession);
+	        const avatarText = displayName || item.sender_username || '成员';
+	        const avatarUrl = isSelf ? getAvatarUrl((state.profile && state.profile.avatar_url) || item.sender_avatar_url) : getAvatarUrl(item.sender_avatar_url);
 	        const footerMarkup = (metaText || progressMarkup) ? '<div class="ak-im-message-footer">' +
 	            (metaText ? '<div class="ak-im-meta">' + escapeHtml(metaText) + '</div>' : '') +
 	            progressMarkup +
 	        '</div>' : '';
             wrapper.innerHTML = '<div class="ak-im-time-divider">' + escapeHtml(formatTime(item.sent_at)) + '</div>' +
                 '<div class="ak-im-message-row ' + (isSelf ? 'ak-self' : 'ak-peer') + '">' +
-                    '<div class="ak-im-avatar">' + escapeHtml(getAvatarText(displayName)) + '</div>' +
-                    '<div class="ak-im-message-main">' +
+	                    buildAvatarBoxMarkup('ak-im-avatar', avatarUrl, avatarText, avatarText + '头像') +
+	                    '<div class="ak-im-message-main">' +
                         (senderText ? '<div class="ak-im-message-sender">' + escapeHtml(senderText) + '</div>' : '') +
                         '<div class="ak-im-bubble">' + escapeHtml(item.content || item.content_preview || '') + '</div>' +
 	                        footerMarkup +
@@ -2068,21 +2312,185 @@
         messageList.scrollTop = messageList.scrollHeight;
     }
 
+    function normalizeProfileItem(item) {
+        const username = String(item && item.username || state.username || '').trim().toLowerCase();
+        const displayName = String(item && item.display_name || state.displayName || username || '').trim();
+        return {
+            username: username || String(state.username || '').trim().toLowerCase(),
+            display_name: displayName || username || '我',
+            avatar_style: String(item && item.avatar_style || 'thumbs').trim() || 'thumbs',
+            avatar_url: getAvatarUrl(item && item.avatar_url)
+        };
+    }
+
+    function applyProfileItem(item) {
+        const profile = normalizeProfileItem(item);
+        state.profile = profile;
+        if (profile.username) state.username = profile.username;
+        if (profile.display_name) state.displayName = profile.display_name;
+        return profile;
+    }
+
+    function loadContacts() {
+        if (!state.allowed) return Promise.resolve([]);
+        state.contactsLoading = true;
+        state.contactsError = '';
+        render();
+        return request(`${HTTP_ROOT}/contacts`).then(function(data) {
+            state.contactsLoading = false;
+            state.contactsLoaded = true;
+            state.contactsError = '';
+            state.contacts = Array.isArray(data && data.items) ? data.items : [];
+            render();
+            return state.contacts;
+        }).catch(function(error) {
+            state.contactsLoading = false;
+            state.contactsLoaded = false;
+            state.contactsError = error && error.message ? error.message : '读取通讯录失败';
+            state.contacts = [];
+            render();
+            return [];
+        });
+    }
+
+    function loadProfile() {
+        if (!state.allowed) return Promise.resolve(null);
+        state.profileLoading = true;
+        state.profileError = '';
+        render();
+        return request(`${HTTP_ROOT}/profile`).then(function(data) {
+            state.profileLoading = false;
+            state.profileLoaded = true;
+            state.profileError = '';
+            applyProfileItem(data && data.item ? data.item : null);
+            render();
+            return state.profile;
+        }).catch(function(error) {
+            state.profileLoading = false;
+            state.profileLoaded = false;
+            state.profileError = error && error.message ? error.message : '读取个人资料失败';
+            render();
+            return null;
+        });
+    }
+
+    function refreshProfileAvatar() {
+        if (!state.allowed || state.profileRefreshing) return Promise.resolve(null);
+        state.profileRefreshing = true;
+        state.profileError = '';
+        render();
+        return request(`${HTTP_ROOT}/profile/avatar/refresh`, {
+            method: 'POST',
+            body: '{}'
+        }).then(function(data) {
+            state.profileRefreshing = false;
+            state.profileLoaded = true;
+            applyProfileItem(data && data.item ? data.item : null);
+            render();
+            const tasks = [loadSessions()];
+            if (Number(state.activeConversationId || 0) > 0) {
+                tasks.push(loadMessages(state.activeConversationId));
+            }
+            if (state.groupSettingsOpen && Number(state.groupSettingsConversationId || 0) > 0) {
+                tasks.push(loadGroupSettings(state.groupSettingsConversationId));
+            }
+            return Promise.all(tasks).then(function() {
+                render();
+                return state.profile;
+            });
+        }).catch(function(error) {
+            state.profileRefreshing = false;
+            state.profileError = error && error.message ? error.message : '切换头像失败';
+            render();
+            return null;
+        });
+    }
+
+    function openDirectConversation(target, options) {
+        if (!state.allowed) return Promise.resolve(null);
+        const normalizedTarget = String(target || '').trim().toLowerCase();
+        const onError = options && typeof options.onError === 'function' ? options.onError : null;
+        if (!normalizedTarget) {
+            const emptyMessage = '请输入要发起聊天的账号 username';
+            if (onError) onError(emptyMessage);
+            else window.alert(emptyMessage);
+            return Promise.resolve(null);
+        }
+        return request(`${HTTP_ROOT}/sessions/direct`, {
+            method: 'POST',
+            body: JSON.stringify({ target_username: normalizedTarget })
+        }).then(function(data) {
+            const conversationId = Number((data && data.conversation_id) || 0);
+            if (!conversationId) throw new Error('发起会话失败');
+            state.activeConversationId = conversationId;
+            state.view = 'chat';
+            state.activeMessages = [];
+            if (options && options.resetCompose) {
+                state.newSessionTarget = '';
+                state.newSessionError = '';
+            }
+            render();
+            return loadSessions().then(function() {
+                return loadMessages(conversationId);
+            });
+        }).catch(function(error) {
+            const message = error && error.message ? error.message : '发起会话失败';
+            if (onError) {
+                onError(message);
+                return null;
+            }
+            window.alert(message);
+            return null;
+        });
+    }
+
     function loadBootstrap() {
         return request(`${HTTP_ROOT}/bootstrap`).then(function(data) {
             state.allowed = !!(data && data.allowed);
             state.ready = true;
-            state.username = String((data && data.username) || '').trim();
+            state.username = String((data && data.username) || '').trim().toLowerCase();
             state.displayName = String((data && data.display_name) || state.username || '').trim();
+            state.contacts = [];
+            state.contactsLoaded = false;
+            state.contactsLoading = false;
+            state.contactsError = '';
+            state.profileLoaded = false;
+            state.profileLoading = false;
+            state.profileError = '';
+            state.profileRefreshing = false;
+            state.profile = state.username ? normalizeProfileItem({
+                username: state.username,
+                display_name: state.displayName,
+                avatar_style: 'thumbs',
+                avatar_url: data && data.avatar_url
+            }) : null;
             if (!state.allowed) {
+                state.sessions = [];
+                state.activeConversationId = 0;
+                state.activeMessages = [];
                 render();
                 return null;
             }
             ensureWebSocket();
-            return loadSessions();
+            return loadSessions().then(function() {
+                ensureHomeTabData(state.homeTab);
+                return null;
+            });
         }).catch(function() {
             state.allowed = false;
             state.ready = true;
+            state.contacts = [];
+            state.contactsLoaded = false;
+            state.contactsLoading = false;
+            state.contactsError = '';
+            state.profile = null;
+            state.profileLoaded = false;
+            state.profileLoading = false;
+            state.profileError = '';
+            state.profileRefreshing = false;
+            state.sessions = [];
+            state.activeConversationId = 0;
+            state.activeMessages = [];
             render();
             return null;
         });
@@ -2134,27 +2542,15 @@
 
     function submitDirectSession() {
         if (!state.allowed) return;
-        const target = String(state.newSessionTarget || '').trim();
-        if (!target) {
-            state.newSessionError = '请输入要发起聊天的账号 username';
-            renderComposeView();
-            focusComposeInput();
-            return;
-        }
-        request(`${HTTP_ROOT}/sessions/direct`, {
-            method: 'POST',
-            body: JSON.stringify({ target_username: target })
-        }).then(function(data) {
-            state.activeConversationId = Number((data && data.conversation_id) || 0);
-            state.view = 'chat';
-            state.activeMessages = [];
-            state.newSessionTarget = '';
-            state.newSessionError = '';
-            return loadSessions().then(function() {
-                return loadMessages(state.activeConversationId);
-            });
-        }).catch(function(error) {
-            state.newSessionError = error && error.message ? error.message : '发起会话失败';
+        state.newSessionError = '';
+        openDirectConversation(state.newSessionTarget, {
+            resetCompose: true,
+            onError: function(message) {
+                state.newSessionError = message;
+                renderComposeView();
+                focusComposeInput();
+            }
+        }).catch(function() {
             renderComposeView();
             focusComposeInput();
         });
@@ -2322,6 +2718,9 @@
                     if (data.type === 'im.session.updated') {
                         const payload = data.payload || null;
                         loadSessions();
+                        if (state.homeTab === 'contacts' || state.contactsLoaded) {
+                            loadContacts();
+                        }
                         if (payload && Number(payload.conversation_id || 0) > 0) {
                             const updatedConversationId = Number(payload.conversation_id || 0);
                             if (updatedConversationId === Number(state.activeConversationId || 0)) {

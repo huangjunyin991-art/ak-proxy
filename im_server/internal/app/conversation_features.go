@@ -62,6 +62,7 @@ type MessageReadProgressDetail struct {
 type SessionMemberItem struct {
 	Username    string `json:"username"`
 	DisplayName string `json:"display_name"`
+	AvatarURL   string `json:"avatar_url,omitempty"`
 	Role        string `json:"role,omitempty"`
 }
 
@@ -388,6 +389,7 @@ func (a *App) loadConversationAdmins(ctx context.Context, conversationID int64) 
 		items = append(items, SessionMemberItem{
 			Username:    username,
 			DisplayName: a.fetchDisplayName(ctx, username),
+			AvatarURL:   a.getUserAvatarURL(ctx, username),
 			Role:        "admin",
 		})
 	}
@@ -433,6 +435,7 @@ func (a *App) loadConversationMemberItems(ctx context.Context, conversationID in
 			item.Role = "admin"
 		}
 		item.DisplayName = a.fetchDisplayName(ctx, item.Username)
+		item.AvatarURL = a.getUserAvatarURL(ctx, item.Username)
 		members = append(members, item)
 	}
 	if err := rows.Err(); err != nil {
@@ -495,6 +498,7 @@ func (a *App) buildConversationGroupProfileItem(ctx context.Context, conversatio
 		Owner: SessionMemberItem{
 			Username:    ownerUsername,
 			DisplayName: a.fetchDisplayName(ctx, ownerUsername),
+			AvatarURL:   a.getUserAvatarURL(ctx, ownerUsername),
 			Role:        "owner",
 		},
 		Members: members,
@@ -539,6 +543,7 @@ func (a *App) loadConversationMessageAuthors(ctx context.Context, conversationID
 		items = append(items, SessionMemberItem{
 			Username:    normalizedUsername,
 			DisplayName: a.fetchDisplayName(ctx, normalizedUsername),
+			AvatarURL:   a.getUserAvatarURL(ctx, normalizedUsername),
 		})
 	}
 	if err := rows.Err(); err != nil {
@@ -806,6 +811,7 @@ func (a *App) handleSessionMembers(w http.ResponseWriter, r *http.Request) {
 			item.Role = "admin"
 		}
 		item.DisplayName = a.fetchDisplayName(r.Context(), item.Username)
+		item.AvatarURL = a.getUserAvatarURL(r.Context(), item.Username)
 		members = append(members, item)
 	}
 	if err := rows.Err(); err != nil {

@@ -2,11 +2,14 @@ package app
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
 	"net/http"
+	"net/url"
 	"sort"
 	"strings"
 	"sync"
@@ -18,6 +21,8 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+const defaultAvatarStyle = "thumbs"
 
 type App struct {
 	cfg      config.Config
@@ -42,6 +47,7 @@ type BootstrapResponse struct {
 	Allowed           bool   `json:"allowed"`
 	Username          string `json:"username"`
 	DisplayName       string `json:"display_name"`
+	AvatarURL         string `json:"avatar_url,omitempty"`
 	RetentionDays     int    `json:"retention_days"`
 	StoreEncoding     string `json:"store_encoding"`
 	CompressMinBytes  int    `json:"compress_min_bytes"`
@@ -70,6 +76,7 @@ type MessageItem struct {
 	ID             int64  `json:"id"`
 	ConversationID int64  `json:"conversation_id"`
 	SenderUsername string `json:"sender_username"`
+	SenderAvatarURL string `json:"sender_avatar_url,omitempty"`
 	SeqNo          int64  `json:"seq_no"`
 	MessageType    string `json:"message_type"`
 	Content        string `json:"content"`
@@ -78,6 +85,19 @@ type MessageItem struct {
 	SentAt         string `json:"sent_at"`
 	Read           bool   `json:"read"`
 	ReadProgress   *MessageReadProgressSummary `json:"read_progress,omitempty"`
+}
+
+type UserProfileItem struct {
+	Username    string `json:"username"`
+	DisplayName string `json:"display_name"`
+	AvatarStyle string `json:"avatar_style"`
+	AvatarURL   string `json:"avatar_url,omitempty"`
+}
+
+type ContactItem struct {
+	Username    string `json:"username"`
+	DisplayName string `json:"display_name"`
+	AvatarURL   string `json:"avatar_url,omitempty"`
 }
 
 type sendMessageRequest struct {
@@ -129,6 +149,9 @@ func New(cfg config.Config) (*App, error) {
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/im/api/bootstrap", app.handleBootstrap)
+	mux.HandleFunc("/im/api/contacts", app.handleContacts)
+	mux.HandleFunc("/im/api/profile", app.handleProfile)
+	mux.HandleFunc("/im/api/profile/avatar/refresh", app.handleProfileAvatarRefresh)
 	mux.HandleFunc("/im/api/sessions", app.handleSessions)
 	mux.HandleFunc("/im/api/sessions/members", app.handleSessionMembers)
 	mux.HandleFunc("/im/api/sessions/group_profile", app.handleSessionGroupProfile)
@@ -265,6 +288,13 @@ func (a *App) ensureSchema(ctx context.Context) error {
 			CHECK (override_type IN ('add', 'remove')),
 			UNIQUE(conversation_id, username)
 		)`,
+		`CREATE TABLE IF NOT EXISTS im_user_profile (
+			username TEXT PRIMARY KEY,
+			avatar_style TEXT NOT NULL DEFAULT 'thumbs',
+			avatar_seed TEXT NOT NULL DEFAULT '',
+			created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+			updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+		)`,
 		`ALTER TABLE im_conversation_member ADD COLUMN IF NOT EXISTS left_at TIMESTAMP`,
 		`ALTER TABLE im_conversation_member ADD COLUMN IF NOT EXISTS pin_type TEXT NOT NULL DEFAULT 'none'`,
 		`ALTER TABLE im_conversation_member ADD COLUMN IF NOT EXISTS pinned_at TIMESTAMP`,
@@ -340,21 +370,238 @@ func (a *App) fetchDisplayName(ctx context.Context, username string) string {
 	return displayName
 }
 
+func normalizeAvatarStyle(style string) string {
+	normalized := strings.ToLower(strings.TrimSpace(style))
+	if normalized == "" {
+		return defaultAvatarStyle
+	}
+	if normalized != defaultAvatarStyle {
+		return defaultAvatarStyle
+	}
+	return normalized
+}
+
+func buildAvatarSeed(username string, seed string) string {
+	normalizedUsername := strings.ToLower(strings.TrimSpace(username))
+	normalizedSeed := strings.TrimSpace(seed)
+	if normalizedSeed == "" {
+		return normalizedUsername
+	}
+	if normalizedUsername == "" {
+		return normalizedSeed
+	}
+	return normalizedUsername + "::" + normalizedSeed
+}
+
+func buildDicebearAvatarURL(style string, seed string) string {
+	normalizedStyle := normalizeAvatarStyle(style)
+	normalizedSeed := strings.TrimSpace(seed)
+	if normalizedSeed == "" {
+		normalizedSeed = "user"
+	}
+	return "https://api.dicebear.com/9.x/" + url.PathEscape(normalizedStyle) + "/svg?seed=" + url.QueryEscape(normalizedSeed) + "&size=128"
+}
+
+func randomAvatarSeed() string {
+	buffer := make([]byte, 8)
+	if _, err := rand.Read(buffer); err != nil {
+		return fmt.Sprintf("%d", time.Now().UnixNano())
+	}
+	return hex.EncodeToString(buffer)
+}
+
+func (a *App) loadUserAvatarProfile(ctx context.Context, username string) (string, string, error) {
+	normalizedUsername := strings.ToLower(strings.TrimSpace(username))
+	if normalizedUsername == "" {
+		return defaultAvatarStyle, "", nil
+	}
+	var avatarStyle string
+	var avatarSeed string
+	err := a.db.QueryRow(ctx, `
+		SELECT COALESCE(NULLIF(avatar_style, ''), $2), COALESCE(avatar_seed, '')
+		FROM im_user_profile
+		WHERE username = $1`, normalizedUsername, defaultAvatarStyle).Scan(&avatarStyle, &avatarSeed)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return defaultAvatarStyle, "", nil
+		}
+		return defaultAvatarStyle, "", err
+	}
+	return normalizeAvatarStyle(avatarStyle), strings.TrimSpace(avatarSeed), nil
+}
+
+func (a *App) getUserAvatarURL(ctx context.Context, username string) string {
+	normalizedUsername := strings.ToLower(strings.TrimSpace(username))
+	if normalizedUsername == "" {
+		return ""
+	}
+	avatarStyle, avatarSeed, err := a.loadUserAvatarProfile(ctx, normalizedUsername)
+	if err != nil {
+		log.Printf("load user avatar profile failed: username=%s err=%v", normalizedUsername, err)
+		avatarStyle = defaultAvatarStyle
+		avatarSeed = ""
+	}
+	return buildDicebearAvatarURL(avatarStyle, buildAvatarSeed(normalizedUsername, avatarSeed))
+}
+
+func (a *App) buildUserProfileItem(ctx context.Context, username string) UserProfileItem {
+	normalizedUsername := strings.ToLower(strings.TrimSpace(username))
+	avatarStyle, avatarSeed, err := a.loadUserAvatarProfile(ctx, normalizedUsername)
+	if err != nil {
+		log.Printf("build user profile item avatar load failed: username=%s err=%v", normalizedUsername, err)
+		avatarStyle = defaultAvatarStyle
+		avatarSeed = ""
+	}
+	return UserProfileItem{
+		Username:    normalizedUsername,
+		DisplayName: a.fetchDisplayName(ctx, normalizedUsername),
+		AvatarStyle: normalizeAvatarStyle(avatarStyle),
+		AvatarURL:   buildDicebearAvatarURL(avatarStyle, buildAvatarSeed(normalizedUsername, avatarSeed)),
+	}
+}
+
+func (a *App) refreshUserAvatarProfile(ctx context.Context, username string) (UserProfileItem, error) {
+	normalizedUsername := strings.ToLower(strings.TrimSpace(username))
+	if normalizedUsername == "" {
+		return UserProfileItem{}, errors.New("invalid username")
+	}
+	if _, err := a.db.Exec(ctx, `
+		INSERT INTO im_user_profile (username, avatar_style, avatar_seed, updated_at)
+		VALUES ($1, $2, $3, NOW())
+		ON CONFLICT (username) DO UPDATE
+		SET avatar_style = EXCLUDED.avatar_style,
+			avatar_seed = EXCLUDED.avatar_seed,
+			updated_at = NOW()`, normalizedUsername, defaultAvatarStyle, randomAvatarSeed()); err != nil {
+		return UserProfileItem{}, err
+	}
+	return a.buildUserProfileItem(ctx, normalizedUsername), nil
+}
+
+func (a *App) findWhitelistConversationID(ctx context.Context, username string) (int64, error) {
+	var conversationID int64
+	err := a.db.QueryRow(ctx, `
+		SELECT c.id
+		FROM im_conversation c
+		JOIN im_conversation_member cm ON cm.conversation_id = c.id AND cm.username = $1 AND cm.left_at IS NULL
+		WHERE c.deleted_at IS NULL
+			AND c.conversation_type = 'group'
+			AND c.conversation_key LIKE $2
+		ORDER BY c.id ASC
+		LIMIT 1`, username, whitelistGroupKeyPrefix+"%").Scan(&conversationID)
+	if err != nil {
+		return 0, err
+	}
+	return conversationID, nil
+}
+
+func (a *App) listWhitelistContacts(ctx context.Context, username string) ([]ContactItem, error) {
+	normalizedUsername := strings.ToLower(strings.TrimSpace(username))
+	if normalizedUsername == "" {
+		return []ContactItem{}, nil
+	}
+	conversationID, err := a.findWhitelistConversationID(ctx, normalizedUsername)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return []ContactItem{}, nil
+		}
+		return nil, err
+	}
+	meta, err := a.loadConversationMeta(ctx, conversationID)
+	if err != nil {
+		return nil, err
+	}
+	members, err := a.loadConversationMemberItems(ctx, conversationID, meta)
+	if err != nil {
+		return nil, err
+	}
+	items := make([]ContactItem, 0, len(members))
+	for _, member := range members {
+		if strings.EqualFold(member.Username, normalizedUsername) {
+			continue
+		}
+		items = append(items, ContactItem{
+			Username:    member.Username,
+			DisplayName: member.DisplayName,
+			AvatarURL:   member.AvatarURL,
+		})
+	}
+	sort.Slice(items, func(left int, right int) bool {
+		leftName := strings.TrimSpace(items[left].DisplayName)
+		rightName := strings.TrimSpace(items[right].DisplayName)
+		if leftName == rightName {
+			return items[left].Username < items[right].Username
+		}
+		return leftName < rightName
+	})
+	return items, nil
+}
+
 func (a *App) handleBootstrap(w http.ResponseWriter, r *http.Request) {
 	username, err := a.requireAllowedUser(r)
 	if err != nil {
 		writeJSON(w, http.StatusForbidden, BootstrapResponse{Enabled: true, Allowed: false})
 		return
 	}
+	profile := a.buildUserProfileItem(r.Context(), username)
 	writeJSON(w, http.StatusOK, BootstrapResponse{
 		Enabled:          true,
 		Allowed:          true,
 		Username:         username,
-		DisplayName:      a.fetchDisplayName(r.Context(), username),
+		DisplayName:      profile.DisplayName,
+		AvatarURL:        profile.AvatarURL,
 		RetentionDays:    30,
 		StoreEncoding:    "plain_or_zstd",
 		CompressMinBytes: a.cfg.CompressMinBytes,
 	})
+}
+
+func (a *App) handleContacts(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"error": true})
+		return
+	}
+	username, err := a.requireAllowedUser(r)
+	if err != nil {
+		writeJSON(w, http.StatusForbidden, map[string]any{"error": true, "message": err.Error()})
+		return
+	}
+	items, err := a.listWhitelistContacts(r.Context(), username)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"items": items})
+}
+
+func (a *App) handleProfile(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"error": true})
+		return
+	}
+	username, err := a.requireAllowedUser(r)
+	if err != nil {
+		writeJSON(w, http.StatusForbidden, map[string]any{"error": true, "message": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"item": a.buildUserProfileItem(r.Context(), username)})
+}
+
+func (a *App) handleProfileAvatarRefresh(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"error": true})
+		return
+	}
+	username, err := a.requireAllowedUser(r)
+	if err != nil {
+		writeJSON(w, http.StatusForbidden, map[string]any{"error": true, "message": err.Error()})
+		return
+	}
+	item, err := a.refreshUserAvatarProfile(r.Context(), username)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"item": item})
 }
 
 func (a *App) handleSessions(w http.ResponseWriter, r *http.Request) {
@@ -398,6 +645,9 @@ func (a *App) handleSessions(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		item.PeerDisplayName = a.fetchDisplayName(r.Context(), item.PeerUsername)
+		if item.ConversationType != "group" {
+			item.AvatarURL = a.getUserAvatarURL(r.Context(), item.PeerUsername)
+		}
 		item.IsPinned = item.PinType == "system" || item.PinType == "manual"
 		if pinnedAt != nil {
 			item.PinnedAt = pinnedAt.Format(time.RFC3339)
@@ -615,6 +865,7 @@ func (a *App) handleListMessages(w http.ResponseWriter, r *http.Request, usernam
 			return
 		}
 		item.SentAt = sentAt.Format(time.RFC3339)
+		item.SenderAvatarURL = a.getUserAvatarURL(r.Context(), item.SenderUsername)
 		items = append(items, item)
 	}
 	for left, right := 0, len(items)-1; left < right; left, right = left+1, right-1 {
@@ -684,6 +935,7 @@ func (a *App) insertMessage(ctx context.Context, conversationID int64, username 
 		return MessageItem{}, err
 	}
 	item.SentAt = sentAt.Format(time.RFC3339)
+	item.SenderAvatarURL = a.getUserAvatarURL(ctx, item.SenderUsername)
 	if _, err := tx.Exec(ctx, `UPDATE im_conversation SET last_message_id = $1, last_message_preview = $2, last_message_at = NOW(), updated_at = NOW() WHERE id = $3`, item.ID, item.ContentPreview, conversationID); err != nil {
 		return MessageItem{}, err
 	}
@@ -730,6 +982,7 @@ func (a *App) recallMessage(ctx context.Context, messageID int64, username strin
 	item.ContentPreview = "[消息已撤回]"
 	item.Status = "recalled"
 	item.SentAt = sentAt.Format(time.RFC3339)
+	item.SenderAvatarURL = a.getUserAvatarURL(ctx, item.SenderUsername)
 	if _, err := tx.Exec(ctx, `UPDATE im_message SET status = 'recalled', content_preview = $1, content_payload = '', updated_at = NOW() WHERE id = $2`, item.ContentPreview, item.ID); err != nil {
 		return MessageItem{}, err
 	}
