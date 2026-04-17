@@ -24,6 +24,15 @@
         profileLoading: false,
         profileError: '',
         profileRefreshing: false,
+        profileSaving: false,
+        profileSaveError: '',
+        profileAvatarHistory: [],
+        profileAvatarHistoryLoaded: false,
+        profileAvatarHistoryLoading: false,
+        profileAvatarHistoryError: '',
+        profileDraftNickname: '',
+        profileDraftGender: 'unknown',
+        profileDraftDirty: false,
         sessions: [],
         activeConversationId: 0,
         activeMessages: [],
@@ -83,6 +92,8 @@
     let sessionList = null;
     let contactsListEl = null;
     let profilePageEl = null;
+    let profileSubpageBodyEl = null;
+    let profileSubpageTitleEl = null;
     let messageList = null;
     let statusLine = null;
     let inputEl = null;
@@ -238,6 +249,7 @@
                 #ak-im-root.ak-view-compose .ak-im-compose-screen{display:flex}
                 #ak-im-root.ak-view-group-info .ak-im-group-info-screen{display:flex}
                 #ak-im-root.ak-view-member-action .ak-im-member-action-screen{display:flex}
+                #ak-im-root.ak-view-profile-subpage .ak-im-profile-subpage-screen{display:flex}
                 #ak-im-root .ak-im-topbar{height:calc(56px + env(safe-area-inset-top, 0px));padding:calc(env(safe-area-inset-top, 0px) + 8px) 12px 8px;display:grid;grid-template-columns:52px 1fr 52px;align-items:center;background:#ededed;border-bottom:1px solid rgba(15,23,42,.06);box-sizing:border-box}
                 #ak-im-root .ak-im-topbar-title,#ak-im-root .ak-im-topbar-title-wrap{text-align:center;min-width:0}
                 #ak-im-root .ak-im-topbar-title{font-size:17px;font-weight:600;color:#111827;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -287,11 +299,32 @@
                 #ak-im-root .ak-im-profile-avatar{width:88px;height:88px;border-radius:24px;background:linear-gradient(180deg,#8fe3a8 0%,#56c57b 100%);color:#ffffff;display:inline-flex;align-items:center;justify-content:center;font-size:26px;font-weight:700;box-shadow:0 10px 22px rgba(7,193,96,.14)}
                 #ak-im-root .ak-im-profile-name{margin-top:14px;font-size:20px;font-weight:700;color:#111827;line-height:1.3}
                 #ak-im-root .ak-im-profile-username{margin-top:6px;font-size:13px;color:#9ca3af;line-height:1.4}
-                #ak-im-root .ak-im-profile-section{margin-top:18px;border-top:1px solid rgba(15,23,42,.06);padding-top:16px}
-                #ak-im-root .ak-im-profile-label{font-size:12px;color:#9ca3af;line-height:1.4}
-                #ak-im-root .ak-im-profile-value{margin-top:6px;font-size:15px;color:#111827;line-height:1.5}
-                #ak-im-root .ak-im-profile-action{margin-top:20px;width:100%;height:46px;border:none;border-radius:14px;background:#07c160;color:#ffffff;font-size:16px;font-weight:700;cursor:pointer;box-shadow:0 10px 22px rgba(7,193,96,.18)}
-                #ak-im-root .ak-im-profile-action:disabled{opacity:.42;cursor:not-allowed;box-shadow:none}
+                #ak-im-root .ak-im-profile-meta{margin-top:8px;font-size:13px;color:#6b7280;line-height:1.5}
+                #ak-im-root .ak-im-profile-entry-list{margin-top:12px;background:#ffffff;border-radius:18px;overflow:hidden;box-shadow:0 1px 2px rgba(15,23,42,.04)}
+                #ak-im-root .ak-im-profile-entry{width:100%;border:none;background:#ffffff;padding:0 16px;min-height:58px;display:flex;align-items:center;justify-content:space-between;gap:12px;text-align:left;cursor:pointer;box-sizing:border-box}
+                #ak-im-root .ak-im-profile-entry + .ak-im-profile-entry{border-top:1px solid rgba(15,23,42,.06)}
+                #ak-im-root .ak-im-profile-entry-main{min-width:0;flex:1}
+                #ak-im-root .ak-im-profile-entry-label{font-size:16px;font-weight:500;color:#111827;line-height:1.5}
+                #ak-im-root .ak-im-profile-entry-meta{margin-top:4px;font-size:12px;color:#9ca3af;line-height:1.5}
+                #ak-im-root .ak-im-profile-entry-arrow{color:#c7cdd8;font-size:20px;line-height:1;flex:0 0 auto}
+                #ak-im-root .ak-im-profile-subpage-screen{background:#ededed}
+                #ak-im-root .ak-im-profile-subpage-page{flex:1;overflow:auto;padding:12px 12px calc(16px + env(safe-area-inset-bottom, 0px));background:#f7f7f7}
+                #ak-im-root .ak-im-profile-panel{background:#ffffff;border-radius:18px;padding:16px;box-shadow:0 1px 2px rgba(15,23,42,.04)}
+                #ak-im-root .ak-im-profile-panel + .ak-im-profile-panel{margin-top:12px}
+                #ak-im-root .ak-im-profile-subtitle{margin-top:8px;font-size:13px;color:#6b7280;line-height:1.6}
+                #ak-im-root .ak-im-profile-primary-btn{margin-top:16px;width:100%;height:46px;border:none;border-radius:14px;background:#07c160;color:#ffffff;font-size:16px;font-weight:700;cursor:pointer;box-shadow:0 10px 22px rgba(7,193,96,.18)}
+                #ak-im-root .ak-im-profile-primary-btn:disabled{opacity:.42;cursor:not-allowed;box-shadow:none}
+                #ak-im-root .ak-im-profile-history-grid{margin-top:14px;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+                #ak-im-root .ak-im-profile-history-item{background:#f8fafc;border-radius:16px;padding:12px;display:flex;flex-direction:column;align-items:center;gap:10px;text-align:center}
+                #ak-im-root .ak-im-profile-history-avatar{width:80px;height:80px;border-radius:22px;background:linear-gradient(180deg,#8fe3a8 0%,#56c57b 100%);color:#ffffff;display:inline-flex;align-items:center;justify-content:center;font-size:22px;font-weight:700;overflow:hidden}
+                #ak-im-root .ak-im-profile-history-time{font-size:12px;color:#6b7280;line-height:1.5}
+                #ak-im-root .ak-im-profile-form{display:flex;flex-direction:column;gap:14px}
+                #ak-im-root .ak-im-profile-form-group{display:flex;flex-direction:column}
+                #ak-im-root .ak-im-profile-form-label{font-size:13px;color:#6b7280;line-height:1.5}
+                #ak-im-root .ak-im-profile-form-input,#ak-im-root .ak-im-profile-form-select{margin-top:8px;width:100%;height:46px;border:none;border-radius:12px;background:#f3f4f6;padding:0 14px;font-size:15px;color:#111827;outline:none;box-sizing:border-box}
+                #ak-im-root .ak-im-profile-form-input:focus,#ak-im-root .ak-im-profile-form-select:focus{background:#ffffff;box-shadow:0 0 0 2px rgba(7,193,96,.14) inset}
+                #ak-im-root .ak-im-profile-form-help{margin-top:6px;font-size:12px;color:#9ca3af;line-height:1.6}
+                #ak-im-root .ak-im-profile-placeholder{padding:28px 14px;color:#6b7280;font-size:13px;line-height:1.7;text-align:center}
                 #ak-im-root .ak-im-profile-error{margin-bottom:12px;padding:11px 12px;border-radius:14px;background:rgba(239,68,68,.08);color:#dc2626;font-size:13px;line-height:1.6}
                 #ak-im-root .ak-im-home-tabbar{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:4px;padding:8px 8px calc(8px + env(safe-area-inset-bottom, 0px));background:#ffffff;border-top:1px solid rgba(15,23,42,.06)}
                 #ak-im-root .ak-im-home-tab-btn{border:none;background:transparent;min-height:56px;border-radius:14px;color:#6b7280;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;cursor:pointer}
@@ -587,6 +620,16 @@
                         <div class="ak-im-member-action-footer"><button class="ak-im-member-action-submit" type="button">确认</button></div>
                     </div>
                 </div>
+                <div class="ak-im-screen ak-im-profile-subpage-screen">
+                    <div class="ak-im-topbar">
+                        <button class="ak-im-nav-btn ak-im-profile-subpage-back" type="button" aria-label="返回个人页">
+                            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M15 18L9 12L15 6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                        </button>
+                        <div class="ak-im-topbar-title ak-im-profile-subpage-title">个人资料</div>
+                        <div class="ak-im-group-info-side" aria-hidden="true"></div>
+                    </div>
+                    <div class="ak-im-profile-subpage-page"></div>
+                </div>
             </div>
             <div class="ak-im-action-sheet" aria-hidden="true" inert>
                 <div class="ak-im-action-mask"></div>
@@ -622,6 +665,8 @@
         sessionList = root.querySelector('.ak-im-session-list');
         contactsListEl = root.querySelector('.ak-im-contacts-list');
         profilePageEl = root.querySelector('.ak-im-profile-page');
+        profileSubpageBodyEl = root.querySelector('.ak-im-profile-subpage-page');
+        profileSubpageTitleEl = root.querySelector('.ak-im-profile-subpage-title');
         messageList = root.querySelector('.ak-im-message-list');
         statusLine = root.querySelector('.ak-im-status');
         inputEl = root.querySelector('.ak-im-input');
@@ -762,6 +807,9 @@
 	    memberActionPageEl.querySelector('.ak-im-member-action-back').addEventListener('click', function() {
 	        closeDialog({ silent: true, force: true });
 	        closeMemberActionPage();
+	    });
+	    root.querySelector('.ak-im-profile-subpage-back').addEventListener('click', function() {
+	        closeProfileSubpage();
 	    });
 	    memberActionSearchEl.addEventListener('input', function() {
 	        state.memberActionKeyword = memberActionSearchEl.value || '';
@@ -1950,6 +1998,86 @@
         return '聊天';
     }
 
+    function normalizeProfileGender(value) {
+        const candidate = String(value || '').trim().toLowerCase();
+        if (candidate === 'male' || candidate === 'female') return candidate;
+        return 'unknown';
+    }
+
+    function getProfileGenderLabel(value) {
+        const gender = normalizeProfileGender(value);
+        if (gender === 'male') return '男';
+        if (gender === 'female') return '女';
+        return '未设置';
+    }
+
+    function formatProfileHistoryTime(value) {
+        if (!value) return '';
+        try {
+            const date = new Date(value);
+            if (isNaN(date.getTime())) return '';
+            return date.toLocaleString('zh-CN', {
+                month: '2-digit',
+                day: '2-digit',
+                hour: '2-digit',
+                minute: '2-digit'
+            });
+        } catch (e) {
+            return '';
+        }
+    }
+
+    function isProfileSubpageView(view) {
+        return view === 'profile_avatar' || view === 'profile_detail' || view === 'profile_settings';
+    }
+
+    function getProfileSubpageTitle(view) {
+        if (view === 'profile_avatar') return '更换头像';
+        if (view === 'profile_settings') return '设置';
+        return '个人资料';
+    }
+
+    function syncProfileDraftFromProfile() {
+        const profile = state.profile || null;
+        state.profileDraftNickname = String(profile && (profile.nickname || profile.display_name || '') || state.displayName || '').trim();
+        state.profileDraftGender = normalizeProfileGender(profile && profile.gender);
+        state.profileDraftDirty = false;
+    }
+
+    function closeProfileSubpage() {
+        closeDialog({ silent: true, force: true });
+        state.profileSaveError = '';
+        state.profileDraftDirty = false;
+        if (isProfileSubpageView(state.view)) {
+            state.homeTab = 'me';
+            state.view = 'sessions';
+        }
+        render();
+    }
+
+    function openProfileSubpage(view) {
+        if (!state.allowed) return;
+        const nextView = isProfileSubpageView(view) ? view : 'profile_detail';
+        closeActionSheet();
+        closeReadProgressPanel();
+        closeMemberPanel();
+        closeDialog({ silent: true, force: true });
+        state.open = true;
+        state.homeTab = 'me';
+        state.view = nextView;
+        state.profileSaveError = '';
+        if (!state.profileLoaded && !state.profileLoading) {
+            loadProfile();
+        }
+        if (nextView === 'profile_detail') {
+            syncProfileDraftFromProfile();
+        }
+        if (nextView === 'profile_avatar' && !state.profileAvatarHistoryLoaded && !state.profileAvatarHistoryLoading) {
+            loadProfileAvatarHistory();
+        }
+        render();
+    }
+
     function ensureHomeTabData(tab) {
         const normalizedTab = normalizeHomeTab(tab);
         if (!state.allowed) return;
@@ -1983,7 +2111,7 @@
             if (state.homeTab === 'contacts') {
                 searchPill.textContent = state.contactsLoading ? '正在同步同白名单通讯录' : '同白名单成员会显示在这里，点击可直接发起聊天';
             } else if (state.homeTab === 'me') {
-                searchPill.textContent = '在这里查看个人资料并切换默认头像';
+                searchPill.textContent = '这里保留更换头像、个人资料、设置三个入口';
             } else {
                 searchPill.textContent = state.sessions.length ? '长按会话可置顶，点击进入聊天' : '点击右上角发起单聊';
             }
@@ -2105,35 +2233,157 @@
         const profile = state.profile || null;
         const displayName = String(profile && profile.display_name || state.displayName || state.username || '我').trim();
         const username = String(profile && profile.username || state.username || '').trim();
-        const avatarStyle = String(profile && profile.avatar_style || 'thumbs').trim() || 'thumbs';
-        const contactSummary = state.contactsLoading ? '正在读取同白名单联系人' : (state.contactsError ? '通讯录暂不可用' : (state.contacts.length ? ('同白名单共 ' + state.contacts.length + ' 位联系人') : '切换到通讯录可查看同白名单联系人'));
+        const nickname = String(profile && profile.nickname || '').trim();
+        const genderLabel = getProfileGenderLabel(profile && profile.gender);
+        const avatarHistorySummary = state.profileAvatarHistoryLoading ? '正在同步头像历史' : (state.profileAvatarHistoryLoaded ? (state.profileAvatarHistory.length ? ('最近保留 ' + state.profileAvatarHistory.length + ' 个历史头像') : '切换头像后会在这里保留最近 10 个记录') : '可查看最近 10 个历史头像');
         profilePageEl.innerHTML = (state.profileError ? '<div class="ak-im-profile-error">' + escapeHtml(state.profileError) + '</div>' : '') +
             '<div class="ak-im-profile-card">' +
                 '<div class="ak-im-profile-head">' +
                     buildAvatarBoxMarkup('ak-im-profile-avatar', profile && profile.avatar_url, displayName || username || '我', (displayName || username || '我') + '头像') +
                     '<div class="ak-im-profile-name">' + escapeHtml(displayName || '我') + '</div>' +
                     '<div class="ak-im-profile-username">@' + escapeHtml(username || 'unknown') + '</div>' +
+                    '<div class="ak-im-profile-meta">' + escapeHtml((nickname ? ('昵称：' + nickname) : '可设置昵称') + ' · 性别：' + genderLabel) + '</div>' +
                 '</div>' +
-                '<div class="ak-im-profile-section">' +
-                    '<div class="ak-im-profile-label">默认头像风格</div>' +
-                    '<div class="ak-im-profile-value">DiceBear ' + escapeHtml(avatarStyle) + '</div>' +
-                '</div>' +
-                '<div class="ak-im-profile-section">' +
-                    '<div class="ak-im-profile-label">通讯录</div>' +
-                    '<div class="ak-im-profile-value">' + escapeHtml(contactSummary) + '</div>' +
-                '</div>' +
-                '<div class="ak-im-profile-section">' +
-                    '<div class="ak-im-profile-label">头像说明</div>' +
-                    '<div class="ak-im-profile-value">点击下方按钮会在同一个 Thumbs 风格里切换新的头像种子。</div>' +
-                '</div>' +
-                '<button class="ak-im-profile-action" type="button" data-im-action="refresh-avatar"' + (state.profileRefreshing ? ' disabled' : '') + '>' + escapeHtml(state.profileRefreshing ? '正在切换头像...' : '换一个头像') + '</button>' +
+            '</div>' +
+            '<div class="ak-im-profile-entry-list">' +
+                '<button class="ak-im-profile-entry" type="button" data-im-profile-nav="profile_avatar">' +
+                    '<div class="ak-im-profile-entry-main"><div class="ak-im-profile-entry-label">更换头像</div><div class="ak-im-profile-entry-meta">' + escapeHtml(avatarHistorySummary) + '</div></div>' +
+                    '<div class="ak-im-profile-entry-arrow" aria-hidden="true">›</div>' +
+                '</button>' +
+                '<button class="ak-im-profile-entry" type="button" data-im-profile-nav="profile_detail">' +
+                    '<div class="ak-im-profile-entry-main"><div class="ak-im-profile-entry-label">个人资料</div><div class="ak-im-profile-entry-meta">' + escapeHtml('昵称：' + (nickname || displayName || '未设置') + ' · 性别：' + genderLabel) + '</div></div>' +
+                    '<div class="ak-im-profile-entry-arrow" aria-hidden="true">›</div>' +
+                '</button>' +
+                '<button class="ak-im-profile-entry" type="button" data-im-profile-nav="profile_settings">' +
+                    '<div class="ak-im-profile-entry-main"><div class="ak-im-profile-entry-label">设置</div><div class="ak-im-profile-entry-meta">独立全屏设置页，后续设置项可继续扩展</div></div>' +
+                    '<div class="ak-im-profile-entry-arrow" aria-hidden="true">›</div>' +
+                '</button>' +
             '</div>';
-        const refreshBtn = profilePageEl.querySelector('[data-im-action="refresh-avatar"]');
-        if (refreshBtn) {
-            refreshBtn.addEventListener('click', function() {
-                refreshProfileAvatar();
+        Array.prototype.forEach.call(profilePageEl.querySelectorAll('[data-im-profile-nav]'), function(button) {
+            button.addEventListener('click', function() {
+                openProfileSubpage(button.getAttribute('data-im-profile-nav'));
             });
+        });
+    }
+
+    function renderProfileSubpage() {
+        if (!profileSubpageBodyEl || !profileSubpageTitleEl) return;
+        if (!isProfileSubpageView(state.view)) {
+            profileSubpageTitleEl.textContent = '个人资料';
+            profileSubpageBodyEl.innerHTML = '';
+            return;
         }
+        profileSubpageTitleEl.textContent = getProfileSubpageTitle(state.view);
+        if (!state.allowed) {
+            profileSubpageBodyEl.innerHTML = '<div class="ak-im-empty">当前账号未开通聊天</div>';
+            return;
+        }
+        const profile = state.profile || null;
+        const displayName = String(profile && profile.display_name || state.displayName || state.username || '我').trim();
+        const username = String(profile && profile.username || state.username || '').trim();
+        const nickname = String(profile && profile.nickname || '').trim();
+        const genderLabel = getProfileGenderLabel(profile && profile.gender);
+        const avatarStyle = String(profile && profile.avatar_style || 'thumbs').trim() || 'thumbs';
+        if (state.view === 'profile_avatar') {
+            const historyMarkup = state.profileAvatarHistoryLoading ? '<div class="ak-im-profile-placeholder">正在读取头像历史...</div>' : (state.profileAvatarHistoryError ? '<div class="ak-im-profile-error">' + escapeHtml(state.profileAvatarHistoryError) + '</div>' : (state.profileAvatarHistory.length ? '<div class="ak-im-profile-history-grid">' + state.profileAvatarHistory.map(function(item) {
+                const historyTime = formatProfileHistoryTime(item.created_at) || '最近使用';
+                return '<div class="ak-im-profile-history-item">' +
+                    buildAvatarBoxMarkup('ak-im-profile-history-avatar', item.avatar_url, displayName || username || '我', '历史头像') +
+                    '<div class="ak-im-profile-history-time">' + escapeHtml(historyTime) + '</div>' +
+                '</div>';
+            }).join('') + '</div>' : '<div class="ak-im-profile-placeholder">暂时还没有历史头像，切换一次后会在这里保留最近 10 个记录。</div>'));
+            profileSubpageBodyEl.innerHTML = (state.profileError ? '<div class="ak-im-profile-error">' + escapeHtml(state.profileError) + '</div>' : '') +
+                '<div class="ak-im-profile-panel">' +
+                    '<div class="ak-im-profile-head">' +
+                        buildAvatarBoxMarkup('ak-im-profile-avatar', profile && profile.avatar_url, displayName || username || '我', (displayName || username || '我') + '头像') +
+                        '<div class="ak-im-profile-name">' + escapeHtml(displayName || '我') + '</div>' +
+                        '<div class="ak-im-profile-username">@' + escapeHtml(username || 'unknown') + '</div>' +
+                        '<div class="ak-im-profile-meta">DiceBear ' + escapeHtml(avatarStyle) + '</div>' +
+                    '</div>' +
+                    '<div class="ak-im-profile-subtitle">点击下方按钮会生成新的头像，并自动保留最近 10 个历史记录。</div>' +
+                    '<button class="ak-im-profile-primary-btn" type="button" data-im-profile-action="refresh-avatar"' + (state.profileRefreshing ? ' disabled' : '') + '>' + escapeHtml(state.profileRefreshing ? '正在切换头像...' : '换一个头像') + '</button>' +
+                '</div>' +
+                '<div class="ak-im-profile-panel">' +
+                    '<div class="ak-im-profile-entry-label">历史头像</div>' +
+                    '<div class="ak-im-profile-subtitle">按时间倒序展示最近更换过的头像。</div>' +
+                    historyMarkup +
+                '</div>';
+            const refreshBtn = profileSubpageBodyEl.querySelector('[data-im-profile-action="refresh-avatar"]');
+            if (refreshBtn) {
+                refreshBtn.addEventListener('click', function() {
+                    refreshProfileAvatar();
+                });
+            }
+            return;
+        }
+        if (state.view === 'profile_detail') {
+            const draftNickname = String(state.profileDraftNickname || '').trim();
+            const draftGender = normalizeProfileGender(state.profileDraftGender);
+            const draftGenderLabel = getProfileGenderLabel(draftGender);
+            profileSubpageBodyEl.innerHTML = (state.profileSaveError ? '<div class="ak-im-profile-error">' + escapeHtml(state.profileSaveError) + '</div>' : '') +
+                '<div class="ak-im-profile-panel">' +
+                    '<div class="ak-im-profile-form">' +
+                        '<div class="ak-im-profile-form-group">' +
+                            '<label class="ak-im-profile-form-label" for="ak-im-profile-nickname">昵称</label>' +
+                            '<input class="ak-im-profile-form-input" id="ak-im-profile-nickname" data-im-profile-field="nickname" type="text" autocomplete="off" spellcheck="false" value="' + escapeHtml(state.profileDraftNickname) + '" placeholder="请输入昵称" />' +
+                            '<div class="ak-im-profile-form-help">保存后会同步显示在会话标题、群成员、消息发送者和个人资料中。</div>' +
+                        '</div>' +
+                        '<div class="ak-im-profile-form-group">' +
+                            '<label class="ak-im-profile-form-label" for="ak-im-profile-gender">性别</label>' +
+                            '<select class="ak-im-profile-form-select" id="ak-im-profile-gender" data-im-profile-field="gender">' +
+                                '<option value="unknown"' + (draftGender === 'unknown' ? ' selected' : '') + '>未设置</option>' +
+                                '<option value="male"' + (draftGender === 'male' ? ' selected' : '') + '>男</option>' +
+                                '<option value="female"' + (draftGender === 'female' ? ' selected' : '') + '>女</option>' +
+                            '</select>' +
+                            '<div class="ak-im-profile-form-help" data-im-profile-preview>当前对外显示：' + escapeHtml((draftNickname || displayName || username || '我') + ' · ' + draftGenderLabel) + '</div>' +
+                        '</div>' +
+                        '<button class="ak-im-profile-primary-btn" type="button" data-im-profile-action="save-detail"' + (state.profileSaving ? ' disabled' : '') + '>' + escapeHtml(state.profileSaving ? '正在保存...' : '保存资料') + '</button>' +
+                    '</div>' +
+                '</div>';
+            const nicknameInput = profileSubpageBodyEl.querySelector('[data-im-profile-field="nickname"]');
+            const genderSelect = profileSubpageBodyEl.querySelector('[data-im-profile-field="gender"]');
+            const previewEl = profileSubpageBodyEl.querySelector('[data-im-profile-preview]');
+            const saveBtn = profileSubpageBodyEl.querySelector('[data-im-profile-action="save-detail"]');
+            const updateDraftPreview = function() {
+                if (!previewEl) return;
+                const previewName = String(state.profileDraftNickname || '').trim() || displayName || username || '我';
+                previewEl.textContent = '当前对外显示：' + previewName + ' · ' + getProfileGenderLabel(state.profileDraftGender);
+            };
+            if (nicknameInput) {
+                nicknameInput.addEventListener('input', function() {
+                    state.profileDraftNickname = nicknameInput.value || '';
+                    state.profileDraftDirty = true;
+                    updateDraftPreview();
+                });
+            }
+            if (genderSelect) {
+                genderSelect.addEventListener('change', function() {
+                    state.profileDraftGender = genderSelect.value || 'unknown';
+                    state.profileDraftDirty = true;
+                    updateDraftPreview();
+                });
+            }
+            if (saveBtn) {
+                saveBtn.addEventListener('click', function() {
+                    saveProfileDetail();
+                });
+            }
+            return;
+        }
+        profileSubpageBodyEl.innerHTML = '<div class="ak-im-profile-panel">' +
+            '<div class="ak-im-profile-head">' +
+                buildAvatarBoxMarkup('ak-im-profile-avatar', profile && profile.avatar_url, displayName || username || '我', (displayName || username || '我') + '头像') +
+                '<div class="ak-im-profile-name">' + escapeHtml(displayName || '我') + '</div>' +
+                '<div class="ak-im-profile-username">@' + escapeHtml(username || 'unknown') + '</div>' +
+            '</div>' +
+            '<div class="ak-im-profile-subtitle">这里是新的全屏设置页入口，后续与 IM 个人相关的设置项会继续放在这里。</div>' +
+        '</div>' +
+        '<div class="ak-im-profile-panel">' +
+            '<div class="ak-im-profile-entry-label">当前资料</div>' +
+            '<div class="ak-im-profile-subtitle">昵称：' + escapeHtml(nickname || displayName || '未设置') + '</div>' +
+            '<div class="ak-im-profile-subtitle">性别：' + escapeHtml(genderLabel) + '</div>' +
+            '<div class="ak-im-profile-subtitle">账号：@' + escapeHtml(username || 'unknown') + '</div>' +
+        '</div>';
     }
 
     function syncInputHeight() {
@@ -2158,13 +2408,15 @@
         const showCompose = state.view === 'compose';
         const showGroupInfo = state.view === 'group_info' && !!state.groupSettingsOpen;
         const showMemberAction = state.view === 'member_action' && !!state.memberActionOpen;
+        const showProfileSubpage = isProfileSubpageView(state.view);
         root.classList.toggle('ak-visible', !!state.allowed);
         root.classList.toggle('ak-im-open', !!state.open);
-        root.classList.toggle('ak-view-sessions', !showChat && !showCompose && !showGroupInfo && !showMemberAction);
+        root.classList.toggle('ak-view-sessions', !showChat && !showCompose && !showGroupInfo && !showMemberAction && !showProfileSubpage);
         root.classList.toggle('ak-view-chat', !!showChat);
         root.classList.toggle('ak-view-compose', !!showCompose);
         root.classList.toggle('ak-view-group-info', !!showGroupInfo);
         root.classList.toggle('ak-view-member-action', !!showMemberAction);
+        root.classList.toggle('ak-view-profile-subpage', !!showProfileSubpage);
         root.querySelector('.ak-im-launcher').classList.toggle('is-open', !!state.open);
         root.querySelector('.ak-im-launcher').classList.toggle('has-unread', state.sessions.some(function(item) {
             return getUnreadCount(item) > 0;
@@ -2174,6 +2426,7 @@
         renderSessionList();
         renderContactsView();
         renderProfileView();
+        renderProfileSubpage();
         syncComposerState();
         syncInputHeight();
         renderMessages();
@@ -2252,9 +2505,10 @@
             }
             const wrapper = document.createElement('div');
             const summary = getMessageReadProgress(item);
-            const displayName = isSelf ? (state.displayName || state.username || '我') : (isGroupSession(activeSession) ? (item.sender_username || '群成员') : (activeSession ? getSessionDisplayName(activeSession) : (item.sender_username || '对方')));
+            const senderDisplayName = String(item && (item.sender_display_name || item.sender_username) || '').trim();
+            const displayName = isSelf ? (state.displayName || senderDisplayName || state.username || '我') : (isGroupSession(activeSession) ? (senderDisplayName || item.sender_username || '群成员') : (activeSession ? getSessionDisplayName(activeSession) : (senderDisplayName || item.sender_username || '对方')));
             const metaText = summary && Number(summary.total_count || 0) > 0 ? ('已读 ' + Number(summary.read_count || 0) + '/' + Number(summary.total_count || 0)) : ((isSelf && item.read) ? '对方已读' : '');
-            const senderText = !isSelf && isGroupSession(activeSession) ? String(item.sender_username || '').trim() : '';
+            const senderText = !isSelf && isGroupSession(activeSession) ? String(senderDisplayName || item.sender_username || '').trim() : '';
 	        const progressMarkup = buildReadProgressButtonMarkup(item, activeSession);
 	        const avatarText = displayName || item.sender_username || '成员';
 	        const avatarUrl = isSelf ? getAvatarUrl((state.profile && state.profile.avatar_url) || item.sender_avatar_url) : getAvatarUrl(item.sender_avatar_url);
@@ -2318,8 +2572,18 @@
         return {
             username: username || String(state.username || '').trim().toLowerCase(),
             display_name: displayName || username || '我',
+            nickname: String(item && item.nickname || '').trim(),
+            gender: normalizeProfileGender(item && item.gender),
             avatar_style: String(item && item.avatar_style || 'thumbs').trim() || 'thumbs',
             avatar_url: getAvatarUrl(item && item.avatar_url)
+        };
+    }
+
+    function normalizeProfileAvatarHistoryItem(item) {
+        return {
+            avatar_style: String(item && item.avatar_style || 'thumbs').trim() || 'thumbs',
+            avatar_url: getAvatarUrl(item && item.avatar_url),
+            created_at: String(item && item.created_at || '').trim()
         };
     }
 
@@ -2328,7 +2592,43 @@
         state.profile = profile;
         if (profile.username) state.username = profile.username;
         if (profile.display_name) state.displayName = profile.display_name;
+        if (!state.profileDraftDirty || state.view !== 'profile_detail' || state.profileSaving) {
+            syncProfileDraftFromProfile();
+        }
         return profile;
+    }
+
+    function reloadProfileLinkedData() {
+        const tasks = [loadSessions()];
+        if (state.homeTab === 'contacts' || state.contactsLoaded) {
+            tasks.push(loadContacts());
+        }
+        if (Number(state.activeConversationId || 0) > 0) {
+            tasks.push(loadMessages(state.activeConversationId));
+        }
+        if (state.groupSettingsOpen && Number(state.groupSettingsConversationId || 0) > 0) {
+            tasks.push(loadGroupSettings(state.groupSettingsConversationId));
+        }
+        if (state.memberPanelOpen && Number(state.memberPanelConversationId || 0) > 0) {
+            const targetConversationId = Number(state.memberPanelConversationId || 0);
+            state.memberPanelLoading = true;
+            state.memberPanelError = '';
+            renderMemberPanel();
+            tasks.push(request(`${HTTP_ROOT}/sessions/members?conversation_id=${encodeURIComponent(targetConversationId)}`).then(function(data) {
+                if (!state.memberPanelOpen || Number(state.memberPanelConversationId || 0) !== targetConversationId) return null;
+                state.memberPanelLoading = false;
+                state.memberPanelData = data && data.item ? data.item : null;
+                renderMemberPanel();
+                return state.memberPanelData;
+            }).catch(function(error) {
+                if (!state.memberPanelOpen || Number(state.memberPanelConversationId || 0) !== targetConversationId) return null;
+                state.memberPanelLoading = false;
+                state.memberPanelError = error && error.message ? error.message : '读取群成员失败';
+                renderMemberPanel();
+                return null;
+            }));
+        }
+        return Promise.all(tasks);
     }
 
     function loadContacts() {
@@ -2348,6 +2648,34 @@
             state.contactsLoaded = false;
             state.contactsError = error && error.message ? error.message : '读取通讯录失败';
             state.contacts = [];
+            render();
+            return [];
+        });
+    }
+
+    function loadProfileAvatarHistory(force) {
+        if (!state.allowed) return Promise.resolve([]);
+        if (!force && state.profileAvatarHistoryLoaded && !state.profileAvatarHistoryLoading) {
+            return Promise.resolve(state.profileAvatarHistory);
+        }
+        if (state.profileAvatarHistoryLoading) {
+            return Promise.resolve(state.profileAvatarHistory);
+        }
+        state.profileAvatarHistoryLoading = true;
+        state.profileAvatarHistoryError = '';
+        render();
+        return request(`${HTTP_ROOT}/profile/avatar/history`).then(function(data) {
+            state.profileAvatarHistoryLoading = false;
+            state.profileAvatarHistoryLoaded = true;
+            state.profileAvatarHistoryError = '';
+            state.profileAvatarHistory = Array.isArray(data && data.items) ? data.items.map(normalizeProfileAvatarHistoryItem) : [];
+            render();
+            return state.profileAvatarHistory;
+        }).catch(function(error) {
+            state.profileAvatarHistoryLoading = false;
+            state.profileAvatarHistoryLoaded = false;
+            state.profileAvatarHistoryError = error && error.message ? error.message : '读取头像历史失败';
+            state.profileAvatarHistory = [];
             render();
             return [];
         });
@@ -2374,6 +2702,38 @@
         });
     }
 
+    function saveProfileDetail() {
+        if (!state.allowed || state.profileSaving) return Promise.resolve(null);
+        state.profileSaving = true;
+        state.profileSaveError = '';
+        render();
+        return request(`${HTTP_ROOT}/profile`, {
+            method: 'POST',
+            body: JSON.stringify({
+                nickname: String(state.profileDraftNickname || '').trim(),
+                gender: normalizeProfileGender(state.profileDraftGender)
+            })
+        }).then(function(data) {
+            state.profileLoaded = true;
+            state.profileError = '';
+            applyProfileItem(data && data.item ? data.item : null);
+            state.profileSaving = false;
+            state.profileSaveError = '';
+            state.homeTab = 'me';
+            state.view = 'sessions';
+            render();
+            return reloadProfileLinkedData().then(function() {
+                render();
+                return state.profile;
+            });
+        }).catch(function(error) {
+            state.profileSaving = false;
+            state.profileSaveError = error && error.message ? error.message : '保存个人资料失败';
+            render();
+            return null;
+        });
+    }
+
     function refreshProfileAvatar() {
         if (!state.allowed || state.profileRefreshing) return Promise.resolve(null);
         state.profileRefreshing = true;
@@ -2387,12 +2747,9 @@
             state.profileLoaded = true;
             applyProfileItem(data && data.item ? data.item : null);
             render();
-            const tasks = [loadSessions()];
-            if (Number(state.activeConversationId || 0) > 0) {
-                tasks.push(loadMessages(state.activeConversationId));
-            }
-            if (state.groupSettingsOpen && Number(state.groupSettingsConversationId || 0) > 0) {
-                tasks.push(loadGroupSettings(state.groupSettingsConversationId));
+            const tasks = [reloadProfileLinkedData()];
+            if (state.view === 'profile_avatar' || state.profileAvatarHistoryLoaded) {
+                tasks.push(loadProfileAvatarHistory(true));
             }
             return Promise.all(tasks).then(function() {
                 render();
@@ -2458,12 +2815,22 @@
             state.profileLoading = false;
             state.profileError = '';
             state.profileRefreshing = false;
+            state.profileSaving = false;
+            state.profileSaveError = '';
+            state.profileAvatarHistory = [];
+            state.profileAvatarHistoryLoaded = false;
+            state.profileAvatarHistoryLoading = false;
+            state.profileAvatarHistoryError = '';
+            state.profileDraftNickname = '';
+            state.profileDraftGender = 'unknown';
+            state.profileDraftDirty = false;
             state.profile = state.username ? normalizeProfileItem({
                 username: state.username,
                 display_name: state.displayName,
                 avatar_style: 'thumbs',
                 avatar_url: data && data.avatar_url
             }) : null;
+            syncProfileDraftFromProfile();
             if (!state.allowed) {
                 state.sessions = [];
                 state.activeConversationId = 0;
@@ -2488,6 +2855,15 @@
             state.profileLoading = false;
             state.profileError = '';
             state.profileRefreshing = false;
+            state.profileSaving = false;
+            state.profileSaveError = '';
+            state.profileAvatarHistory = [];
+            state.profileAvatarHistoryLoaded = false;
+            state.profileAvatarHistoryLoading = false;
+            state.profileAvatarHistoryError = '';
+            state.profileDraftNickname = '';
+            state.profileDraftGender = 'unknown';
+            state.profileDraftDirty = false;
             state.sessions = [];
             state.activeConversationId = 0;
             state.activeMessages = [];
