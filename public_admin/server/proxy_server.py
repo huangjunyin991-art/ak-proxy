@@ -7311,6 +7311,10 @@ def _iter_widget_asset_paths() -> list[str]:
         os.path.join(PLUGINS_DIR, "notification", "user", "widget.js"),
         os.path.join(PLUGINS_DIR, "im", "user", "im_entry.js"),
         os.path.join(PLUGINS_DIR, "im", "user", "im_client.js"),
+        os.path.join(PLUGINS_DIR, "im", "user", "modules", "im_profile.js"),
+        os.path.join(PLUGINS_DIR, "im", "user", "modules", "im_overlay.js"),
+        os.path.join(PLUGINS_DIR, "im", "user", "modules", "im_group_manage.js"),
+        os.path.join(PLUGINS_DIR, "im", "user", "modules", "im_session_manage.js"),
     ]
 
 
@@ -7486,6 +7490,42 @@ async def im_user_plugin_client_js(request: Request):
     return _build_widget_script_response(request, js_path)
 
 
+@app.get("/chat/plugins/im/user/modules/im_profile.js")
+
+async def im_user_plugin_profile_module_js(request: Request):
+
+    js_path = os.path.join(PLUGINS_DIR, "im", "user", "modules", "im_profile.js")
+
+    return _build_widget_script_response(request, js_path)
+
+
+@app.get("/chat/plugins/im/user/modules/im_overlay.js")
+
+async def im_user_plugin_overlay_module_js(request: Request):
+
+    js_path = os.path.join(PLUGINS_DIR, "im", "user", "modules", "im_overlay.js")
+
+    return _build_widget_script_response(request, js_path)
+
+
+@app.get("/chat/plugins/im/user/modules/im_group_manage.js")
+
+async def im_user_plugin_group_manage_module_js(request: Request):
+
+    js_path = os.path.join(PLUGINS_DIR, "im", "user", "modules", "im_group_manage.js")
+
+    return _build_widget_script_response(request, js_path)
+
+
+@app.get("/chat/plugins/im/user/modules/im_session_manage.js")
+
+async def im_user_plugin_session_manage_module_js(request: Request):
+
+    js_path = os.path.join(PLUGINS_DIR, "im", "user", "modules", "im_session_manage.js")
+
+    return _build_widget_script_response(request, js_path)
+
+
 @app.get("/admin/api/notification-panel.js")
 
 async def notification_admin_panel_js():
@@ -7503,7 +7543,6 @@ async def notification_admin_panel_js():
                                      "Pragma": "no-cache", "Expires": "0"})
 
     return Response(content="// not found", media_type="application/javascript")
-
 
 
 @app.get("/admin/api/plugins/notification/admin/index.js")
