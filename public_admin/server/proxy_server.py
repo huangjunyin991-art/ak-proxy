@@ -38,6 +38,8 @@ from typing import Any, Iterable, Optional
 
 
 
+import asyncpg
+
 import httpx
 
 import secrets
@@ -439,6 +441,18 @@ async def _list_im_emoji_assets() -> list[dict]:
         })
 
     return items
+
+
+
+def _is_missing_im_emoji_asset_table_error(error: Exception) -> bool:
+
+    if isinstance(error, asyncpg.UndefinedTableError):
+
+        return True
+
+    message = str(error or '').strip().lower()
+
+    return 'im_emoji_asset' in message and 'does not exist' in message
 
 
 
@@ -5169,6 +5183,15 @@ async def admin_im_emoji_assets(request: Request):
         items = await _list_im_emoji_assets()
 
     except Exception as e:
+
+        if _is_missing_im_emoji_asset_table_error(e):
+
+            logger.warning(f"[IM] 自定义表情数据表尚未初始化: {e}")
+
+            return JSONResponse(status_code=409, content={
+                "error": True,
+                "message": "请先编译并重启 im-server 初始化 emoji schema",
+            })
 
         logger.error(f"[IM] 加载自定义表情资产失败: {e}")
 
