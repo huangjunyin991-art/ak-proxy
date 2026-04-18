@@ -180,7 +180,7 @@
             const messageId = Number(messageItem && messageItem.id || 0);
             if (!messageId) return;
             if (typeof this.ctx.closeMemberPanel === 'function') this.ctx.closeMemberPanel();
-            if (typeof this.ctx.closeSettingsPanel === 'function') this.ctx.closeSettingsPanel();
+            if (typeof this.ctx.closeSettingsPanel === 'function') this.ctx.closeSettingsPanel({ silent: true });
             state.readProgressOpen = true;
             state.readProgressLoading = true;
             state.readProgressError = '';
@@ -390,9 +390,10 @@
             if (groupManage && typeof groupManage.loadGroupSettings === 'function') groupManage.loadGroupSettings(conversationId);
         },
 
-        closeSettingsPanel() {
+        closeSettingsPanel(options) {
             if (!this.ctx || !this.ctx.state) return;
             const state = this.ctx.state;
+            const silent = !!(options && options.silent);
             this.closeDialog({ silent: true, force: true });
             this.closeMemberActionPage({ silent: true, fallbackView: state.activeConversationId ? 'chat' : 'sessions' });
             state.groupSettingsOpen = false;
@@ -402,7 +403,7 @@
             state.groupSettingsData = null;
             state.groupSettingsMembersExpanded = false;
             if (state.view === 'group_info') state.view = state.activeConversationId ? 'chat' : 'sessions';
-            if (typeof this.ctx.render === 'function') this.ctx.render();
+            if (!silent && typeof this.ctx.render === 'function') this.ctx.render();
         },
 
         focusMemberActionSearch() {

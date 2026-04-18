@@ -127,6 +127,134 @@
     let sessionTopbarTitleEl = null;
     let sessionNewBtnEl = null;
 
+    function assignShellElements(elements) {
+        const nextElements = elements || {};
+        root = nextElements.root || null;
+        panel = nextElements.panel || null;
+        sessionList = nextElements.sessionList || null;
+        contactsListEl = nextElements.contactsListEl || null;
+        profilePageEl = nextElements.profilePageEl || null;
+        profileSubpageBodyEl = nextElements.profileSubpageBodyEl || null;
+        profileSubpageTitleEl = nextElements.profileSubpageTitleEl || null;
+        messageList = nextElements.messageList || null;
+        statusLine = nextElements.statusLine || null;
+        inputEl = nextElements.inputEl || null;
+        newSessionInputEl = nextElements.newSessionInputEl || null;
+        sendBtn = nextElements.sendBtn || null;
+        actionSheetEl = nextElements.actionSheetEl || null;
+        actionSheetRecallBtn = nextElements.actionSheetRecallBtn || null;
+        actionSheetCancelBtn = nextElements.actionSheetCancelBtn || null;
+        progressPanelEl = nextElements.progressPanelEl || null;
+        progressPanelBodyEl = nextElements.progressPanelBodyEl || null;
+        memberPanelEl = nextElements.memberPanelEl || null;
+        memberPanelBodyEl = nextElements.memberPanelBodyEl || null;
+        chatTitleBtnEl = nextElements.chatTitleBtnEl || null;
+        settingsPanelEl = nextElements.settingsPanelEl || null;
+        settingsPanelBodyEl = nextElements.settingsPanelBodyEl || null;
+        chatMenuBtnEl = nextElements.chatMenuBtnEl || null;
+        groupInfoTitleEl = nextElements.groupInfoTitleEl || null;
+        memberActionPageEl = nextElements.memberActionPageEl || null;
+        memberActionBodyEl = nextElements.memberActionBodyEl || null;
+        memberActionSearchEl = nextElements.memberActionSearchEl || null;
+        memberActionTitleEl = nextElements.memberActionTitleEl || null;
+        memberActionSubmitBtnEl = nextElements.memberActionSubmitBtnEl || null;
+        dialogEl = nextElements.dialogEl || null;
+        dialogTitleEl = nextElements.dialogTitleEl || null;
+        dialogMessageEl = nextElements.dialogMessageEl || null;
+        dialogCancelBtnEl = nextElements.dialogCancelBtnEl || null;
+        dialogConfirmBtnEl = nextElements.dialogConfirmBtnEl || null;
+        sessionTopbarTitleEl = nextElements.sessionTopbarTitleEl || null;
+        sessionNewBtnEl = nextElements.sessionNewBtnEl || null;
+    }
+
+    function collectFallbackShellElements(rootNode) {
+        return {
+            root: rootNode,
+            panel: rootNode ? rootNode.querySelector('.ak-im-shell') : null,
+            sessionList: rootNode ? rootNode.querySelector('.ak-im-session-list') : null,
+            contactsListEl: rootNode ? rootNode.querySelector('.ak-im-contacts-list') : null,
+            profilePageEl: rootNode ? rootNode.querySelector('.ak-im-profile-page') : null,
+            profileSubpageBodyEl: rootNode ? rootNode.querySelector('.ak-im-profile-subpage-page') : null,
+            profileSubpageTitleEl: rootNode ? rootNode.querySelector('.ak-im-profile-subpage-title') : null,
+            messageList: rootNode ? rootNode.querySelector('.ak-im-message-list') : null,
+            statusLine: rootNode ? rootNode.querySelector('.ak-im-status') : null,
+            inputEl: rootNode ? rootNode.querySelector('.ak-im-input') : null,
+            newSessionInputEl: rootNode ? rootNode.querySelector('.ak-im-compose-input') : null,
+            sendBtn: rootNode ? rootNode.querySelector('.ak-im-send') : null,
+            actionSheetEl: rootNode ? rootNode.querySelector('.ak-im-action-sheet') : null,
+            actionSheetRecallBtn: rootNode ? rootNode.querySelector('[data-im-action="recall"]') : null,
+            actionSheetCancelBtn: rootNode ? rootNode.querySelector('[data-im-action="cancel"]') : null,
+            progressPanelEl: rootNode ? rootNode.querySelector('.ak-im-progress-sheet') : null,
+            progressPanelBodyEl: rootNode ? rootNode.querySelector('.ak-im-progress-panel-body') : null,
+            memberPanelEl: rootNode ? rootNode.querySelector('.ak-im-member-sheet') : null,
+            memberPanelBodyEl: rootNode ? rootNode.querySelector('.ak-im-member-panel-body') : null,
+            chatTitleBtnEl: rootNode ? rootNode.querySelector('.ak-im-chat-title-btn') : null,
+            settingsPanelEl: rootNode ? rootNode.querySelector('.ak-im-group-info-screen') : null,
+            settingsPanelBodyEl: rootNode ? rootNode.querySelector('.ak-im-group-info-page') : null,
+            chatMenuBtnEl: rootNode ? rootNode.querySelector('.ak-im-chat-menu') : null,
+            groupInfoTitleEl: rootNode ? rootNode.querySelector('.ak-im-group-info-title') : null,
+            memberActionPageEl: rootNode ? rootNode.querySelector('.ak-im-member-action-screen') : null,
+            memberActionBodyEl: rootNode ? rootNode.querySelector('.ak-im-member-action-body') : null,
+            memberActionSearchEl: rootNode ? rootNode.querySelector('.ak-im-member-action-search-input') : null,
+            memberActionTitleEl: rootNode ? rootNode.querySelector('.ak-im-member-action-title') : null,
+            memberActionSubmitBtnEl: rootNode ? rootNode.querySelector('.ak-im-member-action-submit') : null,
+            dialogEl: rootNode ? rootNode.querySelector('.ak-im-dialog') : null,
+            dialogTitleEl: rootNode ? rootNode.querySelector('.ak-im-dialog-title') : null,
+            dialogMessageEl: rootNode ? rootNode.querySelector('.ak-im-dialog-message') : null,
+            dialogCancelBtnEl: rootNode ? rootNode.querySelector('[data-im-dialog="cancel"]') : null,
+            dialogConfirmBtnEl: rootNode ? rootNode.querySelector('[data-im-dialog="confirm"]') : null,
+            sessionTopbarTitleEl: rootNode ? rootNode.querySelector('.ak-im-session-topbar-title') : null,
+            sessionNewBtnEl: rootNode ? rootNode.querySelector('.ak-im-new') : null
+        };
+    }
+
+    function initShellModules() {
+        initMessageManageModule();
+        initSessionManageModule();
+        initGroupManageModule();
+        initOverlayModule();
+    }
+
+    function openShellPanel() {
+        state.open = true;
+        if (state.view !== 'compose' && !state.activeConversationId) state.view = 'sessions';
+        render();
+    }
+
+    function showSessionsView(options) {
+        closeActionSheet();
+        closeReadProgressPanel();
+        closeMemberPanel();
+        closeSettingsPanel({ silent: true });
+        if (options && options.closePanel) state.open = false;
+        state.view = 'sessions';
+        render();
+    }
+
+    function openActiveGroupMenu() {
+        const activeSession = getActiveSession();
+        if (!isGroupSession(activeSession)) return;
+        openGroupMenu(activeSession);
+    }
+
+    function openActiveGroupSettings() {
+        const activeSession = getActiveSession();
+        if (!isGroupSession(activeSession)) return;
+        openSettingsPanel(activeSession);
+    }
+
+    function handleComposerInput(value) {
+        state.inputValue = value || '';
+        syncInputHeight();
+        syncComposerState();
+    }
+
+    function handleNewSessionInputChange(value) {
+        state.newSessionTarget = value || '';
+        if (state.newSessionError) state.newSessionError = '';
+        renderComposeView();
+    }
+
     function getProfileModule() {
         const modules = window.AKIMUserModules;
         if (!modules || typeof modules !== 'object') return null;
@@ -160,6 +288,53 @@
             setProfileAvatarFavorite: setProfileAvatarFavorite,
             openProfileAvatarRemoveDialog: openProfileAvatarRemoveDialog,
             saveProfileDetail: saveProfileDetail
+        });
+    }
+
+    function getAppShellModule() {
+        const modules = window.AKIMUserModules;
+        if (!modules || typeof modules !== 'object') return null;
+        const appShellModule = modules.appShell;
+        if (!appShellModule || typeof appShellModule.init !== 'function' || typeof appShellModule.ensureRoot !== 'function' || typeof appShellModule.renderShell !== 'function') return null;
+        return appShellModule;
+    }
+
+    function initAppShellModule() {
+        const appShellModule = getAppShellModule();
+        if (!appShellModule) return;
+        appShellModule.init({
+            getRoot: function() {
+                return root;
+            },
+            onRootReady: function(elements) {
+                assignShellElements(elements);
+                initShellModules();
+            },
+            syncComposerLayout: function() {
+                syncInputHeight();
+                syncComposerState();
+            },
+            getShellState: getShellRenderState,
+            bindOverlayEvents: bindOverlayEvents,
+            onLauncherClick: openShellPanel,
+            onCloseClick: function() {
+                showSessionsView({ closePanel: true });
+            },
+            onBackClick: showSessionsView,
+            onChatMenuClick: openActiveGroupMenu,
+            onChatTitleClick: openActiveGroupSettings,
+            onComposeBackClick: closeComposeView,
+            onComposeCloseClick: closeComposeView,
+            onNewSessionClick: startDirectSession,
+            onHomeTabChange: switchHomeTab,
+            onComposeCancelClick: closeComposeView,
+            onComposeSubmitClick: submitDirectSession,
+            onSendClick: sendCurrentMessage,
+            onComposerInput: handleComposerInput,
+            onComposerSubmit: sendCurrentMessage,
+            onNewSessionInputChange: handleNewSessionInputChange,
+            onMemberPanelClose: closeMemberPanel,
+            onProfileSubpageBackClick: closeProfileSubpage
         });
     }
 
@@ -234,6 +409,53 @@
             loadSessions: loadSessions,
             loadMessages: loadMessages,
             sortGroupMembersForDisplay: sortGroupMembersForDisplay
+        });
+    }
+
+    function getMessageManageModule() {
+        const modules = window.AKIMUserModules;
+        if (!modules || typeof modules !== 'object') return null;
+        const messageManageModule = modules.messageManage;
+        if (!messageManageModule || typeof messageManageModule.init !== 'function') return null;
+        return messageManageModule;
+    }
+
+    function initMessageManageModule() {
+        const messageManageModule = getMessageManageModule();
+        if (!messageManageModule) return;
+        messageManageModule.init({
+            state: state,
+            httpRoot: HTTP_ROOT,
+            get elements() {
+                return {
+                    messageList: messageList,
+                    inputEl: inputEl,
+                    chatTitleEl: root ? root.querySelector('.ak-im-chat-title') : null,
+                    chatSubtitleEl: root ? root.querySelector('.ak-im-chat-subtitle') : null,
+                    chatTitleBtnEl: chatTitleBtnEl,
+                    chatMenuBtnEl: chatMenuBtnEl
+                };
+            },
+            request: request,
+            render: render,
+            loadSessions: loadSessions,
+            loadContacts: loadContacts,
+            loadGroupSettings: loadGroupSettings,
+            renderMemberPanel: renderMemberPanel,
+            syncInputHeight: syncInputHeight,
+            syncComposerState: syncComposerState,
+            escapeHtml: escapeHtml,
+            formatTime: formatTime,
+            getAvatarUrl: getAvatarUrl,
+            buildAvatarBoxMarkup: buildAvatarBoxMarkup,
+            openActionSheet: openActionSheet,
+            closeActionSheet: closeActionSheet,
+            openReadProgressPanel: openReadProgressPanel,
+            createWebSocket: function() {
+                return new WebSocket(buildWsUrl());
+            },
+            getSessionManage: getSessionManageModule,
+            getGroupManage: getGroupManageModule
         });
     }
 
@@ -412,6 +634,13 @@
     }
 
     function ensureRoot() {
+        if (root && root.isConnected) return;
+        if (root && !root.isConnected) root = null;
+        const appShellModule = getAppShellModule();
+        if (appShellModule) {
+            appShellModule.ensureRoot();
+            return;
+        }
         if (root) return;
         root = document.createElement('div');
         root.id = 'ak-im-root';
@@ -866,78 +1095,15 @@
 	        </div>
         `;
         document.body.appendChild(root);
-        panel = root.querySelector('.ak-im-shell');
-        sessionList = root.querySelector('.ak-im-session-list');
-        contactsListEl = root.querySelector('.ak-im-contacts-list');
-        profilePageEl = root.querySelector('.ak-im-profile-page');
-        profileSubpageBodyEl = root.querySelector('.ak-im-profile-subpage-page');
-        profileSubpageTitleEl = root.querySelector('.ak-im-profile-subpage-title');
-        messageList = root.querySelector('.ak-im-message-list');
-        statusLine = root.querySelector('.ak-im-status');
-        inputEl = root.querySelector('.ak-im-input');
-        newSessionInputEl = root.querySelector('.ak-im-compose-input');
-        sendBtn = root.querySelector('.ak-im-send');
-        actionSheetEl = root.querySelector('.ak-im-action-sheet');
-        actionSheetRecallBtn = root.querySelector('[data-im-action="recall"]');
-        actionSheetCancelBtn = root.querySelector('[data-im-action="cancel"]');
-        progressPanelEl = root.querySelector('.ak-im-progress-sheet');
-        progressPanelBodyEl = root.querySelector('.ak-im-progress-panel-body');
-	    memberPanelEl = root.querySelector('.ak-im-member-sheet');
-	    memberPanelBodyEl = root.querySelector('.ak-im-member-panel-body');
-	    chatTitleBtnEl = root.querySelector('.ak-im-chat-title-btn');
-	    settingsPanelEl = root.querySelector('.ak-im-group-info-screen');
-	    settingsPanelBodyEl = root.querySelector('.ak-im-group-info-page');
-	    chatMenuBtnEl = root.querySelector('.ak-im-chat-menu');
-	    groupInfoTitleEl = root.querySelector('.ak-im-group-info-title');
-	    memberActionPageEl = root.querySelector('.ak-im-member-action-screen');
-	    memberActionBodyEl = root.querySelector('.ak-im-member-action-body');
-	    memberActionSearchEl = root.querySelector('.ak-im-member-action-search-input');
-	    memberActionTitleEl = root.querySelector('.ak-im-member-action-title');
-	    memberActionSubmitBtnEl = root.querySelector('.ak-im-member-action-submit');
-	    dialogEl = root.querySelector('.ak-im-dialog');
-	    dialogTitleEl = root.querySelector('.ak-im-dialog-title');
-	    dialogMessageEl = root.querySelector('.ak-im-dialog-message');
-	    dialogCancelBtnEl = root.querySelector('[data-im-dialog="cancel"]');
-	    dialogConfirmBtnEl = root.querySelector('[data-im-dialog="confirm"]');
-	    sessionTopbarTitleEl = root.querySelector('.ak-im-session-topbar-title');
-	    sessionNewBtnEl = root.querySelector('.ak-im-new');
-	    initSessionManageModule();
-	    initGroupManageModule();
-	    initOverlayModule();
-        root.querySelector('.ak-im-launcher').addEventListener('click', function() {
-            state.open = true;
-            if (state.view !== 'compose' && !state.activeConversationId) state.view = 'sessions';
-            render();
-        });
+        assignShellElements(collectFallbackShellElements(root));
+        initShellModules();
+        root.querySelector('.ak-im-launcher').addEventListener('click', openShellPanel);
         root.querySelector('.ak-im-close').addEventListener('click', function() {
-            closeActionSheet();
-            closeReadProgressPanel();
-	        closeMemberPanel();
-	        closeDialog({ silent: true, force: true });
-	        closeSettingsPanel();
-            state.open = false;
-            state.view = 'sessions';
-            render();
+            showSessionsView({ closePanel: true });
         });
-        root.querySelector('.ak-im-back').addEventListener('click', function() {
-            closeActionSheet();
-            closeReadProgressPanel();
-	        closeMemberPanel();
-	        closeDialog({ silent: true, force: true });
-	        closeSettingsPanel();
-            state.view = 'sessions';
-            render();
-        });
-        chatMenuBtnEl.addEventListener('click', function() {
-            const activeSession = getActiveSession();
-            if (!isGroupSession(activeSession)) return;
-            openGroupMenu(activeSession);
-        });
-        chatTitleBtnEl.addEventListener('click', function() {
-            const activeSession = getActiveSession();
-            if (!isGroupSession(activeSession)) return;
-            openSettingsPanel(activeSession);
-        });
+        root.querySelector('.ak-im-back').addEventListener('click', showSessionsView);
+        chatMenuBtnEl.addEventListener('click', openActiveGroupMenu);
+        chatTitleBtnEl.addEventListener('click', openActiveGroupSettings);
         root.querySelector('.ak-im-compose-back').addEventListener('click', closeComposeView);
         root.querySelector('.ak-im-compose-close').addEventListener('click', closeComposeView);
         root.querySelector('[data-im-action="new"]').addEventListener('click', startDirectSession);
@@ -950,14 +1116,10 @@
         root.querySelector('[data-im-action="compose-submit"]').addEventListener('click', submitDirectSession);
         sendBtn.addEventListener('click', sendCurrentMessage);
         inputEl.addEventListener('input', function() {
-            state.inputValue = inputEl.value || '';
-            syncInputHeight();
-            syncComposerState();
+            handleComposerInput(inputEl.value || '');
         });
         newSessionInputEl.addEventListener('input', function() {
-            state.newSessionTarget = newSessionInputEl.value || '';
-            if (state.newSessionError) state.newSessionError = '';
-            renderComposeView();
+            handleNewSessionInputChange(newSessionInputEl.value || '');
         });
         newSessionInputEl.addEventListener('keydown', function(event) {
             if (event.key === 'Enter') {
@@ -975,12 +1137,10 @@
 	    memberPanelEl.querySelector('.ak-im-member-mask').addEventListener('click', function() {
 	        closeMemberPanel();
 	    });
-	    memberPanelEl.querySelector('.ak-im-member-close').addEventListener('click', function() {
-	        closeMemberPanel();
-	    });
-	    root.querySelector('.ak-im-profile-subpage-back').addEventListener('click', function() {
-	        closeProfileSubpage();
-	    });
+        memberPanelEl.querySelector('.ak-im-member-close').addEventListener('click', function() {
+            closeMemberPanel();
+        });
+        root.querySelector('.ak-im-profile-subpage-back').addEventListener('click', closeProfileSubpage);
         syncInputHeight();
         syncComposerState();
     }
@@ -1016,7 +1176,6 @@
 	        submitDialogAction();
 	    });
 	    settingsPanelEl.querySelector('.ak-im-group-info-back').addEventListener('click', function() {
-	        closeDialog({ silent: true, force: true });
 	        closeSettingsPanel();
 	    });
 	    memberActionPageEl.querySelector('.ak-im-member-action-back').addEventListener('click', function() {
@@ -1159,52 +1318,12 @@
         return raw.slice(0, 2).toUpperCase();
     }
 
-    function shouldAutoMarkRead(conversationId) {
-        return !!state.open && state.view === 'chat' && Number(state.activeConversationId || 0) === Number(conversationId || 0) && document.visibilityState !== 'hidden';
-    }
-
     function canRecallMessage(item) {
-        if (!item || typeof item !== 'object') return false;
-        if (String(item.status || '').toLowerCase() === 'recalled') return false;
-        if (String(item.sender_username || '') !== String(state.username || '')) return false;
-        try {
-            const sentAt = new Date(item.sent_at);
-            if (isNaN(sentAt.getTime())) return false;
-            return (Date.now() - sentAt.getTime()) <= 60 * 1000;
-        } catch (e) {
-            return false;
+        const messageManageModule = getMessageManageModule();
+        if (messageManageModule && typeof messageManageModule.canRecallMessage === 'function') {
+            return messageManageModule.canRecallMessage(item);
         }
-    }
-
-    function getMessageReadProgress(item) {
-        return item && item.read_progress && typeof item.read_progress === 'object' ? item.read_progress : null;
-    }
-
-    function getProgressPercent(summary) {
-        const percent = Number(summary && summary.progress_percent || 0) || 0;
-        return Math.max(0, Math.min(100, Math.round(percent)));
-    }
-
-    function shouldShowReadProgress(item, activeSession) {
-        const summary = getMessageReadProgress(item);
-        if (!summary) return false;
-        return !!activeSession;
-    }
-
-    function buildReadProgressButtonMarkup(item, activeSession) {
-        const summary = getMessageReadProgress(item);
-        if (!summary || !shouldShowReadProgress(item, activeSession)) return '';
-        const percent = getProgressPercent(summary);
-        const isComplete = !!summary.is_fully_read || percent >= 100;
-        const label = isComplete ? '✓' : (percent + '%');
-        const radius = 9;
-        const circumference = 56.549;
-        const dashOffset = (circumference * (1 - (Math.max(0, Math.min(100, percent)) / 100))).toFixed(3);
-        const ariaLabel = isComplete ? '查看消息已读进度，已全部读完' : ('查看消息已读进度，当前 ' + percent + '%');
-        return '<button class="ak-im-progress-btn' + (isComplete ? ' is-complete' : '') + '" type="button" aria-label="' + ariaLabel + '">' +
-            '<svg class="ak-im-progress-ring" viewBox="0 0 24 24" aria-hidden="true"><circle class="ak-im-progress-track" cx="12" cy="12" r="' + radius + '"></circle><circle class="ak-im-progress-value" cx="12" cy="12" r="' + radius + '" style="stroke-dasharray:' + circumference + ';stroke-dashoffset:' + dashOffset + '"></circle></svg>' +
-            '<span class="ak-im-progress-label">' + escapeHtml(label) + '</span>' +
-        '</button>';
+        return false;
     }
 
     function updateActionSheetUI() {
@@ -1535,10 +1654,11 @@
 	    settingsPanelBodyEl.innerHTML = '<div class="ak-im-group-info-empty">群设置模块暂不可用，请刷新后重试</div>';
 	}
 
-	function closeSettingsPanel() {
+	function closeSettingsPanel(options) {
 	    const overlayModule = getOverlayModule();
+	    const silent = !!(options && options.silent);
 	    if (overlayModule && typeof overlayModule.closeSettingsPanel === 'function') {
-	        overlayModule.closeSettingsPanel();
+	        overlayModule.closeSettingsPanel(options);
 	        return;
 	    }
 	    closeDialog({ silent: true, force: true });
@@ -1552,7 +1672,7 @@
 	    if (state.view === 'group_info') {
 	        state.view = state.activeConversationId ? 'chat' : 'sessions';
 	    }
-	    render();
+	    if (!silent) render();
 	}
 
 	function loadGroupSettings(conversationId) {
@@ -1617,7 +1737,7 @@
         const messageId = Number(messageItem && messageItem.id || 0);
         if (!messageId) return;
 	    closeMemberPanel();
-	    closeSettingsPanel();
+	    closeSettingsPanel({ silent: true });
         state.readProgressOpen = true;
         state.readProgressLoading = false;
         state.readProgressError = '';
@@ -1690,6 +1810,53 @@
         if (normalizedTab === 'contacts') return '通讯录';
         if (normalizedTab === 'me') return '我';
         return '聊天';
+    }
+
+    function hasUnreadSessions() {
+        const sessionManageModule = getSessionManageModule();
+        return state.sessions.some(function(item) {
+            if (sessionManageModule && typeof sessionManageModule.getUnreadCount === 'function') {
+                return sessionManageModule.getUnreadCount(item) > 0;
+            }
+            return Number(item && (item.unread_count || item.unread || 0) || 0) > 0;
+        });
+    }
+
+    function getHomeSearchPillText(tab) {
+        const normalizedTab = normalizeHomeTab(tab);
+        if (normalizedTab === 'contacts') {
+            return state.contactsLoading ? '正在同步同白名单通讯录' : '同白名单成员会显示在这里，点击可直接发起聊天';
+        }
+        if (normalizedTab === 'me') {
+            return '这里保留更换头像、个人资料、设置三个入口';
+        }
+        return state.sessions.length ? '长按会话可置顶，点击进入聊天' : '点击右上角发起单聊';
+    }
+
+    function getShellRenderState() {
+        const activeSession = getActiveSession();
+        const homeTab = normalizeHomeTab(state.homeTab);
+        const showChat = !!activeSession && state.view === 'chat';
+        const showCompose = state.view === 'compose';
+        const showGroupInfo = state.view === 'group_info' && !!state.groupSettingsOpen;
+        const showMemberAction = state.view === 'member_action' && !!state.memberActionOpen;
+        const showProfileSubpage = isProfileSubpageView(state.view);
+        state.homeTab = homeTab;
+        return {
+            allowed: !!state.allowed,
+            open: !!state.open,
+            showSessions: !showChat && !showCompose && !showGroupInfo && !showMemberAction && !showProfileSubpage,
+            showChat: !!showChat,
+            showCompose: !!showCompose,
+            showGroupInfo: !!showGroupInfo,
+            showMemberAction: !!showMemberAction,
+            showProfileSubpage: !!showProfileSubpage,
+            hasUnread: hasUnreadSessions(),
+            homeTab: homeTab,
+            homeTabTitle: getHomeTabTitle(homeTab),
+            showSessionNewButton: homeTab === 'chats',
+            searchPillText: getHomeSearchPillText(homeTab)
+        };
     }
 
     function normalizeProfileGender(value) {
@@ -1794,30 +1961,24 @@
         render();
     }
 
-    function renderHomeShell() {
+    function renderHomeShell(shellState) {
         if (!root) return;
-        state.homeTab = normalizeHomeTab(state.homeTab);
+        const nextShellState = shellState || getShellRenderState();
         if (sessionTopbarTitleEl) {
-            sessionTopbarTitleEl.textContent = getHomeTabTitle(state.homeTab);
+            sessionTopbarTitleEl.textContent = nextShellState.homeTabTitle;
         }
         if (sessionNewBtnEl) {
-            sessionNewBtnEl.classList.toggle('is-hidden', state.homeTab !== 'chats');
+            sessionNewBtnEl.classList.toggle('is-hidden', !nextShellState.showSessionNewButton);
         }
         const searchPill = root.querySelector('.ak-im-search-pill');
         if (searchPill) {
-            if (state.homeTab === 'contacts') {
-                searchPill.textContent = state.contactsLoading ? '正在同步同白名单通讯录' : '同白名单成员会显示在这里，点击可直接发起聊天';
-            } else if (state.homeTab === 'me') {
-                searchPill.textContent = '这里保留更换头像、个人资料、设置三个入口';
-            } else {
-                searchPill.textContent = state.sessions.length ? '长按会话可置顶，点击进入聊天' : '点击右上角发起单聊';
-            }
+            searchPill.textContent = nextShellState.searchPillText;
         }
         Array.prototype.forEach.call(root.querySelectorAll('[data-im-home-tab]'), function(button) {
-            button.classList.toggle('is-active', button.getAttribute('data-im-home-tab') === state.homeTab);
+            button.classList.toggle('is-active', button.getAttribute('data-im-home-tab') === nextShellState.homeTab);
         });
         Array.prototype.forEach.call(root.querySelectorAll('[data-im-home-panel]'), function(panelNode) {
-            panelNode.classList.toggle('is-active', panelNode.getAttribute('data-im-home-panel') === state.homeTab);
+            panelNode.classList.toggle('is-active', panelNode.getAttribute('data-im-home-panel') === nextShellState.homeTab);
         });
     }
 
@@ -1947,37 +2108,36 @@
 
         function syncComposerState() {
             if (!inputEl || !sendBtn) return;
-            const canSend = !!state.activeConversationId;
+            const hasConversation = !!state.activeConversationId;
+            const hasMessageManage = !!getMessageManageModule();
+            const canSend = hasConversation && hasMessageManage;
             inputEl.disabled = !canSend;
-            inputEl.placeholder = canSend ? '输入消息' : '先选择一个会话';
+            inputEl.placeholder = hasConversation ? (hasMessageManage ? '输入消息' : '消息模块暂不可用') : '先选择一个会话';
             sendBtn.disabled = !canSend || !String(inputEl.value || '').trim();
         }
 
     function render() {
         if (!root) return;
-        const activeSession = getActiveSession();
-        const showChat = !!activeSession && state.view === 'chat';
-        const showCompose = state.view === 'compose';
-        const showGroupInfo = state.view === 'group_info' && !!state.groupSettingsOpen;
-        const showMemberAction = state.view === 'member_action' && !!state.memberActionOpen;
-        const showProfileSubpage = isProfileSubpageView(state.view);
-        root.classList.toggle('ak-visible', !!state.allowed);
-        root.classList.toggle('ak-im-open', !!state.open);
-        root.classList.toggle('ak-view-sessions', !showChat && !showCompose && !showGroupInfo && !showMemberAction && !showProfileSubpage);
-        root.classList.toggle('ak-view-chat', !!showChat);
-        root.classList.toggle('ak-view-compose', !!showCompose);
-        root.classList.toggle('ak-view-group-info', !!showGroupInfo);
-        root.classList.toggle('ak-view-member-action', !!showMemberAction);
-        root.classList.toggle('ak-view-profile-subpage', !!showProfileSubpage);
-        root.querySelector('.ak-im-launcher').classList.toggle('is-open', !!state.open);
-        const sessionManageModule = getSessionManageModule();
-        root.querySelector('.ak-im-launcher').classList.toggle('has-unread', state.sessions.some(function(item) {
-            if (sessionManageModule && typeof sessionManageModule.getUnreadCount === 'function') {
-                return sessionManageModule.getUnreadCount(item) > 0;
+        const shellState = getShellRenderState();
+        const appShellModule = getAppShellModule();
+        if (appShellModule && typeof appShellModule.renderShell === 'function') {
+            appShellModule.renderShell(shellState);
+        } else {
+            root.classList.toggle('ak-visible', !!shellState.allowed);
+            root.classList.toggle('ak-im-open', !!shellState.open);
+            root.classList.toggle('ak-view-sessions', !!shellState.showSessions);
+            root.classList.toggle('ak-view-chat', !!shellState.showChat);
+            root.classList.toggle('ak-view-compose', !!shellState.showCompose);
+            root.classList.toggle('ak-view-group-info', !!shellState.showGroupInfo);
+            root.classList.toggle('ak-view-member-action', !!shellState.showMemberAction);
+            root.classList.toggle('ak-view-profile-subpage', !!shellState.showProfileSubpage);
+            const launcherEl = root.querySelector('.ak-im-launcher');
+            if (launcherEl) {
+                launcherEl.classList.toggle('is-open', !!shellState.open);
+                launcherEl.classList.toggle('has-unread', !!shellState.hasUnread);
             }
-            return Number(item && (item.unread_count || item.unread || 0) || 0) > 0;
-        }));
-        renderHomeShell();
+            renderHomeShell(shellState);
+        }
         statusLine.textContent = '';
         renderSessionList();
         renderContactsView();
@@ -1993,135 +2153,39 @@
 	    renderDialog();
         renderComposeView();
         if (state.open && state.view === 'compose') focusComposeInput();
-	    if (state.open && showMemberAction) focusMemberActionSearch();
+	    if (state.open && shellState.showMemberAction) focusMemberActionSearch();
     }
 
     function renderMessages() {
-        const headerTitle = root.querySelector('.ak-im-chat-title');
-        const headerSubtitle = root.querySelector('.ak-im-chat-subtitle');
+        const messageManageModule = getMessageManageModule();
+        if (messageManageModule && typeof messageManageModule.renderMessages === 'function') {
+            messageManageModule.renderMessages();
+            return;
+        }
+        const headerTitle = root ? root.querySelector('.ak-im-chat-title') : null;
+        const headerSubtitle = root ? root.querySelector('.ak-im-chat-subtitle') : null;
 	    const activeSession = getActiveSession();
 	    const sessionManageModule = getSessionManageModule();
 	    const activeSessionDisplayName = activeSession && sessionManageModule && typeof sessionManageModule.getSessionDisplayName === 'function' ? sessionManageModule.getSessionDisplayName(activeSession) : '内部聊天';
-	    const isActiveGroupSession = !!activeSession && isGroupSession(activeSession);
 	    const subtitleText = activeSession && sessionManageModule && typeof sessionManageModule.getSessionSubtitle === 'function' ? sessionManageModule.getSessionSubtitle(activeSession) : '';
-	    headerTitle.textContent = activeSession ? activeSessionDisplayName : '内部聊天';
-	    headerSubtitle.textContent = activeSession ? subtitleText : '';
+	    const canOpenGroupInfo = !!activeSession && isGroupSession(activeSession);
+	    if (headerTitle) headerTitle.textContent = activeSession ? activeSessionDisplayName : '内部聊天';
+	    if (headerSubtitle) headerSubtitle.textContent = activeSession ? subtitleText : '';
 	    if (chatTitleBtnEl) {
-	        const canOpenGroupInfo = !!activeSession && isActiveGroupSession;
 	        chatTitleBtnEl.disabled = !canOpenGroupInfo;
 	        chatTitleBtnEl.classList.toggle('is-clickable', canOpenGroupInfo);
 	        chatTitleBtnEl.setAttribute('aria-label', canOpenGroupInfo ? '打开群信息' : '聊天标题');
 	    }
 	    if (chatMenuBtnEl) {
-	        const canOpenMenu = !!activeSession && isActiveGroupSession;
-	        chatMenuBtnEl.disabled = !canOpenMenu;
-	        chatMenuBtnEl.classList.toggle('is-hidden', !canOpenMenu);
+	        chatMenuBtnEl.disabled = !canOpenGroupInfo;
+	        chatMenuBtnEl.classList.toggle('is-hidden', !canOpenGroupInfo);
 	    }
+        if (!messageList) return;
         messageList.innerHTML = '';
-        if (!state.activeConversationId) {
-            const empty = document.createElement('div');
-            empty.className = 'ak-im-empty';
-            empty.textContent = state.allowed ? '选择一个会话\n开始内部单聊' : '当前账号未开通聊天';
-            messageList.appendChild(empty);
-            return;
-        }
-        if (!state.activeMessages.length) {
-            const empty = document.createElement('div');
-            empty.className = 'ak-im-empty';
-            empty.textContent = '还没有消息\n发一条试试';
-            messageList.appendChild(empty);
-            return;
-        }
-        state.activeMessages.forEach(function(item) {
-            const isSelf = item.sender_username === state.username;
-            const isRecalled = String(item.status || '').toLowerCase() === 'recalled';
-            if (isRecalled) {
-                const systemRow = document.createElement('div');
-                systemRow.className = 'ak-im-system-row';
-                const systemText = isSelf ? '你撤回了一条消息' : '对方撤回了一条消息';
-                const draftText = String(state.recalledDraftByMessageId[item.id] || '').trim();
-                systemRow.textContent = systemText;
-                if (isSelf && draftText) {
-                    const link = document.createElement('a');
-                    link.href = 'javascript:void(0)';
-                    link.textContent = '重新编辑';
-                    link.addEventListener('click', function(event) {
-                        event.preventDefault();
-                        event.stopPropagation();
-                        inputEl.value = draftText;
-                        state.inputValue = draftText;
-                        state.view = 'chat';
-                        state.open = true;
-                        syncInputHeight();
-                        syncComposerState();
-                        try { inputEl.focus(); } catch (e) {}
-                    });
-                    systemRow.appendChild(link);
-                }
-                messageList.appendChild(systemRow);
-                return;
-            }
-            const wrapper = document.createElement('div');
-            const summary = getMessageReadProgress(item);
-            const senderDisplayName = String(item && (item.sender_display_name || item.sender_username) || '').trim();
-            const displayName = isSelf ? (state.displayName || senderDisplayName || state.username || '我') : (isActiveGroupSession ? (senderDisplayName || item.sender_username || '群成员') : (activeSession ? activeSessionDisplayName : (senderDisplayName || item.sender_username || '对方')));
-            const metaText = summary && Number(summary.total_count || 0) > 0 ? ('已读 ' + Number(summary.read_count || 0) + '/' + Number(summary.total_count || 0)) : ((isSelf && item.read) ? '对方已读' : '');
-	        const senderText = !isSelf && isActiveGroupSession ? String(senderDisplayName || item.sender_username || '').trim() : '';
-	        const progressMarkup = buildReadProgressButtonMarkup(item, activeSession);
-	        const avatarText = displayName || item.sender_username || '成员';
-	        const avatarUrl = isSelf ? getAvatarUrl((state.profile && state.profile.avatar_url) || item.sender_avatar_url) : getAvatarUrl(item.sender_avatar_url);
-	        const footerMarkup = (metaText || progressMarkup) ? '<div class="ak-im-message-footer">' +
-	            (metaText ? '<div class="ak-im-meta">' + escapeHtml(metaText) + '</div>' : '') +
-	            progressMarkup +
-	        '</div>' : '';
-            wrapper.innerHTML = '<div class="ak-im-time-divider">' + escapeHtml(formatTime(item.sent_at)) + '</div>' +
-                '<div class="ak-im-message-row ' + (isSelf ? 'ak-self' : 'ak-peer') + '">' +
-	                    buildAvatarBoxMarkup('ak-im-avatar', avatarUrl, avatarText, avatarText + '头像') +
-	                    '<div class="ak-im-message-main">' +
-                        (senderText ? '<div class="ak-im-message-sender">' + escapeHtml(senderText) + '</div>' : '') +
-                        '<div class="ak-im-bubble">' + escapeHtml(item.content || item.content_preview || '') + '</div>' +
-	                        footerMarkup +
-                    '</div>' +
-                '</div>';
-            if (isSelf) {
-                const bubble = wrapper.querySelector('.ak-im-bubble');
-                if (bubble) {
-                    let pressTimer = null;
-                    const startPress = function() {
-                        if (!canRecallMessage(item)) return;
-                        if (pressTimer) clearTimeout(pressTimer);
-                        pressTimer = setTimeout(function() {
-                            openActionSheet(item);
-                        }, 420);
-                    };
-                    const cancelPress = function() {
-                        if (pressTimer) {
-                            clearTimeout(pressTimer);
-                            pressTimer = null;
-                        }
-                    };
-                    bubble.addEventListener('pointerdown', startPress);
-                    bubble.addEventListener('pointerup', cancelPress);
-                    bubble.addEventListener('pointercancel', cancelPress);
-                    bubble.addEventListener('pointerleave', cancelPress);
-                    bubble.addEventListener('contextmenu', function(event) {
-                        event.preventDefault();
-                        if (!canRecallMessage(item)) return;
-                        openActionSheet(item);
-                    });
-                }
-            }
-            const progressBtn = wrapper.querySelector('.ak-im-progress-btn');
-            if (progressBtn) {
-                progressBtn.addEventListener('click', function(event) {
-                    event.preventDefault();
-                    event.stopPropagation();
-                    openReadProgressPanel(item);
-                });
-            }
-            messageList.appendChild(wrapper);
-        });
-        messageList.scrollTop = messageList.scrollHeight;
+        const empty = document.createElement('div');
+        empty.className = 'ak-im-empty';
+        empty.textContent = state.activeConversationId ? '消息模块暂不可用，请刷新页面后重试' : (state.allowed ? '选择一个会话\n开始内部单聊' : '当前账号未开通聊天');
+        messageList.appendChild(empty);
     }
 
     function normalizeProfileItem(item) {
@@ -2552,7 +2616,7 @@
             state.activeMessages = [];
             closeReadProgressPanel();
 	        closeMemberPanel();
-	        closeSettingsPanel();
+	        closeSettingsPanel({ silent: true });
             if (state.view === 'chat') state.view = 'sessions';
         }
         render();
@@ -2560,15 +2624,13 @@
     }
 
     function loadMessages(conversationId) {
-        return request(`${HTTP_ROOT}/messages?conversation_id=${encodeURIComponent(conversationId)}`).then(function(data) {
-            state.activeMessages = Array.isArray(data && data.items) ? data.items : [];
-            render();
-            markRead(conversationId);
-            return null;
-        }).catch(function() {
-            render();
-            return null;
-        });
+        const messageManageModule = getMessageManageModule();
+        if (messageManageModule && typeof messageManageModule.loadMessages === 'function') {
+            return messageManageModule.loadMessages(conversationId);
+        }
+        state.activeMessages = [];
+        render();
+        return Promise.resolve(null);
     }
 
     function startDirectSession() {
@@ -2596,213 +2658,40 @@
     }
 
     function sendCurrentMessage() {
-        if (!state.allowed || !state.activeConversationId) return;
-        const content = String((inputEl && inputEl.value) || '').trim();
-        if (!content) return;
-        if (state.ws && state.ws.readyState === WebSocket.OPEN) {
-            state.ws.send(JSON.stringify({
-                type: 'im.message.send',
-                payload: {
-                    conversation_id: state.activeConversationId,
-                    content: content
-                }
-            }));
-            inputEl.value = '';
-            state.inputValue = '';
-            syncInputHeight();
-            syncComposerState();
-            return;
+        const messageManageModule = getMessageManageModule();
+        if (messageManageModule && typeof messageManageModule.sendCurrentMessage === 'function') {
+            return messageManageModule.sendCurrentMessage();
         }
-        request(`${HTTP_ROOT}/messages`, {
-            method: 'POST',
-            body: JSON.stringify({
-                conversation_id: state.activeConversationId,
-                content: content
-            })
-        }).then(function() {
-            inputEl.value = '';
-            state.inputValue = '';
-            syncInputHeight();
-            syncComposerState();
-            return loadMessages(state.activeConversationId).then(loadSessions);
-        }).catch(function(error) {
-            window.alert(error && error.message ? error.message : '发送失败');
-        });
+        if (Number(state.activeConversationId || 0) > 0) {
+            window.alert('消息模块暂不可用，请刷新页面后重试');
+        }
+        return Promise.resolve(null);
     }
 
     function recallMessage(messageId, conversationId, draftText) {
-        closeActionSheet();
-        const mid = Number(messageId || 0);
-        const cid = Number(conversationId || 0);
-        if (!mid || !cid) return;
-        const draft = String(draftText || '').trim();
-        if (draft) state.recalledDraftByMessageId[mid] = draft;
-        request(`${HTTP_ROOT}/messages/recall`, {
-            method: 'POST',
-            body: JSON.stringify({ message_id: mid })
-        }).then(function(data) {
-            const item = data && data.item ? data.item : null;
-            if (item && item.id) {
-                applyMessageRecalled(item);
-            }
-            loadSessions();
-        }).catch(function(error) {
-            window.alert(error && error.message ? error.message : '撤回失败');
-        });
-    }
-
-    function applyMessageRecalled(item) {
-        if (!item || !item.id) return;
-        const cid = Number(item.conversation_id || 0);
-        if (!cid) return;
-        if (Number(cid) === Number(state.activeConversationId || 0)) {
-            const next = [];
-            state.activeMessages.forEach(function(current) {
-                if (!current || Number(current.id || 0) !== Number(item.id || 0)) {
-                    next.push(current);
-                    return;
-                }
-                next.push(Object.assign({}, current, {
-                    status: 'recalled',
-                    content: '',
-                    content_preview: '[消息已撤回]'
-                }));
-            });
-            state.activeMessages = next;
-            renderMessages();
+        const messageManageModule = getMessageManageModule();
+        if (messageManageModule && typeof messageManageModule.recallMessage === 'function') {
+            return messageManageModule.recallMessage(messageId, conversationId, draftText);
         }
-    }
-
-    function clearSessionUnread(conversationId) {
-        const sessionManageModule = getSessionManageModule();
-        if (sessionManageModule && typeof sessionManageModule.clearSessionUnread === 'function') {
-            sessionManageModule.clearSessionUnread(conversationId);
-            return;
-        }
-        const targetConversationId = Number(conversationId || 0);
-        if (!targetConversationId || !Array.isArray(state.sessions) || !state.sessions.length) return;
-        let changed = false;
-        state.sessions = state.sessions.map(function(item) {
-            if (!item || Number(item.conversation_id || 0) !== targetConversationId) return item;
-            const unreadCount = Number(item && (item.unread_count || item.unread || 0) || 0);
-            if (unreadCount <= 0) return item;
-            changed = true;
-            return Object.assign({}, item, {
-                unread_count: 0,
-                unread: 0
-            });
-        });
-        if (changed) render();
+        return Promise.resolve(null);
     }
 
     function markRead(conversationId) {
-        if (!state.ws || state.ws.readyState !== WebSocket.OPEN) return;
-        const targetConversationId = Number(conversationId || state.activeConversationId || 0);
-        if (!targetConversationId || !shouldAutoMarkRead(targetConversationId) || !state.activeMessages.length) return;
-        let lastPeerMessage = null;
-        for (let index = state.activeMessages.length - 1; index >= 0; index -= 1) {
-            const candidate = state.activeMessages[index];
-            if (candidate && candidate.sender_username !== state.username) {
-                lastPeerMessage = candidate;
-                break;
-            }
+        const messageManageModule = getMessageManageModule();
+        if (messageManageModule && typeof messageManageModule.markRead === 'function') {
+            messageManageModule.markRead(conversationId);
         }
-        if (!lastPeerMessage || !lastPeerMessage.seq_no) return;
-        const lastSeqNo = Number(lastPeerMessage.seq_no || 0);
-        if (!lastSeqNo) return;
-        const previousMarkedSeqNo = Number(state.lastReadSentByConversation[targetConversationId] || 0);
-        if (lastSeqNo <= previousMarkedSeqNo) return;
-        state.lastReadSentByConversation[targetConversationId] = lastSeqNo;
-        state.ws.send(JSON.stringify({
-            type: 'im.message.read',
-            payload: {
-                conversation_id: targetConversationId,
-                seq_no: lastSeqNo
-            }
-        }));
-        clearSessionUnread(targetConversationId);
     }
 
     function ensureWebSocket() {
-        if (state.ws && (state.ws.readyState === WebSocket.OPEN || state.ws.readyState === WebSocket.CONNECTING)) return;
-        try {
-            state.ws = new WebSocket(buildWsUrl());
-            state.ws.addEventListener('message', function(event) {
-                try {
-                    const data = JSON.parse(event.data || '{}');
-                    if (data.type === 'im.message.created') {
-                        const item = data.payload || null;
-                        if (!item || !item.conversation_id) return;
-                        if (Number(item.conversation_id) === Number(state.activeConversationId || 0)) {
-                            state.activeMessages.push(item);
-                            renderMessages();
-                            if (item.sender_username !== state.username) markRead(item.conversation_id);
-                        }
-                        loadSessions();
-                        return;
-                    }
-                    if (data.type === 'im.message.read') {
-                        const payload = data.payload || null;
-                        if (payload && Number(payload.conversation_id || 0) > 0) {
-                            loadSessions();
-                        }
-                        if (payload && Number(payload.conversation_id || 0) === Number(state.activeConversationId || 0)) {
-                            loadMessages(state.activeConversationId);
-                        }
-                        return;
-                    }
-                    if (data.type === 'im.message.recalled') {
-                        const payload = data.payload || null;
-                        if (payload && payload.id) {
-                            applyMessageRecalled(payload);
-                            loadSessions();
-                        }
-                        return;
-                    }
-                    if (data.type === 'im.session.updated') {
-                        const payload = data.payload || null;
-                        loadSessions();
-                        if (state.homeTab === 'contacts' || state.contactsLoaded) {
-                            loadContacts();
-                        }
-                        if (payload && Number(payload.conversation_id || 0) > 0) {
-                            const updatedConversationId = Number(payload.conversation_id || 0);
-                            if (updatedConversationId === Number(state.activeConversationId || 0)) {
-                                loadMessages(state.activeConversationId);
-                            }
-                            if (state.memberPanelOpen && Number(state.memberPanelConversationId || 0) === updatedConversationId) {
-                                state.memberPanelLoading = true;
-                                state.memberPanelError = '';
-                                renderMemberPanel();
-                                request(`${HTTP_ROOT}/sessions/members?conversation_id=${encodeURIComponent(updatedConversationId)}`).then(function(membersData) {
-                                    if (!state.memberPanelOpen || Number(state.memberPanelConversationId || 0) !== updatedConversationId) return;
-                                    state.memberPanelLoading = false;
-                                    state.memberPanelData = membersData && membersData.item ? membersData.item : null;
-                                    renderMemberPanel();
-                                }).catch(function(error) {
-                                    if (!state.memberPanelOpen || Number(state.memberPanelConversationId || 0) !== updatedConversationId) return;
-                                    state.memberPanelLoading = false;
-                                    state.memberPanelError = error && error.message ? error.message : '读取群成员失败';
-                                    renderMemberPanel();
-                                });
-                            }
-                            if (state.groupSettingsOpen && Number(state.groupSettingsConversationId || 0) === updatedConversationId) {
-                                loadGroupSettings(updatedConversationId);
-                            }
-                        }
-                    }
-                } catch (e) {}
-            });
-            state.ws.addEventListener('close', function() {
-                state.ws = null;
-                setTimeout(function() {
-                    if (state.allowed) ensureWebSocket();
-                }, 1500);
-            });
-        } catch (e) {}
+        const messageManageModule = getMessageManageModule();
+        if (messageManageModule && typeof messageManageModule.ensureWebSocket === 'function') {
+            messageManageModule.ensureWebSocket();
+        }
     }
 
     function init() {
+        initAppShellModule();
         ensureRoot();
         initProfileModule();
         render();
@@ -2816,8 +2705,10 @@
     }
 
     window.AKIMClient = {
-        open: function() { state.open = true; if (!state.activeConversationId) state.view = 'sessions'; render(); },
-        close: function() { closeActionSheet(); closeReadProgressPanel(); closeMemberPanel(); closeSettingsPanel(); state.open = false; state.view = 'sessions'; render(); },
+        open: openShellPanel,
+        close: function() {
+            showSessionsView({ closePanel: true });
+        },
         reloadSessions: loadSessions
     };
 })();

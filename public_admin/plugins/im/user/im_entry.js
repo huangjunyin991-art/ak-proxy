@@ -34,9 +34,19 @@
             src: `${window.location.origin}/chat/plugins/im/user/modules/im_group_manage.js`
         },
         {
+            selector: 'script[data-ak-im-user-plugin-message-manage="1"]',
+            datasetKey: 'akImUserPluginMessageManage',
+            src: `${window.location.origin}/chat/plugins/im/user/modules/im_message_manage.js`
+        },
+        {
             selector: 'script[data-ak-im-user-plugin-overlay="1"]',
             datasetKey: 'akImUserPluginOverlay',
             src: `${window.location.origin}/chat/plugins/im/user/modules/im_overlay.js`
+        },
+        {
+            selector: 'script[data-ak-im-user-plugin-app-shell="1"]',
+            datasetKey: 'akImUserPluginAppShell',
+            src: `${window.location.origin}/chat/plugins/im/user/modules/im_app_shell.js`
         },
         {
             selector: 'script[data-ak-im-user-plugin-client="1"]',
