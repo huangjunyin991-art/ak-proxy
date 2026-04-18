@@ -17,11 +17,54 @@
         }
     }
 
-    if (document.querySelector('script[data-ak-im-user-plugin-client="1"]')) return;
+    const assets = [
+        {
+            selector: 'script[data-ak-im-user-plugin-profile="1"]',
+            datasetKey: 'akImUserPluginProfile',
+            src: `${window.location.origin}/chat/plugins/im/user/modules/im_profile.js`
+        },
+        {
+            selector: 'script[data-ak-im-user-plugin-session-manage="1"]',
+            datasetKey: 'akImUserPluginSessionManage',
+            src: `${window.location.origin}/chat/plugins/im/user/modules/im_session_manage.js`
+        },
+        {
+            selector: 'script[data-ak-im-user-plugin-group-manage="1"]',
+            datasetKey: 'akImUserPluginGroupManage',
+            src: `${window.location.origin}/chat/plugins/im/user/modules/im_group_manage.js`
+        },
+        {
+            selector: 'script[data-ak-im-user-plugin-overlay="1"]',
+            datasetKey: 'akImUserPluginOverlay',
+            src: `${window.location.origin}/chat/plugins/im/user/modules/im_overlay.js`
+        },
+        {
+            selector: 'script[data-ak-im-user-plugin-client="1"]',
+            datasetKey: 'akImUserPluginClient',
+            src: `${window.location.origin}/chat/plugins/im/user/im_client.js`
+        }
+    ];
 
-    const script = document.createElement('script');
-    script.src = withWidgetAssetVersion(`${window.location.origin}/chat/plugins/im/user/im_client.js`);
-    script.async = true;
-    script.dataset.akImUserPluginClient = '1';
-    document.head.appendChild(script);
+    function loadAsset(index) {
+        if (index >= assets.length) return;
+        const asset = assets[index];
+        if (document.querySelector(asset.selector)) {
+            loadAsset(index + 1);
+            return;
+        }
+        const script = document.createElement('script');
+        script.src = withWidgetAssetVersion(asset.src);
+        script.async = false;
+        script.dataset[asset.datasetKey] = '1';
+        const continueLoad = function() {
+            script.onload = null;
+            script.onerror = null;
+            loadAsset(index + 1);
+        };
+        script.onload = continueLoad;
+        script.onerror = continueLoad;
+        document.head.appendChild(script);
+    }
+
+    loadAsset(0);
 })();

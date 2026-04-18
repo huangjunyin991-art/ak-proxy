@@ -127,6 +127,192 @@
     let sessionTopbarTitleEl = null;
     let sessionNewBtnEl = null;
 
+    function getProfileModule() {
+        const modules = window.AKIMUserModules;
+        if (!modules || typeof modules !== 'object') return null;
+        const profileModule = modules.profile;
+        if (!profileModule || typeof profileModule.init !== 'function' || typeof profileModule.renderProfileSubpage !== 'function') return null;
+        return profileModule;
+    }
+
+    function initProfileModule() {
+        const profileModule = getProfileModule();
+        if (!profileModule) return;
+        profileModule.init({
+            state: state,
+            get elements() {
+                return {
+                    profileSubpageBodyEl: profileSubpageBodyEl,
+                    profileSubpageTitleEl: profileSubpageTitleEl
+                };
+            },
+            isProfileSubpageView: isProfileSubpageView,
+            getProfileSubpageTitle: getProfileSubpageTitle,
+            normalizeProfileGender: normalizeProfileGender,
+            getProfileGenderLabel: getProfileGenderLabel,
+            formatProfileHistoryTime: formatProfileHistoryTime,
+            getAvatarUrl: getAvatarUrl,
+            buildAvatarBoxMarkup: buildAvatarBoxMarkup,
+            escapeHtml: escapeHtml,
+            countProfileAvatarFavorites: countProfileAvatarFavorites,
+            refreshProfileAvatar: refreshProfileAvatar,
+            selectProfileAvatar: selectProfileAvatar,
+            setProfileAvatarFavorite: setProfileAvatarFavorite,
+            openProfileAvatarRemoveDialog: openProfileAvatarRemoveDialog,
+            saveProfileDetail: saveProfileDetail
+        });
+    }
+
+    function getOverlayModule() {
+        const modules = window.AKIMUserModules;
+        if (!modules || typeof modules !== 'object') return null;
+        const overlayModule = modules.overlay;
+        if (!overlayModule || typeof overlayModule.init !== 'function') return null;
+        return overlayModule;
+    }
+
+    function getSessionManageModule() {
+        const modules = window.AKIMUserModules;
+        if (!modules || typeof modules !== 'object') return null;
+        const sessionManageModule = modules.sessionManage;
+        if (!sessionManageModule || typeof sessionManageModule.init !== 'function') return null;
+        return sessionManageModule;
+    }
+
+    function initSessionManageModule() {
+        const sessionManageModule = getSessionManageModule();
+        if (!sessionManageModule) return;
+        sessionManageModule.init({
+            state: state,
+            httpRoot: HTTP_ROOT,
+            get elements() {
+                return {
+                    sessionList: sessionList
+                };
+            },
+            request: request,
+            render: render,
+            escapeHtml: escapeHtml,
+            formatSessionTime: formatSessionTime,
+            closeActionSheet: closeActionSheet,
+            closeReadProgressPanel: closeReadProgressPanel,
+            closeMemberPanel: closeMemberPanel,
+            closeSettingsPanel: closeSettingsPanel,
+            openSessionActionSheet: openSessionActionSheet,
+            loadMessages: loadMessages,
+            buildAvatarBoxMarkup: buildAvatarBoxMarkup,
+            buildGroupAvatarMosaicMarkup: buildGroupAvatarMosaicMarkup
+        });
+    }
+
+    function getGroupManageModule() {
+        const modules = window.AKIMUserModules;
+        if (!modules || typeof modules !== 'object') return null;
+        const groupManageModule = modules.groupManage;
+        if (!groupManageModule || typeof groupManageModule.init !== 'function') return null;
+        return groupManageModule;
+    }
+
+    function initGroupManageModule() {
+        const groupManageModule = getGroupManageModule();
+        if (!groupManageModule) return;
+        groupManageModule.init({
+            state: state,
+            httpRoot: HTTP_ROOT,
+            request: request,
+            render: render,
+            escapeHtml: escapeHtml,
+            getAvatarUrl: getAvatarUrl,
+            openDialog: openDialog,
+            closeDialog: closeDialog,
+            renderDialog: renderDialog,
+            renderSettingsPanel: renderSettingsPanel,
+            renderMemberActionPage: renderMemberActionPage,
+            openMemberActionPage: openMemberActionPage,
+            closeMemberActionPage: closeMemberActionPage,
+            closeSettingsPanel: closeSettingsPanel,
+            loadSessions: loadSessions,
+            loadMessages: loadMessages,
+            sortGroupMembersForDisplay: sortGroupMembersForDisplay
+        });
+    }
+
+    function handleActionSheetSecondaryAction() {
+        if (state.actionSheetMode === 'group_menu') {
+            closeActionSheet();
+            openSettingsPanel(getActiveSession());
+            return;
+        }
+        closeActionSheet();
+    }
+
+    function handleActionSheetPrimaryAction() {
+        if (state.actionSheetMode === 'group_menu') {
+            closeActionSheet();
+            openMemberPanel(getActiveSession());
+            return;
+        }
+        if (state.actionSheetMode === 'session') {
+            if (!state.actionSheetConversationId || state.actionSheetSessionSystemPinned) return;
+            requestSessionPin(state.actionSheetConversationId, !state.actionSheetSessionPinned);
+            return;
+        }
+        if (!state.actionSheetCanRecall || !state.actionSheetMessageId) return;
+        recallMessage(state.actionSheetMessageId, state.actionSheetConversationId, state.actionSheetDraftText);
+    }
+
+    function initOverlayModule() {
+        const overlayModule = getOverlayModule();
+        const sessionManageModule = getSessionManageModule();
+        const groupManageModule = getGroupManageModule();
+        if (!overlayModule) return;
+        overlayModule.init({
+            state: state,
+            httpRoot: HTTP_ROOT,
+            get elements() {
+                return {
+                    actionSheetEl: actionSheetEl,
+                    actionSheetRecallBtn: actionSheetRecallBtn,
+                    actionSheetCancelBtn: actionSheetCancelBtn,
+                    progressPanelEl: progressPanelEl,
+                    progressPanelBodyEl: progressPanelBodyEl,
+                    settingsPanelEl: settingsPanelEl,
+                    settingsPanelBodyEl: settingsPanelBodyEl,
+                    groupInfoTitleEl: groupInfoTitleEl,
+                    memberActionPageEl: memberActionPageEl,
+                    memberActionBodyEl: memberActionBodyEl,
+                    memberActionSearchEl: memberActionSearchEl,
+                    memberActionTitleEl: memberActionTitleEl,
+                    memberActionSubmitBtnEl: memberActionSubmitBtnEl,
+                    dialogEl: dialogEl,
+                    dialogTitleEl: dialogTitleEl,
+                    dialogMessageEl: dialogMessageEl,
+                    dialogCancelBtnEl: dialogCancelBtnEl,
+                    dialogConfirmBtnEl: dialogConfirmBtnEl
+                };
+            },
+            escapeHtml: escapeHtml,
+            request: request,
+            render: render,
+            canRecallMessage: canRecallMessage,
+            getActiveSession: getActiveSession,
+            isGroupSession: isGroupSession,
+            closeActionSheet: closeActionSheet,
+            closeReadProgressPanel: closeReadProgressPanel,
+            closeMemberPanel: closeMemberPanel,
+            closeSettingsPanel: closeSettingsPanel,
+            sessionManage: sessionManageModule,
+            groupManage: groupManageModule,
+            buildAvatarBoxMarkup: buildAvatarBoxMarkup,
+            sortGroupMembersForDisplay: sortGroupMembersForDisplay,
+            formatSessionMember: formatSessionMember,
+            buildGroupAvatarMosaicMarkup: buildGroupAvatarMosaicMarkup,
+            onActionSheetPrimary: handleActionSheetPrimaryAction,
+            onActionSheetSecondary: handleActionSheetSecondaryAction,
+            onDialogConfirm: submitDialogAction
+        });
+    }
+
     function getCookie(name) {
         try {
             const escaped = String(name || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -347,7 +533,7 @@
                 #ak-im-root .ak-im-profile-error{margin-bottom:12px;padding:11px 12px;border-radius:14px;background:rgba(239,68,68,.08);color:#dc2626;font-size:13px;line-height:1.6}
                 #ak-im-root .ak-im-home-tabbar{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:4px;padding:8px 8px calc(8px + env(safe-area-inset-bottom, 0px));background:#ffffff;border-top:1px solid rgba(15,23,42,.06)}
                 #ak-im-root .ak-im-home-tab-btn{border:none;background:transparent;min-height:56px;border-radius:14px;color:#6b7280;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;cursor:pointer}
-                #ak-im-root .ak-im-home-tab-btn svg{width:22px;height:22px;stroke:currentColor;fill:none}
+                #ak-im-root .ak-im-home-tab-btn svg{width:22px;height:22px;stroke:currentColor}
                 #ak-im-root .ak-im-home-tab-btn span{font-size:11px;line-height:1.2}
                 #ak-im-root .ak-im-home-tab-btn.is-active{color:#07c160;background:rgba(7,193,96,.06)}
                 #ak-im-root .ak-im-message-list{flex:1;overflow:auto;padding:14px 12px 10px;background:#ebebeb;display:flex;flex-direction:column;gap:14px}
@@ -569,7 +755,7 @@
                         </div>
                         <div class="ak-im-home-tabbar">
                             <button class="ak-im-home-tab-btn is-active" type="button" data-im-home-tab="chats" aria-label="聊天">
-                                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 6.75C6.5 5.78 7.28 5 8.25 5h7.5c.97 0 1.75.78 1.75 1.75v4.6c0 .97-.78 1.75-1.75 1.75h-3.42l-2.78 2.15c-.29.22-.7.02-.7-.34V13.1H8.25c-.97 0-1.75-.78-1.75-1.75v-4.6Z" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 6.75C6.5 5.78 7.28 5 8.4 5H13.05C14.24 5 15.2 5.78 15.2 6.75V9.85C15.2 11.04 14.24 12 13.05 12H10.15L7.45 14.08C7.17 14.3 6.75 14.1 6.75 13.75V12H6.25V6.75Z" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
                                 <span>聊天</span>
                             </button>
                             <button class="ak-im-home-tab-btn" type="button" data-im-home-tab="contacts" aria-label="通讯录">
@@ -715,6 +901,9 @@
 	    dialogConfirmBtnEl = root.querySelector('[data-im-dialog="confirm"]');
 	    sessionTopbarTitleEl = root.querySelector('.ak-im-session-topbar-title');
 	    sessionNewBtnEl = root.querySelector('.ak-im-new');
+	    initSessionManageModule();
+	    initGroupManageModule();
+	    initOverlayModule();
         root.querySelector('.ak-im-launcher').addEventListener('click', function() {
             state.open = true;
             if (state.view !== 'compose' && !state.activeConversationId) state.view = 'sessions';
@@ -782,60 +971,40 @@
                 sendCurrentMessage();
             }
         });
-        actionSheetEl.querySelector('.ak-im-action-mask').addEventListener('click', function() {
-            closeActionSheet();
-        });
-        actionSheetCancelBtn.addEventListener('click', function() {
-            if (state.actionSheetMode === 'group_menu') {
-                closeActionSheet();
-                openSettingsPanel(getActiveSession());
-                return;
-            }
-            closeActionSheet();
-        });
-        actionSheetRecallBtn.addEventListener('click', function() {
-            if (state.actionSheetMode === 'group_menu') {
-                closeActionSheet();
-                openMemberPanel(getActiveSession());
-                return;
-            }
-            if (state.actionSheetMode === 'session') {
-                if (!state.actionSheetConversationId || state.actionSheetSessionSystemPinned) return;
-                requestSessionPin(state.actionSheetConversationId, !state.actionSheetSessionPinned);
-                return;
-            }
-            if (!state.actionSheetCanRecall || !state.actionSheetMessageId) return;
-            recallMessage(state.actionSheetMessageId, state.actionSheetConversationId, state.actionSheetDraftText);
-        });
-        progressPanelEl.querySelector('.ak-im-progress-mask').addEventListener('click', function() {
-            closeReadProgressPanel();
-        });
-        progressPanelEl.querySelector('.ak-im-progress-close').addEventListener('click', function() {
-            closeReadProgressPanel();
-        });
+	    bindOverlayEvents();
 	    memberPanelEl.querySelector('.ak-im-member-mask').addEventListener('click', function() {
 	        closeMemberPanel();
 	    });
 	    memberPanelEl.querySelector('.ak-im-member-close').addEventListener('click', function() {
 	        closeMemberPanel();
 	    });
-	    settingsPanelEl.querySelector('.ak-im-group-info-back').addEventListener('click', function() {
-	        closeDialog({ silent: true, force: true });
-	        closeSettingsPanel();
-	    });
-	    memberActionPageEl.querySelector('.ak-im-member-action-back').addEventListener('click', function() {
-	        closeDialog({ silent: true, force: true });
-	        closeMemberActionPage();
-	    });
 	    root.querySelector('.ak-im-profile-subpage-back').addEventListener('click', function() {
 	        closeProfileSubpage();
 	    });
-	    memberActionSearchEl.addEventListener('input', function() {
-	        state.memberActionKeyword = memberActionSearchEl.value || '';
-	        renderMemberActionPage();
+        syncInputHeight();
+        syncComposerState();
+    }
+
+	function bindOverlayEvents() {
+	    const overlayModule = getOverlayModule();
+	    if (overlayModule && typeof overlayModule.bindEvents === 'function') {
+	        overlayModule.bindEvents();
+	        return;
+	    }
+	    actionSheetEl.querySelector('.ak-im-action-mask').addEventListener('click', function() {
+	        closeActionSheet();
 	    });
-	    memberActionSubmitBtnEl.addEventListener('click', function() {
-	        submitMemberActionPage();
+	    actionSheetCancelBtn.addEventListener('click', function() {
+	        handleActionSheetSecondaryAction();
+	    });
+	    actionSheetRecallBtn.addEventListener('click', function() {
+	        handleActionSheetPrimaryAction();
+	    });
+	    progressPanelEl.querySelector('.ak-im-progress-mask').addEventListener('click', function() {
+	        closeReadProgressPanel();
+	    });
+	    progressPanelEl.querySelector('.ak-im-progress-close').addEventListener('click', function() {
+	        closeReadProgressPanel();
 	    });
 	    dialogEl.querySelector('.ak-im-dialog-mask').addEventListener('click', function() {
 	        closeDialog();
@@ -846,9 +1015,22 @@
 	    dialogConfirmBtnEl.addEventListener('click', function() {
 	        submitDialogAction();
 	    });
-        syncInputHeight();
-        syncComposerState();
-    }
+	    settingsPanelEl.querySelector('.ak-im-group-info-back').addEventListener('click', function() {
+	        closeDialog({ silent: true, force: true });
+	        closeSettingsPanel();
+	    });
+	    memberActionPageEl.querySelector('.ak-im-member-action-back').addEventListener('click', function() {
+	        closeDialog({ silent: true, force: true });
+	        closeMemberActionPage();
+	    });
+	    memberActionSearchEl.addEventListener('input', function() {
+	        state.memberActionKeyword = memberActionSearchEl.value || '';
+	        renderMemberActionPage();
+	    });
+	    memberActionSubmitBtnEl.addEventListener('click', function() {
+	        submitMemberActionPage();
+	    });
+	}
 
     function escapeHtml(value) {
         return String(value || '').replace(/[&<>"']/g, function(char) {
@@ -881,28 +1063,21 @@
     }
 
     function getActiveSession() {
+        const sessionManageModule = getSessionManageModule();
+        if (sessionManageModule && typeof sessionManageModule.getActiveSession === 'function') {
+            return sessionManageModule.getActiveSession();
+        }
         return state.sessions.find(function(item) {
             return Number(item && item.conversation_id || 0) === Number(state.activeConversationId || 0);
         }) || null;
     }
 
     function isGroupSession(item) {
-        return String(item && item.conversation_type || '').toLowerCase() === 'group';
-    }
-
-    function isSessionPinned(item) {
-        return !!(item && (item.is_pinned || String(item.pin_type || '').toLowerCase() === 'manual' || String(item.pin_type || '').toLowerCase() === 'system'));
-    }
-
-    function isSessionSystemPinned(item) {
-        return String(item && item.pin_type || '').toLowerCase() === 'system';
-    }
-
-    function getSessionDisplayName(item) {
-        if (isGroupSession(item)) {
-            return String(item && (item.conversation_title || item.peer_display_name || '内部群聊') || '内部群聊').trim();
+        const sessionManageModule = getSessionManageModule();
+        if (sessionManageModule && typeof sessionManageModule.isGroupSession === 'function') {
+            return sessionManageModule.isGroupSession(item);
         }
-        return String(item && (item.peer_display_name || item.peer_username || '内部聊天') || '内部聊天').trim();
+        return String(item && item.conversation_type || '').toLowerCase() === 'group';
     }
 
     function getAvatarUrl(value) {
@@ -927,30 +1102,6 @@
 
     function buildAvatarCellMarkup(avatarUrl, fallbackText, altText) {
         return '<span class="ak-im-avatar-cell">' + buildAvatarInnerMarkup(avatarUrl, fallbackText, altText) + '</span>';
-    }
-
-    function buildSessionAvatarMarkup(item) {
-        if (isGroupSession(item)) {
-            const previewMembers = Array.isArray(item && item.members_preview) ? item.members_preview : [];
-            if (previewMembers.length) {
-                return '<div class="ak-im-session-avatar is-mosaic">' + buildGroupAvatarMosaicMarkup(previewMembers, getSessionDisplayName(item)) + '</div>';
-            }
-        }
-        const displayName = getSessionDisplayName(item);
-        return buildAvatarBoxMarkup('ak-im-session-avatar', item && item.avatar_url, displayName, displayName + '头像');
-    }
-
-    function getSessionSubtitle(item) {
-        if (isGroupSession(item)) {
-            const memberCount = Math.max(0, Number(item && item.member_count || 0) || 0);
-            return memberCount > 0 ? ('群聊 · ' + memberCount + '人') : '群聊';
-        }
-        const peerUsername = String(item && item.peer_username || '').trim();
-        return peerUsername ? ('账号：' + peerUsername) : '';
-    }
-
-    function getSessionPreview(item) {
-        return String(item && item.last_message_preview || '').trim() || '暂无消息';
     }
 
     const GROUP_MEMBER_ROLE_WEIGHTS = { owner: 0, admin: 1 };
@@ -1008,10 +1159,6 @@
         return raw.slice(0, 2).toUpperCase();
     }
 
-    function getUnreadCount(item) {
-        return Number(item && (item.unread_count || item.unread || 0) || 0);
-    }
-
     function shouldAutoMarkRead(conversationId) {
         return !!state.open && state.view === 'chat' && Number(state.activeConversationId || 0) === Number(conversationId || 0) && document.visibilityState !== 'hidden';
     }
@@ -1050,57 +1197,31 @@
         const percent = getProgressPercent(summary);
         const isComplete = !!summary.is_fully_read || percent >= 100;
         const label = isComplete ? '✓' : (percent + '%');
-	    const radius = 9;
-	    const circumference = 56.549;
-	    const dashOffset = (circumference * (1 - (Math.max(0, Math.min(100, percent)) / 100))).toFixed(3);
-	    const ariaLabel = isComplete ? '查看消息已读进度，已全部读完' : ('查看消息已读进度，当前 ' + percent + '%');
+        const radius = 9;
+        const circumference = 56.549;
+        const dashOffset = (circumference * (1 - (Math.max(0, Math.min(100, percent)) / 100))).toFixed(3);
+        const ariaLabel = isComplete ? '查看消息已读进度，已全部读完' : ('查看消息已读进度，当前 ' + percent + '%');
         return '<button class="ak-im-progress-btn' + (isComplete ? ' is-complete' : '') + '" type="button" aria-label="' + ariaLabel + '">' +
-	            '<svg class="ak-im-progress-ring" viewBox="0 0 24 24" aria-hidden="true"><circle class="ak-im-progress-track" cx="12" cy="12" r="' + radius + '"></circle><circle class="ak-im-progress-value" cx="12" cy="12" r="' + radius + '" style="stroke-dasharray:' + circumference + ';stroke-dashoffset:' + dashOffset + '"></circle></svg>' +
-	            '<span class="ak-im-progress-label">' + escapeHtml(label) + '</span>' +
+            '<svg class="ak-im-progress-ring" viewBox="0 0 24 24" aria-hidden="true"><circle class="ak-im-progress-track" cx="12" cy="12" r="' + radius + '"></circle><circle class="ak-im-progress-value" cx="12" cy="12" r="' + radius + '" style="stroke-dasharray:' + circumference + ';stroke-dashoffset:' + dashOffset + '"></circle></svg>' +
+            '<span class="ak-im-progress-label">' + escapeHtml(label) + '</span>' +
         '</button>';
     }
 
     function updateActionSheetUI() {
-        if (!actionSheetRecallBtn || !actionSheetCancelBtn) return;
-        if (state.actionSheetMode === 'group_menu') {
-            actionSheetRecallBtn.classList.remove('danger');
-            actionSheetRecallBtn.textContent = '群成员';
-            actionSheetRecallBtn.disabled = !state.actionSheetConversationId;
-            actionSheetCancelBtn.textContent = '群设置';
-            return;
-        }
-        if (state.actionSheetMode === 'session') {
-            actionSheetRecallBtn.classList.remove('danger');
-            if (state.actionSheetSessionSystemPinned) {
-                actionSheetRecallBtn.textContent = '系统置顶';
-                actionSheetRecallBtn.disabled = true;
-            } else {
-                actionSheetRecallBtn.textContent = state.actionSheetSessionPinned ? '取消置顶' : '置顶聊天';
-                actionSheetRecallBtn.disabled = !state.actionSheetConversationId;
-            }
-            actionSheetCancelBtn.textContent = '取消';
-            return;
-        }
-        actionSheetRecallBtn.classList.add('danger');
-        actionSheetRecallBtn.textContent = '撤回';
-        actionSheetRecallBtn.disabled = !state.actionSheetCanRecall;
-        actionSheetCancelBtn.textContent = '取消';
+        return;
     }
 
     function openActionSheet(messageItem) {
-        if (!actionSheetEl) return;
-        state.actionSheetMode = 'message';
-        state.actionSheetOpen = true;
-        state.actionSheetMessageId = Number(messageItem && messageItem.id || 0);
-        state.actionSheetConversationId = Number(messageItem && messageItem.conversation_id || state.activeConversationId || 0);
-        state.actionSheetCanRecall = canRecallMessage(messageItem);
-        state.actionSheetDraftText = String(messageItem && (messageItem.content || messageItem.content_preview || '') || '');
-        state.actionSheetSessionPinned = false;
-        state.actionSheetSessionSystemPinned = false;
-        updateActionSheetUI();
-        actionSheetEl.removeAttribute('inert');
-        actionSheetEl.classList.add('visible');
-        actionSheetEl.setAttribute('aria-hidden', 'false');
+        const overlayModule = getOverlayModule();
+        if (overlayModule && typeof overlayModule.openActionSheet === 'function') {
+            overlayModule.openActionSheet(messageItem);
+            return;
+        }
+        const messageId = Number(messageItem && messageItem.id || 0);
+        if (!messageId || !canRecallMessage(messageItem)) return;
+        if (window.confirm('撤回这条消息？')) {
+            recallMessage(messageId, Number(messageItem && messageItem.conversation_id || state.activeConversationId || 0), String(messageItem && (messageItem.content || messageItem.content_preview || '') || ''));
+        }
     }
 
     function openGroupMenu(sessionItem) {
@@ -1109,22 +1230,28 @@
     }
 
     function openSessionActionSheet(sessionItem) {
-        if (!actionSheetEl || !sessionItem) return;
-        state.actionSheetMode = 'session';
-        state.actionSheetOpen = true;
-        state.actionSheetMessageId = 0;
-        state.actionSheetConversationId = Number(sessionItem.conversation_id || 0);
-        state.actionSheetCanRecall = false;
-        state.actionSheetDraftText = '';
-        state.actionSheetSessionPinned = isSessionPinned(sessionItem);
-        state.actionSheetSessionSystemPinned = isSessionSystemPinned(sessionItem);
-        updateActionSheetUI();
-        actionSheetEl.removeAttribute('inert');
-        actionSheetEl.classList.add('visible');
-        actionSheetEl.setAttribute('aria-hidden', 'false');
+        const overlayModule = getOverlayModule();
+        if (overlayModule && typeof overlayModule.openSessionActionSheet === 'function') {
+            overlayModule.openSessionActionSheet(sessionItem);
+            return;
+        }
+        const sessionManageModule = getSessionManageModule();
+        if (!sessionItem) return;
+        const conversationId = Number(sessionItem.conversation_id || 0);
+        const isSystemPinned = !!(sessionManageModule && typeof sessionManageModule.isSessionSystemPinned === 'function' ? sessionManageModule.isSessionSystemPinned(sessionItem) : false);
+        if (!conversationId || !sessionManageModule || isSystemPinned) return;
+        const nextPinned = !sessionManageModule.isSessionPinned(sessionItem);
+        if (window.confirm(nextPinned ? '置顶这个会话？' : '取消置顶这个会话？')) {
+            requestSessionPin(conversationId, nextPinned);
+        }
     }
 
     function closeActionSheet() {
+        const overlayModule = getOverlayModule();
+        if (overlayModule && typeof overlayModule.closeActionSheet === 'function') {
+            overlayModule.closeActionSheet();
+            return;
+        }
         if (!actionSheetEl) return;
         const activeElement = document.activeElement;
         if (activeElement && actionSheetEl.contains(activeElement) && typeof activeElement.blur === 'function') {
@@ -1145,15 +1272,15 @@
     }
 
     function formatReadProgressMember(member) {
-        const displayName = String(member && member.display_name || '').trim();
-        const username = String(member && member.username || '').trim();
-        if (displayName && username && displayName !== username) {
-            return '<span class="ak-im-progress-member-name">' + escapeHtml(displayName) + '</span><span class="ak-im-progress-member-username">@' + escapeHtml(username) + '</span>';
-        }
-        return '<span class="ak-im-progress-member-name">' + escapeHtml(displayName || username || '未知成员') + '</span>';
+        return '';
     }
 
     function renderReadProgressPanel() {
+        const overlayModule = getOverlayModule();
+        if (overlayModule && typeof overlayModule.renderReadProgressPanel === 'function') {
+            overlayModule.renderReadProgressPanel();
+            return;
+        }
         if (!progressPanelEl || !progressPanelBodyEl) return;
         const isOpen = !!state.readProgressOpen;
         progressPanelEl.classList.toggle('visible', isOpen);
@@ -1169,30 +1296,7 @@
         }
         progressPanelEl.removeAttribute('inert');
         progressPanelEl.setAttribute('aria-hidden', 'false');
-        if (state.readProgressLoading) {
-            progressPanelBodyEl.innerHTML = '<div class="ak-im-progress-loading">正在加载消息读进度...</div>';
-            return;
-        }
-        if (state.readProgressError) {
-            progressPanelBodyEl.innerHTML = '<div class="ak-im-progress-error">' + escapeHtml(state.readProgressError) + '</div>';
-            return;
-        }
-        const detail = state.readProgressData;
-        const summary = detail && detail.read_progress && typeof detail.read_progress === 'object' ? detail.read_progress : null;
-        if (!detail || !summary) {
-            progressPanelBodyEl.innerHTML = '<div class="ak-im-progress-empty">暂无可用的读进度数据</div>';
-            return;
-        }
-        const unreadMembers = Array.isArray(detail.unread_members) ? detail.unread_members : [];
-        const unreadList = unreadMembers.length ? unreadMembers.map(function(member) {
-            return '<div class="ak-im-progress-member"><div>' + formatReadProgressMember(member) + '</div></div>';
-        }).join('') : '<div class="ak-im-progress-empty">全部成员已读</div>';
-        progressPanelBodyEl.innerHTML = '<div class="ak-im-progress-summary">' +
-            '<div class="ak-im-progress-stat"><div class="ak-im-progress-stat-value">' + escapeHtml(String(getProgressPercent(summary))) + '%</div><div class="ak-im-progress-stat-label">已读进度</div></div>' +
-            '<div class="ak-im-progress-stat"><div class="ak-im-progress-stat-value">' + escapeHtml(String(Number(summary.read_count || 0))) + '</div><div class="ak-im-progress-stat-label">已读人数</div></div>' +
-            '<div class="ak-im-progress-stat"><div class="ak-im-progress-stat-value">' + escapeHtml(String(Number(summary.unread_count || 0))) + '</div><div class="ak-im-progress-stat-label">未读人数</div></div>' +
-        '</div>' +
-        '<div class="ak-im-progress-list"><h4 class="ak-im-progress-list-title">未读成员（共 ' + escapeHtml(String(Number(summary.unread_count || 0))) + ' 人）</h4>' + unreadList + '</div>';
+        progressPanelBodyEl.innerHTML = '<div class="ak-im-progress-empty">消息读进度模块暂不可用，请刷新页面后重试</div>';
     }
 
 	function formatSessionMember(member) {
@@ -1234,175 +1338,28 @@
 	        return;
 	    }
 	    const sortedMembers = sortGroupMembersForDisplay(members);
-	    memberPanelBodyEl.innerHTML = '<div class="ak-im-member-summary">共 ' + escapeHtml(String(Number(detail.member_count || sortedMembers.length || 0))) + ' 人</div><div class="ak-im-member-list">' + (sortedMembers.length ? sortedMembers.map(function(member) {
-	        return formatSessionMember(member);
-	    }).join('') : '<div class="ak-im-member-empty">当前群里还没有成员</div>') + '</div>';
-	}
-
-	function formatSettingsMemberChip(member) {
-	    const displayName = String(member && member.display_name || '').trim() || String(member && member.username || '').trim() || '未知成员';
-	    const username = String(member && member.username || '').trim();
-	    const role = String(member && member.role || '').trim().toLowerCase();
-	    const roleText = role === 'owner' ? '群主' : (role === 'admin' ? '管理员' : '成员');
-	    return '<div class="ak-im-settings-chip"><span>' + escapeHtml(displayName + (username && displayName !== username ? ' @' + username : '')) + '</span><span class="ak-im-settings-chip-role">' + escapeHtml(roleText) + '</span></div>';
-	}
-
-	function getGroupMemberRoleLabel(role) {
-	    const key = String(role || '').trim().toLowerCase();
-	    if (key === 'owner') return '群主';
-	    if (key === 'admin') return '管理员';
-	    return '';
-	}
-
-	function getMemberDisplayName(member, fallbackText) {
-	    const displayName = String(member && member.display_name || '').trim();
-	    const username = String(member && member.username || '').trim();
-	    return displayName || username || String(fallbackText || '成员');
+	    memberPanelBodyEl.innerHTML = '<div class="ak-im-member-summary">共 ' + escapeHtml(String(Number(detail.member_count || sortedMembers.length || 0))) + ' 人</div><div class="ak-im-member-list">' + (sortedMembers.length ? sortedMembers.map(formatSessionMember).join('') : '<div class="ak-im-member-empty">当前群里还没有成员</div>') + '</div>';
 	}
 
 	function getMemberActionConfig(mode) {
-	    if (mode === 'remove') {
-	        return {
-	            title: '移除成员',
-	            selectedTitle: '已选择移除成员',
-	            listTitle: '全部成员',
-	            emptyText: '当前没有可移除的成员',
-	            submitText: '确认移除',
-	            submittingText: '正在移除...',
-	            confirmTitle: '确认移除成员？',
-	            confirmText: '移除',
-	            errorMessage: '移除成员失败',
-	            buildRequestBody: function(conversationId, usernames) {
-	                return { conversation_id: conversationId, usernames: usernames };
-	            },
-	            requestUrl: `${HTTP_ROOT}/sessions/members/remove`,
-	            buildConfirmMessage: function(candidates) {
-	                return '移除后，这些成员将退出当前群聊。\n\n已选择：' + formatMemberActionCandidateSummary(candidates);
-	            }
-	        };
-	    }
-	    if (mode === 'clear_member_history') {
-	        return {
-	            title: '清空指定成员聊天记录',
-	            selectedTitle: '已选择清空聊天记录成员',
-	            listTitle: '全部成员',
-	            emptyText: '当前没有可清空聊天记录的成员',
-	            submitText: '确认清空',
-	            submittingText: '正在清空...',
-	            confirmTitle: '确认清空指定成员聊天记录？',
-	            confirmText: '清空',
-	            errorMessage: '清空指定成员聊天记录失败',
-	            buildRequestBody: function(conversationId, usernames) {
-	                return { conversation_id: conversationId, usernames: usernames };
-	            },
-	            requestUrl: `${HTTP_ROOT}/sessions/history/clear-member`,
-	            buildConfirmMessage: function(candidates) {
-	                return '将删除所选成员在本群发送过的全部消息。\n\n已选择：' + formatMemberActionCandidateSummary(candidates);
-	            }
-	        };
-	    }
-	    return null;
-	}
-
-	function buildMemberActionCandidates(detail, mode) {
-	    const members = sortGroupMembersForDisplay(Array.isArray(detail && detail.members) ? detail.members : []);
-	    const authorSet = {};
-	    (Array.isArray(detail && detail.message_authors) ? detail.message_authors : []).forEach(function(item) {
-	        const username = String(item && item.username || '').trim().toLowerCase();
-	        if (username) authorSet[username] = true;
-	    });
-	    return members.map(function(member) {
-	        const username = String(member && member.username || '').trim().toLowerCase();
-	        const displayName = getMemberDisplayName(member, '成员');
-	        const role = String(member && member.role || '').trim().toLowerCase();
-	        let disabledReason = '';
-	        if (!username) {
-	            disabledReason = '账号无效';
-	        } else if (mode === 'remove') {
-	            if (role === 'owner') disabledReason = '群主不可移除';
-	            else if (role === 'admin') disabledReason = '管理员不可移除';
-	        } else if (mode === 'clear_member_history' && !authorSet[username]) {
-	            disabledReason = '无聊天记录';
-	        }
-	        return {
-	            username: username,
-	            displayName: displayName,
-	            avatarUrl: getAvatarUrl(member && member.avatar_url),
-	            role: role,
-	            roleLabel: getGroupMemberRoleLabel(role),
-	            disabledReason: disabledReason,
-	            selectable: !disabledReason,
-	            searchText: (displayName + '\n' + username).toLowerCase()
-	        };
-	    });
-	}
-
-	function getActiveMemberActionDetail() {
-	    const conversationId = Number(state.memberActionConversationId || 0);
-	    if (!conversationId) return null;
-	    if (Number(state.groupSettingsConversationId || 0) !== conversationId) return null;
-	    return state.groupSettingsData;
-	}
-
-	function getMemberActionCandidates() {
-	    const detail = getActiveMemberActionDetail();
-	    if (!detail) return [];
-	    return buildMemberActionCandidates(detail, state.memberActionMode);
-	}
-
-	function syncMemberActionSelection(candidates) {
-	    const allowedMap = {};
-	    (Array.isArray(candidates) ? candidates : []).forEach(function(candidate) {
-	        if (candidate && candidate.selectable && candidate.username) allowedMap[candidate.username] = true;
-	    });
-	    const nextSelected = (Array.isArray(state.memberActionSelectedUsernames) ? state.memberActionSelectedUsernames : []).filter(function(username) {
-	        return !!allowedMap[username];
-	    });
-	    if (nextSelected.length !== state.memberActionSelectedUsernames.length) {
-	        state.memberActionSelectedUsernames = nextSelected;
-	    }
-	    return nextSelected;
-	}
-
-	function filterMemberActionCandidates(candidates, keyword) {
-	    const normalizedKeyword = String(keyword || '').trim().toLowerCase();
-	    if (!normalizedKeyword) return Array.isArray(candidates) ? candidates : [];
-	    return (Array.isArray(candidates) ? candidates : []).filter(function(candidate) {
-	        return String(candidate && candidate.searchText || '').indexOf(normalizedKeyword) >= 0;
-	    });
-	}
-
-	function formatMemberActionCandidateLabel(candidate) {
-	    const displayName = String(candidate && candidate.displayName || '').trim();
-	    const username = String(candidate && candidate.username || '').trim();
-	    if (displayName && username && displayName.toLowerCase() !== username.toLowerCase()) {
-	        return displayName + ' @' + username;
-	    }
-	    return displayName || username || '成员';
-	}
-
-	function formatMemberActionCandidateSummary(candidates) {
-	    const names = (Array.isArray(candidates) ? candidates : []).map(function(candidate) {
-	        return formatMemberActionCandidateLabel(candidate);
-	    }).filter(Boolean);
-	    if (!names.length) return '暂无成员';
-	    if (names.length <= 3) return names.join('、');
-	    return names.slice(0, 3).join('、') + ' 等 ' + names.length + ' 人';
+	    const groupManageModule = getGroupManageModule();
+	    if (!groupManageModule || typeof groupManageModule.getMemberActionConfig !== 'function') return null;
+	    return groupManageModule.getMemberActionConfig(mode);
 	}
 
 	function focusMemberActionSearch() {
-	    if (!memberActionSearchEl) return;
-	    setTimeout(function() {
-	        if (!memberActionSearchEl || !state.memberActionOpen || state.view !== 'member_action') return;
-	        memberActionSearchEl.focus();
-	        try {
-	            const length = memberActionSearchEl.value.length;
-	            memberActionSearchEl.setSelectionRange(length, length);
-	        } catch (e) {}
-	    }, 0);
+	    const overlayModule = getOverlayModule();
+	    if (overlayModule && typeof overlayModule.focusMemberActionSearch === 'function') {
+	        overlayModule.focusMemberActionSearch();
+	    }
 	}
 
 	function openMemberActionPage(mode) {
+	    const overlayModule = getOverlayModule();
+	    if (overlayModule && typeof overlayModule.openMemberActionPage === 'function') {
+	        overlayModule.openMemberActionPage(mode);
+	        return;
+	    }
 	    const config = getMemberActionConfig(mode);
 	    const conversationId = Number(state.groupSettingsConversationId || 0);
 	    if (!config || !conversationId || !state.groupSettingsData) return;
@@ -1419,6 +1376,11 @@
 	}
 
 	function closeMemberActionPage(options) {
+	    const overlayModule = getOverlayModule();
+	    if (overlayModule && typeof overlayModule.closeMemberActionPage === 'function') {
+	        overlayModule.closeMemberActionPage(options);
+	        return;
+	    }
 	    const silent = !!(options && options.silent);
 	    const fallbackView = options && options.fallbackView ? options.fallbackView : (state.groupSettingsOpen ? 'group_info' : (state.activeConversationId ? 'chat' : 'sessions'));
 	    state.memberActionOpen = false;
@@ -1433,6 +1395,11 @@
 	}
 
 	function toggleMemberActionSelection(username) {
+	    const overlayModule = getOverlayModule();
+	    if (overlayModule && typeof overlayModule.toggleMemberActionSelection === 'function') {
+	        overlayModule.toggleMemberActionSelection(username);
+	        return;
+	    }
 	    const normalized = String(username || '').trim().toLowerCase();
 	    if (!normalized || state.memberActionSubmitting) return;
 	    const selected = Array.isArray(state.memberActionSelectedUsernames) ? state.memberActionSelectedUsernames.slice() : [];
@@ -1445,62 +1412,28 @@
 	}
 
 	function renderMemberActionPage() {
+	    const overlayModule = getOverlayModule();
+	    if (overlayModule && typeof overlayModule.renderMemberActionPage === 'function') {
+	        overlayModule.renderMemberActionPage();
+	        return;
+	    }
 	    if (!memberActionBodyEl || !memberActionSearchEl || !memberActionTitleEl || !memberActionSubmitBtnEl) return;
 	    const isOpen = !!state.memberActionOpen;
 	    const config = getMemberActionConfig(state.memberActionMode);
 	    memberActionTitleEl.textContent = config ? config.title : '选择成员';
 	    memberActionSearchEl.value = String(state.memberActionKeyword || '');
-	    memberActionSearchEl.disabled = !isOpen || !!state.memberActionSubmitting;
-	    if (!isOpen || !config) {
-	        memberActionBodyEl.innerHTML = '';
-	        memberActionSubmitBtnEl.disabled = true;
-	        memberActionSubmitBtnEl.textContent = '确认';
-	        return;
-	    }
-	    const candidates = getMemberActionCandidates();
-	    const selectedUsernames = syncMemberActionSelection(candidates);
-	    const candidateMap = {};
-	    candidates.forEach(function(candidate) {
-	        if (candidate && candidate.username) candidateMap[candidate.username] = candidate;
-	    });
-	    const selectedCandidates = selectedUsernames.map(function(username) {
-	        return candidateMap[username] || null;
-	    }).filter(Boolean);
-	    const filteredCandidates = filterMemberActionCandidates(candidates, state.memberActionKeyword);
-	    const selectedMarkup = selectedCandidates.length ? '<div class="ak-im-member-action-chip-list">' + selectedCandidates.map(function(candidate) {
-	        return '<button class="ak-im-member-action-chip" type="button" data-im-member-chip="' + escapeHtml(candidate.username) + '"><span class="ak-im-member-action-chip-label">' + escapeHtml(formatMemberActionCandidateLabel(candidate)) + '</span><span class="ak-im-member-action-chip-remove" aria-hidden="true">×</span></button>';
-	    }).join('') + '</div>' : '<div class="ak-im-member-action-selected-empty">暂未选择成员</div>';
-	    const listMarkup = filteredCandidates.length ? '<div class="ak-im-member-action-list">' + filteredCandidates.map(function(candidate) {
-	        const isSelected = selectedUsernames.indexOf(candidate.username) >= 0;
-	        const reasonClass = candidate.disabledReason === '无聊天记录' ? ' is-muted' : '';
-	        return '<button class="ak-im-member-action-row' + (candidate.selectable ? '' : ' is-disabled') + '" type="button" data-im-member-option="' + escapeHtml(candidate.username) + '"' + (candidate.selectable ? '' : ' disabled') + '>' +
-	            buildAvatarBoxMarkup('ak-im-member-action-avatar', candidate.avatarUrl, candidate.displayName || candidate.username || '成员', (candidate.displayName || candidate.username || '成员') + '头像') +
-	            '<div class="ak-im-member-action-main"><div class="ak-im-member-action-name">' + escapeHtml(candidate.displayName || candidate.username || '未知成员') + '</div>' +
-	            '<div class="ak-im-member-action-meta"><span>@' + escapeHtml(candidate.username || 'unknown') + '</span>' +
-	            (candidate.roleLabel ? '<span class="ak-im-member-action-role">' + escapeHtml(candidate.roleLabel) + '</span>' : '') +
-	            (candidate.disabledReason ? '<span class="ak-im-member-action-reason' + reasonClass + '">' + escapeHtml(candidate.disabledReason) + '</span>' : '') +
-	            '</div></div>' +
-	            '<span class="ak-im-member-action-check' + (candidate.selectable ? (isSelected ? ' is-selected' : '') : ' is-disabled') + '">' + (isSelected ? '✓' : '') + '</span>' +
-	        '</button>';
-	    }).join('') + '</div>' : '<div class="ak-im-member-action-empty">' + escapeHtml(state.memberActionKeyword ? '没有匹配的成员' : config.emptyText) + '</div>';
-	    memberActionBodyEl.innerHTML = (state.memberActionError ? '<div class="ak-im-member-action-error">' + escapeHtml(state.memberActionError) + '</div>' : '') +
-	        '<div class="ak-im-member-action-section"><div class="ak-im-member-action-section-title">' + escapeHtml(config.selectedTitle + '（' + selectedCandidates.length + '）') + '</div>' + selectedMarkup + '</div>' +
-	        '<div class="ak-im-member-action-section"><div class="ak-im-member-action-section-title">' + escapeHtml(config.listTitle) + '</div>' + listMarkup + '</div>';
-	    Array.prototype.forEach.call(memberActionBodyEl.querySelectorAll('[data-im-member-option]'), function(button) {
-	        button.addEventListener('click', function() {
-	            toggleMemberActionSelection(button.getAttribute('data-im-member-option'));
-	        });
-	    });
-	    Array.prototype.forEach.call(memberActionBodyEl.querySelectorAll('[data-im-member-chip]'), function(button) {
-	        button.addEventListener('click', function() {
-	            toggleMemberActionSelection(button.getAttribute('data-im-member-chip'));
-	        });
-	    });
-	    memberActionSubmitBtnEl.disabled = !selectedCandidates.length || !!state.memberActionSubmitting;
-	    memberActionSubmitBtnEl.textContent = state.memberActionSubmitting ? config.submittingText : (config.submitText + (selectedCandidates.length ? '（' + selectedCandidates.length + '）' : ''));
+	    memberActionSearchEl.disabled = true;
+	    memberActionSubmitBtnEl.disabled = true;
+	    memberActionSubmitBtnEl.textContent = '确认';
+	    memberActionBodyEl.innerHTML = isOpen && config ? '<div class="ak-im-member-action-empty">成员操作模块暂不可用，请刷新后重试</div>' : '';
 	}
 
-	function openDialog(options) {
+	    function openDialog(options) {
+	    const overlayModule = getOverlayModule();
+	    if (overlayModule && typeof overlayModule.openDialog === 'function') {
+	        overlayModule.openDialog(options);
+	        return;
+	    }
 	    state.dialogOpen = true;
 	    state.dialogTitle = String(options && options.title || '提示');
 	    state.dialogMessage = String(options && options.message || '');
@@ -1511,10 +1444,25 @@
 	    state.dialogAction = String(options && options.action || '');
 	    state.dialogSubmitting = false;
 	    state.dialogPayload = options && options.payload ? options.payload : null;
-	    renderDialog();
+	    const dialogText = [state.dialogTitle, state.dialogMessage].filter(Boolean).join('\n\n') || '请确认当前操作';
+	    if (!state.dialogShowCancel) {
+	        window.alert(dialogText);
+	        submitDialogAction();
+	        return;
+	    }
+	    if (window.confirm(dialogText)) {
+	        submitDialogAction();
+	        return;
+	    }
+	    closeDialog({ force: true });
 	}
 
 	function closeDialog(options) {
+	    const overlayModule = getOverlayModule();
+	    if (overlayModule && typeof overlayModule.closeDialog === 'function') {
+	        overlayModule.closeDialog(options);
+	        return;
+	    }
 	    const silent = !!(options && options.silent);
 	    const force = !!(options && options.force);
 	    if (state.dialogSubmitting && !force) return;
@@ -1532,157 +1480,29 @@
 	}
 
 	function renderDialog() {
-	    if (!dialogEl || !dialogTitleEl || !dialogMessageEl || !dialogCancelBtnEl || !dialogConfirmBtnEl) return;
-	    const isOpen = !!state.dialogOpen;
-	    const actionWrap = dialogEl.querySelector('.ak-im-dialog-actions');
-	    dialogEl.classList.toggle('visible', isOpen);
-	    if (!isOpen) {
-	        const activeElement = document.activeElement;
-	        if (activeElement && dialogEl.contains(activeElement) && typeof activeElement.blur === 'function') activeElement.blur();
-	        dialogEl.setAttribute('inert', '');
-	        dialogEl.setAttribute('aria-hidden', 'true');
-	        if (actionWrap) actionWrap.classList.remove('is-single');
+	    const overlayModule = getOverlayModule();
+	    if (overlayModule && typeof overlayModule.renderDialog === 'function') {
+	        overlayModule.renderDialog();
 	        return;
 	    }
-	    dialogEl.removeAttribute('inert');
-	    dialogEl.setAttribute('aria-hidden', 'false');
-	    if (actionWrap) actionWrap.classList.toggle('is-single', !state.dialogShowCancel);
-	    dialogTitleEl.textContent = state.dialogTitle || '提示';
-	    dialogMessageEl.textContent = state.dialogMessage || '';
-	    dialogCancelBtnEl.textContent = state.dialogCancelText || '取消';
-	    dialogCancelBtnEl.style.display = state.dialogShowCancel ? '' : 'none';
-	    dialogCancelBtnEl.disabled = !!state.dialogSubmitting;
-	    dialogConfirmBtnEl.textContent = state.dialogConfirmText || '确定';
-	    dialogConfirmBtnEl.disabled = !!state.dialogSubmitting;
-	    dialogConfirmBtnEl.classList.toggle('is-danger', !!state.dialogDanger);
-	}
-
-	function showSettingsErrorDialog(message) {
-	    openDialog({
-	        title: '操作失败',
-	        message: message,
-	        confirmText: '我知道了',
-	        showCancel: false,
-	        danger: false
-	    });
-	}
-
-	function executeSettingsDialogRequest(requestPromiseFactory, onSuccess, fallbackMessage, onError) {
-	    state.dialogSubmitting = true;
-	    renderDialog();
-	    Promise.resolve().then(requestPromiseFactory).then(function() {
-	        return typeof onSuccess === 'function' ? onSuccess() : null;
-	    }).then(function() {
-	        closeDialog({ silent: true, force: true });
-	        render();
-	    }).catch(function(error) {
-	        const message = error && error.message ? error.message : fallbackMessage;
-	        closeDialog({ silent: true, force: true });
-	        if (typeof onError === 'function' && onError(message) === true) {
-	            render();
-	            return;
-	        }
-	        showSettingsErrorDialog(message);
-	    });
+	    return;
 	}
 
 	function submitMemberActionPage() {
-	    const config = getMemberActionConfig(state.memberActionMode);
-	    const conversationId = Number(state.memberActionConversationId || 0);
-	    if (!config || !conversationId) return;
-	    const candidates = getMemberActionCandidates();
-	    const selectedUsernames = syncMemberActionSelection(candidates);
-	    const candidateMap = {};
-	    candidates.forEach(function(candidate) {
-	        if (candidate && candidate.username) candidateMap[candidate.username] = candidate;
-	    });
-	    const selectedCandidates = selectedUsernames.map(function(username) {
-	        return candidateMap[username] || null;
-	    }).filter(Boolean);
-	    if (!selectedCandidates.length) {
-	        state.memberActionError = '请至少选择一名成员';
-	        renderMemberActionPage();
+	    const groupManageModule = getGroupManageModule();
+	    if (groupManageModule && typeof groupManageModule.submitMemberActionPage === 'function') {
+	        groupManageModule.submitMemberActionPage();
 	        return;
 	    }
-	    state.memberActionError = '';
-	    openDialog({
-	        title: config.confirmTitle,
-	        message: config.buildConfirmMessage(selectedCandidates),
-	        confirmText: config.confirmText,
-	        cancelText: '取消',
-	        danger: true,
-	        action: 'member_action_submit',
-	        payload: {
-	            mode: state.memberActionMode,
-	            conversationId: conversationId,
-	            usernames: selectedCandidates.map(function(candidate) { return candidate.username; })
-	        }
-	    });
-	}
-
-	function executeMemberActionRequest(payload) {
-	    const mode = String(payload && payload.mode || '');
-	    const conversationId = Number(payload && payload.conversationId || 0);
-	    const config = getMemberActionConfig(mode);
-	    const usernames = Array.isArray(payload && payload.usernames) ? payload.usernames : [];
-	    if (!config || !conversationId || !usernames.length) {
-	        closeDialog({ force: true });
-	        return;
-	    }
-	    state.memberActionSubmitting = true;
+	    if (!state.memberActionOpen) return;
+	    state.memberActionError = '成员操作模块暂不可用，请刷新后重试';
 	    renderMemberActionPage();
-	    executeSettingsDialogRequest(function() {
-	        return request(config.requestUrl, {
-	            method: 'POST',
-	            body: JSON.stringify(config.buildRequestBody(conversationId, usernames))
-	        });
-	    }, function() {
-	        return refreshAfterSettingsAction(conversationId).then(function() {
-	            closeMemberActionPage({ silent: true, fallbackView: 'group_info' });
-	        });
-	    }, config.errorMessage, function(message) {
-	        state.memberActionSubmitting = false;
-	        state.memberActionError = message;
-	        renderMemberActionPage();
-	        return true;
-	    });
-	}
-
-	function executeClearHistoryRequest(conversationId) {
-	    executeSettingsDialogRequest(function() {
-	        return request(`${HTTP_ROOT}/sessions/history/clear`, {
-	            method: 'POST',
-	            body: JSON.stringify({ conversation_id: conversationId })
-	        });
-	    }, function() {
-	        return refreshAfterSettingsAction(conversationId);
-	    }, '清空全群聊天记录失败');
-	}
-
-	function executeHideGroupRequest(conversationId) {
-	    executeSettingsDialogRequest(function() {
-	        return request(`${HTTP_ROOT}/sessions/hide`, {
-	            method: 'POST',
-	            body: JSON.stringify({ conversation_id: conversationId })
-	        });
-	    }, function() {
-	        closeSettingsPanel();
-	        return loadSessions();
-	    }, '隐藏本群失败');
 	}
 
 	function submitDialogAction() {
 	    if (!state.dialogOpen || state.dialogSubmitting) return;
-	    if (state.dialogAction === 'member_action_submit') {
-	        executeMemberActionRequest(state.dialogPayload || null);
-	        return;
-	    }
-	    if (state.dialogAction === 'clear_history') {
-	        executeClearHistoryRequest(Number(state.dialogPayload && state.dialogPayload.conversationId || 0));
-	        return;
-	    }
-	    if (state.dialogAction === 'hide_group') {
-	        executeHideGroupRequest(Number(state.dialogPayload && state.dialogPayload.conversationId || 0));
+	    const groupManageModule = getGroupManageModule();
+	    if (groupManageModule && typeof groupManageModule.handleDialogAction === 'function' && groupManageModule.handleDialogAction(state.dialogAction, state.dialogPayload || null)) {
 	        return;
 	    }
 	    if (state.dialogAction === 'profile_avatar_remove') {
@@ -1692,36 +1512,15 @@
 	    closeDialog();
 	}
 
-	function formatGroupInfoMemberText(member, fallbackText) {
-	    const displayName = String(member && member.display_name || '').trim();
-	    const username = String(member && member.username || '').trim();
-	    if (displayName && username && displayName !== username) return displayName + ' @' + username;
-	    return displayName || username || String(fallbackText || '暂无');
-	}
-
-	function formatGroupInfoCollectionText(members, emptyText) {
-	    const names = (Array.isArray(members) ? members : []).map(function(member) {
-	        return formatGroupInfoMemberText(member, '');
-	    }).filter(Boolean);
-	    if (!names.length) return String(emptyText || '暂无');
-	    if (names.length <= 3) return names.join('、');
-	    return names.slice(0, 3).join('、') + ' 等 ' + names.length + ' 人';
-	}
-
-	function buildGroupInfoCell(label, value, action, extraClass) {
-	    const className = 'ak-im-group-info-cell' + (action ? ' is-action' : '') + (extraClass ? ' ' + extraClass : '');
-	    const tagName = action ? 'button' : 'div';
-	    return '<' + tagName + ' class="' + className + '"' + (action ? ' type="button" data-im-settings-action="' + action + '"' : '') + '>' +
-	        '<div class="ak-im-group-info-cell-main"><div class="ak-im-group-info-cell-label">' + escapeHtml(label) + '</div>' +
-	        (value ? '<div class="ak-im-group-info-cell-value">' + escapeHtml(value) + '</div>' : '') +
-	        '</div>' + (action ? '<div class="ak-im-group-info-cell-arrow">›</div>' : '') + '</' + tagName + '>';
-	}
-
 	function renderSettingsPanel() {
+	    const overlayModule = getOverlayModule();
+	    if (overlayModule && typeof overlayModule.renderSettingsPanel === 'function') {
+	        overlayModule.renderSettingsPanel();
+	        return;
+	    }
 	    if (!settingsPanelEl || !settingsPanelBodyEl) return;
-	    const isOpen = !!state.groupSettingsOpen;
 	    if (groupInfoTitleEl) groupInfoTitleEl.textContent = '聊天信息';
-	    if (!isOpen) {
+	    if (!state.groupSettingsOpen) {
 	        settingsPanelBodyEl.innerHTML = '';
 	        return;
 	    }
@@ -1733,65 +1532,15 @@
 	        settingsPanelBodyEl.innerHTML = '<div class="ak-im-group-info-error">' + escapeHtml(state.groupSettingsError) + '</div>';
 	        return;
 	    }
-	    const detail = state.groupSettingsData;
-	    if (!detail) {
-	        settingsPanelBodyEl.innerHTML = '<div class="ak-im-group-info-empty">暂无可用的群信息</div>';
-	        return;
-	    }
-	    const rawMembers = Array.isArray(detail.members) ? detail.members : [];
-	    const members = sortGroupMembersForDisplay(rawMembers);
-	    const admins = Array.isArray(detail.admins) ? detail.admins : [];
-	    const authors = Array.isArray(detail.message_authors) ? detail.message_authors : [];
-	    const canManage = !!detail.can_manage;
-	    const memberCount = Math.max(0, Number(detail.member_count || members.length || 0) || 0);
-	    const showAddMemberTile = canManage && memberCount <= 15;
-	    const addMemberMarkup = showAddMemberTile ? '<button class="ak-im-member-item is-add" type="button" data-im-settings-action="add"><div class="ak-im-member-avatar">+</div><div class="ak-im-member-body"><div class="ak-im-member-name">添加</div></div></button>' : '';
-	    const previewLimit = showAddMemberTile ? 19 : 20;
-	    const membersExpanded = !!state.groupSettingsMembersExpanded;
-	    const visibleMembers = membersExpanded ? members : members.slice(0, previewLimit);
-	    const showMoreMembers = members.length > previewLimit;
-	    const memberGridMarkup = (visibleMembers.length || addMemberMarkup) ? '<div class="ak-im-member-list">' + visibleMembers.map(formatSessionMember).join('') + addMemberMarkup + '</div>' : '<div class="ak-im-group-info-empty">当前群里还没有成员</div>';
-	    const ownerText = formatGroupInfoMemberText(detail.owner || { username: detail.owner_username }, '暂无群主');
-	    const adminsText = formatGroupInfoCollectionText(admins, '暂无群管理员');
-	    const authorsText = formatGroupInfoCollectionText(authors, '暂无可清空聊天记录成员');
-	    const statusText = detail.hidden_for_all ? '已对全员隐藏' : '正常显示';
-	    if (groupInfoTitleEl) groupInfoTitleEl.textContent = '聊天信息(' + memberCount + ')';
-	    const heroTitle = String(detail.conversation_title || '群聊');
-	    const heroMosaicSource = members.length ? members : (detail.owner ? [detail.owner] : []);
-	    const heroMarkup = '<div class="ak-im-group-info-hero">' +
-	        '<div class="ak-im-group-info-hero-avatar">' + buildGroupAvatarMosaicMarkup(heroMosaicSource, heroTitle) + '</div>' +
-	        '<div class="ak-im-group-info-hero-title">' + escapeHtml(heroTitle) + '</div>' +
-	        '<div class="ak-im-group-info-hero-subtitle">群聊 · ' + memberCount + ' 人</div>' +
-	    '</div>';
-	    settingsPanelBodyEl.innerHTML = heroMarkup + '<div class="ak-im-group-info-members">' + memberGridMarkup + (showMoreMembers ? '<button class="ak-im-group-info-more" type="button" data-im-settings-action="toggle_members">' + escapeHtml(membersExpanded ? '收起群成员' : '更多群成员') + '<span aria-hidden="true">⌄</span></button>' : '') + '</div>' +
-	        '<div class="ak-im-group-info-section">' +
-	            buildGroupInfoCell('群聊名称', String(detail.conversation_title || '群聊')) +
-	            buildGroupInfoCell('群主', ownerText) +
-	            buildGroupInfoCell('群管理员', adminsText) +
-	            buildGroupInfoCell('可清空聊天记录成员', authorsText) +
-	            buildGroupInfoCell('群状态', statusText) +
-	        '</div>' +
-	        (canManage ? '<div class="ak-im-group-info-section">' +
-	            buildGroupInfoCell('添加成员', '', 'add') +
-	            buildGroupInfoCell('移除成员', '', 'remove') +
-	            buildGroupInfoCell('清空指定成员聊天记录', '', 'clear_member_history') +
-	            buildGroupInfoCell('清空全群聊天记录', '', 'clear_history', 'is-danger') +
-	            buildGroupInfoCell('隐藏本群', '', 'hide_group', 'is-danger') +
-	        '</div>' : '');
-	    Array.prototype.forEach.call(settingsPanelBodyEl.querySelectorAll('[data-im-settings-action]'), function(button) {
-	        button.addEventListener('click', function() {
-	            const action = button.getAttribute('data-im-settings-action');
-	            if (action === 'toggle_members') {
-	                state.groupSettingsMembersExpanded = !state.groupSettingsMembersExpanded;
-	                renderSettingsPanel();
-	                return;
-	            }
-	            handleSettingsAction(action);
-	        });
-	    });
+	    settingsPanelBodyEl.innerHTML = '<div class="ak-im-group-info-empty">群设置模块暂不可用，请刷新后重试</div>';
 	}
 
 	function closeSettingsPanel() {
+	    const overlayModule = getOverlayModule();
+	    if (overlayModule && typeof overlayModule.closeSettingsPanel === 'function') {
+	        overlayModule.closeSettingsPanel();
+	        return;
+	    }
 	    closeDialog({ silent: true, force: true });
 	    closeMemberActionPage({ silent: true, fallbackView: state.activeConversationId ? 'chat' : 'sessions' });
 	    state.groupSettingsOpen = false;
@@ -1807,28 +1556,26 @@
 	}
 
 	function loadGroupSettings(conversationId) {
+	    const groupManageModule = getGroupManageModule();
+	    if (groupManageModule && typeof groupManageModule.loadGroupSettings === 'function') {
+	        return groupManageModule.loadGroupSettings(conversationId);
+	    }
 	    const targetConversationId = Number(conversationId || 0);
 	    if (!targetConversationId) return Promise.resolve(null);
-	    state.groupSettingsLoading = true;
-	    state.groupSettingsError = '';
+	    state.groupSettingsLoading = false;
+	    state.groupSettingsError = '群设置模块暂不可用，请刷新后重试';
 	    state.groupSettingsConversationId = targetConversationId;
+	    state.groupSettingsData = null;
 	    renderSettingsPanel();
-	    return request(`${HTTP_ROOT}/sessions/group_profile?conversation_id=${encodeURIComponent(targetConversationId)}`).then(function(data) {
-	        if (Number(state.groupSettingsConversationId || 0) !== targetConversationId) return null;
-	        state.groupSettingsLoading = false;
-	        state.groupSettingsData = data && data.item ? data.item : null;
-	        renderSettingsPanel();
-	        return state.groupSettingsData;
-	    }).catch(function(error) {
-	        if (Number(state.groupSettingsConversationId || 0) !== targetConversationId) return null;
-	        state.groupSettingsLoading = false;
-	        state.groupSettingsError = error && error.message ? error.message : '读取群信息失败';
-	        renderSettingsPanel();
-	        return null;
-	    });
+	    return Promise.resolve(null);
 	}
 
 	function openSettingsPanel(sessionItem) {
+	    const overlayModule = getOverlayModule();
+	    if (overlayModule && typeof overlayModule.openSettingsPanel === 'function') {
+	        overlayModule.openSettingsPanel(sessionItem);
+	        return;
+	    }
 	    const conversationId = Number(sessionItem && sessionItem.conversation_id || state.activeConversationId || 0);
 	    if (!conversationId || !isGroupSession(sessionItem || getActiveSession())) return;
 	    closeActionSheet();
@@ -1847,78 +1594,12 @@
 	    loadGroupSettings(conversationId);
 	}
 
-	function normalizePromptUsernames(value) {
-	    return Array.from(new Set(String(value || '').split(/[\s,，;；\n\r]+/).map(function(item) {
-	        return String(item || '').trim().toLowerCase();
-	    }).filter(Boolean)));
-	}
-
-	function refreshAfterSettingsAction(conversationId) {
-	    return loadSessions().then(function() {
-	        if (Number(state.activeConversationId || 0) === Number(conversationId || 0)) {
-	            return loadMessages(conversationId);
-	        }
-	        return null;
-	    }).then(function() {
-	        if (state.groupSettingsOpen && Number(state.groupSettingsConversationId || 0) === Number(conversationId || 0)) {
-	            return loadGroupSettings(conversationId);
-	        }
-	        return null;
-	    });
-	}
-
-	function handleSettingsAction(action) {
-	    const conversationId = Number(state.groupSettingsConversationId || 0);
-	    const detail = state.groupSettingsData;
-	    if (!conversationId || !detail || !detail.can_manage) return;
-	    if (action === 'add') {
-	        const raw = window.prompt('输入要添加的账号，多个账号可用空格、逗号或换行分隔', '');
-	        const usernames = normalizePromptUsernames(raw);
-	        if (!usernames.length) return;
-	        request(`${HTTP_ROOT}/sessions/members/add`, {
-	            method: 'POST',
-	            body: JSON.stringify({ conversation_id: conversationId, usernames: usernames })
-	        }).then(function() {
-	            return refreshAfterSettingsAction(conversationId);
-	        }).catch(function(error) {
-	            window.alert(error && error.message ? error.message : '添加成员失败');
-	        });
-	        return;
-	    }
-	    if (action === 'remove') {
-	        openMemberActionPage('remove');
-	        return;
-	    }
-	    if (action === 'clear_member_history') {
-	        openMemberActionPage('clear_member_history');
-	        return;
-	    }
-	    if (action === 'clear_history') {
-	        openDialog({
-	            title: '清空全群聊天记录？',
-	            message: '清空后，本群现有聊天记录会立即对所有成员生效。',
-	            confirmText: '清空',
-	            cancelText: '取消',
-	            danger: true,
-	            action: 'clear_history',
-	            payload: { conversationId: conversationId }
-	        });
-	        return;
-	    }
-	    if (action === 'hide_group') {
-	        openDialog({
-	            title: '隐藏本群？',
-	            message: '隐藏后，本群会对所有成员生效。',
-	            confirmText: '隐藏',
-	            cancelText: '取消',
-	            danger: true,
-	            action: 'hide_group',
-	            payload: { conversationId: conversationId }
-	        });
-	    }
-	}
-
     function closeReadProgressPanel() {
+        const overlayModule = getOverlayModule();
+        if (overlayModule && typeof overlayModule.closeReadProgressPanel === 'function') {
+            overlayModule.closeReadProgressPanel();
+            return;
+        }
         state.readProgressOpen = false;
         state.readProgressLoading = false;
         state.readProgressError = '';
@@ -1928,27 +1609,21 @@
     }
 
     function openReadProgressPanel(messageItem) {
+        const overlayModule = getOverlayModule();
+        if (overlayModule && typeof overlayModule.openReadProgressPanel === 'function') {
+            overlayModule.openReadProgressPanel(messageItem);
+            return;
+        }
         const messageId = Number(messageItem && messageItem.id || 0);
         if (!messageId) return;
 	    closeMemberPanel();
 	    closeSettingsPanel();
         state.readProgressOpen = true;
-        state.readProgressLoading = true;
+        state.readProgressLoading = false;
         state.readProgressError = '';
         state.readProgressMessageId = messageId;
         state.readProgressData = null;
         renderReadProgressPanel();
-        request(`${HTTP_ROOT}/messages/read_progress?message_id=${encodeURIComponent(messageId)}`).then(function(data) {
-            if (Number(state.readProgressMessageId || 0) !== messageId) return;
-            state.readProgressLoading = false;
-            state.readProgressData = data && data.item ? data.item : null;
-            renderReadProgressPanel();
-        }).catch(function(error) {
-            if (Number(state.readProgressMessageId || 0) !== messageId) return;
-            state.readProgressLoading = false;
-            state.readProgressError = error && error.message ? error.message : '读取消息读进度失败';
-            renderReadProgressPanel();
-        });
     }
 
 	function closeMemberPanel() {
@@ -1965,17 +1640,13 @@
 	}
 
     function requestSessionPin(conversationId, pinned) {
-        const targetConversationId = Number(conversationId || 0);
-        if (!targetConversationId) return;
+        const sessionManageModule = getSessionManageModule();
+        if (sessionManageModule && typeof sessionManageModule.requestSessionPin === 'function') {
+            sessionManageModule.requestSessionPin(conversationId, pinned);
+            return;
+        }
         closeActionSheet();
-        request(`${HTTP_ROOT}/sessions/pin`, {
-            method: 'POST',
-            body: JSON.stringify({ conversation_id: targetConversationId, pinned: !!pinned })
-        }).then(function() {
-            return loadSessions();
-        }).catch(function(error) {
-            window.alert(error && error.message ? error.message : '更新置顶状态失败');
-        });
+        window.alert('会话模块暂不可用，请刷新后重试');
     }
 
     function renderComposeView() {
@@ -2098,9 +1769,6 @@
         if (!state.profileLoaded && !state.profileLoading) {
             loadProfile();
         }
-        if (nextView === 'profile_detail') {
-            syncProfileDraftFromProfile();
-        }
         if (nextView === 'profile_avatar' && !state.profileAvatarHistoryLoaded && !state.profileAvatarHistoryLoading) {
             loadProfileAvatarHistory();
         }
@@ -2154,69 +1822,17 @@
     }
 
     function renderSessionList() {
-        if (!root || !sessionList) return;
-        sessionList.innerHTML = '';
-        if (!state.sessions.length) {
-            const empty = document.createElement('div');
-            empty.className = 'ak-im-empty';
-            empty.textContent = state.allowed ? '暂无会话\n点击右上角“发起”开始单聊' : '当前账号未开通聊天';
-            sessionList.appendChild(empty);
+        const sessionManageModule = getSessionManageModule();
+        if (sessionManageModule && typeof sessionManageModule.renderSessionList === 'function') {
+            sessionManageModule.renderSessionList();
             return;
         }
-        state.sessions.forEach(function(item) {
-            const node = document.createElement('div');
-            node.className = 'ak-im-session-item' + (item.conversation_id === state.activeConversationId ? ' ak-active' : '') + (isSessionPinned(item) ? ' is-pinned' : '');
-            const unreadCount = getUnreadCount(item);
-            const subtitle = getSessionSubtitle(item);
-            const previewText = subtitle ? (subtitle + ' · ' + getSessionPreview(item)) : getSessionPreview(item);
-            const pinText = isSessionSystemPinned(item) ? '群置顶' : '置顶';
-            node.innerHTML = buildSessionAvatarMarkup(item) +
-                '<div class="ak-im-session-body">' +
-                    '<div class="ak-im-session-title"><span class="ak-im-session-title-text">' + escapeHtml(getSessionDisplayName(item)) + '</span><span class="ak-im-session-pin-tag' + (isSessionPinned(item) ? ' visible' : '') + (isSessionSystemPinned(item) ? ' is-system' : '') + '">' + escapeHtml(pinText) + '</span></div>' +
-                    '<div class="ak-im-session-time">' + escapeHtml(formatSessionTime(item.last_message_at || item.updated_at || item.created_at)) + '</div>' +
-                    '<div class="ak-im-session-preview">' + escapeHtml(previewText) + '</div>' +
-                    '<div class="ak-im-session-unread' + (unreadCount > 0 ? ' visible' : '') + '">' + escapeHtml(unreadCount > 99 ? '99+' : String(unreadCount || '')) + '</div>' +
-                '</div>';
-            let pressTimer = null;
-            let didOpenActionSheet = false;
-            const startPress = function() {
-                if (pressTimer) clearTimeout(pressTimer);
-                pressTimer = setTimeout(function() {
-                    didOpenActionSheet = true;
-                    openSessionActionSheet(item);
-                }, 420);
-            };
-            const cancelPress = function() {
-                if (pressTimer) {
-                    clearTimeout(pressTimer);
-                    pressTimer = null;
-                }
-            };
-            node.addEventListener('click', function() {
-                if (didOpenActionSheet) {
-                    didOpenActionSheet = false;
-                    return;
-                }
-                closeActionSheet();
-                closeReadProgressPanel();
-	                closeMemberPanel();
-                state.activeConversationId = item.conversation_id;
-                state.view = 'chat';
-                state.activeMessages = [];
-                loadMessages(item.conversation_id);
-                render();
-            });
-            node.addEventListener('pointerdown', startPress);
-            node.addEventListener('pointerup', cancelPress);
-            node.addEventListener('pointercancel', cancelPress);
-            node.addEventListener('pointerleave', cancelPress);
-            node.addEventListener('contextmenu', function(event) {
-                event.preventDefault();
-                didOpenActionSheet = true;
-                openSessionActionSheet(item);
-            });
-            sessionList.appendChild(node);
-        });
+        if (!root || !sessionList) return;
+        sessionList.innerHTML = '';
+        const empty = document.createElement('div');
+        empty.className = 'ak-im-empty';
+        empty.textContent = state.sessions.length ? '会话模块暂不可用，请刷新后重试' : (state.allowed ? '暂无会话\n点击右上角“发起”开始单聊' : '当前账号未开通聊天');
+        sessionList.appendChild(empty);
     }
 
     function renderContactsView() {
@@ -2296,248 +1912,46 @@
         });
     }
 
-    function countProfileAvatarFavorites(items) {
-        return (Array.isArray(items) ? items : []).reduce(function(total, item) {
-            return total + (item && item.is_favorite ? 1 : 0);
-        }, 0);
-    }
-
-    function splitProfileAvatarHistoryItems(items) {
-        const groups = {
-            favorites: [],
-            history: []
-        };
-        (Array.isArray(items) ? items : []).forEach(function(item) {
-            if (!item) return;
-            if (item.is_favorite) groups.favorites.push(item);
-            else groups.history.push(item);
-        });
-        return groups;
-    }
-
-    function isCurrentProfileAvatarHistoryItem(item) {
-        const currentAvatarUrl = getAvatarUrl(state.profile && state.profile.avatar_url);
-        const historyAvatarUrl = getAvatarUrl(item && item.avatar_url);
-        return !!currentAvatarUrl && !!historyAvatarUrl && currentAvatarUrl === historyAvatarUrl;
-    }
-
-    function isProfileAvatarHistoryActionPending(actionType, historyId) {
-        return Number(state.profileAvatarHistoryActionId || 0) === Number(historyId || 0) && String(state.profileAvatarHistoryActionType || '') === String(actionType || '');
-    }
-
-    function buildProfileAvatarHistoryCardMarkup(item, displayName, username) {
-        const historyId = Number(item && item.id || 0);
-        const hasHistoryId = historyId > 0;
-        const isBusy = !!state.profileAvatarHistoryActionType || !!state.profileRefreshing;
-        const isCurrent = isCurrentProfileAvatarHistoryItem(item);
-        const isFavorite = !!(item && item.is_favorite);
-        const selecting = isProfileAvatarHistoryActionPending('select', historyId);
-        const favoriting = isProfileAvatarHistoryActionPending('favorite', historyId);
-        const removing = isProfileAvatarHistoryActionPending('remove', historyId);
-        const historyTime = formatProfileHistoryTime(item && item.created_at) || '最近使用';
-        const selectHint = !hasHistoryId ? '当前头像记录同步中' : (isCurrent ? '当前头像' : (selecting ? '正在切换...' : '点击设为当前头像'));
-        const removeLabel = removing ? '…' : '-';
-        return '<div class="ak-im-profile-history-item' + (isCurrent ? ' is-current' : '') + '">' +
-            (isCurrent ? '<div class="ak-im-profile-history-current">当前使用</div>' : '') +
-            '<button class="ak-im-profile-history-remove" type="button" data-im-profile-avatar-remove="' + historyId + '"' + (isBusy || !hasHistoryId ? ' disabled' : '') + '><span class="ak-im-profile-history-remove-mark">' + removeLabel + '</span></button>' +
-            '<button class="ak-im-profile-history-favorite' + (isFavorite ? ' is-active' : '') + '" type="button" data-im-profile-avatar-favorite="' + historyId + '" data-im-profile-avatar-next-favorite="' + (isFavorite ? '0' : '1') + '"' + (isBusy || !hasHistoryId ? ' disabled' : '') + '>' + (favoriting ? '…' : '★') + '</button>' +
-            '<button class="ak-im-profile-history-card" type="button" data-im-profile-avatar-select="' + historyId + '"' + (isBusy || isCurrent || !hasHistoryId ? ' disabled' : '') + '>' +
-                buildAvatarBoxMarkup('ak-im-profile-history-avatar', item && item.avatar_url, displayName || username || '我', '历史头像') +
-                '<div class="ak-im-profile-history-time">' + escapeHtml(historyTime) + '</div>' +
-                '<div class="ak-im-profile-history-hint">' + escapeHtml(selectHint) + '</div>' +
-            '</button>' +
-        '</div>';
-    }
-
-    function buildProfileAvatarHistorySectionMarkup(options) {
-        const items = Array.isArray(options && options.items) ? options.items : [];
-        const title = String(options && options.title || '').trim() || '头像';
-        const subtitle = String(options && options.subtitle || '').trim();
-        const countText = String(options && options.countText || '').trim();
-        const emptyText = String(options && options.emptyText || '').trim() || '暂无头像';
-        const displayName = String(options && options.displayName || '').trim();
-        const username = String(options && options.username || '').trim();
-        return '<div class="ak-im-profile-history-section">' +
-            '<div class="ak-im-profile-history-section-head">' +
-                '<div class="ak-im-profile-entry-label">' + escapeHtml(title) + '</div>' +
-                (countText ? '<div class="ak-im-profile-history-section-count">' + escapeHtml(countText) + '</div>' : '') +
-            '</div>' +
-            (subtitle ? '<div class="ak-im-profile-subtitle">' + escapeHtml(subtitle) + '</div>' : '') +
-            (items.length ? '<div class="ak-im-profile-history-grid">' + items.map(function(item) {
-                return buildProfileAvatarHistoryCardMarkup(item, displayName, username);
-            }).join('') + '</div>' : '<div class="ak-im-profile-placeholder">' + escapeHtml(emptyText) + '</div>') +
-        '</div>';
-    }
-
-    function renderProfileSubpage() {
-        if (!profileSubpageBodyEl || !profileSubpageTitleEl) return;
-        if (!isProfileSubpageView(state.view)) {
-            profileSubpageTitleEl.textContent = '个人资料';
-            profileSubpageBodyEl.innerHTML = '';
-            return;
+        function countProfileAvatarFavorites(items) {
+            return (Array.isArray(items) ? items : []).reduce(function(total, item) {
+                return total + (item && item.is_favorite ? 1 : 0);
+            }, 0);
         }
-        profileSubpageTitleEl.textContent = getProfileSubpageTitle(state.view);
-        if (!state.allowed) {
-            profileSubpageBodyEl.innerHTML = '<div class="ak-im-empty">当前账号未开通聊天</div>';
-            return;
-        }
-        const profile = state.profile || null;
-        const displayName = String(profile && profile.display_name || state.displayName || state.username || '我').trim();
-        const username = String(profile && profile.username || state.username || '').trim();
-        const nickname = String(profile && profile.nickname || '').trim();
-        const genderLabel = getProfileGenderLabel(profile && profile.gender);
-        if (state.view === 'profile_avatar') {
-            const historyGroups = splitProfileAvatarHistoryItems(state.profileAvatarHistory);
-            const favoriteCount = countProfileAvatarFavorites(state.profileAvatarHistory);
-            const historyGuideText = favoriteCount >= 10 ? '已收藏满 10 个头像，继续换头像时不会再自动写入历史，删除部分收藏后恢复。' : '点击头像可立即切回；右上角删除，右下角收藏。';
-            const historyMarkup = state.profileAvatarHistoryLoading ? '<div class="ak-im-profile-placeholder">正在读取头像历史...</div>' : (state.profileAvatarHistoryError ? '<div class="ak-im-profile-error">' + escapeHtml(state.profileAvatarHistoryError) + '</div>' : (
-                buildProfileAvatarHistorySectionMarkup({
-                    title: '收藏头像',
-                    subtitle: '收藏头像不会被自动替换，最多可保留 10 个。',
-                    countText: favoriteCount + '/10',
-                    items: historyGroups.favorites,
-                    emptyText: '还没有收藏头像，点亮右下角星标后会固定保留在这里。',
-                    displayName: displayName,
-                    username: username
-                }) +
-                buildProfileAvatarHistorySectionMarkup({
-                    title: '历史头像',
-                    subtitle: '按时间倒序展示最近更换过的头像。',
-                    countText: historyGroups.history.length + ' 个',
-                    items: historyGroups.history,
-                    emptyText: '暂时还没有历史头像，切换一次后会在这里保留最近 10 个记录。',
-                    displayName: displayName,
-                    username: username
-                })
-            ));
-            profileSubpageBodyEl.innerHTML = (state.profileError ? '<div class="ak-im-profile-error">' + escapeHtml(state.profileError) + '</div>' : '') +
-                (state.profileAvatarActionError ? '<div class="ak-im-profile-error">' + escapeHtml(state.profileAvatarActionError) + '</div>' : '') +
-                '<div class="ak-im-profile-panel">' +
-                    '<div class="ak-im-profile-head">' +
-                        buildAvatarBoxMarkup('ak-im-profile-avatar', profile && profile.avatar_url, displayName || username || '我', (displayName || username || '我') + '头像') +
-                        '<div class="ak-im-profile-name">' + escapeHtml(displayName || '我') + '</div>' +
-                        '<div class="ak-im-profile-username">@' + escapeHtml(username || 'unknown') + '</div>' +
-                    '</div>' +
-                    '<div class="ak-im-profile-subtitle">点击下方按钮会生成新的头像。</div>' +
-                    '<button class="ak-im-profile-primary-btn" type="button" data-im-profile-action="refresh-avatar"' + (state.profileRefreshing ? ' disabled' : '') + '>' + escapeHtml(state.profileRefreshing ? '正在切换头像...' : '换一个头像') + '</button>' +
-                '</div>' +
-                '<div class="ak-im-profile-panel">' +
-                    '<div class="ak-im-profile-subtitle">' + escapeHtml(historyGuideText) + '</div>' +
-                    historyMarkup +
-                '</div>';
-            const refreshBtn = profileSubpageBodyEl.querySelector('[data-im-profile-action="refresh-avatar"]');
-            if (refreshBtn) {
-                refreshBtn.addEventListener('click', function() {
-                    refreshProfileAvatar();
-                });
-            }
-            Array.prototype.forEach.call(profileSubpageBodyEl.querySelectorAll('[data-im-profile-avatar-select]'), function(button) {
-                button.addEventListener('click', function(event) {
-                    event.preventDefault();
-                    event.stopPropagation();
-                    selectProfileAvatar(Number(button.getAttribute('data-im-profile-avatar-select') || 0));
-                });
-            });
-            Array.prototype.forEach.call(profileSubpageBodyEl.querySelectorAll('[data-im-profile-avatar-favorite]'), function(button) {
-                button.addEventListener('click', function(event) {
-                    event.preventDefault();
-                    event.stopPropagation();
-                    setProfileAvatarFavorite(Number(button.getAttribute('data-im-profile-avatar-favorite') || 0), button.getAttribute('data-im-profile-avatar-next-favorite') === '1');
-                });
-            });
-            Array.prototype.forEach.call(profileSubpageBodyEl.querySelectorAll('[data-im-profile-avatar-remove]'), function(button) {
-                button.addEventListener('click', function(event) {
-                    event.preventDefault();
-                    event.stopPropagation();
-                    openProfileAvatarRemoveDialog(Number(button.getAttribute('data-im-profile-avatar-remove') || 0));
-                });
-            });
-            return;
-        }
-        if (state.view === 'profile_detail') {
-            const draftNickname = String(state.profileDraftNickname || '').trim();
-            const draftGender = normalizeProfileGender(state.profileDraftGender);
-            const draftGenderLabel = getProfileGenderLabel(draftGender);
-            profileSubpageBodyEl.innerHTML = (state.profileSaveError ? '<div class="ak-im-profile-error">' + escapeHtml(state.profileSaveError) + '</div>' : '') +
-                '<div class="ak-im-profile-panel">' +
-                    '<div class="ak-im-profile-form">' +
-                        '<div class="ak-im-profile-form-group">' +
-                            '<label class="ak-im-profile-form-label" for="ak-im-profile-nickname">昵称</label>' +
-                            '<input class="ak-im-profile-form-input" id="ak-im-profile-nickname" data-im-profile-field="nickname" type="text" autocomplete="off" spellcheck="false" value="' + escapeHtml(state.profileDraftNickname) + '" placeholder="请输入昵称" />' +
-                            '<div class="ak-im-profile-form-help">保存后会同步显示在会话标题、群成员、消息发送者和个人资料中。</div>' +
-                        '</div>' +
-                        '<div class="ak-im-profile-form-group">' +
-                            '<label class="ak-im-profile-form-label" for="ak-im-profile-gender">性别</label>' +
-                            '<select class="ak-im-profile-form-select" id="ak-im-profile-gender" data-im-profile-field="gender">' +
-                                '<option value="unknown"' + (draftGender === 'unknown' ? ' selected' : '') + '>未设置</option>' +
-                                '<option value="male"' + (draftGender === 'male' ? ' selected' : '') + '>男</option>' +
-                                '<option value="female"' + (draftGender === 'female' ? ' selected' : '') + '>女</option>' +
-                            '</select>' +
-                            '<div class="ak-im-profile-form-help" data-im-profile-preview>当前对外显示：' + escapeHtml((draftNickname || displayName || username || '我') + ' · ' + draftGenderLabel) + '</div>' +
-                        '</div>' +
-                        '<button class="ak-im-profile-primary-btn" type="button" data-im-profile-action="save-detail"' + (state.profileSaving ? ' disabled' : '') + '>' + escapeHtml(state.profileSaving ? '正在保存...' : '保存资料') + '</button>' +
-                    '</div>' +
-                '</div>';
-            const nicknameInput = profileSubpageBodyEl.querySelector('[data-im-profile-field="nickname"]');
-            const genderSelect = profileSubpageBodyEl.querySelector('[data-im-profile-field="gender"]');
-            const previewEl = profileSubpageBodyEl.querySelector('[data-im-profile-preview]');
-            const saveBtn = profileSubpageBodyEl.querySelector('[data-im-profile-action="save-detail"]');
-            const updateDraftPreview = function() {
-                if (!previewEl) return;
-                const previewName = String(state.profileDraftNickname || '').trim() || displayName || username || '我';
-                previewEl.textContent = '当前对外显示：' + previewName + ' · ' + getProfileGenderLabel(state.profileDraftGender);
-            };
-            if (nicknameInput) {
-                nicknameInput.addEventListener('input', function() {
-                    state.profileDraftNickname = nicknameInput.value || '';
-                    state.profileDraftDirty = true;
-                    updateDraftPreview();
-                });
-            }
-            if (genderSelect) {
-                genderSelect.addEventListener('change', function() {
-                    state.profileDraftGender = genderSelect.value || 'unknown';
-                    state.profileDraftDirty = true;
-                    updateDraftPreview();
-                });
-            }
-            if (saveBtn) {
-                saveBtn.addEventListener('click', function() {
-                    saveProfileDetail();
-                });
-            }
-            return;
-        }
-        profileSubpageBodyEl.innerHTML = '<div class="ak-im-profile-panel">' +
-            '<div class="ak-im-profile-head">' +
-                buildAvatarBoxMarkup('ak-im-profile-avatar', profile && profile.avatar_url, displayName || username || '我', (displayName || username || '我') + '头像') +
-                '<div class="ak-im-profile-name">' + escapeHtml(displayName || '我') + '</div>' +
-                '<div class="ak-im-profile-username">@' + escapeHtml(username || 'unknown') + '</div>' +
-            '</div>' +
-            '<div class="ak-im-profile-subtitle">这里是新的全屏设置页入口，后续与 IM 个人相关的设置项会继续放在这里。</div>' +
-        '</div>' +
-        '<div class="ak-im-profile-panel">' +
-            '<div class="ak-im-profile-entry-label">当前资料</div>' +
-            '<div class="ak-im-profile-subtitle">昵称：' + escapeHtml(nickname || displayName || '未设置') + '</div>' +
-            '<div class="ak-im-profile-subtitle">性别：' + escapeHtml(genderLabel) + '</div>' +
-            '<div class="ak-im-profile-subtitle">账号：@' + escapeHtml(username || 'unknown') + '</div>' +
-        '</div>';
-    }
 
-    function syncInputHeight() {
-        if (!inputEl) return;
-        inputEl.style.height = '22px';
-        const nextHeight = Math.min(Math.max(inputEl.scrollHeight, 22), 120);
-        inputEl.style.height = `${nextHeight}px`;
-    }
+        function renderProfileSubpage() {
+            const profileModule = getProfileModule();
+            if (profileModule) {
+                profileModule.renderProfileSubpage();
+                return;
+            }
+            if (!profileSubpageBodyEl || !profileSubpageTitleEl) return;
+            if (!isProfileSubpageView(state.view)) {
+                profileSubpageTitleEl.textContent = '个人资料';
+                profileSubpageBodyEl.innerHTML = '';
+                return;
+            }
+            profileSubpageTitleEl.textContent = getProfileSubpageTitle(state.view);
+            if (!state.allowed) {
+                profileSubpageBodyEl.innerHTML = '<div class="ak-im-empty">当前账号未开通聊天</div>';
+                return;
+            }
+            profileSubpageBodyEl.innerHTML = '<div class="ak-im-profile-panel"><div class="ak-im-empty">个人资料模块暂不可用，请刷新页面后重试</div></div>';
+        }
 
-    function syncComposerState() {
-        if (!inputEl || !sendBtn) return;
-        const canSend = !!state.activeConversationId;
-        inputEl.disabled = !canSend;
-        inputEl.placeholder = canSend ? '输入消息' : '先选择一个会话';
-        sendBtn.disabled = !canSend || !String(inputEl.value || '').trim();
-    }
+        function syncInputHeight() {
+            if (!inputEl) return;
+            inputEl.style.height = '22px';
+            const nextHeight = Math.min(Math.max(inputEl.scrollHeight, 22), 120);
+            inputEl.style.height = `${nextHeight}px`;
+        }
+
+        function syncComposerState() {
+            if (!inputEl || !sendBtn) return;
+            const canSend = !!state.activeConversationId;
+            inputEl.disabled = !canSend;
+            inputEl.placeholder = canSend ? '输入消息' : '先选择一个会话';
+            sendBtn.disabled = !canSend || !String(inputEl.value || '').trim();
+        }
 
     function render() {
         if (!root) return;
@@ -2556,8 +1970,12 @@
         root.classList.toggle('ak-view-member-action', !!showMemberAction);
         root.classList.toggle('ak-view-profile-subpage', !!showProfileSubpage);
         root.querySelector('.ak-im-launcher').classList.toggle('is-open', !!state.open);
+        const sessionManageModule = getSessionManageModule();
         root.querySelector('.ak-im-launcher').classList.toggle('has-unread', state.sessions.some(function(item) {
-            return getUnreadCount(item) > 0;
+            if (sessionManageModule && typeof sessionManageModule.getUnreadCount === 'function') {
+                return sessionManageModule.getUnreadCount(item) > 0;
+            }
+            return Number(item && (item.unread_count || item.unread || 0) || 0) > 0;
         }));
         renderHomeShell();
         statusLine.textContent = '';
@@ -2574,7 +1992,6 @@
 	    renderMemberActionPage();
 	    renderDialog();
         renderComposeView();
-        if (showChat) markRead(state.activeConversationId);
         if (state.open && state.view === 'compose') focusComposeInput();
 	    if (state.open && showMemberAction) focusMemberActionSearch();
     }
@@ -2583,17 +2000,20 @@
         const headerTitle = root.querySelector('.ak-im-chat-title');
         const headerSubtitle = root.querySelector('.ak-im-chat-subtitle');
 	    const activeSession = getActiveSession();
-	    const subtitleText = activeSession ? getSessionSubtitle(activeSession) : '';
-        headerTitle.textContent = activeSession ? getSessionDisplayName(activeSession) : '内部聊天';
+	    const sessionManageModule = getSessionManageModule();
+	    const activeSessionDisplayName = activeSession && sessionManageModule && typeof sessionManageModule.getSessionDisplayName === 'function' ? sessionManageModule.getSessionDisplayName(activeSession) : '内部聊天';
+	    const isActiveGroupSession = !!activeSession && isGroupSession(activeSession);
+	    const subtitleText = activeSession && sessionManageModule && typeof sessionManageModule.getSessionSubtitle === 'function' ? sessionManageModule.getSessionSubtitle(activeSession) : '';
+	    headerTitle.textContent = activeSession ? activeSessionDisplayName : '内部聊天';
 	    headerSubtitle.textContent = activeSession ? subtitleText : '';
 	    if (chatTitleBtnEl) {
-	        const canOpenGroupInfo = !!activeSession && isGroupSession(activeSession);
+	        const canOpenGroupInfo = !!activeSession && isActiveGroupSession;
 	        chatTitleBtnEl.disabled = !canOpenGroupInfo;
 	        chatTitleBtnEl.classList.toggle('is-clickable', canOpenGroupInfo);
 	        chatTitleBtnEl.setAttribute('aria-label', canOpenGroupInfo ? '打开群信息' : '聊天标题');
 	    }
 	    if (chatMenuBtnEl) {
-	        const canOpenMenu = !!activeSession && isGroupSession(activeSession);
+	        const canOpenMenu = !!activeSession && isActiveGroupSession;
 	        chatMenuBtnEl.disabled = !canOpenMenu;
 	        chatMenuBtnEl.classList.toggle('is-hidden', !canOpenMenu);
 	    }
@@ -2644,9 +2064,9 @@
             const wrapper = document.createElement('div');
             const summary = getMessageReadProgress(item);
             const senderDisplayName = String(item && (item.sender_display_name || item.sender_username) || '').trim();
-            const displayName = isSelf ? (state.displayName || senderDisplayName || state.username || '我') : (isGroupSession(activeSession) ? (senderDisplayName || item.sender_username || '群成员') : (activeSession ? getSessionDisplayName(activeSession) : (senderDisplayName || item.sender_username || '对方')));
+            const displayName = isSelf ? (state.displayName || senderDisplayName || state.username || '我') : (isActiveGroupSession ? (senderDisplayName || item.sender_username || '群成员') : (activeSession ? activeSessionDisplayName : (senderDisplayName || item.sender_username || '对方')));
             const metaText = summary && Number(summary.total_count || 0) > 0 ? ('已读 ' + Number(summary.read_count || 0) + '/' + Number(summary.total_count || 0)) : ((isSelf && item.read) ? '对方已读' : '');
-            const senderText = !isSelf && isGroupSession(activeSession) ? String(senderDisplayName || item.sender_username || '').trim() : '';
+	        const senderText = !isSelf && isActiveGroupSession ? String(senderDisplayName || item.sender_username || '').trim() : '';
 	        const progressMarkup = buildReadProgressButtonMarkup(item, activeSession);
 	        const avatarText = displayName || item.sender_username || '成员';
 	        const avatarUrl = isSelf ? getAvatarUrl((state.profile && state.profile.avatar_url) || item.sender_avatar_url) : getAvatarUrl(item.sender_avatar_url);
@@ -2667,7 +2087,7 @@
                 const bubble = wrapper.querySelector('.ak-im-bubble');
                 if (bubble) {
                     let pressTimer = null;
-                    const startPress = function(event) {
+                    const startPress = function() {
                         if (!canRecallMessage(item)) return;
                         if (pressTimer) clearTimeout(pressTimer);
                         pressTimer = setTimeout(function() {
@@ -3122,27 +2542,21 @@
     }
 
     function loadSessions() {
-        return request(`${HTTP_ROOT}/sessions`).then(function(data) {
-            state.sessions = Array.isArray(data && data.items) ? data.items : [];
-            if (Number(state.activeConversationId || 0) > 0) {
-                const stillExists = state.sessions.some(function(item) {
-                    return Number(item && item.conversation_id || 0) === Number(state.activeConversationId || 0);
-                });
-                if (!stillExists) {
-                    state.activeConversationId = 0;
-                    state.activeMessages = [];
-                    closeReadProgressPanel();
-	                closeMemberPanel();
-	                closeSettingsPanel();
-                    if (state.view === 'chat') state.view = 'sessions';
-                }
-            }
-            render();
-            return null;
-        }).catch(function() {
-            render();
-            return null;
-        });
+        const sessionManageModule = getSessionManageModule();
+        if (sessionManageModule && typeof sessionManageModule.loadSessions === 'function') {
+            return sessionManageModule.loadSessions();
+        }
+        state.sessions = [];
+        if (Number(state.activeConversationId || 0) > 0) {
+            state.activeConversationId = 0;
+            state.activeMessages = [];
+            closeReadProgressPanel();
+	        closeMemberPanel();
+	        closeSettingsPanel();
+            if (state.view === 'chat') state.view = 'sessions';
+        }
+        render();
+        return Promise.resolve(null);
     }
 
     function loadMessages(conversationId) {
@@ -3260,12 +2674,17 @@
     }
 
     function clearSessionUnread(conversationId) {
+        const sessionManageModule = getSessionManageModule();
+        if (sessionManageModule && typeof sessionManageModule.clearSessionUnread === 'function') {
+            sessionManageModule.clearSessionUnread(conversationId);
+            return;
+        }
         const targetConversationId = Number(conversationId || 0);
         if (!targetConversationId || !Array.isArray(state.sessions) || !state.sessions.length) return;
         let changed = false;
         state.sessions = state.sessions.map(function(item) {
             if (!item || Number(item.conversation_id || 0) !== targetConversationId) return item;
-            const unreadCount = getUnreadCount(item);
+            const unreadCount = Number(item && (item.unread_count || item.unread || 0) || 0);
             if (unreadCount <= 0) return item;
             changed = true;
             return Object.assign({}, item, {
@@ -3314,7 +2733,7 @@
                     if (data.type === 'im.message.created') {
                         const item = data.payload || null;
                         if (!item || !item.conversation_id) return;
-                        if (Number(item.conversation_id) === Number(state.activeConversationId)) {
+                        if (Number(item.conversation_id) === Number(state.activeConversationId || 0)) {
                             state.activeMessages.push(item);
                             renderMessages();
                             if (item.sender_username !== state.username) markRead(item.conversation_id);
@@ -3385,6 +2804,7 @@
 
     function init() {
         ensureRoot();
+        initProfileModule();
         render();
         loadBootstrap();
     }
