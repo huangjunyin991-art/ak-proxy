@@ -126,6 +126,7 @@
     let dialogConfirmBtnEl = null;
     let sessionTopbarTitleEl = null;
     let sessionNewBtnEl = null;
+    let shellMode = 'none';
 
     function assignShellElements(elements) {
         const nextElements = elements || {};
@@ -170,42 +171,150 @@
     function collectFallbackShellElements(rootNode) {
         return {
             root: rootNode,
-            panel: rootNode ? rootNode.querySelector('.ak-im-shell') : null,
-            sessionList: rootNode ? rootNode.querySelector('.ak-im-session-list') : null,
-            contactsListEl: rootNode ? rootNode.querySelector('.ak-im-contacts-list') : null,
-            profilePageEl: rootNode ? rootNode.querySelector('.ak-im-profile-page') : null,
-            profileSubpageBodyEl: rootNode ? rootNode.querySelector('.ak-im-profile-subpage-page') : null,
-            profileSubpageTitleEl: rootNode ? rootNode.querySelector('.ak-im-profile-subpage-title') : null,
-            messageList: rootNode ? rootNode.querySelector('.ak-im-message-list') : null,
-            statusLine: rootNode ? rootNode.querySelector('.ak-im-status') : null,
-            inputEl: rootNode ? rootNode.querySelector('.ak-im-input') : null,
-            newSessionInputEl: rootNode ? rootNode.querySelector('.ak-im-compose-input') : null,
-            sendBtn: rootNode ? rootNode.querySelector('.ak-im-send') : null,
-            actionSheetEl: rootNode ? rootNode.querySelector('.ak-im-action-sheet') : null,
-            actionSheetRecallBtn: rootNode ? rootNode.querySelector('[data-im-action="recall"]') : null,
-            actionSheetCancelBtn: rootNode ? rootNode.querySelector('[data-im-action="cancel"]') : null,
-            progressPanelEl: rootNode ? rootNode.querySelector('.ak-im-progress-sheet') : null,
-            progressPanelBodyEl: rootNode ? rootNode.querySelector('.ak-im-progress-panel-body') : null,
-            memberPanelEl: rootNode ? rootNode.querySelector('.ak-im-member-sheet') : null,
-            memberPanelBodyEl: rootNode ? rootNode.querySelector('.ak-im-member-panel-body') : null,
-            chatTitleBtnEl: rootNode ? rootNode.querySelector('.ak-im-chat-title-btn') : null,
-            settingsPanelEl: rootNode ? rootNode.querySelector('.ak-im-group-info-screen') : null,
-            settingsPanelBodyEl: rootNode ? rootNode.querySelector('.ak-im-group-info-page') : null,
-            chatMenuBtnEl: rootNode ? rootNode.querySelector('.ak-im-chat-menu') : null,
-            groupInfoTitleEl: rootNode ? rootNode.querySelector('.ak-im-group-info-title') : null,
-            memberActionPageEl: rootNode ? rootNode.querySelector('.ak-im-member-action-screen') : null,
-            memberActionBodyEl: rootNode ? rootNode.querySelector('.ak-im-member-action-body') : null,
-            memberActionSearchEl: rootNode ? rootNode.querySelector('.ak-im-member-action-search-input') : null,
-            memberActionTitleEl: rootNode ? rootNode.querySelector('.ak-im-member-action-title') : null,
-            memberActionSubmitBtnEl: rootNode ? rootNode.querySelector('.ak-im-member-action-submit') : null,
-            dialogEl: rootNode ? rootNode.querySelector('.ak-im-dialog') : null,
-            dialogTitleEl: rootNode ? rootNode.querySelector('.ak-im-dialog-title') : null,
-            dialogMessageEl: rootNode ? rootNode.querySelector('.ak-im-dialog-message') : null,
-            dialogCancelBtnEl: rootNode ? rootNode.querySelector('[data-im-dialog="cancel"]') : null,
-            dialogConfirmBtnEl: rootNode ? rootNode.querySelector('[data-im-dialog="confirm"]') : null,
-            sessionTopbarTitleEl: rootNode ? rootNode.querySelector('.ak-im-session-topbar-title') : null,
-            sessionNewBtnEl: rootNode ? rootNode.querySelector('.ak-im-new') : null
+            panel: null,
+            sessionList: null,
+            contactsListEl: null,
+            profilePageEl: null,
+            profileSubpageBodyEl: null,
+            profileSubpageTitleEl: null,
+            messageList: null,
+            statusLine: null,
+            inputEl: null,
+            newSessionInputEl: null,
+            sendBtn: null,
+            actionSheetEl: null,
+            actionSheetRecallBtn: null,
+            actionSheetCancelBtn: null,
+            progressPanelEl: null,
+            progressPanelBodyEl: null,
+            memberPanelEl: null,
+            memberPanelBodyEl: null,
+            chatTitleBtnEl: null,
+            settingsPanelEl: null,
+            settingsPanelBodyEl: null,
+            chatMenuBtnEl: null,
+            groupInfoTitleEl: null,
+            memberActionPageEl: null,
+            memberActionBodyEl: null,
+            memberActionSearchEl: null,
+            memberActionTitleEl: null,
+            memberActionSubmitBtnEl: null,
+            dialogEl: null,
+            dialogTitleEl: null,
+            dialogMessageEl: null,
+            dialogCancelBtnEl: null,
+            dialogConfirmBtnEl: null,
+            sessionTopbarTitleEl: null,
+            sessionNewBtnEl: null
         };
+    }
+
+    function isFallbackShellActive() {
+        return shellMode === 'fallback';
+    }
+
+    function getFallbackElement(selector) {
+        if (!root) return null;
+        return root.querySelector(selector);
+    }
+
+    function createFallbackShellRoot() {
+        const rootNode = document.createElement('div');
+        const launcherEl = document.createElement('button');
+        const badgeEl = document.createElement('span');
+        const panelEl = document.createElement('div');
+        const cardEl = document.createElement('div');
+        const titleEl = document.createElement('div');
+        const messageEl = document.createElement('div');
+        const hintEl = document.createElement('div');
+        const closeBtnEl = document.createElement('button');
+        rootNode.id = 'ak-im-root';
+        rootNode.setAttribute('data-im-shell-mode', 'fallback');
+        rootNode.style.cssText = 'display:none;position:fixed;left:calc(50% + 46px);top:calc(env(safe-area-inset-top, 0px) - 10px);z-index:2147483643;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif';
+        launcherEl.type = 'button';
+        launcherEl.className = 'ak-im-launcher';
+        launcherEl.setAttribute('data-im-fallback', 'launcher');
+        launcherEl.setAttribute('aria-label', '内部聊天');
+        launcherEl.textContent = 'IM';
+        launcherEl.style.cssText = 'width:56px;height:56px;border:none;border-radius:999px;background:rgba(15,23,42,.72);color:#ffffff;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;position:relative;font-size:14px;font-weight:700;box-shadow:0 12px 28px rgba(15,23,42,.28)';
+        badgeEl.setAttribute('data-im-fallback', 'badge');
+        badgeEl.setAttribute('aria-hidden', 'true');
+        badgeEl.style.cssText = 'display:none;position:absolute;top:10px;right:10px;width:9px;height:9px;border-radius:999px;background:#ef4444';
+        launcherEl.appendChild(badgeEl);
+        panelEl.setAttribute('data-im-fallback', 'panel');
+        panelEl.style.cssText = 'display:none;position:fixed;inset:0;z-index:2147483647;background:rgba(15,23,42,.18);align-items:center;justify-content:center;padding:16px;box-sizing:border-box';
+        cardEl.style.cssText = 'width:min(320px,calc(100vw - 32px));background:#ffffff;border-radius:18px;box-shadow:0 24px 60px rgba(0,0,0,.22);padding:20px 18px 16px;box-sizing:border-box';
+        titleEl.textContent = '聊天壳层模块未加载';
+        titleEl.style.cssText = 'font-size:17px;font-weight:700;color:#111827;line-height:1.4';
+        messageEl.setAttribute('data-im-fallback', 'message');
+        messageEl.textContent = '请刷新页面后重试';
+        messageEl.style.cssText = 'margin-top:10px;font-size:13px;color:#4b5563;line-height:1.7';
+        hintEl.textContent = '当前只保留最小降级壳，避免页面崩溃';
+        hintEl.style.cssText = 'margin-top:8px;font-size:12px;color:#9ca3af;line-height:1.6';
+        closeBtnEl.type = 'button';
+        closeBtnEl.setAttribute('data-im-fallback', 'close');
+        closeBtnEl.textContent = '关闭';
+        closeBtnEl.style.cssText = 'margin-top:16px;width:100%;height:42px;border:none;border-radius:12px;background:#111827;color:#ffffff;font-size:14px;font-weight:600;cursor:pointer';
+        cardEl.appendChild(titleEl);
+        cardEl.appendChild(messageEl);
+        cardEl.appendChild(hintEl);
+        cardEl.appendChild(closeBtnEl);
+        panelEl.appendChild(cardEl);
+        rootNode.appendChild(launcherEl);
+        rootNode.appendChild(panelEl);
+        launcherEl.addEventListener('click', openShellPanel);
+        closeBtnEl.addEventListener('click', function() {
+            showSessionsView({ closePanel: true });
+        });
+        panelEl.addEventListener('click', function(event) {
+            if (event.target === panelEl) {
+                showSessionsView({ closePanel: true });
+            }
+        });
+        return rootNode;
+    }
+
+    function ensureFallbackRoot() {
+        if (root && root.isConnected && isFallbackShellActive()) return;
+        if (root && root.isConnected) {
+            root.remove();
+        }
+        const fallbackRoot = createFallbackShellRoot();
+        document.body.appendChild(fallbackRoot);
+        assignShellElements(collectFallbackShellElements(fallbackRoot));
+        shellMode = 'fallback';
+        initShellModules();
+    }
+
+    function renderFallbackShell(shellState) {
+        if (!root || !isFallbackShellActive()) return;
+        const nextShellState = shellState || getShellRenderState();
+        const launcherEl = getFallbackElement('[data-im-fallback="launcher"]');
+        const badgeEl = getFallbackElement('[data-im-fallback="badge"]');
+        const panelEl = getFallbackElement('[data-im-fallback="panel"]');
+        const messageEl = getFallbackElement('[data-im-fallback="message"]');
+        root.style.display = nextShellState.allowed ? 'block' : 'none';
+        if (launcherEl) {
+            launcherEl.style.opacity = nextShellState.open ? '0' : '1';
+            launcherEl.style.pointerEvents = nextShellState.open ? 'none' : 'auto';
+            launcherEl.style.transform = nextShellState.open ? 'scale(.96)' : 'scale(1)';
+            launcherEl.style.color = nextShellState.hasUnread ? '#56c57b' : '#ffffff';
+        }
+        if (badgeEl) {
+            badgeEl.style.display = nextShellState.hasUnread ? 'block' : 'none';
+        }
+        if (panelEl) {
+            panelEl.style.display = nextShellState.open && nextShellState.allowed ? 'flex' : 'none';
+        }
+        if (messageEl) {
+            if (!nextShellState.allowed) {
+                messageEl.textContent = '当前账号未开通聊天';
+            } else if (state.ready) {
+                messageEl.textContent = '聊天壳层模块未加载，请刷新页面后重试';
+            } else {
+                messageEl.textContent = '正在等待聊天模块初始化';
+            }
+        }
     }
 
     function initShellModules() {
@@ -307,6 +416,7 @@
                 return root;
             },
             onRootReady: function(elements) {
+                shellMode = 'full';
                 assignShellElements(elements);
                 initShellModules();
             },
@@ -634,515 +744,20 @@
     }
 
     function ensureRoot() {
-        if (root && root.isConnected) return;
-        if (root && !root.isConnected) root = null;
+        if (root && !root.isConnected) {
+            assignShellElements({});
+        }
         const appShellModule = getAppShellModule();
         if (appShellModule) {
+            if (root && root.isConnected && shellMode === 'full') return;
+            if (root && root.isConnected && isFallbackShellActive()) {
+                root.remove();
+                assignShellElements({});
+            }
             appShellModule.ensureRoot();
             return;
         }
-        if (root) return;
-        root = document.createElement('div');
-        root.id = 'ak-im-root';
-        root.innerHTML = `
-            <style>
-                #ak-im-root{display:none;position:fixed;left:calc(50% + 46px);top:calc(env(safe-area-inset-top, 0px) - 10px);z-index:2147483643;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif}
-                #ak-im-root.ak-visible{display:block}
-                #ak-im-root.ak-im-open{z-index:2147483647}
-                #ak-im-root .ak-im-launcher{width:56px;height:56px;border:none;border-radius:999px;background:transparent;color:rgba(233,244,255,.84);display:inline-flex;align-items:center;justify-content:center;cursor:pointer;position:relative;transition:color .18s ease,transform .18s ease,filter .18s ease,opacity .18s ease}
-                #ak-im-root .ak-im-launcher svg{position:relative;z-index:1;width:30px;height:30px;transition:filter .18s ease}
-                #ak-im-root .ak-im-launcher:hover,#ak-im-root .ak-im-launcher.is-open{transform:translateY(-1px);color:#fff0c0}
-                #ak-im-root .ak-im-launcher:hover svg,#ak-im-root .ak-im-launcher.is-open svg{filter:drop-shadow(0 0 10px rgba(255,213,100,.32)) drop-shadow(0 0 4px rgba(255,240,192,.22))}
-                @keyframes ak-im-icon-green-flash{0%,100%{filter:drop-shadow(0 0 8px rgba(7,193,96,.34)) drop-shadow(0 0 3px rgba(52,211,153,.22))}50%{filter:drop-shadow(0 0 14px rgba(52,211,153,.44)) drop-shadow(0 0 6px rgba(7,193,96,.28))}}
-                #ak-im-root .ak-im-launcher.has-unread{color:#56c57b}
-                #ak-im-root .ak-im-launcher.has-unread svg{animation:ak-im-icon-green-flash 1.8s ease-in-out infinite}
-                #ak-im-root .ak-im-launcher-badge{position:absolute;top:8px;right:8px;min-width:9px;width:9px;height:9px;border-radius:999px;background:linear-gradient(180deg,#ff2f43 0%,#f30023 100%);box-shadow:0 0 8px rgba(255,39,66,.24);border:1px solid rgba(255,140,150,.22);display:none}
-                #ak-im-root .ak-im-launcher.has-unread .ak-im-launcher-badge{display:block}
-                #ak-im-root .ak-im-shell{display:none;position:fixed;inset:0;background:#ededed;overflow:hidden}
-                #ak-im-root.ak-im-open .ak-im-shell{display:block}
-                #ak-im-root.ak-im-open .ak-im-launcher{opacity:0;pointer-events:none;transform:scale(.96)}
-                #ak-im-root .ak-im-screen{display:none;position:absolute;inset:0;flex-direction:column;min-height:0}
-                #ak-im-root.ak-view-sessions .ak-im-session-screen{display:flex}
-                #ak-im-root.ak-view-chat .ak-im-chat-screen{display:flex}
-                #ak-im-root.ak-view-compose .ak-im-compose-screen{display:flex}
-                #ak-im-root.ak-view-group-info .ak-im-group-info-screen{display:flex}
-                #ak-im-root.ak-view-member-action .ak-im-member-action-screen{display:flex}
-                #ak-im-root.ak-view-profile-subpage .ak-im-profile-subpage-screen{display:flex}
-                #ak-im-root .ak-im-topbar{height:calc(56px + env(safe-area-inset-top, 0px));padding:calc(env(safe-area-inset-top, 0px) + 8px) 12px 8px;display:grid;grid-template-columns:52px 1fr 52px;align-items:center;background:#ededed;border-bottom:1px solid rgba(15,23,42,.06);box-sizing:border-box}
-                #ak-im-root .ak-im-topbar-title,#ak-im-root .ak-im-topbar-title-wrap{text-align:center;min-width:0}
-                #ak-im-root .ak-im-topbar-title{font-size:17px;font-weight:600;color:#111827;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-                #ak-im-root .ak-im-chat-title-btn{width:100%;border:none;background:transparent;padding:0;margin:0;display:flex;flex-direction:column;align-items:center;justify-content:center;border-radius:10px;min-width:0}
-                #ak-im-root .ak-im-chat-title-btn.is-clickable{cursor:pointer}
-                #ak-im-root .ak-im-chat-title-btn.is-clickable:active{opacity:.76}
-                #ak-im-root .ak-im-chat-title-btn:disabled{cursor:default;opacity:1}
-                #ak-im-root .ak-im-chat-title{font-size:17px;font-weight:600;color:#111827;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-                #ak-im-root .ak-im-chat-subtitle{margin-top:2px;font-size:11px;color:#6b7280;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-                #ak-im-root .ak-im-nav-btn{height:34px;border:none;background:transparent;color:#111827;padding:0 8px;font-size:15px;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;border-radius:10px}
-                #ak-im-root .ak-im-nav-btn.is-hidden{opacity:0;pointer-events:none}
-                #ak-im-root .ak-im-nav-btn svg{width:20px;height:20px;stroke:currentColor}
-                #ak-im-root .ak-im-nav-btn.ak-im-new{justify-self:end;font-size:15px;color:#1f2937}
-                #ak-im-root .ak-im-session-page{flex:1;display:flex;flex-direction:column;min-height:0;background:#f7f7f7}
-                #ak-im-root .ak-im-home-panels{flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden}
-                #ak-im-root .ak-im-home-panel{display:none;flex:1;min-height:0;flex-direction:column}
-                #ak-im-root .ak-im-home-panel.is-active{display:flex}
-                #ak-im-root .ak-im-search-bar{padding:8px 12px;background:#ededed;border-bottom:1px solid rgba(15,23,42,.04)}
-                #ak-im-root .ak-im-search-pill{height:36px;border-radius:12px;background:#ffffff;color:#6b7280;display:flex;align-items:center;justify-content:center;font-size:12px}
-                #ak-im-root .ak-im-session-list{flex:1;overflow:auto;background:#ffffff}
-                #ak-im-root .ak-im-session-item{display:flex;align-items:center;gap:12px;padding:12px 14px;border:none;border-bottom:1px solid rgba(15,23,42,.05);background:#fff;cursor:pointer;position:relative}
-                #ak-im-root .ak-im-session-item.ak-active{background:#f0fdf4}
-                #ak-im-root .ak-im-session-item.is-pinned{background:#f7fcf7}
-                #ak-im-root .ak-im-session-avatar{width:48px;height:48px;border-radius:14px;background:linear-gradient(180deg,#8fe3a8 0%,#56c57b 100%);color:#ffffff;display:inline-flex;align-items:center;justify-content:center;font-size:15px;font-weight:700;flex:0 0 auto}
-                #ak-im-root .ak-im-avatar-photo{width:100%;height:100%;display:block;object-fit:cover}
-                #ak-im-root .ak-im-session-avatar,#ak-im-root .ak-im-avatar,#ak-im-root .ak-im-member-avatar,#ak-im-root .ak-im-member-action-avatar,#ak-im-root .ak-im-contact-avatar,#ak-im-root .ak-im-profile-avatar,#ak-im-root .ak-im-avatar-cell{overflow:hidden}
-                #ak-im-root .ak-im-session-body{min-width:0;flex:1;display:grid;grid-template-columns:1fr auto;grid-template-areas:'name time' 'preview unread';align-items:center;column-gap:10px;row-gap:4px}
-                #ak-im-root .ak-im-session-title{grid-area:name;display:flex;align-items:center;gap:6px;min-width:0;font-size:16px;font-weight:500;color:#111827}
-                #ak-im-root .ak-im-session-title-text{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-                #ak-im-root .ak-im-session-pin-tag{display:none;align-items:center;justify-content:center;flex:0 0 auto;height:18px;padding:0 6px;border-radius:999px;background:rgba(15,23,42,.06);color:#4b5563;font-size:10px;font-weight:700}
-                #ak-im-root .ak-im-session-pin-tag.visible{display:inline-flex}
-                #ak-im-root .ak-im-session-pin-tag.is-system{background:rgba(7,193,96,.12);color:#07c160}
-                #ak-im-root .ak-im-session-time{grid-area:time;font-size:11px;color:#9ca3af;white-space:nowrap}
-                #ak-im-root .ak-im-session-preview{grid-area:preview;font-size:13px;color:#6b7280;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-                #ak-im-root .ak-im-session-unread{grid-area:unread;justify-self:end;min-width:18px;height:18px;padding:0 5px;border-radius:999px;background:#ef4444;color:#fff;font-size:11px;display:none;align-items:center;justify-content:center}
-                #ak-im-root .ak-im-session-unread.visible{display:inline-flex}
-                #ak-im-root .ak-im-contacts-list{flex:1;overflow:auto;background:#ffffff}
-                #ak-im-root .ak-im-contact-item{width:100%;border:none;background:#ffffff;padding:13px 16px;display:flex;align-items:center;gap:12px;text-align:left;cursor:pointer}
-                #ak-im-root .ak-im-contact-item + .ak-im-contact-item{border-top:1px solid rgba(15,23,42,.05)}
-                #ak-im-root .ak-im-contact-avatar{width:46px;height:46px;border-radius:14px;background:linear-gradient(180deg,#8fe3a8 0%,#56c57b 100%);color:#ffffff;display:inline-flex;align-items:center;justify-content:center;font-size:15px;font-weight:700;flex:0 0 auto}
-                #ak-im-root .ak-im-contact-body{min-width:0;flex:1}
-                #ak-im-root .ak-im-contact-name{font-size:15px;font-weight:600;color:#111827;line-height:1.4;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-                #ak-im-root .ak-im-contact-meta{margin-top:3px;font-size:12px;color:#9ca3af;line-height:1.4;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-                #ak-im-root .ak-im-profile-page{flex:1;overflow:auto;padding:14px 12px calc(18px + env(safe-area-inset-bottom, 0px));background:#f7f7f7}
-                #ak-im-root .ak-im-profile-card{background:#ffffff;border-radius:22px;padding:22px 18px 18px;box-shadow:0 1px 2px rgba(15,23,42,.04)}
-                #ak-im-root .ak-im-profile-head{display:flex;flex-direction:column;align-items:center;text-align:center}
-                #ak-im-root .ak-im-profile-avatar{width:88px;height:88px;border-radius:24px;background:linear-gradient(180deg,#8fe3a8 0%,#56c57b 100%);color:#ffffff;display:inline-flex;align-items:center;justify-content:center;font-size:26px;font-weight:700;box-shadow:0 10px 22px rgba(7,193,96,.14)}
-                #ak-im-root .ak-im-profile-name{margin-top:14px;font-size:20px;font-weight:700;color:#111827;line-height:1.3}
-                #ak-im-root .ak-im-profile-username{margin-top:6px;font-size:13px;color:#9ca3af;line-height:1.4}
-                #ak-im-root .ak-im-profile-meta{margin-top:8px;font-size:13px;color:#6b7280;line-height:1.5}
-                #ak-im-root .ak-im-profile-entry-list{margin-top:12px;background:#ffffff;border-radius:18px;overflow:hidden;box-shadow:0 1px 2px rgba(15,23,42,.04)}
-                #ak-im-root .ak-im-profile-entry{width:100%;border:none;background:#ffffff;padding:0 16px;min-height:58px;display:flex;align-items:center;justify-content:space-between;gap:12px;text-align:left;cursor:pointer;box-sizing:border-box}
-                #ak-im-root .ak-im-profile-entry + .ak-im-profile-entry{border-top:1px solid rgba(15,23,42,.06)}
-                #ak-im-root .ak-im-profile-entry-main{min-width:0;flex:1}
-                #ak-im-root .ak-im-profile-entry-label{font-size:16px;font-weight:500;color:#111827;line-height:1.5}
-                #ak-im-root .ak-im-profile-entry-meta{margin-top:4px;font-size:12px;color:#9ca3af;line-height:1.5}
-                #ak-im-root .ak-im-profile-entry-arrow{color:#c7cdd8;font-size:20px;line-height:1;flex:0 0 auto}
-                #ak-im-root .ak-im-profile-subpage-screen{background:#ededed}
-                #ak-im-root .ak-im-profile-subpage-page{flex:1;overflow:auto;padding:12px 12px calc(16px + env(safe-area-inset-bottom, 0px));background:#f7f7f7}
-                #ak-im-root .ak-im-profile-panel{background:#ffffff;border-radius:18px;padding:16px;box-shadow:0 1px 2px rgba(15,23,42,.04)}
-                #ak-im-root .ak-im-profile-panel + .ak-im-profile-panel{margin-top:12px}
-                #ak-im-root .ak-im-profile-subtitle{margin-top:8px;font-size:13px;color:#6b7280;line-height:1.6}
-                #ak-im-root .ak-im-profile-primary-btn{margin-top:16px;width:100%;height:46px;border:none;border-radius:14px;background:#07c160;color:#ffffff;font-size:16px;font-weight:700;cursor:pointer;box-shadow:0 10px 22px rgba(7,193,96,.18)}
-                #ak-im-root .ak-im-profile-primary-btn:disabled{opacity:.42;cursor:not-allowed;box-shadow:none}
-                #ak-im-root .ak-im-profile-history-section + .ak-im-profile-history-section{margin-top:18px}
-                #ak-im-root .ak-im-profile-history-section-head{margin-top:14px;display:flex;align-items:center;justify-content:space-between;gap:12px}
-                #ak-im-root .ak-im-profile-history-section-head .ak-im-profile-entry-label{font-size:18px;font-weight:700;line-height:1.35}
-                #ak-im-root .ak-im-profile-history-section-count{font-size:13px;color:#94a3b8;font-weight:600;line-height:1.4;white-space:nowrap}
-                #ak-im-root .ak-im-profile-history-grid{margin-top:14px;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
-                #ak-im-root .ak-im-profile-history-item{position:relative;min-height:188px;background:#f8fafc;border:1px solid #eef2f7;border-radius:18px;padding:14px 12px 16px;box-sizing:border-box}
-                #ak-im-root .ak-im-profile-history-item.is-current{border-color:rgba(7,193,96,.26);box-shadow:0 10px 22px rgba(7,193,96,.08)}
-                #ak-im-root .ak-im-profile-history-card{width:100%;border:none;background:transparent;padding:40px 0 0;display:flex;flex-direction:column;align-items:center;text-align:center;cursor:pointer;color:#0f172a}
-                #ak-im-root .ak-im-profile-history-card:disabled{cursor:default;opacity:1}
-                #ak-im-root .ak-im-profile-history-avatar{width:80px;height:80px;border-radius:22px;background:linear-gradient(180deg,#8fe3a8 0%,#56c57b 100%);color:#ffffff;display:inline-flex;align-items:center;justify-content:center;font-size:22px;font-weight:700;overflow:hidden}
-                #ak-im-root .ak-im-profile-history-current{position:absolute;top:10px;left:10px;display:inline-flex;align-items:center;justify-content:center;min-height:24px;padding:0 9px;border-radius:999px;background:#dcfce7;color:#166534;font-size:11px;font-weight:700;line-height:1;box-shadow:0 1px 2px rgba(22,101,52,.08)}
-                #ak-im-root .ak-im-profile-history-remove{position:absolute;top:11px;right:11px;width:21px;height:21px;border:1px solid rgba(239,68,68,.18);border-radius:999px;background:#fee2e2;color:#dc2626;padding:0;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;box-shadow:none}
-                #ak-im-root .ak-im-profile-history-remove:disabled{opacity:.46;cursor:not-allowed;box-shadow:none}
-                #ak-im-root .ak-im-profile-history-remove-mark{display:block;font-size:15px;font-weight:800;line-height:1;transform:translateY(-1px)}
-                #ak-im-root .ak-im-profile-history-favorite{position:absolute;right:10px;bottom:12px;width:28px;height:28px;border:none;border-radius:999px;background:#ffffff;color:#94a3b8;font-size:16px;font-weight:700;line-height:1;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;box-shadow:0 4px 12px rgba(15,23,42,.08)}
-                #ak-im-root .ak-im-profile-history-favorite.is-active{background:#fef3c7;color:#d97706}
-                #ak-im-root .ak-im-profile-history-favorite:disabled{opacity:.46;cursor:not-allowed;box-shadow:none}
-                #ak-im-root .ak-im-profile-history-time{font-size:12px;color:#6b7280;line-height:1.5}
-                #ak-im-root .ak-im-profile-history-hint{margin-top:2px;font-size:12px;color:#94a3b8;line-height:1.45}
-                #ak-im-root .ak-im-profile-history-item.is-current .ak-im-profile-history-hint{color:#16a34a;font-weight:600}
-                #ak-im-root .ak-im-profile-form{display:flex;flex-direction:column;gap:14px}
-                #ak-im-root .ak-im-profile-form-group{display:flex;flex-direction:column}
-                #ak-im-root .ak-im-profile-form-label{font-size:13px;color:#6b7280;line-height:1.5}
-                #ak-im-root .ak-im-profile-form-input,#ak-im-root .ak-im-profile-form-select{margin-top:8px;width:100%;height:46px;border:none;border-radius:12px;background:#f3f4f6;padding:0 14px;font-size:15px;color:#111827;outline:none;box-sizing:border-box}
-                #ak-im-root .ak-im-profile-form-input:focus,#ak-im-root .ak-im-profile-form-select:focus{background:#ffffff;box-shadow:0 0 0 2px rgba(7,193,96,.14) inset}
-                #ak-im-root .ak-im-profile-form-help{margin-top:6px;font-size:12px;color:#9ca3af;line-height:1.6}
-                #ak-im-root .ak-im-profile-placeholder{padding:28px 14px;color:#6b7280;font-size:13px;line-height:1.7;text-align:center}
-                #ak-im-root .ak-im-profile-error{margin-bottom:12px;padding:11px 12px;border-radius:14px;background:rgba(239,68,68,.08);color:#dc2626;font-size:13px;line-height:1.6}
-                #ak-im-root .ak-im-home-tabbar{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:4px;padding:8px 8px calc(8px + env(safe-area-inset-bottom, 0px));background:#ffffff;border-top:1px solid rgba(15,23,42,.06)}
-                #ak-im-root .ak-im-home-tab-btn{border:none;background:transparent;min-height:56px;border-radius:14px;color:#6b7280;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;cursor:pointer}
-                #ak-im-root .ak-im-home-tab-btn svg{width:22px;height:22px;stroke:currentColor}
-                #ak-im-root .ak-im-home-tab-btn span{font-size:11px;line-height:1.2}
-                #ak-im-root .ak-im-home-tab-btn.is-active{color:#07c160;background:rgba(7,193,96,.06)}
-                #ak-im-root .ak-im-message-list{flex:1;overflow:auto;padding:14px 12px 10px;background:#ebebeb;display:flex;flex-direction:column;gap:14px}
-                #ak-im-root .ak-im-empty{margin:auto;color:#94a3b8;font-size:13px;text-align:center;padding:28px 24px;line-height:1.6;white-space:pre-line}
-                #ak-im-root .ak-im-time-divider{text-align:center;font-size:11px;color:#9ca3af;line-height:1.4}
-                #ak-im-root .ak-im-message-row{display:flex;align-items:flex-start;gap:8px;max-width:100%}
-                #ak-im-root .ak-im-message-row.ak-self{flex-direction:row-reverse}
-                #ak-im-root .ak-im-avatar{width:34px;height:34px;border-radius:10px;background:#d1d5db;color:#374151;display:inline-flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;flex:0 0 auto}
-                #ak-im-root .ak-im-message-row.ak-self .ak-im-avatar{background:#7fd88a;color:#ffffff}
-                #ak-im-root .ak-im-message-main{display:flex;flex-direction:column;max-width:min(78%, 420px)}
-                #ak-im-root .ak-im-message-row.ak-self .ak-im-message-main{align-items:flex-end}
-                #ak-im-root .ak-im-message-sender{margin-bottom:4px;padding:0 2px;font-size:11px;color:#6b7280;line-height:1.4}
-                #ak-im-root .ak-im-bubble{padding:10px 12px;border-radius:8px;background:#ffffff;color:#111827;word-break:break-word;white-space:pre-wrap;box-shadow:0 1px 1px rgba(15,23,42,.04);font-size:15px;line-height:1.45}
-                #ak-im-root .ak-im-message-row.ak-self .ak-im-bubble{background:#95ec69}
-                #ak-im-root .ak-im-message-footer{margin-top:4px;display:flex;align-items:center;gap:6px;min-height:22px}
-                #ak-im-root .ak-im-message-row.ak-self .ak-im-message-footer{justify-content:flex-end}
-                #ak-im-root .ak-im-meta{font-size:11px;color:#9ca3af;line-height:1.4}
-                #ak-im-root .ak-im-progress-btn{width:24px;height:24px;border:none;background:transparent;padding:0;display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto;cursor:pointer;position:relative}
-                #ak-im-root .ak-im-progress-ring{width:24px;height:24px;transform:rotate(-90deg);overflow:visible}
-                #ak-im-root .ak-im-progress-track{fill:none;stroke:rgba(15,23,42,.1);stroke-width:2}
-                #ak-im-root .ak-im-progress-value{fill:none;stroke:#16a34a;stroke-width:2;stroke-linecap:round;transition:stroke-dashoffset .18s ease}
-                #ak-im-root .ak-im-progress-label{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:8px;font-weight:700;color:#16a34a;line-height:1;letter-spacing:-.02em}
-                #ak-im-root .ak-im-progress-btn.is-complete .ak-im-progress-label{font-size:11px}
-                #ak-im-root .ak-im-progress-btn:focus-visible{outline:none}
-                #ak-im-root .ak-im-composer{padding:8px 10px calc(8px + env(safe-area-inset-bottom, 0px));border-top:1px solid rgba(15,23,42,.06);display:flex;align-items:flex-end;gap:8px;background:#f7f7f7}
-                #ak-im-root .ak-im-input-wrap{flex:1;min-height:36px;display:flex;align-items:flex-end;background:#ffffff;border-radius:8px;border:1px solid rgba(15,23,42,.08);padding:7px 10px}
-                #ak-im-root .ak-im-input{width:100%;resize:none;border:none;outline:none;background:transparent;min-height:22px;max-height:120px;font-size:15px;line-height:1.45;color:#111827}
-                #ak-im-root .ak-im-send{height:36px;border:none;border-radius:8px;padding:0 16px;background:#07c160;color:#ffffff;font-size:14px;font-weight:600;cursor:pointer;transition:opacity .18s ease,transform .18s ease}
-                #ak-im-root .ak-im-send:disabled{opacity:.42;cursor:not-allowed}
-                #ak-im-root .ak-im-status{padding:0 12px calc(8px + env(safe-area-inset-bottom, 0px));background:#f7f7f7;font-size:11px;color:#9ca3af}
-                #ak-im-root .ak-im-status:empty{display:none}
-                #ak-im-root .ak-im-chat-subtitle:empty{display:none}
-                #ak-im-root .ak-im-compose-page{flex:1;background:#f7f7f7;padding:22px 16px calc(24px + env(safe-area-inset-bottom, 0px));display:flex;flex-direction:column;gap:14px}
-                #ak-im-root .ak-im-compose-card{background:#ffffff;border-radius:18px;padding:18px 16px;box-shadow:0 1px 2px rgba(15,23,42,.04)}
-                #ak-im-root .ak-im-compose-label{font-size:13px;line-height:1.6;color:#6b7280}
-                #ak-im-root .ak-im-compose-input{margin-top:12px;width:100%;height:48px;border:none;border-radius:12px;background:#f3f4f6;padding:0 14px;font-size:16px;color:#111827;outline:none;box-sizing:border-box}
-                #ak-im-root .ak-im-compose-input:focus{background:#ffffff;box-shadow:0 0 0 2px rgba(7,193,96,.16) inset}
-                #ak-im-root .ak-im-compose-tip{margin-top:10px;font-size:12px;line-height:1.6;color:#9ca3af}
-                #ak-im-root .ak-im-compose-error{color:#ef4444}
-                #ak-im-root .ak-im-compose-actions{display:flex;gap:10px;margin-top:auto}
-                #ak-im-root .ak-im-compose-btn{flex:1;height:44px;border:none;border-radius:12px;font-size:15px;font-weight:600;cursor:pointer}
-                #ak-im-root .ak-im-compose-btn-secondary{background:#e5e7eb;color:#374151}
-                #ak-im-root .ak-im-compose-btn-primary{background:#07c160;color:#ffffff}
-                #ak-im-root .ak-im-compose-btn:disabled{opacity:.42;cursor:not-allowed}
-                #ak-im-root .ak-im-system-row{align-self:center;background:rgba(0,0,0,.06);color:#6b7280;font-size:12px;line-height:1.6;padding:6px 10px;border-radius:999px;max-width:78%;text-align:center}
-                #ak-im-root .ak-im-system-row a{color:#07c160;text-decoration:none;margin-left:6px;font-size:12px}
-                #ak-im-root .ak-im-system-row a:active{opacity:.7}
-                #ak-im-root .ak-im-action-sheet{display:none;position:fixed;inset:0;z-index:2147483648}
-                #ak-im-root .ak-im-action-sheet.visible{display:block}
-                #ak-im-root .ak-im-action-mask{position:absolute;inset:0;background:rgba(0,0,0,.18)}
-                #ak-im-root .ak-im-action-panel{position:absolute;left:12px;right:12px;bottom:calc(12px + env(safe-area-inset-bottom, 0px));background:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 16px 36px rgba(0,0,0,.18)}
-                #ak-im-root .ak-im-action-btn{width:100%;height:52px;border:none;background:#ffffff;color:#111827;font-size:16px;font-weight:600;cursor:pointer}
-                #ak-im-root .ak-im-action-btn + .ak-im-action-btn{border-top:1px solid rgba(15,23,42,.06)}
-                #ak-im-root .ak-im-action-btn.danger{color:#ef4444}
-                #ak-im-root .ak-im-action-btn:disabled{opacity:.45;cursor:not-allowed}
-                #ak-im-root .ak-im-progress-sheet{display:none;position:fixed;inset:0;z-index:2147483649}
-                #ak-im-root .ak-im-progress-sheet.visible{display:block}
-                #ak-im-root .ak-im-progress-mask{position:absolute;inset:0;background:rgba(0,0,0,.22)}
-                #ak-im-root .ak-im-progress-panel{position:absolute;left:0;right:0;bottom:0;background:#ffffff;border-radius:18px 18px 0 0;box-shadow:0 -12px 36px rgba(0,0,0,.18);max-height:min(72vh,560px);display:flex;flex-direction:column}
-                #ak-im-root .ak-im-progress-header{display:flex;align-items:center;justify-content:space-between;padding:16px 16px 12px;border-bottom:1px solid rgba(15,23,42,.06)}
-                #ak-im-root .ak-im-progress-title{font-size:16px;font-weight:600;color:#111827}
-                #ak-im-root .ak-im-progress-close{height:32px;border:none;background:transparent;color:#6b7280;font-size:14px;cursor:pointer}
-                #ak-im-root .ak-im-progress-panel-body{overflow:auto;padding-bottom:calc(14px + env(safe-area-inset-bottom, 0px))}
-                #ak-im-root .ak-im-progress-summary{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;padding:14px 16px 6px}
-                #ak-im-root .ak-im-progress-stat{background:#f8fafc;border-radius:14px;padding:12px 10px;text-align:center}
-                #ak-im-root .ak-im-progress-stat-value{font-size:18px;font-weight:700;color:#111827;line-height:1.2}
-                #ak-im-root .ak-im-progress-stat-label{margin-top:4px;font-size:12px;color:#6b7280;line-height:1.4}
-                #ak-im-root .ak-im-progress-list{padding:8px 16px 18px}
-                #ak-im-root .ak-im-progress-list-title{margin:0 0 8px;font-size:13px;font-weight:600;color:#374151;line-height:1.4}
-                #ak-im-root .ak-im-progress-member{display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid rgba(15,23,42,.06)}
-                #ak-im-root .ak-im-progress-member:last-child{border-bottom:none}
-                #ak-im-root .ak-im-progress-member-name{font-size:14px;color:#111827;line-height:1.4}
-                #ak-im-root .ak-im-progress-member-username{margin-left:8px;font-size:12px;color:#9ca3af;line-height:1.4}
-                #ak-im-root .ak-im-progress-loading,#ak-im-root .ak-im-progress-error,#ak-im-root .ak-im-progress-empty{padding:18px 16px;color:#6b7280;font-size:13px;line-height:1.6;text-align:center}
-                #ak-im-root .ak-im-progress-error{color:#ef4444}
-                #ak-im-root .ak-im-member-sheet{display:none;position:fixed;inset:0;z-index:2147483650}
-                #ak-im-root .ak-im-member-sheet.visible{display:block}
-                #ak-im-root .ak-im-member-mask{position:absolute;inset:0;background:rgba(0,0,0,.22)}
-                #ak-im-root .ak-im-member-panel{position:absolute;left:0;right:0;bottom:0;background:#ffffff;border-radius:18px 18px 0 0;box-shadow:0 -12px 36px rgba(0,0,0,.18);max-height:min(72vh,560px);display:flex;flex-direction:column}
-                #ak-im-root .ak-im-member-header{display:flex;align-items:center;justify-content:space-between;padding:16px 16px 12px;border-bottom:1px solid rgba(15,23,42,.06)}
-                #ak-im-root .ak-im-member-title{font-size:16px;font-weight:600;color:#111827}
-                #ak-im-root .ak-im-member-close{height:32px;border:none;background:transparent;color:#6b7280;font-size:14px;cursor:pointer}
-                #ak-im-root .ak-im-member-panel-body{overflow:auto;padding:14px 16px calc(14px + env(safe-area-inset-bottom, 0px))}
-                #ak-im-root .ak-im-member-summary{padding:0 0 10px;font-size:13px;color:#6b7280;line-height:1.6}
-                #ak-im-root .ak-im-member-list{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px;padding:12px 0 0}
-                #ak-im-root .ak-im-member-item{position:relative;display:flex;flex-direction:column;align-items:center;justify-content:flex-start;gap:8px;padding:10px 6px 8px;border:none;border-radius:14px;background:#f8fafc;min-height:96px}
-                #ak-im-root .ak-im-member-item.is-add{border:1px dashed rgba(79,70,229,.32);background:#ffffff;cursor:pointer}
-                #ak-im-root .ak-im-member-item.is-add:active{opacity:.78}
-                #ak-im-root .ak-im-member-avatar{width:46px;height:46px;border-radius:16px;background:linear-gradient(180deg,#8fe3a8 0%,#56c57b 100%);color:#ffffff;display:inline-flex;align-items:center;justify-content:center;font-size:16px;font-weight:700;flex:0 0 auto}
-                #ak-im-root .ak-im-member-body{min-width:0;width:100%;text-align:center}
-                #ak-im-root .ak-im-member-name{font-size:12px;color:#111827;line-height:1.4;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-                #ak-im-root .ak-im-member-username{display:none}
-                #ak-im-root .ak-im-member-role{position:absolute;top:6px;right:6px;margin:0;height:18px;padding:0 6px;border-radius:999px;background:rgba(7,193,96,.12);color:#16a34a;font-size:10px;font-weight:700;display:inline-flex;align-items:center;justify-content:center}
-                #ak-im-root .ak-im-member-loading,#ak-im-root .ak-im-member-error,#ak-im-root .ak-im-member-empty{padding:18px 16px;color:#6b7280;font-size:13px;line-height:1.6;text-align:center}
-                #ak-im-root .ak-im-member-error{color:#ef4444}
-                #ak-im-root .ak-im-chat-menu.is-hidden{opacity:0;pointer-events:none}
-                #ak-im-root .ak-im-chat-menu svg{width:20px;height:20px;stroke:currentColor}
-                #ak-im-root .ak-im-group-info-screen{background:#ededed}
-                #ak-im-root .ak-im-group-info-page{flex:1;overflow:auto;background:#f7f7f7;padding:0 0 calc(16px + env(safe-area-inset-bottom, 0px))}
-                #ak-im-root .ak-im-group-info-side{width:34px;height:34px;justify-self:end}
-                #ak-im-root .ak-im-group-info-loading,#ak-im-root .ak-im-group-info-error,#ak-im-root .ak-im-group-info-empty{padding:28px 18px;color:#6b7280;font-size:13px;line-height:1.7;text-align:center}
-                #ak-im-root .ak-im-group-info-error{color:#ef4444}
-                #ak-im-root .ak-im-group-info-members{margin-top:12px;background:#ffffff;padding:18px 14px 12px}
-                #ak-im-root .ak-im-group-info-members .ak-im-member-list{padding:0;gap:16px 10px}
-                #ak-im-root .ak-im-group-info-members .ak-im-member-item{min-height:0;padding:0;border-radius:0;background:transparent}
-                #ak-im-root .ak-im-group-info-members .ak-im-member-avatar{width:54px;height:54px;border-radius:14px;font-size:15px}
-                #ak-im-root .ak-im-group-info-members .ak-im-member-item.is-add .ak-im-member-avatar{background:#ffffff;color:#9ca3af;border:1.5px dashed rgba(156,163,175,.65)}
-                #ak-im-root .ak-im-group-info-members .ak-im-member-item.is-add{border:none}
-                #ak-im-root .ak-im-group-info-members .ak-im-member-name{margin-top:2px;font-size:12px;color:#6b7280}
-                #ak-im-root .ak-im-group-info-members .ak-im-member-role{top:-4px;right:4px}
-                #ak-im-root .ak-im-group-info-more{width:100%;margin-top:16px;border:none;background:transparent;color:#6b7280;font-size:14px;line-height:1.5;display:flex;align-items:center;justify-content:center;gap:6px;cursor:pointer}
-                #ak-im-root .ak-im-group-info-more:active{opacity:.7}
-                #ak-im-root .ak-im-group-info-section{margin-top:12px;background:#ffffff}
-                #ak-im-root .ak-im-group-info-cell{width:100%;border:none;background:#ffffff;padding:0 16px;min-height:56px;display:flex;align-items:center;justify-content:space-between;gap:12px;box-sizing:border-box}
-                #ak-im-root .ak-im-group-info-cell + .ak-im-group-info-cell{border-top:1px solid rgba(15,23,42,.06)}
-                #ak-im-root .ak-im-group-info-cell.is-action{cursor:pointer}
-                #ak-im-root .ak-im-group-info-cell.is-danger .ak-im-group-info-cell-label{color:#ef4444}
-                #ak-im-root .ak-im-group-info-cell-main{min-width:0;flex:1;display:flex;align-items:center;justify-content:space-between;gap:12px}
-                #ak-im-root .ak-im-group-info-cell-label{font-size:16px;color:#111827;line-height:1.5;text-align:left}
-                #ak-im-root .ak-im-group-info-cell-value{min-width:0;max-width:70%;font-size:14px;color:#9ca3af;line-height:1.5;text-align:right;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-                #ak-im-root .ak-im-group-info-cell-arrow{color:#c7cdd8;font-size:20px;line-height:1;flex:0 0 auto}
-                #ak-im-root .ak-im-avatar-mosaic{width:100%;height:100%;background:#e5e7eb;padding:1px;box-sizing:border-box;border-radius:inherit;overflow:hidden}
-                #ak-im-root .ak-im-avatar-mosaic.is-grid{display:grid;grid-template-columns:repeat(3,1fr);grid-template-rows:repeat(3,1fr);gap:1px}
-                #ak-im-root .ak-im-avatar-mosaic.is-stack{display:flex;flex-direction:column-reverse;justify-content:flex-start;gap:1px}
-                #ak-im-root .ak-im-avatar-mosaic.is-stack .ak-im-avatar-row{display:flex;justify-content:center;align-items:stretch;gap:1px;flex:1 1 0;min-height:0}
-                #ak-im-root .ak-im-avatar-mosaic.is-stack .ak-im-avatar-cell{flex:0 0 calc((100% - 2px) / 3);max-width:calc((100% - 2px) / 3)}
-                #ak-im-root .ak-im-avatar-mosaic .ak-im-avatar-cell{min-width:0;min-height:0;display:flex;align-items:center;justify-content:center;background:linear-gradient(180deg,#8fe3a8 0%,#56c57b 100%);color:#ffffff;font-size:9px;font-weight:700;line-height:1;overflow:hidden;padding:0}
-                #ak-im-root .ak-im-avatar-mosaic.is-single{display:flex}
-                #ak-im-root .ak-im-avatar-mosaic.is-single .ak-im-avatar-cell{font-size:16px;flex:1 1 auto}
-                #ak-im-root .ak-im-group-info-hero{background:#ffffff;padding:20px 16px 16px;display:flex;flex-direction:column;align-items:center;gap:8px}
-                #ak-im-root .ak-im-group-info-hero-avatar{width:72px;height:72px;border-radius:14px;overflow:hidden;box-shadow:0 1px 2px rgba(15,23,42,.06)}
-                #ak-im-root .ak-im-group-info-hero-avatar .ak-im-avatar-mosaic .ak-im-avatar-cell{font-size:11px}
-                #ak-im-root .ak-im-group-info-hero-avatar .ak-im-avatar-mosaic.is-single .ak-im-avatar-cell{font-size:22px}
-                #ak-im-root .ak-im-group-info-hero-title{font-size:17px;font-weight:700;color:#111827;line-height:1.3;text-align:center;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:0 12px}
-                #ak-im-root .ak-im-group-info-hero-subtitle{font-size:12px;color:#6b7280;line-height:1.4}
-                #ak-im-root .ak-im-session-avatar.is-mosaic{padding:0;background:transparent}
-                #ak-im-root .ak-im-session-avatar.is-mosaic .ak-im-avatar-mosaic .ak-im-avatar-cell{font-size:9px}
-                #ak-im-root .ak-im-member-action-screen{background:#ededed}
-                #ak-im-root .ak-im-member-action-page{position:relative;flex:1;display:flex;flex-direction:column;min-height:0;background:#f7f7f7}
-                #ak-im-root .ak-im-member-action-search{padding:10px 12px;background:#ededed;border-bottom:1px solid rgba(15,23,42,.04)}
-                #ak-im-root .ak-im-member-action-search-input{width:100%;height:36px;border:none;border-radius:12px;background:#ffffff;padding:0 14px;font-size:14px;color:#111827;outline:none;box-sizing:border-box}
-                #ak-im-root .ak-im-member-action-search-input:focus{box-shadow:0 0 0 2px rgba(7,193,96,.14) inset}
-                #ak-im-root .ak-im-member-action-body{flex:1;overflow:auto;padding:12px 12px calc(92px + env(safe-area-inset-bottom, 0px));background:#f7f7f7}
-                #ak-im-root .ak-im-member-action-section{background:#ffffff;border-radius:18px;padding:14px 14px 12px;box-shadow:0 1px 2px rgba(15,23,42,.04)}
-                #ak-im-root .ak-im-member-action-section + .ak-im-member-action-section{margin-top:12px}
-                #ak-im-root .ak-im-member-action-section-title{margin:0 0 10px;font-size:13px;font-weight:600;color:#374151;line-height:1.4}
-                #ak-im-root .ak-im-member-action-selected-empty{padding:10px 2px;color:#9ca3af;font-size:13px;line-height:1.6}
-                #ak-im-root .ak-im-member-action-chip-list{display:flex;flex-wrap:wrap;gap:8px}
-                #ak-im-root .ak-im-member-action-chip{max-width:100%;border:none;background:#f0fdf4;color:#166534;min-height:32px;border-radius:999px;padding:0 10px;display:inline-flex;align-items:center;gap:6px;cursor:pointer}
-                #ak-im-root .ak-im-member-action-chip:active{opacity:.78}
-                #ak-im-root .ak-im-member-action-chip-label{min-width:0;max-width:180px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:12px;font-weight:600}
-                #ak-im-root .ak-im-member-action-chip-remove{font-size:14px;line-height:1}
-                #ak-im-root .ak-im-member-action-list{display:flex;flex-direction:column}
-                #ak-im-root .ak-im-member-action-row{width:100%;padding:12px 0;border:none;background:transparent;display:flex;align-items:center;gap:12px;text-align:left;cursor:pointer}
-                #ak-im-root .ak-im-member-action-row + .ak-im-member-action-row{border-top:1px solid rgba(15,23,42,.06)}
-                #ak-im-root .ak-im-member-action-row:disabled{cursor:not-allowed;opacity:1}
-                #ak-im-root .ak-im-member-action-row.is-disabled .ak-im-member-action-name{color:#9ca3af}
-                #ak-im-root .ak-im-member-action-row.is-disabled .ak-im-member-action-meta{color:#c7cdd8}
-                #ak-im-root .ak-im-member-action-avatar{width:44px;height:44px;border-radius:14px;background:linear-gradient(180deg,#8fe3a8 0%,#56c57b 100%);color:#ffffff;display:inline-flex;align-items:center;justify-content:center;font-size:15px;font-weight:700;flex:0 0 auto}
-                #ak-im-root .ak-im-member-action-main{min-width:0;flex:1}
-                #ak-im-root .ak-im-member-action-name{font-size:15px;font-weight:600;color:#111827;line-height:1.4;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-                #ak-im-root .ak-im-member-action-meta{margin-top:4px;display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:12px;color:#6b7280;line-height:1.4}
-                #ak-im-root .ak-im-member-action-role{display:inline-flex;align-items:center;justify-content:center;height:18px;padding:0 6px;border-radius:999px;background:rgba(7,193,96,.12);color:#16a34a;font-size:10px;font-weight:700}
-                #ak-im-root .ak-im-member-action-reason{color:#ef4444}
-                #ak-im-root .ak-im-member-action-reason.is-muted{color:#9ca3af}
-                #ak-im-root .ak-im-member-action-check{width:22px;height:22px;border-radius:999px;border:1.5px solid rgba(156,163,175,.6);display:inline-flex;align-items:center;justify-content:center;color:transparent;font-size:14px;font-weight:700;flex:0 0 auto;box-sizing:border-box}
-                #ak-im-root .ak-im-member-action-check.is-selected{background:#07c160;border-color:#07c160;color:#ffffff}
-                #ak-im-root .ak-im-member-action-check.is-disabled{border-style:dashed;background:#f3f4f6;color:transparent}
-                #ak-im-root .ak-im-member-action-footer{position:absolute;left:0;right:0;bottom:0;padding:12px 12px calc(12px + env(safe-area-inset-bottom, 0px));background:linear-gradient(180deg,rgba(247,247,247,0) 0%,#f7f7f7 28%,#f7f7f7 100%)}
-                #ak-im-root .ak-im-member-action-submit{width:100%;height:48px;border:none;border-radius:14px;background:#07c160;color:#ffffff;font-size:16px;font-weight:700;cursor:pointer;box-shadow:0 10px 24px rgba(7,193,96,.18)}
-                #ak-im-root .ak-im-member-action-submit:disabled{opacity:.42;cursor:not-allowed;box-shadow:none}
-                #ak-im-root .ak-im-member-action-error{margin-bottom:12px;padding:11px 12px;border-radius:14px;background:rgba(239,68,68,.08);color:#dc2626;font-size:13px;line-height:1.6}
-                #ak-im-root .ak-im-member-action-empty{padding:28px 14px;color:#9ca3af;font-size:13px;line-height:1.7;text-align:center}
-                #ak-im-root .ak-im-dialog{display:none;position:fixed;inset:0;z-index:2147483651}
-                #ak-im-root .ak-im-dialog.visible{display:block}
-                #ak-im-root .ak-im-dialog-mask{position:absolute;inset:0;background:rgba(0,0,0,.36)}
-                #ak-im-root .ak-im-dialog-panel{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:min(320px,calc(100vw - 40px));background:#ffffff;border-radius:18px;box-shadow:0 24px 60px rgba(0,0,0,.22);overflow:hidden}
-                #ak-im-root .ak-im-dialog-content{padding:24px 20px 18px;text-align:center}
-                #ak-im-root .ak-im-dialog-title{font-size:18px;font-weight:600;color:#111827;line-height:1.4}
-                #ak-im-root .ak-im-dialog-message{margin-top:12px;font-size:14px;color:#6b7280;line-height:1.7;white-space:pre-line}
-                #ak-im-root .ak-im-dialog-actions{display:flex;border-top:1px solid rgba(15,23,42,.06)}
-                #ak-im-root .ak-im-dialog-actions.is-single .ak-im-dialog-btn + .ak-im-dialog-btn{display:none}
-                #ak-im-root .ak-im-dialog-btn{flex:1;height:52px;border:none;background:#ffffff;color:#111827;font-size:16px;font-weight:500;cursor:pointer}
-                #ak-im-root .ak-im-dialog-btn + .ak-im-dialog-btn{border-left:1px solid rgba(15,23,42,.06)}
-                #ak-im-root .ak-im-dialog-btn.is-danger{color:#ef4444;font-weight:600}
-                #ak-im-root .ak-im-dialog-btn:disabled{opacity:.42;cursor:not-allowed}
-                @media (max-width: 640px){#ak-im-root{left:calc(50% + 42px);top:calc(env(safe-area-inset-top, 0px) - 10px)}#ak-im-root .ak-im-topbar{grid-template-columns:48px 1fr 56px}#ak-im-root .ak-im-session-avatar{width:44px;height:44px;border-radius:12px}#ak-im-root .ak-im-message-main{max-width:78%}}
-            </style>
-            <button class="ak-im-launcher" type="button" aria-label="内部聊天">
-                <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                    <path d="M6.25 6.15C6.25 4.96 7.21 4 8.4 4H13.05C14.24 4 15.2 4.96 15.2 6.15V9.85C15.2 11.04 14.24 12 13.05 12H10.15L7.45 14.08C7.17 14.3 6.75 14.1 6.75 13.75V12H6.25V6.15Z" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
-                    <circle cx="9.45" cy="8" r="0.8" fill="currentColor"/>
-                    <circle cx="11.95" cy="8" r="0.8" fill="currentColor"/>
-                    <path d="M14.15 8.55H16.2C17.39 8.55 18.35 9.51 18.35 10.7V13.15C18.35 14.34 17.39 15.3 16.2 15.3H15.05V16.55C15.05 16.89 14.66 17.09 14.39 16.89L12.55 15.55" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" opacity="0.8"/>
-                </svg>
-                <span class="ak-im-launcher-badge" aria-hidden="true"></span>
-            </button>
-            <div class="ak-im-shell">
-                <div class="ak-im-screen ak-im-session-screen">
-                    <div class="ak-im-topbar">
-                        <button class="ak-im-nav-btn ak-im-close" type="button" aria-label="关闭内部聊天">
-                            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M15 18L9 12L15 6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-                        </button>
-                        <div class="ak-im-topbar-title ak-im-session-topbar-title">聊天</div>
-                        <button class="ak-im-nav-btn ak-im-new" type="button" data-im-action="new">发起</button>
-                    </div>
-                    <div class="ak-im-session-page">
-                        <div class="ak-im-home-panels">
-                            <div class="ak-im-home-panel is-chats is-active" data-im-home-panel="chats">
-                                <div class="ak-im-search-bar"><div class="ak-im-search-pill">点击右上角发起单聊</div></div>
-                                <div class="ak-im-session-list"></div>
-                            </div>
-                            <div class="ak-im-home-panel" data-im-home-panel="contacts">
-                                <div class="ak-im-contacts-list"></div>
-                            </div>
-                            <div class="ak-im-home-panel" data-im-home-panel="me">
-                                <div class="ak-im-profile-page"></div>
-                            </div>
-                        </div>
-                        <div class="ak-im-home-tabbar">
-                            <button class="ak-im-home-tab-btn is-active" type="button" data-im-home-tab="chats" aria-label="聊天">
-                                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 6.75C6.5 5.78 7.28 5 8.4 5H13.05C14.24 5 15.2 5.78 15.2 6.75V9.85C15.2 11.04 14.24 12 13.05 12H10.15L7.45 14.08C7.17 14.3 6.75 14.1 6.75 13.75V12H6.25V6.75Z" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
-                                <span>聊天</span>
-                            </button>
-                            <button class="ak-im-home-tab-btn" type="button" data-im-home-tab="contacts" aria-label="通讯录">
-                                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 12a3.4 3.4 0 1 0 0-6.8 3.4 3.4 0 0 0 0 6.8Zm-5.4 6.3c.42-2.44 2.66-4.2 5.4-4.2s4.98 1.76 5.4 4.2" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><path d="M5.2 7.6h.01M18.8 7.6h.01" stroke-width="2.2" stroke-linecap="round"/></svg>
-                                <span>通讯录</span>
-                            </button>
-                            <button class="ak-im-home-tab-btn" type="button" data-im-home-tab="me" aria-label="我">
-                                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 12.2a3.6 3.6 0 1 0 0-7.2 3.6 3.6 0 0 0 0 7.2Zm-6 6.8c.5-2.9 3.15-5 6-5s5.5 2.1 6 5" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
-                                <span>我</span>
-                            </button>
-                        </div>
-                    </div>
-                </div>
-                <div class="ak-im-screen ak-im-chat-screen">
-                    <div class="ak-im-topbar">
-                        <button class="ak-im-nav-btn ak-im-back" type="button" aria-label="返回会话列表">
-                            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M15 18L9 12L15 6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-                        </button>
-                        <button class="ak-im-topbar-title-wrap ak-im-chat-title-btn" type="button" aria-label="聊天标题" disabled><div class="ak-im-chat-title">内部聊天</div><div class="ak-im-chat-subtitle">选择一个会话开始单聊</div></button>
-                        <button class="ak-im-nav-btn ak-im-chat-menu is-hidden" type="button" aria-label="群聊更多功能" disabled><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="6" cy="12" r="1.7" fill="currentColor"></circle><circle cx="12" cy="12" r="1.7" fill="currentColor"></circle><circle cx="18" cy="12" r="1.7" fill="currentColor"></circle></svg></button>
-                    </div>
-                    <div class="ak-im-message-list"></div>
-                    <div class="ak-im-composer"><div class="ak-im-input-wrap"><textarea class="ak-im-input" placeholder="输入消息"></textarea></div><button class="ak-im-send" type="button">发送</button></div>
-                    <div class="ak-im-status"></div>
-                </div>
-                <div class="ak-im-screen ak-im-compose-screen">
-                    <div class="ak-im-topbar">
-                        <button class="ak-im-nav-btn ak-im-compose-back" type="button" aria-label="返回会话列表">
-                            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M15 18L9 12L15 6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-                        </button>
-                        <div class="ak-im-topbar-title">发起聊天</div>
-                        <button class="ak-im-nav-btn ak-im-compose-close" type="button" aria-label="关闭发起聊天">取消</button>
-                    </div>
-                    <div class="ak-im-compose-page">
-                        <div class="ak-im-compose-card">
-                            <div class="ak-im-compose-label">请输入要发起聊天的账号 username</div>
-                            <input class="ak-im-compose-input" type="text" inputmode="text" autocomplete="off" spellcheck="false" placeholder="例如：hjy574139" />
-                            <div class="ak-im-compose-tip">输入对方账号后开始单聊</div>
-                        </div>
-                        <div class="ak-im-compose-actions">
-                            <button class="ak-im-compose-btn ak-im-compose-btn-secondary" type="button" data-im-action="compose-cancel">返回</button>
-                            <button class="ak-im-compose-btn ak-im-compose-btn-primary" type="button" data-im-action="compose-submit">开始聊天</button>
-                        </div>
-                    </div>
-                </div>
-                <div class="ak-im-screen ak-im-group-info-screen">
-                    <div class="ak-im-topbar">
-                        <button class="ak-im-nav-btn ak-im-group-info-back" type="button" aria-label="返回聊天页面">
-                            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M15 18L9 12L15 6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-                        </button>
-                        <div class="ak-im-topbar-title ak-im-group-info-title">聊天信息</div>
-                        <div class="ak-im-group-info-side" aria-hidden="true"></div>
-                    </div>
-                    <div class="ak-im-group-info-page"></div>
-                </div>
-                <div class="ak-im-screen ak-im-member-action-screen">
-                    <div class="ak-im-topbar">
-                        <button class="ak-im-nav-btn ak-im-member-action-back" type="button" aria-label="返回群信息页面">
-                            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M15 18L9 12L15 6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-                        </button>
-                        <div class="ak-im-topbar-title ak-im-member-action-title">选择成员</div>
-                        <div class="ak-im-group-info-side" aria-hidden="true"></div>
-                    </div>
-                    <div class="ak-im-member-action-page">
-                        <div class="ak-im-member-action-search"><input class="ak-im-member-action-search-input" type="search" inputmode="search" autocomplete="off" spellcheck="false" placeholder="搜索成员" /></div>
-                        <div class="ak-im-member-action-body"></div>
-                        <div class="ak-im-member-action-footer"><button class="ak-im-member-action-submit" type="button">确认</button></div>
-                    </div>
-                </div>
-                <div class="ak-im-screen ak-im-profile-subpage-screen">
-                    <div class="ak-im-topbar">
-                        <button class="ak-im-nav-btn ak-im-profile-subpage-back" type="button" aria-label="返回个人页">
-                            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M15 18L9 12L15 6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-                        </button>
-                        <div class="ak-im-topbar-title ak-im-profile-subpage-title">个人资料</div>
-                        <div class="ak-im-group-info-side" aria-hidden="true"></div>
-                    </div>
-                    <div class="ak-im-profile-subpage-page"></div>
-                </div>
-            </div>
-            <div class="ak-im-action-sheet" aria-hidden="true" inert>
-                <div class="ak-im-action-mask"></div>
-                <div class="ak-im-action-panel">
-                    <button class="ak-im-action-btn danger" type="button" data-im-action="recall">撤回</button>
-                    <button class="ak-im-action-btn" type="button" data-im-action="cancel">取消</button>
-                </div>
-            </div>
-            <div class="ak-im-progress-sheet" aria-hidden="true" inert>
-                <div class="ak-im-progress-mask"></div>
-                <div class="ak-im-progress-panel">
-                    <div class="ak-im-progress-header"><div class="ak-im-progress-title">消息读进度</div><button class="ak-im-progress-close" type="button">关闭</button></div>
-                    <div class="ak-im-progress-panel-body"></div>
-                </div>
-            </div>
-	        <div class="ak-im-member-sheet" aria-hidden="true" inert>
-	            <div class="ak-im-member-mask"></div>
-	            <div class="ak-im-member-panel">
-	                <div class="ak-im-member-header"><div class="ak-im-member-title">群成员</div><button class="ak-im-member-close" type="button">关闭</button></div>
-	                <div class="ak-im-member-panel-body"></div>
-	            </div>
-	        </div>
-	        <div class="ak-im-dialog" aria-hidden="true" inert>
-	            <div class="ak-im-dialog-mask"></div>
-	            <div class="ak-im-dialog-panel">
-	                <div class="ak-im-dialog-content"><div class="ak-im-dialog-title"></div><div class="ak-im-dialog-message"></div></div>
-	                <div class="ak-im-dialog-actions"><button class="ak-im-dialog-btn" type="button" data-im-dialog="cancel">取消</button><button class="ak-im-dialog-btn is-danger" type="button" data-im-dialog="confirm">确定</button></div>
-	            </div>
-	        </div>
-        `;
-        document.body.appendChild(root);
-        assignShellElements(collectFallbackShellElements(root));
-        initShellModules();
-        root.querySelector('.ak-im-launcher').addEventListener('click', openShellPanel);
-        root.querySelector('.ak-im-close').addEventListener('click', function() {
-            showSessionsView({ closePanel: true });
-        });
-        root.querySelector('.ak-im-back').addEventListener('click', showSessionsView);
-        chatMenuBtnEl.addEventListener('click', openActiveGroupMenu);
-        chatTitleBtnEl.addEventListener('click', openActiveGroupSettings);
-        root.querySelector('.ak-im-compose-back').addEventListener('click', closeComposeView);
-        root.querySelector('.ak-im-compose-close').addEventListener('click', closeComposeView);
-        root.querySelector('[data-im-action="new"]').addEventListener('click', startDirectSession);
-        Array.prototype.forEach.call(root.querySelectorAll('[data-im-home-tab]'), function(button) {
-            button.addEventListener('click', function() {
-                switchHomeTab(button.getAttribute('data-im-home-tab'));
-            });
-        });
-        root.querySelector('[data-im-action="compose-cancel"]').addEventListener('click', closeComposeView);
-        root.querySelector('[data-im-action="compose-submit"]').addEventListener('click', submitDirectSession);
-        sendBtn.addEventListener('click', sendCurrentMessage);
-        inputEl.addEventListener('input', function() {
-            handleComposerInput(inputEl.value || '');
-        });
-        newSessionInputEl.addEventListener('input', function() {
-            handleNewSessionInputChange(newSessionInputEl.value || '');
-        });
-        newSessionInputEl.addEventListener('keydown', function(event) {
-            if (event.key === 'Enter') {
-                event.preventDefault();
-                submitDirectSession();
-            }
-        });
-        inputEl.addEventListener('keydown', function(event) {
-            if (event.key === 'Enter' && !event.shiftKey) {
-                event.preventDefault();
-                sendCurrentMessage();
-            }
-        });
-	    bindOverlayEvents();
-	    memberPanelEl.querySelector('.ak-im-member-mask').addEventListener('click', function() {
-	        closeMemberPanel();
-	    });
-        memberPanelEl.querySelector('.ak-im-member-close').addEventListener('click', function() {
-            closeMemberPanel();
-        });
-        root.querySelector('.ak-im-profile-subpage-back').addEventListener('click', closeProfileSubpage);
-        syncInputHeight();
-        syncComposerState();
+        ensureFallbackRoot();
     }
 
 	function bindOverlayEvents() {
@@ -2119,6 +1734,10 @@
     function render() {
         if (!root) return;
         const shellState = getShellRenderState();
+        if (isFallbackShellActive()) {
+            renderFallbackShell(shellState);
+            return;
+        }
         const appShellModule = getAppShellModule();
         if (appShellModule && typeof appShellModule.renderShell === 'function') {
             appShellModule.renderShell(shellState);
