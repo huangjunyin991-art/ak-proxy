@@ -8,6 +8,8 @@ type Config struct {
 	CookieName       string
 	AllowedOrigin    string
 	CompressMinBytes int
+	EmojiSourceDir   string
+	EmojiStoreDir    string
 }
 
 func Load() Config {
@@ -17,6 +19,8 @@ func Load() Config {
 		CookieName:       getEnv("IM_AUTH_COOKIE", "ak_username"),
 		AllowedOrigin:    getEnv("IM_ALLOWED_ORIGIN", "https://ak2025.vip"),
 		CompressMinBytes: 1024,
+		EmojiSourceDir:   getEnv("IM_EMOJI_SOURCE_DIR", "./imageSource"),
+		EmojiStoreDir:    getEnv("IM_EMOJI_STORE_DIR", "./data/im/emoji_assets"),
 	}
 }
 

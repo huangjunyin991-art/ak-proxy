@@ -399,6 +399,49 @@ async def _post_im_internal_json(path: str, payload: dict) -> tuple[int, dict]:
 
 
 
+async def _list_im_emoji_assets() -> list[dict]:
+
+    pool = db._get_pool()
+
+    async with pool.acquire() as conn:
+
+        rows = await conn.fetch('''
+            SELECT id,
+                   COALESCE(title, '') AS title,
+                   COALESCE(code, '') AS code,
+                   COALESCE(storage_name, '') AS storage_name,
+                   COALESCE(width, 0) AS width,
+                   COALESCE(height, 0) AS height,
+                   COALESCE(sort_order, 0) AS sort_order,
+                   COALESCE(enabled, FALSE) AS enabled
+            FROM im_emoji_asset
+            ORDER BY COALESCE(enabled, FALSE) DESC, COALESCE(sort_order, 0) ASC, id ASC
+        ''')
+
+    items = []
+
+    for row in rows:
+
+        item = dict(row)
+
+        storage_name = str(item.get('storage_name') or '').strip()
+
+        items.append({
+            "id": int(item.get('id') or 0),
+            "title": str(item.get('title') or '').strip(),
+            "code": str(item.get('code') or '').strip(),
+            "storage_name": storage_name,
+            "width": int(item.get('width') or 0),
+            "height": int(item.get('height') or 0),
+            "sort_order": int(item.get('sort_order') or 0),
+            "enabled": bool(item.get('enabled')),
+            "webp_url": f"/im/assets/emoji/{storage_name}" if storage_name else "",
+        })
+
+    return items
+
+
+
 async def _find_im_group_conversation(conversation_id: int = 0, owner_username: str = '') -> Optional[dict]:
 
     normalized_owner = _normalize_im_group_owner_username(owner_username)
@@ -5112,6 +5155,90 @@ async def admin_im_group_admins_replace(request: Request):
 
 
 
+@app.get("/admin/api/im/emoji_assets")
+async def admin_im_emoji_assets(request: Request):
+
+    token, _, _ = await _resolve_admin_identity(request)
+
+    if not token:
+
+        return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
+
+    try:
+
+        items = await _list_im_emoji_assets()
+
+    except Exception as e:
+
+        logger.error(f"[IM] 加载自定义表情资产失败: {e}")
+
+        return JSONResponse(status_code=500, content={"error": True, "message": f"加载自定义表情失败: {str(e)}"})
+
+    return {
+        "success": True,
+        "total": len(items),
+        "items": items,
+    }
+
+
+
+@app.post("/admin/api/im/emoji_assets/import")
+async def admin_im_emoji_assets_import(request: Request):
+
+    token, role, _ = await _resolve_admin_identity(request)
+
+    if not token:
+
+        return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
+
+    if role != ROLE_SUPER_ADMIN:
+
+        return JSONResponse(status_code=403, content={"error": True, "message": "仅系统总管理员可导入自定义表情"})
+
+    status_code, body = await _post_im_internal_json("/im/internal/emoji_assets/import", {})
+
+    if status_code >= 400:
+
+        if isinstance(body, dict):
+
+            return JSONResponse(status_code=status_code, content=body)
+
+        return JSONResponse(status_code=status_code, content={"error": True, "message": "IM 服务调用失败"})
+
+    if not isinstance(body, dict):
+
+        return JSONResponse(status_code=502, content={"error": True, "message": "IM 服务响应无效"})
+
+    imported_count = int(body.get('imported_count') or 0)
+
+    skipped_count = int(body.get('skipped_count') or 0)
+
+    failed_count = int(body.get('failed_count') or 0)
+
+    try:
+
+        items = await _list_im_emoji_assets()
+
+    except Exception as e:
+
+        logger.error(f"[IM] 导入后刷新自定义表情资产失败: {e}")
+
+        items = []
+
+    return {
+        "success": True,
+        "message": f"导入完成：新增{imported_count}，刷新{skipped_count}，失败{failed_count}",
+        "imported_count": imported_count,
+        "skipped_count": skipped_count,
+        "failed_count": failed_count,
+        "results": body.get('items', []) if isinstance(body.get('items'), list) else [],
+        "total": len(items),
+        "items": items,
+    }
+
+
+
+
 
 # --- 积分管理 ---
 
@@ -7312,6 +7439,7 @@ def _iter_widget_asset_paths() -> list[str]:
         os.path.join(PLUGINS_DIR, "im", "user", "im_entry.js"),
         os.path.join(PLUGINS_DIR, "im", "user", "im_client.js"),
         os.path.join(PLUGINS_DIR, "im", "user", "modules", "im_app_shell.js"),
+        os.path.join(PLUGINS_DIR, "im", "user", "modules", "im_emoji_manage.js"),
         os.path.join(PLUGINS_DIR, "im", "user", "modules", "im_profile.js"),
         os.path.join(PLUGINS_DIR, "im", "user", "modules", "im_overlay.js"),
         os.path.join(PLUGINS_DIR, "im", "user", "modules", "im_group_manage.js"),
@@ -7497,6 +7625,15 @@ async def im_user_plugin_client_js(request: Request):
 async def im_user_plugin_app_shell_module_js(request: Request):
 
     js_path = os.path.join(PLUGINS_DIR, "im", "user", "modules", "im_app_shell.js")
+
+    return _build_widget_script_response(request, js_path)
+
+
+@app.get("/chat/plugins/im/user/modules/im_emoji_manage.js")
+
+async def im_user_plugin_emoji_manage_module_js(request: Request):
+
+    js_path = os.path.join(PLUGINS_DIR, "im", "user", "modules", "im_emoji_manage.js")
 
     return _build_widget_script_response(request, js_path)
 

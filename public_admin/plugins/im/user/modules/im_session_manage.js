@@ -122,6 +122,7 @@
                     }
                     if (typeof self.ctx.closeActionSheet === 'function') self.ctx.closeActionSheet();
                     if (typeof self.ctx.closeReadProgressPanel === 'function') self.ctx.closeReadProgressPanel();
+                    if (typeof self.ctx.closeEmojiPicker === 'function') self.ctx.closeEmojiPicker({ silent: true });
                     if (typeof self.ctx.closeMemberPanel === 'function') self.ctx.closeMemberPanel();
                     state.activeConversationId = item.conversation_id;
                     state.view = 'chat';
@@ -158,6 +159,7 @@
                         state.activeConversationId = 0;
                         state.activeMessages = [];
                         if (typeof self.ctx.closeReadProgressPanel === 'function') self.ctx.closeReadProgressPanel();
+                        if (typeof self.ctx.closeEmojiPicker === 'function') self.ctx.closeEmojiPicker({ silent: true });
                         if (typeof self.ctx.closeMemberPanel === 'function') self.ctx.closeMemberPanel();
                         if (typeof self.ctx.closeSettingsPanel === 'function') self.ctx.closeSettingsPanel();
                         if (state.view === 'chat') state.view = 'sessions';

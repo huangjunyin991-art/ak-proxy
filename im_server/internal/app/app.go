@@ -24,6 +24,12 @@ import (
 
 const defaultAvatarStyle = "thumbs"
 
+var (
+	errInvalidMessageType = errors.New("invalid message_type")
+	errInvalidEmojiAssetID = errors.New("invalid emoji_asset_id")
+	errEmptyMessageContent = errors.New("empty content")
+)
+
 type App struct {
 	cfg      config.Config
 	db       *pgxpool.Pool
@@ -48,6 +54,7 @@ type BootstrapResponse struct {
 	Username          string `json:"username"`
 	DisplayName       string `json:"display_name"`
 	AvatarURL         string `json:"avatar_url,omitempty"`
+	EmojiAssets       []EmojiAssetItem `json:"emoji_assets,omitempty"`
 	RetentionDays     int    `json:"retention_days"`
 	StoreEncoding     string `json:"store_encoding"`
 	CompressMinBytes  int    `json:"compress_min_bytes"`
@@ -114,6 +121,8 @@ type ContactItem struct {
 type sendMessageRequest struct {
 	ConversationID int64  `json:"conversation_id"`
 	Content        string `json:"content"`
+	MessageType    string `json:"message_type"`
+	EmojiAssetID   int64  `json:"emoji_asset_id,omitempty"`
 }
 
 type directSessionRequest struct {
@@ -172,9 +181,13 @@ func New(cfg config.Config) (*App, error) {
 	if err := app.ensureSchema(ctx); err != nil {
 		return nil, err
 	}
+	if err := app.ensureEmojiDirectories(); err != nil {
+		return nil, err
+	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/im/api/bootstrap", app.handleBootstrap)
 	mux.HandleFunc("/im/api/contacts", app.handleContacts)
+	mux.HandleFunc("/im/api/emoji_assets", app.handleEmojiAssets)
 	mux.HandleFunc("/im/api/profile", app.handleProfile)
 	mux.HandleFunc("/im/api/profile/avatar/history", app.handleProfileAvatarHistory)
 	mux.HandleFunc("/im/api/profile/avatar/refresh", app.handleProfileAvatarRefresh)
@@ -199,6 +212,8 @@ func New(cfg config.Config) (*App, error) {
 	mux.HandleFunc("/im/internal/group_profile", app.handleInternalGroupProfile)
 	mux.HandleFunc("/im/internal/group_admins/replace", app.handleInternalGroupAdminsReplace)
 	mux.HandleFunc("/im/internal/group_owner/transfer", app.handleInternalGroupOwnerTransfer)
+	mux.HandleFunc("/im/internal/emoji_assets/import", app.handleInternalEmojiAssetImport)
+	mux.HandleFunc("/im/assets/emoji/", app.handleEmojiAssetFile)
 	mux.HandleFunc("/im/ws", app.handleWS)
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"ok": true})
@@ -351,6 +366,7 @@ func (a *App) ensureSchema(ctx context.Context) error {
 		`CREATE INDEX IF NOT EXISTS idx_im_user_avatar_history_username_created_at ON im_user_avatar_history(username, created_at DESC, id DESC)`,
 		`CREATE INDEX IF NOT EXISTS idx_im_message_conversation_id ON im_message(conversation_id, seq_no DESC)`,
 	}
+	statements = append(statements, emojiAssetSchemaStatements()...)
 	for index, stmt := range statements {
 		if _, err := a.db.Exec(ctx, stmt); err != nil {
 			snippet := strings.Join(strings.Fields(stmt), " ")
@@ -882,8 +898,9 @@ func (a *App) handleBootstrap(w http.ResponseWriter, r *http.Request) {
 		Username:         username,
 		DisplayName:      profile.DisplayName,
 		AvatarURL:        profile.AvatarURL,
-		RetentionDays:    30,
-		StoreEncoding:    "plain_or_zstd",
+		EmojiAssets:      a.loadBootstrapEmojiAssets(r.Context()),
+		RetentionDays:    180,
+		StoreEncoding:    "plain",
 		CompressMinBytes: a.cfg.CompressMinBytes,
 	})
 }
@@ -1352,13 +1369,12 @@ func (a *App) handleSendMessage(w http.ResponseWriter, r *http.Request, username
 		writeJSON(w, http.StatusForbidden, map[string]any{"error": true, "message": "forbidden"})
 		return
 	}
-	content := strings.TrimSpace(req.Content)
-	if content == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"error": true, "message": "empty content"})
-		return
-	}
-	message, err := a.insertMessage(r.Context(), req.ConversationID, username, content)
+	message, err := a.insertMessage(r.Context(), req.ConversationID, username, req)
 	if err != nil {
+		if errors.Is(err, errInvalidMessageType) || errors.Is(err, errInvalidEmojiAssetID) || errors.Is(err, errEmptyMessageContent) {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": true, "message": err.Error()})
+			return
+		}
 		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
 		return
 	}
@@ -1369,7 +1385,66 @@ func (a *App) handleSendMessage(w http.ResponseWriter, r *http.Request, username
 	writeJSON(w, http.StatusOK, map[string]any{"item": message})
 }
 
-func (a *App) insertMessage(ctx context.Context, conversationID int64, username string, content string) (MessageItem, error) {
+
+func buildMessageStorage(req sendMessageRequest) (messageType string, contentPreview string, contentPayload string, contentSizeRaw int, contentSizeStored int, err error) {
+	messageType = strings.TrimSpace(strings.ToLower(req.MessageType))
+	if messageType == "" {
+		messageType = "text"
+	}
+	switch messageType {
+	case "text":
+		contentPayload = strings.TrimSpace(req.Content)
+		if contentPayload == "" {
+			err = errEmptyMessageContent
+			return
+		}
+		contentPreview = contentPayload
+		contentSizeRaw = len(contentPayload)
+		contentSizeStored = len(contentPayload)
+	case "emoji_custom":
+		if req.EmojiAssetID <= 0 {
+			err = errInvalidEmojiAssetID
+			return
+		}
+		contentPreview = strings.TrimSpace(req.Content)
+		if contentPreview == "" {
+			contentPreview = "[表情]"
+		}
+		payloadBytes, marshalErr := json.Marshal(map[string]any{
+			"emoji_asset_id": req.EmojiAssetID,
+			"code":           strings.TrimSpace(req.Content),
+		})
+		if marshalErr != nil {
+			err = marshalErr
+			return
+		}
+		contentPayload = string(payloadBytes)
+		contentSizeRaw = len(contentPreview)
+		contentSizeStored = len(contentPayload)
+	default:
+		err = errInvalidMessageType
+		return
+	}
+	if len([]rune(contentPreview)) > 120 {
+		contentPreview = string([]rune(contentPreview)[:120])
+	}
+	return
+}
+
+func (a *App) insertMessage(ctx context.Context, conversationID int64, username string, req sendMessageRequest) (MessageItem, error) {
+	messageType, preview, contentPayload, contentSizeRaw, contentSizeStored, err := buildMessageStorage(req)
+	if err != nil {
+		return MessageItem{}, err
+	}
+	if messageType == "emoji_custom" {
+		exists, existsErr := a.emojiAssetExists(ctx, req.EmojiAssetID)
+		if existsErr != nil {
+			return MessageItem{}, existsErr
+		}
+		if !exists {
+			return MessageItem{}, errInvalidEmojiAssetID
+		}
+	}
 	tx, err := a.db.Begin(ctx)
 	if err != nil {
 		return MessageItem{}, err
@@ -1379,17 +1454,13 @@ func (a *App) insertMessage(ctx context.Context, conversationID int64, username 
 	if err := tx.QueryRow(ctx, `SELECT COALESCE(MAX(seq_no), 0) + 1 FROM im_message WHERE conversation_id = $1`, conversationID).Scan(&nextSeqNo); err != nil {
 		return MessageItem{}, err
 	}
-	preview := content
-	if len([]rune(preview)) > 120 {
-		preview = string([]rune(preview)[:120])
-	}
 	var item MessageItem
 	var sentAt time.Time
 	err = tx.QueryRow(ctx, `
-		INSERT INTO im_message (conversation_id, sender_username, seq_no, content_preview, content_payload, content_size_raw, content_size_stored)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		INSERT INTO im_message (conversation_id, sender_username, seq_no, message_type, content_preview, content_payload, content_size_raw, content_size_stored)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 		RETURNING id, conversation_id, sender_username, seq_no, message_type, content_payload, content_preview, status, sent_at`,
-		conversationID, username, nextSeqNo, preview, content, len(content), len(content),
+		conversationID, username, nextSeqNo, messageType, preview, contentPayload, contentSizeRaw, contentSizeStored,
 	).Scan(&item.ID, &item.ConversationID, &item.SenderUsername, &item.SeqNo, &item.MessageType, &item.Content, &item.ContentPreview, &item.Status, &sentAt)
 	if err != nil {
 		return MessageItem{}, err
@@ -1500,13 +1571,13 @@ func (a *App) handleWS(w http.ResponseWriter, r *http.Request) {
 			if err := json.Unmarshal(env.Payload, &payload); err != nil {
 				continue
 			}
-			if payload.ConversationID <= 0 || strings.TrimSpace(payload.Content) == "" {
+			if payload.ConversationID <= 0 {
 				continue
 			}
 			if !a.ensureConversationMember(r.Context(), fmt.Sprintf("%d", payload.ConversationID), username) {
 				continue
 			}
-			item, err := a.insertMessage(r.Context(), payload.ConversationID, username, strings.TrimSpace(payload.Content))
+			item, err := a.insertMessage(r.Context(), payload.ConversationID, username, payload)
 			if err != nil {
 				continue
 			}

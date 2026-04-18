@@ -134,6 +134,23 @@
             '</button>';
         },
 
+        getMessageBubbleMarkup(item) {
+            if (this.ctx && typeof this.ctx.buildMessageBubbleMarkup === 'function') {
+                return this.ctx.buildMessageBubbleMarkup(item);
+            }
+            if (!this.ctx || typeof this.ctx.escapeHtml !== 'function') return '';
+            return this.ctx.escapeHtml(item && (item.content || item.content_preview || '') || '');
+        },
+
+        getMessageBubbleClassName(item) {
+            const classes = ['ak-im-bubble'];
+            if (this.ctx && typeof this.ctx.getMessageBubbleClassName === 'function') {
+                const nextClassName = String(this.ctx.getMessageBubbleClassName(item) || '').trim();
+                if (nextClassName) classes.push(nextClassName);
+            }
+            return classes.join(' ');
+        },
+
         renderMessages() {
             const state = this.getState();
             if (!state || !this.ctx || typeof this.ctx.escapeHtml !== 'function' || typeof this.ctx.formatTime !== 'function' || typeof this.ctx.buildAvatarBoxMarkup !== 'function' || typeof this.ctx.getAvatarUrl !== 'function') return;
@@ -216,6 +233,8 @@
                 const progressMarkup = self.buildReadProgressButtonMarkup(item, activeSession);
                 const avatarText = displayName || item.sender_username || '成员';
                 const avatarUrl = isSelf ? self.ctx.getAvatarUrl((state.profile && state.profile.avatar_url) || item.sender_avatar_url) : self.ctx.getAvatarUrl(item.sender_avatar_url);
+                const bubbleClassName = self.getMessageBubbleClassName(item);
+                const bubbleMarkup = self.getMessageBubbleMarkup(item);
                 const footerMarkup = (metaText || progressMarkup) ? '<div class="ak-im-message-footer">' +
                     (metaText ? '<div class="ak-im-meta">' + self.ctx.escapeHtml(metaText) + '</div>' : '') +
                     progressMarkup +
@@ -225,7 +244,7 @@
                         self.ctx.buildAvatarBoxMarkup('ak-im-avatar', avatarUrl, avatarText, avatarText + '头像') +
                         '<div class="ak-im-message-main">' +
                             (senderText ? '<div class="ak-im-message-sender">' + self.ctx.escapeHtml(senderText) + '</div>' : '') +
-                            '<div class="ak-im-bubble">' + self.ctx.escapeHtml(item.content || item.content_preview || '') + '</div>' +
+                            '<div class="' + bubbleClassName + '">' + bubbleMarkup + '</div>' +
                             footerMarkup +
                         '</div>' +
                     '</div>';
@@ -270,6 +289,39 @@
             messageList.scrollTop = messageList.scrollHeight;
         },
 
+        sendMessagePayload(payload, options) {
+            const state = this.getState();
+            if (!state || !state.allowed || !state.activeConversationId || !this.ctx || typeof this.ctx.request !== 'function') {
+                return Promise.resolve(null);
+            }
+            const requestPayload = Object.assign({
+                conversation_id: state.activeConversationId
+            }, payload || {});
+            const self = this;
+            const finalizeLocalState = function() {
+                if (!options || options.resetComposer !== false) self.resetComposerInput();
+                if (options && typeof options.onAfterLocalSend === 'function') options.onAfterLocalSend();
+            };
+            if (state.ws && state.ws.readyState === WebSocket.OPEN) {
+                state.ws.send(JSON.stringify({
+                    type: 'im.message.send',
+                    payload: requestPayload
+                }));
+                finalizeLocalState();
+                return Promise.resolve(null);
+            }
+            return this.ctx.request(this.ctx.httpRoot + '/messages', {
+                method: 'POST',
+                body: JSON.stringify(requestPayload)
+            }).then(function() {
+                const activeConversationId = Number(state.activeConversationId || 0);
+                finalizeLocalState();
+                return self.loadMessages(activeConversationId).then(function() {
+                    return typeof self.ctx.loadSessions === 'function' ? self.ctx.loadSessions() : null;
+                });
+            });
+        },
+
         loadMessages(conversationId) {
             const state = this.getState();
             if (!state || !this.ctx || typeof this.ctx.request !== 'function' || typeof this.ctx.render !== 'function') {
@@ -300,32 +352,28 @@
             if (!state || !state.allowed || !state.activeConversationId || !inputEl) return Promise.resolve(null);
             const content = String(inputEl.value || '').trim();
             if (!content) return Promise.resolve(null);
-            if (state.ws && state.ws.readyState === WebSocket.OPEN) {
-                state.ws.send(JSON.stringify({
-                    type: 'im.message.send',
-                    payload: {
-                        conversation_id: state.activeConversationId,
-                        content: content
-                    }
-                }));
-                this.resetComposerInput();
-                return Promise.resolve(null);
-            }
-            const self = this;
-            return this.ctx.request(this.ctx.httpRoot + '/messages', {
-                method: 'POST',
-                body: JSON.stringify({
-                    conversation_id: state.activeConversationId,
-                    content: content
-                })
-            }).then(function() {
-                const activeConversationId = Number(state.activeConversationId || 0);
-                self.resetComposerInput();
-                return self.loadMessages(activeConversationId).then(function() {
-                    return typeof self.ctx.loadSessions === 'function' ? self.ctx.loadSessions() : null;
-                });
+            return this.sendMessagePayload({
+                message_type: 'text',
+                content: content
             }).catch(function(error) {
                 window.alert(error && error.message ? error.message : '发送失败');
+                return null;
+            });
+        },
+
+        sendCustomEmoji(emojiAssetId, emojiCode) {
+            const state = this.getState();
+            if (!state || !state.allowed || !state.activeConversationId) return Promise.resolve(null);
+            const normalizedEmojiAssetId = Number(emojiAssetId || 0);
+            if (!normalizedEmojiAssetId) return Promise.resolve(null);
+            return this.sendMessagePayload({
+                message_type: 'emoji_custom',
+                emoji_asset_id: normalizedEmojiAssetId,
+                content: String(emojiCode || '').trim()
+            }, {
+                resetComposer: false
+            }).catch(function(error) {
+                window.alert(error && error.message ? error.message : '发送表情失败');
                 return null;
             });
         },

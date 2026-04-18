@@ -144,6 +144,11 @@
                 #ak-im-root .ak-im-message-sender{margin-bottom:4px;padding:0 2px;font-size:11px;color:#6b7280;line-height:1.4}
                 #ak-im-root .ak-im-bubble{padding:10px 12px;border-radius:8px;background:#ffffff;color:#111827;word-break:break-word;white-space:pre-wrap;box-shadow:0 1px 1px rgba(15,23,42,.04);font-size:15px;line-height:1.45}
                 #ak-im-root .ak-im-message-row.ak-self .ak-im-bubble{background:#95ec69}
+                #ak-im-root .ak-im-bubble.ak-im-bubble-emoji{padding:0;background:transparent;box-shadow:none;border-radius:14px;overflow:hidden;white-space:normal}
+                #ak-im-root .ak-im-message-row.ak-self .ak-im-bubble.ak-im-bubble-emoji{background:transparent}
+                #ak-im-root .ak-im-emoji-bubble-image{display:block;width:min(128px,42vw);max-width:100%;height:auto;border-radius:14px;background:#ffffff;object-fit:contain}
+                #ak-im-root .ak-im-emoji-bubble-fallback{display:inline-flex;align-items:center;justify-content:center;min-width:92px;min-height:92px;padding:12px 14px;border-radius:14px;background:#ffffff;color:#111827;font-size:14px;line-height:1.5;box-sizing:border-box}
+                #ak-im-root .ak-im-message-row.ak-self .ak-im-emoji-bubble-fallback{background:#95ec69}
                 #ak-im-root .ak-im-message-footer{margin-top:4px;display:flex;align-items:center;gap:6px;min-height:22px}
                 #ak-im-root .ak-im-message-row.ak-self .ak-im-message-footer{justify-content:flex-end}
                 #ak-im-root .ak-im-meta{font-size:11px;color:#9ca3af;line-height:1.4}
@@ -154,11 +159,39 @@
                 #ak-im-root .ak-im-progress-label{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:8px;font-weight:700;color:#16a34a;line-height:1;letter-spacing:-.02em}
                 #ak-im-root .ak-im-progress-btn.is-complete .ak-im-progress-label{font-size:11px}
                 #ak-im-root .ak-im-progress-btn:focus-visible{outline:none}
-                #ak-im-root .ak-im-composer{padding:8px 10px calc(8px + env(safe-area-inset-bottom, 0px));border-top:1px solid rgba(15,23,42,.06);display:flex;align-items:flex-end;gap:8px;background:#f7f7f7}
-                #ak-im-root .ak-im-input-wrap{flex:1;min-height:36px;display:flex;align-items:flex-end;background:#ffffff;border-radius:8px;border:1px solid rgba(15,23,42,.08);padding:7px 10px}
-                #ak-im-root .ak-im-input{width:100%;resize:none;border:none;outline:none;background:transparent;min-height:22px;max-height:120px;font-size:15px;line-height:1.45;color:#111827}
-                #ak-im-root .ak-im-send{height:36px;border:none;border-radius:8px;padding:0 16px;background:#07c160;color:#ffffff;font-size:14px;font-weight:600;cursor:pointer;transition:opacity .18s ease,transform .18s ease}
+                #ak-im-root .ak-im-composer{padding:8px 10px calc(8px + env(safe-area-inset-bottom, 0px));border-top:1px solid rgba(15,23,42,.06);display:grid;grid-template-columns:auto 1fr auto;align-items:flex-end;gap:8px;background:#f7f7f7}
+                #ak-im-root .ak-im-composer-side,#ak-im-root .ak-im-composer-actions{display:flex;align-items:flex-end;gap:8px}
+                #ak-im-root .ak-im-composer-main{min-width:0;display:flex;align-items:flex-end}
+                #ak-im-root .ak-im-composer-btn{width:36px;height:36px;border:none;border-radius:999px;background:#ffffff;color:#111827;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;padding:0;box-shadow:0 1px 1px rgba(15,23,42,.06);flex:0 0 auto;transition:opacity .18s ease,transform .18s ease,color .18s ease}
+                #ak-im-root .ak-im-composer-btn svg{width:20px;height:20px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+                #ak-im-root .ak-im-composer-btn:disabled,#ak-im-root .ak-im-composer-btn.is-disabled{opacity:.5;cursor:default;box-shadow:none}
+                #ak-im-root .ak-im-composer-btn.is-active{color:#07c160}
+                #ak-im-root .ak-im-emoji-toggle .ak-im-icon-alt{display:none}
+                #ak-im-root.ak-im-emoji-open .ak-im-emoji-toggle .ak-im-icon-default{display:none}
+                #ak-im-root.ak-im-emoji-open .ak-im-emoji-toggle .ak-im-icon-alt{display:block}
+                #ak-im-root .ak-im-input-wrap{flex:1;min-height:38px;display:flex;align-items:flex-end;background:#ffffff;border-radius:18px;padding:8px 12px;box-shadow:0 1px 1px rgba(15,23,42,.06)}
+                #ak-im-root .ak-im-input{width:100%;resize:none;border:none;outline:none;background:transparent;min-height:22px;max-height:96px;font-size:15px;line-height:1.5;color:#111827}
+                #ak-im-root .ak-im-send{display:none;height:36px;border:none;border-radius:18px;padding:0 18px;background:#07c160;color:#ffffff;font-size:14px;font-weight:600;cursor:pointer;transition:opacity .18s ease,transform .18s ease}
+                #ak-im-root.ak-im-composer-has-text .ak-im-send{display:inline-flex;align-items:center;justify-content:center}
+                #ak-im-root.ak-im-composer-has-text .ak-im-composer-plus{display:none}
                 #ak-im-root .ak-im-send:disabled{opacity:.42;cursor:not-allowed}
+                #ak-im-root .ak-im-emoji-sheet{height:0;overflow:hidden;background:#f7f7f7;transition:height .22s ease;border-top:1px solid transparent}
+                #ak-im-root .ak-im-emoji-sheet.is-open{height:min(320px,44vh);border-top-color:rgba(15,23,42,.06)}
+                #ak-im-root .ak-im-emoji-sheet-panel{height:100%;display:flex;flex-direction:column;background:#f7f7f7}
+                #ak-im-root .ak-im-emoji-sheet-tabs{display:flex;align-items:center;gap:8px;padding:10px 10px 8px}
+                #ak-im-root .ak-im-emoji-sheet-tab{min-width:48px;height:34px;border:none;border-radius:14px;background:rgba(255,255,255,.86);color:#6b7280;font-size:13px;font-weight:600;display:inline-flex;align-items:center;justify-content:center;padding:0 12px;cursor:pointer;transition:background .18s ease,color .18s ease,box-shadow .18s ease}
+                #ak-im-root .ak-im-emoji-sheet-tab.is-active{background:#ffffff;color:#111827;box-shadow:0 1px 2px rgba(15,23,42,.08)}
+                #ak-im-root .ak-im-emoji-sheet-body{flex:1;overflow:auto;padding:0 10px calc(12px + env(safe-area-inset-bottom, 0px))}
+                #ak-im-root .ak-im-emoji-section + .ak-im-emoji-section{margin-top:16px}
+                #ak-im-root .ak-im-emoji-section-title{margin:0 0 8px 4px;font-size:12px;font-weight:600;color:#9ca3af;line-height:1.5}
+                #ak-im-root .ak-im-emoji-grid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:8px}
+                #ak-im-root .ak-im-emoji-item{min-height:46px;border:none;border-radius:16px;background:#ffffff;display:inline-flex;align-items:center;justify-content:center;font-size:24px;cursor:pointer;box-shadow:0 1px 2px rgba(15,23,42,.05);padding:0}
+                #ak-im-root .ak-im-emoji-item:active,#ak-im-root .ak-im-sticker-item:active{transform:scale(.96)}
+                #ak-im-root .ak-im-sticker-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
+                #ak-im-root .ak-im-sticker-item{aspect-ratio:1 / 1;border:none;border-radius:18px;background:#ffffff;display:flex;align-items:center;justify-content:center;padding:8px;cursor:pointer;box-shadow:0 1px 2px rgba(15,23,42,.05)}
+                #ak-im-root .ak-im-sticker-img{max-width:100%;max-height:100%;object-fit:contain}
+                #ak-im-root .ak-im-emoji-loading,#ak-im-root .ak-im-emoji-error,#ak-im-root .ak-im-emoji-empty{padding:36px 16px;color:#6b7280;font-size:13px;line-height:1.7;text-align:center}
+                #ak-im-root .ak-im-emoji-error{color:#ef4444}
                 #ak-im-root .ak-im-status{padding:0 12px calc(8px + env(safe-area-inset-bottom, 0px));background:#f7f7f7;font-size:11px;color:#9ca3af}
                 #ak-im-root .ak-im-status:empty{display:none}
                 #ak-im-root .ak-im-chat-subtitle:empty{display:none}
@@ -378,7 +411,8 @@
                         <button class="ak-im-nav-btn ak-im-chat-menu is-hidden" type="button" aria-label="群聊更多功能" disabled><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="6" cy="12" r="1.7" fill="currentColor"></circle><circle cx="12" cy="12" r="1.7" fill="currentColor"></circle><circle cx="18" cy="12" r="1.7" fill="currentColor"></circle></svg></button>
                     </div>
                     <div class="ak-im-message-list"></div>
-                    <div class="ak-im-composer"><div class="ak-im-input-wrap"><textarea class="ak-im-input" placeholder="输入消息"></textarea></div><button class="ak-im-send" type="button">发送</button></div>
+                    <div class="ak-im-composer"><div class="ak-im-composer-side"><button class="ak-im-composer-btn ak-im-composer-voice is-disabled" type="button" aria-label="语音输入" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 10.5c0 3.3 2.7 6 6 6s6-2.7 6-6"></path><path d="M12 16.5v2.5"></path><path d="M9 19h6"></path><rect x="9" y="4" width="6" height="10" rx="3"></rect></svg></button></div><div class="ak-im-composer-main"><div class="ak-im-input-wrap"><textarea class="ak-im-input" placeholder="输入消息"></textarea></div></div><div class="ak-im-composer-actions"><button class="ak-im-composer-btn ak-im-composer-mic is-disabled" type="button" aria-label="实时语音" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 16.5c-2.2 0-4-1.8-4-4V8a4 4 0 1 1 8 0v4.5c0 2.2-1.8 4-4 4Z"></path><path d="M6.5 11.5v1a5.5 5.5 0 0 0 11 0v-1"></path><path d="M12 18v2.5"></path></svg></button><button class="ak-im-composer-btn ak-im-emoji-toggle" type="button" aria-label="打开表情面板"><svg class="ak-im-icon-default" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8"></circle><path d="M8.5 14.5c.9 1.2 2.1 1.8 3.5 1.8s2.6-.6 3.5-1.8"></path><path d="M9 10h.01"></path><path d="M15 10h.01"></path></svg><svg class="ak-im-icon-alt" viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="5.5" width="16" height="11" rx="2"></rect><path d="M8 19h8"></path><path d="M7.5 9.5h.01"></path><path d="M10.5 9.5h.01"></path><path d="M13.5 9.5h.01"></path><path d="M16.5 9.5h.01"></path><path d="M7.5 12.5h9"></path></svg></button><button class="ak-im-composer-btn ak-im-composer-plus is-disabled" type="button" aria-label="更多功能" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14"></path><path d="M5 12h14"></path></svg></button><button class="ak-im-send" type="button">发送</button></div></div>
+                    <div class="ak-im-emoji-sheet" aria-hidden="true" inert><div class="ak-im-emoji-sheet-panel"><div class="ak-im-emoji-sheet-tabs"></div><div class="ak-im-emoji-sheet-body"></div></div></div>
                     <div class="ak-im-status"></div>
                 </div>
                 <div class="ak-im-screen ak-im-compose-screen">
@@ -482,6 +516,13 @@
                 inputEl: root ? root.querySelector('.ak-im-input') : null,
                 newSessionInputEl: root ? root.querySelector('.ak-im-compose-input') : null,
                 sendBtn: root ? root.querySelector('.ak-im-send') : null,
+                composerVoiceBtnEl: root ? root.querySelector('.ak-im-composer-voice') : null,
+                composerMicBtnEl: root ? root.querySelector('.ak-im-composer-mic') : null,
+                composerEmojiBtnEl: root ? root.querySelector('.ak-im-emoji-toggle') : null,
+                composerPlusBtnEl: root ? root.querySelector('.ak-im-composer-plus') : null,
+                emojiSheetEl: root ? root.querySelector('.ak-im-emoji-sheet') : null,
+                emojiSheetTabsEl: root ? root.querySelector('.ak-im-emoji-sheet-tabs') : null,
+                emojiSheetBodyEl: root ? root.querySelector('.ak-im-emoji-sheet-body') : null,
                 actionSheetEl: root ? root.querySelector('.ak-im-action-sheet') : null,
                 actionSheetRecallBtn: root ? root.querySelector('[data-im-action="recall"]') : null,
                 actionSheetCancelBtn: root ? root.querySelector('[data-im-action="cancel"]') : null,
@@ -598,6 +639,9 @@
             });
             bindClick(elements.sendBtn, function() {
                 if (typeof ctx.onSendClick === 'function') ctx.onSendClick();
+            });
+            bindClick(elements.composerEmojiBtnEl, function() {
+                if (typeof ctx.onComposerEmojiToggleClick === 'function') ctx.onComposerEmojiToggleClick();
             });
             if (elements.inputEl) {
                 elements.inputEl.addEventListener('input', function() {

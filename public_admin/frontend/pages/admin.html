@@ -2859,6 +2859,21 @@
                             <button class="btn" onclick="loadImContactsGroups(false)" style="padding: 6px 14px; font-size: 13px;">搜索</button>
                         </div>
                     </div>
+                    <div id="imEmojiAdminSection" style="background: linear-gradient(135deg, rgba(0, 212, 255, 0.08), rgba(102, 126, 234, 0.08)); border: 1px solid rgba(0, 212, 255, 0.16); border-radius: 12px; padding: 14px; margin-bottom: 14px;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 10px;">
+                            <div>
+                                <div style="font-size: 14px; color: var(--accent); font-weight: 700;">自定义表情库</div>
+                                <div id="imEmojiAdminSummary" style="font-size: 12px; color: var(--text-secondary); margin-top: 4px;">进入本页后自动加载自定义表情</div>
+                            </div>
+                            <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                                <button class="btn" onclick="loadImEmojiAssets()" style="padding: 6px 12px; font-size: 12px;">刷新</button>
+                                <button class="btn btn-primary" id="imEmojiImportBtn" onclick="importImEmojiAssets()" style="padding: 6px 12px; font-size: 12px; display: none;">导入目录</button>
+                            </div>
+                        </div>
+                        <div id="imEmojiAdminList" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); gap: 10px;">
+                            <div style="grid-column: 1 / -1; text-align: center; color: var(--text-secondary); padding: 16px 0;">进入本页后自动加载自定义表情</div>
+                        </div>
+                    </div>
                     <div id="imContactsGroupList" style="display: flex; flex-direction: column; gap: 10px;">
                         <div style="text-align: center; color: var(--text-secondary); padding: 30px 0;">进入本页后自动加载群聊</div>
                     </div>
@@ -5625,7 +5640,10 @@
                 if (tab.dataset.panel === 'ips') loadIPs();
                 if (tab.dataset.panel === 'banlist') loadBanlist();
                 if (tab.dataset.panel === 'whitelist') loadWhitelist();
-                if (tab.dataset.panel === 'contacts') loadImContactsGroups(false);
+                if (tab.dataset.panel === 'contacts') {
+                    loadImContactsGroups(false);
+                    loadImEmojiAssets();
+                }
                 if (tab.dataset.panel === 'credits') loadCreditsPage();
                 if (tab.dataset.panel === 'license') {
                     loadLicenseStats();
@@ -7775,9 +7793,140 @@
             }
         }
 
+        let imEmojiAssets = [];
+        let imEmojiAssetsLoaded = false;
+        let imEmojiAssetsLoading = false;
+        let imEmojiAssetsImporting = false;
+        let imEmojiAssetsError = '';
         let imContactsGroups = [];
         let imContactsSelectedConversationId = 0;
         let imContactsDetailItem = null;
+
+        function normalizeImEmojiAssets(items) {
+            if (!Array.isArray(items)) return [];
+            return items.map((item, index) => {
+                const assetId = Number(item && (item.id || item.asset_id || item.emoji_asset_id) || 0) || (index + 1);
+                const title = String(item && (item.title || item.name || item.code || item.emoji_code) || '').trim();
+                const code = String(item && (item.code || item.emoji_code || title) || '').trim();
+                const webpUrl = String(item && (item.webp_url || item.image_url || item.asset_url || item.url) || '').trim();
+                return {
+                    id: assetId,
+                    title: title || code || ('表情 ' + assetId),
+                    code: code || title || ('表情' + assetId),
+                    webp_url: webpUrl,
+                    enabled: item ? item.enabled !== false : true,
+                    width: Number(item && item.width || 0),
+                    height: Number(item && item.height || 0),
+                    sort_order: Number(item && item.sort_order || 0)
+                };
+            }).filter(item => Number(item.id || 0) > 0);
+        }
+
+        function renderImEmojiAssetPanel() {
+            const summaryEl = document.getElementById('imEmojiAdminSummary');
+            const listEl = document.getElementById('imEmojiAdminList');
+            const importBtn = document.getElementById('imEmojiImportBtn');
+            if (!summaryEl || !listEl) return;
+            const canImport = isSuperAdmin();
+            if (importBtn) {
+                importBtn.style.display = canImport ? '' : 'none';
+                importBtn.disabled = !!(imEmojiAssetsLoading || imEmojiAssetsImporting);
+                importBtn.textContent = imEmojiAssetsImporting ? '导入中...' : '导入目录';
+            }
+            if (imEmojiAssetsLoading) {
+                summaryEl.textContent = '正在读取自定义表情资产...';
+                listEl.innerHTML = '<div style="grid-column:1/-1; text-align:center; color: var(--text-secondary); padding: 16px 0;">正在加载自定义表情...</div>';
+                return;
+            }
+            if (imEmojiAssetsError) {
+                summaryEl.textContent = imEmojiAssetsError;
+                listEl.innerHTML = `<div style='grid-column:1/-1; text-align:center; color:#ff7b7b; padding:16px 0;'>${escapeHtml(imEmojiAssetsError)}</div>`;
+                return;
+            }
+            const enabledCount = imEmojiAssets.filter(item => item && item.enabled !== false).length;
+            summaryEl.textContent = imEmojiAssets.length
+                ? `共 ${imEmojiAssets.length} 个自定义表情，启用 ${enabledCount} 个`
+                : (canImport ? '将图片与 manifest.json 放入 IM_EMOJI_SOURCE_DIR 后点击导入目录' : '当前未配置全局自定义表情');
+            if (!imEmojiAssets.length) {
+                listEl.innerHTML = '<div style="grid-column:1/-1; text-align:center; color: var(--text-secondary); padding: 16px 0;">暂无自定义表情</div>';
+                return;
+            }
+            listEl.innerHTML = imEmojiAssets.map(item => {
+                const title = escapeHtml(item.title || item.code || '表情');
+                const code = escapeHtml(item.code || item.title || '');
+                const enabledTag = item.enabled === false
+                    ? '<span style="color:#ffb84d;">停用</span>'
+                    : '<span style="color:#00ff88;">启用</span>';
+                const preview = item.webp_url
+                    ? `<img src="${escapeHtml(item.webp_url)}" alt="${title}" style="width:48px; height:48px; object-fit:contain; border-radius:10px; background:rgba(255,255,255,0.04);">`
+                    : `<div style="width:48px; height:48px; display:flex; align-items:center; justify-content:center; border-radius:10px; background:rgba(255,255,255,0.04); color:var(--text-primary); font-size:12px; font-weight:600;">${escapeHtml((item.code || item.title || '表情').slice(0, 2))}</div>`;
+                return `<div style='background:var(--bg-secondary); border:1px solid var(--border); border-radius:12px; padding:10px; display:flex; flex-direction:column; align-items:center; gap:8px; min-height:118px;'>
+                    ${preview}
+                    <div style='font-size:12px; color:var(--text-primary); text-align:center; word-break:break-word;'>${title}</div>
+                    <div style='font-size:11px; color:var(--text-secondary); text-align:center; word-break:break-word;'>${code || '&nbsp;'}</div>
+                    <div style='font-size:11px;'>${enabledTag}</div>
+                </div>`;
+            }).join('');
+        }
+
+        async function loadImEmojiAssets() {
+            if (imEmojiAssetsLoading) return;
+            imEmojiAssetsLoading = true;
+            imEmojiAssetsError = '';
+            renderImEmojiAssetPanel();
+            try {
+                const res = await fetch(`${API_BASE}/admin/api/im/emoji_assets`, {headers: getHeaders()});
+                const data = await res.json();
+                if (!res.ok || !data.success) {
+                    throw new Error(data.message || '加载自定义表情失败');
+                }
+                imEmojiAssets = normalizeImEmojiAssets(data.items);
+                imEmojiAssetsLoaded = true;
+                imEmojiAssetsError = '';
+            } catch (e) {
+                imEmojiAssets = [];
+                imEmojiAssetsLoaded = false;
+                imEmojiAssetsError = e.message || '加载自定义表情失败';
+            } finally {
+                imEmojiAssetsLoading = false;
+                renderImEmojiAssetPanel();
+            }
+        }
+
+        async function importImEmojiAssets() {
+            if (!isSuperAdmin()) {
+                showAlert('仅系统总管理员可导入自定义表情', 'warning');
+                return;
+            }
+            if (imEmojiAssetsImporting) return;
+            if (!window.confirm('确认从 IM_EMOJI_SOURCE_DIR 重新扫描并导入自定义表情吗？\n请先将图片与 manifest.json 放入该目录。')) return;
+            imEmojiAssetsImporting = true;
+            imEmojiAssetsError = '';
+            renderImEmojiAssetPanel();
+            try {
+                const res = await fetch(`${API_BASE}/admin/api/im/emoji_assets/import`, {
+                    method: 'POST',
+                    headers: getHeaders()
+                });
+                const data = await res.json();
+                if (!res.ok || !data.success) {
+                    throw new Error(data.message || '导入自定义表情失败');
+                }
+                imEmojiAssets = normalizeImEmojiAssets(data.items);
+                imEmojiAssetsLoaded = true;
+                imEmojiAssetsError = '';
+                showToast(data.message || '导入完成');
+                if (Number(data.failed_count || 0) > 0) {
+                    showAlert(`导入完成，但有 ${Number(data.failed_count || 0)} 个文件失败`, 'warning');
+                }
+            } catch (e) {
+                imEmojiAssetsError = e.message || '导入自定义表情失败';
+                showAlert('导入自定义表情失败: ' + imEmojiAssetsError, 'error');
+            } finally {
+                imEmojiAssetsImporting = false;
+                renderImEmojiAssetPanel();
+            }
+        }
 
         function parseImContactUsernames(raw) {
             return Array.from(new Set(String(raw || '')

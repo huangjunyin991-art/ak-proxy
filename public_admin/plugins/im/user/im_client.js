@@ -52,6 +52,12 @@
         actionSheetDraftText: '',
         recalledDraftByMessageId: {},
         inputValue: '',
+        emojiPanelOpen: false,
+        emojiPanelTab: 'standard',
+        emojiAssets: [],
+        emojiAssetsLoaded: false,
+        emojiAssetsLoading: false,
+        emojiAssetsError: '',
         actionSheetMode: '',
         actionSheetSessionPinned: false,
         actionSheetSessionSystemPinned: false,
@@ -102,6 +108,13 @@
     let inputEl = null;
     let newSessionInputEl = null;
     let sendBtn = null;
+    let composerVoiceBtnEl = null;
+    let composerMicBtnEl = null;
+    let composerEmojiBtnEl = null;
+    let composerPlusBtnEl = null;
+    let emojiSheetEl = null;
+    let emojiSheetTabsEl = null;
+    let emojiSheetBodyEl = null;
     let actionSheetEl = null;
     let actionSheetRecallBtn = null;
     let actionSheetCancelBtn = null;
@@ -142,6 +155,13 @@
         inputEl = nextElements.inputEl || null;
         newSessionInputEl = nextElements.newSessionInputEl || null;
         sendBtn = nextElements.sendBtn || null;
+        composerVoiceBtnEl = nextElements.composerVoiceBtnEl || null;
+        composerMicBtnEl = nextElements.composerMicBtnEl || null;
+        composerEmojiBtnEl = nextElements.composerEmojiBtnEl || null;
+        composerPlusBtnEl = nextElements.composerPlusBtnEl || null;
+        emojiSheetEl = nextElements.emojiSheetEl || null;
+        emojiSheetTabsEl = nextElements.emojiSheetTabsEl || null;
+        emojiSheetBodyEl = nextElements.emojiSheetBodyEl || null;
         actionSheetEl = nextElements.actionSheetEl || null;
         actionSheetRecallBtn = nextElements.actionSheetRecallBtn || null;
         actionSheetCancelBtn = nextElements.actionSheetCancelBtn || null;
@@ -182,6 +202,13 @@
             inputEl: null,
             newSessionInputEl: null,
             sendBtn: null,
+            composerVoiceBtnEl: null,
+            composerMicBtnEl: null,
+            composerEmojiBtnEl: null,
+            composerPlusBtnEl: null,
+            emojiSheetEl: null,
+            emojiSheetTabsEl: null,
+            emojiSheetBodyEl: null,
             actionSheetEl: null,
             actionSheetRecallBtn: null,
             actionSheetCancelBtn: null,
@@ -319,6 +346,7 @@
 
     function initShellModules() {
         initMessageManageModule();
+        initEmojiManageModule();
         initSessionManageModule();
         initGroupManageModule();
         initOverlayModule();
@@ -335,6 +363,7 @@
         closeReadProgressPanel();
         closeMemberPanel();
         closeSettingsPanel({ silent: true });
+        closeEmojiPicker({ silent: true });
         if (options && options.closePanel) state.open = false;
         state.view = 'sessions';
         render();
@@ -442,6 +471,7 @@
             onSendClick: sendCurrentMessage,
             onComposerInput: handleComposerInput,
             onComposerSubmit: sendCurrentMessage,
+            onComposerEmojiToggleClick: toggleEmojiPicker,
             onNewSessionInputChange: handleNewSessionInputChange,
             onMemberPanelClose: closeMemberPanel,
             onProfileSubpageBackClick: closeProfileSubpage
@@ -481,6 +511,7 @@
             formatSessionTime: formatSessionTime,
             closeActionSheet: closeActionSheet,
             closeReadProgressPanel: closeReadProgressPanel,
+            closeEmojiPicker: closeEmojiPicker,
             closeMemberPanel: closeMemberPanel,
             closeSettingsPanel: closeSettingsPanel,
             openSessionActionSheet: openSessionActionSheet,
@@ -530,6 +561,14 @@
         return messageManageModule;
     }
 
+    function getEmojiModule() {
+        const modules = window.AKIMUserModules;
+        if (!modules || typeof modules !== 'object') return null;
+        const emojiManageModule = modules.emojiManage;
+        if (!emojiManageModule || typeof emojiManageModule.init !== 'function') return null;
+        return emojiManageModule;
+    }
+
     function initMessageManageModule() {
         const messageManageModule = getMessageManageModule();
         if (!messageManageModule) return;
@@ -558,6 +597,8 @@
             formatTime: formatTime,
             getAvatarUrl: getAvatarUrl,
             buildAvatarBoxMarkup: buildAvatarBoxMarkup,
+            buildMessageBubbleMarkup: buildMessageBubbleMarkup,
+            getMessageBubbleClassName: getMessageBubbleClassName,
             openActionSheet: openActionSheet,
             closeActionSheet: closeActionSheet,
             openReadProgressPanel: openReadProgressPanel,
@@ -567,6 +608,90 @@
             getSessionManage: getSessionManageModule,
             getGroupManage: getGroupManageModule
         });
+    }
+
+    function initEmojiManageModule() {
+        const emojiModule = getEmojiModule();
+        if (!emojiModule) return;
+        emojiModule.init({
+            state: state,
+            httpRoot: HTTP_ROOT,
+            get elements() {
+                return {
+                    root: root,
+                    inputEl: inputEl,
+                    composerEmojiBtnEl: composerEmojiBtnEl,
+                    emojiSheetEl: emojiSheetEl,
+                    emojiSheetTabsEl: emojiSheetTabsEl,
+                    emojiSheetBodyEl: emojiSheetBodyEl
+                };
+            },
+            request: request,
+            render: render,
+            escapeHtml: escapeHtml,
+            syncInputHeight: syncInputHeight,
+            syncComposerState: syncComposerState,
+            sendCustomEmoji: sendCustomEmoji
+        });
+    }
+
+    function buildMessageBubbleMarkup(item) {
+        const emojiModule = getEmojiModule();
+        if (emojiModule && typeof emojiModule.buildMessageBubbleMarkup === 'function') {
+            return emojiModule.buildMessageBubbleMarkup(item);
+        }
+        return escapeHtml(item && (item.content || item.content_preview || '') || '');
+    }
+
+    function getMessageBubbleClassName(item) {
+        const emojiModule = getEmojiModule();
+        if (emojiModule && typeof emojiModule.getMessageBubbleClassName === 'function') {
+            return emojiModule.getMessageBubbleClassName(item);
+        }
+        return '';
+    }
+
+    function renderEmojiPanel() {
+        const emojiModule = getEmojiModule();
+        if (emojiModule && typeof emojiModule.renderEmojiPanel === 'function') {
+            emojiModule.renderEmojiPanel();
+            return;
+        }
+        if (!emojiSheetEl) return;
+        emojiSheetEl.classList.remove('is-open');
+        emojiSheetEl.setAttribute('aria-hidden', 'true');
+        emojiSheetEl.setAttribute('inert', '');
+        if (emojiSheetTabsEl) emojiSheetTabsEl.innerHTML = '';
+        if (emojiSheetBodyEl) emojiSheetBodyEl.innerHTML = '';
+    }
+
+    function toggleEmojiPicker() {
+        const emojiModule = getEmojiModule();
+        if (emojiModule && typeof emojiModule.togglePicker === 'function') {
+            emojiModule.togglePicker();
+            return;
+        }
+        state.emojiPanelOpen = !state.emojiPanelOpen;
+        render();
+    }
+
+    function closeEmojiPicker(options) {
+        const emojiModule = getEmojiModule();
+        if (emojiModule && typeof emojiModule.closePicker === 'function') {
+            emojiModule.closePicker(options || null);
+            return;
+        }
+        if (!state.emojiPanelOpen) return;
+        state.emojiPanelOpen = false;
+        if (!options || !options.silent) render();
+    }
+
+    function sendCustomEmoji(emojiAssetId, emojiCode) {
+        const messageManageModule = getMessageManageModule();
+        if (messageManageModule && typeof messageManageModule.sendCustomEmoji === 'function') {
+            return messageManageModule.sendCustomEmoji(emojiAssetId, emojiCode);
+        }
+        return Promise.resolve(null);
     }
 
     function handleActionSheetSecondaryAction() {
@@ -1408,6 +1533,7 @@
 
     function closeComposeView() {
         closeActionSheet();
+        closeEmojiPicker({ silent: true });
         state.newSessionError = '';
         state.newSessionTarget = '';
         state.view = 'sessions';
@@ -1726,9 +1852,23 @@
             const hasConversation = !!state.activeConversationId;
             const hasMessageManage = !!getMessageManageModule();
             const canSend = hasConversation && hasMessageManage;
+            const hasText = !!String(inputEl.value || '').trim();
+            const canOpenEmoji = hasConversation && !!getEmojiModule();
+            if (root) {
+                root.classList.toggle('ak-im-composer-has-text', canSend && hasText);
+                root.classList.toggle('ak-im-emoji-open', !!state.emojiPanelOpen && state.view === 'chat' && hasConversation);
+            }
             inputEl.disabled = !canSend;
             inputEl.placeholder = hasConversation ? (hasMessageManage ? '输入消息' : '消息模块暂不可用') : '先选择一个会话';
-            sendBtn.disabled = !canSend || !String(inputEl.value || '').trim();
+            sendBtn.disabled = !canSend || !hasText;
+            if (composerEmojiBtnEl) {
+                composerEmojiBtnEl.disabled = !canOpenEmoji;
+                composerEmojiBtnEl.classList.toggle('is-active', !!state.emojiPanelOpen && state.view === 'chat' && hasConversation);
+                composerEmojiBtnEl.setAttribute('aria-label', state.emojiPanelOpen ? '切回键盘输入' : '打开表情面板');
+            }
+            if (composerVoiceBtnEl) composerVoiceBtnEl.disabled = true;
+            if (composerMicBtnEl) composerMicBtnEl.disabled = true;
+            if (composerPlusBtnEl) composerPlusBtnEl.disabled = true;
         }
 
     function render() {
@@ -1764,6 +1904,7 @@
         renderProfileSubpage();
         syncComposerState();
         syncInputHeight();
+        renderEmojiPanel();
         renderMessages();
         renderReadProgressPanel();
 	    renderMemberPanel();
@@ -2125,6 +2266,7 @@
         }).then(function(data) {
             const conversationId = Number((data && data.conversation_id) || 0);
             if (!conversationId) throw new Error('发起会话失败');
+            closeEmojiPicker({ silent: true });
             state.activeConversationId = conversationId;
             state.view = 'chat';
             state.activeMessages = [];
@@ -2149,10 +2291,22 @@
 
     function loadBootstrap() {
         return request(`${HTTP_ROOT}/bootstrap`).then(function(data) {
+            const bootstrapEmojiAssets = Array.isArray(data && data.emoji_assets)
+                ? data.emoji_assets
+                : (Array.isArray(data && data.custom_emoji_assets) ? data.custom_emoji_assets : []);
+            const hasBootstrapEmojiAssets = Array.isArray(data && data.emoji_assets) || Array.isArray(data && data.custom_emoji_assets);
             state.allowed = !!(data && data.allowed);
             state.ready = true;
             state.username = String((data && data.username) || '').trim().toLowerCase();
             state.displayName = String((data && data.display_name) || state.username || '').trim();
+            state.emojiPanelOpen = false;
+            state.emojiPanelTab = 'standard';
+            state.emojiAssets = bootstrapEmojiAssets;
+            state.emojiAssetsLoaded = hasBootstrapEmojiAssets;
+            state.emojiAssetsLoading = false;
+            state.emojiAssetsError = '';
+            window.AKIMEmojiAssets = bootstrapEmojiAssets.slice();
+            window.AK_IM_EMOJI_ASSETS = bootstrapEmojiAssets.slice();
             state.contacts = [];
             state.contactsLoaded = false;
             state.contactsLoading = false;
@@ -2195,6 +2349,14 @@
         }).catch(function() {
             state.allowed = false;
             state.ready = true;
+            state.emojiPanelOpen = false;
+            state.emojiPanelTab = 'standard';
+            state.emojiAssets = [];
+            state.emojiAssetsLoaded = false;
+            state.emojiAssetsLoading = false;
+            state.emojiAssetsError = '';
+            window.AKIMEmojiAssets = [];
+            window.AK_IM_EMOJI_ASSETS = [];
             state.contacts = [];
             state.contactsLoaded = false;
             state.contactsLoading = false;
@@ -2254,6 +2416,7 @@
 
     function startDirectSession() {
         if (!state.allowed) return;
+        closeEmojiPicker({ silent: true });
         state.newSessionError = '';
         state.newSessionTarget = '';
         state.view = 'compose';
