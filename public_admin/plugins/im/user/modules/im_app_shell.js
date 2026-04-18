@@ -178,9 +178,10 @@
                 #ak-im-root .ak-im-emoji-sheet{height:0;overflow:hidden;background:#f7f7f7;transition:height .22s ease;border-top:1px solid transparent}
                 #ak-im-root .ak-im-emoji-sheet.is-open{height:min(320px,44vh);border-top-color:rgba(15,23,42,.06)}
                 #ak-im-root .ak-im-emoji-sheet-panel{height:100%;display:flex;flex-direction:column;background:#f7f7f7}
-                #ak-im-root .ak-im-emoji-sheet-tabs{display:flex;align-items:center;gap:8px;padding:10px 10px 8px}
-                #ak-im-root .ak-im-emoji-sheet-tab{min-width:48px;height:34px;border:none;border-radius:14px;background:rgba(255,255,255,.86);color:#6b7280;font-size:13px;font-weight:600;display:inline-flex;align-items:center;justify-content:center;padding:0 12px;cursor:pointer;transition:background .18s ease,color .18s ease,box-shadow .18s ease}
-                #ak-im-root .ak-im-emoji-sheet-tab.is-active{background:#ffffff;color:#111827;box-shadow:0 1px 2px rgba(15,23,42,.08)}
+                #ak-im-root .ak-im-emoji-sheet-tabs{display:flex;align-items:center;gap:12px;padding:10px 12px 8px}
+                #ak-im-root .ak-im-emoji-sheet-tab{width:44px;height:44px;border:none;border-radius:12px;background:transparent;color:#111827;opacity:.52;display:inline-flex;align-items:center;justify-content:center;padding:0;cursor:pointer;transition:background .18s ease,opacity .18s ease,box-shadow .18s ease}
+                #ak-im-root .ak-im-emoji-sheet-tab.is-active{background:#e5e7eb;opacity:1;box-shadow:none}
+                #ak-im-root .ak-im-emoji-sheet-tab svg{width:22px;height:22px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
                 #ak-im-root .ak-im-emoji-sheet-body{flex:1;overflow:auto;padding:0 10px calc(12px + env(safe-area-inset-bottom, 0px))}
                 #ak-im-root .ak-im-emoji-section + .ak-im-emoji-section{margin-top:16px}
                 #ak-im-root .ak-im-emoji-section-title{margin:0 0 8px 4px;font-size:12px;font-weight:600;color:#9ca3af;line-height:1.5}

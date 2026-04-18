@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"sort"
 	"strings"
 	"time"
@@ -159,6 +160,37 @@ func normalizeEmojiAssetText(value string, fallback string) string {
 		normalized = string([]rune(normalized)[:48])
 	}
 	return normalized
+}
+
+func buildAutoEmojiAssetManifestItem(sourceName string, fallbackSortOrder int) emojiAssetManifestItem {
+	base := strings.TrimSpace(strings.TrimSuffix(filepath.Base(sourceName), filepath.Ext(sourceName)))
+	if base == "" {
+		base = "表情"
+	}
+	sortOrder := fallbackSortOrder
+	label := base
+	prefixDigits := 0
+	for prefixDigits < len(label) {
+		ch := label[prefixDigits]
+		if ch < '0' || ch > '9' {
+			break
+		}
+		prefixDigits++
+	}
+	if prefixDigits > 0 {
+		if parsedSortOrder, err := strconv.Atoi(label[:prefixDigits]); err == nil && parsedSortOrder > 0 {
+			sortOrder = parsedSortOrder
+		}
+		label = strings.TrimLeft(label[prefixDigits:], " _-.")
+	}
+	label = strings.TrimSpace(strings.NewReplacer("_", " ", "-", " ").Replace(label))
+	label = normalizeEmojiAssetText(label, base)
+	return emojiAssetManifestItem{
+		File:      sourceName,
+		Title:     label,
+		Code:      label,
+		SortOrder: sortOrder,
+	}
 }
 
 func isEmojiAssetSourceFile(entry os.DirEntry) bool {
@@ -369,13 +401,29 @@ func (a *App) importEmojiAssets(ctx context.Context) (EmojiAssetImportResult, er
 	sort.Slice(entries, func(left int, right int) bool {
 		return strings.ToLower(entries[left].Name()) < strings.ToLower(entries[right].Name())
 	})
+	autoSortOrder := 0
 	for _, entry := range entries {
 		if !isEmojiAssetSourceFile(entry) {
 			continue
 		}
+		autoSortOrder++
 		sourceName := entry.Name()
 		sourcePath := filepath.Join(a.cfg.EmojiSourceDir, sourceName)
 		manifestItem, hasManifest := manifest[strings.ToLower(sourceName)]
+		autoManifestItem := buildAutoEmojiAssetManifestItem(sourceName, autoSortOrder)
+		if !hasManifest {
+			manifestItem = autoManifestItem
+		} else {
+			if strings.TrimSpace(manifestItem.Title) == "" {
+				manifestItem.Title = autoManifestItem.Title
+			}
+			if strings.TrimSpace(manifestItem.Code) == "" {
+				manifestItem.Code = autoManifestItem.Code
+			}
+			if manifestItem.SortOrder <= 0 {
+				manifestItem.SortOrder = autoManifestItem.SortOrder
+			}
+		}
 		img, err := decodeEmojiAssetImage(sourcePath)
 		if err != nil {
 			result.FailedCount++

@@ -301,18 +301,27 @@
             if (this.ctx && typeof this.ctx.render === 'function') this.ctx.render();
         },
 
+        getTabIconMarkup(tabKey) {
+            if (tabKey === 'custom') {
+                return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20.5s-6.5-4.35-8.47-8.1C2.1 9.74 3.2 6.5 6.56 6.5c2.03 0 3.32 1.14 4.1 2.39.78-1.25 2.07-2.39 4.1-2.39 3.36 0 4.46 3.24 3.03 5.9C18.5 16.15 12 20.5 12 20.5Z"></path></svg>';
+            }
+            return '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8"></circle><path d="M9 10h.01"></path><path d="M15 10h.01"></path><path d="M8.5 14.5c.9 1.2 2.1 1.8 3.5 1.8s2.6-.6 3.5-1.8"></path></svg>';
+        },
+
         renderTabs(container, activeTab) {
             if (!container) return;
             const self = this;
             container.innerHTML = '';
             [
-                { key: 'standard', label: '表情' },
-                { key: 'custom', label: '贴纸' }
+                { key: 'standard', label: '标准表情' },
+                { key: 'custom', label: '自定义表情' }
             ].forEach(function(tab) {
                 const button = document.createElement('button');
                 button.type = 'button';
                 button.className = 'ak-im-emoji-sheet-tab' + (tab.key === activeTab ? ' is-active' : '');
-                button.textContent = tab.label;
+                button.setAttribute('aria-label', tab.label);
+                button.setAttribute('title', tab.label);
+                button.innerHTML = self.getTabIconMarkup(tab.key);
                 button.addEventListener('click', function() {
                     self.switchTab(tab.key);
                 });
