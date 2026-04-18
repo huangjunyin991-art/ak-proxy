@@ -11,7 +11,6 @@ import (
 	_ "image/jpeg"
 	_ "image/png"
 	"log"
-	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -475,15 +474,6 @@ func (a *App) handleEmojiAssets(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"items": items})
-}
-
-func isLoopbackRequest(r *http.Request) bool {
-	host, _, err := net.SplitHostPort(strings.TrimSpace(r.RemoteAddr))
-	if err != nil {
-		host = strings.TrimSpace(r.RemoteAddr)
-	}
-	ip := net.ParseIP(host)
-	return ip != nil && ip.IsLoopback()
 }
 
 func (a *App) handleInternalEmojiAssetImport(w http.ResponseWriter, r *http.Request) {
