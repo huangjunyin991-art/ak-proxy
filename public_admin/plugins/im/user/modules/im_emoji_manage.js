@@ -303,7 +303,7 @@
 
         getTabIconMarkup(tabKey) {
             if (tabKey === 'custom') {
-                return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20.5s-6.5-4.35-8.47-8.1C2.1 9.74 3.2 6.5 6.56 6.5c2.03 0 3.32 1.14 4.1 2.39.78-1.25 2.07-2.39 4.1-2.39 3.36 0 4.46 3.24 3.03 5.9C18.5 16.15 12 20.5 12 20.5Z"></path></svg>';
+                return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20.25l-.32-.29C6.03 14.82 2.25 11.39 2.25 7.5 2.25 4.47 4.72 2 7.75 2c1.67 0 3.27.78 4.25 2.02A5.74 5.74 0 0 1 16.25 2C19.28 2 21.75 4.47 21.75 7.5c0 3.89-3.78 7.32-9.43 12.46l-.32.29Z"></path></svg>';
             }
             return '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8"></circle><path d="M9 10h.01"></path><path d="M15 10h.01"></path><path d="M8.5 14.5c.9 1.2 2.1 1.8 3.5 1.8s2.6-.6 3.5-1.8"></path></svg>';
         },
@@ -384,19 +384,31 @@
             const gridEl = document.createElement('div');
             gridEl.className = 'ak-im-sticker-grid';
             assets.forEach(function(asset) {
+                const labelText = asset.title || asset.code || '自定义表情';
                 const button = document.createElement('button');
+                const preview = document.createElement('div');
+                const labelEl = document.createElement('span');
                 button.type = 'button';
                 button.className = 'ak-im-sticker-item';
-                button.setAttribute('aria-label', asset.title || asset.code || '自定义表情');
+                button.setAttribute('aria-label', labelText);
+                button.setAttribute('title', labelText);
+                preview.className = 'ak-im-sticker-preview';
                 if (asset.imageUrl) {
                     const image = document.createElement('img');
                     image.className = 'ak-im-sticker-img';
                     image.src = asset.imageUrl;
-                    image.alt = asset.title || asset.code || '自定义表情';
-                    button.appendChild(image);
+                    image.alt = labelText;
+                    preview.appendChild(image);
                 } else {
-                    button.textContent = asset.code || asset.title || '表情';
+                    const fallback = document.createElement('span');
+                    fallback.className = 'ak-im-sticker-fallback';
+                    fallback.textContent = asset.code || asset.title || '表情';
+                    preview.appendChild(fallback);
                 }
+                labelEl.className = 'ak-im-sticker-label';
+                labelEl.textContent = labelText;
+                button.appendChild(preview);
+                button.appendChild(labelEl);
                 button.addEventListener('click', function() {
                     self.sendCustomEmoji(asset);
                 });

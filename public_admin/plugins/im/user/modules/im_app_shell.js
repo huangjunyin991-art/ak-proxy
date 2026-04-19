@@ -189,8 +189,11 @@
                 #ak-im-root .ak-im-emoji-item{min-height:46px;border:none;border-radius:16px;background:#ffffff;display:inline-flex;align-items:center;justify-content:center;font-size:24px;cursor:pointer;box-shadow:0 1px 2px rgba(15,23,42,.05);padding:0}
                 #ak-im-root .ak-im-emoji-item:active,#ak-im-root .ak-im-sticker-item:active{transform:scale(.96)}
                 #ak-im-root .ak-im-sticker-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
-                #ak-im-root .ak-im-sticker-item{aspect-ratio:1 / 1;border:none;border-radius:18px;background:#ffffff;display:flex;align-items:center;justify-content:center;padding:8px;cursor:pointer;box-shadow:0 1px 2px rgba(15,23,42,.05)}
+                #ak-im-root .ak-im-sticker-item{aspect-ratio:1 / 1;border:none;border-radius:18px;background:#ffffff;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;padding:10px 8px 9px;cursor:pointer;box-shadow:0 1px 2px rgba(15,23,42,.05)}
+                #ak-im-root .ak-im-sticker-preview{flex:1;min-height:0;width:100%;display:flex;align-items:center;justify-content:center}
                 #ak-im-root .ak-im-sticker-img{max-width:100%;max-height:100%;object-fit:contain}
+                #ak-im-root .ak-im-sticker-label{max-width:100%;font-size:12px;line-height:1.2;color:#6b7280;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+                #ak-im-root .ak-im-sticker-fallback{font-size:12px;line-height:1.2;color:#6b7280;text-align:center}
                 #ak-im-root .ak-im-emoji-loading,#ak-im-root .ak-im-emoji-error,#ak-im-root .ak-im-emoji-empty{padding:36px 16px;color:#6b7280;font-size:13px;line-height:1.7;text-align:center}
                 #ak-im-root .ak-im-emoji-error{color:#ef4444}
                 #ak-im-root .ak-im-status{padding:0 12px calc(8px + env(safe-area-inset-bottom, 0px));background:#f7f7f7;font-size:11px;color:#9ca3af}
