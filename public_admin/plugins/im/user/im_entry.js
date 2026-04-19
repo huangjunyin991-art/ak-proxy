@@ -39,6 +39,11 @@
             src: `${window.location.origin}/chat/plugins/im/user/modules/im_message_manage.js`
         },
         {
+            selector: 'script[data-ak-im-user-plugin-voice-hold-manage="1"]',
+            datasetKey: 'akImUserPluginVoiceHoldManage',
+            src: `${window.location.origin}/chat/plugins/im/user/modules/im_voice_hold_manage.js`
+        },
+        {
             selector: 'script[data-ak-im-user-plugin-emoji-manage="1"]',
             datasetKey: 'akImUserPluginEmojiManage',
             src: `${window.location.origin}/chat/plugins/im/user/modules/im_emoji_manage.js`

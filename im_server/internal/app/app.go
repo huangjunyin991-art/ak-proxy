@@ -27,6 +27,7 @@ const defaultAvatarStyle = "thumbs"
 var (
 	errInvalidMessageType = errors.New("invalid message_type")
 	errInvalidEmojiAssetID = errors.New("invalid emoji_asset_id")
+	errInvalidVoicePayload = errors.New("invalid voice payload")
 	errEmptyMessageContent = errors.New("empty content")
 )
 
@@ -184,6 +185,9 @@ func New(cfg config.Config) (*App, error) {
 	if err := app.ensureEmojiDirectories(); err != nil {
 		return nil, err
 	}
+	if err := app.ensureVoiceDirectories(); err != nil {
+		return nil, err
+	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/im/api/bootstrap", app.handleBootstrap)
 	mux.HandleFunc("/im/api/contacts", app.handleContacts)
@@ -206,6 +210,7 @@ func New(cfg config.Config) (*App, error) {
 	mux.HandleFunc("/im/api/sessions/direct", app.handleDirectSession)
 	mux.HandleFunc("/im/api/sessions/pin", app.handleSessionPin)
 	mux.HandleFunc("/im/api/messages", app.handleMessages)
+	mux.HandleFunc("/im/api/messages/voice", app.handleSendVoiceMessage)
 	mux.HandleFunc("/im/api/messages/read_progress", app.handleMessageReadProgress)
 	mux.HandleFunc("/im/api/messages/recall", app.handleRecallMessage)
 	mux.HandleFunc("/im/internal/whitelist_groups/sync", app.handleInternalWhitelistGroupSync)
@@ -215,6 +220,7 @@ func New(cfg config.Config) (*App, error) {
 	mux.HandleFunc("/im/internal/emoji_assets/import", app.handleInternalEmojiAssetImport)
 	mux.HandleFunc("/im/internal/emoji_assets/upload", app.handleInternalEmojiAssetUpload)
 	mux.HandleFunc("/im/assets/emoji/", app.handleEmojiAssetFile)
+	mux.HandleFunc("/im/assets/voice/", app.handleVoiceAssetFile)
 	mux.HandleFunc("/im/ws", app.handleWS)
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"ok": true})
@@ -1310,7 +1316,7 @@ func (a *App) handleListMessages(w http.ResponseWriter, r *http.Request, usernam
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": true, "message": "invalid conversation_id"})
 		return
 	}
-	if !a.ensureConversationMember(r.Context(), conversationID, username) {
+	if !a.ensureConversationMember(r.Context(), fmt.Sprintf("%d", conversationIDValue), username) {
 		writeJSON(w, http.StatusForbidden, map[string]any{"error": true, "message": "forbidden"})
 		return
 	}
@@ -1372,7 +1378,7 @@ func (a *App) handleSendMessage(w http.ResponseWriter, r *http.Request, username
 	}
 	message, err := a.insertMessage(r.Context(), req.ConversationID, username, req)
 	if err != nil {
-		if errors.Is(err, errInvalidMessageType) || errors.Is(err, errInvalidEmojiAssetID) || errors.Is(err, errEmptyMessageContent) {
+		if errors.Is(err, errInvalidMessageType) || errors.Is(err, errInvalidEmojiAssetID) || errors.Is(err, errInvalidVoicePayload) || errors.Is(err, errEmptyMessageContent) {
 			writeJSON(w, http.StatusBadRequest, map[string]any{"error": true, "message": err.Error()})
 			return
 		}
@@ -1385,7 +1391,6 @@ func (a *App) handleSendMessage(w http.ResponseWriter, r *http.Request, username
 	})
 	writeJSON(w, http.StatusOK, map[string]any{"item": message})
 }
-
 
 func buildMessageStorage(req sendMessageRequest) (messageType string, contentPreview string, contentPayload string, contentSizeRaw int, contentSizeStored int, err error) {
 	messageType = strings.TrimSpace(strings.ToLower(req.MessageType))
@@ -1422,6 +1427,21 @@ func buildMessageStorage(req sendMessageRequest) (messageType string, contentPre
 		contentPayload = string(payloadBytes)
 		contentSizeRaw = len(contentPreview)
 		contentSizeStored = len(contentPayload)
+	case "voice":
+		voicePayload, voiceErr := normalizeVoiceMessagePayload(req.Content)
+		if voiceErr != nil {
+			err = voiceErr
+			return
+		}
+		payloadBytes, marshalErr := json.Marshal(voicePayload)
+		if marshalErr != nil {
+			err = marshalErr
+			return
+		}
+		contentPreview = formatVoiceMessagePreview(voicePayload.DurationMs)
+		contentPayload = string(payloadBytes)
+		contentSizeRaw = voicePayload.FileSize
+		contentSizeStored = voicePayload.FileSize
 	default:
 		err = errInvalidMessageType
 		return

@@ -53,6 +53,9 @@
         recalledDraftByMessageId: {},
         inputValue: '',
         composerMode: 'text',
+        voiceHoldSupported: true,
+        voiceHoldState: 'idle',
+        voiceHoldStatusText: '',
         emojiPanelOpen: false,
         emojiPanelTab: 'standard',
         emojiAssets: [],
@@ -350,6 +353,7 @@
 
     function initShellModules() {
         initMessageManageModule();
+        initVoiceHoldModule();
         initEmojiManageModule();
         initSessionManageModule();
         initGroupManageModule();
@@ -369,6 +373,8 @@
         closeSettingsPanel({ silent: true });
         closeEmojiPicker({ silent: true });
         state.composerMode = 'text';
+        state.voiceHoldState = 'idle';
+        state.voiceHoldStatusText = '';
         if (options && options.closePanel) state.open = false;
         state.view = 'sessions';
         render();
@@ -401,6 +407,10 @@
         const silent = !!(options && options.silent);
         const shouldFocusInput = !!(options && options.focusInput);
         state.composerMode = nextMode;
+        if (nextMode !== 'voice') {
+            state.voiceHoldState = 'idle';
+            state.voiceHoldStatusText = '';
+        }
         if (nextMode === 'voice') {
             closeEmojiPicker({ silent: true });
             if (inputEl) {
@@ -425,6 +435,7 @@
 
     function toggleComposerVoiceMode() {
         if (!state.activeConversationId) return;
+        if (String(state.voiceHoldState || '').trim().toLowerCase() === 'sending') return;
         if (normalizeComposerMode(state.composerMode) === 'voice') {
             setComposerMode('text', { focusInput: true });
             return;
@@ -632,6 +643,7 @@
                 };
             },
             request: request,
+            requestFormData: requestFormData,
             render: render,
             loadSessions: loadSessions,
             loadContacts: loadContacts,
@@ -681,7 +693,39 @@
         });
     }
 
+    function getVoiceHoldModule() {
+        const modules = window.AKIMUserModules;
+        if (!modules || typeof modules !== 'object') return null;
+        const voiceHoldModule = modules.voiceHoldManage;
+        if (!voiceHoldModule || typeof voiceHoldModule.init !== 'function') return null;
+        return voiceHoldModule;
+    }
+
+    function initVoiceHoldModule() {
+        const voiceHoldModule = getVoiceHoldModule();
+        if (!voiceHoldModule) return;
+        voiceHoldModule.init({
+            state: state,
+            httpRoot: HTTP_ROOT,
+            get elements() {
+                return {
+                    root: root,
+                    composerHoldBtnEl: composerHoldBtnEl,
+                    statusLine: statusLine
+                };
+            },
+            syncComposerState: syncComposerState,
+            sendVoiceMessage: sendVoiceMessage,
+            escapeHtml: escapeHtml
+        });
+    }
+
     function buildMessageBubbleMarkup(item) {
+        const voiceHoldModule = getVoiceHoldModule();
+        if (voiceHoldModule && typeof voiceHoldModule.buildMessageBubbleMarkup === 'function') {
+            const voiceMarkup = voiceHoldModule.buildMessageBubbleMarkup(item);
+            if (voiceMarkup) return voiceMarkup;
+        }
         const emojiModule = getEmojiModule();
         if (emojiModule && typeof emojiModule.buildMessageBubbleMarkup === 'function') {
             return emojiModule.buildMessageBubbleMarkup(item);
@@ -690,6 +734,11 @@
     }
 
     function getMessageBubbleClassName(item) {
+        const voiceHoldModule = getVoiceHoldModule();
+        if (voiceHoldModule && typeof voiceHoldModule.getMessageBubbleClassName === 'function') {
+            const voiceClassName = voiceHoldModule.getMessageBubbleClassName(item);
+            if (voiceClassName) return voiceClassName;
+        }
         const emojiModule = getEmojiModule();
         if (emojiModule && typeof emojiModule.getMessageBubbleClassName === 'function') {
             return emojiModule.getMessageBubbleClassName(item);
@@ -743,13 +792,27 @@
         return Promise.resolve(null);
     }
 
+    function sendVoiceMessage(blob, meta) {
+        const messageManageModule = getMessageManageModule();
+        if (messageManageModule && typeof messageManageModule.sendVoiceMessage === 'function') {
+            return messageManageModule.sendVoiceMessage(blob, meta);
+        }
+        return Promise.reject(new Error('语音发送模块暂不可用'));
+    }
+
     function handleActionSheetSecondaryAction() {
         if (state.actionSheetMode === 'group_menu') {
             closeActionSheet();
             openSettingsPanel(getActiveSession());
             return;
         }
-        closeActionSheet();
+        if (state.actionSheetMode === 'session') {
+            if (!state.actionSheetConversationId || state.actionSheetSessionSystemPinned) return;
+            requestSessionPin(state.actionSheetConversationId, !state.actionSheetSessionPinned);
+            return;
+        }
+        if (!state.actionSheetCanRecall || !state.actionSheetMessageId) return;
+        recallMessage(state.actionSheetMessageId, state.actionSheetConversationId, state.actionSheetDraftText);
     }
 
     function handleActionSheetPrimaryAction() {
@@ -886,6 +949,15 @@
 
     function buildRequestHeaders() {
         const headers = { 'Content-Type': 'application/json' };
+        const authHeaders = buildAuthHeaders();
+        Object.keys(authHeaders).forEach(function(key) {
+            headers[key] = authHeaders[key];
+        });
+        return headers;
+    }
+
+    function buildAuthHeaders() {
+        const headers = {};
         const username = getCanonicalUsername();
         if (username) headers['X-AK-Username'] = username;
         return headers;
@@ -908,6 +980,25 @@
             credentials: 'same-origin',
             headers: buildRequestHeaders()
         }, options || {})).then(function(resp) {
+            return resp.json().then(function(data) {
+                if (!resp.ok) {
+                    throw new Error((data && data.message) || 'request_failed');
+                }
+                return data;
+            });
+        });
+    }
+
+    function requestFormData(url, formData, options) {
+        const requestOptions = Object.assign({
+            credentials: 'same-origin',
+            method: 'POST'
+        }, options || {});
+        const headers = Object.assign(buildAuthHeaders(), requestOptions.headers || {});
+        if (Object.keys(headers).length) requestOptions.headers = headers;
+        else delete requestOptions.headers;
+        requestOptions.body = formData;
+        return fetch(url, requestOptions).then(function(resp) {
             return resp.json().then(function(data) {
                 if (!resp.ok) {
                     throw new Error((data && data.message) || 'request_failed');
@@ -1204,7 +1295,7 @@
         }
         progressPanelEl.removeAttribute('inert');
         progressPanelEl.setAttribute('aria-hidden', 'false');
-        progressPanelBodyEl.innerHTML = '<div class="ak-im-progress-empty">消息读进度模块暂不可用，请刷新页面后重试</div>';
+        progressPanelBodyEl.innerHTML = isOpen && '<div class="ak-im-progress-empty">消息读进度模块暂不可用，请刷新页面后重试</div>' || '';
     }
 
 	function formatSessionMember(member) {
@@ -1783,7 +1874,7 @@
         sessionList.innerHTML = '';
         const empty = document.createElement('div');
         empty.className = 'ak-im-empty';
-        empty.textContent = state.sessions.length ? '会话模块暂不可用，请刷新后重试' : (state.allowed ? '暂无会话\n点击右上角“发起”开始单聊' : '当前账号未开通聊天');
+        empty.textContent = state.sessions.length ? '会话模块暂不可用，请刷新页面后重试' : (state.allowed ? '暂无会话\n点击右上角“发起”开始单聊' : '当前账号未开通聊天');
         sessionList.appendChild(empty);
     }
 
@@ -1902,20 +1993,28 @@
             const hasConversation = !!state.activeConversationId;
             const hasMessageManage = !!getMessageManageModule();
             const isVoiceMode = normalizeComposerMode(state.composerMode) === 'voice';
+            const voiceHoldState = String(state.voiceHoldState || '').trim().toLowerCase();
+            const isVoiceRecording = voiceHoldState === 'recording';
+            const isVoiceCancelReady = voiceHoldState === 'cancel_ready';
+            const isVoiceSending = voiceHoldState === 'sending';
             const canSend = hasConversation && hasMessageManage;
             const hasText = !!String(inputEl.value || '').trim();
             const canOpenEmoji = hasConversation && !!getEmojiModule();
             const showVoiceMode = hasConversation && isVoiceMode;
+            const holdSupported = state.voiceHoldSupported !== false;
             if (root) {
                 root.classList.toggle('ak-im-composer-has-text', !showVoiceMode && canSend && hasText);
                 root.classList.toggle('ak-im-composer-voice-mode', showVoiceMode);
                 root.classList.toggle('ak-im-emoji-open', !!state.emojiPanelOpen && state.view === 'chat' && hasConversation);
+                root.classList.toggle('ak-im-voice-hold-recording', showVoiceMode && isVoiceRecording);
+                root.classList.toggle('ak-im-voice-hold-cancel-ready', showVoiceMode && isVoiceCancelReady);
+                root.classList.toggle('ak-im-voice-hold-sending', showVoiceMode && isVoiceSending);
             }
             inputEl.disabled = !canSend || showVoiceMode;
             inputEl.placeholder = hasConversation ? (hasMessageManage ? '输入消息' : '消息模块暂不可用') : '先选择一个会话';
             sendBtn.disabled = showVoiceMode || !canSend || !hasText;
             if (composerVoiceBtnEl) {
-                composerVoiceBtnEl.disabled = !hasConversation;
+                composerVoiceBtnEl.disabled = !hasConversation || isVoiceSending;
                 composerVoiceBtnEl.classList.toggle('is-active', showVoiceMode);
                 composerVoiceBtnEl.setAttribute('aria-label', showVoiceMode ? '切换到键盘输入' : '切换到按住说话');
             }
@@ -1924,7 +2023,25 @@
                 composerEmojiBtnEl.classList.toggle('is-active', !!state.emojiPanelOpen && state.view === 'chat' && hasConversation);
                 composerEmojiBtnEl.setAttribute('aria-label', state.emojiPanelOpen ? '切回键盘输入' : '打开表情面板');
             }
-            if (composerHoldBtnEl) composerHoldBtnEl.disabled = !showVoiceMode || !hasMessageManage;
+            if (composerHoldBtnEl) {
+                composerHoldBtnEl.disabled = !showVoiceMode || !hasMessageManage || !holdSupported || isVoiceSending;
+                if (!holdSupported) composerHoldBtnEl.textContent = '当前浏览器不支持语音';
+                else if (isVoiceSending) composerHoldBtnEl.textContent = '发送中...';
+                else if (isVoiceCancelReady) composerHoldBtnEl.textContent = '松开 取消';
+                else if (isVoiceRecording) composerHoldBtnEl.textContent = '松开 发送';
+                else composerHoldBtnEl.textContent = '按住 说话';
+            }
+            if (statusLine) {
+                let nextStatusText = '';
+                if (showVoiceMode) {
+                    if (!holdSupported) nextStatusText = '当前浏览器暂不支持语音发送';
+                    else if (isVoiceCancelReady) nextStatusText = '松开手指，取消发送';
+                    else if (isVoiceRecording) nextStatusText = '松开发送，上滑取消';
+                    else if (isVoiceSending) nextStatusText = '正在发送语音...';
+                    else nextStatusText = String(state.voiceHoldStatusText || '').trim();
+                }
+                statusLine.textContent = nextStatusText;
+            }
             if (composerMicBtnEl) composerMicBtnEl.disabled = true;
             if (composerPlusBtnEl) composerPlusBtnEl.disabled = true;
         }
@@ -2458,6 +2575,8 @@
 	        closeMemberPanel();
 	        closeSettingsPanel({ silent: true });
             state.composerMode = 'text';
+            state.voiceHoldState = 'idle';
+            state.voiceHoldStatusText = '';
             if (state.view === 'chat') state.view = 'sessions';
         }
         render();

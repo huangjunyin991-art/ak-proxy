@@ -10,6 +10,7 @@ type Config struct {
 	CompressMinBytes int
 	EmojiSourceDir   string
 	EmojiStoreDir    string
+	VoiceStoreDir    string
 }
 
 func Load() Config {
@@ -21,6 +22,7 @@ func Load() Config {
 		CompressMinBytes: 1024,
 		EmojiSourceDir:   getEnv("IM_EMOJI_SOURCE_DIR", "./imageSource"),
 		EmojiStoreDir:    getEnv("IM_EMOJI_STORE_DIR", "./data/im/emoji_assets"),
+		VoiceStoreDir:    getEnv("IM_VOICE_STORE_DIR", "./data/im/voice_assets"),
 	}
 }
 

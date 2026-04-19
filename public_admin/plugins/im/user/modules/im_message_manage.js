@@ -378,6 +378,31 @@
             });
         },
 
+        sendVoiceMessage(blob, meta) {
+            const state = this.getState();
+            if (!state || !state.allowed || !state.activeConversationId || !blob || !blob.size || !this.ctx || typeof this.ctx.requestFormData !== 'function') {
+                return Promise.resolve(null);
+            }
+            const targetConversationId = Number(state.activeConversationId || 0);
+            if (!targetConversationId) return Promise.resolve(null);
+            const durationMs = Math.max(1, Number(meta && meta.durationMs || 0) || 0);
+            const fileName = String(meta && meta.fileName || '').trim() || 'voice-message.webm';
+            const formData = new FormData();
+            formData.append('conversation_id', String(targetConversationId));
+            formData.append('duration_ms', String(durationMs));
+            formData.append('file', blob, fileName);
+            const self = this;
+            return this.ctx.requestFormData(this.ctx.httpRoot + '/messages/voice', formData, {
+                method: 'POST'
+            }).then(function(data) {
+                const item = data && data.item ? data.item : null;
+                if (item && self.upsertActiveMessage(item)) {
+                    self.renderMessages();
+                }
+                return typeof self.ctx.loadSessions === 'function' ? self.ctx.loadSessions() : null;
+            });
+        },
+
         recallMessage(messageId, conversationId, draftText) {
             const state = this.getState();
             if (!state || !this.ctx || typeof this.ctx.request !== 'function') return Promise.resolve(null);
@@ -422,6 +447,26 @@
                 state.activeMessages = next;
                 this.renderMessages();
             }
+        },
+
+        upsertActiveMessage(item) {
+            const state = this.getState();
+            if (!state || !item || !item.id) return false;
+            const targetConversationId = Number(item.conversation_id || 0);
+            if (!targetConversationId || targetConversationId !== Number(state.activeConversationId || 0)) return false;
+            let replaced = false;
+            const nextMessages = [];
+            (Array.isArray(state.activeMessages) ? state.activeMessages : []).forEach(function(current) {
+                if (current && Number(current.id || 0) === Number(item.id || 0)) {
+                    nextMessages.push(item);
+                    replaced = true;
+                    return;
+                }
+                nextMessages.push(current);
+            });
+            if (!replaced) nextMessages.push(item);
+            state.activeMessages = nextMessages;
+            return true;
         },
 
         clearSessionUnread(conversationId) {
@@ -505,7 +550,7 @@
                 const item = data.payload || null;
                 if (!item || !item.conversation_id) return;
                 if (Number(item.conversation_id) === Number(state.activeConversationId || 0)) {
-                    state.activeMessages.push(item);
+                    this.upsertActiveMessage(item);
                     this.renderMessages();
                     if (item.sender_username !== state.username) this.markRead(item.conversation_id);
                 }

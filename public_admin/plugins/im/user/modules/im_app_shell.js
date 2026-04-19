@@ -146,6 +146,12 @@
                 #ak-im-root .ak-im-message-row.ak-self .ak-im-bubble{background:#95ec69}
                 #ak-im-root .ak-im-bubble.ak-im-bubble-emoji{padding:0;background:transparent;box-shadow:none;border-radius:14px;overflow:hidden;white-space:normal}
                 #ak-im-root .ak-im-message-row.ak-self .ak-im-bubble.ak-im-bubble-emoji{background:transparent}
+                #ak-im-root .ak-im-bubble.ak-im-bubble-voice{min-width:172px;display:flex;flex-direction:column;gap:8px;white-space:normal}
+                #ak-im-root .ak-im-voice-bubble-head{display:flex;align-items:center;justify-content:flex-start}
+                #ak-im-root .ak-im-voice-bubble-indicator{display:inline-flex;align-items:center;gap:8px}
+                #ak-im-root .ak-im-voice-bubble-icon{width:22px;height:22px;stroke:currentColor;fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;opacity:.78;flex:0 0 auto}
+                #ak-im-root .ak-im-voice-duration{font-size:13px;font-weight:600;line-height:1.2;color:inherit}
+                #ak-im-root .ak-im-voice-audio{display:block;width:min(240px,58vw);max-width:100%;height:34px}
                 #ak-im-root .ak-im-emoji-bubble-image{display:block;width:min(128px,42vw);max-width:100%;height:auto;border-radius:14px;background:#ffffff;object-fit:contain}
                 #ak-im-root .ak-im-emoji-bubble-fallback{display:inline-flex;align-items:center;justify-content:center;min-width:92px;min-height:92px;padding:12px 14px;border-radius:14px;background:#ffffff;color:#111827;font-size:14px;line-height:1.5;box-sizing:border-box}
                 #ak-im-root .ak-im-message-row.ak-self .ak-im-emoji-bubble-fallback{background:#95ec69}
@@ -180,6 +186,9 @@
                 #ak-im-root .ak-im-hold-to-talk:disabled{opacity:.5;cursor:default}
                 #ak-im-root.ak-im-composer-voice-mode .ak-im-input-wrap{display:none}
                 #ak-im-root.ak-im-composer-voice-mode .ak-im-hold-to-talk{display:inline-flex}
+                #ak-im-root.ak-im-voice-hold-recording .ak-im-hold-to-talk{background:#e5e7eb;color:#111827}
+                #ak-im-root.ak-im-voice-hold-cancel-ready .ak-im-hold-to-talk{background:#fee2e2;color:#dc2626}
+                #ak-im-root.ak-im-voice-hold-sending .ak-im-hold-to-talk{background:#f3f4f6;color:#9ca3af}
                 #ak-im-root .ak-im-send{display:none;height:36px;border:none;border-radius:18px;padding:0 18px;background:#07c160;color:#ffffff;font-size:14px;font-weight:600;cursor:pointer;transition:opacity .18s ease,transform .18s ease}
                 #ak-im-root.ak-im-composer-has-text .ak-im-send{display:inline-flex;align-items:center;justify-content:center}
                 #ak-im-root.ak-im-composer-has-text .ak-im-composer-plus{display:none}
