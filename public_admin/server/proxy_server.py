@@ -44,7 +44,7 @@ import httpx
 
 import secrets
 
-from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect, HTTPException
+from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect, HTTPException, UploadFile, File
 
 from fastapi.responses import JSONResponse, HTMLResponse, Response
 
@@ -388,6 +388,70 @@ async def _post_im_internal_json(path: str, payload: dict) -> tuple[int, dict]:
     async with httpx.AsyncClient(timeout=8.0, trust_env=False) as client:
 
         response = await client.post(url, json=payload)
+
+    try:
+
+        body = response.json()
+
+    except Exception:
+
+        body = {"error": True, "message": response.text[:300] or "IM 服务响应无效"}
+
+    return response.status_code, body
+
+
+
+async def _post_im_internal_multipart(path: str, upload_files: list[UploadFile]) -> tuple[int, dict]:
+
+    url = f"{IM_SERVER_INTERNAL_URL}{path}"
+
+    files = []
+
+    try:
+
+        for upload_file in upload_files:
+
+            if upload_file is None:
+
+                continue
+
+            filename = os.path.basename(str(upload_file.filename or '').strip())
+
+            if not filename:
+
+                continue
+
+            content = await upload_file.read()
+
+            if not content:
+
+                continue
+
+            files.append(("files", (filename, content, upload_file.content_type or "application/octet-stream")))
+
+    finally:
+
+        for upload_file in upload_files:
+
+            if upload_file is None:
+
+                continue
+
+            try:
+
+                await upload_file.close()
+
+            except Exception:
+
+                pass
+
+    if not files:
+
+        return 400, {"error": True, "message": "未选择有效图片"}
+
+    async with httpx.AsyncClient(timeout=30.0, trust_env=False) as client:
+
+        response = await client.post(url, files=files)
 
     try:
 
@@ -5251,6 +5315,68 @@ async def admin_im_emoji_assets_import(request: Request):
     return {
         "success": True,
         "message": f"导入完成：新增{imported_count}，刷新{skipped_count}，失败{failed_count}",
+        "imported_count": imported_count,
+        "skipped_count": skipped_count,
+        "failed_count": failed_count,
+        "results": body.get('items', []) if isinstance(body.get('items'), list) else [],
+        "total": len(items),
+        "items": items,
+    }
+
+
+
+@app.post("/admin/api/im/emoji_assets/upload")
+async def admin_im_emoji_assets_upload(request: Request, files: Optional[list[UploadFile]] = File(None)):
+
+    token, role, _ = await _resolve_admin_identity(request)
+
+    if not token:
+
+        return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
+
+    if role != ROLE_SUPER_ADMIN:
+
+        return JSONResponse(status_code=403, content={"error": True, "message": "仅系统总管理员可上传自定义表情"})
+
+    upload_files = [item for item in (files or []) if item is not None]
+
+    if not upload_files:
+
+        return JSONResponse(status_code=400, content={"error": True, "message": "未选择图片"})
+
+    status_code, body = await _post_im_internal_multipart("/im/internal/emoji_assets/upload", upload_files)
+
+    if status_code >= 400:
+
+        if isinstance(body, dict):
+
+            return JSONResponse(status_code=status_code, content=body)
+
+        return JSONResponse(status_code=status_code, content={"error": True, "message": "IM 服务调用失败"})
+
+    if not isinstance(body, dict):
+
+        return JSONResponse(status_code=502, content={"error": True, "message": "IM 服务响应无效"})
+
+    imported_count = int(body.get('imported_count') or 0)
+
+    skipped_count = int(body.get('skipped_count') or 0)
+
+    failed_count = int(body.get('failed_count') or 0)
+
+    try:
+
+        items = await _list_im_emoji_assets()
+
+    except Exception as e:
+
+        logger.error(f"[IM] 上传后刷新自定义表情资产失败: {e}")
+
+        items = []
+
+    return {
+        "success": True,
+        "message": f"上传完成：新增{imported_count}，刷新{skipped_count}，失败{failed_count}",
         "imported_count": imported_count,
         "skipped_count": skipped_count,
         "failed_count": failed_count,

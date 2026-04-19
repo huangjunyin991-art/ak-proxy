@@ -10,6 +10,7 @@ import (
 	"image"
 	_ "image/jpeg"
 	_ "image/png"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -225,17 +226,21 @@ func loadEmojiAssetManifest(sourceDir string) (map[string]emojiAssetManifestItem
 	return result, nil
 }
 
+func decodeEmojiAssetImageData(sourceName string, content []byte) (image.Image, error) {
+	reader := bytes.NewReader(content)
+	if strings.EqualFold(filepath.Ext(sourceName), ".webp") {
+		return nativewebp.DecodeIgnoreAlphaFlag(reader)
+	}
+	img, _, err := image.Decode(reader)
+	return img, err
+}
+
 func decodeEmojiAssetImage(path string) (image.Image, error) {
-	file, err := os.Open(path)
+	content, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
-	defer file.Close()
-	if strings.EqualFold(filepath.Ext(path), ".webp") {
-		return nativewebp.DecodeIgnoreAlphaFlag(file)
-	}
-	img, _, err := image.Decode(file)
-	return img, err
+	return decodeEmojiAssetImageData(path, content)
 }
 
 func resizeImageToMaxEdge(src image.Image, maxEdge int) image.Image {
@@ -303,6 +308,41 @@ func writeEmojiAssetBytes(path string, content []byte) error {
 	}
 	_ = os.Remove(path)
 	return os.Rename(tmpPath, path)
+}
+
+func (a *App) importDecodedEmojiAsset(ctx context.Context, sourceName string, img image.Image, manifestItem emojiAssetManifestItem) (emojiAssetRecord, bool, error) {
+	if img == nil {
+		return emojiAssetRecord{}, false, errors.New("invalid emoji asset image")
+	}
+	resized := resizeImageToMaxEdge(img, emojiAssetMaxEdge)
+	webpBytes, err := encodeEmojiAssetWebP(resized)
+	if err != nil {
+		return emojiAssetRecord{}, false, err
+	}
+	hashSum := sha256.Sum256(webpBytes)
+	assetKey := hex.EncodeToString(hashSum[:])
+	storageName := assetKey + ".webp"
+	storagePath := filepath.Join(a.cfg.EmojiStoreDir, storageName)
+	if err := writeEmojiAssetBytes(storagePath, webpBytes); err != nil {
+		return emojiAssetRecord{}, false, err
+	}
+	baseName := deriveEmojiAssetBaseName(sourceName)
+	enabled := true
+	if manifestItem.Enabled != nil {
+		enabled = *manifestItem.Enabled
+	}
+	return a.upsertEmojiAsset(ctx, emojiAssetRecord{
+		AssetKey:    assetKey,
+		Title:       normalizeEmojiAssetText(manifestItem.Title, baseName),
+		Code:        normalizeEmojiAssetText(manifestItem.Code, baseName),
+		SourceName:  sourceName,
+		StorageName: storageName,
+		Width:       resized.Bounds().Dx(),
+		Height:      resized.Bounds().Dy(),
+		FileSize:    len(webpBytes),
+		SortOrder:   manifestItem.SortOrder,
+		Enabled:     enabled,
+	})
 }
 
 func (a *App) emojiAssetExists(ctx context.Context, assetID int64) (bool, error) {
@@ -434,47 +474,7 @@ func (a *App) importEmojiAssets(ctx context.Context) (EmojiAssetImportResult, er
 			})
 			continue
 		}
-		resized := resizeImageToMaxEdge(img, emojiAssetMaxEdge)
-		webpBytes, err := encodeEmojiAssetWebP(resized)
-		if err != nil {
-			result.FailedCount++
-			result.Items = append(result.Items, EmojiAssetImportItem{
-				SourceName: sourceName,
-				Status:     "failed",
-				Message:    err.Error(),
-			})
-			continue
-		}
-		hashSum := sha256.Sum256(webpBytes)
-		assetKey := hex.EncodeToString(hashSum[:])
-		storageName := assetKey + ".webp"
-		storagePath := filepath.Join(a.cfg.EmojiStoreDir, storageName)
-		if err := writeEmojiAssetBytes(storagePath, webpBytes); err != nil {
-			result.FailedCount++
-			result.Items = append(result.Items, EmojiAssetImportItem{
-				SourceName: sourceName,
-				Status:     "failed",
-				Message:    err.Error(),
-			})
-			continue
-		}
-		baseName := deriveEmojiAssetBaseName(sourceName)
-		enabled := true
-		if hasManifest && manifestItem.Enabled != nil {
-			enabled = *manifestItem.Enabled
-		}
-		record, created, err := a.upsertEmojiAsset(ctx, emojiAssetRecord{
-			AssetKey:    assetKey,
-			Title:       normalizeEmojiAssetText(manifestItem.Title, baseName),
-			Code:        normalizeEmojiAssetText(manifestItem.Code, baseName),
-			SourceName:  sourceName,
-			StorageName: storageName,
-			Width:       resized.Bounds().Dx(),
-			Height:      resized.Bounds().Dy(),
-			FileSize:    len(webpBytes),
-			SortOrder:   manifestItem.SortOrder,
-			Enabled:     enabled,
-		})
+		record, created, err := a.importDecodedEmojiAsset(ctx, sourceName, img, manifestItem)
 		if err != nil {
 			result.FailedCount++
 			result.Items = append(result.Items, EmojiAssetImportItem{
@@ -541,6 +541,98 @@ func (a *App) handleInternalEmojiAssetImport(w http.ResponseWriter, r *http.Requ
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
 		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"success":        true,
+		"imported_count": result.ImportedCount,
+		"skipped_count":  result.SkippedCount,
+		"failed_count":   result.FailedCount,
+		"items":          result.Items,
+	})
+}
+
+func (a *App) handleInternalEmojiAssetUpload(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"error": true})
+		return
+	}
+	if !isLoopbackRequest(r) {
+		writeJSON(w, http.StatusForbidden, map[string]any{"error": true, "message": "forbidden"})
+		return
+	}
+	if err := a.ensureEmojiDirectories(); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
+		return
+	}
+	if err := r.ParseMultipartForm(64 << 20); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": true, "message": "invalid multipart form"})
+		return
+	}
+	fileHeaders := r.MultipartForm.File["files"]
+	if len(fileHeaders) == 0 {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": true, "message": "no files uploaded"})
+		return
+	}
+	result := EmojiAssetImportResult{Items: make([]EmojiAssetImportItem, 0, len(fileHeaders))}
+	for index, fileHeader := range fileHeaders {
+		if fileHeader == nil {
+			continue
+		}
+		sourceName := strings.TrimSpace(filepath.Base(fileHeader.Filename))
+		if sourceName == "" {
+			result.FailedCount++
+			result.Items = append(result.Items, EmojiAssetImportItem{Status: "failed", Message: "invalid file name"})
+			continue
+		}
+		if _, ok := supportedEmojiAssetExts[strings.ToLower(filepath.Ext(sourceName))]; !ok {
+			result.FailedCount++
+			result.Items = append(result.Items, EmojiAssetImportItem{SourceName: sourceName, Status: "failed", Message: "仅支持 png/jpg/jpeg/webp 图片"})
+			continue
+		}
+		file, err := fileHeader.Open()
+		if err != nil {
+			result.FailedCount++
+			result.Items = append(result.Items, EmojiAssetImportItem{SourceName: sourceName, Status: "failed", Message: err.Error()})
+			continue
+		}
+		content, readErr := io.ReadAll(file)
+		_ = file.Close()
+		if readErr != nil {
+			result.FailedCount++
+			result.Items = append(result.Items, EmojiAssetImportItem{SourceName: sourceName, Status: "failed", Message: readErr.Error()})
+			continue
+		}
+		img, err := decodeEmojiAssetImageData(sourceName, content)
+		if err != nil {
+			result.FailedCount++
+			result.Items = append(result.Items, EmojiAssetImportItem{SourceName: sourceName, Status: "failed", Message: err.Error()})
+			continue
+		}
+		record, created, err := a.importDecodedEmojiAsset(r.Context(), sourceName, img, buildAutoEmojiAssetManifestItem(sourceName, index+1))
+		if err != nil {
+			result.FailedCount++
+			result.Items = append(result.Items, EmojiAssetImportItem{SourceName: sourceName, Status: "failed", Message: err.Error()})
+			continue
+		}
+		status := "skipped"
+		message := "已存在，已刷新元数据"
+		if created {
+			status = "imported"
+			message = "上传成功"
+			result.ImportedCount++
+		} else {
+			result.SkippedCount++
+		}
+		result.Items = append(result.Items, EmojiAssetImportItem{
+			SourceName:  sourceName,
+			StorageName: record.StorageName,
+			Title:       record.Title,
+			Code:        record.Code,
+			AssetID:     record.ID,
+			Status:      status,
+			Message:     message,
+			WebPURL:     a.buildEmojiAssetURL(record.StorageName),
+		})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"success":        true,

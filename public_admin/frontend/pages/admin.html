@@ -2867,7 +2867,9 @@
                             </div>
                             <div style="display: flex; gap: 8px; flex-wrap: wrap;">
                                 <button class="btn" onclick="loadImEmojiAssets()" style="padding: 6px 12px; font-size: 12px;">刷新</button>
+                                <button class="btn btn-primary" id="imEmojiUploadBtn" onclick="chooseImEmojiAssets()" style="padding: 6px 12px; font-size: 12px; display: none;">上传图片</button>
                                 <button class="btn btn-primary" id="imEmojiImportBtn" onclick="importImEmojiAssets()" style="padding: 6px 12px; font-size: 12px; display: none;">导入目录</button>
+                                <input type="file" id="imEmojiUploadInput" accept="image/png,image/jpeg,image/webp" multiple style="display: none;" onchange="uploadImEmojiAssetsFromInput(this)">
                             </div>
                         </div>
                         <div id="imEmojiAdminList" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); gap: 10px;">
@@ -7797,6 +7799,7 @@
         let imEmojiAssetsLoaded = false;
         let imEmojiAssetsLoading = false;
         let imEmojiAssetsImporting = false;
+        let imEmojiAssetsUploading = false;
         let imEmojiAssetsError = '';
         let imContactsGroups = [];
         let imContactsSelectedConversationId = 0;
@@ -7825,12 +7828,18 @@
         function renderImEmojiAssetPanel() {
             const summaryEl = document.getElementById('imEmojiAdminSummary');
             const listEl = document.getElementById('imEmojiAdminList');
+            const uploadBtn = document.getElementById('imEmojiUploadBtn');
             const importBtn = document.getElementById('imEmojiImportBtn');
             if (!summaryEl || !listEl) return;
             const canImport = isSuperAdmin();
+            if (uploadBtn) {
+                uploadBtn.style.display = canImport ? '' : 'none';
+                uploadBtn.disabled = !!(imEmojiAssetsLoading || imEmojiAssetsImporting || imEmojiAssetsUploading);
+                uploadBtn.textContent = imEmojiAssetsUploading ? '上传中...' : '上传图片';
+            }
             if (importBtn) {
                 importBtn.style.display = canImport ? '' : 'none';
-                importBtn.disabled = !!(imEmojiAssetsLoading || imEmojiAssetsImporting);
+                importBtn.disabled = !!(imEmojiAssetsLoading || imEmojiAssetsImporting || imEmojiAssetsUploading);
                 importBtn.textContent = imEmojiAssetsImporting ? '导入中...' : '导入目录';
             }
             if (imEmojiAssetsLoading) {
@@ -7846,7 +7855,7 @@
             const enabledCount = imEmojiAssets.filter(item => item && item.enabled !== false).length;
             summaryEl.textContent = imEmojiAssets.length
                 ? `共 ${imEmojiAssets.length} 个自定义表情，启用 ${enabledCount} 个`
-                : (canImport ? '将图片与 manifest.json 放入 IM_EMOJI_SOURCE_DIR 后点击导入目录' : '当前未配置全局自定义表情');
+                : (canImport ? '可直接上传本地图片，或从 IM_EMOJI_SOURCE_DIR 批量导入' : '当前未配置全局自定义表情');
             if (!imEmojiAssets.length) {
                 listEl.innerHTML = '<div style="grid-column:1/-1; text-align:center; color: var(--text-secondary); padding: 16px 0;">暂无自定义表情</div>';
                 return;
@@ -7893,13 +7902,76 @@
             }
         }
 
+        function chooseImEmojiAssets() {
+            if (!isSuperAdmin()) {
+                showAlert('仅系统总管理员可上传自定义表情', 'warning');
+                return;
+            }
+            if (imEmojiAssetsUploading || imEmojiAssetsImporting) return;
+            const input = document.getElementById('imEmojiUploadInput');
+            if (!input) return;
+            input.value = '';
+            input.click();
+        }
+
+        async function uploadImEmojiAssetsFromInput(input) {
+            const files = input && input.files
+                ? Array.from(input.files).filter(file => file && Number(file.size || 0) > 0)
+                : [];
+            if (!isSuperAdmin()) {
+                if (input) input.value = '';
+                showAlert('仅系统总管理员可上传自定义表情', 'warning');
+                return;
+            }
+            if (!files.length) {
+                if (input) input.value = '';
+                return;
+            }
+            if (imEmojiAssetsUploading || imEmojiAssetsImporting) {
+                if (input) input.value = '';
+                return;
+            }
+            imEmojiAssetsUploading = true;
+            imEmojiAssetsError = '';
+            renderImEmojiAssetPanel();
+            try {
+                const formData = new FormData();
+                files.forEach(file => {
+                    formData.append('files', file, file.name || 'emoji.png');
+                });
+                const res = await fetch(`${API_BASE}/admin/api/im/emoji_assets/upload`, {
+                    method: 'POST',
+                    headers: getHeaders(),
+                    body: formData
+                });
+                const data = await res.json();
+                if (!res.ok || !data.success) {
+                    throw new Error(data.message || '上传自定义表情失败');
+                }
+                imEmojiAssets = normalizeImEmojiAssets(data.items);
+                imEmojiAssetsLoaded = true;
+                imEmojiAssetsError = '';
+                showToast(data.message || '上传完成');
+                if (Number(data.failed_count || 0) > 0) {
+                    showAlert(`上传完成，但有 ${Number(data.failed_count || 0)} 个文件失败`, 'warning');
+                }
+            } catch (e) {
+                imEmojiAssetsError = e.message || '上传自定义表情失败';
+                showAlert('上传自定义表情失败: ' + imEmojiAssetsError, 'error');
+            } finally {
+                imEmojiAssetsUploading = false;
+                if (input) input.value = '';
+                renderImEmojiAssetPanel();
+            }
+        }
+
         async function importImEmojiAssets() {
             if (!isSuperAdmin()) {
                 showAlert('仅系统总管理员可导入自定义表情', 'warning');
                 return;
             }
             if (imEmojiAssetsImporting) return;
-            if (!window.confirm('确认从 IM_EMOJI_SOURCE_DIR 重新扫描并导入自定义表情吗？\n请先将图片与 manifest.json 放入该目录。')) return;
+            if (!window.confirm('确认从 IM_EMOJI_SOURCE_DIR 重新扫描并导入自定义表情吗？\n你也可以直接使用“上传图片”来添加本地表情。')) return;
             imEmojiAssetsImporting = true;
             imEmojiAssetsError = '';
             renderImEmojiAssetPanel();
