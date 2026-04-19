@@ -7944,8 +7944,21 @@
                     headers: getHeaders(),
                     body: formData
                 });
-                const data = await res.json();
+                const contentType = String(res.headers.get('content-type') || '').toLowerCase();
+                let data = null;
+                if (contentType.includes('application/json')) {
+                    data = await res.json();
+                } else {
+                    const rawText = await res.text();
+                    if (res.status === 413 || /content too large|request entity too large|413/i.test(rawText || '')) {
+                        throw new Error('上传体积过大，请压缩图片或提高 Nginx 上传限制');
+                    }
+                    throw new Error('上传自定义表情失败');
+                }
                 if (!res.ok || !data.success) {
+                    if (res.status === 413) {
+                        throw new Error('上传体积过大，请压缩图片或提高 Nginx 上传限制');
+                    }
                     throw new Error(data.message || '上传自定义表情失败');
                 }
                 imEmojiAssets = normalizeImEmojiAssets(data.items);
