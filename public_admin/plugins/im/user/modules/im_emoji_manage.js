@@ -305,7 +305,7 @@
             if (tabKey === 'custom') {
                 return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20.25l-.32-.29C6.03 14.82 2.25 11.39 2.25 7.5 2.25 4.47 4.72 2 7.75 2c1.67 0 3.27.78 4.25 2.02A5.74 5.74 0 0 1 16.25 2C19.28 2 21.75 4.47 21.75 7.5c0 3.89-3.78 7.32-9.43 12.46l-.32.29Z"></path></svg>';
             }
-            return '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8"></circle><path d="M9 10h.01"></path><path d="M15 10h.01"></path><path d="M8.5 14.5c.9 1.2 2.1 1.8 3.5 1.8s2.6-.6 3.5-1.8"></path></svg>';
+            return '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M9.25 10.25h.01"></path><path d="M14.75 10.25h.01"></path><path d="M8.75 14.25c.82 1.08 1.9 1.62 3.25 1.62 1.35 0 2.43-.54 3.25-1.62"></path></svg>';
         },
 
         renderTabs(container, activeTab) {
