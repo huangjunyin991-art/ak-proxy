@@ -4,6 +4,8 @@
     const VOICE_CANCEL_THRESHOLD_PX = 56;
     const VOICE_MIN_DURATION_MS = 300;
     const VOICE_STATUS_CLEAR_DELAY_MS = 1600;
+    const VOICE_TIMER_INTERVAL_MS = 200;
+    const VOICE_IDLE_METER_HEIGHTS = [10, 12, 14, 16, 18, 20, 22, 24, 24, 22, 20, 18, 16, 14, 12, 10];
     const PREFERRED_VOICE_MIME_TYPES = [
         'audio/webm;codecs=opus',
         'audio/webm',
@@ -26,12 +28,19 @@
         mediaChunks: [],
         activeMimeType: '',
         statusTimer: 0,
+        recordTimerId: 0,
+        meterFrameId: 0,
+        audioContext: null,
+        analyserNode: null,
+        analyserSource: null,
+        analyserData: null,
 
         init(ctx) {
             this.ctx = ctx || null;
             this.bindGlobalEvents();
             this.refreshSupportState(false);
             this.bindHoldButton();
+            this.syncRecordingOverlay();
         },
 
         getState() {
@@ -95,12 +104,188 @@
             if (this.ctx && typeof this.ctx.syncComposerState === 'function') {
                 this.ctx.syncComposerState();
             }
+            this.bindHoldButton();
+            this.syncRecordingOverlay();
         },
 
         clearStatusTimer() {
             if (this.statusTimer) {
                 clearTimeout(this.statusTimer);
                 this.statusTimer = 0;
+            }
+        },
+
+        clearRecordTimer() {
+            if (this.recordTimerId) {
+                clearInterval(this.recordTimerId);
+                this.recordTimerId = 0;
+            }
+        },
+
+        cancelMeterFrame() {
+            if (!this.meterFrameId) return;
+            if (typeof global.cancelAnimationFrame === 'function') {
+                global.cancelAnimationFrame(this.meterFrameId);
+            } else {
+                clearTimeout(this.meterFrameId);
+            }
+            this.meterFrameId = 0;
+        },
+
+        teardownAudioAnalyser() {
+            this.cancelMeterFrame();
+            if (this.analyserSource && typeof this.analyserSource.disconnect === 'function') {
+                try {
+                    this.analyserSource.disconnect();
+                } catch (e) {}
+            }
+            if (this.analyserNode && typeof this.analyserNode.disconnect === 'function') {
+                try {
+                    this.analyserNode.disconnect();
+                } catch (e) {}
+            }
+            const audioContext = this.audioContext;
+            this.audioContext = null;
+            this.analyserNode = null;
+            this.analyserSource = null;
+            this.analyserData = null;
+            if (audioContext && typeof audioContext.close === 'function') {
+                try {
+                    const closeResult = audioContext.close();
+                    if (closeResult && typeof closeResult.catch === 'function') {
+                        closeResult.catch(function() {});
+                    }
+                } catch (e) {}
+            }
+        },
+
+        resetMeterBars() {
+            const barElements = Array.prototype.slice.call((this.getElements().voiceHoldMeterBarEls || []));
+            if (!barElements.length) return;
+            barElements.forEach(function(barEl, index) {
+                const height = VOICE_IDLE_METER_HEIGHTS[index % VOICE_IDLE_METER_HEIGHTS.length];
+                barEl.style.height = height + 'px';
+                barEl.classList.remove('is-active');
+            });
+        },
+
+        formatRecordDuration(durationMs) {
+            const totalSeconds = Math.max(0, Math.floor(Number(durationMs || 0) / 1000));
+            const minutes = Math.floor(totalSeconds / 60);
+            const seconds = totalSeconds % 60;
+            return String(minutes).padStart(2, '0') + ':' + String(seconds).padStart(2, '0');
+        },
+
+        renderRecordDuration(durationMs) {
+            const timerEl = this.getElements().voiceHoldTimerEl || null;
+            if (!timerEl) return;
+            timerEl.textContent = this.formatRecordDuration(durationMs);
+        },
+
+        tickRecordDuration() {
+            if (!this.pressStartedAt) {
+                this.renderRecordDuration(0);
+                return;
+            }
+            this.renderRecordDuration(Date.now() - this.pressStartedAt);
+        },
+
+        startRecordDurationTicker() {
+            const self = this;
+            this.clearRecordTimer();
+            this.tickRecordDuration();
+            this.recordTimerId = setInterval(function() {
+                self.tickRecordDuration();
+            }, VOICE_TIMER_INTERVAL_MS);
+        },
+
+        setCancelZoneActive(isActive) {
+            const elements = this.getElements();
+            const cancelZoneEl = elements.voiceHoldCancelZoneEl || null;
+            const cancelLabelEl = elements.voiceHoldCancelLabelEl || null;
+            const active = !!isActive;
+            if (cancelZoneEl) cancelZoneEl.classList.toggle('is-active', active);
+            if (cancelLabelEl) cancelLabelEl.textContent = active ? '松开手指，取消发送' : '上滑到此，取消发送';
+        },
+
+        syncRecordingOverlay() {
+            const elements = this.getElements();
+            const overlayEl = elements.voiceHoldOverlayEl || null;
+            const state = this.getState();
+            const voiceState = this.normalizeVoiceState(state && state.voiceHoldState);
+            const overlayVisible = voiceState === 'recording' || voiceState === 'cancel_ready';
+            if (overlayEl) overlayEl.setAttribute('aria-hidden', overlayVisible ? 'false' : 'true');
+            this.setCancelZoneActive(voiceState === 'cancel_ready');
+            if (!overlayVisible) {
+                this.renderRecordDuration(0);
+                this.resetMeterBars();
+            }
+        },
+
+        setupAudioAnalyser(stream) {
+            const AudioContextConstructor = global.AudioContext || global.webkitAudioContext;
+            this.teardownAudioAnalyser();
+            this.resetMeterBars();
+            if (!AudioContextConstructor || !stream) return;
+            try {
+                const audioContext = new AudioContextConstructor();
+                const analyserNode = audioContext.createAnalyser();
+                const analyserSource = audioContext.createMediaStreamSource(stream);
+                analyserNode.fftSize = 64;
+                analyserNode.smoothingTimeConstant = 0.76;
+                analyserNode.minDecibels = -90;
+                analyserNode.maxDecibels = -12;
+                analyserSource.connect(analyserNode);
+                this.audioContext = audioContext;
+                this.analyserNode = analyserNode;
+                this.analyserSource = analyserSource;
+                this.analyserData = new Uint8Array(analyserNode.frequencyBinCount);
+                if (audioContext.state === 'suspended' && typeof audioContext.resume === 'function') {
+                    const resumeResult = audioContext.resume();
+                    if (resumeResult && typeof resumeResult.catch === 'function') {
+                        resumeResult.catch(function() {});
+                    }
+                }
+                this.drawMeterFrame();
+            } catch (e) {
+                this.teardownAudioAnalyser();
+                this.resetMeterBars();
+            }
+        },
+
+        drawMeterFrame() {
+            const analyserNode = this.analyserNode;
+            const analyserData = this.analyserData;
+            const barElements = Array.prototype.slice.call((this.getElements().voiceHoldMeterBarEls || []));
+            if (!analyserNode || !analyserData || !barElements.length) {
+                if (barElements.length) this.resetMeterBars();
+                return;
+            }
+            analyserNode.getByteFrequencyData(analyserData);
+            const bucketSize = Math.max(1, Math.floor(analyserData.length / barElements.length));
+            barElements.forEach(function(barEl, index) {
+                const start = index * bucketSize;
+                const end = index === barElements.length - 1 ? analyserData.length : Math.min(analyserData.length, start + bucketSize);
+                let total = 0;
+                let count = 0;
+                for (let cursor = start; cursor < end; cursor += 1) {
+                    total += analyserData[cursor];
+                    count += 1;
+                }
+                const normalized = count ? total / count / 255 : 0;
+                const height = 10 + Math.round(Math.pow(normalized, 0.84) * 24);
+                barEl.style.height = height + 'px';
+                barEl.classList.toggle('is-active', height >= 19);
+            });
+            const self = this;
+            if (typeof global.requestAnimationFrame === 'function') {
+                this.meterFrameId = global.requestAnimationFrame(function() {
+                    self.drawMeterFrame();
+                });
+            } else {
+                this.meterFrameId = setTimeout(function() {
+                    self.drawMeterFrame();
+                }, 80);
             }
         },
 
@@ -215,6 +400,16 @@
             } catch (e) {}
         },
 
+        isPointerInsideCancelZone(event) {
+            const cancelZoneEl = this.getElements().voiceHoldCancelZoneEl || null;
+            if (!cancelZoneEl || !event) return false;
+            const rect = cancelZoneEl.getBoundingClientRect();
+            if (!rect || !(rect.width > 0) || !(rect.height > 0)) return false;
+            const clientX = Number(event.clientX || 0);
+            const clientY = Number(event.clientY || 0);
+            return clientX >= rect.left && clientX <= rect.right && clientY >= rect.top && clientY <= rect.bottom;
+        },
+
         stopStreamTracks() {
             if (!this.mediaStream || !this.mediaStream.getTracks) {
                 this.mediaStream = null;
@@ -230,6 +425,11 @@
 
         resetActiveSession() {
             this.releasePointerCapture();
+            this.clearRecordTimer();
+            this.teardownAudioAnalyser();
+            this.renderRecordDuration(0);
+            this.resetMeterBars();
+            this.setCancelZoneActive(false);
             this.stopStreamTracks();
             this.mediaRecorder = null;
             this.mediaChunks = [];
@@ -343,6 +543,8 @@
                 recorder.start();
                 self.pendingStart = false;
                 self.setVoiceUIState('recording', '松开发送，上滑取消');
+                self.startRecordDurationTicker();
+                self.setupAudioAnalyser(stream);
                 return null;
             }).catch(function(error) {
                 self.resetActiveSession();
@@ -367,7 +569,7 @@
             if (!state || !event || !this.isActivePointer(event)) return;
             if (this.pendingStart || !this.mediaRecorder) return;
             const distanceY = this.pressStartY - Number(event.clientY || 0);
-            const nextState = distanceY >= VOICE_CANCEL_THRESHOLD_PX ? 'cancel_ready' : 'recording';
+            const nextState = this.isPointerInsideCancelZone(event) || distanceY >= VOICE_CANCEL_THRESHOLD_PX ? 'cancel_ready' : 'recording';
             const currentState = this.normalizeVoiceState(state.voiceHoldState);
             if (currentState === nextState) return;
             if (nextState === 'cancel_ready') {
@@ -380,6 +582,7 @@
         finishRecording(shouldCancel) {
             const self = this;
             const startedAt = this.pressStartedAt;
+            const activeMimeType = this.activeMimeType;
             this.pendingStart = false;
             this.pendingCanceled = false;
             return this.stopRecorderAndCollectBlob().then(function(blob) {
@@ -404,8 +607,8 @@
                 }
                 return self.ctx.sendVoiceMessage(blob, {
                     durationMs: durationMs,
-                    mimeType: blob.type || self.activeMimeType || '',
-                    fileName: self.buildVoiceFileName(blob.type || self.activeMimeType || '')
+                    mimeType: blob.type || activeMimeType || '',
+                    fileName: self.buildVoiceFileName(blob.type || activeMimeType || '')
                 }).then(function() {
                     self.setTransientStatus('语音已发送');
                     return null;

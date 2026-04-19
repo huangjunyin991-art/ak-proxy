@@ -112,6 +112,12 @@
     let inputEl = null;
     let newSessionInputEl = null;
     let composerHoldBtnEl = null;
+    let voiceHoldOverlayEl = null;
+    let voiceHoldCardEl = null;
+    let voiceHoldTimerEl = null;
+    let voiceHoldMeterBarEls = null;
+    let voiceHoldCancelZoneEl = null;
+    let voiceHoldCancelLabelEl = null;
     let sendBtn = null;
     let composerVoiceBtnEl = null;
     let composerMicBtnEl = null;
@@ -160,6 +166,12 @@
         inputEl = nextElements.inputEl || null;
         newSessionInputEl = nextElements.newSessionInputEl || null;
         composerHoldBtnEl = nextElements.composerHoldBtnEl || null;
+        voiceHoldOverlayEl = nextElements.voiceHoldOverlayEl || null;
+        voiceHoldCardEl = nextElements.voiceHoldCardEl || null;
+        voiceHoldTimerEl = nextElements.voiceHoldTimerEl || null;
+        voiceHoldMeterBarEls = nextElements.voiceHoldMeterBarEls || [];
+        voiceHoldCancelZoneEl = nextElements.voiceHoldCancelZoneEl || null;
+        voiceHoldCancelLabelEl = nextElements.voiceHoldCancelLabelEl || null;
         sendBtn = nextElements.sendBtn || null;
         composerVoiceBtnEl = nextElements.composerVoiceBtnEl || null;
         composerMicBtnEl = nextElements.composerMicBtnEl || null;
@@ -208,6 +220,12 @@
             inputEl: null,
             newSessionInputEl: null,
             composerHoldBtnEl: null,
+            voiceHoldOverlayEl: null,
+            voiceHoldCardEl: null,
+            voiceHoldTimerEl: null,
+            voiceHoldMeterBarEls: [],
+            voiceHoldCancelZoneEl: null,
+            voiceHoldCancelLabelEl: null,
             sendBtn: null,
             composerVoiceBtnEl: null,
             composerMicBtnEl: null,
@@ -711,7 +729,13 @@
                 return {
                     root: root,
                     composerHoldBtnEl: composerHoldBtnEl,
-                    statusLine: statusLine
+                    statusLine: statusLine,
+                    voiceHoldOverlayEl: voiceHoldOverlayEl,
+                    voiceHoldCardEl: voiceHoldCardEl,
+                    voiceHoldTimerEl: voiceHoldTimerEl,
+                    voiceHoldMeterBarEls: voiceHoldMeterBarEls,
+                    voiceHoldCancelZoneEl: voiceHoldCancelZoneEl,
+                    voiceHoldCancelLabelEl: voiceHoldCancelLabelEl
                 };
             },
             syncComposerState: syncComposerState,
