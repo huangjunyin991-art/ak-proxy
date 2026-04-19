@@ -6,6 +6,10 @@
     const VOICE_STATUS_CLEAR_DELAY_MS = 1600;
     const VOICE_TIMER_INTERVAL_MS = 200;
     const VOICE_IDLE_METER_HEIGHTS = [10, 12, 14, 16, 18, 20, 22, 24, 24, 22, 20, 18, 16, 14, 12, 10];
+    const VOICE_CANCEL_ZONE_RADIUS_X_RATIO = 0.72;
+    const VOICE_CANCEL_ZONE_RADIUS_Y_RATIO = 1.04;
+    const VOICE_CANCEL_ZONE_CENTER_X_RATIO = 0.5;
+    const VOICE_CANCEL_ZONE_CENTER_Y_RATIO = 1;
     const PREFERRED_VOICE_MIME_TYPES = [
         'audio/webm;codecs=opus',
         'audio/webm',
@@ -407,7 +411,17 @@
             if (!rect || !(rect.width > 0) || !(rect.height > 0)) return false;
             const clientX = Number(event.clientX || 0);
             const clientY = Number(event.clientY || 0);
-            return clientX >= rect.left && clientX <= rect.right && clientY >= rect.top && clientY <= rect.bottom;
+            if (clientX < rect.left || clientX > rect.right || clientY < rect.top || clientY > rect.bottom) return false;
+            const localX = clientX - rect.left;
+            const localY = clientY - rect.top;
+            const radiusX = rect.width * VOICE_CANCEL_ZONE_RADIUS_X_RATIO;
+            const radiusY = rect.height * VOICE_CANCEL_ZONE_RADIUS_Y_RATIO;
+            const centerX = rect.width * VOICE_CANCEL_ZONE_CENTER_X_RATIO;
+            const centerY = rect.height * VOICE_CANCEL_ZONE_CENTER_Y_RATIO;
+            if (!(radiusX > 0) || !(radiusY > 0)) return true;
+            const normalizedX = (localX - centerX) / radiusX;
+            const normalizedY = (localY - centerY) / radiusY;
+            return normalizedX * normalizedX + normalizedY * normalizedY <= 1;
         },
 
         stopStreamTracks() {
