@@ -52,6 +52,7 @@
         actionSheetDraftText: '',
         recalledDraftByMessageId: {},
         inputValue: '',
+        composerMode: 'text',
         emojiPanelOpen: false,
         emojiPanelTab: 'standard',
         emojiAssets: [],
@@ -107,6 +108,7 @@
     let statusLine = null;
     let inputEl = null;
     let newSessionInputEl = null;
+    let composerHoldBtnEl = null;
     let sendBtn = null;
     let composerVoiceBtnEl = null;
     let composerMicBtnEl = null;
@@ -154,6 +156,7 @@
         statusLine = nextElements.statusLine || null;
         inputEl = nextElements.inputEl || null;
         newSessionInputEl = nextElements.newSessionInputEl || null;
+        composerHoldBtnEl = nextElements.composerHoldBtnEl || null;
         sendBtn = nextElements.sendBtn || null;
         composerVoiceBtnEl = nextElements.composerVoiceBtnEl || null;
         composerMicBtnEl = nextElements.composerMicBtnEl || null;
@@ -201,6 +204,7 @@
             statusLine: null,
             inputEl: null,
             newSessionInputEl: null,
+            composerHoldBtnEl: null,
             sendBtn: null,
             composerVoiceBtnEl: null,
             composerMicBtnEl: null,
@@ -364,6 +368,7 @@
         closeMemberPanel();
         closeSettingsPanel({ silent: true });
         closeEmojiPicker({ silent: true });
+        state.composerMode = 'text';
         if (options && options.closePanel) state.open = false;
         state.view = 'sessions';
         render();
@@ -385,6 +390,46 @@
         state.inputValue = value || '';
         syncInputHeight();
         syncComposerState();
+    }
+
+    function normalizeComposerMode(value) {
+        return String(value || '').trim().toLowerCase() === 'voice' ? 'voice' : 'text';
+    }
+
+    function setComposerMode(mode, options) {
+        const nextMode = normalizeComposerMode(mode);
+        const silent = !!(options && options.silent);
+        const shouldFocusInput = !!(options && options.focusInput);
+        state.composerMode = nextMode;
+        if (nextMode === 'voice') {
+            closeEmojiPicker({ silent: true });
+            if (inputEl) {
+                try {
+                    inputEl.blur();
+                } catch (e) {}
+            }
+        }
+        if (!silent) {
+            render();
+        } else {
+            syncComposerState();
+        }
+        if (shouldFocusInput && nextMode === 'text' && inputEl && !inputEl.disabled) {
+            setTimeout(function() {
+                try {
+                    inputEl.focus();
+                } catch (e) {}
+            }, 0);
+        }
+    }
+
+    function toggleComposerVoiceMode() {
+        if (!state.activeConversationId) return;
+        if (normalizeComposerMode(state.composerMode) === 'voice') {
+            setComposerMode('text', { focusInput: true });
+            return;
+        }
+        setComposerMode('voice');
     }
 
     function handleNewSessionInputChange(value) {
@@ -471,6 +516,7 @@
             onSendClick: sendCurrentMessage,
             onComposerInput: handleComposerInput,
             onComposerSubmit: sendCurrentMessage,
+            onComposerVoiceToggleClick: toggleComposerVoiceMode,
             onComposerEmojiToggleClick: toggleEmojiPicker,
             onNewSessionInputChange: handleNewSessionInputChange,
             onMemberPanelClose: closeMemberPanel,
@@ -666,6 +712,9 @@
     }
 
     function toggleEmojiPicker() {
+        if (normalizeComposerMode(state.composerMode) === 'voice') {
+            state.composerMode = 'text';
+        }
         const emojiModule = getEmojiModule();
         if (emojiModule && typeof emojiModule.togglePicker === 'function') {
             emojiModule.togglePicker();
@@ -1536,6 +1585,7 @@
         closeEmojiPicker({ silent: true });
         state.newSessionError = '';
         state.newSessionTarget = '';
+        state.composerMode = 'text';
         state.view = 'sessions';
         render();
     }
@@ -1851,22 +1901,30 @@
             if (!inputEl || !sendBtn) return;
             const hasConversation = !!state.activeConversationId;
             const hasMessageManage = !!getMessageManageModule();
+            const isVoiceMode = normalizeComposerMode(state.composerMode) === 'voice';
             const canSend = hasConversation && hasMessageManage;
             const hasText = !!String(inputEl.value || '').trim();
             const canOpenEmoji = hasConversation && !!getEmojiModule();
+            const showVoiceMode = hasConversation && isVoiceMode;
             if (root) {
-                root.classList.toggle('ak-im-composer-has-text', canSend && hasText);
+                root.classList.toggle('ak-im-composer-has-text', !showVoiceMode && canSend && hasText);
+                root.classList.toggle('ak-im-composer-voice-mode', showVoiceMode);
                 root.classList.toggle('ak-im-emoji-open', !!state.emojiPanelOpen && state.view === 'chat' && hasConversation);
             }
-            inputEl.disabled = !canSend;
+            inputEl.disabled = !canSend || showVoiceMode;
             inputEl.placeholder = hasConversation ? (hasMessageManage ? '输入消息' : '消息模块暂不可用') : '先选择一个会话';
-            sendBtn.disabled = !canSend || !hasText;
+            sendBtn.disabled = showVoiceMode || !canSend || !hasText;
+            if (composerVoiceBtnEl) {
+                composerVoiceBtnEl.disabled = !hasConversation;
+                composerVoiceBtnEl.classList.toggle('is-active', showVoiceMode);
+                composerVoiceBtnEl.setAttribute('aria-label', showVoiceMode ? '切换到键盘输入' : '切换到按住说话');
+            }
             if (composerEmojiBtnEl) {
                 composerEmojiBtnEl.disabled = !canOpenEmoji;
                 composerEmojiBtnEl.classList.toggle('is-active', !!state.emojiPanelOpen && state.view === 'chat' && hasConversation);
                 composerEmojiBtnEl.setAttribute('aria-label', state.emojiPanelOpen ? '切回键盘输入' : '打开表情面板');
             }
-            if (composerVoiceBtnEl) composerVoiceBtnEl.disabled = true;
+            if (composerHoldBtnEl) composerHoldBtnEl.disabled = !showVoiceMode || !hasMessageManage;
             if (composerMicBtnEl) composerMicBtnEl.disabled = true;
             if (composerPlusBtnEl) composerPlusBtnEl.disabled = true;
         }
@@ -2267,6 +2325,7 @@
             const conversationId = Number((data && data.conversation_id) || 0);
             if (!conversationId) throw new Error('发起会话失败');
             closeEmojiPicker({ silent: true });
+            state.composerMode = 'text';
             state.activeConversationId = conversationId;
             state.view = 'chat';
             state.activeMessages = [];
@@ -2398,6 +2457,7 @@
             closeReadProgressPanel();
 	        closeMemberPanel();
 	        closeSettingsPanel({ silent: true });
+            state.composerMode = 'text';
             if (state.view === 'chat') state.view = 'sessions';
         }
         render();

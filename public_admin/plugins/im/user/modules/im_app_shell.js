@@ -166,11 +166,18 @@
                 #ak-im-root .ak-im-composer-btn svg{width:20px;height:20px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
                 #ak-im-root .ak-im-composer-btn:disabled,#ak-im-root .ak-im-composer-btn.is-disabled{opacity:.5;cursor:default;box-shadow:none}
                 #ak-im-root .ak-im-composer-btn.is-active{color:#07c160}
-                #ak-im-root .ak-im-emoji-toggle .ak-im-icon-alt{display:none}
+                #ak-im-root .ak-im-composer-voice .ak-im-icon-alt,#ak-im-root .ak-im-emoji-toggle .ak-im-icon-alt{display:none}
+                #ak-im-root.ak-im-composer-voice-mode .ak-im-composer-voice .ak-im-icon-default{display:none}
+                #ak-im-root.ak-im-composer-voice-mode .ak-im-composer-voice .ak-im-icon-alt{display:block}
                 #ak-im-root.ak-im-emoji-open .ak-im-emoji-toggle .ak-im-icon-default{display:none}
                 #ak-im-root.ak-im-emoji-open .ak-im-emoji-toggle .ak-im-icon-alt{display:block}
                 #ak-im-root .ak-im-input-wrap{flex:1;min-height:38px;display:flex;align-items:flex-end;background:#ffffff;border-radius:18px;padding:8px 12px;box-shadow:0 1px 1px rgba(15,23,42,.06)}
                 #ak-im-root .ak-im-input{width:100%;resize:none;border:none;outline:none;background:transparent;min-height:22px;max-height:96px;font-size:15px;line-height:1.5;color:#111827}
+                #ak-im-root .ak-im-hold-to-talk{display:none;width:100%;min-height:38px;border:none;border-radius:18px;background:#ffffff;color:#111827;font-size:15px;line-height:1.4;align-items:center;justify-content:center;padding:0 16px;box-shadow:0 1px 1px rgba(15,23,42,.06);cursor:pointer}
+                #ak-im-root .ak-im-hold-to-talk:active{background:#e5e7eb}
+                #ak-im-root .ak-im-hold-to-talk:disabled{opacity:.5;cursor:default}
+                #ak-im-root.ak-im-composer-voice-mode .ak-im-input-wrap{display:none}
+                #ak-im-root.ak-im-composer-voice-mode .ak-im-hold-to-talk{display:inline-flex}
                 #ak-im-root .ak-im-send{display:none;height:36px;border:none;border-radius:18px;padding:0 18px;background:#07c160;color:#ffffff;font-size:14px;font-weight:600;cursor:pointer;transition:opacity .18s ease,transform .18s ease}
                 #ak-im-root.ak-im-composer-has-text .ak-im-send{display:inline-flex;align-items:center;justify-content:center}
                 #ak-im-root.ak-im-composer-has-text .ak-im-composer-plus{display:none}
@@ -415,7 +422,7 @@
                         <button class="ak-im-nav-btn ak-im-chat-menu is-hidden" type="button" aria-label="群聊更多功能" disabled><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="6" cy="12" r="1.7" fill="currentColor"></circle><circle cx="12" cy="12" r="1.7" fill="currentColor"></circle><circle cx="18" cy="12" r="1.7" fill="currentColor"></circle></svg></button>
                     </div>
                     <div class="ak-im-message-list"></div>
-                    <div class="ak-im-composer"><div class="ak-im-composer-side"><button class="ak-im-composer-btn ak-im-composer-voice is-disabled" type="button" aria-label="语音输入" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 10.5c0 3.3 2.7 6 6 6s6-2.7 6-6"></path><path d="M12 16.5v2.5"></path><path d="M9 19h6"></path><rect x="9" y="4" width="6" height="10" rx="3"></rect></svg></button></div><div class="ak-im-composer-main"><div class="ak-im-input-wrap"><textarea class="ak-im-input" placeholder="输入消息"></textarea></div></div><div class="ak-im-composer-actions"><button class="ak-im-composer-btn ak-im-composer-mic is-disabled" type="button" aria-label="实时语音" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 16.5c-2.2 0-4-1.8-4-4V8a4 4 0 1 1 8 0v4.5c0 2.2-1.8 4-4 4Z"></path><path d="M6.5 11.5v1a5.5 5.5 0 0 0 11 0v-1"></path><path d="M12 18v2.5"></path></svg></button><button class="ak-im-composer-btn ak-im-emoji-toggle" type="button" aria-label="打开表情面板"><svg class="ak-im-icon-default" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8"></circle><path d="M8.5 14.5c.9 1.2 2.1 1.8 3.5 1.8s2.6-.6 3.5-1.8"></path><path d="M9 10h.01"></path><path d="M15 10h.01"></path></svg><svg class="ak-im-icon-alt" viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="5.5" width="16" height="11" rx="2"></rect><path d="M8 19h8"></path><path d="M7.5 9.5h.01"></path><path d="M10.5 9.5h.01"></path><path d="M13.5 9.5h.01"></path><path d="M16.5 9.5h.01"></path><path d="M7.5 12.5h9"></path></svg></button><button class="ak-im-composer-btn ak-im-composer-plus is-disabled" type="button" aria-label="更多功能" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14"></path><path d="M5 12h14"></path></svg></button><button class="ak-im-send" type="button">发送</button></div></div>
+                    <div class="ak-im-composer"><div class="ak-im-composer-side"><button class="ak-im-composer-btn ak-im-composer-voice" type="button" aria-label="切换到按住说话"><svg class="ak-im-icon-default" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 9.5v5"></path><path d="M11 7v10"></path><path d="M15 5.5v13"></path><path d="M19 9.5v5"></path></svg><svg class="ak-im-icon-alt" viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="5.5" width="16" height="11" rx="2"></rect><path d="M8 19h8"></path><path d="M7.5 9.5h.01"></path><path d="M10.5 9.5h.01"></path><path d="M13.5 9.5h.01"></path><path d="M16.5 9.5h.01"></path><path d="M7.5 12.5h9"></path></svg></button></div><div class="ak-im-composer-main"><div class="ak-im-input-wrap"><textarea class="ak-im-input" placeholder="输入消息"></textarea></div><button class="ak-im-hold-to-talk" type="button">按住 说话</button></div><div class="ak-im-composer-actions"><button class="ak-im-composer-btn ak-im-emoji-toggle" type="button" aria-label="打开表情面板"><svg class="ak-im-icon-default" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8"></circle><path d="M8.5 14.5c.9 1.2 2.1 1.8 3.5 1.8s2.6-.6 3.5-1.8"></path><path d="M9 10h.01"></path><path d="M15 10h.01"></path></svg><svg class="ak-im-icon-alt" viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="5.5" width="16" height="11" rx="2"></rect><path d="M8 19h8"></path><path d="M7.5 9.5h.01"></path><path d="M10.5 9.5h.01"></path><path d="M13.5 9.5h.01"></path><path d="M16.5 9.5h.01"></path><path d="M7.5 12.5h9"></path></svg></button><button class="ak-im-composer-btn ak-im-composer-plus is-disabled" type="button" aria-label="更多功能" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14"></path><path d="M5 12h14"></path></svg></button><button class="ak-im-send" type="button">发送</button></div></div>
                     <div class="ak-im-emoji-sheet" aria-hidden="true" inert><div class="ak-im-emoji-sheet-panel"><div class="ak-im-emoji-sheet-tabs"></div><div class="ak-im-emoji-sheet-body"></div></div></div>
                     <div class="ak-im-status"></div>
                 </div>
@@ -519,6 +526,7 @@
                 statusLine: root ? root.querySelector('.ak-im-status') : null,
                 inputEl: root ? root.querySelector('.ak-im-input') : null,
                 newSessionInputEl: root ? root.querySelector('.ak-im-compose-input') : null,
+                composerHoldBtnEl: root ? root.querySelector('.ak-im-hold-to-talk') : null,
                 sendBtn: root ? root.querySelector('.ak-im-send') : null,
                 composerVoiceBtnEl: root ? root.querySelector('.ak-im-composer-voice') : null,
                 composerMicBtnEl: root ? root.querySelector('.ak-im-composer-mic') : null,
@@ -643,6 +651,9 @@
             });
             bindClick(elements.sendBtn, function() {
                 if (typeof ctx.onSendClick === 'function') ctx.onSendClick();
+            });
+            bindClick(elements.composerVoiceBtnEl, function() {
+                if (typeof ctx.onComposerVoiceToggleClick === 'function') ctx.onComposerVoiceToggleClick();
             });
             bindClick(elements.composerEmojiBtnEl, function() {
                 if (typeof ctx.onComposerEmojiToggleClick === 'function') ctx.onComposerEmojiToggleClick();
