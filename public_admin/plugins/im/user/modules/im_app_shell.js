@@ -146,12 +146,27 @@
                 #ak-im-root .ak-im-message-row.ak-self .ak-im-bubble{background:#95ec69}
                 #ak-im-root .ak-im-bubble.ak-im-bubble-emoji{padding:0;background:transparent;box-shadow:none;border-radius:14px;overflow:hidden;white-space:normal}
                 #ak-im-root .ak-im-message-row.ak-self .ak-im-bubble.ak-im-bubble-emoji{background:transparent}
-                #ak-im-root .ak-im-bubble.ak-im-bubble-voice{min-width:172px;display:flex;flex-direction:column;gap:8px;white-space:normal}
-                #ak-im-root .ak-im-voice-bubble-head{display:flex;align-items:center;justify-content:flex-start}
+                #ak-im-root .ak-im-bubble.ak-im-bubble-voice{min-width:0;padding:10px 12px 12px;display:block;white-space:normal;overflow:visible}
+                #ak-im-root .ak-im-voice-bubble-surface{--ak-im-voice-progress:0;width:min(100%,var(--ak-im-voice-bubble-width,148px));display:flex;flex-direction:column;gap:8px;cursor:pointer;user-select:none;-webkit-user-select:none;touch-action:pan-y}
+                #ak-im-root .ak-im-voice-bubble-head{display:flex;align-items:center;justify-content:flex-start;gap:10px}
                 #ak-im-root .ak-im-voice-bubble-indicator{display:inline-flex;align-items:center;gap:8px}
-                #ak-im-root .ak-im-voice-bubble-icon{width:22px;height:22px;stroke:currentColor;fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;opacity:.78;flex:0 0 auto}
-                #ak-im-root .ak-im-voice-duration{font-size:13px;font-weight:600;line-height:1.2;color:inherit}
-                #ak-im-root .ak-im-voice-audio{display:block;width:min(240px,58vw);max-width:100%;height:34px}
+                #ak-im-root .ak-im-voice-bubble-icon{width:22px;height:22px;stroke:currentColor;fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;opacity:.82;flex:0 0 auto}
+                #ak-im-root .ak-im-voice-duration{font-size:13px;font-weight:700;line-height:1.2;color:inherit}
+                #ak-im-root .ak-im-voice-track{position:relative;height:40px;border-radius:999px;overflow:hidden;display:flex;align-items:center;padding:0 12px;background:rgba(255,255,255,.92);box-shadow:inset 0 0 0 1px rgba(255,255,255,.42);transition:transform .16s ease,box-shadow .16s ease}
+                #ak-im-root .ak-im-message-row.ak-peer .ak-im-voice-track{background:rgba(15,23,42,.06);box-shadow:inset 0 0 0 1px rgba(15,23,42,.05)}
+                #ak-im-root .ak-im-voice-bubble-surface:active .ak-im-voice-track{transform:scale(.992)}
+                #ak-im-root .ak-im-voice-track-progress{position:absolute;left:0;top:0;bottom:0;width:calc(var(--ak-im-voice-progress,0) * 100%);background:linear-gradient(90deg,rgba(22,101,52,.1) 0%,rgba(22,101,52,.22) 100%);transition:width .1s linear}
+                #ak-im-root .ak-im-message-row.ak-peer .ak-im-voice-track-progress{background:linear-gradient(90deg,rgba(7,193,96,.1) 0%,rgba(7,193,96,.22) 100%)}
+                #ak-im-root .ak-im-voice-track-scan{position:absolute;top:4px;bottom:4px;left:calc(var(--ak-im-voice-progress,0) * 100%);width:36%;border-radius:999px;transform:translateX(-50%);background:linear-gradient(90deg,rgba(255,255,255,0) 0%,rgba(255,255,255,.06) 18%,rgba(255,255,255,.9) 50%,rgba(255,255,255,.06) 82%,rgba(255,255,255,0) 100%);opacity:0;transition:left .1s linear,opacity .16s ease}
+                #ak-im-root .ak-im-voice-bubble-surface.is-playing .ak-im-voice-track-scan,#ak-im-root .ak-im-voice-bubble-surface.is-dragging .ak-im-voice-track-scan{opacity:.92}
+                #ak-im-root .ak-im-voice-wave{position:relative;z-index:1;display:flex;align-items:flex-end;gap:4px;height:20px}
+                #ak-im-root .ak-im-voice-wave-bar{width:4px;min-height:8px;border-radius:999px;background:rgba(15,23,42,.26);flex:0 0 auto;transition:background .16s ease,opacity .16s ease,transform .16s ease,box-shadow .16s ease}
+                #ak-im-root .ak-im-message-row.ak-peer .ak-im-voice-wave-bar{background:rgba(15,23,42,.22)}
+                #ak-im-root .ak-im-voice-wave-bar.is-played{background:#166534}
+                #ak-im-root .ak-im-message-row.ak-peer .ak-im-voice-wave-bar.is-played{background:#16a34a}
+                #ak-im-root .ak-im-voice-wave-bar.is-current{background:#14532d;transform:scaleY(1.08);box-shadow:0 0 0 4px rgba(255,255,255,.12)}
+                #ak-im-root .ak-im-message-row.ak-peer .ak-im-voice-wave-bar.is-current{background:#15803d}
+                #ak-im-root .ak-im-voice-bubble-surface.is-complete .ak-im-voice-track-scan{opacity:0}
                 #ak-im-root .ak-im-emoji-bubble-image{display:block;width:min(128px,42vw);max-width:100%;height:auto;border-radius:14px;background:#ffffff;object-fit:contain}
                 #ak-im-root .ak-im-emoji-bubble-fallback{display:inline-flex;align-items:center;justify-content:center;min-width:92px;min-height:92px;padding:12px 14px;border-radius:14px;background:#ffffff;color:#111827;font-size:14px;line-height:1.5;box-sizing:border-box}
                 #ak-im-root .ak-im-message-row.ak-self .ak-im-emoji-bubble-fallback{background:#95ec69}
@@ -191,16 +206,19 @@
                 #ak-im-root.ak-im-voice-hold-sending .ak-im-hold-to-talk{background:#f3f4f6;color:#9ca3af}
                 #ak-im-root .ak-im-voice-record-overlay{pointer-events:none;opacity:0;transition:opacity .18s ease;position:absolute;inset:0;z-index:8;display:flex;flex-direction:column;justify-content:flex-end;background:rgba(0,0,0,0)}
                 #ak-im-root .ak-im-voice-record-overlay::before{content:"";position:absolute;inset:0;background:rgba(0,0,0,.36);opacity:0;transition:opacity .18s ease}
-                #ak-im-root .ak-im-voice-record-overlay-inner{position:relative;z-index:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;gap:28px;min-height:100%;padding:96px 18px calc(116px + env(safe-area-inset-bottom, 0px));box-sizing:border-box}
+                #ak-im-root .ak-im-voice-record-overlay-inner{position:relative;z-index:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;gap:34px;min-height:100%;padding:96px 18px calc(132px + env(safe-area-inset-bottom, 0px));box-sizing:border-box}
                 #ak-im-root .ak-im-voice-record-card{position:relative;min-width:228px;max-width:min(72vw,312px);padding:18px 22px 22px;border-radius:22px;background:linear-gradient(180deg,#9bf46d 0%,#8eef61 100%);box-shadow:0 18px 42px rgba(0,0,0,.18);display:flex;flex-direction:column;align-items:center;gap:12px;color:#1f2937;transform:translateY(10px) scale(.96);transition:transform .18s ease,background .18s ease,color .18s ease}
                 #ak-im-root .ak-im-voice-record-card::after{content:"";position:absolute;left:50%;bottom:-10px;width:20px;height:20px;background:inherit;transform:translateX(-50%) rotate(45deg);border-radius:4px;box-shadow:6px 6px 18px rgba(0,0,0,.08)}
                 #ak-im-root .ak-im-voice-record-meter{display:flex;align-items:flex-end;justify-content:center;gap:3px;height:34px}
                 #ak-im-root .ak-im-voice-record-bar{width:4px;height:12px;border-radius:999px;background:rgba(17,24,39,.42);transform-origin:center bottom;transition:height .08s linear,background .18s ease,opacity .18s ease}
                 #ak-im-root .ak-im-voice-record-bar.is-active{background:rgba(17,24,39,.86)}
                 #ak-im-root .ak-im-voice-record-timer{font-size:16px;font-weight:700;line-height:1.2;letter-spacing:.04em}
-                #ak-im-root .ak-im-voice-cancel-zone{position:relative;width:min(68vw,272px);max-width:100%;min-height:84px;border-radius:999px 999px 26px 26px;background:linear-gradient(180deg,rgba(229,231,235,.92) 0%,rgba(209,213,219,.82) 100%);backdrop-filter:blur(12px);display:flex;align-items:flex-end;justify-content:center;padding:22px 26px 18px;color:#4b5563;font-size:14px;font-weight:700;line-height:1.3;box-shadow:0 16px 34px rgba(0,0,0,.12),inset 0 1px 0 rgba(255,255,255,.56);clip-path:ellipse(72% 104% at 50% 100%)}
-                #ak-im-root .ak-im-voice-cancel-zone.is-active{background:linear-gradient(180deg,rgba(248,113,113,.98) 0%,rgba(239,68,68,.96) 100%);color:#ffffff;box-shadow:0 18px 36px rgba(239,68,68,.3),inset 0 1px 0 rgba(255,255,255,.18)}
-                #ak-im-root .ak-im-voice-cancel-label{white-space:nowrap;transform:translateY(2px)}
+                #ak-im-root .ak-im-voice-cancel-zone{position:relative;width:min(78vw,320px);max-width:100%;min-height:126px;background:transparent;display:flex;align-items:flex-end;justify-content:center;padding:0 30px 32px;color:#475569;font-size:16px;font-weight:700;line-height:1.35;overflow:hidden}
+                #ak-im-root .ak-im-voice-cancel-zone::before{content:"";position:absolute;inset:0;border-radius:999px 999px 0 0 / 100% 100% 0 0;background:linear-gradient(180deg,rgba(243,244,246,.96) 0%,rgba(209,213,219,.88) 100%);backdrop-filter:blur(16px);box-shadow:0 18px 34px rgba(0,0,0,.14),inset 0 1px 0 rgba(255,255,255,.72)}
+                #ak-im-root .ak-im-voice-cancel-zone::after{content:"";position:absolute;left:50%;bottom:-30px;width:54%;height:82px;transform:translateX(-50%);border-radius:999px 999px 0 0 / 100% 100% 0 0;background:rgba(0,0,0,.36);box-shadow:0 -1px 0 rgba(255,255,255,.14)}
+                #ak-im-root .ak-im-voice-cancel-zone.is-active{color:#ffffff}
+                #ak-im-root .ak-im-voice-cancel-zone.is-active::before{background:linear-gradient(180deg,rgba(248,113,113,.98) 0%,rgba(239,68,68,.94) 100%);box-shadow:0 20px 36px rgba(239,68,68,.32),inset 0 1px 0 rgba(255,255,255,.18)}
+                #ak-im-root .ak-im-voice-cancel-label{position:relative;z-index:1;white-space:nowrap;transform:translateY(-6px)}
                 #ak-im-root.ak-im-voice-hold-recording .ak-im-voice-record-overlay,#ak-im-root.ak-im-voice-hold-cancel-ready .ak-im-voice-record-overlay{opacity:1}
                 #ak-im-root.ak-im-voice-hold-recording .ak-im-voice-record-overlay::before,#ak-im-root.ak-im-voice-hold-cancel-ready .ak-im-voice-record-overlay::before{opacity:1}
                 #ak-im-root.ak-im-voice-hold-recording .ak-im-voice-record-card,#ak-im-root.ak-im-voice-hold-cancel-ready .ak-im-voice-record-card{transform:translateY(0) scale(1)}

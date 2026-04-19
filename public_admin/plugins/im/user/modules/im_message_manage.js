@@ -250,7 +250,7 @@
                     '</div>';
                 if (isSelf) {
                     const bubble = wrapper.querySelector('.ak-im-bubble');
-                    if (bubble) {
+                    if (bubble && !bubble.classList.contains('ak-im-bubble-voice')) {
                         let pressTimer = null;
                         const startPress = function() {
                             if (!self.canRecallMessage(item)) return;
@@ -269,6 +269,8 @@
                         bubble.addEventListener('pointerup', cancelPress);
                         bubble.addEventListener('pointercancel', cancelPress);
                         bubble.addEventListener('pointerleave', cancelPress);
+                    }
+                    if (bubble) {
                         bubble.addEventListener('contextmenu', function(event) {
                             event.preventDefault();
                             if (!self.canRecallMessage(item)) return;
@@ -286,6 +288,9 @@
                 }
                 messageList.appendChild(wrapper);
             });
+            if (this.ctx && typeof this.ctx.syncVoiceMessageBubbles === 'function') {
+                this.ctx.syncVoiceMessageBubbles();
+            }
             messageList.scrollTop = messageList.scrollHeight;
         },
 

@@ -6,10 +6,19 @@
     const VOICE_STATUS_CLEAR_DELAY_MS = 1600;
     const VOICE_TIMER_INTERVAL_MS = 200;
     const VOICE_IDLE_METER_HEIGHTS = [10, 12, 14, 16, 18, 20, 22, 24, 24, 22, 20, 18, 16, 14, 12, 10];
-    const VOICE_CANCEL_ZONE_RADIUS_X_RATIO = 0.72;
-    const VOICE_CANCEL_ZONE_RADIUS_Y_RATIO = 1.04;
-    const VOICE_CANCEL_ZONE_CENTER_X_RATIO = 0.5;
-    const VOICE_CANCEL_ZONE_CENTER_Y_RATIO = 1;
+    const VOICE_CANCEL_ZONE_OUTER_RADIUS_X_RATIO = 0.78;
+    const VOICE_CANCEL_ZONE_OUTER_RADIUS_Y_RATIO = 1.02;
+    const VOICE_CANCEL_ZONE_OUTER_CENTER_X_RATIO = 0.5;
+    const VOICE_CANCEL_ZONE_OUTER_CENTER_Y_RATIO = 1.02;
+    const VOICE_CANCEL_ZONE_INNER_RADIUS_X_RATIO = 0.42;
+    const VOICE_CANCEL_ZONE_INNER_RADIUS_Y_RATIO = 0.34;
+    const VOICE_CANCEL_ZONE_INNER_CENTER_X_RATIO = 0.5;
+    const VOICE_CANCEL_ZONE_INNER_CENTER_Y_RATIO = 1.1;
+    const VOICE_CANCEL_ZONE_INNER_START_Y_RATIO = 0.42;
+    const VOICE_BUBBLE_WIDTH_MIN_PX = 116;
+    const VOICE_BUBBLE_WIDTH_MAX_PX = 228;
+    const VOICE_BUBBLE_SEEK_MOVE_THRESHOLD_PX = 8;
+    const VOICE_BUBBLE_WAVE_HEIGHTS = [8, 11, 15, 19, 16, 12, 9, 13, 18, 20, 17, 12, 10, 14, 18, 16, 12, 9];
     const PREFERRED_VOICE_MIME_TYPES = [
         'audio/webm;codecs=opus',
         'audio/webm',
@@ -21,6 +30,8 @@
         ctx: null,
         boundHoldBtnEl: null,
         boundListeners: null,
+        boundMessageListEl: null,
+        boundMessageListListeners: null,
         globalEventsBound: false,
         activePointerId: null,
         pressStartY: 0,
@@ -38,13 +49,26 @@
         analyserNode: null,
         analyserSource: null,
         analyserData: null,
+        playbackAudioEl: null,
+        playbackFrameId: 0,
+        playbackMessageId: 0,
+        playbackSrc: '',
+        playbackDurationMs: 0,
+        playbackProgress: 0,
+        playbackConversationId: 0,
+        playbackPendingSeekRatio: null,
+        playbackPendingAutoPlay: false,
+        playbackClickBlockUntil: 0,
+        voiceSeekSession: null,
 
         init(ctx) {
             this.ctx = ctx || null;
             this.bindGlobalEvents();
             this.refreshSupportState(false);
             this.bindHoldButton();
+            this.bindMessageListInteractions();
             this.syncRecordingOverlay();
+            this.syncMessageBubblePlaybackState();
         },
 
         getState() {
@@ -109,7 +133,9 @@
                 this.ctx.syncComposerState();
             }
             this.bindHoldButton();
+            this.bindMessageListInteractions();
             this.syncRecordingOverlay();
+            this.syncMessageBubblePlaybackState();
         },
 
         clearStatusTimer() {
@@ -343,11 +369,22 @@
             if (this.globalEventsBound) return;
             const self = this;
             global.addEventListener('blur', function() {
+                self.cancelVoiceSeek();
                 self.cancelActiveRecording('已取消语音发送');
             });
             if (global.document && typeof global.document.addEventListener === 'function') {
+                global.document.addEventListener('pointermove', function(event) {
+                    self.handleVoiceSeekPointerMove(event);
+                });
+                global.document.addEventListener('pointerup', function(event) {
+                    self.handleVoiceSeekPointerUp(event);
+                });
+                global.document.addEventListener('pointercancel', function(event) {
+                    self.handleVoiceSeekPointerCancel(event);
+                });
                 global.document.addEventListener('visibilitychange', function() {
                     if (global.document.visibilityState === 'hidden') {
+                        self.cancelVoiceSeek();
                         self.cancelActiveRecording('已取消语音发送');
                     }
                 });
@@ -389,6 +426,411 @@
             holdBtn.addEventListener('pointercancel', this.boundListeners.pointercancel);
         },
 
+        bindMessageListInteractions() {
+            const messageListEl = this.getElements().messageList || null;
+            if (this.boundMessageListEl === messageListEl) return;
+            if (this.boundMessageListEl && this.boundMessageListListeners) {
+                this.boundMessageListEl.removeEventListener('pointerdown', this.boundMessageListListeners.pointerdown);
+                this.boundMessageListEl.removeEventListener('click', this.boundMessageListListeners.click);
+            }
+            this.boundMessageListEl = messageListEl;
+            this.boundMessageListListeners = null;
+            if (!messageListEl) return;
+            const self = this;
+            this.boundMessageListListeners = {
+                pointerdown: function(event) {
+                    self.handleMessageListPointerDown(event);
+                },
+                click: function(event) {
+                    self.handleMessageListClick(event);
+                }
+            };
+            messageListEl.addEventListener('pointerdown', this.boundMessageListListeners.pointerdown);
+            messageListEl.addEventListener('click', this.boundMessageListListeners.click);
+        },
+
+        findVoiceBubbleSurface(target) {
+            if (!target || typeof target.closest !== 'function') return null;
+            const surfaceEl = target.closest('.ak-im-voice-bubble-surface');
+            const messageListEl = this.getElements().messageList || null;
+            if (!surfaceEl || !messageListEl || !messageListEl.contains(surfaceEl)) return null;
+            return surfaceEl;
+        },
+
+        readVoiceBubbleData(surfaceEl) {
+            if (!surfaceEl) return null;
+            const messageId = Math.max(0, Number(surfaceEl.getAttribute('data-im-voice-message-id') || 0) || 0);
+            const fileUrl = String(surfaceEl.getAttribute('data-im-voice-src') || '').trim();
+            const durationMs = Math.max(0, Number(surfaceEl.getAttribute('data-im-voice-duration-ms') || 0) || 0);
+            const conversationId = Math.max(0, Number(surfaceEl.getAttribute('data-im-voice-conversation-id') || 0) || 0);
+            if (!messageId || !fileUrl) return null;
+            return {
+                messageId: messageId,
+                fileUrl: fileUrl,
+                durationMs: durationMs,
+                conversationId: conversationId
+            };
+        },
+
+        normalizeProgressRatio(value) {
+            const numeric = Number(value);
+            if (!isFinite(numeric)) return 0;
+            if (numeric <= 0) return 0;
+            if (numeric >= 1) return 1;
+            return numeric;
+        },
+
+        resolveVoiceTrackRatio(surfaceEl, clientX) {
+            if (!surfaceEl) return 0;
+            const trackEl = surfaceEl.querySelector('.ak-im-voice-track') || surfaceEl;
+            const rect = trackEl.getBoundingClientRect();
+            if (!rect || !(rect.width > 0)) return 0;
+            return this.normalizeProgressRatio((Number(clientX || 0) - rect.left) / rect.width);
+        },
+
+        isPlaybackActive() {
+            return !!(this.playbackAudioEl && !this.playbackAudioEl.paused && !this.playbackAudioEl.ended && this.playbackMessageId);
+        },
+
+        isMessagePlaying(messageId) {
+            return !!messageId && Number(this.playbackMessageId || 0) === Number(messageId) && this.isPlaybackActive();
+        },
+
+        ensurePlaybackAudio() {
+            if (this.playbackAudioEl) return this.playbackAudioEl;
+            const audio = new Audio();
+            audio.preload = 'metadata';
+            const self = this;
+            audio.addEventListener('loadedmetadata', function() {
+                if (self.playbackPendingSeekRatio != null && Number(audio.duration || 0) > 0) {
+                    try {
+                        audio.currentTime = audio.duration * self.playbackPendingSeekRatio;
+                    } catch (e) {}
+                    self.playbackProgress = self.playbackPendingSeekRatio;
+                    self.playbackPendingSeekRatio = null;
+                } else {
+                    self.syncPlaybackProgressFromAudio();
+                }
+                self.syncMessageBubblePlaybackState();
+            });
+            audio.addEventListener('timeupdate', function() {
+                self.syncPlaybackProgressFromAudio();
+            });
+            audio.addEventListener('play', function() {
+                self.startPlaybackFrameLoop();
+                self.syncMessageBubblePlaybackState();
+            });
+            audio.addEventListener('pause', function() {
+                self.stopPlaybackFrameLoop();
+                self.syncPlaybackProgressFromAudio();
+                self.syncMessageBubblePlaybackState();
+            });
+            audio.addEventListener('ended', function() {
+                self.stopPlaybackFrameLoop();
+                self.playbackPendingSeekRatio = null;
+                self.playbackProgress = 1;
+                self.syncMessageBubblePlaybackState();
+            });
+            audio.addEventListener('error', function() {
+                self.stopPlaybackFrameLoop();
+                self.playbackPendingSeekRatio = null;
+                self.syncMessageBubblePlaybackState();
+            });
+            this.playbackAudioEl = audio;
+            return audio;
+        },
+
+        startPlaybackFrameLoop() {
+            const self = this;
+            this.stopPlaybackFrameLoop();
+            const tick = function() {
+                self.playbackFrameId = 0;
+                self.syncPlaybackProgressFromAudio();
+                if (!self.isPlaybackActive()) return;
+                if (typeof global.requestAnimationFrame === 'function') {
+                    self.playbackFrameId = global.requestAnimationFrame(tick);
+                    return;
+                }
+                self.playbackFrameId = setTimeout(tick, 80);
+            };
+            if (!this.isPlaybackActive()) return;
+            if (typeof global.requestAnimationFrame === 'function') {
+                this.playbackFrameId = global.requestAnimationFrame(tick);
+                return;
+            }
+            this.playbackFrameId = setTimeout(tick, 80);
+        },
+
+        stopPlaybackFrameLoop() {
+            if (!this.playbackFrameId) return;
+            if (typeof global.cancelAnimationFrame === 'function') {
+                global.cancelAnimationFrame(this.playbackFrameId);
+            } else {
+                clearTimeout(this.playbackFrameId);
+            }
+            this.playbackFrameId = 0;
+        },
+
+        syncPlaybackProgressFromAudio() {
+            const audio = this.playbackAudioEl;
+            if (!audio || !this.playbackMessageId) return;
+            const durationSeconds = Number(audio.duration || 0);
+            if (durationSeconds > 0) {
+                this.playbackDurationMs = Math.max(this.playbackDurationMs, Math.round(durationSeconds * 1000));
+                this.playbackProgress = this.normalizeProgressRatio(Number(audio.currentTime || 0) / durationSeconds);
+            } else if (this.playbackPendingSeekRatio != null) {
+                this.playbackProgress = this.playbackPendingSeekRatio;
+            }
+            this.syncMessageBubblePlaybackState({ activeOnly: true });
+        },
+
+        pausePlayback() {
+            const audio = this.playbackAudioEl;
+            if (!audio) return;
+            try {
+                audio.pause();
+            } catch (e) {
+                this.stopPlaybackFrameLoop();
+            }
+            this.syncMessageBubblePlaybackState();
+        },
+
+        resetPlaybackState(shouldKeepProgress) {
+            const audio = this.playbackAudioEl;
+            this.stopPlaybackFrameLoop();
+            this.playbackPendingSeekRatio = null;
+            this.playbackClickBlockUntil = 0;
+            this.playbackMessageId = 0;
+            this.playbackSrc = '';
+            this.playbackDurationMs = 0;
+            this.playbackConversationId = 0;
+            if (!shouldKeepProgress) this.playbackProgress = 0;
+            if (audio) {
+                try {
+                    audio.pause();
+                } catch (e) {}
+                try {
+                    audio.removeAttribute('data-ak-im-voice-src');
+                    audio.src = '';
+                } catch (e) {}
+            }
+            this.syncMessageBubblePlaybackState();
+        },
+
+        resumePlayback() {
+            const audio = this.ensurePlaybackAudio();
+            if (!this.playbackSrc) return;
+            if (!audio.src || this.playbackSrc !== String(audio.getAttribute('data-ak-im-voice-src') || '').trim()) {
+                audio.src = this.playbackSrc;
+                audio.setAttribute('data-ak-im-voice-src', this.playbackSrc);
+                audio.load();
+            }
+            if (this.playbackPendingSeekRatio != null && Number(audio.duration || 0) > 0) {
+                try {
+                    audio.currentTime = audio.duration * this.playbackPendingSeekRatio;
+                } catch (e) {}
+                this.playbackPendingSeekRatio = null;
+            }
+            if (this.playbackProgress >= 0.999) {
+                try {
+                    audio.currentTime = 0;
+                } catch (e) {}
+                this.playbackProgress = 0;
+            }
+            const playResult = audio.play();
+            if (playResult && typeof playResult.catch === 'function') {
+                playResult.catch(function() {});
+            }
+        },
+
+        playVoiceBubble(voiceData, options) {
+            const normalizedData = voiceData || null;
+            const messageId = Math.max(0, Number(normalizedData && normalizedData.messageId || 0) || 0);
+            const fileUrl = String(normalizedData && normalizedData.fileUrl || '').trim();
+            if (!messageId || !fileUrl) return;
+            const audio = this.ensurePlaybackAudio();
+            const sameMessage = Number(this.playbackMessageId || 0) === messageId && this.playbackSrc === fileUrl;
+            if (!sameMessage) {
+                try {
+                    audio.pause();
+                } catch (e) {}
+            }
+            this.playbackMessageId = messageId;
+            this.playbackSrc = fileUrl;
+            this.playbackDurationMs = Math.max(0, Number(normalizedData.durationMs || 0) || 0);
+            this.playbackConversationId = Math.max(0, Number(normalizedData.conversationId || 0) || 0);
+            if (!sameMessage) {
+                this.playbackProgress = 0;
+                this.playbackPendingSeekRatio = null;
+                audio.src = fileUrl;
+                audio.setAttribute('data-ak-im-voice-src', fileUrl);
+                audio.load();
+            }
+            if (options && typeof options.seekRatio === 'number') {
+                this.playbackPendingSeekRatio = this.normalizeProgressRatio(options.seekRatio);
+                this.playbackProgress = this.playbackPendingSeekRatio;
+                if (Number(audio.duration || 0) > 0) {
+                    try {
+                        audio.currentTime = audio.duration * this.playbackPendingSeekRatio;
+                    } catch (e) {}
+                    this.playbackPendingSeekRatio = null;
+                }
+            } else if (!sameMessage) {
+                this.playbackProgress = 0;
+            }
+            this.syncMessageBubblePlaybackState();
+            if (options && options.autoPlay === false) return;
+            this.resumePlayback();
+        },
+
+        handleMessageListPointerDown(event) {
+            if (!event || (event.pointerType === 'mouse' && event.button !== 0)) return;
+            const surfaceEl = this.findVoiceBubbleSurface(event.target);
+            if (!surfaceEl) return;
+            const voiceData = this.readVoiceBubbleData(surfaceEl);
+            if (!voiceData) return;
+            this.voiceSeekSession = {
+                pointerId: typeof event.pointerId === 'number' ? event.pointerId : null,
+                startX: Number(event.clientX || 0),
+                startY: Number(event.clientY || 0),
+                moved: false,
+                surfaceEl: surfaceEl,
+                voiceData: voiceData,
+                wasPlaying: this.isMessagePlaying(voiceData.messageId),
+                hadAnyPlayback: this.isPlaybackActive()
+            };
+        },
+
+        handleMessageListClick(event) {
+            const surfaceEl = this.findVoiceBubbleSurface(event && event.target);
+            if (!surfaceEl) return;
+            if (Date.now() < Number(this.playbackClickBlockUntil || 0)) {
+                event.preventDefault();
+                event.stopPropagation();
+                return;
+            }
+            const voiceData = this.readVoiceBubbleData(surfaceEl);
+            if (!voiceData) return;
+            event.preventDefault();
+            event.stopPropagation();
+            if (Number(this.playbackMessageId || 0) === Number(voiceData.messageId) && this.playbackSrc === voiceData.fileUrl) {
+                if (this.isPlaybackActive()) {
+                    this.pausePlayback();
+                    return;
+                }
+                this.resumePlayback();
+                return;
+            }
+            this.playVoiceBubble(voiceData);
+        },
+
+        handleVoiceSeekPointerMove(event) {
+            const session = this.voiceSeekSession;
+            if (!session) return;
+            if (session.pointerId != null && Number(event && event.pointerId) !== Number(session.pointerId)) return;
+            const deltaX = Number(event && event.clientX || 0) - session.startX;
+            const deltaY = Number(event && event.clientY || 0) - session.startY;
+            if (!session.moved) {
+                if (Math.abs(deltaX) < VOICE_BUBBLE_SEEK_MOVE_THRESHOLD_PX && Math.abs(deltaY) < VOICE_BUBBLE_SEEK_MOVE_THRESHOLD_PX) return;
+                if (Math.abs(deltaY) > Math.abs(deltaX)) {
+                    if (Math.abs(deltaY) >= VOICE_BUBBLE_SEEK_MOVE_THRESHOLD_PX) this.voiceSeekSession = null;
+                    return;
+                }
+                session.moved = true;
+                if (session.hadAnyPlayback) this.pausePlayback();
+            }
+            event.preventDefault();
+            this.playbackPendingSeekRatio = this.resolveVoiceTrackRatio(session.surfaceEl, Number(event.clientX || 0));
+            this.playbackClickBlockUntil = Date.now() + 260;
+            this.syncMessageBubblePlaybackState({
+                messageId: session.voiceData.messageId,
+                progressRatio: this.playbackPendingSeekRatio,
+                dragging: true
+            });
+        },
+
+        handleVoiceSeekPointerUp(event) {
+            const session = this.voiceSeekSession;
+            if (!session) return;
+            if (session.pointerId != null && Number(event && event.pointerId) !== Number(session.pointerId)) return;
+            this.voiceSeekSession = null;
+            if (!session.moved) return;
+            event.preventDefault();
+            const ratio = this.playbackPendingSeekRatio != null ? this.playbackPendingSeekRatio : this.resolveVoiceTrackRatio(session.surfaceEl, Number(event.clientX || 0));
+            this.playbackPendingSeekRatio = null;
+            this.playbackClickBlockUntil = Date.now() + 320;
+            this.playVoiceBubble(session.voiceData, {
+                autoPlay: session.wasPlaying || session.hadAnyPlayback || Number(this.playbackMessageId || 0) !== Number(session.voiceData.messageId),
+                seekRatio: ratio
+            });
+        },
+
+        handleVoiceSeekPointerCancel(event) {
+            const session = this.voiceSeekSession;
+            if (!session) return;
+            if (session.pointerId != null && Number(event && event.pointerId) !== Number(session.pointerId)) return;
+            this.cancelVoiceSeek();
+        },
+
+        cancelVoiceSeek() {
+            if (!this.voiceSeekSession) return;
+            this.voiceSeekSession = null;
+            this.playbackPendingSeekRatio = null;
+            this.playbackClickBlockUntil = Date.now() + 220;
+            this.syncMessageBubblePlaybackState();
+        },
+
+        syncMessageBubblePlaybackState(options) {
+            const messageListEl = this.getElements().messageList || null;
+            if (!messageListEl) return;
+            const state = this.getState();
+            if (this.playbackConversationId && Number(state && state.activeConversationId || 0) !== Number(this.playbackConversationId || 0)) {
+                this.resetPlaybackState(false);
+                return;
+            }
+            const onlyActive = !!(options && options.activeOnly && this.playbackMessageId);
+            const selector = onlyActive ? '.ak-im-voice-bubble-surface[data-im-voice-message-id="' + String(this.playbackMessageId) + '"]' : '.ak-im-voice-bubble-surface';
+            const surfaceEls = Array.prototype.slice.call(messageListEl.querySelectorAll(selector));
+            const activeMessageId = Math.max(0, Number(options && options.messageId || this.playbackMessageId || 0) || 0);
+            const activeProgress = this.normalizeProgressRatio(options && typeof options.progressRatio === 'number' ? options.progressRatio : this.playbackProgress);
+            const dragging = !!(options && options.dragging);
+            const playing = this.isPlaybackActive();
+            if (!onlyActive && activeMessageId && !messageListEl.querySelector('.ak-im-voice-bubble-surface[data-im-voice-message-id="' + String(activeMessageId) + '"]')) {
+                this.resetPlaybackState(false);
+                return;
+            }
+            surfaceEls.forEach(function(surfaceEl) {
+                const messageId = Math.max(0, Number(surfaceEl.getAttribute('data-im-voice-message-id') || 0) || 0);
+                const isActive = !!activeMessageId && messageId === activeMessageId;
+                const progress = isActive ? activeProgress : 0;
+                surfaceEl.classList.toggle('is-active', isActive && progress > 0);
+                surfaceEl.classList.toggle('is-playing', isActive && playing && !dragging);
+                surfaceEl.classList.toggle('is-dragging', isActive && dragging);
+                surfaceEl.classList.toggle('is-complete', isActive && progress >= 0.999);
+                surfaceEl.style.setProperty('--ak-im-voice-progress', String(progress));
+                const barEls = surfaceEl.querySelectorAll('.ak-im-voice-wave-bar');
+                const barCount = barEls.length || 1;
+                Array.prototype.forEach.call(barEls, function(barEl, index) {
+                    const threshold = (index + 1) / barCount;
+                    const currentThreshold = index / barCount;
+                    barEl.classList.toggle('is-played', isActive && progress >= threshold);
+                    barEl.classList.toggle('is-current', isActive && progress >= currentThreshold && progress < threshold);
+                });
+            });
+            if (onlyActive) return;
+            const staleSurfaceEls = Array.prototype.slice.call(messageListEl.querySelectorAll('.ak-im-voice-bubble-surface'));
+            staleSurfaceEls.forEach(function(surfaceEl) {
+                const messageId = Math.max(0, Number(surfaceEl.getAttribute('data-im-voice-message-id') || 0) || 0);
+                if (messageId === activeMessageId) return;
+                surfaceEl.classList.remove('is-active', 'is-playing', 'is-dragging', 'is-complete');
+                surfaceEl.style.setProperty('--ak-im-voice-progress', '0');
+                const barEls = surfaceEl.querySelectorAll('.ak-im-voice-wave-bar');
+                Array.prototype.forEach.call(barEls, function(barEl) {
+                    barEl.classList.remove('is-played', 'is-current');
+                });
+            });
+        },
+
         isActivePointer(event) {
             if (this.activePointerId == null) return true;
             return !!event && Number(event.pointerId) === Number(this.activePointerId);
@@ -414,14 +856,24 @@
             if (clientX < rect.left || clientX > rect.right || clientY < rect.top || clientY > rect.bottom) return false;
             const localX = clientX - rect.left;
             const localY = clientY - rect.top;
-            const radiusX = rect.width * VOICE_CANCEL_ZONE_RADIUS_X_RATIO;
-            const radiusY = rect.height * VOICE_CANCEL_ZONE_RADIUS_Y_RATIO;
-            const centerX = rect.width * VOICE_CANCEL_ZONE_CENTER_X_RATIO;
-            const centerY = rect.height * VOICE_CANCEL_ZONE_CENTER_Y_RATIO;
-            if (!(radiusX > 0) || !(radiusY > 0)) return true;
-            const normalizedX = (localX - centerX) / radiusX;
-            const normalizedY = (localY - centerY) / radiusY;
-            return normalizedX * normalizedX + normalizedY * normalizedY <= 1;
+            const outerRadiusX = rect.width * VOICE_CANCEL_ZONE_OUTER_RADIUS_X_RATIO;
+            const outerRadiusY = rect.height * VOICE_CANCEL_ZONE_OUTER_RADIUS_Y_RATIO;
+            const outerCenterX = rect.width * VOICE_CANCEL_ZONE_OUTER_CENTER_X_RATIO;
+            const outerCenterY = rect.height * VOICE_CANCEL_ZONE_OUTER_CENTER_Y_RATIO;
+            if (!(outerRadiusX > 0) || !(outerRadiusY > 0)) return true;
+            const outerNormalizedX = (localX - outerCenterX) / outerRadiusX;
+            const outerNormalizedY = (localY - outerCenterY) / outerRadiusY;
+            const insideOuterFan = outerNormalizedX * outerNormalizedX + outerNormalizedY * outerNormalizedY <= 1;
+            if (!insideOuterFan) return false;
+            if (localY <= rect.height * VOICE_CANCEL_ZONE_INNER_START_Y_RATIO) return true;
+            const innerRadiusX = rect.width * VOICE_CANCEL_ZONE_INNER_RADIUS_X_RATIO;
+            const innerRadiusY = rect.height * VOICE_CANCEL_ZONE_INNER_RADIUS_Y_RATIO;
+            const innerCenterX = rect.width * VOICE_CANCEL_ZONE_INNER_CENTER_X_RATIO;
+            const innerCenterY = rect.height * VOICE_CANCEL_ZONE_INNER_CENTER_Y_RATIO;
+            if (!(innerRadiusX > 0) || !(innerRadiusY > 0)) return true;
+            const innerNormalizedX = (localX - innerCenterX) / innerRadiusX;
+            const innerNormalizedY = (localY - innerCenterY) / innerRadiusY;
+            return innerNormalizedX * innerNormalizedX + innerNormalizedY * innerNormalizedY > 1;
         },
 
         stopStreamTracks() {
@@ -703,6 +1155,18 @@
             return seconds + '″';
         },
 
+        getVoiceBubbleWidth(durationMs) {
+            const seconds = Math.max(1, Math.round(Number(durationMs || 0) / 1000));
+            const ratio = Math.min(60, seconds) / 60;
+            return Math.round(VOICE_BUBBLE_WIDTH_MIN_PX + (VOICE_BUBBLE_WIDTH_MAX_PX - VOICE_BUBBLE_WIDTH_MIN_PX) * Math.pow(ratio, 0.82));
+        },
+
+        buildVoiceWaveBarsMarkup() {
+            return VOICE_BUBBLE_WAVE_HEIGHTS.map(function(height, index) {
+                return '<span class="ak-im-voice-wave-bar" style="height:' + String(Math.max(8, Number(height || 0) || 8)) + 'px" data-im-voice-wave-index="' + String(index) + '"></span>';
+            }).join('');
+        },
+
         getMessageBubbleClassName(item) {
             return this.resolveVoiceMessage(item) ? 'ak-im-bubble-voice' : '';
         },
@@ -711,13 +1175,22 @@
             const voiceMessage = this.resolveVoiceMessage(item);
             if (!voiceMessage) return '';
             const durationLabel = this.formatDurationLabel(voiceMessage.durationMs);
-            return '<div class="ak-im-voice-bubble-head">' +
-                '<div class="ak-im-voice-bubble-indicator">' +
-                    '<svg class="ak-im-voice-bubble-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6.6 10.2c.62.5.93 1.1.93 1.8s-.31 1.3-.93 1.8"></path><path d="M9.7 8.3c1.04.82 1.56 1.98 1.56 3.7s-.52 2.88-1.56 3.7"></path><path d="M13 6.7c1.5 1.2 2.25 2.97 2.25 5.3s-.75 4.1-2.25 5.3"></path></svg>' +
-                    '<span class="ak-im-voice-duration">' + this.escapeHtml(durationLabel) + '</span>' +
+            const bubbleWidth = this.getVoiceBubbleWidth(voiceMessage.durationMs);
+            const messageId = Math.max(0, Number(item && item.id || 0) || 0);
+            const conversationId = Math.max(0, Number(item && item.conversation_id || 0) || 0);
+            return '<div class="ak-im-voice-bubble-surface" style="--ak-im-voice-bubble-width:' + String(bubbleWidth) + 'px;--ak-im-voice-progress:0" data-im-voice-message-id="' + String(messageId) + '" data-im-voice-conversation-id="' + String(conversationId) + '" data-im-voice-duration-ms="' + String(voiceMessage.durationMs) + '" data-im-voice-src="' + this.escapeAttribute(voiceMessage.fileUrl) + '">' +
+                '<div class="ak-im-voice-bubble-head">' +
+                    '<div class="ak-im-voice-bubble-indicator">' +
+                        '<svg class="ak-im-voice-bubble-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6.6 10.2c.62.5.93 1.1.93 1.8s-.31 1.3-.93 1.8"></path><path d="M9.7 8.3c1.04.82 1.56 1.98 1.56 3.7s-.52 2.88-1.56 3.7"></path><path d="M13 6.7c1.5 1.2 2.25 2.97 2.25 5.3s-.75 4.1-2.25 5.3"></path></svg>' +
+                        '<span class="ak-im-voice-duration">' + this.escapeHtml(durationLabel) + '</span>' +
+                    '</div>' +
                 '</div>' +
-            '</div>' +
-            '<audio class="ak-im-voice-audio" controls preload="none" src="' + this.escapeAttribute(voiceMessage.fileUrl) + '"></audio>';
+                '<div class="ak-im-voice-track">' +
+                    '<div class="ak-im-voice-track-progress"></div>' +
+                    '<div class="ak-im-voice-track-scan"></div>' +
+                    '<div class="ak-im-voice-wave">' + this.buildVoiceWaveBarsMarkup() + '</div>' +
+                '</div>' +
+            '</div>';
         }
     };
 

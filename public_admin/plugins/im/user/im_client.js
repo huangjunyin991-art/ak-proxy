@@ -675,6 +675,12 @@
             buildAvatarBoxMarkup: buildAvatarBoxMarkup,
             buildMessageBubbleMarkup: buildMessageBubbleMarkup,
             getMessageBubbleClassName: getMessageBubbleClassName,
+            syncVoiceMessageBubbles: function() {
+                const voiceHoldModule = getVoiceHoldModule();
+                if (voiceHoldModule && typeof voiceHoldModule.syncMessageBubblePlaybackState === 'function') {
+                    voiceHoldModule.syncMessageBubblePlaybackState();
+                }
+            },
             openActionSheet: openActionSheet,
             closeActionSheet: closeActionSheet,
             openReadProgressPanel: openReadProgressPanel,
@@ -728,6 +734,7 @@
             get elements() {
                 return {
                     root: root,
+                    messageList: messageList,
                     composerHoldBtnEl: composerHoldBtnEl,
                     statusLine: statusLine,
                     voiceHoldOverlayEl: voiceHoldOverlayEl,
