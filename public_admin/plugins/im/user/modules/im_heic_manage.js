@@ -50,55 +50,6 @@
             return (baseName || ('image-' + Date.now())) + '.' + this.getOutputExtension(mimeType);
         },
 
-        createCanvas(width, height) {
-            const canvas = document.createElement('canvas');
-            canvas.width = Math.max(1, Number(width || 0) || 1);
-            canvas.height = Math.max(1, Number(height || 0) || 1);
-            return canvas;
-        },
-
-        canvasToBlob(canvas, mimeType, quality) {
-            return new Promise(function(resolve, reject) {
-                try {
-                    canvas.toBlob(function(blob) {
-                        if (!blob) {
-                            reject(new Error('HEIC 图片编码失败'));
-                            return;
-                        }
-                        resolve(blob);
-                    }, mimeType, quality);
-                } catch (error) {
-                    reject(error);
-                }
-            });
-        },
-
-        loadImageFile(file) {
-            const objectUrl = URL.createObjectURL(file);
-            return new Promise(function(resolve, reject) {
-                const image = new Image();
-                image.onload = function() {
-                    resolve({
-                        image: image,
-                        width: Math.max(1, Number(image.naturalWidth || image.width || 0) || 1),
-                        height: Math.max(1, Number(image.naturalHeight || image.height || 0) || 1),
-                        release: function() {
-                            try {
-                                URL.revokeObjectURL(objectUrl);
-                            } catch (e) {}
-                        }
-                    });
-                };
-                image.onerror = function() {
-                    try {
-                        URL.revokeObjectURL(objectUrl);
-                    } catch (e) {}
-                    reject(new Error('HEIC 图片解析失败'));
-                };
-                image.src = objectUrl;
-            });
-        },
-
         buildPreparedFile(file, blob, mimeType) {
             const normalizedMimeType = this.normalizeMimeType(mimeType) || this.normalizeMimeType(blob && blob.type) || 'image/webp';
             const nextFileName = this.buildOutputFileName(file && file.name, normalizedMimeType);
@@ -110,25 +61,6 @@
                 targetMimeType: normalizedMimeType,
                 changed: true
             };
-        },
-
-        tryNativeConvert(file, options) {
-            const self = this;
-            const targetMimeType = this.normalizeMimeType(options && options.targetMimeType) === 'image/jpeg' ? 'image/jpeg' : 'image/webp';
-            const quality = this.normalizeQuality(options && options.quality);
-            return this.loadImageFile(file).then(function(sourceImage) {
-                const canvas = self.createCanvas(sourceImage.width, sourceImage.height);
-                const context = canvas.getContext('2d', { alpha: true, willReadFrequently: true });
-                if (!context) {
-                    sourceImage.release();
-                    throw new Error('HEIC 图片绘制失败');
-                }
-                context.drawImage(sourceImage.image, 0, 0, canvas.width, canvas.height);
-                sourceImage.release();
-                return self.canvasToBlob(canvas, targetMimeType, quality).then(function(blob) {
-                    return self.buildPreparedFile(file, blob, targetMimeType);
-                });
-            });
         },
 
         resolveConverter() {
@@ -228,9 +160,7 @@
                 targetMimeType: this.normalizeMimeType(options && options.targetMimeType) === 'image/jpeg' ? 'image/jpeg' : 'image/webp',
                 quality: this.normalizeQuality(options && options.quality)
             };
-            return this.tryNativeConvert(file, normalizedOptions).catch(function() {
-                return self.convertWithLibrary(file, normalizedOptions);
-            }).then(function(result) {
+            return this.convertWithLibrary(file, normalizedOptions).then(function(result) {
                 return {
                     file: result && result.file ? result.file : file,
                     targetMimeType: result && result.targetMimeType ? result.targetMimeType : normalizedOptions.targetMimeType,
