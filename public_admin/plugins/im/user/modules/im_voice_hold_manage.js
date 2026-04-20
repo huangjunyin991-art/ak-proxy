@@ -6,15 +6,6 @@
     const VOICE_STATUS_CLEAR_DELAY_MS = 1600;
     const VOICE_TIMER_INTERVAL_MS = 200;
     const VOICE_IDLE_METER_HEIGHTS = [10, 12, 14, 16, 18, 20, 22, 24, 24, 22, 20, 18, 16, 14, 12, 10];
-    const VOICE_CANCEL_ZONE_OUTER_RADIUS_X_RATIO = 0.78;
-    const VOICE_CANCEL_ZONE_OUTER_RADIUS_Y_RATIO = 1.02;
-    const VOICE_CANCEL_ZONE_OUTER_CENTER_X_RATIO = 0.5;
-    const VOICE_CANCEL_ZONE_OUTER_CENTER_Y_RATIO = 1.02;
-    const VOICE_CANCEL_ZONE_INNER_RADIUS_X_RATIO = 0.42;
-    const VOICE_CANCEL_ZONE_INNER_RADIUS_Y_RATIO = 0.34;
-    const VOICE_CANCEL_ZONE_INNER_CENTER_X_RATIO = 0.5;
-    const VOICE_CANCEL_ZONE_INNER_CENTER_Y_RATIO = 1.1;
-    const VOICE_CANCEL_ZONE_INNER_START_Y_RATIO = 0.42;
     const VOICE_BUBBLE_WIDTH_MIN_PX = 116;
     const VOICE_BUBBLE_WIDTH_MAX_PX = 228;
     const VOICE_BUBBLE_SEEK_MOVE_THRESHOLD_PX = 8;
@@ -856,24 +847,14 @@
             if (clientX < rect.left || clientX > rect.right || clientY < rect.top || clientY > rect.bottom) return false;
             const localX = clientX - rect.left;
             const localY = clientY - rect.top;
-            const outerRadiusX = rect.width * VOICE_CANCEL_ZONE_OUTER_RADIUS_X_RATIO;
-            const outerRadiusY = rect.height * VOICE_CANCEL_ZONE_OUTER_RADIUS_Y_RATIO;
-            const outerCenterX = rect.width * VOICE_CANCEL_ZONE_OUTER_CENTER_X_RATIO;
-            const outerCenterY = rect.height * VOICE_CANCEL_ZONE_OUTER_CENTER_Y_RATIO;
-            if (!(outerRadiusX > 0) || !(outerRadiusY > 0)) return true;
-            const outerNormalizedX = (localX - outerCenterX) / outerRadiusX;
-            const outerNormalizedY = (localY - outerCenterY) / outerRadiusY;
-            const insideOuterFan = outerNormalizedX * outerNormalizedX + outerNormalizedY * outerNormalizedY <= 1;
-            if (!insideOuterFan) return false;
-            if (localY <= rect.height * VOICE_CANCEL_ZONE_INNER_START_Y_RATIO) return true;
-            const innerRadiusX = rect.width * VOICE_CANCEL_ZONE_INNER_RADIUS_X_RATIO;
-            const innerRadiusY = rect.height * VOICE_CANCEL_ZONE_INNER_RADIUS_Y_RATIO;
-            const innerCenterX = rect.width * VOICE_CANCEL_ZONE_INNER_CENTER_X_RATIO;
-            const innerCenterY = rect.height * VOICE_CANCEL_ZONE_INNER_CENTER_Y_RATIO;
-            if (!(innerRadiusX > 0) || !(innerRadiusY > 0)) return true;
-            const innerNormalizedX = (localX - innerCenterX) / innerRadiusX;
-            const innerNormalizedY = (localY - innerCenterY) / innerRadiusY;
-            return innerNormalizedX * innerNormalizedX + innerNormalizedY * innerNormalizedY > 1;
+            const radiusX = rect.width / 2;
+            const radiusY = rect.height;
+            const centerX = rect.width / 2;
+            const centerY = rect.height;
+            if (!(radiusX > 0) || !(radiusY > 0)) return false;
+            const normalizedX = (localX - centerX) / radiusX;
+            const normalizedY = (localY - centerY) / radiusY;
+            return normalizedX * normalizedX + normalizedY * normalizedY <= 1;
         },
 
         stopStreamTracks() {

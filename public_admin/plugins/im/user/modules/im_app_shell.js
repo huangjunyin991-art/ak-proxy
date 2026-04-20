@@ -206,25 +206,22 @@
                 #ak-im-root.ak-im-voice-hold-sending .ak-im-hold-to-talk{background:#f3f4f6;color:#9ca3af}
                 #ak-im-root .ak-im-voice-record-overlay{pointer-events:none;opacity:0;transition:opacity .18s ease;position:absolute;inset:0;z-index:8;display:flex;flex-direction:column;justify-content:flex-end;background:rgba(0,0,0,0)}
                 #ak-im-root .ak-im-voice-record-overlay::before{content:"";position:absolute;inset:0;background:rgba(0,0,0,.36);opacity:0;transition:opacity .18s ease}
-                #ak-im-root .ak-im-voice-record-overlay-inner{position:relative;z-index:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;gap:34px;min-height:100%;padding:96px 18px calc(132px + env(safe-area-inset-bottom, 0px));box-sizing:border-box}
-                #ak-im-root .ak-im-voice-record-card{position:relative;min-width:228px;max-width:min(72vw,312px);padding:18px 22px 22px;border-radius:22px;background:linear-gradient(180deg,#9bf46d 0%,#8eef61 100%);box-shadow:0 18px 42px rgba(0,0,0,.18);display:flex;flex-direction:column;align-items:center;gap:12px;color:#1f2937;transform:translateY(10px) scale(.96);transition:transform .18s ease,background .18s ease,color .18s ease}
-                #ak-im-root .ak-im-voice-record-card::after{content:"";position:absolute;left:50%;bottom:-10px;width:20px;height:20px;background:inherit;transform:translateX(-50%) rotate(45deg);border-radius:4px;box-shadow:6px 6px 18px rgba(0,0,0,.08)}
-                #ak-im-root .ak-im-voice-record-meter{display:flex;align-items:flex-end;justify-content:center;gap:3px;height:34px}
+                #ak-im-root .ak-im-voice-record-overlay-inner{position:relative;z-index:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;gap:0;min-height:100%;padding:96px 18px calc(108px + env(safe-area-inset-bottom, 0px));box-sizing:border-box}
+                #ak-im-root .ak-im-voice-record-card{position:relative;width:min(84vw,336px);max-width:100%;min-height:188px;padding:28px 24px 78px;border-radius:999px 999px 0 0 / 100% 100% 0 0;background:linear-gradient(180deg,#9bf46d 0%,#83eb57 100%);box-shadow:0 18px 42px rgba(0,0,0,.18);display:flex;flex-direction:column;align-items:center;justify-content:flex-start;gap:14px;color:#1f2937;overflow:hidden;transform:translateY(10px) scale(.96);transition:transform .18s ease,background .18s ease,color .18s ease}
+                #ak-im-root .ak-im-voice-record-card::after{content:"";position:absolute;inset:0;background:radial-gradient(circle at 50% 8%,rgba(255,255,255,.28) 0%,rgba(255,255,255,.12) 24%,rgba(255,255,255,0) 58%);pointer-events:none}
+                #ak-im-root .ak-im-voice-record-meter{position:relative;z-index:1;display:flex;align-items:flex-end;justify-content:center;gap:4px;height:38px;margin-top:4px}
                 #ak-im-root .ak-im-voice-record-bar{width:4px;height:12px;border-radius:999px;background:rgba(17,24,39,.42);transform-origin:center bottom;transition:height .08s linear,background .18s ease,opacity .18s ease}
                 #ak-im-root .ak-im-voice-record-bar.is-active{background:rgba(17,24,39,.86)}
-                #ak-im-root .ak-im-voice-record-timer{font-size:16px;font-weight:700;line-height:1.2;letter-spacing:.04em}
-                #ak-im-root .ak-im-voice-cancel-zone{position:relative;width:min(78vw,320px);max-width:100%;min-height:126px;background:transparent;display:flex;align-items:flex-end;justify-content:center;padding:0 30px 32px;color:#475569;font-size:16px;font-weight:700;line-height:1.35;overflow:hidden}
-                #ak-im-root .ak-im-voice-cancel-zone::before{content:"";position:absolute;inset:0;border-radius:999px 999px 0 0 / 100% 100% 0 0;background:linear-gradient(180deg,rgba(243,244,246,.96) 0%,rgba(209,213,219,.88) 100%);backdrop-filter:blur(16px);box-shadow:0 18px 34px rgba(0,0,0,.14),inset 0 1px 0 rgba(255,255,255,.72)}
-                #ak-im-root .ak-im-voice-cancel-zone::after{content:"";position:absolute;left:50%;bottom:-30px;width:54%;height:82px;transform:translateX(-50%);border-radius:999px 999px 0 0 / 100% 100% 0 0;background:rgba(0,0,0,.36);box-shadow:0 -1px 0 rgba(255,255,255,.14)}
-                #ak-im-root .ak-im-voice-cancel-zone.is-active{color:#ffffff}
-                #ak-im-root .ak-im-voice-cancel-zone.is-active::before{background:linear-gradient(180deg,rgba(248,113,113,.98) 0%,rgba(239,68,68,.94) 100%);box-shadow:0 20px 36px rgba(239,68,68,.32),inset 0 1px 0 rgba(255,255,255,.18)}
-                #ak-im-root .ak-im-voice-cancel-label{position:relative;z-index:1;white-space:nowrap;transform:translateY(-6px)}
+                #ak-im-root .ak-im-voice-record-timer{position:relative;z-index:1;font-size:18px;font-weight:800;line-height:1.1;letter-spacing:.04em}
+                #ak-im-root .ak-im-voice-cancel-zone{position:absolute;left:50%;bottom:0;width:min(56vw,208px);height:84px;transform:translateX(-50%);border-radius:999px 999px 0 0 / 100% 100% 0 0;background:linear-gradient(180deg,rgba(243,244,246,.98) 0%,rgba(209,213,219,.92) 100%);display:flex;align-items:center;justify-content:center;padding:18px 18px 12px;color:#475569;font-size:15px;font-weight:700;line-height:1.35;box-shadow:0 -1px 0 rgba(255,255,255,.28),inset 0 1px 0 rgba(255,255,255,.48);transition:background .18s ease,color .18s ease,box-shadow .18s ease}
+                #ak-im-root .ak-im-voice-cancel-zone.is-active{background:linear-gradient(180deg,rgba(248,113,113,.98) 0%,rgba(239,68,68,.94) 100%);color:#ffffff;box-shadow:0 -1px 0 rgba(255,255,255,.1),inset 0 1px 0 rgba(255,255,255,.18),0 10px 22px rgba(239,68,68,.22)}
+                #ak-im-root .ak-im-voice-cancel-label{position:relative;z-index:1;white-space:nowrap;transform:translateY(4px)}
                 #ak-im-root.ak-im-voice-hold-recording .ak-im-voice-record-overlay,#ak-im-root.ak-im-voice-hold-cancel-ready .ak-im-voice-record-overlay{opacity:1}
                 #ak-im-root.ak-im-voice-hold-recording .ak-im-voice-record-overlay::before,#ak-im-root.ak-im-voice-hold-cancel-ready .ak-im-voice-record-overlay::before{opacity:1}
                 #ak-im-root.ak-im-voice-hold-recording .ak-im-voice-record-card,#ak-im-root.ak-im-voice-hold-cancel-ready .ak-im-voice-record-card{transform:translateY(0) scale(1)}
-                #ak-im-root.ak-im-voice-hold-cancel-ready .ak-im-voice-record-card{background:linear-gradient(180deg,#fee2e2 0%,#fecaca 100%);color:#991b1b}
-                #ak-im-root.ak-im-voice-hold-cancel-ready .ak-im-voice-record-bar{background:rgba(153,27,27,.55)}
-                #ak-im-root.ak-im-voice-hold-cancel-ready .ak-im-voice-record-bar.is-active{background:rgba(153,27,27,.92)}
+                #ak-im-root.ak-im-voice-hold-cancel-ready .ak-im-voice-record-card{background:linear-gradient(180deg,#93ea65 0%,#79df4f 100%);color:#1f2937}
+                #ak-im-root.ak-im-voice-hold-cancel-ready .ak-im-voice-record-bar{background:rgba(17,24,39,.38)}
+                #ak-im-root.ak-im-voice-hold-cancel-ready .ak-im-voice-record-bar.is-active{background:rgba(17,24,39,.84)}
                 #ak-im-root .ak-im-send{display:none;height:36px;border:none;border-radius:18px;padding:0 18px;background:#07c160;color:#ffffff;font-size:14px;font-weight:600;cursor:pointer;transition:opacity .18s ease,transform .18s ease}
                 #ak-im-root.ak-im-composer-has-text .ak-im-send{display:inline-flex;align-items:center;justify-content:center}
                 #ak-im-root.ak-im-composer-has-text .ak-im-composer-plus{display:none}
@@ -477,8 +474,8 @@
                             <div class="ak-im-voice-record-card">
                                 <div class="ak-im-voice-record-meter"><span class="ak-im-voice-record-bar" data-im-voice-meter-bar="0"></span><span class="ak-im-voice-record-bar" data-im-voice-meter-bar="1"></span><span class="ak-im-voice-record-bar" data-im-voice-meter-bar="2"></span><span class="ak-im-voice-record-bar" data-im-voice-meter-bar="3"></span><span class="ak-im-voice-record-bar" data-im-voice-meter-bar="4"></span><span class="ak-im-voice-record-bar" data-im-voice-meter-bar="5"></span><span class="ak-im-voice-record-bar" data-im-voice-meter-bar="6"></span><span class="ak-im-voice-record-bar" data-im-voice-meter-bar="7"></span><span class="ak-im-voice-record-bar" data-im-voice-meter-bar="8"></span><span class="ak-im-voice-record-bar" data-im-voice-meter-bar="9"></span><span class="ak-im-voice-record-bar" data-im-voice-meter-bar="10"></span><span class="ak-im-voice-record-bar" data-im-voice-meter-bar="11"></span><span class="ak-im-voice-record-bar" data-im-voice-meter-bar="12"></span><span class="ak-im-voice-record-bar" data-im-voice-meter-bar="13"></span><span class="ak-im-voice-record-bar" data-im-voice-meter-bar="14"></span><span class="ak-im-voice-record-bar" data-im-voice-meter-bar="15"></span></div>
                                 <div class="ak-im-voice-record-timer">00:00</div>
+                                <div class="ak-im-voice-cancel-zone"><span class="ak-im-voice-cancel-label">上滑到此，取消发送</span></div>
                             </div>
-                            <div class="ak-im-voice-cancel-zone"><span class="ak-im-voice-cancel-label">上滑到此，取消发送</span></div>
                         </div>
                     </div>
                 </div>
