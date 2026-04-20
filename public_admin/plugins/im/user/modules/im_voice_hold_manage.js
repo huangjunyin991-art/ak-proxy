@@ -9,7 +9,6 @@
     const VOICE_BUBBLE_WIDTH_MIN_PX = 116;
     const VOICE_BUBBLE_WIDTH_MAX_PX = 228;
     const VOICE_BUBBLE_SEEK_MOVE_THRESHOLD_PX = 8;
-    const VOICE_BUBBLE_WAVE_HEIGHTS = [8, 11, 15, 19, 16, 12, 9, 13, 18, 20, 17, 12, 10, 14, 18, 16, 12, 9];
     const PREFERRED_VOICE_MIME_TYPES = [
         'audio/webm;codecs=opus',
         'audio/webm',
@@ -799,14 +798,6 @@
                 surfaceEl.classList.toggle('is-dragging', isActive && dragging);
                 surfaceEl.classList.toggle('is-complete', isActive && progress >= 0.999);
                 surfaceEl.style.setProperty('--ak-im-voice-progress', String(progress));
-                const barEls = surfaceEl.querySelectorAll('.ak-im-voice-wave-bar');
-                const barCount = barEls.length || 1;
-                Array.prototype.forEach.call(barEls, function(barEl, index) {
-                    const threshold = (index + 1) / barCount;
-                    const currentThreshold = index / barCount;
-                    barEl.classList.toggle('is-played', isActive && progress >= threshold);
-                    barEl.classList.toggle('is-current', isActive && progress >= currentThreshold && progress < threshold);
-                });
             });
             if (onlyActive) return;
             const staleSurfaceEls = Array.prototype.slice.call(messageListEl.querySelectorAll('.ak-im-voice-bubble-surface'));
@@ -815,10 +806,6 @@
                 if (messageId === activeMessageId) return;
                 surfaceEl.classList.remove('is-active', 'is-playing', 'is-dragging', 'is-complete');
                 surfaceEl.style.setProperty('--ak-im-voice-progress', '0');
-                const barEls = surfaceEl.querySelectorAll('.ak-im-voice-wave-bar');
-                Array.prototype.forEach.call(barEls, function(barEl) {
-                    barEl.classList.remove('is-played', 'is-current');
-                });
             });
         },
 
@@ -1142,12 +1129,6 @@
             return Math.round(VOICE_BUBBLE_WIDTH_MIN_PX + (VOICE_BUBBLE_WIDTH_MAX_PX - VOICE_BUBBLE_WIDTH_MIN_PX) * Math.pow(ratio, 0.82));
         },
 
-        buildVoiceWaveBarsMarkup() {
-            return VOICE_BUBBLE_WAVE_HEIGHTS.map(function(height, index) {
-                return '<span class="ak-im-voice-wave-bar" style="height:' + String(Math.max(8, Number(height || 0) || 8)) + 'px" data-im-voice-wave-index="' + String(index) + '"></span>';
-            }).join('');
-        },
-
         getMessageBubbleClassName(item) {
             return this.resolveVoiceMessage(item) ? 'ak-im-bubble-voice' : '';
         },
@@ -1160,16 +1141,13 @@
             const messageId = Math.max(0, Number(item && item.id || 0) || 0);
             const conversationId = Math.max(0, Number(item && item.conversation_id || 0) || 0);
             return '<div class="ak-im-voice-bubble-surface" style="--ak-im-voice-bubble-width:' + String(bubbleWidth) + 'px;--ak-im-voice-progress:0" data-im-voice-message-id="' + String(messageId) + '" data-im-voice-conversation-id="' + String(conversationId) + '" data-im-voice-duration-ms="' + String(voiceMessage.durationMs) + '" data-im-voice-src="' + this.escapeAttribute(voiceMessage.fileUrl) + '">' +
-                '<div class="ak-im-voice-bubble-head">' +
-                    '<div class="ak-im-voice-bubble-indicator">' +
-                        '<svg class="ak-im-voice-bubble-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6.6 10.2c.62.5.93 1.1.93 1.8s-.31 1.3-.93 1.8"></path><path d="M9.7 8.3c1.04.82 1.56 1.98 1.56 3.7s-.52 2.88-1.56 3.7"></path><path d="M13 6.7c1.5 1.2 2.25 2.97 2.25 5.3s-.75 4.1-2.25 5.3"></path></svg>' +
-                        '<span class="ak-im-voice-duration">' + this.escapeHtml(durationLabel) + '</span>' +
-                    '</div>' +
-                '</div>' +
                 '<div class="ak-im-voice-track">' +
                     '<div class="ak-im-voice-track-progress"></div>' +
                     '<div class="ak-im-voice-track-scan"></div>' +
-                    '<div class="ak-im-voice-wave">' + this.buildVoiceWaveBarsMarkup() + '</div>' +
+                '</div>' +
+                '<div class="ak-im-voice-bubble-indicator">' +
+                    '<svg class="ak-im-voice-bubble-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6.6 10.2c.62.5.93 1.1.93 1.8s-.31 1.3-.93 1.8"></path><path d="M9.7 8.3c1.04.82 1.56 1.98 1.56 3.7s-.52 2.88-1.56 3.7"></path><path d="M13 6.7c1.5 1.2 2.25 2.97 2.25 5.3s-.75 4.1-2.25 5.3"></path></svg>' +
+                    '<span class="ak-im-voice-duration">' + this.escapeHtml(durationLabel) + '</span>' +
                 '</div>' +
             '</div>';
         }
