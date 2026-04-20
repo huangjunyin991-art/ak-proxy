@@ -5520,6 +5520,223 @@ async def admin_im_file_assets_config_update(request: Request):
 
 
 
+@app.get("/admin/api/im/image_upload/config")
+async def admin_im_image_upload_config(request: Request):
+
+    token, _, _ = await _resolve_admin_identity(request)
+
+    if not token:
+
+        return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
+
+    status_code, body = await _get_im_internal_json("/im/internal/image_upload/config")
+
+    if status_code >= 400:
+
+        if isinstance(body, dict):
+
+            return JSONResponse(status_code=status_code, content=body)
+
+        return JSONResponse(status_code=status_code, content={"error": True, "message": "IM 服务调用失败"})
+
+    payload = {
+        "enabled": True,
+        "compress_above_kb": 512,
+        "max_long_edge_px": 1920,
+        "output_format": "jpeg",
+        "quality": 82,
+        "target_size_kb": 1024,
+        "keep_png_with_alpha": True,
+        "skip_animated_gif": True,
+    }
+
+    if isinstance(body, dict):
+
+        payload["enabled"] = bool(body.get('enabled', payload["enabled"]))
+        payload["keep_png_with_alpha"] = bool(body.get('keep_png_with_alpha', payload["keep_png_with_alpha"]))
+        payload["skip_animated_gif"] = bool(body.get('skip_animated_gif', payload["skip_animated_gif"]))
+        try:
+
+            payload["compress_above_kb"] = int(body.get('compress_above_kb') or payload["compress_above_kb"])
+
+        except Exception:
+
+            pass
+        try:
+
+            payload["max_long_edge_px"] = int(body.get('max_long_edge_px') or payload["max_long_edge_px"])
+
+        except Exception:
+
+            pass
+        payload["output_format"] = str(body.get('output_format') or payload["output_format"]).strip().lower() or payload["output_format"]
+        try:
+
+            payload["quality"] = int(body.get('quality') or payload["quality"])
+
+        except Exception:
+
+            pass
+        try:
+
+            payload["target_size_kb"] = int(body.get('target_size_kb') or payload["target_size_kb"])
+
+        except Exception:
+
+            pass
+
+    return JSONResponse(content={"success": True, **payload})
+
+
+
+@app.post("/admin/api/im/image_upload/config")
+async def admin_im_image_upload_config_update(request: Request):
+
+    token, role, _ = await _resolve_admin_identity(request)
+
+    if not token:
+
+        return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
+
+    if role != ROLE_SUPER_ADMIN:
+
+        return JSONResponse(status_code=403, content={"error": True, "message": "仅系统总管理员可修改图片压缩配置"})
+
+    try:
+
+        data = await request.json()
+
+    except Exception:
+
+        return JSONResponse(status_code=400, content={"error": True, "message": "请求体无效"})
+
+    try:
+
+        compress_above_kb = int(data.get('compress_above_kb') or 0)
+
+    except Exception:
+
+        compress_above_kb = -1
+
+    try:
+
+        max_long_edge_px = int(data.get('max_long_edge_px') or 0)
+
+    except Exception:
+
+        max_long_edge_px = 0
+
+    output_format = str(data.get('output_format') or '').strip().lower()
+
+    try:
+
+        quality = int(data.get('quality') or 0)
+
+    except Exception:
+
+        quality = 0
+
+    try:
+
+        target_size_kb = int(data.get('target_size_kb') or 0)
+
+    except Exception:
+
+        target_size_kb = 0
+
+    if compress_above_kb < 0:
+
+        return JSONResponse(status_code=400, content={"error": True, "message": "压缩触发阈值不能小于 0"})
+
+    if max_long_edge_px <= 0:
+
+        return JSONResponse(status_code=400, content={"error": True, "message": "最大长边必须大于 0"})
+
+    if output_format not in {'keep', 'jpeg', 'webp'}:
+
+        return JSONResponse(status_code=400, content={"error": True, "message": "输出格式无效"})
+
+    if quality < 40 or quality > 95:
+
+        return JSONResponse(status_code=400, content={"error": True, "message": "压缩质量必须在 40 到 95 之间"})
+
+    if target_size_kb < 64:
+
+        return JSONResponse(status_code=400, content={"error": True, "message": "目标体积不能小于 64KB"})
+
+    status_code, body = await _post_im_internal_json("/im/internal/image_upload/config", {
+        "enabled": bool(data.get('enabled', True)),
+        "compress_above_kb": compress_above_kb,
+        "max_long_edge_px": max_long_edge_px,
+        "output_format": output_format,
+        "quality": quality,
+        "target_size_kb": target_size_kb,
+        "keep_png_with_alpha": bool(data.get('keep_png_with_alpha', True)),
+        "skip_animated_gif": bool(data.get('skip_animated_gif', True)),
+    })
+
+    if status_code >= 400:
+
+        if isinstance(body, dict):
+
+            return JSONResponse(status_code=status_code, content=body)
+
+        return JSONResponse(status_code=status_code, content={"error": True, "message": "IM 服务调用失败"})
+
+    payload = {
+        "enabled": True,
+        "compress_above_kb": compress_above_kb,
+        "max_long_edge_px": max_long_edge_px,
+        "output_format": output_format,
+        "quality": quality,
+        "target_size_kb": target_size_kb,
+        "keep_png_with_alpha": bool(data.get('keep_png_with_alpha', True)),
+        "skip_animated_gif": bool(data.get('skip_animated_gif', True)),
+    }
+
+    if isinstance(body, dict):
+
+        payload["enabled"] = bool(body.get('enabled', payload["enabled"]))
+        payload["keep_png_with_alpha"] = bool(body.get('keep_png_with_alpha', payload["keep_png_with_alpha"]))
+        payload["skip_animated_gif"] = bool(body.get('skip_animated_gif', payload["skip_animated_gif"]))
+        try:
+
+            payload["compress_above_kb"] = int(body.get('compress_above_kb') or payload["compress_above_kb"])
+
+        except Exception:
+
+            pass
+        try:
+
+            payload["max_long_edge_px"] = int(body.get('max_long_edge_px') or payload["max_long_edge_px"])
+
+        except Exception:
+
+            pass
+        payload["output_format"] = str(body.get('output_format') or payload["output_format"]).strip().lower() or payload["output_format"]
+        try:
+
+            payload["quality"] = int(body.get('quality') or payload["quality"])
+
+        except Exception:
+
+            pass
+        try:
+
+            payload["target_size_kb"] = int(body.get('target_size_kb') or payload["target_size_kb"])
+
+        except Exception:
+
+            pass
+
+    return JSONResponse(content={
+        "success": True,
+        "message": "图片上传压缩配置已保存",
+        **payload,
+    })
+
+
+
 @app.get("/admin/api/credits/config")
 
 async def admin_credits_config():

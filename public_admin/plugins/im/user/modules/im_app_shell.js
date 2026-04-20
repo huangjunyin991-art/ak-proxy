@@ -147,7 +147,13 @@
                 #ak-im-root .ak-im-bubble.ak-im-bubble-image{padding:4px;background:#ffffff;box-shadow:0 2px 8px rgba(15,23,42,.06);border-radius:16px;overflow:hidden;white-space:normal}
                 #ak-im-root .ak-im-message-row.ak-self .ak-im-bubble.ak-im-bubble-image{background:#d9f7c7}
                 #ak-im-root .ak-im-image-bubble-link{display:block;line-height:0;text-decoration:none}
+                #ak-im-root .ak-im-image-bubble-link.is-disabled{cursor:default}
+                #ak-im-root .ak-im-image-bubble-surface{position:relative;display:block;overflow:hidden;border-radius:12px}
                 #ak-im-root .ak-im-image-bubble-image{display:block;width:min(220px,56vw);max-width:100%;height:auto;max-height:280px;border-radius:12px;background:#f8fafc;object-fit:cover}
+                #ak-im-root .ak-im-image-bubble-overlay{position:absolute;left:0;right:0;bottom:0;display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 12px 9px;background:linear-gradient(180deg,rgba(15,23,42,0) 0%,rgba(15,23,42,.36) 28%,rgba(15,23,42,.68) 100%);color:#ffffff;font-size:12px;line-height:1.35;box-sizing:border-box}
+                #ak-im-root .ak-im-image-bubble-overlay.is-failed{background:linear-gradient(180deg,rgba(127,29,29,0) 0%,rgba(127,29,29,.34) 28%,rgba(127,29,29,.8) 100%)}
+                #ak-im-root .ak-im-image-bubble-status{display:inline-flex;align-items:center;min-width:0;font-weight:600;word-break:break-word;line-height:1.35}
+                #ak-im-root .ak-im-image-bubble-progress{display:inline-flex;align-items:center;justify-content:flex-end;min-width:44px;font-weight:700;white-space:nowrap;line-height:1.2}
                 #ak-im-root .ak-im-bubble.ak-im-bubble-file{padding:0;display:block;white-space:normal;overflow:hidden;border-radius:18px;min-width:0}
                 #ak-im-root .ak-im-file-bubble-link,#ak-im-root .ak-im-file-bubble-expired{display:flex;align-items:center;gap:12px;min-width:min(220px,60vw);padding:12px 14px;box-sizing:border-box;color:inherit;text-decoration:none}
                 #ak-im-root .ak-im-file-bubble-expired{opacity:.86}

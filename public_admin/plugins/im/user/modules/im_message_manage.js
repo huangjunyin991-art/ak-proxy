@@ -91,6 +91,7 @@
         canRecallMessage(item) {
             const state = this.getState();
             if (!item || typeof item !== 'object' || !state) return false;
+            if (Number(item.id || 0) <= 0 || this.isLocalTempMessage(item)) return false;
             if (String(item.status || '').toLowerCase() === 'recalled') return false;
             if (String(item.sender_username || '') !== String(state.username || '')) return false;
             try {
@@ -100,6 +101,88 @@
             } catch (e) {
                 return false;
             }
+        },
+
+        isLocalTempMessage(item) {
+            if (!item || typeof item !== 'object') return false;
+            if (String(item.__akTempId || '').trim()) return true;
+            return Number(item.id || 0) <= 0 && !!String(item.client_temp_id || '').trim();
+        },
+
+        getLocalTempId(item) {
+            if (!item || typeof item !== 'object') return '';
+            return String(item.__akTempId || item.client_temp_id || '').trim();
+        },
+
+        getLocalMessageStatus(item) {
+            return String(item && item.__akLocalStatus || '').trim().toLowerCase();
+        },
+
+        findLocalMessageIndexByTempId(tempId, conversationId) {
+            const state = this.getState();
+            const normalizedTempId = String(tempId || '').trim();
+            const targetConversationId = Number(conversationId || 0);
+            if (!state || !normalizedTempId || !targetConversationId) return -1;
+            let matchedIndex = -1;
+            (Array.isArray(state.activeMessages) ? state.activeMessages : []).forEach(function(current, index) {
+                if (matchedIndex >= 0 || !current) return;
+                if (Number(current.conversation_id || 0) !== targetConversationId) return;
+                if (String(current.__akTempId || current.client_temp_id || '').trim() !== normalizedTempId) return;
+                matchedIndex = index;
+            });
+            return matchedIndex;
+        },
+
+        getLocalMessageMetaText(item, fallbackText) {
+            const localStatus = this.getLocalMessageStatus(item);
+            if (localStatus === 'preparing') return '图片处理中...';
+            if (localStatus === 'uploading') {
+                const progress = Math.max(0, Math.min(100, Number(item && item.__akUploadProgress || 0) || 0));
+                return progress > 0 ? ('上传中 ' + progress + '%') : '上传中...';
+            }
+            if (localStatus === 'failed') return '发送失败';
+            return String(fallbackText || '').trim();
+        },
+
+        buildImageMatchKey(item) {
+            if (!item || typeof item !== 'object') return '';
+            if (String(item.message_type || '').trim().toLowerCase() !== 'image') return '';
+            const rawContent = String(item.content || '').trim();
+            if (!rawContent) return '';
+            try {
+                const parsed = JSON.parse(rawContent);
+                const senderUsername = String(item.sender_username || '').trim().toLowerCase();
+                const fileName = String(parsed && parsed.file_name || '').trim().toLowerCase();
+                const fileSize = Math.max(0, Number(parsed && parsed.file_size || 0) || 0);
+                const source = String(parsed && parsed.source || '').trim().toLowerCase();
+                const parts = [senderUsername, fileName, String(fileSize), source];
+                return parts.join('|');
+            } catch (e) {
+                return '';
+            }
+        },
+
+        findPendingLocalMessageIndex(item) {
+            const state = this.getState();
+            if (!state || !item || typeof item !== 'object') return -1;
+            const targetConversationId = Number(item.conversation_id || 0);
+            if (!targetConversationId) return -1;
+            const matchKey = this.buildImageMatchKey(item);
+            if (!matchKey) return -1;
+            const targetSentAt = new Date(item.sent_at).getTime();
+            const self = this;
+            let matchedIndex = -1;
+            (Array.isArray(state.activeMessages) ? state.activeMessages : []).forEach(function(current, index) {
+                if (matchedIndex >= 0 || !self.isLocalTempMessage(current)) return;
+                const localStatus = self.getLocalMessageStatus(current);
+                if (localStatus !== 'preparing' && localStatus !== 'uploading') return;
+                if (Number(current.conversation_id || 0) !== targetConversationId) return;
+                if (self.buildImageMatchKey(current) !== matchKey) return;
+                const currentSentAt = new Date(current.sent_at).getTime();
+                if (!isNaN(targetSentAt) && !isNaN(currentSentAt) && Math.abs(targetSentAt - currentSentAt) > (2 * 60 * 1000)) return;
+                matchedIndex = index;
+            });
+            return matchedIndex;
         },
 
         getMessageReadProgress(item) {
@@ -228,7 +311,8 @@
                 const summary = self.getMessageReadProgress(item);
                 const senderDisplayName = String(item && (item.sender_display_name || item.sender_username) || '').trim();
                 const displayName = isSelf ? (state.displayName || senderDisplayName || state.username || '我') : (isActiveGroupSession ? (senderDisplayName || item.sender_username || '群成员') : (activeSession ? activeSessionDisplayName : (senderDisplayName || item.sender_username || '对方')));
-                const metaText = summary && Number(summary.total_count || 0) > 0 ? ('已读 ' + Number(summary.read_count || 0) + '/' + Number(summary.total_count || 0)) : ((isSelf && item.read) ? '对方已读' : '');
+                const defaultMetaText = summary && Number(summary.total_count || 0) > 0 ? ('已读 ' + Number(summary.read_count || 0) + '/' + Number(summary.total_count || 0)) : ((isSelf && item.read) ? '对方已读' : '');
+                const metaText = self.getLocalMessageMetaText(item, defaultMetaText);
                 const senderText = !isSelf && isActiveGroupSession ? String(senderDisplayName || item.sender_username || '').trim() : '';
                 const progressMarkup = self.buildReadProgressButtonMarkup(item, activeSession);
                 const avatarText = displayName || item.sender_username || '成员';
@@ -459,10 +543,43 @@
             if (!state || !item || !item.id) return false;
             const targetConversationId = Number(item.conversation_id || 0);
             if (!targetConversationId || targetConversationId !== Number(state.activeConversationId || 0)) return false;
+            const nextMessages = Array.isArray(state.activeMessages) ? state.activeMessages.slice() : [];
+            for (let index = 0; index < nextMessages.length; index += 1) {
+                const current = nextMessages[index];
+                if (current && Number(current.id || 0) === Number(item.id || 0)) {
+                    nextMessages[index] = item;
+                    state.activeMessages = nextMessages;
+                    return true;
+                }
+            }
+            const localTempIndex = this.findLocalMessageIndexByTempId(item.client_temp_id, targetConversationId);
+            if (localTempIndex >= 0) {
+                nextMessages[localTempIndex] = item;
+                state.activeMessages = nextMessages;
+                return true;
+            }
+            const pendingLocalIndex = this.findPendingLocalMessageIndex(item);
+            if (pendingLocalIndex >= 0) {
+                nextMessages[pendingLocalIndex] = item;
+                state.activeMessages = nextMessages;
+                return true;
+            }
+            nextMessages.push(item);
+            state.activeMessages = nextMessages;
+            return true;
+        },
+
+        insertLocalMessage(item) {
+            const state = this.getState();
+            if (!state || !item || !this.isLocalTempMessage(item)) return false;
+            const targetConversationId = Number(item.conversation_id || 0);
+            if (!targetConversationId || targetConversationId !== Number(state.activeConversationId || 0)) return false;
+            const tempId = this.getLocalTempId(item);
+            if (!tempId) return false;
             let replaced = false;
             const nextMessages = [];
             (Array.isArray(state.activeMessages) ? state.activeMessages : []).forEach(function(current) {
-                if (current && Number(current.id || 0) === Number(item.id || 0)) {
+                if (current && String(current.__akTempId || current.client_temp_id || '').trim() === tempId) {
                     nextMessages.push(item);
                     replaced = true;
                     return;
@@ -472,6 +589,44 @@
             if (!replaced) nextMessages.push(item);
             state.activeMessages = nextMessages;
             return true;
+        },
+
+        updateLocalMessage(tempId, patch) {
+            const state = this.getState();
+            const normalizedTempId = String(tempId || '').trim();
+            if (!state || !normalizedTempId) return false;
+            let changed = false;
+            state.activeMessages = (Array.isArray(state.activeMessages) ? state.activeMessages : []).map(function(current) {
+                if (!current || String(current.__akTempId || current.client_temp_id || '').trim() !== normalizedTempId) return current;
+                changed = true;
+                return Object.assign({}, current, patch || {});
+            });
+            return changed;
+        },
+
+        replaceLocalMessage(tempId, item) {
+            const state = this.getState();
+            const normalizedTempId = String(tempId || '').trim();
+            if (!state || !normalizedTempId || !item || Number(item.id || 0) <= 0) return false;
+            let replaced = false;
+            state.activeMessages = (Array.isArray(state.activeMessages) ? state.activeMessages : []).map(function(current) {
+                if (!current || String(current.__akTempId || current.client_temp_id || '').trim() !== normalizedTempId) return current;
+                replaced = true;
+                return item;
+            });
+            if (!replaced) return this.upsertActiveMessage(item);
+            return true;
+        },
+
+        removeLocalMessage(tempId) {
+            const state = this.getState();
+            const normalizedTempId = String(tempId || '').trim();
+            if (!state || !normalizedTempId) return false;
+            const beforeLength = Array.isArray(state.activeMessages) ? state.activeMessages.length : 0;
+            state.activeMessages = (Array.isArray(state.activeMessages) ? state.activeMessages : []).filter(function(current) {
+                return !current || String(current.__akTempId || current.client_temp_id || '').trim() !== normalizedTempId;
+            });
+            return state.activeMessages.length !== beforeLength;
         },
 
         clearSessionUnread(conversationId) {

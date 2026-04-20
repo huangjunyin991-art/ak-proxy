@@ -2895,6 +2895,59 @@
                             <div style="font-size: 12px; color: var(--text-secondary); line-height: 1.6; max-width: 420px;">文件消息将按该天数独立保留，超过保存期或云端已清理时，用户侧显示“文件已失效”。</div>
                         </div>
                     </div>
+                    <div id="imImageUploadConfigSection" style="background: linear-gradient(135deg, rgba(59, 130, 246, 0.10), rgba(14, 165, 233, 0.10)); border: 1px solid rgba(59, 130, 246, 0.18); border-radius: 12px; padding: 14px; margin-bottom: 14px;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 10px;">
+                            <div>
+                                <div style="font-size: 14px; color: #60a5fa; font-weight: 700;">图片上传压缩</div>
+                                <div id="imImageUploadConfigSummary" style="font-size: 12px; color: var(--text-secondary); margin-top: 4px;">进入本页后自动加载图片上传压缩配置</div>
+                            </div>
+                            <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                                <button class="btn" onclick="loadImImageUploadConfig()" style="padding: 6px 12px; font-size: 12px;">刷新</button>
+                                <button class="btn btn-primary" id="imImageUploadConfigSaveBtn" onclick="saveImImageUploadConfig()" style="padding: 6px 12px; font-size: 12px; display: none;">保存</button>
+                            </div>
+                        </div>
+                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px 12px; align-items: end;">
+                            <label style="display:flex; align-items:center; gap:8px; min-height:38px; padding: 0 2px;">
+                                <input id="imImageUploadEnabled" type="checkbox">
+                                <span style="font-size:12px; color:var(--text-primary);">开启图片压缩</span>
+                            </label>
+                            <div>
+                                <label style="display:block; font-size:11px; color:var(--text-secondary); margin-bottom:4px;">触发压缩阈值 KB</label>
+                                <input id="imImageUploadCompressAboveKb" type="number" min="0" placeholder="512" style="padding: 8px 10px; background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 6px; color: var(--text-primary); font-size: 13px; width: 100%; box-sizing: border-box;">
+                            </div>
+                            <div>
+                                <label style="display:block; font-size:11px; color:var(--text-secondary); margin-bottom:4px;">最大长边 px</label>
+                                <input id="imImageUploadMaxLongEdgePx" type="number" min="320" placeholder="1920" style="padding: 8px 10px; background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 6px; color: var(--text-primary); font-size: 13px; width: 100%; box-sizing: border-box;">
+                            </div>
+                            <div>
+                                <label style="display:block; font-size:11px; color:var(--text-secondary); margin-bottom:4px;">输出格式</label>
+                                <select id="imImageUploadOutputFormat" style="padding: 8px 10px; background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 6px; color: var(--text-primary); font-size: 13px; width: 100%; box-sizing: border-box;">
+                                    <option value="jpeg">JPEG</option>
+                                    <option value="webp">WebP</option>
+                                    <option value="keep">保持原格式</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label style="display:block; font-size:11px; color:var(--text-secondary); margin-bottom:4px;">压缩质量</label>
+                                <input id="imImageUploadQuality" type="number" min="40" max="95" placeholder="82" style="padding: 8px 10px; background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 6px; color: var(--text-primary); font-size: 13px; width: 100%; box-sizing: border-box;">
+                            </div>
+                            <div>
+                                <label style="display:block; font-size:11px; color:var(--text-secondary); margin-bottom:4px;">目标体积 KB</label>
+                                <input id="imImageUploadTargetSizeKb" type="number" min="64" placeholder="1024" style="padding: 8px 10px; background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 6px; color: var(--text-primary); font-size: 13px; width: 100%; box-sizing: border-box;">
+                            </div>
+                        </div>
+                        <div style="display:flex; gap:16px; flex-wrap:wrap; margin-top:12px;">
+                            <label style="display:flex; align-items:center; gap:8px;">
+                                <input id="imImageUploadKeepPngWithAlpha" type="checkbox">
+                                <span style="font-size:12px; color:var(--text-secondary);">透明 PNG 保持原格式</span>
+                            </label>
+                            <label style="display:flex; align-items:center; gap:8px;">
+                                <input id="imImageUploadSkipAnimatedGif" type="checkbox">
+                                <span style="font-size:12px; color:var(--text-secondary);">跳过 GIF 压缩</span>
+                            </label>
+                        </div>
+                        <div style="font-size: 12px; color: var(--text-secondary); line-height: 1.6; margin-top: 10px; max-width: 720px;">该配置会影响 IM 用户端拍照和相册发图时的前端压缩策略：超过阈值后按长边、格式、质量和目标体积进行压缩，并在保留透明 PNG 与 GIF 兼容性的前提下提升上传速度。</div>
+                    </div>
                     <div id="imContactsGroupList" style="display: flex; flex-direction: column; gap: 10px;">
                         <div style="text-align: center; color: var(--text-secondary); padding: 30px 0;">进入本页后自动加载群聊</div>
                     </div>
@@ -5665,6 +5718,7 @@
                     loadImContactsGroups(false);
                     loadImEmojiAssets();
                     loadImFileAssetConfig();
+                    loadImImageUploadConfig();
                 }
                 if (tab.dataset.panel === 'credits') loadCreditsPage();
                 if (tab.dataset.panel === 'license') {
@@ -7826,6 +7880,20 @@
         let imFileAssetConfigLoading = false;
         let imFileAssetConfigSaving = false;
         let imFileAssetConfigError = '';
+        let imImageUploadConfig = {
+            enabled: true,
+            compress_above_kb: 512,
+            max_long_edge_px: 1920,
+            output_format: 'jpeg',
+            quality: 82,
+            target_size_kb: 1024,
+            keep_png_with_alpha: true,
+            skip_animated_gif: true
+        };
+        let imImageUploadConfigLoaded = false;
+        let imImageUploadConfigLoading = false;
+        let imImageUploadConfigSaving = false;
+        let imImageUploadConfigError = '';
         let imContactsGroups = [];
         let imContactsSelectedConversationId = 0;
         let imContactsDetailItem = null;
@@ -8009,6 +8077,158 @@
             } finally {
                 imFileAssetConfigSaving = false;
                 renderImFileAssetConfigPanel();
+            }
+        }
+
+        function normalizeImImageUploadConfig(data) {
+            const outputFormat = String(data && data.output_format || 'jpeg').trim().toLowerCase();
+            return {
+                enabled: data ? data.enabled !== false : true,
+                compress_above_kb: Math.max(0, Number(data && data.compress_above_kb || 0) || 512),
+                max_long_edge_px: Math.max(320, Number(data && data.max_long_edge_px || 0) || 1920),
+                output_format: ['keep', 'jpeg', 'webp'].includes(outputFormat) ? outputFormat : 'jpeg',
+                quality: Math.min(95, Math.max(40, Number(data && data.quality || 0) || 82)),
+                target_size_kb: Math.max(64, Number(data && data.target_size_kb || 0) || 1024),
+                keep_png_with_alpha: data ? data.keep_png_with_alpha !== false : true,
+                skip_animated_gif: data ? data.skip_animated_gif !== false : true
+            };
+        }
+
+        function renderImImageUploadConfigPanel() {
+            const summaryEl = document.getElementById('imImageUploadConfigSummary');
+            const saveBtn = document.getElementById('imImageUploadConfigSaveBtn');
+            const enabledEl = document.getElementById('imImageUploadEnabled');
+            const compressAboveEl = document.getElementById('imImageUploadCompressAboveKb');
+            const maxLongEdgeEl = document.getElementById('imImageUploadMaxLongEdgePx');
+            const outputFormatEl = document.getElementById('imImageUploadOutputFormat');
+            const qualityEl = document.getElementById('imImageUploadQuality');
+            const targetSizeEl = document.getElementById('imImageUploadTargetSizeKb');
+            const keepPngEl = document.getElementById('imImageUploadKeepPngWithAlpha');
+            const skipGifEl = document.getElementById('imImageUploadSkipAnimatedGif');
+            if (!summaryEl || !enabledEl || !compressAboveEl || !maxLongEdgeEl || !outputFormatEl || !qualityEl || !targetSizeEl || !keepPngEl || !skipGifEl) return;
+            const canSave = isSuperAdmin();
+            const disabled = !!(imImageUploadConfigLoading || imImageUploadConfigSaving || !canSave);
+            if (saveBtn) {
+                saveBtn.style.display = canSave ? '' : 'none';
+                saveBtn.disabled = !!(imImageUploadConfigLoading || imImageUploadConfigSaving);
+                saveBtn.textContent = imImageUploadConfigSaving ? '保存中...' : '保存';
+            }
+            enabledEl.disabled = disabled;
+            compressAboveEl.disabled = disabled;
+            maxLongEdgeEl.disabled = disabled;
+            outputFormatEl.disabled = disabled;
+            qualityEl.disabled = disabled;
+            targetSizeEl.disabled = disabled;
+            keepPngEl.disabled = disabled;
+            skipGifEl.disabled = disabled;
+            if (imImageUploadConfigLoading) {
+                summaryEl.textContent = '正在读取图片上传压缩配置...';
+                return;
+            }
+            const config = normalizeImImageUploadConfig(imImageUploadConfig);
+            enabledEl.checked = !!config.enabled;
+            compressAboveEl.value = String(config.compress_above_kb);
+            maxLongEdgeEl.value = String(config.max_long_edge_px);
+            outputFormatEl.value = config.output_format;
+            qualityEl.value = String(config.quality);
+            targetSizeEl.value = String(config.target_size_kb);
+            keepPngEl.checked = !!config.keep_png_with_alpha;
+            skipGifEl.checked = !!config.skip_animated_gif;
+            if (imImageUploadConfigError) {
+                summaryEl.textContent = imImageUploadConfigError;
+                return;
+            }
+            const statusText = config.enabled ? '已开启' : '已关闭';
+            const formatText = config.output_format === 'keep' ? '保持原格式' : config.output_format.toUpperCase();
+            summaryEl.textContent = `当前${statusText}：超过 ${config.compress_above_kb}KB 时压缩，最长边 ${config.max_long_edge_px}px，${formatText} 质量 ${config.quality}，目标 ${config.target_size_kb}KB${canSave ? '' : '（仅总管理员可修改）'}`;
+        }
+
+        async function loadImImageUploadConfig() {
+            if (imImageUploadConfigLoading) return;
+            imImageUploadConfigLoading = true;
+            imImageUploadConfigError = '';
+            renderImImageUploadConfigPanel();
+            try {
+                const res = await fetch(`${API_BASE}/admin/api/im/image_upload/config`, {headers: getHeaders()});
+                const data = await res.json();
+                if (!res.ok || !data.success) {
+                    throw new Error(data.message || '加载图片上传压缩配置失败');
+                }
+                imImageUploadConfig = normalizeImImageUploadConfig(data);
+                imImageUploadConfigLoaded = true;
+                imImageUploadConfigError = '';
+            } catch (e) {
+                imImageUploadConfigLoaded = false;
+                imImageUploadConfigError = e.message || '加载图片上传压缩配置失败';
+            } finally {
+                imImageUploadConfigLoading = false;
+                renderImImageUploadConfigPanel();
+            }
+        }
+
+        async function saveImImageUploadConfig() {
+            if (!isSuperAdmin()) {
+                showAlert('仅系统总管理员可修改图片压缩配置', 'warning');
+                return;
+            }
+            if (imImageUploadConfigSaving) return;
+            const enabledEl = document.getElementById('imImageUploadEnabled');
+            const compressAboveEl = document.getElementById('imImageUploadCompressAboveKb');
+            const maxLongEdgeEl = document.getElementById('imImageUploadMaxLongEdgePx');
+            const outputFormatEl = document.getElementById('imImageUploadOutputFormat');
+            const qualityEl = document.getElementById('imImageUploadQuality');
+            const targetSizeEl = document.getElementById('imImageUploadTargetSizeKb');
+            const keepPngEl = document.getElementById('imImageUploadKeepPngWithAlpha');
+            const skipGifEl = document.getElementById('imImageUploadSkipAnimatedGif');
+            const nextConfig = normalizeImImageUploadConfig({
+                enabled: !!(enabledEl && enabledEl.checked),
+                compress_above_kb: Number(compressAboveEl && compressAboveEl.value || 0),
+                max_long_edge_px: Number(maxLongEdgeEl && maxLongEdgeEl.value || 0),
+                output_format: String(outputFormatEl && outputFormatEl.value || 'jpeg').trim().toLowerCase(),
+                quality: Number(qualityEl && qualityEl.value || 0),
+                target_size_kb: Number(targetSizeEl && targetSizeEl.value || 0),
+                keep_png_with_alpha: !!(keepPngEl && keepPngEl.checked),
+                skip_animated_gif: !!(skipGifEl && skipGifEl.checked)
+            });
+            if (Number(nextConfig.compress_above_kb) < 0) {
+                showAlert('压缩触发阈值不能小于 0', 'warning');
+                return;
+            }
+            if (Number(nextConfig.max_long_edge_px) < 320) {
+                showAlert('最大长边不能小于 320px', 'warning');
+                return;
+            }
+            if (Number(nextConfig.quality) < 40 || Number(nextConfig.quality) > 95) {
+                showAlert('压缩质量必须在 40 到 95 之间', 'warning');
+                return;
+            }
+            if (Number(nextConfig.target_size_kb) < 64) {
+                showAlert('目标体积不能小于 64KB', 'warning');
+                return;
+            }
+            imImageUploadConfigSaving = true;
+            imImageUploadConfigError = '';
+            renderImImageUploadConfigPanel();
+            try {
+                const res = await fetch(`${API_BASE}/admin/api/im/image_upload/config`, {
+                    method: 'POST',
+                    headers: {...getHeaders(), 'Content-Type': 'application/json'},
+                    body: JSON.stringify(nextConfig)
+                });
+                const data = await res.json();
+                if (!res.ok || !data.success) {
+                    throw new Error(data.message || '保存图片上传压缩配置失败');
+                }
+                imImageUploadConfig = normalizeImImageUploadConfig(data);
+                imImageUploadConfigLoaded = true;
+                imImageUploadConfigError = '';
+                showToast(data.message || '图片上传压缩配置已保存');
+            } catch (e) {
+                imImageUploadConfigError = e.message || '保存图片上传压缩配置失败';
+                showAlert('保存图片上传压缩配置失败: ' + imImageUploadConfigError, 'error');
+            } finally {
+                imImageUploadConfigSaving = false;
+                renderImImageUploadConfigPanel();
             }
         }
 

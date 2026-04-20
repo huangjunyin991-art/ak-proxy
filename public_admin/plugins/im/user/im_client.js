@@ -743,15 +743,73 @@
         return Promise.resolve(item || null);
     }
 
+    function insertLocalMessage(item) {
+        const messageManageModule = getMessageManageModule();
+        if (!item || !messageManageModule || typeof messageManageModule.insertLocalMessage !== 'function') return false;
+        const changed = messageManageModule.insertLocalMessage(item);
+        if (!changed) return false;
+        if (typeof messageManageModule.renderMessages === 'function') {
+            messageManageModule.renderMessages();
+        } else {
+            render();
+        }
+        return true;
+    }
+
+    function updateLocalMessage(tempId, patch) {
+        const messageManageModule = getMessageManageModule();
+        if (!messageManageModule || typeof messageManageModule.updateLocalMessage !== 'function') return false;
+        const changed = messageManageModule.updateLocalMessage(tempId, patch);
+        if (!changed) return false;
+        if (typeof messageManageModule.renderMessages === 'function') {
+            messageManageModule.renderMessages();
+        } else {
+            render();
+        }
+        return true;
+    }
+
+    function replaceLocalMessage(tempId, item) {
+        const messageManageModule = getMessageManageModule();
+        if (!messageManageModule || typeof messageManageModule.replaceLocalMessage !== 'function') return false;
+        const changed = messageManageModule.replaceLocalMessage(tempId, item);
+        if (!changed) return false;
+        if (typeof messageManageModule.renderMessages === 'function') {
+            messageManageModule.renderMessages();
+        } else {
+            render();
+        }
+        return true;
+    }
+
+    function removeLocalMessage(tempId) {
+        const messageManageModule = getMessageManageModule();
+        if (!messageManageModule || typeof messageManageModule.removeLocalMessage !== 'function') return false;
+        const changed = messageManageModule.removeLocalMessage(tempId);
+        if (!changed) return false;
+        if (typeof messageManageModule.renderMessages === 'function') {
+            messageManageModule.renderMessages();
+        } else {
+            render();
+        }
+        return true;
+    }
+
     function initImageManageModule() {
         const imageModule = getImageModule();
         if (!imageModule) return;
         imageModule.init({
             state: state,
             httpRoot: HTTP_ROOT,
+            request: request,
             requestFormData: requestFormData,
             escapeHtml: escapeHtml,
-            applySentMessageItem: applySentMessageItem
+            applySentMessageItem: applySentMessageItem,
+            insertLocalMessage: insertLocalMessage,
+            updateLocalMessage: updateLocalMessage,
+            replaceLocalMessage: replaceLocalMessage,
+            removeLocalMessage: removeLocalMessage,
+            loadSessions: loadSessions
         });
     }
 
@@ -1209,16 +1267,49 @@
             method: 'POST'
         }, options || {});
         const headers = Object.assign(buildAuthHeaders(), requestOptions.headers || {});
-        if (Object.keys(headers).length) requestOptions.headers = headers;
-        else delete requestOptions.headers;
-        requestOptions.body = formData;
-        return fetch(url, requestOptions).then(function(resp) {
-            return resp.json().then(function(data) {
-                if (!resp.ok) {
-                    throw new Error((data && data.message) || 'request_failed');
-                }
-                return data;
+        const method = String(requestOptions.method || 'POST').trim().toUpperCase() || 'POST';
+        const onUploadProgress = typeof requestOptions.onUploadProgress === 'function' ? requestOptions.onUploadProgress : null;
+        return new Promise(function(resolve, reject) {
+            const xhr = new XMLHttpRequest();
+            xhr.open(method, url, true);
+            xhr.withCredentials = requestOptions.credentials === 'include' || requestOptions.credentials === 'same-origin';
+            Object.keys(headers).forEach(function(key) {
+                const headerValue = headers[key];
+                if (headerValue == null || headerValue === '') return;
+                xhr.setRequestHeader(key, headerValue);
             });
+            if (xhr.upload && onUploadProgress) {
+                xhr.upload.onprogress = function(event) {
+                    onUploadProgress({
+                        loaded: Number(event && event.loaded || 0) || 0,
+                        total: Number(event && event.total || 0) || 0,
+                        lengthComputable: !!(event && event.lengthComputable),
+                        percent: event && event.lengthComputable && Number(event.total || 0) > 0
+                            ? Math.max(0, Math.min(100, Math.round((Number(event.loaded || 0) / Number(event.total || 1)) * 100)))
+                            : 0
+                    });
+                };
+            }
+            xhr.onerror = function() {
+                reject(new Error('network_error'));
+            };
+            xhr.onload = function() {
+                let data = null;
+                const rawText = String(xhr.responseText || '').trim();
+                if (rawText) {
+                    try {
+                        data = JSON.parse(rawText);
+                    } catch (e) {
+                        data = null;
+                    }
+                }
+                if (xhr.status < 200 || xhr.status >= 300) {
+                    reject(new Error((data && data.message) || 'request_failed'));
+                    return;
+                }
+                resolve(data || {});
+            };
+            xhr.send(formData);
         });
     }
 
@@ -2743,6 +2834,12 @@
                 return null;
             }
             ensureWebSocket();
+            const imageModule = getImageModule();
+            if (imageModule && typeof imageModule.loadUploadConfig === 'function') {
+                imageModule.loadUploadConfig(false).catch(function() {
+                    return null;
+                });
+            }
             return loadSessions().then(function() {
                 ensureHomeTabData(state.homeTab);
                 return null;

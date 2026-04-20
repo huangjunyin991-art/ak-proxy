@@ -88,6 +88,7 @@ type MessageItem struct {
 	SenderUsername    string `json:"sender_username"`
 	SenderDisplayName string `json:"sender_display_name,omitempty"`
 	SenderAvatarURL   string `json:"sender_avatar_url,omitempty"`
+	ClientTempID      string `json:"client_temp_id,omitempty"`
 	SeqNo             int64  `json:"seq_no"`
 	MessageType       string `json:"message_type"`
 	Content           string `json:"content"`
@@ -126,6 +127,7 @@ type sendMessageRequest struct {
 	Content        string `json:"content"`
 	MessageType    string `json:"message_type"`
 	EmojiAssetID   int64  `json:"emoji_asset_id,omitempty"`
+	ClientTempID   string `json:"client_temp_id,omitempty"`
 }
 
 type directSessionRequest struct {
@@ -218,6 +220,7 @@ func New(cfg config.Config) (*App, error) {
 	mux.HandleFunc("/im/api/sessions/direct", app.handleDirectSession)
 	mux.HandleFunc("/im/api/sessions/pin", app.handleSessionPin)
 	mux.HandleFunc("/im/api/messages", app.handleMessages)
+	mux.HandleFunc("/im/api/image_upload/config", app.handleImageUploadConfig)
 	mux.HandleFunc("/im/api/messages/image", app.handleSendImageMessage)
 	mux.HandleFunc("/im/api/messages/file", app.handleSendFileMessage)
 	mux.HandleFunc("/im/api/messages/voice", app.handleSendVoiceMessage)
@@ -228,6 +231,7 @@ func New(cfg config.Config) (*App, error) {
 	mux.HandleFunc("/im/internal/group_admins/replace", app.handleInternalGroupAdminsReplace)
 	mux.HandleFunc("/im/internal/group_owner/transfer", app.handleInternalGroupOwnerTransfer)
 	mux.HandleFunc("/im/internal/file_assets/config", app.handleInternalFileAssetConfig)
+	mux.HandleFunc("/im/internal/image_upload/config", app.handleInternalImageUploadConfig)
 	mux.HandleFunc("/im/internal/emoji_assets/import", app.handleInternalEmojiAssetImport)
 	mux.HandleFunc("/im/internal/emoji_assets/upload", app.handleInternalEmojiAssetUpload)
 	mux.HandleFunc("/im/assets/emoji/", app.handleEmojiAssetFile)
@@ -1551,6 +1555,7 @@ func (a *App) insertMessage(ctx context.Context, conversationID int64, username 
 	item.SentAt = sentAt.Format(time.RFC3339)
 	item.SenderDisplayName = a.fetchDisplayName(ctx, item.SenderUsername)
 	item.SenderAvatarURL = a.getUserAvatarURL(ctx, item.SenderUsername)
+	item.ClientTempID = strings.TrimSpace(req.ClientTempID)
 	item = a.normalizeOutgoingMessageItem(ctx, item)
 	if _, err := tx.Exec(ctx, `UPDATE im_conversation SET last_message_id = $1, last_message_preview = $2, last_message_at = NOW(), updated_at = NOW() WHERE id = $3`, item.ID, item.ContentPreview, conversationID); err != nil {
 		return MessageItem{}, err

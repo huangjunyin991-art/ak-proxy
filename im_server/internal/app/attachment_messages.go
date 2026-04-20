@@ -23,9 +23,14 @@ const (
 	imageMessageMaxBytes        = 20 * 1024 * 1024
 	fileMessageMaxBytes         = 200 * 1024 * 1024
 	defaultFileAssetRetentionDays = 30
+	defaultImageCompressAboveKB = 512
+	defaultImageMaxLongEdgePx   = 1920
+	defaultImageQuality         = 82
+	defaultImageTargetSizeKB    = 1024
 	fileAssetCleanupBatchSize   = 24
 	fileAssetCleanupInterval    = time.Hour
 	imFileAssetConfigKey        = "file_asset_config"
+	imImageUploadConfigKey      = "image_upload_config"
 )
 
 var supportedImageAssetExts = map[string]string{
@@ -59,6 +64,17 @@ type fileMessageStoragePayload struct {
 
 type fileAssetConfigSnapshot struct {
 	RetentionDays int `json:"retention_days"`
+}
+
+type imageUploadConfigSnapshot struct {
+	Enabled           bool   `json:"enabled"`
+	CompressAboveKB   int    `json:"compress_above_kb"`
+	MaxLongEdgePx     int    `json:"max_long_edge_px"`
+	OutputFormat      string `json:"output_format"`
+	Quality           int    `json:"quality"`
+	TargetSizeKB      int    `json:"target_size_kb"`
+	KeepPNGWithAlpha  bool   `json:"keep_png_with_alpha"`
+	SkipAnimatedGIF   bool   `json:"skip_animated_gif"`
 }
 
 type storedFileAssetRecord struct {
@@ -319,6 +335,86 @@ func normalizeFileAssetRetentionDays(value int) int {
 	return value
 }
 
+func defaultImageUploadConfigSnapshot() imageUploadConfigSnapshot {
+	return imageUploadConfigSnapshot{
+		Enabled:          true,
+		CompressAboveKB:  defaultImageCompressAboveKB,
+		MaxLongEdgePx:    defaultImageMaxLongEdgePx,
+		OutputFormat:     "jpeg",
+		Quality:          defaultImageQuality,
+		TargetSizeKB:     defaultImageTargetSizeKB,
+		KeepPNGWithAlpha: true,
+		SkipAnimatedGIF:  true,
+	}
+}
+
+func normalizeImageUploadOutputFormat(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "keep":
+		return "keep"
+	case "webp":
+		return "webp"
+	default:
+		return "jpeg"
+	}
+}
+
+func normalizeImageCompressAboveKB(value int) int {
+	if value < 0 {
+		return 0
+	}
+	maxValue := imageMessageMaxBytes / 1024
+	if value > maxValue {
+		return maxValue
+	}
+	return value
+}
+
+func normalizeImageMaxLongEdgePx(value int) int {
+	if value < 320 {
+		return 320
+	}
+	if value > 4096 {
+		return 4096
+	}
+	return value
+}
+
+func normalizeImageQuality(value int) int {
+	if value < 40 {
+		return 40
+	}
+	if value > 95 {
+		return 95
+	}
+	return value
+}
+
+func normalizeImageTargetSizeKB(value int) int {
+	if value < 64 {
+		return 64
+	}
+	maxValue := imageMessageMaxBytes / 1024
+	if value > maxValue {
+		return maxValue
+	}
+	return value
+}
+
+func normalizeImageUploadConfigSnapshot(snapshot imageUploadConfigSnapshot) imageUploadConfigSnapshot {
+	defaults := defaultImageUploadConfigSnapshot()
+	snapshot.Enabled = snapshot.Enabled
+	snapshot.CompressAboveKB = normalizeImageCompressAboveKB(snapshot.CompressAboveKB)
+	snapshot.MaxLongEdgePx = normalizeImageMaxLongEdgePx(snapshot.MaxLongEdgePx)
+	snapshot.OutputFormat = normalizeImageUploadOutputFormat(snapshot.OutputFormat)
+	snapshot.Quality = normalizeImageQuality(snapshot.Quality)
+	snapshot.TargetSizeKB = normalizeImageTargetSizeKB(snapshot.TargetSizeKB)
+	if strings.TrimSpace(snapshot.OutputFormat) == "" {
+		snapshot.OutputFormat = defaults.OutputFormat
+	}
+	return snapshot
+}
+
 func (a *App) getSystemConfigValue(ctx context.Context, key string) (string, error) {
 	var value string
 	err := a.db.QueryRow(ctx, `SELECT value_json FROM im_system_config WHERE key = $1`, strings.TrimSpace(key)).Scan(&value)
@@ -362,6 +458,30 @@ func (a *App) setFileAssetConfig(ctx context.Context, snapshot fileAssetConfigSn
 		return snapshot, err
 	}
 	if err := a.setSystemConfigValue(ctx, imFileAssetConfigKey, string(payloadBytes)); err != nil {
+		return snapshot, err
+	}
+	return snapshot, nil
+}
+
+func (a *App) getImageUploadConfig(ctx context.Context) (imageUploadConfigSnapshot, error) {
+	snapshot := defaultImageUploadConfigSnapshot()
+	raw, err := a.getSystemConfigValue(ctx, imImageUploadConfigKey)
+	if err != nil || strings.TrimSpace(raw) == "" {
+		return snapshot, err
+	}
+	if err := json.Unmarshal([]byte(raw), &snapshot); err != nil {
+		return defaultImageUploadConfigSnapshot(), nil
+	}
+	return normalizeImageUploadConfigSnapshot(snapshot), nil
+}
+
+func (a *App) setImageUploadConfig(ctx context.Context, snapshot imageUploadConfigSnapshot) (imageUploadConfigSnapshot, error) {
+	snapshot = normalizeImageUploadConfigSnapshot(snapshot)
+	payloadBytes, err := json.Marshal(snapshot)
+	if err != nil {
+		return snapshot, err
+	}
+	if err := a.setSystemConfigValue(ctx, imImageUploadConfigKey, string(payloadBytes)); err != nil {
 		return snapshot, err
 	}
 	return snapshot, nil
@@ -708,10 +828,12 @@ func (a *App) handleSendImageMessage(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
 		return
 	}
+	clientTempID := strings.TrimSpace(r.FormValue("client_temp_id"))
 	message, err := a.insertMessage(r.Context(), conversationID, username, sendMessageRequest{
 		ConversationID: conversationID,
 		MessageType:    "image",
 		Content:        string(payloadBytes),
+		ClientTempID:   clientTempID,
 	})
 	if err != nil {
 		a.removeImageAsset(storageName)
@@ -951,6 +1073,83 @@ func (a *App) handleInternalFileAssetConfig(w http.ResponseWriter, r *http.Reque
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"success": true, "retention_days": snapshot.RetentionDays})
+	default:
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"error": true})
+	}
+}
+
+func (a *App) handleImageUploadConfig(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"error": true})
+		return
+	}
+	if _, err := a.requireAllowedUser(r); err != nil {
+		writeJSON(w, http.StatusForbidden, map[string]any{"error": true, "message": err.Error()})
+		return
+	}
+	snapshot, err := a.getImageUploadConfig(r.Context())
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"success": true,
+		"enabled": snapshot.Enabled,
+		"compress_above_kb": snapshot.CompressAboveKB,
+		"max_long_edge_px": snapshot.MaxLongEdgePx,
+		"output_format": snapshot.OutputFormat,
+		"quality": snapshot.Quality,
+		"target_size_kb": snapshot.TargetSizeKB,
+		"keep_png_with_alpha": snapshot.KeepPNGWithAlpha,
+		"skip_animated_gif": snapshot.SkipAnimatedGIF,
+	})
+}
+
+func (a *App) handleInternalImageUploadConfig(w http.ResponseWriter, r *http.Request) {
+	if !isLoopbackRequest(r) {
+		writeJSON(w, http.StatusForbidden, map[string]any{"error": true, "message": "forbidden"})
+		return
+	}
+	switch r.Method {
+	case http.MethodGet:
+		snapshot, err := a.getImageUploadConfig(r.Context())
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{
+			"success": true,
+			"enabled": snapshot.Enabled,
+			"compress_above_kb": snapshot.CompressAboveKB,
+			"max_long_edge_px": snapshot.MaxLongEdgePx,
+			"output_format": snapshot.OutputFormat,
+			"quality": snapshot.Quality,
+			"target_size_kb": snapshot.TargetSizeKB,
+			"keep_png_with_alpha": snapshot.KeepPNGWithAlpha,
+			"skip_animated_gif": snapshot.SkipAnimatedGIF,
+		})
+	case http.MethodPost:
+		req := defaultImageUploadConfigSnapshot()
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": true, "message": "invalid payload"})
+			return
+		}
+		snapshot, err := a.setImageUploadConfig(r.Context(), req)
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{
+			"success": true,
+			"enabled": snapshot.Enabled,
+			"compress_above_kb": snapshot.CompressAboveKB,
+			"max_long_edge_px": snapshot.MaxLongEdgePx,
+			"output_format": snapshot.OutputFormat,
+			"quality": snapshot.Quality,
+			"target_size_kb": snapshot.TargetSizeKB,
+			"keep_png_with_alpha": snapshot.KeepPNGWithAlpha,
+			"skip_animated_gif": snapshot.SkipAnimatedGIF,
+		})
 	default:
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"error": true})
 	}
