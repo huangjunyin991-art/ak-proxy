@@ -57,6 +57,7 @@
         voiceHoldState: 'idle',
         voiceHoldStatusText: '',
         emojiPanelOpen: false,
+        plusPanelOpen: false,
         emojiPanelTab: 'standard',
         emojiAssets: [],
         emojiAssetsLoaded: false,
@@ -124,6 +125,7 @@
     let composerEmojiBtnEl = null;
     let composerPlusBtnEl = null;
     let emojiSheetEl = null;
+    let plusSheetEl = null;
     let emojiSheetTabsEl = null;
     let emojiSheetBodyEl = null;
     let actionSheetEl = null;
@@ -178,6 +180,7 @@
         composerEmojiBtnEl = nextElements.composerEmojiBtnEl || null;
         composerPlusBtnEl = nextElements.composerPlusBtnEl || null;
         emojiSheetEl = nextElements.emojiSheetEl || null;
+        plusSheetEl = nextElements.plusSheetEl || null;
         emojiSheetTabsEl = nextElements.emojiSheetTabsEl || null;
         emojiSheetBodyEl = nextElements.emojiSheetBodyEl || null;
         actionSheetEl = nextElements.actionSheetEl || null;
@@ -232,6 +235,7 @@
             composerEmojiBtnEl: null,
             composerPlusBtnEl: null,
             emojiSheetEl: null,
+            plusSheetEl: null,
             emojiSheetTabsEl: null,
             emojiSheetBodyEl: null,
             actionSheetEl: null,
@@ -371,6 +375,9 @@
 
     function initShellModules() {
         initMessageManageModule();
+        initImageManageModule();
+        initFileManageModule();
+        initPlusEntryModule();
         initVoiceHoldModule();
         initEmojiManageModule();
         initSessionManageModule();
@@ -390,6 +397,7 @@
         closeMemberPanel();
         closeSettingsPanel({ silent: true });
         closeEmojiPicker({ silent: true });
+        closePlusPanel({ silent: true });
         state.composerMode = 'text';
         state.voiceHoldState = 'idle';
         state.voiceHoldStatusText = '';
@@ -412,6 +420,7 @@
 
     function handleComposerInput(value) {
         state.inputValue = value || '';
+        if (String(state.inputValue || '').trim()) closePlusPanel({ silent: true });
         syncInputHeight();
         syncComposerState();
     }
@@ -431,6 +440,7 @@
         }
         if (nextMode === 'voice') {
             closeEmojiPicker({ silent: true });
+            closePlusPanel({ silent: true });
             if (inputEl) {
                 try {
                     inputEl.blur();
@@ -547,6 +557,8 @@
             onComposerSubmit: sendCurrentMessage,
             onComposerVoiceToggleClick: toggleComposerVoiceMode,
             onComposerEmojiToggleClick: toggleEmojiPicker,
+            onComposerPlusToggleClick: togglePlusPanel,
+            onPlusActionClick: handlePlusPanelAction,
             onNewSessionInputChange: handleNewSessionInputChange,
             onMemberPanelClose: closeMemberPanel,
             onProfileSubpageBackClick: closeProfileSubpage
@@ -636,6 +648,30 @@
         return messageManageModule;
     }
 
+    function getImageModule() {
+        const modules = window.AKIMUserModules;
+        if (!modules || typeof modules !== 'object') return null;
+        const imageManageModule = modules.imageManage;
+        if (!imageManageModule || typeof imageManageModule.init !== 'function') return null;
+        return imageManageModule;
+    }
+
+    function getFileModule() {
+        const modules = window.AKIMUserModules;
+        if (!modules || typeof modules !== 'object') return null;
+        const fileManageModule = modules.fileManage;
+        if (!fileManageModule || typeof fileManageModule.init !== 'function') return null;
+        return fileManageModule;
+    }
+
+    function getPlusEntryModule() {
+        const modules = window.AKIMUserModules;
+        if (!modules || typeof modules !== 'object') return null;
+        const plusEntryManageModule = modules.plusEntryManage;
+        if (!plusEntryManageModule || typeof plusEntryManageModule.init !== 'function') return null;
+        return plusEntryManageModule;
+    }
+
     function getEmojiModule() {
         const modules = window.AKIMUserModules;
         if (!modules || typeof modules !== 'object') return null;
@@ -689,6 +725,55 @@
             },
             getSessionManage: getSessionManageModule,
             getGroupManage: getGroupManageModule
+        });
+    }
+
+    function applySentMessageItem(item) {
+        const messageManageModule = getMessageManageModule();
+        if (item && messageManageModule && typeof messageManageModule.upsertActiveMessage === 'function' && messageManageModule.upsertActiveMessage(item)) {
+            if (typeof messageManageModule.renderMessages === 'function') {
+                messageManageModule.renderMessages();
+            } else {
+                render();
+            }
+        }
+        if (typeof loadSessions === 'function') {
+            return loadSessions();
+        }
+        return Promise.resolve(item || null);
+    }
+
+    function initImageManageModule() {
+        const imageModule = getImageModule();
+        if (!imageModule) return;
+        imageModule.init({
+            state: state,
+            httpRoot: HTTP_ROOT,
+            requestFormData: requestFormData,
+            escapeHtml: escapeHtml,
+            applySentMessageItem: applySentMessageItem
+        });
+    }
+
+    function initFileManageModule() {
+        const fileModule = getFileModule();
+        if (!fileModule) return;
+        fileModule.init({
+            state: state,
+            httpRoot: HTTP_ROOT,
+            requestFormData: requestFormData,
+            escapeHtml: escapeHtml,
+            applySentMessageItem: applySentMessageItem
+        });
+    }
+
+    function initPlusEntryModule() {
+        const plusEntryModule = getPlusEntryModule();
+        if (!plusEntryModule) return;
+        plusEntryModule.init({
+            state: state,
+            sendImageFile: sendImageFile,
+            sendAttachmentFile: sendAttachmentFile
         });
     }
 
@@ -757,9 +842,20 @@
             const voiceMarkup = voiceHoldModule.buildMessageBubbleMarkup(item);
             if (voiceMarkup) return voiceMarkup;
         }
+        const imageModule = getImageModule();
+        if (imageModule && typeof imageModule.buildMessageBubbleMarkup === 'function') {
+            const imageMarkup = imageModule.buildMessageBubbleMarkup(item);
+            if (imageMarkup) return imageMarkup;
+        }
+        const fileModule = getFileModule();
+        if (fileModule && typeof fileModule.buildMessageBubbleMarkup === 'function') {
+            const fileMarkup = fileModule.buildMessageBubbleMarkup(item);
+            if (fileMarkup) return fileMarkup;
+        }
         const emojiModule = getEmojiModule();
         if (emojiModule && typeof emojiModule.buildMessageBubbleMarkup === 'function') {
-            return emojiModule.buildMessageBubbleMarkup(item);
+            const emojiMarkup = emojiModule.buildMessageBubbleMarkup(item);
+            if (emojiMarkup) return emojiMarkup;
         }
         return escapeHtml(item && (item.content || item.content_preview || '') || '');
     }
@@ -770,9 +866,20 @@
             const voiceClassName = voiceHoldModule.getMessageBubbleClassName(item);
             if (voiceClassName) return voiceClassName;
         }
+        const imageModule = getImageModule();
+        if (imageModule && typeof imageModule.getMessageBubbleClassName === 'function') {
+            const imageClassName = imageModule.getMessageBubbleClassName(item);
+            if (imageClassName) return imageClassName;
+        }
+        const fileModule = getFileModule();
+        if (fileModule && typeof fileModule.getMessageBubbleClassName === 'function') {
+            const fileClassName = fileModule.getMessageBubbleClassName(item);
+            if (fileClassName) return fileClassName;
+        }
         const emojiModule = getEmojiModule();
         if (emojiModule && typeof emojiModule.getMessageBubbleClassName === 'function') {
-            return emojiModule.getMessageBubbleClassName(item);
+            const emojiClassName = emojiModule.getMessageBubbleClassName(item);
+            if (emojiClassName) return emojiClassName;
         }
         return '';
     }
@@ -791,10 +898,29 @@
         if (emojiSheetBodyEl) emojiSheetBodyEl.innerHTML = '';
     }
 
+    function renderPlusPanel() {
+        if (!plusSheetEl) return;
+        const shouldOpen = !!state.plusPanelOpen && state.view === 'chat' && !!state.activeConversationId && normalizeComposerMode(state.composerMode) !== 'voice';
+        if (!shouldOpen) state.plusPanelOpen = false;
+        plusSheetEl.classList.toggle('is-open', shouldOpen);
+        if (!shouldOpen) {
+            const activeElement = document.activeElement;
+            if (activeElement && plusSheetEl.contains(activeElement) && typeof activeElement.blur === 'function') {
+                activeElement.blur();
+            }
+            plusSheetEl.setAttribute('aria-hidden', 'true');
+            plusSheetEl.setAttribute('inert', '');
+            return;
+        }
+        plusSheetEl.setAttribute('aria-hidden', 'false');
+        plusSheetEl.removeAttribute('inert');
+    }
+
     function toggleEmojiPicker() {
         if (normalizeComposerMode(state.composerMode) === 'voice') {
             state.composerMode = 'text';
         }
+        closePlusPanel({ silent: true });
         const emojiModule = getEmojiModule();
         if (emojiModule && typeof emojiModule.togglePicker === 'function') {
             emojiModule.togglePicker();
@@ -815,6 +941,47 @@
         if (!options || !options.silent) render();
     }
 
+    function togglePlusPanel() {
+        if (!state.activeConversationId) return;
+        if (normalizeComposerMode(state.composerMode) === 'voice') {
+            state.composerMode = 'text';
+        }
+        closeEmojiPicker({ silent: true });
+        state.plusPanelOpen = !state.plusPanelOpen;
+        if (state.plusPanelOpen && inputEl) {
+            try {
+                inputEl.blur();
+            } catch (e) {}
+        }
+        render();
+    }
+
+    function closePlusPanel(options) {
+        if (!state.plusPanelOpen) return;
+        state.plusPanelOpen = false;
+        if (!options || !options.silent) render();
+    }
+
+    function handlePlusPanelAction(action) {
+        const actionKey = String(action || '').trim().toLowerCase();
+        const actionLabelMap = {
+            camera: '拍照',
+            album: '相册',
+            file: '文件',
+            location: '位置'
+        };
+        const actionLabel = actionLabelMap[actionKey] || '更多功能';
+        const plusEntryModule = getPlusEntryModule();
+        closePlusPanel({ silent: true });
+        if (plusEntryModule && typeof plusEntryModule.handleAction === 'function') {
+            plusEntryModule.handleAction(actionKey);
+            render();
+            return;
+        }
+        render();
+        window.alert(actionLabel + '入口已预留，暂未接入真实功能');
+    }
+
     function sendCustomEmoji(emojiAssetId, emojiCode) {
         const messageManageModule = getMessageManageModule();
         if (messageManageModule && typeof messageManageModule.sendCustomEmoji === 'function') {
@@ -829,6 +996,22 @@
             return messageManageModule.sendVoiceMessage(blob, meta);
         }
         return Promise.reject(new Error('语音发送模块暂不可用'));
+    }
+
+    function sendImageFile(file, meta) {
+        const imageModule = getImageModule();
+        if (imageModule && typeof imageModule.sendImageFile === 'function') {
+            return imageModule.sendImageFile(file, meta);
+        }
+        return Promise.reject(new Error('图片发送模块暂不可用'));
+    }
+
+    function sendAttachmentFile(file) {
+        const fileModule = getFileModule();
+        if (fileModule && typeof fileModule.sendAttachmentFile === 'function') {
+            return fileModule.sendAttachmentFile(file);
+        }
+        return Promise.reject(new Error('文件发送模块暂不可用'));
     }
 
     function handleActionSheetSecondaryAction() {
@@ -1705,6 +1888,7 @@
     function closeComposeView() {
         closeActionSheet();
         closeEmojiPicker({ silent: true });
+        closePlusPanel({ silent: true });
         state.newSessionError = '';
         state.newSessionTarget = '';
         state.composerMode = 'text';
@@ -2032,11 +2216,14 @@
             const hasText = !!String(inputEl.value || '').trim();
             const canOpenEmoji = hasConversation && !!getEmojiModule();
             const showVoiceMode = hasConversation && isVoiceMode;
+            const canOpenPlus = hasConversation && !showVoiceMode;
             const holdSupported = state.voiceHoldSupported !== false;
+            const plusPanelVisible = !!state.plusPanelOpen && state.view === 'chat' && canOpenPlus;
             if (root) {
                 root.classList.toggle('ak-im-composer-has-text', !showVoiceMode && canSend && hasText);
                 root.classList.toggle('ak-im-composer-voice-mode', showVoiceMode);
                 root.classList.toggle('ak-im-emoji-open', !!state.emojiPanelOpen && state.view === 'chat' && hasConversation);
+                root.classList.toggle('ak-im-plus-open', plusPanelVisible);
                 root.classList.toggle('ak-im-voice-hold-recording', showVoiceMode && isVoiceRecording);
                 root.classList.toggle('ak-im-voice-hold-cancel-ready', showVoiceMode && isVoiceCancelReady);
                 root.classList.toggle('ak-im-voice-hold-sending', showVoiceMode && isVoiceSending);
@@ -2053,6 +2240,11 @@
                 composerEmojiBtnEl.disabled = !canOpenEmoji;
                 composerEmojiBtnEl.classList.toggle('is-active', !!state.emojiPanelOpen && state.view === 'chat' && hasConversation);
                 composerEmojiBtnEl.setAttribute('aria-label', state.emojiPanelOpen ? '切回键盘输入' : '打开表情面板');
+            }
+            if (composerPlusBtnEl) {
+                composerPlusBtnEl.disabled = !canOpenPlus;
+                composerPlusBtnEl.classList.toggle('is-active', plusPanelVisible);
+                composerPlusBtnEl.setAttribute('aria-label', plusPanelVisible ? '收起更多功能' : '打开更多功能');
             }
             if (composerHoldBtnEl) {
                 composerHoldBtnEl.disabled = !showVoiceMode || !hasMessageManage || !holdSupported || isVoiceSending;
@@ -2074,7 +2266,6 @@
                 statusLine.textContent = nextStatusText;
             }
             if (composerMicBtnEl) composerMicBtnEl.disabled = true;
-            if (composerPlusBtnEl) composerPlusBtnEl.disabled = true;
         }
 
     function render() {
@@ -2111,6 +2302,7 @@
         syncComposerState();
         syncInputHeight();
         renderEmojiPanel();
+        renderPlusPanel();
         renderMessages();
         renderReadProgressPanel();
 	    renderMemberPanel();
@@ -2473,6 +2665,7 @@
             const conversationId = Number((data && data.conversation_id) || 0);
             if (!conversationId) throw new Error('发起会话失败');
             closeEmojiPicker({ silent: true });
+            closePlusPanel({ silent: true });
             state.composerMode = 'text';
             state.activeConversationId = conversationId;
             state.view = 'chat';
@@ -2507,6 +2700,7 @@
             state.username = String((data && data.username) || '').trim().toLowerCase();
             state.displayName = String((data && data.display_name) || state.username || '').trim();
             state.emojiPanelOpen = false;
+            state.plusPanelOpen = false;
             state.emojiPanelTab = 'standard';
             state.emojiAssets = bootstrapEmojiAssets;
             state.emojiAssetsLoaded = hasBootstrapEmojiAssets;
@@ -2557,6 +2751,7 @@
             state.allowed = false;
             state.ready = true;
             state.emojiPanelOpen = false;
+            state.plusPanelOpen = false;
             state.emojiPanelTab = 'standard';
             state.emojiAssets = [];
             state.emojiAssetsLoaded = false;
@@ -2627,6 +2822,7 @@
     function startDirectSession() {
         if (!state.allowed) return;
         closeEmojiPicker({ silent: true });
+        closePlusPanel({ silent: true });
         state.newSessionError = '';
         state.newSessionTarget = '';
         state.view = 'compose';

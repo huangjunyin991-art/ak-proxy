@@ -28,6 +28,8 @@ var (
 	errInvalidMessageType = errors.New("invalid message_type")
 	errInvalidEmojiAssetID = errors.New("invalid emoji_asset_id")
 	errInvalidVoicePayload = errors.New("invalid voice payload")
+	errInvalidImagePayload = errors.New("invalid image payload")
+	errInvalidFilePayload = errors.New("invalid file payload")
 	errEmptyMessageContent = errors.New("empty content")
 )
 
@@ -188,6 +190,12 @@ func New(cfg config.Config) (*App, error) {
 	if err := app.ensureVoiceDirectories(); err != nil {
 		return nil, err
 	}
+	if err := app.ensureImageDirectories(); err != nil {
+		return nil, err
+	}
+	if err := app.ensureFileDirectories(); err != nil {
+		return nil, err
+	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/im/api/bootstrap", app.handleBootstrap)
 	mux.HandleFunc("/im/api/contacts", app.handleContacts)
@@ -210,6 +218,8 @@ func New(cfg config.Config) (*App, error) {
 	mux.HandleFunc("/im/api/sessions/direct", app.handleDirectSession)
 	mux.HandleFunc("/im/api/sessions/pin", app.handleSessionPin)
 	mux.HandleFunc("/im/api/messages", app.handleMessages)
+	mux.HandleFunc("/im/api/messages/image", app.handleSendImageMessage)
+	mux.HandleFunc("/im/api/messages/file", app.handleSendFileMessage)
 	mux.HandleFunc("/im/api/messages/voice", app.handleSendVoiceMessage)
 	mux.HandleFunc("/im/api/messages/read_progress", app.handleMessageReadProgress)
 	mux.HandleFunc("/im/api/messages/recall", app.handleRecallMessage)
@@ -217,9 +227,12 @@ func New(cfg config.Config) (*App, error) {
 	mux.HandleFunc("/im/internal/group_profile", app.handleInternalGroupProfile)
 	mux.HandleFunc("/im/internal/group_admins/replace", app.handleInternalGroupAdminsReplace)
 	mux.HandleFunc("/im/internal/group_owner/transfer", app.handleInternalGroupOwnerTransfer)
+	mux.HandleFunc("/im/internal/file_assets/config", app.handleInternalFileAssetConfig)
 	mux.HandleFunc("/im/internal/emoji_assets/import", app.handleInternalEmojiAssetImport)
 	mux.HandleFunc("/im/internal/emoji_assets/upload", app.handleInternalEmojiAssetUpload)
 	mux.HandleFunc("/im/assets/emoji/", app.handleEmojiAssetFile)
+	mux.HandleFunc("/im/assets/image/", app.handleImageAssetFile)
+	mux.HandleFunc("/im/assets/file/", app.handleFileAssetFile)
 	mux.HandleFunc("/im/assets/voice/", app.handleVoiceAssetFile)
 	mux.HandleFunc("/im/ws", app.handleWS)
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
@@ -234,6 +247,7 @@ func New(cfg config.Config) (*App, error) {
 
 func (a *App) Run() error {
 	go a.runWhitelistGroupSelfHeal()
+	go a.runExpiredFileAssetCleanupLoop()
 	log.Printf("im server listen on %s", a.cfg.Addr)
 	return a.server.ListenAndServe()
 }
@@ -356,6 +370,22 @@ func (a *App) ensureSchema(ctx context.Context) error {
 			is_favorite BOOLEAN NOT NULL DEFAULT FALSE,
 			created_at TIMESTAMP NOT NULL DEFAULT NOW()
 		)`,
+		`CREATE TABLE IF NOT EXISTS im_system_config (
+			key TEXT PRIMARY KEY,
+			value_json TEXT NOT NULL DEFAULT '',
+			updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+		)`,
+		`CREATE TABLE IF NOT EXISTS im_file_asset (
+			storage_name TEXT PRIMARY KEY,
+			original_name TEXT NOT NULL DEFAULT '',
+			mime_type TEXT NOT NULL DEFAULT 'application/octet-stream',
+			file_size BIGINT NOT NULL DEFAULT 0,
+			expires_at TIMESTAMP NOT NULL,
+			status TEXT NOT NULL DEFAULT 'active',
+			created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+			updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+			deleted_at TIMESTAMP
+		)`,
 		`ALTER TABLE im_conversation_member ADD COLUMN IF NOT EXISTS left_at TIMESTAMP`,
 		`ALTER TABLE im_conversation_member ADD COLUMN IF NOT EXISTS pin_type TEXT NOT NULL DEFAULT 'none'`,
 		`ALTER TABLE im_conversation_member ADD COLUMN IF NOT EXISTS pinned_at TIMESTAMP`,
@@ -372,6 +402,7 @@ func (a *App) ensureSchema(ctx context.Context) error {
 		`CREATE INDEX IF NOT EXISTS idx_im_conversation_member_override_username ON im_conversation_member_override(username)`,
 		`CREATE INDEX IF NOT EXISTS idx_im_user_avatar_history_username_created_at ON im_user_avatar_history(username, created_at DESC, id DESC)`,
 		`CREATE INDEX IF NOT EXISTS idx_im_message_conversation_id ON im_message(conversation_id, seq_no DESC)`,
+		`CREATE INDEX IF NOT EXISTS idx_im_file_asset_expires_at ON im_file_asset(expires_at)`,
 	}
 	statements = append(statements, emojiAssetSchemaStatements()...)
 	for index, stmt := range statements {
@@ -1350,6 +1381,7 @@ func (a *App) handleListMessages(w http.ResponseWriter, r *http.Request, usernam
 		item.SentAt = sentAt.Format(time.RFC3339)
 		item.SenderDisplayName = a.fetchDisplayName(r.Context(), item.SenderUsername)
 		item.SenderAvatarURL = a.getUserAvatarURL(r.Context(), item.SenderUsername)
+		item = a.normalizeOutgoingMessageItem(r.Context(), item)
 		items = append(items, item)
 	}
 	for left, right := 0, len(items)-1; left < right; left, right = left+1, right-1 {
@@ -1378,7 +1410,7 @@ func (a *App) handleSendMessage(w http.ResponseWriter, r *http.Request, username
 	}
 	message, err := a.insertMessage(r.Context(), req.ConversationID, username, req)
 	if err != nil {
-		if errors.Is(err, errInvalidMessageType) || errors.Is(err, errInvalidEmojiAssetID) || errors.Is(err, errInvalidVoicePayload) || errors.Is(err, errEmptyMessageContent) {
+		if errors.Is(err, errInvalidMessageType) || errors.Is(err, errInvalidEmojiAssetID) || errors.Is(err, errInvalidVoicePayload) || errors.Is(err, errInvalidImagePayload) || errors.Is(err, errInvalidFilePayload) || errors.Is(err, errEmptyMessageContent) {
 			writeJSON(w, http.StatusBadRequest, map[string]any{"error": true, "message": err.Error()})
 			return
 		}
@@ -1442,6 +1474,36 @@ func buildMessageStorage(req sendMessageRequest) (messageType string, contentPre
 		contentPayload = string(payloadBytes)
 		contentSizeRaw = voicePayload.FileSize
 		contentSizeStored = voicePayload.FileSize
+	case "image":
+		imagePayload, imageErr := normalizeImageMessagePayload(req.Content)
+		if imageErr != nil {
+			err = imageErr
+			return
+		}
+		payloadBytes, marshalErr := json.Marshal(imagePayload)
+		if marshalErr != nil {
+			err = marshalErr
+			return
+		}
+		contentPreview = formatImageMessagePreview()
+		contentPayload = string(payloadBytes)
+		contentSizeRaw = imagePayload.FileSize
+		contentSizeStored = imagePayload.FileSize
+	case "file":
+		filePayload, fileErr := normalizeStoredFileMessagePayload(req.Content)
+		if fileErr != nil {
+			err = fileErr
+			return
+		}
+		payloadBytes, marshalErr := json.Marshal(filePayload)
+		if marshalErr != nil {
+			err = marshalErr
+			return
+		}
+		contentPreview = formatFileMessagePreview(filePayload.FileName)
+		contentPayload = string(payloadBytes)
+		contentSizeRaw = filePayload.FileSize
+		contentSizeStored = filePayload.FileSize
 	default:
 		err = errInvalidMessageType
 		return
@@ -1489,6 +1551,7 @@ func (a *App) insertMessage(ctx context.Context, conversationID int64, username 
 	item.SentAt = sentAt.Format(time.RFC3339)
 	item.SenderDisplayName = a.fetchDisplayName(ctx, item.SenderUsername)
 	item.SenderAvatarURL = a.getUserAvatarURL(ctx, item.SenderUsername)
+	item = a.normalizeOutgoingMessageItem(ctx, item)
 	if _, err := tx.Exec(ctx, `UPDATE im_conversation SET last_message_id = $1, last_message_preview = $2, last_message_at = NOW(), updated_at = NOW() WHERE id = $3`, item.ID, item.ContentPreview, conversationID); err != nil {
 		return MessageItem{}, err
 	}

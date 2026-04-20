@@ -144,6 +144,20 @@
                 #ak-im-root .ak-im-message-sender{margin-bottom:4px;padding:0 2px;font-size:11px;color:#6b7280;line-height:1.4}
                 #ak-im-root .ak-im-bubble{padding:10px 12px;border-radius:8px;background:#ffffff;color:#111827;word-break:break-word;white-space:pre-wrap;box-shadow:0 1px 1px rgba(15,23,42,.04);font-size:15px;line-height:1.45}
                 #ak-im-root .ak-im-message-row.ak-self .ak-im-bubble{background:#95ec69}
+                #ak-im-root .ak-im-bubble.ak-im-bubble-image{padding:4px;background:#ffffff;box-shadow:0 2px 8px rgba(15,23,42,.06);border-radius:16px;overflow:hidden;white-space:normal}
+                #ak-im-root .ak-im-message-row.ak-self .ak-im-bubble.ak-im-bubble-image{background:#d9f7c7}
+                #ak-im-root .ak-im-image-bubble-link{display:block;line-height:0;text-decoration:none}
+                #ak-im-root .ak-im-image-bubble-image{display:block;width:min(220px,56vw);max-width:100%;height:auto;max-height:280px;border-radius:12px;background:#f8fafc;object-fit:cover}
+                #ak-im-root .ak-im-bubble.ak-im-bubble-file{padding:0;display:block;white-space:normal;overflow:hidden;border-radius:18px;min-width:0}
+                #ak-im-root .ak-im-file-bubble-link,#ak-im-root .ak-im-file-bubble-expired{display:flex;align-items:center;gap:12px;min-width:min(220px,60vw);padding:12px 14px;box-sizing:border-box;color:inherit;text-decoration:none}
+                #ak-im-root .ak-im-file-bubble-expired{opacity:.86}
+                #ak-im-root .ak-im-file-bubble-icon{width:40px;height:40px;border-radius:14px;background:rgba(15,23,42,.06);display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto;color:#0f172a}
+                #ak-im-root .ak-im-message-row.ak-self .ak-im-file-bubble-icon{background:rgba(255,255,255,.42)}
+                #ak-im-root .ak-im-file-bubble-icon svg{width:22px;height:22px;stroke:currentColor}
+                #ak-im-root .ak-im-file-bubble-body{min-width:0;display:flex;flex-direction:column;gap:4px}
+                #ak-im-root .ak-im-file-bubble-name{font-size:14px;font-weight:700;line-height:1.35;color:inherit;word-break:break-all}
+                #ak-im-root .ak-im-file-bubble-meta{font-size:12px;line-height:1.35;color:#6b7280}
+                #ak-im-root .ak-im-message-row.ak-self .ak-im-file-bubble-meta{color:rgba(15,23,42,.62)}
                 #ak-im-root .ak-im-bubble.ak-im-bubble-emoji{padding:0;background:transparent;box-shadow:none;border-radius:14px;overflow:hidden;white-space:normal}
                 #ak-im-root .ak-im-message-row.ak-self .ak-im-bubble.ak-im-bubble-emoji{background:transparent}
                 #ak-im-root .ak-im-bubble.ak-im-bubble-voice{min-width:0;padding:0;display:block;white-space:normal;overflow:hidden;border-radius:18px}
@@ -230,6 +244,16 @@
                 #ak-im-root .ak-im-send:disabled{opacity:.42;cursor:not-allowed}
                 #ak-im-root .ak-im-emoji-sheet{height:0;overflow:hidden;background:#f7f7f7;transition:height .22s ease;border-top:1px solid transparent}
                 #ak-im-root .ak-im-emoji-sheet.is-open{height:min(320px,44vh);border-top-color:rgba(15,23,42,.06)}
+                #ak-im-root .ak-im-plus-sheet{height:0;overflow:hidden;background:#f7f7f7;transition:height .22s ease;border-top:1px solid transparent}
+                #ak-im-root .ak-im-plus-sheet.is-open{height:min(244px,34vh);border-top-color:rgba(15,23,42,.06)}
+                #ak-im-root .ak-im-plus-sheet-panel{height:100%;background:#f7f7f7;padding:18px 18px calc(18px + env(safe-area-inset-bottom, 0px));box-sizing:border-box}
+                #ak-im-root .ak-im-plus-grid{height:100%;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px 20px;align-content:start;justify-items:center}
+                #ak-im-root .ak-im-plus-item{width:100%;max-width:132px;border:none;background:transparent;padding:0;display:flex;flex-direction:column;align-items:center;gap:10px;cursor:pointer;color:#111827}
+                #ak-im-root .ak-im-plus-item:disabled{opacity:.45;cursor:default}
+                #ak-im-root .ak-im-plus-item:active .ak-im-plus-item-icon{transform:scale(.96)}
+                #ak-im-root .ak-im-plus-item-icon{width:58px;height:58px;border-radius:18px;background:#ffffff;box-shadow:0 1px 2px rgba(15,23,42,.06);display:flex;align-items:center;justify-content:center;transition:transform .16s ease}
+                #ak-im-root .ak-im-plus-item-icon svg{width:28px;height:28px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+                #ak-im-root .ak-im-plus-item-label{font-size:13px;line-height:1.4;color:#6b7280;text-align:center}
                 #ak-im-root .ak-im-emoji-sheet-panel{height:100%;display:flex;flex-direction:column;background:#f7f7f7}
                 #ak-im-root .ak-im-emoji-sheet-tabs{display:flex;align-items:center;gap:12px;padding:10px 12px 8px}
                 #ak-im-root .ak-im-emoji-sheet-tab{width:44px;height:44px;border:none;border-radius:12px;background:transparent;color:#111827;opacity:.52;display:inline-flex;align-items:center;justify-content:center;padding:0;cursor:pointer;transition:background .18s ease,opacity .18s ease,box-shadow .18s ease}
@@ -470,6 +494,7 @@
                     <div class="ak-im-message-list"></div>
                     <div class="ak-im-composer"><div class="ak-im-composer-side"><button class="ak-im-composer-btn ak-im-composer-voice" type="button" aria-label="切换到按住说话"><svg class="ak-im-icon-default" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9.6"></circle><circle cx="8.95" cy="12" r="1" fill="currentColor" stroke="none"></circle><path d="M11.45 9.75c.8.66 1.2 1.41 1.2 2.25s-.4 1.59-1.2 2.25"></path><path d="M14.15 8.55c1.18.98 1.77 2.13 1.77 3.45s-.59 2.47-1.77 3.45"></path></svg><svg class="ak-im-icon-alt" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9.6"></circle><rect x="6.4" y="8.4" width="11.2" height="7.2" rx="1.4"></rect><path d="M9 17.6h6"></path><path d="M8.9 10.8h.01"></path><path d="M11.4 10.8h.01"></path><path d="M13.9 10.8h.01"></path><path d="M16.1 10.8h.01"></path><path d="M8.8 13.2h6.4"></path></svg></button></div><div class="ak-im-composer-main"><div class="ak-im-input-wrap"><textarea class="ak-im-input" placeholder="输入消息"></textarea></div><button class="ak-im-hold-to-talk" type="button">按住 说话</button></div><div class="ak-im-composer-actions"><button class="ak-im-composer-btn ak-im-emoji-toggle" type="button" aria-label="打开表情面板"><svg class="ak-im-icon-default" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9.85"></circle><circle cx="9.15" cy="10.15" r="1" fill="currentColor" stroke="none"></circle><circle cx="14.85" cy="10.15" r="1" fill="currentColor" stroke="none"></circle><path d="M8.3 13.85a3.7 3.7 0 0 0 7.4 0h-1.45a2.25 2.25 0 0 1-4.5 0Z" fill="currentColor" stroke="none"></path></svg><svg class="ak-im-icon-alt" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9.6"></circle><rect x="6.4" y="8.4" width="11.2" height="7.2" rx="1.4"></rect><path d="M9 17.6h6"></path><path d="M8.9 10.8h.01"></path><path d="M11.4 10.8h.01"></path><path d="M13.9 10.8h.01"></path><path d="M16.1 10.8h.01"></path><path d="M8.8 13.2h6.4"></path></svg></button><button class="ak-im-composer-btn ak-im-composer-plus is-disabled" type="button" aria-label="更多功能" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9.6"></circle><path d="M12 8v8"></path><path d="M8 12h8"></path></svg></button><button class="ak-im-send" type="button">发送</button></div></div>
                     <div class="ak-im-emoji-sheet" aria-hidden="true" inert><div class="ak-im-emoji-sheet-panel"><div class="ak-im-emoji-sheet-tabs"></div><div class="ak-im-emoji-sheet-body"></div></div></div>
+                    <div class="ak-im-plus-sheet" aria-hidden="true" inert><div class="ak-im-plus-sheet-panel"><div class="ak-im-plus-grid"><button class="ak-im-plus-item" type="button" data-im-plus-action="camera"><span class="ak-im-plus-item-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8.2 7.4 9.3 5.9h5.4l1.1 1.5"></path><rect x="4.2" y="7.4" width="15.6" height="11.4" rx="2.4"></rect><circle cx="12" cy="13.1" r="3.3"></circle></svg></span><span class="ak-im-plus-item-label">拍照</span></button><button class="ak-im-plus-item" type="button" data-im-plus-action="album"><span class="ak-im-plus-item-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4.3" y="5.2" width="15.4" height="13.6" rx="2.3"></rect><circle cx="9" cy="10" r="1.2"></circle><path d="m7.2 16 3.1-3.1 2.2 2.2 2.6-2.8 1.7 1.8"></path></svg></span><span class="ak-im-plus-item-label">相册</span></button><button class="ak-im-plus-item" type="button" data-im-plus-action="file"><span class="ak-im-plus-item-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4.8 8.4h5l1.3 1.7h8.1v6.9a2 2 0 0 1-2 2H6.8a2 2 0 0 1-2-2Z"></path><path d="M4.8 10.1V7.6a2 2 0 0 1 2-2h3"></path></svg></span><span class="ak-im-plus-item-label">文件</span></button><button class="ak-im-plus-item" type="button" data-im-plus-action="location"><span class="ak-im-plus-item-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20.1s5.1-5 5.1-9a5.1 5.1 0 1 0-10.2 0c0 4 5.1 9 5.1 9Z"></path><circle cx="12" cy="11.1" r="1.9"></circle></svg></span><span class="ak-im-plus-item-label">位置</span></button></div></div></div>
                     <div class="ak-im-status"></div>
                     <div class="ak-im-voice-record-overlay" aria-hidden="true">
                         <div class="ak-im-voice-record-overlay-inner">
@@ -594,6 +619,8 @@
                 composerEmojiBtnEl: root ? root.querySelector('.ak-im-emoji-toggle') : null,
                 composerPlusBtnEl: root ? root.querySelector('.ak-im-composer-plus') : null,
                 emojiSheetEl: root ? root.querySelector('.ak-im-emoji-sheet') : null,
+                plusSheetEl: root ? root.querySelector('.ak-im-plus-sheet') : null,
+                plusActionButtons: root ? root.querySelectorAll('[data-im-plus-action]') : [],
                 emojiSheetTabsEl: root ? root.querySelector('.ak-im-emoji-sheet-tabs') : null,
                 emojiSheetBodyEl: root ? root.querySelector('.ak-im-emoji-sheet-body') : null,
                 actionSheetEl: root ? root.querySelector('.ak-im-action-sheet') : null,
@@ -718,6 +745,16 @@
             });
             bindClick(elements.composerEmojiBtnEl, function() {
                 if (typeof ctx.onComposerEmojiToggleClick === 'function') ctx.onComposerEmojiToggleClick();
+            });
+            bindClick(elements.composerPlusBtnEl, function() {
+                if (typeof ctx.onComposerPlusToggleClick === 'function') ctx.onComposerPlusToggleClick();
+            });
+            Array.prototype.forEach.call(elements.plusActionButtons || [], function(button) {
+                button.addEventListener('click', function() {
+                    if (typeof ctx.onPlusActionClick === 'function') {
+                        ctx.onPlusActionClick(button.getAttribute('data-im-plus-action'));
+                    }
+                });
             });
             if (elements.inputEl) {
                 elements.inputEl.addEventListener('input', function() {

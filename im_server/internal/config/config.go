@@ -11,6 +11,8 @@ type Config struct {
 	EmojiSourceDir   string
 	EmojiStoreDir    string
 	VoiceStoreDir    string
+	ImageStoreDir    string
+	FileStoreDir     string
 }
 
 func Load() Config {
@@ -23,6 +25,8 @@ func Load() Config {
 		EmojiSourceDir:   getEnv("IM_EMOJI_SOURCE_DIR", "./imageSource"),
 		EmojiStoreDir:    getEnv("IM_EMOJI_STORE_DIR", "./data/im/emoji_assets"),
 		VoiceStoreDir:    getEnv("IM_VOICE_STORE_DIR", "./data/im/voice_assets"),
+		ImageStoreDir:    getEnv("IM_IMAGE_STORE_DIR", "./data/im/image_assets"),
+		FileStoreDir:     getEnv("IM_FILE_STORE_DIR", "./data/im/file_assets"),
 	}
 }
 

@@ -2876,6 +2876,25 @@
                             <div style="grid-column: 1 / -1; text-align: center; color: var(--text-secondary); padding: 16px 0;">进入本页后自动加载自定义表情</div>
                         </div>
                     </div>
+                    <div id="imFileAssetConfigSection" style="background: linear-gradient(135deg, rgba(34, 197, 94, 0.08), rgba(16, 185, 129, 0.08)); border: 1px solid rgba(34, 197, 94, 0.16); border-radius: 12px; padding: 14px; margin-bottom: 14px;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 10px;">
+                            <div>
+                                <div style="font-size: 14px; color: var(--accent); font-weight: 700;">文件云端保存</div>
+                                <div id="imFileAssetConfigSummary" style="font-size: 12px; color: var(--text-secondary); margin-top: 4px;">进入本页后自动加载文件保存天数</div>
+                            </div>
+                            <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                                <button class="btn" onclick="loadImFileAssetConfig()" style="padding: 6px 12px; font-size: 12px;">刷新</button>
+                                <button class="btn btn-primary" id="imFileAssetConfigSaveBtn" onclick="saveImFileAssetConfig()" style="padding: 6px 12px; font-size: 12px; display: none;">保存</button>
+                            </div>
+                        </div>
+                        <div style="display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end;">
+                            <div>
+                                <label style="display:block; font-size:11px; color:var(--text-secondary); margin-bottom:4px;">云端保存天数</label>
+                                <input id="imFileAssetRetentionDays" type="number" min="1" placeholder="30" style="padding: 8px 10px; background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 6px; color: var(--text-primary); font-size: 13px; width: 120px;">
+                            </div>
+                            <div style="font-size: 12px; color: var(--text-secondary); line-height: 1.6; max-width: 420px;">文件消息将按该天数独立保留，超过保存期或云端已清理时，用户侧显示“文件已失效”。</div>
+                        </div>
+                    </div>
                     <div id="imContactsGroupList" style="display: flex; flex-direction: column; gap: 10px;">
                         <div style="text-align: center; color: var(--text-secondary); padding: 30px 0;">进入本页后自动加载群聊</div>
                     </div>
@@ -5645,6 +5664,7 @@
                 if (tab.dataset.panel === 'contacts') {
                     loadImContactsGroups(false);
                     loadImEmojiAssets();
+                    loadImFileAssetConfig();
                 }
                 if (tab.dataset.panel === 'credits') loadCreditsPage();
                 if (tab.dataset.panel === 'license') {
@@ -7801,6 +7821,11 @@
         let imEmojiAssetsImporting = false;
         let imEmojiAssetsUploading = false;
         let imEmojiAssetsError = '';
+        let imFileAssetRetentionDays = 30;
+        let imFileAssetConfigLoaded = false;
+        let imFileAssetConfigLoading = false;
+        let imFileAssetConfigSaving = false;
+        let imFileAssetConfigError = '';
         let imContactsGroups = [];
         let imContactsSelectedConversationId = 0;
         let imContactsDetailItem = null;
@@ -7899,6 +7924,91 @@
             } finally {
                 imEmojiAssetsLoading = false;
                 renderImEmojiAssetPanel();
+            }
+        }
+
+        function renderImFileAssetConfigPanel() {
+            const summaryEl = document.getElementById('imFileAssetConfigSummary');
+            const inputEl = document.getElementById('imFileAssetRetentionDays');
+            const saveBtn = document.getElementById('imFileAssetConfigSaveBtn');
+            if (!summaryEl || !inputEl) return;
+            const canSave = isSuperAdmin();
+            if (saveBtn) {
+                saveBtn.style.display = canSave ? '' : 'none';
+                saveBtn.disabled = !!(imFileAssetConfigLoading || imFileAssetConfigSaving);
+                saveBtn.textContent = imFileAssetConfigSaving ? '保存中...' : '保存';
+            }
+            inputEl.disabled = !!(imFileAssetConfigLoading || imFileAssetConfigSaving || !canSave);
+            if (imFileAssetConfigLoading) {
+                summaryEl.textContent = '正在读取文件保存天数...';
+                return;
+            }
+            inputEl.value = String(imFileAssetRetentionDays || 30);
+            if (imFileAssetConfigError) {
+                summaryEl.textContent = imFileAssetConfigError;
+                return;
+            }
+            summaryEl.textContent = `当前文件云端保存 ${imFileAssetRetentionDays} 天${canSave ? '' : '（仅总管理员可修改）'}`;
+        }
+
+        async function loadImFileAssetConfig() {
+            if (imFileAssetConfigLoading) return;
+            imFileAssetConfigLoading = true;
+            imFileAssetConfigError = '';
+            renderImFileAssetConfigPanel();
+            try {
+                const res = await fetch(`${API_BASE}/admin/api/im/file_assets/config`, {headers: getHeaders()});
+                const data = await res.json();
+                if (!res.ok || !data.success) {
+                    throw new Error(data.message || '加载文件保存天数失败');
+                }
+                imFileAssetRetentionDays = Math.max(1, Number(data.retention_days || 0) || 30);
+                imFileAssetConfigLoaded = true;
+                imFileAssetConfigError = '';
+            } catch (e) {
+                imFileAssetConfigLoaded = false;
+                imFileAssetConfigError = e.message || '加载文件保存天数失败';
+            } finally {
+                imFileAssetConfigLoading = false;
+                renderImFileAssetConfigPanel();
+            }
+        }
+
+        async function saveImFileAssetConfig() {
+            if (!isSuperAdmin()) {
+                showAlert('仅系统总管理员可修改文件保存天数', 'warning');
+                return;
+            }
+            if (imFileAssetConfigSaving) return;
+            const inputEl = document.getElementById('imFileAssetRetentionDays');
+            const retentionDays = Math.max(0, Number(inputEl && inputEl.value || 0) || 0);
+            if (retentionDays <= 0) {
+                showAlert('文件保存天数必须大于 0', 'warning');
+                return;
+            }
+            imFileAssetConfigSaving = true;
+            imFileAssetConfigError = '';
+            renderImFileAssetConfigPanel();
+            try {
+                const res = await fetch(`${API_BASE}/admin/api/im/file_assets/config`, {
+                    method: 'POST',
+                    headers: {...getHeaders(), 'Content-Type': 'application/json'},
+                    body: JSON.stringify({retention_days: retentionDays})
+                });
+                const data = await res.json();
+                if (!res.ok || !data.success) {
+                    throw new Error(data.message || '保存文件保存天数失败');
+                }
+                imFileAssetRetentionDays = Math.max(1, Number(data.retention_days || retentionDays) || retentionDays);
+                imFileAssetConfigLoaded = true;
+                imFileAssetConfigError = '';
+                showToast(data.message || `文件保存天数已更新为 ${imFileAssetRetentionDays} 天`);
+            } catch (e) {
+                imFileAssetConfigError = e.message || '保存文件保存天数失败';
+                showAlert('保存文件保存天数失败: ' + imFileAssetConfigError, 'error');
+            } finally {
+                imFileAssetConfigSaving = false;
+                renderImFileAssetConfigPanel();
             }
         }
 

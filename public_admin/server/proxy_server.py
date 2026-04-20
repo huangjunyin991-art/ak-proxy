@@ -381,6 +381,26 @@ async def _sync_im_whitelist_group_owners(owners: Iterable[str]) -> None:
 
 
 
+async def _get_im_internal_json(path: str) -> tuple[int, dict]:
+
+    url = f"{IM_SERVER_INTERNAL_URL}{path}"
+
+    async with httpx.AsyncClient(timeout=8.0, trust_env=False) as client:
+
+        response = await client.get(url)
+
+    try:
+
+        body = response.json()
+
+    except Exception:
+
+        body = {"error": True, "message": response.text[:300] or "IM 服务响应无效"}
+
+    return response.status_code, body
+
+
+
 async def _post_im_internal_json(path: str, payload: dict) -> tuple[int, dict]:
 
     url = f"{IM_SERVER_INTERNAL_URL}{path}"
@@ -5386,6 +5406,113 @@ async def admin_im_emoji_assets_upload(request: Request, files: Optional[list[Up
     }
 
 
+
+
+
+@app.get("/admin/api/im/file_assets/config")
+async def admin_im_file_assets_config(request: Request):
+
+    token, _, _ = await _resolve_admin_identity(request)
+
+    if not token:
+
+        return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
+
+    status_code, body = await _get_im_internal_json("/im/internal/file_assets/config")
+
+    if status_code >= 400:
+
+        if isinstance(body, dict):
+
+            return JSONResponse(status_code=status_code, content=body)
+
+        return JSONResponse(status_code=status_code, content={"error": True, "message": "IM 服务调用失败"})
+
+    retention_days = 30
+
+    if isinstance(body, dict):
+
+        try:
+
+            retention_days = int(body.get('retention_days') or 0)
+
+        except Exception:
+
+            retention_days = 30
+
+    if retention_days <= 0:
+
+        retention_days = 30
+
+    return JSONResponse(content={
+        "success": True,
+        "retention_days": retention_days,
+    })
+
+
+
+@app.post("/admin/api/im/file_assets/config")
+async def admin_im_file_assets_config_update(request: Request):
+
+    token, role, _ = await _resolve_admin_identity(request)
+
+    if not token:
+
+        return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
+
+    if role != ROLE_SUPER_ADMIN:
+
+        return JSONResponse(status_code=403, content={"error": True, "message": "仅系统总管理员可修改文件保存天数"})
+
+    try:
+
+        data = await request.json()
+
+    except Exception:
+
+        return JSONResponse(status_code=400, content={"error": True, "message": "请求体无效"})
+
+    try:
+
+        retention_days = int(data.get('retention_days') or 0)
+
+    except Exception:
+
+        retention_days = 0
+
+    if retention_days <= 0:
+
+        return JSONResponse(status_code=400, content={"error": True, "message": "保存天数必须大于 0"})
+
+    status_code, body = await _post_im_internal_json("/im/internal/file_assets/config", {
+        "retention_days": retention_days,
+    })
+
+    if status_code >= 400:
+
+        if isinstance(body, dict):
+
+            return JSONResponse(status_code=status_code, content=body)
+
+        return JSONResponse(status_code=status_code, content={"error": True, "message": "IM 服务调用失败"})
+
+    next_retention_days = retention_days
+
+    if isinstance(body, dict):
+
+        try:
+
+            next_retention_days = int(body.get('retention_days') or retention_days)
+
+        except Exception:
+
+            next_retention_days = retention_days
+
+    return JSONResponse(content={
+        "success": True,
+        "message": f"文件保存天数已更新为 {next_retention_days} 天",
+        "retention_days": next_retention_days,
+    })
 
 
 
