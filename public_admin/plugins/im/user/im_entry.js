@@ -39,6 +39,11 @@
             src: `${window.location.origin}/chat/plugins/im/user/modules/im_message_manage.js`
         },
         {
+            selector: 'script[data-ak-im-user-plugin-heic-manage="1"]',
+            datasetKey: 'akImUserPluginHeicManage',
+            src: `${window.location.origin}/chat/plugins/im/user/modules/im_heic_manage.js`
+        },
+        {
             selector: 'script[data-ak-im-user-plugin-image-manage="1"]',
             datasetKey: 'akImUserPluginImageManage',
             src: `${window.location.origin}/chat/plugins/im/user/modules/im_image_manage.js`

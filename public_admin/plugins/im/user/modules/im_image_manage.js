@@ -48,6 +48,10 @@
             return String(value || '').trim().toLowerCase() === 'camera' ? 'camera' : 'album';
         },
 
+        getHeicModule() {
+            return this.ctx && this.ctx.heicManage ? this.ctx.heicManage : null;
+        },
+
         normalizeUploadConfig(data) {
             const source = data && typeof data === 'object' ? data : {};
             const outputFormat = String(source.output_format || DEFAULT_UPLOAD_CONFIG.output_format).trim().toLowerCase();
@@ -182,6 +186,23 @@
             return 'img-' + Date.now() + '-' + Math.random().toString(36).slice(2, 10);
         },
 
+        buildPlaceholderPreviewUrl(fileName, mimeType) {
+            const normalizedFileName = String(fileName || '').trim() || '图片';
+            const normalizedMimeType = this.normalizeMimeType(mimeType);
+            const badgeText = normalizedMimeType === 'image/heic' || normalizedMimeType === 'image/heif' ? 'HEIC' : '图片';
+            const displayName = normalizedFileName.length > 18 ? (normalizedFileName.slice(0, 15) + '...') : normalizedFileName;
+            const markup = '<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="1080" viewBox="0 0 1080 1080">' +
+                '<defs><linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#1f2937"/><stop offset="100%" stop-color="#0f172a"/></linearGradient></defs>' +
+                '<rect width="1080" height="1080" rx="96" fill="url(#bg)"/>' +
+                '<rect x="96" y="120" width="220" height="84" rx="42" fill="#38bdf8" fill-opacity="0.18" stroke="#38bdf8" stroke-opacity="0.45"/>' +
+                '<text x="206" y="174" text-anchor="middle" font-size="42" font-family="Arial, sans-serif" fill="#e0f2fe">' + this.escapeHtml(badgeText) + '</text>' +
+                '<text x="540" y="500" text-anchor="middle" font-size="146" font-family="Arial, sans-serif" fill="#f8fafc">🖼</text>' +
+                '<text x="540" y="640" text-anchor="middle" font-size="52" font-family="Arial, sans-serif" fill="#e2e8f0">图片处理中</text>' +
+                '<text x="540" y="726" text-anchor="middle" font-size="34" font-family="Arial, sans-serif" fill="#94a3b8">' + this.escapeHtml(displayName) + '</text>' +
+            '</svg>';
+            return 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(markup);
+        },
+
         storePreviewUrl(tempId, previewUrl) {
             const key = String(tempId || '').trim();
             if (!key) return;
@@ -231,6 +252,49 @@
 
         normalizeMimeType(value) {
             return String(value || '').trim().toLowerCase();
+        },
+
+        getFileExtension(value) {
+            const normalizedValue = String(value || '').trim();
+            const matched = normalizedValue.match(/\.[^.]+$/);
+            return matched ? matched[0].toLowerCase() : '';
+        },
+
+        isHeicLikeMimeType(value) {
+            const normalizedMimeType = this.normalizeMimeType(value);
+            return normalizedMimeType === 'image/heic' || normalizedMimeType === 'image/heif';
+        },
+
+        isHeicLikeFile(file) {
+            if (!file || typeof file !== 'object') return false;
+            if (this.isHeicLikeMimeType(file.type)) return true;
+            const ext = this.getFileExtension(file.name);
+            return ext === '.heic' || ext === '.heif';
+        },
+
+        prepareUploadSourceFile(file, config) {
+            if (!this.isHeicLikeFile(file)) {
+                return Promise.resolve({
+                    file: file,
+                    previewFile: file,
+                    forceOutputMimeType: ''
+                });
+            }
+            const heicModule = this.getHeicModule();
+            if (!heicModule || typeof heicModule.prepareImageFile !== 'function') {
+                return Promise.reject(new Error('当前环境暂不支持 HEIC 图片发送'));
+            }
+            return heicModule.prepareImageFile(file, {
+                targetMimeType: 'image/webp',
+                quality: Math.max(0.4, Math.min(0.95, (Number(config && config.quality || 82) || 82) / 100))
+            }).then(function(result) {
+                const nextFile = result && result.file ? result.file : file;
+                return {
+                    file: nextFile,
+                    previewFile: nextFile,
+                    forceOutputMimeType: 'image/webp'
+                };
+            });
         },
 
         getFileExtensionByMimeType(mimeType) {
@@ -352,8 +416,12 @@
             return unique;
         },
 
-        resolveTargetMimeType(file, config, hasAlpha) {
+        resolveTargetMimeType(file, config, hasAlpha, options) {
             const originalMimeType = this.normalizeMimeType(file && file.type);
+            const forcedMimeType = this.normalizeMimeType(options && options.forceOutputMimeType);
+            if (forcedMimeType === 'image/png') return 'image/png';
+            if (forcedMimeType === 'image/webp' && this.supportsCanvasMimeType('image/webp')) return 'image/webp';
+            if (forcedMimeType === 'image/jpeg') return 'image/jpeg';
             if (originalMimeType === 'image/png' && hasAlpha && config.keep_png_with_alpha) return 'image/png';
             if (config.output_format === 'keep') {
                 if (originalMimeType === 'image/jpeg' || originalMimeType === 'image/png') return originalMimeType;
@@ -412,7 +480,7 @@
             });
         },
 
-        maybeCompressImageFile(file, config) {
+        maybeCompressImageFile(file, config, options) {
             const normalizedConfig = this.normalizeUploadConfig(config || this.uploadConfig);
             const thresholdBytes = Math.max(0, Number(normalizedConfig.compress_above_kb || 0) || 0) * 1024;
             const originalMimeType = this.normalizeMimeType(file && file.type);
@@ -451,7 +519,7 @@
                     context.drawImage(sourceImage.image, 0, 0, canvas.width, canvas.height);
                     sourceImage.release();
                     const hasAlpha = originalMimeType === 'image/png' && normalizedConfig.keep_png_with_alpha ? self.sampleCanvasHasAlpha(canvas) : false;
-                    const targetMimeType = self.resolveTargetMimeType(file, normalizedConfig, hasAlpha);
+                    const targetMimeType = self.resolveTargetMimeType(file, normalizedConfig, hasAlpha, options);
                     if (targetMimeType === 'image/gif') {
                         return {
                             file: file,
@@ -491,14 +559,30 @@
             const source = this.normalizeSource(meta && meta.source);
             const self = this;
             const tempId = this.createTempId();
-            const previewUrl = URL.createObjectURL(file);
-            this.storePreviewUrl(tempId, previewUrl);
+            const initialPreviewUrl = this.isHeicLikeFile(file)
+                ? this.buildPlaceholderPreviewUrl(file && file.name, file && file.type)
+                : URL.createObjectURL(file);
+            this.storePreviewUrl(tempId, initialPreviewUrl);
             if (typeof this.ctx.insertLocalMessage === 'function') {
-                this.ctx.insertLocalMessage(this.createTempMessage(file, previewUrl, source, tempId));
+                this.ctx.insertLocalMessage(this.createTempMessage(file, initialPreviewUrl, source, tempId));
             }
             return this.loadUploadConfig(false).then(function(config) {
-                return self.maybeCompressImageFile(file, config).then(function(result) {
-                    const uploadFile = result && result.file ? result.file : file;
+                return self.prepareUploadSourceFile(file, config).then(function(prepared) {
+                    const sourceFile = prepared && prepared.file ? prepared.file : file;
+                    const previewFile = prepared && prepared.previewFile ? prepared.previewFile : sourceFile;
+                    const forceOutputMimeType = String(prepared && prepared.forceOutputMimeType || '').trim();
+                    const previewUrl = previewFile === file ? initialPreviewUrl : URL.createObjectURL(previewFile);
+                    self.storePreviewUrl(tempId, previewUrl);
+                    if (typeof self.ctx.updateLocalMessage === 'function') {
+                        self.ctx.updateLocalMessage(tempId, {
+                            content: self.buildImagePayloadString(previewUrl, previewFile && previewFile.name, previewFile && previewFile.type, previewFile && previewFile.size, source),
+                            __akLocalStatus: 'preparing',
+                            __akUploadProgress: 0,
+                            __akUploadError: ''
+                        });
+                    }
+                    return self.maybeCompressImageFile(sourceFile, config, { forceOutputMimeType: forceOutputMimeType }).then(function(result) {
+                    const uploadFile = result && result.file ? result.file : sourceFile;
                     const uploadFileName = String(result && result.fileName || uploadFile && uploadFile.name || '').trim() || ('image-' + Date.now() + '.jpg');
                     if (typeof self.ctx.updateLocalMessage === 'function') {
                         self.ctx.updateLocalMessage(tempId, {
@@ -536,6 +620,7 @@
                             return item;
                         });
                     });
+                });
                 });
             }).catch(function(error) {
                 if (typeof self.ctx.updateLocalMessage === 'function') {
