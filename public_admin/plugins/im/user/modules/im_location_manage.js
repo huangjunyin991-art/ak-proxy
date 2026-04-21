@@ -7,7 +7,6 @@
     const SEARCH_SUGGESTION_LIMIT = 6;
     const SEARCH_RESULT_LIMIT = 6;
     const SEARCH_DEBOUNCE_MS = 180;
-    const OPEN_MAP_APP_FALLBACK_DELAY_MS = 900;
     const LOCATION_PROVIDER = 'amap';
     const LOCATION_COORDINATE = 'gaode';
     const LOCATION_SOURCE_APPLICATION = 'ak-proxy';
@@ -243,12 +242,11 @@
             if (!target || !this.isMobileBrowser()) return;
             const appUrl = String(target.getAttribute('data-ak-im-location-app-url') || '').trim();
             if (!appUrl) return;
-            const webUrl = String(target.getAttribute('data-ak-im-location-web-url') || target.getAttribute('href') || '').trim();
             if (event) {
                 event.preventDefault();
                 event.stopPropagation();
             }
-            this.openMapWithFallback(appUrl, webUrl);
+            this.openMapAppTarget(appUrl);
         },
 
         navigateToMapUrl(url, target) {
@@ -273,60 +271,12 @@
             }
         },
 
-        openMapWithFallback(appUrl, webUrl) {
+        openMapAppTarget(appUrl) {
             const finalAppUrl = String(appUrl || '').trim();
-            const finalWebUrl = String(webUrl || '').trim();
-            if (!finalAppUrl) {
-                this.navigateToMapUrl(finalWebUrl, this.isMobileBrowser() ? '_self' : '_blank');
-                return;
-            }
-            const self = this;
-            const doc = global.document;
-            let cleaned = false;
-            let fallbackTimer = null;
-            const cleanup = function() {
-                if (cleaned) return;
-                cleaned = true;
-                if (fallbackTimer) {
-                    global.clearTimeout(fallbackTimer);
-                    fallbackTimer = null;
-                }
-                if (doc && typeof doc.removeEventListener === 'function') {
-                    doc.removeEventListener('visibilitychange', handleVisibilityChange, true);
-                }
-                if (typeof global.removeEventListener === 'function') {
-                    global.removeEventListener('pagehide', handlePageExit, true);
-                    global.removeEventListener('blur', handlePageExit, true);
-                }
-            };
-            const handleVisibilityChange = function() {
-                if (doc && doc.hidden) {
-                    cleanup();
-                }
-            };
-            const handlePageExit = function() {
-                cleanup();
-            };
-            if (doc && typeof doc.addEventListener === 'function') {
-                doc.addEventListener('visibilitychange', handleVisibilityChange, true);
-            }
-            if (typeof global.addEventListener === 'function') {
-                global.addEventListener('pagehide', handlePageExit, true);
-                global.addEventListener('blur', handlePageExit, true);
-            }
-            fallbackTimer = global.setTimeout(function() {
-                cleanup();
-                if (finalWebUrl) {
-                    self.navigateToMapUrl(finalWebUrl, '_self');
-                }
-            }, OPEN_MAP_APP_FALLBACK_DELAY_MS);
+            if (!finalAppUrl) return;
             try {
                 this.navigateToMapUrl(finalAppUrl, '_self');
             } catch (error) {
-                cleanup();
-                if (finalWebUrl) {
-                    this.navigateToMapUrl(finalWebUrl, '_self');
-                }
             }
         },
 
