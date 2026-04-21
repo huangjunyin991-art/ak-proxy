@@ -3938,17 +3938,29 @@ async def admin_sub_admin_bind_account(request: Request):
 
     try:
 
-        saved_sub_admin = await db.db_bind_sub_admin_account(sub_name, bound_username, bound_by='super_admin')
+        binding_result = await db.db_set_sub_admin_binding(sub_name, bound_username, bound_by='super_admin')
 
-        SUB_ADMINS[sub_name] = saved_sub_admin
+        SUB_ADMINS[sub_name] = binding_result['data']
 
-        await _sync_im_whitelist_group_owners({sub_name})
+        op = binding_result['op']
 
-        return {"success": True, "message": f"子管理员 [{sub_name}] 绑定账号成功"}
+        # 仅在绑定新增或换绑（写入新账号）时触发 IM 主群同步；解绑场景保持旧群主不变
+        if op in ('created', 'updated'):
+
+            await _sync_im_whitelist_group_owners({sub_name})
+
+        op_message = {
+            'created': f"子管理员 [{sub_name}] 补绑成功",
+            'updated': f"子管理员 [{sub_name}] 换绑成功",
+            'deleted': f"子管理员 [{sub_name}] 已解绑（主群群主保持不变，下次绑定新账号时更新）",
+            'noop': f"子管理员 [{sub_name}] 绑定未发生变化",
+        }.get(op, f"子管理员 [{sub_name}] 绑定更新成功")
+
+        return {"success": True, "message": op_message, "op": op}
 
     except Exception as e:
 
-        return {"success": False, "message": f"绑定失败: {e}"}
+        return {"success": False, "message": f"绑定变更失败: {e}"}
 
 
 

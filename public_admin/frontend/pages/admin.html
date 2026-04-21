@@ -3135,6 +3135,9 @@
                                 <button id="bindAccountBtn" onclick="bindSubAdminAccount()" style="display: none; padding: 8px 14px; background: var(--bg-secondary); color: var(--accent-green); border: 1px solid rgba(0,255,136,0.3); border-radius: 4px; cursor: pointer; font-size: 13px;">
                                     🔗 补绑账号
                                 </button>
+                                <button id="unbindAccountBtn" onclick="unbindSubAdminAccount()" style="display: none; padding: 8px 14px; background: var(--bg-secondary); color: var(--accent-red); border: 1px solid rgba(255,71,87,0.3); border-radius: 4px; cursor: pointer; font-size: 13px;">
+                                    🔓 解绑账号
+                                </button>
                                 <button onclick="kickAllSubAdmins()" style="padding: 8px 14px; background: var(--bg-secondary); color: var(--accent-yellow); border: 1px solid rgba(255,165,2,0.3); border-radius: 4px; cursor: pointer; font-size: 13px;">
                                     踢出全部
                                 </button>
@@ -5107,6 +5110,8 @@
             document.getElementById('updatePermBtn').style.display = 'none';
             document.getElementById('bindAccountBtn').style.display = 'none';
             document.getElementById('bindAccountBtn').textContent = '🔗 补绑账号';
+            const unbindBtn = document.getElementById('unbindAccountBtn');
+            if (unbindBtn) unbindBtn.style.display = 'none';
             document.querySelectorAll('#subAdminList [data-subname]').forEach(card => {
                 const border = card.dataset.defaultBorder || 'var(--border)';
                 card.style.borderColor = border;
@@ -5118,7 +5123,8 @@
         function selectSubAdmin(name, permissions, boundUsername) {
             selectedSubAdmin = name;
             document.getElementById('newSubAdminName').value = name;
-            setSubAdminBoundUsername(boundUsername || '');
+            const currentBound = String(boundUsername || '').trim().toLowerCase();
+            setSubAdminBoundUsername(currentBound);
             // 加载权限到复选框
             const permKeys = ['dashboard', 'online', 'usage', 'users', 'ips', 'banlist', 'license', 'database'];
             permKeys.forEach(key => {
@@ -5135,18 +5141,68 @@
                     card.style.boxShadow = 'none';
                 }
             });
-            // 显示更新权限按钮
+            // 显示操作按钮
             document.getElementById('updatePermBtn').style.display = '';
             document.getElementById('bindAccountBtn').style.display = '';
-            document.getElementById('bindAccountBtn').textContent = boundUsername ? '🔁 改绑账号' : '🔗 补绑账号';
-            showSubAdminMsg(boundUsername ? `已选中 [${name}]，可修改权限或重新保存绑定` : `已选中 [${name}]，请填写绑定账号后点击"补绑账号"`, 'select');
+            document.getElementById('bindAccountBtn').textContent = currentBound ? '🔁 换绑账号' : '🔗 补绑账号';
+            const unbindBtn = document.getElementById('unbindAccountBtn');
+            if (unbindBtn) unbindBtn.style.display = currentBound ? '' : 'none';
+            showSubAdminMsg(currentBound
+                ? `已选中 [${name}]（当前绑定: ${currentBound}），可修改权限、换绑新账号或点击解绑`
+                : `已选中 [${name}]，请填写绑定账号后点击"补绑账号"`, 'select');
         }
 
-        function prepareBindSubAdmin(name, permissions) {
-            selectSubAdmin(name, permissions || {}, '');
+        function prepareBindSubAdmin(name, permissions, currentBoundUsername) {
+            const currentBound = String(currentBoundUsername || '').trim().toLowerCase();
+            selectSubAdmin(name, permissions || {}, currentBound);
             const input = document.getElementById('newSubAdminBoundUsername');
-            if (input) input.focus();
-            showSubAdminMsg(`请为子管理员 [${name}] 填写绑定账号后点击"补绑账号"`, 'select');
+            if (input) {
+                // 换绑场景清空输入框，促使输入新账号；补绑场景直接待输入
+                input.value = '';
+                input.focus();
+            }
+            showSubAdminMsg(currentBound
+                ? `子管理员 [${name}] 当前绑定 [${currentBound}]，请输入新账号后点击"换绑账号"`
+                : `请为子管理员 [${name}] 填写绑定账号后点击"补绑账号"`, 'select');
+        }
+
+        async function unbindSubAdminAccount() {
+            const subName = selectedSubAdmin || document.getElementById('newSubAdminName').value.trim();
+            const superPassword = document.getElementById('subAdminSuperPassword').value;
+            const secondaryPassword = document.getElementById('subAdminSecondaryPassword').value;
+            if (!subName) {
+                showSubAdminMsg('请先选择需要解绑的子管理员', 'error');
+                return;
+            }
+            if (!superPassword || !secondaryPassword) {
+                showSubAdminMsg('请填写系统总管理员密码和二级密码', 'error');
+                return;
+            }
+            if (!confirm(`确定要为子管理员 [${subName}] 解绑授权账号吗？\n\n解绑后绑定关系清除，但玩家主群群主保持不变（留在原账号下），下次绑定新账号时才会更新群主。`)) {
+                return;
+            }
+            try {
+                const resp = await fetch('/admin/api/sub_admin/bind_account', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        admin_password: superPassword,
+                        secondary_password: secondaryPassword,
+                        sub_name: subName,
+                        bound_username: ''
+                    })
+                });
+                const data = await resp.json();
+                if (data.success) {
+                    showSubAdminMsg('✅ ' + (data.message || '解绑成功'), 'success');
+                    resetSubAdminSelection(true);
+                    loadSubAdminStatus();
+                } else {
+                    showSubAdminMsg('❌ ' + (data.message || '解绑失败'), 'error');
+                }
+            } catch (e) {
+                showSubAdminMsg('❌ 网络错误: ' + e.message, 'error');
+            }
         }
         
         // 仅更新权限（不需要改密码）
@@ -5203,6 +5259,11 @@
                 msgDiv.style.background = 'rgba(0, 255, 136, 0.1)';
                 msgDiv.style.color = 'var(--accent-green)';
                 msgDiv.style.border = '1px solid var(--accent-green)';
+                setTimeout(() => { msgDiv.style.display = 'none'; }, 3000);
+            } else if (type === 'info') {
+                msgDiv.style.background = 'rgba(0,200,255,0.1)';
+                msgDiv.style.color = 'var(--accent)';
+                msgDiv.style.border = '1px solid var(--accent)';
                 setTimeout(() => { msgDiv.style.display = 'none'; }, 3000);
             } else {
                 msgDiv.style.background = 'rgba(255, 71, 87, 0.1)';
@@ -5309,12 +5370,15 @@
                                     </div>
                                     <div style="margin-top: 4px;">${boundLine}</div>
                                 </div>
-                                <div style="display: flex; gap: 6px; flex-shrink: 0;">
+                                <div style="display: flex; gap: 6px; flex-shrink: 0; flex-wrap: wrap; justify-content: flex-end;">
                                     ${!isBound
-                                        ? `<button onclick="event.stopPropagation(); prepareBindSubAdmin(${nameJson}, ${permJson})" style="padding: 4px 10px; font-size: 12px; background: var(--bg-secondary); color: var(--accent-green); border: 1px solid rgba(0,255,136,0.3); border-radius: 4px; cursor: pointer;">补绑</button>`
-                                        : (!boundHealthy
-                                            ? `<button onclick="event.stopPropagation(); prepareBindSubAdmin(${nameJson}, ${permJson})" style="padding: 4px 10px; font-size: 12px; background: var(--bg-secondary); color: var(--accent-yellow); border: 1px solid rgba(255,165,2,0.3); border-radius: 4px; cursor: pointer;">改绑</button>`
-                                            : '')}
+                                        ? `<button onclick="event.stopPropagation(); prepareBindSubAdmin(${nameJson}, ${permJson}, ${boundJson})" style="padding: 4px 10px; font-size: 12px; background: var(--bg-secondary); color: var(--accent-green); border: 1px solid rgba(0,255,136,0.3); border-radius: 4px; cursor: pointer;">补绑</button>`
+                                        : (boundHealthy
+                                            ? `<button onclick="event.stopPropagation(); prepareBindSubAdmin(${nameJson}, ${permJson}, ${boundJson})" style="padding: 4px 10px; font-size: 12px; background: var(--bg-secondary); color: var(--accent); border: 1px solid rgba(0,200,255,0.3); border-radius: 4px; cursor: pointer;">换绑</button>`
+                                            : `<button onclick="event.stopPropagation(); prepareBindSubAdmin(${nameJson}, ${permJson}, ${boundJson})" style="padding: 4px 10px; font-size: 12px; background: var(--bg-secondary); color: var(--accent-yellow); border: 1px solid rgba(255,165,2,0.3); border-radius: 4px; cursor: pointer;">改绑</button>`)}
+                                    ${isBound
+                                        ? `<button onclick="event.stopPropagation(); unbindOneSubAdmin(${nameJson})" style="padding: 4px 10px; font-size: 12px; background: var(--bg-secondary); color: #888; border: 1px solid rgba(136,136,136,0.3); border-radius: 4px; cursor: pointer;">解绑</button>`
+                                        : ''}
                                     <button onclick="event.stopPropagation(); kickOneSubAdmin(${nameJson})" style="padding: 4px 10px; font-size: 12px; background: var(--bg-secondary); color: var(--accent-yellow); border: 1px solid rgba(255,165,2,0.3); border-radius: 4px; cursor: pointer;">踢出</button>
                                     <button onclick="event.stopPropagation(); deleteOneSubAdmin(${nameJson})" style="padding: 4px 10px; font-size: 12px; background: var(--bg-secondary); color: var(--accent-red); border: 1px solid rgba(255,71,87,0.3); border-radius: 4px; cursor: pointer;">删除</button>
                                 </div>
@@ -5392,7 +5456,7 @@
                 return;
             }
             if (!boundUsername) {
-                showSubAdminMsg('请填写绑定账号', 'error');
+                showSubAdminMsg('请填写绑定账号（如需解除绑定，请点击卡片上的"解绑"按钮）', 'error');
                 return;
             }
             if (!superPassword || !secondaryPassword) {
@@ -5400,6 +5464,10 @@
                 return;
             }
 
+            await submitSubAdminBinding(subName, boundUsername, superPassword, secondaryPassword, '补绑');
+        }
+
+        async function submitSubAdminBinding(subName, boundUsername, superPassword, secondaryPassword, actionLabel) {
             try {
                 const res = await fetch(`${API_BASE}/admin/api/sub_admin/bind_account`, {
                     method: 'POST',
@@ -5414,17 +5482,33 @@
 
                 const data = await res.json();
                 if (data.success) {
-                    showSubAdminMsg('✅ ' + data.message, 'success');
+                    const op = data.op || '';
+                    const icon = op === 'noop' ? 'ℹ️' : '✅';
+                    showSubAdminMsg(icon + ' ' + data.message, op === 'noop' ? 'info' : 'success');
                     document.getElementById('newSubAdminPassword').value = '';
                     toggleAllPerms(false);
                     resetSubAdminSelection(true);
                     loadSubAdminStatus();
                 } else {
-                    showSubAdminMsg('❌ ' + (data.message || '补绑失败'), 'error');
+                    showSubAdminMsg('❌ ' + (data.message || (actionLabel + '失败')), 'error');
                 }
             } catch (e) {
                 showSubAdminMsg('❌ 网络错误: ' + e.message, 'error');
             }
+        }
+
+        async function unbindOneSubAdmin(name) {
+            if (!name) return;
+            const superPassword = document.getElementById('subAdminSuperPassword').value;
+            const secondaryPassword = document.getElementById('subAdminSecondaryPassword').value;
+            if (!superPassword || !secondaryPassword) {
+                showSubAdminMsg('请先填写系统总管理员密码和二级密码再解绑', 'error');
+                return;
+            }
+            if (!confirm(`确定要解除子管理员 [${name}] 的账号绑定吗？\n解绑后玩家主群群主暂时保持不变，待下次绑定新账号时更新。`)) {
+                return;
+            }
+            await submitSubAdminBinding(name, '', superPassword, secondaryPassword, '解绑');
         }
         
         // 踢出指定子管理员

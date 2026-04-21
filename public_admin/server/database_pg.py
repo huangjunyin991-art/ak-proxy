@@ -1454,20 +1454,10 @@ def _normalize_bound_account_username(username: str) -> str:
     return (str(username or '').strip().lower())
 
 
-async def _validate_sub_admin_bound_account(conn: asyncpg.Connection, sub_name: str, bound_username: str) -> str:
-    normalized_bound_username = _normalize_bound_account_username(bound_username)
+async def _check_binding_conflict(conn: asyncpg.Connection, sub_name: str, normalized_bound_username: str) -> None:
+    """仅检查该授权账号是否已被其他子管理员绑定（唯一性冲突），不校验账号是否存在或有效"""
     if not normalized_bound_username:
-        raise ValueError('请绑定账号')
-    account_row = await conn.fetchrow('''
-        SELECT username, status, expire_time
-        FROM authorized_accounts
-        WHERE username = $1
-    ''', normalized_bound_username)
-    if not account_row:
-        raise ValueError(f'绑定账号 [{normalized_bound_username}] 不存在')
-    expire_time = account_row['expire_time']
-    if account_row['status'] != 'active' or not expire_time or expire_time <= datetime.now():
-        raise ValueError(f'绑定账号 [{normalized_bound_username}] 当前不是有效授权账号')
+        return
     binding_row = await conn.fetchrow('''
         SELECT sub_name
         FROM sub_admin_account_bindings
@@ -1475,7 +1465,6 @@ async def _validate_sub_admin_bound_account(conn: asyncpg.Connection, sub_name: 
     ''', normalized_bound_username)
     if binding_row and str(binding_row['sub_name'] or '').strip() != str(sub_name or '').strip():
         raise ValueError(f'账号 [{normalized_bound_username}] 已绑定子管理员 [{binding_row["sub_name"]}]')
-    return normalized_bound_username
 
 async def db_get_all_sub_admins() -> Dict:
     """获取所有子管理员"""
@@ -1516,11 +1505,14 @@ async def db_get_all_sub_admins() -> Dict:
 
 async def db_set_sub_admin(name: str, password: str, permissions: dict = None,
                            bound_username: str = '', bound_by: str = '') -> Dict:
-    """添加或更新子管理员"""
+    """添加或更新子管理员（创建时要求绑定非空；仅做唯一性冲突校验，不核对账号是否存在）"""
     perm_json = json.dumps(permissions or {})
+    normalized_bound_username = _normalize_bound_account_username(bound_username)
+    if not normalized_bound_username:
+        raise ValueError('请绑定账号')
     pool = _get_pool()
     async with pool.acquire() as conn:
-        normalized_bound_username = await _validate_sub_admin_bound_account(conn, name, bound_username)
+        await _check_binding_conflict(conn, name, normalized_bound_username)
         async with conn.transaction():
             await conn.execute('''
                 INSERT INTO sub_admins (name, password, permissions) VALUES ($1, $2, $3)
@@ -1540,27 +1532,48 @@ async def db_set_sub_admin(name: str, password: str, permissions: dict = None,
     return result
 
 
-async def db_bind_sub_admin_account(name: str, bound_username: str, bound_by: str = '') -> Dict:
-    """为已有子管理员补绑或改绑账号"""
+async def db_set_sub_admin_binding(name: str, bound_username: str, bound_by: str = '') -> Dict:
+    """统一的绑定关系设置入口：支持补绑/换绑/解绑。
+    - bound_username 非空：upsert 绑定（补绑或换绑）
+    - bound_username 为空：删除绑定（解绑）
+    返回: { 'op': 'created'|'updated'|'deleted'|'noop', 'data': <子管理员详情> }
+    """
+    normalized_bound_username = _normalize_bound_account_username(bound_username)
     pool = _get_pool()
     async with pool.acquire() as conn:
         sub_admin_row = await conn.fetchrow('SELECT name FROM sub_admins WHERE name = $1', name)
         if not sub_admin_row:
             raise ValueError(f'子管理员 [{name}] 不存在')
-        normalized_bound_username = await _validate_sub_admin_bound_account(conn, name, bound_username)
-        async with conn.transaction():
-            await conn.execute('''
-                INSERT INTO sub_admin_account_bindings (sub_name, account_username, bound_by)
-                VALUES ($1, $2, $3)
-                ON CONFLICT(sub_name) DO UPDATE SET
-                    account_username = EXCLUDED.account_username,
-                    bound_by = EXCLUDED.bound_by,
-                    updated_at = NOW()
-            ''', name, normalized_bound_username, str(bound_by or '').strip())
+        existing_row = await conn.fetchrow(
+            'SELECT account_username FROM sub_admin_account_bindings WHERE sub_name = $1', name)
+        existing_username = str(existing_row['account_username'] or '').strip().lower() if existing_row else ''
+        if normalized_bound_username:
+            await _check_binding_conflict(conn, name, normalized_bound_username)
+            async with conn.transaction():
+                await conn.execute('''
+                    INSERT INTO sub_admin_account_bindings (sub_name, account_username, bound_by)
+                    VALUES ($1, $2, $3)
+                    ON CONFLICT(sub_name) DO UPDATE SET
+                        account_username = EXCLUDED.account_username,
+                        bound_by = EXCLUDED.bound_by,
+                        updated_at = NOW()
+                ''', name, normalized_bound_username, str(bound_by or '').strip())
+            if not existing_username:
+                op = 'created'
+            elif existing_username == normalized_bound_username:
+                op = 'noop'
+            else:
+                op = 'updated'
+        else:
+            if existing_username:
+                await conn.execute('DELETE FROM sub_admin_account_bindings WHERE sub_name = $1', name)
+                op = 'deleted'
+            else:
+                op = 'noop'
     result = await db_get_sub_admin(name)
     if not result:
-        raise ValueError(f'子管理员 [{name}] 补绑后读取失败')
-    return result
+        raise ValueError(f'子管理员 [{name}] 绑定变更后读取失败')
+    return {'op': op, 'data': result}
 
 
 async def db_delete_sub_admin(name: str) -> bool:
