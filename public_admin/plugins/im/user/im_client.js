@@ -377,7 +377,6 @@
     function initShellModules() {
         initLocationModule();
         initMessageManageModule();
-        initHeicManageModule();
         initImageManageModule();
         initFileManageModule();
         initPlusEntryModule();
@@ -659,14 +658,6 @@
         return imageManageModule;
     }
 
-    function getHeicModule() {
-        const modules = window.AKIMUserModules;
-        if (!modules || typeof modules !== 'object') return null;
-        const heicManageModule = modules.heicManage;
-        if (!heicManageModule || typeof heicManageModule.init !== 'function') return null;
-        return heicManageModule;
-    }
-
     function getFileModule() {
         const modules = window.AKIMUserModules;
         if (!modules || typeof modules !== 'object') return null;
@@ -814,24 +805,12 @@
         return true;
     }
 
-    function initHeicManageModule() {
-        const heicModule = getHeicModule();
-        if (!heicModule) return;
-        heicModule.init({
-            state: state,
-            httpRoot: HTTP_ROOT,
-            request: request,
-            requestFormData: requestFormData
-        });
-    }
-
     function initImageManageModule() {
         const imageModule = getImageModule();
         if (!imageModule) return;
         imageModule.init({
             state: state,
             httpRoot: HTTP_ROOT,
-            heicManage: getHeicModule(),
             request: request,
             requestFormData: requestFormData,
             escapeHtml: escapeHtml,

@@ -48,10 +48,6 @@
             return String(value || '').trim().toLowerCase() === 'camera' ? 'camera' : 'album';
         },
 
-        getHeicModule() {
-            return this.ctx && this.ctx.heicManage ? this.ctx.heicManage : null;
-        },
-
         normalizeUploadConfig(data) {
             const source = data && typeof data === 'object' ? data : {};
             const outputFormat = String(source.output_format || DEFAULT_UPLOAD_CONFIG.output_format).trim().toLowerCase();
