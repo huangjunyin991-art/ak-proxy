@@ -5335,18 +5335,24 @@
                     const isBound = !!boundUsername;
                     const boundStatus = String(sub.bound_account_status || '').trim();
                     const boundExpireTime = sub.bound_account_expire_time ? new Date(sub.bound_account_expire_time) : null;
-                    const boundExpired = boundExpireTime ? (boundExpireTime.getTime() <= Date.now()) : true;
-                    const boundHealthy = isBound && boundStatus === 'active' && !boundExpired;
-                    const boundExpireText = sub.bound_account_expire_time ? ` · 到期: ${fmtTime(sub.bound_account_expire_time)}` : '';
+                    // 方案 B 四态：未绑定 / 未授权 / 已过期 / 状态异常 / 健康
+                    const hasAuthRecord = !!boundStatus || !!boundExpireTime;
+                    const boundExpired = !!boundExpireTime && boundExpireTime.getTime() <= Date.now();
+                    const boundHealthy = isBound && hasAuthRecord && boundStatus === 'active' && !boundExpired;
+                    const boundExpireText = boundExpireTime ? ` · 到期: ${fmtTime(sub.bound_account_expire_time)}` : '';
                     const boundStatusText = boundStatus ? ` · ${boundStatus}` : '';
                     let boundLine;
                     if (!isBound) {
                         boundLine = '<span style="color: var(--accent-red); font-size: 11px;">⚠️ 未绑定账号</span>';
                     } else if (boundHealthy) {
                         boundLine = `<span style="color: var(--accent-green); font-size: 11px;">🔗 已绑定: ${boundUsername}${boundStatusText}${boundExpireText}</span>`;
+                    } else if (!hasAuthRecord) {
+                        boundLine = `<span style="color: var(--accent-yellow); font-size: 11px;">❓ 绑定账号未获授权: ${boundUsername}</span>`;
+                    } else if (boundExpired) {
+                        boundLine = `<span style="color: var(--accent-yellow); font-size: 11px;">⚠️ 绑定账号已过期: ${boundUsername}${boundExpireText}</span>`;
                     } else {
-                        const failReason = boundExpired ? '已过期' : (boundStatus && boundStatus !== 'active' ? boundStatus : '失效');
-                        boundLine = `<span style="color: var(--accent-yellow); font-size: 11px;">⚠️ 绑定账号${failReason}: ${boundUsername}${boundExpireText}</span>`;
+                        const abnormal = (boundStatus && boundStatus !== 'active') ? boundStatus : '失效';
+                        boundLine = `<span style="color: var(--accent-yellow); font-size: 11px;">⚠️ 绑定账号${abnormal}: ${boundUsername}${boundExpireText}</span>`;
                     }
                     const nameJson = JSON.stringify(sub.name).replace(/"/g, '&quot;');
                     const permJson = JSON.stringify(perms).replace(/"/g, '&quot;');
