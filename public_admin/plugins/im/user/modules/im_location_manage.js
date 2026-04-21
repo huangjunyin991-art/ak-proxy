@@ -2,6 +2,8 @@
     'use strict';
 
     const DEFAULT_MAP_ZOOM = 16;
+    const HIGH_ACCURACY_LOCATION_TIMEOUT = 10000;
+    const BASIC_LOCATION_TIMEOUT = 18000;
     const LOCATION_PROVIDER = 'amap';
     const LOCATION_COORDINATE = 'gaode';
 
@@ -24,6 +26,9 @@
         geolocation: null,
         geolocationPromise: null,
         geolocationAttached: false,
+        coarseGeolocation: null,
+        coarseGeolocationPromise: null,
+        coarseGeolocationAttached: false,
         amapPromise: null,
         selectedPayload: null,
         isSending: false,
@@ -117,15 +122,31 @@
             return /android|iphone|ipad|ipod|mobile|harmonyos/i.test(userAgent);
         },
 
-        attachGeolocationControl() {
-            if (!this.map || !this.geolocation || this.geolocationAttached) return;
+        isGeolocationTimeoutError(error) {
+            const message = String(error && error.message || '').trim();
+            return /定位超时|timeout|超时/i.test(message);
+        },
+
+        attachGeolocationControl(geolocation, attachedFlagKey) {
+            if (!this.map || !geolocation || !attachedFlagKey || this[attachedFlagKey]) return;
             if (typeof this.map.addControl !== 'function') return;
             try {
-                this.map.addControl(this.geolocation);
-                this.geolocationAttached = true;
+                this.map.addControl(geolocation);
+                this[attachedFlagKey] = true;
             } catch (error) {
-                this.geolocationAttached = false;
+                this[attachedFlagKey] = false;
             }
+        },
+
+        buildGeolocationOptions(overrides) {
+            return Object.assign({
+                enableHighAccuracy: true,
+                timeout: HIGH_ACCURACY_LOCATION_TIMEOUT,
+                showButton: false,
+                showMarker: false,
+                showCircle: false,
+                zoomToAccuracy: false
+            }, overrides || {});
         },
 
         normalizePayload(raw) {
@@ -480,7 +501,8 @@
                     self.renderPickerStatus(error && error.message ? error.message : '位置选择失败', true);
                 });
             });
-            this.attachGeolocationControl();
+            this.attachGeolocationControl(this.geolocation, 'geolocationAttached');
+            this.attachGeolocationControl(this.coarseGeolocation, 'coarseGeolocationAttached');
             this.resizeMap();
             return Promise.resolve(this.map);
         },
@@ -507,21 +529,62 @@
             if (this.geolocationPromise) return this.geolocationPromise;
             const self = this;
             this.geolocationPromise = this.ensureAmapPlugin('AMap.Geolocation').then(function(AMap) {
-                self.geolocation = new AMap.Geolocation({
+                self.geolocation = new AMap.Geolocation(self.buildGeolocationOptions({
                     enableHighAccuracy: true,
-                    timeout: 10000,
-                    showButton: false,
-                    showMarker: false,
-                    showCircle: false,
-                    zoomToAccuracy: false
-                });
-                self.attachGeolocationControl();
+                    timeout: HIGH_ACCURACY_LOCATION_TIMEOUT
+                }));
+                self.attachGeolocationControl(self.geolocation, 'geolocationAttached');
                 return self.geolocation;
             }).catch(function(error) {
                 self.geolocationPromise = null;
                 throw error;
             });
             return this.geolocationPromise;
+        },
+
+        ensureCoarseGeolocation() {
+            if (this.coarseGeolocation) return Promise.resolve(this.coarseGeolocation);
+            if (this.coarseGeolocationPromise) return this.coarseGeolocationPromise;
+            const self = this;
+            this.coarseGeolocationPromise = this.ensureAmapPlugin('AMap.Geolocation').then(function(AMap) {
+                self.coarseGeolocation = new AMap.Geolocation(self.buildGeolocationOptions({
+                    enableHighAccuracy: false,
+                    timeout: BASIC_LOCATION_TIMEOUT
+                }));
+                self.attachGeolocationControl(self.coarseGeolocation, 'coarseGeolocationAttached');
+                return self.coarseGeolocation;
+            }).catch(function(error) {
+                self.coarseGeolocationPromise = null;
+                throw error;
+            });
+            return this.coarseGeolocationPromise;
+        },
+
+        requestGeolocationPosition(geolocationLoader) {
+            const self = this;
+            return Promise.resolve(typeof geolocationLoader === 'function' ? geolocationLoader.call(this) : null).then(function(geolocation) {
+                if (!geolocation || typeof geolocation.getCurrentPosition !== 'function') {
+                    throw new Error('定位服务不可用');
+                }
+                return new Promise(function(resolve, reject) {
+                    try {
+                        geolocation.getCurrentPosition(function(status, result) {
+                            if (status !== 'complete' || !result || !result.position) {
+                                reject(new Error(self.buildGeolocationErrorMessage(status, result)));
+                                return;
+                            }
+                            const longitude = typeof result.position.getLng === 'function' ? result.position.getLng() : result.position.lng;
+                            const latitude = typeof result.position.getLat === 'function' ? result.position.getLat() : result.position.lat;
+                            resolve({
+                                longitude: longitude,
+                                latitude: latitude
+                            });
+                        });
+                    } catch (error) {
+                        reject(error);
+                    }
+                });
+            });
         },
 
         setMapPosition(longitude, latitude) {
@@ -605,25 +668,12 @@
             this.isLocating = true;
             this.syncPickerButtons();
             this.renderPickerStatus('正在定位当前坐标...', false);
-            return this.ensureGeolocation().then(function(geolocation) {
-                return new Promise(function(resolve, reject) {
-                    try {
-                        geolocation.getCurrentPosition(function(status, result) {
-                            if (status !== 'complete' || !result || !result.position) {
-                                reject(new Error(self.buildGeolocationErrorMessage(status, result)));
-                                return;
-                            }
-                            const longitude = typeof result.position.getLng === 'function' ? result.position.getLng() : result.position.lng;
-                            const latitude = typeof result.position.getLat === 'function' ? result.position.getLat() : result.position.lat;
-                            resolve({
-                                longitude: longitude,
-                                latitude: latitude
-                            });
-                        });
-                    } catch (error) {
-                        reject(error);
-                    }
-                });
+            return this.requestGeolocationPosition(this.ensureGeolocation).catch(function(error) {
+                if (!self.isGeolocationTimeoutError(error)) {
+                    throw error;
+                }
+                self.renderPickerStatus('高精度定位超时，正在切换基础定位...', false);
+                return self.requestGeolocationPosition(self.ensureCoarseGeolocation);
             }).then(function(payload) {
                 return self.applySelection(payload).then(function(result) {
                     self.isLocating = false;
