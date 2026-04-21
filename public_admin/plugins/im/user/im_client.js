@@ -92,6 +92,7 @@
         sessions: [],
         activeConversationId: 0,
         activeMessages: [],
+        activeMessagesLoading: false,
         ws: null,
         open: false,
         view: 'sessions',
@@ -3034,6 +3035,7 @@
             state.activeConversationId = conversationId;
             state.view = 'chat';
             state.activeMessages = [];
+            state.activeMessagesLoading = true;
             if (options && options.resetCompose) {
                 state.newSessionTarget = '';
                 state.newSessionError = '';
@@ -3103,6 +3105,7 @@
                 state.sessions = [];
                 state.activeConversationId = 0;
                 state.activeMessages = [];
+                state.activeMessagesLoading = false;
                 render();
                 return null;
             }
@@ -3153,6 +3156,7 @@
             state.sessions = [];
             state.activeConversationId = 0;
             state.activeMessages = [];
+            state.activeMessagesLoading = false;
             render();
             return null;
         });
@@ -3167,6 +3171,7 @@
         if (Number(state.activeConversationId || 0) > 0) {
             state.activeConversationId = 0;
             state.activeMessages = [];
+            state.activeMessagesLoading = false;
             closeReadProgressPanel();
 	        closeMemberPanel();
 	        closeSettingsPanel({ silent: true });
@@ -3183,8 +3188,13 @@
         const targetConversationId = Number(conversationId || 0);
         if (!targetConversationId) {
             state.activeMessages = [];
+            state.activeMessagesLoading = false;
             render();
             return Promise.resolve(null);
+        }
+        state.activeMessagesLoading = true;
+        if (!state.activeMessages.length) {
+            render();
         }
         return ensureChatFeatureModules().then(function() {
             const messageManageModule = getMessageManageModule();
@@ -3192,6 +3202,7 @@
                 return messageManageModule.loadMessages(targetConversationId);
             }
             state.activeMessages = [];
+            state.activeMessagesLoading = false;
             render();
             return null;
         });

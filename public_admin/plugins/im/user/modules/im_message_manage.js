@@ -270,6 +270,13 @@
                 messageList.appendChild(empty);
                 return;
             }
+            if (state.activeMessagesLoading && !state.activeMessages.length) {
+                const empty = document.createElement('div');
+                empty.className = 'ak-im-empty';
+                empty.textContent = '消息加载中...';
+                messageList.appendChild(empty);
+                return;
+            }
             if (!state.activeMessages.length) {
                 const empty = document.createElement('div');
                 empty.className = 'ak-im-empty';
@@ -419,16 +426,20 @@
             const targetConversationId = Number(conversationId || 0);
             if (!targetConversationId) {
                 state.activeMessages = [];
+                state.activeMessagesLoading = false;
                 this.ctx.render();
                 return Promise.resolve(null);
             }
             const self = this;
+            state.activeMessagesLoading = true;
             return this.ctx.request(this.ctx.httpRoot + '/messages?conversation_id=' + encodeURIComponent(targetConversationId)).then(function(data) {
                 state.activeMessages = Array.isArray(data && data.items) ? data.items : [];
+                state.activeMessagesLoading = false;
                 self.ctx.render();
                 self.markRead(targetConversationId);
                 return null;
             }).catch(function() {
+                state.activeMessagesLoading = false;
                 self.ctx.render();
                 return null;
             });
