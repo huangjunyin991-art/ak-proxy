@@ -23,6 +23,7 @@
         geocoderPromise: null,
         geolocation: null,
         geolocationPromise: null,
+        geolocationAttached: false,
         amapPromise: null,
         selectedPayload: null,
         isSending: false,
@@ -78,6 +79,53 @@
             const numericValue = Number(value);
             if (!isFinite(numericValue)) return '';
             return (Math.round(numericValue * 1000000) / 1000000).toFixed(6);
+        },
+
+        extractErrorText(raw) {
+            if (!raw) return '';
+            if (typeof raw === 'string') {
+                return String(raw || '').trim();
+            }
+            const candidates = [raw.message, raw.info, raw.reason, raw.details, raw.type];
+            for (let index = 0; index < candidates.length; index += 1) {
+                const candidate = String(candidates[index] || '').trim();
+                if (candidate) return candidate;
+            }
+            return '';
+        },
+
+        buildGeolocationErrorMessage(status, detail) {
+            const detailText = this.extractErrorText(detail);
+            const combinedText = [String(status || '').trim(), detailText].filter(Boolean).join(' ');
+            if (/permission|denied|forbidden|unauthorized|定位权限|授权/i.test(combinedText)) {
+                return '定位权限被拒绝，请开启浏览器定位权限后重试';
+            }
+            if (/timeout|超时/i.test(combinedText)) {
+                return '定位超时，请重试或点击地图选择位置';
+            }
+            if (/https|secure|insecure|origin|protocol/i.test(combinedText)) {
+                return '当前环境不支持浏览器定位，请点击地图选择位置';
+            }
+            if (detailText) {
+                return '定位失败：' + detailText;
+            }
+            return '定位失败，请点击地图选择位置';
+        },
+
+        isMobileBrowser() {
+            const userAgent = String(global.navigator && global.navigator.userAgent || '').trim();
+            return /android|iphone|ipad|ipod|mobile|harmonyos/i.test(userAgent);
+        },
+
+        attachGeolocationControl() {
+            if (!this.map || !this.geolocation || this.geolocationAttached) return;
+            if (typeof this.map.addControl !== 'function') return;
+            try {
+                this.map.addControl(this.geolocation);
+                this.geolocationAttached = true;
+            } catch (error) {
+                this.geolocationAttached = false;
+            }
         },
 
         normalizePayload(raw) {
@@ -432,6 +480,7 @@
                     self.renderPickerStatus(error && error.message ? error.message : '位置选择失败', true);
                 });
             });
+            this.attachGeolocationControl();
             this.resizeMap();
             return Promise.resolve(this.map);
         },
@@ -466,6 +515,7 @@
                     showCircle: false,
                     zoomToAccuracy: false
                 });
+                self.attachGeolocationControl();
                 return self.geolocation;
             }).catch(function(error) {
                 self.geolocationPromise = null;
@@ -560,7 +610,7 @@
                     try {
                         geolocation.getCurrentPosition(function(status, result) {
                             if (status !== 'complete' || !result || !result.position) {
-                                reject(new Error('定位失败，请点击地图选择位置'));
+                                reject(new Error(self.buildGeolocationErrorMessage(status, result)));
                                 return;
                             }
                             const longitude = typeof result.position.getLng === 'function' ? result.position.getLng() : result.position.lng;
@@ -650,7 +700,8 @@
             if (!openMapUrl) {
                 return '<div class="ak-im-location-bubble-surface">' + iconMarkup + bodyMarkup + '</div>';
             }
-            return '<a class="ak-im-location-bubble-link" href="' + this.escapeAttribute(openMapUrl) + '" target="_blank" rel="noopener noreferrer">' + iconMarkup + bodyMarkup + '</a>';
+            const openTarget = this.isMobileBrowser() ? '_self' : '_blank';
+            return '<a class="ak-im-location-bubble-link" href="' + this.escapeAttribute(openMapUrl) + '" target="' + this.escapeAttribute(openTarget) + '" rel="noopener noreferrer">' + iconMarkup + bodyMarkup + '</a>';
         },
 
         getMessageBubbleClassName(item) {
