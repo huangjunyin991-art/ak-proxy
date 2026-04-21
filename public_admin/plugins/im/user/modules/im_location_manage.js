@@ -127,31 +127,41 @@
             });
         },
 
+        buildGeolocationContextText(status) {
+            const parts = [];
+            const statusText = String(status || '').trim();
+            if (statusText) parts.push('status=' + statusText);
+            parts.push('secureContext=' + String(!!global.isSecureContext));
+            return parts.join(' | ');
+        },
+
         buildGeolocationErrorMessage(status, detail) {
             const statusText = String(status || '').trim();
             const detailText = this.extractErrorText(detail);
             const detailLine = this.buildErrorDetailText(detail);
+            const contextLine = this.buildGeolocationContextText(statusText);
+            const debugLine = [contextLine, detailLine].filter(Boolean).join(' | ');
             const combinedText = [statusText, detailText, detailLine].filter(Boolean).join(' ');
             this.reportGeolocationDiagnostics(statusText, detail);
             if (/get geolocation time\s*out/i.test(combinedText) && /get iplocation failed/i.test(combinedText)) {
                 if (this.isMobileEdgeBrowser()) {
-                    return '当前手机 Edge 浏览器定位服务不可用，请直接点击地图选择位置，或改用系统浏览器再试';
+                    return '当前手机 Edge 浏览器定位服务不可用：' + debugLine + '，请直接点击地图选择位置，或改用系统浏览器再试';
                 }
                 if (this.isMobileBrowser()) {
-                    return '当前手机浏览器定位服务不可用，请直接点击地图选择位置，或改用系统浏览器再试';
+                    return '当前手机浏览器定位服务不可用：' + debugLine + '，请直接点击地图选择位置，或改用系统浏览器再试';
                 }
             }
             if (/permission|denied|forbidden|unauthorized|定位权限|授权/i.test(combinedText)) {
-                return detailLine ? '定位权限被拒绝：' + detailLine : '定位权限被拒绝，请开启浏览器定位权限后重试';
+                return debugLine ? '定位权限被拒绝：' + debugLine : '定位权限被拒绝，请开启浏览器定位权限后重试';
             }
             if (/timeout|超时/i.test(combinedText)) {
-                return detailLine ? '定位超时：' + detailLine : '定位超时，请重试或点击地图选择位置';
+                return debugLine ? '定位超时：' + debugLine : '定位超时，请重试或点击地图选择位置';
             }
             if (/https|secure|insecure|origin|protocol/i.test(combinedText)) {
-                return detailLine ? '当前环境不支持浏览器定位：' + detailLine : '当前环境不支持浏览器定位，请点击地图选择位置';
+                return debugLine ? '当前环境不支持浏览器定位：' + debugLine : '当前环境不支持浏览器定位，请点击地图选择位置';
             }
-            if (detailLine) {
-                return '定位失败：' + detailLine;
+            if (debugLine) {
+                return '定位失败：' + debugLine;
             }
             if (detailText) {
                 return '定位失败：' + detailText;
