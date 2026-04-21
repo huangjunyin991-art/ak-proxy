@@ -3081,6 +3081,14 @@
                                                   border-radius: 6px; color: var(--text-primary); font-size: 13px;">
                                 </div>
                             </div>
+
+                            <div style="margin-bottom: 10px;">
+                                <label style="display: block; margin-bottom: 4px; color: var(--accent-green); font-size: 11px;">🔗 绑定账号</label>
+                                <input type="text" id="newSubAdminBoundUsername" placeholder="必填，玩家主群会使用这个账号作为群主"
+                                       autocorrect="off" autocapitalize="off" spellcheck="false"
+                                       style="width: 100%; padding: 8px 10px; background: var(--bg-secondary); border: 1px solid rgba(0,255,136,0.35);
+                                              border-radius: 6px; color: var(--text-primary); font-size: 13px;">
+                            </div>
                             
                             <!-- 权限配置 -->
                             <div style="margin-bottom: 10px;">
@@ -3123,6 +3131,9 @@
                                 </button>
                                 <button id="updatePermBtn" onclick="updateSubAdminPermissions()" style="display: none; padding: 8px 14px; background: var(--bg-secondary); color: var(--accent); border: 1px solid var(--accent); border-radius: 4px; cursor: pointer; font-size: 13px;">
                                     🛡️ 更新权限
+                                </button>
+                                <button id="bindAccountBtn" onclick="bindSubAdminAccount()" style="display: none; padding: 8px 14px; background: var(--bg-secondary); color: var(--accent-green); border: 1px solid rgba(0,255,136,0.3); border-radius: 4px; cursor: pointer; font-size: 13px;">
+                                    🔗 补绑账号
                                 </button>
                                 <button onclick="kickAllSubAdmins()" style="padding: 8px 14px; background: var(--bg-secondary); color: var(--accent-yellow); border: 1px solid rgba(255,165,2,0.3); border-radius: 4px; cursor: pointer; font-size: 13px;">
                                     踢出全部
@@ -5073,11 +5084,41 @@
         
         // 当前选中的子管理员
         let selectedSubAdmin = null;
+
+        function collectSubAdminPermissions() {
+            const permissions = {};
+            const permKeys = ['dashboard', 'online', 'usage', 'users', 'ips', 'banlist', 'license', 'database'];
+            permKeys.forEach(key => {
+                const cb = document.getElementById('perm_' + key);
+                if (cb) permissions[key] = cb.checked;
+            });
+            return permissions;
+        }
+
+        function setSubAdminBoundUsername(value) {
+            const input = document.getElementById('newSubAdminBoundUsername');
+            if (input) input.value = String(value || '').trim().toLowerCase();
+        }
+
+        function resetSubAdminSelection(clearName) {
+            selectedSubAdmin = null;
+            if (clearName) document.getElementById('newSubAdminName').value = '';
+            setSubAdminBoundUsername('');
+            document.getElementById('updatePermBtn').style.display = 'none';
+            document.getElementById('bindAccountBtn').style.display = 'none';
+            document.getElementById('bindAccountBtn').textContent = '🔗 补绑账号';
+            document.querySelectorAll('#subAdminList [data-subname]').forEach(card => {
+                const border = card.dataset.defaultBorder || 'var(--border)';
+                card.style.borderColor = border;
+                card.style.boxShadow = 'none';
+            });
+        }
         
         // 点击子管理员卡片 → 加载权限到复选框
-        function selectSubAdmin(name, permissions) {
+        function selectSubAdmin(name, permissions, boundUsername) {
             selectedSubAdmin = name;
             document.getElementById('newSubAdminName').value = name;
+            setSubAdminBoundUsername(boundUsername || '');
             // 加载权限到复选框
             const permKeys = ['dashboard', 'online', 'usage', 'users', 'ips', 'banlist', 'license', 'database'];
             permKeys.forEach(key => {
@@ -5090,13 +5131,22 @@
                     card.style.borderColor = 'var(--accent)';
                     card.style.boxShadow = '0 0 8px rgba(0,200,255,0.3)';
                 } else {
-                    card.style.borderColor = 'var(--border)';
+                    card.style.borderColor = card.dataset.defaultBorder || 'var(--border)';
                     card.style.boxShadow = 'none';
                 }
             });
             // 显示更新权限按钮
             document.getElementById('updatePermBtn').style.display = '';
-            showSubAdminMsg(`已选中 [${name}]，可修改权限后点击"更新权限"`, 'select');
+            document.getElementById('bindAccountBtn').style.display = '';
+            document.getElementById('bindAccountBtn').textContent = boundUsername ? '🔁 改绑账号' : '🔗 补绑账号';
+            showSubAdminMsg(boundUsername ? `已选中 [${name}]，可修改权限或重新保存绑定` : `已选中 [${name}]，请填写绑定账号后点击"补绑账号"`, 'select');
+        }
+
+        function prepareBindSubAdmin(name, permissions) {
+            selectSubAdmin(name, permissions || {}, '');
+            const input = document.getElementById('newSubAdminBoundUsername');
+            if (input) input.focus();
+            showSubAdminMsg(`请为子管理员 [${name}] 填写绑定账号后点击"补绑账号"`, 'select');
         }
         
         // 仅更新权限（不需要改密码）
@@ -5114,12 +5164,7 @@
             }
             
             // 收集权限
-            const permissions = {};
-            const permKeys = ['dashboard', 'online', 'usage', 'users', 'ips', 'banlist', 'license', 'database'];
-            permKeys.forEach(key => {
-                const cb = document.getElementById('perm_' + key);
-                if (cb) permissions[key] = cb.checked;
-            });
+            const permissions = collectSubAdminPermissions();
             
             try {
                 const res = await fetch(`${API_BASE}/admin/api/sub_admin/update_permissions`, {
@@ -5135,8 +5180,7 @@
                 const data = await res.json();
                 if (data.success) {
                     showSubAdminMsg('✅ ' + data.message, 'success');
-                    selectedSubAdmin = null;
-                    document.getElementById('updatePermBtn').style.display = 'none';
+                    resetSubAdminSelection(false);
                     loadSubAdminStatus();
                 } else {
                     showSubAdminMsg('❌ ' + (data.message || '更新失败'), 'error');
@@ -5197,6 +5241,7 @@
                 countSpan.textContent = `（共 ${subAdmins.length} 个子管理员）`;
                 
                 if (subAdmins.length === 0) {
+                    resetSubAdminSelection(true);
                     listDiv.innerHTML = `
                         <div style="padding: 20px; text-align: center; background: var(--bg-primary); border-radius: 8px; border: 1px dashed var(--border);">
                             <span style="color: var(--text-secondary); font-size: 14px;">暂无子管理员，请在下方添加</span>
@@ -5225,14 +5270,34 @@
                         ? '<span style="font-size: 10px; color: var(--accent-red);">⚠️ 无权限</span>' 
                         : permTags;
                     
-                    const permJson = JSON.stringify(perms).replace(/'/g, "\\'");
+                    const boundUsername = String(sub.bound_username || '').trim().toLowerCase();
+                    const isBound = !!boundUsername;
+                    const boundStatus = String(sub.bound_account_status || '').trim();
+                    const boundExpireTime = sub.bound_account_expire_time ? new Date(sub.bound_account_expire_time) : null;
+                    const boundExpired = boundExpireTime ? (boundExpireTime.getTime() <= Date.now()) : true;
+                    const boundHealthy = isBound && boundStatus === 'active' && !boundExpired;
+                    const boundExpireText = sub.bound_account_expire_time ? ` · 到期: ${fmtTime(sub.bound_account_expire_time)}` : '';
+                    const boundStatusText = boundStatus ? ` · ${boundStatus}` : '';
+                    let boundLine;
+                    if (!isBound) {
+                        boundLine = '<span style="color: var(--accent-red); font-size: 11px;">⚠️ 未绑定账号</span>';
+                    } else if (boundHealthy) {
+                        boundLine = `<span style="color: var(--accent-green); font-size: 11px;">🔗 已绑定: ${boundUsername}${boundStatusText}${boundExpireText}</span>`;
+                    } else {
+                        const failReason = boundExpired ? '已过期' : (boundStatus && boundStatus !== 'active' ? boundStatus : '失效');
+                        boundLine = `<span style="color: var(--accent-yellow); font-size: 11px;">⚠️ 绑定账号${failReason}: ${boundUsername}${boundExpireText}</span>`;
+                    }
+                    const nameJson = JSON.stringify(sub.name).replace(/"/g, '&quot;');
+                    const permJson = JSON.stringify(perms).replace(/"/g, '&quot;');
+                    const boundJson = JSON.stringify(boundUsername).replace(/"/g, '&quot;');
                     const defaultBorder = sub.is_online ? 'rgba(0,255,136,0.3)' : 'var(--border)';
                     return `
                         <div data-subname="${sub.name}" style="padding: 12px 15px; background: var(--bg-primary); 
                                     border-radius: 8px; border: 1px solid ${defaultBorder}; margin-bottom: 8px; cursor: pointer; transition: border-color 0.2s, box-shadow 0.2s;"
-                             onclick="selectSubAdmin('${sub.name}', ${permJson.replace(/"/g, '&quot;')})"
-                             onmouseover="if(selectedSubAdmin!=='${sub.name}'){this.style.borderColor='var(--accent)'}"
-                             onmouseout="if(selectedSubAdmin!=='${sub.name}'){this.style.borderColor='${defaultBorder}';this.style.boxShadow='none'}"
+                             data-default-border="${defaultBorder}"
+                             onclick="selectSubAdmin(${nameJson}, ${permJson}, ${boundJson})"
+                             onmouseover="if(selectedSubAdmin!==this.dataset.subname){this.style.borderColor='var(--accent)'}"
+                             onmouseout="if(selectedSubAdmin!==this.dataset.subname){this.style.borderColor=this.dataset.defaultBorder||'var(--border)';this.style.boxShadow='none'}"
                         >
                             <div style="display: flex; align-items: center; gap: 12px;">
                                 ${onlineDot}
@@ -5242,10 +5307,16 @@
                                         ${statusText}
                                         <span style="color: var(--text-secondary); font-size: 11px;">密码: ${sub.password_hint}</span>
                                     </div>
+                                    <div style="margin-top: 4px;">${boundLine}</div>
                                 </div>
                                 <div style="display: flex; gap: 6px; flex-shrink: 0;">
-                                    <button onclick="event.stopPropagation(); kickOneSubAdmin('${sub.name}')" style="padding: 4px 10px; font-size: 12px; background: var(--bg-secondary); color: var(--accent-yellow); border: 1px solid rgba(255,165,2,0.3); border-radius: 4px; cursor: pointer;">踢出</button>
-                                    <button onclick="event.stopPropagation(); deleteOneSubAdmin('${sub.name}')" style="padding: 4px 10px; font-size: 12px; background: var(--bg-secondary); color: var(--accent-red); border: 1px solid rgba(255,71,87,0.3); border-radius: 4px; cursor: pointer;">删除</button>
+                                    ${!isBound
+                                        ? `<button onclick="event.stopPropagation(); prepareBindSubAdmin(${nameJson}, ${permJson})" style="padding: 4px 10px; font-size: 12px; background: var(--bg-secondary); color: var(--accent-green); border: 1px solid rgba(0,255,136,0.3); border-radius: 4px; cursor: pointer;">补绑</button>`
+                                        : (!boundHealthy
+                                            ? `<button onclick="event.stopPropagation(); prepareBindSubAdmin(${nameJson}, ${permJson})" style="padding: 4px 10px; font-size: 12px; background: var(--bg-secondary); color: var(--accent-yellow); border: 1px solid rgba(255,165,2,0.3); border-radius: 4px; cursor: pointer;">改绑</button>`
+                                            : '')}
+                                    <button onclick="event.stopPropagation(); kickOneSubAdmin(${nameJson})" style="padding: 4px 10px; font-size: 12px; background: var(--bg-secondary); color: var(--accent-yellow); border: 1px solid rgba(255,165,2,0.3); border-radius: 4px; cursor: pointer;">踢出</button>
+                                    <button onclick="event.stopPropagation(); deleteOneSubAdmin(${nameJson})" style="padding: 4px 10px; font-size: 12px; background: var(--bg-secondary); color: var(--accent-red); border: 1px solid rgba(255,71,87,0.3); border-radius: 4px; cursor: pointer;">删除</button>
                                 </div>
                             </div>
                             <div style="margin-top: 6px; display: flex; flex-wrap: wrap; gap: 4px; padding-left: 22px;">
@@ -5265,8 +5336,9 @@
             const newSubPassword = document.getElementById('newSubAdminPassword').value;
             const superPassword = document.getElementById('subAdminSuperPassword').value;
             const secondaryPassword = document.getElementById('subAdminSecondaryPassword').value;
+            const boundUsername = document.getElementById('newSubAdminBoundUsername').value.trim().toLowerCase();
             
-            if (!subName || !newSubPassword || !superPassword || !secondaryPassword) {
+            if (!subName || !newSubPassword || !superPassword || !secondaryPassword || !boundUsername) {
                 showSubAdminMsg('请填写所有字段', 'error');
                 return;
             }
@@ -5277,12 +5349,7 @@
             }
             
             // 收集权限配置
-            const permissions = {};
-            const permKeys = ['dashboard', 'online', 'usage', 'users', 'ips', 'banlist', 'license', 'database'];
-            permKeys.forEach(key => {
-                const cb = document.getElementById('perm_' + key);
-                if (cb) permissions[key] = cb.checked;
-            });
+            const permissions = collectSubAdminPermissions();
             
             try {
                 const res = await fetch(`${API_BASE}/admin/api/sub_admin/set`, {
@@ -5293,7 +5360,8 @@
                         secondary_password: secondaryPassword,
                         sub_name: subName,
                         new_sub_password: newSubPassword,
-                        permissions: permissions
+                        permissions: permissions,
+                        bound_username: boundUsername
                     })
                 });
                 
@@ -5301,12 +5369,58 @@
                 
                 if (data.success) {
                     showSubAdminMsg('✅ ' + data.message, 'success');
-                    document.getElementById('newSubAdminName').value = '';
                     document.getElementById('newSubAdminPassword').value = '';
                     toggleAllPerms(false);
+                    resetSubAdminSelection(true);
                     loadSubAdminStatus();
                 } else {
                     showSubAdminMsg('❌ ' + (data.message || '设置失败'), 'error');
+                }
+            } catch (e) {
+                showSubAdminMsg('❌ 网络错误: ' + e.message, 'error');
+            }
+        }
+
+        async function bindSubAdminAccount() {
+            const subName = selectedSubAdmin || document.getElementById('newSubAdminName').value.trim();
+            const boundUsername = document.getElementById('newSubAdminBoundUsername').value.trim().toLowerCase();
+            const superPassword = document.getElementById('subAdminSuperPassword').value;
+            const secondaryPassword = document.getElementById('subAdminSecondaryPassword').value;
+
+            if (!subName) {
+                showSubAdminMsg('请先选择需要补绑的子管理员', 'error');
+                return;
+            }
+            if (!boundUsername) {
+                showSubAdminMsg('请填写绑定账号', 'error');
+                return;
+            }
+            if (!superPassword || !secondaryPassword) {
+                showSubAdminMsg('请填写系统总管理员密码和二级密码', 'error');
+                return;
+            }
+
+            try {
+                const res = await fetch(`${API_BASE}/admin/api/sub_admin/bind_account`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        admin_password: superPassword,
+                        secondary_password: secondaryPassword,
+                        sub_name: subName,
+                        bound_username: boundUsername
+                    })
+                });
+
+                const data = await res.json();
+                if (data.success) {
+                    showSubAdminMsg('✅ ' + data.message, 'success');
+                    document.getElementById('newSubAdminPassword').value = '';
+                    toggleAllPerms(false);
+                    resetSubAdminSelection(true);
+                    loadSubAdminStatus();
+                } else {
+                    showSubAdminMsg('❌ ' + (data.message || '补绑失败'), 'error');
                 }
             } catch (e) {
                 showSubAdminMsg('❌ 网络错误: ' + e.message, 'error');

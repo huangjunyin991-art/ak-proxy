@@ -216,6 +216,22 @@ func isWhitelistManagedConversation(meta conversationMeta) bool {
 	return strings.HasPrefix(strings.ToLower(strings.TrimSpace(meta.ConversationKey)), whitelistGroupKeyPrefix)
 }
 
+func extractWhitelistGroupAdminKey(conversationKey string) string {
+	normalizedKey := strings.ToLower(strings.TrimSpace(conversationKey))
+	if !strings.HasPrefix(normalizedKey, whitelistGroupKeyPrefix) {
+		return ""
+	}
+	return strings.TrimPrefix(normalizedKey, whitelistGroupKeyPrefix)
+}
+
+func whitelistGroupOwnerAssignmentTag(adminKey string) string {
+	normalizedAdminKey := strings.ToLower(strings.TrimSpace(adminKey))
+	if normalizedAdminKey == "" {
+		return "whitelist_owner"
+	}
+	return "whitelist_owner:" + normalizedAdminKey
+}
+
 func (a *App) ensureAllowedConversationTarget(ctx context.Context, username string) error {
 	normalizedUsername := strings.ToLower(strings.TrimSpace(username))
 	if normalizedUsername == "" {
@@ -245,6 +261,19 @@ func (a *App) ensureAllowedConversationOwnerTarget(ctx context.Context, username
 	}
 	if normalizedUsername == "super_admin" {
 		return nil
+	}
+	var bindingTableName *string
+	if err := a.db.QueryRow(ctx, `SELECT to_regclass('public.sub_admin_account_bindings')`).Scan(&bindingTableName); err != nil {
+		return err
+	}
+	if bindingTableName != nil && strings.TrimSpace(*bindingTableName) != "" {
+		var boundExists bool
+		if err := a.db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM sub_admin_account_bindings WHERE LOWER(account_username) = $1)`, normalizedUsername).Scan(&boundExists); err != nil {
+			return err
+		}
+		if boundExists {
+			return nil
+		}
 	}
 	var exists bool
 	if err := a.db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM sub_admins WHERE LOWER(name) = $1)`, normalizedUsername).Scan(&exists); err != nil {
@@ -1006,12 +1035,15 @@ func (a *App) handleSessionSettings(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) syncWhitelistConversationAfterRules(ctx context.Context, meta conversationMeta) error {
-	normalizedOwner := strings.ToLower(strings.TrimSpace(meta.OwnerUsername))
-	memberMap, err := a.loadWhitelistGroupMembers(ctx, normalizedOwner)
+	normalizedAdminKey := extractWhitelistGroupAdminKey(meta.ConversationKey)
+	if normalizedAdminKey == "" {
+		normalizedAdminKey = strings.ToLower(strings.TrimSpace(meta.OwnerUsername))
+	}
+	memberMap, err := a.loadWhitelistGroupMembers(ctx, normalizedAdminKey)
 	if err != nil {
 		return err
 	}
-	return a.syncWhitelistGroupByAdmin(ctx, normalizedOwner, memberMap[normalizedOwner])
+	return a.syncWhitelistGroupByAdmin(ctx, normalizedAdminKey, memberMap[normalizedAdminKey])
 }
 
 func (a *App) handleSessionMembersAdd(w http.ResponseWriter, r *http.Request) {
@@ -1431,20 +1463,6 @@ func (a *App) transferConversationOwner(ctx context.Context, conversationID int6
 		return SessionGroupProfileItem{}, err
 	}
 	updatedConversationKey := meta.ConversationKey
-	if isWhitelistManagedConversation(meta) {
-		updatedConversationKey = whitelistGroupKeyPrefix + normalizedOwner
-		var existingConversationID int64
-		err := a.db.QueryRow(ctx, `
-			SELECT id
-			FROM im_conversation
-			WHERE conversation_key = $1 AND deleted_at IS NULL`, updatedConversationKey).Scan(&existingConversationID)
-		if err == nil && existingConversationID != conversationID {
-			return SessionGroupProfileItem{}, errors.New("target owner already has whitelist group")
-		}
-		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-			return SessionGroupProfileItem{}, err
-		}
-	}
 	tx, err := a.db.Begin(ctx)
 	if err != nil {
 		return SessionGroupProfileItem{}, err
@@ -1491,11 +1509,6 @@ func (a *App) transferConversationOwner(ctx context.Context, conversationID int6
 	if isWhitelistManagedConversation(meta) {
 		if err := a.syncWhitelistConversationAfterRules(ctx, updatedMeta); err != nil {
 			return SessionGroupProfileItem{}, err
-		}
-		if currentOwner != "" && currentOwner != normalizedOwner {
-			if _, err := a.syncWhitelistGroups(ctx, currentOwner); err != nil {
-				return SessionGroupProfileItem{}, err
-			}
 		}
 	} else {
 		affectedUsers[currentOwner] = struct{}{}
@@ -1756,15 +1769,46 @@ func (a *App) loadWhitelistGroupMembers(ctx context.Context, addedBy string) (ma
 	return result, rows.Err()
 }
 
-func (a *App) loadExistingWhitelistGroupAdmins(ctx context.Context, addedBy string) ([]string, error) {
+func (a *App) loadWhitelistGroupBoundOwnerUsernameTx(ctx context.Context, tx pgx.Tx, adminKey string) (string, error) {
+	normalizedAdminKey := strings.ToLower(strings.TrimSpace(adminKey))
+	if normalizedAdminKey == "" {
+		return "", nil
+	}
+	var bindingTableName *string
+	if err := tx.QueryRow(ctx, `SELECT to_regclass('public.sub_admin_account_bindings')`).Scan(&bindingTableName); err != nil {
+		return "", err
+	}
+	if bindingTableName == nil || strings.TrimSpace(*bindingTableName) == "" {
+		return normalizedAdminKey, nil
+	}
+	var ownerUsername string
+	err := tx.QueryRow(ctx, `
+		SELECT LOWER(COALESCE(account_username, ''))
+		FROM sub_admin_account_bindings
+		WHERE LOWER(sub_name) = $1
+		LIMIT 1`, normalizedAdminKey).Scan(&ownerUsername)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return normalizedAdminKey, nil
+		}
+		return "", err
+	}
+	ownerUsername = strings.ToLower(strings.TrimSpace(ownerUsername))
+	if ownerUsername == "" {
+		return normalizedAdminKey, nil
+	}
+	return ownerUsername, nil
+}
+
+func (a *App) loadExistingWhitelistGroupKeys(ctx context.Context, addedBy string) ([]string, error) {
 	query := `
-		SELECT DISTINCT LOWER(COALESCE(owner_username, '')) AS owner_username
+		SELECT DISTINCT LOWER(COALESCE(conversation_key, '')) AS conversation_key
 		FROM im_conversation
 		WHERE conversation_type = 'group' AND conversation_key LIKE 'group:admin_whitelist:%'`
 	args := make([]any, 0, 1)
 	if addedBy != "" {
-		query += ` AND LOWER(owner_username) = $1`
-		args = append(args, strings.ToLower(strings.TrimSpace(addedBy)))
+		query += ` AND LOWER(conversation_key) = $1`
+		args = append(args, whitelistGroupKeyPrefix+strings.ToLower(strings.TrimSpace(addedBy)))
 	}
 	rows, err := a.db.Query(ctx, query, args...)
 	if err != nil {
@@ -1773,36 +1817,48 @@ func (a *App) loadExistingWhitelistGroupAdmins(ctx context.Context, addedBy stri
 	defer rows.Close()
 	items := make([]string, 0)
 	for rows.Next() {
-		var owner string
-		if err := rows.Scan(&owner); err != nil {
+		var conversationKey string
+		if err := rows.Scan(&conversationKey); err != nil {
 			return nil, err
 		}
-		owner = strings.ToLower(strings.TrimSpace(owner))
-		if owner != "" {
-			items = append(items, owner)
+		adminKey := extractWhitelistGroupAdminKey(conversationKey)
+		if adminKey != "" {
+			items = append(items, adminKey)
 		}
 	}
 	return normalizeUsernames(items), rows.Err()
 }
 
 func (a *App) syncWhitelistGroupByAdmin(ctx context.Context, addedBy string, members []string) error {
-	normalizedOwner := strings.ToLower(strings.TrimSpace(addedBy))
-	if normalizedOwner == "" {
+	normalizedAdminKey := strings.ToLower(strings.TrimSpace(addedBy))
+	if normalizedAdminKey == "" {
 		return nil
 	}
 	whitelistMembers := normalizeUsernames(members)
-	conversationKey := whitelistGroupKeyPrefix + normalizedOwner
+	conversationKey := whitelistGroupKeyPrefix + normalizedAdminKey
 	tx, err := a.db.Begin(ctx)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback(ctx)
 	var conversationID int64
-	err = tx.QueryRow(ctx, `SELECT id FROM im_conversation WHERE conversation_key = $1`, conversationKey).Scan(&conversationID)
+	currentOwner := ""
+	err = tx.QueryRow(ctx, `SELECT id, COALESCE(owner_username, '') FROM im_conversation WHERE conversation_key = $1`, conversationKey).Scan(&conversationID, &currentOwner)
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return err
 	}
+	currentOwner = strings.ToLower(strings.TrimSpace(currentOwner))
+	resolvedOwner, err := a.loadWhitelistGroupBoundOwnerUsernameTx(ctx, tx, normalizedAdminKey)
+	if err != nil {
+		return err
+	}
 	affectedUsers := map[string]struct{}{}
+	if currentOwner != "" {
+		affectedUsers[currentOwner] = struct{}{}
+	}
+	if resolvedOwner != "" {
+		affectedUsers[resolvedOwner] = struct{}{}
+	}
 	title := whitelistMainGroupTitle
 	conversationExists := !errors.Is(err, pgx.ErrNoRows)
 	if !conversationExists && len(whitelistMembers) < 1 {
@@ -1812,19 +1868,29 @@ func (a *App) syncWhitelistGroupByAdmin(ctx context.Context, addedBy string, mem
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO im_conversation (conversation_type, conversation_key, title, owner_username)
 			VALUES ('group', $1, $2, $3)
-			ON CONFLICT DO NOTHING`, conversationKey, title, normalizedOwner); err != nil {
+			ON CONFLICT DO NOTHING`, conversationKey, title, resolvedOwner); err != nil {
 			return err
 		}
 		if err := tx.QueryRow(ctx, `SELECT id FROM im_conversation WHERE conversation_key = $1`, conversationKey).Scan(&conversationID); err != nil {
 			return err
 		}
 	}
+	ownerAssignment := whitelistGroupOwnerAssignmentTag(normalizedAdminKey)
+	if _, err := tx.Exec(ctx, `
+		UPDATE im_conversation_admin
+		SET revoked_at = NOW(), updated_at = NOW()
+		WHERE conversation_id = $1 AND revoked_at IS NULL AND (
+			(assigned_by = $2 AND username <> $3)
+			OR ($4 <> '' AND username = $4 AND username <> $3)
+		)`, conversationID, ownerAssignment, resolvedOwner, currentOwner); err != nil {
+		return err
+	}
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO im_conversation_admin (conversation_id, username, assigned_by)
 		SELECT $1, $2, $3
 		WHERE NOT EXISTS (
 			SELECT 1 FROM im_conversation_admin WHERE conversation_id = $1 AND username = $2 AND revoked_at IS NULL
-		)`, conversationID, normalizedOwner, normalizedOwner); err != nil {
+		)`, conversationID, resolvedOwner, ownerAssignment); err != nil {
 		return err
 	}
 	adminUsernames, err := loadConversationAdminUsernamesTx(ctx, tx, conversationID)
@@ -1893,7 +1959,7 @@ func (a *App) syncWhitelistGroupByAdmin(ctx context.Context, addedBy string, mem
 	if _, err := tx.Exec(ctx, `
 		UPDATE im_conversation
 		SET conversation_type = 'group', title = $2, owner_username = $3, deleted_at = NULL, updated_at = NOW()
-		WHERE id = $1`, conversationID, title, normalizedOwner); err != nil {
+		WHERE id = $1`, conversationID, title, resolvedOwner); err != nil {
 		return err
 	}
 	activeRows, err := tx.Query(ctx, `
@@ -1960,7 +2026,7 @@ func (a *App) syncWhitelistGroups(ctx context.Context, addedBy string) (int, err
 	if err != nil {
 		return 0, err
 	}
-	existingOwners, err := a.loadExistingWhitelistGroupAdmins(ctx, targetOwner)
+	existingOwners, err := a.loadExistingWhitelistGroupKeys(ctx, targetOwner)
 	if err != nil {
 		return 0, err
 	}

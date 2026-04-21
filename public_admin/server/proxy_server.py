@@ -3794,11 +3794,29 @@ async def admin_sub_admin_list(request: Request):
 
         perms = sub_data.get('permissions', {}) if isinstance(sub_data, dict) else {}
 
+        bound_username = str(sub_data.get('bound_username', '') if isinstance(sub_data, dict) else '').strip().lower()
+
+        bound_account_status = str(sub_data.get('bound_account_status', '') if isinstance(sub_data, dict) else '').strip()
+
+        bound_account_expire_time = sub_data.get('bound_account_expire_time') if isinstance(sub_data, dict) else None
+
         sub_admin_list.append({
 
             "name": name, "password_hint": pwd[:2] + "***" if pwd and len(pwd) > 2 else "***",
 
-            "is_online": name in online_subs, "login_time": login_times.get(name), "permissions": perms})
+            "is_online": name in online_subs, "login_time": login_times.get(name), "permissions": perms,
+
+            "bound_username": bound_username, "is_bound": bool(bound_username),
+
+            "bound_by": str(sub_data.get('bound_by', '') if isinstance(sub_data, dict) else '').strip(),
+
+            "binding_created_at": sub_data.get('binding_created_at') if isinstance(sub_data, dict) else None,
+
+            "binding_updated_at": sub_data.get('binding_updated_at') if isinstance(sub_data, dict) else None,
+
+            "bound_account_status": bound_account_status,
+
+            "bound_account_expire_time": bound_account_expire_time})
 
     return {"sub_admins": sub_admin_list, "total": len(SUB_ADMINS)}
 
@@ -3825,6 +3843,8 @@ async def admin_sub_admin_set(request: Request):
     sub_name = data.get('sub_name', '').strip()
 
     new_sub_password = data.get('new_sub_password', '')
+
+    bound_username = data.get('bound_username', '').strip()
 
 
 
@@ -3862,15 +3882,73 @@ async def admin_sub_admin_set(request: Request):
 
     try:
 
-        await db.db_set_sub_admin(sub_name, new_sub_password, permissions)
 
-        SUB_ADMINS[sub_name] = {'password': new_sub_password, 'permissions': permissions}
+        saved_sub_admin = await db.db_set_sub_admin(
+            sub_name,
+            new_sub_password,
+            permissions,
+            bound_username=bound_username,
+            bound_by='super_admin'
+        )
+
+
+        SUB_ADMINS[sub_name] = saved_sub_admin
+
+        await _sync_im_whitelist_group_owners({sub_name})
 
         return {"success": True, "message": f"子管理员 [{sub_name}] {'更新' if is_update else '添加'}成功"}
 
     except Exception as e:
 
         return {"success": False, "message": f"保存失败: {e}"}
+
+
+
+@app.post("/admin/api/sub_admin/bind_account")
+
+async def admin_sub_admin_bind_account(request: Request):
+
+    await asyncio.sleep(0.3)
+
+    try:
+
+        data = await request.json()
+
+    except Exception:
+
+        return {"success": False, "message": "请求无效"}
+
+    is_valid, role, _ = verify_admin_password(data.get('admin_password', ''))
+
+    if not is_valid or role != ROLE_SUPER_ADMIN:
+
+        return {"success": False, "message": "系统总管理员密码错误"}
+
+    if not verify_db_password(data.get('secondary_password', '')):
+
+        return {"success": False, "message": "二级密码错误"}
+
+    sub_name = data.get('sub_name', '').strip()
+
+    if not sub_name or sub_name not in SUB_ADMINS:
+
+        return {"success": False, "message": f"子管理员 [{sub_name}] 不存在"}
+
+    bound_username = data.get('bound_username', '').strip()
+
+    try:
+
+        saved_sub_admin = await db.db_bind_sub_admin_account(sub_name, bound_username, bound_by='super_admin')
+
+        SUB_ADMINS[sub_name] = saved_sub_admin
+
+        await _sync_im_whitelist_group_owners({sub_name})
+
+        return {"success": True, "message": f"子管理员 [{sub_name}] 绑定账号成功"}
+
+    except Exception as e:
+
+        return {"success": False, "message": f"绑定失败: {e}"}
 
 
 

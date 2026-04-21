@@ -294,6 +294,17 @@ async def init_db(host: str = "127.0.0.1", port: int = 5432,
             )
         ''')
 
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS sub_admin_account_bindings (
+                sub_name TEXT PRIMARY KEY REFERENCES sub_admins(name) ON DELETE CASCADE,
+                account_username TEXT NOT NULL REFERENCES authorized_accounts(username),
+                bound_by TEXT DEFAULT '',
+                created_at TIMESTAMP DEFAULT NOW(),
+                updated_at TIMESTAMP DEFAULT NOW(),
+                UNIQUE(account_username)
+            )
+        ''')
+
         # 积分定价配置表
         await conn.execute('''
             CREATE TABLE IF NOT EXISTS credit_config (
@@ -1439,30 +1450,117 @@ async def get_license_logs(action: str = None, limit: int = 100, offset: int = 0
 
 # ===== 子管理员管理 =====
 
+def _normalize_bound_account_username(username: str) -> str:
+    return (str(username or '').strip().lower())
+
+
+async def _validate_sub_admin_bound_account(conn: asyncpg.Connection, sub_name: str, bound_username: str) -> str:
+    normalized_bound_username = _normalize_bound_account_username(bound_username)
+    if not normalized_bound_username:
+        raise ValueError('请绑定账号')
+    account_row = await conn.fetchrow('''
+        SELECT username, status, expire_time
+        FROM authorized_accounts
+        WHERE username = $1
+    ''', normalized_bound_username)
+    if not account_row:
+        raise ValueError(f'绑定账号 [{normalized_bound_username}] 不存在')
+    expire_time = account_row['expire_time']
+    if account_row['status'] != 'active' or not expire_time or expire_time <= datetime.now():
+        raise ValueError(f'绑定账号 [{normalized_bound_username}] 当前不是有效授权账号')
+    binding_row = await conn.fetchrow('''
+        SELECT sub_name
+        FROM sub_admin_account_bindings
+        WHERE account_username = $1
+    ''', normalized_bound_username)
+    if binding_row and str(binding_row['sub_name'] or '').strip() != str(sub_name or '').strip():
+        raise ValueError(f'账号 [{normalized_bound_username}] 已绑定子管理员 [{binding_row["sub_name"]}]')
+    return normalized_bound_username
+
 async def db_get_all_sub_admins() -> Dict:
     """获取所有子管理员"""
     pool = _get_pool()
     async with pool.acquire() as conn:
-        rows = await conn.fetch('SELECT name, password, permissions, created_at FROM sub_admins ORDER BY created_at')
+        rows = await conn.fetch('''
+            SELECT s.name,
+                   s.password,
+                   s.permissions,
+                   s.created_at AS sub_admin_created_at,
+                   b.account_username,
+                   b.bound_by,
+                   b.created_at AS binding_created_at,
+                   b.updated_at AS binding_updated_at,
+                   aa.status AS bound_account_status,
+                   aa.expire_time AS bound_account_expire_time
+            FROM sub_admins s
+            LEFT JOIN sub_admin_account_bindings b ON b.sub_name = s.name
+            LEFT JOIN authorized_accounts aa ON aa.username = b.account_username
+            ORDER BY s.created_at
+        ''')
         result = {}
         for r in rows:
             result[r['name']] = {
                 'password': r['password'],
                 'permissions': json.loads(r['permissions'] or '{}'),
-                'created_at': str(r['created_at']) if r['created_at'] else None
+                'created_at': _serialize_time_value(r['sub_admin_created_at']),
+                'bound_username': str(r['account_username'] or '').strip().lower(),
+                'is_bound': bool(str(r['account_username'] or '').strip()),
+                'bound_by': str(r['bound_by'] or '').strip(),
+                'binding_created_at': _serialize_time_value(r['binding_created_at']),
+                'binding_updated_at': _serialize_time_value(r['binding_updated_at']),
+                'bound_account_status': str(r['bound_account_status'] or '').strip(),
+                'bound_account_expire_time': _serialize_time_value(r['bound_account_expire_time'])
             }
         return result
 
 
-async def db_set_sub_admin(name: str, password: str, permissions: dict = None):
+async def db_set_sub_admin(name: str, password: str, permissions: dict = None,
+                           bound_username: str = '', bound_by: str = '') -> Dict:
     """添加或更新子管理员"""
     perm_json = json.dumps(permissions or {})
     pool = _get_pool()
     async with pool.acquire() as conn:
-        await conn.execute('''
-            INSERT INTO sub_admins (name, password, permissions) VALUES ($1, $2, $3)
-            ON CONFLICT(name) DO UPDATE SET password = $2, permissions = $3
-        ''', name, password, perm_json)
+        normalized_bound_username = await _validate_sub_admin_bound_account(conn, name, bound_username)
+        async with conn.transaction():
+            await conn.execute('''
+                INSERT INTO sub_admins (name, password, permissions) VALUES ($1, $2, $3)
+                ON CONFLICT(name) DO UPDATE SET password = $2, permissions = $3
+            ''', name, password, perm_json)
+            await conn.execute('''
+                INSERT INTO sub_admin_account_bindings (sub_name, account_username, bound_by)
+                VALUES ($1, $2, $3)
+                ON CONFLICT(sub_name) DO UPDATE SET
+                    account_username = EXCLUDED.account_username,
+                    bound_by = EXCLUDED.bound_by,
+                    updated_at = NOW()
+            ''', name, normalized_bound_username, str(bound_by or '').strip())
+    result = await db_get_sub_admin(name)
+    if not result:
+        raise ValueError(f'子管理员 [{name}] 保存后读取失败')
+    return result
+
+
+async def db_bind_sub_admin_account(name: str, bound_username: str, bound_by: str = '') -> Dict:
+    """为已有子管理员补绑或改绑账号"""
+    pool = _get_pool()
+    async with pool.acquire() as conn:
+        sub_admin_row = await conn.fetchrow('SELECT name FROM sub_admins WHERE name = $1', name)
+        if not sub_admin_row:
+            raise ValueError(f'子管理员 [{name}] 不存在')
+        normalized_bound_username = await _validate_sub_admin_bound_account(conn, name, bound_username)
+        async with conn.transaction():
+            await conn.execute('''
+                INSERT INTO sub_admin_account_bindings (sub_name, account_username, bound_by)
+                VALUES ($1, $2, $3)
+                ON CONFLICT(sub_name) DO UPDATE SET
+                    account_username = EXCLUDED.account_username,
+                    bound_by = EXCLUDED.bound_by,
+                    updated_at = NOW()
+            ''', name, normalized_bound_username, str(bound_by or '').strip())
+    result = await db_get_sub_admin(name)
+    if not result:
+        raise ValueError(f'子管理员 [{name}] 补绑后读取失败')
+    return result
 
 
 async def db_delete_sub_admin(name: str) -> bool:
@@ -1478,11 +1576,37 @@ async def db_get_sub_admin(name: str) -> Optional[Dict]:
     pool = _get_pool()
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
-            'SELECT name, password, permissions, created_at FROM sub_admins WHERE name = $1', name)
+            '''
+            SELECT s.name,
+                   s.password,
+                   s.permissions,
+                   s.created_at AS sub_admin_created_at,
+                   b.account_username,
+                   b.bound_by,
+                   b.created_at AS binding_created_at,
+                   b.updated_at AS binding_updated_at,
+                   aa.status AS bound_account_status,
+                   aa.expire_time AS bound_account_expire_time
+            FROM sub_admins s
+            LEFT JOIN sub_admin_account_bindings b ON b.sub_name = s.name
+            LEFT JOIN authorized_accounts aa ON aa.username = b.account_username
+            WHERE s.name = $1
+            ''', name)
         if not row:
             return None
-        result = dict(row)
-        result['permissions'] = json.loads(result.get('permissions') or '{}')
+        result = {
+            'name': row['name'],
+            'password': row['password'],
+            'permissions': json.loads(row['permissions'] or '{}'),
+            'created_at': _serialize_time_value(row['sub_admin_created_at']),
+            'bound_username': str(row['account_username'] or '').strip().lower(),
+            'is_bound': bool(str(row['account_username'] or '').strip()),
+            'bound_by': str(row['bound_by'] or '').strip(),
+            'binding_created_at': _serialize_time_value(row['binding_created_at']),
+            'binding_updated_at': _serialize_time_value(row['binding_updated_at']),
+            'bound_account_status': str(row['bound_account_status'] or '').strip(),
+            'bound_account_expire_time': _serialize_time_value(row['bound_account_expire_time'])
+        }
         return result
 
 
