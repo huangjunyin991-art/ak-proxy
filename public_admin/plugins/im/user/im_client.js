@@ -153,6 +153,7 @@
     let sessionTopbarTitleEl = null;
     let sessionNewBtnEl = null;
     let shellMode = 'none';
+    let composerOutsideDismissBound = false;
 
     function assignShellElements(elements) {
         const nextElements = elements || {};
@@ -1070,6 +1071,30 @@
         if (!state.plusPanelOpen) return;
         state.plusPanelOpen = false;
         if (!options || !options.silent) render();
+    }
+
+    function shouldKeepPlusPanelOpen(target) {
+        if (!target) return false;
+        if (plusSheetEl && typeof plusSheetEl.contains === 'function' && plusSheetEl.contains(target)) {
+            return true;
+        }
+        if (composerPlusBtnEl && typeof composerPlusBtnEl.contains === 'function' && composerPlusBtnEl.contains(target)) {
+            return true;
+        }
+        return false;
+    }
+
+    function handleComposerOutsideClick(event) {
+        if (!state.plusPanelOpen) return;
+        const target = event && event.target ? event.target : null;
+        if (shouldKeepPlusPanelOpen(target)) return;
+        closePlusPanel();
+    }
+
+    function bindComposerOutsideDismissEvents() {
+        if (composerOutsideDismissBound || !document || typeof document.addEventListener !== 'function') return;
+        document.addEventListener('click', handleComposerOutsideClick, true);
+        composerOutsideDismissBound = true;
     }
 
     function handlePlusPanelAction(action) {
@@ -3051,6 +3076,7 @@
     function init() {
         initAppShellModule();
         ensureRoot();
+        bindComposerOutsideDismissEvents();
         initProfileModule();
         render();
         loadBootstrap();
