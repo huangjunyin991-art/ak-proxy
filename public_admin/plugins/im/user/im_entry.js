@@ -54,6 +54,11 @@
             src: `${window.location.origin}/chat/plugins/im/user/modules/im_file_manage.js`
         },
         {
+            selector: 'script[data-ak-im-user-plugin-location-manage="1"]',
+            datasetKey: 'akImUserPluginLocationManage',
+            src: `${window.location.origin}/chat/plugins/im/user/modules/im_location_manage.js`
+        },
+        {
             selector: 'script[data-ak-im-user-plugin-plus-entry-manage="1"]',
             datasetKey: 'akImUserPluginPlusEntryManage',
             src: `${window.location.origin}/chat/plugins/im/user/modules/im_plus_entry_manage.js`

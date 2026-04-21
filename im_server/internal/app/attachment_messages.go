@@ -772,6 +772,14 @@ func (a *App) normalizeOutgoingMessageItem(ctx context.Context, item MessageItem
 		if payloadBytes, marshalErr := json.Marshal(payload); marshalErr == nil {
 			item.Content = string(payloadBytes)
 		}
+	case "location":
+		payload, err := normalizeLocationMessagePayload(item.Content)
+		if err != nil {
+			return item
+		}
+		if payloadBytes, marshalErr := json.Marshal(payload); marshalErr == nil {
+			item.Content = string(payloadBytes)
+		}
 	}
 	return item
 }

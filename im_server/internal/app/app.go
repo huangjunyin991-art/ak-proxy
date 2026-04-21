@@ -30,6 +30,7 @@ var (
 	errInvalidVoicePayload = errors.New("invalid voice payload")
 	errInvalidImagePayload = errors.New("invalid image payload")
 	errInvalidFilePayload = errors.New("invalid file payload")
+	errInvalidLocationPayload = errors.New("invalid location payload")
 	errEmptyMessageContent = errors.New("empty content")
 )
 
@@ -1419,7 +1420,7 @@ func (a *App) handleSendMessage(w http.ResponseWriter, r *http.Request, username
 	}
 	message, err := a.insertMessage(r.Context(), req.ConversationID, username, req)
 	if err != nil {
-		if errors.Is(err, errInvalidMessageType) || errors.Is(err, errInvalidEmojiAssetID) || errors.Is(err, errInvalidVoicePayload) || errors.Is(err, errInvalidImagePayload) || errors.Is(err, errInvalidFilePayload) || errors.Is(err, errEmptyMessageContent) {
+		if errors.Is(err, errInvalidMessageType) || errors.Is(err, errInvalidEmojiAssetID) || errors.Is(err, errInvalidVoicePayload) || errors.Is(err, errInvalidImagePayload) || errors.Is(err, errInvalidFilePayload) || errors.Is(err, errInvalidLocationPayload) || errors.Is(err, errEmptyMessageContent) {
 			writeJSON(w, http.StatusBadRequest, map[string]any{"error": true, "message": err.Error()})
 			return
 		}
@@ -1513,6 +1514,21 @@ func buildMessageStorage(req sendMessageRequest) (messageType string, contentPre
 		contentPayload = string(payloadBytes)
 		contentSizeRaw = filePayload.FileSize
 		contentSizeStored = filePayload.FileSize
+	case "location":
+		locationPayload, locationErr := normalizeLocationMessagePayload(req.Content)
+		if locationErr != nil {
+			err = locationErr
+			return
+		}
+		payloadBytes, marshalErr := json.Marshal(locationPayload)
+		if marshalErr != nil {
+			err = marshalErr
+			return
+		}
+		contentPreview = formatLocationMessagePreview(locationPayload)
+		contentPayload = string(payloadBytes)
+		contentSizeRaw = len(contentPayload)
+		contentSizeStored = len(contentPayload)
 	default:
 		err = errInvalidMessageType
 		return

@@ -374,6 +374,7 @@
     }
 
     function initShellModules() {
+        initLocationModule();
         initMessageManageModule();
         initHeicManageModule();
         initImageManageModule();
@@ -689,6 +690,14 @@
         return emojiManageModule;
     }
 
+    function getLocationModule() {
+        const modules = window.AKIMUserModules;
+        if (!modules || typeof modules !== 'object') return null;
+        const locationManageModule = modules.locationManage;
+        if (!locationManageModule || typeof locationManageModule.init !== 'function') return null;
+        return locationManageModule;
+    }
+
     function initMessageManageModule() {
         const messageManageModule = getMessageManageModule();
         if (!messageManageModule) return;
@@ -846,13 +855,25 @@
         });
     }
 
+    function initLocationModule() {
+        const locationModule = getLocationModule();
+        if (!locationModule) return;
+        locationModule.init({
+            state: state,
+            request: request,
+            escapeHtml: escapeHtml,
+            sendLocationMessage: sendLocationMessage
+        });
+    }
+
     function initPlusEntryModule() {
         const plusEntryModule = getPlusEntryModule();
         if (!plusEntryModule) return;
         plusEntryModule.init({
             state: state,
             sendImageFile: sendImageFile,
-            sendAttachmentFile: sendAttachmentFile
+            sendAttachmentFile: sendAttachmentFile,
+            openLocationPicker: openLocationPicker
         });
     }
 
@@ -931,6 +952,11 @@
             const fileMarkup = fileModule.buildMessageBubbleMarkup(item);
             if (fileMarkup) return fileMarkup;
         }
+        const locationModule = getLocationModule();
+        if (locationModule && typeof locationModule.buildMessageBubbleMarkup === 'function') {
+            const locationMarkup = locationModule.buildMessageBubbleMarkup(item);
+            if (locationMarkup) return locationMarkup;
+        }
         const emojiModule = getEmojiModule();
         if (emojiModule && typeof emojiModule.buildMessageBubbleMarkup === 'function') {
             const emojiMarkup = emojiModule.buildMessageBubbleMarkup(item);
@@ -954,6 +980,11 @@
         if (fileModule && typeof fileModule.getMessageBubbleClassName === 'function') {
             const fileClassName = fileModule.getMessageBubbleClassName(item);
             if (fileClassName) return fileClassName;
+        }
+        const locationModule = getLocationModule();
+        if (locationModule && typeof locationModule.getMessageBubbleClassName === 'function') {
+            const locationClassName = locationModule.getMessageBubbleClassName(item);
+            if (locationClassName) return locationClassName;
         }
         const emojiModule = getEmojiModule();
         if (emojiModule && typeof emojiModule.getMessageBubbleClassName === 'function') {
@@ -1091,6 +1122,27 @@
             return fileModule.sendAttachmentFile(file);
         }
         return Promise.reject(new Error('文件发送模块暂不可用'));
+    }
+
+    function sendLocationMessage(payload) {
+        const messageManageModule = getMessageManageModule();
+        if (!messageManageModule || typeof messageManageModule.sendMessagePayload !== 'function') {
+            return Promise.reject(new Error('位置发送模块暂不可用'));
+        }
+        return messageManageModule.sendMessagePayload({
+            message_type: 'location',
+            content: JSON.stringify(payload || {})
+        }, {
+            resetComposer: false
+        });
+    }
+
+    function openLocationPicker() {
+        const locationModule = getLocationModule();
+        if (locationModule && typeof locationModule.openPicker === 'function') {
+            return locationModule.openPicker();
+        }
+        return Promise.reject(new Error('位置模块暂不可用'));
     }
 
     function handleActionSheetSecondaryAction() {

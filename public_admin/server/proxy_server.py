@@ -7887,9 +7887,6 @@ async def chat_websocket(websocket: WebSocket):
             await ws_manager.broadcast({'type': 'user_offline', 'data': {'username': username}})
 
 
-
-
-
 # --- 管理后台页面 ---
 
 @app.get("/admin", response_class=HTMLResponse)
@@ -7919,9 +7916,14 @@ async def admin_page():
     return "<h1>管理页面未找到</h1>"
 
 
-
 _WIDGET_CACHE_MAX_AGE = 31536000
+
 _WIDGET_REVALIDATE_MAX_AGE = 300
+
+
+IM_LOCATION_AMAP_WEB_KEY = str(os.getenv("IM_LOCATION_AMAP_WEB_KEY", str(globals().get("IM_LOCATION_AMAP_WEB_KEY", "")))).strip()
+
+IM_LOCATION_AMAP_SECURITY_JS_CODE = str(os.getenv("IM_LOCATION_AMAP_SECURITY_JS_CODE", str(globals().get("IM_LOCATION_AMAP_SECURITY_JS_CODE", "")))).strip()
 
 
 def _iter_widget_asset_paths() -> list[str]:
@@ -7936,6 +7938,7 @@ def _iter_widget_asset_paths() -> list[str]:
         os.path.join(PLUGINS_DIR, "im", "user", "modules", "im_heic_manage.js"),
         os.path.join(PLUGINS_DIR, "im", "user", "modules", "im_image_manage.js"),
         os.path.join(PLUGINS_DIR, "im", "user", "modules", "im_file_manage.js"),
+        os.path.join(PLUGINS_DIR, "im", "user", "modules", "im_location_manage.js"),
         os.path.join(PLUGINS_DIR, "im", "user", "modules", "im_plus_entry_manage.js"),
         os.path.join(PLUGINS_DIR, "im", "user", "modules", "im_emoji_manage.js"),
         os.path.join(PLUGINS_DIR, "im", "user", "modules", "im_voice_hold_manage.js"),
@@ -8044,13 +8047,23 @@ def _build_widget_loader_response() -> Response:
     )
 
 
-def _build_widget_script_response(request: Request, js_path: str) -> Response:
+def _build_im_location_config_prelude() -> str:
+    payload = {
+        "amapWebKey": IM_LOCATION_AMAP_WEB_KEY,
+        "amapSecurityJsCode": IM_LOCATION_AMAP_SECURITY_JS_CODE,
+    }
+    return "window.__AK_IM_LOCATION__ = " + json.dumps(payload, ensure_ascii=False) + ";\n"
+
+
+def _build_widget_script_response(request: Request, js_path: str, extra_prelude: str = "") -> Response:
     if not os.path.exists(js_path):
         return Response(content="// not found", media_type="application/javascript")
     with open(js_path, "r", encoding="utf-8") as f:
         content = f.read()
     asset_version = _get_widget_asset_version()
     prelude = f"window.__AK_WIDGET_ASSET_VERSION__ = {json.dumps(asset_version)};\n"
+    if extra_prelude:
+        prelude += extra_prelude
     return Response(
         content=prelude + content,
         media_type="application/javascript",
@@ -8107,7 +8120,7 @@ async def im_user_plugin_entry_js(request: Request):
 
     js_path = os.path.join(PLUGINS_DIR, "im", "user", "im_entry.js")
 
-    return _build_widget_script_response(request, js_path)
+    return _build_widget_script_response(request, js_path, _build_im_location_config_prelude())
 
 
 @app.get("/chat/plugins/im/user/im_client.js")
@@ -8160,6 +8173,15 @@ async def im_user_plugin_image_manage_module_js(request: Request):
 async def im_user_plugin_file_manage_module_js(request: Request):
 
     js_path = os.path.join(PLUGINS_DIR, "im", "user", "modules", "im_file_manage.js")
+
+    return _build_widget_script_response(request, js_path)
+
+
+@app.get("/chat/plugins/im/user/modules/im_location_manage.js")
+
+async def im_user_plugin_location_manage_module_js(request: Request):
+
+    js_path = os.path.join(PLUGINS_DIR, "im", "user", "modules", "im_location_manage.js")
 
     return _build_widget_script_response(request, js_path)
 

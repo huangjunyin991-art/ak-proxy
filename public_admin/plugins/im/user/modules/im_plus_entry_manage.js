@@ -109,6 +109,16 @@
                 this.openInput(this.fileInputEl);
                 return;
             }
+            if (actionKey === 'location') {
+                if (!this.ctx || typeof this.ctx.openLocationPicker !== 'function') {
+                    window.alert('位置模块暂不可用');
+                    return;
+                }
+                Promise.resolve(this.ctx.openLocationPicker()).catch(function(error) {
+                    window.alert(error && error.message ? error.message : '位置选择器打开失败');
+                });
+                return;
+            }
             window.alert('位置功能暂未开放');
         }
     };
