@@ -4,6 +4,9 @@
     const DEFAULT_MAP_ZOOM = 16;
     const HIGH_ACCURACY_LOCATION_TIMEOUT = 10000;
     const BASIC_LOCATION_TIMEOUT = 18000;
+    const SEARCH_SUGGESTION_LIMIT = 6;
+    const SEARCH_RESULT_LIMIT = 6;
+    const SEARCH_DEBOUNCE_MS = 180;
     const LOCATION_PROVIDER = 'amap';
     const LOCATION_COORDINATE = 'gaode';
 
@@ -19,6 +22,10 @@
         locateBtnEl: null,
         confirmBtnEl: null,
         cancelBtnEl: null,
+        searchInputEl: null,
+        searchSubmitEl: null,
+        searchTipsEl: null,
+        searchResultsEl: null,
         map: null,
         marker: null,
         geocoder: null,
@@ -30,9 +37,18 @@
         coarseGeolocationPromise: null,
         coarseGeolocationAttached: false,
         amapPromise: null,
+        autocomplete: null,
+        autocompletePromise: null,
+        placeSearch: null,
+        placeSearchPromise: null,
         selectedPayload: null,
         isSending: false,
         isLocating: false,
+        isSearching: false,
+        searchSuggestionItems: null,
+        searchResultItems: null,
+        searchDebounceTimer: null,
+        searchRequestToken: 0,
 
         init(ctx) {
             this.ctx = ctx || null;
@@ -135,6 +151,10 @@
             return parts.join(' | ');
         },
 
+        buildSearchFallbackMessage() {
+            return '当前浏览器不支持稳定自动定位，请使用QQ浏览器，或通过搜索定位/地图选点';
+        },
+
         buildGeolocationErrorMessage(status, detail) {
             const statusText = String(status || '').trim();
             const detailText = this.extractErrorText(detail);
@@ -144,24 +164,27 @@
             const combinedText = [statusText, detailText, detailLine].filter(Boolean).join(' ');
             this.reportGeolocationDiagnostics(statusText, detail);
             if (/get geolocation time\s*out/i.test(combinedText) && /get iplocation failed/i.test(combinedText)) {
-                if (this.isMobileEdgeBrowser()) {
-                    return '当前手机 Edge 浏览器定位服务不可用：' + debugLine + '，请直接点击地图选择位置，或改用系统浏览器再试';
-                }
                 if (this.isMobileBrowser()) {
-                    return '当前手机浏览器定位服务不可用：' + debugLine + '，请直接点击地图选择位置，或改用系统浏览器再试';
+                    return this.buildSearchFallbackMessage();
                 }
             }
             if (/permission|denied|forbidden|unauthorized|定位权限|授权/i.test(combinedText)) {
-                return debugLine ? '定位权限被拒绝：' + debugLine : '定位权限被拒绝，请开启浏览器定位权限后重试';
+                if (this.isMobileBrowser()) {
+                    return '当前浏览器自动定位不可用，请检查定位权限，或通过搜索定位/地图选点';
+                }
+                return '定位权限被拒绝，请开启浏览器定位权限后重试';
             }
             if (/timeout|超时/i.test(combinedText)) {
-                return debugLine ? '定位超时：' + debugLine : '定位超时，请重试或点击地图选择位置';
+                if (this.isMobileBrowser()) {
+                    return '自动定位超时，请通过搜索定位或地图选点';
+                }
+                return '定位超时，请重试或点击地图选择位置';
             }
             if (/https|secure|insecure|origin|protocol/i.test(combinedText)) {
-                return debugLine ? '当前环境不支持浏览器定位：' + debugLine : '当前环境不支持浏览器定位，请点击地图选择位置';
+                return '当前环境不支持浏览器定位，请通过搜索定位或地图选点';
             }
-            if (debugLine) {
-                return '定位失败：' + debugLine;
+            if (this.isMobileBrowser()) {
+                return '自动定位失败，请通过搜索定位或地图选点';
             }
             if (detailText) {
                 return '定位失败：' + detailText;
@@ -180,6 +203,11 @@
         isMobileEdgeBrowser() {
             const userAgent = String(global.navigator && global.navigator.userAgent || '').trim();
             return /edga|edgios|edge/i.test(userAgent) && this.isMobileBrowser();
+        },
+
+        isMobileChromiumBrowser() {
+            const userAgent = String(global.navigator && global.navigator.userAgent || '').trim();
+            return this.isMobileBrowser() && /chrome|crios|edga|edgios/i.test(userAgent) && !/qqbrowser/i.test(userAgent);
         },
 
         isGeolocationTimeoutError(error) {
@@ -255,31 +283,47 @@
                 #ak-im-root .ak-im-location-bubble-meta{font-size:11px;line-height:1.45;color:#64748b;word-break:break-word}
                 .ak-im-location-picker{position:fixed;inset:0;z-index:2147483647;display:none}
                 .ak-im-location-picker.is-open{display:block}
-                .ak-im-location-picker-mask{position:absolute;inset:0;background:rgba(15,23,42,.42)}
-                .ak-im-location-picker-sheet{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:min(92vw,480px);max-height:min(88vh,760px);display:flex;flex-direction:column;overflow:hidden;border-radius:24px;background:#ffffff;box-shadow:0 24px 60px rgba(15,23,42,.28)}
-                .ak-im-location-picker-header{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:18px 18px 14px;border-bottom:1px solid rgba(15,23,42,.08)}
-                .ak-im-location-picker-title{font-size:18px;font-weight:700;line-height:1.3;color:#0f172a}
-                .ak-im-location-picker-close{border:none;background:transparent;color:#64748b;font-size:14px;font-weight:600;cursor:pointer;padding:6px 8px;border-radius:10px}
+                .ak-im-location-picker-mask{position:absolute;inset:0;background:rgba(15,23,42,.34);backdrop-filter:blur(4px)}
+                .ak-im-location-picker-sheet{position:absolute;left:50%;bottom:0;transform:translateX(-50%);width:min(100vw,540px);max-height:min(86vh,760px);display:flex;flex-direction:column;overflow:hidden;border-radius:26px 26px 0 0;background:linear-gradient(180deg,#ffffff 0%,#f8fbff 100%);box-shadow:0 -18px 48px rgba(15,23,42,.22)}
+                .ak-im-location-picker-header{display:flex;flex-direction:column;gap:10px;padding:10px 14px 12px;border-bottom:1px solid rgba(148,163,184,.18);background:rgba(255,255,255,.94)}
+                .ak-im-location-picker-handle{width:44px;height:5px;border-radius:999px;background:rgba(148,163,184,.55);align-self:center}
+                .ak-im-location-picker-topbar{display:flex;align-items:center;justify-content:space-between;gap:12px}
+                .ak-im-location-picker-title{font-size:16px;font-weight:800;line-height:1.3;color:#0f172a}
+                .ak-im-location-picker-close{border:none;background:rgba(241,245,249,.9);color:#475569;font-size:13px;font-weight:700;cursor:pointer;padding:0 12px;height:34px;border-radius:999px}
                 .ak-im-location-picker-close:disabled{opacity:.5;cursor:default}
-                .ak-im-location-picker-body{padding:14px 16px 16px;display:flex;flex-direction:column;gap:12px;min-height:0}
+                .ak-im-location-picker-body{padding:12px 14px 14px;display:flex;flex-direction:column;gap:10px;min-height:0;overflow:auto}
                 .ak-im-location-picker-hint{font-size:12px;line-height:1.5;color:#64748b}
-                .ak-im-location-picker-map{height:min(42vh,340px);border-radius:18px;overflow:hidden;background:#f8fafc}
-                .ak-im-location-picker-summary{padding:14px 14px 12px;border-radius:18px;background:#f8fafc;display:flex;flex-direction:column;gap:4px}
-                .ak-im-location-picker-summary-title{font-size:15px;font-weight:700;line-height:1.35;color:#0f172a;word-break:break-word}
+                .ak-im-location-picker-search{display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:16px;background:#ffffff;border:1px solid rgba(148,163,184,.22);box-shadow:0 10px 24px rgba(15,23,42,.04)}
+                .ak-im-location-picker-search input{flex:1 1 auto;min-width:0;border:none;outline:none;background:transparent;color:#0f172a;font-size:14px;line-height:1.4}
+                .ak-im-location-picker-search input::placeholder{color:#94a3b8}
+                .ak-im-location-picker-search-btn{height:34px;border:none;border-radius:12px;padding:0 14px;background:#e2e8f0;color:#0f172a;font-size:13px;font-weight:700;cursor:pointer;flex:0 0 auto}
+                .ak-im-location-picker-search-btn:disabled{opacity:.55;cursor:default}
+                .ak-im-location-picker-search-tips,.ak-im-location-picker-search-results{display:flex;flex-direction:column;gap:6px}
+                .ak-im-location-picker-search-tips:empty,.ak-im-location-picker-search-results:empty{display:none}
+                .ak-im-location-picker-search-card{border:none;background:#ffffff;border-radius:16px;padding:12px 12px;display:flex;flex-direction:column;gap:4px;align-items:flex-start;text-align:left;box-shadow:0 10px 22px rgba(15,23,42,.05);cursor:pointer}
+                .ak-im-location-picker-search-card.is-passive{cursor:default}
+                .ak-im-location-picker-search-card-title{font-size:14px;font-weight:700;line-height:1.35;color:#0f172a;word-break:break-word}
+                .ak-im-location-picker-search-card-meta{font-size:12px;line-height:1.45;color:#64748b;word-break:break-word}
+                .ak-im-location-picker-search-card-tag{display:inline-flex;align-items:center;justify-content:center;height:20px;padding:0 8px;border-radius:999px;background:rgba(59,130,246,.1);color:#1d4ed8;font-size:11px;font-weight:700}
+                .ak-im-location-picker-map{height:min(28vh,220px);border-radius:20px;overflow:hidden;background:#eef2f7;box-shadow:inset 0 0 0 1px rgba(148,163,184,.14)}
+                .ak-im-location-picker-summary{padding:12px 12px;border-radius:18px;background:rgba(255,255,255,.92);box-shadow:0 10px 20px rgba(15,23,42,.04);display:flex;flex-direction:column;gap:4px}
+                .ak-im-location-picker-summary-title{font-size:14px;font-weight:800;line-height:1.35;color:#0f172a;word-break:break-word}
                 .ak-im-location-picker-summary-address{font-size:13px;line-height:1.5;color:#475569;word-break:break-word}
                 .ak-im-location-picker-summary-meta{font-size:12px;line-height:1.45;color:#64748b;word-break:break-word}
-                .ak-im-location-picker-status{min-height:20px;font-size:12px;line-height:1.5;color:#64748b}
-                .ak-im-location-picker-status.is-error{color:#dc2626}
-                .ak-im-location-picker-actions{display:flex;align-items:center;justify-content:flex-end;gap:10px}
-                .ak-im-location-picker-btn{height:40px;border:none;border-radius:14px;padding:0 16px;font-size:14px;font-weight:700;cursor:pointer}
+                .ak-im-location-picker-status{display:none;padding:10px 12px;border-radius:16px;font-size:12px;line-height:1.5;border:1px solid transparent}
+                .ak-im-location-picker-status.has-text{display:block}
+                .ak-im-location-picker-status.is-error{background:#fff1f2;color:#be123c;border-color:#fecdd3}
+                .ak-im-location-picker-status.has-text:not(.is-error){background:#eff6ff;color:#1d4ed8;border-color:#bfdbfe}
+                .ak-im-location-picker-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+                .ak-im-location-picker-btn{height:42px;border:none;border-radius:16px;padding:0 16px;font-size:14px;font-weight:800;cursor:pointer}
                 .ak-im-location-picker-btn:disabled{opacity:.48;cursor:default}
                 .ak-im-location-picker-btn.is-secondary{background:#eef2f7;color:#0f172a}
-                .ak-im-location-picker-btn.is-primary{background:#07c160;color:#ffffff}
+                .ak-im-location-picker-btn.is-primary{grid-column:1 / -1;background:linear-gradient(135deg,#34d399 0%,#22c55e 100%);color:#ffffff;box-shadow:0 14px 24px rgba(34,197,94,.24)}
                 @media (max-width: 520px){
-                    .ak-im-location-picker-sheet{left:12px;right:12px;top:auto;bottom:12px;transform:none;width:auto;max-height:min(88vh,760px);border-radius:22px}
-                    .ak-im-location-picker-map{height:min(40vh,300px)}
-                    .ak-im-location-picker-actions{flex-wrap:wrap}
-                    .ak-im-location-picker-btn{flex:1 1 calc(50% - 5px)}
+                    .ak-im-location-picker-sheet{left:0;right:0;transform:none;width:auto;max-height:min(88vh,760px);border-radius:24px 24px 0 0}
+                    .ak-im-location-picker-header{padding:10px 12px 12px}
+                    .ak-im-location-picker-body{padding:12px 12px 14px}
+                    .ak-im-location-picker-map{height:min(30vh,230px)}
                 }
             `;
         },
@@ -305,11 +349,20 @@
                 '<div class="ak-im-location-picker-mask" data-ak-im-location-close="1"></div>' +
                 '<div class="ak-im-location-picker-sheet" role="dialog" aria-modal="true" aria-label="位置选择器">' +
                     '<div class="ak-im-location-picker-header">' +
-                        '<div class="ak-im-location-picker-title">发送位置</div>' +
-                        '<button type="button" class="ak-im-location-picker-close" data-ak-im-location-close-btn="1">取消</button>' +
+                        '<div class="ak-im-location-picker-handle"></div>' +
+                        '<div class="ak-im-location-picker-topbar">' +
+                            '<div class="ak-im-location-picker-title">发送位置</div>' +
+                            '<button type="button" class="ak-im-location-picker-close" data-ak-im-location-close-btn="1">关闭</button>' +
+                        '</div>' +
                     '</div>' +
                     '<div class="ak-im-location-picker-body">' +
-                        '<div class="ak-im-location-picker-hint">优先尝试定位当前所在位置，也可以直接点击地图选择具体坐标。</div>' +
+                        '<div class="ak-im-location-picker-hint">优先尝试定位当前位置；自动定位不稳定时，可直接搜索地点或点击地图选点。</div>' +
+                        '<div class="ak-im-location-picker-search">' +
+                            '<input type="search" autocomplete="off" enterkeyhint="search" placeholder="搜索小区、商场、写字楼、地铁站" data-ak-im-location-search-input="1" />' +
+                            '<button type="button" class="ak-im-location-picker-search-btn" data-ak-im-location-search-submit="1">搜索</button>' +
+                        '</div>' +
+                        '<div class="ak-im-location-picker-search-tips" data-ak-im-location-search-tips="1"></div>' +
+                        '<div class="ak-im-location-picker-search-results" data-ak-im-location-search-results="1"></div>' +
                         '<div class="ak-im-location-picker-map" data-ak-im-location-map="1"></div>' +
                         '<div class="ak-im-location-picker-summary">' +
                             '<div class="ak-im-location-picker-summary-title" data-ak-im-location-title="1">等待选择位置</div>' +
@@ -334,6 +387,10 @@
             this.locateBtnEl = wrapper.querySelector('[data-ak-im-location-locate="1"]');
             this.confirmBtnEl = wrapper.querySelector('[data-ak-im-location-confirm="1"]');
             this.cancelBtnEl = wrapper.querySelector('[data-ak-im-location-cancel="1"]');
+            this.searchInputEl = wrapper.querySelector('[data-ak-im-location-search-input="1"]');
+            this.searchSubmitEl = wrapper.querySelector('[data-ak-im-location-search-submit="1"]');
+            this.searchTipsEl = wrapper.querySelector('[data-ak-im-location-search-tips="1"]');
+            this.searchResultsEl = wrapper.querySelector('[data-ak-im-location-search-results="1"]');
             const self = this;
             const closePicker = function(event) {
                 if (event) {
@@ -356,6 +413,65 @@
                     });
                 });
             }
+            if (this.searchInputEl) {
+                this.searchInputEl.addEventListener('input', function() {
+                    const keyword = self.getSearchKeyword();
+                    if (!keyword) {
+                        self.clearSearchDebounceTimer();
+                        self.renderSearchTips([]);
+                        self.renderSearchResults([]);
+                        return;
+                    }
+                    self.scheduleSuggestionSearch(keyword);
+                });
+                this.searchInputEl.addEventListener('keydown', function(event) {
+                    if (event.key !== 'Enter') return;
+                    event.preventDefault();
+                    event.stopPropagation();
+                    self.runSearchFromInput().catch(function(error) {
+                        self.renderPickerStatus(error && error.message ? error.message : '地点搜索失败', true);
+                    });
+                });
+            }
+            if (this.searchSubmitEl) {
+                this.searchSubmitEl.addEventListener('click', function(event) {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    self.runSearchFromInput().catch(function(error) {
+                        self.renderPickerStatus(error && error.message ? error.message : '地点搜索失败', true);
+                    });
+                });
+            }
+            if (this.searchTipsEl) {
+                this.searchTipsEl.addEventListener('click', function(event) {
+                    const target = event.target && typeof event.target.closest === 'function'
+                        ? event.target.closest('[data-ak-im-location-tip-index]')
+                        : null;
+                    if (!target) return;
+                    event.preventDefault();
+                    event.stopPropagation();
+                    const index = Number(target.getAttribute('data-ak-im-location-tip-index'));
+                    const item = Array.isArray(self.searchSuggestionItems) ? self.searchSuggestionItems[index] : null;
+                    self.handleSuggestionSelection(item).catch(function(error) {
+                        self.renderPickerStatus(error && error.message ? error.message : '地点选择失败', true);
+                    });
+                });
+            }
+            if (this.searchResultsEl) {
+                this.searchResultsEl.addEventListener('click', function(event) {
+                    const target = event.target && typeof event.target.closest === 'function'
+                        ? event.target.closest('[data-ak-im-location-result-index]')
+                        : null;
+                    if (!target) return;
+                    event.preventDefault();
+                    event.stopPropagation();
+                    const index = Number(target.getAttribute('data-ak-im-location-result-index'));
+                    const item = Array.isArray(self.searchResultItems) ? self.searchResultItems[index] : null;
+                    self.applySearchSelection(item).catch(function(error) {
+                        self.renderPickerStatus(error && error.message ? error.message : '地点选择失败', true);
+                    });
+                });
+            }
             if (this.confirmBtnEl) {
                 this.confirmBtnEl.addEventListener('click', function(event) {
                     event.preventDefault();
@@ -371,15 +487,117 @@
         renderPickerStatus(text, isError) {
             if (!this.statusEl) return;
             this.statusEl.textContent = String(text || '').trim();
+            this.statusEl.classList.toggle('has-text', !!this.statusEl.textContent);
             this.statusEl.classList.toggle('is-error', !!isError && !!this.statusEl.textContent);
+        },
+
+        focusSearchInput() {
+            const self = this;
+            if (!this.searchInputEl || typeof this.searchInputEl.focus !== 'function') return;
+            setTimeout(function() {
+                if (!self.searchInputEl || self.searchInputEl.disabled) return;
+                try {
+                    self.searchInputEl.focus({ preventScroll: true });
+                } catch (error) {
+                    self.searchInputEl.focus();
+                }
+            }, 0);
+        },
+
+        clearSearchDebounceTimer() {
+            if (!this.searchDebounceTimer) return;
+            global.clearTimeout(this.searchDebounceTimer);
+            this.searchDebounceTimer = null;
+        },
+
+        getSearchKeyword() {
+            return String(this.searchInputEl && this.searchInputEl.value || '').replace(/\s+/g, ' ').trim();
+        },
+
+        joinTextParts(parts) {
+            const values = [];
+            const seen = {};
+            const source = Array.isArray(parts) ? parts : [];
+            for (let index = 0; index < source.length; index += 1) {
+                const value = String(source[index] || '').trim();
+                if (!value || seen[value]) continue;
+                seen[value] = true;
+                values.push(value);
+            }
+            return values.join(' ');
+        },
+
+        resetSearchPanels(options) {
+            const settings = options || {};
+            this.clearSearchDebounceTimer();
+            this.searchRequestToken += 1;
+            this.searchSuggestionItems = [];
+            this.searchResultItems = [];
+            this.isSearching = false;
+            if (!settings.keepKeyword && this.searchInputEl) {
+                this.searchInputEl.value = '';
+            }
+            this.renderSearchTips([]);
+            this.renderSearchResults([]);
+            this.syncPickerButtons();
+        },
+
+        buildSearchItemMarkup(item, options) {
+            const settings = options || {};
+            const titleText = String(item && item.name || '').trim() || '未命名地点';
+            const metaText = this.joinTextParts([item && item.address, item && item.meta]);
+            const tagText = String(settings.tag || '').trim();
+            const attrName = String(settings.attrName || '').trim();
+            const attrValue = settings.attrValue;
+            const tagMarkup = tagText ? '<span class="ak-im-location-picker-search-card-tag">' + this.escapeHtml(tagText) + '</span>' : '';
+            const titleMarkup = '<span class="ak-im-location-picker-search-card-title">' + this.escapeHtml(titleText) + '</span>';
+            const metaMarkup = metaText ? '<span class="ak-im-location-picker-search-card-meta">' + this.escapeHtml(metaText) + '</span>' : '';
+            if (!attrName) {
+                return '<div class="ak-im-location-picker-search-card is-passive">' + tagMarkup + titleMarkup + metaMarkup + '</div>';
+            }
+            return '<button type="button" class="ak-im-location-picker-search-card" ' + attrName + '="' + this.escapeAttribute(String(attrValue)) + '">' + tagMarkup + titleMarkup + metaMarkup + '</button>';
+        },
+
+        renderSearchTips(items) {
+            const list = Array.isArray(items) ? items : [];
+            this.searchSuggestionItems = list;
+            if (!this.searchTipsEl) return;
+            if (!list.length) {
+                this.searchTipsEl.innerHTML = '';
+                return;
+            }
+            this.searchTipsEl.innerHTML = list.map(function(item, index) {
+                return this.buildSearchItemMarkup(item, {
+                    tag: '联想',
+                    attrName: 'data-ak-im-location-tip-index',
+                    attrValue: index
+                });
+            }, this).join('');
+        },
+
+        renderSearchResults(items) {
+            const list = Array.isArray(items) ? items : [];
+            this.searchResultItems = list;
+            if (!this.searchResultsEl) return;
+            if (!list.length) {
+                this.searchResultsEl.innerHTML = '';
+                return;
+            }
+            this.searchResultsEl.innerHTML = list.map(function(item, index) {
+                return this.buildSearchItemMarkup(item, {
+                    tag: '结果',
+                    attrName: 'data-ak-im-location-result-index',
+                    attrValue: index
+                });
+            }, this).join('');
         },
 
         updateSelectionDisplay(payload) {
             const normalizedPayload = this.normalizePayload(payload);
             if (!normalizedPayload) {
                 if (this.titleEl) this.titleEl.textContent = '等待选择位置';
-                if (this.addressEl) this.addressEl.textContent = '打开地图后可定位当前坐标，或点击地图重新选点。';
-                if (this.metaEl) this.metaEl.textContent = '支持当前定位与地图点选';
+                if (this.addressEl) this.addressEl.textContent = '可搜索地点、自动定位当前位置，或点击地图重新选点。';
+                if (this.metaEl) this.metaEl.textContent = '支持搜索结果选点、当前位置与地图点选';
                 return;
             }
             const longitudeText = this.formatCoordinate(normalizedPayload.longitude);
@@ -396,6 +614,13 @@
             }
             if (this.cancelBtnEl) {
                 this.cancelBtnEl.disabled = !!this.isSending;
+            }
+            if (this.searchInputEl) {
+                this.searchInputEl.disabled = !!this.isSending;
+            }
+            if (this.searchSubmitEl) {
+                this.searchSubmitEl.disabled = !!this.isSending || !!this.isSearching;
+                this.searchSubmitEl.textContent = this.isSearching ? '搜索中...' : '搜索';
             }
             if (this.confirmBtnEl) {
                 this.confirmBtnEl.disabled = !!this.isSending || !this.normalizePayload(this.selectedPayload);
@@ -420,6 +645,7 @@
             }
             this.ensureStyle();
             this.ensurePicker();
+            this.resetSearchPanels();
             this.pickerEl.classList.add('is-open');
             this.pickerEl.setAttribute('aria-hidden', 'false');
             this.renderPickerStatus('正在加载地图...', false);
@@ -453,6 +679,7 @@
             if (!this.pickerEl) return;
             this.pickerEl.classList.remove('is-open');
             this.pickerEl.setAttribute('aria-hidden', 'true');
+            this.resetSearchPanels();
             this.renderPickerStatus('', false);
             this.syncPickerButtons();
         },
@@ -521,6 +748,242 @@
                         reject(error);
                     }
                 });
+            });
+        },
+
+        normalizeLngLat(raw) {
+            if (!raw) return null;
+            if (Array.isArray(raw) && raw.length >= 2) {
+                const longitude = this.normalizeCoordinate(raw[0], -180, 180);
+                const latitude = this.normalizeCoordinate(raw[1], -90, 90);
+                return longitude == null || latitude == null ? null : {
+                    longitude: longitude,
+                    latitude: latitude
+                };
+            }
+            if (typeof raw.getLng === 'function' && typeof raw.getLat === 'function') {
+                const longitude = this.normalizeCoordinate(raw.getLng(), -180, 180);
+                const latitude = this.normalizeCoordinate(raw.getLat(), -90, 90);
+                return longitude == null || latitude == null ? null : {
+                    longitude: longitude,
+                    latitude: latitude
+                };
+            }
+            if (typeof raw === 'string' && raw.indexOf(',') > -1) {
+                const parts = raw.split(',');
+                return this.normalizeLngLat(parts);
+            }
+            const longitude = this.normalizeCoordinate(raw.longitude != null ? raw.longitude : (raw.lng != null ? raw.lng : raw.lon), -180, 180);
+            const latitude = this.normalizeCoordinate(raw.latitude != null ? raw.latitude : raw.lat, -90, 90);
+            return longitude == null || latitude == null ? null : {
+                longitude: longitude,
+                latitude: latitude
+            };
+        },
+
+        buildPoiAddress(raw) {
+            return this.joinTextParts([
+                raw && raw.pname,
+                raw && raw.cityname,
+                raw && raw.adname,
+                raw && raw.address,
+                raw && raw.district
+            ]);
+        },
+
+        normalizeSuggestionItem(raw) {
+            if (!raw || typeof raw !== 'object') return null;
+            const name = String(raw.name || '').trim();
+            if (!name) return null;
+            const location = this.normalizeLngLat(raw.location);
+            return {
+                name: name,
+                address: this.joinTextParts([raw.district, raw.address]),
+                meta: '',
+                keyword: this.joinTextParts([name, raw.district]),
+                longitude: location ? location.longitude : null,
+                latitude: location ? location.latitude : null
+            };
+        },
+
+        normalizeSearchResultItem(raw) {
+            if (!raw || typeof raw !== 'object') return null;
+            const name = String(raw.name || raw.title || '').trim();
+            const location = this.normalizeLngLat(raw.location || raw.position || raw.lnglat);
+            if (!name || !location) return null;
+            return {
+                name: name,
+                address: this.buildPoiAddress(raw),
+                meta: String(raw.type || '').trim(),
+                longitude: location.longitude,
+                latitude: location.latitude
+            };
+        },
+
+        ensureAutocomplete() {
+            if (this.autocomplete) return Promise.resolve(this.autocomplete);
+            if (this.autocompletePromise) return this.autocompletePromise;
+            const self = this;
+            this.autocompletePromise = this.ensureAmapPlugin('AMap.AutoComplete').then(function(AMap) {
+                if (!AMap || typeof AMap.AutoComplete !== 'function') {
+                    throw new Error('地点联想服务不可用');
+                }
+                self.autocomplete = new AMap.AutoComplete({
+                    citylimit: false
+                });
+                return self.autocomplete;
+            }).catch(function(error) {
+                self.autocompletePromise = null;
+                throw error;
+            });
+            return this.autocompletePromise;
+        },
+
+        ensurePlaceSearch() {
+            if (this.placeSearch) return Promise.resolve(this.placeSearch);
+            if (this.placeSearchPromise) return this.placeSearchPromise;
+            const self = this;
+            this.placeSearchPromise = this.ensureAmapPlugin('AMap.PlaceSearch').then(function(AMap) {
+                if (!AMap || typeof AMap.PlaceSearch !== 'function') {
+                    throw new Error('地点搜索服务不可用');
+                }
+                self.placeSearch = new AMap.PlaceSearch({
+                    pageSize: SEARCH_RESULT_LIMIT,
+                    pageIndex: 1,
+                    extensions: 'all'
+                });
+                return self.placeSearch;
+            }).catch(function(error) {
+                self.placeSearchPromise = null;
+                throw error;
+            });
+            return this.placeSearchPromise;
+        },
+
+        fetchSuggestionList(keyword, token) {
+            const self = this;
+            return this.ensureAutocomplete().then(function(autocomplete) {
+                return new Promise(function(resolve, reject) {
+                    try {
+                        autocomplete.search(keyword, function(status, result) {
+                            if (token !== self.searchRequestToken) {
+                                resolve([]);
+                                return;
+                            }
+                            if (status !== 'complete' || !result || !Array.isArray(result.tips)) {
+                                resolve([]);
+                                return;
+                            }
+                            resolve(result.tips.map(function(item) {
+                                return self.normalizeSuggestionItem(item);
+                            }).filter(Boolean).slice(0, SEARCH_SUGGESTION_LIMIT));
+                        });
+                    } catch (error) {
+                        reject(error);
+                    }
+                });
+            });
+        },
+
+        scheduleSuggestionSearch(keyword) {
+            const self = this;
+            this.clearSearchDebounceTimer();
+            const requestToken = this.searchRequestToken + 1;
+            this.searchRequestToken = requestToken;
+            this.searchDebounceTimer = global.setTimeout(function() {
+                self.fetchSuggestionList(keyword, requestToken).then(function(items) {
+                    if (requestToken !== self.searchRequestToken || keyword !== self.getSearchKeyword()) return;
+                    self.renderSearchTips(items);
+                }).catch(function() {
+                    if (requestToken !== self.searchRequestToken) return;
+                    self.renderSearchTips([]);
+                });
+            }, SEARCH_DEBOUNCE_MS);
+        },
+
+        runKeywordSearch(keyword) {
+            const normalizedKeyword = String(keyword || '').replace(/\s+/g, ' ').trim();
+            if (!normalizedKeyword) {
+                return Promise.reject(new Error('请输入地点关键词'));
+            }
+            const self = this;
+            this.clearSearchDebounceTimer();
+            this.renderSearchTips([]);
+            this.isSearching = true;
+            this.syncPickerButtons();
+            this.renderPickerStatus('正在搜索地点...', false);
+            return this.ensurePlaceSearch().then(function(placeSearch) {
+                return new Promise(function(resolve, reject) {
+                    try {
+                        placeSearch.search(normalizedKeyword, function(status, result) {
+                            if (status !== 'complete' || !result || !result.poiList || !Array.isArray(result.poiList.pois)) {
+                                resolve([]);
+                                return;
+                            }
+                            resolve(result.poiList.pois.map(function(item) {
+                                return self.normalizeSearchResultItem(item);
+                            }).filter(Boolean).slice(0, SEARCH_RESULT_LIMIT));
+                        });
+                    } catch (error) {
+                        reject(error);
+                    }
+                });
+            }).then(function(items) {
+                self.isSearching = false;
+                self.syncPickerButtons();
+                self.renderSearchResults(items);
+                if (!items.length) {
+                    self.renderPickerStatus('未找到相关地点，请换个关键词试试', false);
+                    return items;
+                }
+                self.renderPickerStatus('请选择一个搜索结果，或点击地图微调坐标', false);
+                return items;
+            }, function(error) {
+                self.isSearching = false;
+                self.syncPickerButtons();
+                throw error;
+            });
+        },
+
+        runSearchFromInput() {
+            return this.runKeywordSearch(this.getSearchKeyword());
+        },
+
+        handleSuggestionSelection(item) {
+            if (!item) {
+                return Promise.reject(new Error('请选择有效的联想地点'));
+            }
+            const keyword = String(item.keyword || item.name || '').trim();
+            if (this.searchInputEl) {
+                this.searchInputEl.value = keyword;
+            }
+            this.renderSearchTips([]);
+            if (item.longitude != null && item.latitude != null) {
+                return this.applySearchSelection(item);
+            }
+            return this.runKeywordSearch(keyword);
+        },
+
+        applySearchSelection(item) {
+            if (!item || item.longitude == null || item.latitude == null) {
+                return Promise.reject(new Error('该地点缺少坐标，请换一个结果'));
+            }
+            const self = this;
+            return this.applySelection({
+                longitude: item.longitude,
+                latitude: item.latitude,
+                name: String(item.name || '').trim(),
+                address: String(item.address || '').trim(),
+                coordinate: LOCATION_COORDINATE,
+                provider: LOCATION_PROVIDER
+            }, {
+                shouldGeocode: false,
+                shouldCenter: true
+            }).then(function(result) {
+                self.renderSearchTips([]);
+                self.renderSearchResults([]);
+                self.renderPickerStatus('已选择搜索结果，可直接发送或点击地图微调', false);
+                return result;
             });
         },
 
@@ -696,6 +1159,8 @@
             }
             this.selectedPayload = payload;
             this.updateSelectionDisplay(payload);
+            this.renderSearchTips([]);
+            this.renderSearchResults([]);
             if (this.map && this.marker && (!options || options.shouldCenter !== false)) {
                 this.setMapPosition(payload.longitude, payload.latitude);
             } else if (this.map && this.marker) {
@@ -729,8 +1194,13 @@
             this.syncPickerButtons();
             this.renderPickerStatus('正在定位当前坐标...', false);
             return this.requestGeolocationPosition(this.ensureGeolocation).catch(function(error) {
-                if (!self.isGeolocationTimeoutError(error)) {
-                    throw error;
+                const finalError = error instanceof Error ? error : new Error(self.buildSearchFallbackMessage());
+                if (self.isMobileChromiumBrowser()) {
+                    self.focusSearchInput();
+                    throw finalError;
+                }
+                if (!self.isGeolocationTimeoutError(finalError)) {
+                    throw finalError;
                 }
                 self.renderPickerStatus('高精度定位超时，正在切换基础定位...', false);
                 return self.requestGeolocationPosition(self.ensureCoarseGeolocation);
@@ -747,6 +1217,9 @@
             }, function(error) {
                 self.isLocating = false;
                 self.syncPickerButtons();
+                if (self.isMobileBrowser()) {
+                    self.focusSearchInput();
+                }
                 throw error;
             });
         },
