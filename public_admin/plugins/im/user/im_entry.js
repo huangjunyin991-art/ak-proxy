@@ -19,54 +19,14 @@
 
     const assets = [
         {
-            selector: 'script[data-ak-im-user-plugin-profile="1"]',
-            datasetKey: 'akImUserPluginProfile',
-            src: `${window.location.origin}/chat/plugins/im/user/modules/im_profile.js`
-        },
-        {
             selector: 'script[data-ak-im-user-plugin-session-manage="1"]',
             datasetKey: 'akImUserPluginSessionManage',
             src: `${window.location.origin}/chat/plugins/im/user/modules/im_session_manage.js`
         },
         {
-            selector: 'script[data-ak-im-user-plugin-group-manage="1"]',
-            datasetKey: 'akImUserPluginGroupManage',
-            src: `${window.location.origin}/chat/plugins/im/user/modules/im_group_manage.js`
-        },
-        {
             selector: 'script[data-ak-im-user-plugin-message-manage="1"]',
             datasetKey: 'akImUserPluginMessageManage',
             src: `${window.location.origin}/chat/plugins/im/user/modules/im_message_manage.js`
-        },
-        {
-            selector: 'script[data-ak-im-user-plugin-image-manage="1"]',
-            datasetKey: 'akImUserPluginImageManage',
-            src: `${window.location.origin}/chat/plugins/im/user/modules/im_image_manage.js`
-        },
-        {
-            selector: 'script[data-ak-im-user-plugin-file-manage="1"]',
-            datasetKey: 'akImUserPluginFileManage',
-            src: `${window.location.origin}/chat/plugins/im/user/modules/im_file_manage.js`
-        },
-        {
-            selector: 'script[data-ak-im-user-plugin-location-manage="1"]',
-            datasetKey: 'akImUserPluginLocationManage',
-            src: `${window.location.origin}/chat/plugins/im/user/modules/im_location_manage.js`
-        },
-        {
-            selector: 'script[data-ak-im-user-plugin-plus-entry-manage="1"]',
-            datasetKey: 'akImUserPluginPlusEntryManage',
-            src: `${window.location.origin}/chat/plugins/im/user/modules/im_plus_entry_manage.js`
-        },
-        {
-            selector: 'script[data-ak-im-user-plugin-voice-hold-manage="1"]',
-            datasetKey: 'akImUserPluginVoiceHoldManage',
-            src: `${window.location.origin}/chat/plugins/im/user/modules/im_voice_hold_manage.js`
-        },
-        {
-            selector: 'script[data-ak-im-user-plugin-emoji-manage="1"]',
-            datasetKey: 'akImUserPluginEmojiManage',
-            src: `${window.location.origin}/chat/plugins/im/user/modules/im_emoji_manage.js`
         },
         {
             selector: 'script[data-ak-im-user-plugin-overlay="1"]',

@@ -7,6 +7,59 @@
 
     const API_ROOT = window.location.origin;
     const HTTP_ROOT = `${API_ROOT}/im/api`;
+    const widgetAssetVersion = String(window.__AK_WIDGET_ASSET_VERSION__ || '').trim();
+    const lazyModuleScriptConfigs = {
+        profile: {
+            selector: 'script[data-ak-im-user-plugin-profile="1"]',
+            datasetKey: 'akImUserPluginProfile',
+            src: `${API_ROOT}/chat/plugins/im/user/modules/im_profile.js`,
+            errorMessage: '个人资料模块加载失败'
+        },
+        group: {
+            selector: 'script[data-ak-im-user-plugin-group-manage="1"]',
+            datasetKey: 'akImUserPluginGroupManage',
+            src: `${API_ROOT}/chat/plugins/im/user/modules/im_group_manage.js`,
+            errorMessage: '群设置模块加载失败'
+        },
+        plus: {
+            selector: 'script[data-ak-im-user-plugin-plus-entry-manage="1"]',
+            datasetKey: 'akImUserPluginPlusEntryManage',
+            src: `${API_ROOT}/chat/plugins/im/user/modules/im_plus_entry_manage.js`,
+            errorMessage: '更多功能模块加载失败'
+        },
+        emoji: {
+            selector: 'script[data-ak-im-user-plugin-emoji-manage="1"]',
+            datasetKey: 'akImUserPluginEmojiManage',
+            src: `${API_ROOT}/chat/plugins/im/user/modules/im_emoji_manage.js`,
+            errorMessage: '表情模块加载失败'
+        },
+        image: {
+            selector: 'script[data-ak-im-user-plugin-image-manage="1"]',
+            datasetKey: 'akImUserPluginImageManage',
+            src: `${API_ROOT}/chat/plugins/im/user/modules/im_image_manage.js`,
+            errorMessage: '图片模块加载失败'
+        },
+        file: {
+            selector: 'script[data-ak-im-user-plugin-file-manage="1"]',
+            datasetKey: 'akImUserPluginFileManage',
+            src: `${API_ROOT}/chat/plugins/im/user/modules/im_file_manage.js`,
+            errorMessage: '文件模块加载失败'
+        },
+        location: {
+            selector: 'script[data-ak-im-user-plugin-location-manage="1"]',
+            datasetKey: 'akImUserPluginLocationManage',
+            src: `${API_ROOT}/chat/plugins/im/user/modules/im_location_manage.js`,
+            errorMessage: '位置模块加载失败'
+        },
+        voiceHold: {
+            selector: 'script[data-ak-im-user-plugin-voice-hold-manage="1"]',
+            datasetKey: 'akImUserPluginVoiceHoldManage',
+            src: `${API_ROOT}/chat/plugins/im/user/modules/im_voice_hold_manage.js`,
+            errorMessage: '语音模块加载失败'
+        }
+    };
+    const lazyModuleLoadPromises = {};
+    const lazyModuleInitState = {};
 
     const state = {
         allowed: false,
@@ -375,15 +428,8 @@
     }
 
     function initShellModules() {
-        initLocationModule();
         initMessageManageModule();
-        initImageManageModule();
-        initFileManageModule();
-        initPlusEntryModule();
-        initVoiceHoldModule();
-        initEmojiManageModule();
         initSessionManageModule();
-        initGroupManageModule();
         initOverlayModule();
     }
 
@@ -470,7 +516,12 @@
             setComposerMode('text', { focusInput: true });
             return;
         }
-        setComposerMode('voice');
+        ensureLazyModule('voiceHold').then(function(voiceHoldModule) {
+            if (!voiceHoldModule) throw new Error('语音模块暂不可用');
+            setComposerMode('voice');
+        }).catch(function(error) {
+            window.alert(error && error.message ? error.message : '语音模块暂不可用');
+        });
     }
 
     function handleNewSessionInputChange(value) {
@@ -916,6 +967,116 @@
         });
     }
 
+    function withWidgetAssetVersion(url) {
+        try {
+            const finalUrl = new URL(String(url || ''), API_ROOT);
+            if (widgetAssetVersion) finalUrl.searchParams.set('v', widgetAssetVersion);
+            return finalUrl.toString();
+        } catch (e) {
+            return String(url || '');
+        }
+    }
+
+    function getLazyModuleInstance(moduleKey) {
+        if (moduleKey === 'profile') return getProfileModule();
+        if (moduleKey === 'group') return getGroupManageModule();
+        if (moduleKey === 'plus') return getPlusEntryModule();
+        if (moduleKey === 'emoji') return getEmojiModule();
+        if (moduleKey === 'image') return getImageModule();
+        if (moduleKey === 'file') return getFileModule();
+        if (moduleKey === 'location') return getLocationModule();
+        if (moduleKey === 'voiceHold') return getVoiceHoldModule();
+        return null;
+    }
+
+    function initLazyModule(moduleKey) {
+        const moduleInstance = getLazyModuleInstance(moduleKey);
+        if (!moduleInstance) return null;
+        if (lazyModuleInitState[moduleKey]) return moduleInstance;
+        if (moduleKey === 'profile') initProfileModule();
+        else if (moduleKey === 'group') initGroupManageModule();
+        else if (moduleKey === 'plus') initPlusEntryModule();
+        else if (moduleKey === 'emoji') initEmojiManageModule();
+        else if (moduleKey === 'image') initImageManageModule();
+        else if (moduleKey === 'file') initFileManageModule();
+        else if (moduleKey === 'location') initLocationModule();
+        else if (moduleKey === 'voiceHold') initVoiceHoldModule();
+        lazyModuleInitState[moduleKey] = true;
+        return getLazyModuleInstance(moduleKey) || moduleInstance;
+    }
+
+    function loadLazyModuleScript(moduleKey) {
+        const config = lazyModuleScriptConfigs[moduleKey];
+        if (!config) return Promise.resolve(null);
+        const existingModule = getLazyModuleInstance(moduleKey);
+        if (existingModule) return Promise.resolve(existingModule);
+        if (lazyModuleLoadPromises[moduleKey]) return lazyModuleLoadPromises[moduleKey];
+        lazyModuleLoadPromises[moduleKey] = new Promise(function(resolve, reject) {
+            const errorMessage = String(config.errorMessage || '模块加载失败');
+            const finalize = function() {
+                const moduleInstance = getLazyModuleInstance(moduleKey);
+                if (!moduleInstance) {
+                    reject(new Error(errorMessage));
+                    return;
+                }
+                resolve(moduleInstance);
+            };
+            const handleError = function() {
+                reject(new Error(errorMessage));
+            };
+            const existingScript = document.querySelector(config.selector);
+            if (existingScript) {
+                if (getLazyModuleInstance(moduleKey)) {
+                    finalize();
+                    return;
+                }
+                existingScript.addEventListener('load', finalize, { once: true });
+                existingScript.addEventListener('error', handleError, { once: true });
+                return;
+            }
+            const script = document.createElement('script');
+            script.src = withWidgetAssetVersion(config.src);
+            script.async = true;
+            script.dataset[config.datasetKey] = '1';
+            script.onload = finalize;
+            script.onerror = handleError;
+            (document.head || document.documentElement || document.body).appendChild(script);
+        }).then(function(moduleInstance) {
+            lazyModuleLoadPromises[moduleKey] = Promise.resolve(moduleInstance);
+            return moduleInstance;
+        }, function(error) {
+            delete lazyModuleLoadPromises[moduleKey];
+            throw error;
+        });
+        return lazyModuleLoadPromises[moduleKey];
+    }
+
+    function ensureLazyModule(moduleKey) {
+        const moduleInstance = getLazyModuleInstance(moduleKey);
+        if (moduleInstance && lazyModuleInitState[moduleKey]) {
+            return Promise.resolve(moduleInstance);
+        }
+        return loadLazyModuleScript(moduleKey).then(function() {
+            return initLazyModule(moduleKey);
+        });
+    }
+
+    function ensureOptionalLazyModule(moduleKey) {
+        return ensureLazyModule(moduleKey).catch(function() {
+            return null;
+        });
+    }
+
+    function ensureChatFeatureModules() {
+        return Promise.all([
+            ensureOptionalLazyModule('voiceHold'),
+            ensureOptionalLazyModule('emoji'),
+            ensureOptionalLazyModule('image'),
+            ensureOptionalLazyModule('file'),
+            ensureOptionalLazyModule('location')
+        ]);
+    }
+
     function buildMessageBubbleMarkup(item) {
         const voiceHoldModule = getVoiceHoldModule();
         if (voiceHoldModule && typeof voiceHoldModule.buildMessageBubbleMarkup === 'function') {
@@ -1011,13 +1172,16 @@
             state.composerMode = 'text';
         }
         closePlusPanel({ silent: true });
-        const emojiModule = getEmojiModule();
-        if (emojiModule && typeof emojiModule.togglePicker === 'function') {
-            emojiModule.togglePicker();
-            return;
-        }
-        state.emojiPanelOpen = !state.emojiPanelOpen;
-        render();
+        ensureLazyModule('emoji').then(function(emojiModule) {
+            if (emojiModule && typeof emojiModule.togglePicker === 'function') {
+                emojiModule.togglePicker();
+                return;
+            }
+            throw new Error('表情模块暂不可用');
+        }).catch(function(error) {
+            render();
+            window.alert(error && error.message ? error.message : '表情模块暂不可用');
+        });
     }
 
     function closeEmojiPicker(options) {
@@ -1102,15 +1266,19 @@
             location: '位置'
         };
         const actionLabel = actionLabelMap[actionKey] || '更多功能';
-        const plusEntryModule = getPlusEntryModule();
         closePlusPanel({ silent: true });
-        if (plusEntryModule && typeof plusEntryModule.handleAction === 'function') {
-            plusEntryModule.handleAction(actionKey);
+        ensureLazyModule('plus').then(function(plusEntryModule) {
+            if (plusEntryModule && typeof plusEntryModule.handleAction === 'function') {
+                plusEntryModule.handleAction(actionKey);
+                render();
+                return;
+            }
             render();
-            return;
-        }
-        render();
-        window.alert(actionLabel + '入口已预留，暂未接入真实功能');
+            window.alert(actionLabel + '入口已预留，暂未接入真实功能');
+        }).catch(function(error) {
+            render();
+            window.alert(error && error.message ? error.message : (actionLabel + '模块暂不可用'));
+        });
     }
 
     function sendCustomEmoji(emojiAssetId, emojiCode) {
@@ -1130,19 +1298,21 @@
     }
 
     function sendImageFile(file, meta) {
-        const imageModule = getImageModule();
-        if (imageModule && typeof imageModule.sendImageFile === 'function') {
-            return imageModule.sendImageFile(file, meta);
-        }
-        return Promise.reject(new Error('图片发送模块暂不可用'));
+        return ensureLazyModule('image').then(function(imageModule) {
+            if (imageModule && typeof imageModule.sendImageFile === 'function') {
+                return imageModule.sendImageFile(file, meta);
+            }
+            return Promise.reject(new Error('图片发送模块暂不可用'));
+        });
     }
 
     function sendAttachmentFile(file) {
-        const fileModule = getFileModule();
-        if (fileModule && typeof fileModule.sendAttachmentFile === 'function') {
-            return fileModule.sendAttachmentFile(file);
-        }
-        return Promise.reject(new Error('文件发送模块暂不可用'));
+        return ensureLazyModule('file').then(function(fileModule) {
+            if (fileModule && typeof fileModule.sendAttachmentFile === 'function') {
+                return fileModule.sendAttachmentFile(file);
+            }
+            return Promise.reject(new Error('文件发送模块暂不可用'));
+        });
     }
 
     function sendLocationMessage(payload) {
@@ -1159,11 +1329,12 @@
     }
 
     function openLocationPicker() {
-        const locationModule = getLocationModule();
-        if (locationModule && typeof locationModule.openPicker === 'function') {
-            return locationModule.openPicker();
-        }
-        return Promise.reject(new Error('位置模块暂不可用'));
+        return ensureLazyModule('location').then(function(locationModule) {
+            if (locationModule && typeof locationModule.openPicker === 'function') {
+                return locationModule.openPicker();
+            }
+            return Promise.reject(new Error('位置模块暂不可用'));
+        });
     }
 
     function handleActionSheetSecondaryAction() {
@@ -1199,7 +1370,6 @@
     function initOverlayModule() {
         const overlayModule = getOverlayModule();
         const sessionManageModule = getSessionManageModule();
-        const groupManageModule = getGroupManageModule();
         if (!overlayModule) return;
         overlayModule.init({
             state: state,
@@ -1237,7 +1407,9 @@
             closeMemberPanel: closeMemberPanel,
             closeSettingsPanel: closeSettingsPanel,
             sessionManage: sessionManageModule,
-            groupManage: groupManageModule,
+            get groupManage() {
+                return getGroupManageModule();
+            },
             buildAvatarBoxMarkup: buildAvatarBoxMarkup,
             sortGroupMembersForDisplay: sortGroupMembersForDisplay,
             formatSessionMember: formatSessionMember,
@@ -1955,42 +2127,47 @@
 	}
 
 	function loadGroupSettings(conversationId) {
-	    const groupManageModule = getGroupManageModule();
-	    if (groupManageModule && typeof groupManageModule.loadGroupSettings === 'function') {
-	        return groupManageModule.loadGroupSettings(conversationId);
-	    }
 	    const targetConversationId = Number(conversationId || 0);
 	    if (!targetConversationId) return Promise.resolve(null);
-	    state.groupSettingsLoading = false;
-	    state.groupSettingsError = '群设置模块暂不可用，请刷新后重试';
-	    state.groupSettingsConversationId = targetConversationId;
-	    state.groupSettingsData = null;
-	    renderSettingsPanel();
-	    return Promise.resolve(null);
+	    return ensureOptionalLazyModule('group').then(function() {
+	        const groupManageModule = getGroupManageModule();
+	        if (groupManageModule && typeof groupManageModule.loadGroupSettings === 'function') {
+	            return groupManageModule.loadGroupSettings(targetConversationId);
+	        }
+	        state.groupSettingsLoading = false;
+	        state.groupSettingsError = '群设置模块暂不可用，请刷新后重试';
+	        state.groupSettingsConversationId = targetConversationId;
+	        state.groupSettingsData = null;
+	        renderSettingsPanel();
+	        return null;
+	    });
 	}
 
 	function openSettingsPanel(sessionItem) {
-	    const overlayModule = getOverlayModule();
-	    if (overlayModule && typeof overlayModule.openSettingsPanel === 'function') {
-	        overlayModule.openSettingsPanel(sessionItem);
-	        return;
-	    }
-	    const conversationId = Number(sessionItem && sessionItem.conversation_id || state.activeConversationId || 0);
-	    if (!conversationId || !isGroupSession(sessionItem || getActiveSession())) return;
-	    closeActionSheet();
-	    closeReadProgressPanel();
-	    closeMemberPanel();
-	    closeDialog({ silent: true, force: true });
-	    closeMemberActionPage({ silent: true, fallbackView: 'group_info' });
-	    state.groupSettingsOpen = true;
-	    state.groupSettingsLoading = true;
-	    state.groupSettingsError = '';
-	    state.groupSettingsMembersExpanded = false;
-	    state.groupSettingsData = null;
-	    state.open = true;
-	    state.view = 'group_info';
-	    render();
-	    loadGroupSettings(conversationId);
+	    const targetSession = sessionItem || getActiveSession();
+	    const conversationId = Number(targetSession && targetSession.conversation_id || state.activeConversationId || 0);
+	    if (!conversationId || !isGroupSession(targetSession)) return;
+	    ensureOptionalLazyModule('group').then(function() {
+	        const overlayModule = getOverlayModule();
+	        if (overlayModule && typeof overlayModule.openSettingsPanel === 'function') {
+	            overlayModule.openSettingsPanel(targetSession);
+	            return;
+	        }
+	        closeActionSheet();
+	        closeReadProgressPanel();
+	        closeMemberPanel();
+	        closeDialog({ silent: true, force: true });
+	        closeMemberActionPage({ silent: true, fallbackView: 'group_info' });
+	        state.groupSettingsOpen = true;
+	        state.groupSettingsLoading = true;
+	        state.groupSettingsError = '';
+	        state.groupSettingsMembersExpanded = false;
+	        state.groupSettingsData = null;
+	        state.open = true;
+	        state.view = 'group_info';
+	        render();
+	        loadGroupSettings(conversationId);
+	    });
 	}
 
     function closeReadProgressPanel() {
@@ -2204,24 +2381,26 @@
     function openProfileSubpage(view) {
         if (!state.allowed) return;
         const nextView = isProfileSubpageView(view) ? view : 'profile_detail';
-        closeActionSheet();
-        closeReadProgressPanel();
-        closeMemberPanel();
-        closeDialog({ silent: true, force: true });
-        state.open = true;
-        state.homeTab = 'me';
-        state.view = nextView;
-        state.profileSaveError = '';
-        state.profileAvatarActionError = '';
-        state.profileAvatarHistoryActionId = 0;
-        state.profileAvatarHistoryActionType = '';
-        if (!state.profileLoaded && !state.profileLoading) {
-            loadProfile();
-        }
-        if (nextView === 'profile_avatar' && !state.profileAvatarHistoryLoaded && !state.profileAvatarHistoryLoading) {
-            loadProfileAvatarHistory();
-        }
-        render();
+        ensureOptionalLazyModule('profile').then(function() {
+            closeActionSheet();
+            closeReadProgressPanel();
+            closeMemberPanel();
+            closeDialog({ silent: true, force: true });
+            state.open = true;
+            state.homeTab = 'me';
+            state.view = nextView;
+            state.profileSaveError = '';
+            state.profileAvatarActionError = '';
+            state.profileAvatarHistoryActionId = 0;
+            state.profileAvatarHistoryActionType = '';
+            if (!state.profileLoaded && !state.profileLoading) {
+                loadProfile();
+            }
+            if (nextView === 'profile_avatar' && !state.profileAvatarHistoryLoaded && !state.profileAvatarHistoryLoading) {
+                loadProfileAvatarHistory();
+            }
+            render();
+        });
     }
 
     function ensureHomeTabData(tab) {
@@ -2399,7 +2578,7 @@
             const isVoiceSending = voiceHoldState === 'sending';
             const canSend = hasConversation && hasMessageManage;
             const hasText = !!String(inputEl.value || '').trim();
-            const canOpenEmoji = hasConversation && !!getEmojiModule();
+            const canOpenEmoji = hasConversation;
             const showVoiceMode = hasConversation && isVoiceMode;
             const canOpenPlus = hasConversation && !showVoiceMode;
             const holdSupported = state.voiceHoldSupported !== false;
@@ -3001,13 +3180,21 @@
     }
 
     function loadMessages(conversationId) {
-        const messageManageModule = getMessageManageModule();
-        if (messageManageModule && typeof messageManageModule.loadMessages === 'function') {
-            return messageManageModule.loadMessages(conversationId);
+        const targetConversationId = Number(conversationId || 0);
+        if (!targetConversationId) {
+            state.activeMessages = [];
+            render();
+            return Promise.resolve(null);
         }
-        state.activeMessages = [];
-        render();
-        return Promise.resolve(null);
+        return ensureChatFeatureModules().then(function() {
+            const messageManageModule = getMessageManageModule();
+            if (messageManageModule && typeof messageManageModule.loadMessages === 'function') {
+                return messageManageModule.loadMessages(targetConversationId);
+            }
+            state.activeMessages = [];
+            render();
+            return null;
+        });
     }
 
     function startDirectSession() {
@@ -3073,7 +3260,6 @@
         initAppShellModule();
         ensureRoot();
         bindComposerOutsideDismissEvents();
-        initProfileModule();
         render();
         loadBootstrap();
     }
