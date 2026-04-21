@@ -8037,6 +8037,7 @@ def _iter_widget_asset_paths() -> list[str]:
         os.path.join(PLUGINS_DIR, "im", "user", "modules", "im_group_manage.js"),
         os.path.join(PLUGINS_DIR, "im", "user", "modules", "im_message_manage.js"),
         os.path.join(PLUGINS_DIR, "im", "user", "modules", "im_session_manage.js"),
+        os.path.join(PLUGINS_DIR, "im", "user", "modules", "im_meeting_manage.js"),
     ]
 
 
@@ -8336,6 +8337,15 @@ async def im_user_plugin_message_manage_module_js(request: Request):
 async def im_user_plugin_session_manage_module_js(request: Request):
 
     js_path = os.path.join(PLUGINS_DIR, "im", "user", "modules", "im_session_manage.js")
+
+    return _build_widget_script_response(request, js_path)
+
+
+@app.get("/chat/plugins/im/user/modules/im_meeting_manage.js")
+
+async def im_user_plugin_meeting_manage_module_js(request: Request):
+
+    js_path = os.path.join(PLUGINS_DIR, "im", "user", "modules", "im_meeting_manage.js")
 
     return _build_widget_script_response(request, js_path)
 

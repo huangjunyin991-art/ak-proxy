@@ -432,6 +432,7 @@
         initMessageManageModule();
         initSessionManageModule();
         initOverlayModule();
+        initMeetingManageModule();
     }
 
     function openShellPanel() {
@@ -659,6 +660,25 @@
             loadMessages: loadMessages,
             buildAvatarBoxMarkup: buildAvatarBoxMarkup,
             buildGroupAvatarMosaicMarkup: buildGroupAvatarMosaicMarkup
+        });
+    }
+
+    function getMeetingManageModule() {
+        const modules = window.AKIMUserModules;
+        if (!modules || typeof modules !== 'object') return null;
+        const meetingManageModule = modules.meetingManage;
+        if (!meetingManageModule || typeof meetingManageModule.init !== 'function') return null;
+        return meetingManageModule;
+    }
+
+    function initMeetingManageModule() {
+        const meetingManageModule = getMeetingManageModule();
+        if (!meetingManageModule) return;
+        meetingManageModule.init({
+            state: state,
+            httpRoot: HTTP_ROOT,
+            render: render,
+            getRoot: function() { return root; }
         });
     }
 
@@ -2261,13 +2281,14 @@
 
     function normalizeHomeTab(tab) {
         const candidate = String(tab || '').trim().toLowerCase();
-        if (candidate === 'contacts' || candidate === 'me') return candidate;
+        if (candidate === 'contacts' || candidate === 'me' || candidate === 'meetings') return candidate;
         return 'chats';
     }
 
     function getHomeTabTitle(tab) {
         const normalizedTab = normalizeHomeTab(tab);
         if (normalizedTab === 'contacts') return '通讯录';
+        if (normalizedTab === 'meetings') return '会议';
         if (normalizedTab === 'me') return '我';
         return '聊天';
     }
@@ -2289,6 +2310,9 @@
         }
         if (normalizedTab === 'me') {
             return '这里保留更换头像、个人资料、设置三个入口';
+        }
+        if (normalizedTab === 'meetings') {
+            return '';
         }
         return state.sessions.length ? '长按会话可置顶，点击进入聊天' : '点击右上角发起单聊';
     }
@@ -2315,7 +2339,11 @@
             homeTab: homeTab,
             homeTabTitle: getHomeTabTitle(homeTab),
             showSessionNewButton: homeTab === 'chats',
-            searchPillText: getHomeSearchPillText(homeTab)
+            searchPillText: getHomeSearchPillText(homeTab),
+            meetingsUnread: (function() {
+                const m = getMeetingManageModule();
+                return m && typeof m.getUnreadCount === 'function' ? Number(m.getUnreadCount() || 0) : 0;
+            })()
         };
     }
 
@@ -2409,6 +2437,13 @@
         if (!state.allowed) return;
         if (normalizedTab === 'contacts') {
             if (!state.contactsLoading && !state.contactsLoaded) loadContacts();
+            return;
+        }
+        if (normalizedTab === 'meetings') {
+            const meetingModule = getMeetingManageModule();
+            if (meetingModule && typeof meetingModule.loadMeetings === 'function' && !state.meetingsLoading) {
+                meetingModule.loadMeetings();
+            }
             return;
         }
         if (normalizedTab === 'me' && !state.profileLoading && !state.profileLoaded) {

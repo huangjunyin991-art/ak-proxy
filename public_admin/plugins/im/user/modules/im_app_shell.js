@@ -127,11 +127,50 @@
                 #ak-im-root .ak-im-profile-form-help{margin-top:6px;font-size:12px;color:#9ca3af;line-height:1.6}
                 #ak-im-root .ak-im-profile-placeholder{padding:28px 14px;color:#6b7280;font-size:13px;line-height:1.7;text-align:center}
                 #ak-im-root .ak-im-profile-error{margin-bottom:12px;padding:11px 12px;border-radius:14px;background:rgba(239,68,68,.08);color:#dc2626;font-size:13px;line-height:1.6}
-                #ak-im-root .ak-im-home-tabbar{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:4px;padding:8px 8px calc(8px + env(safe-area-inset-bottom, 0px));background:#ffffff;border-top:1px solid rgba(15,23,42,.06)}
-                #ak-im-root .ak-im-home-tab-btn{border:none;background:transparent;min-height:56px;border-radius:14px;color:#6b7280;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;cursor:pointer}
+                #ak-im-root .ak-im-home-tabbar{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:4px;padding:8px 8px calc(8px + env(safe-area-inset-bottom, 0px));background:#ffffff;border-top:1px solid rgba(15,23,42,.06)}
+                #ak-im-root .ak-im-home-tab-btn{position:relative;border:none;background:transparent;min-height:56px;border-radius:14px;color:#6b7280;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;cursor:pointer}
                 #ak-im-root .ak-im-home-tab-btn svg{width:22px;height:22px;stroke:currentColor}
                 #ak-im-root .ak-im-home-tab-btn span{font-size:11px;line-height:1.2}
                 #ak-im-root .ak-im-home-tab-btn.is-active{color:#07c160;background:rgba(7,193,96,.06)}
+                #ak-im-root .ak-im-home-tab-badge{position:absolute;top:8px;right:calc(50% - 22px);min-width:8px;height:8px;border-radius:999px;background:#f43f5e;box-shadow:0 0 0 2px #ffffff;display:none}
+                #ak-im-root .ak-im-home-tab-btn.has-unread .ak-im-home-tab-badge{display:block}
+                #ak-im-root .ak-im-home-panel[data-im-home-panel="meetings"]{background:#f2f3f5}
+                #ak-im-root .ak-im-meeting-toolbar{display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:#ffffff;border-bottom:1px solid rgba(15,23,42,.05)}
+                #ak-im-root .ak-im-meeting-head-title{font-size:15px;font-weight:600;color:#111827}
+                #ak-im-root .ak-im-meeting-publish-btn{border:none;background:#07c160;color:#fff;height:30px;padding:0 12px;border-radius:10px;font-size:13px;cursor:pointer}
+                #ak-im-root .ak-im-meeting-publish-btn:active{opacity:.85}
+                #ak-im-root .ak-im-meeting-list{flex:1;overflow:auto;padding:12px 12px calc(12px + env(safe-area-inset-bottom, 0px));display:flex;flex-direction:column;gap:10px}
+                #ak-im-root .ak-im-meeting-empty{padding:28px 16px;text-align:center;color:#9ca3af;font-size:13px;line-height:1.7;background:#ffffff;border-radius:12px}
+                #ak-im-root .ak-im-meeting-empty.ak-im-meeting-error{color:#dc2626;background:rgba(239,68,68,.06)}
+                #ak-im-root .ak-im-meeting-card{background:#ffffff;border-radius:14px;padding:12px 14px;display:flex;flex-direction:column;gap:6px;box-shadow:0 1px 0 rgba(15,23,42,.04)}
+                #ak-im-root .ak-im-meeting-head{display:flex;align-items:center;justify-content:space-between;gap:8px}
+                #ak-im-root .ak-im-meeting-title{display:flex;align-items:center;gap:6px;font-size:15px;font-weight:600;color:#111827;min-width:0}
+                #ak-im-root .ak-im-meeting-title span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+                #ak-im-root .ak-im-meeting-unread-dot{width:8px;height:8px;border-radius:999px;background:#f43f5e;flex:0 0 auto}
+                #ak-im-root .ak-im-meeting-state{flex:0 0 auto;font-size:11px;padding:2px 8px;border-radius:999px;border:1px solid currentColor}
+                #ak-im-root .ak-im-meeting-row{font-size:13px;color:#374151;line-height:1.6;word-break:break-all}
+                #ak-im-root .ak-im-meeting-row.ak-im-meeting-sender{color:#6b7280;font-size:12px}
+                #ak-im-root .ak-im-meeting-row.ak-im-meeting-password{display:flex;align-items:center;justify-content:space-between;gap:8px;background:#fffbeb;border:1px dashed #f59e0b;color:#b45309;border-radius:8px;padding:6px 10px}
+                #ak-im-root .ak-im-meeting-copy-btn{border:none;background:#f59e0b;color:#ffffff;height:24px;padding:0 10px;border-radius:6px;font-size:12px;cursor:pointer}
+                #ak-im-root .ak-im-meeting-actions{display:flex;gap:8px;margin-top:4px}
+                #ak-im-root .ak-im-meeting-join-btn{flex:1;border:none;background:#07c160;color:#ffffff;height:34px;border-radius:10px;font-size:14px;font-weight:500;cursor:pointer}
+                #ak-im-root .ak-im-meeting-join-btn:disabled{background:#9ca3af;cursor:not-allowed}
+                #ak-im-root .ak-im-meeting-link-btn{flex:0 0 auto;border:1px solid rgba(15,23,42,.12);background:#ffffff;color:#374151;height:34px;padding:0 12px;border-radius:10px;font-size:13px;cursor:pointer}
+                #ak-im-root .ak-im-meeting-publish-mask{position:fixed;inset:0;background:rgba(17,24,39,.4);z-index:1}
+                #ak-im-root .ak-im-meeting-publish-sheet{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);width:min(420px,92%);max-height:86vh;background:#ffffff;border-radius:16px;z-index:2;display:flex;flex-direction:column;overflow:hidden}
+                #ak-im-root .ak-im-meeting-publish-header{padding:14px 16px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid rgba(15,23,42,.06);font-weight:600;color:#111827}
+                #ak-im-root .ak-im-meeting-publish-close{border:none;background:transparent;font-size:22px;line-height:1;color:#6b7280;cursor:pointer}
+                #ak-im-root .ak-im-meeting-publish-body{padding:14px 16px;overflow:auto;display:flex;flex-direction:column;gap:12px}
+                #ak-im-root .ak-im-meeting-field{display:flex;flex-direction:column;gap:4px;font-size:12px;color:#6b7280}
+                #ak-im-root .ak-im-meeting-field input[type="url"],#ak-im-root .ak-im-meeting-field input[type="text"],#ak-im-root .ak-im-meeting-field input[type="datetime-local"]{height:36px;border:1px solid rgba(15,23,42,.12);border-radius:8px;padding:0 10px;font-size:14px;color:#111827;background:#ffffff}
+                #ak-im-root .ak-im-meeting-field-row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+                #ak-im-root .ak-im-meeting-checkbox-field{flex-direction:row;align-items:center;gap:8px;color:#374151;font-size:13px}
+                #ak-im-root .ak-im-meeting-hint{font-style:normal;font-size:11px;color:#9ca3af;margin-left:4px}
+                #ak-im-root .ak-im-meeting-publish-error{padding:8px 10px;border-radius:8px;background:rgba(239,68,68,.08);color:#dc2626;font-size:12px}
+                #ak-im-root .ak-im-meeting-publish-footer{padding:12px 16px;display:flex;gap:10px;justify-content:flex-end;border-top:1px solid rgba(15,23,42,.06)}
+                #ak-im-root .ak-im-meeting-publish-cancel{border:1px solid rgba(15,23,42,.12);background:#ffffff;color:#374151;height:34px;padding:0 14px;border-radius:10px;cursor:pointer}
+                #ak-im-root .ak-im-meeting-publish-submit{border:none;background:#07c160;color:#ffffff;height:34px;padding:0 16px;border-radius:10px;cursor:pointer}
+                #ak-im-root .ak-im-meeting-publish-submit:disabled{background:#9ca3af;cursor:not-allowed}
                 #ak-im-root .ak-im-message-list{flex:1;overflow:auto;padding:14px 12px 10px;background:#ebebeb;display:flex;flex-direction:column;gap:14px}
                 #ak-im-root .ak-im-empty{margin:auto;color:#94a3b8;font-size:13px;text-align:center;padding:28px 24px;line-height:1.6;white-space:pre-line}
                 #ak-im-root .ak-im-time-divider{text-align:center;font-size:11px;color:#9ca3af;line-height:1.4}
@@ -466,6 +505,7 @@
                                 <div class="ak-im-search-bar"><div class="ak-im-search-pill">点击右上角发起单聊</div></div>
                                 <div class="ak-im-session-list"></div>
                             </div>
+                            <div class="ak-im-home-panel" data-im-home-panel="meetings"></div>
                             <div class="ak-im-home-panel" data-im-home-panel="contacts">
                                 <div class="ak-im-contacts-list"></div>
                             </div>
@@ -477,6 +517,11 @@
                             <button class="ak-im-home-tab-btn is-active" type="button" data-im-home-tab="chats" aria-label="聊天">
                                 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 6.75C6.5 5.78 7.28 5 8.4 5H13.05C14.24 5 15.2 5.78 15.2 6.75V9.85C15.2 11.04 14.24 12 13.05 12H10.15L7.45 14.08C7.17 14.3 6.75 14.1 6.75 13.75V12H6.25V6.75Z" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
                                 <span>聊天</span>
+                            </button>
+                            <button class="ak-im-home-tab-btn" type="button" data-im-home-tab="meetings" aria-label="会议">
+                                <svg viewBox="0 0 24 24" aria-hidden="true" fill="none"><path d="M14 16.5V7.5l5-2v13l-5-2Zm-9-6.5h9v5H5a1 1 0 0 1-1-1v-3a1 1 0 0 1 1-1Z" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                                <span>会议</span>
+                                <span class="ak-im-home-tab-badge" aria-hidden="true"></span>
                             </button>
                             <button class="ak-im-home-tab-btn" type="button" data-im-home-tab="contacts" aria-label="通讯录">
                                 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 12a3.4 3.4 0 1 0 0-6.8 3.4 3.4 0 0 0 0 6.8Zm-5.4 6.3c.42-2.44 2.66-4.2 5.4-4.2s4.98 1.76 5.4 4.2" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><path d="M5.2 7.6h.01M18.8 7.6h.01" stroke-width="2.2" stroke-linecap="round"/></svg>
@@ -829,8 +874,12 @@
             if (this.elements.searchPillEl && typeof nextShellState.searchPillText === 'string') {
                 this.elements.searchPillEl.textContent = nextShellState.searchPillText;
             }
+            const meetingsUnread = Number(nextShellState.meetingsUnread || 0);
             Array.prototype.forEach.call(this.elements.homeTabButtons || [], function(button) {
                 button.classList.toggle('is-active', button.getAttribute('data-im-home-tab') === nextShellState.homeTab);
+                if (button.getAttribute('data-im-home-tab') === 'meetings') {
+                    button.classList.toggle('has-unread', meetingsUnread > 0);
+                }
             });
             Array.prototype.forEach.call(this.elements.homePanelNodes || [], function(panelNode) {
                 panelNode.classList.toggle('is-active', panelNode.getAttribute('data-im-home-panel') === nextShellState.homeTab);

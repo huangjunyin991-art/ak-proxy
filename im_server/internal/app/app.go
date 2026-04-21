@@ -227,6 +227,10 @@ func New(cfg config.Config) (*App, error) {
 	mux.HandleFunc("/im/api/messages/voice", app.handleSendVoiceMessage)
 	mux.HandleFunc("/im/api/messages/read_progress", app.handleMessageReadProgress)
 	mux.HandleFunc("/im/api/messages/recall", app.handleRecallMessage)
+	mux.HandleFunc("/im/api/meetings", app.handleMeetings)
+	mux.HandleFunc("/im/api/meetings/preview", app.handleMeetingPreview)
+	mux.HandleFunc("/im/api/meetings/read", app.handleMeetingRead)
+	mux.HandleFunc("/im/api/meetings/delete", app.handleMeetingDelete)
 	mux.HandleFunc("/im/internal/whitelist_groups/sync", app.handleInternalWhitelistGroupSync)
 	mux.HandleFunc("/im/internal/group_profile", app.handleInternalGroupProfile)
 	mux.HandleFunc("/im/internal/group_admins/replace", app.handleInternalGroupAdminsReplace)
@@ -409,6 +413,32 @@ func (a *App) ensureSchema(ctx context.Context) error {
 		`CREATE INDEX IF NOT EXISTS idx_im_user_avatar_history_username_created_at ON im_user_avatar_history(username, created_at DESC, id DESC)`,
 		`CREATE INDEX IF NOT EXISTS idx_im_message_conversation_id ON im_message(conversation_id, seq_no DESC)`,
 		`CREATE INDEX IF NOT EXISTS idx_im_file_asset_expires_at ON im_file_asset(expires_at)`,
+		`CREATE TABLE IF NOT EXISTS im_meetings (
+			id BIGSERIAL PRIMARY KEY,
+			url TEXT NOT NULL,
+			short_id TEXT NOT NULL DEFAULT '',
+			meeting_code TEXT NOT NULL DEFAULT '',
+			subject TEXT NOT NULL,
+			begin_time TIMESTAMP,
+			end_time TIMESTAMP,
+			creator_nickname TEXT NOT NULL DEFAULT '',
+			has_password BOOLEAN NOT NULL DEFAULT FALSE,
+			meeting_password TEXT NOT NULL DEFAULT '',
+			mtoken TEXT NOT NULL DEFAULT '',
+			sender_username TEXT NOT NULL,
+			sender_display_name TEXT NOT NULL DEFAULT '',
+			group_key TEXT NOT NULL DEFAULT '',
+			created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+			updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+		)`,
+		`CREATE TABLE IF NOT EXISTS im_meeting_reads (
+			user_username TEXT NOT NULL,
+			meeting_id BIGINT NOT NULL REFERENCES im_meetings(id) ON DELETE CASCADE,
+			read_at TIMESTAMP NOT NULL DEFAULT NOW(),
+			PRIMARY KEY (user_username, meeting_id)
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_im_meetings_created_at ON im_meetings(created_at DESC)`,
+		`CREATE INDEX IF NOT EXISTS idx_im_meetings_group_key ON im_meetings(group_key)`,
 	}
 	statements = append(statements, emojiAssetSchemaStatements()...)
 	for index, stmt := range statements {

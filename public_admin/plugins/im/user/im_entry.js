@@ -29,6 +29,11 @@
             src: `${window.location.origin}/chat/plugins/im/user/modules/im_message_manage.js`
         },
         {
+            selector: 'script[data-ak-im-user-plugin-meeting-manage="1"]',
+            datasetKey: 'akImUserPluginMeetingManage',
+            src: `${window.location.origin}/chat/plugins/im/user/modules/im_meeting_manage.js`
+        },
+        {
             selector: 'script[data-ak-im-user-plugin-overlay="1"]',
             datasetKey: 'akImUserPluginOverlay',
             src: `${window.location.origin}/chat/plugins/im/user/modules/im_overlay.js`
