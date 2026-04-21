@@ -15,8 +15,8 @@ AKAPI_URL = "https://www.akapi1.com/RPC/"
 MONITOR_SERVER = ""  # 例如: "http://ak2025.vip:8000"
 MONITOR_API_KEY = ""  # 上报认证密钥（预留）
 
-IM_LOCATION_AMAP_WEB_KEY = ""
-IM_LOCATION_AMAP_SECURITY_JS_CODE = ""
+IM_LOCATION_AMAP_WEB_KEY = "9a21efae7f236e91f24cf3af4cb2d692"
+IM_LOCATION_AMAP_SECURITY_JS_CODE = "2ada8a45530406b4254091a3a99865b0"
 
 # ===== 本地日志 =====
 LOG_FILE = "proxy.log"
