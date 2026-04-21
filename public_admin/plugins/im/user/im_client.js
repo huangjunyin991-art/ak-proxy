@@ -1084,11 +1084,28 @@
         return false;
     }
 
+    function shouldKeepEmojiPickerOpen(target) {
+        if (!target) return false;
+        if (emojiSheetEl && typeof emojiSheetEl.contains === 'function' && emojiSheetEl.contains(target)) {
+            return true;
+        }
+        if (composerEmojiBtnEl && typeof composerEmojiBtnEl.contains === 'function' && composerEmojiBtnEl.contains(target)) {
+            return true;
+        }
+        return false;
+    }
+
     function handleComposerOutsideClick(event) {
-        if (!state.plusPanelOpen) return;
         const target = event && event.target ? event.target : null;
-        if (shouldKeepPlusPanelOpen(target)) return;
-        closePlusPanel();
+        if (state.plusPanelOpen) {
+            if (shouldKeepPlusPanelOpen(target)) return;
+            closePlusPanel();
+            return;
+        }
+        if (state.emojiPanelOpen) {
+            if (shouldKeepEmojiPickerOpen(target)) return;
+            closeEmojiPicker();
+        }
     }
 
     function bindComposerOutsideDismissEvents() {
