@@ -7,8 +7,10 @@
     const SEARCH_SUGGESTION_LIMIT = 6;
     const SEARCH_RESULT_LIMIT = 6;
     const SEARCH_DEBOUNCE_MS = 180;
+    const OPEN_MAP_APP_FALLBACK_DELAY_MS = 900;
     const LOCATION_PROVIDER = 'amap';
     const LOCATION_COORDINATE = 'gaode';
+    const LOCATION_SOURCE_APPLICATION = 'ak-proxy';
 
     const locationManageModule = {
         ctx: null,
@@ -21,7 +23,6 @@
         statusEl: null,
         locateBtnEl: null,
         confirmBtnEl: null,
-        cancelBtnEl: null,
         searchInputEl: null,
         searchSubmitEl: null,
         searchTipsEl: null,
@@ -49,10 +50,12 @@
         searchResultItems: null,
         searchDebounceTimer: null,
         searchRequestToken: 0,
+        bubbleLinkBound: false,
 
         init(ctx) {
             this.ctx = ctx || null;
             this.ensureStyle();
+            this.ensureBubbleLinkBinding();
         },
 
         getState() {
@@ -200,6 +203,16 @@
             return /android|iphone|ipad|ipod|mobile|harmonyos/i.test(userAgent);
         },
 
+        isAndroidBrowser() {
+            const userAgent = String(global.navigator && global.navigator.userAgent || '').trim();
+            return /android/i.test(userAgent);
+        },
+
+        isIOSBrowser() {
+            const userAgent = String(global.navigator && global.navigator.userAgent || '').trim();
+            return /iphone|ipad|ipod/i.test(userAgent);
+        },
+
         isMobileEdgeBrowser() {
             const userAgent = String(global.navigator && global.navigator.userAgent || '').trim();
             return /edga|edgios|edge/i.test(userAgent) && this.isMobileBrowser();
@@ -213,6 +226,109 @@
         isGeolocationTimeoutError(error) {
             const message = String(error && error.message || '').trim();
             return /定位超时|timeout|超时/i.test(message);
+        },
+
+        ensureBubbleLinkBinding() {
+            if (this.bubbleLinkBound || !global.document || typeof global.document.addEventListener !== 'function') return;
+            const self = this;
+            global.document.addEventListener('click', function(event) {
+                self.handleLocationBubbleClick(event);
+            }, true);
+            this.bubbleLinkBound = true;
+        },
+
+        handleLocationBubbleClick(event) {
+            const target = event && event.target && typeof event.target.closest === 'function'
+                ? event.target.closest('[data-ak-im-location-open="1"]')
+                : null;
+            if (!target || !this.isMobileBrowser()) return;
+            const appUrl = String(target.getAttribute('data-ak-im-location-app-url') || '').trim();
+            if (!appUrl) return;
+            const webUrl = String(target.getAttribute('data-ak-im-location-web-url') || target.getAttribute('href') || '').trim();
+            if (event) {
+                event.preventDefault();
+                event.stopPropagation();
+            }
+            this.openMapWithFallback(appUrl, webUrl);
+        },
+
+        navigateToMapUrl(url, target) {
+            const nextUrl = String(url || '').trim();
+            if (!nextUrl) return;
+            if (target === '_blank' && typeof global.open === 'function') {
+                const openedWindow = global.open(nextUrl, '_blank', 'noopener,noreferrer');
+                if (openedWindow && typeof openedWindow.opener !== 'undefined') {
+                    try {
+                        openedWindow.opener = null;
+                    } catch (error) {
+                    }
+                }
+                return;
+            }
+            if (global.location && typeof global.location.assign === 'function') {
+                global.location.assign(nextUrl);
+                return;
+            }
+            if (global.location) {
+                global.location.href = nextUrl;
+            }
+        },
+
+        openMapWithFallback(appUrl, webUrl) {
+            const finalAppUrl = String(appUrl || '').trim();
+            const finalWebUrl = String(webUrl || '').trim();
+            if (!finalAppUrl) {
+                this.navigateToMapUrl(finalWebUrl, this.isMobileBrowser() ? '_self' : '_blank');
+                return;
+            }
+            const self = this;
+            const doc = global.document;
+            let cleaned = false;
+            let fallbackTimer = null;
+            const cleanup = function() {
+                if (cleaned) return;
+                cleaned = true;
+                if (fallbackTimer) {
+                    global.clearTimeout(fallbackTimer);
+                    fallbackTimer = null;
+                }
+                if (doc && typeof doc.removeEventListener === 'function') {
+                    doc.removeEventListener('visibilitychange', handleVisibilityChange, true);
+                }
+                if (typeof global.removeEventListener === 'function') {
+                    global.removeEventListener('pagehide', handlePageExit, true);
+                    global.removeEventListener('blur', handlePageExit, true);
+                }
+            };
+            const handleVisibilityChange = function() {
+                if (doc && doc.hidden) {
+                    cleanup();
+                }
+            };
+            const handlePageExit = function() {
+                cleanup();
+            };
+            if (doc && typeof doc.addEventListener === 'function') {
+                doc.addEventListener('visibilitychange', handleVisibilityChange, true);
+            }
+            if (typeof global.addEventListener === 'function') {
+                global.addEventListener('pagehide', handlePageExit, true);
+                global.addEventListener('blur', handlePageExit, true);
+            }
+            fallbackTimer = global.setTimeout(function() {
+                cleanup();
+                if (finalWebUrl) {
+                    self.navigateToMapUrl(finalWebUrl, '_self');
+                }
+            }, OPEN_MAP_APP_FALLBACK_DELAY_MS);
+            try {
+                this.navigateToMapUrl(finalAppUrl, '_self');
+            } catch (error) {
+                cleanup();
+                if (finalWebUrl) {
+                    this.navigateToMapUrl(finalWebUrl, '_self');
+                }
+            }
         },
 
         attachGeolocationControl(geolocation, attachedFlagKey) {
@@ -283,46 +399,47 @@
                 #ak-im-root .ak-im-location-bubble-meta{font-size:11px;line-height:1.45;color:#64748b;word-break:break-word}
                 .ak-im-location-picker{position:fixed;inset:0;z-index:2147483647;display:none}
                 .ak-im-location-picker.is-open{display:block}
-                .ak-im-location-picker-mask{position:absolute;inset:0;background:rgba(15,23,42,.34);backdrop-filter:blur(4px)}
-                .ak-im-location-picker-sheet{position:absolute;left:50%;bottom:0;transform:translateX(-50%);width:min(100vw,540px);max-height:min(86vh,760px);display:flex;flex-direction:column;overflow:hidden;border-radius:26px 26px 0 0;background:linear-gradient(180deg,#ffffff 0%,#f8fbff 100%);box-shadow:0 -18px 48px rgba(15,23,42,.22)}
-                .ak-im-location-picker-header{display:flex;flex-direction:column;gap:10px;padding:10px 14px 12px;border-bottom:1px solid rgba(148,163,184,.18);background:rgba(255,255,255,.94)}
-                .ak-im-location-picker-handle{width:44px;height:5px;border-radius:999px;background:rgba(148,163,184,.55);align-self:center}
-                .ak-im-location-picker-topbar{display:flex;align-items:center;justify-content:space-between;gap:12px}
-                .ak-im-location-picker-title{font-size:16px;font-weight:800;line-height:1.3;color:#0f172a}
-                .ak-im-location-picker-close{border:none;background:rgba(241,245,249,.9);color:#475569;font-size:13px;font-weight:700;cursor:pointer;padding:0 12px;height:34px;border-radius:999px}
-                .ak-im-location-picker-close:disabled{opacity:.5;cursor:default}
-                .ak-im-location-picker-body{padding:12px 14px 14px;display:flex;flex-direction:column;gap:10px;min-height:0;overflow:auto}
-                .ak-im-location-picker-hint{font-size:12px;line-height:1.5;color:#64748b}
-                .ak-im-location-picker-search{display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:16px;background:#ffffff;border:1px solid rgba(148,163,184,.22);box-shadow:0 10px 24px rgba(15,23,42,.04)}
-                .ak-im-location-picker-search input{flex:1 1 auto;min-width:0;border:none;outline:none;background:transparent;color:#0f172a;font-size:14px;line-height:1.4}
-                .ak-im-location-picker-search input::placeholder{color:#94a3b8}
-                .ak-im-location-picker-search-btn{height:34px;border:none;border-radius:12px;padding:0 14px;background:#e2e8f0;color:#0f172a;font-size:13px;font-weight:700;cursor:pointer;flex:0 0 auto}
+                .ak-im-location-picker-page{position:absolute;inset:0;display:flex;flex-direction:column;min-height:0;overflow:hidden;background:#ededed}
+                .ak-im-location-picker-topbar{height:calc(56px + env(safe-area-inset-top, 0px));padding:calc(env(safe-area-inset-top, 0px) + 8px) 12px 8px;display:grid;grid-template-columns:52px 1fr 52px;align-items:center;background:#ededed;border-bottom:1px solid rgba(15,23,42,.06);box-sizing:border-box}
+                .ak-im-location-picker-nav{height:34px;border:none;background:transparent;color:#111827;padding:0 8px;font-size:15px;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;border-radius:10px}
+                .ak-im-location-picker-nav svg{width:20px;height:20px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+                .ak-im-location-picker-topbar-title{text-align:center;min-width:0;font-size:17px;font-weight:600;color:#111827;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+                .ak-im-location-picker-topbar-side{width:34px;height:34px;justify-self:end}
+                .ak-im-location-picker-search-strip{padding:10px 12px 12px;background:#ededed;border-bottom:1px solid rgba(15,23,42,.04)}
+                .ak-im-location-picker-hint{font-size:12px;line-height:1.6;color:#6b7280}
+                .ak-im-location-picker-search{margin-top:10px;display:flex;align-items:center;gap:8px;padding:6px 8px 6px 12px;border-radius:14px;background:#ffffff;box-shadow:0 1px 2px rgba(15,23,42,.04)}
+                .ak-im-location-picker-search input{flex:1 1 auto;min-width:0;height:36px;border:none;outline:none;background:transparent;color:#111827;font-size:14px;line-height:1.4}
+                .ak-im-location-picker-search input::placeholder{color:#9ca3af}
+                .ak-im-location-picker-search-btn{height:36px;border:none;border-radius:12px;padding:0 14px;background:#f3f4f6;color:#111827;font-size:14px;font-weight:600;cursor:pointer;flex:0 0 auto}
                 .ak-im-location-picker-search-btn:disabled{opacity:.55;cursor:default}
-                .ak-im-location-picker-search-tips,.ak-im-location-picker-search-results{display:flex;flex-direction:column;gap:6px}
+                .ak-im-location-picker-body{position:relative;flex:1;overflow:auto;padding:12px 12px calc(92px + env(safe-area-inset-bottom, 0px));display:flex;flex-direction:column;gap:12px;min-height:0;background:#f7f7f7}
+                .ak-im-location-picker-locate{width:100%;height:44px;border:none;border-radius:14px;background:#e5e7eb;color:#374151;font-size:15px;font-weight:600;cursor:pointer}
+                .ak-im-location-picker-locate:disabled{opacity:.48;cursor:default}
+                .ak-im-location-picker-search-tips,.ak-im-location-picker-search-results{display:flex;flex-direction:column;gap:10px}
                 .ak-im-location-picker-search-tips:empty,.ak-im-location-picker-search-results:empty{display:none}
-                .ak-im-location-picker-search-card{border:none;background:#ffffff;border-radius:16px;padding:12px 12px;display:flex;flex-direction:column;gap:4px;align-items:flex-start;text-align:left;box-shadow:0 10px 22px rgba(15,23,42,.05);cursor:pointer}
+                .ak-im-location-picker-search-card{border:none;background:#ffffff;border-radius:18px;padding:14px 14px;display:flex;flex-direction:column;gap:6px;align-items:flex-start;text-align:left;box-shadow:0 1px 2px rgba(15,23,42,.04);cursor:pointer}
                 .ak-im-location-picker-search-card.is-passive{cursor:default}
-                .ak-im-location-picker-search-card-title{font-size:14px;font-weight:700;line-height:1.35;color:#0f172a;word-break:break-word}
-                .ak-im-location-picker-search-card-meta{font-size:12px;line-height:1.45;color:#64748b;word-break:break-word}
-                .ak-im-location-picker-search-card-tag{display:inline-flex;align-items:center;justify-content:center;height:20px;padding:0 8px;border-radius:999px;background:rgba(59,130,246,.1);color:#1d4ed8;font-size:11px;font-weight:700}
-                .ak-im-location-picker-map{height:min(28vh,220px);border-radius:20px;overflow:hidden;background:#eef2f7;box-shadow:inset 0 0 0 1px rgba(148,163,184,.14)}
-                .ak-im-location-picker-summary{padding:12px 12px;border-radius:18px;background:rgba(255,255,255,.92);box-shadow:0 10px 20px rgba(15,23,42,.04);display:flex;flex-direction:column;gap:4px}
-                .ak-im-location-picker-summary-title{font-size:14px;font-weight:800;line-height:1.35;color:#0f172a;word-break:break-word}
-                .ak-im-location-picker-summary-address{font-size:13px;line-height:1.5;color:#475569;word-break:break-word}
-                .ak-im-location-picker-summary-meta{font-size:12px;line-height:1.45;color:#64748b;word-break:break-word}
-                .ak-im-location-picker-status{display:none;padding:10px 12px;border-radius:16px;font-size:12px;line-height:1.5;border:1px solid transparent}
+                .ak-im-location-picker-search-card-title{font-size:14px;font-weight:700;line-height:1.4;color:#111827;word-break:break-word}
+                .ak-im-location-picker-search-card-meta{font-size:12px;line-height:1.5;color:#6b7280;word-break:break-word}
+                .ak-im-location-picker-search-card-tag{display:inline-flex;align-items:center;justify-content:center;min-height:20px;padding:0 8px;border-radius:999px;background:rgba(7,193,96,.12);color:#16a34a;font-size:11px;font-weight:700}
+                .ak-im-location-picker-map{height:min(30vh,240px);border-radius:18px;overflow:hidden;background:#eef2f7;box-shadow:0 1px 2px rgba(15,23,42,.04)}
+                .ak-im-location-picker-summary{padding:16px 14px;border-radius:18px;background:#ffffff;box-shadow:0 1px 2px rgba(15,23,42,.04);display:flex;flex-direction:column;gap:6px}
+                .ak-im-location-picker-summary-title{font-size:15px;font-weight:700;line-height:1.4;color:#111827;word-break:break-word}
+                .ak-im-location-picker-summary-address{font-size:13px;line-height:1.6;color:#4b5563;word-break:break-word}
+                .ak-im-location-picker-summary-meta{font-size:12px;line-height:1.5;color:#9ca3af;word-break:break-word}
+                .ak-im-location-picker-status{display:none;padding:11px 12px;border-radius:14px;font-size:13px;line-height:1.6;border:1px solid transparent}
                 .ak-im-location-picker-status.has-text{display:block}
-                .ak-im-location-picker-status.is-error{background:#fff1f2;color:#be123c;border-color:#fecdd3}
-                .ak-im-location-picker-status.has-text:not(.is-error){background:#eff6ff;color:#1d4ed8;border-color:#bfdbfe}
-                .ak-im-location-picker-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
-                .ak-im-location-picker-btn{height:42px;border:none;border-radius:16px;padding:0 16px;font-size:14px;font-weight:800;cursor:pointer}
-                .ak-im-location-picker-btn:disabled{opacity:.48;cursor:default}
-                .ak-im-location-picker-btn.is-secondary{background:#eef2f7;color:#0f172a}
-                .ak-im-location-picker-btn.is-primary{grid-column:1 / -1;background:linear-gradient(135deg,#34d399 0%,#22c55e 100%);color:#ffffff;box-shadow:0 14px 24px rgba(34,197,94,.24)}
+                .ak-im-location-picker-status.is-error{background:rgba(239,68,68,.08);color:#dc2626;border-color:rgba(239,68,68,.12)}
+                .ak-im-location-picker-status.has-text:not(.is-error){background:#eff6ff;color:#2563eb;border-color:#bfdbfe}
+                .ak-im-location-picker-footer{position:absolute;left:0;right:0;bottom:0;padding:12px 12px calc(12px + env(safe-area-inset-bottom, 0px));background:linear-gradient(180deg,rgba(247,247,247,0) 0%,#f7f7f7 28%,#f7f7f7 100%)}
+                .ak-im-location-picker-btn{width:100%;height:48px;border:none;border-radius:14px;font-size:16px;font-weight:700;cursor:pointer}
+                .ak-im-location-picker-btn:disabled{opacity:.42;cursor:not-allowed;box-shadow:none}
+                .ak-im-location-picker-btn.is-primary{background:#07c160;color:#ffffff;box-shadow:0 10px 24px rgba(7,193,96,.18)}
                 @media (max-width: 520px){
-                    .ak-im-location-picker-sheet{left:0;right:0;transform:none;width:auto;max-height:min(88vh,760px);border-radius:24px 24px 0 0}
-                    .ak-im-location-picker-header{padding:10px 12px 12px}
-                    .ak-im-location-picker-body{padding:12px 12px 14px}
+                    .ak-im-location-picker-topbar{padding:calc(env(safe-area-inset-top, 0px) + 8px) 10px 8px}
+                    .ak-im-location-picker-search-strip{padding:10px 10px 12px}
+                    .ak-im-location-picker-body{padding:12px 10px calc(90px + env(safe-area-inset-bottom, 0px))}
+                    .ak-im-location-picker-footer{padding:12px 10px calc(12px + env(safe-area-inset-bottom, 0px))}
                     .ak-im-location-picker-map{height:min(30vh,230px)}
                 }
             `;
@@ -346,21 +463,23 @@
             wrapper.className = 'ak-im-location-picker';
             wrapper.setAttribute('aria-hidden', 'true');
             wrapper.innerHTML = '' +
-                '<div class="ak-im-location-picker-mask" data-ak-im-location-close="1"></div>' +
-                '<div class="ak-im-location-picker-sheet" role="dialog" aria-modal="true" aria-label="位置选择器">' +
-                    '<div class="ak-im-location-picker-header">' +
-                        '<div class="ak-im-location-picker-handle"></div>' +
-                        '<div class="ak-im-location-picker-topbar">' +
-                            '<div class="ak-im-location-picker-title">发送位置</div>' +
-                            '<button type="button" class="ak-im-location-picker-close" data-ak-im-location-close-btn="1">关闭</button>' +
-                        '</div>' +
+                '<div class="ak-im-location-picker-page" role="dialog" aria-modal="true" aria-label="位置选择器">' +
+                    '<div class="ak-im-location-picker-topbar">' +
+                        '<button type="button" class="ak-im-location-picker-nav" data-ak-im-location-close-btn="1" aria-label="返回聊天页面">' +
+                            '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M15 18L9 12L15 6"></path></svg>' +
+                        '</button>' +
+                        '<div class="ak-im-location-picker-topbar-title">发送位置</div>' +
+                        '<div class="ak-im-location-picker-topbar-side" aria-hidden="true"></div>' +
                     '</div>' +
-                    '<div class="ak-im-location-picker-body">' +
+                    '<div class="ak-im-location-picker-search-strip">' +
                         '<div class="ak-im-location-picker-hint">优先尝试定位当前位置；自动定位不稳定时，可直接搜索地点或点击地图选点。</div>' +
                         '<div class="ak-im-location-picker-search">' +
                             '<input type="search" autocomplete="off" enterkeyhint="search" placeholder="搜索小区、商场、写字楼、地铁站" data-ak-im-location-search-input="1" />' +
                             '<button type="button" class="ak-im-location-picker-search-btn" data-ak-im-location-search-submit="1">搜索</button>' +
                         '</div>' +
+                    '</div>' +
+                    '<div class="ak-im-location-picker-body">' +
+                        '<button type="button" class="ak-im-location-picker-locate" data-ak-im-location-locate="1">定位当前</button>' +
                         '<div class="ak-im-location-picker-search-tips" data-ak-im-location-search-tips="1"></div>' +
                         '<div class="ak-im-location-picker-search-results" data-ak-im-location-search-results="1"></div>' +
                         '<div class="ak-im-location-picker-map" data-ak-im-location-map="1"></div>' +
@@ -370,11 +489,9 @@
                             '<div class="ak-im-location-picker-summary-meta" data-ak-im-location-meta="1">支持当前定位与地图点选</div>' +
                         '</div>' +
                         '<div class="ak-im-location-picker-status" data-ak-im-location-status="1"></div>' +
-                        '<div class="ak-im-location-picker-actions">' +
-                            '<button type="button" class="ak-im-location-picker-btn is-secondary" data-ak-im-location-locate="1">定位当前</button>' +
-                            '<button type="button" class="ak-im-location-picker-btn is-secondary" data-ak-im-location-cancel="1">取消</button>' +
+                    '</div>' +
+                    '<div class="ak-im-location-picker-footer">' +
                             '<button type="button" class="ak-im-location-picker-btn is-primary" data-ak-im-location-confirm="1" disabled>发送位置</button>' +
-                        '</div>' +
                     '</div>' +
                 '</div>';
             (document.body || document.documentElement).appendChild(wrapper);
@@ -386,7 +503,6 @@
             this.statusEl = wrapper.querySelector('[data-ak-im-location-status="1"]');
             this.locateBtnEl = wrapper.querySelector('[data-ak-im-location-locate="1"]');
             this.confirmBtnEl = wrapper.querySelector('[data-ak-im-location-confirm="1"]');
-            this.cancelBtnEl = wrapper.querySelector('[data-ak-im-location-cancel="1"]');
             this.searchInputEl = wrapper.querySelector('[data-ak-im-location-search-input="1"]');
             this.searchSubmitEl = wrapper.querySelector('[data-ak-im-location-search-submit="1"]');
             this.searchTipsEl = wrapper.querySelector('[data-ak-im-location-search-tips="1"]');
@@ -399,11 +515,8 @@
                 }
                 self.closePicker();
             };
-            const maskEl = wrapper.querySelector('[data-ak-im-location-close="1"]');
             const closeBtnEl = wrapper.querySelector('[data-ak-im-location-close-btn="1"]');
-            if (maskEl) maskEl.addEventListener('click', closePicker);
             if (closeBtnEl) closeBtnEl.addEventListener('click', closePicker);
-            if (this.cancelBtnEl) this.cancelBtnEl.addEventListener('click', closePicker);
             if (this.locateBtnEl) {
                 this.locateBtnEl.addEventListener('click', function(event) {
                     event.preventDefault();
@@ -611,9 +724,6 @@
             if (this.locateBtnEl) {
                 this.locateBtnEl.disabled = !!this.isSending || !!this.isLocating;
                 this.locateBtnEl.textContent = this.isLocating ? '定位中...' : '定位当前';
-            }
-            if (this.cancelBtnEl) {
-                this.cancelBtnEl.disabled = !!this.isSending;
             }
             if (this.searchInputEl) {
                 this.searchInputEl.disabled = !!this.isSending;
@@ -1262,6 +1372,31 @@
             return url.toString();
         },
 
+        buildOpenMapAppUrl(payload) {
+            const normalizedPayload = this.normalizePayload(payload);
+            if (!normalizedPayload || !this.isMobileBrowser()) return '';
+            const params = new URLSearchParams();
+            params.set('sourceApplication', LOCATION_SOURCE_APPLICATION);
+            params.set('poiname', normalizedPayload.name || normalizedPayload.address || '共享位置');
+            params.set('lat', String(normalizedPayload.latitude));
+            params.set('lon', String(normalizedPayload.longitude));
+            params.set('dev', '0');
+            if (this.isAndroidBrowser()) {
+                return 'androidamap://viewMap?' + params.toString();
+            }
+            if (this.isIOSBrowser()) {
+                return 'iosamap://viewMap?' + params.toString();
+            }
+            return '';
+        },
+
+        buildOpenMapTargets(payload) {
+            return {
+                webUrl: this.buildOpenMapUrl(payload),
+                appUrl: this.buildOpenMapAppUrl(payload)
+            };
+        },
+
         buildMessageBubbleMarkup(item) {
             const payload = this.resolveMessagePayload(item);
             if (!payload) return '';
@@ -1270,7 +1405,9 @@
             const titleText = payload.name || '共享位置';
             const addressText = payload.address || '经度 ' + longitudeText + ' · 纬度 ' + latitudeText;
             const metaText = '点击打开地图 · ' + longitudeText + ', ' + latitudeText;
-            const openMapUrl = this.buildOpenMapUrl(payload);
+            const openTargets = this.buildOpenMapTargets(payload);
+            const openMapUrl = openTargets.webUrl;
+            const openMapAppUrl = openTargets.appUrl;
             const iconMarkup = '<span class="ak-im-location-bubble-icon" aria-hidden="true">' +
                 '<svg viewBox="0 0 24 24"><path d="M12 21s6-5.373 6-11a6 6 0 1 0-12 0c0 5.627 6 11 6 11Z"></path><circle cx="12" cy="10" r="2.5"></circle></svg>' +
             '</span>';
@@ -1284,7 +1421,7 @@
                 return '<div class="ak-im-location-bubble-surface">' + iconMarkup + bodyMarkup + '</div>';
             }
             const openTarget = this.isMobileBrowser() ? '_self' : '_blank';
-            return '<a class="ak-im-location-bubble-link" href="' + this.escapeAttribute(openMapUrl) + '" target="' + this.escapeAttribute(openTarget) + '" rel="noopener noreferrer">' + iconMarkup + bodyMarkup + '</a>';
+            return '<a class="ak-im-location-bubble-link" data-ak-im-location-open="1" data-ak-im-location-web-url="' + this.escapeAttribute(openMapUrl) + '" data-ak-im-location-app-url="' + this.escapeAttribute(openMapAppUrl) + '" href="' + this.escapeAttribute(openMapUrl) + '" target="' + this.escapeAttribute(openTarget) + '" rel="noopener noreferrer">' + iconMarkup + bodyMarkup + '</a>';
         },
 
         getMessageBubbleClassName(item) {
