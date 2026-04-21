@@ -297,12 +297,18 @@ async def init_db(host: str = "127.0.0.1", port: int = 5432,
         await conn.execute('''
             CREATE TABLE IF NOT EXISTS sub_admin_account_bindings (
                 sub_name TEXT PRIMARY KEY REFERENCES sub_admins(name) ON DELETE CASCADE,
-                account_username TEXT NOT NULL REFERENCES authorized_accounts(username),
+                account_username TEXT NOT NULL,
                 bound_by TEXT DEFAULT '',
                 created_at TIMESTAMP DEFAULT NOW(),
                 updated_at TIMESTAMP DEFAULT NOW(),
                 UNIQUE(account_username)
             )
+        ''')
+        # 方案 B：允许绑定尚未加入 authorized_accounts 的用户名，
+        # 对存量部署幂等清理旧外键（若存在）
+        await conn.execute('''
+            ALTER TABLE sub_admin_account_bindings
+            DROP CONSTRAINT IF EXISTS sub_admin_account_bindings_account_username_fkey
         ''')
 
         # 积分定价配置表
