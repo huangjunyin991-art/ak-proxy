@@ -99,20 +99,57 @@
             return '';
         },
 
+        buildErrorDetailText(raw) {
+            if (!raw) return '';
+            if (typeof raw === 'string') {
+                return String(raw || '').trim();
+            }
+            const fields = ['info', 'message', 'reason', 'details', 'type'];
+            const seen = {};
+            const parts = [];
+            for (let index = 0; index < fields.length; index += 1) {
+                const fieldName = fields[index];
+                const fieldValue = String(raw[fieldName] || '').trim();
+                if (!fieldValue || seen[fieldValue]) continue;
+                seen[fieldValue] = true;
+                parts.push(fieldName + '=' + fieldValue);
+            }
+            return parts.join(' | ');
+        },
+
+        reportGeolocationDiagnostics(status, detail) {
+            if (!global.console || typeof global.console.warn !== 'function') return;
+            global.console.warn('[AKIM][location] geolocation failed', {
+                status: String(status || '').trim(),
+                detail: detail || null,
+                isSecureContext: !!global.isSecureContext,
+                userAgent: String(global.navigator && global.navigator.userAgent || '').trim()
+            });
+        },
+
         buildGeolocationErrorMessage(status, detail) {
+            const statusText = String(status || '').trim();
             const detailText = this.extractErrorText(detail);
-            const combinedText = [String(status || '').trim(), detailText].filter(Boolean).join(' ');
+            const detailLine = this.buildErrorDetailText(detail);
+            const combinedText = [statusText, detailText, detailLine].filter(Boolean).join(' ');
+            this.reportGeolocationDiagnostics(statusText, detail);
             if (/permission|denied|forbidden|unauthorized|定位权限|授权/i.test(combinedText)) {
-                return '定位权限被拒绝，请开启浏览器定位权限后重试';
+                return detailLine ? '定位权限被拒绝：' + detailLine : '定位权限被拒绝，请开启浏览器定位权限后重试';
             }
             if (/timeout|超时/i.test(combinedText)) {
-                return '定位超时，请重试或点击地图选择位置';
+                return detailLine ? '定位超时：' + detailLine : '定位超时，请重试或点击地图选择位置';
             }
             if (/https|secure|insecure|origin|protocol/i.test(combinedText)) {
-                return '当前环境不支持浏览器定位，请点击地图选择位置';
+                return detailLine ? '当前环境不支持浏览器定位：' + detailLine : '当前环境不支持浏览器定位，请点击地图选择位置';
+            }
+            if (detailLine) {
+                return '定位失败：' + detailLine;
             }
             if (detailText) {
                 return '定位失败：' + detailText;
+            }
+            if (statusText) {
+                return '定位失败：status=' + statusText;
             }
             return '定位失败，请点击地图选择位置';
         },
