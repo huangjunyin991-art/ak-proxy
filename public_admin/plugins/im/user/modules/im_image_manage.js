@@ -273,27 +273,10 @@
         },
 
         prepareUploadSourceFile(file, config) {
-            if (!this.isHeicLikeFile(file)) {
-                return Promise.resolve({
-                    file: file,
-                    previewFile: file,
-                    forceOutputMimeType: ''
-                });
-            }
-            const heicModule = this.getHeicModule();
-            if (!heicModule || typeof heicModule.prepareImageFile !== 'function') {
-                return Promise.reject(new Error('当前环境暂不支持 HEIC 图片发送'));
-            }
-            return heicModule.prepareImageFile(file, {
-                targetMimeType: 'image/webp',
-                quality: Math.max(0.4, Math.min(0.95, (Number(config && config.quality || 82) || 82) / 100))
-            }).then(function(result) {
-                const nextFile = result && result.file ? result.file : file;
-                return {
-                    file: nextFile,
-                    previewFile: nextFile,
-                    forceOutputMimeType: 'image/webp'
-                };
+            return Promise.resolve({
+                file: file,
+                previewFile: file,
+                forceOutputMimeType: ''
             });
         },
 
@@ -482,6 +465,13 @@
 
         maybeCompressImageFile(file, config, options) {
             const normalizedConfig = this.normalizeUploadConfig(config || this.uploadConfig);
+            if (this.isHeicLikeFile(file)) {
+                return Promise.resolve({
+                    file: file,
+                    changed: false,
+                    fileName: String(file && file.name || '').trim() || ('image-' + Date.now() + '.heic')
+                });
+            }
             const thresholdBytes = Math.max(0, Number(normalizedConfig.compress_above_kb || 0) || 0) * 1024;
             const originalMimeType = this.normalizeMimeType(file && file.type);
             const shouldCompress = !!normalizedConfig.enabled && file && file.size > 0 && file.size >= thresholdBytes;

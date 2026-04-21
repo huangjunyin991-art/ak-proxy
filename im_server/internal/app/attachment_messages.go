@@ -521,21 +521,51 @@ func (a *App) ensureFileDirectories() error {
 	return os.MkdirAll(strings.TrimSpace(a.cfg.FileStoreDir), 0o755)
 }
 
-func (a *App) persistImageAsset(reader io.Reader, ext string) (string, int, error) {
+func (a *App) persistHEICImageAsset(reader io.Reader, fileName string, config imageUploadConfigSnapshot) (persistedImageAsset, error) {
+	storageName, err := generateAttachmentStorageName(".webp")
+	if err != nil {
+		return persistedImageAsset{}, err
+	}
+	storagePath := filepath.Join(strings.TrimSpace(a.cfg.ImageStoreDir), storageName)
+	webpBytes, err := transcodeHEICImageToWebP(reader, int64(imageMessageMaxBytes), config.MaxLongEdgePx)
+	if err != nil {
+		return persistedImageAsset{}, err
+	}
+	written, err := writeUploadedBytes(storagePath, webpBytes, int64(imageMessageMaxBytes))
+	if err != nil {
+		return persistedImageAsset{}, err
+	}
+	return persistedImageAsset{
+		StorageName: storageName,
+		FileSize:    int(written),
+		FileName:    buildStoredImageFileName(fileName, ".webp"),
+		MimeType:    "image/webp",
+	}, nil
+}
+
+func (a *App) persistImageAsset(reader io.Reader, fileName string, ext string, config imageUploadConfigSnapshot) (persistedImageAsset, error) {
 	normalizedExt := detectImageAssetExt("image"+ext, "")
 	if normalizedExt == "" {
-		return "", 0, errors.New("unsupported image format")
+		return persistedImageAsset{}, errors.New("unsupported image format")
+	}
+	if isHEICImageExt(normalizedExt) {
+		return a.persistHEICImageAsset(reader, fileName, config)
 	}
 	storageName, err := generateAttachmentStorageName(normalizedExt)
 	if err != nil {
-		return "", 0, err
+		return persistedImageAsset{}, err
 	}
 	storagePath := filepath.Join(strings.TrimSpace(a.cfg.ImageStoreDir), storageName)
 	written, err := writeUploadedFile(storagePath, reader, int64(imageMessageMaxBytes))
 	if err != nil {
-		return "", 0, err
+		return persistedImageAsset{}, err
 	}
-	return storageName, int(written), nil
+	return persistedImageAsset{
+		StorageName: storageName,
+		FileSize:    int(written),
+		FileName:    sanitizeAttachmentFileName(fileName, "image"+normalizedExt),
+		MimeType:    supportedImageAssetExts[normalizedExt],
+	}, nil
 }
 
 func (a *App) persistFileAsset(reader io.Reader, ext string) (string, int, error) {
@@ -806,7 +836,15 @@ func (a *App) handleSendImageMessage(w http.ResponseWriter, r *http.Request) {
 	if normalizedMimeType == "" {
 		normalizedMimeType = supportedImageAssetExts[ext]
 	}
-	storageName, fileSize, err := a.persistImageAsset(file, ext)
+	uploadConfig := defaultImageUploadConfigSnapshot()
+	if isHEICImageExt(ext) {
+		uploadConfig, err = a.getImageUploadConfig(r.Context())
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
+			return
+		}
+	}
+	asset, err := a.persistImageAsset(file, header.Filename, ext, uploadConfig)
 	if err != nil {
 		messageText := err.Error()
 		if messageText == "file too large" {
@@ -815,7 +853,15 @@ func (a *App) handleSendImageMessage(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": true, "message": messageText})
 		return
 	}
+	storageName := asset.StorageName
+	fileSize := asset.FileSize
+	if strings.TrimSpace(asset.MimeType) != "" {
+		normalizedMimeType = asset.MimeType
+	}
 	fileName := sanitizeAttachmentFileName(header.Filename, "image"+ext)
+	if strings.TrimSpace(asset.FileName) != "" {
+		fileName = sanitizeAttachmentFileName(asset.FileName, fileName)
+	}
 	payloadBytes, err := json.Marshal(imageMessageStoragePayload{
 		StorageName: storageName,
 		FileName:    fileName,
