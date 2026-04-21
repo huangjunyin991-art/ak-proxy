@@ -252,6 +252,7 @@ func New(cfg config.Config) (*App, error) {
 func (a *App) Run() error {
 	go a.runWhitelistGroupSelfHeal()
 	go a.runExpiredFileAssetCleanupLoop()
+	go a.runRecalledTextCleanupLoop()
 	log.Printf("im server listen on %s", a.cfg.Addr)
 	return a.server.ListenAndServe()
 }
@@ -1336,7 +1337,11 @@ func (a *App) handleRecallMessage(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": true, "message": err.Error()})
 		return
 	}
-	a.broadcastConversation(item.ConversationID, map[string]any{"type": "im.message.recalled", "payload": item})
+	eventType := "im.message.recalled"
+	if strings.EqualFold(strings.TrimSpace(item.Status), "deleted") {
+		eventType = "im.message.deleted"
+	}
+	a.broadcastConversation(item.ConversationID, map[string]any{"type": eventType, "payload": item})
 	writeJSON(w, http.StatusOK, map[string]any{"item": item})
 }
 
@@ -1593,25 +1598,33 @@ func (a *App) recallMessage(ctx context.Context, messageID int64, username strin
 	if item.SenderUsername != username {
 		return MessageItem{}, errors.New("forbidden")
 	}
-	if time.Since(sentAt) > time.Minute {
+	if time.Since(sentAt) > messageRecallEditableWindow {
 		return MessageItem{}, errors.New("message recall expired")
 	}
 	if item.Status == "recalled" {
 		return MessageItem{}, errors.New("message already recalled")
 	}
-	item.Content = ""
-	item.ContentPreview = "[消息已撤回]"
-	item.Status = "recalled"
 	item.SentAt = sentAt.Format(time.RFC3339)
 	item.SenderDisplayName = a.fetchDisplayName(ctx, item.SenderUsername)
 	item.SenderAvatarURL = a.getUserAvatarURL(ctx, item.SenderUsername)
-	if _, err := tx.Exec(ctx, `UPDATE im_message SET status = 'recalled', content_preview = $1, content_payload = '', updated_at = NOW() WHERE id = $2`, item.ContentPreview, item.ID); err != nil {
-		return MessageItem{}, err
+	if strings.EqualFold(strings.TrimSpace(item.MessageType), "text") {
+		item.Content = ""
+		item.ContentPreview = "[消息已撤回]"
+		item.Status = "recalled"
+		if _, err := tx.Exec(ctx, `UPDATE im_message SET status = 'recalled', content_preview = $1, content_payload = '', updated_at = NOW() WHERE id = $2`, item.ContentPreview, item.ID); err != nil {
+			return MessageItem{}, err
+		}
+		if _, err := tx.Exec(ctx, `UPDATE im_conversation SET last_message_preview = CASE WHEN last_message_id = $1 THEN $2 ELSE last_message_preview END, updated_at = NOW() WHERE id = $3`, item.ID, item.ContentPreview, item.ConversationID); err != nil {
+			return MessageItem{}, err
+		}
+		return item, tx.Commit(ctx)
 	}
-	if _, err := tx.Exec(ctx, `UPDATE im_conversation SET last_message_preview = CASE WHEN last_message_id = $1 THEN $2 ELSE last_message_preview END, updated_at = NOW() WHERE id = $3`, item.ID, item.ContentPreview, item.ConversationID); err != nil {
-		return MessageItem{}, err
+	plan, err := buildRecallCleanupPlan(item)
+	if err != nil {
+		log.Printf("im recall cleanup plan parse failed: message_id=%d type=%s err=%v", item.ID, item.MessageType, err)
+		plan = recallCleanupPlan{}
 	}
-	return item, tx.Commit(ctx)
+	return a.recallDeleteMessage(ctx, tx, item, sentAt, plan)
 }
 
 func (a *App) ensureConversationMember(ctx context.Context, conversationID string, username string) bool {

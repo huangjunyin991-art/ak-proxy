@@ -507,7 +507,13 @@
                 body: JSON.stringify({ message_id: mid })
             }).then(function(data) {
                 const item = data && data.item ? data.item : null;
-                if (item && item.id) self.applyMessageRecalled(item);
+                if (item && item.id) {
+                    if (String(item.status || '').toLowerCase() === 'deleted') {
+                        self.applyMessageDeleted(item);
+                    } else {
+                        self.applyMessageRecalled(item);
+                    }
+                }
                 return typeof self.ctx.loadSessions === 'function' ? self.ctx.loadSessions() : null;
             }).catch(function(error) {
                 window.alert(error && error.message ? error.message : '撤回失败');
@@ -535,6 +541,23 @@
                 });
                 state.activeMessages = next;
                 this.renderMessages();
+            }
+        },
+
+        applyMessageDeleted(item) {
+            const state = this.getState();
+            if (!state || !item || !item.id) return;
+            const cid = Number(item.conversation_id || 0);
+            delete state.recalledDraftByMessageId[item.id];
+            if (!cid) return;
+            if (Number(cid) === Number(state.activeConversationId || 0)) {
+                const beforeLength = Array.isArray(state.activeMessages) ? state.activeMessages.length : 0;
+                state.activeMessages = (Array.isArray(state.activeMessages) ? state.activeMessages : []).filter(function(current) {
+                    return !current || Number(current.id || 0) !== Number(item.id || 0);
+                });
+                if (state.activeMessages.length !== beforeLength) {
+                    this.renderMessages();
+                }
             }
         },
 
@@ -731,6 +754,14 @@
                 const payload = data.payload || null;
                 if (payload && payload.id) {
                     this.applyMessageRecalled(payload);
+                    if (typeof this.ctx.loadSessions === 'function') this.ctx.loadSessions();
+                }
+                return;
+            }
+            if (data.type === 'im.message.deleted') {
+                const payload = data.payload || null;
+                if (payload && payload.id) {
+                    this.applyMessageDeleted(payload);
                     if (typeof this.ctx.loadSessions === 'function') this.ctx.loadSessions();
                 }
                 return;
