@@ -21,7 +21,6 @@
         addressEl: null,
         metaEl: null,
         statusEl: null,
-        locateBtnEl: null,
         confirmBtnEl: null,
         searchInputEl: null,
         searchSubmitEl: null,
@@ -413,8 +412,6 @@
                 .ak-im-location-picker-search-btn{height:36px;border:none;border-radius:12px;padding:0 14px;background:#f3f4f6;color:#111827;font-size:14px;font-weight:600;cursor:pointer;flex:0 0 auto}
                 .ak-im-location-picker-search-btn:disabled{opacity:.55;cursor:default}
                 .ak-im-location-picker-body{position:relative;flex:1;overflow:auto;padding:12px 12px calc(92px + env(safe-area-inset-bottom, 0px));display:flex;flex-direction:column;gap:12px;min-height:0;background:#f7f7f7}
-                .ak-im-location-picker-locate{width:100%;height:44px;border:none;border-radius:14px;background:#e5e7eb;color:#374151;font-size:15px;font-weight:600;cursor:pointer}
-                .ak-im-location-picker-locate:disabled{opacity:.48;cursor:default}
                 .ak-im-location-picker-search-tips,.ak-im-location-picker-search-results{display:flex;flex-direction:column;gap:10px}
                 .ak-im-location-picker-search-tips:empty,.ak-im-location-picker-search-results:empty{display:none}
                 .ak-im-location-picker-search-card{border:none;background:#ffffff;border-radius:18px;padding:14px 14px;display:flex;flex-direction:column;gap:6px;align-items:flex-start;text-align:left;box-shadow:0 1px 2px rgba(15,23,42,.04);cursor:pointer}
@@ -422,7 +419,7 @@
                 .ak-im-location-picker-search-card-title{font-size:14px;font-weight:700;line-height:1.4;color:#111827;word-break:break-word}
                 .ak-im-location-picker-search-card-meta{font-size:12px;line-height:1.5;color:#6b7280;word-break:break-word}
                 .ak-im-location-picker-search-card-tag{display:inline-flex;align-items:center;justify-content:center;min-height:20px;padding:0 8px;border-radius:999px;background:rgba(7,193,96,.12);color:#16a34a;font-size:11px;font-weight:700}
-                .ak-im-location-picker-map{height:min(30vh,240px);border-radius:18px;overflow:hidden;background:#eef2f7;box-shadow:0 1px 2px rgba(15,23,42,.04)}
+                .ak-im-location-picker-map{height:min(38vh,320px);border-radius:18px;overflow:hidden;background:#eef2f7;box-shadow:0 1px 2px rgba(15,23,42,.04)}
                 .ak-im-location-picker-summary{padding:16px 14px;border-radius:18px;background:#ffffff;box-shadow:0 1px 2px rgba(15,23,42,.04);display:flex;flex-direction:column;gap:6px}
                 .ak-im-location-picker-summary-title{font-size:15px;font-weight:700;line-height:1.4;color:#111827;word-break:break-word}
                 .ak-im-location-picker-summary-address{font-size:13px;line-height:1.6;color:#4b5563;word-break:break-word}
@@ -440,7 +437,7 @@
                     .ak-im-location-picker-search-strip{padding:10px 10px 12px}
                     .ak-im-location-picker-body{padding:12px 10px calc(90px + env(safe-area-inset-bottom, 0px))}
                     .ak-im-location-picker-footer{padding:12px 10px calc(12px + env(safe-area-inset-bottom, 0px))}
-                    .ak-im-location-picker-map{height:min(30vh,230px)}
+                    .ak-im-location-picker-map{height:min(40vh,330px)}
                 }
             `;
         },
@@ -479,7 +476,6 @@
                         '</div>' +
                     '</div>' +
                     '<div class="ak-im-location-picker-body">' +
-                        '<button type="button" class="ak-im-location-picker-locate" data-ak-im-location-locate="1">定位当前</button>' +
                         '<div class="ak-im-location-picker-search-tips" data-ak-im-location-search-tips="1"></div>' +
                         '<div class="ak-im-location-picker-search-results" data-ak-im-location-search-results="1"></div>' +
                         '<div class="ak-im-location-picker-map" data-ak-im-location-map="1"></div>' +
@@ -501,7 +497,6 @@
             this.addressEl = wrapper.querySelector('[data-ak-im-location-address="1"]');
             this.metaEl = wrapper.querySelector('[data-ak-im-location-meta="1"]');
             this.statusEl = wrapper.querySelector('[data-ak-im-location-status="1"]');
-            this.locateBtnEl = wrapper.querySelector('[data-ak-im-location-locate="1"]');
             this.confirmBtnEl = wrapper.querySelector('[data-ak-im-location-confirm="1"]');
             this.searchInputEl = wrapper.querySelector('[data-ak-im-location-search-input="1"]');
             this.searchSubmitEl = wrapper.querySelector('[data-ak-im-location-search-submit="1"]');
@@ -517,15 +512,6 @@
             };
             const closeBtnEl = wrapper.querySelector('[data-ak-im-location-close-btn="1"]');
             if (closeBtnEl) closeBtnEl.addEventListener('click', closePicker);
-            if (this.locateBtnEl) {
-                this.locateBtnEl.addEventListener('click', function(event) {
-                    event.preventDefault();
-                    event.stopPropagation();
-                    self.locateCurrentPosition().catch(function(error) {
-                        self.renderPickerStatus(error && error.message ? error.message : '定位失败，请点击地图选择位置', true);
-                    });
-                });
-            }
             if (this.searchInputEl) {
                 this.searchInputEl.addEventListener('input', function() {
                     const keyword = self.getSearchKeyword();
@@ -721,10 +707,6 @@
         },
 
         syncPickerButtons() {
-            if (this.locateBtnEl) {
-                this.locateBtnEl.disabled = !!this.isSending || !!this.isLocating;
-                this.locateBtnEl.textContent = this.isLocating ? '定位中...' : '定位当前';
-            }
             if (this.searchInputEl) {
                 this.searchInputEl.disabled = !!this.isSending;
             }
