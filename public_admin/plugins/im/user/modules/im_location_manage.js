@@ -133,6 +133,14 @@
             const detailLine = this.buildErrorDetailText(detail);
             const combinedText = [statusText, detailText, detailLine].filter(Boolean).join(' ');
             this.reportGeolocationDiagnostics(statusText, detail);
+            if (/get geolocation time\s*out/i.test(combinedText) && /get iplocation failed/i.test(combinedText)) {
+                if (this.isMobileEdgeBrowser()) {
+                    return '当前手机 Edge 浏览器定位服务不可用，请直接点击地图选择位置，或改用系统浏览器再试';
+                }
+                if (this.isMobileBrowser()) {
+                    return '当前手机浏览器定位服务不可用，请直接点击地图选择位置，或改用系统浏览器再试';
+                }
+            }
             if (/permission|denied|forbidden|unauthorized|定位权限|授权/i.test(combinedText)) {
                 return detailLine ? '定位权限被拒绝：' + detailLine : '定位权限被拒绝，请开启浏览器定位权限后重试';
             }
@@ -157,6 +165,11 @@
         isMobileBrowser() {
             const userAgent = String(global.navigator && global.navigator.userAgent || '').trim();
             return /android|iphone|ipad|ipod|mobile|harmonyos/i.test(userAgent);
+        },
+
+        isMobileEdgeBrowser() {
+            const userAgent = String(global.navigator && global.navigator.userAgent || '').trim();
+            return /edga|edgios|edge/i.test(userAgent) && this.isMobileBrowser();
         },
 
         isGeolocationTimeoutError(error) {
