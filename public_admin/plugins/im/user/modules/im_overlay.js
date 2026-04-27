@@ -322,7 +322,7 @@
             const canManage = !!detail.can_manage;
             const memberCount = Math.max(0, Number(detail.member_count || members.length || 0) || 0);
             const showAddMemberTile = canManage && memberCount <= 15;
-            const addMemberMarkup = showAddMemberTile ? '<button class="ak-im-member-item is-add" type="button" data-im-settings-action="add"><div class="ak-im-member-avatar">+</div><div class="ak-im-member-body"><div class="ak-im-member-name">添加</div></div></button>' : '';
+            const addMemberMarkup = showAddMemberTile ? '<button class="ak-im-member-item is-add" type="button" data-im-settings-action="add"><div class="ak-im-member-honor"></div><div class="ak-im-member-avatar">+</div><div class="ak-im-member-body"><div class="ak-im-member-name">添加</div></div></button>' : '';
             const previewLimit = showAddMemberTile ? 19 : 20;
             const membersExpanded = !!state.groupSettingsMembersExpanded;
             const visibleMembers = membersExpanded ? members : members.slice(0, previewLimit);

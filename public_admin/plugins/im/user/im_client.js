@@ -2183,7 +2183,9 @@
 	    const honorName = normalizeHonorName(member && member.honor_name);
 	    const role = String(member && member.role || '').trim().toLowerCase();
 	    const roleLabel = role === 'owner' ? '群主' : (role === 'admin' ? '管理员' : '');
-	    return '<div class="ak-im-member-item">' + buildAvatarBoxMarkup('ak-im-member-avatar', member && member.avatar_url, displayName || username || '成员', (displayName || username || '成员') + '头像') + '<div class="ak-im-member-body"><div class="ak-im-member-name">' + buildDisplayNameWithHonorMarkup(displayName || username || '未知成员', honorName, '未知成员') + '</div></div>' + (roleLabel ? '<div class="ak-im-member-role">' + escapeHtml(roleLabel) + '</div>' : '') + '</div>';
+	    const memberName = displayName || username || '未知成员';
+	    const honorBadgeMarkup = '<div class="ak-im-member-honor">' + (honorName ? buildHonorBadgeMarkup(honorName, 'ak-im-honor-badge ak-im-member-honor-badge') : '') + '</div>';
+	    return '<div class="ak-im-member-item">' + honorBadgeMarkup + buildAvatarBoxMarkup('ak-im-member-avatar', member && member.avatar_url, displayName || username || '成员', (displayName || username || '成员') + '头像') + '<div class="ak-im-member-body"><div class="ak-im-member-name">' + escapeHtml(memberName) + '</div></div>' + (roleLabel ? '<div class="ak-im-member-role">' + escapeHtml(roleLabel) + '</div>' : '') + '</div>';
 	}
 
 	function renderMemberPanel() {

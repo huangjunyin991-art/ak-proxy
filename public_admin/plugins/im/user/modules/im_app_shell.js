@@ -439,11 +439,14 @@
                 #ak-im-root .ak-im-member-panel-body{flex:1;min-height:0;overflow:auto;padding:14px 16px 18px}
                 #ak-im-root .ak-im-member-summary{font-size:13px;color:#9ca3af;line-height:1.6;margin-bottom:12px}
                 #ak-im-root .ak-im-member-list{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:14px 10px;align-content:start}
-                #ak-im-root .ak-im-member-item{display:flex;flex-direction:column;align-items:center;gap:8px;text-align:center;min-width:0}
+                #ak-im-root .ak-im-member-item{display:flex;flex-direction:column;align-items:center;gap:6px;text-align:center;min-width:0}
+                #ak-im-root .ak-im-member-honor{width:100%;min-height:18px;display:flex;align-items:flex-end;justify-content:center}
                 #ak-im-root .ak-im-member-avatar{width:56px;height:56px;border-radius:16px;background:linear-gradient(180deg,#8fe3a8 0%,#56c57b 100%);color:#ffffff;display:inline-flex;align-items:center;justify-content:center;font-size:18px;font-weight:700}
-                #ak-im-root .ak-im-member-body{width:100%;min-width:0}
-                #ak-im-root .ak-im-member-name{font-size:13px;font-weight:600;color:#111827;line-height:1.5;display:flex;align-items:center;justify-content:center;min-width:0}
+                #ak-im-root .ak-im-member-body{width:100%;min-width:0;display:flex;flex-direction:column;align-items:center;gap:2px}
+                #ak-im-root .ak-im-member-name{font-size:13px;font-weight:600;color:#111827;line-height:1.5;display:block;max-width:100%;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
                 #ak-im-root .ak-im-member-role{font-size:11px;color:#07c160;line-height:1.4}
+                #ak-im-root .ak-im-member-honor-badge{max-width:none;min-height:16px;padding:0 4px;font-size:9px}
+                #ak-im-root .ak-im-member-honor-badge.ak-im-honor-badge--rich .ak-im-honor-badge-svg{width:44px;height:18px}
                 #ak-im-root .ak-im-group-info-hero{background:#ffffff;padding:20px 16px 16px;display:flex;flex-direction:column;align-items:center;gap:8px}
                 #ak-im-root .ak-im-group-info-hero-avatar{width:72px;height:72px;border-radius:14px;overflow:hidden;box-shadow:0 1px 2px rgba(15,23,42,.06)}
                 #ak-im-root .ak-im-group-info-hero-avatar .ak-im-avatar-mosaic .ak-im-avatar-cell{font-size:11px}
