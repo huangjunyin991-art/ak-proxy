@@ -2026,24 +2026,6 @@
         return decorated.map(function(entry) { return entry.member; });
     }
 
-    function buildBalancedGroupAvatarRowsMarkup(cells) {
-        const list = Array.isArray(cells) ? cells : [];
-        if (!list.length) return '';
-        const rowCount = Math.ceil(list.length / 3);
-        let start = 0;
-        let remaining = list.length;
-        let rowsRemaining = rowCount;
-        const rows = [];
-        while (rowsRemaining > 0 && remaining > 0) {
-            const rowSize = Math.min(3, Math.max(1, Math.ceil(remaining / rowsRemaining)));
-            rows.push('<div class="ak-im-avatar-row">' + list.slice(start, start + rowSize).join('') + '</div>');
-            start += rowSize;
-            remaining -= rowSize;
-            rowsRemaining -= 1;
-        }
-        return rows.join('');
-    }
-
     function buildGroupAvatarMosaicMarkup(members, fallbackText) {
         const list = (Array.isArray(members) ? members : []).slice(0, 9);
         if (!list.length) {
@@ -2061,7 +2043,11 @@
         if (list.length >= 9) {
             return '<div class="ak-im-avatar-mosaic is-grid" aria-hidden="true">' + cells.join('') + '</div>';
         }
-        return '<div class="ak-im-avatar-mosaic is-stack" aria-hidden="true">' + buildBalancedGroupAvatarRowsMarkup(cells) + '</div>';
+        const rows = [];
+        for (let index = 0; index < cells.length; index += 3) {
+            rows.push('<div class="ak-im-avatar-row">' + cells.slice(index, index + 3).join('') + '</div>');
+        }
+        return '<div class="ak-im-avatar-mosaic is-stack" aria-hidden="true">' + rows.join('') + '</div>';
     }
 
     function getAvatarText(value) {
