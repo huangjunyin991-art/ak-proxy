@@ -36,6 +36,7 @@
                 #ak-im-root.ak-view-member-action .ak-im-member-action-screen{display:flex}
                 #ak-im-root.ak-view-profile-subpage .ak-im-profile-subpage-screen{display:flex}
                 #ak-im-root .ak-im-topbar{height:calc(56px + env(safe-area-inset-top, 0px));padding:calc(env(safe-area-inset-top, 0px) + 8px) 12px 8px;display:grid;grid-template-columns:52px 1fr 52px;align-items:center;background:#ededed;border-bottom:1px solid rgba(15,23,42,.06);box-sizing:border-box}
+                #ak-im-root .ak-im-session-screen .ak-im-topbar{grid-template-columns:80px minmax(0,1fr) 80px;column-gap:8px}
                 #ak-im-root .ak-im-topbar-title,#ak-im-root .ak-im-topbar-title-wrap{text-align:center;min-width:0}
                 #ak-im-root .ak-im-topbar-title{font-size:17px;font-weight:600;color:#111827;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
                 #ak-im-root .ak-im-chat-title-btn{width:100%;border:none;background:transparent;padding:0;margin:0;display:flex;flex-direction:column;align-items:center;justify-content:center;border-radius:10px;min-width:0}
@@ -48,6 +49,28 @@
                 #ak-im-root .ak-im-nav-btn.is-hidden{opacity:0;pointer-events:none}
                 #ak-im-root .ak-im-nav-btn svg{width:20px;height:20px;stroke:currentColor}
                 #ak-im-root .ak-im-nav-btn.ak-im-new{justify-self:end;font-size:15px;color:#1f2937}
+                #ak-im-root .ak-im-contact-search-back{display:none}
+                #ak-im-root .ak-im-topbar-search-wrap{display:none;align-items:center;min-width:0}
+                #ak-im-root .ak-im-contact-search-box{height:38px;border-radius:14px;background:#ffffff;display:flex;align-items:center;gap:8px;padding:0 10px;box-shadow:0 1px 0 rgba(15,23,42,.03) inset;min-width:0;flex:1}
+                #ak-im-root .ak-im-contact-search-icon{display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto;color:#9ca3af}
+                #ak-im-root .ak-im-contact-search-icon svg{width:16px;height:16px;stroke:currentColor}
+                #ak-im-root .ak-im-contact-search-input{flex:1;min-width:0;height:100%;border:none;background:transparent;padding:0;font-size:15px;color:#111827;outline:none}
+                #ak-im-root .ak-im-contact-search-input::placeholder{color:#9ca3af}
+                #ak-im-root .ak-im-contact-search-clear{width:22px;height:22px;border:none;border-radius:999px;background:#e5e7eb;color:#6b7280;padding:0;display:inline-flex;align-items:center;justify-content:center;font-size:13px;line-height:1;cursor:pointer;flex:0 0 auto}
+                #ak-im-root .ak-im-topbar-actions{justify-self:end;display:flex;align-items:center;gap:4px}
+                #ak-im-root .ak-im-session-screen .ak-im-close,#ak-im-root .ak-im-session-screen .ak-im-contact-search-back{grid-column:1;grid-row:1;justify-self:start}
+                #ak-im-root .ak-im-session-screen .ak-im-session-topbar-title,#ak-im-root .ak-im-session-screen .ak-im-topbar-search-wrap{grid-column:2;grid-row:1}
+                #ak-im-root .ak-im-session-screen .ak-im-new,#ak-im-root .ak-im-session-screen .ak-im-home-topbar-actions{grid-column:3;grid-row:1;justify-self:end}
+                #ak-im-root .ak-im-session-screen .ak-im-new.is-hidden{display:none}
+                #ak-im-root .ak-im-topbar-actions .ak-im-nav-btn.is-hidden{display:none}
+                #ak-im-root .ak-im-home-topbar-actions .ak-im-nav-btn{width:34px;padding:0}
+                #ak-im-root .ak-im-home-topbar-actions .ak-im-home-add-trigger{width:32px;height:32px;border-radius:999px;background:#07c160;color:#ffffff;box-shadow:0 8px 16px rgba(7,193,96,.18)}
+                #ak-im-root .ak-im-home-topbar-actions .ak-im-home-add-trigger svg{stroke:#ffffff}
+                #ak-im-root.ak-contact-search-open .ak-im-close{display:none}
+                #ak-im-root.ak-contact-search-open .ak-im-contact-search-back{display:inline-flex}
+                #ak-im-root.ak-contact-search-open .ak-im-session-topbar-title{display:none}
+                #ak-im-root.ak-contact-search-open .ak-im-topbar-search-wrap{display:flex}
+                #ak-im-root.ak-contact-search-open .ak-im-home-topbar-actions{display:none}
                 #ak-im-root .ak-im-session-page{flex:1;display:flex;flex-direction:column;min-height:0;background:#f7f7f7}
                 #ak-im-root .ak-im-home-panels{flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden}
                 #ak-im-root .ak-im-home-panel{display:none;flex:1;min-height:0;flex-direction:column}
@@ -71,6 +94,13 @@
                 #ak-im-root .ak-im-session-preview{grid-area:preview;font-size:13px;color:#6b7280;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
                 #ak-im-root .ak-im-session-unread{grid-area:unread;justify-self:end;min-width:18px;height:18px;padding:0 5px;border-radius:999px;background:#ef4444;color:#fff;font-size:11px;display:none;align-items:center;justify-content:center}
                 #ak-im-root .ak-im-session-unread.visible{display:inline-flex}
+                #ak-im-root .ak-im-contact-search-page{display:none;flex:1;min-height:0;overflow:auto;background:#f7f7f7;flex-direction:column}
+                #ak-im-root.ak-contact-search-open .ak-im-home-panels{display:none}
+                #ak-im-root.ak-contact-search-open .ak-im-contact-search-page{display:flex}
+                #ak-im-root .ak-im-contact-search-empty{margin:auto;padding:28px 18px;color:#94a3b8;font-size:13px;line-height:1.7;text-align:center}
+                #ak-im-root .ak-im-contact-search-section{padding-top:8px}
+                #ak-im-root .ak-im-contact-search-section-title{padding:0 16px 10px;font-size:13px;font-weight:600;color:#6b7280;line-height:1.5}
+                #ak-im-root .ak-im-contact-search-section-list{background:#ffffff}
                 #ak-im-root .ak-im-contacts-list{flex:1;overflow:auto;background:#ffffff}
                 #ak-im-root .ak-im-contact-item{width:100%;border:none;background:#ffffff;padding:13px 16px;display:flex;align-items:center;gap:12px;text-align:left;cursor:pointer}
                 #ak-im-root .ak-im-contact-item + .ak-im-contact-item{border-top:1px solid rgba(15,23,42,.05)}
@@ -512,13 +542,31 @@
                         <button class="ak-im-nav-btn ak-im-close" type="button" aria-label="关闭内部聊天">
                             <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M15 18L9 12L15 6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
                         </button>
+                        <button class="ak-im-nav-btn ak-im-contact-search-back is-hidden" type="button" aria-label="返回搜索前页面">
+                            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M15 18L9 12L15 6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                        </button>
                         <div class="ak-im-topbar-title ak-im-session-topbar-title">聊天</div>
+                        <div class="ak-im-topbar-search-wrap">
+                            <label class="ak-im-contact-search-box" aria-label="搜索联系人">
+                                <span class="ak-im-contact-search-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="5.8" stroke-width="1.8"></circle><path d="m16 16 3.5 3.5" stroke-width="1.8" stroke-linecap="round"></path></svg></span>
+                                <input class="ak-im-contact-search-input" type="search" inputmode="search" autocomplete="off" spellcheck="false" placeholder="搜索联系人" />
+                                <button class="ak-im-contact-search-clear is-hidden" type="button" aria-label="清空搜索">×</button>
+                            </label>
+                        </div>
                         <button class="ak-im-nav-btn ak-im-new" type="button" data-im-action="new">发起</button>
+                        <div class="ak-im-topbar-actions ak-im-home-topbar-actions">
+                            <button class="ak-im-nav-btn ak-im-home-search-trigger" type="button" aria-label="搜索联系人">
+                                <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="11" cy="11" r="5.8" stroke-width="1.8"></circle><path d="m16 16 3.5 3.5" stroke-width="1.8" stroke-linecap="round"></path></svg>
+                            </button>
+                            <button class="ak-im-nav-btn ak-im-home-add-trigger" type="button" aria-label="添加好友入口">
+                                <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 7v10M7 12h10" stroke-width="2" stroke-linecap="round"></path></svg>
+                            </button>
+                        </div>
                     </div>
                     <div class="ak-im-session-page">
                         <div class="ak-im-home-panels">
                             <div class="ak-im-home-panel is-chats is-active" data-im-home-panel="chats">
-                                <div class="ak-im-search-bar"><div class="ak-im-search-pill">点击右上角发起单聊</div></div>
+                                <div class="ak-im-search-bar"><div class="ak-im-search-pill">点击右上角搜索联系人</div></div>
                                 <div class="ak-im-session-list"></div>
                             </div>
                             <div class="ak-im-home-panel" data-im-home-panel="contacts">
@@ -529,6 +577,7 @@
                                 <div class="ak-im-profile-page"></div>
                             </div>
                         </div>
+                        <div class="ak-im-contact-search-page"></div>
                         <div class="ak-im-home-tabbar">
                             <button class="ak-im-home-tab-btn is-active" type="button" data-im-home-tab="chats" aria-label="聊天">
                                 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 6.75C6.5 5.78 7.28 5 8.4 5H13.05C14.24 5 15.2 5.78 15.2 6.75V9.85C15.2 11.04 14.24 12 13.05 12H10.15L7.45 14.08C7.17 14.3 6.75 14.1 6.75 13.75V12H6.25V6.75Z" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
@@ -715,6 +764,12 @@
                 dialogConfirmBtnEl: root ? root.querySelector('[data-im-dialog="confirm"]') : null,
                 sessionTopbarTitleEl: root ? root.querySelector('.ak-im-session-topbar-title') : null,
                 sessionNewBtnEl: root ? root.querySelector('.ak-im-new') : null,
+                homeSearchTriggerBtnEl: root ? root.querySelector('.ak-im-home-search-trigger') : null,
+                homeAddTriggerBtnEl: root ? root.querySelector('.ak-im-home-add-trigger') : null,
+                contactSearchBackBtnEl: root ? root.querySelector('.ak-im-contact-search-back') : null,
+                contactSearchInputEl: root ? root.querySelector('.ak-im-contact-search-input') : null,
+                contactSearchClearBtnEl: root ? root.querySelector('.ak-im-contact-search-clear') : null,
+                contactSearchPageEl: root ? root.querySelector('.ak-im-contact-search-page') : null,
                 searchPillEl: root ? root.querySelector('.ak-im-search-pill') : null,
                 chatTitleEl: root ? root.querySelector('.ak-im-chat-title') : null,
                 chatSubtitleEl: root ? root.querySelector('.ak-im-chat-subtitle') : null,
@@ -789,6 +844,18 @@
             bindClick(elements.composeCloseBtnEl, function() {
                 if (typeof ctx.onComposeCloseClick === 'function') ctx.onComposeCloseClick();
             });
+            bindClick(elements.homeSearchTriggerBtnEl, function() {
+                if (typeof ctx.onHomeSearchClick === 'function') ctx.onHomeSearchClick();
+            });
+            bindClick(elements.homeAddTriggerBtnEl, function() {
+                if (typeof ctx.onHomeAddClick === 'function') ctx.onHomeAddClick();
+            });
+            bindClick(elements.contactSearchBackBtnEl, function() {
+                if (typeof ctx.onContactSearchBackClick === 'function') ctx.onContactSearchBackClick();
+            });
+            bindClick(elements.contactSearchClearBtnEl, function() {
+                if (typeof ctx.onContactSearchClearClick === 'function') ctx.onContactSearchClearClick();
+            });
             bindClick(elements.newActionBtnEl, function() {
                 if (typeof ctx.onNewSessionClick === 'function') ctx.onNewSessionClick();
             });
@@ -834,6 +901,13 @@
                     if (event.key === 'Enter' && !event.shiftKey) {
                         event.preventDefault();
                         if (typeof ctx.onComposerSubmit === 'function') ctx.onComposerSubmit();
+                    }
+                });
+            }
+            if (elements.contactSearchInputEl) {
+                elements.contactSearchInputEl.addEventListener('input', function() {
+                    if (typeof ctx.onContactSearchInputChange === 'function') {
+                        ctx.onContactSearchInputChange(elements.contactSearchInputEl.value || '');
                     }
                 });
             }
@@ -883,6 +957,7 @@
             root.classList.toggle('ak-view-group-info', !!nextShellState.showGroupInfo);
             root.classList.toggle('ak-view-member-action', !!nextShellState.showMemberAction);
             root.classList.toggle('ak-view-profile-subpage', !!nextShellState.showProfileSubpage);
+            root.classList.toggle('ak-contact-search-open', !!nextShellState.showContactSearch);
             if (this.elements.launcherEl) {
                 this.elements.launcherEl.classList.toggle('is-open', !!nextShellState.open);
                 this.elements.launcherEl.classList.toggle('has-unread', !!nextShellState.hasUnread);
@@ -892,6 +967,21 @@
             }
             if (this.elements.sessionNewBtnEl) {
                 this.elements.sessionNewBtnEl.classList.toggle('is-hidden', !nextShellState.showSessionNewButton);
+            }
+            if (this.elements.homeSearchTriggerBtnEl) {
+                this.elements.homeSearchTriggerBtnEl.classList.toggle('is-hidden', !nextShellState.showHomeTopActions);
+            }
+            if (this.elements.homeAddTriggerBtnEl) {
+                this.elements.homeAddTriggerBtnEl.classList.toggle('is-hidden', !nextShellState.showHomeTopActions);
+            }
+            if (this.elements.contactSearchBackBtnEl) {
+                this.elements.contactSearchBackBtnEl.classList.toggle('is-hidden', !nextShellState.showContactSearch);
+            }
+            if (this.elements.contactSearchInputEl && this.elements.contactSearchInputEl.value !== String(nextShellState.contactSearchKeyword || '')) {
+                this.elements.contactSearchInputEl.value = String(nextShellState.contactSearchKeyword || '');
+            }
+            if (this.elements.contactSearchClearBtnEl) {
+                this.elements.contactSearchClearBtnEl.classList.toggle('is-hidden', !String(nextShellState.contactSearchKeyword || '').trim());
             }
             if (this.elements.searchPillEl && typeof nextShellState.searchPillText === 'string') {
                 this.elements.searchPillEl.textContent = nextShellState.searchPillText;

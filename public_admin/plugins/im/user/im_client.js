@@ -74,6 +74,7 @@
         contactsLoaded: false,
         contactsLoading: false,
         contactsError: '',
+        contactSearchKeyword: '',
         profile: null,
         profileLoaded: false,
         profileLoading: false,
@@ -210,6 +211,12 @@
     let dialogConfirmBtnEl = null;
     let sessionTopbarTitleEl = null;
     let sessionNewBtnEl = null;
+    let homeSearchTriggerBtnEl = null;
+    let homeAddTriggerBtnEl = null;
+    let contactSearchBackBtnEl = null;
+    let contactSearchInputEl = null;
+    let contactSearchClearBtnEl = null;
+    let contactSearchPageEl = null;
     let shellMode = 'none';
     let composerOutsideDismissBound = false;
 
@@ -266,6 +273,12 @@
         dialogConfirmBtnEl = nextElements.dialogConfirmBtnEl || null;
         sessionTopbarTitleEl = nextElements.sessionTopbarTitleEl || null;
         sessionNewBtnEl = nextElements.sessionNewBtnEl || null;
+        homeSearchTriggerBtnEl = nextElements.homeSearchTriggerBtnEl || null;
+        homeAddTriggerBtnEl = nextElements.homeAddTriggerBtnEl || null;
+        contactSearchBackBtnEl = nextElements.contactSearchBackBtnEl || null;
+        contactSearchInputEl = nextElements.contactSearchInputEl || null;
+        contactSearchClearBtnEl = nextElements.contactSearchClearBtnEl || null;
+        contactSearchPageEl = nextElements.contactSearchPageEl || null;
     }
 
     function collectFallbackShellElements(rootNode) {
@@ -452,12 +465,84 @@
         closeSettingsPanel({ silent: true });
         closeEmojiPicker({ silent: true });
         closePlusPanel({ silent: true });
+        state.contactSearchKeyword = '';
         state.composerMode = 'text';
         state.voiceHoldState = 'idle';
         state.voiceHoldStatusText = '';
         if (options && options.closePanel) state.open = false;
         state.view = 'sessions';
         render();
+    }
+
+    function isHomeTopActionTab(tab) {
+        const normalizedTab = normalizeHomeTab(tab);
+        return normalizedTab === 'chats' || normalizedTab === 'contacts' || normalizedTab === 'meetings';
+    }
+
+    function focusContactSearchInput() {
+        if (!contactSearchInputEl) return;
+        setTimeout(function() {
+            if (!contactSearchInputEl || state.view !== 'contact_search') return;
+            try {
+                contactSearchInputEl.focus();
+                if (typeof contactSearchInputEl.setSelectionRange === 'function') {
+                    const value = String(contactSearchInputEl.value || '');
+                    contactSearchInputEl.setSelectionRange(value.length, value.length);
+                }
+            } catch (e) {}
+        }, 0);
+    }
+
+    function openContactSearch() {
+        if (!state.allowed || !isHomeTopActionTab(state.homeTab)) return;
+        closeActionSheet();
+        closeReadProgressPanel();
+        closeMemberPanel();
+        closeSettingsPanel({ silent: true });
+        closeEmojiPicker({ silent: true });
+        closePlusPanel({ silent: true });
+        state.composerMode = 'text';
+        state.voiceHoldState = 'idle';
+        state.voiceHoldStatusText = '';
+        state.view = 'contact_search';
+        if (!state.contactsLoaded && !state.contactsLoading) {
+            loadContacts();
+        }
+        render();
+        focusContactSearchInput();
+    }
+
+    function closeContactSearch(options) {
+        const silent = !!(options && options.silent);
+        state.contactSearchKeyword = '';
+        if (state.view === 'contact_search') {
+            state.view = 'sessions';
+        }
+        if (!silent) render();
+    }
+
+    function handleContactSearchInputChange(value) {
+        state.contactSearchKeyword = String(value || '');
+        render();
+    }
+
+    function clearContactSearchInput() {
+        if (!state.contactSearchKeyword) {
+            focusContactSearchInput();
+            return;
+        }
+        state.contactSearchKeyword = '';
+        render();
+        focusContactSearchInput();
+    }
+
+    function openAddFriendPlaceholder() {
+        openDialog({
+            title: '提示',
+            message: '添加好友功能待前置能力完成后开放',
+            confirmText: '知道了',
+            showCancel: false
+        });
     }
 
     function openActiveGroupMenu() {
@@ -621,7 +706,12 @@
             onPlusActionClick: handlePlusPanelAction,
             onNewSessionInputChange: handleNewSessionInputChange,
             onMemberPanelClose: closeMemberPanel,
-            onProfileSubpageBackClick: closeProfileSubpage
+            onProfileSubpageBackClick: closeProfileSubpage,
+            onHomeSearchClick: openContactSearch,
+            onHomeAddClick: openAddFriendPlaceholder,
+            onContactSearchBackClick: closeContactSearch,
+            onContactSearchInputChange: handleContactSearchInputChange,
+            onContactSearchClearClick: clearContactSearchInput
         });
     }
 
@@ -2344,7 +2434,7 @@
         if (normalizedTab === 'meetings') {
             return '';
         }
-        return state.sessions.length ? '长按会话可置顶，点击进入聊天' : '点击右上角发起单聊';
+        return state.sessions.length ? '长按会话可置顶，点击右上角搜索联系人' : '点击右上角搜索联系人';
     }
 
     function getShellRenderState() {
@@ -2355,6 +2445,7 @@
         const showGroupInfo = state.view === 'group_info' && !!state.groupSettingsOpen;
         const showMemberAction = state.view === 'member_action' && !!state.memberActionOpen;
         const showProfileSubpage = isProfileSubpageView(state.view);
+        const showContactSearch = state.view === 'contact_search';
         state.homeTab = homeTab;
         return {
             allowed: !!state.allowed,
@@ -2365,12 +2456,15 @@
             showGroupInfo: !!showGroupInfo,
             showMemberAction: !!showMemberAction,
             showProfileSubpage: !!showProfileSubpage,
+            showContactSearch: !!showContactSearch,
             hasUnread: hasUnreadSessions(),
             chatUnread: getUnreadSessionTotal(),
             homeTab: homeTab,
             homeTabTitle: getHomeTabTitle(homeTab),
-            showSessionNewButton: homeTab === 'chats',
+            showSessionNewButton: false,
+            showHomeTopActions: isHomeTopActionTab(homeTab) && !showContactSearch,
             searchPillText: getHomeSearchPillText(homeTab),
+            contactSearchKeyword: state.contactSearchKeyword,
             meetingsUnread: (function() {
                 const m = getMeetingManageModule();
                 if (!m) return 0;
@@ -2489,6 +2583,7 @@
 
     function switchHomeTab(tab) {
         state.homeTab = normalizeHomeTab(tab);
+        state.contactSearchKeyword = '';
         state.view = 'sessions';
         ensureHomeTabData(state.homeTab);
         render();
@@ -2508,6 +2603,25 @@
         if (sessionNewBtnEl) {
             sessionNewBtnEl.classList.toggle('is-hidden', !nextShellState.showSessionNewButton);
         }
+        if (homeSearchTriggerBtnEl) {
+            homeSearchTriggerBtnEl.classList.toggle('is-hidden', !nextShellState.showHomeTopActions);
+        }
+        if (homeAddTriggerBtnEl) {
+            homeAddTriggerBtnEl.classList.toggle('is-hidden', !nextShellState.showHomeTopActions);
+        }
+        if (contactSearchBackBtnEl) {
+            contactSearchBackBtnEl.classList.toggle('is-hidden', !nextShellState.showContactSearch);
+        }
+        if (sessionTopbarTitleEl) {
+            sessionTopbarTitleEl.classList.toggle('is-hidden', !!nextShellState.showContactSearch);
+        }
+        if (contactSearchInputEl && contactSearchInputEl.value !== String(nextShellState.contactSearchKeyword || '')) {
+            contactSearchInputEl.value = String(nextShellState.contactSearchKeyword || '');
+        }
+        if (contactSearchClearBtnEl) {
+            contactSearchClearBtnEl.classList.toggle('is-hidden', !String(nextShellState.contactSearchKeyword || '').trim());
+        }
+        root.classList.toggle('ak-contact-search-open', !!nextShellState.showContactSearch);
         const searchPill = root.querySelector('.ak-im-search-pill');
         if (searchPill) {
             searchPill.textContent = nextShellState.searchPillText;
@@ -2537,8 +2651,81 @@
         sessionList.innerHTML = '';
         const empty = document.createElement('div');
         empty.className = 'ak-im-empty';
-        empty.textContent = state.sessions.length ? '会话模块暂不可用，请刷新页面后重试' : (state.allowed ? '暂无会话\n点击右上角“发起”开始单聊' : '当前账号未开通聊天');
+        empty.textContent = state.sessions.length ? '会话模块暂不可用，请刷新页面后重试' : (state.allowed ? '暂无会话\n点击右上角搜索联系人开始聊天' : '当前账号未开通聊天');
         sessionList.appendChild(empty);
+    }
+
+    function getContactUsername(contact) {
+        return String(contact && contact.username || '').trim().toLowerCase();
+    }
+
+    function getContactDisplayName(contact) {
+        const username = getContactUsername(contact);
+        return String(contact && contact.display_name || '').trim() || username || '联系人';
+    }
+
+    function buildContactItemInnerMarkup(contact) {
+        const username = getContactUsername(contact);
+        const displayName = getContactDisplayName(contact);
+        return buildAvatarBoxMarkup('ak-im-contact-avatar', contact && contact.avatar_url, displayName, displayName + '头像') +
+            '<div class="ak-im-contact-body"><div class="ak-im-contact-name">' + escapeHtml(displayName) + '</div><div class="ak-im-contact-meta">@' + escapeHtml(username || 'unknown') + '</div></div>';
+    }
+
+    function matchContactSearch(contact, keyword) {
+        const normalizedKeyword = String(keyword || '').trim().toLowerCase();
+        if (!normalizedKeyword) return false;
+        const username = getContactUsername(contact);
+        const displayName = String(contact && contact.display_name || '').trim().toLowerCase();
+        return displayName.indexOf(normalizedKeyword) >= 0 || username.indexOf(normalizedKeyword) >= 0;
+    }
+
+    function getContactSearchResults() {
+        const keyword = String(state.contactSearchKeyword || '').trim().toLowerCase();
+        if (!keyword) return [];
+        return state.contacts.filter(function(contact) {
+            return matchContactSearch(contact, keyword);
+        });
+    }
+
+    function renderContactSearchView() {
+        if (!contactSearchPageEl) return;
+        if (!state.allowed) {
+            contactSearchPageEl.innerHTML = '<div class="ak-im-contact-search-empty">当前账号未开通聊天</div>';
+            return;
+        }
+        const keyword = String(state.contactSearchKeyword || '').trim();
+        if (state.contactsLoading && !state.contactsLoaded) {
+            contactSearchPageEl.innerHTML = '<div class="ak-im-contact-search-empty">正在同步联系人...</div>';
+            return;
+        }
+        if (state.contactsError && !state.contacts.length) {
+            contactSearchPageEl.innerHTML = '<div class="ak-im-contact-search-empty">' + escapeHtml(state.contactsError) + '</div>';
+            return;
+        }
+        if (!keyword) {
+            contactSearchPageEl.innerHTML = '<div class="ak-im-contact-search-empty">搜索联系人昵称或账号</div>';
+            return;
+        }
+        const results = getContactSearchResults();
+        if (!results.length) {
+            contactSearchPageEl.innerHTML = '<div class="ak-im-contact-search-empty">未找到匹配联系人</div>';
+            return;
+        }
+        contactSearchPageEl.innerHTML = '<div class="ak-im-contact-search-section"><div class="ak-im-contact-search-section-title">联系人</div><div class="ak-im-contact-search-section-list"></div></div>';
+        const listEl = contactSearchPageEl.querySelector('.ak-im-contact-search-section-list');
+        results.forEach(function(contact) {
+            const username = getContactUsername(contact);
+            if (!username) return;
+            const node = document.createElement('button');
+            node.type = 'button';
+            node.className = 'ak-im-contact-item';
+            node.innerHTML = buildContactItemInnerMarkup(contact);
+            node.addEventListener('click', function() {
+                closeContactSearch({ silent: true });
+                openDirectConversation(username);
+            });
+            listEl.appendChild(node);
+        });
     }
 
     function renderContactsView() {
@@ -2561,13 +2748,11 @@
             return;
         }
         state.contacts.forEach(function(contact) {
-            const username = String(contact && contact.username || '').trim();
-            const displayName = String(contact && contact.display_name || '').trim() || username || '联系人';
+            const username = getContactUsername(contact);
             const node = document.createElement('button');
             node.type = 'button';
             node.className = 'ak-im-contact-item';
-            node.innerHTML = buildAvatarBoxMarkup('ak-im-contact-avatar', contact && contact.avatar_url, displayName, displayName + '头像') +
-                '<div class="ak-im-contact-body"><div class="ak-im-contact-name">' + escapeHtml(displayName) + '</div><div class="ak-im-contact-meta">@' + escapeHtml(username || 'unknown') + '</div></div>';
+            node.innerHTML = buildContactItemInnerMarkup(contact);
             node.addEventListener('click', function() {
                 openDirectConversation(username);
             });
@@ -2745,6 +2930,7 @@
         statusLine.textContent = '';
         renderSessionList();
         renderContactsView();
+        renderContactSearchView();
         renderProfileView();
         renderProfileSubpage();
         syncComposerState();
@@ -3222,6 +3408,7 @@
         state.contactsLoaded = false;
         state.contactsLoading = false;
         state.contactsError = '';
+        state.contactSearchKeyword = '';
         state.profile = null;
         state.profileLoaded = false;
         state.profileLoading = false;
@@ -3273,6 +3460,7 @@
             state.contactsLoaded = false;
             state.contactsLoading = false;
             state.contactsError = '';
+            state.contactSearchKeyword = '';
             state.profileLoaded = false;
             state.profileLoading = false;
             state.profileError = '';

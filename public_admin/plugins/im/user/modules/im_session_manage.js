@@ -78,7 +78,7 @@
             if (!state.sessions.length) {
                 const empty = document.createElement('div');
                 empty.className = 'ak-im-empty';
-                empty.textContent = state.allowed ? '暂无会话\n点击右上角“发起”开始单聊' : '当前账号未开通聊天';
+                empty.textContent = state.allowed ? '暂无会话\n点击右上角搜索联系人开始聊天' : '当前账号未开通聊天';
                 sessionList.appendChild(empty);
                 return;
             }
