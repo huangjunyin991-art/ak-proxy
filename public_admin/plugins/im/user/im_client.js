@@ -117,6 +117,7 @@
         voiceHoldStatusText: '',
         emojiPanelOpen: false,
         plusPanelOpen: false,
+        homeAddMenuOpen: false,
         emojiPanelTab: 'standard',
         emojiAssets: [],
         emojiAssetsLoaded: false,
@@ -213,6 +214,7 @@
     let sessionNewBtnEl = null;
     let homeSearchTriggerBtnEl = null;
     let homeAddTriggerBtnEl = null;
+    let homeAddMenuEl = null;
     let contactSearchBackBtnEl = null;
     let contactSearchInputEl = null;
     let contactSearchClearBtnEl = null;
@@ -275,6 +277,7 @@
         sessionNewBtnEl = nextElements.sessionNewBtnEl || null;
         homeSearchTriggerBtnEl = nextElements.homeSearchTriggerBtnEl || null;
         homeAddTriggerBtnEl = nextElements.homeAddTriggerBtnEl || null;
+        homeAddMenuEl = nextElements.homeAddMenuEl || null;
         contactSearchBackBtnEl = nextElements.contactSearchBackBtnEl || null;
         contactSearchInputEl = nextElements.contactSearchInputEl || null;
         contactSearchClearBtnEl = nextElements.contactSearchClearBtnEl || null;
@@ -465,6 +468,7 @@
         closeSettingsPanel({ silent: true });
         closeEmojiPicker({ silent: true });
         closePlusPanel({ silent: true });
+        closeHomeAddMenu({ silent: true });
         state.contactSearchKeyword = '';
         state.composerMode = 'text';
         state.voiceHoldState = 'idle';
@@ -501,6 +505,7 @@
         closeSettingsPanel({ silent: true });
         closeEmojiPicker({ silent: true });
         closePlusPanel({ silent: true });
+        closeHomeAddMenu({ silent: true });
         state.composerMode = 'text';
         state.voiceHoldState = 'idle';
         state.voiceHoldStatusText = '';
@@ -543,6 +548,113 @@
             confirmText: '知道了',
             showCancel: false
         });
+    }
+
+    function openStartGroupPlaceholder() {
+        openDialog({
+            title: '提示',
+            message: '发起群聊功能待群组创建能力完成后开放',
+            confirmText: '知道了',
+            showCancel: false
+        });
+    }
+
+    function closeHomeAddMenu(options) {
+        if (!state.homeAddMenuOpen) return;
+        state.homeAddMenuOpen = false;
+        if (!options || !options.silent) render();
+    }
+
+    function toggleHomeAddMenu() {
+        if (!state.allowed || !isHomeTopActionTab(state.homeTab) || state.view !== 'sessions') return;
+        closeActionSheet();
+        closeReadProgressPanel();
+        closeMemberPanel();
+        closeSettingsPanel({ silent: true });
+        closeEmojiPicker({ silent: true });
+        closePlusPanel({ silent: true });
+        state.composerMode = 'text';
+        state.voiceHoldState = 'idle';
+        state.voiceHoldStatusText = '';
+        state.homeAddMenuOpen = !state.homeAddMenuOpen;
+        render();
+    }
+
+    function shouldKeepHomeAddMenuOpen(target) {
+        if (!target) return false;
+        if (homeAddMenuEl && typeof homeAddMenuEl.contains === 'function' && homeAddMenuEl.contains(target)) {
+            return true;
+        }
+        if (homeAddTriggerBtnEl && typeof homeAddTriggerBtnEl.contains === 'function' && homeAddTriggerBtnEl.contains(target)) {
+            return true;
+        }
+        return false;
+    }
+
+    function openPublishMeetingFromHomeMenu() {
+        const meetingModule = getMeetingManageModule();
+        closeHomeAddMenu({ silent: true });
+        state.homeTab = 'meetings';
+        state.view = 'sessions';
+        render();
+        if (!meetingModule || typeof meetingModule.openPublish !== 'function') {
+            openDialog({
+                title: '提示',
+                message: '会议功能暂不可用，请刷新页面后重试',
+                confirmText: '知道了',
+                showCancel: false
+            });
+            return;
+        }
+        if (state.meetingsLoaded && typeof meetingModule.markTabSeen === 'function') {
+            meetingModule.markTabSeen();
+        }
+        if (state.meetingsLoading) {
+            openDialog({
+                title: '提示',
+                message: '会议信息加载中，请稍后再试',
+                confirmText: '知道了',
+                showCancel: false
+            });
+            return;
+        }
+        const openPublish = function() {
+            if (state.meetingsCanPublish) {
+                meetingModule.openPublish();
+                return;
+            }
+            openDialog({
+                title: '提示',
+                message: state.meetingsError ? ('会议信息加载失败：' + state.meetingsError) : '主群群主或管理员可发布会议',
+                confirmText: '知道了',
+                showCancel: false
+            });
+        };
+        if (!state.meetingsLoaded && typeof meetingModule.loadMeetings === 'function') {
+            meetingModule.loadMeetings().then(function() {
+                openPublish();
+            });
+            return;
+        }
+        openPublish();
+    }
+
+    function handleHomeAddMenuAction(action) {
+        const actionKey = String(action || '').trim().toLowerCase();
+        if (!actionKey) return;
+        closeHomeAddMenu({ silent: true });
+        render();
+        if (actionKey === 'start_group') {
+            openStartGroupPlaceholder();
+            return;
+        }
+        if (actionKey === 'add_friend') {
+            openAddFriendPlaceholder();
+            return;
+        }
+        if (actionKey === 'publish_meeting') {
+            openPublishMeetingFromHomeMenu();
+        }
     }
 
     function openActiveGroupMenu() {
@@ -708,7 +820,8 @@
             onMemberPanelClose: closeMemberPanel,
             onProfileSubpageBackClick: closeProfileSubpage,
             onHomeSearchClick: openContactSearch,
-            onHomeAddClick: openAddFriendPlaceholder,
+            onHomeAddClick: toggleHomeAddMenu,
+            onHomeAddMenuAction: handleHomeAddMenuAction,
             onContactSearchBackClick: closeContactSearch,
             onContactSearchInputChange: handleContactSearchInputChange,
             onContactSearchClearClick: clearContactSearchInput
@@ -1356,6 +1469,11 @@
 
     function handleComposerOutsideClick(event) {
         const target = event && event.target ? event.target : null;
+        if (state.homeAddMenuOpen) {
+            if (shouldKeepHomeAddMenuOpen(target)) return;
+            closeHomeAddMenu();
+            return;
+        }
         if (state.plusPanelOpen) {
             if (shouldKeepPlusPanelOpen(target)) return;
             closePlusPanel();
@@ -2385,6 +2503,7 @@
         closeActionSheet();
         closeEmojiPicker({ silent: true });
         closePlusPanel({ silent: true });
+        closeHomeAddMenu({ silent: true });
         state.newSessionError = '';
         state.newSessionTarget = '';
         state.composerMode = 'text';
@@ -2446,6 +2565,7 @@
         const showMemberAction = state.view === 'member_action' && !!state.memberActionOpen;
         const showProfileSubpage = isProfileSubpageView(state.view);
         const showContactSearch = state.view === 'contact_search';
+        const showHomeTopActions = isHomeTopActionTab(homeTab) && !showContactSearch;
         state.homeTab = homeTab;
         return {
             allowed: !!state.allowed,
@@ -2462,7 +2582,8 @@
             homeTab: homeTab,
             homeTabTitle: getHomeTabTitle(homeTab),
             showSessionNewButton: false,
-            showHomeTopActions: isHomeTopActionTab(homeTab) && !showContactSearch,
+            showHomeTopActions: showHomeTopActions,
+            showHomeAddMenu: showHomeTopActions && !showChat && !showCompose && !showGroupInfo && !showMemberAction && !showProfileSubpage && !!state.homeAddMenuOpen,
             searchPillText: getHomeSearchPillText(homeTab),
             contactSearchKeyword: state.contactSearchKeyword,
             meetingsUnread: (function() {
@@ -2584,6 +2705,7 @@
     function switchHomeTab(tab) {
         state.homeTab = normalizeHomeTab(tab);
         state.contactSearchKeyword = '';
+        closeHomeAddMenu({ silent: true });
         state.view = 'sessions';
         ensureHomeTabData(state.homeTab);
         render();
@@ -3368,6 +3490,7 @@
             if (!conversationId) throw new Error('发起会话失败');
             closeEmojiPicker({ silent: true });
             closePlusPanel({ silent: true });
+            closeHomeAddMenu({ silent: true });
             state.composerMode = 'text';
             state.activeConversationId = conversationId;
             state.view = 'chat';
@@ -3397,6 +3520,7 @@
         state.ready = true;
         state.emojiPanelOpen = false;
         state.plusPanelOpen = false;
+        state.homeAddMenuOpen = false;
         state.emojiPanelTab = 'standard';
         state.emojiAssets = [];
         state.emojiAssetsLoaded = false;
@@ -3449,6 +3573,7 @@
             state.displayName = String((data && data.display_name) || state.username || '').trim();
             state.emojiPanelOpen = false;
             state.plusPanelOpen = false;
+            state.homeAddMenuOpen = false;
             state.emojiPanelTab = 'standard';
             state.emojiAssets = bootstrapEmojiAssets;
             state.emojiAssetsLoaded = hasBootstrapEmojiAssets;
@@ -3580,6 +3705,7 @@
         if (!state.allowed) return;
         closeEmojiPicker({ silent: true });
         closePlusPanel({ silent: true });
+        closeHomeAddMenu({ silent: true });
         state.newSessionError = '';
         state.newSessionTarget = '';
         state.view = 'compose';

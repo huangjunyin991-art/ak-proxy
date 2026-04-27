@@ -63,8 +63,17 @@
                 #ak-im-root .ak-im-session-screen .ak-im-new,#ak-im-root .ak-im-session-screen .ak-im-home-topbar-actions{grid-column:3;grid-row:1;justify-self:end}
                 #ak-im-root .ak-im-session-screen .ak-im-new.is-hidden{display:none}
                 #ak-im-root .ak-im-topbar-actions .ak-im-nav-btn.is-hidden{display:none}
+                #ak-im-root .ak-im-home-topbar-actions{position:relative}
                 #ak-im-root .ak-im-home-topbar-actions .ak-im-nav-btn{width:34px;height:34px;padding:0;color:#111827}
                 #ak-im-root .ak-im-home-topbar-actions .ak-im-home-add-trigger svg{width:18px;height:18px}
+                #ak-im-root .ak-im-home-add-menu{position:absolute;top:calc(100% + 10px);right:0;min-width:176px;padding:8px 0;background:#ffffff;border-radius:16px;box-shadow:0 18px 36px rgba(15,23,42,.16);display:none;flex-direction:column;z-index:8}
+                #ak-im-root .ak-im-home-add-menu.is-open{display:flex}
+                #ak-im-root .ak-im-home-add-menu::before{content:'';position:absolute;top:-7px;right:14px;width:14px;height:14px;background:#ffffff;border-radius:3px;transform:rotate(45deg)}
+                #ak-im-root .ak-im-home-add-action{position:relative;width:100%;min-height:48px;border:none;background:transparent;padding:0 16px;display:flex;align-items:center;gap:12px;text-align:left;color:#111827;font-size:15px;cursor:pointer;box-sizing:border-box}
+                #ak-im-root .ak-im-home-add-action + .ak-im-home-add-action{border-top:1px solid rgba(15,23,42,.06)}
+                #ak-im-root .ak-im-home-add-action-icon{display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;color:#374151;flex:0 0 auto}
+                #ak-im-root .ak-im-home-add-action-icon svg{width:20px;height:20px;stroke:currentColor;fill:none}
+                #ak-im-root .ak-im-home-add-action-label{flex:1;line-height:1.4}
                 #ak-im-root.ak-contact-search-open .ak-im-session-screen .ak-im-topbar{grid-template-columns:40px minmax(0,1fr);column-gap:8px}
                 #ak-im-root.ak-contact-search-open .ak-im-close{display:none}
                 #ak-im-root.ak-contact-search-open .ak-im-contact-search-back{display:inline-flex}
@@ -169,10 +178,6 @@
                 #ak-im-root .ak-im-home-tab-badge{position:absolute;top:5px;right:calc(50% - 23px);min-width:18px;height:18px;padding:0 5px;border-radius:999px;background:#ff5a5f;color:#ffffff;font-size:11px;font-weight:700;line-height:18px;text-align:center;box-sizing:border-box;box-shadow:0 0 0 2px #ffffff;display:none}
                 #ak-im-root .ak-im-home-tab-btn.has-unread .ak-im-home-tab-badge{display:inline-flex;align-items:center;justify-content:center}
                 #ak-im-root .ak-im-home-panel[data-im-home-panel="meetings"]{background:#f2f3f5}
-                #ak-im-root .ak-im-meeting-toolbar{display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:#ffffff;border-bottom:1px solid rgba(15,23,42,.05)}
-                #ak-im-root .ak-im-meeting-head-title{font-size:15px;font-weight:600;color:#111827}
-                #ak-im-root .ak-im-meeting-publish-btn{border:none;background:#07c160;color:#fff;height:30px;padding:0 12px;border-radius:10px;font-size:13px;cursor:pointer}
-                #ak-im-root .ak-im-meeting-publish-btn:active{opacity:.85}
                 #ak-im-root .ak-im-meeting-list{flex:1;overflow:auto;padding:12px 12px calc(12px + env(safe-area-inset-bottom, 0px));display:flex;flex-direction:column;gap:10px}
                 #ak-im-root .ak-im-meeting-empty{padding:28px 16px;text-align:center;color:#9ca3af;font-size:13px;line-height:1.7;background:#ffffff;border-radius:12px}
                 #ak-im-root .ak-im-meeting-empty.ak-im-meeting-error{color:#dc2626;background:rgba(239,68,68,.06)}
@@ -558,9 +563,23 @@
                             <button class="ak-im-nav-btn ak-im-home-search-trigger" type="button" aria-label="搜索联系人">
                                 <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="11" cy="11" r="5.8" stroke-width="1.8"></circle><path d="m16 16 3.5 3.5" stroke-width="1.8" stroke-linecap="round"></path></svg>
                             </button>
-                            <button class="ak-im-nav-btn ak-im-home-add-trigger" type="button" aria-label="添加好友入口">
+                            <button class="ak-im-nav-btn ak-im-home-add-trigger" type="button" aria-label="更多功能" aria-expanded="false">
                                 <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="8" stroke-width="1.6"></circle><path d="M12 9v6M9 12h6" stroke-width="1.6" stroke-linecap="round"></path></svg>
                             </button>
+                            <div class="ak-im-home-add-menu" aria-label="更多功能菜单" role="menu">
+                                <button class="ak-im-home-add-action" type="button" data-im-home-add-action="start_group" role="menuitem">
+                                    <span class="ak-im-home-add-action-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M7.6 15.8c.42-2.18 2.33-3.7 4.65-3.7 2.3 0 4.2 1.52 4.62 3.7"></path><path d="M12.25 11.1a2.75 2.75 0 1 0 0-5.5 2.75 2.75 0 0 0 0 5.5Z"></path><path d="M18.4 7.4v4.2"></path><path d="M16.3 9.5h4.2"></path></svg></span>
+                                    <span class="ak-im-home-add-action-label">发起群聊</span>
+                                </button>
+                                <button class="ak-im-home-add-action" type="button" data-im-home-add-action="add_friend" role="menuitem">
+                                    <span class="ak-im-home-add-action-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M5.9 17.9c.38-2.23 2.33-3.8 4.72-3.8 1.08 0 2.07.32 2.88.88"></path><path d="M10.62 11.35a2.95 2.95 0 1 0 0-5.9 2.95 2.95 0 0 0 0 5.9Z"></path><path d="M17.7 10.1v6"></path><path d="M14.7 13.1h6"></path></svg></span>
+                                    <span class="ak-im-home-add-action-label">添加朋友</span>
+                                </button>
+                                <button class="ak-im-home-add-action" type="button" data-im-home-add-action="publish_meeting" role="menuitem">
+                                    <span class="ak-im-home-add-action-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4.8 6.6c0-.77.63-1.4 1.4-1.4h8.8c.77 0 1.4.63 1.4 1.4v8.1c0 .77-.63 1.4-1.4 1.4H9.4l-2.8 2.3V16.1H6.2c-.77 0-1.4-.63-1.4-1.4V6.6Z"></path><rect x="7.6" y="8.35" width="4.8" height="3.3" rx="0.7"></rect><path d="M12.4 9.45 15 8.35v3.3l-2.6-1.1v-1.1Z"></path></svg></span>
+                                    <span class="ak-im-home-add-action-label">发布会议</span>
+                                </button>
+                            </div>
                         </div>
                     </div>
                     <div class="ak-im-session-page">
@@ -766,6 +785,8 @@
                 sessionNewBtnEl: root ? root.querySelector('.ak-im-new') : null,
                 homeSearchTriggerBtnEl: root ? root.querySelector('.ak-im-home-search-trigger') : null,
                 homeAddTriggerBtnEl: root ? root.querySelector('.ak-im-home-add-trigger') : null,
+                homeAddMenuEl: root ? root.querySelector('.ak-im-home-add-menu') : null,
+                homeAddMenuButtons: root ? root.querySelectorAll('[data-im-home-add-action]') : [],
                 contactSearchBackBtnEl: root ? root.querySelector('.ak-im-contact-search-back') : null,
                 contactSearchInputEl: root ? root.querySelector('.ak-im-contact-search-input') : null,
                 contactSearchClearBtnEl: root ? root.querySelector('.ak-im-contact-search-clear') : null,
@@ -849,6 +870,13 @@
             });
             bindClick(elements.homeAddTriggerBtnEl, function() {
                 if (typeof ctx.onHomeAddClick === 'function') ctx.onHomeAddClick();
+            });
+            Array.prototype.forEach.call(elements.homeAddMenuButtons || [], function(button) {
+                button.addEventListener('click', function() {
+                    if (typeof ctx.onHomeAddMenuAction === 'function') {
+                        ctx.onHomeAddMenuAction(button.getAttribute('data-im-home-add-action'));
+                    }
+                });
             });
             bindClick(elements.contactSearchBackBtnEl, function() {
                 if (typeof ctx.onContactSearchBackClick === 'function') ctx.onContactSearchBackClick();
@@ -973,6 +1001,10 @@
             }
             if (this.elements.homeAddTriggerBtnEl) {
                 this.elements.homeAddTriggerBtnEl.classList.toggle('is-hidden', !nextShellState.showHomeTopActions);
+                this.elements.homeAddTriggerBtnEl.setAttribute('aria-expanded', nextShellState.showHomeAddMenu ? 'true' : 'false');
+            }
+            if (this.elements.homeAddMenuEl) {
+                this.elements.homeAddMenuEl.classList.toggle('is-open', !!nextShellState.showHomeAddMenu);
             }
             if (this.elements.contactSearchBackBtnEl) {
                 this.elements.contactSearchBackBtnEl.classList.toggle('is-hidden', !nextShellState.showContactSearch);

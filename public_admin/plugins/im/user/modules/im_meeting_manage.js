@@ -578,11 +578,7 @@
             if (!panelRoot) return;
             const state = this.getState();
             if (!state) return;
-            const canPublish = !!state.meetingsCanPublish;
             const items = Array.isArray(state.meetingsItems) ? state.meetingsItems : [];
-            const publishBtn = canPublish
-                ? `<button type="button" class="ak-im-meeting-publish-btn" data-im-meeting-open-publish="1">+ 发布会议</button>`
-                : '';
             let listHtml = '';
             if (state.meetingsLoading && !state.meetingsLoaded) {
                 listHtml = '<div class="ak-im-meeting-empty">加载中...</div>';
@@ -595,10 +591,6 @@
             }
             const publishOverlay = state.meetingsPublishOpen ? this.renderPublishForm() : '';
             panelRoot.innerHTML = `
-                <div class="ak-im-meeting-toolbar">
-                    <span class="ak-im-meeting-head-title">会议</span>
-                    ${publishBtn}
-                </div>
                 <div class="ak-im-meeting-list">${listHtml}</div>
                 ${publishOverlay}`;
         },
