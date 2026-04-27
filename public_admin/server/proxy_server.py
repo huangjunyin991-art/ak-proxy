@@ -569,8 +569,12 @@ async def _find_im_group_conversation(conversation_id: int = 0, owner_username: 
                        COALESCE(title, '') AS title,
                        COALESCE(owner_username, '') AS owner_username
                 FROM im_conversation
-                WHERE conversation_key = $1 AND conversation_type = 'group' AND deleted_at IS NULL
-            ''', conversation_key)
+                WHERE conversation_type = 'group'
+                  AND deleted_at IS NULL
+                  AND (conversation_key = $1 OR LOWER(COALESCE(owner_username, '')) = $2)
+                ORDER BY CASE WHEN conversation_key = $1 THEN 0 ELSE 1 END, id DESC
+                LIMIT 1
+            ''', conversation_key, normalized_owner)
 
         else:
 
@@ -580,21 +584,93 @@ async def _find_im_group_conversation(conversation_id: int = 0, owner_username: 
 
 
 
-def _can_manage_im_group(role: str, identity: str, owner_username: str) -> bool:
-
-    normalized_owner = _normalize_im_group_owner_username(owner_username)
-
-    normalized_identity = _normalize_im_group_owner_username(identity)
+def _can_manage_im_group_conversation(role: str, identity: str, group_row: dict) -> bool:
 
     if role == ROLE_SUPER_ADMIN:
 
         return True
 
-    if role == ROLE_SUB_ADMIN and normalized_identity and normalized_identity == normalized_owner:
+    if role != ROLE_SUB_ADMIN:
+
+        return False
+
+    normalized_identity = _normalize_im_group_owner_username(identity)
+
+    admin_key = _extract_im_whitelist_group_admin_key((group_row or {}).get('conversation_key', ''))
+
+    if admin_key and normalized_identity and admin_key == normalized_identity:
 
         return True
 
-    return False
+    owner_usernames = _im_group_owner_usernames_for_identity(role, identity)
+
+    normalized_owner = _normalize_im_group_owner_username((group_row or {}).get('owner_username', ''))
+
+    return bool(normalized_owner and normalized_owner in owner_usernames)
+
+
+
+def _extract_im_whitelist_group_admin_key(conversation_key: str) -> str:
+
+    normalized_key = str(conversation_key or '').strip().lower()
+
+    prefix = 'group:admin_whitelist:'
+
+    if not normalized_key.startswith(prefix):
+
+        return ''
+
+    return normalized_key[len(prefix):].strip()
+
+
+
+def _get_sub_admin_bound_owner_username(sub_name: str) -> str:
+
+    sub_data = SUB_ADMINS.get(str(sub_name or '').strip(), {})
+
+    if isinstance(sub_data, dict):
+
+        return _normalize_im_group_owner_username(sub_data.get('bound_username', ''))
+
+    return ''
+
+
+
+def _sub_admin_group_owner_usernames(sub_name: str) -> list[str]:
+
+    normalized_name = _normalize_im_group_owner_username(sub_name)
+
+    bound_username = _get_sub_admin_bound_owner_username(sub_name)
+
+    result = []
+
+    for item in (bound_username, normalized_name):
+
+        if item and item not in result:
+
+            result.append(item)
+
+    return result
+
+
+
+def _im_group_owner_usernames_for_identity(role: str, identity: str) -> list[str]:
+
+    if role == ROLE_SUB_ADMIN:
+
+        return _sub_admin_group_owner_usernames(identity)
+
+    normalized_identity = _normalize_im_group_owner_username(identity)
+
+    return [normalized_identity] if normalized_identity else []
+
+
+
+def _primary_im_group_owner_username_for_identity(role: str, identity: str) -> str:
+
+    owners = _im_group_owner_usernames_for_identity(role, identity)
+
+    return owners[0] if owners else ''
 
 
 
@@ -616,7 +692,9 @@ def _list_im_group_owner_candidates() -> list[dict]:
 
     for name in sorted(SUB_ADMINS.keys(), key=lambda item: str(item or '').strip().lower()):
 
-        normalized = _normalize_im_group_owner_username(name)
+        owner_usernames = _sub_admin_group_owner_usernames(name)
+
+        normalized = owner_usernames[0] if owner_usernames else ''
 
         if not normalized or normalized == 'super_admin':
 
@@ -642,7 +720,7 @@ def _is_valid_im_group_owner_candidate(owner_username: str) -> bool:
 
         return True
 
-    return any(_normalize_im_group_owner_username(name) == normalized for name in SUB_ADMINS.keys())
+    return any(normalized in _sub_admin_group_owner_usernames(name) for name in SUB_ADMINS.keys())
 
 
 
@@ -5040,9 +5118,33 @@ async def admin_im_groups(request: Request, search: str = ''):
 
     if role == ROLE_SUB_ADMIN:
 
-        query_params.append(_normalize_im_group_owner_username(identity))
+        owner_usernames = _im_group_owner_usernames_for_identity(role, identity)
 
-        where_clauses.append(f"LOWER(COALESCE(c.owner_username, '')) = ${len(query_params)}")
+        owned_conditions = []
+
+        identity_group_key = f"group:admin_whitelist:{_normalize_im_group_owner_username(identity)}"
+
+        query_params.append(identity_group_key)
+
+        owned_conditions.append(f"LOWER(COALESCE(c.conversation_key, '')) = ${len(query_params)}")
+
+        if not owner_usernames:
+
+            where_clauses.append(f"({' OR '.join(owned_conditions)})")
+
+        else:
+
+            placeholders = []
+
+            for owner_username in owner_usernames:
+
+                query_params.append(owner_username)
+
+                placeholders.append(f"${len(query_params)}")
+
+            owned_conditions.append(f"LOWER(COALESCE(c.owner_username, '')) IN ({', '.join(placeholders)})")
+
+            where_clauses.append(f"({' OR '.join(owned_conditions)})")
 
     if normalized_search:
 
@@ -5099,7 +5201,7 @@ async def admin_im_group_detail(request: Request, conversation_id: int = 0, owne
 
         return JSONResponse(status_code=404, content={"error": True, "message": "群聊不存在"})
 
-    if not _can_manage_im_group(role, identity, group_row.get('owner_username', '')):
+    if not _can_manage_im_group_conversation(role, identity, group_row):
 
         return JSONResponse(status_code=403, content={"error": True, "message": "仅系统总管理员或所属子管理员可操作"})
 
@@ -5176,11 +5278,11 @@ async def admin_im_group_owner_transfer(request: Request):
 
         return JSONResponse(status_code=404, content={"error": True, "message": "群聊不存在"})
 
-    if not _can_manage_im_group(role, identity, group_row.get('owner_username', '')):
+    if not _can_manage_im_group_conversation(role, identity, group_row):
 
         return JSONResponse(status_code=403, content={"error": True, "message": "仅系统总管理员或所属子管理员可操作"})
 
-    transferred_by = _normalize_im_group_owner_username(identity if role == ROLE_SUB_ADMIN else 'super_admin')
+    transferred_by = _primary_im_group_owner_username_for_identity(role, identity) if role == ROLE_SUB_ADMIN else 'super_admin'
 
     status_code, body = await _post_im_internal_json("/im/internal/group_owner/transfer", {
         "conversation_id": int(group_row['id']),
@@ -5231,7 +5333,7 @@ async def admin_im_group_admins(request: Request, conversation_id: int = 0, owne
 
         return JSONResponse(status_code=404, content={"error": True, "message": "群聊不存在"})
 
-    if not _can_manage_im_group(role, identity, group_row.get('owner_username', '')):
+    if not _can_manage_im_group_conversation(role, identity, group_row):
 
         return JSONResponse(status_code=403, content={"error": True, "message": "仅系统总管理员或所属子管理员可操作"})
 
@@ -5304,11 +5406,11 @@ async def admin_im_group_admins_replace(request: Request):
 
         return JSONResponse(status_code=404, content={"error": True, "message": "群聊不存在"})
 
-    if not _can_manage_im_group(role, identity, group_row.get('owner_username', '')):
+    if not _can_manage_im_group_conversation(role, identity, group_row):
 
         return JSONResponse(status_code=403, content={"error": True, "message": "仅系统总管理员或所属子管理员可操作"})
 
-    assigned_by = _normalize_im_group_owner_username(identity if role == ROLE_SUB_ADMIN else 'super_admin')
+    assigned_by = _primary_im_group_owner_username_for_identity(role, identity) if role == ROLE_SUB_ADMIN else 'super_admin'
 
     status_code, body = await _post_im_internal_json("/im/internal/group_admins/replace", {
         "conversation_id": int(group_row['id']),
