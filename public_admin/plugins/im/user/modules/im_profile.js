@@ -115,25 +115,26 @@
              const state = this.ctx.state;
              const historyGroups = this.splitProfileAvatarHistoryItems(state.profileAvatarHistory);
              const favoriteCount = this.ctx.countProfileAvatarFavorites(state.profileAvatarHistory);
+             const favoriteLimitReached = favoriteCount >= 10;
              const avatarBusy = !!state.profileAvatarHistoryActionType || !!state.profileRefreshing || !!state.profileAvatarUploading;
              const uploadProgress = Math.max(0, Math.min(100, Number(state.profileAvatarUploadProgress || 0) || 0));
-             const historyGuideText = favoriteCount >= 10 ? '已收藏满 10 个头像，继续随机生成或本地上传仍会进入历史，但需要删除部分收藏后才能继续收藏。' : '点击头像可立即切回；右上角删除，右下角收藏。';
+             const historyNoticeText = favoriteLimitReached ? '已收藏满 10 个，删除后可继续收藏。' : '';
              const historyMarkup = state.profileAvatarHistoryLoading ? '<div class="ak-im-profile-placeholder">正在读取头像历史...</div>' : (state.profileAvatarHistoryError ? '<div class="ak-im-profile-error">' + this.ctx.escapeHtml(state.profileAvatarHistoryError) + '</div>' : (
                  this.buildProfileAvatarHistorySectionMarkup({
                      title: '收藏头像',
-                     subtitle: '收藏头像不会被自动替换，最多可保留 10 个。',
+                     subtitle: '收藏后不会被自动替换',
                      countText: favoriteCount + '/10',
                      items: historyGroups.favorites,
-                     emptyText: '还没有收藏头像，点亮右下角星标后会固定保留在这里。',
+                     emptyText: '点亮右下角星标后会固定保留在这里。',
                      displayName: displayName,
                      username: username
                  }) +
                  this.buildProfileAvatarHistorySectionMarkup({
                      title: '历史头像',
-                     subtitle: '按时间倒序展示最近随机生成或本地上传过的头像。',
+                     subtitle: '最近 10 次头像记录',
                      countText: historyGroups.history.length + ' 个',
                      items: historyGroups.history,
-                     emptyText: '暂时还没有历史头像，随机生成或本地上传一次后会在这里保留最近 10 个记录。',
+                     emptyText: '随机生成或上传一次后，这里会显示最近 10 个记录。',
                      displayName: displayName,
                      username: username
                  })
@@ -146,13 +147,15 @@
                          '<div class="ak-im-profile-name">' + this.ctx.escapeHtml(displayName || '我') + '</div>' +
                          '<div class="ak-im-profile-username">@' + this.ctx.escapeHtml(username || 'unknown') + '</div>' +
                      '</div>' +
-                     '<div class="ak-im-profile-subtitle">你可以随机生成新头像，也可以选择本地图片上传；上传图片会自动压缩并进入历史头像。</div>' +
-                     '<button class="ak-im-profile-primary-btn" type="button" data-im-profile-action="refresh-avatar"' + (avatarBusy ? ' disabled' : '') + '>' + this.ctx.escapeHtml(state.profileRefreshing ? '正在随机生成...' : '随机生成') + '</button>' +
-                     '<button class="ak-im-profile-primary-btn" type="button" data-im-profile-action="upload-avatar"' + (avatarBusy ? ' disabled' : '') + '>' + this.ctx.escapeHtml(state.profileAvatarUploading ? ('正在本地上传' + (uploadProgress ? ' ' + uploadProgress + '%' : '...')) : '本地上传') + '</button>' +
+                     '<div class="ak-im-profile-subtitle">随机生成或上传本地图片</div>' +
+                     '<div class="ak-im-profile-action-row">' +
+                         '<button class="ak-im-profile-primary-btn" type="button" data-im-profile-action="refresh-avatar"' + (avatarBusy ? ' disabled' : '') + '>' + this.ctx.escapeHtml(state.profileRefreshing ? '生成中...' : '随机生成') + '</button>' +
+                         '<button class="ak-im-profile-primary-btn" type="button" data-im-profile-action="upload-avatar"' + (avatarBusy ? ' disabled' : '') + '>' + this.ctx.escapeHtml(state.profileAvatarUploading ? ('上传中' + (uploadProgress ? ' ' + uploadProgress + '%' : '...')) : '本地上传') + '</button>' +
+                     '</div>' +
                      '<input style="display:none" type="file" accept="image/png,image/jpeg,image/webp,image/gif,image/heic,image/heif" data-im-profile-avatar-file />' +
                  '</div>' +
                  '<div class="ak-im-profile-panel">' +
-                     '<div class="ak-im-profile-subtitle">' + this.ctx.escapeHtml(historyGuideText) + '</div>' +
+                     (historyNoticeText ? '<div class="ak-im-profile-note">' + this.ctx.escapeHtml(historyNoticeText) + '</div>' : '') +
                      historyMarkup +
                  '</div>';
              this.bindProfileAvatarEvents(container);
