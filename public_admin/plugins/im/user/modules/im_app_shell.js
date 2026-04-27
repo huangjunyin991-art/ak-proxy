@@ -568,7 +568,7 @@
                             </button>
                             <div class="ak-im-home-add-menu" aria-label="更多功能菜单" role="menu">
                                 <button class="ak-im-home-add-action" type="button" data-im-home-add-action="start_group" role="menuitem">
-                                    <span class="ak-im-home-add-action-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M7.6 15.8c.42-2.18 2.33-3.7 4.65-3.7 2.3 0 4.2 1.52 4.62 3.7"></path><path d="M12.25 11.1a2.75 2.75 0 1 0 0-5.5 2.75 2.75 0 0 0 0 5.5Z"></path><path d="M18.4 7.4v4.2"></path><path d="M16.3 9.5h4.2"></path></svg></span>
+                                    <span class="ak-im-home-add-action-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4.9 17.8c.32-1.9 1.94-3.2 3.97-3.2 1.98 0 3.58 1.3 3.92 3.2"></path><path d="M8.86 12.35a2.35 2.35 0 1 0 0-4.7 2.35 2.35 0 0 0 0 4.7Z"></path><path d="M13.45 17.2c.26-1.46 1.48-2.46 3.01-2.46 1.48 0 2.67.97 2.94 2.46"></path><path d="M16.46 12.82a1.98 1.98 0 1 0 0-3.96 1.98 1.98 0 0 0 0 3.96Z"></path></svg></span>
                                     <span class="ak-im-home-add-action-label">发起群聊</span>
                                 </button>
                                 <button class="ak-im-home-add-action" type="button" data-im-home-add-action="add_friend" role="menuitem">
