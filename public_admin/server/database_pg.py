@@ -365,6 +365,19 @@ async def init_db(host: str = "127.0.0.1", port: int = 5432,
         except Exception:
             pass
 
+        try:
+            await conn.execute('''
+                INSERT INTO user_stats (username)
+                SELECT aa.username
+                FROM authorized_accounts aa
+                LEFT JOIN user_stats us ON us.username = aa.username
+                WHERE aa.status = 'active'
+                  AND aa.plan_type = 'sub_admin_bound'
+                  AND us.username IS NULL
+            ''')
+        except Exception:
+            pass
+
         # 初始化默认积分定价（如果表为空）
         existing = await conn.fetchval("SELECT COUNT(*) FROM credit_config")
         if existing == 0:
@@ -1729,25 +1742,31 @@ async def ensure_sub_admin_bound_account_authorized(sub_name: str, bound_usernam
     expire_time = datetime(2099, 12, 31, 23, 59, 59)
     pool = _get_pool()
     async with pool.acquire() as conn:
-        row = await conn.fetchrow('''
-            INSERT INTO authorized_accounts
-                (username, password, added_by, plan_type, credits_cost, start_time, expire_time, status, remark, nickname)
-            VALUES ($1, '', $2, 'sub_admin_bound', 0, $3, $4, 'active', '子管理员绑定账号自动授权', '')
-            ON CONFLICT(username) DO UPDATE SET
-                added_by=$2,
-                plan_type=CASE
-                    WHEN COALESCE(authorized_accounts.plan_type, '') = '' THEN 'sub_admin_bound'
-                    ELSE authorized_accounts.plan_type
-                END,
-                expire_time=GREATEST(authorized_accounts.expire_time, $4),
-                status='active',
-                remark=CASE
-                    WHEN COALESCE(authorized_accounts.remark, '') = '' THEN '子管理员绑定账号自动授权'
-                    ELSE authorized_accounts.remark
-                END,
-                updated_at=NOW()
-            RETURNING id, username, added_by, status, expire_time
-        ''', normalized_username, normalized_sub_name, now, expire_time)
+        async with conn.transaction():
+            row = await conn.fetchrow('''
+                INSERT INTO authorized_accounts
+                    (username, password, added_by, plan_type, credits_cost, start_time, expire_time, status, remark, nickname)
+                VALUES ($1, '', $2, 'sub_admin_bound', 0, $3, $4, 'active', '子管理员绑定账号自动授权', '')
+                ON CONFLICT(username) DO UPDATE SET
+                    added_by=$2,
+                    plan_type=CASE
+                        WHEN COALESCE(authorized_accounts.plan_type, '') = '' THEN 'sub_admin_bound'
+                        ELSE authorized_accounts.plan_type
+                    END,
+                    expire_time=GREATEST(authorized_accounts.expire_time, $4),
+                    status='active',
+                    remark=CASE
+                        WHEN COALESCE(authorized_accounts.remark, '') = '' THEN '子管理员绑定账号自动授权'
+                        ELSE authorized_accounts.remark
+                    END,
+                    updated_at=NOW()
+                RETURNING id, username, added_by, status, expire_time
+            ''', normalized_username, normalized_sub_name, now, expire_time)
+            await conn.execute('''
+                INSERT INTO user_stats (username)
+                VALUES ($1)
+                ON CONFLICT(username) DO NOTHING
+            ''', normalized_username)
         return {
             'id': row['id'],
             'username': row['username'],
