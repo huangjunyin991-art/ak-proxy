@@ -372,7 +372,6 @@ async def init_db(host: str = "127.0.0.1", port: int = 5432,
                 FROM authorized_accounts aa
                 LEFT JOIN user_stats us ON us.username = aa.username
                 WHERE aa.status = 'active'
-                  AND aa.plan_type = 'sub_admin_bound'
                   AND us.username IS NULL
             ''')
         except Exception:
@@ -710,6 +709,22 @@ async def get_user_detail(username: str) -> Optional[Dict]:
         return user_dict
 
 
+async def _upsert_user_stats_identity(conn: asyncpg.Connection, username: str,
+                                      password: str = '', real_name: str = '') -> None:
+    normalized_username = str(username or '').strip().lower()
+    normalized_password = str(password or '')
+    normalized_real_name = str(real_name or '').strip()
+    if not normalized_username:
+        return
+    await conn.execute('''
+        INSERT INTO user_stats (username, password, real_name)
+        VALUES ($1, $2, $3)
+        ON CONFLICT(username) DO UPDATE SET
+            password = CASE WHEN $2 <> '' THEN $2 ELSE user_stats.password END,
+            real_name = CASE WHEN $3 <> '' THEN $3 ELSE user_stats.real_name END
+    ''', normalized_username, normalized_password, normalized_real_name)
+
+
 async def sync_authorized_account_profile(username: str, password: str = '',
                                           real_name: str = ''):
     """同步授权账号中的基础资料到已存在的用户统计记录。"""
@@ -718,12 +733,7 @@ async def sync_authorized_account_profile(username: str, password: str = '',
     if not username:
         return
     async with pool.acquire() as conn:
-        await conn.execute('''
-            UPDATE user_stats
-            SET password = CASE WHEN $2 <> '' THEN $2 ELSE password END,
-                real_name = CASE WHEN $3 <> '' THEN $3 ELSE real_name END
-            WHERE username = $1
-        ''', username, password, real_name)
+        await _upsert_user_stats_identity(conn, username, password, real_name)
 
 
 async def upsert_user_real_name(username: str, real_name: str) -> bool:
@@ -1676,16 +1686,17 @@ async def add_authorized_account(username: str, password: str, added_by: str,
     now = datetime.now()
     expire_time = now + timedelta(days=duration_days)
     async with pool.acquire() as conn:
-        row = await conn.fetchrow('''
-            INSERT INTO authorized_accounts
-                (username, password, added_by, plan_type, credits_cost, start_time, expire_time, status, remark, nickname)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, 'active', $8, $9)
-            ON CONFLICT(username) DO UPDATE SET
-                password=$2, added_by=$3, plan_type=$4, credits_cost=$5,
-                start_time=$6, expire_time=$7, status='active', remark=$8, nickname=$9, updated_at=NOW()
-            RETURNING id, expire_time
-        ''', username, password, added_by, plan_type, credits_cost, now, expire_time, remark, nickname)
-        await sync_authorized_account_profile(username, password, nickname)
+        async with conn.transaction():
+            row = await conn.fetchrow('''
+                INSERT INTO authorized_accounts
+                    (username, password, added_by, plan_type, credits_cost, start_time, expire_time, status, remark, nickname)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, 'active', $8, $9)
+                ON CONFLICT(username) DO UPDATE SET
+                    password=$2, added_by=$3, plan_type=$4, credits_cost=$5,
+                    start_time=$6, expire_time=$7, status='active', remark=$8, nickname=$9, updated_at=NOW()
+                RETURNING id, expire_time
+            ''', username, password, added_by, plan_type, credits_cost, now, expire_time, remark, nickname)
+            await _upsert_user_stats_identity(conn, username, password, nickname)
         return {'id': row['id'], 'expire_time': str(row['expire_time']), 'username': username, 'real_name': nickname}
 
 
@@ -1762,11 +1773,7 @@ async def ensure_sub_admin_bound_account_authorized(sub_name: str, bound_usernam
                     updated_at=NOW()
                 RETURNING id, username, added_by, status, expire_time
             ''', normalized_username, normalized_sub_name, now, expire_time)
-            await conn.execute('''
-                INSERT INTO user_stats (username)
-                VALUES ($1)
-                ON CONFLICT(username) DO NOTHING
-            ''', normalized_username)
+            await _upsert_user_stats_identity(conn, normalized_username)
         return {
             'id': row['id'],
             'username': row['username'],
