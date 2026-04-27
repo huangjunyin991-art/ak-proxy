@@ -114,7 +114,7 @@
         const bubbleY = 34;
         const innerInset = 2;
         return '' +
-            '<svg class="ak-im-honor-badge-svg" viewBox="0 0 160 96" role="img" aria-label="' + escapeHtml(levelInfo.code) + '" xmlns="http://www.w3.org/2000/svg">' +
+            '<svg class="ak-im-honor-badge-svg" viewBox="28 28 104 40" role="img" aria-label="' + escapeHtml(levelInfo.code) + '" xmlns="http://www.w3.org/2000/svg">' +
                 '<defs>' + createMemberDefs(ids, token) + '</defs>' +
                 '<ellipse cx="80" cy="48" rx="56" ry="20" fill="url(#' + ids.glow + ')" opacity="0.88"></ellipse>' +
                 '<ellipse cx="80" cy="63" rx="44" ry="8" fill="' + rgba(token.shadow, 0.12) + '"></ellipse>' +
@@ -122,7 +122,7 @@
                 '<rect x="' + (bubbleX + innerInset) + '" y="' + (bubbleY + innerInset) + '" width="' + (bubbleWidth - innerInset * 2) + '" height="' + (bubbleHeight - innerInset * 2) + '" rx="12" fill="url(#' + ids.inner + ')" stroke="' + rgba(token.rim, 0.54) + '" stroke-width="0.75"></rect>' +
                 buildMemberHighlightMarkup(ids, bubbleX, bubbleY, bubbleWidth) +
                 '<path d="M' + (bubbleX + 6) + ' ' + (bubbleY + bubbleHeight - 6) + ' H' + (bubbleX + bubbleWidth - 6) + '" stroke="' + rgba(token.shadow, 0.1) + '" stroke-width="1.4" stroke-linecap="round"></path>' +
-                '<text x="80" y="52.5" text-anchor="middle" font-size="14" font-weight="800" letter-spacing="0.6" fill="' + token.banner + '">' + escapeHtml(levelInfo.code) + '</text>' +
+                '<text x="80" y="54" text-anchor="middle" font-size="20" font-weight="900" letter-spacing="0.22" fill="' + token.banner + '" stroke="' + rgba(token.rim, 0.22) + '" stroke-width="0.24" paint-order="stroke">' + escapeHtml(levelInfo.code) + '</text>' +
             '</svg>';
     }
 
@@ -216,7 +216,7 @@
         const bubbleY = 33;
         const innerInset = 2.5;
         return '' +
-            '<svg class="ak-im-honor-badge-svg" viewBox="0 0 160 96" role="img" aria-label="' + escapeHtml(levelInfo.code) + '" xmlns="http://www.w3.org/2000/svg">' +
+            '<svg class="ak-im-honor-badge-svg" viewBox="28 28 104 40" role="img" aria-label="' + escapeHtml(levelInfo.code) + '" xmlns="http://www.w3.org/2000/svg">' +
                 '<defs>' + createEliteDefs(ids, token, bubbleX, bubbleY, bubbleWidth, bubbleHeight, innerInset) + '</defs>' +
                 '<ellipse cx="80" cy="49" rx="52" ry="18" fill="url(#' + ids.glow + ')" opacity="0.58"></ellipse>' +
                 '<ellipse cx="80" cy="66" rx="44" ry="6.5" fill="' + rgba(token.shadow, 0.14) + '"></ellipse>' +
@@ -227,7 +227,7 @@
                 buildEliteScanMarkup(ids, bubbleX, bubbleY, bubbleWidth, bubbleHeight) +
                 '<rect x="' + (bubbleX + 10) + '" y="' + (bubbleY + 14) + '" width="' + (bubbleWidth - 20) + '" height="4" rx="2" fill="url(#' + ids.band + ')" opacity="0.72"></rect>' +
                 '<path d="M' + (bubbleX + 10) + ' ' + (bubbleY + bubbleHeight - 5.5) + ' H' + (bubbleX + bubbleWidth - 10) + '" stroke="' + rgba(token.shadow, 0.18) + '" stroke-width="1.3" stroke-linecap="round"></path>' +
-                '<text x="80" y="53.5" text-anchor="middle" font-size="14" font-weight="800" letter-spacing="0.7" fill="' + token.banner + '" stroke="' + rgba(token.rim, 0.14) + '" stroke-width="0.28" paint-order="stroke">' + escapeHtml(levelInfo.code) + '</text>' +
+                '<text x="80" y="54.2" text-anchor="middle" font-size="19.5" font-weight="900" letter-spacing="0.25" fill="' + token.banner + '" stroke="' + rgba(token.shadow, 0.34) + '" stroke-width="0.42" paint-order="stroke">' + escapeHtml(levelInfo.code) + '</text>' +
             '</svg>';
     }
 
