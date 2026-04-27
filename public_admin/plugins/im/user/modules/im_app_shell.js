@@ -95,6 +95,16 @@
                 #ak-im-root .ak-im-session-item.is-pinned{background:#f7fcf7}
                 #ak-im-root .ak-im-session-avatar{width:48px;height:48px;border-radius:14px;background:linear-gradient(180deg,#8fe3a8 0%,#56c57b 100%);color:#ffffff;display:inline-flex;align-items:center;justify-content:center;font-size:15px;font-weight:700;flex:0 0 auto}
                 #ak-im-root .ak-im-avatar-photo{width:100%;height:100%;display:block;object-fit:cover}
+                #ak-im-root .ak-im-avatar-mosaic{width:100%;height:100%;display:flex;align-items:stretch;justify-content:center;overflow:hidden}
+                #ak-im-root .ak-im-avatar-mosaic.is-single{display:flex;align-items:stretch;justify-content:center}
+                #ak-im-root .ak-im-avatar-mosaic.is-single .ak-im-avatar-cell{width:100%;height:100%;flex:1 1 auto}
+                #ak-im-root .ak-im-avatar-mosaic.is-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));grid-auto-rows:minmax(0,1fr);gap:1px;padding:1px;box-sizing:border-box;background:#ffffff}
+                #ak-im-root .ak-im-avatar-mosaic.is-stack{display:flex;flex-direction:column-reverse;justify-content:center;gap:1px;padding:1px;box-sizing:border-box;background:#ffffff}
+                #ak-im-root .ak-im-avatar-row{flex:1 1 0;display:flex;align-items:stretch;justify-content:center;gap:1px;min-height:0}
+                #ak-im-root .ak-im-avatar-cell{min-width:0;min-height:0;display:inline-flex;align-items:center;justify-content:center;background:linear-gradient(180deg,#8fe3a8 0%,#56c57b 100%);color:#ffffff;font-weight:700;line-height:1;box-sizing:border-box}
+                #ak-im-root .ak-im-avatar-row.is-count-1 .ak-im-avatar-cell{flex:0 0 100%;width:100%}
+                #ak-im-root .ak-im-avatar-row.is-count-2 .ak-im-avatar-cell{flex:0 0 calc((100% - 1px)/2);width:calc((100% - 1px)/2)}
+                #ak-im-root .ak-im-avatar-row.is-count-3 .ak-im-avatar-cell{flex:0 0 calc((100% - 2px)/3);width:calc((100% - 2px)/3)}
                 #ak-im-root .ak-im-session-avatar,#ak-im-root .ak-im-avatar,#ak-im-root .ak-im-member-avatar,#ak-im-root .ak-im-member-action-avatar,#ak-im-root .ak-im-contact-avatar,#ak-im-root .ak-im-profile-avatar,#ak-im-root .ak-im-avatar-cell{overflow:hidden}
                 #ak-im-root .ak-im-session-body{min-width:0;flex:1;display:grid;grid-template-columns:1fr auto;grid-template-areas:'name time' 'preview unread';align-items:center;column-gap:10px;row-gap:4px}
                 #ak-im-root .ak-im-session-title{grid-area:name;display:flex;align-items:center;gap:6px;min-width:0;font-size:16px;font-weight:500;color:#111827}
