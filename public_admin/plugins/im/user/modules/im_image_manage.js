@@ -231,6 +231,7 @@
                 conversation_id: Number(state && state.activeConversationId || 0),
                 sender_username: String(state && state.username || '').trim().toLowerCase(),
                 sender_display_name: String(state && (state.displayName || state.username) || '我').trim() || '我',
+                sender_honor_name: String(state && state.honorName || '').trim(),
                 sender_avatar_url: String(state && state.profile && state.profile.avatar_url || '').trim(),
                 seq_no: 0,
                 message_type: 'image',

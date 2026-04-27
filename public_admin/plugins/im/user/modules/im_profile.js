@@ -97,21 +97,22 @@
              }
              const profile = state.profile || null;
              const displayName = String(profile && profile.display_name || state.displayName || state.username || '我').trim();
+             const honorName = String(profile && profile.honor_name || state.honorName || '').trim();
              const username = String(profile && profile.username || state.username || '').trim();
              const nickname = String(profile && profile.nickname || '').trim();
              const genderLabel = this.ctx.getProfileGenderLabel(profile && profile.gender);
              if (state.view === 'profile_avatar') {
-                 this.renderProfileAvatarView(profileSubpageBodyEl, profile, displayName, username);
+                 this.renderProfileAvatarView(profileSubpageBodyEl, profile, displayName, honorName, username);
                  return;
              }
              if (state.view === 'profile_detail') {
-                 this.renderProfileDetailView(profileSubpageBodyEl, displayName, username, nickname, genderLabel);
+                 this.renderProfileDetailView(profileSubpageBodyEl, displayName, honorName, username, nickname, genderLabel);
                  return;
              }
-             this.renderProfileSettingsView(profileSubpageBodyEl, displayName, username, nickname, genderLabel, profile);
+             this.renderProfileSettingsView(profileSubpageBodyEl, displayName, honorName, username, nickname, genderLabel, profile);
          },
 
-         renderProfileAvatarView(container, profile, displayName, username) {
+         renderProfileAvatarView(container, profile, displayName, honorName, username) {
              const state = this.ctx.state;
              const historyGroups = this.splitProfileAvatarHistoryItems(state.profileAvatarHistory);
              const favoriteCount = this.ctx.countProfileAvatarFavorites(state.profileAvatarHistory);
@@ -140,16 +141,16 @@
                  })
              ));
              container.innerHTML = (state.profileError ? '<div class="ak-im-profile-error">' + this.ctx.escapeHtml(state.profileError) + '</div>' : '') +
-                 (state.profileAvatarActionError ? '<div class="ak-im-profile-error">' + this.ctx.escapeHtml(state.profileAvatarActionError) + '</div>' : '') +
-                 '<div class="ak-im-profile-panel">' +
-                     '<div class="ak-im-profile-head">' +
-                         this.ctx.buildAvatarBoxMarkup('ak-im-profile-avatar', profile && profile.avatar_url, displayName || username || '我', (displayName || username || '我') + '头像') +
-                         '<div class="ak-im-profile-name">' + this.ctx.escapeHtml(displayName || '我') + '</div>' +
-                         '<div class="ak-im-profile-username">@' + this.ctx.escapeHtml(username || 'unknown') + '</div>' +
-                     '</div>' +
-                     '<div class="ak-im-profile-subtitle">随机生成或上传本地图片</div>' +
-                     '<div class="ak-im-profile-action-row">' +
-                         '<button class="ak-im-profile-primary-btn" type="button" data-im-profile-action="refresh-avatar"' + (avatarBusy ? ' disabled' : '') + '>' + this.ctx.escapeHtml(state.profileRefreshing ? '生成中...' : '随机生成') + '</button>' +
+                (state.profileAvatarActionError ? '<div class="ak-im-profile-error">' + this.ctx.escapeHtml(state.profileAvatarActionError) + '</div>' : '') +
+                '<div class="ak-im-profile-panel">' +
+                    '<div class="ak-im-profile-head">' +
+                        this.ctx.buildAvatarBoxMarkup('ak-im-profile-avatar', profile && profile.avatar_url, displayName || username || '我', (displayName || username || '我') + '头像') +
+                        '<div class="ak-im-profile-name">' + (typeof this.ctx.buildDisplayNameWithHonorMarkup === 'function' ? this.ctx.buildDisplayNameWithHonorMarkup(displayName || '我', honorName, '我') : this.ctx.escapeHtml(displayName || '我')) + '</div>' +
+                        '<div class="ak-im-profile-username">@' + this.ctx.escapeHtml(username || 'unknown') + '</div>' +
+                    '</div>' +
+                    '<div class="ak-im-profile-subtitle">随机生成或上传本地图片</div>' +
+                    '<div class="ak-im-profile-action-row">' +
+                        '<button class="ak-im-profile-primary-btn" type="button" data-im-profile-action="refresh-avatar"' + (avatarBusy ? ' disabled' : '') + '>' + this.ctx.escapeHtml(state.profileRefreshing ? '生成中...' : '随机生成') + '</button>' +
                          '<button class="ak-im-profile-primary-btn" type="button" data-im-profile-action="upload-avatar"' + (avatarBusy ? ' disabled' : '') + '>' + this.ctx.escapeHtml(state.profileAvatarUploading ? ('上传中' + (uploadProgress ? ' ' + uploadProgress + '%' : '...')) : '本地上传') + '</button>' +
                      '</div>' +
                      '<input style="display:none" type="file" accept="image/png,image/jpeg,image/webp,image/gif,image/heic,image/heif" data-im-profile-avatar-file />' +
@@ -207,16 +208,19 @@
              });
          },
 
-         renderProfileDetailView(container, displayName, username, nickname, genderLabel) {
+         renderProfileDetailView(container, displayName, honorName, username, nickname, genderLabel) {
              const state = this.ctx.state;
              const draftNickname = String(state.profileDraftNickname || '').trim();
              const draftGender = this.ctx.normalizeProfileGender(state.profileDraftGender);
              const draftGenderLabel = this.ctx.getProfileGenderLabel(draftGender);
+             const previewNameText = typeof this.ctx.formatUserDisplayText === 'function'
+                 ? this.ctx.formatUserDisplayText(draftNickname || displayName, username, honorName, '我')
+                 : (draftNickname || displayName || username || '我');
              container.innerHTML = (state.profileSaveError ? '<div class="ak-im-profile-error">' + this.ctx.escapeHtml(state.profileSaveError) + '</div>' : '') +
-                 '<div class="ak-im-profile-panel">' +
-                     '<div class="ak-im-profile-form">' +
-                         '<div class="ak-im-profile-form-group">' +
-                             '<label class="ak-im-profile-form-label" for="ak-im-profile-nickname">昵称</label>' +
+                '<div class="ak-im-profile-panel">' +
+                    '<div class="ak-im-profile-form">' +
+                        '<div class="ak-im-profile-form-group">' +
+                            '<label class="ak-im-profile-form-label" for="ak-im-profile-nickname">昵称</label>' +
                              '<input class="ak-im-profile-form-input" id="ak-im-profile-nickname" data-im-profile-field="nickname" type="text" autocomplete="off" spellcheck="false" value="' + this.ctx.escapeHtml(state.profileDraftNickname) + '" placeholder="请输入昵称" />' +
                              '<div class="ak-im-profile-form-help">保存后会同步显示在会话标题、群成员、消息发送者和个人资料中。</div>' +
                          '</div>' +
@@ -224,18 +228,18 @@
                              '<label class="ak-im-profile-form-label" for="ak-im-profile-gender">性别</label>' +
                              '<select class="ak-im-profile-form-select" id="ak-im-profile-gender" data-im-profile-field="gender">' +
                                  '<option value="unknown"' + (draftGender === 'unknown' ? ' selected' : '') + '>未设置</option>' +
-                                 '<option value="male"' + (draftGender === 'male' ? ' selected' : '') + '>男</option>' +
-                                 '<option value="female"' + (draftGender === 'female' ? ' selected' : '') + '>女</option>' +
-                             '</select>' +
-                             '<div class="ak-im-profile-form-help" data-im-profile-preview>当前对外显示：' + this.ctx.escapeHtml((draftNickname || displayName || username || '我') + ' · ' + draftGenderLabel) + '</div>' +
-                         '</div>' +
-                         '<button class="ak-im-profile-primary-btn" type="button" data-im-profile-action="save-detail"' + (state.profileSaving ? ' disabled' : '') + '>' + this.ctx.escapeHtml(state.profileSaving ? '正在保存...' : '保存资料') + '</button>' +
-                     '</div>' +
-                 '</div>';
-             this.bindProfileDetailEvents(container, displayName, username, nickname, genderLabel);
+                                '<option value="male"' + (draftGender === 'male' ? ' selected' : '') + '>男</option>' +
+                                '<option value="female"' + (draftGender === 'female' ? ' selected' : '') + '>女</option>' +
+                            '</select>' +
+                            '<div class="ak-im-profile-form-help" data-im-profile-preview>当前对外显示：' + this.ctx.escapeHtml(previewNameText + ' · ' + draftGenderLabel) + '</div>' +
+                        '</div>' +
+                        '<button class="ak-im-profile-primary-btn" type="button" data-im-profile-action="save-detail"' + (state.profileSaving ? ' disabled' : '') + '>' + this.ctx.escapeHtml(state.profileSaving ? '正在保存...' : '保存资料') + '</button>' +
+                    '</div>' +
+                '</div>';
+             this.bindProfileDetailEvents(container, displayName, honorName, username, nickname, genderLabel);
          },
 
-         bindProfileDetailEvents(container, displayName, username) {
+         bindProfileDetailEvents(container, displayName, honorName, username) {
              const self = this;
              const state = this.ctx.state;
              const nicknameInput = container.querySelector('[data-im-profile-field="nickname"]');
@@ -245,7 +249,10 @@
              const updateDraftPreview = function() {
                  if (!previewEl) return;
                  const previewName = String(state.profileDraftNickname || '').trim() || displayName || username || '我';
-                 previewEl.textContent = '当前对外显示：' + previewName + ' · ' + self.ctx.getProfileGenderLabel(state.profileDraftGender);
+                 const previewText = typeof self.ctx.formatUserDisplayText === 'function'
+                     ? self.ctx.formatUserDisplayText(previewName, username, honorName, '我')
+                     : previewName;
+                 previewEl.textContent = '当前对外显示：' + previewText + ' · ' + self.ctx.getProfileGenderLabel(state.profileDraftGender);
              };
              if (nicknameInput) {
                  nicknameInput.addEventListener('input', function() {
@@ -265,14 +272,14 @@
                  saveBtn.addEventListener('click', function() {
                      self.ctx.saveProfileDetail();
                  });
-             }
+            }
          },
 
-         renderProfileSettingsView(container, displayName, username, nickname, genderLabel, profile) {
+         renderProfileSettingsView(container, displayName, honorName, username, nickname, genderLabel, profile) {
              container.innerHTML = '<div class="ak-im-profile-panel">' +
                  '<div class="ak-im-profile-head">' +
                      this.ctx.buildAvatarBoxMarkup('ak-im-profile-avatar', profile && profile.avatar_url, displayName || username || '我', (displayName || username || '我') + '头像') +
-                     '<div class="ak-im-profile-name">' + this.ctx.escapeHtml(displayName || '我') + '</div>' +
+                     '<div class="ak-im-profile-name">' + (typeof this.ctx.buildDisplayNameWithHonorMarkup === 'function' ? this.ctx.buildDisplayNameWithHonorMarkup(displayName || '我', honorName, '我') : this.ctx.escapeHtml(displayName || '我')) + '</div>' +
                      '<div class="ak-im-profile-username">@' + this.ctx.escapeHtml(username || 'unknown') + '</div>' +
                  '</div>' +
                  '<div class="ak-im-profile-subtitle">这里是新的全屏设置页入口，后续与 IM 个人相关的设置项会继续放在这里。</div>' +
@@ -280,6 +287,7 @@
              '<div class="ak-im-profile-panel">' +
                  '<div class="ak-im-profile-entry-label">当前资料</div>' +
                  '<div class="ak-im-profile-subtitle">昵称：' + this.ctx.escapeHtml(nickname || displayName || '未设置') + '</div>' +
+                 '<div class="ak-im-profile-subtitle">等级：' + this.ctx.escapeHtml(honorName || '未设置') + '</div>' +
                  '<div class="ak-im-profile-subtitle">性别：' + this.ctx.escapeHtml(genderLabel) + '</div>' +
                  '<div class="ak-im-profile-subtitle">账号：@' + this.ctx.escapeHtml(username || 'unknown') + '</div>' +
              '</div>';

@@ -248,8 +248,22 @@
             const activeSession = this.getActiveSession();
             const activeSessionDisplayName = activeSession ? this.getSessionDisplayName(activeSession) : '内部聊天';
             const isActiveGroupSession = !!activeSession && this.isGroupSession(activeSession);
+            const activeSessionTitleMarkup = activeSession
+                ? (typeof this.buildSessionTitleMarkup === 'function'
+                    ? this.buildSessionTitleMarkup(activeSession)
+                    : (this.ctx && typeof this.ctx.buildDisplayNameWithHonorMarkup === 'function' && !isActiveGroupSession
+                        ? this.ctx.buildDisplayNameWithHonorMarkup(activeSessionDisplayName, activeSession && activeSession.peer_honor_name, '内部聊天', {
+                            wrapperClassName: 'ak-im-name-with-honor',
+                            textClassName: 'ak-im-name-text',
+                            badgeClassName: 'ak-im-honor-badge'
+                        })
+                        : this.ctx.escapeHtml(activeSessionDisplayName || '内部聊天')))
+                : '内部聊天';
             const subtitleText = activeSession ? this.getSessionSubtitle(activeSession) : '';
-            if (headerTitle) headerTitle.textContent = activeSession ? activeSessionDisplayName : '内部聊天';
+            if (headerTitle) {
+                if (activeSession) headerTitle.innerHTML = activeSessionTitleMarkup;
+                else headerTitle.textContent = '内部聊天';
+            }
             if (headerSubtitle) headerSubtitle.textContent = activeSession ? subtitleText : '';
             if (chatTitleBtnEl) {
                 const canOpenGroupInfo = !!activeSession && isActiveGroupSession;
@@ -317,10 +331,15 @@
                 const wrapper = document.createElement('div');
                 const summary = self.getMessageReadProgress(item);
                 const senderDisplayName = String(item && (item.sender_display_name || item.sender_username) || '').trim();
+                const senderHonorName = String(item && item.sender_honor_name || '').trim();
                 const displayName = isSelf ? (state.displayName || senderDisplayName || state.username || '我') : (isActiveGroupSession ? (senderDisplayName || item.sender_username || '群成员') : (activeSession ? activeSessionDisplayName : (senderDisplayName || item.sender_username || '对方')));
                 const defaultMetaText = summary && Number(summary.total_count || 0) > 0 ? ('已读 ' + Number(summary.read_count || 0) + '/' + Number(summary.total_count || 0)) : ((isSelf && item.read) ? '对方已读' : '');
                 const metaText = self.getLocalMessageMetaText(item, defaultMetaText);
-                const senderText = !isSelf && isActiveGroupSession ? String(senderDisplayName || item.sender_username || '').trim() : '';
+                const senderMarkup = !isSelf && isActiveGroupSession
+                    ? (self.ctx && typeof self.ctx.buildDisplayNameWithHonorMarkup === 'function'
+                        ? self.ctx.buildDisplayNameWithHonorMarkup(senderDisplayName || item.sender_username || '群成员', senderHonorName, '群成员')
+                        : self.ctx.escapeHtml(senderDisplayName || item.sender_username || '群成员'))
+                    : '';
                 const progressMarkup = self.buildReadProgressButtonMarkup(item, activeSession);
                 const avatarText = displayName || item.sender_username || '成员';
                 const avatarUrl = isSelf ? self.ctx.getAvatarUrl((state.profile && state.profile.avatar_url) || item.sender_avatar_url) : self.ctx.getAvatarUrl(item.sender_avatar_url);
@@ -334,7 +353,7 @@
                     '<div class="ak-im-message-row ' + (isSelf ? 'ak-self' : 'ak-peer') + '">' +
                         self.ctx.buildAvatarBoxMarkup('ak-im-avatar', avatarUrl, avatarText, avatarText + '头像') +
                         '<div class="ak-im-message-main">' +
-                            (senderText ? '<div class="ak-im-message-sender">' + self.ctx.escapeHtml(senderText) + '</div>' : '') +
+                            (senderMarkup ? '<div class="ak-im-message-sender">' + senderMarkup + '</div>' : '') +
                             '<div class="' + bubbleClassName + '">' + bubbleMarkup + '</div>' +
                             footerMarkup +
                         '</div>' +
@@ -793,6 +812,12 @@
                         this.ctx.loadGroupSettings(updatedConversationId);
                     }
                 }
+                return;
+            }
+            // 未命中消息相关分支时，委派给其他模块（如会议模块）——保持松耦合：模块缺失不影响本流程
+            const meetingModule = window.AKIMUserModules && window.AKIMUserModules.meetingManage;
+            if (meetingModule && typeof meetingModule.handleSocketPayload === 'function') {
+                try { meetingModule.handleSocketPayload(data); } catch (e) {}
             }
         },
 

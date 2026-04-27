@@ -69,6 +69,7 @@
         ready: false,
         username: '',
         displayName: '',
+        honorName: '',
         homeTab: 'chats',
         contacts: [],
         contactsLoaded: false,
@@ -759,6 +760,8 @@
             formatProfileHistoryTime: formatProfileHistoryTime,
             getAvatarUrl: getAvatarUrl,
             buildAvatarBoxMarkup: buildAvatarBoxMarkup,
+            buildDisplayNameWithHonorMarkup: buildDisplayNameWithHonorMarkup,
+            formatUserDisplayText: formatUserDisplayText,
             escapeHtml: escapeHtml,
             countProfileAvatarFavorites: countProfileAvatarFavorites,
             refreshProfileAvatar: refreshProfileAvatar,
@@ -867,6 +870,7 @@
             openSessionActionSheet: openSessionActionSheet,
             loadMessages: loadMessages,
             buildAvatarBoxMarkup: buildAvatarBoxMarkup,
+            buildDisplayNameWithHonorMarkup: buildDisplayNameWithHonorMarkup,
             buildGroupAvatarMosaicMarkup: buildGroupAvatarMosaicMarkup
         });
     }
@@ -886,6 +890,8 @@
             state: state,
             httpRoot: HTTP_ROOT,
             render: render,
+            escapeHtml: escapeHtml,
+            buildDisplayNameWithHonorMarkup: buildDisplayNameWithHonorMarkup,
             getRoot: function() { return root; }
         });
     }
@@ -916,6 +922,8 @@
             openMemberActionPage: openMemberActionPage,
             closeMemberActionPage: closeMemberActionPage,
             closeSettingsPanel: closeSettingsPanel,
+            buildDisplayNameWithHonorMarkup: buildDisplayNameWithHonorMarkup,
+            formatUserDisplayText: formatUserDisplayText,
             loadSessions: loadSessions,
             loadMessages: loadMessages,
             sortGroupMembersForDisplay: sortGroupMembersForDisplay
@@ -999,6 +1007,7 @@
             formatTime: formatTime,
             getAvatarUrl: getAvatarUrl,
             buildAvatarBoxMarkup: buildAvatarBoxMarkup,
+            buildDisplayNameWithHonorMarkup: buildDisplayNameWithHonorMarkup,
             buildMessageBubbleMarkup: buildMessageBubbleMarkup,
             getMessageBubbleClassName: getMessageBubbleClassName,
             syncVoiceMessageBubbles: function() {
@@ -1631,6 +1640,7 @@
                 };
             },
             escapeHtml: escapeHtml,
+            buildDisplayNameWithHonorMarkup: buildDisplayNameWithHonorMarkup,
             request: request,
             render: render,
             canRecallMessage: canRecallMessage,
@@ -1900,6 +1910,37 @@
         });
     }
 
+    function normalizeHonorName(value) {
+        return String(value || '').trim();
+    }
+
+    function buildHonorBadgeMarkup(honorName, className) {
+        const normalizedHonorName = normalizeHonorName(honorName);
+        if (!normalizedHonorName) return '';
+        const badgeClassName = String(className || 'ak-im-honor-badge').trim() || 'ak-im-honor-badge';
+        return '<span class="' + badgeClassName + '">' + escapeHtml(normalizedHonorName) + '</span>';
+    }
+
+    function buildDisplayNameWithHonorMarkup(displayName, honorName, fallbackText, options) {
+        const resolvedDisplayName = String(displayName || fallbackText || '').trim() || String(fallbackText || '未知用户');
+        const settings = options || {};
+        const wrapperClassName = String(settings.wrapperClassName || 'ak-im-name-with-honor').trim() || 'ak-im-name-with-honor';
+        const textClassName = String(settings.textClassName || 'ak-im-name-text').trim() || 'ak-im-name-text';
+        const badgeClassName = String(settings.badgeClassName || 'ak-im-honor-badge').trim() || 'ak-im-honor-badge';
+        return '<span class="' + wrapperClassName + '"><span class="' + textClassName + '">' + escapeHtml(resolvedDisplayName) + '</span>' + buildHonorBadgeMarkup(honorName, badgeClassName) + '</span>';
+    }
+
+    function formatUserDisplayText(displayName, username, honorName, fallbackText) {
+        const normalizedUsername = String(username || '').trim();
+        const resolvedDisplayName = String(displayName || normalizedUsername || fallbackText || '未知成员').trim() || String(fallbackText || '未知成员');
+        const normalizedHonorName = normalizeHonorName(honorName);
+        const primaryText = normalizedHonorName ? (resolvedDisplayName + ' [' + normalizedHonorName + ']') : resolvedDisplayName;
+        if (normalizedUsername && resolvedDisplayName.toLowerCase() !== normalizedUsername.toLowerCase()) {
+            return primaryText + ' @' + normalizedUsername;
+        }
+        return primaryText;
+    }
+
     function formatTime(value) {
         if (!value) return '';
         try {
@@ -2124,9 +2165,10 @@
 	function formatSessionMember(member) {
 	    const displayName = String(member && member.display_name || '').trim();
 	    const username = String(member && member.username || '').trim();
+	    const honorName = normalizeHonorName(member && member.honor_name);
 	    const role = String(member && member.role || '').trim().toLowerCase();
 	    const roleLabel = role === 'owner' ? '群主' : (role === 'admin' ? '管理员' : '');
-	    return '<div class="ak-im-member-item">' + buildAvatarBoxMarkup('ak-im-member-avatar', member && member.avatar_url, displayName || username || '成员', (displayName || username || '成员') + '头像') + '<div class="ak-im-member-body"><div class="ak-im-member-name">' + escapeHtml(displayName || username || '未知成员') + '</div></div>' + (roleLabel ? '<div class="ak-im-member-role">' + escapeHtml(roleLabel) + '</div>' : '') + '</div>';
+	    return '<div class="ak-im-member-item">' + buildAvatarBoxMarkup('ak-im-member-avatar', member && member.avatar_url, displayName || username || '成员', (displayName || username || '成员') + '头像') + '<div class="ak-im-member-body"><div class="ak-im-member-name">' + buildDisplayNameWithHonorMarkup(displayName || username || '未知成员', honorName, '未知成员') + '</div></div>' + (roleLabel ? '<div class="ak-im-member-role">' + escapeHtml(roleLabel) + '</div>' : '') + '</div>';
 	}
 
 	function renderMemberPanel() {
@@ -2789,8 +2831,9 @@
     function buildContactItemInnerMarkup(contact) {
         const username = getContactUsername(contact);
         const displayName = getContactDisplayName(contact);
+        const honorName = normalizeHonorName(contact && contact.honor_name);
         return buildAvatarBoxMarkup('ak-im-contact-avatar', contact && contact.avatar_url, displayName, displayName + '头像') +
-            '<div class="ak-im-contact-body"><div class="ak-im-contact-name">' + escapeHtml(displayName) + '</div><div class="ak-im-contact-meta">@' + escapeHtml(username || 'unknown') + '</div></div>';
+            '<div class="ak-im-contact-body"><div class="ak-im-contact-name">' + buildDisplayNameWithHonorMarkup(displayName, honorName, '联系人') + '</div><div class="ak-im-contact-meta">@' + escapeHtml(username || 'unknown') + '</div></div>';
     }
 
     function matchContactSearch(contact, keyword) {
@@ -2890,6 +2933,7 @@
         }
         const profile = state.profile || null;
         const displayName = String(profile && profile.display_name || state.displayName || state.username || '我').trim();
+        const honorName = normalizeHonorName(profile && profile.honor_name || state.honorName || '');
         const username = String(profile && profile.username || state.username || '').trim();
         const nickname = String(profile && profile.nickname || '').trim();
         const genderLabel = getProfileGenderLabel(profile && profile.gender);
@@ -2899,12 +2943,11 @@
             '<div class="ak-im-profile-card">' +
                 '<div class="ak-im-profile-head">' +
                     buildAvatarBoxMarkup('ak-im-profile-avatar', profile && profile.avatar_url, displayName || username || '我', (displayName || username || '我') + '头像') +
-                    '<div class="ak-im-profile-name">' + escapeHtml(displayName || '我') + '</div>' +
+                    '<div class="ak-im-profile-name">' + buildDisplayNameWithHonorMarkup(displayName || '我', honorName, '我') + '</div>' +
                     '<div class="ak-im-profile-username">@' + escapeHtml(username || 'unknown') + '</div>' +
                     '<div class="ak-im-profile-meta">' + escapeHtml((nickname ? ('昵称：' + nickname) : '可设置昵称') + ' · 性别：' + genderLabel) + '</div>' +
                 '</div>' +
-            '</div>' +
-            '<div class="ak-im-profile-entry-list">' +
+                '<div class="ak-im-profile-entry-list">' +
                 '<button class="ak-im-profile-entry" type="button" data-im-profile-nav="profile_avatar">' +
                     '<div class="ak-im-profile-entry-main"><div class="ak-im-profile-entry-label">头像设置</div><div class="ak-im-profile-entry-meta">' + escapeHtml(avatarHistorySummary) + '</div></div>' +
                     '<div class="ak-im-profile-entry-arrow" aria-hidden="true">›</div>' +
@@ -3108,6 +3151,7 @@
         return {
             username: username || String(state.username || '').trim().toLowerCase(),
             display_name: displayName || username || '我',
+            honor_name: normalizeHonorName(item && item.honor_name || state.honorName || ''),
             nickname: String(item && item.nickname || '').trim(),
             gender: normalizeProfileGender(item && item.gender),
             avatar_style: String(item && item.avatar_style || 'thumbs').trim() || 'thumbs',
@@ -3130,6 +3174,7 @@
         state.profile = profile;
         if (profile.username) state.username = profile.username;
         if (profile.display_name) state.displayName = profile.display_name;
+        state.honorName = normalizeHonorName(profile.honor_name);
         if (!state.profileDraftDirty || state.view !== 'profile_detail' || state.profileSaving) {
             syncProfileDraftFromProfile();
         }
@@ -3518,6 +3563,7 @@
     function applyBootstrapUnavailable() {
         state.allowed = false;
         state.ready = true;
+        state.honorName = '';
         state.emojiPanelOpen = false;
         state.plusPanelOpen = false;
         state.homeAddMenuOpen = false;
@@ -3571,6 +3617,7 @@
             state.ready = true;
             state.username = String((data && data.username) || '').trim().toLowerCase();
             state.displayName = String((data && data.display_name) || state.username || '').trim();
+            state.honorName = normalizeHonorName(data && data.honor_name);
             state.emojiPanelOpen = false;
             state.plusPanelOpen = false;
             state.homeAddMenuOpen = false;

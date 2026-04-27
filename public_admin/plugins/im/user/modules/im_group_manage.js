@@ -28,18 +28,42 @@
         },
 
         getMemberDisplayName(member, fallbackText) {
-            const displayName = String(member && member.display_name || '').trim();
+            const displayName = String(member && (member.display_name || member.displayName) || '').trim();
             const username = String(member && member.username || '').trim();
             return displayName || username || String(fallbackText || '成员');
         },
 
-        formatMemberActionCandidateLabel(candidate) {
-            const displayName = String(candidate && candidate.displayName || '').trim();
-            const username = String(candidate && candidate.username || '').trim();
-            if (displayName && username && displayName.toLowerCase() !== username.toLowerCase()) {
-                return displayName + ' @' + username;
+        getMemberHonorName(member) {
+            return String(member && (member.honor_name || member.honorName) || '').trim();
+        },
+
+        buildMemberDisplayMarkup(member, fallbackText) {
+            const displayName = this.getMemberDisplayName(member, fallbackText);
+            const honorName = this.getMemberHonorName(member);
+            if (this.ctx && typeof this.ctx.buildDisplayNameWithHonorMarkup === 'function') {
+                return this.ctx.buildDisplayNameWithHonorMarkup(displayName, honorName, fallbackText || '成员');
             }
-            return displayName || username || '成员';
+            const escapeHtml = this.ctx && typeof this.ctx.escapeHtml === 'function' ? this.ctx.escapeHtml : function(text) {
+                return String(text || '');
+            };
+            return escapeHtml(displayName);
+        },
+
+        buildMemberActionCandidateNameMarkup(candidate) {
+            return this.buildMemberDisplayMarkup(candidate, '成员');
+        },
+
+        formatMemberActionCandidateLabel(candidate) {
+            const displayName = this.getMemberDisplayName(candidate, '成员');
+            const username = String(candidate && candidate.username || '').trim();
+            const honorName = this.getMemberHonorName(candidate);
+            if (this.ctx && typeof this.ctx.formatUserDisplayText === 'function') {
+                return this.ctx.formatUserDisplayText(displayName, username, honorName, '成员');
+            }
+            if (displayName && username && displayName.toLowerCase() !== username.toLowerCase()) {
+                return honorName ? (displayName + ' [' + honorName + '] @' + username) : (displayName + ' @' + username);
+            }
+            return honorName ? ((displayName || username || '成员') + ' [' + honorName + ']') : (displayName || username || '成员');
         },
 
         formatMemberActionCandidateSummary(candidates) {
@@ -123,12 +147,13 @@
                 return {
                     username: username,
                     displayName: displayName,
+                    honorName: self.getMemberHonorName(member),
                     avatarUrl: typeof self.ctx.getAvatarUrl === 'function' ? self.ctx.getAvatarUrl(member && member.avatar_url) : String(member && member.avatar_url || ''),
                     role: role,
                     roleLabel: self.getGroupMemberRoleLabel(role),
                     disabledReason: disabledReason,
                     selectable: !disabledReason,
-                    searchText: (displayName + '\n' + username).toLowerCase()
+                    searchText: (displayName + '\n' + username + '\n' + self.getMemberHonorName(member)).toLowerCase()
                 };
             });
         },
@@ -327,10 +352,27 @@
         },
 
         formatGroupInfoMemberText(member, fallbackText) {
-            const displayName = String(member && member.display_name || '').trim();
+            const displayName = this.getMemberDisplayName(member, fallbackText);
             const username = String(member && member.username || '').trim();
-            if (displayName && username && displayName !== username) return displayName + ' @' + username;
-            return displayName || username || String(fallbackText || '暂无');
+            const honorName = this.getMemberHonorName(member);
+            if (this.ctx && typeof this.ctx.formatUserDisplayText === 'function') {
+                return this.ctx.formatUserDisplayText(displayName, username, honorName, fallbackText || '暂无');
+            }
+            if (displayName && username && displayName !== username) return honorName ? (displayName + ' [' + honorName + '] @' + username) : (displayName + ' @' + username);
+            return honorName ? ((displayName || username || String(fallbackText || '暂无')) + ' [' + honorName + ']') : (displayName || username || String(fallbackText || '暂无'));
+        },
+
+        formatGroupInfoMemberMarkup(member, fallbackText) {
+            const displayName = this.getMemberDisplayName(member, fallbackText);
+            const username = String(member && member.username || '').trim();
+            const escapeHtml = this.ctx && typeof this.ctx.escapeHtml === 'function' ? this.ctx.escapeHtml : function(text) {
+                return String(text || '');
+            };
+            const nameMarkup = this.buildMemberDisplayMarkup(member, fallbackText || '暂无');
+            if (displayName && username && displayName !== username) {
+                return '<span class="ak-im-group-info-member-inline">' + nameMarkup + '<span class="ak-im-group-info-member-username">@' + escapeHtml(username) + '</span></span>';
+            }
+            return nameMarkup;
         },
 
         formatGroupInfoCollectionText(members, emptyText) {
@@ -343,7 +385,20 @@
             return names.slice(0, 3).join('、') + ' 等 ' + names.length + ' 人';
         },
 
-        buildGroupInfoCell(label, value, action, extraClass) {
+        formatGroupInfoCollectionMarkup(members, emptyText) {
+            const self = this;
+            const escapeHtml = this.ctx && typeof this.ctx.escapeHtml === 'function' ? this.ctx.escapeHtml : function(text) {
+                return String(text || '');
+            };
+            const items = (Array.isArray(members) ? members : []).map(function(member) {
+                return self.formatGroupInfoMemberMarkup(member, '');
+            }).filter(Boolean);
+            if (!items.length) return escapeHtml(String(emptyText || '暂无'));
+            if (items.length <= 3) return items.join('<span class="ak-im-inline-sep">、</span>');
+            return items.slice(0, 3).join('<span class="ak-im-inline-sep">、</span>') + '<span class="ak-im-group-info-collection-more"> 等 ' + escapeHtml(String(items.length)) + ' 人</span>';
+        },
+
+        buildGroupInfoCell(label, value, action, extraClass, allowValueMarkup) {
             const escapeHtml = this.ctx && typeof this.ctx.escapeHtml === 'function' ? this.ctx.escapeHtml : function(text) {
                 return String(text || '');
             };
@@ -351,7 +406,7 @@
             const tagName = action ? 'button' : 'div';
             return '<' + tagName + ' class="' + className + '"' + (action ? ' type="button" data-im-settings-action="' + action + '"' : '') + '>' +
                 '<div class="ak-im-group-info-cell-main"><div class="ak-im-group-info-cell-label">' + escapeHtml(label) + '</div>' +
-                (value ? '<div class="ak-im-group-info-cell-value">' + escapeHtml(value) + '</div>' : '') +
+                (value ? '<div class="ak-im-group-info-cell-value">' + (allowValueMarkup ? value : escapeHtml(value)) + '</div>' : '') +
                 '</div>' + (action ? '<div class="ak-im-group-info-cell-arrow">›</div>' : '') + '</' + tagName + '>';
         },
 

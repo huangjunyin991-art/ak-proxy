@@ -39,6 +39,24 @@
             return String(item && (item.peer_display_name || item.peer_username || '内部聊天') || '内部聊天').trim();
         },
 
+        getSessionHonorName(item) {
+            if (this.isGroupSession(item)) return '';
+            return String(item && item.peer_honor_name || '').trim();
+        },
+
+        buildSessionTitleMarkup(item) {
+            const displayName = this.getSessionDisplayName(item);
+            if (!this.ctx || typeof this.ctx.escapeHtml !== 'function') return displayName;
+            if (this.isGroupSession(item) || typeof this.ctx.buildDisplayNameWithHonorMarkup !== 'function') {
+                return '<span class="ak-im-session-title-text">' + this.ctx.escapeHtml(displayName) + '</span>';
+            }
+            return this.ctx.buildDisplayNameWithHonorMarkup(displayName, this.getSessionHonorName(item), '内部聊天', {
+                wrapperClassName: 'ak-im-session-title-text ak-im-name-with-honor',
+                textClassName: 'ak-im-name-text',
+                badgeClassName: 'ak-im-honor-badge'
+            });
+        },
+
         buildSessionAvatarMarkup(item) {
             if (!this.ctx || typeof this.ctx.buildAvatarBoxMarkup !== 'function') return '';
             if (this.isGroupSession(item) && typeof this.ctx.buildGroupAvatarMosaicMarkup === 'function') {
@@ -95,7 +113,7 @@
                 node.className = 'ak-im-session-item' + (item.conversation_id === state.activeConversationId ? ' ak-active' : '') + (isPinned ? ' is-pinned' : '');
                 node.innerHTML = self.buildSessionAvatarMarkup(item) +
                     '<div class="ak-im-session-body">' +
-                        '<div class="ak-im-session-title"><span class="ak-im-session-title-text">' + self.ctx.escapeHtml(self.getSessionDisplayName(item)) + '</span><span class="ak-im-session-pin-tag' + (isPinned ? ' visible' : '') + (isSystemPinned ? ' is-system' : '') + '">' + self.ctx.escapeHtml(pinText) + '</span></div>' +
+                        '<div class="ak-im-session-title">' + self.buildSessionTitleMarkup(item) + '<span class="ak-im-session-pin-tag' + (isPinned ? ' visible' : '') + (isSystemPinned ? ' is-system' : '') + '">' + self.ctx.escapeHtml(pinText) + '</span></div>' +
                         '<div class="ak-im-session-time">' + self.ctx.escapeHtml(self.ctx.formatSessionTime(item.last_message_at || item.updated_at || item.created_at)) + '</div>' +
                         '<div class="ak-im-session-preview">' + self.ctx.escapeHtml(previewText) + '</div>' +
                         '<div class="ak-im-session-unread' + (unreadCount > 0 ? ' visible' : '') + '">' + self.ctx.escapeHtml(unreadCount > 99 ? '99+' : String(unreadCount || '')) + '</div>' +

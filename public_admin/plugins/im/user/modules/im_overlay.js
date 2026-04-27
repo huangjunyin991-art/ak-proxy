@@ -121,10 +121,14 @@
         formatReadProgressMember(member) {
             const displayName = String(member && member.display_name || '').trim();
             const username = String(member && member.username || '').trim();
+            const honorName = String(member && member.honor_name || '').trim();
+            const nameMarkup = this.ctx && typeof this.ctx.buildDisplayNameWithHonorMarkup === 'function'
+                ? this.ctx.buildDisplayNameWithHonorMarkup(displayName || username || '未知成员', honorName, '未知成员')
+                : this.ctx.escapeHtml(displayName || username || '未知成员');
             if (displayName && username && displayName !== username) {
-                return '<span class="ak-im-progress-member-name">' + this.ctx.escapeHtml(displayName) + '</span><span class="ak-im-progress-member-username">@' + this.ctx.escapeHtml(username) + '</span>';
+                return '<span class="ak-im-progress-member-name">' + nameMarkup + '</span><span class="ak-im-progress-member-username">@' + this.ctx.escapeHtml(username) + '</span>';
             }
-            return '<span class="ak-im-progress-member-name">' + this.ctx.escapeHtml(displayName || username || '未知成员') + '</span>';
+            return '<span class="ak-im-progress-member-name">' + nameMarkup + '</span>';
         },
 
         renderReadProgressPanel() {
@@ -327,6 +331,15 @@
             const ownerText = groupManage.formatGroupInfoMemberText(detail.owner || { username: detail.owner_username }, '暂无群主');
             const adminsText = groupManage.formatGroupInfoCollectionText(admins, '暂无群管理员');
             const authorsText = groupManage.formatGroupInfoCollectionText(authors, '暂无可清空聊天记录成员');
+            const ownerMarkup = typeof groupManage.formatGroupInfoMemberMarkup === 'function'
+                ? groupManage.formatGroupInfoMemberMarkup(detail.owner || { username: detail.owner_username }, '暂无群主')
+                : escapeHtml(ownerText);
+            const adminsMarkup = typeof groupManage.formatGroupInfoCollectionMarkup === 'function'
+                ? groupManage.formatGroupInfoCollectionMarkup(admins, '暂无群管理员')
+                : escapeHtml(adminsText);
+            const authorsMarkup = typeof groupManage.formatGroupInfoCollectionMarkup === 'function'
+                ? groupManage.formatGroupInfoCollectionMarkup(authors, '暂无可清空聊天记录成员')
+                : escapeHtml(authorsText);
             const statusText = detail.hidden_for_all ? '已对全员隐藏' : '正常显示';
             if (groupInfoTitleEl) groupInfoTitleEl.textContent = '聊天信息(' + memberCount + ')';
             const heroTitle = String(detail.conversation_title || '群聊');
@@ -339,9 +352,9 @@
             settingsPanelBodyEl.innerHTML = heroMarkup + '<div class="ak-im-group-info-members">' + memberGridMarkup + (showMoreMembers ? '<button class="ak-im-group-info-more" type="button" data-im-settings-action="toggle_members">' + escapeHtml(membersExpanded ? '收起群成员' : '更多群成员') + '<span aria-hidden="true">⌄</span></button>' : '') + '</div>' +
                 '<div class="ak-im-group-info-section">' +
                     groupManage.buildGroupInfoCell('群聊名称', String(detail.conversation_title || '群聊')) +
-                    groupManage.buildGroupInfoCell('群主', ownerText) +
-                    groupManage.buildGroupInfoCell('群管理员', adminsText) +
-                    groupManage.buildGroupInfoCell('可清空聊天记录成员', authorsText) +
+                    groupManage.buildGroupInfoCell('群主', ownerMarkup, '', '', true) +
+                    groupManage.buildGroupInfoCell('群管理员', adminsMarkup, '', '', true) +
+                    groupManage.buildGroupInfoCell('可清空聊天记录成员', authorsMarkup, '', '', true) +
                     groupManage.buildGroupInfoCell('群状态', statusText) +
                 '</div>' +
                 (canManage ? '<div class="ak-im-group-info-section">' +
@@ -509,14 +522,20 @@
             const filteredCandidates = groupManage.filterMemberActionCandidates(candidates, state.memberActionKeyword);
             const escapeHtml = this.ctx.escapeHtml;
             const selectedMarkup = selectedCandidates.length ? '<div class="ak-im-member-action-chip-list">' + selectedCandidates.map(function(candidate) {
-                return '<button class="ak-im-member-action-chip" type="button" data-im-member-chip="' + escapeHtml(candidate.username) + '"><span class="ak-im-member-action-chip-label">' + escapeHtml(groupManage.formatMemberActionCandidateLabel(candidate)) + '</span><span class="ak-im-member-action-chip-remove" aria-hidden="true">×</span></button>';
+                const chipLabelMarkup = typeof groupManage.buildMemberActionCandidateNameMarkup === 'function'
+                    ? groupManage.buildMemberActionCandidateNameMarkup(candidate)
+                    : escapeHtml(groupManage.formatMemberActionCandidateLabel(candidate));
+                return '<button class="ak-im-member-action-chip" type="button" data-im-member-chip="' + escapeHtml(candidate.username) + '"><span class="ak-im-member-action-chip-label">' + chipLabelMarkup + '</span><span class="ak-im-member-action-chip-remove" aria-hidden="true">×</span></button>';
             }).join('') + '</div>' : '<div class="ak-im-member-action-selected-empty">暂未选择成员</div>';
             const listMarkup = filteredCandidates.length ? '<div class="ak-im-member-action-list">' + filteredCandidates.map(function(candidate) {
                 const isSelected = selectedUsernames.indexOf(candidate.username) >= 0;
                 const reasonClass = candidate.disabledReason === '无聊天记录' ? ' is-muted' : '';
+                const candidateNameMarkup = typeof groupManage.buildMemberActionCandidateNameMarkup === 'function'
+                    ? groupManage.buildMemberActionCandidateNameMarkup(candidate)
+                    : escapeHtml(candidate.displayName || candidate.username || '未知成员');
                 return '<button class="ak-im-member-action-row' + (candidate.selectable ? '' : ' is-disabled') + '" type="button" data-im-member-option="' + escapeHtml(candidate.username) + '"' + (candidate.selectable ? '' : ' disabled') + '>' +
                     overlayModule.ctx.buildAvatarBoxMarkup('ak-im-member-action-avatar', candidate.avatarUrl, candidate.displayName || candidate.username || '成员', (candidate.displayName || candidate.username || '成员') + '头像') +
-                    '<div class="ak-im-member-action-main"><div class="ak-im-member-action-name">' + escapeHtml(candidate.displayName || candidate.username || '未知成员') + '</div>' +
+                    '<div class="ak-im-member-action-main"><div class="ak-im-member-action-name">' + candidateNameMarkup + '</div>' +
                     '<div class="ak-im-member-action-meta"><span>@' + escapeHtml(candidate.username || 'unknown') + '</span>' +
                     (candidate.roleLabel ? '<span class="ak-im-member-action-role">' + escapeHtml(candidate.roleLabel) + '</span>' : '') +
                     (candidate.disabledReason ? '<span class="ak-im-member-action-reason' + reasonClass + '">' + escapeHtml(candidate.disabledReason) + '</span>' : '') +

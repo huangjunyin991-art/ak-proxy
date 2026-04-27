@@ -451,8 +451,13 @@
             const stateBadge = stateInfo.label
                 ? `<span class="ak-im-meeting-state" style="color:${stateInfo.color};border-color:${stateInfo.color}">${esc(stateInfo.label)}</span>`
                 : '';
+            const senderNameMarkup = meeting.sender_display_name || meeting.sender_username
+                ? (this.ctx && typeof this.ctx.buildDisplayNameWithHonorMarkup === 'function'
+                    ? this.ctx.buildDisplayNameWithHonorMarkup(meeting.sender_display_name || meeting.sender_username, meeting.sender_honor_name, '发布者')
+                    : esc(meeting.sender_display_name || meeting.sender_username))
+                : '';
             const senderLine = meeting.sender_display_name || meeting.sender_username
-                ? `<div class="ak-im-meeting-row ak-im-meeting-sender">发布者：${esc(meeting.sender_display_name || meeting.sender_username)}</div>`
+                ? `<div class="ak-im-meeting-row ak-im-meeting-sender">发布者：${senderNameMarkup}</div>`
                 : '';
             const creatorLine = meeting.creator_nickname && meeting.creator_nickname !== (meeting.sender_display_name || '')
                 ? `<div class="ak-im-meeting-row">主持人：${esc(meeting.creator_nickname)}</div>`
