@@ -383,6 +383,34 @@ async def _sync_im_whitelist_group_owners(owners: Iterable[str]) -> None:
 
 
 
+async def _ensure_sub_admin_bound_account_authorized_and_sync(sub_name: str, bound_username: str) -> dict:
+
+    normalized_sub_name = str(sub_name or '').strip()
+
+    normalized_username = str(bound_username or '').strip().lower()
+
+    if not normalized_sub_name or not normalized_username:
+
+        return {}
+
+    existing_account = await db.get_authorized_account(normalized_username)
+
+    previous_owner = str((existing_account or {}).get('added_by') or '').strip().lower()
+
+    await db.ensure_sub_admin_bound_account_authorized(normalized_sub_name, normalized_username)
+
+    refreshed_sub_admin = await db.db_get_sub_admin(normalized_sub_name)
+
+    if refreshed_sub_admin:
+
+        SUB_ADMINS[normalized_sub_name] = refreshed_sub_admin
+
+    await _sync_im_whitelist_group_owners({normalized_sub_name, previous_owner})
+
+    return refreshed_sub_admin or {}
+
+
+
 async def _get_im_internal_json(path: str) -> tuple[int, dict]:
 
     url = f"{IM_SERVER_INTERNAL_URL}{path}"
@@ -3970,9 +3998,12 @@ async def admin_sub_admin_set(request: Request):
         )
 
 
-        SUB_ADMINS[sub_name] = saved_sub_admin
+        refreshed_sub_admin = await _ensure_sub_admin_bound_account_authorized_and_sync(
+            sub_name,
+            saved_sub_admin.get('bound_username', bound_username)
+        )
 
-        await _sync_im_whitelist_group_owners({sub_name})
+        SUB_ADMINS[sub_name] = refreshed_sub_admin or saved_sub_admin
 
         return {"success": True, "message": f"子管理员 [{sub_name}] {'更新' if is_update else '添加'}成功"}
 
@@ -4022,8 +4053,16 @@ async def admin_sub_admin_bind_account(request: Request):
 
         op = binding_result['op']
 
-        # 仅在绑定新增或换绑（写入新账号）时触发 IM 主群同步；解绑场景保持旧群主不变
-        if op in ('created', 'updated'):
+        # 有绑定账号时补齐白名单授权并同步 IM 主群；解绑场景保持旧群主不变
+        if bound_username:
+
+            refreshed_sub_admin = await _ensure_sub_admin_bound_account_authorized_and_sync(sub_name, bound_username)
+
+            if refreshed_sub_admin:
+
+                SUB_ADMINS[sub_name] = refreshed_sub_admin
+
+        elif op in ('created', 'updated'):
 
             await _sync_im_whitelist_group_owners({sub_name})
 

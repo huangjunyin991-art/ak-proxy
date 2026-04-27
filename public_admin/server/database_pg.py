@@ -1718,6 +1718,45 @@ async def get_authorized_account(username: str) -> Optional[Dict]:
         return dict(row) if row else None
 
 
+async def ensure_sub_admin_bound_account_authorized(sub_name: str, bound_username: str) -> Dict:
+    normalized_sub_name = str(sub_name or '').strip()
+    normalized_username = _normalize_bound_account_username(bound_username)
+    if not normalized_sub_name:
+        raise ValueError('子管理员名称不能为空')
+    if not normalized_username:
+        raise ValueError('绑定账号不能为空')
+    now = datetime.now()
+    expire_time = datetime(2099, 12, 31, 23, 59, 59)
+    pool = _get_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow('''
+            INSERT INTO authorized_accounts
+                (username, password, added_by, plan_type, credits_cost, start_time, expire_time, status, remark, nickname)
+            VALUES ($1, '', $2, 'sub_admin_bound', 0, $3, $4, 'active', '子管理员绑定账号自动授权', '')
+            ON CONFLICT(username) DO UPDATE SET
+                added_by=$2,
+                plan_type=CASE
+                    WHEN COALESCE(authorized_accounts.plan_type, '') = '' THEN 'sub_admin_bound'
+                    ELSE authorized_accounts.plan_type
+                END,
+                expire_time=GREATEST(authorized_accounts.expire_time, $4),
+                status='active',
+                remark=CASE
+                    WHEN COALESCE(authorized_accounts.remark, '') = '' THEN '子管理员绑定账号自动授权'
+                    ELSE authorized_accounts.remark
+                END,
+                updated_at=NOW()
+            RETURNING id, username, added_by, status, expire_time
+        ''', normalized_username, normalized_sub_name, now, expire_time)
+        return {
+            'id': row['id'],
+            'username': row['username'],
+            'added_by': row['added_by'],
+            'status': row['status'],
+            'expire_time': str(row['expire_time'])
+        }
+
+
 async def toggle_persistent_login(username: str, enabled: bool) -> bool:
     """切换账号的强化登录开关"""
     pool = _get_pool()
