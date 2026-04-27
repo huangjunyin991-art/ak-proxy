@@ -411,6 +411,42 @@ async def _ensure_sub_admin_bound_account_authorized_and_sync(sub_name: str, bou
 
 
 
+async def _reconcile_sub_admin_bound_accounts_on_startup() -> None:
+
+    repaired_count = 0
+
+    skipped_count = 0
+
+    failed_count = 0
+
+    for sub_name, sub_data in list(SUB_ADMINS.items()):
+
+        normalized_sub_name = str(sub_name or '').strip()
+
+        bound_username = str((sub_data or {}).get('bound_username') or '').strip().lower() if isinstance(sub_data, dict) else ''
+
+        if not normalized_sub_name or not bound_username:
+
+            skipped_count += 1
+
+            continue
+
+        try:
+
+            await _ensure_sub_admin_bound_account_authorized_and_sync(normalized_sub_name, bound_username)
+
+            repaired_count += 1
+
+        except Exception as e:
+
+            failed_count += 1
+
+            logger.warning(f"[SubAdmin] 启动修复绑定账号失败 sub={normalized_sub_name} username={bound_username}: {e}")
+
+    logger.info(f"[SubAdmin] 启动修复绑定账号完成 repaired={repaired_count} skipped={skipped_count} failed={failed_count}")
+
+
+
 async def _get_im_internal_json(path: str) -> tuple[int, dict]:
 
     url = f"{IM_SERVER_INTERNAL_URL}{path}"
@@ -3348,6 +3384,8 @@ async def admin_startup():
         SUB_ADMINS = await db.db_get_all_sub_admins()
 
         logger.info(f"[SubAdmin] 加载了 {len(SUB_ADMINS)} 个子管理员")
+
+        await _reconcile_sub_admin_bound_accounts_on_startup()
 
     except Exception as e:
 
