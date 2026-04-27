@@ -44,6 +44,11 @@
             src: `${window.location.origin}/chat/plugins/im/user/modules/im_app_shell.js`
         },
         {
+            selector: 'script[data-ak-im-user-plugin-honor-badge="1"]',
+            datasetKey: 'akImUserPluginHonorBadge',
+            src: `${window.location.origin}/chat/plugins/im/user/modules/honor_badge/im_honor_badge.js`
+        },
+        {
             selector: 'script[data-ak-im-user-plugin-client="1"]',
             datasetKey: 'akImUserPluginClient',
             src: `${window.location.origin}/chat/plugins/im/user/im_client.js`

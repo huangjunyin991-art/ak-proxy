@@ -48,6 +48,8 @@
                 #ak-im-root .ak-im-name-with-honor{display:inline-flex;align-items:center;gap:6px;min-width:0;max-width:100%;vertical-align:middle}
                 #ak-im-root .ak-im-name-text{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
                 #ak-im-root .ak-im-honor-badge{display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto;max-width:112px;min-height:18px;padding:0 6px;border-radius:999px;background:rgba(7,193,96,.12);color:#16a34a;font-size:10px;font-weight:700;line-height:1.1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+                #ak-im-root .ak-im-honor-badge.ak-im-honor-badge--rich{max-width:none;min-height:0;padding:0;background:transparent;color:inherit;line-height:0;overflow:visible}
+                #ak-im-root .ak-im-honor-badge-svg{display:block;width:56px;height:34px;flex:0 0 auto}
                 #ak-im-root .ak-im-nav-btn{height:34px;border:none;background:transparent;color:#111827;padding:0 8px;font-size:15px;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;border-radius:10px}
                 #ak-im-root .ak-im-nav-btn.is-hidden{opacity:0;pointer-events:none}
                 #ak-im-root .ak-im-nav-btn svg{width:20px;height:20px;stroke:currentColor}

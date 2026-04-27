@@ -1914,10 +1914,25 @@
         return String(value || '').trim();
     }
 
+    function getHonorBadgeModule() {
+        const modules = window.AKIMUserModules;
+        if (!modules || typeof modules !== 'object') return null;
+        const honorBadgeModule = modules.honorBadge;
+        if (!honorBadgeModule || typeof honorBadgeModule.buildBadgeMarkup !== 'function') return null;
+        return honorBadgeModule;
+    }
+
     function buildHonorBadgeMarkup(honorName, className) {
         const normalizedHonorName = normalizeHonorName(honorName);
         if (!normalizedHonorName) return '';
         const badgeClassName = String(className || 'ak-im-honor-badge').trim() || 'ak-im-honor-badge';
+        const honorBadgeModule = getHonorBadgeModule();
+        if (honorBadgeModule) {
+            const richMarkup = honorBadgeModule.buildBadgeMarkup(normalizedHonorName, badgeClassName);
+            if (typeof richMarkup === 'string' && richMarkup) {
+                return richMarkup;
+            }
+        }
         return '<span class="' + badgeClassName + '">' + escapeHtml(normalizedHonorName) + '</span>';
     }
 
