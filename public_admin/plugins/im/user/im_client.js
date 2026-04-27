@@ -8,6 +8,8 @@
     const API_ROOT = window.location.origin;
     const HTTP_ROOT = `${API_ROOT}/im/api`;
     const widgetAssetVersion = String(window.__AK_WIDGET_ASSET_VERSION__ || '').trim();
+    const BOOTSTRAP_IDENTITY_RETRY_DELAYS = [120, 250, 500, 900, 1500, 2400, 3600];
+    const BOOTSTRAP_REQUEST_RETRY_DELAYS = [800, 1800, 3200];
     const lazyModuleScriptConfigs = {
         profile: {
             selector: 'script[data-ak-im-user-plugin-profile="1"]',
@@ -1532,6 +1534,24 @@
         } catch (e) {
             return baseUrl;
         }
+    }
+
+    function buildBootstrapUrl() {
+        const url = `${HTTP_ROOT}/bootstrap`;
+        try {
+            const finalUrl = new URL(url);
+            const username = getCanonicalUsername();
+            if (username) finalUrl.searchParams.set('username', username);
+            return finalUrl.toString();
+        } catch (e) {
+            return url;
+        }
+    }
+
+    function waitMs(delay) {
+        return new Promise(function(resolve) {
+            setTimeout(resolve, delay);
+        });
     }
 
     function request(url, options) {
@@ -3090,8 +3110,50 @@
         });
     }
 
-    function loadBootstrap() {
-        return request(`${HTTP_ROOT}/bootstrap`).then(function(data) {
+    function applyBootstrapUnavailable() {
+        state.allowed = false;
+        state.ready = true;
+        state.emojiPanelOpen = false;
+        state.plusPanelOpen = false;
+        state.emojiPanelTab = 'standard';
+        state.emojiAssets = [];
+        state.emojiAssetsLoaded = false;
+        state.emojiAssetsLoading = false;
+        state.emojiAssetsError = '';
+        window.AKIMEmojiAssets = [];
+        window.AK_IM_EMOJI_ASSETS = [];
+        state.contacts = [];
+        state.contactsLoaded = false;
+        state.contactsLoading = false;
+        state.contactsError = '';
+        state.profile = null;
+        state.profileLoaded = false;
+        state.profileLoading = false;
+        state.profileError = '';
+        state.profileRefreshing = false;
+        state.profileSaving = false;
+        state.profileSaveError = '';
+        state.profileAvatarHistory = [];
+        state.profileAvatarHistoryLoaded = false;
+        state.profileAvatarHistoryLoading = false;
+        state.profileAvatarHistoryError = '';
+        state.profileAvatarHistoryActionId = 0;
+        state.profileAvatarHistoryActionType = '';
+        state.profileAvatarActionError = '';
+        state.profileDraftNickname = '';
+        state.profileDraftGender = 'unknown';
+        state.profileDraftDirty = false;
+        state.sessions = [];
+        state.activeConversationId = 0;
+        state.activeMessages = [];
+        state.activeMessagesLoading = false;
+        render();
+        return null;
+    }
+
+    function loadBootstrap(retryCount) {
+        const currentRetryCount = Number(retryCount || 0);
+        return request(buildBootstrapUrl()).then(function(data) {
             const bootstrapEmojiAssets = Array.isArray(data && data.emoji_assets)
                 ? data.emoji_assets
                 : (Array.isArray(data && data.custom_emoji_assets) ? data.custom_emoji_assets : []);
@@ -3156,44 +3218,27 @@
                 return null;
             });
         }).catch(function() {
-            state.allowed = false;
-            state.ready = true;
-            state.emojiPanelOpen = false;
-            state.plusPanelOpen = false;
-            state.emojiPanelTab = 'standard';
-            state.emojiAssets = [];
-            state.emojiAssetsLoaded = false;
-            state.emojiAssetsLoading = false;
-            state.emojiAssetsError = '';
-            window.AKIMEmojiAssets = [];
-            window.AK_IM_EMOJI_ASSETS = [];
-            state.contacts = [];
-            state.contactsLoaded = false;
-            state.contactsLoading = false;
-            state.contactsError = '';
-            state.profile = null;
-            state.profileLoaded = false;
-            state.profileLoading = false;
-            state.profileError = '';
-            state.profileRefreshing = false;
-            state.profileSaving = false;
-            state.profileSaveError = '';
-            state.profileAvatarHistory = [];
-            state.profileAvatarHistoryLoaded = false;
-            state.profileAvatarHistoryLoading = false;
-            state.profileAvatarHistoryError = '';
-            state.profileAvatarHistoryActionId = 0;
-            state.profileAvatarHistoryActionType = '';
-            state.profileAvatarActionError = '';
-            state.profileDraftNickname = '';
-            state.profileDraftGender = 'unknown';
-            state.profileDraftDirty = false;
-            state.sessions = [];
-            state.activeConversationId = 0;
-            state.activeMessages = [];
-            state.activeMessagesLoading = false;
-            render();
-            return null;
+            const retryDelay = BOOTSTRAP_REQUEST_RETRY_DELAYS[currentRetryCount];
+            if (getCanonicalUsername() && retryDelay) {
+                return waitMs(retryDelay).then(function() {
+                    return loadBootstrap(currentRetryCount + 1);
+                });
+            }
+            return applyBootstrapUnavailable();
+        });
+    }
+
+    function loadBootstrapWhenIdentityReady(attempt) {
+        const currentAttempt = Number(attempt || 0);
+        if (getCanonicalUsername()) {
+            return loadBootstrap(0);
+        }
+        const retryDelay = BOOTSTRAP_IDENTITY_RETRY_DELAYS[currentAttempt];
+        if (!retryDelay) {
+            return applyBootstrapUnavailable();
+        }
+        return waitMs(retryDelay).then(function() {
+            return loadBootstrapWhenIdentityReady(currentAttempt + 1);
         });
     }
 
@@ -3307,7 +3352,7 @@
         ensureRoot();
         bindComposerOutsideDismissEvents();
         render();
-        loadBootstrap();
+        loadBootstrapWhenIdentityReady(0);
     }
 
     if (document.readyState === 'loading') {
