@@ -1843,9 +1843,9 @@ func (a *App) syncWhitelistGroupByAdmin(ctx context.Context, addedBy string, mem
 	defer tx.Rollback(ctx)
 	var conversationID int64
 	currentOwner := ""
-	err = tx.QueryRow(ctx, `SELECT id, COALESCE(owner_username, '') FROM im_conversation WHERE conversation_key = $1`, conversationKey).Scan(&conversationID, &currentOwner)
-	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-		return err
+	conversationLookupErr := tx.QueryRow(ctx, `SELECT id, COALESCE(owner_username, '') FROM im_conversation WHERE conversation_key = $1`, conversationKey).Scan(&conversationID, &currentOwner)
+	if conversationLookupErr != nil && !errors.Is(conversationLookupErr, pgx.ErrNoRows) {
+		return conversationLookupErr
 	}
 	currentOwner = strings.ToLower(strings.TrimSpace(currentOwner))
 	resolvedOwner, err := a.loadWhitelistGroupBoundOwnerUsernameTx(ctx, tx, normalizedAdminKey)
@@ -1860,7 +1860,7 @@ func (a *App) syncWhitelistGroupByAdmin(ctx context.Context, addedBy string, mem
 		affectedUsers[resolvedOwner] = struct{}{}
 	}
 	title := whitelistMainGroupTitle
-	conversationExists := !errors.Is(err, pgx.ErrNoRows)
+	conversationExists := !errors.Is(conversationLookupErr, pgx.ErrNoRows)
 	if !conversationExists && len(whitelistMembers) < 1 {
 		return tx.Commit(ctx)
 	}
