@@ -2317,13 +2317,20 @@
     }
 
     function hasUnreadSessions() {
+        return getUnreadSessionTotal() > 0;
+    }
+
+    function getUnreadSessionTotal() {
         const sessionManageModule = getSessionManageModule();
-        return state.sessions.some(function(item) {
+        return state.sessions.reduce(function(sum, item) {
+            let unreadCount = 0;
             if (sessionManageModule && typeof sessionManageModule.getUnreadCount === 'function') {
-                return sessionManageModule.getUnreadCount(item) > 0;
+                unreadCount = Number(sessionManageModule.getUnreadCount(item) || 0);
+            } else {
+                unreadCount = Number(item && (item.unread_count || item.unread || 0) || 0);
             }
-            return Number(item && (item.unread_count || item.unread || 0) || 0) > 0;
-        });
+            return sum + Math.max(0, unreadCount);
+        }, 0);
     }
 
     function getHomeSearchPillText(tab) {
@@ -2359,13 +2366,16 @@
             showMemberAction: !!showMemberAction,
             showProfileSubpage: !!showProfileSubpage,
             hasUnread: hasUnreadSessions(),
+            chatUnread: getUnreadSessionTotal(),
             homeTab: homeTab,
             homeTabTitle: getHomeTabTitle(homeTab),
             showSessionNewButton: homeTab === 'chats',
             searchPillText: getHomeSearchPillText(homeTab),
             meetingsUnread: (function() {
                 const m = getMeetingManageModule();
-                return m && typeof m.getUnreadCount === 'function' ? Number(m.getUnreadCount() || 0) : 0;
+                if (!m) return 0;
+                if (typeof m.getTabUnreadCount === 'function') return Number(m.getTabUnreadCount() || 0);
+                return typeof m.getUnreadCount === 'function' ? Number(m.getUnreadCount() || 0) : 0;
             })()
         };
     }
@@ -2464,6 +2474,9 @@
         }
         if (normalizedTab === 'meetings') {
             const meetingModule = getMeetingManageModule();
+            if (meetingModule && state.meetingsLoaded && typeof meetingModule.markTabSeen === 'function') {
+                meetingModule.markTabSeen();
+            }
             if (meetingModule && typeof meetingModule.loadMeetings === 'function' && !state.meetingsLoading) {
                 meetingModule.loadMeetings();
             }
@@ -2484,6 +2497,11 @@
     function renderHomeShell(shellState) {
         if (!root) return;
         const nextShellState = shellState || getShellRenderState();
+        const formatTabBadgeCount = function(value) {
+            const count = Math.max(0, Number(value || 0) || 0);
+            if (!count) return '';
+            return count > 999 ? '999+' : String(count);
+        };
         if (sessionTopbarTitleEl) {
             sessionTopbarTitleEl.textContent = nextShellState.homeTabTitle;
         }
@@ -2495,7 +2513,14 @@
             searchPill.textContent = nextShellState.searchPillText;
         }
         Array.prototype.forEach.call(root.querySelectorAll('[data-im-home-tab]'), function(button) {
-            button.classList.toggle('is-active', button.getAttribute('data-im-home-tab') === nextShellState.homeTab);
+            const tabName = button.getAttribute('data-im-home-tab');
+            const badgeEl = button.querySelector('.ak-im-home-tab-badge');
+            let badgeText = '';
+            button.classList.toggle('is-active', tabName === nextShellState.homeTab);
+            if (tabName === 'chats') badgeText = formatTabBadgeCount(nextShellState.chatUnread);
+            else if (tabName === 'meetings') badgeText = formatTabBadgeCount(nextShellState.meetingsUnread);
+            button.classList.toggle('has-unread', !!badgeText);
+            if (badgeEl) badgeEl.textContent = badgeText;
         });
         Array.prototype.forEach.call(root.querySelectorAll('[data-im-home-panel]'), function(panelNode) {
             panelNode.classList.toggle('is-active', panelNode.getAttribute('data-im-home-panel') === nextShellState.homeTab);

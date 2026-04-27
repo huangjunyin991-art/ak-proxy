@@ -136,8 +136,8 @@
                 #ak-im-root .ak-im-home-tab-btn svg{width:22px;height:22px;stroke:currentColor}
                 #ak-im-root .ak-im-home-tab-btn span{font-size:11px;line-height:1.2}
                 #ak-im-root .ak-im-home-tab-btn.is-active{color:#07c160;background:rgba(7,193,96,.06)}
-                #ak-im-root .ak-im-home-tab-badge{position:absolute;top:8px;right:calc(50% - 22px);min-width:8px;height:8px;border-radius:999px;background:#f43f5e;box-shadow:0 0 0 2px #ffffff;display:none}
-                #ak-im-root .ak-im-home-tab-btn.has-unread .ak-im-home-tab-badge{display:block}
+                #ak-im-root .ak-im-home-tab-badge{position:absolute;top:5px;right:calc(50% - 23px);min-width:18px;height:18px;padding:0 5px;border-radius:999px;background:#ff5a5f;color:#ffffff;font-size:11px;font-weight:700;line-height:18px;text-align:center;box-sizing:border-box;box-shadow:0 0 0 2px #ffffff;display:none}
+                #ak-im-root .ak-im-home-tab-btn.has-unread .ak-im-home-tab-badge{display:inline-flex;align-items:center;justify-content:center}
                 #ak-im-root .ak-im-home-panel[data-im-home-panel="meetings"]{background:#f2f3f5}
                 #ak-im-root .ak-im-meeting-toolbar{display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:#ffffff;border-bottom:1px solid rgba(15,23,42,.05)}
                 #ak-im-root .ak-im-meeting-head-title{font-size:15px;font-weight:600;color:#111827}
@@ -533,6 +533,7 @@
                             <button class="ak-im-home-tab-btn is-active" type="button" data-im-home-tab="chats" aria-label="聊天">
                                 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 6.75C6.5 5.78 7.28 5 8.4 5H13.05C14.24 5 15.2 5.78 15.2 6.75V9.85C15.2 11.04 14.24 12 13.05 12H10.15L7.45 14.08C7.17 14.3 6.75 14.1 6.75 13.75V12H6.25V6.75Z" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
                                 <span>聊天</span>
+                                <span class="ak-im-home-tab-badge" aria-hidden="true"></span>
                             </button>
                             <button class="ak-im-home-tab-btn" type="button" data-im-home-tab="contacts" aria-label="通讯录">
                                 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 12a3.4 3.4 0 1 0 0-6.8 3.4 3.4 0 0 0 0 6.8Zm-5.4 6.3c.42-2.44 2.66-4.2 5.4-4.2s4.98 1.76 5.4 4.2" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><path d="M5.2 7.6h.01M18.8 7.6h.01" stroke-width="2.2" stroke-linecap="round"/></svg>
@@ -868,6 +869,11 @@
         renderShell(shellState) {
             if (!this.elements || !this.elements.root || !this.ctx || typeof this.ctx.getShellState !== 'function') return;
             const nextShellState = shellState || this.ctx.getShellState() || {};
+            const formatTabBadgeCount = function(value) {
+                const count = Math.max(0, Number(value || 0) || 0);
+                if (!count) return '';
+                return count > 999 ? '999+' : String(count);
+            };
             const root = this.elements.root;
             root.classList.toggle('ak-visible', !!nextShellState.allowed);
             root.classList.toggle('ak-im-open', !!nextShellState.open);
@@ -890,12 +896,17 @@
             if (this.elements.searchPillEl && typeof nextShellState.searchPillText === 'string') {
                 this.elements.searchPillEl.textContent = nextShellState.searchPillText;
             }
+            const chatUnread = Number(nextShellState.chatUnread || 0);
             const meetingsUnread = Number(nextShellState.meetingsUnread || 0);
             Array.prototype.forEach.call(this.elements.homeTabButtons || [], function(button) {
-                button.classList.toggle('is-active', button.getAttribute('data-im-home-tab') === nextShellState.homeTab);
-                if (button.getAttribute('data-im-home-tab') === 'meetings') {
-                    button.classList.toggle('has-unread', meetingsUnread > 0);
-                }
+                const tabName = button.getAttribute('data-im-home-tab');
+                const badgeEl = button.querySelector('.ak-im-home-tab-badge');
+                let badgeText = '';
+                button.classList.toggle('is-active', tabName === nextShellState.homeTab);
+                if (tabName === 'chats') badgeText = formatTabBadgeCount(chatUnread);
+                else if (tabName === 'meetings') badgeText = formatTabBadgeCount(meetingsUnread);
+                button.classList.toggle('has-unread', !!badgeText);
+                if (badgeEl) badgeEl.textContent = badgeText;
             });
             Array.prototype.forEach.call(this.elements.homePanelNodes || [], function(panelNode) {
                 panelNode.classList.toggle('is-active', panelNode.getAttribute('data-im-home-panel') === nextShellState.homeTab);
