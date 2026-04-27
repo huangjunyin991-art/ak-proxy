@@ -57,6 +57,7 @@ type BootstrapResponse struct {
 	Allowed           bool   `json:"allowed"`
 	Username          string `json:"username"`
 	DisplayName       string `json:"display_name"`
+	HonorName         string `json:"honor_name,omitempty"`
 	AvatarURL         string `json:"avatar_url,omitempty"`
 	EmojiAssets       []EmojiAssetItem `json:"emoji_assets,omitempty"`
 	RetentionDays     int    `json:"retention_days"`
@@ -74,6 +75,7 @@ type SessionItem struct {
 	MembersPreview     []SessionMemberItem `json:"members_preview,omitempty"`
 	PeerUsername       string `json:"peer_username,omitempty"`
 	PeerDisplayName    string `json:"peer_display_name,omitempty"`
+	PeerHonorName      string `json:"peer_honor_name,omitempty"`
 	PinType            string `json:"pin_type,omitempty"`
 	PinnedAt           string `json:"pinned_at,omitempty"`
 	IsPinned           bool   `json:"is_pinned"`
@@ -88,6 +90,7 @@ type MessageItem struct {
 	ConversationID    int64  `json:"conversation_id"`
 	SenderUsername    string `json:"sender_username"`
 	SenderDisplayName string `json:"sender_display_name,omitempty"`
+	SenderHonorName   string `json:"sender_honor_name,omitempty"`
 	SenderAvatarURL   string `json:"sender_avatar_url,omitempty"`
 	ClientTempID      string `json:"client_temp_id,omitempty"`
 	SeqNo             int64  `json:"seq_no"`
@@ -103,6 +106,7 @@ type MessageItem struct {
 type UserProfileItem struct {
 	Username    string `json:"username"`
 	DisplayName string `json:"display_name"`
+	HonorName   string `json:"honor_name,omitempty"`
 	Nickname    string `json:"nickname,omitempty"`
 	Gender      string `json:"gender,omitempty"`
 	AvatarStyle string `json:"avatar_style"`
@@ -120,6 +124,7 @@ type UserAvatarHistoryItem struct {
 type ContactItem struct {
 	Username    string `json:"username"`
 	DisplayName string `json:"display_name"`
+	HonorName   string `json:"honor_name,omitempty"`
 	AvatarURL   string `json:"avatar_url,omitempty"`
 }
 
@@ -651,13 +656,18 @@ func (a *App) buildUserProfileItem(ctx context.Context, username string) UserPro
 		profile.Nickname = ""
 		profile.Gender = "unknown"
 	}
-	avatarURL := strings.TrimSpace(profile.AvatarURL)
+	identity := a.buildUserIdentityItem(ctx, normalizedUsername)
+	avatarURL := strings.TrimSpace(identity.AvatarURL)
+	if avatarURL == "" {
+		avatarURL = strings.TrimSpace(profile.AvatarURL)
+	}
 	if avatarURL == "" {
 		avatarURL = buildDicebearAvatarURL(profile.AvatarStyle, buildAvatarSeed(normalizedUsername, profile.AvatarSeed))
 	}
 	return UserProfileItem{
 		Username:    normalizedUsername,
-		DisplayName: a.fetchDisplayName(ctx, normalizedUsername),
+		DisplayName: identity.DisplayName,
+		HonorName:   identity.HonorName,
 		Nickname:    strings.TrimSpace(profile.Nickname),
 		Gender:      normalizeProfileGender(profile.Gender),
 		AvatarStyle: normalizeAvatarStyle(profile.AvatarStyle),
@@ -966,6 +976,7 @@ func (a *App) listWhitelistContacts(ctx context.Context, username string) ([]Con
 		items = append(items, ContactItem{
 			Username:    member.Username,
 			DisplayName: member.DisplayName,
+			HonorName:   member.HonorName,
 			AvatarURL:   member.AvatarURL,
 		})
 	}
@@ -992,6 +1003,7 @@ func (a *App) handleBootstrap(w http.ResponseWriter, r *http.Request) {
 		Allowed:          true,
 		Username:         username,
 		DisplayName:      profile.DisplayName,
+		HonorName:        profile.HonorName,
 		AvatarURL:        profile.AvatarURL,
 		EmojiAssets:      a.loadBootstrapEmojiAssets(r.Context()),
 		RetentionDays:    180,
@@ -1215,9 +1227,11 @@ func (a *App) handleSessions(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
 			return
 		}
-		item.PeerDisplayName = a.fetchDisplayName(r.Context(), item.PeerUsername)
+		peerIdentity := a.buildUserIdentityItem(r.Context(), item.PeerUsername)
+		item.PeerDisplayName = peerIdentity.DisplayName
+		item.PeerHonorName = peerIdentity.HonorName
 		if item.ConversationType != "group" {
-			item.AvatarURL = a.getUserAvatarURL(r.Context(), item.PeerUsername)
+			item.AvatarURL = peerIdentity.AvatarURL
 		}
 		item.IsPinned = item.PinType == "system" || item.PinType == "manual"
 		if pinnedAt != nil {
@@ -1440,8 +1454,10 @@ func (a *App) handleListMessages(w http.ResponseWriter, r *http.Request, usernam
 			return
 		}
 		item.SentAt = sentAt.Format(time.RFC3339)
-		item.SenderDisplayName = a.fetchDisplayName(r.Context(), item.SenderUsername)
-		item.SenderAvatarURL = a.getUserAvatarURL(r.Context(), item.SenderUsername)
+		senderIdentity := a.buildUserIdentityItem(r.Context(), item.SenderUsername)
+		item.SenderDisplayName = senderIdentity.DisplayName
+		item.SenderHonorName = senderIdentity.HonorName
+		item.SenderAvatarURL = senderIdentity.AvatarURL
 		item = a.normalizeOutgoingMessageItem(r.Context(), item)
 		items = append(items, item)
 	}
@@ -1625,8 +1641,10 @@ func (a *App) insertMessage(ctx context.Context, conversationID int64, username 
 		return MessageItem{}, err
 	}
 	item.SentAt = sentAt.Format(time.RFC3339)
-	item.SenderDisplayName = a.fetchDisplayName(ctx, item.SenderUsername)
-	item.SenderAvatarURL = a.getUserAvatarURL(ctx, item.SenderUsername)
+	senderIdentity := a.buildUserIdentityItem(ctx, item.SenderUsername)
+	item.SenderDisplayName = senderIdentity.DisplayName
+	item.SenderHonorName = senderIdentity.HonorName
+	item.SenderAvatarURL = senderIdentity.AvatarURL
 	item.ClientTempID = strings.TrimSpace(req.ClientTempID)
 	item = a.normalizeOutgoingMessageItem(ctx, item)
 	if _, err := tx.Exec(ctx, `UPDATE im_conversation SET last_message_id = $1, last_message_preview = $2, last_message_at = NOW(), updated_at = NOW() WHERE id = $3`, item.ID, item.ContentPreview, conversationID); err != nil {
@@ -1672,8 +1690,10 @@ func (a *App) recallMessage(ctx context.Context, messageID int64, username strin
 		return MessageItem{}, errors.New("message already recalled")
 	}
 	item.SentAt = sentAt.Format(time.RFC3339)
-	item.SenderDisplayName = a.fetchDisplayName(ctx, item.SenderUsername)
-	item.SenderAvatarURL = a.getUserAvatarURL(ctx, item.SenderUsername)
+	senderIdentity := a.buildUserIdentityItem(ctx, item.SenderUsername)
+	item.SenderDisplayName = senderIdentity.DisplayName
+	item.SenderHonorName = senderIdentity.HonorName
+	item.SenderAvatarURL = senderIdentity.AvatarURL
 	if strings.EqualFold(strings.TrimSpace(item.MessageType), "text") {
 		item.Content = ""
 		item.ContentPreview = "[消息已撤回]"

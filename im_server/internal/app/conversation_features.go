@@ -50,6 +50,7 @@ type MessageReadProgressSummary struct {
 type MessageReadProgressMember struct {
 	Username    string `json:"username"`
 	DisplayName string `json:"display_name"`
+	HonorName   string `json:"honor_name,omitempty"`
 }
 
 type MessageReadProgressDetail struct {
@@ -62,6 +63,7 @@ type MessageReadProgressDetail struct {
 type SessionMemberItem struct {
 	Username    string `json:"username"`
 	DisplayName string `json:"display_name"`
+	HonorName   string `json:"honor_name,omitempty"`
 	AvatarURL   string `json:"avatar_url,omitempty"`
 	Role        string `json:"role,omitempty"`
 }
@@ -411,16 +413,16 @@ func (a *App) loadConversationAdmins(ctx context.Context, conversationID int64) 
 	if err != nil {
 		return nil, nil, err
 	}
+	identities := a.buildUserIdentityItems(ctx, usernames)
 	items := make([]SessionMemberItem, 0, len(usernames))
 	adminSet := map[string]struct{}{}
 	for _, username := range usernames {
 		adminSet[username] = struct{}{}
-		items = append(items, SessionMemberItem{
-			Username:    username,
-			DisplayName: a.fetchDisplayName(ctx, username),
-			AvatarURL:   a.getUserAvatarURL(ctx, username),
-			Role:        "admin",
-		})
+		identity, ok := identities[username]
+		if !ok {
+			identity = a.buildUserIdentityItem(ctx, username)
+		}
+		items = append(items, buildSessionMemberItemFromIdentity(identity, "admin"))
 	}
 	sort.Slice(items, func(left int, right int) bool {
 		leftName := strings.TrimSpace(items[left].DisplayName)
@@ -452,6 +454,7 @@ func (a *App) loadConversationMemberItems(ctx context.Context, conversationID in
 	}
 	defer rows.Close()
 	members := make([]SessionMemberItem, 0)
+	memberUsernames := make([]string, 0)
 	for rows.Next() {
 		var item SessionMemberItem
 		if err := rows.Scan(&item.Username, &item.Role); err != nil {
@@ -463,12 +466,21 @@ func (a *App) loadConversationMemberItems(ctx context.Context, conversationID in
 		} else if _, ok := adminSet[item.Username]; ok {
 			item.Role = "admin"
 		}
-		item.DisplayName = a.fetchDisplayName(ctx, item.Username)
-		item.AvatarURL = a.getUserAvatarURL(ctx, item.Username)
 		members = append(members, item)
+		memberUsernames = append(memberUsernames, item.Username)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
+	}
+	identities := a.buildUserIdentityItems(ctx, memberUsernames)
+	for index := range members {
+		identity, ok := identities[members[index].Username]
+		if !ok {
+			identity = a.buildUserIdentityItem(ctx, members[index].Username)
+		}
+		members[index].DisplayName = identity.DisplayName
+		members[index].HonorName = identity.HonorName
+		members[index].AvatarURL = identity.AvatarURL
 	}
 	sort.Slice(members, func(left int, right int) bool {
 		leftName := strings.TrimSpace(members[left].DisplayName)
@@ -524,12 +536,7 @@ func (a *App) buildConversationGroupProfileItem(ctx context.Context, conversatio
 		IsGroupAdmin:       isGroupAdmin,
 		CanManage:          canManage,
 		IsWhitelistManaged: isWhitelistManagedConversation(meta),
-		Owner: SessionMemberItem{
-			Username:    ownerUsername,
-			DisplayName: a.fetchDisplayName(ctx, ownerUsername),
-			AvatarURL:   a.getUserAvatarURL(ctx, ownerUsername),
-			Role:        "owner",
-		},
+		Owner:             buildSessionMemberItemFromIdentity(a.buildUserIdentityItem(ctx, ownerUsername), "owner"),
 		Members: members,
 		Admins:  admins,
 	}
@@ -559,7 +566,7 @@ func (a *App) loadConversationMessageAuthors(ctx context.Context, conversationID
 		return nil, err
 	}
 	defer rows.Close()
-	items := make([]SessionMemberItem, 0)
+	authorUsernames := make([]string, 0)
 	for rows.Next() {
 		var username string
 		if err := rows.Scan(&username); err != nil {
@@ -569,14 +576,19 @@ func (a *App) loadConversationMessageAuthors(ctx context.Context, conversationID
 		if normalizedUsername == "" {
 			continue
 		}
-		items = append(items, SessionMemberItem{
-			Username:    normalizedUsername,
-			DisplayName: a.fetchDisplayName(ctx, normalizedUsername),
-			AvatarURL:   a.getUserAvatarURL(ctx, normalizedUsername),
-		})
+		authorUsernames = append(authorUsernames, normalizedUsername)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
+	}
+	identities := a.buildUserIdentityItems(ctx, authorUsernames)
+	items := make([]SessionMemberItem, 0, len(authorUsernames))
+	for _, normalizedUsername := range authorUsernames {
+		identity, ok := identities[normalizedUsername]
+		if !ok {
+			identity = a.buildUserIdentityItem(ctx, normalizedUsername)
+		}
+		items = append(items, buildSessionMemberItemFromIdentity(identity, ""))
 	}
 	sort.Slice(items, func(left int, right int) bool {
 		leftName := strings.TrimSpace(items[left].DisplayName)
@@ -686,7 +698,7 @@ func (a *App) buildMessageReadProgressDetail(ctx context.Context, messageID int6
 	summary := buildMessageReadProgressSummary(members, senderUsername, seqNo, sentAt)
 	unreadMembers := make([]MessageReadProgressMember, 0)
 	normalizedSender := strings.ToLower(strings.TrimSpace(senderUsername))
-	cache := map[string]string{}
+	unreadUsernames := make([]string, 0)
 	for _, member := range members {
 		if !memberEffectiveAt(member, sentAt) {
 			continue
@@ -698,15 +710,15 @@ func (a *App) buildMessageReadProgressDetail(ctx context.Context, messageID int6
 		if member.LastReadSeqNo >= seqNo {
 			continue
 		}
-		displayName, ok := cache[normalizedUsername]
+		unreadUsernames = append(unreadUsernames, normalizedUsername)
+	}
+	identities := a.buildUserIdentityItems(ctx, unreadUsernames)
+	for _, normalizedUsername := range unreadUsernames {
+		identity, ok := identities[normalizedUsername]
 		if !ok {
-			displayName = a.fetchDisplayName(ctx, normalizedUsername)
-			cache[normalizedUsername] = displayName
+			identity = a.buildUserIdentityItem(ctx, normalizedUsername)
 		}
-		unreadMembers = append(unreadMembers, MessageReadProgressMember{
-			Username:    normalizedUsername,
-			DisplayName: displayName,
-		})
+		unreadMembers = append(unreadMembers, buildMessageReadProgressMemberFromIdentity(identity))
 	}
 	sort.Slice(unreadMembers, func(left int, right int) bool {
 		leftName := strings.TrimSpace(unreadMembers[left].DisplayName)
