@@ -57,13 +57,14 @@
                 #ak-im-root .ak-im-contact-search-input{flex:1;min-width:0;height:100%;border:none;background:transparent;padding:0;font-size:15px;color:#111827;outline:none}
                 #ak-im-root .ak-im-contact-search-input::placeholder{color:#9ca3af}
                 #ak-im-root .ak-im-contact-search-clear{width:22px;height:22px;border:none;border-radius:999px;background:#e5e7eb;color:#6b7280;padding:0;display:inline-flex;align-items:center;justify-content:center;font-size:13px;line-height:1;cursor:pointer;flex:0 0 auto}
-                #ak-im-root .ak-im-topbar-actions{justify-self:end;display:flex;align-items:center;gap:2px}
+                #ak-im-root .ak-im-topbar-actions{justify-self:end;display:flex;align-items:center;gap:4px}
                 #ak-im-root .ak-im-session-screen .ak-im-close,#ak-im-root .ak-im-session-screen .ak-im-contact-search-back{grid-column:1;grid-row:1;justify-self:start}
-                #ak-im-root .ak-im-session-screen .ak-im-session-topbar-title,#ak-im-root .ak-im-session-screen .ak-im-topbar-search-wrap{grid-column:2;grid-row:1}
+                #ak-im-root .ak-im-session-screen .ak-im-session-topbar-title,#ak-im-root .ak-im-topbar-search-wrap{grid-column:2;grid-row:1}
                 #ak-im-root .ak-im-session-screen .ak-im-new,#ak-im-root .ak-im-session-screen .ak-im-home-topbar-actions{grid-column:3;grid-row:1;justify-self:end}
                 #ak-im-root .ak-im-session-screen .ak-im-new.is-hidden{display:none}
                 #ak-im-root .ak-im-topbar-actions .ak-im-nav-btn.is-hidden{display:none}
                 #ak-im-root .ak-im-home-topbar-actions .ak-im-nav-btn{width:34px;height:34px;padding:0;color:#111827}
+                #ak-im-root .ak-im-home-topbar-actions .ak-im-home-add-trigger svg{width:18px;height:18px}
                 #ak-im-root.ak-contact-search-open .ak-im-close{display:none}
                 #ak-im-root.ak-contact-search-open .ak-im-contact-search-back{display:inline-flex}
                 #ak-im-root.ak-contact-search-open .ak-im-session-topbar-title{display:none}
@@ -557,7 +558,7 @@
                                 <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="11" cy="11" r="5.8" stroke-width="1.8"></circle><path d="m16 16 3.5 3.5" stroke-width="1.8" stroke-linecap="round"></path></svg>
                             </button>
                             <button class="ak-im-nav-btn ak-im-home-add-trigger" type="button" aria-label="添加好友入口">
-                                <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 7v10M7 12h10" stroke-width="1.8" stroke-linecap="round"></path></svg>
+                                <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="8" stroke-width="1.6"></circle><path d="M12 9v6M9 12h6" stroke-width="1.6" stroke-linecap="round"></path></svg>
                             </button>
                         </div>
                     </div>
