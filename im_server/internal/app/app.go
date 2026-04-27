@@ -206,6 +206,7 @@ func New(cfg config.Config) (*App, error) {
 	mux.HandleFunc("/im/api/profile", app.handleProfile)
 	mux.HandleFunc("/im/api/profile/avatar/history", app.handleProfileAvatarHistory)
 	mux.HandleFunc("/im/api/profile/avatar/refresh", app.handleProfileAvatarRefresh)
+	mux.HandleFunc("/im/api/profile/avatar/upload", app.handleProfileAvatarUpload)
 	mux.HandleFunc("/im/api/profile/avatar/select", app.handleProfileAvatarSelect)
 	mux.HandleFunc("/im/api/profile/avatar/favorite", app.handleProfileAvatarFavorite)
 	mux.HandleFunc("/im/api/profile/avatar/remove", app.handleProfileAvatarRemove)
@@ -369,6 +370,7 @@ func (a *App) ensureSchema(ctx context.Context) error {
 			gender TEXT NOT NULL DEFAULT 'unknown',
 			avatar_style TEXT NOT NULL DEFAULT 'thumbs',
 			avatar_seed TEXT NOT NULL DEFAULT '',
+			avatar_url TEXT NOT NULL DEFAULT '',
 			created_at TIMESTAMP NOT NULL DEFAULT NOW(),
 			updated_at TIMESTAMP NOT NULL DEFAULT NOW()
 		)`,
@@ -377,6 +379,7 @@ func (a *App) ensureSchema(ctx context.Context) error {
 			username TEXT NOT NULL,
 			avatar_style TEXT NOT NULL DEFAULT 'thumbs',
 			avatar_seed TEXT NOT NULL DEFAULT '',
+			avatar_url TEXT NOT NULL DEFAULT '',
 			is_favorite BOOLEAN NOT NULL DEFAULT FALSE,
 			created_at TIMESTAMP NOT NULL DEFAULT NOW()
 		)`,
@@ -401,6 +404,8 @@ func (a *App) ensureSchema(ctx context.Context) error {
 		`ALTER TABLE im_conversation_member ADD COLUMN IF NOT EXISTS pinned_at TIMESTAMP`,
 		`ALTER TABLE im_user_profile ADD COLUMN IF NOT EXISTS nickname TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE im_user_profile ADD COLUMN IF NOT EXISTS gender TEXT NOT NULL DEFAULT 'unknown'`,
+		`ALTER TABLE im_user_profile ADD COLUMN IF NOT EXISTS avatar_url TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE im_user_avatar_history ADD COLUMN IF NOT EXISTS avatar_url TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE im_user_avatar_history ADD COLUMN IF NOT EXISTS is_favorite BOOLEAN NOT NULL DEFAULT FALSE`,
 		`ALTER TABLE im_conversation_member DROP CONSTRAINT IF EXISTS im_conversation_member_conversation_id_username_key`,
 		`UPDATE im_conversation_member SET pin_type = CASE WHEN is_pinned THEN 'manual' ELSE 'none' END WHERE COALESCE(pin_type, '') = ''`,
@@ -568,6 +573,7 @@ type userProfileRecord struct {
 	Gender      string
 	AvatarStyle string
 	AvatarSeed  string
+	AvatarURL   string
 }
 
 func normalizeProfileGender(value string) string {
@@ -589,14 +595,15 @@ func (a *App) loadUserProfileRecord(ctx context.Context, username string) (userP
 		Gender:      "unknown",
 		AvatarStyle: defaultAvatarStyle,
 		AvatarSeed:  "",
+		AvatarURL:   "",
 	}
 	if normalizedUsername == "" {
 		return record, nil
 	}
 	err := a.db.QueryRow(ctx, `
-		SELECT COALESCE(nickname, ''), COALESCE(NULLIF(gender, ''), 'unknown'), COALESCE(NULLIF(avatar_style, ''), $2), COALESCE(avatar_seed, '')
+		SELECT COALESCE(nickname, ''), COALESCE(NULLIF(gender, ''), 'unknown'), COALESCE(NULLIF(avatar_style, ''), $2), COALESCE(avatar_seed, ''), COALESCE(avatar_url, '')
 		FROM im_user_profile
-		WHERE username = $1`, normalizedUsername, defaultAvatarStyle).Scan(&record.Nickname, &record.Gender, &record.AvatarStyle, &record.AvatarSeed)
+		WHERE username = $1`, normalizedUsername, defaultAvatarStyle).Scan(&record.Nickname, &record.Gender, &record.AvatarStyle, &record.AvatarSeed, &record.AvatarURL)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return record, nil
@@ -606,6 +613,7 @@ func (a *App) loadUserProfileRecord(ctx context.Context, username string) (userP
 	record.Gender = normalizeProfileGender(record.Gender)
 	record.AvatarStyle = normalizeAvatarStyle(record.AvatarStyle)
 	record.AvatarSeed = strings.TrimSpace(record.AvatarSeed)
+	record.AvatarURL = strings.TrimSpace(record.AvatarURL)
 	record.Nickname = strings.TrimSpace(record.Nickname)
 	return record, nil
 }
@@ -620,13 +628,16 @@ func (a *App) getUserAvatarURL(ctx context.Context, username string) string {
 	if normalizedUsername == "" {
 		return ""
 	}
-	avatarStyle, avatarSeed, err := a.loadUserAvatarProfile(ctx, normalizedUsername)
+	record, err := a.loadUserProfileRecord(ctx, normalizedUsername)
 	if err != nil {
 		log.Printf("load user avatar profile failed: username=%s err=%v", normalizedUsername, err)
-		avatarStyle = defaultAvatarStyle
-		avatarSeed = ""
+		record.AvatarStyle = defaultAvatarStyle
+		record.AvatarSeed = ""
 	}
-	return buildDicebearAvatarURL(avatarStyle, buildAvatarSeed(normalizedUsername, avatarSeed))
+	if strings.TrimSpace(record.AvatarURL) != "" {
+		return strings.TrimSpace(record.AvatarURL)
+	}
+	return buildDicebearAvatarURL(record.AvatarStyle, buildAvatarSeed(normalizedUsername, record.AvatarSeed))
 }
 
 func (a *App) buildUserProfileItem(ctx context.Context, username string) UserProfileItem {
@@ -636,8 +647,13 @@ func (a *App) buildUserProfileItem(ctx context.Context, username string) UserPro
 		log.Printf("build user profile item avatar load failed: username=%s err=%v", normalizedUsername, err)
 		profile.AvatarStyle = defaultAvatarStyle
 		profile.AvatarSeed = ""
+		profile.AvatarURL = ""
 		profile.Nickname = ""
 		profile.Gender = "unknown"
+	}
+	avatarURL := strings.TrimSpace(profile.AvatarURL)
+	if avatarURL == "" {
+		avatarURL = buildDicebearAvatarURL(profile.AvatarStyle, buildAvatarSeed(normalizedUsername, profile.AvatarSeed))
 	}
 	return UserProfileItem{
 		Username:    normalizedUsername,
@@ -645,7 +661,7 @@ func (a *App) buildUserProfileItem(ctx context.Context, username string) UserPro
 		Nickname:    strings.TrimSpace(profile.Nickname),
 		Gender:      normalizeProfileGender(profile.Gender),
 		AvatarStyle: normalizeAvatarStyle(profile.AvatarStyle),
-		AvatarURL:   buildDicebearAvatarURL(profile.AvatarStyle, buildAvatarSeed(normalizedUsername, profile.AvatarSeed)),
+		AvatarURL:   avatarURL,
 	}
 }
 
@@ -673,6 +689,7 @@ type avatarHistoryRecord struct {
 	Username    string
 	AvatarStyle string
 	AvatarSeed  string
+	AvatarURL   string
 	IsFavorite  bool
 	CreatedAt   time.Time
 }
@@ -681,10 +698,14 @@ func buildUserAvatarHistoryItem(username string, record avatarHistoryRecord) Use
 	normalizedUsername := strings.ToLower(strings.TrimSpace(username))
 	avatarStyle := normalizeAvatarStyle(record.AvatarStyle)
 	avatarSeed := strings.TrimSpace(record.AvatarSeed)
+	avatarURL := strings.TrimSpace(record.AvatarURL)
+	if avatarURL == "" {
+		avatarURL = buildDicebearAvatarURL(avatarStyle, buildAvatarSeed(normalizedUsername, avatarSeed))
+	}
 	return UserAvatarHistoryItem{
 		ID:          record.ID,
 		AvatarStyle: avatarStyle,
-		AvatarURL:   buildDicebearAvatarURL(avatarStyle, buildAvatarSeed(normalizedUsername, avatarSeed)),
+		AvatarURL:   avatarURL,
 		IsFavorite:  record.IsFavorite,
 		CreatedAt:   record.CreatedAt.Format(time.RFC3339),
 	}
@@ -697,40 +718,36 @@ func (a *App) loadUserAvatarHistoryRecord(ctx context.Context, username string, 
 		Username:    normalizedUsername,
 		AvatarStyle: defaultAvatarStyle,
 		AvatarSeed:  "",
+		AvatarURL:   "",
 		IsFavorite:  false,
 	}
 	if normalizedUsername == "" || historyID <= 0 {
 		return record, pgx.ErrNoRows
 	}
 	err := a.db.QueryRow(ctx, `
-		SELECT id, COALESCE(NULLIF(avatar_style, ''), $3), COALESCE(avatar_seed, ''), COALESCE(is_favorite, FALSE), created_at
+		SELECT id, COALESCE(NULLIF(avatar_style, ''), $3), COALESCE(avatar_seed, ''), COALESCE(avatar_url, ''), COALESCE(is_favorite, FALSE), created_at
 		FROM im_user_avatar_history
-		WHERE id = $1 AND username = $2`, historyID, normalizedUsername, defaultAvatarStyle).Scan(&record.ID, &record.AvatarStyle, &record.AvatarSeed, &record.IsFavorite, &record.CreatedAt)
+		WHERE id = $1 AND username = $2`, historyID, normalizedUsername, defaultAvatarStyle).Scan(&record.ID, &record.AvatarStyle, &record.AvatarSeed, &record.AvatarURL, &record.IsFavorite, &record.CreatedAt)
 	if err != nil {
 		return record, err
 	}
 	record.AvatarStyle = normalizeAvatarStyle(record.AvatarStyle)
 	record.AvatarSeed = strings.TrimSpace(record.AvatarSeed)
+	record.AvatarURL = strings.TrimSpace(record.AvatarURL)
 	return record, nil
 }
 
-func (a *App) insertUserAvatarHistory(ctx context.Context, tx pgx.Tx, username string, avatarStyle string, avatarSeed string) (bool, error) {
+func (a *App) insertUserAvatarHistory(ctx context.Context, tx pgx.Tx, username string, avatarStyle string, avatarSeed string, avatarURL string) (bool, error) {
 	normalizedUsername := strings.ToLower(strings.TrimSpace(username))
 	normalizedStyle := normalizeAvatarStyle(avatarStyle)
 	normalizedSeed := strings.TrimSpace(avatarSeed)
-	if normalizedUsername == "" || normalizedSeed == "" {
-		return false, nil
-	}
-	var favoriteCount int
-	if err := tx.QueryRow(ctx, `SELECT COUNT(1) FROM im_user_avatar_history WHERE username = $1 AND COALESCE(is_favorite, FALSE) = TRUE`, normalizedUsername).Scan(&favoriteCount); err != nil {
-		return false, err
-	}
-	if favoriteCount >= 10 {
+	normalizedURL := strings.TrimSpace(avatarURL)
+	if normalizedUsername == "" || (normalizedSeed == "" && normalizedURL == "") {
 		return false, nil
 	}
 	if _, err := tx.Exec(ctx, `
-		INSERT INTO im_user_avatar_history (username, avatar_style, avatar_seed, is_favorite)
-		VALUES ($1, $2, $3, FALSE)`, normalizedUsername, normalizedStyle, normalizedSeed); err != nil {
+		INSERT INTO im_user_avatar_history (username, avatar_style, avatar_seed, avatar_url, is_favorite)
+		VALUES ($1, $2, $3, $4, FALSE)`, normalizedUsername, normalizedStyle, normalizedSeed, normalizedURL); err != nil {
 		return false, err
 	}
 	if _, err := tx.Exec(ctx, `
@@ -761,7 +778,7 @@ func (a *App) listUserAvatarHistory(ctx context.Context, username string, limit 
 		limit = 10
 	}
 	rows, err := a.db.Query(ctx, `
-		SELECT id, COALESCE(NULLIF(avatar_style, ''), $2), COALESCE(avatar_seed, ''), COALESCE(is_favorite, FALSE), created_at
+		SELECT id, COALESCE(NULLIF(avatar_style, ''), $2), COALESCE(avatar_seed, ''), COALESCE(avatar_url, ''), COALESCE(is_favorite, FALSE), created_at
 		FROM im_user_avatar_history
 		WHERE username = $1
 		ORDER BY COALESCE(is_favorite, FALSE) DESC, created_at DESC, id DESC
@@ -773,7 +790,7 @@ func (a *App) listUserAvatarHistory(ctx context.Context, username string, limit 
 	items := make([]UserAvatarHistoryItem, 0)
 	for rows.Next() {
 		record := avatarHistoryRecord{Username: normalizedUsername}
-		if err := rows.Scan(&record.ID, &record.AvatarStyle, &record.AvatarSeed, &record.IsFavorite, &record.CreatedAt); err != nil {
+		if err := rows.Scan(&record.ID, &record.AvatarStyle, &record.AvatarSeed, &record.AvatarURL, &record.IsFavorite, &record.CreatedAt); err != nil {
 			return nil, err
 		}
 		items = append(items, buildUserAvatarHistoryItem(normalizedUsername, record))
@@ -793,15 +810,16 @@ func (a *App) refreshUserAvatarProfile(ctx context.Context, username string) (Us
 	}
 	defer tx.Rollback(ctx)
 	if _, err := tx.Exec(ctx, `
-		INSERT INTO im_user_profile (username, avatar_style, avatar_seed, updated_at)
-		VALUES ($1, $2, $3, NOW())
+		INSERT INTO im_user_profile (username, avatar_style, avatar_seed, avatar_url, updated_at)
+		VALUES ($1, $2, $3, '', NOW())
 		ON CONFLICT (username) DO UPDATE
 		SET avatar_style = EXCLUDED.avatar_style,
 			avatar_seed = EXCLUDED.avatar_seed,
+			avatar_url = '',
 			updated_at = NOW()`, normalizedUsername, defaultAvatarStyle, avatarSeed); err != nil {
 		return UserProfileItem{}, err
 	}
-	if _, err := a.insertUserAvatarHistory(ctx, tx, normalizedUsername, defaultAvatarStyle, avatarSeed); err != nil {
+	if _, err := a.insertUserAvatarHistory(ctx, tx, normalizedUsername, defaultAvatarStyle, avatarSeed, ""); err != nil {
 		return UserProfileItem{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -825,22 +843,25 @@ func (a *App) selectUserAvatarHistory(ctx context.Context, username string, hist
 	defer tx.Rollback(ctx)
 	var avatarStyle string
 	var avatarSeed string
+	var avatarURL string
 	err = tx.QueryRow(ctx, `
-		SELECT COALESCE(NULLIF(avatar_style, ''), $3), COALESCE(avatar_seed, '')
+		SELECT COALESCE(NULLIF(avatar_style, ''), $3), COALESCE(avatar_seed, ''), COALESCE(avatar_url, '')
 		FROM im_user_avatar_history
-		WHERE id = $1 AND username = $2`, historyID, normalizedUsername, defaultAvatarStyle).Scan(&avatarStyle, &avatarSeed)
+		WHERE id = $1 AND username = $2`, historyID, normalizedUsername, defaultAvatarStyle).Scan(&avatarStyle, &avatarSeed, &avatarURL)
 	if err != nil {
 		return UserProfileItem{}, err
 	}
 	avatarStyle = normalizeAvatarStyle(avatarStyle)
 	avatarSeed = strings.TrimSpace(avatarSeed)
+	avatarURL = strings.TrimSpace(avatarURL)
 	if _, err := tx.Exec(ctx, `
-		INSERT INTO im_user_profile (username, avatar_style, avatar_seed, updated_at)
-		VALUES ($1, $2, $3, NOW())
+		INSERT INTO im_user_profile (username, avatar_style, avatar_seed, avatar_url, updated_at)
+		VALUES ($1, $2, $3, $4, NOW())
 		ON CONFLICT (username) DO UPDATE
 		SET avatar_style = EXCLUDED.avatar_style,
 			avatar_seed = EXCLUDED.avatar_seed,
-			updated_at = NOW()`, normalizedUsername, avatarStyle, avatarSeed); err != nil {
+			avatar_url = EXCLUDED.avatar_url,
+			updated_at = NOW()`, normalizedUsername, avatarStyle, avatarSeed, avatarURL); err != nil {
 		return UserProfileItem{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {

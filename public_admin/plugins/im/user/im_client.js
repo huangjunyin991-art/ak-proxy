@@ -79,6 +79,8 @@
         profileLoading: false,
         profileError: '',
         profileRefreshing: false,
+        profileAvatarUploading: false,
+        profileAvatarUploadProgress: 0,
         profileSaving: false,
         profileSaveError: '',
         profileAvatarHistory: [],
@@ -563,6 +565,7 @@
             escapeHtml: escapeHtml,
             countProfileAvatarFavorites: countProfileAvatarFavorites,
             refreshProfileAvatar: refreshProfileAvatar,
+            uploadProfileAvatar: uploadProfileAvatar,
             selectProfileAvatar: selectProfileAvatar,
             setProfileAvatarFavorite: setProfileAvatarFavorite,
             openProfileAvatarRemoveDialog: openProfileAvatarRemoveDialog,
@@ -2329,7 +2332,7 @@
             return state.contactsLoading ? '正在同步同白名单通讯录' : '同白名单成员会显示在这里，点击可直接发起聊天';
         }
         if (normalizedTab === 'me') {
-            return '这里保留更换头像、个人资料、设置三个入口';
+            return '这里保留头像设置、个人资料、设置三个入口';
         }
         if (normalizedTab === 'meetings') {
             return '';
@@ -2401,7 +2404,7 @@
     }
 
     function getProfileSubpageTitle(view) {
-        if (view === 'profile_avatar') return '更换头像';
+        if (view === 'profile_avatar') return '头像设置';
         if (view === 'profile_settings') return '设置';
         return '个人资料';
     }
@@ -2571,7 +2574,7 @@
             '</div>' +
             '<div class="ak-im-profile-entry-list">' +
                 '<button class="ak-im-profile-entry" type="button" data-im-profile-nav="profile_avatar">' +
-                    '<div class="ak-im-profile-entry-main"><div class="ak-im-profile-entry-label">更换头像</div><div class="ak-im-profile-entry-meta">' + escapeHtml(avatarHistorySummary) + '</div></div>' +
+                    '<div class="ak-im-profile-entry-main"><div class="ak-im-profile-entry-label">头像设置</div><div class="ak-im-profile-entry-meta">' + escapeHtml(avatarHistorySummary) + '</div></div>' +
                     '<div class="ak-im-profile-entry-arrow" aria-hidden="true">›</div>' +
                 '</button>' +
                 '<button class="ak-im-profile-entry" type="button" data-im-profile-nav="profile_detail">' +
@@ -3062,7 +3065,75 @@
             });
         }).catch(function(error) {
             state.profileRefreshing = false;
-            state.profileError = error && error.message ? error.message : '切换头像失败';
+            state.profileError = error && error.message ? error.message : '随机生成头像失败';
+            render();
+            return null;
+        });
+    }
+
+    function uploadProfileAvatar(file) {
+        if (!state.allowed || state.profileAvatarUploading || !file || !file.size) return Promise.resolve(null);
+        state.profileAvatarUploading = true;
+        state.profileAvatarUploadProgress = 0;
+        state.profileError = '';
+        state.profileAvatarActionError = '';
+        state.profileAvatarHistoryActionId = 0;
+        state.profileAvatarHistoryActionType = '';
+        render();
+        return ensureLazyModule('image').then(function(imageModule) {
+            const uploadConfigLoader = imageModule && typeof imageModule.loadUploadConfig === 'function'
+                ? imageModule.loadUploadConfig(false)
+                : Promise.resolve(null);
+            return uploadConfigLoader.then(function(config) {
+                const avatarConfig = Object.assign({}, config || {}, {
+                    enabled: true,
+                    compress_above_kb: 0,
+                    max_long_edge_px: 512,
+                    output_format: 'webp',
+                    quality: 86,
+                    target_size_kb: 256,
+                    keep_png_with_alpha: false,
+                    skip_animated_gif: true
+                });
+                if (!imageModule || typeof imageModule.maybeCompressImageFile !== 'function') {
+                    return {
+                        file: file,
+                        fileName: String(file && file.name || '').trim() || ('avatar-' + Date.now() + '.jpg')
+                    };
+                }
+                return imageModule.maybeCompressImageFile(file, avatarConfig, { forceOutputMimeType: 'image/webp' });
+            });
+        }).then(function(result) {
+            const uploadFile = result && result.file ? result.file : file;
+            const uploadFileName = String(result && result.fileName || uploadFile && uploadFile.name || '').trim() || ('avatar-' + Date.now() + '.webp');
+            const formData = new FormData();
+            formData.append('file', uploadFile, uploadFileName);
+            return requestFormData(`${HTTP_ROOT}/profile/avatar/upload`, formData, {
+                method: 'POST',
+                onUploadProgress: function(progress) {
+                    state.profileAvatarUploadProgress = Math.max(0, Math.min(100, Number(progress && progress.percent || 0) || 0));
+                    render();
+                }
+            });
+        }).then(function(data) {
+            state.profileAvatarUploading = false;
+            state.profileAvatarUploadProgress = 0;
+            state.profileLoaded = true;
+            state.profileError = '';
+            applyProfileItem(data && data.item ? data.item : null);
+            render();
+            const tasks = [reloadProfileLinkedData()];
+            if (state.view === 'profile_avatar' || state.profileAvatarHistoryLoaded) {
+                tasks.push(loadProfileAvatarHistory(true));
+            }
+            return Promise.all(tasks).then(function() {
+                render();
+                return state.profile;
+            });
+        }).catch(function(error) {
+            state.profileAvatarUploading = false;
+            state.profileAvatarUploadProgress = 0;
+            state.profileAvatarActionError = error && error.message ? error.message : '上传头像失败';
             render();
             return null;
         });
@@ -3131,6 +3202,8 @@
         state.profileLoading = false;
         state.profileError = '';
         state.profileRefreshing = false;
+        state.profileAvatarUploading = false;
+        state.profileAvatarUploadProgress = 0;
         state.profileSaving = false;
         state.profileSaveError = '';
         state.profileAvatarHistory = [];
@@ -3179,6 +3252,8 @@
             state.profileLoading = false;
             state.profileError = '';
             state.profileRefreshing = false;
+            state.profileAvatarUploading = false;
+            state.profileAvatarUploadProgress = 0;
             state.profileSaving = false;
             state.profileSaveError = '';
             state.profileAvatarHistory = [];

@@ -37,7 +37,7 @@
              const state = this.ctx.state;
              const historyId = Number(item && item.id || 0);
              const hasHistoryId = historyId > 0;
-             const isBusy = !!state.profileAvatarHistoryActionType || !!state.profileRefreshing;
+             const isBusy = !!state.profileAvatarHistoryActionType || !!state.profileRefreshing || !!state.profileAvatarUploading;
              const isCurrent = this.isCurrentProfileAvatarHistoryItem(item);
              const isFavorite = !!(item && item.is_favorite);
              const selecting = this.isProfileAvatarHistoryActionPending('select', historyId);
@@ -115,7 +115,9 @@
              const state = this.ctx.state;
              const historyGroups = this.splitProfileAvatarHistoryItems(state.profileAvatarHistory);
              const favoriteCount = this.ctx.countProfileAvatarFavorites(state.profileAvatarHistory);
-             const historyGuideText = favoriteCount >= 10 ? '已收藏满 10 个头像，继续换头像时不会再自动写入历史，删除部分收藏后恢复。' : '点击头像可立即切回；右上角删除，右下角收藏。';
+             const avatarBusy = !!state.profileAvatarHistoryActionType || !!state.profileRefreshing || !!state.profileAvatarUploading;
+             const uploadProgress = Math.max(0, Math.min(100, Number(state.profileAvatarUploadProgress || 0) || 0));
+             const historyGuideText = favoriteCount >= 10 ? '已收藏满 10 个头像，继续随机生成或本地上传仍会进入历史，但需要删除部分收藏后才能继续收藏。' : '点击头像可立即切回；右上角删除，右下角收藏。';
              const historyMarkup = state.profileAvatarHistoryLoading ? '<div class="ak-im-profile-placeholder">正在读取头像历史...</div>' : (state.profileAvatarHistoryError ? '<div class="ak-im-profile-error">' + this.ctx.escapeHtml(state.profileAvatarHistoryError) + '</div>' : (
                  this.buildProfileAvatarHistorySectionMarkup({
                      title: '收藏头像',
@@ -128,10 +130,10 @@
                  }) +
                  this.buildProfileAvatarHistorySectionMarkup({
                      title: '历史头像',
-                     subtitle: '按时间倒序展示最近更换过的头像。',
+                     subtitle: '按时间倒序展示最近随机生成或本地上传过的头像。',
                      countText: historyGroups.history.length + ' 个',
                      items: historyGroups.history,
-                     emptyText: '暂时还没有历史头像，切换一次后会在这里保留最近 10 个记录。',
+                     emptyText: '暂时还没有历史头像，随机生成或本地上传一次后会在这里保留最近 10 个记录。',
                      displayName: displayName,
                      username: username
                  })
@@ -144,8 +146,10 @@
                          '<div class="ak-im-profile-name">' + this.ctx.escapeHtml(displayName || '我') + '</div>' +
                          '<div class="ak-im-profile-username">@' + this.ctx.escapeHtml(username || 'unknown') + '</div>' +
                      '</div>' +
-                     '<div class="ak-im-profile-subtitle">点击下方按钮会生成新的头像。</div>' +
-                     '<button class="ak-im-profile-primary-btn" type="button" data-im-profile-action="refresh-avatar"' + (state.profileRefreshing ? ' disabled' : '') + '>' + this.ctx.escapeHtml(state.profileRefreshing ? '正在切换头像...' : '换一个头像') + '</button>' +
+                     '<div class="ak-im-profile-subtitle">你可以随机生成新头像，也可以选择本地图片上传；上传图片会自动压缩并进入历史头像。</div>' +
+                     '<button class="ak-im-profile-primary-btn" type="button" data-im-profile-action="refresh-avatar"' + (avatarBusy ? ' disabled' : '') + '>' + this.ctx.escapeHtml(state.profileRefreshing ? '正在随机生成...' : '随机生成') + '</button>' +
+                     '<button class="ak-im-profile-primary-btn" type="button" data-im-profile-action="upload-avatar"' + (avatarBusy ? ' disabled' : '') + '>' + this.ctx.escapeHtml(state.profileAvatarUploading ? ('正在本地上传' + (uploadProgress ? ' ' + uploadProgress + '%' : '...')) : '本地上传') + '</button>' +
+                     '<input style="display:none" type="file" accept="image/png,image/jpeg,image/webp,image/gif,image/heic,image/heif" data-im-profile-avatar-file />' +
                  '</div>' +
                  '<div class="ak-im-profile-panel">' +
                      '<div class="ak-im-profile-subtitle">' + this.ctx.escapeHtml(historyGuideText) + '</div>' +
@@ -157,9 +161,24 @@
          bindProfileAvatarEvents(container) {
              const self = this;
              const refreshBtn = container.querySelector('[data-im-profile-action="refresh-avatar"]');
+             const uploadBtn = container.querySelector('[data-im-profile-action="upload-avatar"]');
+             const uploadInput = container.querySelector('[data-im-profile-avatar-file]');
              if (refreshBtn) {
                  refreshBtn.addEventListener('click', function() {
                      self.ctx.refreshProfileAvatar();
+                 });
+             }
+             if (uploadBtn && uploadInput) {
+                 uploadBtn.addEventListener('click', function() {
+                     uploadInput.click();
+                 });
+                 uploadInput.addEventListener('change', function() {
+                     const files = uploadInput.files;
+                     const file = files && files.length ? files[0] : null;
+                     uploadInput.value = '';
+                     if (file && typeof self.ctx.uploadProfileAvatar === 'function') {
+                         self.ctx.uploadProfileAvatar(file);
+                     }
                  });
              }
              Array.prototype.forEach.call(container.querySelectorAll('[data-im-profile-avatar-select]'), function(button) {
