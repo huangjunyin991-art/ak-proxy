@@ -614,27 +614,13 @@ async def _find_im_group_conversation(conversation_id: int = 0, owner_username: 
 
 def _can_manage_im_group_conversation(role: str, identity: str, group_row: dict) -> bool:
 
-    if role == ROLE_SUPER_ADMIN:
+    return _is_im_admin_role(role)
 
-        return True
 
-    if role != ROLE_SUB_ADMIN:
 
-        return False
+def _is_im_admin_role(role: str) -> bool:
 
-    normalized_identity = _normalize_im_group_owner_username(identity)
-
-    admin_key = _extract_im_whitelist_group_admin_key((group_row or {}).get('conversation_key', ''))
-
-    if admin_key and normalized_identity and admin_key == normalized_identity:
-
-        return True
-
-    owner_usernames = _im_group_owner_usernames_for_identity(role, identity)
-
-    normalized_owner = _normalize_im_group_owner_username((group_row or {}).get('owner_username', ''))
-
-    return bool(normalized_owner and normalized_owner in owner_usernames)
+    return role in (ROLE_SUPER_ADMIN, ROLE_SUB_ADMIN)
 
 
 
@@ -5149,41 +5135,15 @@ async def admin_im_groups(request: Request, search: str = ''):
 
         return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
 
+    if not _is_im_admin_role(role):
+
+        return JSONResponse(status_code=403, content={"error": True, "message": "无权访问 IM 管理"})
+
     normalized_search = str(search or '').strip().lower()
 
     where_clauses = ["c.conversation_type = 'group'", "c.deleted_at IS NULL"]
 
     query_params = []
-
-    if role == ROLE_SUB_ADMIN:
-
-        owner_usernames = _im_group_owner_usernames_for_identity(role, identity)
-
-        owned_conditions = []
-
-        identity_group_key = f"group:admin_whitelist:{_normalize_im_group_owner_username(identity)}"
-
-        query_params.append(identity_group_key)
-
-        owned_conditions.append(f"LOWER(COALESCE(c.conversation_key, '')) = ${len(query_params)}")
-
-        if not owner_usernames:
-
-            where_clauses.append(f"({' OR '.join(owned_conditions)})")
-
-        else:
-
-            placeholders = []
-
-            for owner_username in owner_usernames:
-
-                query_params.append(owner_username)
-
-                placeholders.append(f"${len(query_params)}")
-
-            owned_conditions.append(f"LOWER(COALESCE(c.owner_username, '')) IN ({', '.join(placeholders)})")
-
-            where_clauses.append(f"({' OR '.join(owned_conditions)})")
 
     if normalized_search:
 
@@ -5242,7 +5202,7 @@ async def admin_im_group_detail(request: Request, conversation_id: int = 0, owne
 
     if not _can_manage_im_group_conversation(role, identity, group_row):
 
-        return JSONResponse(status_code=403, content={"error": True, "message": "仅系统总管理员或所属子管理员可操作"})
+        return JSONResponse(status_code=403, content={"error": True, "message": "无权操作 IM 群聊"})
 
     status_code, body = await _post_im_internal_json("/im/internal/group_profile", {
         "conversation_id": int(group_row['id'])
@@ -5319,7 +5279,7 @@ async def admin_im_group_owner_transfer(request: Request):
 
     if not _can_manage_im_group_conversation(role, identity, group_row):
 
-        return JSONResponse(status_code=403, content={"error": True, "message": "仅系统总管理员或所属子管理员可操作"})
+        return JSONResponse(status_code=403, content={"error": True, "message": "无权操作 IM 群聊"})
 
     transferred_by = _primary_im_group_owner_username_for_identity(role, identity) if role == ROLE_SUB_ADMIN else 'super_admin'
 
@@ -5374,7 +5334,7 @@ async def admin_im_group_admins(request: Request, conversation_id: int = 0, owne
 
     if not _can_manage_im_group_conversation(role, identity, group_row):
 
-        return JSONResponse(status_code=403, content={"error": True, "message": "仅系统总管理员或所属子管理员可操作"})
+        return JSONResponse(status_code=403, content={"error": True, "message": "无权操作 IM 群聊"})
 
     pool = db._get_pool()
 
@@ -5447,7 +5407,7 @@ async def admin_im_group_admins_replace(request: Request):
 
     if not _can_manage_im_group_conversation(role, identity, group_row):
 
-        return JSONResponse(status_code=403, content={"error": True, "message": "仅系统总管理员或所属子管理员可操作"})
+        return JSONResponse(status_code=403, content={"error": True, "message": "无权操作 IM 群聊"})
 
     assigned_by = _primary_im_group_owner_username_for_identity(role, identity) if role == ROLE_SUB_ADMIN else 'super_admin'
 
@@ -5531,9 +5491,9 @@ async def admin_im_emoji_assets_import(request: Request):
 
         return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
 
-    if role != ROLE_SUPER_ADMIN:
+    if not _is_im_admin_role(role):
 
-        return JSONResponse(status_code=403, content={"error": True, "message": "仅系统总管理员可导入自定义表情"})
+        return JSONResponse(status_code=403, content={"error": True, "message": "无权导入自定义表情"})
 
     status_code, body = await _post_im_internal_json("/im/internal/emoji_assets/import", {})
 
@@ -5587,9 +5547,9 @@ async def admin_im_emoji_assets_upload(request: Request, files: Optional[list[Up
 
         return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
 
-    if role != ROLE_SUPER_ADMIN:
+    if not _is_im_admin_role(role):
 
-        return JSONResponse(status_code=403, content={"error": True, "message": "仅系统总管理员可上传自定义表情"})
+        return JSONResponse(status_code=403, content={"error": True, "message": "无权上传自定义表情"})
 
     upload_files = [item for item in (files or []) if item is not None]
 
@@ -5693,9 +5653,9 @@ async def admin_im_file_assets_config_update(request: Request):
 
         return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
 
-    if role != ROLE_SUPER_ADMIN:
+    if not _is_im_admin_role(role):
 
-        return JSONResponse(status_code=403, content={"error": True, "message": "仅系统总管理员可修改文件保存天数"})
+        return JSONResponse(status_code=403, content={"error": True, "message": "无权修改文件保存天数"})
 
     try:
 
@@ -5831,9 +5791,9 @@ async def admin_im_image_upload_config_update(request: Request):
 
         return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
 
-    if role != ROLE_SUPER_ADMIN:
+    if not _is_im_admin_role(role):
 
-        return JSONResponse(status_code=403, content={"error": True, "message": "仅系统总管理员可修改图片压缩配置"})
+        return JSONResponse(status_code=403, content={"error": True, "message": "无权修改图片压缩配置"})
 
     try:
 

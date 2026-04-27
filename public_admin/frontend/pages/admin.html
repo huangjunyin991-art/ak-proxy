@@ -3569,6 +3569,10 @@
         function isSuperAdmin() {
             return currentUserRole === ROLE_SUPER_ADMIN;
         }
+
+        function isImAdmin() {
+            return currentUserRole === ROLE_SUPER_ADMIN || currentUserRole === ROLE_SUB_ADMIN;
+        }
         
         // 显示模式切换
         const VIEW_MODE_STORAGE_KEY = 'admin_view_mode';
@@ -8128,7 +8132,7 @@
             const uploadBtn = document.getElementById('imEmojiUploadBtn');
             const importBtn = document.getElementById('imEmojiImportBtn');
             if (!summaryEl || !listEl) return;
-            const canImport = isSuperAdmin();
+            const canImport = isImAdmin();
             if (uploadBtn) {
                 uploadBtn.style.display = canImport ? '' : 'none';
                 uploadBtn.disabled = !!(imEmojiAssetsLoading || imEmojiAssetsImporting || imEmojiAssetsUploading);
@@ -8204,7 +8208,7 @@
             const inputEl = document.getElementById('imFileAssetRetentionDays');
             const saveBtn = document.getElementById('imFileAssetConfigSaveBtn');
             if (!summaryEl || !inputEl) return;
-            const canSave = isSuperAdmin();
+            const canSave = isImAdmin();
             if (saveBtn) {
                 saveBtn.style.display = canSave ? '' : 'none';
                 saveBtn.disabled = !!(imFileAssetConfigLoading || imFileAssetConfigSaving);
@@ -8220,7 +8224,7 @@
                 summaryEl.textContent = imFileAssetConfigError;
                 return;
             }
-            summaryEl.textContent = `当前文件云端保存 ${imFileAssetRetentionDays} 天${canSave ? '' : '（仅总管理员可修改）'}`;
+            summaryEl.textContent = `当前文件云端保存 ${imFileAssetRetentionDays} 天${canSave ? '' : '（当前账号无权修改）'}`;
         }
 
         async function loadImFileAssetConfig() {
@@ -8247,8 +8251,8 @@
         }
 
         async function saveImFileAssetConfig() {
-            if (!isSuperAdmin()) {
-                showAlert('仅系统总管理员可修改文件保存天数', 'warning');
+            if (!isImAdmin()) {
+                showAlert('当前账号无权修改文件保存天数', 'warning');
                 return;
             }
             if (imFileAssetConfigSaving) return;
@@ -8310,7 +8314,7 @@
             const keepPngEl = document.getElementById('imImageUploadKeepPngWithAlpha');
             const skipGifEl = document.getElementById('imImageUploadSkipAnimatedGif');
             if (!summaryEl || !enabledEl || !compressAboveEl || !maxLongEdgeEl || !outputFormatEl || !qualityEl || !targetSizeEl || !keepPngEl || !skipGifEl) return;
-            const canSave = isSuperAdmin();
+            const canSave = isImAdmin();
             const disabled = !!(imImageUploadConfigLoading || imImageUploadConfigSaving || !canSave);
             if (saveBtn) {
                 saveBtn.style.display = canSave ? '' : 'none';
@@ -8344,7 +8348,7 @@
             }
             const statusText = config.enabled ? '已开启' : '已关闭';
             const formatText = config.output_format === 'keep' ? '保持原格式' : config.output_format.toUpperCase();
-            summaryEl.textContent = `当前${statusText}：超过 ${config.compress_above_kb}KB 时压缩，最长边 ${config.max_long_edge_px}px，${formatText} 质量 ${config.quality}，目标 ${config.target_size_kb}KB${canSave ? '' : '（仅总管理员可修改）'}`;
+            summaryEl.textContent = `当前${statusText}：超过 ${config.compress_above_kb}KB 时压缩，最长边 ${config.max_long_edge_px}px，${formatText} 质量 ${config.quality}，目标 ${config.target_size_kb}KB${canSave ? '' : '（当前账号无权修改）'}`;
         }
 
         async function loadImImageUploadConfig() {
@@ -8371,8 +8375,8 @@
         }
 
         async function saveImImageUploadConfig() {
-            if (!isSuperAdmin()) {
-                showAlert('仅系统总管理员可修改图片压缩配置', 'warning');
+            if (!isImAdmin()) {
+                showAlert('当前账号无权修改图片压缩配置', 'warning');
                 return;
             }
             if (imImageUploadConfigSaving) return;
@@ -8437,8 +8441,8 @@
         }
 
         function chooseImEmojiAssets() {
-            if (!isSuperAdmin()) {
-                showAlert('仅系统总管理员可上传自定义表情', 'warning');
+            if (!isImAdmin()) {
+                showAlert('当前账号无权上传自定义表情', 'warning');
                 return;
             }
             if (imEmojiAssetsUploading || imEmojiAssetsImporting) return;
@@ -8452,9 +8456,9 @@
             const files = input && input.files
                 ? Array.from(input.files).filter(file => file && Number(file.size || 0) > 0)
                 : [];
-            if (!isSuperAdmin()) {
+            if (!isImAdmin()) {
                 if (input) input.value = '';
-                showAlert('仅系统总管理员可上传自定义表情', 'warning');
+                showAlert('当前账号无权上传自定义表情', 'warning');
                 return;
             }
             if (!files.length) {
@@ -8513,8 +8517,8 @@
         }
 
         async function importImEmojiAssets() {
-            if (!isSuperAdmin()) {
-                showAlert('仅系统总管理员可导入自定义表情', 'warning');
+            if (!isImAdmin()) {
+                showAlert('当前账号无权导入自定义表情', 'warning');
                 return;
             }
             if (imEmojiAssetsImporting) return;
