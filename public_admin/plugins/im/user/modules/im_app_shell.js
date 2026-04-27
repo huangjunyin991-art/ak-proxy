@@ -65,6 +65,7 @@
                 #ak-im-root .ak-im-topbar-actions .ak-im-nav-btn.is-hidden{display:none}
                 #ak-im-root .ak-im-home-topbar-actions .ak-im-nav-btn{width:34px;height:34px;padding:0;color:#111827}
                 #ak-im-root .ak-im-home-topbar-actions .ak-im-home-add-trigger svg{width:18px;height:18px}
+                #ak-im-root.ak-contact-search-open .ak-im-session-screen .ak-im-topbar{grid-template-columns:40px minmax(0,1fr);column-gap:8px}
                 #ak-im-root.ak-contact-search-open .ak-im-close{display:none}
                 #ak-im-root.ak-contact-search-open .ak-im-contact-search-back{display:inline-flex}
                 #ak-im-root.ak-contact-search-open .ak-im-session-topbar-title{display:none}
