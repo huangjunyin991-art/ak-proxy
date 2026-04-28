@@ -758,11 +758,20 @@ func (a *App) buildUserProfileItem(ctx context.Context, username string) UserPro
 	if avatarURL == "" {
 		avatarURL = buildDicebearAvatarURL(profile.AvatarStyle, buildAvatarSeed(normalizedUsername, profile.AvatarSeed))
 	}
-	canAddFriend := canUseAddFriend(identity.HonorName)
+	honorName := strings.TrimSpace(identity.HonorName)
+	if honorName == "" {
+		loadedHonorName, err := a.loadUserHonorName(ctx, normalizedUsername)
+		if err != nil {
+			log.Printf("build user profile item honor name load failed: username=%s err=%v", normalizedUsername, err)
+		} else {
+			honorName = loadedHonorName
+		}
+	}
+	canAddFriend := canUseAddFriend(honorName)
 	return UserProfileItem{
 		Username:    normalizedUsername,
 		DisplayName: identity.DisplayName,
-		HonorName:   identity.HonorName,
+		HonorName:   honorName,
 		CanAddFriend: canAddFriend,
 		Nickname:    strings.TrimSpace(profile.Nickname),
 		Gender:      normalizeProfileGender(profile.Gender),
