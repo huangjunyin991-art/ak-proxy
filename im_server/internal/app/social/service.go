@@ -12,10 +12,13 @@ import (
 
 type Service struct {
 	db *pgxpool.Pool
+	identityResolver IdentityResolver
 }
 
-func New(db *pgxpool.Pool) *Service {
-	return &Service{db: db}
+type IdentityResolver func(ctx context.Context, usernames []string) (map[string]IdentityItem, error)
+
+func New(db *pgxpool.Pool, identityResolver IdentityResolver) *Service {
+	return &Service{db: db, identityResolver: identityResolver}
 }
 
 func (s *Service) EnsureSchema(ctx context.Context) error {
@@ -111,6 +114,31 @@ func (s *Service) buildIdentityItems(ctx context.Context, usernames []string) (m
 	normalizedUsernames := normalizeUsernames(usernames)
 	result := map[string]IdentityItem{}
 	if s == nil || s.db == nil || len(normalizedUsernames) == 0 {
+		return result, nil
+	}
+	if s.identityResolver != nil {
+		resolved, err := s.identityResolver(ctx, normalizedUsernames)
+		if err != nil {
+			return nil, err
+		}
+		for _, username := range normalizedUsernames {
+			item, ok := resolved[username]
+			if !ok {
+				result[username] = IdentityItem{Username: username, DisplayName: username}
+				continue
+			}
+			item.Username = normalizeUsername(item.Username)
+			if item.Username == "" {
+				item.Username = username
+			}
+			item.DisplayName = strings.TrimSpace(item.DisplayName)
+			if item.DisplayName == "" {
+				item.DisplayName = item.Username
+			}
+			item.HonorName = strings.TrimSpace(item.HonorName)
+			item.AvatarURL = strings.TrimSpace(item.AvatarURL)
+			result[username] = item
+		}
 		return result, nil
 	}
 	rows, err := s.db.Query(ctx, `
@@ -337,7 +365,7 @@ func (s *Service) ListContacts(ctx context.Context, owner string) (ContactsResul
 		}
 		filteredWhitelist = append(filteredWhitelist, username)
 	}
-	whitelistItems, err := s.buildContactItems(ctx, filteredWhitelist, ContactSourceWhitelist, false, blacklistSet)
+	whitelistItems, err := s.buildContactItems(ctx, filteredWhitelist, ContactSourceWhitelist, true, blacklistSet)
 	if err != nil {
 		return result, err
 	}
@@ -369,9 +397,19 @@ func (s *Service) SearchUsers(ctx context.Context, owner string, keyword string,
 	if err != nil {
 		return nil, err
 	}
-	manualSet := map[string]struct{}{}
+	contactSet := map[string]string{}
 	for _, username := range manualUsernames {
-		manualSet[username] = struct{}{}
+		contactSet[username] = ContactSourceManual
+	}
+	whitelistUsernames, err := s.listWhitelistContactUsernames(ctx, normalizedOwner)
+	if err != nil {
+		return nil, err
+	}
+	for _, username := range whitelistUsernames {
+		if _, exists := contactSet[username]; exists {
+			continue
+		}
+		contactSet[username] = ContactSourceWhitelist
 	}
 	likeValue := "%" + normalizedKeyword + "%"
 	rows, err := s.db.Query(ctx, `
@@ -402,6 +440,9 @@ func (s *Service) SearchUsers(ctx context.Context, owner string, keyword string,
 		if _, blocked := blacklistSet[normalizedUsername]; blocked {
 			continue
 		}
+		if _, exists := contactSet[normalizedUsername]; exists {
+			continue
+		}
 		usernames = append(usernames, normalizedUsername)
 	}
 	if err := rows.Err(); err != nil {
@@ -420,12 +461,8 @@ func (s *Service) SearchUsers(ctx context.Context, owner string, keyword string,
 			DisplayName: identity.DisplayName,
 			HonorName:   identity.HonorName,
 			AvatarURL:   identity.AvatarURL,
-			Source:      ContactSourceManual,
+			Source:      "",
 			IsContact:   false,
-		}
-		if _, exists := manualSet[username]; exists {
-			item.IsContact = true
-			item.ActionDisabledReason = "已在通讯录中"
 		}
 		items = append(items, item)
 	}

@@ -36,6 +36,37 @@ func convertSocialContactItems(items []socialsvc.ContactItem) []ContactItem {
 	return result
 }
 
+func (a *App) buildSocialIdentityItems(ctx context.Context, usernames []string) (map[string]socialsvc.IdentityItem, error) {
+	result := map[string]socialsvc.IdentityItem{}
+	if a == nil {
+		return result, nil
+	}
+	identities := a.buildUserIdentityItems(ctx, usernames)
+	for _, username := range normalizeUsernames(usernames) {
+		identity, ok := identities[username]
+		if !ok {
+			result[username] = socialsvc.IdentityItem{
+				Username:    username,
+				DisplayName: a.fetchDisplayName(ctx, username),
+				HonorName:   "",
+				AvatarURL:   a.getUserAvatarURL(ctx, username),
+			}
+			continue
+		}
+		displayName := strings.TrimSpace(identity.DisplayName)
+		if displayName == "" {
+			displayName = username
+		}
+		result[username] = socialsvc.IdentityItem{
+			Username:    username,
+			DisplayName: displayName,
+			HonorName:   strings.TrimSpace(identity.HonorName),
+			AvatarURL:   strings.TrimSpace(identity.AvatarURL),
+		}
+	}
+	return result, nil
+}
+
 func (a *App) listContactResponse(ctx context.Context, username string) ([]ContactItem, []socialsvc.ContactSection, error) {
 	if a.social == nil {
 		items, err := a.listWhitelistContacts(ctx, username)

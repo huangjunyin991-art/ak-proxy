@@ -127,12 +127,8 @@
                 method: 'POST',
                 body: JSON.stringify({ username: normalizedUsername })
             }).then(function() {
-                state.friendSearchResults = (Array.isArray(state.friendSearchResults) ? state.friendSearchResults : []).map(function(item) {
-                    if (self.ctx.getContactUsername(item) !== normalizedUsername) return item;
-                    return Object.assign({}, item, {
-                        is_contact: true,
-                        action_disabled_reason: '已在通讯录中'
-                    });
+                state.friendSearchResults = (Array.isArray(state.friendSearchResults) ? state.friendSearchResults : []).filter(function(item) {
+                    return self.ctx.getContactUsername(item) !== normalizedUsername;
                 });
                 return Promise.all([
                     typeof self.ctx.loadContacts === 'function' ? self.ctx.loadContacts() : null,
@@ -152,22 +148,19 @@
             });
         },
 
-        renderSearchResultRow(container, item, options) {
+        renderSearchResultRow(container, item) {
             const state = this.getState();
             const self = this;
             const username = this.ctx.getContactUsername(item);
             if (!container || !username) return;
-            const config = options || {};
             const node = document.createElement('div');
             const isContact = !!(item && item.is_contact);
             const friendActionLoading = String(state && state.friendSearchActionUsername || '') === username;
-            const blacklistActionLoading = String(state && state.blacklistActionUsername || '') === username;
             node.className = 'ak-im-social-row';
             node.innerHTML = '<div class="ak-im-social-row-main">' + this.ctx.buildContactItemInnerMarkup(item) + '</div><div class="ak-im-social-actions">' +
                 (isContact
                     ? this.buildActionButton('发消息', 'is-ghost', false)
-                    : this.buildActionButton(friendActionLoading ? '添加中...' : '添加', '', friendActionLoading || blacklistActionLoading)) +
-                (config.showBlacklistAction ? this.buildActionButton(blacklistActionLoading ? '拉黑中...' : '拉黑', 'is-danger', friendActionLoading || blacklistActionLoading) : '') +
+                    : this.buildActionButton(friendActionLoading ? '添加中...' : '添加', '', friendActionLoading)) +
                 '</div>';
             const mainEl = node.querySelector('.ak-im-social-row-main');
             if (mainEl && isContact) {
@@ -185,11 +178,6 @@
                         return;
                     }
                     self.addContact(username);
-                });
-            }
-            if (config.showBlacklistAction && buttons[1]) {
-                buttons[1].addEventListener('click', function() {
-                    self.addToBlacklist(username, { fromFriendSearch: true });
                 });
             }
             container.appendChild(node);
@@ -226,7 +214,7 @@
             const listEl = container.querySelector('.ak-im-social-list');
             const self = this;
             results.forEach(function(item) {
-                self.renderSearchResultRow(listEl, item, { showBlacklistAction: true });
+                self.renderSearchResultRow(listEl, item);
             });
             return true;
         },
@@ -300,23 +288,17 @@
             }, 220);
         },
 
-        addToBlacklist(username, options) {
+        addToBlacklist(username) {
             const state = this.getState();
             const normalizedUsername = String(username || '').trim().toLowerCase();
             if (!state || !normalizedUsername || state.blacklistActionUsername) return Promise.resolve(null);
             const self = this;
-            const config = options || {};
             state.blacklistActionUsername = normalizedUsername;
             if (typeof this.ctx.render === 'function') this.ctx.render();
             return this.ctx.request(this.ctx.httpRoot + '/social/blacklist/add', {
                 method: 'POST',
                 body: JSON.stringify({ username: normalizedUsername })
             }).then(function() {
-                if (config.fromFriendSearch) {
-                    state.friendSearchResults = (Array.isArray(state.friendSearchResults) ? state.friendSearchResults : []).filter(function(item) {
-                        return self.ctx.getContactUsername(item) !== normalizedUsername;
-                    });
-                }
                 state.blacklistSearchResults = (Array.isArray(state.blacklistSearchResults) ? state.blacklistSearchResults : []).filter(function(item) {
                     return self.ctx.getContactUsername(item) !== normalizedUsername;
                 });

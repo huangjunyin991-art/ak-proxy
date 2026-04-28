@@ -188,7 +188,6 @@ func New(cfg config.Config) (*App, error) {
 	app := &App{
 		cfg: cfg,
 		db:  pool,
-		social: socialsvc.New(pool),
 		hub: &Hub{conns: map[string]map[*HubConn]struct{}{}},
 		upgrader: websocket.Upgrader{
 			CheckOrigin: func(r *http.Request) bool {
@@ -200,6 +199,7 @@ func New(cfg config.Config) (*App, error) {
 			},
 		},
 	}
+	app.social = socialsvc.New(pool, app.buildSocialIdentityItems)
 	if err := app.ensureSchema(ctx); err != nil {
 		return nil, err
 	}
