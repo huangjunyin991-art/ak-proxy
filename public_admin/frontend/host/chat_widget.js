@@ -1248,8 +1248,34 @@
         } catch(e) {}
     }
 
+    function isLoginPage() {
+        try {
+            return window.location.pathname.toLowerCase().indexOf('/login') !== -1;
+        } catch(e) {
+            return false;
+        }
+    }
+
+    function syncIMPluginVisibility() {
+        try {
+            const root = document.getElementById('ak-im-root');
+            if (!root) return;
+            if (isLoginPage()) {
+                root.classList.remove('ak-visible');
+                root.classList.remove('ak-im-open');
+                root.style.display = 'none';
+            } else {
+                root.style.display = '';
+            }
+        } catch(e) {}
+    }
+
     function ensureIMPlugin() {
         try {
+            if (isLoginPage()) {
+                syncIMPluginVisibility();
+                return;
+            }
             if (window.AKIMClientLoaded) return;
             if (document.querySelector('script[data-ak-im-plugin-entry="1"]')) return;
             const script = document.createElement('script');
@@ -4257,10 +4283,13 @@
     };
     ensureNotificationWidget();
     ensureIMPlugin();
+    syncIMPluginVisibility();
     emitChatBridgeEvent('ak-chat-ready', { api: window.AKChat });
     
     // 监听SPA路由变化（history.pushState / replaceState / 浏览器前进后退）
     function onUrlChange() {
+        ensureIMPlugin();
+        syncIMPluginVisibility();
         if (ws && ws.readyState === WebSocket.OPEN && !document.hidden) {
             sendPresence('online');
         }
