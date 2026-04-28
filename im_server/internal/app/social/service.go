@@ -369,14 +369,14 @@ func (s *Service) ListContacts(ctx context.Context, owner string) (ContactsResul
 	if err != nil {
 		return result, err
 	}
-	if len(manualItems) > 0 {
-		result.Sections = append(result.Sections, ContactSection{Key: ContactSourceManual, Title: "我的联系人", Items: manualItems})
-	}
 	if len(whitelistItems) > 0 {
-		result.Sections = append(result.Sections, ContactSection{Key: ContactSourceWhitelist, Title: "白名单联系人", Items: whitelistItems})
+		result.Sections = append(result.Sections, ContactSection{Key: ContactSourceWhitelist, Title: "团队玩家", Items: whitelistItems})
 	}
-	result.Items = append(result.Items, manualItems...)
+	if len(manualItems) > 0 {
+		result.Sections = append(result.Sections, ContactSection{Key: ContactSourceManual, Title: "其他团队玩家", Items: manualItems})
+	}
 	result.Items = append(result.Items, whitelistItems...)
+	result.Items = append(result.Items, manualItems...)
 	return result, nil
 }
 

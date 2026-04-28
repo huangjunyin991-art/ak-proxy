@@ -93,10 +93,6 @@
         blacklistLoading: false,
         blacklistError: '',
         blacklistActionUsername: '',
-        blacklistSearchKeyword: '',
-        blacklistSearchResults: [],
-        blacklistSearchLoading: false,
-        blacklistSearchError: '',
         profile: null,
         profileLoaded: false,
         profileLoading: false,
@@ -131,6 +127,7 @@
         actionSheetConversationId: 0,
         actionSheetCanRecall: false,
         actionSheetDraftText: '',
+        actionSheetContactUsername: '',
         recalledDraftByMessageId: {},
         inputValue: '',
         composerMode: 'text',
@@ -868,6 +865,8 @@
 	        buildContactItemInnerMarkup: buildContactItemInnerMarkup,
 	        getContactUsername: getContactUsername,
 	        openDirectConversation: openDirectConversation,
+	        openContactActionSheet: openContactActionSheet,
+	        closeActionSheet: closeActionSheet,
 	        closeContactSearch: closeContactSearch,
 	        loadContacts: loadContacts,
 	        loadSessions: loadSessions
@@ -1689,13 +1688,7 @@
             openSettingsPanel(getActiveSession());
             return;
         }
-        if (state.actionSheetMode === 'session') {
-            if (!state.actionSheetConversationId || state.actionSheetSessionSystemPinned) return;
-            requestSessionPin(state.actionSheetConversationId, !state.actionSheetSessionPinned);
-            return;
-        }
-        if (!state.actionSheetCanRecall || !state.actionSheetMessageId) return;
-        recallMessage(state.actionSheetMessageId, state.actionSheetConversationId, state.actionSheetDraftText);
+        closeActionSheet();
     }
 
     function handleActionSheetPrimaryAction() {
@@ -1709,6 +1702,24 @@
             requestSessionPin(state.actionSheetConversationId, !state.actionSheetSessionPinned);
             return;
         }
+	        if (state.actionSheetMode === 'contact_blacklist_add') {
+	            const targetUsername = String(state.actionSheetContactUsername || '').trim().toLowerCase();
+	            const socialModule = getSocialModule();
+	            closeActionSheet();
+	            if (targetUsername && socialModule && typeof socialModule.addToBlacklist === 'function') {
+	                socialModule.addToBlacklist(targetUsername);
+	            }
+	            return;
+	        }
+	        if (state.actionSheetMode === 'contact_blacklist_remove') {
+	            const targetUsername = String(state.actionSheetContactUsername || '').trim().toLowerCase();
+	            const socialModule = getSocialModule();
+	            closeActionSheet();
+	            if (targetUsername && socialModule && typeof socialModule.removeFromBlacklist === 'function') {
+	                socialModule.removeFromBlacklist(targetUsername);
+	            }
+	            return;
+	        }
         if (!state.actionSheetCanRecall || !state.actionSheetMessageId) return;
         recallMessage(state.actionSheetMessageId, state.actionSheetConversationId, state.actionSheetDraftText);
     }
@@ -1758,6 +1769,7 @@
                 return getGroupManageModule();
             },
             buildAvatarBoxMarkup: buildAvatarBoxMarkup,
+	            getContactUsername: getContactUsername,
             sortGroupMembersForDisplay: sortGroupMembersForDisplay,
             formatSessionMember: formatSessionMember,
             buildGroupAvatarMosaicMarkup: buildGroupAvatarMosaicMarkup,
@@ -2227,6 +2239,28 @@
         }
     }
 
+    function openContactActionSheet(contactItem, mode) {
+        const targetUsername = getContactUsername(contactItem);
+        const actionMode = mode === 'contact_blacklist_remove' ? 'contact_blacklist_remove' : 'contact_blacklist_add';
+        if (!targetUsername) return;
+        const overlayModule = getOverlayModule();
+        if (overlayModule && typeof overlayModule.openContactActionSheet === 'function') {
+            overlayModule.openContactActionSheet(contactItem, actionMode);
+            return;
+        }
+        const socialModule = getSocialModule();
+        if (!socialModule) return;
+        if (actionMode === 'contact_blacklist_remove') {
+            if (window.confirm('将该联系人移出黑名单？') && typeof socialModule.removeFromBlacklist === 'function') {
+                socialModule.removeFromBlacklist(targetUsername);
+            }
+            return;
+        }
+        if (window.confirm('将该联系人加入黑名单？') && typeof socialModule.addToBlacklist === 'function') {
+            socialModule.addToBlacklist(targetUsername);
+        }
+    }
+
     function closeActionSheet() {
         const overlayModule = getOverlayModule();
         if (overlayModule && typeof overlayModule.closeActionSheet === 'function') {
@@ -2243,6 +2277,7 @@
         state.actionSheetConversationId = 0;
         state.actionSheetCanRecall = false;
         state.actionSheetDraftText = '';
+        state.actionSheetContactUsername = '';
         state.actionSheetMode = '';
         state.actionSheetSessionPinned = false;
         state.actionSheetSessionSystemPinned = false;
@@ -3130,9 +3165,12 @@
 
         function renderProfileSubpage() {
             const socialModule = getSocialModule();
-            if (socialModule && state.view === 'profile_blacklist' && typeof socialModule.renderProfileSubpage === 'function' && socialModule.renderProfileSubpage()) {
-                return;
-            }
+            if (socialModule && state.view === 'profile_blacklist' && typeof socialModule.renderProfileSubpage === 'function') {
+                if (profileSubpageTitleEl) profileSubpageTitleEl.textContent = '黑名单';
+                if (socialModule.renderProfileSubpage()) {
+	                return;
+	            }
+	        }
             if (state.view === 'profile_blacklist') {
                 if (!profileSubpageBodyEl || !profileSubpageTitleEl) return;
                 profileSubpageTitleEl.textContent = '黑名单';
@@ -3761,10 +3799,15 @@
 	        state.blacklistLoading = false;
 	        state.blacklistError = '';
 	        state.blacklistActionUsername = '';
-	        state.blacklistSearchKeyword = '';
-	        state.blacklistSearchResults = [];
-	        state.blacklistSearchLoading = false;
-	        state.blacklistSearchError = '';
+	        state.actionSheetOpen = false;
+	        state.actionSheetMessageId = 0;
+	        state.actionSheetConversationId = 0;
+	        state.actionSheetCanRecall = false;
+	        state.actionSheetDraftText = '';
+	        state.actionSheetContactUsername = '';
+	        state.actionSheetMode = '';
+	        state.actionSheetSessionPinned = false;
+	        state.actionSheetSessionSystemPinned = false;
         state.profile = null;
         state.profileLoaded = false;
         state.profileLoading = false;
@@ -3830,10 +3873,15 @@
 	            state.blacklistLoading = false;
 	            state.blacklistError = '';
 	            state.blacklistActionUsername = '';
-	            state.blacklistSearchKeyword = '';
-	            state.blacklistSearchResults = [];
-	            state.blacklistSearchLoading = false;
-	            state.blacklistSearchError = '';
+	            state.actionSheetOpen = false;
+	            state.actionSheetMessageId = 0;
+	            state.actionSheetConversationId = 0;
+	            state.actionSheetCanRecall = false;
+	            state.actionSheetDraftText = '';
+	            state.actionSheetContactUsername = '';
+	            state.actionSheetMode = '';
+	            state.actionSheetSessionPinned = false;
+	            state.actionSheetSessionSystemPinned = false;
             state.profileLoaded = false;
             state.profileLoading = false;
             state.profileError = '';

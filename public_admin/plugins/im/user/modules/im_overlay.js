@@ -50,6 +50,16 @@
                     actionSheetRecallBtn.disabled = !state.actionSheetConversationId;
                 }
                 actionSheetCancelBtn.textContent = '取消';
+            } else if (state.actionSheetMode === 'contact_blacklist_add') {
+                actionSheetRecallBtn.classList.add('danger');
+                actionSheetRecallBtn.textContent = '加入黑名单';
+                actionSheetRecallBtn.disabled = !String(state.actionSheetContactUsername || '').trim();
+                actionSheetCancelBtn.textContent = '取消';
+            } else if (state.actionSheetMode === 'contact_blacklist_remove') {
+                actionSheetRecallBtn.classList.add('danger');
+                actionSheetRecallBtn.textContent = '移出黑名单';
+                actionSheetRecallBtn.disabled = !String(state.actionSheetContactUsername || '').trim();
+                actionSheetCancelBtn.textContent = '取消';
             } else {
                 actionSheetRecallBtn.classList.add('danger');
                 actionSheetRecallBtn.textContent = '撤回';
@@ -84,6 +94,7 @@
             state.actionSheetDraftText = String(messageItem && (messageItem.content || messageItem.content_preview || '') || '');
             state.actionSheetSessionPinned = false;
             state.actionSheetSessionSystemPinned = false;
+            state.actionSheetContactUsername = '';
             this.renderActionSheet();
         },
 
@@ -101,6 +112,26 @@
             state.actionSheetDraftText = '';
             state.actionSheetSessionPinned = !!(sessionManage && typeof sessionManage.isSessionPinned === 'function' ? sessionManage.isSessionPinned(sessionItem) : false);
             state.actionSheetSessionSystemPinned = !!(sessionManage && typeof sessionManage.isSessionSystemPinned === 'function' ? sessionManage.isSessionSystemPinned(sessionItem) : false);
+            state.actionSheetContactUsername = '';
+            this.renderActionSheet();
+        },
+
+        openContactActionSheet(contactItem, mode) {
+            if (!this.ctx || !this.ctx.state) return;
+            const elements = this.getElements();
+            if (!elements.actionSheetEl) return;
+            const state = this.ctx.state;
+            const username = this.ctx.getContactUsername(contactItem);
+            if (!username) return;
+            state.actionSheetMode = mode === 'contact_blacklist_remove' ? 'contact_blacklist_remove' : 'contact_blacklist_add';
+            state.actionSheetOpen = true;
+            state.actionSheetMessageId = 0;
+            state.actionSheetConversationId = 0;
+            state.actionSheetCanRecall = false;
+            state.actionSheetDraftText = '';
+            state.actionSheetSessionPinned = false;
+            state.actionSheetSessionSystemPinned = false;
+            state.actionSheetContactUsername = username;
             this.renderActionSheet();
         },
 
@@ -115,6 +146,7 @@
             state.actionSheetMode = '';
             state.actionSheetSessionPinned = false;
             state.actionSheetSessionSystemPinned = false;
+            state.actionSheetContactUsername = '';
             this.renderActionSheet();
         },
 

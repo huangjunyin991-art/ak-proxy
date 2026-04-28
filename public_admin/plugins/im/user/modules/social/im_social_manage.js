@@ -5,8 +5,6 @@
         ctx: null,
         friendSearchTimer: 0,
         friendSearchToken: 0,
-        blacklistSearchTimer: 0,
-        blacklistSearchToken: 0,
 
         init(ctx) {
             this.ctx = ctx || null;
@@ -27,6 +25,44 @@
 
         buildActionButton(label, className, disabled) {
             return '<button class="ak-im-social-action' + (className ? (' ' + className) : '') + '" type="button"' + (disabled ? ' disabled' : '') + '>' + (this.ctx && typeof this.ctx.escapeHtml === 'function' ? this.ctx.escapeHtml(label) : String(label || '')) + '</button>';
+        },
+
+        bindLongPressAction(node, onClick, onPress) {
+            if (!node || typeof onPress !== 'function') return;
+            let pressTimer = 0;
+            let didOpenActionSheet = false;
+            const startPress = function() {
+                if (pressTimer) clearTimeout(pressTimer);
+                pressTimer = setTimeout(function() {
+                    pressTimer = 0;
+                    didOpenActionSheet = true;
+                    onPress();
+                }, 420);
+            };
+            const cancelPress = function() {
+                if (!pressTimer) return;
+                clearTimeout(pressTimer);
+                pressTimer = 0;
+            };
+            if (typeof onClick === 'function') {
+                node.addEventListener('click', function() {
+                    if (didOpenActionSheet) {
+                        didOpenActionSheet = false;
+                        return;
+                    }
+                    onClick();
+                });
+            }
+            node.addEventListener('pointerdown', startPress);
+            node.addEventListener('pointerup', cancelPress);
+            node.addEventListener('pointercancel', cancelPress);
+            node.addEventListener('pointerleave', cancelPress);
+            node.addEventListener('contextmenu', function(event) {
+                event.preventDefault();
+                cancelPress();
+                didOpenActionSheet = true;
+                onPress();
+            });
         },
 
         renderContactsView() {
@@ -67,8 +103,11 @@
                     node.type = 'button';
                     node.className = 'ak-im-contact-item';
                     node.innerHTML = self.ctx.buildContactItemInnerMarkup(contact);
-                    node.addEventListener('click', function() {
+                    self.bindLongPressAction(node, function() {
+                        if (typeof self.ctx.closeActionSheet === 'function') self.ctx.closeActionSheet();
                         self.ctx.openDirectConversation(username);
+                    }, function() {
+                        if (typeof self.ctx.openContactActionSheet === 'function') self.ctx.openContactActionSheet(contact, 'contact_blacklist_add');
                     });
                     listEl.appendChild(node);
                 });
@@ -249,45 +288,6 @@
             });
         },
 
-        handleBlacklistSearchInputChange(value) {
-            const state = this.getState();
-            if (!state) return;
-            state.blacklistSearchKeyword = String(value || '');
-            if (this.blacklistSearchTimer) {
-                clearTimeout(this.blacklistSearchTimer);
-                this.blacklistSearchTimer = 0;
-            }
-            const keyword = String(state.blacklistSearchKeyword || '').trim();
-            if (!keyword) {
-                state.blacklistSearchLoading = false;
-                state.blacklistSearchError = '';
-                state.blacklistSearchResults = [];
-                if (typeof this.ctx.render === 'function') this.ctx.render();
-                return;
-            }
-            state.blacklistSearchLoading = true;
-            state.blacklistSearchError = '';
-            const self = this;
-            const token = ++this.blacklistSearchToken;
-            this.blacklistSearchTimer = setTimeout(function() {
-                self.ctx.request(self.ctx.httpRoot + '/social/search?keyword=' + encodeURIComponent(keyword)).then(function(data) {
-                    if (token !== self.blacklistSearchToken) return null;
-                    state.blacklistSearchLoading = false;
-                    state.blacklistSearchError = '';
-                    state.blacklistSearchResults = Array.isArray(data && data.items) ? data.items : [];
-                    if (typeof self.ctx.render === 'function') self.ctx.render();
-                    return state.blacklistSearchResults;
-                }).catch(function(error) {
-                    if (token !== self.blacklistSearchToken) return null;
-                    state.blacklistSearchLoading = false;
-                    state.blacklistSearchResults = [];
-                    state.blacklistSearchError = error && error.message ? error.message : '搜索用户失败';
-                    if (typeof self.ctx.render === 'function') self.ctx.render();
-                    return null;
-                });
-            }, 220);
-        },
-
         addToBlacklist(username) {
             const state = this.getState();
             const normalizedUsername = String(username || '').trim().toLowerCase();
@@ -299,9 +299,6 @@
                 method: 'POST',
                 body: JSON.stringify({ username: normalizedUsername })
             }).then(function() {
-                state.blacklistSearchResults = (Array.isArray(state.blacklistSearchResults) ? state.blacklistSearchResults : []).filter(function(item) {
-                    return self.ctx.getContactUsername(item) !== normalizedUsername;
-                });
                 return Promise.all([
                     self.loadBlacklist(true),
                     typeof self.ctx.loadContacts === 'function' ? self.ctx.loadContacts() : null,
@@ -359,38 +356,13 @@
             if (!state.blacklistLoaded && !state.blacklistLoading) {
                 this.loadBlacklist();
             }
-            const searchKeyword = String(state.blacklistSearchKeyword || '');
             container.innerHTML = '<div class="ak-im-social-panel">' +
                 '<div class="ak-im-social-panel-title">黑名单</div>' +
-                '<div class="ak-im-social-panel-subtitle">被拉黑用户会从通讯录中隐藏，且双方不能继续互发消息。</div>' +
+                '<div class="ak-im-social-panel-subtitle">被拉黑用户会从通讯录中隐藏，且双方不能继续互发消息。长按联系人可移出黑名单。</div>' +
                 '<div class="ak-im-social-current-list"></div>' +
-            '</div>' +
-            '<div class="ak-im-social-panel">' +
-                '<div class="ak-im-social-panel-title">添加黑名单</div>' +
-                '<div class="ak-im-social-panel-subtitle">搜索账号或姓名后，可直接加入黑名单。</div>' +
-                '<label class="ak-im-social-search-box"><input class="ak-im-social-search-input" type="search" inputmode="search" autocomplete="off" spellcheck="false" placeholder="搜索账号或姓名" value="' + this.ctx.escapeHtml(searchKeyword) + '" /></label>' +
-                '<div class="ak-im-social-search-result"></div>' +
             '</div>';
             const currentListEl = container.querySelector('.ak-im-social-current-list');
-            const searchInputEl = container.querySelector('.ak-im-social-search-input');
-            const searchResultEl = container.querySelector('.ak-im-social-search-result');
             const self = this;
-            if (searchInputEl) {
-                searchInputEl.addEventListener('input', function() {
-                    self.handleBlacklistSearchInputChange(searchInputEl.value || '');
-                });
-                if (searchKeyword) {
-                    setTimeout(function() {
-                        try {
-                            searchInputEl.focus();
-                            const position = searchInputEl.value.length;
-                            if (typeof searchInputEl.setSelectionRange === 'function') {
-                                searchInputEl.setSelectionRange(position, position);
-                            }
-                        } catch (e) {}
-                    }, 0);
-                }
-            }
             if (state.blacklistLoading) {
                 this.renderEmpty(currentListEl, '正在加载黑名单...', 'ak-im-social-empty');
             } else if (state.blacklistError && !(Array.isArray(state.blacklistItems) && state.blacklistItems.length)) {
@@ -403,44 +375,13 @@
                 (Array.isArray(state.blacklistItems) ? state.blacklistItems : []).forEach(function(item) {
                     const username = self.ctx.getContactUsername(item);
                     if (!username) return;
-                    const loading = String(state.blacklistActionUsername || '') === username;
-                    const row = document.createElement('div');
-                    row.className = 'ak-im-social-row';
-                    row.innerHTML = '<div class="ak-im-social-row-main">' + self.ctx.buildContactItemInnerMarkup(item) + '</div><div class="ak-im-social-actions">' + self.buildActionButton(loading ? '移出中...' : '移出', 'is-danger', loading) + '</div>';
-                    const btn = row.querySelector('.ak-im-social-action');
-                    if (btn) {
-                        btn.addEventListener('click', function() {
-                            self.removeFromBlacklist(username);
-                        });
-                    }
-                    listEl.appendChild(row);
-                });
-            }
-            const blacklistResults = Array.isArray(state.blacklistSearchResults) ? state.blacklistSearchResults : [];
-            if (!searchKeyword.trim()) {
-                this.renderEmpty(searchResultEl, '输入账号或姓名后开始搜索', 'ak-im-social-empty');
-            } else if (state.blacklistSearchLoading) {
-                this.renderEmpty(searchResultEl, '正在搜索用户...', 'ak-im-social-empty');
-            } else if (state.blacklistSearchError && !blacklistResults.length) {
-                this.renderEmpty(searchResultEl, state.blacklistSearchError, 'ak-im-social-empty');
-            } else if (!blacklistResults.length) {
-                this.renderEmpty(searchResultEl, '未找到可加入黑名单的用户', 'ak-im-social-empty');
-            } else {
-                searchResultEl.innerHTML = '<div class="ak-im-social-list"></div>';
-                const listEl = searchResultEl.querySelector('.ak-im-social-list');
-                blacklistResults.forEach(function(item) {
-                    const username = self.ctx.getContactUsername(item);
-                    if (!username) return;
-                    const loading = String(state.blacklistActionUsername || '') === username;
-                    const row = document.createElement('div');
-                    row.className = 'ak-im-social-row';
-                    row.innerHTML = '<div class="ak-im-social-row-main">' + self.ctx.buildContactItemInnerMarkup(item) + '</div><div class="ak-im-social-actions">' + self.buildActionButton(loading ? '拉黑中...' : '拉黑', 'is-danger', loading) + '</div>';
-                    const btn = row.querySelector('.ak-im-social-action');
-                    if (btn) {
-                        btn.addEventListener('click', function() {
-                            self.addToBlacklist(username);
-                        });
-                    }
+                    const row = document.createElement('button');
+                    row.type = 'button';
+                    row.className = 'ak-im-contact-item';
+                    row.innerHTML = self.ctx.buildContactItemInnerMarkup(item);
+                    self.bindLongPressAction(row, null, function() {
+                        if (typeof self.ctx.openContactActionSheet === 'function') self.ctx.openContactActionSheet(item, 'contact_blacklist_remove');
+                    });
                     listEl.appendChild(row);
                 });
             }
