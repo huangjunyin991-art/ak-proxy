@@ -2041,6 +2041,22 @@
         return String(value || '').trim();
     }
 
+    function normalizeHonorLevelCode(value) {
+        const upper = String(value || '').trim().toUpperCase();
+        if (!upper) return '';
+        const exactMatch = upper.match(/^(M[0-5]|A[1-5])$/);
+        if (exactMatch) return exactMatch[1];
+        const fuzzyMatch = upper.match(/(?:^|[^A-Z0-9])(M[0-5]|A[1-5])(?:$|[^A-Z0-9])/);
+        return fuzzyMatch ? fuzzyMatch[1] : '';
+    }
+
+    function canUseAddFriendByHonorName(honorName) {
+        const levelCode = normalizeHonorLevelCode(honorName);
+        if (!levelCode) return false;
+        if (levelCode.charAt(0) === 'A') return true;
+        return levelCode.charAt(0) === 'M' && Number(levelCode.slice(1)) >= 3;
+    }
+
     function getHonorBadgeModule() {
         const modules = window.AKIMUserModules;
         if (!modules || typeof modules !== 'object') return null;
@@ -3388,11 +3404,12 @@
     function normalizeProfileItem(item) {
         const username = String(item && item.username || state.username || '').trim().toLowerCase();
         const displayName = String(item && item.display_name || state.displayName || username || '').trim();
-        const canAddFriend = !!(item && typeof item.can_add_friend !== 'undefined' ? item.can_add_friend : state.canAddFriend);
+        const honorName = normalizeHonorName(item && item.honor_name || state.honorName || '');
+        const canAddFriend = canUseAddFriendByHonorName(honorName) || !!(item && typeof item.can_add_friend !== 'undefined' ? item.can_add_friend : state.canAddFriend);
         return {
             username: username || String(state.username || '').trim().toLowerCase(),
             display_name: displayName || username || '我',
-            honor_name: normalizeHonorName(item && item.honor_name || state.honorName || ''),
+            honor_name: honorName,
             can_add_friend: canAddFriend,
             nickname: String(item && item.nickname || '').trim(),
             gender: normalizeProfileGender(item && item.gender),
@@ -3884,7 +3901,7 @@
             state.username = String((data && data.username) || '').trim().toLowerCase();
             state.displayName = String((data && data.display_name) || state.username || '').trim();
             state.honorName = normalizeHonorName(data && data.honor_name);
-            state.canAddFriend = !!(data && data.can_add_friend);
+            state.canAddFriend = canUseAddFriendByHonorName(state.honorName) || !!(data && data.can_add_friend);
             state.emojiPanelOpen = false;
             state.plusPanelOpen = false;
             state.homeAddMenuOpen = false;
