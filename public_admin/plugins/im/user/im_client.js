@@ -3299,6 +3299,16 @@
     function render() {
         if (!root) return;
         const shellState = getShellRenderState();
+        root.dataset.imUsername = String(state.username || '');
+        root.dataset.imHonorName = String(state.honorName || '');
+        root.dataset.imCanAddFriend = state.canAddFriend ? '1' : '0';
+        window.AKIMDebugState = {
+            username: String(state.username || ''),
+            honorName: String(state.honorName || ''),
+            canAddFriend: !!state.canAddFriend,
+            allowed: !!state.allowed,
+            ready: !!state.ready
+        };
         if (isFallbackShellActive()) {
             renderFallbackShell(shellState);
             return;
