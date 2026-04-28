@@ -120,11 +120,19 @@
             const state = this.getState();
             if (!state) return;
             const keyword = String(value || '').trim();
+            const keywordLength = Array.from(keyword).length;
             if (this.friendSearchTimer) {
                 clearTimeout(this.friendSearchTimer);
                 this.friendSearchTimer = 0;
             }
             if (!keyword) {
+                state.friendSearchLoading = false;
+                state.friendSearchError = '';
+                state.friendSearchResults = [];
+                if (this.ctx && typeof this.ctx.render === 'function') this.ctx.render();
+                return;
+            }
+            if (keywordLength <= 4) {
                 state.friendSearchLoading = false;
                 state.friendSearchError = '';
                 state.friendSearchResults = [];
@@ -234,6 +242,10 @@
             const keyword = String(state.contactSearchKeyword || '').trim();
             if (!keyword) {
                 this.renderEmpty(container, '搜索账号或姓名，添加到通讯录', 'ak-im-contact-search-empty');
+                return true;
+            }
+            if (Array.from(keyword).length <= 4) {
+                this.renderEmpty(container, '请输入至少5个字符搜索', 'ak-im-contact-search-empty');
                 return true;
             }
             if (state.friendSearchLoading) {

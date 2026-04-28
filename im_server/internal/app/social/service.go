@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -386,6 +387,9 @@ func (s *Service) SearchUsers(ctx context.Context, owner string, keyword string,
 	if normalizedOwner == "" || normalizedKeyword == "" || s == nil || s.db == nil {
 		return []ContactItem{}, nil
 	}
+	if utf8.RuneCountInString(normalizedKeyword) <= 4 {
+		return []ContactItem{}, nil
+	}
 	if limit <= 0 || limit > 30 {
 		limit = 20
 	}
@@ -411,18 +415,31 @@ func (s *Service) SearchUsers(ctx context.Context, owner string, keyword string,
 		}
 		contactSet[username] = ContactSourceWhitelist
 	}
+	excludedSet := make(map[string]struct{}, len(blacklistSet)+len(contactSet)+1)
+	excludedSet[normalizedOwner] = struct{}{}
+	for username := range blacklistSet {
+		excludedSet[username] = struct{}{}
+	}
+	for username := range contactSet {
+		excludedSet[username] = struct{}{}
+	}
+	excludedUsernames := make([]string, 0, len(excludedSet))
+	for username := range excludedSet {
+		excludedUsernames = append(excludedUsernames, username)
+	}
+	sort.Strings(excludedUsernames)
 	likeValue := "%" + normalizedKeyword + "%"
 	rows, err := s.db.Query(ctx, `
 		SELECT ua.username
 		FROM user_assets ua
 		JOIN authorized_accounts aa ON aa.username = ua.username AND aa.status = 'active' AND aa.expire_time > NOW()
 		LEFT JOIN user_stats us ON us.username = ua.username
-		WHERE ua.username <> $1
+		WHERE NOT (LOWER(ua.username) = ANY($1::text[]))
 		  AND (ua.username ILIKE $2 OR COALESCE(NULLIF(us.real_name, ''), '') ILIKE $2)
-		ORDER BY CASE WHEN ua.username = $3 THEN 0 WHEN ua.username ILIKE $2 THEN 1 ELSE 2 END,
+		ORDER BY CASE WHEN LOWER(ua.username) = $3 THEN 0 WHEN ua.username ILIKE $2 THEN 1 ELSE 2 END,
 			COALESCE(NULLIF(us.real_name, ''), ua.username) ASC,
 			ua.username ASC
-		LIMIT $4`, normalizedOwner, likeValue, strings.ToLower(normalizedKeyword), limit)
+		LIMIT $4`, excludedUsernames, likeValue, strings.ToLower(normalizedKeyword), limit)
 	if err != nil {
 		return nil, err
 	}
@@ -435,12 +452,6 @@ func (s *Service) SearchUsers(ctx context.Context, owner string, keyword string,
 		}
 		normalizedUsername := normalizeUsername(username)
 		if normalizedUsername == "" {
-			continue
-		}
-		if _, blocked := blacklistSet[normalizedUsername]; blocked {
-			continue
-		}
-		if _, exists := contactSet[normalizedUsername]; exists {
 			continue
 		}
 		usernames = append(usernames, normalizedUsername)
