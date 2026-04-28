@@ -1817,6 +1817,8 @@
     }
 
     function getCanonicalUsername() {
+        const cookieUsername = String(getCookie('ak_username') || '').trim().toLowerCase();
+        if (cookieUsername) return cookieUsername;
         try {
             if (window.APP && APP.USER && APP.USER.MODEL) {
                 const value = pickUsernameFromObject(APP.USER.MODEL);
@@ -1851,7 +1853,7 @@
                 if (value) return value;
             }
         } catch (e) {}
-        return String(getCookie('ak_username') || '').trim().toLowerCase();
+        return '';
     }
 
     function buildRequestHeaders() {

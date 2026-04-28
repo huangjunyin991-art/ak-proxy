@@ -683,7 +683,11 @@
     
     // 获取用户名
     function getUsername() {
-        // 1. 优先从运行时用户模型读取规范用户名
+        // 1. 优先使用当前登录 cookie，避免历史缓存覆盖当前切换账号
+        let cookieUser = getCookie('ak_username');
+        if (cookieUser) return String(cookieUser).trim();
+
+        // 2. 从运行时用户模型读取规范用户名
         try {
             if (window.APP && APP.USER && APP.USER.MODEL) {
                 let runtimeUser = pickUsernameFromObject(APP.USER.MODEL);
@@ -695,17 +699,13 @@
             if (globalUser) return globalUser;
         } catch(e) {}
 
-        // 2. 从固定用户模型存储读取规范用户名
+        // 3. 从固定用户模型存储读取规范用户名
         let storedUserModel = getStoredUserModelUsername();
         if (storedUserModel) return storedUserModel;
 
-        // 3. 从登录返回落库的 UserData / ak_login_result 读取规范用户名
+        // 4. 从登录返回落库的 UserData / ak_login_result 读取规范用户名
         let canonicalUser = getStoredCanonicalUsername();
         if (canonicalUser) return canonicalUser;
-
-        // 4. 规范用户名缺失时再回退到cookie输入值
-        let cookieUser = getCookie('ak_username');
-        if (cookieUser) return String(cookieUser).trim();
         
         // 5. 从localStorage遍历找用户名
         try {
