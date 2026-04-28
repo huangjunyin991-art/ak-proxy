@@ -76,6 +76,7 @@
         username: '',
         displayName: '',
         honorName: '',
+        canAddFriend: false,
         homeTab: 'chats',
         contacts: [],
         contactsLoaded: false,
@@ -584,6 +585,15 @@
 
     function openAddFriendSearch() {
         if (!state.allowed) return;
+        if (!state.canAddFriend) {
+            openDialog({
+                title: '提示',
+                message: '仅 M3 及以上玩家可添加好友',
+                confirmText: '知道了',
+                showCancel: false
+            });
+            return;
+        }
         ensureOptionalLazyModule('social').then(function(socialModule) {
             if (!socialModule) {
                 openDialog({
@@ -2781,6 +2791,7 @@
             showSessionNewButton: false,
             showHomeTopActions: showHomeTopActions,
             showHomeAddMenu: showHomeTopActions && !showChat && !showCompose && !showGroupInfo && !showMemberAction && !showProfileSubpage && !!state.homeAddMenuOpen,
+            canAddFriend: !!state.canAddFriend,
             searchPillText: getHomeSearchPillText(homeTab),
             contactSearchKeyword: state.contactSearchKeyword,
             meetingsUnread: (function() {
@@ -2962,6 +2973,16 @@
         const searchPill = root.querySelector('.ak-im-search-pill');
         if (searchPill) {
             searchPill.textContent = nextShellState.searchPillText;
+        }
+        const addFriendButton = root.querySelector('[data-im-home-add-action="add_friend"]');
+        if (addFriendButton) {
+            addFriendButton.disabled = !nextShellState.canAddFriend;
+            addFriendButton.setAttribute('aria-disabled', nextShellState.canAddFriend ? 'false' : 'true');
+            if (nextShellState.canAddFriend) {
+                addFriendButton.removeAttribute('title');
+            } else {
+                addFriendButton.setAttribute('title', '仅 M3 及以上玩家可添加好友');
+            }
         }
         Array.prototype.forEach.call(root.querySelectorAll('[data-im-home-tab]'), function(button) {
             const tabName = button.getAttribute('data-im-home-tab');
@@ -3355,10 +3376,12 @@
     function normalizeProfileItem(item) {
         const username = String(item && item.username || state.username || '').trim().toLowerCase();
         const displayName = String(item && item.display_name || state.displayName || username || '').trim();
+        const canAddFriend = !!(item && typeof item.can_add_friend !== 'undefined' ? item.can_add_friend : state.canAddFriend);
         return {
             username: username || String(state.username || '').trim().toLowerCase(),
             display_name: displayName || username || '我',
             honor_name: normalizeHonorName(item && item.honor_name || state.honorName || ''),
+            can_add_friend: canAddFriend,
             nickname: String(item && item.nickname || '').trim(),
             gender: normalizeProfileGender(item && item.gender),
             avatar_style: String(item && item.avatar_style || 'thumbs').trim() || 'thumbs',
@@ -3382,6 +3405,7 @@
         if (profile.username) state.username = profile.username;
         if (profile.display_name) state.displayName = profile.display_name;
         state.honorName = normalizeHonorName(profile.honor_name);
+        state.canAddFriend = !!profile.can_add_friend;
         if (!state.profileDraftDirty || state.view !== 'profile_detail' || state.profileSaving) {
             syncProfileDraftFromProfile();
         }
@@ -3773,6 +3797,7 @@
         state.allowed = false;
         state.ready = true;
         state.honorName = '';
+        state.canAddFriend = false;
         state.emojiPanelOpen = false;
         state.plusPanelOpen = false;
         state.homeAddMenuOpen = false;
@@ -3847,6 +3872,7 @@
             state.username = String((data && data.username) || '').trim().toLowerCase();
             state.displayName = String((data && data.display_name) || state.username || '').trim();
             state.honorName = normalizeHonorName(data && data.honor_name);
+            state.canAddFriend = !!(data && data.can_add_friend);
             state.emojiPanelOpen = false;
             state.plusPanelOpen = false;
             state.homeAddMenuOpen = false;
@@ -3903,6 +3929,7 @@
             state.profile = state.username ? normalizeProfileItem({
                 username: state.username,
                 display_name: state.displayName,
+                can_add_friend: state.canAddFriend,
                 avatar_style: 'thumbs',
                 avatar_url: data && data.avatar_url
             }) : null;

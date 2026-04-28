@@ -154,6 +154,15 @@ func (a *App) handleSocialSearch(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"items": []ContactItem{}})
 		return
 	}
+	canAddFriend, err := a.loadUserAddFriendPermission(r.Context(), username)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
+		return
+	}
+	if !canAddFriend {
+		writeJSON(w, http.StatusForbidden, map[string]any{"error": true, "message": "仅 M3 及以上玩家可添加好友"})
+		return
+	}
 	keyword := strings.TrimSpace(r.URL.Query().Get("keyword"))
 	if keyword == "" {
 		keyword = strings.TrimSpace(r.URL.Query().Get("q"))
@@ -178,6 +187,15 @@ func (a *App) handleSocialContactsAdd(w http.ResponseWriter, r *http.Request) {
 	}
 	if a.social == nil {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": true, "message": "social service unavailable"})
+		return
+	}
+	canAddFriend, err := a.loadUserAddFriendPermission(r.Context(), username)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
+		return
+	}
+	if !canAddFriend {
+		writeJSON(w, http.StatusForbidden, map[string]any{"error": true, "message": "仅 M3 及以上玩家可添加好友"})
 		return
 	}
 	targetUsername, err := decodeSocialTargetRequest(r)

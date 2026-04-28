@@ -24,6 +24,7 @@ import (
 )
 
 const defaultAvatarStyle = "thumbs"
+const minAddFriendHonorStep = '3'
 
 var (
 	errInvalidMessageType = errors.New("invalid message_type")
@@ -60,6 +61,7 @@ type BootstrapResponse struct {
 	Username          string `json:"username"`
 	DisplayName       string `json:"display_name"`
 	HonorName         string `json:"honor_name,omitempty"`
+	CanAddFriend      bool   `json:"can_add_friend"`
 	AvatarURL         string `json:"avatar_url,omitempty"`
 	EmojiAssets       []EmojiAssetItem `json:"emoji_assets,omitempty"`
 	RetentionDays     int    `json:"retention_days"`
@@ -113,6 +115,7 @@ type UserProfileItem struct {
 	Username    string `json:"username"`
 	DisplayName string `json:"display_name"`
 	HonorName   string `json:"honor_name,omitempty"`
+	CanAddFriend bool  `json:"can_add_friend"`
 	Nickname    string `json:"nickname,omitempty"`
 	Gender      string `json:"gender,omitempty"`
 	AvatarStyle string `json:"avatar_style"`
@@ -667,6 +670,75 @@ func (a *App) getUserAvatarURL(ctx context.Context, username string) string {
 	return buildDicebearAvatarURL(record.AvatarStyle, buildAvatarSeed(normalizedUsername, record.AvatarSeed))
 }
 
+func normalizeHonorLevelCode(value string) string {
+	upper := strings.ToUpper(strings.TrimSpace(value))
+	if upper == "" {
+		return ""
+	}
+	for index := 0; index+1 < len(upper); index++ {
+		prefix := upper[index]
+		suffix := upper[index+1]
+		if prefix != 'M' && prefix != 'A' {
+			continue
+		}
+		if prefix == 'M' && (suffix < '0' || suffix > '5') {
+			continue
+		}
+		if prefix == 'A' && (suffix < '1' || suffix > '5') {
+			continue
+		}
+		if index > 0 {
+			prev := upper[index-1]
+			if (prev >= 'A' && prev <= 'Z') || (prev >= '0' && prev <= '9') {
+				continue
+			}
+		}
+		if index+2 < len(upper) {
+			next := upper[index+2]
+			if (next >= 'A' && next <= 'Z') || (next >= '0' && next <= '9') {
+				continue
+			}
+		}
+		return upper[index : index+2]
+	}
+	return ""
+}
+
+func canUseAddFriend(honorName string) bool {
+	levelCode := normalizeHonorLevelCode(honorName)
+	if len(levelCode) != 2 {
+		return false
+	}
+	if levelCode[0] == 'A' {
+		return true
+	}
+	return levelCode[0] == 'M' && levelCode[1] >= minAddFriendHonorStep && levelCode[1] <= '5'
+}
+
+func (a *App) loadUserHonorName(ctx context.Context, username string) (string, error) {
+	normalizedUsername := strings.ToLower(strings.TrimSpace(username))
+	if normalizedUsername == "" || a == nil || a.db == nil {
+		return "", nil
+	}
+	var honorName string
+	err := a.db.QueryRow(ctx, `
+		SELECT COALESCE(honor_name, '')
+		FROM user_assets
+		WHERE LOWER(username) = $1`, normalizedUsername).Scan(&honorName)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", nil
+	}
+	return strings.TrimSpace(honorName), err
+}
+
+func (a *App) loadUserAddFriendPermission(ctx context.Context, username string) (bool, error) {
+	honorName, err := a.loadUserHonorName(ctx, username)
+	if err != nil {
+		return false, err
+	}
+	return canUseAddFriend(honorName), nil
+}
+
 func (a *App) buildUserProfileItem(ctx context.Context, username string) UserProfileItem {
 	normalizedUsername := strings.ToLower(strings.TrimSpace(username))
 	profile, err := a.loadUserProfileRecord(ctx, normalizedUsername)
@@ -686,10 +758,12 @@ func (a *App) buildUserProfileItem(ctx context.Context, username string) UserPro
 	if avatarURL == "" {
 		avatarURL = buildDicebearAvatarURL(profile.AvatarStyle, buildAvatarSeed(normalizedUsername, profile.AvatarSeed))
 	}
+	canAddFriend := canUseAddFriend(identity.HonorName)
 	return UserProfileItem{
 		Username:    normalizedUsername,
 		DisplayName: identity.DisplayName,
 		HonorName:   identity.HonorName,
+		CanAddFriend: canAddFriend,
 		Nickname:    strings.TrimSpace(profile.Nickname),
 		Gender:      normalizeProfileGender(profile.Gender),
 		AvatarStyle: normalizeAvatarStyle(profile.AvatarStyle),
@@ -1026,6 +1100,7 @@ func (a *App) handleBootstrap(w http.ResponseWriter, r *http.Request) {
 		Username:         username,
 		DisplayName:      profile.DisplayName,
 		HonorName:        profile.HonorName,
+		CanAddFriend:     profile.CanAddFriend,
 		AvatarURL:        profile.AvatarURL,
 		EmojiAssets:      a.loadBootstrapEmojiAssets(r.Context()),
 		RetentionDays:    180,

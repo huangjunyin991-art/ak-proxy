@@ -79,6 +79,8 @@
                 #ak-im-root .ak-im-home-add-action-icon{display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;color:#374151;flex:0 0 auto}
                 #ak-im-root .ak-im-home-add-action-icon svg{width:20px;height:20px;stroke:currentColor;fill:none}
                 #ak-im-root .ak-im-home-add-action-label{flex:1;line-height:1.4}
+                #ak-im-root .ak-im-home-add-action:disabled{opacity:.45;cursor:not-allowed}
+                #ak-im-root .ak-im-home-add-action:disabled .ak-im-home-add-action-icon{color:#9ca3af}
                 #ak-im-root.ak-contact-search-open .ak-im-session-screen .ak-im-topbar{grid-template-columns:40px minmax(0,1fr);column-gap:8px}
                 #ak-im-root.ak-contact-search-open .ak-im-close{display:none}
                 #ak-im-root.ak-contact-search-open .ak-im-contact-search-back{display:inline-flex}
@@ -1020,6 +1022,16 @@
             }
             if (this.elements.homeAddMenuEl) {
                 this.elements.homeAddMenuEl.classList.toggle('is-open', !!nextShellState.showHomeAddMenu);
+                const addFriendButton = this.elements.homeAddMenuEl.querySelector('[data-im-home-add-action="add_friend"]');
+                if (addFriendButton) {
+                    addFriendButton.disabled = !nextShellState.canAddFriend;
+                    addFriendButton.setAttribute('aria-disabled', nextShellState.canAddFriend ? 'false' : 'true');
+                    if (nextShellState.canAddFriend) {
+                        addFriendButton.removeAttribute('title');
+                    } else {
+                        addFriendButton.setAttribute('title', '仅 M3 及以上玩家可添加好友');
+                    }
+                }
             }
             if (this.elements.contactSearchBackBtnEl) {
                 this.elements.contactSearchBackBtnEl.classList.toggle('is-hidden', !nextShellState.showContactSearch);

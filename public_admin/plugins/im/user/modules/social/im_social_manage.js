@@ -132,7 +132,7 @@
                 if (this.ctx && typeof this.ctx.render === 'function') this.ctx.render();
                 return;
             }
-            if (keywordLength <= 4) {
+            if (keywordLength < 4) {
                 state.friendSearchLoading = false;
                 state.friendSearchError = '';
                 state.friendSearchResults = [];
@@ -244,8 +244,8 @@
                 this.renderEmpty(container, '搜索账号或姓名，添加到通讯录', 'ak-im-contact-search-empty');
                 return true;
             }
-            if (Array.from(keyword).length <= 4) {
-                this.renderEmpty(container, '请输入至少5个字符搜索', 'ak-im-contact-search-empty');
+            if (Array.from(keyword).length < 4) {
+                container.innerHTML = '';
                 return true;
             }
             if (state.friendSearchLoading) {

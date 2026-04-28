@@ -206,7 +206,7 @@ func (s *Service) buildContactItems(ctx context.Context, usernames []string, sou
 	return items, nil
 }
 
-func (s *Service) existsAllowedUser(ctx context.Context, username string) (bool, error) {
+func (s *Service) existsAssetUser(ctx context.Context, username string) (bool, error) {
 	normalizedUsername := normalizeUsername(username)
 	if normalizedUsername == "" || s == nil || s.db == nil {
 		return false, nil
@@ -215,11 +215,8 @@ func (s *Service) existsAllowedUser(ctx context.Context, username string) (bool,
 	err := s.db.QueryRow(ctx, `
 		SELECT EXISTS (
 			SELECT 1
-			FROM user_stats us
-			JOIN authorized_accounts aa ON aa.username = us.username
-			WHERE us.username = $1
-			  AND aa.status = 'active'
-			  AND aa.expire_time > NOW()
+			FROM user_assets ua
+			WHERE LOWER(ua.username) = $1
 		)`, normalizedUsername).Scan(&exists)
 	return exists, err
 }
@@ -387,7 +384,7 @@ func (s *Service) SearchUsers(ctx context.Context, owner string, keyword string,
 	if normalizedOwner == "" || normalizedKeyword == "" || s == nil || s.db == nil {
 		return []ContactItem{}, nil
 	}
-	if utf8.RuneCountInString(normalizedKeyword) <= 4 {
+	if utf8.RuneCountInString(normalizedKeyword) < 4 {
 		return []ContactItem{}, nil
 	}
 	if limit <= 0 || limit > 30 {
@@ -432,7 +429,6 @@ func (s *Service) SearchUsers(ctx context.Context, owner string, keyword string,
 	rows, err := s.db.Query(ctx, `
 		SELECT ua.username
 		FROM user_assets ua
-		JOIN authorized_accounts aa ON aa.username = ua.username AND aa.status = 'active' AND aa.expire_time > NOW()
 		LEFT JOIN user_stats us ON us.username = ua.username
 		WHERE NOT (LOWER(ua.username) = ANY($1::text[]))
 		  AND (ua.username ILIKE $2 OR COALESCE(NULLIF(us.real_name, ''), '') ILIKE $2)
@@ -486,12 +482,12 @@ func (s *Service) AddContact(ctx context.Context, owner string, target string) (
 	if normalizedOwner == "" || normalizedTarget == "" || normalizedOwner == normalizedTarget {
 		return ContactItem{}, fmt.Errorf("invalid target username")
 	}
-	exists, err := s.existsAllowedUser(ctx, normalizedTarget)
+	exists, err := s.existsAssetUser(ctx, normalizedTarget)
 	if err != nil {
 		return ContactItem{}, err
 	}
 	if !exists {
-		return ContactItem{}, fmt.Errorf("target user not allowed")
+		return ContactItem{}, fmt.Errorf("target user not found")
 	}
 	blacklistSet, _, err := s.listActiveBlacklistSet(ctx, normalizedOwner)
 	if err != nil {
@@ -563,12 +559,12 @@ func (s *Service) AddToBlacklist(ctx context.Context, owner string, target strin
 	if normalizedOwner == "" || normalizedTarget == "" || normalizedOwner == normalizedTarget {
 		return ContactItem{}, fmt.Errorf("invalid target username")
 	}
-	exists, err := s.existsAllowedUser(ctx, normalizedTarget)
+	exists, err := s.existsAssetUser(ctx, normalizedTarget)
 	if err != nil {
 		return ContactItem{}, err
 	}
 	if !exists {
-		return ContactItem{}, fmt.Errorf("target user not allowed")
+		return ContactItem{}, fmt.Errorf("target user not found")
 	}
 	tx, err := s.db.Begin(ctx)
 	if err != nil {
