@@ -154,13 +154,12 @@ func (a *App) handleSocialSearch(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"items": []ContactItem{}})
 		return
 	}
-	permissionInfo, err := a.loadUserAddFriendPermissionInfo(r.Context(), username)
+	canAddFriend, err := a.loadUserAddFriendPermission(r.Context(), username)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
 		return
 	}
-	log.Printf("im add friend permission: route=social_search username=%s honor_name=%q level_code=%q can_add_friend=%t", username, permissionInfo.HonorName, permissionInfo.LevelCode, permissionInfo.CanAddFriend)
-	if !permissionInfo.CanAddFriend {
+	if !canAddFriend {
 		writeJSON(w, http.StatusForbidden, map[string]any{"error": true, "message": "仅 M3 及以上玩家可添加好友"})
 		return
 	}
@@ -190,13 +189,12 @@ func (a *App) handleSocialContactsAdd(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": true, "message": "social service unavailable"})
 		return
 	}
-	permissionInfo, err := a.loadUserAddFriendPermissionInfo(r.Context(), username)
+	canAddFriend, err := a.loadUserAddFriendPermission(r.Context(), username)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
 		return
 	}
-	log.Printf("im add friend permission: route=social_contacts_add username=%s honor_name=%q level_code=%q can_add_friend=%t", username, permissionInfo.HonorName, permissionInfo.LevelCode, permissionInfo.CanAddFriend)
-	if !permissionInfo.CanAddFriend {
+	if !canAddFriend {
 		writeJSON(w, http.StatusForbidden, map[string]any{"error": true, "message": "仅 M3 及以上玩家可添加好友"})
 		return
 	}

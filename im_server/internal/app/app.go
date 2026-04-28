@@ -26,12 +26,6 @@ import (
 const defaultAvatarStyle = "thumbs"
 const minAddFriendHonorStep = '3'
 
-type addFriendPermissionInfo struct {
-	HonorName    string
-	LevelCode    string
-	CanAddFriend bool
-}
-
 var (
 	errInvalidMessageType = errors.New("invalid message_type")
 	errInvalidEmojiAssetID = errors.New("invalid emoji_asset_id")
@@ -738,24 +732,11 @@ func (a *App) loadUserHonorName(ctx context.Context, username string) (string, e
 }
 
 func (a *App) loadUserAddFriendPermission(ctx context.Context, username string) (bool, error) {
-	info, err := a.loadUserAddFriendPermissionInfo(ctx, username)
+	honorName, err := a.loadUserHonorName(ctx, username)
 	if err != nil {
 		return false, err
 	}
-	return info.CanAddFriend, nil
-}
-
-func (a *App) loadUserAddFriendPermissionInfo(ctx context.Context, username string) (addFriendPermissionInfo, error) {
-	honorName, err := a.loadUserHonorName(ctx, username)
-	if err != nil {
-		return addFriendPermissionInfo{}, err
-	}
-	levelCode := normalizeHonorLevelCode(honorName)
-	return addFriendPermissionInfo{
-		HonorName:    honorName,
-		LevelCode:    levelCode,
-		CanAddFriend: canUseAddFriend(honorName),
-	}, nil
+	return canUseAddFriend(honorName), nil
 }
 
 func (a *App) buildUserProfileItem(ctx context.Context, username string) UserProfileItem {
@@ -1122,14 +1103,6 @@ func (a *App) handleBootstrap(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	profile := a.buildUserProfileItem(r.Context(), username)
-	permissionInfo, err := a.loadUserAddFriendPermissionInfo(r.Context(), username)
-	if err != nil {
-		log.Printf("im add friend permission load failed: route=bootstrap username=%s err=%v", username, err)
-	} else {
-		profile.HonorName = permissionInfo.HonorName
-		profile.CanAddFriend = permissionInfo.CanAddFriend
-		log.Printf("im add friend permission: route=bootstrap username=%s honor_name=%q level_code=%q can_add_friend=%t", username, permissionInfo.HonorName, permissionInfo.LevelCode, permissionInfo.CanAddFriend)
-	}
 	writeJSON(w, http.StatusOK, BootstrapResponse{
 		Enabled:          true,
 		Allowed:          true,
