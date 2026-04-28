@@ -3,6 +3,7 @@ package social
 import (
 	"context"
 	"fmt"
+	"log"
 	"sort"
 	"strings"
 	"unicode/utf8"
@@ -221,6 +222,52 @@ func (s *Service) existsAssetUser(ctx context.Context, username string) (bool, e
 	return exists, err
 }
 
+func (s *Service) logSearchUsersEmpty(ctx context.Context, owner string, keyword string, excludedReasons map[string]string) {
+	normalizedKeyword := normalizeUsername(keyword)
+	excludedReason := ""
+	if normalizedKeyword != "" {
+		excludedReason = excludedReasons[normalizedKeyword]
+	}
+	var exactAssetExists bool
+	if normalizedKeyword != "" {
+		if err := s.db.QueryRow(ctx, `
+			SELECT EXISTS (
+				SELECT 1
+				FROM user_assets ua
+				WHERE LOWER(ua.username) = $1
+			)`, normalizedKeyword).Scan(&exactAssetExists); err != nil {
+			log.Printf("im social search empty diagnostic failed: owner=%s keyword=%q err=%v", owner, keyword, err)
+			return
+		}
+	}
+	fuzzyRows, err := s.db.Query(ctx, `
+		SELECT LOWER(ua.username)
+		FROM user_assets ua
+		LEFT JOIN user_stats us ON us.username = ua.username
+		WHERE ua.username ILIKE $1 OR COALESCE(NULLIF(us.real_name, ''), '') ILIKE $1
+		ORDER BY ua.username ASC
+		LIMIT 5`, "%"+strings.TrimSpace(keyword)+"%")
+	if err != nil {
+		log.Printf("im social search empty diagnostic failed: owner=%s keyword=%q err=%v", owner, keyword, err)
+		return
+	}
+	defer fuzzyRows.Close()
+	fuzzyMatches := make([]string, 0, 5)
+	for fuzzyRows.Next() {
+		var username string
+		if err := fuzzyRows.Scan(&username); err != nil {
+			log.Printf("im social search empty diagnostic failed: owner=%s keyword=%q err=%v", owner, keyword, err)
+			return
+		}
+		fuzzyMatches = append(fuzzyMatches, normalizeUsername(username))
+	}
+	if err := fuzzyRows.Err(); err != nil {
+		log.Printf("im social search empty diagnostic failed: owner=%s keyword=%q err=%v", owner, keyword, err)
+		return
+	}
+	log.Printf("im social search empty: owner=%s keyword=%q exact_asset_exists=%t exact_excluded_reason=%q fuzzy_matches=%v excluded_count=%d", owner, keyword, exactAssetExists, excludedReason, fuzzyMatches, len(excludedReasons))
+}
+
 func (s *Service) listActiveBlacklistSet(ctx context.Context, owner string) (map[string]struct{}, []string, error) {
 	normalizedOwner := normalizeUsername(owner)
 	resultSet := map[string]struct{}{}
@@ -384,7 +431,7 @@ func (s *Service) SearchUsers(ctx context.Context, owner string, keyword string,
 	if normalizedOwner == "" || normalizedKeyword == "" || s == nil || s.db == nil {
 		return []ContactItem{}, nil
 	}
-	if utf8.RuneCountInString(normalizedKeyword) < 4 {
+	if utf8.RuneCountInString(normalizedKeyword) < 3 {
 		return []ContactItem{}, nil
 	}
 	if limit <= 0 || limit > 30 {
@@ -413,12 +460,16 @@ func (s *Service) SearchUsers(ctx context.Context, owner string, keyword string,
 		contactSet[username] = ContactSourceWhitelist
 	}
 	excludedSet := make(map[string]struct{}, len(blacklistSet)+len(contactSet)+1)
+	excludedReasons := make(map[string]string, len(blacklistSet)+len(contactSet)+1)
 	excludedSet[normalizedOwner] = struct{}{}
+	excludedReasons[normalizedOwner] = "self"
 	for username := range blacklistSet {
 		excludedSet[username] = struct{}{}
+		excludedReasons[username] = "blacklist"
 	}
-	for username := range contactSet {
+	for username, source := range contactSet {
 		excludedSet[username] = struct{}{}
+		excludedReasons[username] = source
 	}
 	excludedUsernames := make([]string, 0, len(excludedSet))
 	for username := range excludedSet {
@@ -456,6 +507,9 @@ func (s *Service) SearchUsers(ctx context.Context, owner string, keyword string,
 		return nil, err
 	}
 	usernames = normalizeUsernames(usernames)
+	if len(usernames) == 0 {
+		s.logSearchUsersEmpty(ctx, normalizedOwner, normalizedKeyword, excludedReasons)
+	}
 	identities, err := s.buildIdentityItems(ctx, usernames)
 	if err != nil {
 		return nil, err
