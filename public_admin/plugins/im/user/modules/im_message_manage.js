@@ -32,6 +32,32 @@
             return null;
         },
 
+        getActiveSendRestrictionMessage() {
+            const activeSession = this.getActiveSession();
+            if (!activeSession || activeSession.can_send !== false) return '';
+            return String(activeSession.send_restriction_hint || '').trim() || '当前会话暂不可发送消息';
+        },
+
+        markConversationRestricted(conversationId, restriction, message) {
+            const state = this.getState();
+            const targetConversationId = Number(conversationId || 0);
+            if (!state || !targetConversationId) return;
+            state.sessions = (Array.isArray(state.sessions) ? state.sessions : []).map(function(item) {
+                if (Number(item && item.conversation_id || 0) !== targetConversationId) return item;
+                return Object.assign({}, item, {
+                    can_send: false,
+                    send_restriction: String(restriction || '').trim(),
+                    send_restriction_hint: String(message || '').trim() || '当前会话暂不可发送消息'
+                });
+            });
+            if (Number(state.activeConversationId || 0) === targetConversationId && this.ctx && typeof this.ctx.syncComposerState === 'function') {
+                this.ctx.syncComposerState();
+            }
+            if (this.ctx && typeof this.ctx.render === 'function') {
+                this.ctx.render();
+            }
+        },
+
         isGroupSession(item) {
             const sessionManage = this.getSessionManage();
             if (sessionManage && typeof sessionManage.isGroupSession === 'function') {
@@ -409,6 +435,10 @@
             if (!state || !state.allowed || !state.activeConversationId || !this.ctx || typeof this.ctx.request !== 'function') {
                 return Promise.resolve(null);
             }
+            const restrictedMessage = this.getActiveSendRestrictionMessage();
+            if (restrictedMessage) {
+                return Promise.reject(new Error(restrictedMessage));
+            }
             const requestPayload = Object.assign({
                 conversation_id: state.activeConversationId
             }, payload || {});
@@ -501,6 +531,10 @@
             const state = this.getState();
             if (!state || !state.allowed || !state.activeConversationId || !blob || !blob.size || !this.ctx || typeof this.ctx.requestFormData !== 'function') {
                 return Promise.resolve(null);
+            }
+            const restrictedMessage = this.getActiveSendRestrictionMessage();
+            if (restrictedMessage) {
+                return Promise.reject(new Error(restrictedMessage));
             }
             const targetConversationId = Number(state.activeConversationId || 0);
             if (!targetConversationId) return Promise.resolve(null);
@@ -759,6 +793,22 @@
         handleSocketPayload(data) {
             const state = this.getState();
             if (!state || !data || typeof data !== 'object') return;
+            if (data.type === 'im.message.error') {
+                const payload = data.payload || null;
+                const restrictedConversationId = Number(payload && payload.conversation_id || 0);
+                const restrictedMessage = String(payload && payload.message || '').trim();
+                const restriction = String(payload && payload.restriction || '').trim();
+                if (restrictedConversationId > 0) {
+                    this.markConversationRestricted(restrictedConversationId, restriction, restrictedMessage);
+                    if (typeof this.ctx.loadSessions === 'function') {
+                        this.ctx.loadSessions();
+                    }
+                }
+                if (restrictedMessage) {
+                    window.alert(restrictedMessage);
+                }
+                return;
+            }
             if (data.type === 'im.message.created') {
                 const item = data.payload || null;
                 if (!item || !item.conversation_id) return;

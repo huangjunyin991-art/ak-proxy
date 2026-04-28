@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	socialsvc "im_server/internal/app/social"
 	"im_server/internal/config"
 
 	"github.com/gorilla/websocket"
@@ -37,6 +38,7 @@ var (
 type App struct {
 	cfg      config.Config
 	db       *pgxpool.Pool
+	social   *socialsvc.Service
 	hub      *Hub
 	server   *http.Server
 	upgrader websocket.Upgrader
@@ -83,6 +85,10 @@ type SessionItem struct {
 	LastMessagePreview string `json:"last_message_preview,omitempty"`
 	LastMessageAt      string `json:"last_message_at,omitempty"`
 	UnreadCount        int64  `json:"unread_count"`
+	CanSend            bool   `json:"can_send"`
+	SendRestriction    string `json:"send_restriction,omitempty"`
+	SendRestrictionHint string `json:"send_restriction_hint,omitempty"`
+	AwaitingPeerReply  bool   `json:"awaiting_peer_reply,omitempty"`
 }
 
 type MessageItem struct {
@@ -126,6 +132,10 @@ type ContactItem struct {
 	DisplayName string `json:"display_name"`
 	HonorName   string `json:"honor_name,omitempty"`
 	AvatarURL   string `json:"avatar_url,omitempty"`
+	Source      string `json:"source,omitempty"`
+	IsContact   bool   `json:"is_contact,omitempty"`
+	IsBlacklisted bool `json:"is_blacklisted,omitempty"`
+	ActionDisabledReason string `json:"action_disabled_reason,omitempty"`
 }
 
 type sendMessageRequest struct {
@@ -178,6 +188,7 @@ func New(cfg config.Config) (*App, error) {
 	app := &App{
 		cfg: cfg,
 		db:  pool,
+		social: socialsvc.New(pool),
 		hub: &Hub{conns: map[string]map[*HubConn]struct{}{}},
 		upgrader: websocket.Upgrader{
 			CheckOrigin: func(r *http.Request) bool {
@@ -191,6 +202,11 @@ func New(cfg config.Config) (*App, error) {
 	}
 	if err := app.ensureSchema(ctx); err != nil {
 		return nil, err
+	}
+	if app.social != nil {
+		if err := app.social.EnsureSchema(ctx); err != nil {
+			return nil, err
+		}
 	}
 	if err := app.ensureEmojiDirectories(); err != nil {
 		return nil, err
@@ -207,6 +223,12 @@ func New(cfg config.Config) (*App, error) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/im/api/bootstrap", app.handleBootstrap)
 	mux.HandleFunc("/im/api/contacts", app.handleContacts)
+	mux.HandleFunc("/im/api/social/contacts", app.handleSocialContacts)
+	mux.HandleFunc("/im/api/social/search", app.handleSocialSearch)
+	mux.HandleFunc("/im/api/social/contacts/add", app.handleSocialContactsAdd)
+	mux.HandleFunc("/im/api/social/blacklist", app.handleSocialBlacklist)
+	mux.HandleFunc("/im/api/social/blacklist/add", app.handleSocialBlacklistAdd)
+	mux.HandleFunc("/im/api/social/blacklist/remove", app.handleSocialBlacklistRemove)
 	mux.HandleFunc("/im/api/emoji_assets", app.handleEmojiAssets)
 	mux.HandleFunc("/im/api/profile", app.handleProfile)
 	mux.HandleFunc("/im/api/profile/avatar/history", app.handleProfileAvatarHistory)
@@ -1022,12 +1044,12 @@ func (a *App) handleContacts(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusForbidden, map[string]any{"error": true, "message": err.Error()})
 		return
 	}
-	items, err := a.listWhitelistContacts(r.Context(), username)
+	items, sections, err := a.listContactResponse(r.Context(), username)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"items": items})
+	writeJSON(w, http.StatusOK, map[string]any{"items": items, "sections": sections})
 }
 
 func (a *App) handleProfile(w http.ResponseWriter, r *http.Request) {
@@ -1258,8 +1280,10 @@ func (a *App) handleSessions(w http.ResponseWriter, r *http.Request) {
 		if lastMessageAt != nil {
 			item.LastMessageAt = lastMessageAt.Format(time.RFC3339)
 		}
+		item.CanSend = true
 		items = append(items, item)
 	}
+	items = a.applySessionSocialRules(r.Context(), username, items)
 	writeJSON(w, http.StatusOK, map[string]any{"items": items})
 }
 
@@ -1487,6 +1511,11 @@ func (a *App) handleSendMessage(w http.ResponseWriter, r *http.Request, username
 	}
 	message, err := a.insertMessage(r.Context(), req.ConversationID, username, req)
 	if err != nil {
+		var sendRestrictedErr *socialsvc.SendRestrictedError
+		if errors.As(err, &sendRestrictedErr) {
+			writeJSON(w, http.StatusForbidden, map[string]any{"error": true, "message": sendRestrictedErr.Error(), "restriction": sendRestrictedErr.Rule.SendRestriction})
+			return
+		}
 		if errors.Is(err, errInvalidMessageType) || errors.Is(err, errInvalidEmojiAssetID) || errors.Is(err, errInvalidVoicePayload) || errors.Is(err, errInvalidImagePayload) || errors.Is(err, errInvalidFilePayload) || errors.Is(err, errInvalidLocationPayload) || errors.Is(err, errEmptyMessageContent) {
 			writeJSON(w, http.StatusBadRequest, map[string]any{"error": true, "message": err.Error()})
 			return
@@ -1625,6 +1654,11 @@ func (a *App) insertMessage(ctx context.Context, conversationID int64, username 
 		return MessageItem{}, err
 	}
 	defer tx.Rollback(ctx)
+	if a.social != nil {
+		if err := a.social.AssertCanSendMessageTx(ctx, tx, username, conversationID); err != nil {
+			return MessageItem{}, err
+		}
+	}
 	var nextSeqNo int64
 	if err := tx.QueryRow(ctx, `SELECT COALESCE(MAX(seq_no), 0) + 1 FROM im_message WHERE conversation_id = $1`, conversationID).Scan(&nextSeqNo); err != nil {
 		return MessageItem{}, err
@@ -1647,6 +1681,11 @@ func (a *App) insertMessage(ctx context.Context, conversationID int64, username 
 	item.SenderAvatarURL = senderIdentity.AvatarURL
 	item.ClientTempID = strings.TrimSpace(req.ClientTempID)
 	item = a.normalizeOutgoingMessageItem(ctx, item)
+	if a.social != nil {
+		if err := a.social.AfterMessageSentTx(ctx, tx, username, conversationID, item.ID); err != nil {
+			return MessageItem{}, err
+		}
+	}
 	if _, err := tx.Exec(ctx, `UPDATE im_conversation SET last_message_id = $1, last_message_preview = $2, last_message_at = NOW(), updated_at = NOW() WHERE id = $3`, item.ID, item.ContentPreview, conversationID); err != nil {
 		return MessageItem{}, err
 	}
@@ -1768,6 +1807,10 @@ func (a *App) handleWS(w http.ResponseWriter, r *http.Request) {
 			}
 			item, err := a.insertMessage(r.Context(), payload.ConversationID, username, payload)
 			if err != nil {
+				var sendRestrictedErr *socialsvc.SendRestrictedError
+				if errors.As(err, &sendRestrictedErr) {
+					_ = client.WriteJSON(map[string]any{"type": "im.message.error", "payload": map[string]any{"conversation_id": payload.ConversationID, "message": sendRestrictedErr.Error(), "restriction": sendRestrictedErr.Rule.SendRestriction}})
+				}
 				continue
 			}
 			a.broadcastConversation(payload.ConversationID, map[string]any{"type": "im.message.created", "payload": item})

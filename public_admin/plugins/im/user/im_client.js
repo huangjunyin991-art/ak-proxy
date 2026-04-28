@@ -58,6 +58,12 @@
             datasetKey: 'akImUserPluginVoiceHoldManage',
             src: `${API_ROOT}/chat/plugins/im/user/modules/im_voice_hold_manage.js`,
             errorMessage: '语音模块加载失败'
+	    },
+	    social: {
+	        selector: 'script[data-ak-im-user-plugin-social-manage="1"]',
+	        datasetKey: 'akImUserPluginSocialManage',
+	        src: `${API_ROOT}/chat/plugins/im/user/modules/social/im_social_manage.js`,
+	        errorMessage: '社交模块加载失败'
         }
     };
     const lazyModuleLoadPromises = {};
@@ -75,7 +81,22 @@
         contactsLoaded: false,
         contactsLoading: false,
         contactsError: '',
+        contactSections: [],
         contactSearchKeyword: '',
+        contactSearchMode: 'contacts',
+        friendSearchResults: [],
+        friendSearchLoading: false,
+        friendSearchError: '',
+        friendSearchActionUsername: '',
+        blacklistItems: [],
+        blacklistLoaded: false,
+        blacklistLoading: false,
+        blacklistError: '',
+        blacklistActionUsername: '',
+        blacklistSearchKeyword: '',
+        blacklistSearchResults: [],
+        blacklistSearchLoading: false,
+        blacklistSearchError: '',
         profile: null,
         profileLoaded: false,
         profileLoading: false,
@@ -510,6 +531,7 @@
         state.composerMode = 'text';
         state.voiceHoldState = 'idle';
         state.voiceHoldStatusText = '';
+	    state.contactSearchMode = 'contacts';
         state.view = 'contact_search';
         if (!state.contactsLoaded && !state.contactsLoading) {
             loadContacts();
@@ -521,6 +543,11 @@
     function closeContactSearch(options) {
         const silent = !!(options && options.silent);
         state.contactSearchKeyword = '';
+	    state.contactSearchMode = 'contacts';
+	    state.friendSearchLoading = false;
+	    state.friendSearchError = '';
+	    state.friendSearchResults = [];
+	    state.friendSearchActionUsername = '';
         if (state.view === 'contact_search') {
             state.view = 'sessions';
         }
@@ -529,6 +556,16 @@
 
     function handleContactSearchInputChange(value) {
         state.contactSearchKeyword = String(value || '');
+	    if (state.contactSearchMode === 'friend_add') {
+	        ensureOptionalLazyModule('social').then(function(socialModule) {
+	            if (socialModule && typeof socialModule.handleFriendSearchInputChange === 'function') {
+	                socialModule.handleFriendSearchInputChange(state.contactSearchKeyword);
+	                return;
+	            }
+	            render();
+	        });
+	        return;
+	    }
         render();
     }
 
@@ -538,16 +575,47 @@
             return;
         }
         state.contactSearchKeyword = '';
+        if (state.contactSearchMode === 'friend_add') {
+            state.friendSearchLoading = false;
+            state.friendSearchError = '';
+            state.friendSearchResults = [];
+            state.friendSearchActionUsername = '';
+        }
         render();
         focusContactSearchInput();
     }
 
-    function openAddFriendPlaceholder() {
-        openDialog({
-            title: '提示',
-            message: '添加好友功能待前置能力完成后开放',
-            confirmText: '知道了',
-            showCancel: false
+    function openAddFriendSearch() {
+        if (!state.allowed) return;
+        ensureOptionalLazyModule('social').then(function(socialModule) {
+            if (!socialModule) {
+                openDialog({
+                    title: '提示',
+                    message: '添加朋友模块暂不可用，请刷新页面后重试',
+                    confirmText: '知道了',
+                    showCancel: false
+                });
+                return;
+            }
+            closeActionSheet();
+            closeReadProgressPanel();
+            closeMemberPanel();
+            closeSettingsPanel({ silent: true });
+            closeEmojiPicker({ silent: true });
+            closePlusPanel({ silent: true });
+            closeHomeAddMenu({ silent: true });
+            state.composerMode = 'text';
+            state.voiceHoldState = 'idle';
+            state.voiceHoldStatusText = '';
+            state.contactSearchMode = 'friend_add';
+            state.contactSearchKeyword = '';
+            state.friendSearchLoading = false;
+            state.friendSearchError = '';
+            state.friendSearchResults = [];
+            state.friendSearchActionUsername = '';
+            state.view = 'contact_search';
+            render();
+            focusContactSearchInput();
         });
     }
 
@@ -650,7 +718,7 @@
             return;
         }
         if (actionKey === 'add_friend') {
-            openAddFriendPlaceholder();
+            openAddFriendSearch();
             return;
         }
         if (actionKey === 'publish_meeting') {
@@ -772,6 +840,39 @@
             saveProfileDetail: saveProfileDetail
         });
     }
+
+	function getSocialModule() {
+	    const modules = window.AKIMUserModules;
+	    if (!modules || typeof modules !== 'object') return null;
+	    const socialModule = modules.social;
+	    if (!socialModule || typeof socialModule.init !== 'function') return null;
+	    return socialModule;
+	}
+
+	function initSocialModule() {
+	    const socialModule = getSocialModule();
+	    if (!socialModule) return;
+	    socialModule.init({
+	        state: state,
+	        httpRoot: HTTP_ROOT,
+	        get elements() {
+	            return {
+	                contactsListEl: contactsListEl,
+	                contactSearchPageEl: contactSearchPageEl,
+	                profileSubpageBodyEl: profileSubpageBodyEl
+	            };
+	        },
+	        request: request,
+	        render: render,
+	        escapeHtml: escapeHtml,
+	        buildContactItemInnerMarkup: buildContactItemInnerMarkup,
+	        getContactUsername: getContactUsername,
+	        openDirectConversation: openDirectConversation,
+	        closeContactSearch: closeContactSearch,
+	        loadContacts: loadContacts,
+	        loadSessions: loadSessions
+	    });
+	}
 
     function getAppShellModule() {
         const modules = window.AKIMUserModules;
@@ -1224,6 +1325,7 @@
         if (moduleKey === 'file') return getFileModule();
         if (moduleKey === 'location') return getLocationModule();
         if (moduleKey === 'voiceHold') return getVoiceHoldModule();
+	    if (moduleKey === 'social') return getSocialModule();
         return null;
     }
 
@@ -1239,6 +1341,7 @@
         else if (moduleKey === 'file') initFileManageModule();
         else if (moduleKey === 'location') initLocationModule();
         else if (moduleKey === 'voiceHold') initVoiceHoldModule();
+	    else if (moduleKey === 'social') initSocialModule();
         lazyModuleInitState[moduleKey] = true;
         return getLazyModuleInstance(moduleKey) || moduleInstance;
     }
@@ -2684,12 +2787,13 @@
     }
 
     function isProfileSubpageView(view) {
-        return view === 'profile_avatar' || view === 'profile_detail' || view === 'profile_settings';
+        return view === 'profile_avatar' || view === 'profile_detail' || view === 'profile_settings' || view === 'profile_blacklist';
     }
 
     function getProfileSubpageTitle(view) {
         if (view === 'profile_avatar') return '头像设置';
         if (view === 'profile_settings') return '设置';
+        if (view === 'profile_blacklist') return '黑名单';
         return '个人资料';
     }
 
@@ -2717,7 +2821,17 @@
     function openProfileSubpage(view) {
         if (!state.allowed) return;
         const nextView = isProfileSubpageView(view) ? view : 'profile_detail';
-        ensureOptionalLazyModule('profile').then(function() {
+        const ensureModule = nextView === 'profile_blacklist' ? ensureOptionalLazyModule('social') : ensureOptionalLazyModule('profile');
+        ensureModule.then(function(loadedModule) {
+            if (nextView === 'profile_blacklist' && !loadedModule) {
+                openDialog({
+                    title: '提示',
+                    message: '黑名单模块暂不可用，请刷新页面后重试',
+                    confirmText: '知道了',
+                    showCancel: false
+                });
+                return;
+            }
             closeActionSheet();
             closeReadProgressPanel();
             closeMemberPanel();
@@ -2734,6 +2848,13 @@
             }
             if (nextView === 'profile_avatar' && !state.profileAvatarHistoryLoaded && !state.profileAvatarHistoryLoading) {
                 loadProfileAvatarHistory();
+            }
+            if (nextView === 'profile_blacklist') {
+                state.blacklistError = '';
+                const socialModule = getSocialModule();
+                if (socialModule && typeof socialModule.loadBlacklist === 'function') {
+                    socialModule.loadBlacklist();
+                }
             }
             render();
         });
@@ -2870,7 +2991,15 @@
     }
 
     function renderContactSearchView() {
+	    const socialModule = getSocialModule();
+	    if (socialModule && typeof socialModule.renderContactSearchView === 'function' && socialModule.renderContactSearchView()) {
+	        return;
+	    }
         if (!contactSearchPageEl) return;
+	    if (state.contactSearchMode === 'friend_add') {
+	        contactSearchPageEl.innerHTML = '<div class="ak-im-contact-search-empty">添加朋友模块暂不可用，请刷新页面后重试</div>';
+	        return;
+	    }
         if (!state.allowed) {
             contactSearchPageEl.innerHTML = '<div class="ak-im-contact-search-empty">当前账号未开通聊天</div>';
             return;
@@ -2911,6 +3040,10 @@
     }
 
     function renderContactsView() {
+	    const socialModule = getSocialModule();
+	    if (socialModule && typeof socialModule.renderContactsView === 'function' && socialModule.renderContactsView()) {
+	        return;
+	    }
         if (!contactsListEl) return;
         contactsListEl.innerHTML = '';
         if (!state.allowed) {
@@ -2977,6 +3110,10 @@
                     '<div class="ak-im-profile-entry-main"><div class="ak-im-profile-entry-label">设置</div><div class="ak-im-profile-entry-meta">独立全屏设置页，后续设置项可继续扩展</div></div>' +
                     '<div class="ak-im-profile-entry-arrow" aria-hidden="true">›</div>' +
                 '</button>' +
+	            '<button class="ak-im-profile-entry" type="button" data-im-profile-nav="profile_blacklist">' +
+	                '<div class="ak-im-profile-entry-main"><div class="ak-im-profile-entry-label">黑名单</div><div class="ak-im-profile-entry-meta">管理已拉黑用户与禁止收发名单</div></div>' +
+	                '<div class="ak-im-profile-entry-arrow" aria-hidden="true">›</div>' +
+                '</button>' +
             '</div>';
         Array.prototype.forEach.call(profilePageEl.querySelectorAll('[data-im-profile-nav]'), function(button) {
             button.addEventListener('click', function() {
@@ -2992,6 +3129,16 @@
         }
 
         function renderProfileSubpage() {
+            const socialModule = getSocialModule();
+            if (socialModule && state.view === 'profile_blacklist' && typeof socialModule.renderProfileSubpage === 'function' && socialModule.renderProfileSubpage()) {
+                return;
+            }
+            if (state.view === 'profile_blacklist') {
+                if (!profileSubpageBodyEl || !profileSubpageTitleEl) return;
+                profileSubpageTitleEl.textContent = '黑名单';
+                profileSubpageBodyEl.innerHTML = '<div class="ak-im-profile-panel"><div class="ak-im-empty">黑名单模块暂不可用，请刷新页面后重试</div></div>';
+                return;
+            }
             const profileModule = getProfileModule();
             if (profileModule) {
                 profileModule.renderProfileSubpage();
@@ -3021,17 +3168,20 @@
         function syncComposerState() {
             if (!inputEl || !sendBtn) return;
             const hasConversation = !!state.activeConversationId;
+            const activeSession = getActiveSession();
             const hasMessageManage = !!getMessageManageModule();
+            const canSendBySession = !hasConversation || !activeSession || activeSession.can_send !== false;
+            const restrictedHint = String(activeSession && activeSession.send_restriction_hint || '').trim();
             const isVoiceMode = normalizeComposerMode(state.composerMode) === 'voice';
             const voiceHoldState = String(state.voiceHoldState || '').trim().toLowerCase();
             const isVoiceRecording = voiceHoldState === 'recording';
             const isVoiceCancelReady = voiceHoldState === 'cancel_ready';
             const isVoiceSending = voiceHoldState === 'sending';
-            const canSend = hasConversation && hasMessageManage;
+            const canSend = hasConversation && hasMessageManage && canSendBySession;
             const hasText = !!String(inputEl.value || '').trim();
-            const canOpenEmoji = hasConversation;
+            const canOpenEmoji = hasConversation && canSendBySession;
             const showVoiceMode = hasConversation && isVoiceMode;
-            const canOpenPlus = hasConversation && !showVoiceMode;
+            const canOpenPlus = hasConversation && !showVoiceMode && canSendBySession;
             const holdSupported = state.voiceHoldSupported !== false;
             const plusPanelVisible = !!state.plusPanelOpen && state.view === 'chat' && canOpenPlus;
             if (root) {
@@ -3044,7 +3194,7 @@
                 root.classList.toggle('ak-im-voice-hold-sending', showVoiceMode && isVoiceSending);
             }
             inputEl.disabled = !canSend || showVoiceMode;
-            inputEl.placeholder = hasConversation ? (hasMessageManage ? '输入消息' : '消息模块暂不可用') : '先选择一个会话';
+            inputEl.placeholder = hasConversation ? (hasMessageManage ? (canSendBySession ? '输入消息' : (restrictedHint || '当前会话暂不可发送消息')) : '消息模块暂不可用') : '先选择一个会话';
             sendBtn.disabled = showVoiceMode || !canSend || !hasText;
             if (composerVoiceBtnEl) {
                 composerVoiceBtnEl.disabled = !hasConversation || isVoiceSending;
@@ -3071,7 +3221,9 @@
             }
             if (statusLine) {
                 let nextStatusText = '';
-                if (showVoiceMode) {
+                if (!showVoiceMode && hasConversation && hasMessageManage && !canSendBySession) {
+                    nextStatusText = restrictedHint || '当前会话暂不可发送消息';
+                } else if (showVoiceMode) {
                     if (!holdSupported) nextStatusText = '当前浏览器暂不支持语音发送';
                     else if (isVoiceCancelReady) nextStatusText = '松开手指，取消发送';
                     else if (isVoiceRecording) nextStatusText = '松开发送，上滑取消';
@@ -3241,6 +3393,7 @@
             state.contactsLoaded = true;
             state.contactsError = '';
             state.contacts = Array.isArray(data && data.items) ? data.items : [];
+	            state.contactSections = Array.isArray(data && data.sections) ? data.sections : [];
             render();
             return state.contacts;
         }).catch(function(error) {
@@ -3248,6 +3401,7 @@
             state.contactsLoaded = false;
             state.contactsError = error && error.message ? error.message : '读取通讯录失败';
             state.contacts = [];
+	            state.contactSections = [];
             render();
             return [];
         });
@@ -3595,7 +3749,22 @@
         state.contactsLoaded = false;
         state.contactsLoading = false;
         state.contactsError = '';
+	        state.contactSections = [];
         state.contactSearchKeyword = '';
+	        state.contactSearchMode = 'contacts';
+	        state.friendSearchResults = [];
+	        state.friendSearchLoading = false;
+	        state.friendSearchError = '';
+	        state.friendSearchActionUsername = '';
+	        state.blacklistItems = [];
+	        state.blacklistLoaded = false;
+	        state.blacklistLoading = false;
+	        state.blacklistError = '';
+	        state.blacklistActionUsername = '';
+	        state.blacklistSearchKeyword = '';
+	        state.blacklistSearchResults = [];
+	        state.blacklistSearchLoading = false;
+	        state.blacklistSearchError = '';
         state.profile = null;
         state.profileLoaded = false;
         state.profileLoading = false;
@@ -3649,7 +3818,22 @@
             state.contactsLoaded = false;
             state.contactsLoading = false;
             state.contactsError = '';
+	            state.contactSections = [];
             state.contactSearchKeyword = '';
+	            state.contactSearchMode = 'contacts';
+	            state.friendSearchResults = [];
+	            state.friendSearchLoading = false;
+	            state.friendSearchError = '';
+	            state.friendSearchActionUsername = '';
+	            state.blacklistItems = [];
+	            state.blacklistLoaded = false;
+	            state.blacklistLoading = false;
+	            state.blacklistError = '';
+	            state.blacklistActionUsername = '';
+	            state.blacklistSearchKeyword = '';
+	            state.blacklistSearchResults = [];
+	            state.blacklistSearchLoading = false;
+	            state.blacklistSearchError = '';
             state.profileLoaded = false;
             state.profileLoading = false;
             state.profileError = '';

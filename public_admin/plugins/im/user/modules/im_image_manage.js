@@ -618,7 +618,9 @@
                     });
                 }
                 window.alert(error && error.message ? error.message : '图片发送失败');
-                return null;
+                return Promise.resolve(typeof self.ctx.loadSessions === 'function' ? self.ctx.loadSessions() : null).then(function() {
+                    return null;
+                });
             });
         }
     };

@@ -115,7 +115,9 @@
                 });
             }).catch(function(error) {
                 window.alert(error && error.message ? error.message : '文件发送失败');
-                return null;
+                return Promise.resolve(typeof self.ctx.loadSessions === 'function' ? self.ctx.loadSessions() : null).then(function() {
+                    return null;
+                });
             });
         }
     };

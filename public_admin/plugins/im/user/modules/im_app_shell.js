@@ -131,6 +131,17 @@
                 #ak-im-root .ak-im-contact-body{min-width:0;flex:1}
                 #ak-im-root .ak-im-contact-name{font-size:15px;font-weight:600;color:#111827;line-height:1.4;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:flex;align-items:center;min-width:0}
                 #ak-im-root .ak-im-contact-meta{margin-top:3px;font-size:12px;color:#9ca3af;line-height:1.4;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+                #ak-im-root .ak-im-contact-list-section + .ak-im-contact-list-section{margin-top:8px}
+                #ak-im-root .ak-im-contact-list-section-title{padding:12px 16px 8px;background:#f7f7f7;font-size:12px;font-weight:600;color:#6b7280;line-height:1.5}
+                #ak-im-root .ak-im-social-list{background:#ffffff}
+                #ak-im-root .ak-im-social-row{display:flex;align-items:center;gap:10px;padding:10px 16px;background:#ffffff}
+                #ak-im-root .ak-im-social-row + .ak-im-social-row{border-top:1px solid rgba(15,23,42,.05)}
+                #ak-im-root .ak-im-social-row-main{min-width:0;flex:1;display:flex;align-items:center}
+                #ak-im-root .ak-im-social-actions{display:flex;align-items:center;gap:8px;flex:0 0 auto}
+                #ak-im-root .ak-im-social-action{height:30px;border:none;border-radius:999px;padding:0 12px;background:#07c160;color:#ffffff;font-size:12px;font-weight:600;cursor:pointer}
+                #ak-im-root .ak-im-social-action:disabled{opacity:.52;cursor:not-allowed}
+                #ak-im-root .ak-im-social-action.is-ghost{background:#eef2f7;color:#334155}
+                #ak-im-root .ak-im-social-action.is-danger{background:rgba(239,68,68,.1);color:#dc2626}
                 #ak-im-root .ak-im-profile-page{flex:1;overflow:auto;padding:14px 12px calc(18px + env(safe-area-inset-bottom, 0px));background:#f7f7f7}
                 #ak-im-root .ak-im-profile-card{background:#ffffff;border-radius:22px;padding:22px 18px 18px;box-shadow:0 1px 2px rgba(15,23,42,.04)}
                 #ak-im-root .ak-im-profile-head{display:flex;flex-direction:column;align-items:center;text-align:center}
@@ -150,6 +161,15 @@
                 #ak-im-root .ak-im-profile-panel{background:#ffffff;border-radius:18px;padding:16px;box-shadow:0 1px 2px rgba(15,23,42,.04)}
                 #ak-im-root .ak-im-profile-panel + .ak-im-profile-panel{margin-top:12px}
                 #ak-im-root .ak-im-profile-subtitle{margin-top:8px;font-size:13px;color:#6b7280;line-height:1.55}
+                #ak-im-root .ak-im-social-panel{background:#ffffff;border-radius:18px;padding:16px;box-shadow:0 1px 2px rgba(15,23,42,.04)}
+                #ak-im-root .ak-im-social-panel + .ak-im-social-panel{margin-top:12px}
+                #ak-im-root .ak-im-social-panel-title{font-size:15px;font-weight:600;color:#111827;line-height:1.5}
+                #ak-im-root .ak-im-social-panel-subtitle{margin-top:6px;font-size:12px;color:#6b7280;line-height:1.6}
+                #ak-im-root .ak-im-social-current-list{margin-top:12px}
+                #ak-im-root .ak-im-social-search-box{display:flex;align-items:center;margin-top:12px;height:40px;padding:0 12px;border:1px solid rgba(15,23,42,.08);border-radius:12px;background:#f8fafc}
+                #ak-im-root .ak-im-social-search-input{width:100%;border:none;outline:none;background:transparent;font-size:14px;color:#111827}
+                #ak-im-root .ak-im-social-search-result{margin-top:12px}
+                #ak-im-root .ak-im-social-empty{padding:24px 16px;color:#94a3b8;font-size:13px;line-height:1.7;text-align:center}
                 #ak-im-root .ak-im-profile-action-row{margin-top:16px;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
                 #ak-im-root .ak-im-profile-primary-btn{margin-top:16px;width:100%;height:46px;border:none;border-radius:14px;background:#07c160;color:#ffffff;font-size:16px;font-weight:700;cursor:pointer;box-shadow:0 10px 22px rgba(7,193,96,.18)}
                 #ak-im-root .ak-im-profile-action-row .ak-im-profile-primary-btn{margin-top:0}
