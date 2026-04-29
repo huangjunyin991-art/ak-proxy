@@ -274,7 +274,6 @@
                  });
             }
          },
-
          renderProfileSettingsView(container, displayName, honorName, username, nickname, genderLabel, profile) {
              const state = this.ctx.state;
              const hideHonor = !!(profile && profile.hide_honor);
@@ -286,7 +285,7 @@
                      '<div class="ak-im-profile-name">' + (typeof this.ctx.buildDisplayNameWithHonorMarkup === 'function' ? this.ctx.buildDisplayNameWithHonorMarkup(displayName || '我', honorName, '我') : this.ctx.escapeHtml(displayName || '我')) + '</div>' +
                      '<div class="ak-im-profile-username">@' + this.ctx.escapeHtml(username || 'unknown') + '</div>' +
                  '</div>' +
-                 '<div class="ak-im-profile-subtitle">这里是新的全屏设置页入口，后续与 IM 个人相关的设置项会继续放在这里。</div>' +
+                 '<div class="ak-im-profile-subtitle">在这里管理你的个人设置，当前可设置是否对外显示等级。</div>' +
              '</div>' +
              '<div class="ak-im-profile-panel">' +
                  '<div class="ak-im-profile-entry-label">等级显示</div>' +

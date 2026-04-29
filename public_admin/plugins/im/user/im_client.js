@@ -3185,7 +3185,7 @@
                     '<div class="ak-im-profile-entry-arrow" aria-hidden="true">›</div>' +
                 '</button>' +
                 '<button class="ak-im-profile-entry" type="button" data-im-profile-nav="profile_settings">' +
-                    '<div class="ak-im-profile-entry-main"><div class="ak-im-profile-entry-label">设置</div><div class="ak-im-profile-entry-meta">独立全屏设置页，后续设置项可继续扩展</div></div>' +
+                    '<div class="ak-im-profile-entry-main"><div class="ak-im-profile-entry-label">设置</div><div class="ak-im-profile-entry-meta">管理等级显示等个人设置</div></div>' +
                     '<div class="ak-im-profile-entry-arrow" aria-hidden="true">›</div>' +
                 '</button>' +
 	            '<button class="ak-im-profile-entry" type="button" data-im-profile-nav="profile_blacklist">' +
