@@ -318,7 +318,7 @@
                 });
             }, function() {
                 return self.refreshAfterSettingsAction(conversationId);
-            }, '清空全群聊天记录失败');
+            }, '清空本群聊天记录失败');
         },
 
         executeHideGroupRequest(conversationId) {
@@ -336,6 +336,21 @@
             }, '隐藏本群失败');
         },
 
+        executeDissolveGroupRequest(conversationId) {
+            if (!this.ctx || typeof this.ctx.request !== 'function') return;
+            const self = this;
+            this.executeSettingsDialogRequest(function() {
+                return self.ctx.request(self.ctx.httpRoot + '/sessions/group/dissolve', {
+                    method: 'POST',
+                    body: JSON.stringify({ conversation_id: conversationId })
+                });
+            }, function() {
+                if (typeof self.ctx.closeSettingsPanel === 'function') self.ctx.closeSettingsPanel();
+                if (typeof self.ctx.loadSessions === 'function') return self.ctx.loadSessions();
+                return null;
+            }, '解散本群失败');
+        },
+
         handleDialogAction(action, payload) {
             if (action === 'member_action_submit') {
                 this.executeMemberActionRequest(payload || null);
@@ -347,6 +362,10 @@
             }
             if (action === 'hide_group') {
                 this.executeHideGroupRequest(Number(payload && payload.conversationId || 0));
+                return true;
+            }
+            if (action === 'dissolve_group') {
+                this.executeDissolveGroupRequest(Number(payload && payload.conversationId || 0));
                 return true;
             }
             return false;
@@ -499,7 +518,7 @@
             if (action === 'clear_history') {
                 if (typeof this.ctx.openDialog === 'function') {
                     this.ctx.openDialog({
-                        title: '清空全群聊天记录？',
+                        title: '清空本群聊天记录？',
                         message: '清空后，本群现有聊天记录会立即对所有成员生效。',
                         confirmText: '清空',
                         cancelText: '取消',
@@ -508,6 +527,18 @@
                         payload: { conversationId: conversationId }
                     });
                 }
+                return;
+            }
+            if (action === 'dissolve_group' && String(detail.my_role || '').trim().toLowerCase() === 'owner' && typeof this.ctx.openDialog === 'function') {
+                this.ctx.openDialog({
+                    title: '解散本群？',
+                    message: '解散后，本群会从所有成员会话中移除，同时清空本群聊天记录。',
+                    confirmText: '解散',
+                    cancelText: '取消',
+                    danger: true,
+                    action: 'dissolve_group',
+                    payload: { conversationId: conversationId }
+                });
                 return;
             }
             if (action === 'hide_group' && typeof this.ctx.openDialog === 'function') {

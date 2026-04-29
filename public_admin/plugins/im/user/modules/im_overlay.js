@@ -396,6 +396,7 @@
             const allMuteText = detail.all_muted ? '已开启' : '未开启';
             const adminsAction = detail.can_manage_admins ? 'admins' : 'admins_view';
             const allMuteAction = detail.can_toggle_all_mute ? 'all_mute' : '';
+            const isOwner = String(detail.my_role || '').trim().toLowerCase() === 'owner';
             if (groupInfoTitleEl) groupInfoTitleEl.textContent = '聊天信息(' + memberCount + ')';
             const heroTitle = String(detail.conversation_title || '群聊');
             const heroMosaicSource = members.length ? members : (detail.owner ? [detail.owner] : []);
@@ -416,7 +417,8 @@
                     groupManage.buildGroupInfoCell('添加成员', '', 'add') +
                     groupManage.buildGroupInfoCell('移除成员', '', 'remove') +
                     groupManage.buildGroupInfoCell('清空指定成员聊天记录', '', 'clear_member_history') +
-                    groupManage.buildGroupInfoCell('清空全群聊天记录', '', 'clear_history', 'is-danger') +
+                    groupManage.buildGroupInfoCell('清空本群聊天记录', '', 'clear_history', 'is-danger') +
+                    (isOwner ? groupManage.buildGroupInfoCell('解散本群', '', 'dissolve_group', 'is-danger') : '') +
                     groupManage.buildGroupInfoCell('隐藏本群', '', 'hide_group', 'is-danger') +
                 '</div>' : '');
             const self = this;

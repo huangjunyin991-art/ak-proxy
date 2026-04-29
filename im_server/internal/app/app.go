@@ -254,6 +254,7 @@ func New(cfg config.Config) (*App, error) {
 	mux.HandleFunc("/im/api/sessions/settings", app.handleSessionSettings)
 	mux.HandleFunc("/im/api/sessions/group/create", app.handleGroupSessionCreate)
 	mux.HandleFunc("/im/api/sessions/group/title", app.handleGroupTitleUpdate)
+	mux.HandleFunc("/im/api/sessions/group/dissolve", app.handleGroupDissolve)
 	mux.HandleFunc("/im/api/sessions/group_admins", app.handleGroupAdmins)
 	mux.HandleFunc("/im/api/sessions/group_admins/assign", app.handleGroupAdminAssign)
 	mux.HandleFunc("/im/api/sessions/group_admins/revoke", app.handleGroupAdminRevoke)

@@ -165,6 +165,10 @@ type sessionHideRequest struct {
 	ConversationID int64 `json:"conversation_id"`
 }
 
+type groupDissolveRequest struct {
+	ConversationID int64 `json:"conversation_id"`
+}
+
 func roundProgressPercent(readCount int64, totalCount int64) int {
 	if totalCount <= 0 {
 		return 0
@@ -970,6 +974,23 @@ func collectConversationAffectedUsersTx(ctx context.Context, tx pgx.Tx, conversa
 	return affectedUsers, nil
 }
 
+func clearConversationHistoryTx(ctx context.Context, tx pgx.Tx, conversationID int64) (int64, error) {
+	var maxSeqNo int64
+	if err := tx.QueryRow(ctx, `SELECT COALESCE(MAX(seq_no), 0) FROM im_message WHERE conversation_id = $1 AND deleted_at IS NULL`, conversationID).Scan(&maxSeqNo); err != nil {
+		return 0, err
+	}
+	if _, err := tx.Exec(ctx, `
+		UPDATE im_conversation
+		SET purged_before_seq_no = GREATEST(purged_before_seq_no, $2), updated_at = NOW()
+		WHERE id = $1`, conversationID, maxSeqNo); err != nil {
+		return 0, err
+	}
+	if err := refreshConversationSummary(ctx, tx, conversationID); err != nil {
+		return 0, err
+	}
+	return maxSeqNo, nil
+}
+
 func writeConversationFeatureError(w http.ResponseWriter, err error) {
 	statusCode := http.StatusBadRequest
 	switch err.Error() {
@@ -1358,19 +1379,8 @@ func (a *App) handleSessionHistoryClear(w http.ResponseWriter, r *http.Request) 
 		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
 		return
 	}
-	var maxSeqNo int64
-	if err := tx.QueryRow(r.Context(), `SELECT COALESCE(MAX(seq_no), 0) FROM im_message WHERE conversation_id = $1 AND deleted_at IS NULL`, req.ConversationID).Scan(&maxSeqNo); err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
-		return
-	}
-	if _, err := tx.Exec(r.Context(), `
-		UPDATE im_conversation
-		SET purged_before_seq_no = GREATEST(purged_before_seq_no, $2), updated_at = NOW()
-		WHERE id = $1`, req.ConversationID, maxSeqNo); err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
-		return
-	}
-	if err := refreshConversationSummary(r.Context(), tx, req.ConversationID); err != nil {
+	maxSeqNo, err := clearConversationHistoryTx(r.Context(), tx, req.ConversationID)
+	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
 		return
 	}
@@ -1489,6 +1499,77 @@ func (a *App) handleSessionHide(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.broadcastUsernames(affectedUsers, map[string]any{"type": "im.session.updated", "payload": map[string]any{"conversation_id": req.ConversationID, "reason": "hidden", "conversation_title": meta.ConversationTitle}})
+	writeJSON(w, http.StatusOK, map[string]any{"success": true})
+}
+
+func (a *App) handleGroupDissolve(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"error": true})
+		return
+	}
+	username, err := a.requireAllowedUser(r)
+	if err != nil {
+		writeJSON(w, http.StatusForbidden, map[string]any{"error": true, "message": err.Error()})
+		return
+	}
+	var req groupDissolveRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": true, "message": "invalid payload"})
+		return
+	}
+	meta, err := a.requireGroupOwner(r.Context(), req.ConversationID, username)
+	if err != nil {
+		writeConversationFeatureError(w, err)
+		return
+	}
+	tx, err := a.db.Begin(r.Context())
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
+		return
+	}
+	defer tx.Rollback(r.Context())
+	affectedUsers, err := collectConversationAffectedUsersTx(r.Context(), tx, req.ConversationID, meta.OwnerUsername)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
+		return
+	}
+	if _, err := clearConversationHistoryTx(r.Context(), tx, req.ConversationID); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
+		return
+	}
+	if _, err := tx.Exec(r.Context(), `
+		UPDATE im_message
+		SET deleted_at = NOW(), updated_at = NOW()
+		WHERE conversation_id = $1 AND deleted_at IS NULL`, req.ConversationID); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
+		return
+	}
+	if _, err := tx.Exec(r.Context(), `
+		UPDATE im_conversation_admin
+		SET revoked_at = NOW(), updated_at = NOW()
+		WHERE conversation_id = $1 AND revoked_at IS NULL`, req.ConversationID); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
+		return
+	}
+	if _, err := tx.Exec(r.Context(), `
+		UPDATE im_conversation_member
+		SET left_at = COALESCE(left_at, NOW()), mute_until = NULL, muted_by = '', pin_type = 'none', pinned_at = NULL, is_pinned = FALSE, updated_at = NOW()
+		WHERE conversation_id = $1`, req.ConversationID); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
+		return
+	}
+	if _, err := tx.Exec(r.Context(), `
+		UPDATE im_conversation
+		SET deleted_at = NOW(), hidden_for_all = TRUE, all_muted = FALSE, all_muted_by = '', all_muted_at = NULL, updated_at = NOW()
+		WHERE id = $1`, req.ConversationID); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
+		return
+	}
+	if err := tx.Commit(r.Context()); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
+		return
+	}
+	a.broadcastUsernames(affectedUsers, map[string]any{"type": "im.session.updated", "payload": map[string]any{"conversation_id": req.ConversationID, "reason": "group_dissolved", "conversation_title": meta.ConversationTitle}})
 	writeJSON(w, http.StatusOK, map[string]any{"success": true})
 }
 
