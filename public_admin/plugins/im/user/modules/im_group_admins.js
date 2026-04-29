@@ -355,6 +355,7 @@
             const contextmenu = function(event) {
                 event.preventDefault();
                 cancel();
+                if (handled) return;
                 handled = true;
                 callback();
             };
@@ -374,6 +375,9 @@
             node.addEventListener('pointerup', cancel);
             node.addEventListener('pointercancel', cancel);
             node.addEventListener('pointerleave', cancel);
+            node.addEventListener('touchstart', start);
+            node.addEventListener('touchend', cancel);
+            node.addEventListener('touchcancel', cancel);
             node.addEventListener('contextmenu', contextmenu);
             node.addEventListener('click', click, true);
         },
@@ -386,7 +390,10 @@
                 node.removeEventListener('pointerup', previous.cancel);
                 node.removeEventListener('pointercancel', previous.cancel);
                 node.removeEventListener('pointerleave', previous.cancel);
+                node.removeEventListener('touchend', previous.cancel);
+                node.removeEventListener('touchcancel', previous.cancel);
             }
+            if (previous.start) node.removeEventListener('touchstart', previous.start);
             if (previous.contextmenu) node.removeEventListener('contextmenu', previous.contextmenu);
             if (previous.click) node.removeEventListener('click', previous.click, true);
             delete node.__akImGroupAdminsPressListeners;
