@@ -78,6 +78,11 @@ type SessionItem struct {
 	OwnerUsername      string `json:"owner_username,omitempty"`
 	MemberCount        int64  `json:"member_count"`
 	MembersPreview     []SessionMemberItem `json:"members_preview,omitempty"`
+	AllMuted           bool   `json:"all_muted"`
+	AllMutedBy         string `json:"all_muted_by,omitempty"`
+	AllMutedAt         string `json:"all_muted_at,omitempty"`
+	MutedUntil         string `json:"muted_until,omitempty"`
+	MyRole             string `json:"my_role,omitempty"`
 	PeerUsername       string `json:"peer_username,omitempty"`
 	PeerDisplayName    string `json:"peer_display_name,omitempty"`
 	PeerHonorName      string `json:"peer_honor_name,omitempty"`
@@ -249,8 +254,14 @@ func New(cfg config.Config) (*App, error) {
 	mux.HandleFunc("/im/api/sessions/settings", app.handleSessionSettings)
 	mux.HandleFunc("/im/api/sessions/group/create", app.handleGroupSessionCreate)
 	mux.HandleFunc("/im/api/sessions/group/title", app.handleGroupTitleUpdate)
+	mux.HandleFunc("/im/api/sessions/group_admins", app.handleGroupAdmins)
+	mux.HandleFunc("/im/api/sessions/group_admins/assign", app.handleGroupAdminAssign)
+	mux.HandleFunc("/im/api/sessions/group_admins/revoke", app.handleGroupAdminRevoke)
+	mux.HandleFunc("/im/api/sessions/all_mute/update", app.handleGroupAllMuteUpdate)
 	mux.HandleFunc("/im/api/sessions/members/add", app.handleSessionMembersAdd)
 	mux.HandleFunc("/im/api/sessions/members/remove", app.handleSessionMembersRemove)
+	mux.HandleFunc("/im/api/sessions/members/mute", app.handleSessionMemberMute)
+	mux.HandleFunc("/im/api/sessions/members/unmute", app.handleSessionMemberUnmute)
 	mux.HandleFunc("/im/api/sessions/history/clear", app.handleSessionHistoryClear)
 	mux.HandleFunc("/im/api/sessions/history/clear-member", app.handleSessionMemberHistoryClear)
 	mux.HandleFunc("/im/api/sessions/hide", app.handleSessionHide)
@@ -343,6 +354,9 @@ func (a *App) ensureSchema(ctx context.Context) error {
 		)`,
 		`ALTER TABLE im_conversation ADD COLUMN IF NOT EXISTS hidden_for_all BOOLEAN NOT NULL DEFAULT FALSE`,
 		`ALTER TABLE im_conversation ADD COLUMN IF NOT EXISTS purged_before_seq_no BIGINT NOT NULL DEFAULT 0`,
+		`ALTER TABLE im_conversation ADD COLUMN IF NOT EXISTS all_muted BOOLEAN NOT NULL DEFAULT FALSE`,
+		`ALTER TABLE im_conversation ADD COLUMN IF NOT EXISTS all_muted_by TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE im_conversation ADD COLUMN IF NOT EXISTS all_muted_at TIMESTAMP`,
 		`CREATE TABLE IF NOT EXISTS im_conversation_member (
 			id BIGSERIAL PRIMARY KEY,
 			conversation_id BIGINT NOT NULL REFERENCES im_conversation(id) ON DELETE CASCADE,
@@ -436,6 +450,8 @@ func (a *App) ensureSchema(ctx context.Context) error {
 			deleted_at TIMESTAMP
 		)`,
 		`ALTER TABLE im_conversation_member ADD COLUMN IF NOT EXISTS left_at TIMESTAMP`,
+		`ALTER TABLE im_conversation_member ADD COLUMN IF NOT EXISTS mute_until TIMESTAMP`,
+		`ALTER TABLE im_conversation_member ADD COLUMN IF NOT EXISTS muted_by TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE im_conversation_member ADD COLUMN IF NOT EXISTS pin_type TEXT NOT NULL DEFAULT 'none'`,
 		`ALTER TABLE im_conversation_member ADD COLUMN IF NOT EXISTS pinned_at TIMESTAMP`,
 		`ALTER TABLE im_user_profile ADD COLUMN IF NOT EXISTS nickname TEXT NOT NULL DEFAULT ''`,
@@ -1318,6 +1334,10 @@ func (a *App) handleSessions(w http.ResponseWriter, r *http.Request) {
 	rows, err := a.db.Query(r.Context(), `
 		SELECT c.id, c.conversation_type, COALESCE(c.title, '') AS conversation_title, COALESCE(c.avatar_url, '') AS avatar_url, COALESCE(c.owner_username, '') AS owner_username,
 			COALESCE((SELECT COUNT(1) FROM im_conversation_member member WHERE member.conversation_id = c.id AND member.left_at IS NULL), 0) AS member_count,
+			COALESCE(c.all_muted, FALSE) AS all_muted,
+			COALESCE(c.all_muted_by, '') AS all_muted_by,
+			c.all_muted_at,
+			cm.mute_until,
 			COALESCE(cm.pin_type, 'none') AS pin_type,
 			cm.pinned_at,
 			COALESCE(c.last_message_id, 0) AS last_message_id,
@@ -1341,10 +1361,15 @@ func (a *App) handleSessions(w http.ResponseWriter, r *http.Request) {
 		var item SessionItem
 		var lastMessageAt *time.Time
 		var pinnedAt *time.Time
-		if err := rows.Scan(&item.ConversationID, &item.ConversationType, &item.ConversationTitle, &item.AvatarURL, &item.OwnerUsername, &item.MemberCount, &item.PinType, &pinnedAt, &item.LastMessageID, &item.LastMessagePreview, &lastMessageAt, &item.UnreadCount, &item.PeerUsername); err != nil {
+		var allMutedAt *time.Time
+		var muteUntil *time.Time
+		if err := rows.Scan(&item.ConversationID, &item.ConversationType, &item.ConversationTitle, &item.AvatarURL, &item.OwnerUsername, &item.MemberCount, &item.AllMuted, &item.AllMutedBy, &allMutedAt, &muteUntil, &item.PinType, &pinnedAt, &item.LastMessageID, &item.LastMessagePreview, &lastMessageAt, &item.UnreadCount, &item.PeerUsername); err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
 			return
 		}
+		item.AllMutedBy = strings.ToLower(strings.TrimSpace(item.AllMutedBy))
+		item.AllMutedAt = formatOptionalTime(allMutedAt)
+		item.MutedUntil = formatOptionalTime(muteUntil)
 		peerIdentity := a.buildUserIdentityItem(r.Context(), item.PeerUsername)
 		item.PeerDisplayName = peerIdentity.DisplayName
 		item.PeerHonorName = peerIdentity.HonorName
@@ -1361,6 +1386,13 @@ func (a *App) handleSessions(w http.ResponseWriter, r *http.Request) {
 		if item.ConversationType == "group" {
 			item.PeerDisplayName = item.ConversationTitle
 			item.PeerUsername = ""
+			if strings.EqualFold(item.OwnerUsername, username) {
+				item.MyRole = "owner"
+			} else if a.isConversationAdmin(r.Context(), item.ConversationID, username) {
+				item.MyRole = "admin"
+			} else {
+				item.MyRole = "member"
+			}
 			members, membersErr := a.loadConversationMemberItems(r.Context(), item.ConversationID, conversationMeta{
 				ID:                item.ConversationID,
 				ConversationType:  item.ConversationType,
@@ -1377,6 +1409,17 @@ func (a *App) handleSessions(w http.ResponseWriter, r *http.Request) {
 			item.LastMessageAt = lastMessageAt.Format(time.RFC3339)
 		}
 		item.CanSend = true
+		if item.ConversationType == "group" {
+			if muteUntil != nil && muteUntil.After(time.Now()) {
+				item.CanSend = false
+				item.SendRestriction = "group_mute"
+				item.SendRestrictionHint = "你已被禁言"
+			} else if item.AllMuted && item.MyRole != "owner" && item.MyRole != "admin" {
+				item.CanSend = false
+				item.SendRestriction = "group_mute"
+				item.SendRestrictionHint = "全体禁言中，仅群主和管理员可发言"
+			}
+		}
 		items = append(items, item)
 	}
 	items = a.applySessionSocialRules(r.Context(), username, items)
@@ -1612,6 +1655,10 @@ func (a *App) handleSendMessage(w http.ResponseWriter, r *http.Request, username
 			writeJSON(w, http.StatusForbidden, map[string]any{"error": true, "message": sendRestrictedErr.Error(), "restriction": sendRestrictedErr.Rule.SendRestriction})
 			return
 		}
+		if isGroupMuteSendError(err) {
+			writeJSON(w, http.StatusForbidden, map[string]any{"error": true, "message": err.Error(), "restriction": "group_mute"})
+			return
+		}
 		if errors.Is(err, errInvalidMessageType) || errors.Is(err, errInvalidEmojiAssetID) || errors.Is(err, errInvalidVoicePayload) || errors.Is(err, errInvalidImagePayload) || errors.Is(err, errInvalidFilePayload) || errors.Is(err, errInvalidLocationPayload) || errors.Is(err, errEmptyMessageContent) {
 			writeJSON(w, http.StatusBadRequest, map[string]any{"error": true, "message": err.Error()})
 			return
@@ -1754,6 +1801,9 @@ func (a *App) insertMessage(ctx context.Context, conversationID int64, username 
 		if err := a.social.AssertCanSendMessageTx(ctx, tx, username, conversationID); err != nil {
 			return MessageItem{}, err
 		}
+	}
+	if err := a.assertGroupCanSendMessageTx(ctx, tx, conversationID, username); err != nil {
+		return MessageItem{}, err
 	}
 	var nextSeqNo int64
 	if err := tx.QueryRow(ctx, `SELECT COALESCE(MAX(seq_no), 0) + 1 FROM im_message WHERE conversation_id = $1`, conversationID).Scan(&nextSeqNo); err != nil {
@@ -1906,6 +1956,9 @@ func (a *App) handleWS(w http.ResponseWriter, r *http.Request) {
 				var sendRestrictedErr *socialsvc.SendRestrictedError
 				if errors.As(err, &sendRestrictedErr) {
 					_ = client.WriteJSON(map[string]any{"type": "im.message.error", "payload": map[string]any{"conversation_id": payload.ConversationID, "message": sendRestrictedErr.Error(), "restriction": sendRestrictedErr.Rule.SendRestriction}})
+				}
+				if isGroupMuteSendError(err) {
+					_ = client.WriteJSON(map[string]any{"type": "im.message.error", "payload": map[string]any{"conversation_id": payload.ConversationID, "message": err.Error(), "restriction": "group_mute"}})
 				}
 				continue
 			}

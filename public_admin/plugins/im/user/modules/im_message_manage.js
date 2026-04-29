@@ -296,6 +296,12 @@
                 chatTitleBtnEl.disabled = !canOpenGroupInfo;
                 chatTitleBtnEl.classList.toggle('is-clickable', canOpenGroupInfo);
                 chatTitleBtnEl.setAttribute('aria-label', canOpenGroupInfo ? '打开群信息' : '聊天标题');
+                const groupAdmins = this.ctx && typeof this.ctx.getGroupAdmins === 'function' ? this.ctx.getGroupAdmins() : null;
+                if (canOpenGroupInfo && groupAdmins && typeof groupAdmins.bindGroupAvatarLongPress === 'function') {
+                    groupAdmins.bindGroupAvatarLongPress(chatTitleBtnEl, Number(activeSession && activeSession.conversation_id || state.activeConversationId || 0));
+                } else if (groupAdmins && typeof groupAdmins.unbindPress === 'function') {
+                    groupAdmins.unbindPress(chatTitleBtnEl);
+                }
             }
             if (chatMenuBtnEl) {
                 const canOpenMenu = !!activeSession && isActiveGroupSession;
@@ -309,6 +315,13 @@
                 empty.textContent = state.allowed ? '选择一个会话\n开始内部单聊' : '当前账号未开通聊天';
                 messageList.appendChild(empty);
                 return;
+            }
+            if (isActiveGroupSession && activeSession && activeSession.all_muted) {
+                const allMuteBanner = document.createElement('div');
+                allMuteBanner.className = 'ak-im-all-mute-banner';
+                const myRole = String(activeSession.my_role || '').trim().toLowerCase();
+                allMuteBanner.textContent = (myRole === 'owner' || myRole === 'admin') ? '全体禁言已开启，你仍可发言' : '全体禁言中，仅群主和管理员可发言';
+                messageList.appendChild(allMuteBanner);
             }
             if (state.activeMessagesLoading && !state.activeMessages.length) {
                 const empty = document.createElement('div');
@@ -377,13 +390,18 @@
                 '</div>' : '';
                 wrapper.innerHTML = '<div class="ak-im-time-divider">' + self.ctx.escapeHtml(self.ctx.formatTime(item.sent_at)) + '</div>' +
                     '<div class="ak-im-message-row ' + (isSelf ? 'ak-self' : 'ak-peer') + '">' +
-                        self.ctx.buildAvatarBoxMarkup('ak-im-avatar', avatarUrl, avatarText, avatarText + '头像') +
+                        '<div class="ak-im-avatar-wrap" data-im-message-avatar-username="' + self.ctx.escapeHtml(String(item && item.sender_username || '').trim().toLowerCase()) + '">' + self.ctx.buildAvatarBoxMarkup('ak-im-avatar', avatarUrl, avatarText, avatarText + '头像') + '</div>' +
                         '<div class="ak-im-message-main">' +
                             (senderMarkup ? '<div class="ak-im-message-sender">' + senderMarkup + '</div>' : '') +
                             '<div class="' + bubbleClassName + '">' + bubbleMarkup + '</div>' +
                             footerMarkup +
                         '</div>' +
                     '</div>';
+                const messageAvatar = wrapper.querySelector('[data-im-message-avatar-username]');
+                const groupAdmins = self.ctx && typeof self.ctx.getGroupAdmins === 'function' ? self.ctx.getGroupAdmins() : null;
+                if (messageAvatar && groupAdmins && typeof groupAdmins.bindMemberLongPress === 'function' && isActiveGroupSession) {
+                    groupAdmins.bindMemberLongPress(messageAvatar, Number(activeSession && activeSession.conversation_id || state.activeConversationId || 0), messageAvatar.getAttribute('data-im-message-avatar-username'));
+                }
                 if (isSelf) {
                     const bubble = wrapper.querySelector('.ak-im-bubble');
                     if (bubble && !bubble.classList.contains('ak-im-bubble-voice')) {

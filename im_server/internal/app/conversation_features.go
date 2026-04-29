@@ -26,6 +26,9 @@ type conversationMeta struct {
 	AvatarURL         string
 	OwnerUsername     string
 	HiddenForAll      bool
+	AllMuted          bool
+	AllMutedBy        string
+	AllMutedAt        *time.Time
 	PurgedBeforeSeqNo int64
 }
 
@@ -66,6 +69,7 @@ type SessionMemberItem struct {
 	HonorName   string `json:"honor_name,omitempty"`
 	AvatarURL   string `json:"avatar_url,omitempty"`
 	Role        string `json:"role,omitempty"`
+	MutedUntil  string `json:"muted_until,omitempty"`
 }
 
 type SessionMembersItem struct {
@@ -82,8 +86,14 @@ type SessionSettingsItem struct {
 	ConversationTitle string              `json:"conversation_title,omitempty"`
 	MemberCount       int64               `json:"member_count"`
 	HiddenForAll      bool                `json:"hidden_for_all"`
+	AllMuted         bool                `json:"all_muted"`
+	AllMutedBy       string              `json:"all_muted_by,omitempty"`
+	AllMutedAt       string              `json:"all_muted_at,omitempty"`
 	IsGroupAdmin      bool                `json:"is_group_admin"`
 	CanManage         bool                `json:"can_manage"`
+	CanManageAdmins   bool                `json:"can_manage_admins"`
+	CanManageMembers  bool                `json:"can_manage_members"`
+	CanToggleAllMute  bool                `json:"can_toggle_all_mute"`
 	Admins            []SessionMemberItem `json:"admins"`
 	MessageAuthors    []SessionMemberItem `json:"message_authors,omitempty"`
 }
@@ -94,8 +104,15 @@ type SessionGroupProfileItem struct {
 	ConversationTitle  string              `json:"conversation_title,omitempty"`
 	MemberCount        int64               `json:"member_count"`
 	HiddenForAll       bool                `json:"hidden_for_all"`
+	AllMuted          bool                `json:"all_muted"`
+	AllMutedBy        string              `json:"all_muted_by,omitempty"`
+	AllMutedAt        string              `json:"all_muted_at,omitempty"`
 	IsGroupAdmin       bool                `json:"is_group_admin"`
 	CanManage          bool                `json:"can_manage"`
+	MyRole             string              `json:"my_role,omitempty"`
+	CanManageAdmins    bool                `json:"can_manage_admins"`
+	CanManageMembers   bool                `json:"can_manage_members"`
+	CanToggleAllMute   bool                `json:"can_toggle_all_mute"`
 	IsWhitelistManaged bool                `json:"is_whitelist_managed"`
 	Owner              SessionMemberItem   `json:"owner"`
 	Members            []SessionMemberItem `json:"members"`
@@ -174,10 +191,10 @@ func isLoopbackRequest(r *http.Request) bool {
 func (a *App) loadConversationMeta(ctx context.Context, conversationID int64) (conversationMeta, error) {
 	var meta conversationMeta
 	err := a.db.QueryRow(ctx, `
-		SELECT id, conversation_type, COALESCE(conversation_key, ''), COALESCE(title, ''), COALESCE(avatar_url, ''), COALESCE(owner_username, ''), COALESCE(hidden_for_all, FALSE), COALESCE(purged_before_seq_no, 0)
+		SELECT id, conversation_type, COALESCE(conversation_key, ''), COALESCE(title, ''), COALESCE(avatar_url, ''), COALESCE(owner_username, ''), COALESCE(hidden_for_all, FALSE), COALESCE(all_muted, FALSE), COALESCE(all_muted_by, ''), all_muted_at, COALESCE(purged_before_seq_no, 0)
 		FROM im_conversation
 		WHERE id = $1 AND deleted_at IS NULL`, conversationID).
-		Scan(&meta.ID, &meta.ConversationType, &meta.ConversationKey, &meta.ConversationTitle, &meta.AvatarURL, &meta.OwnerUsername, &meta.HiddenForAll, &meta.PurgedBeforeSeqNo)
+		Scan(&meta.ID, &meta.ConversationType, &meta.ConversationKey, &meta.ConversationTitle, &meta.AvatarURL, &meta.OwnerUsername, &meta.HiddenForAll, &meta.AllMuted, &meta.AllMutedBy, &meta.AllMutedAt, &meta.PurgedBeforeSeqNo)
 	if err != nil {
 		return conversationMeta{}, err
 	}
@@ -453,7 +470,7 @@ func (a *App) loadConversationMemberItems(ctx context.Context, conversationID in
 		adminSet[adminUsername] = struct{}{}
 	}
 	rows, err := a.db.Query(ctx, `
-		SELECT username, COALESCE(role, 'member') AS role
+		SELECT username, COALESCE(role, 'member') AS role, mute_until
 		FROM im_conversation_member
 		WHERE conversation_id = $1 AND left_at IS NULL
 		ORDER BY LOWER(username) ASC`, conversationID)
@@ -465,7 +482,8 @@ func (a *App) loadConversationMemberItems(ctx context.Context, conversationID in
 	memberUsernames := make([]string, 0)
 	for rows.Next() {
 		var item SessionMemberItem
-		if err := rows.Scan(&item.Username, &item.Role); err != nil {
+		var muteUntil *time.Time
+		if err := rows.Scan(&item.Username, &item.Role, &muteUntil); err != nil {
 			return nil, err
 		}
 		item.Username = strings.ToLower(strings.TrimSpace(item.Username))
@@ -474,6 +492,7 @@ func (a *App) loadConversationMemberItems(ctx context.Context, conversationID in
 		} else if _, ok := adminSet[item.Username]; ok {
 			item.Role = "admin"
 		}
+		item.MutedUntil = formatOptionalTime(muteUntil)
 		members = append(members, item)
 		memberUsernames = append(memberUsernames, item.Username)
 	}
@@ -531,8 +550,17 @@ func (a *App) buildConversationGroupProfileItem(ctx context.Context, conversatio
 	ownerUsername := strings.ToLower(strings.TrimSpace(meta.OwnerUsername))
 	normalizedUsername := strings.ToLower(strings.TrimSpace(username))
 	_, isGroupAdmin := adminSet[normalizedUsername]
-	if normalizedUsername != "" && strings.EqualFold(normalizedUsername, ownerUsername) {
+	isGroupOwner := normalizedUsername != "" && strings.EqualFold(normalizedUsername, ownerUsername)
+	if isGroupOwner {
 		isGroupAdmin = true
+	}
+	myRole := ""
+	if isGroupOwner {
+		myRole = "owner"
+	} else if isGroupAdmin {
+		myRole = "admin"
+	} else if normalizedUsername != "" {
+		myRole = "member"
 	}
 	canManage := forceCanManage || isGroupAdmin
 	item := SessionGroupProfileItem{
@@ -541,8 +569,15 @@ func (a *App) buildConversationGroupProfileItem(ctx context.Context, conversatio
 		ConversationTitle:  meta.ConversationTitle,
 		MemberCount:        int64(len(members)),
 		HiddenForAll:       meta.HiddenForAll,
+		AllMuted:          meta.AllMuted,
+		AllMutedBy:        strings.ToLower(strings.TrimSpace(meta.AllMutedBy)),
+		AllMutedAt:        formatOptionalTime(meta.AllMutedAt),
 		IsGroupAdmin:       isGroupAdmin,
 		CanManage:          canManage,
+		MyRole:             myRole,
+		CanManageAdmins:    isGroupOwner,
+		CanManageMembers:   canManage,
+		CanToggleAllMute:   canManage,
 		IsWhitelistManaged: isWhitelistManagedConversation(meta),
 		Owner:             buildSessionMemberItemFromIdentity(a.buildUserIdentityItem(ctx, ownerUsername), "owner"),
 		Members: members,
@@ -837,7 +872,7 @@ func (a *App) handleSessionMembers(w http.ResponseWriter, r *http.Request) {
 		adminSet[adminUsername] = struct{}{}
 	}
 	rows, err := a.db.Query(r.Context(), `
-		SELECT username, COALESCE(role, 'member') AS role
+		SELECT username, COALESCE(role, 'member') AS role, mute_until
 		FROM im_conversation_member
 		WHERE conversation_id = $1 AND left_at IS NULL
 		ORDER BY LOWER(username) ASC`, conversationID)
@@ -849,7 +884,8 @@ func (a *App) handleSessionMembers(w http.ResponseWriter, r *http.Request) {
 	members := make([]SessionMemberItem, 0)
 	for rows.Next() {
 		var item SessionMemberItem
-		if err := rows.Scan(&item.Username, &item.Role); err != nil {
+		var muteUntil *time.Time
+		if err := rows.Scan(&item.Username, &item.Role, &muteUntil); err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
 			return
 		}
@@ -859,6 +895,7 @@ func (a *App) handleSessionMembers(w http.ResponseWriter, r *http.Request) {
 		} else if _, ok := adminSet[item.Username]; ok {
 			item.Role = "admin"
 		}
+		item.MutedUntil = formatOptionalTime(muteUntil)
 		item.DisplayName = a.fetchDisplayName(r.Context(), item.Username)
 		item.AvatarURL = a.getUserAvatarURL(r.Context(), item.Username)
 		members = append(members, item)
@@ -940,7 +977,7 @@ func writeConversationFeatureError(w http.ResponseWriter, err error) {
 		statusCode = http.StatusForbidden
 	case "conversation not found":
 		statusCode = http.StatusNotFound
-	case "invalid username", "invalid conversation_id", "user not found", "user not allowed", "conversation not group", "cannot remove group admin", "invalid owner_username", "owner not found", "target owner already has whitelist group", "invalid group title", "at least two contacts required", "target user not in contacts":
+	case "invalid username", "invalid conversation_id", "user not found", "user not allowed", "conversation not group", "cannot remove group admin", "cannot manage group owner", "target user not in group", "invalid mute duration", "invalid owner_username", "owner not found", "target owner already has whitelist group", "invalid group title", "at least two contacts required", "target user not in contacts":
 		statusCode = http.StatusBadRequest
 	default:
 		statusCode = http.StatusInternalServerError
@@ -1003,7 +1040,8 @@ func (a *App) buildSessionSettingsItem(ctx context.Context, conversationID int64
 	}
 	normalizedUsername := strings.ToLower(strings.TrimSpace(username))
 	_, isGroupAdmin := adminSet[normalizedUsername]
-	if normalizedUsername != "" && strings.EqualFold(normalizedUsername, meta.OwnerUsername) {
+	isGroupOwner := normalizedUsername != "" && strings.EqualFold(normalizedUsername, meta.OwnerUsername)
+	if isGroupOwner {
 		isGroupAdmin = true
 	}
 	item := SessionSettingsItem{
@@ -1012,8 +1050,14 @@ func (a *App) buildSessionSettingsItem(ctx context.Context, conversationID int64
 		ConversationTitle: meta.ConversationTitle,
 		MemberCount:       memberCount,
 		HiddenForAll:      meta.HiddenForAll,
+		AllMuted:         meta.AllMuted,
+		AllMutedBy:       strings.ToLower(strings.TrimSpace(meta.AllMutedBy)),
+		AllMutedAt:       formatOptionalTime(meta.AllMutedAt),
 		IsGroupAdmin:      isGroupAdmin,
 		CanManage:         isGroupAdmin,
+		CanManageAdmins:   isGroupOwner,
+		CanManageMembers:  isGroupAdmin,
+		CanToggleAllMute:  isGroupAdmin,
 		Admins:            admins,
 	}
 	if strings.TrimSpace(item.ConversationTitle) == "" {
@@ -1197,18 +1241,19 @@ func (a *App) handleSessionMembersRemove(w http.ResponseWriter, r *http.Request)
 		writeConversationFeatureError(w, err)
 		return
 	}
-	adminUsernames, err := a.loadConversationAdminUsernames(r.Context(), req.ConversationID)
+	actorRole, err := a.loadConversationRole(r.Context(), req.ConversationID, username, meta)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
+		writeConversationFeatureError(w, err)
 		return
 	}
-	adminSet := map[string]struct{}{}
-	for _, adminUsername := range adminUsernames {
-		adminSet[adminUsername] = struct{}{}
-	}
 	for _, target := range targets {
-		if _, ok := adminSet[target]; ok {
-			writeConversationFeatureError(w, errors.New("cannot remove group admin"))
+		targetRole, err := a.loadConversationRole(r.Context(), req.ConversationID, target, meta)
+		if err != nil {
+			writeConversationFeatureError(w, err)
+			return
+		}
+		if !canManageGroupMemberTarget(actorRole, targetRole) {
+			writeConversationFeatureError(w, errors.New("forbidden"))
 			return
 		}
 	}
@@ -1225,6 +1270,13 @@ func (a *App) handleSessionMembersRemove(w http.ResponseWriter, r *http.Request)
 				VALUES ($1, $2, 'remove', $3)
 				ON CONFLICT (conversation_id, username)
 				DO UPDATE SET override_type = 'remove', created_by = EXCLUDED.created_by, updated_at = NOW()`, req.ConversationID, target, username); err != nil {
+				writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
+				return
+			}
+			if _, err := tx.Exec(r.Context(), `
+				UPDATE im_conversation_admin
+				SET revoked_at = NOW(), updated_at = NOW()
+				WHERE conversation_id = $1 AND username = $2 AND revoked_at IS NULL`, req.ConversationID, target); err != nil {
 				writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
 				return
 			}
@@ -1254,8 +1306,15 @@ func (a *App) handleSessionMembersRemove(w http.ResponseWriter, r *http.Request)
 	for _, target := range targets {
 		if _, err := tx.Exec(r.Context(), `
 			UPDATE im_conversation_member
-			SET left_at = NOW(), pin_type = 'none', pinned_at = NULL, is_pinned = FALSE, updated_at = NOW()
+			SET left_at = NOW(), mute_until = NULL, muted_by = '', pin_type = 'none', pinned_at = NULL, is_pinned = FALSE, updated_at = NOW()
 			WHERE conversation_id = $1 AND username = $2 AND left_at IS NULL`, req.ConversationID, target); err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
+			return
+		}
+		if _, err := tx.Exec(r.Context(), `
+			UPDATE im_conversation_admin
+			SET revoked_at = NOW(), updated_at = NOW()
+			WHERE conversation_id = $1 AND username = $2 AND revoked_at IS NULL`, req.ConversationID, target); err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
 			return
 		}

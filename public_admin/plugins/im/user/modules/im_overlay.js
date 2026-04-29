@@ -35,7 +35,31 @@
             const actionSheetRecallBtn = elements.actionSheetRecallBtn;
             const actionSheetCancelBtn = elements.actionSheetCancelBtn;
             if (!actionSheetEl || !actionSheetRecallBtn || !actionSheetCancelBtn) return;
-            if (state.actionSheetMode === 'group_menu') {
+            Array.prototype.forEach.call(actionSheetEl.querySelectorAll('[data-im-dynamic-action]'), function(button) {
+                if (button && button.parentNode) button.parentNode.removeChild(button);
+            });
+            const customActions = Array.isArray(state.actionSheetCustomActions) ? state.actionSheetCustomActions : [];
+            if ((state.actionSheetMode === 'group_member' || state.actionSheetMode === 'group_mute_duration') && customActions.length) {
+                const firstAction = customActions[0] || {};
+                actionSheetRecallBtn.classList.toggle('danger', !!firstAction.danger);
+                actionSheetRecallBtn.textContent = String(firstAction.label || '操作');
+                actionSheetRecallBtn.disabled = !!firstAction.disabled;
+                actionSheetCancelBtn.textContent = '取消';
+                const panel = actionSheetCancelBtn.parentNode;
+                const self = this;
+                customActions.slice(1).forEach(function(action) {
+                    const button = document.createElement('button');
+                    button.className = 'ak-im-action-btn' + (action && action.danger ? ' danger' : '');
+                    button.type = 'button';
+                    button.textContent = String(action && action.label || '操作');
+                    button.disabled = !!(action && action.disabled);
+                    button.setAttribute('data-im-dynamic-action', String(action && action.key || ''));
+                    button.addEventListener('click', function() {
+                        if (typeof self.ctx.onActionSheetCustom === 'function') self.ctx.onActionSheetCustom(button.getAttribute('data-im-dynamic-action'));
+                    });
+                    panel.insertBefore(button, actionSheetCancelBtn);
+                });
+            } else if (state.actionSheetMode === 'group_menu') {
                 actionSheetRecallBtn.classList.remove('danger');
                 actionSheetRecallBtn.textContent = '群成员';
                 actionSheetRecallBtn.disabled = !state.actionSheetConversationId;
@@ -144,6 +168,7 @@
             state.actionSheetCanRecall = false;
             state.actionSheetDraftText = '';
             state.actionSheetMode = '';
+            state.actionSheetCustomActions = [];
             state.actionSheetSessionPinned = false;
             state.actionSheetSessionSystemPinned = false;
             state.actionSheetContactUsername = '';
@@ -373,6 +398,9 @@
                 ? groupManage.formatGroupInfoCollectionMarkup(authors, '暂无可清空聊天记录成员')
                 : escapeHtml(authorsText);
             const statusText = detail.hidden_for_all ? '已对全员隐藏' : '正常显示';
+            const allMuteText = detail.all_muted ? '已开启' : '未开启';
+            const adminsAction = detail.can_manage_admins ? 'admins' : 'admins_view';
+            const allMuteAction = detail.can_toggle_all_mute ? 'all_mute' : '';
             if (groupInfoTitleEl) groupInfoTitleEl.textContent = '聊天信息(' + memberCount + ')';
             const heroTitle = String(detail.conversation_title || '群聊');
             const heroMosaicSource = members.length ? members : (detail.owner ? [detail.owner] : []);
@@ -385,7 +413,8 @@
                 '<div class="ak-im-group-info-section">' +
                     groupManage.buildGroupInfoCell('群聊名称', String(detail.conversation_title || '群聊'), canManage ? 'edit_title' : '') +
                     groupManage.buildGroupInfoCell('群主', ownerMarkup, '', '', true) +
-                    groupManage.buildGroupInfoCell('群管理员', adminsMarkup, '', '', true) +
+                    groupManage.buildGroupInfoCell('群管理员', adminsMarkup, adminsAction, '', true) +
+                    groupManage.buildGroupInfoCell('全体禁言', allMuteText, allMuteAction) +
                     groupManage.buildGroupInfoCell('可清空聊天记录成员', authorsMarkup, '', '', true) +
                     groupManage.buildGroupInfoCell('群状态', statusText) +
                 '</div>' +
@@ -408,6 +437,9 @@
                     if (typeof groupManage.handleSettingsAction === 'function') groupManage.handleSettingsAction(action);
                 });
             });
+            if (typeof groupManage.bindSettingsMemberInteractions === 'function') {
+                groupManage.bindSettingsMemberInteractions(settingsPanelBodyEl);
+            }
         },
 
         openSettingsPanel(sessionItem) {

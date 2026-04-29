@@ -34,6 +34,7 @@
                 #ak-im-root.ak-view-compose .ak-im-compose-screen{display:flex}
                 #ak-im-root.ak-view-group-info .ak-im-group-info-screen{display:flex}
                 #ak-im-root.ak-view-member-action .ak-im-member-action-screen{display:flex}
+                #ak-im-root.ak-view-group-admins .ak-im-group-admins-screen{display:flex}
                 #ak-im-root.ak-view-profile-subpage .ak-im-profile-subpage-screen{display:flex}
                 #ak-im-root.ak-view-group-create .ak-im-group-create-screen{display:flex}
                 #ak-im-root.ak-view-group-title-edit .ak-im-group-title-edit-screen{display:flex}
@@ -271,6 +272,7 @@
                 #ak-im-root .ak-im-meeting-password-submit{border:none;background:#07c160;color:#ffffff;height:34px;padding:0 16px;border-radius:10px;font-size:13px;font-weight:500;cursor:pointer}
                 #ak-im-root .ak-im-meeting-password-submit:disabled{background:#9ca3af;cursor:not-allowed}
                 #ak-im-root .ak-im-message-list{flex:1;overflow:auto;padding:14px 12px 10px;background:#ebebeb;display:flex;flex-direction:column;gap:14px}
+                #ak-im-root .ak-im-all-mute-banner{position:sticky;top:0;z-index:1;align-self:center;max-width:min(92%,420px);padding:7px 12px;border-radius:999px;background:rgba(17,24,39,.78);color:#ffffff;font-size:12px;font-weight:600;line-height:1.4;box-shadow:0 6px 18px rgba(15,23,42,.16)}
                 #ak-im-root .ak-im-empty{margin:auto;color:#94a3b8;font-size:13px;text-align:center;padding:28px 24px;line-height:1.6;white-space:pre-line}
                 #ak-im-root .ak-im-time-divider{text-align:center;font-size:11px;color:#9ca3af;line-height:1.4}
                 #ak-im-root .ak-im-message-row{display:flex;align-items:flex-start;gap:8px;max-width:100%}
@@ -540,6 +542,27 @@
                 #ak-im-root .ak-im-member-action-footer{position:absolute;left:0;right:0;bottom:0;padding:12px 12px calc(12px + env(safe-area-inset-bottom, 0px));background:linear-gradient(180deg,rgba(247,247,247,0) 0%,#f7f7f7 28%,#f7f7f7 100%)}
                 #ak-im-root .ak-im-member-action-submit{width:100%;height:48px;border:none;border-radius:14px;background:#07c160;color:#ffffff;font-size:16px;font-weight:700;cursor:pointer;box-shadow:0 10px 24px rgba(7,193,96,.18)}
                 #ak-im-root .ak-im-member-action-submit:disabled{opacity:.42;cursor:not-allowed;box-shadow:none}
+                #ak-im-root .ak-im-group-admins-screen{background:#ededed}
+                #ak-im-root .ak-im-group-admins-page{flex:1;overflow:auto;padding:12px 12px calc(18px + env(safe-area-inset-bottom, 0px));background:#f7f7f7}
+                #ak-im-root .ak-im-group-admins-panel{background:#ffffff;border-radius:18px;padding:14px;box-shadow:0 1px 2px rgba(15,23,42,.04)}
+                #ak-im-root .ak-im-group-admins-panel + .ak-im-group-admins-panel{margin-top:12px}
+                #ak-im-root .ak-im-group-admins-title{font-size:15px;font-weight:700;color:#111827;line-height:1.5}
+                #ak-im-root .ak-im-group-admins-desc{margin-top:6px;font-size:12px;color:#6b7280;line-height:1.6}
+                #ak-im-root .ak-im-group-admins-list{margin-top:12px;display:flex;flex-direction:column}
+                #ak-im-root .ak-im-group-admins-row{width:100%;border:none;background:transparent;padding:12px 0;display:flex;align-items:center;gap:12px;text-align:left}
+                #ak-im-root .ak-im-group-admins-row + .ak-im-group-admins-row{border-top:1px solid rgba(15,23,42,.06)}
+                #ak-im-root .ak-im-group-admins-avatar{width:44px;height:44px;border-radius:14px;background:linear-gradient(180deg,#8fe3a8 0%,#56c57b 100%);color:#ffffff;display:inline-flex;align-items:center;justify-content:center;font-size:15px;font-weight:700;flex:0 0 auto}
+                #ak-im-root .ak-im-group-admins-main{min-width:0;flex:1}
+                #ak-im-root .ak-im-group-admins-name{font-size:15px;font-weight:600;color:#111827;line-height:1.4;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:flex;align-items:center;min-width:0}
+                #ak-im-root .ak-im-group-admins-meta{margin-top:4px;display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:12px;color:#6b7280;line-height:1.4}
+                #ak-im-root .ak-im-group-admins-role{display:inline-flex;align-items:center;justify-content:center;height:18px;padding:0 6px;border-radius:999px;background:rgba(7,193,96,.12);color:#16a34a;font-size:10px;font-weight:700}
+                #ak-im-root .ak-im-group-admins-action{height:32px;border:none;border-radius:999px;padding:0 12px;background:#f3f4f6;color:#374151;font-size:12px;font-weight:700;cursor:pointer;flex:0 0 auto}
+                #ak-im-root .ak-im-group-admins-action.is-primary{background:#07c160;color:#ffffff}
+                #ak-im-root .ak-im-group-admins-action.is-danger{background:rgba(239,68,68,.1);color:#dc2626}
+                #ak-im-root .ak-im-group-admins-action:disabled{opacity:.42;cursor:not-allowed}
+                #ak-im-root .ak-im-group-admins-search{margin-top:12px;width:100%;height:38px;border:none;border-radius:12px;background:#f3f4f6;padding:0 14px;font-size:14px;color:#111827;outline:none;box-sizing:border-box}
+                #ak-im-root .ak-im-group-admins-error{margin-bottom:12px;padding:11px 12px;border-radius:14px;background:rgba(239,68,68,.08);color:#dc2626;font-size:13px;line-height:1.6}
+                #ak-im-root .ak-im-group-admins-empty{padding:24px 14px;color:#9ca3af;font-size:13px;line-height:1.7;text-align:center}
                 #ak-im-root .ak-im-group-create-screen,#ak-im-root .ak-im-group-title-edit-screen{background:#ededed}
                 #ak-im-root .ak-im-group-create-page,#ak-im-root .ak-im-group-title-edit-page{position:relative;flex:1;display:flex;flex-direction:column;min-height:0;background:#f7f7f7}
                 #ak-im-root .ak-im-group-create-form,#ak-im-root .ak-im-group-title-form{padding:12px;background:#ededed;border-bottom:1px solid rgba(15,23,42,.04);display:flex;flex-direction:column;gap:10px}
@@ -746,6 +769,16 @@
                         <div class="ak-im-member-action-footer"><button class="ak-im-member-action-submit" type="button">确认</button></div>
                     </div>
                 </div>
+                <div class="ak-im-screen ak-im-group-admins-screen">
+                    <div class="ak-im-topbar">
+                        <button class="ak-im-nav-btn ak-im-group-admins-back" type="button" aria-label="返回群信息页面">
+                            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M15 18L9 12L15 6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                        </button>
+                        <div class="ak-im-topbar-title">群管理员</div>
+                        <div class="ak-im-group-info-side" aria-hidden="true"></div>
+                    </div>
+                    <div class="ak-im-group-admins-page"></div>
+                </div>
                 <div class="ak-im-screen ak-im-group-create-screen">
                     <div class="ak-im-topbar">
                         <button class="ak-im-nav-btn ak-im-group-create-back" type="button" aria-label="返回聊天列表">
@@ -870,6 +903,9 @@
                 memberActionSearchEl: root ? root.querySelector('.ak-im-member-action-search-input') : null,
                 memberActionTitleEl: root ? root.querySelector('.ak-im-member-action-title') : null,
                 memberActionSubmitBtnEl: root ? root.querySelector('.ak-im-member-action-submit') : null,
+                groupAdminsPageEl: root ? root.querySelector('.ak-im-group-admins-screen') : null,
+                groupAdminsBodyEl: root ? root.querySelector('.ak-im-group-admins-page') : null,
+                groupAdminsBackBtnEl: root ? root.querySelector('.ak-im-group-admins-back') : null,
                 groupCreateBodyEl: root ? root.querySelector('.ak-im-group-create-body') : null,
                 groupCreateTitleInputEl: root ? root.querySelector('.ak-im-group-create-title-input') : null,
                 groupCreateTitleTipEl: root ? root.querySelector('.ak-im-group-create-title-tip') : null,
@@ -1093,6 +1129,9 @@
             bindClick(elements.groupTitleEditBackBtnEl, function() {
                 if (typeof ctx.onGroupTitleEditBackClick === 'function') ctx.onGroupTitleEditBackClick();
             });
+            bindClick(elements.groupAdminsBackBtnEl, function() {
+                if (typeof ctx.onGroupAdminsBackClick === 'function') ctx.onGroupAdminsBackClick();
+            });
             bindClick(elements.groupTitleEditSubmitBtnEl, function() {
                 if (typeof ctx.onGroupTitleEditSubmitClick === 'function') ctx.onGroupTitleEditSubmitClick();
             });
@@ -1127,6 +1166,7 @@
             root.classList.toggle('ak-view-compose', !!nextShellState.showCompose);
             root.classList.toggle('ak-view-group-info', !!nextShellState.showGroupInfo);
             root.classList.toggle('ak-view-member-action', !!nextShellState.showMemberAction);
+            root.classList.toggle('ak-view-group-admins', !!nextShellState.showGroupAdmins);
             root.classList.toggle('ak-view-profile-subpage', !!nextShellState.showProfileSubpage);
             root.classList.toggle('ak-view-group-create', !!nextShellState.showGroupCreate);
             root.classList.toggle('ak-view-group-title-edit', !!nextShellState.showGroupTitleEdit);

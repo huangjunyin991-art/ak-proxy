@@ -891,6 +891,10 @@ func (a *App) handleSendImageMessage(w http.ResponseWriter, r *http.Request) {
 	})
 	if err != nil {
 		a.removeImageAsset(storageName)
+		if isGroupMuteSendError(err) {
+			writeJSON(w, http.StatusForbidden, map[string]any{"error": true, "message": err.Error(), "restriction": "group_mute"})
+			return
+		}
 		if errors.Is(err, errInvalidImagePayload) || errors.Is(err, errInvalidMessageType) || errors.Is(err, errEmptyMessageContent) {
 			writeJSON(w, http.StatusBadRequest, map[string]any{"error": true, "message": err.Error()})
 			return
@@ -994,6 +998,10 @@ func (a *App) handleSendFileMessage(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		a.removeFileAssetFile(storageName)
 		_ = a.deleteFileAssetRecord(r.Context(), storageName)
+		if isGroupMuteSendError(err) {
+			writeJSON(w, http.StatusForbidden, map[string]any{"error": true, "message": err.Error(), "restriction": "group_mute"})
+			return
+		}
 		if errors.Is(err, errInvalidFilePayload) || errors.Is(err, errInvalidMessageType) || errors.Is(err, errEmptyMessageContent) {
 			writeJSON(w, http.StatusBadRequest, map[string]any{"error": true, "message": err.Error()})
 			return

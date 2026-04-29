@@ -35,6 +35,12 @@
             src: `${API_ROOT}/chat/plugins/im/user/modules/im_group_title.js`,
             errorMessage: '群名编辑模块加载失败'
         },
+        groupAdmins: {
+            selector: 'script[data-ak-im-user-plugin-group-admins="1"]',
+            datasetKey: 'akImUserPluginGroupAdmins',
+            src: `${API_ROOT}/chat/plugins/im/user/modules/im_group_admins.js`,
+            errorMessage: '群管理员模块加载失败'
+        },
         plus: {
             selector: 'script[data-ak-im-user-plugin-plus-entry-manage="1"]',
             datasetKey: 'akImUserPluginPlusEntryManage',
@@ -143,6 +149,7 @@
         actionSheetCanRecall: false,
         actionSheetDraftText: '',
         actionSheetContactUsername: '',
+        actionSheetCustomActions: [],
         recalledDraftByMessageId: {},
         inputValue: '',
         composerMode: 'text',
@@ -194,6 +201,12 @@
         groupTitleEditOriginal: '',
         groupTitleEditSaving: false,
         groupTitleEditError: '',
+        groupAdminsOpen: false,
+        groupAdminsLoading: false,
+        groupAdminsError: '',
+        groupAdminsConversationId: 0,
+        groupAdminsKeyword: '',
+        groupAdminsActionUsername: '',
         dialogOpen: false,
         dialogTitle: '',
         dialogMessage: '',
@@ -258,6 +271,7 @@
     let groupTitleEditBodyEl = null;
     let groupTitleEditInputEl = null;
     let groupTitleEditSubmitBtnEl = null;
+    let groupAdminsBodyEl = null;
     let dialogEl = null;
     let dialogTitleEl = null;
     let dialogMessageEl = null;
@@ -329,6 +343,7 @@
         groupTitleEditBodyEl = nextElements.groupTitleEditBodyEl || null;
         groupTitleEditInputEl = nextElements.groupTitleEditInputEl || null;
         groupTitleEditSubmitBtnEl = nextElements.groupTitleEditSubmitBtnEl || null;
+        groupAdminsBodyEl = nextElements.groupAdminsBodyEl || null;
         dialogEl = nextElements.dialogEl || null;
         dialogTitleEl = nextElements.dialogTitleEl || null;
         dialogMessageEl = nextElements.dialogMessageEl || null;
@@ -399,6 +414,7 @@
             groupTitleEditBodyEl: null,
             groupTitleEditInputEl: null,
             groupTitleEditSubmitBtnEl: null,
+            groupAdminsBodyEl: null,
             dialogEl: null,
             dialogTitleEl: null,
             dialogMessageEl: null,
@@ -540,6 +556,7 @@
         closeHomeAddMenu({ silent: true });
         closeGroupCreatePage({ silent: true });
         closeGroupTitleEditPage({ silent: true });
+        closeGroupAdminsPage({ silent: true });
         state.contactSearchKeyword = '';
         state.composerMode = 'text';
         state.voiceHoldState = 'idle';
@@ -1098,7 +1115,8 @@
             onGroupCreateSubmitClick: submitGroupCreatePage,
             onGroupTitleEditBackClick: closeGroupTitleEditPage,
             onGroupTitleEditInput: handleGroupTitleEditInput,
-            onGroupTitleEditSubmitClick: submitGroupTitleEditPage
+            onGroupTitleEditSubmitClick: submitGroupTitleEditPage,
+            onGroupAdminsBackClick: closeGroupAdminsPage
         });
     }
 
@@ -1191,6 +1209,14 @@
         return groupTitleModule;
     }
 
+    function getGroupAdminsModule() {
+        const modules = window.AKIMUserModules;
+        if (!modules || typeof modules !== 'object') return null;
+        const groupAdminsModule = modules.groupAdmins;
+        if (!groupAdminsModule || typeof groupAdminsModule.init !== 'function') return null;
+        return groupAdminsModule;
+    }
+
     function initGroupManageModule() {
         const groupManageModule = getGroupManageModule();
         if (!groupManageModule) return;
@@ -1214,7 +1240,42 @@
             loadSessions: loadSessions,
             loadMessages: loadMessages,
             sortGroupMembersForDisplay: sortGroupMembersForDisplay,
-            openGroupTitleEditPage: openGroupTitleEditPage
+            openGroupTitleEditPage: openGroupTitleEditPage,
+            openGroupAdminsPage: openGroupAdminsPage,
+            getGroupAdminsModule: getGroupAdminsModule
+        });
+    }
+
+    function initGroupAdminsModule() {
+        const groupAdminsModule = getGroupAdminsModule();
+        if (!groupAdminsModule) return;
+        groupAdminsModule.init({
+            state: state,
+            httpRoot: HTTP_ROOT,
+            get elements() {
+                return {
+                    groupAdminsBodyEl: groupAdminsBodyEl,
+                    actionSheetEl: actionSheetEl
+                };
+            },
+            request: request,
+            render: render,
+            escapeHtml: escapeHtml,
+            buildAvatarBoxMarkup: buildAvatarBoxMarkup,
+            buildDisplayNameWithHonorMarkup: buildDisplayNameWithHonorMarkup,
+            getAvatarUrl: getAvatarUrl,
+            getActiveSession: getActiveSession,
+            isGroupSession: isGroupSession,
+            loadSessions: loadSessions,
+            loadMessages: loadMessages,
+            loadGroupSettings: loadGroupSettings,
+            renderSettingsPanel: renderSettingsPanel,
+            syncComposerState: syncComposerState,
+            openDialog: openDialog,
+            closeDialog: closeDialog,
+            closeActionSheet: closeActionSheet,
+            closeGroupAdminsPage: closeGroupAdminsPage,
+            sortGroupMembersForDisplay: sortGroupMembersForDisplay
         });
     }
 
@@ -1366,7 +1427,8 @@
                 return new WebSocket(buildWsUrl());
             },
             getSessionManage: getSessionManageModule,
-            getGroupManage: getGroupManageModule
+            getGroupManage: getGroupManageModule,
+            getGroupAdmins: getGroupAdminsModule
         });
     }
 
@@ -1563,6 +1625,7 @@
         if (moduleKey === 'group') return getGroupManageModule();
         if (moduleKey === 'groupCreate') return getGroupCreateModule();
         if (moduleKey === 'groupTitle') return getGroupTitleModule();
+        if (moduleKey === 'groupAdmins') return getGroupAdminsModule();
         if (moduleKey === 'plus') return getPlusEntryModule();
         if (moduleKey === 'emoji') return getEmojiModule();
         if (moduleKey === 'image') return getImageModule();
@@ -1581,6 +1644,7 @@
         else if (moduleKey === 'group') initGroupManageModule();
         else if (moduleKey === 'groupCreate') initGroupCreateModule();
         else if (moduleKey === 'groupTitle') initGroupTitleModule();
+        else if (moduleKey === 'groupAdmins') initGroupAdminsModule();
         else if (moduleKey === 'plus') initPlusEntryModule();
         else if (moduleKey === 'emoji') initEmojiManageModule();
         else if (moduleKey === 'image') initImageManageModule();
@@ -1656,6 +1720,7 @@
 
     function ensureChatFeatureModules() {
         return Promise.all([
+            ensureOptionalLazyModule('groupAdmins'),
             ensureOptionalLazyModule('voiceHold'),
             ensureOptionalLazyModule('emoji'),
             ensureOptionalLazyModule('image'),
@@ -1938,7 +2003,19 @@
         closeActionSheet();
     }
 
+    function handleActionSheetCustomAction(actionKey) {
+        const groupAdminsModule = getGroupAdminsModule();
+        if (groupAdminsModule && typeof groupAdminsModule.handleActionSheetAction === 'function') {
+            groupAdminsModule.handleActionSheetAction(actionKey);
+        }
+    }
+
     function handleActionSheetPrimaryAction() {
+        if (state.actionSheetMode === 'group_member' || state.actionSheetMode === 'group_mute_duration') {
+            const actions = Array.isArray(state.actionSheetCustomActions) ? state.actionSheetCustomActions : [];
+            handleActionSheetCustomAction(actions.length ? actions[0].key : '');
+            return;
+        }
         if (state.actionSheetMode === 'group_menu') {
             closeActionSheet();
             openMemberPanel(getActiveSession());
@@ -2022,6 +2099,7 @@
             buildGroupAvatarMosaicMarkup: buildGroupAvatarMosaicMarkup,
             onActionSheetPrimary: handleActionSheetPrimaryAction,
             onActionSheetSecondary: handleActionSheetSecondaryAction,
+            onActionSheetCustom: handleActionSheetCustomAction,
             onDialogConfirm: submitDialogAction
         });
     }
@@ -2543,6 +2621,7 @@
         state.actionSheetCanRecall = false;
         state.actionSheetDraftText = '';
         state.actionSheetContactUsername = '';
+        state.actionSheetCustomActions = [];
         state.actionSheetMode = '';
         state.actionSheetSessionPinned = false;
         state.actionSheetSessionSystemPinned = false;
@@ -2588,7 +2667,7 @@
 	    const roleLabel = role === 'owner' ? '群主' : (role === 'admin' ? '管理员' : '');
 	    const memberName = displayName || username || '未知成员';
 	    const honorBadgeMarkup = '<div class="ak-im-member-honor">' + (honorName ? buildHonorBadgeMarkup(honorName, 'ak-im-honor-badge ak-im-member-honor-badge') : '') + '</div>';
-	    return '<div class="ak-im-member-item">' + honorBadgeMarkup + buildAvatarBoxMarkup('ak-im-member-avatar', member && member.avatar_url, displayName || username || '成员', (displayName || username || '成员') + '头像') + '<div class="ak-im-member-body"><div class="ak-im-member-name">' + escapeHtml(memberName) + '</div></div>' + (roleLabel ? '<div class="ak-im-member-role">' + escapeHtml(roleLabel) + '</div>' : '') + '</div>';
+	    return '<button class="ak-im-member-item" type="button" data-im-member-username="' + escapeHtml(username.toLowerCase()) + '">' + honorBadgeMarkup + buildAvatarBoxMarkup('ak-im-member-avatar', member && member.avatar_url, displayName || username || '成员', (displayName || username || '成员') + '头像') + '<div class="ak-im-member-body"><div class="ak-im-member-name">' + escapeHtml(memberName) + '</div></div>' + (roleLabel ? '<div class="ak-im-member-role">' + escapeHtml(roleLabel) + '</div>' : '') + '</button>';
 	}
 
 	function renderMemberPanel() {
@@ -2814,12 +2893,12 @@
 	    }
 	    if (state.groupSettingsError) {
 	        settingsPanelBodyEl.innerHTML = '<div class="ak-im-group-info-error">' + escapeHtml(state.groupSettingsError) + '</div>';
-	        return;
-	    }
+            return;
+        }
 	    settingsPanelBodyEl.innerHTML = '<div class="ak-im-group-info-empty">群设置模块暂不可用，请刷新后重试</div>';
 	}
 
-	function closeSettingsPanel(options) {
+    function closeSettingsPanel(options) {
 	    const overlayModule = getOverlayModule();
 	    const silent = !!(options && options.silent);
 	    if (overlayModule && typeof overlayModule.closeSettingsPanel === 'function') {
@@ -2827,6 +2906,7 @@
 	        return;
 	    }
 	    closeDialog({ silent: true, force: true });
+        closeGroupAdminsPage({ silent: true });
 	    closeMemberActionPage({ silent: true, fallbackView: state.activeConversationId ? 'chat' : 'sessions' });
 	    state.groupSettingsOpen = false;
 	    state.groupSettingsLoading = false;
@@ -2834,7 +2914,7 @@
 	    state.groupSettingsConversationId = 0;
 	    state.groupSettingsData = null;
 	    state.groupSettingsMembersExpanded = false;
-	    if (state.view === 'group_info' || state.view === 'group_title_edit') {
+	    if (state.view === 'group_info' || state.view === 'group_title_edit' || state.view === 'group_admins') {
 	        state.view = state.activeConversationId ? 'chat' : 'sessions';
 	    }
 	    if (!silent) render();
@@ -2857,11 +2937,46 @@
 	    });
 	}
 
+    function openGroupAdminsPage() {
+        const conversationId = Number(state.groupSettingsConversationId || state.activeConversationId || 0);
+        if (!conversationId) return;
+        ensureOptionalLazyModule('groupAdmins').then(function(groupAdminsModule) {
+            if (groupAdminsModule && typeof groupAdminsModule.openPage === 'function') {
+                groupAdminsModule.openPage(conversationId);
+                return;
+            }
+            state.groupAdminsOpen = true;
+            state.groupAdminsLoading = false;
+            state.groupAdminsError = '群管理员模块暂不可用，请刷新页面后重试';
+            state.groupAdminsConversationId = conversationId;
+            state.groupAdminsKeyword = '';
+            state.view = 'group_admins';
+            render();
+        });
+    }
+
+    function closeGroupAdminsPage(options) {
+        const groupAdminsModule = getGroupAdminsModule();
+        if (groupAdminsModule && typeof groupAdminsModule.closePage === 'function') {
+            groupAdminsModule.closePage(options);
+            return;
+        }
+        const silent = !!(options && options.silent);
+        state.groupAdminsOpen = false;
+        state.groupAdminsLoading = false;
+        state.groupAdminsError = '';
+        state.groupAdminsConversationId = 0;
+        state.groupAdminsKeyword = '';
+        state.groupAdminsActionUsername = '';
+        if (state.view === 'group_admins') state.view = state.groupSettingsOpen ? 'group_info' : (state.activeConversationId ? 'chat' : 'sessions');
+        if (!silent) render();
+    }
+
 	function openSettingsPanel(sessionItem) {
 	    const targetSession = sessionItem || getActiveSession();
 	    const conversationId = Number(targetSession && targetSession.conversation_id || state.activeConversationId || 0);
 	    if (!conversationId || !isGroupSession(targetSession)) return;
-	    ensureOptionalLazyModule('group').then(function() {
+	    Promise.all([ensureOptionalLazyModule('group'), ensureOptionalLazyModule('groupAdmins')]).then(function() {
 	        const overlayModule = getOverlayModule();
 	        if (overlayModule && typeof overlayModule.openSettingsPanel === 'function') {
 	            overlayModule.openSettingsPanel(targetSession);
@@ -3025,6 +3140,7 @@
         const showCompose = state.view === 'compose';
         const showGroupInfo = state.view === 'group_info' && !!state.groupSettingsOpen;
         const showMemberAction = state.view === 'member_action' && !!state.memberActionOpen;
+        const showGroupAdmins = state.view === 'group_admins' && !!state.groupAdminsOpen;
         const showProfileSubpage = isProfileSubpageView(state.view);
         const showGroupCreate = state.view === 'group_create';
         const showGroupTitleEdit = state.view === 'group_title_edit';
@@ -3034,11 +3150,12 @@
         return {
             allowed: !!state.allowed,
             open: !!state.open,
-            showSessions: !showChat && !showCompose && !showGroupInfo && !showMemberAction && !showProfileSubpage && !showGroupCreate && !showGroupTitleEdit,
+            showSessions: !showChat && !showCompose && !showGroupInfo && !showMemberAction && !showGroupAdmins && !showProfileSubpage && !showGroupCreate && !showGroupTitleEdit,
             showChat: !!showChat,
             showCompose: !!showCompose,
             showGroupInfo: !!showGroupInfo,
             showMemberAction: !!showMemberAction,
+            showGroupAdmins: !!showGroupAdmins,
             showProfileSubpage: !!showProfileSubpage,
             showGroupCreate: !!showGroupCreate,
             showGroupTitleEdit: !!showGroupTitleEdit,
@@ -3049,7 +3166,7 @@
             homeTabTitle: getHomeTabTitle(homeTab),
             showSessionNewButton: false,
             showHomeTopActions: showHomeTopActions,
-            showHomeAddMenu: showHomeTopActions && !showChat && !showCompose && !showGroupInfo && !showMemberAction && !showProfileSubpage && !showGroupCreate && !showGroupTitleEdit && !!state.homeAddMenuOpen,
+            showHomeAddMenu: showHomeTopActions && !showChat && !showCompose && !showGroupInfo && !showMemberAction && !showGroupAdmins && !showProfileSubpage && !showGroupCreate && !showGroupTitleEdit && !!state.homeAddMenuOpen,
             canAddFriend: !!state.canAddFriend,
             searchPillText: getHomeSearchPillText(homeTab),
             contactSearchKeyword: state.contactSearchKeyword,
@@ -3572,6 +3689,7 @@
             root.classList.toggle('ak-view-compose', !!shellState.showCompose);
             root.classList.toggle('ak-view-group-info', !!shellState.showGroupInfo);
             root.classList.toggle('ak-view-member-action', !!shellState.showMemberAction);
+            root.classList.toggle('ak-view-group-admins', !!shellState.showGroupAdmins);
             root.classList.toggle('ak-view-profile-subpage', !!shellState.showProfileSubpage);
             root.classList.toggle('ak-view-group-create', !!shellState.showGroupCreate);
             root.classList.toggle('ak-view-group-title-edit', !!shellState.showGroupTitleEdit);
@@ -3597,12 +3715,35 @@
 	    renderMemberPanel();
 	    renderSettingsPanel();
 	    renderMemberActionPage();
+        renderGroupAdminsPage();
         renderGroupCreatePage();
         renderGroupTitleEditPage();
 	    renderDialog();
         renderComposeView();
         if (state.open && state.view === 'compose') focusComposeInput();
 	    if (state.open && shellState.showMemberAction) focusMemberActionSearch();
+    }
+
+    function renderGroupAdminsPage() {
+        const groupAdminsModule = getGroupAdminsModule();
+        if (groupAdminsModule && typeof groupAdminsModule.renderPage === 'function') {
+            groupAdminsModule.renderPage();
+            return;
+        }
+        if (!groupAdminsBodyEl) return;
+        if (!state.groupAdminsOpen) {
+            groupAdminsBodyEl.innerHTML = '';
+            return;
+        }
+        if (state.groupAdminsLoading) {
+            groupAdminsBodyEl.innerHTML = '<div class="ak-im-group-admins-empty">正在加载群管理员...</div>';
+            return;
+        }
+        if (state.groupAdminsError) {
+            groupAdminsBodyEl.innerHTML = '<div class="ak-im-group-admins-error">' + escapeHtml(state.groupAdminsError) + '</div>';
+            return;
+        }
+        groupAdminsBodyEl.innerHTML = '<div class="ak-im-group-admins-empty">群管理员模块暂不可用，请刷新页面后重试</div>';
     }
 
     function renderGroupCreatePage() {
@@ -3673,6 +3814,12 @@
 	        chatTitleBtnEl.disabled = !canOpenGroupInfo;
 	        chatTitleBtnEl.classList.toggle('is-clickable', canOpenGroupInfo);
 	        chatTitleBtnEl.setAttribute('aria-label', canOpenGroupInfo ? '打开群信息' : '聊天标题');
+            const groupAdminsModule = getGroupAdminsModule();
+            if (canOpenGroupInfo && groupAdminsModule && typeof groupAdminsModule.bindGroupAvatarLongPress === 'function') {
+                groupAdminsModule.bindGroupAvatarLongPress(chatTitleBtnEl, Number(activeSession && activeSession.conversation_id || 0));
+            } else if (groupAdminsModule && typeof groupAdminsModule.unbindPress === 'function') {
+                groupAdminsModule.unbindPress(chatTitleBtnEl);
+            }
 	    }
 	    if (chatMenuBtnEl) {
 	        chatMenuBtnEl.disabled = !canOpenGroupInfo;
@@ -4405,6 +4552,34 @@
     }
 
     function sendCurrentMessage() {
+        const content = inputEl ? String(inputEl.value || '').trim() : '';
+        const groupAdminsModule = getGroupAdminsModule();
+        if (content && groupAdminsModule && typeof groupAdminsModule.handleComposerCommand === 'function' && groupAdminsModule.handleComposerCommand(content)) {
+            if (inputEl) inputEl.value = '';
+            state.inputValue = '';
+            syncInputHeight();
+            syncComposerState();
+            return Promise.resolve(null);
+        }
+        if (content === '开启全体禁言' || content === '关闭全体禁言') {
+            return ensureOptionalLazyModule('groupAdmins').then(function(nextGroupAdminsModule) {
+                if (nextGroupAdminsModule && typeof nextGroupAdminsModule.handleComposerCommand === 'function' && nextGroupAdminsModule.handleComposerCommand(content)) {
+                    if (inputEl) inputEl.value = '';
+                    state.inputValue = '';
+                    syncInputHeight();
+                    syncComposerState();
+                    return null;
+                }
+                const messageManageModule = getMessageManageModule();
+                if (messageManageModule && typeof messageManageModule.sendCurrentMessage === 'function') {
+                    return messageManageModule.sendCurrentMessage();
+                }
+                if (Number(state.activeConversationId || 0) > 0) {
+                    window.alert('消息模块暂不可用，请刷新页面后重试');
+                }
+                return null;
+            });
+        }
         const messageManageModule = getMessageManageModule();
         if (messageManageModule && typeof messageManageModule.sendCurrentMessage === 'function') {
             return messageManageModule.sendCurrentMessage();

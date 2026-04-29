@@ -238,6 +238,10 @@ func (a *App) handleSendVoiceMessage(w http.ResponseWriter, r *http.Request) {
 		if created {
 			a.removeVoiceAsset(storageName)
 		}
+		if isGroupMuteSendError(err) {
+			writeJSON(w, http.StatusForbidden, map[string]any{"error": true, "message": err.Error(), "restriction": "group_mute"})
+			return
+		}
 		if errors.Is(err, errInvalidVoicePayload) || errors.Is(err, errInvalidMessageType) || errors.Is(err, errEmptyMessageContent) {
 			writeJSON(w, http.StatusBadRequest, map[string]any{"error": true, "message": err.Error()})
 			return

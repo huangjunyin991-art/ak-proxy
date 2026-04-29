@@ -126,6 +126,7 @@
             if (!this.ctx || typeof this.ctx.sortGroupMembersForDisplay !== 'function') return [];
             const self = this;
             const members = this.ctx.sortGroupMembersForDisplay(Array.isArray(detail && detail.members) ? detail.members : []);
+            const myRole = String(detail && detail.my_role || '').trim().toLowerCase();
             const authorSet = {};
             (Array.isArray(detail && detail.message_authors) ? detail.message_authors : []).forEach(function(item) {
                 const username = String(item && item.username || '').trim().toLowerCase();
@@ -140,7 +141,7 @@
                     disabledReason = '账号无效';
                 } else if (mode === 'remove') {
                     if (role === 'owner') disabledReason = '群主不可移除';
-                    else if (role === 'admin') disabledReason = '管理员不可移除';
+                    else if (role === 'admin' && myRole !== 'owner') disabledReason = '管理员不可移除';
                 } else if (mode === 'clear_member_history' && !authorSet[username]) {
                     disabledReason = '无聊天记录';
                 }
@@ -458,7 +459,17 @@
             const state = this.ctx.state;
             const conversationId = Number(state.groupSettingsConversationId || 0);
             const detail = state.groupSettingsData;
-            if (!conversationId || !detail || !detail.can_manage) return;
+            if (!conversationId || !detail) return;
+            const groupAdminsModule = typeof this.ctx.getGroupAdminsModule === 'function' ? this.ctx.getGroupAdminsModule() : null;
+            if (action === 'admins' || action === 'admins_view') {
+                if (typeof this.ctx.openGroupAdminsPage === 'function') this.ctx.openGroupAdminsPage();
+                return;
+            }
+            if (action === 'all_mute') {
+                if (groupAdminsModule && typeof groupAdminsModule.toggleAllMute === 'function') groupAdminsModule.toggleAllMute(conversationId, !detail.all_muted);
+                return;
+            }
+            if (!detail.can_manage) return;
             if (action === 'edit_title') {
                 if (typeof this.ctx.openGroupTitleEditPage === 'function') this.ctx.openGroupTitleEditPage();
                 return;
@@ -509,6 +520,22 @@
                     action: 'hide_group',
                     payload: { conversationId: conversationId }
                 });
+            }
+        },
+
+        bindSettingsMemberInteractions(rootEl) {
+            if (!rootEl || !this.ctx || typeof this.ctx.getGroupAdminsModule !== 'function') return;
+            const groupAdminsModule = this.ctx.getGroupAdminsModule();
+            if (!groupAdminsModule || typeof groupAdminsModule.bindMemberLongPress !== 'function') return;
+            const state = this.ctx.state;
+            const detail = state && state.groupSettingsData ? state.groupSettingsData : null;
+            const conversationId = Number(detail && detail.conversation_id || state && state.groupSettingsConversationId || 0);
+            Array.prototype.forEach.call(rootEl.querySelectorAll('[data-im-member-username]'), function(node) {
+                groupAdminsModule.bindMemberLongPress(node, conversationId, node.getAttribute('data-im-member-username'));
+            });
+            const hero = rootEl.querySelector('.ak-im-group-info-hero-avatar');
+            if (hero && typeof groupAdminsModule.bindGroupAvatarLongPress === 'function') {
+                groupAdminsModule.bindGroupAvatarLongPress(hero, conversationId);
             }
         }
     };
