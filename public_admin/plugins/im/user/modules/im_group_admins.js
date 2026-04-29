@@ -213,7 +213,10 @@
                 return (String(member && member.display_name || '') + '\n' + username + '\n' + String(member && member.honor_name || '')).toLowerCase().indexOf(keyword) >= 0;
             });
             const adminListMarkup = admins.length ? admins.map(function(member) {
-                return groupAdminsModule.buildMemberRow(member, canManageAdmins ? { key: 'revoke', label: '取消', danger: true } : null);
+                const action = canManageAdmins && groupAdminsModule.getMemberRole(member) !== 'owner'
+                    ? { key: 'revoke', label: '降级', danger: true }
+                    : null;
+                return groupAdminsModule.buildMemberRow(member, action);
             }).join('') : '<div class="ak-im-group-admins-empty">暂无群管理员</div>';
             const assignMarkup = canManageAdmins ? '<div class="ak-im-group-admins-panel"><div class="ak-im-group-admins-title">任命管理员</div><div class="ak-im-group-admins-desc">选择普通成员任命为群管理员。</div><input class="ak-im-group-admins-search" type="search" placeholder="搜索成员" value="' + this.escapeHtml(state.groupAdminsKeyword || '') + '"><div class="ak-im-group-admins-list">' + (assignCandidates.length ? assignCandidates.map(function(member) {
                 return groupAdminsModule.buildMemberRow(member, { key: 'assign', label: '任命', primary: true });
@@ -264,7 +267,7 @@
         },
 
         revokeAdmin(username) {
-            this.executeAdminRequest('/sessions/group_admins/revoke', username, '取消管理员失败');
+            this.executeAdminRequest('/sessions/group_admins/revoke', username, '降级管理员失败');
         },
 
         executeAdminRequest(path, username, fallbackMessage) {
@@ -419,7 +422,7 @@
             const actions = [];
             const targetUsername = this.normalizeUsername(member.username);
             if (detail.can_manage_admins && this.getMemberRole(member) !== 'owner') {
-                if (this.getMemberRole(member) === 'admin') actions.push({ key: 'admin_revoke', label: '取消管理员', danger: true });
+                if (this.getMemberRole(member) === 'admin') actions.push({ key: 'admin_revoke', label: '降级', danger: true });
                 else actions.push({ key: 'admin_assign', label: '任命管理员', primary: true });
             }
             if (this.canManageMemberTarget(detail, member)) {

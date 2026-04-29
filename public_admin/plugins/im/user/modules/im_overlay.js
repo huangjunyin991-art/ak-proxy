@@ -375,7 +375,6 @@
             const rawMembers = Array.isArray(detail.members) ? detail.members : [];
             const members = this.ctx.sortGroupMembersForDisplay(rawMembers);
             const admins = Array.isArray(detail.admins) ? detail.admins : [];
-            const authors = Array.isArray(detail.message_authors) ? detail.message_authors : [];
             const canManage = !!detail.can_manage;
             const memberCount = Math.max(0, Number(detail.member_count || members.length || 0) || 0);
             const showAddMemberTile = canManage && memberCount <= 15;
@@ -387,16 +386,12 @@
             const memberGridMarkup = (visibleMembers.length || addMemberMarkup) ? '<div class="ak-im-member-list">' + visibleMembers.map(this.ctx.formatSessionMember).join('') + addMemberMarkup + '</div>' : '<div class="ak-im-group-info-empty">当前群里还没有成员</div>';
             const ownerText = groupManage.formatGroupInfoMemberText(detail.owner || { username: detail.owner_username }, '暂无群主');
             const adminsText = groupManage.formatGroupInfoCollectionText(admins, '暂无群管理员');
-            const authorsText = groupManage.formatGroupInfoCollectionText(authors, '暂无可清空聊天记录成员');
             const ownerMarkup = typeof groupManage.formatGroupInfoMemberMarkup === 'function'
                 ? groupManage.formatGroupInfoMemberMarkup(detail.owner || { username: detail.owner_username }, '暂无群主')
                 : escapeHtml(ownerText);
             const adminsMarkup = typeof groupManage.formatGroupInfoCollectionMarkup === 'function'
                 ? groupManage.formatGroupInfoCollectionMarkup(admins, '暂无群管理员')
                 : escapeHtml(adminsText);
-            const authorsMarkup = typeof groupManage.formatGroupInfoCollectionMarkup === 'function'
-                ? groupManage.formatGroupInfoCollectionMarkup(authors, '暂无可清空聊天记录成员')
-                : escapeHtml(authorsText);
             const statusText = detail.hidden_for_all ? '已对全员隐藏' : '正常显示';
             const allMuteText = detail.all_muted ? '已开启' : '未开启';
             const adminsAction = detail.can_manage_admins ? 'admins' : 'admins_view';
@@ -415,7 +410,6 @@
                     groupManage.buildGroupInfoCell('群主', ownerMarkup, '', '', true) +
                     groupManage.buildGroupInfoCell('群管理员', adminsMarkup, adminsAction, '', true) +
                     groupManage.buildGroupInfoCell('全体禁言', allMuteText, allMuteAction) +
-                    groupManage.buildGroupInfoCell('可清空聊天记录成员', authorsMarkup, '', '', true) +
                     groupManage.buildGroupInfoCell('群状态', statusText) +
                 '</div>' +
                 (canManage ? '<div class="ak-im-group-info-section">' +
