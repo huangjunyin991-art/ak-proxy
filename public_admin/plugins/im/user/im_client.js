@@ -103,6 +103,8 @@
         profileAvatarUploadProgress: 0,
         profileSaving: false,
         profileSaveError: '',
+        profileSettingsSaving: false,
+        profileSettingsError: '',
         profileAvatarHistory: [],
         profileAvatarHistoryLoaded: false,
         profileAvatarHistoryLoading: false,
@@ -844,7 +846,8 @@
             selectProfileAvatar: selectProfileAvatar,
             setProfileAvatarFavorite: setProfileAvatarFavorite,
             openProfileAvatarRemoveDialog: openProfileAvatarRemoveDialog,
-            saveProfileDetail: saveProfileDetail
+            saveProfileDetail: saveProfileDetail,
+            saveProfileHonorVisibility: saveProfileHonorVisibility
         });
     }
 
@@ -2871,6 +2874,7 @@
     function closeProfileSubpage() {
         closeDialog({ silent: true, force: true });
         state.profileSaveError = '';
+        state.profileSettingsError = '';
         state.profileAvatarActionError = '';
         state.profileAvatarHistoryActionId = 0;
         state.profileAvatarHistoryActionType = '';
@@ -3404,6 +3408,7 @@
             nickname: String(item && item.nickname || '').trim(),
             gender: normalizeProfileGender(item && item.gender),
             avatar_style: String(item && item.avatar_style || 'thumbs').trim() || 'thumbs',
+            hide_honor: !!(item && item.hide_honor),
             avatar_url: getAvatarUrl(item && item.avatar_url)
         };
     }
@@ -3669,6 +3674,38 @@
         });
     }
 
+    function saveProfileHonorVisibility(hideHonor) {
+        if (!state.allowed || state.profileSettingsSaving) return Promise.resolve(null);
+        const profile = state.profile || {};
+        state.profileSettingsSaving = true;
+        state.profileSettingsError = '';
+        render();
+        return request(`${HTTP_ROOT}/profile`, {
+            method: 'POST',
+            body: JSON.stringify({
+                nickname: String(profile.nickname || '').trim(),
+                gender: normalizeProfileGender(profile.gender),
+                hide_honor: !!hideHonor
+            })
+        }).then(function(data) {
+            state.profileLoaded = true;
+            state.profileError = '';
+            applyProfileItem(data && data.item ? data.item : null);
+            state.profileSettingsSaving = false;
+            state.profileSettingsError = '';
+            render();
+            return reloadProfileLinkedData().then(function() {
+                render();
+                return state.profile;
+            });
+        }).catch(function(error) {
+            state.profileSettingsSaving = false;
+            state.profileSettingsError = error && error.message ? error.message : '保存设置失败';
+            render();
+            return null;
+        });
+    }
+
     function refreshProfileAvatar() {
         if (!state.allowed || state.profileRefreshing) return Promise.resolve(null);
         state.profileRefreshing = true;
@@ -3861,6 +3898,8 @@
         state.profileAvatarUploadProgress = 0;
         state.profileSaving = false;
         state.profileSaveError = '';
+        state.profileSettingsSaving = false;
+        state.profileSettingsError = '';
         state.profileAvatarHistory = [];
         state.profileAvatarHistoryLoaded = false;
         state.profileAvatarHistoryLoading = false;
@@ -3935,6 +3974,8 @@
             state.profileAvatarUploadProgress = 0;
             state.profileSaving = false;
             state.profileSaveError = '';
+            state.profileSettingsSaving = false;
+            state.profileSettingsError = '';
             state.profileAvatarHistory = [];
             state.profileAvatarHistoryLoaded = false;
             state.profileAvatarHistoryLoading = false;
@@ -3948,7 +3989,9 @@
             state.profile = state.username ? normalizeProfileItem({
                 username: state.username,
                 display_name: state.displayName,
+                honor_name: state.honorName,
                 can_add_friend: state.canAddFriend,
+                hide_honor: !!(data && data.hide_honor),
                 avatar_style: 'thumbs',
                 avatar_url: data && data.avatar_url
             }) : null;

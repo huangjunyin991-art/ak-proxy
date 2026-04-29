@@ -62,6 +62,7 @@ type BootstrapResponse struct {
 	DisplayName       string `json:"display_name"`
 	HonorName         string `json:"honor_name,omitempty"`
 	CanAddFriend      bool   `json:"can_add_friend"`
+	HideHonor         bool   `json:"hide_honor"`
 	AvatarURL         string `json:"avatar_url,omitempty"`
 	EmojiAssets       []EmojiAssetItem `json:"emoji_assets,omitempty"`
 	RetentionDays     int    `json:"retention_days"`
@@ -116,6 +117,7 @@ type UserProfileItem struct {
 	DisplayName string `json:"display_name"`
 	HonorName   string `json:"honor_name,omitempty"`
 	CanAddFriend bool  `json:"can_add_friend"`
+	HideHonor   bool   `json:"hide_honor"`
 	Nickname    string `json:"nickname,omitempty"`
 	Gender      string `json:"gender,omitempty"`
 	AvatarStyle string `json:"avatar_style"`
@@ -154,8 +156,9 @@ type directSessionRequest struct {
 }
 
 type profileUpdateRequest struct {
-	Nickname string `json:"nickname"`
-	Gender   string `json:"gender"`
+	Nickname  string `json:"nickname"`
+	Gender    string `json:"gender"`
+	HideHonor *bool  `json:"hide_honor,omitempty"`
 }
 
 type avatarHistoryActionRequest struct {
@@ -401,6 +404,7 @@ func (a *App) ensureSchema(ctx context.Context) error {
 			avatar_style TEXT NOT NULL DEFAULT 'thumbs',
 			avatar_seed TEXT NOT NULL DEFAULT '',
 			avatar_url TEXT NOT NULL DEFAULT '',
+			hide_honor BOOLEAN NOT NULL DEFAULT FALSE,
 			created_at TIMESTAMP NOT NULL DEFAULT NOW(),
 			updated_at TIMESTAMP NOT NULL DEFAULT NOW()
 		)`,
@@ -435,6 +439,7 @@ func (a *App) ensureSchema(ctx context.Context) error {
 		`ALTER TABLE im_user_profile ADD COLUMN IF NOT EXISTS nickname TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE im_user_profile ADD COLUMN IF NOT EXISTS gender TEXT NOT NULL DEFAULT 'unknown'`,
 		`ALTER TABLE im_user_profile ADD COLUMN IF NOT EXISTS avatar_url TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE im_user_profile ADD COLUMN IF NOT EXISTS hide_honor BOOLEAN NOT NULL DEFAULT FALSE`,
 		`ALTER TABLE im_user_avatar_history ADD COLUMN IF NOT EXISTS avatar_url TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE im_user_avatar_history ADD COLUMN IF NOT EXISTS is_favorite BOOLEAN NOT NULL DEFAULT FALSE`,
 		`ALTER TABLE im_conversation_member DROP CONSTRAINT IF EXISTS im_conversation_member_conversation_id_username_key`,
@@ -604,6 +609,7 @@ type userProfileRecord struct {
 	AvatarStyle string
 	AvatarSeed  string
 	AvatarURL   string
+	HideHonor   bool
 }
 
 func normalizeProfileGender(value string) string {
@@ -626,14 +632,15 @@ func (a *App) loadUserProfileRecord(ctx context.Context, username string) (userP
 		AvatarStyle: defaultAvatarStyle,
 		AvatarSeed:  "",
 		AvatarURL:   "",
+		HideHonor:   false,
 	}
 	if normalizedUsername == "" {
 		return record, nil
 	}
 	err := a.db.QueryRow(ctx, `
-		SELECT COALESCE(nickname, ''), COALESCE(NULLIF(gender, ''), 'unknown'), COALESCE(NULLIF(avatar_style, ''), $2), COALESCE(avatar_seed, ''), COALESCE(avatar_url, '')
+		SELECT COALESCE(nickname, ''), COALESCE(NULLIF(gender, ''), 'unknown'), COALESCE(NULLIF(avatar_style, ''), $2), COALESCE(avatar_seed, ''), COALESCE(avatar_url, ''), COALESCE(hide_honor, FALSE)
 		FROM im_user_profile
-		WHERE username = $1`, normalizedUsername, defaultAvatarStyle).Scan(&record.Nickname, &record.Gender, &record.AvatarStyle, &record.AvatarSeed, &record.AvatarURL)
+		WHERE username = $1`, normalizedUsername, defaultAvatarStyle).Scan(&record.Nickname, &record.Gender, &record.AvatarStyle, &record.AvatarSeed, &record.AvatarURL, &record.HideHonor)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return record, nil
@@ -758,14 +765,10 @@ func (a *App) buildUserProfileItem(ctx context.Context, username string) UserPro
 	if avatarURL == "" {
 		avatarURL = buildDicebearAvatarURL(profile.AvatarStyle, buildAvatarSeed(normalizedUsername, profile.AvatarSeed))
 	}
-	honorName := strings.TrimSpace(identity.HonorName)
-	if honorName == "" {
-		loadedHonorName, err := a.loadUserHonorName(ctx, normalizedUsername)
-		if err != nil {
-			log.Printf("build user profile item honor name load failed: username=%s err=%v", normalizedUsername, err)
-		} else {
-			honorName = loadedHonorName
-		}
+	honorName, err := a.loadUserHonorName(ctx, normalizedUsername)
+	if err != nil {
+		log.Printf("build user profile item honor name load failed: username=%s err=%v", normalizedUsername, err)
+		honorName = strings.TrimSpace(identity.HonorName)
 	}
 	canAddFriend := canUseAddFriend(honorName)
 	return UserProfileItem{
@@ -773,6 +776,7 @@ func (a *App) buildUserProfileItem(ctx context.Context, username string) UserPro
 		DisplayName: identity.DisplayName,
 		HonorName:   honorName,
 		CanAddFriend: canAddFriend,
+		HideHonor:   profile.HideHonor,
 		Nickname:    strings.TrimSpace(profile.Nickname),
 		Gender:      normalizeProfileGender(profile.Gender),
 		AvatarStyle: normalizeAvatarStyle(profile.AvatarStyle),
@@ -780,20 +784,25 @@ func (a *App) buildUserProfileItem(ctx context.Context, username string) UserPro
 	}
 }
 
-func (a *App) updateUserProfile(ctx context.Context, username string, nickname string, gender string) (UserProfileItem, error) {
+func (a *App) updateUserProfile(ctx context.Context, username string, nickname string, gender string, hideHonor *bool) (UserProfileItem, error) {
 	normalizedUsername := strings.ToLower(strings.TrimSpace(username))
 	if normalizedUsername == "" {
 		return UserProfileItem{}, errors.New("invalid username")
 	}
 	normalizedNickname := strings.TrimSpace(nickname)
 	normalizedGender := normalizeProfileGender(gender)
+	var hideHonorValue any
+	if hideHonor != nil {
+		hideHonorValue = *hideHonor
+	}
 	if _, err := a.db.Exec(ctx, `
-		INSERT INTO im_user_profile (username, nickname, gender, avatar_style, avatar_seed, updated_at)
-		VALUES ($1, $2, $3, $4, $5, NOW())
+		INSERT INTO im_user_profile (username, nickname, gender, avatar_style, avatar_seed, hide_honor, updated_at)
+		VALUES ($1, $2, $3, $4, $5, COALESCE($6::boolean, FALSE), NOW())
 		ON CONFLICT (username) DO UPDATE
 		SET nickname = EXCLUDED.nickname,
 			gender = EXCLUDED.gender,
-			updated_at = NOW()`, normalizedUsername, normalizedNickname, normalizedGender, defaultAvatarStyle, ""); err != nil {
+			hide_honor = COALESCE($6::boolean, im_user_profile.hide_honor),
+			updated_at = NOW()`, normalizedUsername, normalizedNickname, normalizedGender, defaultAvatarStyle, "", hideHonorValue); err != nil {
 		return UserProfileItem{}, err
 	}
 	return a.buildUserProfileItem(ctx, normalizedUsername), nil
@@ -1110,6 +1119,7 @@ func (a *App) handleBootstrap(w http.ResponseWriter, r *http.Request) {
 		DisplayName:      profile.DisplayName,
 		HonorName:        profile.HonorName,
 		CanAddFriend:     profile.CanAddFriend,
+		HideHonor:        profile.HideHonor,
 		AvatarURL:        profile.AvatarURL,
 		EmojiAssets:      a.loadBootstrapEmojiAssets(r.Context()),
 		RetentionDays:    180,
@@ -1151,7 +1161,7 @@ func (a *App) handleProfile(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusBadRequest, map[string]any{"error": true, "message": "invalid payload"})
 			return
 		}
-		item, err := a.updateUserProfile(r.Context(), username, req.Nickname, req.Gender)
+		item, err := a.updateUserProfile(r.Context(), username, req.Nickname, req.Gender, req.HideHonor)
 		if err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
 			return

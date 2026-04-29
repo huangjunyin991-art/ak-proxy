@@ -276,7 +276,11 @@
          },
 
          renderProfileSettingsView(container, displayName, honorName, username, nickname, genderLabel, profile) {
-             container.innerHTML = '<div class="ak-im-profile-panel">' +
+             const state = this.ctx.state;
+             const hideHonor = !!(profile && profile.hide_honor);
+             const saving = !!state.profileSettingsSaving || !state.profileLoaded || !!state.profileLoading;
+             container.innerHTML = (state.profileSettingsError ? '<div class="ak-im-profile-error">' + this.ctx.escapeHtml(state.profileSettingsError) + '</div>' : '') +
+             '<div class="ak-im-profile-panel">' +
                  '<div class="ak-im-profile-head">' +
                      this.ctx.buildAvatarBoxMarkup('ak-im-profile-avatar', profile && profile.avatar_url, displayName || username || '我', (displayName || username || '我') + '头像') +
                      '<div class="ak-im-profile-name">' + (typeof this.ctx.buildDisplayNameWithHonorMarkup === 'function' ? this.ctx.buildDisplayNameWithHonorMarkup(displayName || '我', honorName, '我') : this.ctx.escapeHtml(displayName || '我')) + '</div>' +
@@ -285,12 +289,33 @@
                  '<div class="ak-im-profile-subtitle">这里是新的全屏设置页入口，后续与 IM 个人相关的设置项会继续放在这里。</div>' +
              '</div>' +
              '<div class="ak-im-profile-panel">' +
+                 '<div class="ak-im-profile-entry-label">等级显示</div>' +
+                 '<label class="ak-im-profile-switch-row">' +
+                     '<span class="ak-im-profile-switch-copy">' +
+                         '<span class="ak-im-profile-switch-title">对外隐藏等级</span>' +
+                         '<span class="ak-im-profile-switch-meta">开启后，联系人、会话、群成员、消息和搜索结果中别人看不到你的等级。</span>' +
+                     '</span>' +
+                     '<input class="ak-im-profile-switch-input" type="checkbox" data-im-profile-hide-honor="1"' + (hideHonor ? ' checked' : '') + (saving ? ' disabled' : '') + ' />' +
+                     '<span class="ak-im-profile-switch-track" aria-hidden="true"><span class="ak-im-profile-switch-thumb"></span></span>' +
+                 '</label>' +
+                 '<div class="ak-im-profile-subtitle">当前状态：' + this.ctx.escapeHtml(hideHonor ? '已隐藏，只有你自己能看到等级' : '公开显示等级') + (state.profileSettingsSaving ? ' · 保存中...' : (!state.profileLoaded || state.profileLoading ? ' · 正在读取设置...' : '')) + '</div>' +
+             '</div>' +
+             '<div class="ak-im-profile-panel">' +
                  '<div class="ak-im-profile-entry-label">当前资料</div>' +
                  '<div class="ak-im-profile-subtitle">昵称：' + this.ctx.escapeHtml(nickname || displayName || '未设置') + '</div>' +
                  '<div class="ak-im-profile-subtitle">等级：' + this.ctx.escapeHtml(honorName || '未设置') + '</div>' +
                  '<div class="ak-im-profile-subtitle">性别：' + this.ctx.escapeHtml(genderLabel) + '</div>' +
                  '<div class="ak-im-profile-subtitle">账号：@' + this.ctx.escapeHtml(username || 'unknown') + '</div>' +
              '</div>';
+             const hideHonorInput = container.querySelector('[data-im-profile-hide-honor]');
+             const self = this;
+             if (hideHonorInput) {
+                 hideHonorInput.addEventListener('change', function() {
+                     if (typeof self.ctx.saveProfileHonorVisibility === 'function') {
+                         self.ctx.saveProfileHonorVisibility(!!hideHonorInput.checked);
+                     }
+                 });
+             }
          }
      };
 

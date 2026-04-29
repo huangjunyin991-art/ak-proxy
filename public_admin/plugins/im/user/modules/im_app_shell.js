@@ -163,6 +163,16 @@
                 #ak-im-root .ak-im-profile-panel{background:#ffffff;border-radius:18px;padding:16px;box-shadow:0 1px 2px rgba(15,23,42,.04)}
                 #ak-im-root .ak-im-profile-panel + .ak-im-profile-panel{margin-top:12px}
                 #ak-im-root .ak-im-profile-subtitle{margin-top:8px;font-size:13px;color:#6b7280;line-height:1.55}
+                #ak-im-root .ak-im-profile-switch-row{margin-top:14px;display:flex;align-items:center;justify-content:space-between;gap:14px;cursor:pointer}
+                #ak-im-root .ak-im-profile-switch-copy{min-width:0;flex:1;display:flex;flex-direction:column;gap:4px}
+                #ak-im-root .ak-im-profile-switch-title{font-size:15px;font-weight:600;color:#111827;line-height:1.45}
+                #ak-im-root .ak-im-profile-switch-meta{font-size:12px;color:#8a94a6;line-height:1.55}
+                #ak-im-root .ak-im-profile-switch-input{position:absolute;opacity:0;pointer-events:none}
+                #ak-im-root .ak-im-profile-switch-track{position:relative;flex:0 0 auto;width:48px;height:28px;border-radius:999px;background:#d1d5db;transition:background .18s ease}
+                #ak-im-root .ak-im-profile-switch-thumb{position:absolute;left:3px;top:3px;width:22px;height:22px;border-radius:999px;background:#ffffff;box-shadow:0 2px 6px rgba(15,23,42,.18);transition:transform .18s ease}
+                #ak-im-root .ak-im-profile-switch-input:checked + .ak-im-profile-switch-track{background:#07c160}
+                #ak-im-root .ak-im-profile-switch-input:checked + .ak-im-profile-switch-track .ak-im-profile-switch-thumb{transform:translateX(20px)}
+                #ak-im-root .ak-im-profile-switch-input:disabled + .ak-im-profile-switch-track{opacity:.56}
                 #ak-im-root .ak-im-social-panel{background:#ffffff;border-radius:18px;padding:16px;box-shadow:0 1px 2px rgba(15,23,42,.04)}
                 #ak-im-root .ak-im-social-panel + .ak-im-social-panel{margin-top:12px}
                 #ak-im-root .ak-im-social-panel-title{font-size:15px;font-weight:600;color:#111827;line-height:1.5}

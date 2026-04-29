@@ -47,6 +47,40 @@ func (a *App) loadUserHonorNames(ctx context.Context, usernames []string) map[st
 	return result
 }
 
+func (a *App) loadUserHideHonorSet(ctx context.Context, usernames []string) map[string]struct{} {
+	normalizedUsernames := normalizeUsernames(usernames)
+	result := map[string]struct{}{}
+	if len(normalizedUsernames) == 0 {
+		return result
+	}
+	rows, err := a.db.Query(ctx, `
+		SELECT input.username
+		FROM unnest($1::text[]) AS input(username)
+		JOIN im_user_profile p ON p.username = input.username
+		WHERE COALESCE(p.hide_honor, FALSE) = TRUE`, normalizedUsernames)
+	if err != nil {
+		log.Printf("load user hide honor set failed: count=%d err=%v", len(normalizedUsernames), err)
+		return result
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var username string
+		if err := rows.Scan(&username); err != nil {
+			log.Printf("scan user hide honor set failed: err=%v", err)
+			continue
+		}
+		normalizedUsername := strings.ToLower(strings.TrimSpace(username))
+		if normalizedUsername == "" {
+			continue
+		}
+		result[normalizedUsername] = struct{}{}
+	}
+	if err := rows.Err(); err != nil {
+		log.Printf("iterate user hide honor set failed: err=%v", err)
+	}
+	return result
+}
+
 func (a *App) buildUserIdentityItems(ctx context.Context, usernames []string) map[string]userIdentityItem {
 	normalizedUsernames := normalizeUsernames(usernames)
 	result := map[string]userIdentityItem{}
@@ -54,12 +88,17 @@ func (a *App) buildUserIdentityItems(ctx context.Context, usernames []string) ma
 		return result
 	}
 	honorNames := a.loadUserHonorNames(ctx, normalizedUsernames)
+	hideHonorSet := a.loadUserHideHonorSet(ctx, normalizedUsernames)
 	for _, username := range normalizedUsernames {
+		honorName := strings.TrimSpace(honorNames[username])
+		if _, hidden := hideHonorSet[username]; hidden {
+			honorName = ""
+		}
 		result[username] = userIdentityItem{
 			Username:    username,
 			DisplayName: a.fetchDisplayName(ctx, username),
 			AvatarURL:   a.getUserAvatarURL(ctx, username),
-			HonorName:   strings.TrimSpace(honorNames[username]),
+			HonorName:   honorName,
 		}
 	}
 	return result
