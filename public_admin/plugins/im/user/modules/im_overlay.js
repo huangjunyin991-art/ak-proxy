@@ -511,6 +511,9 @@
             state.memberActionError = '';
             this.closeDialog({ silent: true, force: true });
             state.view = 'member_action';
+            if (mode === 'add' && typeof this.ctx.loadContacts === 'function' && !state.contactsLoaded && !state.contactsLoading) {
+                this.ctx.loadContacts();
+            }
             if (typeof this.ctx.render === 'function') this.ctx.render();
         },
 
@@ -587,7 +590,13 @@
                     : escapeHtml(groupManage.formatMemberActionCandidateLabel(candidate));
                 return '<button class="ak-im-member-action-chip" type="button" data-im-member-chip="' + escapeHtml(candidate.username) + '"><span class="ak-im-member-action-chip-label">' + chipLabelMarkup + '</span><span class="ak-im-member-action-chip-remove" aria-hidden="true">×</span></button>';
             }).join('') + '</div>' : '<div class="ak-im-member-action-selected-empty">暂未选择成员</div>';
-            const listMarkup = filteredCandidates.length ? '<div class="ak-im-member-action-list">' + filteredCandidates.map(function(candidate) {
+            let listMarkup = '';
+            if (state.memberActionMode === 'add' && state.contactsLoading && !state.contactsLoaded) {
+                listMarkup = '<div class="ak-im-member-action-empty">正在同步通讯录...</div>';
+            } else if (state.memberActionMode === 'add' && state.contactsError && !candidates.length) {
+                listMarkup = '<div class="ak-im-member-action-empty is-error">' + escapeHtml(state.contactsError) + '</div>';
+            } else if (filteredCandidates.length) {
+                listMarkup = '<div class="ak-im-member-action-list">' + filteredCandidates.map(function(candidate) {
                 const isSelected = selectedUsernames.indexOf(candidate.username) >= 0;
                 const reasonClass = candidate.disabledReason === '无聊天记录' ? ' is-muted' : '';
                 const candidateNameMarkup = typeof groupManage.buildMemberActionCandidateNameMarkup === 'function'
@@ -602,7 +611,10 @@
                     '</div></div>' +
                     '<span class="ak-im-member-action-check' + (candidate.selectable ? (isSelected ? ' is-selected' : '') : ' is-disabled') + '">' + (isSelected ? '✓' : '') + '</span>' +
                 '</button>';
-            }).join('') + '</div>' : '<div class="ak-im-member-action-empty">' + escapeHtml(state.memberActionKeyword ? '没有匹配的成员' : config.emptyText) + '</div>';
+                }).join('') + '</div>';
+            } else {
+                listMarkup = '<div class="ak-im-member-action-empty">' + escapeHtml(state.memberActionKeyword ? '没有匹配的成员' : config.emptyText) + '</div>';
+            }
             memberActionBodyEl.innerHTML = (state.memberActionError ? '<div class="ak-im-member-action-error">' + escapeHtml(state.memberActionError) + '</div>' : '') +
                 '<div class="ak-im-member-action-section"><div class="ak-im-member-action-section-title">' + escapeHtml(config.selectedTitle + '（' + selectedCandidates.length + '）') + '</div>' + selectedMarkup + '</div>' +
                 '<div class="ak-im-member-action-section"><div class="ak-im-member-action-section-title">' + escapeHtml(config.listTitle) + '</div>' + listMarkup + '</div>';

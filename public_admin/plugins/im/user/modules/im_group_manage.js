@@ -8,18 +8,6 @@
             this.ctx = ctx || null;
         },
 
-        normalizePromptUsernames(raw) {
-            const unique = [];
-            const seen = {};
-            String(raw || '').split(/[\s,，;；、\n\r\t]+/).forEach(function(item) {
-                const value = String(item || '').trim().toLowerCase();
-                if (!value || seen[value]) return;
-                seen[value] = true;
-                unique.push(value);
-            });
-            return unique;
-        },
-
         getGroupMemberRoleLabel(role) {
             const key = String(role || '').trim().toLowerCase();
             if (key === 'owner') return '群主';
@@ -79,6 +67,27 @@
         getMemberActionConfig(mode) {
             const httpRoot = this.ctx && this.ctx.httpRoot ? this.ctx.httpRoot : '';
             const self = this;
+            if (mode === 'add') {
+                return {
+                    title: '添加成员',
+                    selectedTitle: '已选择添加成员',
+                    listTitle: '通讯录',
+                    emptyText: '当前没有可添加的联系人',
+                    submitText: '确认添加',
+                    submittingText: '正在添加...',
+                    confirmTitle: '确认添加成员？',
+                    confirmText: '添加',
+                    errorMessage: '添加成员失败',
+                    danger: false,
+                    buildRequestBody: function(conversationId, usernames) {
+                        return { conversation_id: conversationId, usernames: usernames };
+                    },
+                    requestUrl: httpRoot + '/sessions/members/add',
+                    buildConfirmMessage: function(candidates) {
+                        return '将所选联系人加入当前群聊。\n\n已选择：' + self.formatMemberActionCandidateSummary(candidates);
+                    }
+                };
+            }
             if (mode === 'remove') {
                 return {
                     title: '移除成员',
@@ -122,7 +131,42 @@
             return null;
         },
 
+        buildAddMemberActionCandidates(detail) {
+            const state = this.ctx && this.ctx.state;
+            const contacts = Array.isArray(state && state.contacts) ? state.contacts : [];
+            const memberSet = {};
+            const seen = {};
+            const self = this;
+            (Array.isArray(detail && detail.members) ? detail.members : []).forEach(function(member) {
+                const username = String(member && member.username || '').trim().toLowerCase();
+                if (username) memberSet[username] = true;
+            });
+            return contacts.map(function(contact) {
+                const username = self.ctx && typeof self.ctx.getContactUsername === 'function'
+                    ? self.ctx.getContactUsername(contact)
+                    : String(contact && contact.username || '').trim().toLowerCase();
+                if (!username || memberSet[username] || seen[username]) return null;
+                seen[username] = true;
+                const displayName = self.getMemberDisplayName(contact, '联系人');
+                const honorName = self.getMemberHonorName(contact);
+                return {
+                    username: username,
+                    displayName: displayName,
+                    honorName: honorName,
+                    avatarUrl: typeof self.ctx.getAvatarUrl === 'function' ? self.ctx.getAvatarUrl(contact && contact.avatar_url) : String(contact && contact.avatar_url || ''),
+                    role: '',
+                    roleLabel: '',
+                    disabledReason: '',
+                    selectable: true,
+                    searchText: (displayName + '\n' + username + '\n' + honorName).toLowerCase()
+                };
+            }).filter(function(candidate) {
+                return !!(candidate && candidate.username);
+            });
+        },
+
         buildMemberActionCandidates(detail, mode) {
+            if (mode === 'add') return this.buildAddMemberActionCandidates(detail);
             if (!this.ctx || typeof this.ctx.sortGroupMembersForDisplay !== 'function') return [];
             const self = this;
             const members = this.ctx.sortGroupMembersForDisplay(Array.isArray(detail && detail.members) ? detail.members : []);
@@ -263,7 +307,7 @@
                 message: config.buildConfirmMessage(selectedCandidates),
                 confirmText: config.confirmText,
                 cancelText: '取消',
-                danger: true,
+                danger: config.danger !== false,
                 action: 'member_action_submit',
                 payload: {
                     mode: state.memberActionMode,
@@ -494,17 +538,7 @@
                 return;
             }
             if (action === 'add') {
-                const raw = window.prompt('输入要添加的账号，多个账号可用空格、逗号或换行分隔', '');
-                const usernames = this.normalizePromptUsernames(raw);
-                if (!usernames.length) return;
-                this.ctx.request(this.ctx.httpRoot + '/sessions/members/add', {
-                    method: 'POST',
-                    body: JSON.stringify({ conversation_id: conversationId, usernames: usernames })
-                }).then(function() {
-                    return self.refreshAfterSettingsAction(conversationId);
-                }).catch(function(error) {
-                    window.alert(error && error.message ? error.message : '添加成员失败');
-                });
+                if (typeof this.ctx.openMemberActionPage === 'function') this.ctx.openMemberActionPage('add');
                 return;
             }
             if (action === 'remove') {

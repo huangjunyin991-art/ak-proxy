@@ -1237,6 +1237,9 @@
             closeSettingsPanel: closeSettingsPanel,
             buildDisplayNameWithHonorMarkup: buildDisplayNameWithHonorMarkup,
             formatUserDisplayText: formatUserDisplayText,
+            buildContactItemInnerMarkup: buildContactItemInnerMarkup,
+            getContactUsername: getContactUsername,
+            loadContacts: loadContacts,
             loadSessions: loadSessions,
             loadMessages: loadMessages,
             sortGroupMembersForDisplay: sortGroupMembersForDisplay,
@@ -2092,6 +2095,7 @@
             closeReadProgressPanel: closeReadProgressPanel,
             closeMemberPanel: closeMemberPanel,
             closeSettingsPanel: closeSettingsPanel,
+            loadContacts: loadContacts,
             sessionManage: sessionManageModule,
             get groupManage() {
                 return getGroupManageModule();
