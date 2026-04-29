@@ -26,20 +26,6 @@
             return this.ctx && this.ctx.elements ? this.ctx.elements : {};
         },
 
-        isDebugEnabled() {
-            try {
-                const search = new URLSearchParams(global.location && global.location.search || '');
-                return search.get('ak_im_debug') === '1' || global.localStorage && global.localStorage.getItem('ak_im_debug') === '1';
-            } catch (e) {
-                return false;
-            }
-        },
-
-        debugLog(label, payload) {
-            if (!this.isDebugEnabled() || !global.console || typeof global.console.log !== 'function') return;
-            global.console.log('[AKIM:group-admins]', label, payload || {});
-        },
-
         escapeHtml(value) {
             return this.ctx && typeof this.ctx.escapeHtml === 'function' ? this.ctx.escapeHtml(value) : String(value || '');
         },
@@ -350,10 +336,6 @@
             if (rootEl.__akImGroupAdminsDelegateListeners) {
                 this.unbindMemberLongPressDelegate(rootEl);
             }
-            this.debugLog('bind-member-delegate', {
-                conversationId: Number(conversationId || 0),
-                memberNodeCount: rootEl.querySelectorAll ? rootEl.querySelectorAll('[data-im-member-username]').length : 0
-            });
             let timer = null;
             let handled = false;
             let targetUsername = '';
@@ -370,32 +352,13 @@
                 if (event && event.type === 'pointerdown' && touchActive) return;
                 if (event && event.type === 'pointerdown' && event.pointerType === 'mouse' && event.button !== 0) return;
                 const memberNode = findMemberNode(event && event.target);
-                if (!memberNode) {
-                    groupAdminsModule.debugLog('press-start-no-member', {
-                        type: event && event.type,
-                        targetTag: event && event.target && event.target.tagName,
-                        targetClass: event && event.target && event.target.className
-                    });
-                    return;
-                }
+                if (!memberNode) return;
                 if (event && event.type === 'touchstart') touchActive = true;
                 targetUsername = memberNode.getAttribute('data-im-member-username') || '';
-                groupAdminsModule.debugLog('press-start-member', {
-                    type: event && event.type,
-                    pointerType: event && event.pointerType,
-                    conversationId: Number(conversationId || 0),
-                    username: targetUsername,
-                    targetTag: event && event.target && event.target.tagName,
-                    targetClass: event && event.target && event.target.className
-                });
                 if (timer) clearTimeout(timer);
                 timer = setTimeout(function() {
                     timer = null;
                     handled = true;
-                    groupAdminsModule.debugLog('press-timer-fired', {
-                        conversationId: Number(conversationId || 0),
-                        username: targetUsername
-                    });
                     groupAdminsModule.openMemberActionSheet(Number(conversationId || 0), targetUsername);
                 }, 420);
             };
@@ -416,10 +379,6 @@
                 cancel();
                 if (handled) return;
                 handled = true;
-                groupAdminsModule.debugLog('contextmenu-member', {
-                    conversationId: Number(conversationId || 0),
-                    username: memberNode.getAttribute('data-im-member-username') || ''
-                });
                 groupAdminsModule.openMemberActionSheet(Number(conversationId || 0), memberNode.getAttribute('data-im-member-username') || '');
             };
             const click = function(event) {
@@ -555,10 +514,6 @@
         openUnavailableMemberActionSheet(conversationId, label) {
             const state = this.getState();
             if (!state) return;
-            this.debugLog('open-unavailable-sheet', {
-                conversationId: Number(conversationId || state.groupSettingsConversationId || state.activeConversationId || 0),
-                label: String(label || '暂无可用操作')
-            });
             this.actionContext = null;
             state.actionSheetMode = 'group_member';
             state.actionSheetOpen = true;
@@ -575,14 +530,6 @@
             const state = this.getState();
             const targetConversationId = Number(conversationId || state && state.groupSettingsConversationId || state && state.activeConversationId || 0);
             const currentDetailConversationId = Number(state && state.groupSettingsData && state.groupSettingsData.conversation_id || state && state.groupSettingsConversationId || 0);
-            this.debugLog('open-member-sheet-start', {
-                inputConversationId: Number(conversationId || 0),
-                targetConversationId: targetConversationId,
-                currentDetailConversationId: currentDetailConversationId,
-                username: this.normalizeUsername(username),
-                hasState: !!state,
-                hasDetail: !!(state && state.groupSettingsData)
-            });
             if (state && targetConversationId && (!state.groupSettingsData || currentDetailConversationId !== targetConversationId) && this.ctx && typeof this.ctx.loadGroupSettings === 'function') {
                 const self = this;
                 this.ctx.loadGroupSettings(targetConversationId).then(function() {
@@ -594,11 +541,6 @@
             const member = this.findMember(username);
             if (!state || !detail) return;
             if (!member) {
-                this.debugLog('open-member-sheet-missing-member', {
-                    username: this.normalizeUsername(username),
-                    memberCount: Array.isArray(detail.members) ? detail.members.length : 0,
-                    sampleUsernames: Array.isArray(detail.members) ? detail.members.slice(0, 8).map(function(item) { return item && item.username; }) : []
-                });
                 this.openUnavailableMemberActionSheet(targetConversationId, '未找到成员信息');
                 return;
             }
@@ -610,17 +552,9 @@
             }
             if (this.canManageMemberTarget(detail, member)) {
                 actions.push({ key: 'member_remove', label: '移除成员', danger: true });
-                actions.push({ key: 'member_mute', label: '禁言' });
                 if (this.memberMuteActive(member)) actions.push({ key: 'member_unmute', label: '解除禁言' });
+                else actions.push({ key: 'member_mute', label: '禁言' });
             }
-            this.debugLog('open-member-sheet-actions', {
-                username: targetUsername,
-                role: this.getMemberRole(member),
-                myRole: String(detail.my_role || ''),
-                canManageAdmins: !!detail.can_manage_admins,
-                canManageMembers: !!detail.can_manage_members,
-                actionKeys: actions.map(function(action) { return action.key; })
-            });
             if (!actions.length) {
                 this.openUnavailableMemberActionSheet(targetConversationId || Number(detail.conversation_id || state.groupSettingsConversationId || 0), '暂无可用操作');
                 return;

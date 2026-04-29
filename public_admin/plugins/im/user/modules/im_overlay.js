@@ -14,11 +14,6 @@
             return this.ctx && this.ctx.elements ? this.ctx.elements : {};
         },
 
-        debugLog(label, payload) {
-            const groupManage = this.ctx && this.ctx.groupManage;
-            if (groupManage && typeof groupManage.debugLog === 'function') groupManage.debugLog(label, payload);
-        },
-
         getProgressPercent(summary) {
             const percent = Number(summary && summary.progress_percent || 0) || 0;
             return Math.max(0, Math.min(100, Math.round(percent)));
@@ -97,15 +92,6 @@
             }
             const isOpen = !!state.actionSheetOpen;
             actionSheetEl.classList.toggle('visible', isOpen);
-            if (state.actionSheetMode === 'group_member' || state.actionSheetMode === 'group_mute_duration') {
-                this.debugLog('render-action-sheet', {
-                    mode: state.actionSheetMode,
-                    isOpen: isOpen,
-                    visibleClass: actionSheetEl.classList.contains('visible'),
-                    actionCount: customActions.length,
-                    actionLabels: customActions.map(function(action) { return action && action.label; })
-                });
-            }
             if (!isOpen) {
                 const activeElement = document.activeElement;
                 if (activeElement && actionSheetEl.contains(activeElement) && typeof activeElement.blur === 'function') {

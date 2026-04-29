@@ -453,11 +453,6 @@
             });
         },
 
-        debugLog(label, payload) {
-            const groupAdminsModule = this.ctx && typeof this.ctx.getGroupAdminsModule === 'function' ? this.ctx.getGroupAdminsModule() : null;
-            if (groupAdminsModule && typeof groupAdminsModule.debugLog === 'function') groupAdminsModule.debugLog(label, payload);
-        },
-
         handleSettingsAction(action) {
             if (!this.ctx || !this.ctx.state || typeof this.ctx.request !== 'function') return;
             const self = this;
@@ -530,22 +525,11 @@
 
         bindSettingsMemberInteractions(rootEl) {
             if (!rootEl || !this.ctx || typeof this.ctx.getGroupAdminsModule !== 'function') return;
-            this.debugLog('settings-bind-enter', {
-                hasRoot: !!rootEl,
-                memberNodeCount: rootEl.querySelectorAll ? rootEl.querySelectorAll('[data-im-member-username]').length : 0
-            });
             const bindWithModule = function(groupAdminsModule) {
                 if (!groupAdminsModule || typeof groupAdminsModule.bindMemberLongPress !== 'function') return;
                 const state = groupManageModule.ctx.state;
                 const detail = state && state.groupSettingsData ? state.groupSettingsData : null;
                 const conversationId = Number(detail && detail.conversation_id || state && state.groupSettingsConversationId || 0);
-                if (typeof groupAdminsModule.debugLog === 'function') {
-                    groupAdminsModule.debugLog('settings-bind-with-module', {
-                        conversationId: conversationId,
-                        hasDelegate: typeof groupAdminsModule.bindMemberLongPressDelegate === 'function',
-                        memberNodeCount: rootEl.querySelectorAll ? rootEl.querySelectorAll('[data-im-member-username]').length : 0
-                    });
-                }
                 if (typeof groupAdminsModule.bindMemberLongPressDelegate === 'function') {
                     groupAdminsModule.bindMemberLongPressDelegate(rootEl, conversationId);
                 } else {
@@ -560,7 +544,6 @@
             };
             const groupAdminsModule = this.ctx.getGroupAdminsModule();
             if (!groupAdminsModule && typeof this.ctx.ensureGroupAdminsModule === 'function') {
-                this.debugLog('settings-bind-ensure-module', {});
                 this.ctx.ensureGroupAdminsModule().then(function(nextGroupAdminsModule) {
                     bindWithModule(nextGroupAdminsModule);
                 });
