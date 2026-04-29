@@ -545,6 +545,11 @@
                 #ak-im-root .ak-im-group-create-form,#ak-im-root .ak-im-group-title-form{padding:12px;background:#ededed;border-bottom:1px solid rgba(15,23,42,.04);display:flex;flex-direction:column;gap:10px}
                 #ak-im-root .ak-im-group-create-title-input,#ak-im-root .ak-im-group-create-search-input,#ak-im-root .ak-im-group-title-input{width:100%;height:40px;border:none;border-radius:12px;background:#ffffff;padding:0 14px;font-size:15px;color:#111827;outline:none;box-sizing:border-box}
                 #ak-im-root .ak-im-group-create-title-input:focus,#ak-im-root .ak-im-group-create-search-input:focus,#ak-im-root .ak-im-group-title-input:focus{box-shadow:0 0 0 2px rgba(7,193,96,.14) inset}
+                #ak-im-root .ak-im-group-create-title-input.is-error{box-shadow:0 0 0 2px rgba(239,68,68,.28) inset;background:#fff7f7}
+                #ak-im-root .ak-im-group-create-title-input.is-alert{animation:akImGroupCreateTitleShake .28s ease}
+                #ak-im-root .ak-im-group-create-title-tip{display:none;margin:-4px 2px 0;font-size:12px;line-height:1.5;color:#dc2626}
+                #ak-im-root .ak-im-group-create-title-tip.visible{display:block}
+                @keyframes akImGroupCreateTitleShake{0%,100%{transform:translateX(0)}25%{transform:translateX(-4px)}50%{transform:translateX(4px)}75%{transform:translateX(-2px)}}
                 #ak-im-root .ak-im-group-create-body,#ak-im-root .ak-im-group-title-body{flex:1;min-height:0;overflow:auto;padding:12px 12px calc(18px + env(safe-area-inset-bottom, 0px));box-sizing:border-box}
                 #ak-im-root .ak-im-group-create-section + .ak-im-group-create-section{margin-top:12px}
                 #ak-im-root .ak-im-group-create-section-title{padding:0 4px 8px;font-size:13px;font-weight:600;color:#6b7280;line-height:1.5}
@@ -752,6 +757,7 @@
                     <div class="ak-im-group-create-page">
                         <div class="ak-im-group-create-form">
                             <input class="ak-im-group-create-title-input" type="text" inputmode="text" autocomplete="off" spellcheck="false" placeholder="请输入群名" />
+                            <div class="ak-im-group-create-title-tip"></div>
                             <input class="ak-im-group-create-search-input" type="search" inputmode="search" autocomplete="off" spellcheck="false" placeholder="搜索联系人" />
                         </div>
                         <div class="ak-im-group-create-body"></div>
@@ -866,6 +872,7 @@
                 memberActionSubmitBtnEl: root ? root.querySelector('.ak-im-member-action-submit') : null,
                 groupCreateBodyEl: root ? root.querySelector('.ak-im-group-create-body') : null,
                 groupCreateTitleInputEl: root ? root.querySelector('.ak-im-group-create-title-input') : null,
+                groupCreateTitleTipEl: root ? root.querySelector('.ak-im-group-create-title-tip') : null,
                 groupCreateSearchInputEl: root ? root.querySelector('.ak-im-group-create-search-input') : null,
                 groupCreateSubmitBtnEl: root ? root.querySelector('.ak-im-group-create-submit') : null,
                 groupCreateBackBtnEl: root ? root.querySelector('.ak-im-group-create-back') : null,

@@ -184,6 +184,7 @@
         memberActionSubmitting: false,
         memberActionError: '',
         groupCreateTitle: '',
+        groupCreateTitleError: '',
         groupCreateKeyword: '',
         groupCreateSelectedUsernames: [],
         groupCreateSubmitting: false,
@@ -251,6 +252,7 @@
     let memberActionSubmitBtnEl = null;
     let groupCreateBodyEl = null;
     let groupCreateTitleInputEl = null;
+    let groupCreateTitleTipEl = null;
     let groupCreateSearchInputEl = null;
     let groupCreateSubmitBtnEl = null;
     let groupTitleEditBodyEl = null;
@@ -321,6 +323,7 @@
         memberActionSubmitBtnEl = nextElements.memberActionSubmitBtnEl || null;
         groupCreateBodyEl = nextElements.groupCreateBodyEl || null;
         groupCreateTitleInputEl = nextElements.groupCreateTitleInputEl || null;
+        groupCreateTitleTipEl = nextElements.groupCreateTitleTipEl || null;
         groupCreateSearchInputEl = nextElements.groupCreateSearchInputEl || null;
         groupCreateSubmitBtnEl = nextElements.groupCreateSubmitBtnEl || null;
         groupTitleEditBodyEl = nextElements.groupTitleEditBodyEl || null;
@@ -390,6 +393,7 @@
             memberActionSubmitBtnEl: null,
             groupCreateBodyEl: null,
             groupCreateTitleInputEl: null,
+            groupCreateTitleTipEl: null,
             groupCreateSearchInputEl: null,
             groupCreateSubmitBtnEl: null,
             groupTitleEditBodyEl: null,
@@ -700,6 +704,7 @@
         const silent = !!(options && options.silent);
         if (state.groupCreateSubmitting) return;
         state.groupCreateTitle = '';
+        state.groupCreateTitleError = '';
         state.groupCreateKeyword = '';
         state.groupCreateSelectedUsernames = [];
         state.groupCreateError = '';
@@ -714,6 +719,7 @@
             return;
         }
         state.groupCreateTitle = String(value || '');
+        if (String(state.groupCreateTitle || '').trim()) state.groupCreateTitleError = '';
         state.groupCreateError = '';
         renderGroupCreatePage();
     }
@@ -1222,6 +1228,7 @@
                 return {
                     groupCreateBodyEl: groupCreateBodyEl,
                     groupCreateTitleInputEl: groupCreateTitleInputEl,
+                    groupCreateTitleTipEl: groupCreateTitleTipEl,
                     groupCreateSearchInputEl: groupCreateSearchInputEl,
                     groupCreateSubmitBtnEl: groupCreateSubmitBtnEl
                 };
@@ -3606,9 +3613,19 @@
         }
         if (!groupCreateBodyEl || !groupCreateTitleInputEl || !groupCreateSearchInputEl || !groupCreateSubmitBtnEl) return;
         groupCreateTitleInputEl.value = String(state.groupCreateTitle || '');
+        groupCreateTitleInputEl.classList.toggle('is-error', !!state.groupCreateTitleError);
+        if (groupCreateTitleTipEl) {
+            groupCreateTitleTipEl.textContent = String(state.groupCreateTitleError || '');
+            groupCreateTitleTipEl.classList.toggle('visible', !!state.groupCreateTitleError);
+        }
         groupCreateSearchInputEl.value = String(state.groupCreateKeyword || '');
         if (state.view !== 'group_create') {
             groupCreateBodyEl.innerHTML = '';
+            groupCreateTitleInputEl.classList.remove('is-error', 'is-alert');
+            if (groupCreateTitleTipEl) {
+                groupCreateTitleTipEl.textContent = '';
+                groupCreateTitleTipEl.classList.remove('visible');
+            }
             groupCreateSubmitBtnEl.disabled = true;
             groupCreateSubmitBtnEl.textContent = '创建';
             return;

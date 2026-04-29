@@ -27,6 +27,7 @@
             if (typeof this.ctx.closePlusPanel === 'function') this.ctx.closePlusPanel({ silent: true });
             if (typeof this.ctx.closeHomeAddMenu === 'function') this.ctx.closeHomeAddMenu({ silent: true });
             state.groupCreateTitle = '';
+            state.groupCreateTitleError = '';
             state.groupCreateKeyword = '';
             state.groupCreateSelectedUsernames = [];
             state.groupCreateSubmitting = false;
@@ -45,6 +46,7 @@
             if (!state || state.groupCreateSubmitting) return;
             const silent = !!(options && options.silent);
             state.groupCreateTitle = '';
+            state.groupCreateTitleError = '';
             state.groupCreateKeyword = '';
             state.groupCreateSelectedUsernames = [];
             state.groupCreateError = '';
@@ -56,6 +58,7 @@
             const state = this.getState();
             if (!state) return;
             state.groupCreateTitle = String(value || '');
+            if (String(state.groupCreateTitle || '').trim()) state.groupCreateTitleError = '';
             if (state.groupCreateError) state.groupCreateError = '';
             this.renderPage();
         },
@@ -135,6 +138,24 @@
             this.renderPage();
         },
 
+        alertTitleInput(message) {
+            const state = this.getState();
+            const elements = this.getElements();
+            const titleInputEl = elements.groupCreateTitleInputEl;
+            if (!state) return;
+            state.groupCreateTitleError = String(message || '请输入群名');
+            this.renderPage();
+            if (titleInputEl) {
+                titleInputEl.classList.remove('is-alert');
+                void titleInputEl.offsetWidth;
+                titleInputEl.classList.add('is-alert');
+                setTimeout(function() {
+                    titleInputEl.classList.remove('is-alert');
+                }, 360);
+            }
+            this.focusTitleInput();
+        },
+
         buildContactMarkup(candidate) {
             if (this.ctx && typeof this.ctx.buildContactItemInnerMarkup === 'function') {
                 return this.ctx.buildContactItemInnerMarkup(candidate.raw || candidate);
@@ -148,15 +169,26 @@
             const elements = this.getElements();
             const bodyEl = elements.groupCreateBodyEl;
             const titleInputEl = elements.groupCreateTitleInputEl;
+            const titleTipEl = elements.groupCreateTitleTipEl;
             const searchInputEl = elements.groupCreateSearchInputEl;
             const submitBtnEl = elements.groupCreateSubmitBtnEl;
             if (!state || !bodyEl || !titleInputEl || !searchInputEl || !submitBtnEl) return;
             titleInputEl.value = String(state.groupCreateTitle || '');
             titleInputEl.disabled = state.view !== 'group_create' || !!state.groupCreateSubmitting;
+            titleInputEl.classList.toggle('is-error', !!state.groupCreateTitleError);
+            if (titleTipEl) {
+                titleTipEl.textContent = String(state.groupCreateTitleError || '');
+                titleTipEl.classList.toggle('visible', !!state.groupCreateTitleError);
+            }
             searchInputEl.value = String(state.groupCreateKeyword || '');
             searchInputEl.disabled = state.view !== 'group_create' || !!state.groupCreateSubmitting;
             if (state.view !== 'group_create') {
                 bodyEl.innerHTML = '';
+                if (titleTipEl) {
+                    titleTipEl.textContent = '';
+                    titleTipEl.classList.remove('visible');
+                }
+                titleInputEl.classList.remove('is-error', 'is-alert');
                 submitBtnEl.disabled = true;
                 submitBtnEl.textContent = '创建';
                 return;
@@ -203,7 +235,7 @@
                     self.toggleSelection(button.getAttribute('data-im-group-create-chip'));
                 });
             });
-            submitBtnEl.disabled = !!state.groupCreateSubmitting || !String(state.groupCreateTitle || '').trim() || selectedCandidates.length < 2;
+            submitBtnEl.disabled = !!state.groupCreateSubmitting || selectedCandidates.length < 2;
             submitBtnEl.textContent = state.groupCreateSubmitting ? '创建中...' : ('创建（' + selectedCandidates.length + '）');
         },
 
@@ -213,11 +245,11 @@
             const title = String(state.groupCreateTitle || '').trim();
             const usernames = Array.isArray(state.groupCreateSelectedUsernames) ? state.groupCreateSelectedUsernames.slice() : [];
             if (!title) {
-                state.groupCreateError = '请输入群名';
-                this.renderPage();
-                this.focusTitleInput();
+                state.groupCreateError = '';
+                this.alertTitleInput('请输入群名');
                 return Promise.resolve(null);
             }
+            state.groupCreateTitleError = '';
             if (usernames.length < 2) {
                 state.groupCreateError = '请选择至少 2 个联系人';
                 this.renderPage();
@@ -235,6 +267,7 @@
                 const conversationId = Number(data && data.conversation_id || 0);
                 state.groupCreateSubmitting = false;
                 state.groupCreateTitle = '';
+                state.groupCreateTitleError = '';
                 state.groupCreateKeyword = '';
                 state.groupCreateSelectedUsernames = [];
                 if (conversationId) {
