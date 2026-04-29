@@ -8159,6 +8159,7 @@ IM_LOCATION_AMAP_SECURITY_JS_CODE = str(os.getenv("IM_LOCATION_AMAP_SECURITY_JS_
 
 def _iter_widget_asset_paths() -> list[str]:
     return [
+        __file__,
         os.path.join(FRONTEND_HOST_DIR, "chat_widget.js"),
         os.path.join(PLUGINS_DIR, "notification", "user", "index.js"),
         os.path.join(PLUGINS_DIR, "notification", "user", "widget.js"),
