@@ -8176,6 +8176,7 @@ def _iter_widget_asset_paths() -> list[str]:
         os.path.join(PLUGINS_DIR, "im", "user", "modules", "im_profile.js"),
         os.path.join(PLUGINS_DIR, "im", "user", "modules", "im_overlay.js"),
         os.path.join(PLUGINS_DIR, "im", "user", "modules", "im_group_manage.js"),
+        os.path.join(PLUGINS_DIR, "im", "user", "modules", "im_group_admins.js"),
         os.path.join(PLUGINS_DIR, "im", "user", "modules", "im_group_create.js"),
         os.path.join(PLUGINS_DIR, "im", "user", "modules", "im_group_title.js"),
         os.path.join(PLUGINS_DIR, "im", "user", "modules", "im_message_manage.js"),
@@ -8480,6 +8481,15 @@ async def im_user_plugin_overlay_module_js(request: Request):
 async def im_user_plugin_group_manage_module_js(request: Request):
 
     js_path = os.path.join(PLUGINS_DIR, "im", "user", "modules", "im_group_manage.js")
+
+    return _build_widget_script_response(request, js_path)
+
+
+@app.get("/chat/plugins/im/user/modules/im_group_admins.js")
+
+async def im_user_plugin_group_admins_module_js(request: Request):
+
+    js_path = os.path.join(PLUGINS_DIR, "im", "user", "modules", "im_group_admins.js")
 
     return _build_widget_script_response(request, js_path)
 
