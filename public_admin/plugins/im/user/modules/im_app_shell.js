@@ -105,6 +105,14 @@
                 #ak-im-root .ak-im-avatar-mosaic{width:100%;height:100%;display:flex;align-items:stretch;justify-content:center;overflow:hidden}
                 #ak-im-root .ak-im-avatar-mosaic.is-single{display:flex;align-items:stretch;justify-content:center}
                 #ak-im-root .ak-im-avatar-mosaic.is-single .ak-im-avatar-cell{width:100%;height:100%;flex:1 1 auto}
+                #ak-im-root .ak-im-avatar-mosaic.is-duo{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1px;padding:1px;box-sizing:border-box;background:#ffffff}
+                #ak-im-root .ak-im-avatar-mosaic.is-duo .ak-im-avatar-cell{width:100%;height:100%}
+                #ak-im-root .ak-im-avatar-mosaic.is-duo .ak-im-avatar-photo{object-fit:contain;background:#ffffff}
+                #ak-im-root .ak-im-avatar-mosaic.is-trio{display:flex;flex-direction:column;justify-content:center;gap:1px;padding:1px;box-sizing:border-box;background:#ffffff}
+                #ak-im-root .ak-im-avatar-mosaic.is-trio .ak-im-avatar-row{flex:1 1 0;display:flex;align-items:stretch;justify-content:center;gap:1px;min-height:0}
+                #ak-im-root .ak-im-avatar-mosaic.is-trio .ak-im-avatar-cell{flex:0 0 calc((100% - 1px)/2);width:calc((100% - 1px)/2)}
+                #ak-im-root .ak-im-avatar-mosaic.is-quad{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));grid-template-rows:repeat(2,minmax(0,1fr));gap:1px;padding:1px;box-sizing:border-box;background:#ffffff}
+                #ak-im-root .ak-im-avatar-mosaic.is-quad .ak-im-avatar-cell{width:100%;height:100%}
                 #ak-im-root .ak-im-avatar-mosaic.is-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));grid-auto-rows:minmax(0,1fr);gap:1px;padding:1px;box-sizing:border-box;background:#ffffff}
                 #ak-im-root .ak-im-avatar-mosaic.is-stack{display:flex;flex-direction:column-reverse;justify-content:center;gap:1px;padding:1px;box-sizing:border-box;background:#ffffff}
                 #ak-im-root .ak-im-avatar-row{flex:1 1 0;display:flex;align-items:stretch;justify-content:center;gap:1px;min-height:0}

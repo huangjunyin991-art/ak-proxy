@@ -2517,6 +2517,15 @@
             const display = String(member && (member.display_name || member.username) || '').trim() || '成员';
             return buildAvatarCellMarkup(member && member.avatar_url, display, display + '头像');
         });
+        if (list.length === 2) {
+            return '<div class="ak-im-avatar-mosaic is-duo" aria-hidden="true">' + cells.join('') + '</div>';
+        }
+        if (list.length === 3) {
+            return '<div class="ak-im-avatar-mosaic is-trio" aria-hidden="true"><div class="ak-im-avatar-row is-top">' + cells[0] + '</div><div class="ak-im-avatar-row is-bottom">' + cells.slice(1).join('') + '</div></div>';
+        }
+        if (list.length === 4) {
+            return '<div class="ak-im-avatar-mosaic is-quad" aria-hidden="true">' + cells.join('') + '</div>';
+        }
         if (list.length >= 9) {
             return '<div class="ak-im-avatar-mosaic is-grid" aria-hidden="true">' + cells.join('') + '</div>';
         }
