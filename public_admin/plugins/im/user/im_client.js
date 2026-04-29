@@ -1272,6 +1272,7 @@
             loadSessions: loadSessions,
             loadMessages: loadMessages,
             loadGroupSettings: loadGroupSettings,
+            renderActionSheet: renderActionSheet,
             renderSettingsPanel: renderSettingsPanel,
             syncComposerState: syncComposerState,
             openDialog: openDialog,
@@ -2550,6 +2551,13 @@
         return;
     }
 
+    function renderActionSheet() {
+        const overlayModule = getOverlayModule();
+        if (overlayModule && typeof overlayModule.renderActionSheet === 'function') {
+            overlayModule.renderActionSheet();
+        }
+    }
+
     function openActionSheet(messageItem) {
         const overlayModule = getOverlayModule();
         if (overlayModule && typeof overlayModule.openActionSheet === 'function') {
@@ -3714,6 +3722,7 @@
         renderEmojiPanel();
         renderPlusPanel();
         renderMessages();
+        renderActionSheet();
         renderReadProgressPanel();
 	    renderMemberPanel();
 	    renderSettingsPanel();

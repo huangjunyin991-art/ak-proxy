@@ -545,6 +545,10 @@
             state.actionSheetOpen = true;
             state.actionSheetConversationId = this.actionContext.conversationId;
             state.actionSheetCustomActions = [{ key: 'all_mute_toggle', label: enabled ? '开启全体禁言' : '关闭全体禁言', danger: enabled }];
+            if (this.ctx && typeof this.ctx.renderActionSheet === 'function') {
+                this.ctx.renderActionSheet();
+                return;
+            }
             if (this.ctx && typeof this.ctx.render === 'function') this.ctx.render();
         },
 
@@ -560,6 +564,10 @@
             state.actionSheetOpen = true;
             state.actionSheetConversationId = Number(conversationId || state.groupSettingsConversationId || state.activeConversationId || 0);
             state.actionSheetCustomActions = [{ key: 'member_unavailable', label: String(label || '暂无可用操作'), disabled: true }];
+            if (this.ctx && typeof this.ctx.renderActionSheet === 'function') {
+                this.ctx.renderActionSheet();
+                return;
+            }
             if (this.ctx && typeof this.ctx.render === 'function') this.ctx.render();
         },
 
@@ -622,6 +630,10 @@
             state.actionSheetOpen = true;
             state.actionSheetConversationId = this.actionContext.conversationId;
             state.actionSheetCustomActions = actions;
+            if (this.ctx && typeof this.ctx.renderActionSheet === 'function') {
+                this.ctx.renderActionSheet();
+                return;
+            }
             if (this.ctx && typeof this.ctx.render === 'function') this.ctx.render();
         },
 
@@ -633,6 +645,10 @@
             state.actionSheetCustomActions = MUTE_DURATIONS.map(function(item) {
                 return { key: item.key, label: item.label };
             });
+            if (this.ctx && typeof this.ctx.renderActionSheet === 'function') {
+                this.ctx.renderActionSheet();
+                return;
+            }
             if (this.ctx && typeof this.ctx.render === 'function') this.ctx.render();
         },
 
