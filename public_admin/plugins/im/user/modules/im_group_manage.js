@@ -530,9 +530,13 @@
             const state = this.ctx.state;
             const detail = state && state.groupSettingsData ? state.groupSettingsData : null;
             const conversationId = Number(detail && detail.conversation_id || state && state.groupSettingsConversationId || 0);
-            Array.prototype.forEach.call(rootEl.querySelectorAll('[data-im-member-username]'), function(node) {
-                groupAdminsModule.bindMemberLongPress(node, conversationId, node.getAttribute('data-im-member-username'));
-            });
+            if (typeof groupAdminsModule.bindMemberLongPressDelegate === 'function') {
+                groupAdminsModule.bindMemberLongPressDelegate(rootEl, conversationId);
+            } else {
+                Array.prototype.forEach.call(rootEl.querySelectorAll('[data-im-member-username]'), function(node) {
+                    groupAdminsModule.bindMemberLongPress(node, conversationId, node.getAttribute('data-im-member-username'));
+                });
+            }
             const hero = rootEl.querySelector('.ak-im-group-info-hero-avatar');
             if (hero && typeof groupAdminsModule.bindGroupAvatarLongPress === 'function') {
                 groupAdminsModule.bindGroupAvatarLongPress(hero, conversationId);

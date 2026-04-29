@@ -331,6 +331,101 @@
             });
         },
 
+        bindMemberLongPressDelegate(rootEl, conversationId) {
+            if (!rootEl) return;
+            if (rootEl.__akImGroupAdminsDelegateListeners) {
+                this.unbindMemberLongPressDelegate(rootEl);
+            }
+            let timer = null;
+            let handled = false;
+            let targetUsername = '';
+            let touchActive = false;
+            const findMemberNode = function(target) {
+                let node = target;
+                while (node && node !== rootEl) {
+                    if (node.getAttribute && node.getAttribute('data-im-member-username')) return node;
+                    node = node.parentNode;
+                }
+                return null;
+            };
+            const start = function(event) {
+                if (event && event.type === 'pointerdown' && touchActive) return;
+                if (event && event.type === 'pointerdown' && event.pointerType === 'mouse' && event.button !== 0) return;
+                const memberNode = findMemberNode(event && event.target);
+                if (!memberNode) return;
+                if (event && event.type === 'touchstart') touchActive = true;
+                targetUsername = memberNode.getAttribute('data-im-member-username') || '';
+                if (timer) clearTimeout(timer);
+                timer = setTimeout(function() {
+                    timer = null;
+                    handled = true;
+                    groupAdminsModule.openMemberActionSheet(Number(conversationId || 0), targetUsername);
+                }, 420);
+            };
+            const cancel = function() {
+                if (timer) {
+                    clearTimeout(timer);
+                    timer = null;
+                }
+            };
+            const endTouch = function() {
+                cancel();
+                touchActive = false;
+            };
+            const contextmenu = function(event) {
+                const memberNode = findMemberNode(event && event.target);
+                if (!memberNode) return;
+                event.preventDefault();
+                cancel();
+                if (handled) return;
+                handled = true;
+                groupAdminsModule.openMemberActionSheet(Number(conversationId || 0), memberNode.getAttribute('data-im-member-username') || '');
+            };
+            const click = function(event) {
+                if (!handled) return;
+                event.preventDefault();
+                event.stopPropagation();
+                handled = false;
+            };
+            rootEl.__akImGroupAdminsDelegateListeners = {
+                start: start,
+                cancel: cancel,
+                endTouch: endTouch,
+                contextmenu: contextmenu,
+                click: click
+            };
+            rootEl.addEventListener('pointerdown', start, true);
+            rootEl.addEventListener('pointerup', cancel, true);
+            rootEl.addEventListener('pointercancel', cancel, true);
+            rootEl.addEventListener('pointerleave', cancel, true);
+            rootEl.addEventListener('touchstart', start, true);
+            rootEl.addEventListener('touchend', endTouch, true);
+            rootEl.addEventListener('touchcancel', endTouch, true);
+            rootEl.addEventListener('contextmenu', contextmenu, true);
+            rootEl.addEventListener('click', click, true);
+        },
+
+        unbindMemberLongPressDelegate(rootEl) {
+            if (!rootEl || !rootEl.__akImGroupAdminsDelegateListeners) return;
+            const previous = rootEl.__akImGroupAdminsDelegateListeners;
+            if (previous.start) {
+                rootEl.removeEventListener('pointerdown', previous.start, true);
+                rootEl.removeEventListener('touchstart', previous.start, true);
+            }
+            if (previous.cancel) {
+                rootEl.removeEventListener('pointerup', previous.cancel, true);
+                rootEl.removeEventListener('pointercancel', previous.cancel, true);
+                rootEl.removeEventListener('pointerleave', previous.cancel, true);
+            }
+            if (previous.endTouch) {
+                rootEl.removeEventListener('touchend', previous.endTouch, true);
+                rootEl.removeEventListener('touchcancel', previous.endTouch, true);
+            }
+            if (previous.contextmenu) rootEl.removeEventListener('contextmenu', previous.contextmenu, true);
+            if (previous.click) rootEl.removeEventListener('click', previous.click, true);
+            delete rootEl.__akImGroupAdminsDelegateListeners;
+        },
+
         bindPress(node, callback) {
             if (node.__akImGroupAdminsPressListeners) {
                 this.unbindPress(node);
