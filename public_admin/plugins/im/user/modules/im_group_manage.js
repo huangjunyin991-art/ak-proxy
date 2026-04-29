@@ -525,22 +525,31 @@
 
         bindSettingsMemberInteractions(rootEl) {
             if (!rootEl || !this.ctx || typeof this.ctx.getGroupAdminsModule !== 'function') return;
+            const bindWithModule = function(groupAdminsModule) {
+                if (!groupAdminsModule || typeof groupAdminsModule.bindMemberLongPress !== 'function') return;
+                const state = groupManageModule.ctx.state;
+                const detail = state && state.groupSettingsData ? state.groupSettingsData : null;
+                const conversationId = Number(detail && detail.conversation_id || state && state.groupSettingsConversationId || 0);
+                if (typeof groupAdminsModule.bindMemberLongPressDelegate === 'function') {
+                    groupAdminsModule.bindMemberLongPressDelegate(rootEl, conversationId);
+                } else {
+                    Array.prototype.forEach.call(rootEl.querySelectorAll('[data-im-member-username]'), function(node) {
+                        groupAdminsModule.bindMemberLongPress(node, conversationId, node.getAttribute('data-im-member-username'));
+                    });
+                }
+                const hero = rootEl.querySelector('.ak-im-group-info-hero-avatar');
+                if (hero && typeof groupAdminsModule.bindGroupAvatarLongPress === 'function') {
+                    groupAdminsModule.bindGroupAvatarLongPress(hero, conversationId);
+                }
+            };
             const groupAdminsModule = this.ctx.getGroupAdminsModule();
-            if (!groupAdminsModule || typeof groupAdminsModule.bindMemberLongPress !== 'function') return;
-            const state = this.ctx.state;
-            const detail = state && state.groupSettingsData ? state.groupSettingsData : null;
-            const conversationId = Number(detail && detail.conversation_id || state && state.groupSettingsConversationId || 0);
-            if (typeof groupAdminsModule.bindMemberLongPressDelegate === 'function') {
-                groupAdminsModule.bindMemberLongPressDelegate(rootEl, conversationId);
-            } else {
-                Array.prototype.forEach.call(rootEl.querySelectorAll('[data-im-member-username]'), function(node) {
-                    groupAdminsModule.bindMemberLongPress(node, conversationId, node.getAttribute('data-im-member-username'));
+            if (!groupAdminsModule && typeof this.ctx.ensureGroupAdminsModule === 'function') {
+                this.ctx.ensureGroupAdminsModule().then(function(nextGroupAdminsModule) {
+                    bindWithModule(nextGroupAdminsModule);
                 });
+                return;
             }
-            const hero = rootEl.querySelector('.ak-im-group-info-hero-avatar');
-            if (hero && typeof groupAdminsModule.bindGroupAvatarLongPress === 'function') {
-                groupAdminsModule.bindGroupAvatarLongPress(hero, conversationId);
-            }
+            bindWithModule(groupAdminsModule);
         }
     };
 

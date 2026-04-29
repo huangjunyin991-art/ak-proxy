@@ -475,7 +475,7 @@
                 #ak-im-root .ak-im-member-panel-body{flex:1;min-height:0;overflow:auto;padding:14px 16px 18px}
                 #ak-im-root .ak-im-member-summary{font-size:13px;color:#9ca3af;line-height:1.6;margin-bottom:12px}
                 #ak-im-root .ak-im-member-list{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:14px 10px;align-content:start}
-                #ak-im-root .ak-im-member-item{display:flex;flex-direction:column;align-items:center;gap:6px;text-align:center;min-width:0}
+                #ak-im-root .ak-im-member-item{display:flex;flex-direction:column;align-items:center;gap:6px;text-align:center;min-width:0;touch-action:manipulation;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}
                 #ak-im-root .ak-im-member-honor{width:100%;min-height:18px;display:flex;align-items:flex-end;justify-content:center}
                 #ak-im-root .ak-im-member-avatar{width:56px;height:56px;border-radius:16px;background:linear-gradient(180deg,#8fe3a8 0%,#56c57b 100%);color:#ffffff;display:inline-flex;align-items:center;justify-content:center;font-size:18px;font-weight:700}
                 #ak-im-root .ak-im-member-body{width:100%;min-width:0;display:flex;flex-direction:column;align-items:center;gap:2px}

@@ -1242,7 +1242,10 @@
             sortGroupMembersForDisplay: sortGroupMembersForDisplay,
             openGroupTitleEditPage: openGroupTitleEditPage,
             openGroupAdminsPage: openGroupAdminsPage,
-            getGroupAdminsModule: getGroupAdminsModule
+            getGroupAdminsModule: getGroupAdminsModule,
+            ensureGroupAdminsModule: function() {
+                return ensureOptionalLazyModule('groupAdmins');
+            }
         });
     }
 

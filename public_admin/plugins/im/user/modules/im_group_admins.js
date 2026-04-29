@@ -507,6 +507,17 @@
             if (this.ctx && typeof this.ctx.render === 'function') this.ctx.render();
         },
 
+        openUnavailableMemberActionSheet(conversationId, label) {
+            const state = this.getState();
+            if (!state) return;
+            this.actionContext = null;
+            state.actionSheetMode = 'group_member';
+            state.actionSheetOpen = true;
+            state.actionSheetConversationId = Number(conversationId || state.groupSettingsConversationId || state.activeConversationId || 0);
+            state.actionSheetCustomActions = [{ key: 'member_unavailable', label: String(label || '暂无可用操作'), disabled: true }];
+            if (this.ctx && typeof this.ctx.render === 'function') this.ctx.render();
+        },
+
         openMemberActionSheet(conversationId, username) {
             const state = this.getState();
             const targetConversationId = Number(conversationId || state && state.groupSettingsConversationId || state && state.activeConversationId || 0);
@@ -520,7 +531,11 @@
             }
             const detail = state && state.groupSettingsData ? state.groupSettingsData : null;
             const member = this.findMember(username);
-            if (!state || !detail || !member) return;
+            if (!state || !detail) return;
+            if (!member) {
+                this.openUnavailableMemberActionSheet(targetConversationId, '未找到成员信息');
+                return;
+            }
             const actions = [];
             const targetUsername = this.normalizeUsername(member.username);
             if (detail.can_manage_admins && this.getMemberRole(member) !== 'owner') {
@@ -532,7 +547,10 @@
                 actions.push({ key: 'member_mute', label: '禁言' });
                 if (this.memberMuteActive(member)) actions.push({ key: 'member_unmute', label: '解除禁言' });
             }
-            if (!actions.length) return;
+            if (!actions.length) {
+                this.openUnavailableMemberActionSheet(targetConversationId || Number(detail.conversation_id || state.groupSettingsConversationId || 0), '暂无可用操作');
+                return;
+            }
             this.actionContext = { type: 'member', conversationId: targetConversationId || Number(detail.conversation_id || state.groupSettingsConversationId || 0), username: targetUsername };
             state.actionSheetMode = 'group_member';
             state.actionSheetOpen = true;
@@ -554,6 +572,7 @@
 
         handleActionSheetAction(actionKey) {
             const action = String(actionKey || '').trim();
+            if (action === 'member_unavailable') return;
             if (!this.actionContext) return;
             if (action === 'all_mute_toggle') {
                 const context = this.actionContext;
