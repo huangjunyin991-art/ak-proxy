@@ -383,7 +383,7 @@
             '</div>';
             settingsPanelBodyEl.innerHTML = heroMarkup + '<div class="ak-im-group-info-members">' + memberGridMarkup + (showMoreMembers ? '<button class="ak-im-group-info-more" type="button" data-im-settings-action="toggle_members">' + escapeHtml(membersExpanded ? '收起群成员' : '更多群成员') + '<span aria-hidden="true">⌄</span></button>' : '') + '</div>' +
                 '<div class="ak-im-group-info-section">' +
-                    groupManage.buildGroupInfoCell('群聊名称', String(detail.conversation_title || '群聊')) +
+                    groupManage.buildGroupInfoCell('群聊名称', String(detail.conversation_title || '群聊'), canManage ? 'edit_title' : '') +
                     groupManage.buildGroupInfoCell('群主', ownerMarkup, '', '', true) +
                     groupManage.buildGroupInfoCell('群管理员', adminsMarkup, '', '', true) +
                     groupManage.buildGroupInfoCell('可清空聊天记录成员', authorsMarkup, '', '', true) +
@@ -447,7 +447,7 @@
             state.groupSettingsConversationId = 0;
             state.groupSettingsData = null;
             state.groupSettingsMembersExpanded = false;
-            if (state.view === 'group_info') state.view = state.activeConversationId ? 'chat' : 'sessions';
+            if (state.view === 'group_info' || state.view === 'group_title_edit') state.view = state.activeConversationId ? 'chat' : 'sessions';
             if (!silent && typeof this.ctx.render === 'function') this.ctx.render();
         },
 

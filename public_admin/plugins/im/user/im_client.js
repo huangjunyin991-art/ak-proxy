@@ -23,6 +23,18 @@
             src: `${API_ROOT}/chat/plugins/im/user/modules/im_group_manage.js`,
             errorMessage: '群设置模块加载失败'
         },
+        groupCreate: {
+            selector: 'script[data-ak-im-user-plugin-group-create="1"]',
+            datasetKey: 'akImUserPluginGroupCreate',
+            src: `${API_ROOT}/chat/plugins/im/user/modules/im_group_create.js`,
+            errorMessage: '发起群聊模块加载失败'
+        },
+        groupTitle: {
+            selector: 'script[data-ak-im-user-plugin-group-title="1"]',
+            datasetKey: 'akImUserPluginGroupTitle',
+            src: `${API_ROOT}/chat/plugins/im/user/modules/im_group_title.js`,
+            errorMessage: '群名编辑模块加载失败'
+        },
         plus: {
             selector: 'script[data-ak-im-user-plugin-plus-entry-manage="1"]',
             datasetKey: 'akImUserPluginPlusEntryManage',
@@ -171,6 +183,16 @@
         memberActionSelectedUsernames: [],
         memberActionSubmitting: false,
         memberActionError: '',
+        groupCreateTitle: '',
+        groupCreateKeyword: '',
+        groupCreateSelectedUsernames: [],
+        groupCreateSubmitting: false,
+        groupCreateError: '',
+        groupTitleEditConversationId: 0,
+        groupTitleEditValue: '',
+        groupTitleEditOriginal: '',
+        groupTitleEditSaving: false,
+        groupTitleEditError: '',
         dialogOpen: false,
         dialogTitle: '',
         dialogMessage: '',
@@ -227,6 +249,13 @@
     let memberActionSearchEl = null;
     let memberActionTitleEl = null;
     let memberActionSubmitBtnEl = null;
+    let groupCreateBodyEl = null;
+    let groupCreateTitleInputEl = null;
+    let groupCreateSearchInputEl = null;
+    let groupCreateSubmitBtnEl = null;
+    let groupTitleEditBodyEl = null;
+    let groupTitleEditInputEl = null;
+    let groupTitleEditSubmitBtnEl = null;
     let dialogEl = null;
     let dialogTitleEl = null;
     let dialogMessageEl = null;
@@ -290,6 +319,13 @@
         memberActionSearchEl = nextElements.memberActionSearchEl || null;
         memberActionTitleEl = nextElements.memberActionTitleEl || null;
         memberActionSubmitBtnEl = nextElements.memberActionSubmitBtnEl || null;
+        groupCreateBodyEl = nextElements.groupCreateBodyEl || null;
+        groupCreateTitleInputEl = nextElements.groupCreateTitleInputEl || null;
+        groupCreateSearchInputEl = nextElements.groupCreateSearchInputEl || null;
+        groupCreateSubmitBtnEl = nextElements.groupCreateSubmitBtnEl || null;
+        groupTitleEditBodyEl = nextElements.groupTitleEditBodyEl || null;
+        groupTitleEditInputEl = nextElements.groupTitleEditInputEl || null;
+        groupTitleEditSubmitBtnEl = nextElements.groupTitleEditSubmitBtnEl || null;
         dialogEl = nextElements.dialogEl || null;
         dialogTitleEl = nextElements.dialogTitleEl || null;
         dialogMessageEl = nextElements.dialogMessageEl || null;
@@ -352,6 +388,13 @@
             memberActionSearchEl: null,
             memberActionTitleEl: null,
             memberActionSubmitBtnEl: null,
+            groupCreateBodyEl: null,
+            groupCreateTitleInputEl: null,
+            groupCreateSearchInputEl: null,
+            groupCreateSubmitBtnEl: null,
+            groupTitleEditBodyEl: null,
+            groupTitleEditInputEl: null,
+            groupTitleEditSubmitBtnEl: null,
             dialogEl: null,
             dialogTitleEl: null,
             dialogMessageEl: null,
@@ -491,6 +534,8 @@
         closeEmojiPicker({ silent: true });
         closePlusPanel({ silent: true });
         closeHomeAddMenu({ silent: true });
+        closeGroupCreatePage({ silent: true });
+        closeGroupTitleEditPage({ silent: true });
         state.contactSearchKeyword = '';
         state.composerMode = 'text';
         state.voiceHoldState = 'idle';
@@ -629,12 +674,112 @@
     }
 
     function openStartGroupPlaceholder() {
-        openDialog({
-            title: '提示',
-            message: '发起群聊功能待群组创建能力完成后开放',
-            confirmText: '知道了',
-            showCancel: false
+        state.groupCreateError = '发起群聊模块暂不可用，请刷新页面后重试';
+        state.view = 'group_create';
+        state.open = true;
+        render();
+    }
+
+    function openStartGroupPage() {
+        if (!state.allowed) return;
+        ensureOptionalLazyModule('groupCreate').then(function(groupCreateModule) {
+            if (groupCreateModule && typeof groupCreateModule.openPage === 'function') {
+                groupCreateModule.openPage();
+                return;
+            }
+            openStartGroupPlaceholder();
         });
+    }
+
+    function closeGroupCreatePage(options) {
+        const groupCreateModule = getGroupCreateModule();
+        if (groupCreateModule && typeof groupCreateModule.closePage === 'function') {
+            groupCreateModule.closePage(options);
+            return;
+        }
+        const silent = !!(options && options.silent);
+        if (state.groupCreateSubmitting) return;
+        state.groupCreateTitle = '';
+        state.groupCreateKeyword = '';
+        state.groupCreateSelectedUsernames = [];
+        state.groupCreateError = '';
+        if (state.view === 'group_create') state.view = 'sessions';
+        if (!silent) render();
+    }
+
+    function handleGroupCreateTitleInput(value) {
+        const groupCreateModule = getGroupCreateModule();
+        if (groupCreateModule && typeof groupCreateModule.setTitle === 'function') {
+            groupCreateModule.setTitle(value);
+            return;
+        }
+        state.groupCreateTitle = String(value || '');
+        state.groupCreateError = '';
+        renderGroupCreatePage();
+    }
+
+    function handleGroupCreateSearchInput(value) {
+        const groupCreateModule = getGroupCreateModule();
+        if (groupCreateModule && typeof groupCreateModule.setKeyword === 'function') {
+            groupCreateModule.setKeyword(value);
+            return;
+        }
+        state.groupCreateKeyword = String(value || '');
+        renderGroupCreatePage();
+    }
+
+    function submitGroupCreatePage() {
+        const groupCreateModule = getGroupCreateModule();
+        if (groupCreateModule && typeof groupCreateModule.submitPage === 'function') {
+            groupCreateModule.submitPage();
+        }
+    }
+
+    function openGroupTitleEditPage() {
+        ensureOptionalLazyModule('groupTitle').then(function(groupTitleModule) {
+            if (groupTitleModule && typeof groupTitleModule.openPage === 'function') {
+                groupTitleModule.openPage();
+                return;
+            }
+            state.groupTitleEditError = '群名编辑模块暂不可用，请刷新页面后重试';
+            state.groupTitleEditValue = String(state.groupSettingsData && state.groupSettingsData.conversation_title || '');
+            state.groupTitleEditOriginal = state.groupTitleEditValue;
+            state.view = 'group_title_edit';
+            render();
+        });
+    }
+
+    function closeGroupTitleEditPage(options) {
+        const groupTitleModule = getGroupTitleModule();
+        if (groupTitleModule && typeof groupTitleModule.closePage === 'function') {
+            groupTitleModule.closePage(options);
+            return;
+        }
+        const silent = !!(options && options.silent);
+        if (state.groupTitleEditSaving) return;
+        state.groupTitleEditValue = '';
+        state.groupTitleEditOriginal = '';
+        state.groupTitleEditError = '';
+        if (state.view === 'group_title_edit') state.view = state.groupSettingsOpen ? 'group_info' : (state.activeConversationId ? 'chat' : 'sessions');
+        if (!silent) render();
+    }
+
+    function handleGroupTitleEditInput(value) {
+        const groupTitleModule = getGroupTitleModule();
+        if (groupTitleModule && typeof groupTitleModule.setValue === 'function') {
+            groupTitleModule.setValue(value);
+            return;
+        }
+        state.groupTitleEditValue = String(value || '');
+        state.groupTitleEditError = '';
+        renderGroupTitleEditPage();
+    }
+
+    function submitGroupTitleEditPage() {
+        const groupTitleModule = getGroupTitleModule();
+        if (groupTitleModule && typeof groupTitleModule.submitPage === 'function') {
+            groupTitleModule.submitPage();
+        }
     }
 
     function closeHomeAddMenu(options) {
@@ -723,7 +868,7 @@
         closeHomeAddMenu({ silent: true });
         render();
         if (actionKey === 'start_group') {
-            openStartGroupPlaceholder();
+            openStartGroupPage();
             return;
         }
         if (actionKey === 'add_friend') {
@@ -940,7 +1085,14 @@
             onHomeAddMenuAction: handleHomeAddMenuAction,
             onContactSearchBackClick: closeContactSearch,
             onContactSearchInputChange: handleContactSearchInputChange,
-            onContactSearchClearClick: clearContactSearchInput
+            onContactSearchClearClick: clearContactSearchInput,
+            onGroupCreateBackClick: closeGroupCreatePage,
+            onGroupCreateTitleInput: handleGroupCreateTitleInput,
+            onGroupCreateSearchInput: handleGroupCreateSearchInput,
+            onGroupCreateSubmitClick: submitGroupCreatePage,
+            onGroupTitleEditBackClick: closeGroupTitleEditPage,
+            onGroupTitleEditInput: handleGroupTitleEditInput,
+            onGroupTitleEditSubmitClick: submitGroupTitleEditPage
         });
     }
 
@@ -1017,6 +1169,22 @@
         return groupManageModule;
     }
 
+    function getGroupCreateModule() {
+        const modules = window.AKIMUserModules;
+        if (!modules || typeof modules !== 'object') return null;
+        const groupCreateModule = modules.groupCreate;
+        if (!groupCreateModule || typeof groupCreateModule.init !== 'function') return null;
+        return groupCreateModule;
+    }
+
+    function getGroupTitleModule() {
+        const modules = window.AKIMUserModules;
+        if (!modules || typeof modules !== 'object') return null;
+        const groupTitleModule = modules.groupTitle;
+        if (!groupTitleModule || typeof groupTitleModule.init !== 'function') return null;
+        return groupTitleModule;
+    }
+
     function initGroupManageModule() {
         const groupManageModule = getGroupManageModule();
         if (!groupManageModule) return;
@@ -1039,7 +1207,62 @@
             formatUserDisplayText: formatUserDisplayText,
             loadSessions: loadSessions,
             loadMessages: loadMessages,
-            sortGroupMembersForDisplay: sortGroupMembersForDisplay
+            sortGroupMembersForDisplay: sortGroupMembersForDisplay,
+            openGroupTitleEditPage: openGroupTitleEditPage
+        });
+    }
+
+    function initGroupCreateModule() {
+        const groupCreateModule = getGroupCreateModule();
+        if (!groupCreateModule) return;
+        groupCreateModule.init({
+            state: state,
+            httpRoot: HTTP_ROOT,
+            get elements() {
+                return {
+                    groupCreateBodyEl: groupCreateBodyEl,
+                    groupCreateTitleInputEl: groupCreateTitleInputEl,
+                    groupCreateSearchInputEl: groupCreateSearchInputEl,
+                    groupCreateSubmitBtnEl: groupCreateSubmitBtnEl
+                };
+            },
+            request: request,
+            render: render,
+            escapeHtml: escapeHtml,
+            buildContactItemInnerMarkup: buildContactItemInnerMarkup,
+            getContactUsername: getContactUsername,
+            loadContacts: loadContacts,
+            loadSessions: loadSessions,
+            loadMessages: loadMessages,
+            closeActionSheet: closeActionSheet,
+            closeReadProgressPanel: closeReadProgressPanel,
+            closeMemberPanel: closeMemberPanel,
+            closeSettingsPanel: closeSettingsPanel,
+            closeEmojiPicker: closeEmojiPicker,
+            closePlusPanel: closePlusPanel,
+            closeHomeAddMenu: closeHomeAddMenu
+        });
+    }
+
+    function initGroupTitleModule() {
+        const groupTitleModule = getGroupTitleModule();
+        if (!groupTitleModule) return;
+        groupTitleModule.init({
+            state: state,
+            httpRoot: HTTP_ROOT,
+            get elements() {
+                return {
+                    groupTitleEditBodyEl: groupTitleEditBodyEl,
+                    groupTitleEditInputEl: groupTitleEditInputEl,
+                    groupTitleEditSubmitBtnEl: groupTitleEditSubmitBtnEl
+                };
+            },
+            request: request,
+            render: render,
+            escapeHtml: escapeHtml,
+            loadSessions: loadSessions,
+            loadMessages: loadMessages,
+            loadGroupSettings: loadGroupSettings
         });
     }
 
@@ -1331,6 +1554,8 @@
     function getLazyModuleInstance(moduleKey) {
         if (moduleKey === 'profile') return getProfileModule();
         if (moduleKey === 'group') return getGroupManageModule();
+        if (moduleKey === 'groupCreate') return getGroupCreateModule();
+        if (moduleKey === 'groupTitle') return getGroupTitleModule();
         if (moduleKey === 'plus') return getPlusEntryModule();
         if (moduleKey === 'emoji') return getEmojiModule();
         if (moduleKey === 'image') return getImageModule();
@@ -1347,6 +1572,8 @@
         if (lazyModuleInitState[moduleKey]) return moduleInstance;
         if (moduleKey === 'profile') initProfileModule();
         else if (moduleKey === 'group') initGroupManageModule();
+        else if (moduleKey === 'groupCreate') initGroupCreateModule();
+        else if (moduleKey === 'groupTitle') initGroupTitleModule();
         else if (moduleKey === 'plus') initPlusEntryModule();
         else if (moduleKey === 'emoji') initEmojiManageModule();
         else if (moduleKey === 'image') initImageManageModule();
@@ -2600,7 +2827,7 @@
 	    state.groupSettingsConversationId = 0;
 	    state.groupSettingsData = null;
 	    state.groupSettingsMembersExpanded = false;
-	    if (state.view === 'group_info') {
+	    if (state.view === 'group_info' || state.view === 'group_title_edit') {
 	        state.view = state.activeConversationId ? 'chat' : 'sessions';
 	    }
 	    if (!silent) render();
@@ -2792,18 +3019,22 @@
         const showGroupInfo = state.view === 'group_info' && !!state.groupSettingsOpen;
         const showMemberAction = state.view === 'member_action' && !!state.memberActionOpen;
         const showProfileSubpage = isProfileSubpageView(state.view);
+        const showGroupCreate = state.view === 'group_create';
+        const showGroupTitleEdit = state.view === 'group_title_edit';
         const showContactSearch = state.view === 'contact_search';
         const showHomeTopActions = isHomeTopActionTab(homeTab) && !showContactSearch;
         state.homeTab = homeTab;
         return {
             allowed: !!state.allowed,
             open: !!state.open,
-            showSessions: !showChat && !showCompose && !showGroupInfo && !showMemberAction && !showProfileSubpage,
+            showSessions: !showChat && !showCompose && !showGroupInfo && !showMemberAction && !showProfileSubpage && !showGroupCreate && !showGroupTitleEdit,
             showChat: !!showChat,
             showCompose: !!showCompose,
             showGroupInfo: !!showGroupInfo,
             showMemberAction: !!showMemberAction,
             showProfileSubpage: !!showProfileSubpage,
+            showGroupCreate: !!showGroupCreate,
+            showGroupTitleEdit: !!showGroupTitleEdit,
             showContactSearch: !!showContactSearch,
             hasUnread: hasUnreadSessions(),
             chatUnread: getUnreadSessionTotal(),
@@ -2811,7 +3042,7 @@
             homeTabTitle: getHomeTabTitle(homeTab),
             showSessionNewButton: false,
             showHomeTopActions: showHomeTopActions,
-            showHomeAddMenu: showHomeTopActions && !showChat && !showCompose && !showGroupInfo && !showMemberAction && !showProfileSubpage && !!state.homeAddMenuOpen,
+            showHomeAddMenu: showHomeTopActions && !showChat && !showCompose && !showGroupInfo && !showMemberAction && !showProfileSubpage && !showGroupCreate && !showGroupTitleEdit && !!state.homeAddMenuOpen,
             canAddFriend: !!state.canAddFriend,
             searchPillText: getHomeSearchPillText(homeTab),
             contactSearchKeyword: state.contactSearchKeyword,
@@ -3335,6 +3566,8 @@
             root.classList.toggle('ak-view-group-info', !!shellState.showGroupInfo);
             root.classList.toggle('ak-view-member-action', !!shellState.showMemberAction);
             root.classList.toggle('ak-view-profile-subpage', !!shellState.showProfileSubpage);
+            root.classList.toggle('ak-view-group-create', !!shellState.showGroupCreate);
+            root.classList.toggle('ak-view-group-title-edit', !!shellState.showGroupTitleEdit);
             const launcherEl = root.querySelector('.ak-im-launcher');
             if (launcherEl) {
                 launcherEl.classList.toggle('is-open', !!shellState.open);
@@ -3357,10 +3590,51 @@
 	    renderMemberPanel();
 	    renderSettingsPanel();
 	    renderMemberActionPage();
+        renderGroupCreatePage();
+        renderGroupTitleEditPage();
 	    renderDialog();
         renderComposeView();
         if (state.open && state.view === 'compose') focusComposeInput();
 	    if (state.open && shellState.showMemberAction) focusMemberActionSearch();
+    }
+
+    function renderGroupCreatePage() {
+        const groupCreateModule = getGroupCreateModule();
+        if (groupCreateModule && typeof groupCreateModule.renderPage === 'function') {
+            groupCreateModule.renderPage();
+            return;
+        }
+        if (!groupCreateBodyEl || !groupCreateTitleInputEl || !groupCreateSearchInputEl || !groupCreateSubmitBtnEl) return;
+        groupCreateTitleInputEl.value = String(state.groupCreateTitle || '');
+        groupCreateSearchInputEl.value = String(state.groupCreateKeyword || '');
+        if (state.view !== 'group_create') {
+            groupCreateBodyEl.innerHTML = '';
+            groupCreateSubmitBtnEl.disabled = true;
+            groupCreateSubmitBtnEl.textContent = '创建';
+            return;
+        }
+        groupCreateBodyEl.innerHTML = '<div class="ak-im-group-create-empty' + (state.groupCreateError ? ' is-error' : '') + '">' + escapeHtml(state.groupCreateError || '发起群聊模块暂不可用，请刷新页面后重试') + '</div>';
+        groupCreateSubmitBtnEl.disabled = true;
+        groupCreateSubmitBtnEl.textContent = '创建';
+    }
+
+    function renderGroupTitleEditPage() {
+        const groupTitleModule = getGroupTitleModule();
+        if (groupTitleModule && typeof groupTitleModule.renderPage === 'function') {
+            groupTitleModule.renderPage();
+            return;
+        }
+        if (!groupTitleEditBodyEl || !groupTitleEditInputEl || !groupTitleEditSubmitBtnEl) return;
+        groupTitleEditInputEl.value = String(state.groupTitleEditValue || '');
+        if (state.view !== 'group_title_edit') {
+            groupTitleEditBodyEl.innerHTML = '';
+            groupTitleEditSubmitBtnEl.disabled = true;
+            groupTitleEditSubmitBtnEl.textContent = '保存';
+            return;
+        }
+        groupTitleEditBodyEl.innerHTML = '<div class="ak-im-group-title-error">' + escapeHtml(state.groupTitleEditError || '群名编辑模块暂不可用，请刷新页面后重试') + '</div>';
+        groupTitleEditSubmitBtnEl.disabled = true;
+        groupTitleEditSubmitBtnEl.textContent = '保存';
     }
 
     function renderMessages() {

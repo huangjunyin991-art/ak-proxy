@@ -459,6 +459,10 @@
             const conversationId = Number(state.groupSettingsConversationId || 0);
             const detail = state.groupSettingsData;
             if (!conversationId || !detail || !detail.can_manage) return;
+            if (action === 'edit_title') {
+                if (typeof this.ctx.openGroupTitleEditPage === 'function') this.ctx.openGroupTitleEditPage();
+                return;
+            }
             if (action === 'add') {
                 const raw = window.prompt('输入要添加的账号，多个账号可用空格、逗号或换行分隔', '');
                 const usernames = this.normalizePromptUsernames(raw);

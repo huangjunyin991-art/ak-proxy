@@ -300,13 +300,21 @@ func (a *App) ensureAllowedConversationAdminTarget(ctx context.Context, meta con
 }
 
 func (a *App) isConversationAdmin(ctx context.Context, conversationID int64, username string) bool {
+	normalizedUsername := strings.ToLower(strings.TrimSpace(username))
+	if normalizedUsername == "" {
+		return false
+	}
+	meta, err := a.loadConversationMeta(ctx, conversationID)
+	if err == nil && strings.EqualFold(meta.OwnerUsername, normalizedUsername) {
+		return true
+	}
 	var exists bool
 	_ = a.db.QueryRow(ctx, `
 		SELECT EXISTS(
 			SELECT 1
 			FROM im_conversation_admin
 			WHERE conversation_id = $1 AND username = $2 AND revoked_at IS NULL
-		)`, conversationID, strings.ToLower(strings.TrimSpace(username))).Scan(&exists)
+		)`, conversationID, normalizedUsername).Scan(&exists)
 	return exists
 }
 
@@ -932,7 +940,7 @@ func writeConversationFeatureError(w http.ResponseWriter, err error) {
 		statusCode = http.StatusForbidden
 	case "conversation not found":
 		statusCode = http.StatusNotFound
-	case "invalid username", "user not found", "user not allowed", "conversation not group", "cannot remove group admin", "invalid owner_username", "owner not found", "target owner already has whitelist group":
+	case "invalid username", "invalid conversation_id", "user not found", "user not allowed", "conversation not group", "cannot remove group admin", "invalid owner_username", "owner not found", "target owner already has whitelist group", "invalid group title", "at least two contacts required", "target user not in contacts":
 		statusCode = http.StatusBadRequest
 	default:
 		statusCode = http.StatusInternalServerError
@@ -995,6 +1003,9 @@ func (a *App) buildSessionSettingsItem(ctx context.Context, conversationID int64
 	}
 	normalizedUsername := strings.ToLower(strings.TrimSpace(username))
 	_, isGroupAdmin := adminSet[normalizedUsername]
+	if normalizedUsername != "" && strings.EqualFold(normalizedUsername, meta.OwnerUsername) {
+		isGroupAdmin = true
+	}
 	item := SessionSettingsItem{
 		ConversationID:    conversationID,
 		ConversationType:  meta.ConversationType,

@@ -247,6 +247,8 @@ func New(cfg config.Config) (*App, error) {
 	mux.HandleFunc("/im/api/sessions/members", app.handleSessionMembers)
 	mux.HandleFunc("/im/api/sessions/group_profile", app.handleSessionGroupProfile)
 	mux.HandleFunc("/im/api/sessions/settings", app.handleSessionSettings)
+	mux.HandleFunc("/im/api/sessions/group/create", app.handleGroupSessionCreate)
+	mux.HandleFunc("/im/api/sessions/group/title", app.handleGroupTitleUpdate)
 	mux.HandleFunc("/im/api/sessions/members/add", app.handleSessionMembersAdd)
 	mux.HandleFunc("/im/api/sessions/members/remove", app.handleSessionMembersRemove)
 	mux.HandleFunc("/im/api/sessions/history/clear", app.handleSessionHistoryClear)

@@ -35,6 +35,8 @@
                 #ak-im-root.ak-view-group-info .ak-im-group-info-screen{display:flex}
                 #ak-im-root.ak-view-member-action .ak-im-member-action-screen{display:flex}
                 #ak-im-root.ak-view-profile-subpage .ak-im-profile-subpage-screen{display:flex}
+                #ak-im-root.ak-view-group-create .ak-im-group-create-screen{display:flex}
+                #ak-im-root.ak-view-group-title-edit .ak-im-group-title-edit-screen{display:flex}
                 #ak-im-root .ak-im-topbar{height:calc(56px + env(safe-area-inset-top, 0px));padding:calc(env(safe-area-inset-top, 0px) + 8px) 12px 8px;display:grid;grid-template-columns:52px 1fr 52px;align-items:center;background:#ededed;border-bottom:1px solid rgba(15,23,42,.06);box-sizing:border-box}
                 #ak-im-root .ak-im-session-screen .ak-im-topbar{grid-template-columns:80px minmax(0,1fr) 80px;column-gap:8px}
                 #ak-im-root .ak-im-topbar-title,#ak-im-root .ak-im-topbar-title-wrap{text-align:center;min-width:0}
@@ -538,6 +540,32 @@
                 #ak-im-root .ak-im-member-action-footer{position:absolute;left:0;right:0;bottom:0;padding:12px 12px calc(12px + env(safe-area-inset-bottom, 0px));background:linear-gradient(180deg,rgba(247,247,247,0) 0%,#f7f7f7 28%,#f7f7f7 100%)}
                 #ak-im-root .ak-im-member-action-submit{width:100%;height:48px;border:none;border-radius:14px;background:#07c160;color:#ffffff;font-size:16px;font-weight:700;cursor:pointer;box-shadow:0 10px 24px rgba(7,193,96,.18)}
                 #ak-im-root .ak-im-member-action-submit:disabled{opacity:.42;cursor:not-allowed;box-shadow:none}
+                #ak-im-root .ak-im-group-create-screen,#ak-im-root .ak-im-group-title-edit-screen{background:#ededed}
+                #ak-im-root .ak-im-group-create-page,#ak-im-root .ak-im-group-title-edit-page{position:relative;flex:1;display:flex;flex-direction:column;min-height:0;background:#f7f7f7}
+                #ak-im-root .ak-im-group-create-form,#ak-im-root .ak-im-group-title-form{padding:12px;background:#ededed;border-bottom:1px solid rgba(15,23,42,.04);display:flex;flex-direction:column;gap:10px}
+                #ak-im-root .ak-im-group-create-title-input,#ak-im-root .ak-im-group-create-search-input,#ak-im-root .ak-im-group-title-input{width:100%;height:40px;border:none;border-radius:12px;background:#ffffff;padding:0 14px;font-size:15px;color:#111827;outline:none;box-sizing:border-box}
+                #ak-im-root .ak-im-group-create-title-input:focus,#ak-im-root .ak-im-group-create-search-input:focus,#ak-im-root .ak-im-group-title-input:focus{box-shadow:0 0 0 2px rgba(7,193,96,.14) inset}
+                #ak-im-root .ak-im-group-create-body,#ak-im-root .ak-im-group-title-body{flex:1;min-height:0;overflow:auto;padding:12px 12px calc(18px + env(safe-area-inset-bottom, 0px));box-sizing:border-box}
+                #ak-im-root .ak-im-group-create-section + .ak-im-group-create-section{margin-top:12px}
+                #ak-im-root .ak-im-group-create-section-title{padding:0 4px 8px;font-size:13px;font-weight:600;color:#6b7280;line-height:1.5}
+                #ak-im-root .ak-im-group-create-chip-list{display:flex;flex-wrap:wrap;gap:8px}
+                #ak-im-root .ak-im-group-create-chip{height:32px;border:none;border-radius:999px;background:#ffffff;color:#111827;padding:0 10px;display:inline-flex;align-items:center;gap:6px;font-size:13px;cursor:pointer}
+                #ak-im-root .ak-im-group-create-chip i{font-style:normal;color:#9ca3af}
+                #ak-im-root .ak-im-group-create-selected-empty,#ak-im-root .ak-im-group-create-empty{padding:22px 14px;color:#94a3b8;font-size:13px;line-height:1.7;text-align:center;background:#ffffff;border-radius:14px}
+                #ak-im-root .ak-im-group-create-empty.is-error,#ak-im-root .ak-im-group-create-error,#ak-im-root .ak-im-group-title-error{margin-bottom:10px;padding:10px 12px;border-radius:12px;background:rgba(239,68,68,.08);color:#dc2626;font-size:13px;line-height:1.6}
+                #ak-im-root .ak-im-group-create-list{background:#ffffff;border-radius:14px;overflow:hidden}
+                #ak-im-root .ak-im-group-create-row{width:100%;border:none;background:#ffffff;padding:13px 16px;display:flex;align-items:center;gap:12px;text-align:left;cursor:pointer}
+                #ak-im-root .ak-im-group-create-row + .ak-im-group-create-row{border-top:1px solid rgba(15,23,42,.05)}
+                #ak-im-root .ak-im-group-create-row .ak-im-contact-body{min-width:0;flex:1}
+                #ak-im-root .ak-im-group-create-check{width:24px;height:24px;border-radius:999px;border:1px solid #d1d5db;color:#ffffff;display:inline-flex;align-items:center;justify-content:center;font-size:13px;line-height:1;flex:0 0 auto}
+                #ak-im-root .ak-im-group-create-check.is-selected{border-color:#07c160;background:#07c160}
+                #ak-im-root .ak-im-group-create-footer,#ak-im-root .ak-im-group-title-footer{padding:10px 12px calc(10px + env(safe-area-inset-bottom, 0px));background:#ffffff;border-top:1px solid rgba(15,23,42,.06)}
+                #ak-im-root .ak-im-group-create-submit,#ak-im-root .ak-im-group-title-submit{width:100%;height:44px;border:none;border-radius:14px;background:#07c160;color:#ffffff;font-size:16px;font-weight:700;cursor:pointer}
+                #ak-im-root .ak-im-group-create-submit:disabled,#ak-im-root .ak-im-group-title-submit:disabled{opacity:.42;cursor:not-allowed}
+                #ak-im-root .ak-im-group-title-panel{background:#ffffff;border-radius:18px;padding:16px;box-shadow:0 1px 2px rgba(15,23,42,.04)}
+                #ak-im-root .ak-im-group-title-label{font-size:13px;color:#6b7280;line-height:1.5}
+                #ak-im-root .ak-im-group-title-current{margin-top:8px;font-size:17px;font-weight:600;color:#111827;line-height:1.5;word-break:break-word}
+                #ak-im-root .ak-im-group-title-help{margin-top:10px;font-size:12px;color:#9ca3af;line-height:1.6}
                 #ak-im-root .ak-im-member-action-error{margin-bottom:12px;padding:11px 12px;border-radius:14px;background:rgba(239,68,68,.08);color:#dc2626;font-size:13px;line-height:1.6}
                 #ak-im-root .ak-im-member-action-empty{padding:28px 14px;color:#9ca3af;font-size:13px;line-height:1.7;text-align:center}
                 #ak-im-root .ak-im-dialog{display:none;position:fixed;inset:0;z-index:2147483651}
@@ -713,6 +741,39 @@
                         <div class="ak-im-member-action-footer"><button class="ak-im-member-action-submit" type="button">确认</button></div>
                     </div>
                 </div>
+                <div class="ak-im-screen ak-im-group-create-screen">
+                    <div class="ak-im-topbar">
+                        <button class="ak-im-nav-btn ak-im-group-create-back" type="button" aria-label="返回聊天列表">
+                            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M15 18L9 12L15 6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                        </button>
+                        <div class="ak-im-topbar-title">发起群聊</div>
+                        <div class="ak-im-group-info-side" aria-hidden="true"></div>
+                    </div>
+                    <div class="ak-im-group-create-page">
+                        <div class="ak-im-group-create-form">
+                            <input class="ak-im-group-create-title-input" type="text" inputmode="text" autocomplete="off" spellcheck="false" placeholder="请输入群名" />
+                            <input class="ak-im-group-create-search-input" type="search" inputmode="search" autocomplete="off" spellcheck="false" placeholder="搜索联系人" />
+                        </div>
+                        <div class="ak-im-group-create-body"></div>
+                        <div class="ak-im-group-create-footer"><button class="ak-im-group-create-submit" type="button">创建</button></div>
+                    </div>
+                </div>
+                <div class="ak-im-screen ak-im-group-title-edit-screen">
+                    <div class="ak-im-topbar">
+                        <button class="ak-im-nav-btn ak-im-group-title-back" type="button" aria-label="返回群信息页面">
+                            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M15 18L9 12L15 6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                        </button>
+                        <div class="ak-im-topbar-title">群聊名称</div>
+                        <div class="ak-im-group-info-side" aria-hidden="true"></div>
+                    </div>
+                    <div class="ak-im-group-title-edit-page">
+                        <div class="ak-im-group-title-form">
+                            <input class="ak-im-group-title-input" type="text" inputmode="text" autocomplete="off" spellcheck="false" placeholder="请输入群名" />
+                        </div>
+                        <div class="ak-im-group-title-body"></div>
+                        <div class="ak-im-group-title-footer"><button class="ak-im-group-title-submit" type="button">保存</button></div>
+                    </div>
+                </div>
                 <div class="ak-im-screen ak-im-profile-subpage-screen">
                     <div class="ak-im-topbar">
                         <button class="ak-im-nav-btn ak-im-profile-subpage-back" type="button" aria-label="返回个人页">
@@ -803,6 +864,15 @@
                 memberActionSearchEl: root ? root.querySelector('.ak-im-member-action-search-input') : null,
                 memberActionTitleEl: root ? root.querySelector('.ak-im-member-action-title') : null,
                 memberActionSubmitBtnEl: root ? root.querySelector('.ak-im-member-action-submit') : null,
+                groupCreateBodyEl: root ? root.querySelector('.ak-im-group-create-body') : null,
+                groupCreateTitleInputEl: root ? root.querySelector('.ak-im-group-create-title-input') : null,
+                groupCreateSearchInputEl: root ? root.querySelector('.ak-im-group-create-search-input') : null,
+                groupCreateSubmitBtnEl: root ? root.querySelector('.ak-im-group-create-submit') : null,
+                groupCreateBackBtnEl: root ? root.querySelector('.ak-im-group-create-back') : null,
+                groupTitleEditBodyEl: root ? root.querySelector('.ak-im-group-title-body') : null,
+                groupTitleEditInputEl: root ? root.querySelector('.ak-im-group-title-input') : null,
+                groupTitleEditSubmitBtnEl: root ? root.querySelector('.ak-im-group-title-submit') : null,
+                groupTitleEditBackBtnEl: root ? root.querySelector('.ak-im-group-title-back') : null,
                 dialogEl: root ? root.querySelector('.ak-im-dialog') : null,
                 dialogTitleEl: root ? root.querySelector('.ak-im-dialog-title') : null,
                 dialogMessageEl: root ? root.querySelector('.ak-im-dialog-message') : null,
@@ -993,6 +1063,45 @@
             bindClick(elements.profileSubpageBackBtnEl, function() {
                 if (typeof ctx.onProfileSubpageBackClick === 'function') ctx.onProfileSubpageBackClick();
             });
+            bindClick(elements.groupCreateBackBtnEl, function() {
+                if (typeof ctx.onGroupCreateBackClick === 'function') ctx.onGroupCreateBackClick();
+            });
+            bindClick(elements.groupCreateSubmitBtnEl, function() {
+                if (typeof ctx.onGroupCreateSubmitClick === 'function') ctx.onGroupCreateSubmitClick();
+            });
+            if (elements.groupCreateTitleInputEl) {
+                elements.groupCreateTitleInputEl.addEventListener('input', function() {
+                    if (typeof ctx.onGroupCreateTitleInput === 'function') {
+                        ctx.onGroupCreateTitleInput(elements.groupCreateTitleInputEl.value || '');
+                    }
+                });
+            }
+            if (elements.groupCreateSearchInputEl) {
+                elements.groupCreateSearchInputEl.addEventListener('input', function() {
+                    if (typeof ctx.onGroupCreateSearchInput === 'function') {
+                        ctx.onGroupCreateSearchInput(elements.groupCreateSearchInputEl.value || '');
+                    }
+                });
+            }
+            bindClick(elements.groupTitleEditBackBtnEl, function() {
+                if (typeof ctx.onGroupTitleEditBackClick === 'function') ctx.onGroupTitleEditBackClick();
+            });
+            bindClick(elements.groupTitleEditSubmitBtnEl, function() {
+                if (typeof ctx.onGroupTitleEditSubmitClick === 'function') ctx.onGroupTitleEditSubmitClick();
+            });
+            if (elements.groupTitleEditInputEl) {
+                elements.groupTitleEditInputEl.addEventListener('input', function() {
+                    if (typeof ctx.onGroupTitleEditInput === 'function') {
+                        ctx.onGroupTitleEditInput(elements.groupTitleEditInputEl.value || '');
+                    }
+                });
+                elements.groupTitleEditInputEl.addEventListener('keydown', function(event) {
+                    if (event.key === 'Enter') {
+                        event.preventDefault();
+                        if (typeof ctx.onGroupTitleEditSubmitClick === 'function') ctx.onGroupTitleEditSubmitClick();
+                    }
+                });
+            }
         },
 
         renderShell(shellState) {
@@ -1012,6 +1121,8 @@
             root.classList.toggle('ak-view-group-info', !!nextShellState.showGroupInfo);
             root.classList.toggle('ak-view-member-action', !!nextShellState.showMemberAction);
             root.classList.toggle('ak-view-profile-subpage', !!nextShellState.showProfileSubpage);
+            root.classList.toggle('ak-view-group-create', !!nextShellState.showGroupCreate);
+            root.classList.toggle('ak-view-group-title-edit', !!nextShellState.showGroupTitleEdit);
             root.classList.toggle('ak-contact-search-open', !!nextShellState.showContactSearch);
             if (this.elements.launcherEl) {
                 this.elements.launcherEl.classList.toggle('is-open', !!nextShellState.open);
