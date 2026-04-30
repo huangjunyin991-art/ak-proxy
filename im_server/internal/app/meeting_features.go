@@ -410,7 +410,7 @@ a.primary{background:#1677ff;color:#fff}
 <body>
 <div class="page">
 <div class="topbar">
-<a class="topbar-back" href="{{.ReturnURL}}" aria-label="返回会议列表"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M15 18L9 12L15 6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></a>
+<a class="topbar-back" href="{{.ReturnURL}}" data-return-url="{{.ReturnURL}}" aria-label="返回会议列表"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M15 18L9 12L15 6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></a>
 <div class="topbar-title">腾讯会议</div>
 </div>
 <div class="body">
@@ -427,7 +427,7 @@ a.primary{background:#1677ff;color:#fff}
 </div>
 </div>
 <div id="wemeet-join-data" data-join-url="{{.JoinURL}}" hidden></div>
-<script src="/chat/plugins/im/user/modules/im_meeting_join_bridge.js?v=1" defer></script>
+<script src="/chat/plugins/im/user/modules/im_meeting_join_bridge.js?v=2" defer></script>
 </body>
 </html>`))
 

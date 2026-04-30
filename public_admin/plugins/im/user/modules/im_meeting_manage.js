@@ -402,6 +402,7 @@
             returnUrl.searchParams.set('ak_im_tab', 'meetings');
             const url = this.getHttpRoot() + '/meetings/join?id=' + encodeURIComponent(String(id)) + '&return_url=' + encodeURIComponent(returnUrl.toString());
             try {
+                window.history.replaceState(window.history.state, document.title, returnUrl.toString());
                 window.location.href = url;
             } catch (e) {}
         },

@@ -13,6 +13,7 @@
     const statusEl = document.getElementById('status');
     const tipEl = document.getElementById('install-tip');
     const openBtn = document.getElementById('open-btn');
+    const backBtn = document.querySelector('[data-return-url]');
 
     function markOpened() {
         opened = true;
@@ -42,6 +43,17 @@
         }, 1800);
     }
 
+    function returnToMeetingList(event) {
+        if (event) event.preventDefault();
+        if (window.history.length > 1) {
+            window.history.back();
+            return;
+        }
+        const fallbackURL = backBtn && backBtn.dataset ? String(backBtn.dataset.returnUrl || '') : '';
+        if (fallbackURL) window.location.href = fallbackURL;
+    }
+
     if (openBtn) openBtn.addEventListener('click', openApp);
+    if (backBtn) backBtn.addEventListener('click', returnToMeetingList);
     setTimeout(openApp, 120);
 })();
