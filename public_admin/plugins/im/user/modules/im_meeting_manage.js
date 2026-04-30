@@ -12,6 +12,7 @@
             this.ctx = ctx || null;
             this.initState();
             this.bindPanelActions();
+            this.bindPublishPageActions();
         },
 
         initState() {
@@ -63,6 +64,20 @@
             return root.querySelector('[data-im-home-panel="meetings"]');
         },
 
+        getPublishPageRoot() {
+            const root = this.ctx && this.ctx.getRoot ? this.ctx.getRoot() : null;
+            if (!root) return null;
+            return root.querySelector('.ak-im-meeting-publish-screen');
+        },
+
+        getPublishPageElements() {
+            const elements = this.ctx && this.ctx.elements ? this.ctx.elements : null;
+            return {
+                body: elements && elements.meetingPublishBodyEl ? elements.meetingPublishBodyEl : null,
+                footer: elements && elements.meetingPublishFooterEl ? elements.meetingPublishFooterEl : null
+            };
+        },
+
         request(path, options) {
             const http = this.getHttpRoot();
             const url = http + path;
@@ -88,6 +103,7 @@
         triggerRender() {
             if (this.ctx && typeof this.ctx.render === 'function') this.ctx.render();
             this.renderMeetings();
+            this.renderPublishPage();
         },
 
         // ============================ 数据加载 ============================
@@ -194,6 +210,9 @@
             state.meetingsPublishOpen = true;
             state.meetingsPublishError = '';
             state.meetingsPublishForm = this.blankPublishForm();
+            state.homeTab = 'meetings';
+            state.view = 'meeting_publish';
+            state.open = true;
             this.triggerRender();
         },
 
@@ -208,6 +227,10 @@
             state.meetingsPasswordPromptValue = '';
             state.meetingsPasswordPromptError = '';
             state.meetingsPasswordSubmitting = false;
+            if (state.view === 'meeting_publish') {
+                state.homeTab = 'meetings';
+                state.view = 'sessions';
+            }
             this.triggerRender();
         },
 
@@ -219,7 +242,7 @@
             form.parsing = true;
             form.parse_error = '';
             const self = this;
-            this.renderMeetings();
+            this.renderPublishPage();
             return this.request('/meetings/preview', { method: 'POST', body: { url: form.url } }).then(function(data) {
                 form.parsing = false;
                 if (data && data.parsed && data.info) {
@@ -239,13 +262,13 @@
                     if (data && data.short_id && !form.short_id) form.short_id = data.short_id;
                     if (data && data.url) form.url = data.url;
                 }
-                self.renderMeetings();
+                self.renderPublishPage();
                 return null;
             }).catch(function(err) {
                 form.parsing = false;
                 form.parsed = false;
                 form.parse_error = err && err.message ? err.message : '解析失败';
-                self.renderMeetings();
+                self.renderPublishPage();
                 return null;
             });
         },
@@ -254,9 +277,9 @@
             const state = this.getState();
             if (!state) return Promise.resolve(null);
             const form = state.meetingsPublishForm;
-            if (!form.url) { state.meetingsPublishError = '请粘贴会议链接'; this.renderMeetings(); return Promise.resolve(null); }
-            if (!form.subject) { state.meetingsPublishError = '请填写会议主题'; this.renderMeetings(); return Promise.resolve(null); }
-            if (!form.meeting_code) { state.meetingsPublishError = '请填写会议号'; this.renderMeetings(); return Promise.resolve(null); }
+            if (!form.url) { state.meetingsPublishError = '请粘贴会议链接'; this.renderPublishPage(); return Promise.resolve(null); }
+            if (!form.subject) { state.meetingsPublishError = '请填写会议主题'; this.renderPublishPage(); return Promise.resolve(null); }
+            if (!form.meeting_code) { state.meetingsPublishError = '请填写会议号'; this.renderPublishPage(); return Promise.resolve(null); }
             return this.doSubmitPublish('');
         },
 
@@ -264,7 +287,7 @@
             const state = this.getState();
             if (!state) return Promise.resolve(null);
             const pwd = String(state.meetingsPasswordPromptValue || '').trim();
-            if (!pwd) { state.meetingsPasswordPromptError = '请输入入会密码'; this.renderMeetings(); return Promise.resolve(null); }
+            if (!pwd) { state.meetingsPasswordPromptError = '请输入入会密码'; this.renderPublishPage(); return Promise.resolve(null); }
             state.meetingsPasswordPromptError = '';
             return this.doSubmitPublish(pwd);
         },
@@ -276,7 +299,7 @@
             state.meetingsPasswordPromptValue = '';
             state.meetingsPasswordPromptError = '';
             state.meetingsPasswordSubmitting = false;
-            this.renderMeetings();
+            this.renderPublishPage();
         },
 
         doSubmitPublish(meetingPassword) {
@@ -290,7 +313,7 @@
                 state.meetingsPublishSubmitting = true;
                 state.meetingsPublishError = '';
             }
-            this.renderMeetings();
+            this.renderPublishPage();
             const self = this;
             // has_password / mtoken / short_id 完全由后端解析决定，前端不再传
             return this.request('/meetings', { method: 'POST', body: {
@@ -322,7 +345,7 @@
                 } else {
                     state.meetingsPublishError = err && err.message ? err.message : '发布失败';
                 }
-                self.renderMeetings();
+                self.renderPublishPage();
                 return null;
             });
         },
@@ -480,23 +503,23 @@
                 </div>`;
         },
 
-        renderPublishForm() {
+        renderPublishPage() {
             const state = this.getState();
-            if (!state || !state.meetingsPublishOpen) return '';
+            const elements = this.getPublishPageElements();
+            if (!elements.body || !elements.footer) return;
+            if (!state || !state.meetingsPublishOpen) {
+                elements.body.innerHTML = '';
+                elements.footer.innerHTML = '';
+                return;
+            }
             const self = this;
             const esc = function(v) { return self.escapeHtml(v); };
             const form = state.meetingsPublishForm;
             const submitDisabled = state.meetingsPublishSubmitting ? ' disabled' : '';
             const parsingLabel = form.parsing ? ' · 正在解析...' : (form.parsed ? ' · 解析成功（可修改）' : (form.parse_error ? (' · ' + form.parse_error) : ''));
             const passwordPrompt = state.meetingsPasswordPromptOpen ? this.renderPasswordPrompt() : '';
-            return `
-                <div class="ak-im-meeting-publish-mask" data-im-meeting-close="1"></div>
-                <div class="ak-im-meeting-publish-sheet">
-                    <div class="ak-im-meeting-publish-header">
-                        <span>发布会议</span>
-                        <button type="button" class="ak-im-meeting-publish-close" data-im-meeting-close="1">×</button>
-                    </div>
-                    <div class="ak-im-meeting-publish-body">
+            elements.body.innerHTML = `
+                <div class="ak-im-meeting-publish-card">
                         <label class="ak-im-meeting-field">
                             <span>分享链接 <em class="ak-im-meeting-hint">${esc(parsingLabel)}</em></span>
                             <input type="url" data-im-meeting-field="url" value="${esc(form.url)}" placeholder="https://meeting.tencent.com/dm/xxxxxxx" autocomplete="off">
@@ -526,13 +549,11 @@
                             </label>
                         </div>
                         ${state.meetingsPublishError ? `<div class="ak-im-meeting-publish-error">${esc(state.meetingsPublishError)}</div>` : ''}
-                    </div>
-                    <div class="ak-im-meeting-publish-footer">
-                        <button type="button" class="ak-im-meeting-publish-cancel" data-im-meeting-close="1">取消</button>
-                        <button type="button" class="ak-im-meeting-publish-submit" data-im-meeting-submit="1"${submitDisabled}>${state.meetingsPublishSubmitting ? '发布中...' : '发布'}</button>
-                    </div>
                 </div>
                 ${passwordPrompt}`;
+            elements.footer.innerHTML = `
+                <button type="button" class="ak-im-meeting-publish-cancel" data-im-meeting-close="1">取消</button>
+                <button type="button" class="ak-im-meeting-publish-submit" data-im-meeting-submit="1"${submitDisabled}>${state.meetingsPublishSubmitting ? '发布中...' : '发布'}</button>`;
         },
 
         renderPasswordPrompt() {
@@ -548,8 +569,7 @@
                 ? `<div class="ak-im-meeting-password-error">${esc(state.meetingsPasswordPromptError)}</div>`
                 : '';
             return `
-                <div class="ak-im-meeting-password-mask" data-im-meeting-password-cancel="1"></div>
-                <div class="ak-im-meeting-password-sheet">
+                <div class="ak-im-meeting-password-card">
                     <div class="ak-im-meeting-password-title">请输入入会密码</div>
                     <div class="ak-im-meeting-password-desc">该链接需要入会密码，将与会议一并保存；成员入会时会自动填入或粘贴。</div>
                     <div class="ak-im-meeting-password-body">
@@ -594,10 +614,9 @@
             } else {
                 listHtml = items.map(item => this.renderMeetingCard(item)).join('');
             }
-            const publishOverlay = state.meetingsPublishOpen ? this.renderPublishForm() : '';
             panelRoot.innerHTML = `
-                <div class="ak-im-meeting-list">${listHtml}</div>
-                ${publishOverlay}`;
+                <div class="ak-im-meeting-list">${listHtml}</div>`;
+            this.renderPublishPage();
         },
 
         bindPanelActions() {
@@ -641,7 +660,33 @@
                     return;
                 }
             });
-            panelRoot.addEventListener('input', function(event) {
+        },
+
+        bindPublishPageActions() {
+            const pageRoot = this.getPublishPageRoot();
+            if (!pageRoot || pageRoot.__akMeetingPublishEventsBound) return;
+            pageRoot.__akMeetingPublishEventsBound = true;
+            const self = this;
+            pageRoot.addEventListener('click', function(event) {
+                const target = event.target.closest('[data-im-meeting-close],[data-im-meeting-submit],[data-im-meeting-password-cancel],[data-im-meeting-password-submit]');
+                if (!target) return;
+                if (target.hasAttribute('data-im-meeting-close')) {
+                    self.closePublish();
+                    return;
+                }
+                if (target.hasAttribute('data-im-meeting-submit')) {
+                    self.submitPublish();
+                    return;
+                }
+                if (target.hasAttribute('data-im-meeting-password-cancel')) {
+                    self.closePasswordPrompt();
+                    return;
+                }
+                if (target.hasAttribute('data-im-meeting-password-submit')) {
+                    self.submitWithPassword();
+                }
+            });
+            pageRoot.addEventListener('input', function(event) {
                 // 二级密码卡片的密码输入框
                 const pwdTarget = event.target.closest('[data-im-meeting-password-field]');
                 if (pwdTarget) {

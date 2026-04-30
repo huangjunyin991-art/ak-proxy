@@ -272,6 +272,8 @@
     let groupTitleEditInputEl = null;
     let groupTitleEditSubmitBtnEl = null;
     let groupAdminsBodyEl = null;
+    let meetingPublishBodyEl = null;
+    let meetingPublishFooterEl = null;
     let dialogEl = null;
     let dialogTitleEl = null;
     let dialogMessageEl = null;
@@ -344,6 +346,8 @@
         groupTitleEditInputEl = nextElements.groupTitleEditInputEl || null;
         groupTitleEditSubmitBtnEl = nextElements.groupTitleEditSubmitBtnEl || null;
         groupAdminsBodyEl = nextElements.groupAdminsBodyEl || null;
+        meetingPublishBodyEl = nextElements.meetingPublishBodyEl || null;
+        meetingPublishFooterEl = nextElements.meetingPublishFooterEl || null;
         dialogEl = nextElements.dialogEl || null;
         dialogTitleEl = nextElements.dialogTitleEl || null;
         dialogMessageEl = nextElements.dialogMessageEl || null;
@@ -415,6 +419,8 @@
             groupTitleEditInputEl: null,
             groupTitleEditSubmitBtnEl: null,
             groupAdminsBodyEl: null,
+            meetingPublishBodyEl: null,
+            meetingPublishFooterEl: null,
             dialogEl: null,
             dialogTitleEl: null,
             dialogMessageEl: null,
@@ -885,6 +891,16 @@
         openPublish();
     }
 
+    function closeMeetingPublishPage() {
+        const meetingModule = getMeetingManageModule();
+        if (meetingModule && typeof meetingModule.closePublish === 'function') {
+            meetingModule.closePublish();
+            return;
+        }
+        if (state.view === 'meeting_publish') state.view = 'sessions';
+        render();
+    }
+
     function handleHomeAddMenuAction(action) {
         const actionKey = String(action || '').trim().toLowerCase();
         if (!actionKey) return;
@@ -1116,7 +1132,8 @@
             onGroupTitleEditBackClick: closeGroupTitleEditPage,
             onGroupTitleEditInput: handleGroupTitleEditInput,
             onGroupTitleEditSubmitClick: submitGroupTitleEditPage,
-            onGroupAdminsBackClick: closeGroupAdminsPage
+            onGroupAdminsBackClick: closeGroupAdminsPage,
+            onMeetingPublishBackClick: closeMeetingPublishPage
         });
     }
 
@@ -1178,6 +1195,12 @@
         meetingManageModule.init({
             state: state,
             httpRoot: HTTP_ROOT,
+            get elements() {
+                return {
+                    meetingPublishBodyEl: meetingPublishBodyEl,
+                    meetingPublishFooterEl: meetingPublishFooterEl
+                };
+            },
             render: render,
             escapeHtml: escapeHtml,
             buildDisplayNameWithHonorMarkup: buildDisplayNameWithHonorMarkup,
@@ -3168,13 +3191,14 @@
         const showProfileSubpage = isProfileSubpageView(state.view);
         const showGroupCreate = state.view === 'group_create';
         const showGroupTitleEdit = state.view === 'group_title_edit';
+        const showMeetingPublish = state.view === 'meeting_publish' && !!state.meetingsPublishOpen;
         const showContactSearch = state.view === 'contact_search';
         const showHomeTopActions = isHomeTopActionTab(homeTab) && !showContactSearch;
         state.homeTab = homeTab;
         return {
             allowed: !!state.allowed,
             open: !!state.open,
-            showSessions: !showChat && !showCompose && !showGroupInfo && !showMemberAction && !showGroupAdmins && !showProfileSubpage && !showGroupCreate && !showGroupTitleEdit,
+            showSessions: !showChat && !showCompose && !showGroupInfo && !showMemberAction && !showGroupAdmins && !showProfileSubpage && !showGroupCreate && !showGroupTitleEdit && !showMeetingPublish,
             showChat: !!showChat,
             showCompose: !!showCompose,
             showGroupInfo: !!showGroupInfo,
@@ -3183,6 +3207,7 @@
             showProfileSubpage: !!showProfileSubpage,
             showGroupCreate: !!showGroupCreate,
             showGroupTitleEdit: !!showGroupTitleEdit,
+            showMeetingPublish: !!showMeetingPublish,
             showContactSearch: !!showContactSearch,
             hasUnread: hasUnreadSessions(),
             chatUnread: getUnreadSessionTotal(),
@@ -3190,7 +3215,7 @@
             homeTabTitle: getHomeTabTitle(homeTab),
             showSessionNewButton: false,
             showHomeTopActions: showHomeTopActions,
-            showHomeAddMenu: showHomeTopActions && !showChat && !showCompose && !showGroupInfo && !showMemberAction && !showGroupAdmins && !showProfileSubpage && !showGroupCreate && !showGroupTitleEdit && !!state.homeAddMenuOpen,
+            showHomeAddMenu: showHomeTopActions && !showChat && !showCompose && !showGroupInfo && !showMemberAction && !showGroupAdmins && !showProfileSubpage && !showGroupCreate && !showGroupTitleEdit && !showMeetingPublish && !!state.homeAddMenuOpen,
             canAddFriend: !!state.canAddFriend,
             searchPillText: getHomeSearchPillText(homeTab),
             contactSearchKeyword: state.contactSearchKeyword,
@@ -3717,6 +3742,7 @@
             root.classList.toggle('ak-view-profile-subpage', !!shellState.showProfileSubpage);
             root.classList.toggle('ak-view-group-create', !!shellState.showGroupCreate);
             root.classList.toggle('ak-view-group-title-edit', !!shellState.showGroupTitleEdit);
+            root.classList.toggle('ak-view-meeting-publish', !!shellState.showMeetingPublish);
             const launcherEl = root.querySelector('.ak-im-launcher');
             if (launcherEl) {
                 launcherEl.classList.toggle('is-open', !!shellState.open);

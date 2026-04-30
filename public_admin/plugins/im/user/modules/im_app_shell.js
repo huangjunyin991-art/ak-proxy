@@ -38,6 +38,7 @@
                 #ak-im-root.ak-view-profile-subpage .ak-im-profile-subpage-screen{display:flex}
                 #ak-im-root.ak-view-group-create .ak-im-group-create-screen{display:flex}
                 #ak-im-root.ak-view-group-title-edit .ak-im-group-title-edit-screen{display:flex}
+                #ak-im-root.ak-view-meeting-publish .ak-im-meeting-publish-screen{display:flex}
                 #ak-im-root .ak-im-topbar{height:calc(56px + env(safe-area-inset-top, 0px));padding:calc(env(safe-area-inset-top, 0px) + 8px) 12px 8px;display:grid;grid-template-columns:52px 1fr 52px;align-items:center;background:#ededed;border-bottom:1px solid rgba(15,23,42,.06);box-sizing:border-box}
                 #ak-im-root .ak-im-session-screen .ak-im-topbar{grid-template-columns:80px minmax(0,1fr) 80px;column-gap:8px}
                 #ak-im-root .ak-im-topbar-title,#ak-im-root .ak-im-topbar-title-wrap{text-align:center;min-width:0}
@@ -252,30 +253,27 @@
                 #ak-im-root .ak-im-meeting-join-btn{flex:1;border:none;background:#07c160;color:#ffffff;height:34px;border-radius:10px;font-size:14px;font-weight:500;cursor:pointer}
                 #ak-im-root .ak-im-meeting-join-btn:disabled{background:#9ca3af;cursor:not-allowed}
                 #ak-im-root .ak-im-meeting-link-btn{flex:0 0 auto;border:1px solid rgba(15,23,42,.12);background:#ffffff;color:#374151;height:34px;padding:0 12px;border-radius:10px;font-size:13px;cursor:pointer}
-                #ak-im-root .ak-im-meeting-publish-mask{position:fixed;inset:0;background:rgba(15,23,42,.18);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);z-index:1}
-                #ak-im-root .ak-im-meeting-publish-sheet{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);width:min(420px,92%);max-height:86vh;background:#ffffff;border-radius:20px;z-index:2;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 20px 48px rgba(15,23,42,.18)}
-                #ak-im-root .ak-im-meeting-publish-header{padding:14px 18px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid rgba(15,23,42,.06);font-weight:600;font-size:15px;color:#111827}
-                #ak-im-root .ak-im-meeting-publish-close{border:none;background:transparent;font-size:22px;line-height:1;color:#6b7280;cursor:pointer}
-                #ak-im-root .ak-im-meeting-publish-body{padding:14px 18px;overflow:auto;display:flex;flex-direction:column;gap:12px}
+                #ak-im-root .ak-im-meeting-publish-screen{background:#ededed}
+                #ak-im-root .ak-im-meeting-publish-page{position:relative;flex:1;display:flex;flex-direction:column;min-height:0;background:#f7f7f7}
+                #ak-im-root .ak-im-meeting-publish-body{flex:1;min-height:0;padding:12px 12px calc(86px + env(safe-area-inset-bottom, 0px));overflow:auto;display:flex;flex-direction:column;gap:12px}
+                #ak-im-root .ak-im-meeting-publish-card{background:#ffffff;border-radius:18px;padding:14px;display:flex;flex-direction:column;gap:12px;box-shadow:0 1px 2px rgba(15,23,42,.04)}
                 #ak-im-root .ak-im-meeting-field{display:flex;flex-direction:column;gap:4px;font-size:12px;color:#6b7280}
                 #ak-im-root .ak-im-meeting-field input[type="url"],#ak-im-root .ak-im-meeting-field input[type="text"],#ak-im-root .ak-im-meeting-field input[type="datetime-local"]{height:38px;border:1px solid rgba(15,23,42,.12);border-radius:10px;padding:0 12px;font-size:14px;color:#111827;background:#ffffff;transition:border-color .15s,box-shadow .15s}
                 #ak-im-root .ak-im-meeting-field input[type="url"]:focus,#ak-im-root .ak-im-meeting-field input[type="text"]:focus,#ak-im-root .ak-im-meeting-field input[type="datetime-local"]:focus{outline:none;border-color:#07c160;box-shadow:0 0 0 3px rgba(7,193,96,.12)}
                 #ak-im-root .ak-im-meeting-field-row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
                 #ak-im-root .ak-im-meeting-hint{font-style:normal;font-size:11px;color:#9ca3af;margin-left:4px}
                 #ak-im-root .ak-im-meeting-publish-error{padding:8px 10px;border-radius:8px;background:rgba(239,68,68,.08);color:#dc2626;font-size:12px}
-                #ak-im-root .ak-im-meeting-publish-footer{padding:12px 18px;display:flex;gap:10px;justify-content:flex-end;border-top:1px solid rgba(15,23,42,.06)}
-                #ak-im-root .ak-im-meeting-publish-cancel{border:1px solid rgba(15,23,42,.12);background:#ffffff;color:#374151;height:34px;padding:0 14px;border-radius:10px;font-size:13px;cursor:pointer}
-                #ak-im-root .ak-im-meeting-publish-submit{border:none;background:#07c160;color:#ffffff;height:34px;padding:0 16px;border-radius:10px;font-size:13px;font-weight:500;cursor:pointer}
+                #ak-im-root .ak-im-meeting-publish-footer{position:absolute;left:0;right:0;bottom:0;padding:12px 12px calc(12px + env(safe-area-inset-bottom, 0px));display:flex;gap:10px;justify-content:flex-end;background:linear-gradient(180deg,rgba(247,247,247,0) 0%,#f7f7f7 28%,#f7f7f7 100%)}
+                #ak-im-root .ak-im-meeting-publish-cancel{border:1px solid rgba(15,23,42,.12);background:#ffffff;color:#374151;height:44px;padding:0 18px;border-radius:14px;font-size:15px;cursor:pointer}
+                #ak-im-root .ak-im-meeting-publish-submit{border:none;background:#07c160;color:#ffffff;height:44px;padding:0 22px;border-radius:14px;font-size:15px;font-weight:700;cursor:pointer}
                 #ak-im-root .ak-im-meeting-publish-submit:disabled{background:#9ca3af;cursor:not-allowed}
-                #ak-im-root .ak-im-meeting-password-mask{position:fixed;inset:0;background:rgba(15,23,42,.24);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);z-index:3}
-                #ak-im-root .ak-im-meeting-password-sheet{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);width:min(340px,86%);background:#ffffff;border-radius:20px;z-index:4;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 24px 56px rgba(15,23,42,.28)}
-                #ak-im-root .ak-im-meeting-password-title{padding:16px 18px 4px;font-weight:600;font-size:15px;color:#111827}
-                #ak-im-root .ak-im-meeting-password-desc{padding:0 18px 4px;font-size:12px;color:#6b7280;line-height:1.6}
-                #ak-im-root .ak-im-meeting-password-body{padding:10px 18px 4px}
+                #ak-im-root .ak-im-meeting-password-card{background:#ffffff;border-radius:18px;padding:14px;display:flex;flex-direction:column;gap:10px;box-shadow:0 1px 2px rgba(15,23,42,.04)}
+                #ak-im-root .ak-im-meeting-password-title{font-weight:600;font-size:15px;color:#111827}
+                #ak-im-root .ak-im-meeting-password-desc{font-size:12px;color:#6b7280;line-height:1.6}
                 #ak-im-root .ak-im-meeting-password-body input{width:100%;box-sizing:border-box;height:38px;border:1px solid rgba(15,23,42,.12);border-radius:10px;padding:0 12px;font-size:15px;color:#111827;background:#ffffff;transition:border-color .15s,box-shadow .15s}
                 #ak-im-root .ak-im-meeting-password-body input:focus{outline:none;border-color:#07c160;box-shadow:0 0 0 3px rgba(7,193,96,.12)}
-                #ak-im-root .ak-im-meeting-password-error{margin:6px 18px 0;padding:6px 10px;border-radius:8px;background:rgba(239,68,68,.08);color:#dc2626;font-size:12px}
-                #ak-im-root .ak-im-meeting-password-footer{padding:12px 18px 16px;display:flex;gap:10px;justify-content:flex-end}
+                #ak-im-root .ak-im-meeting-password-error{padding:6px 10px;border-radius:8px;background:rgba(239,68,68,.08);color:#dc2626;font-size:12px}
+                #ak-im-root .ak-im-meeting-password-footer{display:flex;gap:10px;justify-content:flex-end}
                 #ak-im-root .ak-im-meeting-password-cancel{border:1px solid rgba(15,23,42,.12);background:#ffffff;color:#374151;height:34px;padding:0 14px;border-radius:10px;font-size:13px;cursor:pointer}
                 #ak-im-root .ak-im-meeting-password-submit{border:none;background:#07c160;color:#ffffff;height:34px;padding:0 16px;border-radius:10px;font-size:13px;font-weight:500;cursor:pointer}
                 #ak-im-root .ak-im-meeting-password-submit:disabled{background:#9ca3af;cursor:not-allowed}
@@ -821,6 +819,19 @@
                         <div class="ak-im-group-title-footer"><button class="ak-im-group-title-submit" type="button">保存</button></div>
                     </div>
                 </div>
+                <div class="ak-im-screen ak-im-meeting-publish-screen">
+                    <div class="ak-im-topbar">
+                        <button class="ak-im-nav-btn ak-im-meeting-publish-back" type="button" aria-label="返回会议列表">
+                            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M15 18L9 12L15 6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                        </button>
+                        <div class="ak-im-topbar-title">发布会议</div>
+                        <div class="ak-im-group-info-side" aria-hidden="true"></div>
+                    </div>
+                    <div class="ak-im-meeting-publish-page">
+                        <div class="ak-im-meeting-publish-body"></div>
+                        <div class="ak-im-meeting-publish-footer"></div>
+                    </div>
+                </div>
                 <div class="ak-im-screen ak-im-profile-subpage-screen">
                     <div class="ak-im-topbar">
                         <button class="ak-im-nav-btn ak-im-profile-subpage-back" type="button" aria-label="返回个人页">
@@ -924,6 +935,9 @@
                 groupTitleEditInputEl: root ? root.querySelector('.ak-im-group-title-input') : null,
                 groupTitleEditSubmitBtnEl: root ? root.querySelector('.ak-im-group-title-submit') : null,
                 groupTitleEditBackBtnEl: root ? root.querySelector('.ak-im-group-title-back') : null,
+                meetingPublishBackBtnEl: root ? root.querySelector('.ak-im-meeting-publish-back') : null,
+                meetingPublishBodyEl: root ? root.querySelector('.ak-im-meeting-publish-body') : null,
+                meetingPublishFooterEl: root ? root.querySelector('.ak-im-meeting-publish-footer') : null,
                 dialogEl: root ? root.querySelector('.ak-im-dialog') : null,
                 dialogTitleEl: root ? root.querySelector('.ak-im-dialog-title') : null,
                 dialogMessageEl: root ? root.querySelector('.ak-im-dialog-message') : null,
@@ -1143,6 +1157,9 @@
             bindClick(elements.groupTitleEditSubmitBtnEl, function() {
                 if (typeof ctx.onGroupTitleEditSubmitClick === 'function') ctx.onGroupTitleEditSubmitClick();
             });
+            bindClick(elements.meetingPublishBackBtnEl, function() {
+                if (typeof ctx.onMeetingPublishBackClick === 'function') ctx.onMeetingPublishBackClick();
+            });
             if (elements.groupTitleEditInputEl) {
                 elements.groupTitleEditInputEl.addEventListener('input', function() {
                     if (typeof ctx.onGroupTitleEditInput === 'function') {
@@ -1178,6 +1195,7 @@
             root.classList.toggle('ak-view-profile-subpage', !!nextShellState.showProfileSubpage);
             root.classList.toggle('ak-view-group-create', !!nextShellState.showGroupCreate);
             root.classList.toggle('ak-view-group-title-edit', !!nextShellState.showGroupTitleEdit);
+            root.classList.toggle('ak-view-meeting-publish', !!nextShellState.showMeetingPublish);
             root.classList.toggle('ak-contact-search-open', !!nextShellState.showContactSearch);
             if (this.elements.launcherEl) {
                 this.elements.launcherEl.classList.toggle('is-open', !!nextShellState.open);
