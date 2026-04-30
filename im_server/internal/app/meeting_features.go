@@ -704,6 +704,8 @@ func (a *App) handleMeetingJoin(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"error": true})
 		return
 	}
+	_, cookieErr := r.Cookie(a.cfg.CookieName)
+	log.Printf("im meeting join request: path=%s raw_query=%s host=%s referer=%q has_cookie=%t cookie_name=%s", r.URL.Path, r.URL.RawQuery, r.Host, r.Referer(), cookieErr == nil, a.cfg.CookieName)
 	username, err := a.requireAllowedUser(r)
 	if err != nil {
 		writeJSON(w, http.StatusForbidden, map[string]any{"error": true, "message": err.Error()})
