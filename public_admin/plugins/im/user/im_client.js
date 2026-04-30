@@ -86,6 +86,7 @@
     };
     const lazyModuleLoadPromises = {};
     const lazyModuleInitState = {};
+    const initialOpenRequest = getInitialOpenRequest();
 
     const state = {
         allowed: false,
@@ -95,7 +96,7 @@
         displayName: '',
         honorName: '',
         canAddFriend: false,
-        homeTab: 'chats',
+        homeTab: initialOpenRequest ? initialOpenRequest.tab : 'chats',
         contacts: [],
         contactsLoaded: false,
         contactsLoading: false,
@@ -138,7 +139,7 @@
         activeMessages: [],
         activeMessagesLoading: false,
         ws: null,
-        open: false,
+        open: !!initialOpenRequest,
         view: 'sessions',
         newSessionTarget: '',
         newSessionError: '',
@@ -3377,7 +3378,7 @@
     }
 
     function applyInitialOpenRequest() {
-        const openRequest = getInitialOpenRequest();
+        const openRequest = initialOpenRequest;
         if (!openRequest || !state.allowed) return false;
         state.open = true;
         state.homeTab = openRequest.tab;

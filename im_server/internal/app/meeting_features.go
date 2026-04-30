@@ -392,7 +392,8 @@ body{min-height:100vh}
 .page{min-height:100vh;background:#ededed;display:flex;flex-direction:column}
 .topbar{height:48px;background:#f7f7f7;border-bottom:1px solid rgba(15,23,42,.06);display:flex;align-items:center;justify-content:center;position:relative;flex:0 0 auto}
 .topbar-title{font-size:17px;font-weight:700;color:#111827}
-.topbar-back{position:absolute;left:8px;top:7px;height:34px;padding:0 10px;border-radius:10px;border:0;background:transparent;color:#111827;font-size:15px;text-decoration:none;display:flex;align-items:center;justify-content:center}
+.topbar-back{position:absolute;left:8px;top:7px;width:34px;height:34px;padding:0;border-radius:10px;border:0;background:transparent;color:#111827;text-decoration:none;display:flex;align-items:center;justify-content:center}
+.topbar-back svg{width:20px;height:20px;stroke:currentColor}
 .body{flex:1;min-height:0;padding:12px;box-sizing:border-box;display:flex;flex-direction:column;gap:12px}
 .card{background:#fff;border-radius:18px;padding:16px 14px;display:flex;flex-direction:column;gap:10px;box-shadow:0 1px 2px rgba(15,23,42,.04)}
 .title{margin:0;font-size:18px;font-weight:700;line-height:1.4;color:#111827}
@@ -409,7 +410,7 @@ a.primary{background:#1677ff;color:#fff}
 <body>
 <div class="page">
 <div class="topbar">
-<a class="topbar-back" href="{{.ReturnURL}}">返回</a>
+<a class="topbar-back" href="{{.ReturnURL}}" aria-label="返回会议列表"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M15 18L9 12L15 6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></a>
 <div class="topbar-title">腾讯会议</div>
 </div>
 <div class="body">
@@ -425,47 +426,14 @@ a.primary{background:#1677ff;color:#fff}
 </section>
 </div>
 </div>
-<script>
-(function(){
-var joinURL = {{.JoinURL}};
-var opened = false;
-var attemptedAt = 0;
-var titleEl = document.getElementById('title');
-var statusEl = document.getElementById('status');
-var tipEl = document.getElementById('install-tip');
-function markOpened(){
-opened = true;
-titleEl.textContent = '已尝试打开腾讯会议';
-statusEl.textContent = '如果腾讯会议已经打开，可以关闭此页面。';
-}
-document.addEventListener('visibilitychange', function(){
-if (document.hidden) markOpened();
-});
-window.addEventListener('blur', markOpened);
-function openApp(){
-attemptedAt = Date.now();
-opened = false;
-tipEl.className = 'install';
-titleEl.textContent = '正在打开腾讯会议';
-statusEl.textContent = '请在浏览器提示中允许打开腾讯会议客户端。';
-window.location.href = joinURL;
-setTimeout(function(){
-if (!opened && Date.now() - attemptedAt >= 1500) {
-titleEl.textContent = '未检测到腾讯会议客户端';
-statusEl.textContent = '当前设备可能没有安装腾讯会议，或浏览器阻止了打开客户端。';
-tipEl.className = 'install visible';
-}
-}, 1800);
-}
-document.getElementById('open-btn').addEventListener('click', openApp);
-setTimeout(openApp, 120);
-})();
-</script>
+<div id="wemeet-join-data" data-join-url="{{.JoinURL}}" hidden></div>
+<script src="/chat/plugins/im/user/modules/im_meeting_join_bridge.js?v=1" defer></script>
 </body>
 </html>`))
 
 func renderWemeetJoinBridge(w http.ResponseWriter, joinURL string, returnURL string) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
 	_ = wemeetJoinBridgeTemplate.Execute(w, map[string]any{
 		"JoinURL":     joinURL,
 		"DownloadURL": tencentMeetingDownloadURL,

@@ -470,6 +470,7 @@
             const stateBadge = stateInfo.label
                 ? `<span class="ak-im-meeting-state" style="color:${stateInfo.color};border-color:${stateInfo.color}">${esc(stateInfo.label)}</span>`
                 : '';
+            const ended = stateInfo.label === '已结束';
             const senderNameMarkup = meeting.sender_display_name || meeting.sender_username
                 ? (this.ctx && typeof this.ctx.buildDisplayNameWithHonorMarkup === 'function'
                     ? this.ctx.buildDisplayNameWithHonorMarkup(meeting.sender_display_name || meeting.sender_username, meeting.sender_honor_name, '发布者')
@@ -492,7 +493,7 @@
                     ${creatorLine}
                     ${passwordLine}
                     <div class="ak-im-meeting-actions">
-                        <button type="button" class="ak-im-meeting-join-btn" data-im-meeting-join="${esc(meeting.id)}">进入会议</button>
+                        <button type="button" class="ak-im-meeting-join-btn" data-im-meeting-join="${esc(meeting.id)}"${ended ? ' disabled' : ''}>${ended ? '会议已结束' : '进入会议'}</button>
                     </div>
                 </div>`;
         },
@@ -624,6 +625,7 @@
                     return;
                 }
                 if (target.hasAttribute('data-im-meeting-join')) {
+                    if (target.disabled) return;
                     self.joinMeeting(target.getAttribute('data-im-meeting-join'));
                     return;
                 }
