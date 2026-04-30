@@ -387,34 +387,42 @@ var wemeetJoinBridgeTemplate = template.Must(template.New("wemeet_join_bridge").
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>打开腾讯会议</title>
 <style>
-html,body{margin:0;min-height:100%;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif;background:#f4f6f8;color:#111827}
-.page{min-height:100vh;box-sizing:border-box;padding:28px;display:flex;align-items:center;justify-content:center}
-.card{width:100%;max-width:420px;background:#fff;border-radius:22px;padding:28px 22px;text-align:center;box-shadow:0 14px 36px rgba(15,23,42,.08)}
-h1{margin:0 0 10px;font-size:20px;line-height:1.35}
-p{margin:0;color:#6b7280;font-size:14px;line-height:1.7}
-.status{margin:14px 0 18px;color:#374151}
-.actions{display:flex;flex-direction:column;gap:10px;margin-top:18px}
-a,button{height:46px;border-radius:14px;font-size:15px;font-weight:700;text-decoration:none;display:flex;align-items:center;justify-content:center;box-sizing:border-box}
+html,body{margin:0;min-height:100%;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif;background:#ededed;color:#111827}
+body{min-height:100vh}
+.page{min-height:100vh;background:#ededed;display:flex;flex-direction:column}
+.topbar{height:48px;background:#f7f7f7;border-bottom:1px solid rgba(15,23,42,.06);display:flex;align-items:center;justify-content:center;position:relative;flex:0 0 auto}
+.topbar-title{font-size:17px;font-weight:700;color:#111827}
+.topbar-back{position:absolute;left:8px;top:7px;height:34px;padding:0 10px;border-radius:10px;border:0;background:transparent;color:#111827;font-size:15px;text-decoration:none;display:flex;align-items:center;justify-content:center}
+.body{flex:1;min-height:0;padding:12px;box-sizing:border-box;display:flex;flex-direction:column;gap:12px}
+.card{background:#fff;border-radius:18px;padding:16px 14px;display:flex;flex-direction:column;gap:10px;box-shadow:0 1px 2px rgba(15,23,42,.04)}
+.title{margin:0;font-size:18px;font-weight:700;line-height:1.4;color:#111827}
+.status{margin:0;color:#4b5563;font-size:14px;line-height:1.7}
+.actions{display:flex;flex-direction:column;gap:10px;margin-top:4px}
+a,button{height:42px;border-radius:12px;font-size:15px;font-weight:700;text-decoration:none;display:flex;align-items:center;justify-content:center;box-sizing:border-box}
 button{width:100%;border:0;background:#07c160;color:#fff}
 a.primary{background:#1677ff;color:#fff}
-a.secondary{border:1px solid rgba(15,23,42,.12);color:#374151;background:#fff}
-.install{display:none;margin-top:16px;padding:12px;border-radius:14px;background:#fff7ed;color:#9a3412;font-size:13px;line-height:1.7;text-align:left}
+.install{display:none;padding:11px 12px;border-radius:14px;background:#fff7ed;color:#9a3412;font-size:13px;line-height:1.7}
 .install.visible{display:block}
-.tip{margin-top:14px;font-size:12px;color:#9ca3af}
+.tip{padding:0 4px;font-size:12px;line-height:1.6;color:#9ca3af}
 </style>
 </head>
 <body>
 <div class="page">
-<div class="card">
-<h1 id="title">正在打开腾讯会议</h1>
+<div class="topbar">
+<a class="topbar-back" href="{{.ReturnURL}}">返回</a>
+<div class="topbar-title">腾讯会议</div>
+</div>
+<div class="body">
+<section class="card">
+<h1 class="title" id="title">正在打开腾讯会议</h1>
 <p class="status" id="status">请在浏览器提示中允许打开腾讯会议客户端。</p>
 <div class="actions">
 <button type="button" id="open-btn">重新打开腾讯会议</button>
 <a class="primary" id="download-link" href="{{.DownloadURL}}" target="_blank" rel="noopener">下载安装腾讯会议</a>
-<a class="secondary" href="{{.ReturnURL}}">返回会议列表</a>
 </div>
 <div class="install" id="install-tip">未检测到腾讯会议客户端。如果没有弹出打开提示，请先下载安装腾讯会议，安装完成后回到此页点击“重新打开腾讯会议”。</div>
 <div class="tip">如果 Edge 弹出确认框，可勾选“始终允许”以减少后续确认。</div>
+</section>
 </div>
 </div>
 <script>
