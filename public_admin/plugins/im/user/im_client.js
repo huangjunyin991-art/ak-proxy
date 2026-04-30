@@ -87,6 +87,7 @@
     const lazyModuleLoadPromises = {};
     const lazyModuleInitState = {};
     const initialOpenRequest = getInitialOpenRequest();
+    let initialOpenRequestConsumed = false;
 
     const state = {
         allowed: false,
@@ -549,7 +550,11 @@
 
     function openShellPanel() {
         state.open = true;
-        if (state.view !== 'compose' && !state.activeConversationId) state.view = 'sessions';
+        if (state.view !== 'compose' && !state.activeConversationId) {
+            state.view = 'sessions';
+            state.homeTab = 'chats';
+            ensureHomeTabData(state.homeTab);
+        }
         render();
     }
 
@@ -3379,14 +3384,27 @@
 
     function applyInitialOpenRequest() {
         const openRequest = initialOpenRequest;
-        if (!openRequest || !state.allowed) return false;
+        if (!openRequest || initialOpenRequestConsumed || !state.allowed) return false;
+        initialOpenRequestConsumed = true;
         state.open = true;
         state.homeTab = openRequest.tab;
         state.view = 'sessions';
         closeHomeAddMenu({ silent: true });
         ensureHomeTabData(state.homeTab);
+        clearInitialOpenRequestURL();
         render();
         return true;
+    }
+
+    function clearInitialOpenRequestURL() {
+        try {
+            const url = new URL(window.location.href);
+            if (!url.searchParams.has('ak_im_open') && !url.searchParams.has('ak_im_tab')) return;
+            url.searchParams.delete('ak_im_open');
+            url.searchParams.delete('ak_im_tab');
+            const nextURL = url.pathname + (url.search || '') + url.hash;
+            window.history.replaceState(window.history.state, document.title, nextURL);
+        } catch (e) {}
     }
 
     function renderHomeShell(shellState) {
