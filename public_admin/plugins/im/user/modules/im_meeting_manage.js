@@ -151,6 +151,13 @@
             return !isNaN(end) && end > 0 && Date.now() > end;
         },
 
+        isActiveForTabBadge(meeting) {
+            if (!meeting) return false;
+            if (!meeting.end_time) return true;
+            const end = new Date(meeting.end_time).getTime();
+            return isNaN(end) || end <= 0 || Date.now() <= end;
+        },
+
         getTabUnreadCount() {
             const state = this.getState();
             const self = this;
@@ -158,6 +165,15 @@
             return state.meetingsItems.reduce(function(sum, item) {
                 if (!item || item.is_read !== false || self.isExpiredForTabUnread(item)) return sum;
                 return sum + 1;
+            }, 0);
+        },
+
+        getTabBadgeCount() {
+            const state = this.getState();
+            const self = this;
+            if (!state || !Array.isArray(state.meetingsItems)) return 0;
+            return state.meetingsItems.reduce(function(sum, item) {
+                return sum + (self.isActiveForTabBadge(item) ? 1 : 0);
             }, 0);
         },
 

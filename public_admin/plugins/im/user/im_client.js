@@ -3222,6 +3222,7 @@
             meetingsUnread: (function() {
                 const m = getMeetingManageModule();
                 if (!m) return 0;
+                if (typeof m.getTabBadgeCount === 'function') return Number(m.getTabBadgeCount() || 0);
                 if (typeof m.getTabUnreadCount === 'function') return Number(m.getTabUnreadCount() || 0);
                 return typeof m.getUnreadCount === 'function' ? Number(m.getUnreadCount() || 0) : 0;
             })()
