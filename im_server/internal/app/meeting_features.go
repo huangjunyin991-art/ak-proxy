@@ -13,6 +13,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"html/template"
 	"io"
 	"log"
 	"net/http"
@@ -28,6 +29,7 @@ import (
 const (
 	tencentMeetingFetchTimeout = 6 * time.Second
 	tencentMeetingUserAgent    = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+	tencentMeetingDownloadURL  = "https://meeting.tencent.com/download/"
 )
 
 var (
@@ -376,6 +378,92 @@ func buildWemeetJoinURL(item MeetingItem) string {
 		}
 	}
 	return "wemeet://page/inmeeting?" + params.Encode()
+}
+
+var wemeetJoinBridgeTemplate = template.Must(template.New("wemeet_join_bridge").Parse(`<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>打开腾讯会议</title>
+<style>
+html,body{margin:0;min-height:100%;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif;background:#f4f6f8;color:#111827}
+.page{min-height:100vh;box-sizing:border-box;padding:28px;display:flex;align-items:center;justify-content:center}
+.card{width:100%;max-width:420px;background:#fff;border-radius:22px;padding:28px 22px;text-align:center;box-shadow:0 14px 36px rgba(15,23,42,.08)}
+.icon{width:62px;height:62px;margin:0 auto 16px;border-radius:20px;background:#07c160;color:#fff;display:flex;align-items:center;justify-content:center;font-size:30px}
+h1{margin:0 0 10px;font-size:20px;line-height:1.35}
+p{margin:0;color:#6b7280;font-size:14px;line-height:1.7}
+.status{margin:14px 0 18px;color:#374151}
+.actions{display:flex;flex-direction:column;gap:10px;margin-top:18px}
+a,button{height:46px;border-radius:14px;font-size:15px;font-weight:700;text-decoration:none;display:flex;align-items:center;justify-content:center;box-sizing:border-box}
+button{width:100%;border:0;background:#07c160;color:#fff}
+a.primary{background:#1677ff;color:#fff}
+a.secondary{border:1px solid rgba(15,23,42,.12);color:#374151;background:#fff}
+.install{display:none;margin-top:16px;padding:12px;border-radius:14px;background:#fff7ed;color:#9a3412;font-size:13px;line-height:1.7;text-align:left}
+.install.visible{display:block}
+.tip{margin-top:14px;font-size:12px;color:#9ca3af}
+</style>
+</head>
+<body>
+<div class="page">
+<div class="card">
+<div class="icon">🎥</div>
+<h1 id="title">正在打开腾讯会议</h1>
+<p class="status" id="status">请在浏览器提示中允许打开腾讯会议客户端。</p>
+<div class="actions">
+<button type="button" id="open-btn">重新打开腾讯会议</button>
+<a class="primary" id="download-link" href="{{.DownloadURL}}" target="_blank" rel="noopener">下载安装腾讯会议</a>
+<a class="secondary" href="javascript:history.back()">返回会议列表</a>
+</div>
+<div class="install" id="install-tip">未检测到腾讯会议客户端。如果没有弹出打开提示，请先下载安装腾讯会议，安装完成后回到此页点击“重新打开腾讯会议”。</div>
+<div class="tip">如果 Edge 弹出确认框，可勾选“始终允许”以减少后续确认。</div>
+</div>
+</div>
+<script>
+(function(){
+var joinURL = {{.JoinURL}};
+var opened = false;
+var attemptedAt = 0;
+var titleEl = document.getElementById('title');
+var statusEl = document.getElementById('status');
+var tipEl = document.getElementById('install-tip');
+function markOpened(){
+opened = true;
+titleEl.textContent = '已尝试打开腾讯会议';
+statusEl.textContent = '如果腾讯会议已经打开，可以关闭此页面。';
+}
+document.addEventListener('visibilitychange', function(){
+if (document.hidden) markOpened();
+});
+window.addEventListener('blur', markOpened);
+function openApp(){
+attemptedAt = Date.now();
+opened = false;
+tipEl.className = 'install';
+titleEl.textContent = '正在打开腾讯会议';
+statusEl.textContent = '请在浏览器提示中允许打开腾讯会议客户端。';
+window.location.href = joinURL;
+setTimeout(function(){
+if (!opened && Date.now() - attemptedAt >= 1500) {
+titleEl.textContent = '未检测到腾讯会议客户端';
+statusEl.textContent = '当前设备可能没有安装腾讯会议，或浏览器阻止了打开客户端。';
+tipEl.className = 'install visible';
+}
+}, 1800);
+}
+document.getElementById('open-btn').addEventListener('click', openApp);
+setTimeout(openApp, 120);
+})();
+</script>
+</body>
+</html>`))
+
+func renderWemeetJoinBridge(w http.ResponseWriter, joinURL string) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	_ = wemeetJoinBridgeTemplate.Execute(w, map[string]any{
+		"JoinURL":     joinURL,
+		"DownloadURL": tencentMeetingDownloadURL,
+	})
 }
 
 func (a *App) dbMeetingInsert(ctx context.Context, input meetingPublishInput) (MeetingItem, error) {
@@ -734,8 +822,8 @@ func (a *App) handleMeetingJoin(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": true, "message": "会议号缺失，无法拉起腾讯会议"})
 		return
 	}
-	log.Printf("im meeting join app redirect: id=%d username=%s url=%s", meeting.ID, username, joinURL)
-	http.Redirect(w, r, joinURL, http.StatusFound)
+	log.Printf("im meeting join app bridge: id=%d username=%s url=%s", meeting.ID, username, joinURL)
+	renderWemeetJoinBridge(w, joinURL)
 }
 
 func (a *App) handleMeetingPublish(w http.ResponseWriter, r *http.Request, username string) {
