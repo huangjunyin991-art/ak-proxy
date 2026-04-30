@@ -42,6 +42,7 @@
                 begin_time: '',
                 end_time: '',
                 creator_nickname: '',
+                has_password: false,
                 mtoken: '',
                 group_key: '',
                 parsed: false,
@@ -263,10 +264,20 @@
                     form.begin_time = info.begin_time || '';
                     form.end_time = info.end_time || '';
                     form.creator_nickname = info.creator_nickname || '';
+                    form.has_password = !!info.has_password;
                     form.mtoken = info.mtoken || '';
                     if (info.url) form.url = info.url;
+                    if (form.has_password) {
+                        state.meetingsPasswordPromptOpen = true;
+                        state.meetingsPasswordPromptError = '';
+                    } else {
+                        state.meetingsPasswordPromptOpen = false;
+                        state.meetingsPasswordPromptValue = '';
+                        state.meetingsPasswordPromptError = '';
+                    }
                 } else {
                     form.parsed = false;
+                    form.has_password = false;
                     form.parse_error = (data && data.error) ? String(data.error) : '解析失败，请手动填写会议信息';
                     if (data && data.short_id && !form.short_id) form.short_id = data.short_id;
                     if (data && data.url) form.url = data.url;
@@ -289,6 +300,16 @@
             if (!form.url) { state.meetingsPublishError = '请粘贴会议链接'; this.renderPublishPage(); return Promise.resolve(null); }
             if (!form.subject) { state.meetingsPublishError = '请填写会议主题'; this.renderPublishPage(); return Promise.resolve(null); }
             if (!form.meeting_code) { state.meetingsPublishError = '请填写会议号'; this.renderPublishPage(); return Promise.resolve(null); }
+            if (form.has_password) {
+                const pwd = String(state.meetingsPasswordPromptValue || '').trim();
+                if (!pwd) {
+                    state.meetingsPasswordPromptOpen = true;
+                    state.meetingsPasswordPromptError = '该会议需要入会密码，请填写后发布';
+                    this.renderPublishPage();
+                    return Promise.resolve(null);
+                }
+                return this.doSubmitPublish(pwd);
+            }
             return this.doSubmitPublish('');
         },
 
@@ -432,6 +453,18 @@
             const stateBadge = stateInfo.label
                 ? `<span class="ak-im-meeting-state" style="color:${stateInfo.color};border-color:${stateInfo.color}">${esc(stateInfo.label)}</span>`
                 : '';
+            const senderNameMarkup = meeting.sender_display_name || meeting.sender_username
+                ? (this.ctx && typeof this.ctx.buildDisplayNameWithHonorMarkup === 'function'
+                    ? this.ctx.buildDisplayNameWithHonorMarkup(meeting.sender_display_name || meeting.sender_username, meeting.sender_honor_name, '发布者')
+                    : esc(meeting.sender_display_name || meeting.sender_username))
+                : '';
+            const creatorName = meeting.creator_nickname || '';
+            const creatorLine = creatorName
+                ? `<div class="ak-im-meeting-row">👤 会议发起人：${esc(creatorName)}</div>`
+                : (senderNameMarkup ? `<div class="ak-im-meeting-row ak-im-meeting-sender">👤 会议发起人：${senderNameMarkup}</div>` : '');
+            const passwordLine = meeting.has_password && meeting.meeting_password
+                ? `<div class="ak-im-meeting-row ak-im-meeting-password">🔒 入会密码：<strong>${esc(meeting.meeting_password)}</strong></div>`
+                : '';
             return `
                 <div class="ak-im-meeting-card" data-meeting-id="${esc(meeting.id)}">
                     <div class="ak-im-meeting-head">
@@ -439,6 +472,8 @@
                         ${stateBadge}
                     </div>
                     ${timeText ? `<div class="ak-im-meeting-row">🕒 ${esc(timeText)}</div>` : ''}
+                    ${creatorLine}
+                    ${passwordLine}
                     <div class="ak-im-meeting-actions">
                         <button type="button" class="ak-im-meeting-join-btn" data-im-meeting-join="${esc(meeting.id)}">进入会议</button>
                     </div>
@@ -512,7 +547,7 @@
             return `
                 <div class="ak-im-meeting-password-card">
                     <div class="ak-im-meeting-password-title">请输入入会密码</div>
-                    <div class="ak-im-meeting-password-desc">该链接需要入会密码，将与会议一并保存；成员入会时会自动填入或粘贴。</div>
+                    <div class="ak-im-meeting-password-desc">检测到该腾讯会议需要入会密码，请填写后发布；成员将在会议卡片中看到该密码。</div>
                     <div class="ak-im-meeting-password-body">
                         <input type="text" data-im-meeting-password-field="1" value="${esc(value)}" placeholder="输入入会密码" autocomplete="off">
                     </div>

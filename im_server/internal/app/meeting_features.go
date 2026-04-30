@@ -55,12 +55,18 @@ type MeetingItem struct {
 }
 
 type MeetingPublicItem struct {
-	ID        int64  `json:"id"`
-	Subject   string `json:"subject"`
-	BeginTime string `json:"begin_time,omitempty"`
-	EndTime   string `json:"end_time,omitempty"`
-	CreatedAt string `json:"created_at,omitempty"`
-	IsRead    bool   `json:"is_read"`
+	ID                int64  `json:"id"`
+	Subject           string `json:"subject"`
+	BeginTime         string `json:"begin_time,omitempty"`
+	EndTime           string `json:"end_time,omitempty"`
+	CreatorNickname   string `json:"creator_nickname,omitempty"`
+	HasPassword       bool   `json:"has_password"`
+	MeetingPassword   string `json:"meeting_password,omitempty"`
+	SenderUsername    string `json:"sender_username,omitempty"`
+	SenderDisplayName string `json:"sender_display_name,omitempty"`
+	SenderHonorName   string `json:"sender_honor_name,omitempty"`
+	CreatedAt         string `json:"created_at,omitempty"`
+	IsRead            bool   `json:"is_read"`
 }
 
 // MeetingParsedInfo 是 /im/api/meetings/preview 返回的解析结果
@@ -329,12 +335,18 @@ func (a *App) hydrateMeetingSenderIdentities(ctx context.Context, items []Meetin
 
 func publicMeetingItem(item MeetingItem) MeetingPublicItem {
 	return MeetingPublicItem{
-		ID:        item.ID,
-		Subject:   item.Subject,
-		BeginTime: item.BeginTime,
-		EndTime:   item.EndTime,
-		CreatedAt: item.CreatedAt,
-		IsRead:    item.IsRead,
+		ID:                item.ID,
+		Subject:           item.Subject,
+		BeginTime:         item.BeginTime,
+		EndTime:           item.EndTime,
+		CreatorNickname:   item.CreatorNickname,
+		HasPassword:       item.HasPassword,
+		MeetingPassword:   item.MeetingPassword,
+		SenderUsername:    item.SenderUsername,
+		SenderDisplayName: item.SenderDisplayName,
+		SenderHonorName:   item.SenderHonorName,
+		CreatedAt:         item.CreatedAt,
+		IsRead:            item.IsRead,
 	}
 }
 

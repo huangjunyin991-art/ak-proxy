@@ -247,6 +247,7 @@
                 #ak-im-root .ak-im-meeting-state{flex:0 0 auto;font-size:11px;padding:2px 8px;border-radius:999px;border:1px solid currentColor}
                 #ak-im-root .ak-im-meeting-row{font-size:13px;color:#374151;line-height:1.6;word-break:break-all}
                 #ak-im-root .ak-im-meeting-row.ak-im-meeting-sender{color:#6b7280;font-size:12px;display:flex;align-items:center;gap:4px;flex-wrap:wrap;word-break:break-word}
+                #ak-im-root .ak-im-meeting-row.ak-im-meeting-password{background:#fffbeb;border:1px dashed #f59e0b;color:#b45309;border-radius:8px;padding:6px 10px}
                 #ak-im-root .ak-im-meeting-actions{display:flex;gap:8px;margin-top:4px}
                 #ak-im-root .ak-im-meeting-join-btn{flex:1;border:none;background:#07c160;color:#ffffff;height:34px;border-radius:10px;font-size:14px;font-weight:500;cursor:pointer}
                 #ak-im-root .ak-im-meeting-join-btn:disabled{background:#9ca3af;cursor:not-allowed}
