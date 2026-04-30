@@ -3364,6 +3364,30 @@
         render();
     }
 
+    function getInitialOpenRequest() {
+        try {
+            const params = new URL(window.location.href).searchParams;
+            if (params.get('ak_im_open') !== '1') return null;
+            return {
+                tab: normalizeHomeTab(params.get('ak_im_tab'))
+            };
+        } catch (e) {
+            return null;
+        }
+    }
+
+    function applyInitialOpenRequest() {
+        const openRequest = getInitialOpenRequest();
+        if (!openRequest || !state.allowed) return false;
+        state.open = true;
+        state.homeTab = openRequest.tab;
+        state.view = 'sessions';
+        closeHomeAddMenu({ silent: true });
+        ensureHomeTabData(state.homeTab);
+        render();
+        return true;
+    }
+
     function renderHomeShell(shellState) {
         if (!root) return;
         const nextShellState = shellState || getShellRenderState();
@@ -4502,7 +4526,9 @@
                 });
             }
             return loadSessions().then(function() {
-                ensureHomeTabData(state.homeTab);
+                if (!applyInitialOpenRequest()) {
+                    ensureHomeTabData(state.homeTab);
+                }
                 return null;
             });
         }).catch(function() {

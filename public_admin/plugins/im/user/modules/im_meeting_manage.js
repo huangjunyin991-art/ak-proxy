@@ -397,7 +397,10 @@
         joinMeeting(meetingId) {
             const id = Number(meetingId || 0);
             if (!id) return;
-            const url = this.getHttpRoot() + '/meetings/join?id=' + encodeURIComponent(String(id));
+            const returnUrl = new URL(window.location.href);
+            returnUrl.searchParams.set('ak_im_open', '1');
+            returnUrl.searchParams.set('ak_im_tab', 'meetings');
+            const url = this.getHttpRoot() + '/meetings/join?id=' + encodeURIComponent(String(id)) + '&return_url=' + encodeURIComponent(returnUrl.toString());
             try {
                 window.location.href = url;
             } catch (e) {}
@@ -474,18 +477,18 @@
                 : '';
             const creatorName = meeting.creator_nickname || '';
             const creatorLine = creatorName
-                ? `<div class="ak-im-meeting-row">👤 会议发起人：${esc(creatorName)}</div>`
-                : (senderNameMarkup ? `<div class="ak-im-meeting-row ak-im-meeting-sender">👤 会议发起人：${senderNameMarkup}</div>` : '');
+                ? `<div class="ak-im-meeting-row">会议发起人：${esc(creatorName)}</div>`
+                : (senderNameMarkup ? `<div class="ak-im-meeting-row ak-im-meeting-sender">会议发起人：${senderNameMarkup}</div>` : '');
             const passwordLine = meeting.has_password && meeting.meeting_password
-                ? `<div class="ak-im-meeting-row ak-im-meeting-password">🔒 入会密码：<strong>${esc(meeting.meeting_password)}</strong></div>`
+                ? `<div class="ak-im-meeting-row ak-im-meeting-password">入会密码：<strong>${esc(meeting.meeting_password)}</strong></div>`
                 : '';
             return `
                 <div class="ak-im-meeting-card" data-meeting-id="${esc(meeting.id)}">
                     <div class="ak-im-meeting-head">
-                        <div class="ak-im-meeting-title">${unreadDot}<span>🎥 ${esc(meeting.subject || '会议')}</span></div>
+                        <div class="ak-im-meeting-title">${unreadDot}<span>${esc(meeting.subject || '会议')}</span></div>
                         ${stateBadge}
                     </div>
-                    ${timeText ? `<div class="ak-im-meeting-row">🕒 ${esc(timeText)}</div>` : ''}
+                    ${timeText ? `<div class="ak-im-meeting-row">${esc(timeText)}</div>` : ''}
                     ${creatorLine}
                     ${passwordLine}
                     <div class="ak-im-meeting-actions">

@@ -390,7 +390,6 @@ var wemeetJoinBridgeTemplate = template.Must(template.New("wemeet_join_bridge").
 html,body{margin:0;min-height:100%;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif;background:#f4f6f8;color:#111827}
 .page{min-height:100vh;box-sizing:border-box;padding:28px;display:flex;align-items:center;justify-content:center}
 .card{width:100%;max-width:420px;background:#fff;border-radius:22px;padding:28px 22px;text-align:center;box-shadow:0 14px 36px rgba(15,23,42,.08)}
-.icon{width:62px;height:62px;margin:0 auto 16px;border-radius:20px;background:#07c160;color:#fff;display:flex;align-items:center;justify-content:center;font-size:30px}
 h1{margin:0 0 10px;font-size:20px;line-height:1.35}
 p{margin:0;color:#6b7280;font-size:14px;line-height:1.7}
 .status{margin:14px 0 18px;color:#374151}
@@ -407,13 +406,12 @@ a.secondary{border:1px solid rgba(15,23,42,.12);color:#374151;background:#fff}
 <body>
 <div class="page">
 <div class="card">
-<div class="icon">🎥</div>
 <h1 id="title">正在打开腾讯会议</h1>
 <p class="status" id="status">请在浏览器提示中允许打开腾讯会议客户端。</p>
 <div class="actions">
 <button type="button" id="open-btn">重新打开腾讯会议</button>
 <a class="primary" id="download-link" href="{{.DownloadURL}}" target="_blank" rel="noopener">下载安装腾讯会议</a>
-<a class="secondary" href="javascript:history.back()">返回会议列表</a>
+<a class="secondary" href="{{.ReturnURL}}">返回会议列表</a>
 </div>
 <div class="install" id="install-tip">未检测到腾讯会议客户端。如果没有弹出打开提示，请先下载安装腾讯会议，安装完成后回到此页点击“重新打开腾讯会议”。</div>
 <div class="tip">如果 Edge 弹出确认框，可勾选“始终允许”以减少后续确认。</div>
@@ -458,12 +456,36 @@ setTimeout(openApp, 120);
 </body>
 </html>`))
 
-func renderWemeetJoinBridge(w http.ResponseWriter, joinURL string) {
+func renderWemeetJoinBridge(w http.ResponseWriter, joinURL string, returnURL string) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_ = wemeetJoinBridgeTemplate.Execute(w, map[string]any{
 		"JoinURL":     joinURL,
 		"DownloadURL": tencentMeetingDownloadURL,
+		"ReturnURL":   returnURL,
 	})
+}
+
+func meetingReturnURL(r *http.Request) string {
+	raw := strings.TrimSpace(r.URL.Query().Get("return_url"))
+	if raw == "" {
+		return "/?ak_im_open=1&ak_im_tab=meetings"
+	}
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		return "/?ak_im_open=1&ak_im_tab=meetings"
+	}
+	if parsed.IsAbs() {
+		if !strings.EqualFold(parsed.Host, r.Host) || (parsed.Scheme != "http" && parsed.Scheme != "https") {
+			return "/?ak_im_open=1&ak_im_tab=meetings"
+		}
+	} else if !strings.HasPrefix(parsed.Path, "/") || strings.HasPrefix(parsed.Path, "//") {
+		return "/?ak_im_open=1&ak_im_tab=meetings"
+	}
+	query := parsed.Query()
+	query.Set("ak_im_open", "1")
+	query.Set("ak_im_tab", "meetings")
+	parsed.RawQuery = query.Encode()
+	return parsed.String()
 }
 
 func (a *App) dbMeetingInsert(ctx context.Context, input meetingPublishInput) (MeetingItem, error) {
@@ -823,7 +845,7 @@ func (a *App) handleMeetingJoin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	log.Printf("im meeting join app bridge: id=%d username=%s url=%s", meeting.ID, username, joinURL)
-	renderWemeetJoinBridge(w, joinURL)
+	renderWemeetJoinBridge(w, joinURL, meetingReturnURL(r))
 }
 
 func (a *App) handleMeetingPublish(w http.ResponseWriter, r *http.Request, username string) {
