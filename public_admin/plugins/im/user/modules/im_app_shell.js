@@ -240,9 +240,9 @@
                 #ak-im-root .ak-im-meeting-empty{padding:28px 16px;text-align:center;color:#9ca3af;font-size:13px;line-height:1.7;background:#ffffff;border-radius:12px}
                 #ak-im-root .ak-im-meeting-empty.ak-im-meeting-error{color:#dc2626;background:rgba(239,68,68,.06)}
                 #ak-im-root .ak-im-meeting-card{background:#ffffff;border-radius:14px;padding:12px 14px;display:flex;flex-direction:column;gap:6px;box-shadow:0 1px 0 rgba(15,23,42,.04)}
-                #ak-im-root .ak-im-meeting-head{display:flex;align-items:center;justify-content:space-between;gap:8px}
-                #ak-im-root .ak-im-meeting-title{display:flex;align-items:center;gap:6px;font-size:15px;font-weight:600;color:#111827;min-width:0}
-                #ak-im-root .ak-im-meeting-title span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+                #ak-im-root .ak-im-meeting-head{display:flex;align-items:flex-start;justify-content:space-between;gap:8px}
+                #ak-im-root .ak-im-meeting-title{display:flex;align-items:flex-start;gap:6px;font-size:15px;font-weight:600;color:#111827;min-width:0;flex:1;line-height:1.45}
+                #ak-im-root .ak-im-meeting-title span{white-space:normal;overflow:visible;text-overflow:clip;word-break:break-word;overflow-wrap:anywhere}
                 #ak-im-root .ak-im-meeting-unread-dot{width:8px;height:8px;border-radius:999px;background:#f43f5e;flex:0 0 auto}
                 #ak-im-root .ak-im-meeting-state{flex:0 0 auto;font-size:11px;padding:2px 8px;border-radius:999px;border:1px solid currentColor}
                 #ak-im-root .ak-im-meeting-row{font-size:13px;color:#374151;line-height:1.6;word-break:break-all}
