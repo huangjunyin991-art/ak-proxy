@@ -210,6 +210,7 @@
             state.meetingsPublishOpen = true;
             state.meetingsPublishError = '';
             state.meetingsPublishForm = this.blankPublishForm();
+            this._lastPreviewUrl = '';
             state.homeTab = 'meetings';
             state.view = 'meeting_publish';
             state.open = true;
@@ -227,11 +228,19 @@
             state.meetingsPasswordPromptValue = '';
             state.meetingsPasswordPromptError = '';
             state.meetingsPasswordSubmitting = false;
+            this._lastPreviewUrl = '';
             if (state.view === 'meeting_publish') {
                 state.homeTab = 'meetings';
                 state.view = 'sessions';
             }
             this.triggerRender();
+        },
+
+        extractTencentMeetingUrl(value) {
+            const text = String(value || '').trim();
+            if (!text) return '';
+            const match = text.match(/https?:\/\/meeting\.tencent\.com\/(?:dm|dw|p)\/[^\s"'<>，。；、]+/i);
+            return match ? match[0] : '';
         },
 
         previewShareUrl(url) {
@@ -522,7 +531,7 @@
                 <div class="ak-im-meeting-publish-card">
                         <label class="ak-im-meeting-field">
                             <span>分享链接 <em class="ak-im-meeting-hint">${esc(parsingLabel)}</em></span>
-                            <input type="url" data-im-meeting-field="url" value="${esc(form.url)}" placeholder="https://meeting.tencent.com/dm/xxxxxxx" autocomplete="off">
+                            <input type="text" inputmode="url" data-im-meeting-field="url" value="${esc(form.url)}" placeholder="https://meeting.tencent.com/dm/xxxxxxx" autocomplete="off">
                         </label>
                         <label class="ak-im-meeting-field">
                             <span>会议主题</span>
@@ -552,7 +561,6 @@
                 </div>
                 ${passwordPrompt}`;
             elements.footer.innerHTML = `
-                <button type="button" class="ak-im-meeting-publish-cancel" data-im-meeting-close="1">取消</button>
                 <button type="button" class="ak-im-meeting-publish-submit" data-im-meeting-submit="1"${submitDisabled}>${state.meetingsPublishSubmitting ? '发布中...' : '发布'}</button>`;
         },
 
@@ -577,7 +585,6 @@
                     </div>
                     ${errBlock}
                     <div class="ak-im-meeting-password-footer">
-                        <button type="button" class="ak-im-meeting-password-cancel" data-im-meeting-password-cancel="1">取消</button>
                         <button type="button" class="ak-im-meeting-password-submit" data-im-meeting-password-submit="1"${submitDisabled}>${submitLabel}</button>
                     </div>
                 </div>`;
@@ -625,26 +632,10 @@
             const self = this;
             // 事件委托：面板根节点上绑定 click 和 input，所有按钮/表单字段通过 data-* 分发
             panelRoot.addEventListener('click', function(event) {
-                const target = event.target.closest('[data-im-meeting-open-publish],[data-im-meeting-close],[data-im-meeting-submit],[data-im-meeting-join],[data-im-meeting-copy],[data-im-meeting-copy-link],[data-im-meeting-password-cancel],[data-im-meeting-password-submit]');
+                const target = event.target.closest('[data-im-meeting-open-publish],[data-im-meeting-join],[data-im-meeting-copy],[data-im-meeting-copy-link]');
                 if (!target) return;
                 if (target.hasAttribute('data-im-meeting-open-publish')) {
                     self.openPublish();
-                    return;
-                }
-                if (target.hasAttribute('data-im-meeting-close')) {
-                    self.closePublish();
-                    return;
-                }
-                if (target.hasAttribute('data-im-meeting-submit')) {
-                    self.submitPublish();
-                    return;
-                }
-                if (target.hasAttribute('data-im-meeting-password-cancel')) {
-                    self.closePasswordPrompt();
-                    return;
-                }
-                if (target.hasAttribute('data-im-meeting-password-submit')) {
-                    self.submitWithPassword();
                     return;
                 }
                 if (target.hasAttribute('data-im-meeting-join')) {
@@ -668,18 +659,10 @@
             pageRoot.__akMeetingPublishEventsBound = true;
             const self = this;
             pageRoot.addEventListener('click', function(event) {
-                const target = event.target.closest('[data-im-meeting-close],[data-im-meeting-submit],[data-im-meeting-password-cancel],[data-im-meeting-password-submit]');
+                const target = event.target.closest('[data-im-meeting-submit],[data-im-meeting-password-submit]');
                 if (!target) return;
-                if (target.hasAttribute('data-im-meeting-close')) {
-                    self.closePublish();
-                    return;
-                }
                 if (target.hasAttribute('data-im-meeting-submit')) {
                     self.submitPublish();
-                    return;
-                }
-                if (target.hasAttribute('data-im-meeting-password-cancel')) {
-                    self.closePasswordPrompt();
                     return;
                 }
                 if (target.hasAttribute('data-im-meeting-password-submit')) {
@@ -713,11 +696,11 @@
                 }
                 if (field === 'url') {
                     form.url = target.value;
-                    // 触发防抖解析
                     if (self._urlDebounce) clearTimeout(self._urlDebounce);
                     self._urlDebounce = setTimeout(function() {
-                        const val = String(form.url || '').trim();
-                        if (/^https?:\/\/meeting\.tencent\.com\/(?:dm|dw|p)\//i.test(val)) {
+                        const val = self.extractTencentMeetingUrl(form.url);
+                        if (val && val !== self._lastPreviewUrl) {
+                            self._lastPreviewUrl = val;
                             self.previewShareUrl(val);
                         }
                     }, 600);
