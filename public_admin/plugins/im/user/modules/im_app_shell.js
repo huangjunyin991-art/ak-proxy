@@ -247,12 +247,9 @@
                 #ak-im-root .ak-im-meeting-state{flex:0 0 auto;font-size:11px;padding:2px 8px;border-radius:999px;border:1px solid currentColor}
                 #ak-im-root .ak-im-meeting-row{font-size:13px;color:#374151;line-height:1.6;word-break:break-all}
                 #ak-im-root .ak-im-meeting-row.ak-im-meeting-sender{color:#6b7280;font-size:12px;display:flex;align-items:center;gap:4px;flex-wrap:wrap;word-break:break-word}
-                #ak-im-root .ak-im-meeting-row.ak-im-meeting-password{display:flex;align-items:center;justify-content:space-between;gap:8px;background:#fffbeb;border:1px dashed #f59e0b;color:#b45309;border-radius:8px;padding:6px 10px}
-                #ak-im-root .ak-im-meeting-copy-btn{border:none;background:#f59e0b;color:#ffffff;height:24px;padding:0 10px;border-radius:6px;font-size:12px;cursor:pointer}
                 #ak-im-root .ak-im-meeting-actions{display:flex;gap:8px;margin-top:4px}
                 #ak-im-root .ak-im-meeting-join-btn{flex:1;border:none;background:#07c160;color:#ffffff;height:34px;border-radius:10px;font-size:14px;font-weight:500;cursor:pointer}
                 #ak-im-root .ak-im-meeting-join-btn:disabled{background:#9ca3af;cursor:not-allowed}
-                #ak-im-root .ak-im-meeting-link-btn{flex:0 0 auto;border:1px solid rgba(15,23,42,.12);background:#ffffff;color:#374151;height:34px;padding:0 12px;border-radius:10px;font-size:13px;cursor:pointer}
                 #ak-im-root .ak-im-meeting-publish-screen{background:#ededed}
                 #ak-im-root .ak-im-meeting-publish-page{position:relative;flex:1;display:flex;flex-direction:column;min-height:0;background:#f7f7f7}
                 #ak-im-root .ak-im-meeting-publish-body{flex:1;min-height:0;padding:12px 12px calc(86px + env(safe-area-inset-bottom, 0px));overflow:auto;display:flex;flex-direction:column;gap:12px}

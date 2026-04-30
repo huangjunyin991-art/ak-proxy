@@ -2,7 +2,7 @@
     'use strict';
 
     // 会议（腾讯会议链接广播）前端模块
-    // 独立职责：拉取/渲染会议列表、发布会议（解析预览 + 手动编辑降级）、wemeet:// 直接入会、复制密码、已读
+    // 独立职责：拉取/渲染会议列表、发布会议（解析预览 + 手动编辑降级）、受控跳转入会、已读
     // 模块失败/缺失时，im_client 会显示降级文案；其他 IM 功能不受影响
 
     const meetingManageModule = {
@@ -359,57 +359,13 @@
             });
         },
 
-        // ============================ wemeet:// / 复制 ============================
-
-        buildJoinUrl(meeting) {
-            if (!meeting || !meeting.meeting_code) return '';
-            const params = ['meeting_code=' + encodeURIComponent(meeting.meeting_code)];
-            if (meeting.mtoken) params.push('token=' + encodeURIComponent(meeting.mtoken));
-            if (meeting.has_password && meeting.meeting_password) {
-                params.push('meeting_password=' + encodeURIComponent(meeting.meeting_password));
-            }
-            return 'wemeet://page/inmeeting?' + params.join('&');
-        },
-
         joinMeeting(meetingId) {
-            const state = this.getState();
-            if (!state) return;
-            const meeting = state.meetingsItems.find(function(m) { return m && Number(m.id) === Number(meetingId); });
-            if (!meeting) return;
-            const url = this.buildJoinUrl(meeting);
-            if (!url) {
-                window.alert('会议号缺失，无法唤起腾讯会议');
-                return;
-            }
-            // 兜底：有入会密码时先复制到剪贴板；wemeet:// URL scheme 若未生效，用户到会议 APP 内一键粘贴即可
-            if (meeting.has_password && meeting.meeting_password) {
-                this.copyToClipboard(meeting.meeting_password);
-            }
-            this.markRead(meetingId);
+            const id = Number(meetingId || 0);
+            if (!id) return;
+            const url = this.getHttpRoot() + '/meetings/join?id=' + encodeURIComponent(String(id));
             try {
                 window.location.href = url;
             } catch (e) {}
-        },
-
-        copyToClipboard(text) {
-            const payload = String(text || '');
-            if (!payload) return;
-            try {
-                if (navigator.clipboard && navigator.clipboard.writeText) {
-                    navigator.clipboard.writeText(payload).then(function() {
-                        // 轻量提示
-                    }, function() {});
-                    return;
-                }
-            } catch (e) {}
-            const textarea = document.createElement('textarea');
-            textarea.value = payload;
-            textarea.style.position = 'fixed';
-            textarea.style.top = '-1000px';
-            document.body.appendChild(textarea);
-            textarea.select();
-            try { document.execCommand('copy'); } catch (e) {}
-            document.body.removeChild(textarea);
         },
 
         // ============================ WebSocket 事件 ============================
@@ -472,27 +428,9 @@
             const esc = function(v) { return self.escapeHtml(v); };
             const stateInfo = this.computeMeetingStateLabel(meeting);
             const timeText = this.formatTimeRange(meeting.begin_time, meeting.end_time);
-            const joinUrl = this.buildJoinUrl(meeting);
-            const passwordRow = meeting.has_password && meeting.meeting_password
-                ? `<div class="ak-im-meeting-row ak-im-meeting-password">
-                        <span>🔒 入会密码：<strong>${esc(meeting.meeting_password)}</strong></span>
-                        <button type="button" class="ak-im-meeting-copy-btn" data-im-meeting-copy="${esc(meeting.meeting_password)}">复制密码</button>
-                   </div>`
-                : '';
             const unreadDot = meeting.is_read ? '' : '<span class="ak-im-meeting-unread-dot" aria-hidden="true"></span>';
             const stateBadge = stateInfo.label
                 ? `<span class="ak-im-meeting-state" style="color:${stateInfo.color};border-color:${stateInfo.color}">${esc(stateInfo.label)}</span>`
-                : '';
-            const senderNameMarkup = meeting.sender_display_name || meeting.sender_username
-                ? (this.ctx && typeof this.ctx.buildDisplayNameWithHonorMarkup === 'function'
-                    ? this.ctx.buildDisplayNameWithHonorMarkup(meeting.sender_display_name || meeting.sender_username, meeting.sender_honor_name, '发布者')
-                    : esc(meeting.sender_display_name || meeting.sender_username))
-                : '';
-            const senderLine = meeting.sender_display_name || meeting.sender_username
-                ? `<div class="ak-im-meeting-row ak-im-meeting-sender">发布者：${senderNameMarkup}</div>`
-                : '';
-            const creatorLine = meeting.creator_nickname && meeting.creator_nickname !== (meeting.sender_display_name || '')
-                ? `<div class="ak-im-meeting-row">主持人：${esc(meeting.creator_nickname)}</div>`
                 : '';
             return `
                 <div class="ak-im-meeting-card" data-meeting-id="${esc(meeting.id)}">
@@ -501,13 +439,8 @@
                         ${stateBadge}
                     </div>
                     ${timeText ? `<div class="ak-im-meeting-row">🕒 ${esc(timeText)}</div>` : ''}
-                    <div class="ak-im-meeting-row">📞 会议号：<strong>${esc(meeting.meeting_code)}</strong></div>
-                    ${creatorLine}
-                    ${senderLine}
-                    ${passwordRow}
                     <div class="ak-im-meeting-actions">
-                        <button type="button" class="ak-im-meeting-join-btn" data-im-meeting-join="${esc(meeting.id)}"${joinUrl ? '' : ' disabled'}>进入会议</button>
-                        <button type="button" class="ak-im-meeting-link-btn" data-im-meeting-copy-link="${esc(meeting.url)}">复制链接</button>
+                        <button type="button" class="ak-im-meeting-join-btn" data-im-meeting-join="${esc(meeting.id)}">进入会议</button>
                     </div>
                 </div>`;
         },
@@ -632,7 +565,7 @@
             const self = this;
             // 事件委托：面板根节点上绑定 click 和 input，所有按钮/表单字段通过 data-* 分发
             panelRoot.addEventListener('click', function(event) {
-                const target = event.target.closest('[data-im-meeting-open-publish],[data-im-meeting-join],[data-im-meeting-copy],[data-im-meeting-copy-link]');
+                const target = event.target.closest('[data-im-meeting-open-publish],[data-im-meeting-join]');
                 if (!target) return;
                 if (target.hasAttribute('data-im-meeting-open-publish')) {
                     self.openPublish();
@@ -640,14 +573,6 @@
                 }
                 if (target.hasAttribute('data-im-meeting-join')) {
                     self.joinMeeting(target.getAttribute('data-im-meeting-join'));
-                    return;
-                }
-                if (target.hasAttribute('data-im-meeting-copy')) {
-                    self.copyToClipboard(target.getAttribute('data-im-meeting-copy'));
-                    return;
-                }
-                if (target.hasAttribute('data-im-meeting-copy-link')) {
-                    self.copyToClipboard(target.getAttribute('data-im-meeting-copy-link'));
                     return;
                 }
             });

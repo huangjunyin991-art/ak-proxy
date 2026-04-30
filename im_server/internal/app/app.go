@@ -276,6 +276,7 @@ func New(cfg config.Config) (*App, error) {
 	mux.HandleFunc("/im/api/messages/read_progress", app.handleMessageReadProgress)
 	mux.HandleFunc("/im/api/messages/recall", app.handleRecallMessage)
 	mux.HandleFunc("/im/api/meetings", app.handleMeetings)
+	mux.HandleFunc("/im/api/meetings/join", app.handleMeetingJoin)
 	mux.HandleFunc("/im/api/meetings/preview", app.handleMeetingPreview)
 	mux.HandleFunc("/im/api/meetings/read", app.handleMeetingRead)
 	mux.HandleFunc("/im/api/meetings/delete", app.handleMeetingDelete)

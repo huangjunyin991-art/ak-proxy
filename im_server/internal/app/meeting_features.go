@@ -48,9 +48,19 @@ type MeetingItem struct {
 	Mtoken            string `json:"mtoken,omitempty"`
 	SenderUsername    string `json:"sender_username,omitempty"`
 	SenderDisplayName string `json:"sender_display_name,omitempty"`
+	SenderHonorName   string `json:"sender_honor_name,omitempty"`
 	GroupKey          string `json:"group_key,omitempty"`
 	CreatedAt         string `json:"created_at,omitempty"`
 	IsRead            bool   `json:"is_read"`
+}
+
+type MeetingPublicItem struct {
+	ID        int64  `json:"id"`
+	Subject   string `json:"subject"`
+	BeginTime string `json:"begin_time,omitempty"`
+	EndTime   string `json:"end_time,omitempty"`
+	CreatedAt string `json:"created_at,omitempty"`
+	IsRead    bool   `json:"is_read"`
 }
 
 // MeetingParsedInfo 是 /im/api/meetings/preview 返回的解析结果
@@ -285,6 +295,57 @@ type meetingPublishInput struct {
 	GroupKey          string
 }
 
+func (a *App) hydrateMeetingSenderIdentity(ctx context.Context, item MeetingItem) MeetingItem {
+	items := a.hydrateMeetingSenderIdentities(ctx, []MeetingItem{item})
+	if len(items) > 0 {
+		return items[0]
+	}
+	return item
+}
+
+func (a *App) hydrateMeetingSenderIdentities(ctx context.Context, items []MeetingItem) []MeetingItem {
+	senderUsernames := make([]string, 0, len(items))
+	for _, item := range items {
+		normalizedUsername := strings.ToLower(strings.TrimSpace(item.SenderUsername))
+		if normalizedUsername != "" {
+			senderUsernames = append(senderUsernames, normalizedUsername)
+		}
+	}
+	identities := a.buildUserIdentityItems(ctx, senderUsernames)
+	for index := range items {
+		normalizedUsername := strings.ToLower(strings.TrimSpace(items[index].SenderUsername))
+		if normalizedUsername == "" {
+			continue
+		}
+		identity, ok := identities[normalizedUsername]
+		if !ok {
+			identity = a.buildUserIdentityItem(ctx, normalizedUsername)
+		}
+		items[index].SenderDisplayName = identity.DisplayName
+		items[index].SenderHonorName = identity.HonorName
+	}
+	return items
+}
+
+func publicMeetingItem(item MeetingItem) MeetingPublicItem {
+	return MeetingPublicItem{
+		ID:        item.ID,
+		Subject:   item.Subject,
+		BeginTime: item.BeginTime,
+		EndTime:   item.EndTime,
+		CreatedAt: item.CreatedAt,
+		IsRead:    item.IsRead,
+	}
+}
+
+func publicMeetingItems(items []MeetingItem) []MeetingPublicItem {
+	publicItems := make([]MeetingPublicItem, 0, len(items))
+	for _, item := range items {
+		publicItems = append(publicItems, publicMeetingItem(item))
+	}
+	return publicItems
+}
+
 func (a *App) dbMeetingInsert(ctx context.Context, input meetingPublishInput) (MeetingItem, error) {
 	var item MeetingItem
 	var beginTime, endTime *time.Time
@@ -324,7 +385,7 @@ func (a *App) dbMeetingInsert(ctx context.Context, input meetingPublishInput) (M
 	item.SenderDisplayName = input.SenderDisplayName
 	item.GroupKey = input.GroupKey
 	item.CreatedAt = createdAt.UTC().Format(time.RFC3339)
-	return item, nil
+	return a.hydrateMeetingSenderIdentity(ctx, item), nil
 }
 
 func (a *App) dbMeetingList(ctx context.Context, viewer string, limit int) ([]MeetingItem, int, error) {
@@ -382,7 +443,10 @@ func (a *App) dbMeetingList(ctx context.Context, viewer string, limit int) ([]Me
 		}
 		items = append(items, m)
 	}
-	return items, unread, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, 0, err
+	}
+	return a.hydrateMeetingSenderIdentities(ctx, items), unread, nil
 }
 
 func (a *App) dbMeetingGet(ctx context.Context, id int64) (MeetingItem, error) {
@@ -410,7 +474,47 @@ func (a *App) dbMeetingGet(ctx context.Context, id int64) (MeetingItem, error) {
 	if createdAt != nil {
 		m.CreatedAt = createdAt.UTC().Format(time.RFC3339)
 	}
-	return m, nil
+	return a.hydrateMeetingSenderIdentity(ctx, m), nil
+}
+
+func (a *App) dbMeetingGetVisible(ctx context.Context, id int64, viewer string) (MeetingItem, error) {
+	var m MeetingItem
+	var beginTime, endTime, createdAt *time.Time
+	normalized := strings.ToLower(strings.TrimSpace(viewer))
+	err := a.db.QueryRow(ctx, `
+		SELECT m.id, m.url, m.short_id, m.meeting_code, m.subject,
+		       m.begin_time, m.end_time, m.creator_nickname, m.has_password,
+		       m.meeting_password, m.mtoken,
+		       m.sender_username, m.sender_display_name, m.group_key, m.created_at
+		FROM im_meetings m
+		WHERE m.id = $1
+		  AND (m.group_key = '' OR LOWER(m.group_key) IN (
+		         SELECT DISTINCT LOWER(c.conversation_key)
+		         FROM im_conversation c
+		         JOIN im_conversation_member cm ON cm.conversation_id = c.id AND cm.left_at IS NULL
+		         WHERE c.conversation_type = 'group'
+		           AND c.conversation_key LIKE 'group:admin_whitelist:%'
+		           AND c.deleted_at IS NULL
+		           AND LOWER(cm.username) = $2
+		      ))`, id, normalized).Scan(
+		&m.ID, &m.URL, &m.ShortID, &m.MeetingCode, &m.Subject,
+		&beginTime, &endTime, &m.CreatorNickname, &m.HasPassword,
+		&m.MeetingPassword, &m.Mtoken,
+		&m.SenderUsername, &m.SenderDisplayName, &m.GroupKey, &createdAt,
+	)
+	if err != nil {
+		return m, err
+	}
+	if beginTime != nil {
+		m.BeginTime = beginTime.UTC().Format(time.RFC3339)
+	}
+	if endTime != nil {
+		m.EndTime = endTime.UTC().Format(time.RFC3339)
+	}
+	if createdAt != nil {
+		m.CreatedAt = createdAt.UTC().Format(time.RFC3339)
+	}
+	return a.hydrateMeetingSenderIdentity(ctx, m), nil
 }
 
 func (a *App) dbMeetingDelete(ctx context.Context, id int64) error {
@@ -454,7 +558,7 @@ func (a *App) broadcastMeetingEvent(ctx context.Context, item MeetingItem, event
 	}
 	payload := map[string]any{
 		"type":    eventType,
-		"payload": item,
+		"payload": publicMeetingItem(item),
 	}
 	a.broadcastUsernames(memberSet, payload)
 }
@@ -510,17 +614,17 @@ func (a *App) handleMeetingPreview(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// meetingPublishRequest
+// has_password / short_id / mtoken 一律由后端对 url 重解析得出，前端传入无效；
+// 避免前端伪造 has_password=false 绕过密码必填的约束。
 type meetingPublishRequest struct {
 	URL             string `json:"url"`
-	ShortID         string `json:"short_id"`
 	MeetingCode     string `json:"meeting_code"`
 	Subject         string `json:"subject"`
 	BeginTime       string `json:"begin_time"`
 	EndTime         string `json:"end_time"`
 	CreatorNickname string `json:"creator_nickname"`
-	HasPassword     bool   `json:"has_password"`
 	MeetingPassword string `json:"meeting_password"`
-	Mtoken          string `json:"mtoken"`
 	GroupKey        string `json:"group_key"`
 }
 
@@ -557,10 +661,41 @@ func (a *App) handleMeetingList(w http.ResponseWriter, r *http.Request, username
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"success":      true,
-		"items":        items,
+		"items":        publicMeetingItems(items),
 		"unread_count": unread,
 		"can_publish":  canPublish,
 	})
+}
+
+func (a *App) handleMeetingJoin(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"error": true})
+		return
+	}
+	username, err := a.requireAllowedUser(r)
+	if err != nil {
+		writeJSON(w, http.StatusForbidden, map[string]any{"error": true, "message": err.Error()})
+		return
+	}
+	meetingID, err := strconv.ParseInt(strings.TrimSpace(r.URL.Query().Get("id")), 10, 64)
+	if err != nil || meetingID <= 0 {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": true, "message": "meeting_id required"})
+		return
+	}
+	meeting, err := a.dbMeetingGetVisible(r.Context(), meetingID, username)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			writeJSON(w, http.StatusNotFound, map[string]any{"error": true, "message": "会议不存在"})
+			return
+		}
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
+		return
+	}
+	if err := a.dbMeetingMarkRead(r.Context(), meeting.ID, username); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
+		return
+	}
+	http.Redirect(w, r, meeting.URL, http.StatusFound)
 }
 
 func (a *App) handleMeetingPublish(w http.ResponseWriter, r *http.Request, username string) {
@@ -593,15 +728,32 @@ func (a *App) handleMeetingPublish(w http.ResponseWriter, r *http.Request, usern
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": true, "message": "会议号不能为空"})
 		return
 	}
-	meetingPassword := strings.TrimSpace(req.MeetingPassword)
-	if req.HasPassword && meetingPassword == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"error": true, "message": "该会议需要密码，请输入入会密码"})
+	// 后端重新解析链接：has_password / mtoken / short_id 以腾讯落地页 __NEXT_DATA__ 为准（避免前端伪造）
+	info, perr := parseTencentMeetingShare(r.Context(), normalizedURL)
+	if perr != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": true, "message": "会议链接解析失败：" + perr.Error()})
 		return
 	}
-	shortID := strings.TrimSpace(req.ShortID)
+	hasPassword := info.HasPassword
+	meetingPassword := strings.TrimSpace(req.MeetingPassword)
+	if hasPassword && meetingPassword == "" {
+		// 二级请求信号：前端收到后在当前 modal 弹出入会密码卡片文本框，用户填入后再次提交
+		writeJSON(w, http.StatusOK, map[string]any{
+			"error":         true,
+			"need_password": true,
+			"message":       "此会议需要入会密码，请输入后重试",
+		})
+		return
+	}
+	if !hasPassword {
+		// 链接无需密码：忽略前端传的密码
+		meetingPassword = ""
+	}
+	shortID := info.ShortID
 	if shortID == "" {
 		shortID = extractTencentMeetingShortID(normalizedURL)
 	}
+	mtoken := strings.TrimSpace(info.Mtoken)
 	groupKey := strings.ToLower(strings.TrimSpace(req.GroupKey))
 	if groupKey != "" {
 		var ok bool
@@ -638,9 +790,9 @@ func (a *App) handleMeetingPublish(w http.ResponseWriter, r *http.Request, usern
 		BeginTime:         strings.TrimSpace(req.BeginTime),
 		EndTime:           strings.TrimSpace(req.EndTime),
 		CreatorNickname:   strings.TrimSpace(req.CreatorNickname),
-		HasPassword:       req.HasPassword,
+		HasPassword:       hasPassword,
 		MeetingPassword:   meetingPassword,
-		Mtoken:            strings.TrimSpace(req.Mtoken),
+		Mtoken:            mtoken,
 		SenderUsername:    strings.ToLower(strings.TrimSpace(username)),
 		SenderDisplayName: senderDisplay,
 		GroupKey:          groupKey,
@@ -660,7 +812,7 @@ func (a *App) handleMeetingPublish(w http.ResponseWriter, r *http.Request, usern
 		a.broadcastMeetingEvent(ctx, m, "im.meeting.created")
 	}(item)
 
-	writeJSON(w, http.StatusOK, map[string]any{"success": true, "item": item})
+	writeJSON(w, http.StatusOK, map[string]any{"success": true, "item": publicMeetingItem(item)})
 }
 
 type meetingReadRequest struct {
