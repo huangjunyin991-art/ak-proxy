@@ -16,6 +16,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
@@ -357,6 +358,24 @@ func publicMeetingItems(items []MeetingItem) []MeetingPublicItem {
 		publicItems = append(publicItems, publicMeetingItem(item))
 	}
 	return publicItems
+}
+
+func buildWemeetJoinURL(item MeetingItem) string {
+	meetingCode := strings.TrimSpace(item.MeetingCode)
+	if meetingCode == "" {
+		return ""
+	}
+	params := url.Values{}
+	params.Set("meeting_code", meetingCode)
+	if token := strings.TrimSpace(item.Mtoken); token != "" {
+		params.Set("token", token)
+	}
+	if item.HasPassword {
+		if password := strings.TrimSpace(item.MeetingPassword); password != "" {
+			params.Set("meeting_password", password)
+		}
+	}
+	return "wemeet://page/inmeeting?" + params.Encode()
 }
 
 func (a *App) dbMeetingInsert(ctx context.Context, input meetingPublishInput) (MeetingItem, error) {
@@ -708,8 +727,13 @@ func (a *App) handleMeetingJoin(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
 		return
 	}
-	log.Printf("im meeting join redirect: id=%d username=%s url=%s", meeting.ID, username, meeting.URL)
-	http.Redirect(w, r, meeting.URL, http.StatusFound)
+	joinURL := buildWemeetJoinURL(meeting)
+	if joinURL == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": true, "message": "会议号缺失，无法拉起腾讯会议"})
+		return
+	}
+	log.Printf("im meeting join app redirect: id=%d username=%s url=%s", meeting.ID, username, joinURL)
+	http.Redirect(w, r, joinURL, http.StatusFound)
 }
 
 func (a *App) handleMeetingPublish(w http.ResponseWriter, r *http.Request, username string) {
