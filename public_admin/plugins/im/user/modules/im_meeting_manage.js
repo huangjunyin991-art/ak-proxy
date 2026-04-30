@@ -282,7 +282,6 @@
                     form.creator_nickname = info.creator_nickname || '';
                     form.has_password = !!info.has_password;
                     form.mtoken = info.mtoken || '';
-                    if (info.url) form.url = info.url;
                     if (form.has_password) {
                         state.meetingsPasswordPromptOpen = true;
                         state.meetingsPasswordPromptError = '';
@@ -296,7 +295,6 @@
                     form.has_password = false;
                     form.parse_error = (data && data.error) ? String(data.error) : '解析失败，请手动填写会议信息';
                     if (data && data.short_id && !form.short_id) form.short_id = data.short_id;
-                    if (data && data.url) form.url = data.url;
                 }
                 self.renderPublishPage();
                 return null;

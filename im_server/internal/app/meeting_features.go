@@ -14,6 +14,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"regexp"
 	"strconv"
@@ -707,6 +708,7 @@ func (a *App) handleMeetingJoin(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
 		return
 	}
+	log.Printf("im meeting join redirect: id=%d username=%s url=%s", meeting.ID, username, meeting.URL)
 	http.Redirect(w, r, meeting.URL, http.StatusFound)
 }
 
@@ -725,6 +727,7 @@ func (a *App) handleMeetingPublish(w http.ResponseWriter, r *http.Request, usern
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": true, "message": "invalid payload"})
 		return
 	}
+	originalURL := strings.TrimSpace(req.URL)
 	normalizedURL := normalizeTencentMeetingURL(req.URL)
 	if normalizedURL == "" {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": true, "message": "会议链接不合法"})
@@ -795,7 +798,7 @@ func (a *App) handleMeetingPublish(w http.ResponseWriter, r *http.Request, usern
 	}
 	senderDisplay := a.fetchDisplayName(r.Context(), username)
 	item, err := a.dbMeetingInsert(r.Context(), meetingPublishInput{
-		URL:               normalizedURL,
+		URL:               originalURL,
 		ShortID:           shortID,
 		MeetingCode:       meetingCode,
 		Subject:           subject,
