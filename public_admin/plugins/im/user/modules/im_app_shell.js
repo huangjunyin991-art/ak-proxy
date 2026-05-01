@@ -313,7 +313,7 @@
                 #ak-im-root .ak-im-message-row.ak-self{flex-direction:row-reverse}
                 #ak-im-root .ak-im-avatar{width:34px;height:34px;border-radius:10px;background:#d1d5db;color:#374151;display:inline-flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;flex:0 0 auto}
                 #ak-im-root .ak-im-message-row.ak-self .ak-im-avatar{background:#7fd88a;color:#ffffff}
-                #ak-im-root .ak-im-message-main{display:flex;flex-direction:column;max-width:min(78%, 420px)}
+                #ak-im-root .ak-im-message-main{display:flex;flex-direction:column;align-items:flex-start;max-width:min(78%, 420px)}
                 #ak-im-root .ak-im-message-row.ak-self .ak-im-message-main{align-items:flex-end}
                 #ak-im-root .ak-im-message-sender{margin-bottom:4px;padding:0 2px;font-size:11px;color:#6b7280;line-height:1.4;display:flex;align-items:center;min-width:0}
                 #ak-im-root .ak-im-bubble{padding:10px 12px;border-radius:8px;background:#ffffff;color:#111827;word-break:break-word;white-space:pre-wrap;box-shadow:0 1px 1px rgba(15,23,42,.04);font-size:15px;line-height:1.45}

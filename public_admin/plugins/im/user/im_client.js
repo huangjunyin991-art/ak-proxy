@@ -3661,6 +3661,49 @@
             '<div class="ak-im-contact-body"><div class="ak-im-contact-name">' + buildDisplayNameWithHonorMarkup(displayName, honorName, '联系人') + '</div><div class="ak-im-contact-meta">@' + escapeHtml(username || 'unknown') + '</div></div>';
     }
 
+    function bindContactItemAction(node, contact, options) {
+        const username = getContactUsername(contact);
+        if (!node || !username) return;
+        const shouldCloseSearch = !!(options && options.closeSearch);
+        let pressTimer = 0;
+        let didOpenActionSheet = false;
+        const cancelPress = function() {
+            if (!pressTimer) return;
+            clearTimeout(pressTimer);
+            pressTimer = 0;
+        };
+        const openActionSheet = function() {
+            cancelPress();
+            didOpenActionSheet = true;
+            if (shouldCloseSearch) {
+                closeContactSearch({ silent: true });
+            }
+            openContactActionSheet(contact, 'contact_blacklist_add');
+        };
+        node.addEventListener('click', function() {
+            if (didOpenActionSheet) {
+                didOpenActionSheet = false;
+                return;
+            }
+            if (shouldCloseSearch) {
+                closeContactSearch({ silent: true });
+            }
+            openDirectConversation(username);
+        });
+        node.addEventListener('pointerdown', function(event) {
+            if (event && typeof event.button === 'number' && event.button !== 0) return;
+            cancelPress();
+            pressTimer = setTimeout(openActionSheet, 420);
+        });
+        node.addEventListener('pointerup', cancelPress);
+        node.addEventListener('pointercancel', cancelPress);
+        node.addEventListener('pointerleave', cancelPress);
+        node.addEventListener('contextmenu', function(event) {
+            event.preventDefault();
+            openActionSheet();
+        });
+    }
+
     function matchContactSearch(contact, keyword) {
         const normalizedKeyword = String(keyword || '').trim().toLowerCase();
         if (!normalizedKeyword) return false;
@@ -3718,10 +3761,7 @@
             node.type = 'button';
             node.className = 'ak-im-contact-item';
             node.innerHTML = buildContactItemInnerMarkup(contact);
-            node.addEventListener('click', function() {
-                closeContactSearch({ silent: true });
-                openDirectConversation(username);
-            });
+            bindContactItemAction(node, contact, { closeSearch: true });
             listEl.appendChild(node);
         });
     }
@@ -3755,9 +3795,7 @@
             node.type = 'button';
             node.className = 'ak-im-contact-item';
             node.innerHTML = buildContactItemInnerMarkup(contact);
-            node.addEventListener('click', function() {
-                openDirectConversation(username);
-            });
+            bindContactItemAction(node, contact);
             contactsListEl.appendChild(node);
         });
     }
