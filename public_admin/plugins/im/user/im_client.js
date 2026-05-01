@@ -218,7 +218,13 @@
         dialogShowCancel: true,
         dialogAction: '',
         dialogSubmitting: false,
-        dialogPayload: null
+        dialogPayload: null,
+        externalPageOpen: false,
+        externalPageProvider: '',
+        externalPageTitle: '',
+        externalPageReturnView: 'sessions',
+        externalPageReturnHomeTab: 'chats',
+        externalPagePayload: null
     };
 
     let root = null;
@@ -277,6 +283,8 @@
     let meetingPublishBodyEl = null;
     let meetingPublishFooterEl = null;
     let meetingJoinBodyEl = null;
+    let externalPageTitleEl = null;
+    let externalPageBodyEl = null;
     let dialogEl = null;
     let dialogTitleEl = null;
     let dialogMessageEl = null;
@@ -352,6 +360,8 @@
         meetingPublishBodyEl = nextElements.meetingPublishBodyEl || null;
         meetingPublishFooterEl = nextElements.meetingPublishFooterEl || null;
         meetingJoinBodyEl = nextElements.meetingJoinBodyEl || null;
+        externalPageTitleEl = nextElements.externalPageTitleEl || null;
+        externalPageBodyEl = nextElements.externalPageBodyEl || null;
         dialogEl = nextElements.dialogEl || null;
         dialogTitleEl = nextElements.dialogTitleEl || null;
         dialogMessageEl = nextElements.dialogMessageEl || null;
@@ -426,6 +436,8 @@
             meetingPublishBodyEl: null,
             meetingPublishFooterEl: null,
             meetingJoinBodyEl: null,
+            externalPageTitleEl: null,
+            externalPageBodyEl: null,
             dialogEl: null,
             dialogTitleEl: null,
             dialogMessageEl: null,
@@ -548,6 +560,7 @@
         initMessageManageModule();
         initSessionManageModule();
         initOverlayModule();
+        initExternalPageModule();
         initMeetingManageModule();
     }
 
@@ -572,6 +585,7 @@
         closeGroupCreatePage({ silent: true });
         closeGroupTitleEditPage({ silent: true });
         closeGroupAdminsPage({ silent: true });
+        closeExternalPage({ silent: true });
         state.contactSearchKeyword = '';
         state.composerMode = 'text';
         state.voiceHoldState = 'idle';
@@ -923,6 +937,51 @@
         render();
     }
 
+    function getExternalPageModule() {
+        const modules = window.AKIMUserModules;
+        if (!modules || typeof modules !== 'object') return null;
+        const externalPageModule = modules.externalPage;
+        if (!externalPageModule || typeof externalPageModule.init !== 'function') return null;
+        return externalPageModule;
+    }
+
+    function initExternalPageModule() {
+        const externalPageModule = getExternalPageModule();
+        if (!externalPageModule) return;
+        externalPageModule.init({
+            state: state,
+            get elements() {
+                return {
+                    externalPageTitleEl: externalPageTitleEl,
+                    externalPageBodyEl: externalPageBodyEl
+                };
+            },
+            render: render,
+            escapeHtml: escapeHtml
+        });
+    }
+
+    function openExternalPage(options) {
+        const externalPageModule = getExternalPageModule();
+        if (!externalPageModule || typeof externalPageModule.open !== 'function') return false;
+        return !!externalPageModule.open(options || {});
+    }
+
+    function closeExternalPage(options) {
+        const silent = !!(options && options.silent);
+        if (state.view === 'external_page') {
+            state.view = state.externalPageReturnView || 'sessions';
+            state.homeTab = state.externalPageReturnHomeTab || state.homeTab;
+        }
+        state.externalPageOpen = false;
+        state.externalPageProvider = '';
+        state.externalPageTitle = '';
+        state.externalPageReturnView = 'sessions';
+        state.externalPageReturnHomeTab = 'chats';
+        state.externalPagePayload = null;
+        if (!silent) render();
+    }
+
     function handleHomeAddMenuAction(action) {
         const actionKey = String(action || '').trim().toLowerCase();
         if (!actionKey) return;
@@ -1156,7 +1215,8 @@
             onGroupTitleEditSubmitClick: submitGroupTitleEditPage,
             onGroupAdminsBackClick: closeGroupAdminsPage,
             onMeetingPublishBackClick: closeMeetingPublishPage,
-            onMeetingJoinBackClick: closeMeetingJoinPage
+            onMeetingJoinBackClick: closeMeetingJoinPage,
+            onExternalPageBackClick: closeExternalPage
         });
     }
 
@@ -1228,6 +1288,7 @@
             render: render,
             escapeHtml: escapeHtml,
             buildDisplayNameWithHonorMarkup: buildDisplayNameWithHonorMarkup,
+            openExternalPage: openExternalPage,
             getRoot: function() { return root; }
         });
     }
@@ -3217,13 +3278,14 @@
         const showGroupTitleEdit = state.view === 'group_title_edit';
         const showMeetingPublish = state.view === 'meeting_publish' && !!state.meetingsPublishOpen;
         const showMeetingJoin = state.view === 'meeting_join' && !!state.meetingsJoinOpen;
+        const showExternalPage = state.view === 'external_page' && !!state.externalPageOpen;
         const showContactSearch = state.view === 'contact_search';
         const showHomeTopActions = isHomeTopActionTab(homeTab) && !showContactSearch;
         state.homeTab = homeTab;
         return {
             allowed: !!state.allowed,
             open: !!state.open,
-            showSessions: !showChat && !showCompose && !showGroupInfo && !showMemberAction && !showGroupAdmins && !showProfileSubpage && !showGroupCreate && !showGroupTitleEdit && !showMeetingPublish && !showMeetingJoin,
+            showSessions: !showChat && !showCompose && !showGroupInfo && !showMemberAction && !showGroupAdmins && !showProfileSubpage && !showGroupCreate && !showGroupTitleEdit && !showMeetingPublish && !showMeetingJoin && !showExternalPage,
             showChat: !!showChat,
             showCompose: !!showCompose,
             showGroupInfo: !!showGroupInfo,
@@ -3234,6 +3296,7 @@
             showGroupTitleEdit: !!showGroupTitleEdit,
             showMeetingPublish: !!showMeetingPublish,
             showMeetingJoin: !!showMeetingJoin,
+            showExternalPage: !!showExternalPage,
             showContactSearch: !!showContactSearch,
             hasUnread: hasUnreadSessions(),
             chatUnread: getUnreadSessionTotal(),
@@ -3241,7 +3304,7 @@
             homeTabTitle: getHomeTabTitle(homeTab),
             showSessionNewButton: false,
             showHomeTopActions: showHomeTopActions,
-            showHomeAddMenu: showHomeTopActions && !showChat && !showCompose && !showGroupInfo && !showMemberAction && !showGroupAdmins && !showProfileSubpage && !showGroupCreate && !showGroupTitleEdit && !showMeetingPublish && !showMeetingJoin && !!state.homeAddMenuOpen,
+            showHomeAddMenu: showHomeTopActions && !showChat && !showCompose && !showGroupInfo && !showMemberAction && !showGroupAdmins && !showProfileSubpage && !showGroupCreate && !showGroupTitleEdit && !showMeetingPublish && !showMeetingJoin && !showExternalPage && !!state.homeAddMenuOpen,
             canAddFriend: !!state.canAddFriend,
             searchPillText: getHomeSearchPillText(homeTab),
             contactSearchKeyword: state.contactSearchKeyword,
@@ -3808,6 +3871,7 @@
             root.classList.toggle('ak-view-group-title-edit', !!shellState.showGroupTitleEdit);
             root.classList.toggle('ak-view-meeting-publish', !!shellState.showMeetingPublish);
             root.classList.toggle('ak-view-meeting-join', !!shellState.showMeetingJoin);
+            root.classList.toggle('ak-view-external-page', !!shellState.showExternalPage);
             const launcherEl = root.querySelector('.ak-im-launcher');
             if (launcherEl) {
                 launcherEl.classList.toggle('is-open', !!shellState.open);
@@ -3834,10 +3898,20 @@
         renderGroupAdminsPage();
         renderGroupCreatePage();
         renderGroupTitleEditPage();
+        renderExternalPage();
 	    renderDialog();
         renderComposeView();
         if (state.open && state.view === 'compose') focusComposeInput();
 	    if (state.open && shellState.showMemberAction) focusMemberActionSearch();
+    }
+
+    function renderExternalPage() {
+        const externalPageModule = getExternalPageModule();
+        if (externalPageModule && typeof externalPageModule.render === 'function') {
+            externalPageModule.render();
+            return;
+        }
+        if (externalPageBodyEl) externalPageBodyEl.innerHTML = '';
     }
 
     function renderGroupAdminsPage() {

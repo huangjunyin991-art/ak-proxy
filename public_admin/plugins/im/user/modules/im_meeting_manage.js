@@ -491,64 +491,23 @@
             this.renderJoinPage();
         },
 
-        getDeviceKind() {
-            const ua = String(navigator.userAgent || '').toLowerCase();
-            const platform = String(navigator.platform || '').toLowerCase();
-            const maxTouchPoints = Number(navigator.maxTouchPoints || 0);
-            if (/iphone|ipad|ipod/.test(ua) || (platform === 'macintel' && maxTouchPoints > 1)) return 'ios';
-            if (/android/.test(ua)) return 'android';
-            if (/win/.test(platform)) return 'windows';
-            return 'desktop';
-        },
-
-        getMeetingDownloadConfig() {
-            const kind = this.getDeviceKind();
-            if (kind === 'ios') {
-                return {
-                    kind: kind,
-                    label: '前往 App Store 安装腾讯会议',
-                    primaryURL: 'itms-apps://apps.apple.com/cn/app/id1484048379',
-                    fallbackURL: 'https://apps.apple.com/cn/app/id1484048379'
-                };
-            }
-            if (kind === 'android') {
-                return {
-                    kind: kind,
-                    label: '前往应用商店安装腾讯会议',
-                    primaryURL: 'market://details?id=com.tencent.wemeet.app',
-                    fallbackURL: 'https://ulink.meeting.tencent.com/download/'
-                };
-            }
-            if (kind === 'windows') {
-                return {
-                    kind: kind,
-                    label: '下载安装腾讯会议',
-                    primaryURL: 'https://meeting.tencent.com/download-win.html',
-                    fallbackURL: 'https://meeting.tencent.com/download/'
-                };
-            }
-            return {
-                kind: kind,
-                label: '下载安装腾讯会议',
-                primaryURL: 'https://meeting.tencent.com/download/',
-                fallbackURL: 'https://meeting.tencent.com/download/'
-            };
-        },
-
         openMeetingDownload() {
-            const config = this.getMeetingDownloadConfig();
-            const startedAt = Date.now();
-            try {
-                window.location.href = config.primaryURL;
-            } catch (e) {}
-            if (config.fallbackURL && config.fallbackURL !== config.primaryURL) {
-                setTimeout(function() {
-                    if (document.hidden || Date.now() - startedAt < 1200) return;
-                    try {
-                        window.location.href = config.fallbackURL;
-                    } catch (e) {}
-                }, 1500);
+            const state = this.getState();
+            if (this.ctx && typeof this.ctx.openExternalPage === 'function') {
+                const opened = this.ctx.openExternalPage({
+                    provider: 'tencent_meeting_download',
+                    title: '安装腾讯会议',
+                    returnView: 'meeting_join',
+                    returnHomeTab: 'meetings',
+                    payload: {
+                        meeting: state && state.meetingsJoinItem ? state.meetingsJoinItem : null
+                    }
+                });
+                if (opened) return;
             }
+            try {
+                window.location.href = 'https://meeting.tencent.com/download/';
+            } catch (e) {}
         },
 
         // ============================ WebSocket 事件 ============================
@@ -751,14 +710,13 @@
             }
             const retryDisabled = loading || !state.meetingsJoinURL ? ' disabled' : '';
             const installBlock = error ? `<div class="ak-im-meeting-join-install">${esc(error)}</div>` : '';
-            const downloadConfig = this.getMeetingDownloadConfig();
             body.innerHTML = `
                 <section class="ak-im-meeting-join-card">
                     <div class="ak-im-meeting-join-title">${esc(title)}</div>
                     <div class="ak-im-meeting-join-status">${esc(status)}</div>
                     <div class="ak-im-meeting-join-actions">
                         <button type="button" class="ak-im-meeting-join-primary" data-im-meeting-reopen="1"${retryDisabled}>重新打开腾讯会议</button>
-                        <button type="button" class="ak-im-meeting-join-download" data-im-meeting-download="1">${esc(downloadConfig.label)}</button>
+                        <button type="button" class="ak-im-meeting-join-download" data-im-meeting-download="1">安装腾讯会议</button>
                     </div>
                     ${installBlock}
                     <div class="ak-im-meeting-join-tip">若 Edge 弹出确认框，可点击“打开外部应用”进入腾讯会议，可勾选“记住我的选择”以避免后续重复确认。</div>

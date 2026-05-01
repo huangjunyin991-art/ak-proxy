@@ -40,6 +40,7 @@
                 #ak-im-root.ak-view-group-title-edit .ak-im-group-title-edit-screen{display:flex}
                 #ak-im-root.ak-view-meeting-publish .ak-im-meeting-publish-screen{display:flex}
                 #ak-im-root.ak-view-meeting-join .ak-im-meeting-join-screen{display:flex}
+                #ak-im-root.ak-view-external-page .ak-im-external-page-screen{display:flex}
                 #ak-im-root .ak-im-topbar{height:calc(56px + env(safe-area-inset-top, 0px));padding:calc(env(safe-area-inset-top, 0px) + 8px) 12px 8px;display:grid;grid-template-columns:52px 1fr 52px;align-items:center;background:#ededed;border-bottom:1px solid rgba(15,23,42,.06);box-sizing:border-box}
                 #ak-im-root .ak-im-session-screen .ak-im-topbar{grid-template-columns:80px minmax(0,1fr) 80px;column-gap:8px}
                 #ak-im-root .ak-im-topbar-title,#ak-im-root .ak-im-topbar-title-wrap{text-align:center;min-width:0}
@@ -277,6 +278,17 @@
                 #ak-im-root .ak-im-meeting-join-download{background:#1677ff}
                 #ak-im-root .ak-im-meeting-join-install{padding:11px 12px;border-radius:14px;background:#fff7ed;color:#9a3412;font-size:13px;line-height:1.7}
                 #ak-im-root .ak-im-meeting-join-tip{padding:0 4px;font-size:12px;line-height:1.6;color:#9ca3af}
+                #ak-im-root .ak-im-external-page-screen{background:#ededed}
+                #ak-im-root .ak-im-external-page{flex:1;min-height:0;overflow:auto;padding:12px 12px calc(16px + env(safe-area-inset-bottom, 0px));background:#f7f7f7}
+                #ak-im-root .ak-im-external-card{background:#ffffff;border-radius:18px;padding:18px 14px;display:flex;flex-direction:column;gap:12px;box-shadow:0 1px 2px rgba(15,23,42,.04)}
+                #ak-im-root .ak-im-external-eyebrow{font-size:12px;font-weight:700;color:#07c160;letter-spacing:.02em;line-height:1.4}
+                #ak-im-root .ak-im-external-heading{font-size:18px;font-weight:700;color:#111827;line-height:1.4}
+                #ak-im-root .ak-im-external-desc{font-size:14px;color:#4b5563;line-height:1.7}
+                #ak-im-root .ak-im-external-actions{display:flex;flex-direction:column;gap:10px;margin-top:2px}
+                #ak-im-root .ak-im-external-action{height:42px;border:none;border-radius:12px;font-size:15px;font-weight:700;display:flex;align-items:center;justify-content:center;box-sizing:border-box;cursor:pointer}
+                #ak-im-root .ak-im-external-action.primary{background:#1677ff;color:#ffffff}
+                #ak-im-root .ak-im-external-action.secondary{background:#eef2ff;color:#1d4ed8}
+                #ak-im-root .ak-im-external-tips{display:flex;flex-direction:column;gap:6px;padding:11px 12px;border-radius:14px;background:#f8fafc;color:#6b7280;font-size:12px;line-height:1.6}
                 #ak-im-root .ak-im-meeting-password-card{background:#ffffff;border-radius:18px;padding:14px;display:flex;flex-direction:column;gap:10px;box-shadow:0 1px 2px rgba(15,23,42,.04)}
                 #ak-im-root .ak-im-meeting-password-title{font-weight:600;font-size:15px;color:#111827}
                 #ak-im-root .ak-im-meeting-password-desc{font-size:12px;color:#6b7280;line-height:1.6}
@@ -851,6 +863,16 @@
                     </div>
                     <div class="ak-im-meeting-join-page"></div>
                 </div>
+                <div class="ak-im-screen ak-im-external-page-screen">
+                    <div class="ak-im-topbar">
+                        <button class="ak-im-nav-btn ak-im-external-page-back" type="button" aria-label="返回上一页">
+                            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M15 18L9 12L15 6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                        </button>
+                        <div class="ak-im-topbar-title ak-im-external-page-title">外部页面</div>
+                        <div class="ak-im-group-info-side" aria-hidden="true"></div>
+                    </div>
+                    <div class="ak-im-external-page"></div>
+                </div>
                 <div class="ak-im-screen ak-im-profile-subpage-screen">
                     <div class="ak-im-topbar">
                         <button class="ak-im-nav-btn ak-im-profile-subpage-back" type="button" aria-label="返回个人页">
@@ -959,6 +981,9 @@
                 meetingPublishFooterEl: root ? root.querySelector('.ak-im-meeting-publish-footer') : null,
                 meetingJoinBackBtnEl: root ? root.querySelector('.ak-im-meeting-join-back') : null,
                 meetingJoinBodyEl: root ? root.querySelector('.ak-im-meeting-join-page') : null,
+                externalPageBackBtnEl: root ? root.querySelector('.ak-im-external-page-back') : null,
+                externalPageTitleEl: root ? root.querySelector('.ak-im-external-page-title') : null,
+                externalPageBodyEl: root ? root.querySelector('.ak-im-external-page') : null,
                 dialogEl: root ? root.querySelector('.ak-im-dialog') : null,
                 dialogTitleEl: root ? root.querySelector('.ak-im-dialog-title') : null,
                 dialogMessageEl: root ? root.querySelector('.ak-im-dialog-message') : null,
@@ -1184,6 +1209,9 @@
             bindClick(elements.meetingJoinBackBtnEl, function() {
                 if (typeof ctx.onMeetingJoinBackClick === 'function') ctx.onMeetingJoinBackClick();
             });
+            bindClick(elements.externalPageBackBtnEl, function() {
+                if (typeof ctx.onExternalPageBackClick === 'function') ctx.onExternalPageBackClick();
+            });
             if (elements.groupTitleEditInputEl) {
                 elements.groupTitleEditInputEl.addEventListener('input', function() {
                     if (typeof ctx.onGroupTitleEditInput === 'function') {
@@ -1221,6 +1249,7 @@
             root.classList.toggle('ak-view-group-title-edit', !!nextShellState.showGroupTitleEdit);
             root.classList.toggle('ak-view-meeting-publish', !!nextShellState.showMeetingPublish);
             root.classList.toggle('ak-view-meeting-join', !!nextShellState.showMeetingJoin);
+            root.classList.toggle('ak-view-external-page', !!nextShellState.showExternalPage);
             root.classList.toggle('ak-contact-search-open', !!nextShellState.showContactSearch);
             if (this.elements.launcherEl) {
                 this.elements.launcherEl.classList.toggle('is-open', !!nextShellState.open);

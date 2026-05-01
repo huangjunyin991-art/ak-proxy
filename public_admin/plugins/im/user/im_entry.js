@@ -34,6 +34,11 @@
             src: `${window.location.origin}/chat/plugins/im/user/modules/im_meeting_manage.js`
         },
         {
+            selector: 'script[data-ak-im-user-plugin-external-page="1"]',
+            datasetKey: 'akImUserPluginExternalPage',
+            src: `${window.location.origin}/chat/plugins/im/user/modules/external_page/im_external_page.js`
+        },
+        {
             selector: 'script[data-ak-im-user-plugin-overlay="1"]',
             datasetKey: 'akImUserPluginOverlay',
             src: `${window.location.origin}/chat/plugins/im/user/modules/im_overlay.js`
