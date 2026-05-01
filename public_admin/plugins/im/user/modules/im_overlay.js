@@ -607,6 +607,7 @@
                     '<div class="ak-im-member-action-main"><div class="ak-im-member-action-name">' + candidateNameMarkup + '</div>' +
                     '<div class="ak-im-member-action-meta"><span>@' + escapeHtml(candidate.username || 'unknown') + '</span>' +
                     (candidate.roleLabel ? '<span class="ak-im-member-action-role">' + escapeHtml(candidate.roleLabel) + '</span>' : '') +
+                    (candidate.messageCountLabel ? '<span class="ak-im-member-action-count">' + escapeHtml(candidate.messageCountLabel) + '</span>' : '') +
                     (candidate.disabledReason ? '<span class="ak-im-member-action-reason' + reasonClass + '">' + escapeHtml(candidate.disabledReason) + '</span>' : '') +
                     '</div></div>' +
                     '<span class="ak-im-member-action-check' + (candidate.selectable ? (isSelected ? ' is-selected' : '') : ' is-disabled') + '">' + (isSelected ? '✓' : '') + '</span>' +

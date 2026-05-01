@@ -70,6 +70,7 @@ type SessionMemberItem struct {
 	AvatarURL   string `json:"avatar_url,omitempty"`
 	Role        string `json:"role,omitempty"`
 	MutedUntil  string `json:"muted_until,omitempty"`
+	MessageCount int64  `json:"message_count,omitempty"`
 }
 
 type SessionMembersItem struct {
@@ -602,21 +603,21 @@ func (a *App) buildConversationGroupProfileItem(ctx context.Context, conversatio
 
 func (a *App) loadConversationMessageAuthors(ctx context.Context, conversationID int64, purgedBeforeSeqNo int64) ([]SessionMemberItem, error) {
 	rows, err := a.db.Query(ctx, `
-		SELECT sender_username
-		FROM (
-			SELECT DISTINCT sender_username
-			FROM im_message
-			WHERE conversation_id = $1 AND deleted_at IS NULL AND seq_no > $2
-		) authors
+		SELECT sender_username, COUNT(*) AS message_count
+		FROM im_message
+		WHERE conversation_id = $1 AND deleted_at IS NULL AND seq_no > $2
+		GROUP BY sender_username
 		ORDER BY LOWER(sender_username) ASC, sender_username ASC`, conversationID, purgedBeforeSeqNo)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	authorUsernames := make([]string, 0)
+	messageCounts := map[string]int64{}
 	for rows.Next() {
 		var username string
-		if err := rows.Scan(&username); err != nil {
+		var messageCount int64
+		if err := rows.Scan(&username, &messageCount); err != nil {
 			return nil, err
 		}
 		normalizedUsername := strings.ToLower(strings.TrimSpace(username))
@@ -624,6 +625,7 @@ func (a *App) loadConversationMessageAuthors(ctx context.Context, conversationID
 			continue
 		}
 		authorUsernames = append(authorUsernames, normalizedUsername)
+		messageCounts[normalizedUsername] = messageCount
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -635,7 +637,9 @@ func (a *App) loadConversationMessageAuthors(ctx context.Context, conversationID
 		if !ok {
 			identity = a.buildUserIdentityItem(ctx, normalizedUsername)
 		}
-		items = append(items, buildSessionMemberItemFromIdentity(identity, ""))
+		item := buildSessionMemberItemFromIdentity(identity, "")
+		item.MessageCount = messageCounts[normalizedUsername]
+		items = append(items, item)
 	}
 	sort.Slice(items, func(left int, right int) bool {
 		leftName := strings.TrimSpace(items[left].DisplayName)

@@ -172,14 +172,20 @@
             const members = this.ctx.sortGroupMembersForDisplay(Array.isArray(detail && detail.members) ? detail.members : []);
             const myRole = String(detail && detail.my_role || '').trim().toLowerCase();
             const authorSet = {};
+            const authorMessageCounts = {};
             (Array.isArray(detail && detail.message_authors) ? detail.message_authors : []).forEach(function(item) {
                 const username = String(item && item.username || '').trim().toLowerCase();
-                if (username) authorSet[username] = true;
+                if (username) {
+                    authorSet[username] = true;
+                    authorMessageCounts[username] = Math.max(0, Number(item && item.message_count || 0) || 0);
+                }
             });
             return members.map(function(member) {
                 const username = String(member && member.username || '').trim().toLowerCase();
                 const displayName = self.getMemberDisplayName(member, '成员');
                 const role = String(member && member.role || '').trim().toLowerCase();
+                const messageCount = authorMessageCounts[username] || 0;
+                const messageCountLabel = mode === 'clear_member_history' && messageCount > 0 ? (messageCount + '条聊天记录') : '';
                 let disabledReason = '';
                 if (!username) {
                     disabledReason = '账号无效';
@@ -196,9 +202,11 @@
                     avatarUrl: typeof self.ctx.getAvatarUrl === 'function' ? self.ctx.getAvatarUrl(member && member.avatar_url) : String(member && member.avatar_url || ''),
                     role: role,
                     roleLabel: self.getGroupMemberRoleLabel(role),
+                    messageCount: messageCount,
+                    messageCountLabel: messageCountLabel,
                     disabledReason: disabledReason,
                     selectable: !disabledReason,
-                    searchText: (displayName + '\n' + username + '\n' + self.getMemberHonorName(member)).toLowerCase()
+                    searchText: (displayName + '\n' + username + '\n' + self.getMemberHonorName(member) + '\n' + messageCountLabel).toLowerCase()
                 };
             });
         },
