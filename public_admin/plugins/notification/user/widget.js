@@ -1,6 +1,21 @@
 (function() {
     'use strict';
 
+    const existingRoot = document.getElementById('ak-notification-widget-root');
+    if (existingRoot && existingRoot.parentNode) existingRoot.parentNode.removeChild(existingRoot);
+    const existingStyle = document.getElementById('ak-notification-widget-style');
+    if (existingStyle && existingStyle.parentNode) existingStyle.parentNode.removeChild(existingStyle);
+    window.AKNotificationWidgetLoaded = true;
+    window.AKNotificationWidget = {
+        requestSnapshot: function() { return false; },
+        open: function() {},
+        close: function() {},
+        getState: function() {
+            return { items: [], unreadCount: 0, open: false, mounted: false, ready: false };
+        }
+    };
+    return;
+
     if (window.AKNotificationWidgetLoaded) return;
     window.AKNotificationWidgetLoaded = true;
 

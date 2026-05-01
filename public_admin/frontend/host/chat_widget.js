@@ -431,7 +431,6 @@
             return String(url || '');
         }
     }
-    const NOTIFICATION_WIDGET_URL = withWidgetAssetVersion(`${window.location.origin}/chat/notification-widget.js`);
     const IM_PLUGIN_ENTRY_URL = withWidgetAssetVersion(`${window.location.origin}/chat/plugins/im/user/im_entry.js`);
     const HEARTBEAT_INTERVAL = 5000; // 5秒心跳间隔
     
@@ -1238,13 +1237,10 @@
 
     function ensureNotificationWidget() {
         try {
-            if (window.AKNotificationWidgetLoaded) return;
-            if (document.querySelector('script[data-ak-notification-widget="1"]')) return;
-            const script = document.createElement('script');
-            script.src = NOTIFICATION_WIDGET_URL;
-            script.async = true;
-            script.dataset.akNotificationWidget = '1';
-            document.head.appendChild(script);
+            const root = document.getElementById('ak-notification-widget-root');
+            if (root && root.parentNode) root.parentNode.removeChild(root);
+            const style = document.getElementById('ak-notification-widget-style');
+            if (style && style.parentNode) style.parentNode.removeChild(style);
         } catch(e) {}
     }
 
