@@ -8540,6 +8540,15 @@ async def im_user_plugin_meeting_manage_module_js(request: Request):
     return _build_widget_script_response(request, js_path)
 
 
+@app.get("/chat/plugins/im/user/modules/im_meeting_join_bridge.js")
+
+async def im_user_plugin_meeting_join_bridge_module_js(request: Request):
+
+    js_path = os.path.join(PLUGINS_DIR, "im", "user", "modules", "im_meeting_join_bridge.js")
+
+    return _build_widget_script_response(request, js_path)
+
+
 @app.get("/admin/api/notification-panel.js")
 
 async def notification_admin_panel_js():
