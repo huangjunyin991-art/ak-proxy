@@ -546,6 +546,7 @@
             }
             const actions = [];
             const targetUsername = this.normalizeUsername(member.username);
+            actions.push({ key: 'member_mention', label: '@' + this.getMemberDisplayName(member, targetUsername) });
             if (detail.can_manage_admins && this.getMemberRole(member) !== 'owner') {
                 if (this.getMemberRole(member) === 'admin') actions.push({ key: 'admin_revoke', label: '降级', danger: true });
                 else actions.push({ key: 'admin_assign', label: '任命管理员', primary: true });
@@ -560,6 +561,7 @@
                 return;
             }
             this.actionContext = { type: 'member', conversationId: targetConversationId || Number(detail.conversation_id || state.groupSettingsConversationId || 0), username: targetUsername };
+            this.actionContext.mentionLabel = this.getMemberDisplayName(member, targetUsername);
             state.actionSheetMode = 'group_member';
             state.actionSheetOpen = true;
             state.actionSheetConversationId = this.actionContext.conversationId;
@@ -594,6 +596,12 @@
                 const context = this.actionContext;
                 if (this.ctx && typeof this.ctx.closeActionSheet === 'function') this.ctx.closeActionSheet();
                 this.toggleAllMute(context.conversationId, context.enabled);
+                return;
+            }
+            if (action === 'member_mention') {
+                const context = this.actionContext;
+                if (this.ctx && typeof this.ctx.closeActionSheet === 'function') this.ctx.closeActionSheet();
+                this.mentionMember(context.conversationId, context.username, context.mentionLabel);
                 return;
             }
             if (action === 'admin_assign') {
@@ -634,6 +642,24 @@
 
         removeMember(conversationId, username) {
             this.executeMemberRequest('/sessions/members/remove', conversationId, { usernames: [username] }, '移除成员失败');
+        },
+
+        mentionMember(conversationId, username, label) {
+            const state = this.getState();
+            const targetConversationId = Number(conversationId || state && state.activeConversationId || 0);
+            if (!state || !targetConversationId || targetConversationId !== Number(state.activeConversationId || 0)) return;
+            const mentionManage = this.ctx && typeof this.ctx.getMentionManage === 'function' ? this.ctx.getMentionManage() : null;
+            if (mentionManage && typeof mentionManage.mentionUserFromAction === 'function') {
+                mentionManage.mentionUserFromAction(username, label);
+                return;
+            }
+            if (this.ctx && typeof this.ctx.ensureMentionManage === 'function') {
+                this.ctx.ensureMentionManage().then(function(nextMentionManage) {
+                    if (nextMentionManage && typeof nextMentionManage.mentionUserFromAction === 'function') {
+                        nextMentionManage.mentionUserFromAction(username, label);
+                    }
+                });
+            }
         },
 
         muteMember(conversationId, username, durationSeconds) {

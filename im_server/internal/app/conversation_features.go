@@ -1314,6 +1314,26 @@ func (a *App) handleSessionMembersRemove(w http.ResponseWriter, r *http.Request)
 			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
 			return
 		}
+		cleanupTx, err := a.db.Begin(r.Context())
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
+			return
+		}
+		defer cleanupTx.Rollback(r.Context())
+		affectedUsers, err := collectConversationAffectedUsersTx(r.Context(), cleanupTx, req.ConversationID, targets...)
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
+			return
+		}
+		if _, err := clearConversationMemberMessagesTx(r.Context(), cleanupTx, req.ConversationID, targets); err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
+			return
+		}
+		if err := cleanupTx.Commit(r.Context()); err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
+			return
+		}
+		a.broadcastUsernames(affectedUsers, map[string]any{"type": "im.session.updated", "payload": map[string]any{"conversation_id": req.ConversationID, "reason": "members_changed"}})
 		writeJSON(w, http.StatusOK, map[string]any{"success": true})
 		return
 	}
@@ -1343,6 +1363,10 @@ func (a *App) handleSessionMembersRemove(w http.ResponseWriter, r *http.Request)
 			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
 			return
 		}
+	}
+	if _, err := clearConversationMemberMessagesTx(r.Context(), tx, req.ConversationID, targets); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
+		return
 	}
 	if err := tx.Commit(r.Context()); err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
@@ -1396,6 +1420,30 @@ func (a *App) handleSessionHistoryClear(w http.ResponseWriter, r *http.Request) 
 	writeJSON(w, http.StatusOK, map[string]any{"success": true, "cleared_before_seq_no": maxSeqNo})
 }
 
+func clearConversationMemberMessagesTx(ctx context.Context, tx pgx.Tx, conversationID int64, usernames []string) (int64, error) {
+	targets := normalizeUsernames(usernames)
+	var deletedCount int64
+	for _, targetUsername := range targets {
+		commandTag, err := tx.Exec(ctx, `
+			UPDATE im_message
+			SET deleted_at = NOW(), updated_at = NOW()
+			WHERE conversation_id = $1
+				AND sender_username = $2
+				AND deleted_at IS NULL
+				AND seq_no > (SELECT COALESCE(purged_before_seq_no, 0) FROM im_conversation WHERE id = $1)`, conversationID, targetUsername)
+		if err != nil {
+			return deletedCount, err
+		}
+		deletedCount += commandTag.RowsAffected()
+	}
+	if deletedCount > 0 {
+		if err := refreshConversationSummary(ctx, tx, conversationID); err != nil {
+			return deletedCount, err
+		}
+	}
+	return deletedCount, nil
+}
+
 func (a *App) handleSessionMemberHistoryClear(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"error": true})
@@ -1432,22 +1480,8 @@ func (a *App) handleSessionMemberHistoryClear(w http.ResponseWriter, r *http.Req
 		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
 		return
 	}
-	var deletedCount int64
-	for _, targetUsername := range targets {
-		commandTag, execErr := tx.Exec(r.Context(), `
-			UPDATE im_message
-			SET deleted_at = NOW(), updated_at = NOW()
-			WHERE conversation_id = $1
-				AND sender_username = $2
-				AND deleted_at IS NULL
-				AND seq_no > (SELECT COALESCE(purged_before_seq_no, 0) FROM im_conversation WHERE id = $1)`, req.ConversationID, targetUsername)
-		if execErr != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": execErr.Error()})
-			return
-		}
-		deletedCount += commandTag.RowsAffected()
-	}
-	if err := refreshConversationSummary(r.Context(), tx, req.ConversationID); err != nil {
+	deletedCount, err := clearConversationMemberMessagesTx(r.Context(), tx, req.ConversationID, targets)
+	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
 		return
 	}

@@ -1463,6 +1463,10 @@
             closeDialog: closeDialog,
             closeActionSheet: closeActionSheet,
             closeGroupAdminsPage: closeGroupAdminsPage,
+            getMentionManage: getMentionManageModule,
+            ensureMentionManage: function() {
+                return ensureOptionalLazyModule('mentions');
+            },
             sortGroupMembersForDisplay: sortGroupMembersForDisplay
         });
     }

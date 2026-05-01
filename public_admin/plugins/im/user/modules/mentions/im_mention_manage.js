@@ -265,6 +265,39 @@
             this.replaceTriggerWith(label);
         },
 
+        mentionUserFromAction(username, label) {
+            const mentionState = this.ensureState();
+            const state = this.getState();
+            const inputEl = this.getElements().inputEl;
+            const normalizedUsername = String(username || '').trim().toLowerCase();
+            if (!mentionState || !state || !inputEl || !normalizedUsername || !this.isGroupSession()) return false;
+            const mentionLabel = String(label || normalizedUsername).trim();
+            const value = String(inputEl.value || '');
+            const selectionStart = typeof inputEl.selectionStart === 'number' ? inputEl.selectionStart : value.length;
+            const selectionEnd = typeof inputEl.selectionEnd === 'number' ? inputEl.selectionEnd : selectionStart;
+            const prefix = selectionStart > 0 && !/\s$/.test(value.slice(0, selectionStart)) ? ' ' : '';
+            const insertion = prefix + '@' + mentionLabel + ' ';
+            const merged = value.slice(0, selectionStart) + insertion + value.slice(selectionEnd);
+            inputEl.value = merged;
+            state.inputValue = merged;
+            state.view = 'chat';
+            state.open = true;
+            if (mentionState.selectedUsernames.indexOf(normalizedUsername) < 0) mentionState.selectedUsernames.push(normalizedUsername);
+            mentionState.selectedLabels[normalizedUsername] = mentionLabel;
+            mentionState.open = false;
+            mentionState.keyword = '';
+            mentionState.triggerIndex = -1;
+            if (this.ctx && typeof this.ctx.syncInputHeight === 'function') this.ctx.syncInputHeight();
+            if (this.ctx && typeof this.ctx.syncComposerState === 'function') this.ctx.syncComposerState();
+            try {
+                const caret = selectionStart + insertion.length;
+                inputEl.focus();
+                inputEl.setSelectionRange(caret, caret);
+            } catch (e) {}
+            this.renderPanel();
+            return true;
+        },
+
         insertAllMention() {
             const mentionState = this.ensureState();
             if (!mentionState || !this.canMentionAll()) return;
