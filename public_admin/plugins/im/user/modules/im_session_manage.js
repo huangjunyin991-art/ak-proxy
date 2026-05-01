@@ -79,7 +79,16 @@
         },
 
         getSessionPreview(item) {
-            return String(item && item.last_message_preview || '').trim() || '暂无消息';
+            const preview = String(item && item.last_message_preview || '').trim() || '暂无消息';
+            const mentionLabel = this.getSessionMentionLabel(item);
+            return mentionLabel ? (mentionLabel + ' ' + preview) : preview;
+        },
+
+        getSessionMentionLabel(item) {
+            if (!item || Number(item.mention_unread_count || 0) <= 0) return '';
+            if (item.mention_me_unread) return '[有人@我]';
+            if (item.mention_all_unread) return '[有人@全体]';
+            return '';
         },
 
         getUnreadCount(item) {
@@ -231,7 +240,10 @@
                 changed = true;
                 return Object.assign({}, item, {
                     unread_count: 0,
-                    unread: 0
+                    unread: 0,
+                    mention_unread_count: 0,
+                    mention_me_unread: false,
+                    mention_all_unread: false
                 });
             });
             if (changed && typeof this.ctx.render === 'function') this.ctx.render();

@@ -95,6 +95,9 @@ type SessionItem struct {
 	LastMessagePreview string `json:"last_message_preview,omitempty"`
 	LastMessageAt      string `json:"last_message_at,omitempty"`
 	UnreadCount        int64  `json:"unread_count"`
+	MentionUnreadCount int64  `json:"mention_unread_count,omitempty"`
+	MentionMeUnread    bool   `json:"mention_me_unread,omitempty"`
+	MentionAllUnread   bool   `json:"mention_all_unread,omitempty"`
 	CanSend            bool   `json:"can_send"`
 	SendRestriction    string `json:"send_restriction,omitempty"`
 	SendRestrictionHint string `json:"send_restriction_hint,omitempty"`
@@ -117,6 +120,8 @@ type MessageItem struct {
 	SentAt            string `json:"sent_at"`
 	Read              bool   `json:"read"`
 	ReadProgress      *MessageReadProgressSummary `json:"read_progress,omitempty"`
+	MentionUsernames []string `json:"mention_usernames,omitempty"`
+	MentionAll       bool     `json:"mention_all,omitempty"`
 }
 
 type UserProfileItem struct {
@@ -156,6 +161,8 @@ type sendMessageRequest struct {
 	MessageType    string `json:"message_type"`
 	EmojiAssetID   int64  `json:"emoji_asset_id,omitempty"`
 	ClientTempID   string `json:"client_temp_id,omitempty"`
+	MentionUsernames []string `json:"mention_usernames,omitempty"`
+	MentionAll       bool     `json:"mention_all,omitempty"`
 }
 
 type directSessionRequest struct {
@@ -479,6 +486,18 @@ func (a *App) ensureSchema(ctx context.Context) error {
 		`CREATE INDEX IF NOT EXISTS idx_im_conversation_member_override_username ON im_conversation_member_override(username)`,
 		`CREATE INDEX IF NOT EXISTS idx_im_user_avatar_history_username_created_at ON im_user_avatar_history(username, created_at DESC, id DESC)`,
 		`CREATE INDEX IF NOT EXISTS idx_im_message_conversation_id ON im_message(conversation_id, seq_no DESC)`,
+		`CREATE TABLE IF NOT EXISTS im_message_mention (
+			id BIGSERIAL PRIMARY KEY,
+			message_id BIGINT NOT NULL REFERENCES im_message(id) ON DELETE CASCADE,
+			conversation_id BIGINT NOT NULL REFERENCES im_conversation(id) ON DELETE CASCADE,
+			mentioned_username TEXT NOT NULL DEFAULT '',
+			mention_all BOOLEAN NOT NULL DEFAULT FALSE,
+			created_at TIMESTAMP NOT NULL DEFAULT NOW()
+		)`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_im_message_mention_user_unique ON im_message_mention(message_id, mentioned_username) WHERE mention_all = FALSE`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_im_message_mention_all_unique ON im_message_mention(message_id) WHERE mention_all = TRUE`,
+		`CREATE INDEX IF NOT EXISTS idx_im_message_mention_conversation_user ON im_message_mention(conversation_id, mentioned_username, message_id) WHERE mention_all = FALSE`,
+		`CREATE INDEX IF NOT EXISTS idx_im_message_mention_conversation_all ON im_message_mention(conversation_id, message_id) WHERE mention_all = TRUE`,
 		`CREATE INDEX IF NOT EXISTS idx_im_file_asset_expires_at ON im_file_asset(expires_at)`,
 		`CREATE TABLE IF NOT EXISTS im_meetings (
 			id BIGSERIAL PRIMARY KEY,
@@ -1353,6 +1372,9 @@ func (a *App) handleSessions(w http.ResponseWriter, r *http.Request) {
 			COALESCE(c.last_message_preview, '') AS last_message_preview,
 			c.last_message_at,
 			COALESCE((SELECT COUNT(1) FROM im_message m2 WHERE m2.conversation_id = c.id AND m2.deleted_at IS NULL AND m2.sender_username <> $1 AND m2.seq_no > COALESCE(cm.last_read_seq_no, 0) AND m2.seq_no > COALESCE(c.purged_before_seq_no, 0) AND m2.sent_at >= cm.joined_at), 0) AS unread_count,
+			COALESCE((SELECT COUNT(DISTINCT m3.id) FROM im_message_mention mm JOIN im_message m3 ON m3.id = mm.message_id WHERE mm.conversation_id = c.id AND m3.deleted_at IS NULL AND m3.sender_username <> $1 AND m3.seq_no > COALESCE(cm.last_read_seq_no, 0) AND m3.seq_no > COALESCE(c.purged_before_seq_no, 0) AND m3.sent_at >= cm.joined_at AND (mm.mention_all = TRUE OR mm.mentioned_username = $1)), 0) AS mention_unread_count,
+			COALESCE(EXISTS(SELECT 1 FROM im_message_mention mm JOIN im_message m4 ON m4.id = mm.message_id WHERE mm.conversation_id = c.id AND m4.deleted_at IS NULL AND m4.sender_username <> $1 AND m4.seq_no > COALESCE(cm.last_read_seq_no, 0) AND m4.seq_no > COALESCE(c.purged_before_seq_no, 0) AND m4.sent_at >= cm.joined_at AND mm.mentioned_username = $1), FALSE) AS mention_me_unread,
+			COALESCE(EXISTS(SELECT 1 FROM im_message_mention mm JOIN im_message m5 ON m5.id = mm.message_id WHERE mm.conversation_id = c.id AND m5.deleted_at IS NULL AND m5.sender_username <> $1 AND m5.seq_no > COALESCE(cm.last_read_seq_no, 0) AND m5.seq_no > COALESCE(c.purged_before_seq_no, 0) AND m5.sent_at >= cm.joined_at AND mm.mention_all = TRUE), FALSE) AS mention_all_unread,
 			COALESCE((SELECT peer.username FROM im_conversation_member peer WHERE peer.conversation_id = c.id AND peer.username <> $1 AND peer.left_at IS NULL ORDER BY peer.username LIMIT 1), '') AS peer_username
 		FROM im_conversation c
 		JOIN im_conversation_member cm ON cm.conversation_id = c.id AND cm.username = $1 AND cm.left_at IS NULL
@@ -1372,7 +1394,7 @@ func (a *App) handleSessions(w http.ResponseWriter, r *http.Request) {
 		var pinnedAt *time.Time
 		var allMutedAt *time.Time
 		var muteUntil *time.Time
-		if err := rows.Scan(&item.ConversationID, &item.ConversationType, &item.ConversationTitle, &item.AvatarURL, &item.OwnerUsername, &item.MemberCount, &item.AllMuted, &item.AllMutedBy, &allMutedAt, &muteUntil, &item.PinType, &pinnedAt, &item.LastMessageID, &item.LastMessagePreview, &lastMessageAt, &item.UnreadCount, &item.PeerUsername); err != nil {
+		if err := rows.Scan(&item.ConversationID, &item.ConversationType, &item.ConversationTitle, &item.AvatarURL, &item.OwnerUsername, &item.MemberCount, &item.AllMuted, &item.AllMutedBy, &allMutedAt, &muteUntil, &item.PinType, &pinnedAt, &item.LastMessageID, &item.LastMessagePreview, &lastMessageAt, &item.UnreadCount, &item.MentionUnreadCount, &item.MentionMeUnread, &item.MentionAllUnread, &item.PeerUsername); err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
 			return
 		}
@@ -1636,6 +1658,7 @@ func (a *App) handleListMessages(w http.ResponseWriter, r *http.Request, usernam
 	for left, right := 0, len(items)-1; left < right; left, right = left+1, right-1 {
 		items[left], items[right] = items[right], items[left]
 	}
+	a.populateMessageMentions(r.Context(), items)
 	members, err := a.listConversationMembers(r.Context(), conversationIDValue)
 	if err == nil {
 		a.populateMessageReadProgress(items, members, username)
@@ -1836,6 +1859,12 @@ func (a *App) insertMessage(ctx context.Context, conversationID int64, username 
 	item.SenderAvatarURL = senderIdentity.AvatarURL
 	item.ClientTempID = strings.TrimSpace(req.ClientTempID)
 	item = a.normalizeOutgoingMessageItem(ctx, item)
+	mentionUsernames, mentionAll, err := a.saveMessageMentionsTx(ctx, tx, item.ID, conversationID, username, req)
+	if err != nil {
+		return MessageItem{}, err
+	}
+	item.MentionUsernames = mentionUsernames
+	item.MentionAll = mentionAll
 	if a.social != nil {
 		if err := a.social.AfterMessageSentTx(ctx, tx, username, conversationID, item.ID); err != nil {
 			return MessageItem{}, err
@@ -1857,6 +1886,131 @@ func (a *App) insertMessage(ctx context.Context, conversationID int64, username 
 		item = items[0]
 	}
 	return item, nil
+}
+
+func (a *App) saveMessageMentionsTx(ctx context.Context, tx pgx.Tx, messageID int64, conversationID int64, senderUsername string, req sendMessageRequest) ([]string, bool, error) {
+	normalizedSender := strings.ToLower(strings.TrimSpace(senderUsername))
+	mentionUsernames := make([]string, 0)
+	for _, username := range normalizeUsernames(req.MentionUsernames) {
+		if username == "" || username == normalizedSender {
+			continue
+		}
+		tag, err := tx.Exec(ctx, `
+			INSERT INTO im_message_mention (message_id, conversation_id, mentioned_username, mention_all)
+			SELECT $1, $2, $3, FALSE
+			WHERE EXISTS (
+				SELECT 1 FROM im_conversation_member
+				WHERE conversation_id = $2 AND username = $3 AND left_at IS NULL
+			)
+			ON CONFLICT DO NOTHING`, messageID, conversationID, username)
+		if err != nil {
+			return nil, false, err
+		}
+		if tag.RowsAffected() > 0 {
+			mentionUsernames = append(mentionUsernames, username)
+		}
+	}
+	mentionAll := false
+	if req.MentionAll {
+		canMentionAll, err := a.canSendMentionAllTx(ctx, tx, conversationID, normalizedSender)
+		if err != nil {
+			return nil, false, err
+		}
+		if canMentionAll {
+			if _, err := tx.Exec(ctx, `
+				INSERT INTO im_message_mention (message_id, conversation_id, mentioned_username, mention_all)
+				VALUES ($1, $2, '', TRUE)
+				ON CONFLICT DO NOTHING`, messageID, conversationID); err != nil {
+				return nil, false, err
+			}
+			mentionAll = true
+		}
+	}
+	return mentionUsernames, mentionAll, nil
+}
+
+func (a *App) canSendMentionAllTx(ctx context.Context, tx pgx.Tx, conversationID int64, username string) (bool, error) {
+	normalizedUsername := strings.ToLower(strings.TrimSpace(username))
+	if conversationID <= 0 || normalizedUsername == "" {
+		return false, nil
+	}
+	var conversationType string
+	var ownerUsername string
+	err := tx.QueryRow(ctx, `
+		SELECT COALESCE(conversation_type, ''), COALESCE(owner_username, '')
+		FROM im_conversation
+		WHERE id = $1 AND deleted_at IS NULL`, conversationID).Scan(&conversationType, &ownerUsername)
+	if err != nil {
+		return false, err
+	}
+	if conversationType != "group" {
+		return false, nil
+	}
+	if strings.EqualFold(ownerUsername, normalizedUsername) {
+		return true, nil
+	}
+	var isAdmin bool
+	if err := tx.QueryRow(ctx, `
+		SELECT EXISTS(
+			SELECT 1 FROM im_conversation_admin
+			WHERE conversation_id = $1 AND username = $2 AND revoked_at IS NULL
+		)`, conversationID, normalizedUsername).Scan(&isAdmin); err != nil {
+		return false, err
+	}
+	return isAdmin, nil
+}
+
+func (a *App) populateMessageMentions(ctx context.Context, items []MessageItem) {
+	if len(items) == 0 {
+		return
+	}
+	messageIDs := make([]int64, 0, len(items))
+	indexByMessageID := map[int64]int{}
+	for index, item := range items {
+		if item.ID <= 0 {
+			continue
+		}
+		messageIDs = append(messageIDs, item.ID)
+		indexByMessageID[item.ID] = index
+	}
+	if len(messageIDs) == 0 {
+		return
+	}
+	placeholders := make([]string, 0, len(messageIDs))
+	args := make([]any, 0, len(messageIDs))
+	for index, messageID := range messageIDs {
+		placeholders = append(placeholders, fmt.Sprintf("$%d", index+1))
+		args = append(args, messageID)
+	}
+	rows, err := a.db.Query(ctx, `
+		SELECT message_id, mentioned_username, mention_all
+		FROM im_message_mention
+		WHERE message_id IN (`+strings.Join(placeholders, ",")+`)
+		ORDER BY id ASC`, args...)
+	if err != nil {
+		return
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var messageID int64
+		var mentionedUsername string
+		var mentionAll bool
+		if err := rows.Scan(&messageID, &mentionedUsername, &mentionAll); err != nil {
+			return
+		}
+		index, ok := indexByMessageID[messageID]
+		if !ok {
+			continue
+		}
+		if mentionAll {
+			items[index].MentionAll = true
+			continue
+		}
+		normalizedUsername := strings.ToLower(strings.TrimSpace(mentionedUsername))
+		if normalizedUsername != "" {
+			items[index].MentionUsernames = append(items[index].MentionUsernames, normalizedUsername)
+		}
+	}
 }
 
 func (a *App) recallMessage(ctx context.Context, messageID int64, username string) (MessageItem, error) {
@@ -1893,6 +2047,9 @@ func (a *App) recallMessage(ctx context.Context, messageID int64, username strin
 		item.ContentPreview = "[消息已撤回]"
 		item.Status = "recalled"
 		if _, err := tx.Exec(ctx, `UPDATE im_message SET status = 'recalled', content_preview = $1, content_payload = '', updated_at = NOW() WHERE id = $2`, item.ContentPreview, item.ID); err != nil {
+			return MessageItem{}, err
+		}
+		if _, err := tx.Exec(ctx, `DELETE FROM im_message_mention WHERE message_id = $1`, item.ID); err != nil {
 			return MessageItem{}, err
 		}
 		if _, err := tx.Exec(ctx, `UPDATE im_conversation SET last_message_preview = CASE WHEN last_message_id = $1 THEN $2 ELSE last_message_preview END, updated_at = NOW() WHERE id = $3`, item.ID, item.ContentPreview, item.ConversationID); err != nil {

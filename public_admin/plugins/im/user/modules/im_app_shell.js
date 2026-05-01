@@ -306,6 +306,12 @@
                 #ak-im-root .ak-im-meeting-password-submit{border:none;background:#07c160;color:#ffffff;height:34px;padding:0 16px;border-radius:10px;font-size:13px;font-weight:500;cursor:pointer}
                 #ak-im-root .ak-im-meeting-password-submit:disabled{background:#9ca3af;cursor:not-allowed}
                 #ak-im-root .ak-im-message-list{flex:1;overflow:auto;padding:14px 12px 10px;background:#ebebeb;display:flex;flex-direction:column;gap:14px}
+                #ak-im-root .ak-im-message-navigation{position:absolute;right:12px;bottom:calc(72px + env(safe-area-inset-bottom, 0px));z-index:3;display:none;flex-direction:column;align-items:flex-end;gap:8px;pointer-events:none}
+                #ak-im-root .ak-im-message-navigation.is-visible{display:flex}
+                #ak-im-root .ak-im-message-nav-btn{height:34px;border:none;border-radius:999px;background:rgba(255,255,255,.96);color:#07c160;padding:0 13px;font-size:13px;font-weight:600;box-shadow:0 8px 22px rgba(15,23,42,.14);cursor:pointer;pointer-events:auto}
+                #ak-im-root .ak-im-message-nav-btn:active{transform:scale(.98)}
+                #ak-im-root .ak-im-message-item.is-navigation-highlight .ak-im-message-row{animation:ak-im-message-navigation-highlight 1.2s ease}
+                @keyframes ak-im-message-navigation-highlight{0%,100%{filter:none}32%{filter:drop-shadow(0 0 10px rgba(7,193,96,.26))}}
                 #ak-im-root .ak-im-all-mute-banner{position:sticky;top:0;z-index:1;align-self:center;max-width:min(92%,420px);padding:7px 12px;border-radius:999px;background:rgba(17,24,39,.78);color:#ffffff;font-size:12px;font-weight:600;line-height:1.4;box-shadow:0 6px 18px rgba(15,23,42,.16)}
                 #ak-im-root .ak-im-empty{margin:auto;color:#94a3b8;font-size:13px;text-align:center;padding:28px 24px;line-height:1.6;white-space:pre-line}
                 #ak-im-root .ak-im-time-divider{text-align:center;font-size:11px;color:#9ca3af;line-height:1.4}
@@ -365,6 +371,8 @@
                 #ak-im-root .ak-im-message-footer{margin-top:4px;display:flex;align-items:center;gap:6px;min-height:22px}
                 #ak-im-root .ak-im-message-row.ak-self .ak-im-message-footer{justify-content:flex-end}
                 #ak-im-root .ak-im-meta{font-size:11px;color:#9ca3af;line-height:1.4}
+                #ak-im-root .ak-im-mention-badges{display:inline-flex;align-items:center;gap:4px;flex-wrap:wrap}
+                #ak-im-root .ak-im-mention-badge{display:inline-flex;align-items:center;height:18px;padding:0 6px;border-radius:999px;background:rgba(7,193,96,.12);color:#16a34a;font-size:10px;font-weight:700;line-height:1}
                 #ak-im-root .ak-im-progress-btn{width:24px;height:24px;border:none;background:transparent;padding:0;display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto;cursor:pointer;position:relative}
                 #ak-im-root .ak-im-progress-ring{width:24px;height:24px;transform:rotate(-90deg);overflow:visible}
                 #ak-im-root .ak-im-progress-track{fill:none;stroke:rgba(15,23,42,.1);stroke-width:2}
@@ -389,6 +397,16 @@
                 #ak-im-root.ak-im-emoji-open .ak-im-emoji-toggle .ak-im-icon-alt{display:block}
                 #ak-im-root .ak-im-input-wrap{flex:1;min-height:38px;display:flex;align-items:flex-end;background:#ffffff;border-radius:18px;padding:8px 12px;box-shadow:0 1px 1px rgba(15,23,42,.06)}
                 #ak-im-root .ak-im-input{width:100%;resize:none;border:none;outline:none;background:transparent;min-height:22px;max-height:96px;font-size:15px;line-height:1.5;color:#111827}
+                #ak-im-root .ak-im-mention-panel{position:absolute;left:52px;right:52px;bottom:calc(62px + env(safe-area-inset-bottom, 0px));z-index:4;display:none;max-height:min(312px,42vh);overflow:auto;border-radius:16px;background:rgba(255,255,255,.98);box-shadow:0 12px 34px rgba(15,23,42,.18);padding:6px}
+                #ak-im-root .ak-im-mention-panel.is-open{display:block}
+                #ak-im-root .ak-im-mention-item{width:100%;border:none;background:transparent;border-radius:12px;padding:8px;display:flex;align-items:center;gap:10px;text-align:left;cursor:pointer;color:#111827}
+                #ak-im-root .ak-im-mention-item:active{background:#f3f4f6}
+                #ak-im-root .ak-im-mention-avatar{width:34px;height:34px;border-radius:10px;background:#e5e7eb;color:#374151;display:inline-flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;flex:0 0 auto;object-fit:cover}
+                #ak-im-root .ak-im-mention-all .ak-im-mention-avatar{background:#dcfce7;color:#16a34a}
+                #ak-im-root .ak-im-mention-main{min-width:0;display:flex;flex-direction:column;gap:2px}
+                #ak-im-root .ak-im-mention-name{font-size:14px;font-weight:600;color:#111827;line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+                #ak-im-root .ak-im-mention-sub{font-size:11px;color:#6b7280;line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+                #ak-im-root .ak-im-mention-empty{padding:14px 12px;color:#94a3b8;font-size:13px;text-align:center}
                 #ak-im-root .ak-im-hold-to-talk{display:none;width:100%;min-height:38px;border:none;border-radius:18px;background:#ffffff;color:#111827;font-size:15px;line-height:1.4;align-items:center;justify-content:center;padding:0 16px;box-shadow:0 1px 1px rgba(15,23,42,.06);cursor:pointer}
                 #ak-im-root .ak-im-hold-to-talk:active{background:#e5e7eb}
                 #ak-im-root .ak-im-hold-to-talk:disabled{opacity:.5;cursor:default}
@@ -746,6 +764,8 @@
                         <button class="ak-im-nav-btn ak-im-chat-menu is-hidden" type="button" aria-label="群聊更多功能" disabled><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="6" cy="12" r="1.7" fill="currentColor"></circle><circle cx="12" cy="12" r="1.7" fill="currentColor"></circle><circle cx="18" cy="12" r="1.7" fill="currentColor"></circle></svg></button>
                     </div>
                     <div class="ak-im-message-list"></div>
+                    <div class="ak-im-message-navigation" aria-live="polite"></div>
+                    <div class="ak-im-mention-panel" aria-hidden="true"></div>
                     <div class="ak-im-composer"><div class="ak-im-composer-side"><button class="ak-im-composer-btn ak-im-composer-voice" type="button" aria-label="切换到按住说话"><svg class="ak-im-icon-default" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9.6"></circle><circle cx="8.95" cy="12" r="1" fill="currentColor" stroke="none"></circle><path d="M11.45 9.75c.8.66 1.2 1.41 1.2 2.25s-.4 1.59-1.2 2.25"></path><path d="M14.15 8.55c1.18.98 1.77 2.13 1.77 3.45s-.59 2.47-1.77 3.45"></path></svg><svg class="ak-im-icon-alt" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9.6"></circle><rect x="6.4" y="8.4" width="11.2" height="7.2" rx="1.4"></rect><path d="M9 17.6h6"></path><path d="M8.9 10.8h.01"></path><path d="M11.4 10.8h.01"></path><path d="M13.9 10.8h.01"></path><path d="M16.1 10.8h.01"></path><path d="M8.8 13.2h6.4"></path></svg></button></div><div class="ak-im-composer-main"><div class="ak-im-input-wrap"><textarea class="ak-im-input" placeholder="输入消息"></textarea></div><button class="ak-im-hold-to-talk" type="button">按住 说话</button></div><div class="ak-im-composer-actions"><button class="ak-im-composer-btn ak-im-emoji-toggle" type="button" aria-label="打开表情面板"><svg class="ak-im-icon-default" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9.85"></circle><circle cx="9.15" cy="10.15" r="1" fill="currentColor" stroke="none"></circle><circle cx="14.85" cy="10.15" r="1" fill="currentColor" stroke="none"></circle><path d="M8.3 13.85a3.7 3.7 0 0 0 7.4 0h-1.45a2.25 2.25 0 0 1-4.5 0Z" fill="currentColor" stroke="none"></path></svg><svg class="ak-im-icon-alt" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9.6"></circle><rect x="6.4" y="8.4" width="11.2" height="7.2" rx="1.4"></rect><path d="M9 17.6h6"></path><path d="M8.9 10.8h.01"></path><path d="M11.4 10.8h.01"></path><path d="M13.9 10.8h.01"></path><path d="M16.1 10.8h.01"></path><path d="M8.8 13.2h6.4"></path></svg></button><button class="ak-im-composer-btn ak-im-composer-plus is-disabled" type="button" aria-label="更多功能" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9.6"></circle><path d="M12 8v8"></path><path d="M8 12h8"></path></svg></button><button class="ak-im-send" type="button">发送</button></div></div>
                     <div class="ak-im-emoji-sheet" aria-hidden="true" inert><div class="ak-im-emoji-sheet-panel"><div class="ak-im-emoji-sheet-tabs"></div><div class="ak-im-emoji-sheet-body"></div></div></div>
                     <div class="ak-im-plus-sheet" aria-hidden="true" inert><div class="ak-im-plus-sheet-panel"><div class="ak-im-plus-grid"><button class="ak-im-plus-item" type="button" data-im-plus-action="camera"><span class="ak-im-plus-item-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8.2 7.4 9.3 5.9h5.4l1.1 1.5"></path><rect x="4.2" y="7.4" width="15.6" height="11.4" rx="2.4"></rect><circle cx="12" cy="13.1" r="3.3"></circle></svg></span><span class="ak-im-plus-item-label">拍照</span></button><button class="ak-im-plus-item" type="button" data-im-plus-action="album"><span class="ak-im-plus-item-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4.3" y="5.2" width="15.4" height="13.6" rx="2.3"></rect><circle cx="9" cy="10" r="1.2"></circle><path d="m7.2 16 3.1-3.1 2.2 2.2 2.6-2.8 1.7 1.8"></path></svg></span><span class="ak-im-plus-item-label">相册</span></button><button class="ak-im-plus-item" type="button" data-im-plus-action="file"><span class="ak-im-plus-item-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4.8 8.4h5l1.3 1.7h8.1v6.9a2 2 0 0 1-2 2H6.8a2 2 0 0 1-2-2Z"></path><path d="M4.8 10.1V7.6a2 2 0 0 1 2-2h3"></path></svg></span><span class="ak-im-plus-item-label">文件</span></button><button class="ak-im-plus-item" type="button" data-im-plus-action="location"><span class="ak-im-plus-item-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20.1s5.1-5 5.1-9a5.1 5.1 0 1 0-10.2 0c0 4 5.1 9 5.1 9Z"></path><circle cx="12" cy="11.1" r="1.9"></circle></svg></span><span class="ak-im-plus-item-label">位置</span></button></div></div></div>
@@ -961,6 +981,8 @@
                 progressPanelBodyEl: root ? root.querySelector('.ak-im-progress-panel-body') : null,
                 memberPanelEl: root ? root.querySelector('.ak-im-member-sheet') : null,
                 memberPanelBodyEl: root ? root.querySelector('.ak-im-member-panel-body') : null,
+                messageNavigationEl: root ? root.querySelector('.ak-im-message-navigation') : null,
+                mentionPanelEl: root ? root.querySelector('.ak-im-mention-panel') : null,
                 chatTitleBtnEl: root ? root.querySelector('.ak-im-chat-title-btn') : null,
                 settingsPanelEl: root ? root.querySelector('.ak-im-group-info-screen') : null,
                 settingsPanelBodyEl: root ? root.querySelector('.ak-im-group-info-page') : null,

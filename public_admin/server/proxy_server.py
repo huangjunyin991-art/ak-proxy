@@ -8168,6 +8168,8 @@ def _iter_widget_asset_paths() -> list[str]:
         os.path.join(PLUGINS_DIR, "im", "user", "modules", "im_app_shell.js"),
         os.path.join(PLUGINS_DIR, "im", "user", "modules", "social", "im_social_manage.js"),
         os.path.join(PLUGINS_DIR, "im", "user", "modules", "hidden_groups", "im_hidden_groups.js"),
+        os.path.join(PLUGINS_DIR, "im", "user", "modules", "navigation", "im_message_navigation.js"),
+        os.path.join(PLUGINS_DIR, "im", "user", "modules", "mentions", "im_mention_manage.js"),
         os.path.join(PLUGINS_DIR, "im", "user", "modules", "honor_badge", "im_honor_badge.js"),
         os.path.join(PLUGINS_DIR, "im", "user", "modules", "im_image_manage.js"),
         os.path.join(PLUGINS_DIR, "im", "user", "modules", "im_file_manage.js"),
@@ -8411,6 +8413,24 @@ async def im_user_plugin_social_manage_module_js(request: Request):
 async def im_user_plugin_hidden_groups_module_js(request: Request):
 
     js_path = os.path.join(PLUGINS_DIR, "im", "user", "modules", "hidden_groups", "im_hidden_groups.js")
+
+    return _build_widget_script_response(request, js_path)
+
+
+@app.get("/chat/plugins/im/user/modules/navigation/im_message_navigation.js")
+
+async def im_user_plugin_message_navigation_module_js(request: Request):
+
+    js_path = os.path.join(PLUGINS_DIR, "im", "user", "modules", "navigation", "im_message_navigation.js")
+
+    return _build_widget_script_response(request, js_path)
+
+
+@app.get("/chat/plugins/im/user/modules/mentions/im_mention_manage.js")
+
+async def im_user_plugin_mention_manage_module_js(request: Request):
+
+    js_path = os.path.join(PLUGINS_DIR, "im", "user", "modules", "mentions", "im_mention_manage.js")
 
     return _build_widget_script_response(request, js_path)
 

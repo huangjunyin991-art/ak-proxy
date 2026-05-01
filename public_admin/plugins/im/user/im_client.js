@@ -88,6 +88,18 @@
             datasetKey: 'akImUserPluginHiddenGroups',
             src: `${API_ROOT}/chat/plugins/im/user/modules/hidden_groups/im_hidden_groups.js`,
             errorMessage: '隐藏群聊模块加载失败'
+        },
+        navigation: {
+            selector: 'script[data-ak-im-user-plugin-message-navigation="1"]',
+            datasetKey: 'akImUserPluginMessageNavigation',
+            src: `${API_ROOT}/chat/plugins/im/user/modules/navigation/im_message_navigation.js`,
+            errorMessage: '消息导航模块加载失败'
+        },
+        mentions: {
+            selector: 'script[data-ak-im-user-plugin-mention-manage="1"]',
+            datasetKey: 'akImUserPluginMentionManage',
+            src: `${API_ROOT}/chat/plugins/im/user/modules/mentions/im_mention_manage.js`,
+            errorMessage: '@提及模块加载失败'
         }
     };
     const lazyModuleLoadPromises = {};
@@ -247,6 +259,8 @@
     let profileSubpageBodyEl = null;
     let profileSubpageTitleEl = null;
     let messageList = null;
+    let messageNavigationEl = null;
+    let mentionPanelEl = null;
     let statusLine = null;
     let inputEl = null;
     let newSessionInputEl = null;
@@ -324,6 +338,8 @@
         profileSubpageBodyEl = nextElements.profileSubpageBodyEl || null;
         profileSubpageTitleEl = nextElements.profileSubpageTitleEl || null;
         messageList = nextElements.messageList || null;
+        messageNavigationEl = nextElements.messageNavigationEl || null;
+        mentionPanelEl = nextElements.mentionPanelEl || null;
         statusLine = nextElements.statusLine || null;
         inputEl = nextElements.inputEl || null;
         newSessionInputEl = nextElements.newSessionInputEl || null;
@@ -400,6 +416,8 @@
             profileSubpageBodyEl: null,
             profileSubpageTitleEl: null,
             messageList: null,
+            messageNavigationEl: null,
+            mentionPanelEl: null,
             statusLine: null,
             inputEl: null,
             newSessionInputEl: null,
@@ -570,6 +588,8 @@
 
     function initShellModules() {
         initMessageManageModule();
+        initMessageNavigationModule();
+        initMentionManageModule();
         initSessionManageModule();
         initOverlayModule();
         initExternalPageModule();
@@ -1027,6 +1047,10 @@
     function handleComposerInput(value) {
         state.inputValue = value || '';
         if (String(state.inputValue || '').trim()) closePlusPanel({ silent: true });
+        const mentionManageModule = getMentionManageModule();
+        if (mentionManageModule && typeof mentionManageModule.handleComposerInput === 'function') {
+            mentionManageModule.handleComposerInput();
+        }
         syncInputHeight();
         syncComposerState();
     }
@@ -1506,6 +1530,22 @@
         return messageManageModule;
     }
 
+    function getMessageNavigationModule() {
+        const modules = window.AKIMUserModules;
+        if (!modules || typeof modules !== 'object') return null;
+        const messageNavigationModule = modules.messageNavigation;
+        if (!messageNavigationModule || typeof messageNavigationModule.init !== 'function') return null;
+        return messageNavigationModule;
+    }
+
+    function getMentionManageModule() {
+        const modules = window.AKIMUserModules;
+        if (!modules || typeof modules !== 'object') return null;
+        const mentionManageModule = modules.mentionManage;
+        if (!mentionManageModule || typeof mentionManageModule.init !== 'function') return null;
+        return mentionManageModule;
+    }
+
     function getImageModule() {
         const modules = window.AKIMUserModules;
         if (!modules || typeof modules !== 'object') return null;
@@ -1555,6 +1595,7 @@
             get elements() {
                 return {
                     messageList: messageList,
+                    navigationEl: messageNavigationEl,
                     inputEl: inputEl,
                     chatTitleEl: root ? root.querySelector('.ak-im-chat-title') : null,
                     chatSubtitleEl: root ? root.querySelector('.ak-im-chat-subtitle') : null,
@@ -1594,7 +1635,56 @@
             isGroupSession: isGroupSession,
             getSessionManage: getSessionManageModule,
             getGroupManage: getGroupManageModule,
+            getMessageNavigation: getMessageNavigationModule,
+            getMentionManage: getMentionManageModule,
             getGroupAdmins: getGroupAdminsModule
+        });
+    }
+
+    function initMessageNavigationModule() {
+        const messageNavigationModule = getMessageNavigationModule();
+        if (!messageNavigationModule) return;
+        messageNavigationModule.init({
+            state: state,
+            get elements() {
+                return {
+                    root: root,
+                    messageList: messageList,
+                    navigationEl: messageNavigationEl
+                };
+            },
+            render: render,
+            markReadActiveConversation: function(conversationId) {
+                const messageManageModule = getMessageManageModule();
+                if (messageManageModule && typeof messageManageModule.markRead === 'function') {
+                    messageManageModule.markRead(conversationId || state.activeConversationId);
+                }
+            },
+            escapeHtml: escapeHtml
+        });
+    }
+
+    function initMentionManageModule() {
+        const mentionManageModule = getMentionManageModule();
+        if (!mentionManageModule) return;
+        mentionManageModule.init({
+            state: state,
+            httpRoot: HTTP_ROOT,
+            get elements() {
+                return {
+                    root: root,
+                    inputEl: inputEl,
+                    mentionPanelEl: mentionPanelEl
+                };
+            },
+            request: request,
+            render: render,
+            syncInputHeight: syncInputHeight,
+            syncComposerState: syncComposerState,
+            escapeHtml: escapeHtml,
+            getAvatarUrl: getAvatarUrl,
+            getActiveSession: getActiveSession,
+            isGroupSession: isGroupSession
         });
     }
 
@@ -1800,6 +1890,8 @@
         if (moduleKey === 'voiceHold') return getVoiceHoldModule();
 	    if (moduleKey === 'social') return getSocialModule();
         if (moduleKey === 'hiddenGroups') return getHiddenGroupsModule();
+        if (moduleKey === 'navigation') return getMessageNavigationModule();
+        if (moduleKey === 'mentions') return getMentionManageModule();
         return null;
     }
 
@@ -1820,6 +1912,8 @@
         else if (moduleKey === 'voiceHold') initVoiceHoldModule();
 	    else if (moduleKey === 'social') initSocialModule();
         else if (moduleKey === 'hiddenGroups') initHiddenGroupsModule();
+        else if (moduleKey === 'navigation') initMessageNavigationModule();
+        else if (moduleKey === 'mentions') initMentionManageModule();
         lazyModuleInitState[moduleKey] = true;
         return getLazyModuleInstance(moduleKey) || moduleInstance;
     }
@@ -1893,7 +1987,9 @@
             ensureOptionalLazyModule('emoji'),
             ensureOptionalLazyModule('image'),
             ensureOptionalLazyModule('file'),
-            ensureOptionalLazyModule('location')
+            ensureOptionalLazyModule('location'),
+            ensureOptionalLazyModule('navigation'),
+            ensureOptionalLazyModule('mentions')
         ]);
     }
 

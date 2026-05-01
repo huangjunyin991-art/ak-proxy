@@ -24,6 +24,14 @@
             return this.ctx && typeof this.ctx.getGroupManage === 'function' ? this.ctx.getGroupManage() : null;
         },
 
+        getMessageNavigation() {
+            return this.ctx && typeof this.ctx.getMessageNavigation === 'function' ? this.ctx.getMessageNavigation() : null;
+        },
+
+        getMentionManage() {
+            return this.ctx && typeof this.ctx.getMentionManage === 'function' ? this.ctx.getMentionManage() : null;
+        },
+
         getActiveSession() {
             const sessionManage = this.getSessionManage();
             if (sessionManage && typeof sessionManage.getActiveSession === 'function') {
@@ -174,6 +182,23 @@
             return String(fallbackText || '').trim();
         },
 
+        buildMentionBadgeMarkup(item) {
+            const state = this.getState();
+            if (!state || !item || String(item.sender_username || '') === String(state.username || '')) return '';
+            const parts = [];
+            if (item.mention_all) parts.push('@全体');
+            const currentUsername = String(state.username || '').trim().toLowerCase();
+            const mentionUsernames = Array.isArray(item.mention_usernames) ? item.mention_usernames : [];
+            const mentionedMe = mentionUsernames.some(function(username) {
+                return String(username || '').trim().toLowerCase() === currentUsername;
+            });
+            if (mentionedMe) parts.push('@我');
+            if (!parts.length) return '';
+            return '<div class="ak-im-mention-badges">' + parts.map(function(label) {
+                return '<span class="ak-im-mention-badge">' + this.ctx.escapeHtml(label) + '</span>';
+            }.bind(this)).join('') + '</div>';
+        },
+
         buildImageMatchKey(item) {
             if (!item || typeof item !== 'object') return '';
             if (String(item.message_type || '').trim().toLowerCase() !== 'image') return '';
@@ -275,6 +300,15 @@
             const messageList = elements.messageList;
             const inputEl = elements.inputEl;
             if (!messageList) return;
+            const messageNavigation = this.getMessageNavigation();
+            const navigationSnapshot = messageNavigation && typeof messageNavigation.beforeRenderMessages === 'function'
+                ? messageNavigation.beforeRenderMessages()
+                : null;
+            const clearNavigationControls = function() {
+                if (messageNavigation && typeof messageNavigation.clearControls === 'function') {
+                    messageNavigation.clearControls();
+                }
+            };
             const activeSession = this.getActiveSession();
             const activeSessionDisplayName = activeSession ? this.getSessionDisplayName(activeSession) : '内部聊天';
             const isActiveGroupSession = !!activeSession && this.isGroupSession(activeSession);
@@ -318,6 +352,7 @@
                 empty.className = 'ak-im-empty';
                 empty.textContent = state.allowed ? '选择一个会话\n开始内部单聊' : '当前账号未开通聊天';
                 messageList.appendChild(empty);
+                clearNavigationControls();
                 return;
             }
             if (isActiveGroupSession && activeSession && activeSession.all_muted) {
@@ -332,6 +367,7 @@
                 empty.className = 'ak-im-empty';
                 empty.textContent = '消息加载中...';
                 messageList.appendChild(empty);
+                clearNavigationControls();
                 return;
             }
             if (!state.activeMessages.length) {
@@ -339,12 +375,17 @@
                 empty.className = 'ak-im-empty';
                 empty.textContent = '还没有消息\n发一条试试';
                 messageList.appendChild(empty);
+                clearNavigationControls();
                 return;
             }
             const self = this;
             state.activeMessages.forEach(function(item) {
                 const isSelf = item.sender_username === state.username;
                 const isRecalled = String(item.status || '').toLowerCase() === 'recalled';
+                const wrapper = document.createElement('div');
+                wrapper.className = 'ak-im-message-item';
+                if (item && item.id) wrapper.setAttribute('data-im-message-id', String(item.id));
+                if (item && item.seq_no) wrapper.setAttribute('data-im-message-seq-no', String(item.seq_no));
                 if (isRecalled) {
                     const systemRow = document.createElement('div');
                     systemRow.className = 'ak-im-system-row';
@@ -368,10 +409,10 @@
                         });
                         systemRow.appendChild(link);
                     }
-                    messageList.appendChild(systemRow);
+                    wrapper.appendChild(systemRow);
+                    messageList.appendChild(wrapper);
                     return;
                 }
-                const wrapper = document.createElement('div');
                 const summary = self.getMessageReadProgress(item);
                 const senderDisplayName = String(item && (item.sender_display_name || item.sender_username) || '').trim();
                 const senderHonorName = String(item && item.sender_honor_name || '').trim();
@@ -388,7 +429,9 @@
                 const avatarUrl = isSelf ? self.ctx.getAvatarUrl((state.profile && state.profile.avatar_url) || item.sender_avatar_url) : self.ctx.getAvatarUrl(item.sender_avatar_url);
                 const bubbleClassName = self.getMessageBubbleClassName(item);
                 const bubbleMarkup = self.getMessageBubbleMarkup(item);
-                const footerMarkup = (metaText || progressMarkup) ? '<div class="ak-im-message-footer">' +
+                const mentionBadgeMarkup = self.buildMentionBadgeMarkup(item);
+                const footerMarkup = (mentionBadgeMarkup || metaText || progressMarkup) ? '<div class="ak-im-message-footer">' +
+                    mentionBadgeMarkup +
                     (metaText ? '<div class="ak-im-meta">' + self.ctx.escapeHtml(metaText) + '</div>' : '') +
                     progressMarkup +
                 '</div>' : '';
@@ -449,7 +492,11 @@
             if (this.ctx && typeof this.ctx.syncVoiceMessageBubbles === 'function') {
                 this.ctx.syncVoiceMessageBubbles();
             }
-            messageList.scrollTop = messageList.scrollHeight;
+            if (messageNavigation && typeof messageNavigation.afterRenderMessages === 'function') {
+                messageNavigation.afterRenderMessages(navigationSnapshot);
+            } else {
+                messageList.scrollTop = messageList.scrollHeight;
+            }
         },
 
         sendMessagePayload(payload, options) {
@@ -503,6 +550,10 @@
             }
             const self = this;
             state.activeMessagesLoading = true;
+            const messageNavigation = this.getMessageNavigation();
+            if (messageNavigation && typeof messageNavigation.beginConversationLoad === 'function') {
+                messageNavigation.beginConversationLoad(targetConversationId, this.getActiveSession());
+            }
             return this.ctx.request(this.ctx.httpRoot + '/messages?conversation_id=' + encodeURIComponent(targetConversationId)).then(function(data) {
                 state.activeMessages = Array.isArray(data && data.items) ? data.items : [];
                 state.activeMessagesLoading = false;
@@ -523,9 +574,14 @@
             if (!state || !state.allowed || !state.activeConversationId || !inputEl) return Promise.resolve(null);
             const content = String(inputEl.value || '').trim();
             if (!content) return Promise.resolve(null);
-            return this.sendMessagePayload({
-                message_type: 'text',
-                content: content
+            const mentionManage = this.getMentionManage();
+            const payload = mentionManage && typeof mentionManage.buildTextPayload === 'function'
+                ? mentionManage.buildTextPayload(content)
+                : { message_type: 'text', content: content };
+            return this.sendMessagePayload(payload, {
+                onAfterLocalSend: function() {
+                    if (mentionManage && typeof mentionManage.resetDraft === 'function') mentionManage.resetDraft();
+                }
             }).catch(function(error) {
                 window.alert(error && error.message ? error.message : '发送失败');
                 return null;
@@ -767,6 +823,8 @@
             if (!state || !state.ws || state.ws.readyState !== WebSocket.OPEN) return;
             const targetConversationId = Number(conversationId || state.activeConversationId || 0);
             if (!targetConversationId || !this.shouldAutoMarkRead(targetConversationId) || !state.activeMessages.length) return;
+            const messageNavigation = this.getMessageNavigation();
+            if (messageNavigation && typeof messageNavigation.shouldMarkReadNow === 'function' && !messageNavigation.shouldMarkReadNow()) return;
             let lastPeerMessage = null;
             for (let index = state.activeMessages.length - 1; index >= 0; index -= 1) {
                 const candidate = state.activeMessages[index];
@@ -835,6 +893,10 @@
                 const item = data.payload || null;
                 if (!item || !item.conversation_id) return;
                 if (Number(item.conversation_id) === Number(state.activeConversationId || 0)) {
+                    const messageNavigation = this.getMessageNavigation();
+                    if (messageNavigation && typeof messageNavigation.handleIncomingMessage === 'function') {
+                        messageNavigation.handleIncomingMessage(item);
+                    }
                     this.upsertActiveMessage(item);
                     this.renderMessages();
                     if (item.sender_username !== state.username) this.markRead(item.conversation_id);
