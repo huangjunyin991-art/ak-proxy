@@ -1291,6 +1291,15 @@
             openExternalPage: openExternalPage,
             getRoot: function() { return root; }
         });
+        ensureMeetingTabBadgeData();
+    }
+
+    function ensureMeetingTabBadgeData() {
+        if (!state.allowed || state.homeTab === 'meetings' || state.meetingsLoaded || state.meetingsLoading) return;
+        const meetingManageModule = getMeetingManageModule();
+        if (meetingManageModule && typeof meetingManageModule.loadMeetings === 'function') {
+            meetingManageModule.loadMeetings();
+        }
     }
 
     function getGroupManageModule() {
@@ -4643,6 +4652,7 @@
                 if (!applyInitialOpenRequest()) {
                     ensureHomeTabData(state.homeTab);
                 }
+                ensureMeetingTabBadgeData();
                 return null;
             });
         }).catch(function() {

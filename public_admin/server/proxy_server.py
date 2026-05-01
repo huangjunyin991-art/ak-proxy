@@ -8387,6 +8387,15 @@ async def im_user_plugin_app_shell_module_js(request: Request):
     return _build_widget_script_response(request, js_path)
 
 
+@app.get("/chat/plugins/im/user/modules/external_page/im_external_page.js")
+
+async def im_user_plugin_external_page_module_js(request: Request):
+
+    js_path = os.path.join(PLUGINS_DIR, "im", "user", "modules", "external_page", "im_external_page.js")
+
+    return _build_widget_script_response(request, js_path)
+
+
 @app.get("/chat/plugins/im/user/modules/social/im_social_manage.js")
 
 async def im_user_plugin_social_manage_module_js(request: Request):
