@@ -491,23 +491,76 @@
             this.renderJoinPage();
         },
 
-        openMeetingDownload() {
-            const state = this.getState();
-            if (this.ctx && typeof this.ctx.openExternalPage === 'function') {
-                const opened = this.ctx.openExternalPage({
-                    provider: 'tencent_meeting_download',
-                    title: '安装腾讯会议',
-                    returnView: 'meeting_join',
-                    returnHomeTab: 'meetings',
-                    payload: {
-                        meeting: state && state.meetingsJoinItem ? state.meetingsJoinItem : null
-                    }
-                });
-                if (opened) return;
-            }
+        getMeetingDownloadDevice() {
+            const ua = String((navigator && navigator.userAgent) || '').toLowerCase();
+            if (/iphone|ipad|ipod/.test(ua)) return 'ios';
+            if (/android/.test(ua)) return 'android';
+            if (/windows nt/.test(ua)) return 'windows';
+            if (/macintosh|mac os x|linux x86_64|x11/.test(ua)) return 'desktop';
+            return 'other';
+        },
+
+        openURL(url) {
             try {
-                window.location.href = 'https://meeting.tencent.com/download/';
+                window.location.href = url;
             } catch (e) {}
+        },
+
+        openURLWithVisibilityFallback(primaryURL, fallbackURL, fallbackDelay) {
+            let pageHidden = document.visibilityState === 'hidden';
+            let fallbackTimer = null;
+            const cleanup = function() {
+                document.removeEventListener('visibilitychange', handleVisibilityChange);
+                window.removeEventListener('pagehide', handlePageHide);
+                window.removeEventListener('blur', handleBlur);
+                if (fallbackTimer) {
+                    clearTimeout(fallbackTimer);
+                    fallbackTimer = null;
+                }
+            };
+            const handleVisibilityChange = function() {
+                if (document.visibilityState === 'hidden') {
+                    pageHidden = true;
+                    cleanup();
+                }
+            };
+            const handlePageHide = function() {
+                pageHidden = true;
+                cleanup();
+            };
+            const handleBlur = function() {
+                pageHidden = true;
+                cleanup();
+            };
+            document.addEventListener('visibilitychange', handleVisibilityChange);
+            window.addEventListener('pagehide', handlePageHide);
+            window.addEventListener('blur', handleBlur);
+            fallbackTimer = setTimeout(function() {
+                cleanup();
+                if (!pageHidden && document.visibilityState !== 'hidden') {
+                    try {
+                        window.location.href = fallbackURL;
+                    } catch (e) {}
+                }
+            }, fallbackDelay || 4000);
+            this.openURL(primaryURL);
+        },
+
+        openMeetingDownload() {
+            const device = this.getMeetingDownloadDevice();
+            if (device === 'ios') {
+                this.openURLWithVisibilityFallback('itms-apps://apps.apple.com/cn/app/id1484048379', 'https://apps.apple.com/cn/app/id1484048379', 4000);
+                return;
+            }
+            if (device === 'android') {
+                this.openURLWithVisibilityFallback('market://details?id=com.tencent.wemeet.app', 'https://ulink.meeting.tencent.com/download/', 4000);
+                return;
+            }
+            if (device === 'windows') {
+                this.openURL('https://meeting.tencent.com/download-win.html');
+                return;
+            }
+            this.openURL('https://meeting.tencent.com/download/');
         },
 
         // ============================ WebSocket 事件 ============================
