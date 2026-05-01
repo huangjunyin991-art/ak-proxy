@@ -735,12 +735,12 @@
                         <div class="ak-im-contact-search-page"></div>
                         <div class="ak-im-home-tabbar">
                             <button class="ak-im-home-tab-btn is-active" type="button" data-im-home-tab="chats" aria-label="聊天">
-                                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 6.75C6.5 5.78 7.28 5 8.4 5H13.05C14.24 5 15.2 5.78 15.2 6.75V9.85C15.2 11.04 14.24 12 13.05 12H10.15L7.45 14.08C7.17 14.3 6.75 14.1 6.75 13.75V12H6.25V6.75Z" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                                <svg viewBox="0 0 24 24" aria-hidden="true" fill="none"><path d="M4.8 6.8C4.8 5.8 5.6 5 6.6 5h10.8c1 0 1.8.8 1.8 1.8v6.7c0 1-.8 1.8-1.8 1.8H10l-3.6 3v-3H6.6c-1 0-1.8-.8-1.8-1.8V6.8Z" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><path d="M8.1 9.1h6.8M8.1 12h4.8" stroke-width="1.5" stroke-linecap="round"/></svg>
                                 <span>聊天</span>
                                 <span class="ak-im-home-tab-badge" aria-hidden="true"></span>
                             </button>
                             <button class="ak-im-home-tab-btn" type="button" data-im-home-tab="contacts" aria-label="通讯录">
-                                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 12a3.4 3.4 0 1 0 0-6.8 3.4 3.4 0 0 0 0 6.8Zm-5.4 6.3c.42-2.44 2.66-4.2 5.4-4.2s4.98 1.76 5.4 4.2" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><path d="M5.2 7.6h.01M18.8 7.6h.01" stroke-width="2.2" stroke-linecap="round"/></svg>
+                                <svg viewBox="0 0 24 24" aria-hidden="true" fill="none"><path d="M12 11.4a3.1 3.1 0 1 0 0-6.2 3.1 3.1 0 0 0 0 6.2Z" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><path d="M6.4 18.6c.5-2.6 2.8-4.4 5.6-4.4s5.1 1.8 5.6 4.4" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><path d="M5.4 9.4a2 2 0 0 1 2-2M18.6 7.4a2 2 0 0 1 2 2M4 16.6c.3-1.4 1.3-2.5 2.7-3M20 16.6c-.3-1.4-1.3-2.5-2.7-3" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
                                 <span>通讯录</span>
                             </button>
                             <button class="ak-im-home-tab-btn" type="button" data-im-home-tab="meetings" aria-label="会议">
@@ -749,7 +749,7 @@
                                 <span class="ak-im-home-tab-badge" aria-hidden="true"></span>
                             </button>
                             <button class="ak-im-home-tab-btn" type="button" data-im-home-tab="me" aria-label="我">
-                                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 12.2a3.6 3.6 0 1 0 0-7.2 3.6 3.6 0 0 0 0 7.2Zm-6 6.8c.5-2.9 3.15-5 6-5s5.5 2.1 6 5" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                                <svg viewBox="0 0 24 24" aria-hidden="true" fill="none"><path d="M12 12.2a3.6 3.6 0 1 0 0-7.2 3.6 3.6 0 0 0 0 7.2Z" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><path d="M6 19c.5-2.9 3.15-5 6-5s5.5 2.1 6 5" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
                                 <span>我</span>
                             </button>
                         </div>
