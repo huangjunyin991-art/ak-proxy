@@ -890,8 +890,12 @@ func (a *App) handleMeetingJoin(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": true, "message": "会议号缺失，无法拉起腾讯会议"})
 		return
 	}
-	log.Printf("im meeting join app bridge: id=%d username=%s url=%s", meeting.ID, username, joinURL)
-	renderWemeetJoinBridge(w, joinURL, meetingReturnURL(r))
+	log.Printf("im meeting join app url: id=%d username=%s url=%s", meeting.ID, username, joinURL)
+	writeJSON(w, http.StatusOK, map[string]any{
+		"success":  true,
+		"join_url": joinURL,
+		"item":     publicMeetingItem(meeting),
+	})
 }
 
 func (a *App) handleMeetingPublish(w http.ResponseWriter, r *http.Request, username string) {

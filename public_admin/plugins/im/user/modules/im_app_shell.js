@@ -39,6 +39,7 @@
                 #ak-im-root.ak-view-group-create .ak-im-group-create-screen{display:flex}
                 #ak-im-root.ak-view-group-title-edit .ak-im-group-title-edit-screen{display:flex}
                 #ak-im-root.ak-view-meeting-publish .ak-im-meeting-publish-screen{display:flex}
+                #ak-im-root.ak-view-meeting-join .ak-im-meeting-join-screen{display:flex}
                 #ak-im-root .ak-im-topbar{height:calc(56px + env(safe-area-inset-top, 0px));padding:calc(env(safe-area-inset-top, 0px) + 8px) 12px 8px;display:grid;grid-template-columns:52px 1fr 52px;align-items:center;background:#ededed;border-bottom:1px solid rgba(15,23,42,.06);box-sizing:border-box}
                 #ak-im-root .ak-im-session-screen .ak-im-topbar{grid-template-columns:80px minmax(0,1fr) 80px;column-gap:8px}
                 #ak-im-root .ak-im-topbar-title,#ak-im-root .ak-im-topbar-title-wrap{text-align:center;min-width:0}
@@ -264,6 +265,18 @@
                 #ak-im-root .ak-im-meeting-publish-footer{position:absolute;left:0;right:0;bottom:0;padding:12px 12px calc(12px + env(safe-area-inset-bottom, 0px));display:flex;gap:10px;justify-content:flex-end;background:linear-gradient(180deg,rgba(247,247,247,0) 0%,#f7f7f7 28%,#f7f7f7 100%)}
                 #ak-im-root .ak-im-meeting-publish-submit{border:none;background:#07c160;color:#ffffff;height:44px;padding:0 22px;border-radius:14px;font-size:15px;font-weight:700;cursor:pointer}
                 #ak-im-root .ak-im-meeting-publish-submit:disabled{background:#9ca3af;cursor:not-allowed}
+                #ak-im-root .ak-im-meeting-join-screen{background:#ededed}
+                #ak-im-root .ak-im-meeting-join-page{flex:1;min-height:0;overflow:auto;padding:12px 12px calc(16px + env(safe-area-inset-bottom, 0px));background:#f7f7f7}
+                #ak-im-root .ak-im-meeting-join-card{background:#ffffff;border-radius:18px;padding:16px 14px;display:flex;flex-direction:column;gap:12px;box-shadow:0 1px 2px rgba(15,23,42,.04)}
+                #ak-im-root .ak-im-meeting-join-title{font-size:18px;font-weight:700;color:#111827;line-height:1.4}
+                #ak-im-root .ak-im-meeting-join-status{font-size:14px;color:#4b5563;line-height:1.7}
+                #ak-im-root .ak-im-meeting-join-actions{display:flex;flex-direction:column;gap:10px}
+                #ak-im-root .ak-im-meeting-join-primary,#ak-im-root .ak-im-meeting-join-download{height:42px;border:none;border-radius:12px;color:#ffffff;font-size:15px;font-weight:700;text-decoration:none;display:flex;align-items:center;justify-content:center;box-sizing:border-box}
+                #ak-im-root .ak-im-meeting-join-primary{background:#07c160}
+                #ak-im-root .ak-im-meeting-join-primary:disabled{background:#9ca3af;cursor:not-allowed}
+                #ak-im-root .ak-im-meeting-join-download{background:#1677ff}
+                #ak-im-root .ak-im-meeting-join-install{padding:11px 12px;border-radius:14px;background:#fff7ed;color:#9a3412;font-size:13px;line-height:1.7}
+                #ak-im-root .ak-im-meeting-join-tip{padding:0 4px;font-size:12px;line-height:1.6;color:#9ca3af}
                 #ak-im-root .ak-im-meeting-password-card{background:#ffffff;border-radius:18px;padding:14px;display:flex;flex-direction:column;gap:10px;box-shadow:0 1px 2px rgba(15,23,42,.04)}
                 #ak-im-root .ak-im-meeting-password-title{font-weight:600;font-size:15px;color:#111827}
                 #ak-im-root .ak-im-meeting-password-desc{font-size:12px;color:#6b7280;line-height:1.6}
@@ -828,6 +841,16 @@
                         <div class="ak-im-meeting-publish-footer"></div>
                     </div>
                 </div>
+                <div class="ak-im-screen ak-im-meeting-join-screen">
+                    <div class="ak-im-topbar">
+                        <button class="ak-im-nav-btn ak-im-meeting-join-back" type="button" aria-label="返回会议列表">
+                            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M15 18L9 12L15 6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                        </button>
+                        <div class="ak-im-topbar-title">腾讯会议</div>
+                        <div class="ak-im-group-info-side" aria-hidden="true"></div>
+                    </div>
+                    <div class="ak-im-meeting-join-page"></div>
+                </div>
                 <div class="ak-im-screen ak-im-profile-subpage-screen">
                     <div class="ak-im-topbar">
                         <button class="ak-im-nav-btn ak-im-profile-subpage-back" type="button" aria-label="返回个人页">
@@ -934,6 +957,8 @@
                 meetingPublishBackBtnEl: root ? root.querySelector('.ak-im-meeting-publish-back') : null,
                 meetingPublishBodyEl: root ? root.querySelector('.ak-im-meeting-publish-body') : null,
                 meetingPublishFooterEl: root ? root.querySelector('.ak-im-meeting-publish-footer') : null,
+                meetingJoinBackBtnEl: root ? root.querySelector('.ak-im-meeting-join-back') : null,
+                meetingJoinBodyEl: root ? root.querySelector('.ak-im-meeting-join-page') : null,
                 dialogEl: root ? root.querySelector('.ak-im-dialog') : null,
                 dialogTitleEl: root ? root.querySelector('.ak-im-dialog-title') : null,
                 dialogMessageEl: root ? root.querySelector('.ak-im-dialog-message') : null,
@@ -1156,6 +1181,9 @@
             bindClick(elements.meetingPublishBackBtnEl, function() {
                 if (typeof ctx.onMeetingPublishBackClick === 'function') ctx.onMeetingPublishBackClick();
             });
+            bindClick(elements.meetingJoinBackBtnEl, function() {
+                if (typeof ctx.onMeetingJoinBackClick === 'function') ctx.onMeetingJoinBackClick();
+            });
             if (elements.groupTitleEditInputEl) {
                 elements.groupTitleEditInputEl.addEventListener('input', function() {
                     if (typeof ctx.onGroupTitleEditInput === 'function') {
@@ -1192,6 +1220,7 @@
             root.classList.toggle('ak-view-group-create', !!nextShellState.showGroupCreate);
             root.classList.toggle('ak-view-group-title-edit', !!nextShellState.showGroupTitleEdit);
             root.classList.toggle('ak-view-meeting-publish', !!nextShellState.showMeetingPublish);
+            root.classList.toggle('ak-view-meeting-join', !!nextShellState.showMeetingJoin);
             root.classList.toggle('ak-contact-search-open', !!nextShellState.showContactSearch);
             if (this.elements.launcherEl) {
                 this.elements.launcherEl.classList.toggle('is-open', !!nextShellState.open);

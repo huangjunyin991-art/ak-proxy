@@ -13,6 +13,8 @@
             this.initState();
             this.bindPanelActions();
             this.bindPublishPageActions();
+            this.bindJoinPageActions();
+            this.bindJoinLifecycleEvents();
         },
 
         initState() {
@@ -31,6 +33,13 @@
             if (typeof state.meetingsPasswordPromptValue !== 'string') state.meetingsPasswordPromptValue = '';
             if (typeof state.meetingsPasswordPromptError !== 'string') state.meetingsPasswordPromptError = '';
             if (typeof state.meetingsPasswordSubmitting !== 'boolean') state.meetingsPasswordSubmitting = false;
+            if (typeof state.meetingsJoinOpen !== 'boolean') state.meetingsJoinOpen = false;
+            if (typeof state.meetingsJoinLoading !== 'boolean') state.meetingsJoinLoading = false;
+            if (typeof state.meetingsJoinAttempted !== 'boolean') state.meetingsJoinAttempted = false;
+            if (typeof state.meetingsJoinDetectedOpened !== 'boolean') state.meetingsJoinDetectedOpened = false;
+            if (typeof state.meetingsJoinError !== 'string') state.meetingsJoinError = '';
+            if (typeof state.meetingsJoinURL !== 'string') state.meetingsJoinURL = '';
+            if (!state.meetingsJoinItem) state.meetingsJoinItem = null;
         },
 
         blankPublishForm() {
@@ -79,6 +88,11 @@
             };
         },
 
+        getJoinPageBody() {
+            const elements = this.ctx && this.ctx.elements ? this.ctx.elements : null;
+            return elements && elements.meetingJoinBodyEl ? elements.meetingJoinBodyEl : null;
+        },
+
         request(path, options) {
             const http = this.getHttpRoot();
             const url = http + path;
@@ -105,6 +119,7 @@
             if (this.ctx && typeof this.ctx.render === 'function') this.ctx.render();
             this.renderMeetings();
             this.renderPublishPage();
+            this.renderJoinPage();
         },
 
         // ============================ 数据加载 ============================
@@ -396,15 +411,84 @@
 
         joinMeeting(meetingId) {
             const id = Number(meetingId || 0);
-            if (!id) return;
-            const returnUrl = new URL(window.location.href);
-            returnUrl.searchParams.set('ak_im_open', '1');
-            returnUrl.searchParams.set('ak_im_tab', 'meetings');
-            const url = this.getHttpRoot() + '/meetings/join?id=' + encodeURIComponent(String(id)) + '&return_url=' + encodeURIComponent(returnUrl.toString());
+            const state = this.getState();
+            if (!id || !state) return;
+            const meeting = Array.isArray(state.meetingsItems)
+                ? state.meetingsItems.find(function(item) { return item && Number(item.id) === id; })
+                : null;
+            state.meetingsJoinOpen = true;
+            state.meetingsJoinLoading = true;
+            state.meetingsJoinAttempted = false;
+            state.meetingsJoinDetectedOpened = false;
+            state.meetingsJoinError = '';
+            state.meetingsJoinURL = '';
+            state.meetingsJoinItem = meeting || null;
+            state.homeTab = 'meetings';
+            state.view = 'meeting_join';
+            state.open = true;
+            this.triggerRender();
+            const self = this;
+            this.request('/meetings/join?id=' + encodeURIComponent(String(id)), { method: 'GET' }).then(function(data) {
+                state.meetingsJoinLoading = false;
+                state.meetingsJoinURL = data && data.join_url ? String(data.join_url) : '';
+                state.meetingsJoinItem = data && data.item ? data.item : state.meetingsJoinItem;
+                if (!state.meetingsJoinURL) {
+                    state.meetingsJoinError = '会议号缺失，无法拉起腾讯会议';
+                    self.triggerRender();
+                    return;
+                }
+                self.triggerRender();
+                self.openJoinURL();
+            }).catch(function(err) {
+                state.meetingsJoinLoading = false;
+                state.meetingsJoinError = err && err.message ? err.message : '进入会议失败';
+                self.triggerRender();
+            });
+        },
+
+        closeJoin() {
+            const state = this.getState();
+            if (!state) return;
+            state.meetingsJoinOpen = false;
+            state.meetingsJoinLoading = false;
+            state.meetingsJoinAttempted = false;
+            state.meetingsJoinDetectedOpened = false;
+            state.meetingsJoinError = '';
+            state.meetingsJoinURL = '';
+            state.meetingsJoinItem = null;
+            state.homeTab = 'meetings';
+            if (state.view === 'meeting_join') state.view = 'sessions';
+            this.triggerRender();
+        },
+
+        openJoinURL() {
+            const state = this.getState();
+            if (!state || !state.meetingsJoinURL) return;
+            state.meetingsJoinAttempted = true;
+            state.meetingsJoinDetectedOpened = false;
+            state.meetingsJoinError = '';
+            this.renderJoinPage();
+            const self = this;
+            const attemptedAt = Date.now();
             try {
-                window.history.replaceState(window.history.state, document.title, returnUrl.toString());
-                window.location.href = url;
+                window.location.href = state.meetingsJoinURL;
             } catch (e) {}
+            setTimeout(function() {
+                const currentState = self.getState();
+                if (!currentState || currentState.view !== 'meeting_join' || !currentState.meetingsJoinOpen) return;
+                if (!currentState.meetingsJoinDetectedOpened && Date.now() - attemptedAt >= 1500) {
+                    currentState.meetingsJoinError = '未检测到腾讯会议客户端。如果没有弹出打开提示，请先下载安装腾讯会议，安装完成后回到此页点击“重新打开腾讯会议”。';
+                    self.renderJoinPage();
+                }
+            }, 1800);
+        },
+
+        markJoinOpened() {
+            const state = this.getState();
+            if (!state || state.view !== 'meeting_join' || !state.meetingsJoinOpen) return;
+            state.meetingsJoinDetectedOpened = true;
+            state.meetingsJoinError = '';
+            this.renderJoinPage();
         },
 
         // ============================ WebSocket 事件 ============================
@@ -577,6 +661,49 @@
                 </div>`;
         },
 
+        renderJoinPage() {
+            const body = this.getJoinPageBody();
+            if (!body) return;
+            const state = this.getState();
+            if (!state || !state.meetingsJoinOpen) {
+                body.innerHTML = '';
+                return;
+            }
+            const esc = this.escapeHtml.bind(this);
+            const loading = !!state.meetingsJoinLoading;
+            const error = String(state.meetingsJoinError || '').trim();
+            const opened = !!state.meetingsJoinDetectedOpened;
+            const attempted = !!state.meetingsJoinAttempted;
+            let title = '正在打开腾讯会议';
+            let status = '请在浏览器提示中允许打开腾讯会议客户端。';
+            if (loading) {
+                title = '正在准备会议';
+                status = '正在获取会议入会信息，请稍候。';
+            } else if (error) {
+                title = '未检测到腾讯会议客户端';
+                status = '当前设备可能没有安装腾讯会议，或浏览器阻止了打开客户端。';
+            } else if (opened) {
+                title = '已尝试打开腾讯会议';
+                status = '如果腾讯会议已经打开，可以返回会议列表。';
+            } else if (attempted) {
+                title = '正在打开腾讯会议';
+                status = '请在浏览器提示中允许打开腾讯会议客户端。';
+            }
+            const retryDisabled = loading || !state.meetingsJoinURL ? ' disabled' : '';
+            const installBlock = error ? `<div class="ak-im-meeting-join-install">${esc(error)}</div>` : '';
+            body.innerHTML = `
+                <section class="ak-im-meeting-join-card">
+                    <div class="ak-im-meeting-join-title">${esc(title)}</div>
+                    <div class="ak-im-meeting-join-status">${esc(status)}</div>
+                    <div class="ak-im-meeting-join-actions">
+                        <button type="button" class="ak-im-meeting-join-primary" data-im-meeting-reopen="1"${retryDisabled}>重新打开腾讯会议</button>
+                        <a class="ak-im-meeting-join-download" href="https://meeting.tencent.com/download/" target="_blank" rel="noopener">下载安装腾讯会议</a>
+                    </div>
+                    ${installBlock}
+                    <div class="ak-im-meeting-join-tip">如果 Edge 弹出确认框，可勾选“始终允许”以减少后续确认。</div>
+                </section>`;
+        },
+
         isoToLocalInput(iso) {
             if (!iso) return '';
             const d = new Date(iso);
@@ -611,6 +738,7 @@
             panelRoot.innerHTML = `
                 <div class="ak-im-meeting-list">${listHtml}</div>`;
             this.renderPublishPage();
+            this.renderJoinPage();
         },
 
         bindPanelActions() {
@@ -687,6 +815,30 @@
                     return;
                 }
                 form[field] = target.value;
+            });
+        },
+
+        bindJoinPageActions() {
+            const body = this.getJoinPageBody();
+            if (!body || body.__akMeetingJoinEventsBound) return;
+            body.__akMeetingJoinEventsBound = true;
+            const self = this;
+            body.addEventListener('click', function(event) {
+                const target = event.target.closest('[data-im-meeting-reopen]');
+                if (!target || target.disabled) return;
+                self.openJoinURL();
+            });
+        },
+
+        bindJoinLifecycleEvents() {
+            if (this._joinLifecycleBound) return;
+            this._joinLifecycleBound = true;
+            const self = this;
+            document.addEventListener('visibilitychange', function() {
+                if (document.hidden) self.markJoinOpened();
+            });
+            window.addEventListener('blur', function() {
+                self.markJoinOpened();
             });
         }
     };
