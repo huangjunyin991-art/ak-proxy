@@ -278,6 +278,7 @@ func New(cfg config.Config) (*App, error) {
 	mux.HandleFunc("/im/api/meetings", app.handleMeetings)
 	mux.HandleFunc("/im/api/meetings/join", app.handleMeetingJoin)
 	mux.HandleFunc("/im/api/meetings/join-bridge.js", app.handleMeetingJoinBridgeScript)
+	mux.HandleFunc("/im/api/meetings/join_bridge_script", app.handleMeetingJoinBridgeScript)
 	mux.HandleFunc("/im/api/meetings/preview", app.handleMeetingPreview)
 	mux.HandleFunc("/im/api/meetings/read", app.handleMeetingRead)
 	mux.HandleFunc("/im/api/meetings/delete", app.handleMeetingDelete)

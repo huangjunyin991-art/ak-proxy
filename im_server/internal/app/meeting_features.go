@@ -427,7 +427,7 @@ a.primary{background:#1677ff;color:#fff}
 </div>
 </div>
 <div id="wemeet-join-data" data-join-url="{{.JoinURL}}" hidden></div>
-<script src="/im/api/meetings/join-bridge.js?v=3" defer></script>
+<script src="/im/api/meetings/join_bridge_script?v=4" defer></script>
 </body>
 </html>`))
 
