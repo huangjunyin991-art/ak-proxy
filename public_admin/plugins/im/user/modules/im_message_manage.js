@@ -27,7 +27,11 @@
         getActiveSession() {
             const sessionManage = this.getSessionManage();
             if (sessionManage && typeof sessionManage.getActiveSession === 'function') {
-                return sessionManage.getActiveSession();
+                const session = sessionManage.getActiveSession();
+                if (session) return session;
+            }
+            if (this.ctx && typeof this.ctx.getActiveSession === 'function') {
+                return this.ctx.getActiveSession();
             }
             return null;
         },

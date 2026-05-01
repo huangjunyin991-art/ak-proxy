@@ -17,6 +17,7 @@ import (
 
 	socialsvc "im_server/internal/app/social"
 	"im_server/internal/config"
+	sessionvisibility "im_server/internal/session_visibility"
 
 	"github.com/gorilla/websocket"
 	"github.com/jackc/pgx/v5"
@@ -37,12 +38,13 @@ var (
 )
 
 type App struct {
-	cfg      config.Config
-	db       *pgxpool.Pool
-	social   *socialsvc.Service
-	hub      *Hub
-	server   *http.Server
-	upgrader websocket.Upgrader
+	cfg               config.Config
+	db                *pgxpool.Pool
+	social            *socialsvc.Service
+	sessionVisibility *sessionvisibility.Service
+	hub               *Hub
+	server            *http.Server
+	upgrader          websocket.Upgrader
 }
 
 type Hub struct {
@@ -211,6 +213,7 @@ func New(cfg config.Config) (*App, error) {
 		},
 	}
 	app.social = socialsvc.New(pool, app.buildSocialIdentityItems)
+	app.sessionVisibility = sessionvisibility.New(pool)
 	if err := app.ensureSchema(ctx); err != nil {
 		return nil, err
 	}
@@ -266,6 +269,8 @@ func New(cfg config.Config) (*App, error) {
 	mux.HandleFunc("/im/api/sessions/history/clear", app.handleSessionHistoryClear)
 	mux.HandleFunc("/im/api/sessions/history/clear-member", app.handleSessionMemberHistoryClear)
 	mux.HandleFunc("/im/api/sessions/hide", app.handleSessionHide)
+	mux.HandleFunc("/im/api/sessions/hidden-groups", app.handleHiddenGroups)
+	mux.HandleFunc("/im/api/sessions/hidden-groups/restore", app.handleHiddenGroupRestore)
 	mux.HandleFunc("/im/api/sessions/direct", app.handleDirectSession)
 	mux.HandleFunc("/im/api/sessions/pin", app.handleSessionPin)
 	mux.HandleFunc("/im/api/messages", app.handleMessages)
@@ -1914,7 +1919,13 @@ func (a *App) ensureConversationMember(ctx context.Context, conversationID strin
 				AND cm.username = $2
 				AND cm.left_at IS NULL
 				AND c.deleted_at IS NULL
-				AND COALESCE(c.hidden_for_all, FALSE) = FALSE
+				AND (
+					COALESCE(c.hidden_for_all, FALSE) = FALSE
+					OR (
+						c.conversation_type = 'group'
+						AND LOWER(COALESCE(c.owner_username, '')) = LOWER($2)
+					)
+				)
 		)`, conversationID, username).Scan(&exists)
 	return exists
 }

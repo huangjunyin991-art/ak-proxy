@@ -419,7 +419,7 @@
                     groupManage.buildGroupInfoCell('清空指定成员聊天记录', '', 'clear_member_history') +
                     groupManage.buildGroupInfoCell('清空本群聊天记录', '', 'clear_history', 'is-danger') +
                     (isOwner ? groupManage.buildGroupInfoCell('解散本群', '', 'dissolve_group', 'is-danger') : '') +
-                    groupManage.buildGroupInfoCell('隐藏本群', '', 'hide_group', 'is-danger') +
+                    (isOwner ? groupManage.buildGroupInfoCell('隐藏本群', '', 'hide_group', 'is-danger') : '') +
                 '</div>' : '');
             const self = this;
             Array.prototype.forEach.call(settingsPanelBodyEl.querySelectorAll('[data-im-settings-action]'), function(button) {

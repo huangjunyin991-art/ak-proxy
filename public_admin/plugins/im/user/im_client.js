@@ -82,6 +82,12 @@
 	        datasetKey: 'akImUserPluginSocialManage',
 	        src: `${API_ROOT}/chat/plugins/im/user/modules/social/im_social_manage.js`,
 	        errorMessage: '社交模块加载失败'
+        },
+        hiddenGroups: {
+            selector: 'script[data-ak-im-user-plugin-hidden-groups="1"]',
+            datasetKey: 'akImUserPluginHiddenGroups',
+            src: `${API_ROOT}/chat/plugins/im/user/modules/hidden_groups/im_hidden_groups.js`,
+            errorMessage: '隐藏群聊模块加载失败'
         }
     };
     const lazyModuleLoadPromises = {};
@@ -114,6 +120,12 @@
         blacklistLoading: false,
         blacklistError: '',
         blacklistActionUsername: '',
+        hiddenGroupsItems: [],
+        hiddenGroupsLoaded: false,
+        hiddenGroupsLoading: false,
+        hiddenGroupsError: '',
+        hiddenGroupsActionId: 0,
+        hiddenGroupsActiveSession: null,
         profile: null,
         profileLoaded: false,
         profileLoading: false,
@@ -1151,6 +1163,34 @@
 	    });
 	}
 
+    function getHiddenGroupsModule() {
+        const modules = window.AKIMUserModules;
+        if (!modules || typeof modules !== 'object') return null;
+        const hiddenGroupsModule = modules.hiddenGroups;
+        if (!hiddenGroupsModule || typeof hiddenGroupsModule.init !== 'function') return null;
+        return hiddenGroupsModule;
+    }
+
+    function initHiddenGroupsModule() {
+        const hiddenGroupsModule = getHiddenGroupsModule();
+        if (!hiddenGroupsModule) return;
+        hiddenGroupsModule.init({
+            state: state,
+            httpRoot: HTTP_ROOT,
+            get elements() {
+                return {
+                    profileSubpageBodyEl: profileSubpageBodyEl
+                };
+            },
+            request: request,
+            render: render,
+            escapeHtml: escapeHtml,
+            buildAvatarBoxMarkup: buildAvatarBoxMarkup,
+            openConversationById: openConversationById,
+            loadSessions: loadSessions
+        });
+    }
+
     function getAppShellModule() {
         const modules = window.AKIMUserModules;
         if (!modules || typeof modules !== 'object') return null;
@@ -1550,6 +1590,8 @@
             createWebSocket: function() {
                 return new WebSocket(buildWsUrl());
             },
+            getActiveSession: getActiveSession,
+            isGroupSession: isGroupSession,
             getSessionManage: getSessionManageModule,
             getGroupManage: getGroupManageModule,
             getGroupAdmins: getGroupAdminsModule
@@ -1757,6 +1799,7 @@
         if (moduleKey === 'location') return getLocationModule();
         if (moduleKey === 'voiceHold') return getVoiceHoldModule();
 	    if (moduleKey === 'social') return getSocialModule();
+        if (moduleKey === 'hiddenGroups') return getHiddenGroupsModule();
         return null;
     }
 
@@ -1776,6 +1819,7 @@
         else if (moduleKey === 'location') initLocationModule();
         else if (moduleKey === 'voiceHold') initVoiceHoldModule();
 	    else if (moduleKey === 'social') initSocialModule();
+        else if (moduleKey === 'hiddenGroups') initHiddenGroupsModule();
         lazyModuleInitState[moduleKey] = true;
         return getLazyModuleInstance(moduleKey) || moduleInstance;
     }
@@ -2563,14 +2607,20 @@
         }
     }
 
+    function getHiddenGroupActiveSession() {
+        const item = state.hiddenGroupsActiveSession;
+        if (!item || Number(item.conversation_id || 0) !== Number(state.activeConversationId || 0)) return null;
+        return item;
+    }
+
     function getActiveSession() {
         const sessionManageModule = getSessionManageModule();
         if (sessionManageModule && typeof sessionManageModule.getActiveSession === 'function') {
-            return sessionManageModule.getActiveSession();
+            return sessionManageModule.getActiveSession() || getHiddenGroupActiveSession();
         }
         return state.sessions.find(function(item) {
             return Number(item && item.conversation_id || 0) === Number(state.activeConversationId || 0);
-        }) || null;
+        }) || getHiddenGroupActiveSession();
     }
 
     function isGroupSession(item) {
@@ -3357,13 +3407,14 @@
     }
 
     function isProfileSubpageView(view) {
-        return view === 'profile_avatar' || view === 'profile_detail' || view === 'profile_settings' || view === 'profile_blacklist';
+        return view === 'profile_avatar' || view === 'profile_detail' || view === 'profile_settings' || view === 'profile_blacklist' || view === 'profile_hidden_groups';
     }
 
     function getProfileSubpageTitle(view) {
         if (view === 'profile_avatar') return '头像设置';
         if (view === 'profile_settings') return '设置';
         if (view === 'profile_blacklist') return '黑名单';
+        if (view === 'profile_hidden_groups') return '管理已隐藏的群聊';
         return '个人资料';
     }
 
@@ -3392,12 +3443,23 @@
     function openProfileSubpage(view) {
         if (!state.allowed) return;
         const nextView = isProfileSubpageView(view) ? view : 'profile_detail';
-        const ensureModule = nextView === 'profile_blacklist' ? ensureOptionalLazyModule('social') : ensureOptionalLazyModule('profile');
+        const ensureModule = nextView === 'profile_blacklist'
+            ? ensureOptionalLazyModule('social')
+            : (nextView === 'profile_hidden_groups' ? ensureOptionalLazyModule('hiddenGroups') : ensureOptionalLazyModule('profile'));
         ensureModule.then(function(loadedModule) {
             if (nextView === 'profile_blacklist' && !loadedModule) {
                 openDialog({
                     title: '提示',
                     message: '黑名单模块暂不可用，请刷新页面后重试',
+                    confirmText: '知道了',
+                    showCancel: false
+                });
+                return;
+            }
+            if (nextView === 'profile_hidden_groups' && !loadedModule) {
+                openDialog({
+                    title: '提示',
+                    message: '隐藏群聊模块暂不可用，请刷新页面后重试',
                     confirmText: '知道了',
                     showCancel: false
                 });
@@ -3425,6 +3487,13 @@
                 const socialModule = getSocialModule();
                 if (socialModule && typeof socialModule.loadBlacklist === 'function') {
                     socialModule.loadBlacklist();
+                }
+            }
+            if (nextView === 'profile_hidden_groups') {
+                state.hiddenGroupsError = '';
+                const hiddenGroupsModule = getHiddenGroupsModule();
+                if (hiddenGroupsModule && typeof hiddenGroupsModule.loadHiddenGroups === 'function') {
+                    hiddenGroupsModule.loadHiddenGroups();
                 }
             }
             render();
@@ -3732,6 +3801,10 @@
 	                '<div class="ak-im-profile-entry-main"><div class="ak-im-profile-entry-label">黑名单</div><div class="ak-im-profile-entry-meta">管理已拉黑用户与禁止收发名单</div></div>' +
 	                '<div class="ak-im-profile-entry-arrow" aria-hidden="true">›</div>' +
                 '</button>' +
+	            '<button class="ak-im-profile-entry" type="button" data-im-profile-nav="profile_hidden_groups">' +
+	                '<div class="ak-im-profile-entry-main"><div class="ak-im-profile-entry-label">管理已隐藏的群聊</div></div>' +
+	                '<div class="ak-im-profile-entry-arrow" aria-hidden="true">›</div>' +
+                '</button>' +
             '</div>';
         Array.prototype.forEach.call(profilePageEl.querySelectorAll('[data-im-profile-nav]'), function(button) {
             button.addEventListener('click', function() {
@@ -3754,10 +3827,23 @@
 	                return;
 	            }
 	        }
+            const hiddenGroupsModule = getHiddenGroupsModule();
+            if (hiddenGroupsModule && state.view === 'profile_hidden_groups' && typeof hiddenGroupsModule.renderProfileSubpage === 'function') {
+                if (profileSubpageTitleEl) profileSubpageTitleEl.textContent = '管理已隐藏的群聊';
+                if (hiddenGroupsModule.renderProfileSubpage()) {
+                    return;
+                }
+            }
             if (state.view === 'profile_blacklist') {
                 if (!profileSubpageBodyEl || !profileSubpageTitleEl) return;
                 profileSubpageTitleEl.textContent = '黑名单';
                 profileSubpageBodyEl.innerHTML = '<div class="ak-im-profile-panel"><div class="ak-im-empty">黑名单模块暂不可用，请刷新页面后重试</div></div>';
+                return;
+            }
+            if (state.view === 'profile_hidden_groups') {
+                if (!profileSubpageBodyEl || !profileSubpageTitleEl) return;
+                profileSubpageTitleEl.textContent = '管理已隐藏的群聊';
+                profileSubpageBodyEl.innerHTML = '<div class="ak-im-profile-panel"><div class="ak-im-empty">隐藏群聊模块暂不可用，请刷新页面后重试</div></div>';
                 return;
             }
             const profileModule = getProfileModule();
@@ -4486,6 +4572,34 @@
         });
     }
 
+    function openConversationById(conversationId, sessionItem) {
+        if (!state.allowed) return Promise.resolve(null);
+        const targetConversationId = Number(conversationId || 0);
+        if (!targetConversationId) return Promise.resolve(null);
+        const fallbackSession = sessionItem && typeof sessionItem === 'object' ? Object.assign({
+            conversation_id: targetConversationId,
+            conversation_type: 'group',
+            hidden_for_all: true,
+            can_send: true
+        }, sessionItem, { conversation_id: targetConversationId }) : null;
+        closeActionSheet();
+        closeReadProgressPanel();
+        closeEmojiPicker({ silent: true });
+        closeMemberPanel();
+        closeSettingsPanel({ silent: true });
+        closePlusPanel({ silent: true });
+        closeHomeAddMenu({ silent: true });
+        state.composerMode = 'text';
+        state.activeConversationId = targetConversationId;
+        state.hiddenGroupsActiveSession = fallbackSession;
+        state.view = 'chat';
+        state.homeTab = 'chats';
+        state.activeMessages = [];
+        state.activeMessagesLoading = true;
+        render();
+        return loadMessages(targetConversationId);
+    }
+
     function applyBootstrapUnavailable() {
         state.allowed = false;
         state.ready = true;
@@ -4517,6 +4631,12 @@
 	        state.blacklistLoading = false;
 	        state.blacklistError = '';
 	        state.blacklistActionUsername = '';
+	        state.hiddenGroupsItems = [];
+	        state.hiddenGroupsLoaded = false;
+	        state.hiddenGroupsLoading = false;
+	        state.hiddenGroupsError = '';
+	        state.hiddenGroupsActionId = 0;
+	        state.hiddenGroupsActiveSession = null;
 	        state.actionSheetOpen = false;
 	        state.actionSheetMessageId = 0;
 	        state.actionSheetConversationId = 0;
@@ -4594,6 +4714,12 @@
 	            state.blacklistLoading = false;
 	            state.blacklistError = '';
 	            state.blacklistActionUsername = '';
+	            state.hiddenGroupsItems = [];
+	            state.hiddenGroupsLoaded = false;
+	            state.hiddenGroupsLoading = false;
+	            state.hiddenGroupsError = '';
+	            state.hiddenGroupsActionId = 0;
+	            state.hiddenGroupsActiveSession = null;
 	            state.actionSheetOpen = false;
 	            state.actionSheetMessageId = 0;
 	            state.actionSheetConversationId = 0;
@@ -4638,6 +4764,7 @@
                 state.activeConversationId = 0;
                 state.activeMessages = [];
                 state.activeMessagesLoading = false;
+                state.hiddenGroupsActiveSession = null;
                 render();
                 return null;
             }
@@ -4687,7 +4814,13 @@
         }
         state.sessions = [];
         if (Number(state.activeConversationId || 0) > 0) {
+            const hiddenGroupSession = state.hiddenGroupsActiveSession;
+            if (hiddenGroupSession && Number(hiddenGroupSession.conversation_id || 0) === Number(state.activeConversationId || 0)) {
+                render();
+                return Promise.resolve(null);
+            }
             state.activeConversationId = 0;
+            state.hiddenGroupsActiveSession = null;
             state.activeMessages = [];
             state.activeMessagesLoading = false;
             closeReadProgressPanel();

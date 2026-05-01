@@ -143,6 +143,7 @@
                     if (typeof self.ctx.closeEmojiPicker === 'function') self.ctx.closeEmojiPicker({ silent: true });
                     if (typeof self.ctx.closeMemberPanel === 'function') self.ctx.closeMemberPanel();
                     state.activeConversationId = item.conversation_id;
+                    state.hiddenGroupsActiveSession = null;
                     state.view = 'chat';
                     state.activeMessages = [];
                     state.activeMessagesLoading = true;
@@ -174,15 +175,22 @@
                     const stillExists = state.sessions.some(function(item) {
                         return Number(item && item.conversation_id || 0) === Number(state.activeConversationId || 0);
                     });
+                    if (stillExists) {
+                        state.hiddenGroupsActiveSession = null;
+                    }
                     if (!stillExists) {
-                        state.activeConversationId = 0;
-                        state.activeMessages = [];
-                        state.activeMessagesLoading = false;
-                        if (typeof self.ctx.closeReadProgressPanel === 'function') self.ctx.closeReadProgressPanel();
-                        if (typeof self.ctx.closeEmojiPicker === 'function') self.ctx.closeEmojiPicker({ silent: true });
-                        if (typeof self.ctx.closeMemberPanel === 'function') self.ctx.closeMemberPanel();
-                        if (typeof self.ctx.closeSettingsPanel === 'function') self.ctx.closeSettingsPanel();
-                        if (state.view === 'chat') state.view = 'sessions';
+                        const hiddenGroupSession = state.hiddenGroupsActiveSession;
+                        const keepHiddenGroupActive = hiddenGroupSession && Number(hiddenGroupSession.conversation_id || 0) === Number(state.activeConversationId || 0);
+                        if (!keepHiddenGroupActive) {
+                            state.activeConversationId = 0;
+                            state.activeMessages = [];
+                            state.activeMessagesLoading = false;
+                            if (typeof self.ctx.closeReadProgressPanel === 'function') self.ctx.closeReadProgressPanel();
+                            if (typeof self.ctx.closeEmojiPicker === 'function') self.ctx.closeEmojiPicker({ silent: true });
+                            if (typeof self.ctx.closeMemberPanel === 'function') self.ctx.closeMemberPanel();
+                            if (typeof self.ctx.closeSettingsPanel === 'function') self.ctx.closeSettingsPanel();
+                            if (state.view === 'chat') state.view = 'sessions';
+                        }
                     }
                 }
                 self.ctx.render();

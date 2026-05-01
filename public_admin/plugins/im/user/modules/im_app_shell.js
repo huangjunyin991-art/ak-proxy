@@ -196,6 +196,13 @@
                 #ak-im-root .ak-im-social-search-input{width:100%;border:none;outline:none;background:transparent;font-size:14px;color:#111827}
                 #ak-im-root .ak-im-social-search-result{margin-top:12px}
                 #ak-im-root .ak-im-social-empty{padding:24px 16px;color:#94a3b8;font-size:13px;line-height:1.7;text-align:center}
+                #ak-im-root .ak-im-hidden-group-list{background:#ffffff}
+                #ak-im-root .ak-im-hidden-group-row{display:flex;align-items:center;gap:10px;padding:10px 0;background:#ffffff}
+                #ak-im-root .ak-im-hidden-group-row + .ak-im-hidden-group-row{border-top:1px solid rgba(15,23,42,.05)}
+                #ak-im-root .ak-im-hidden-group-open{min-width:0;flex:1;border:none;background:transparent;padding:0;display:flex;align-items:center;gap:12px;text-align:left;cursor:pointer}
+                #ak-im-root .ak-im-hidden-group-main{min-width:0;flex:1;display:flex;flex-direction:column}
+                #ak-im-root .ak-im-hidden-group-title{font-size:15px;font-weight:600;color:#111827;line-height:1.4;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+                #ak-im-root .ak-im-hidden-group-meta{margin-top:3px;font-size:12px;color:#9ca3af;line-height:1.4;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
                 #ak-im-root .ak-im-profile-action-row{margin-top:16px;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
                 #ak-im-root .ak-im-profile-primary-btn{margin-top:16px;width:100%;height:46px;border:none;border-radius:14px;background:#07c160;color:#ffffff;font-size:16px;font-weight:700;cursor:pointer;box-shadow:0 10px 22px rgba(7,193,96,.18)}
                 #ak-im-root .ak-im-profile-action-row .ak-im-profile-primary-btn{margin-top:0}

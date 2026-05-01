@@ -1474,31 +1474,16 @@ func (a *App) handleSessionHide(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": true, "message": "invalid payload"})
 		return
 	}
-	meta, err := a.requireGroupConversationAdmin(r.Context(), req.ConversationID, username)
+	if a.sessionVisibility == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": true, "message": "session visibility service unavailable"})
+		return
+	}
+	result, err := a.sessionVisibility.HideGroup(r.Context(), username, req.ConversationID)
 	if err != nil {
 		writeConversationFeatureError(w, err)
 		return
 	}
-	tx, err := a.db.Begin(r.Context())
-	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
-		return
-	}
-	defer tx.Rollback(r.Context())
-	affectedUsers, err := collectConversationAffectedUsersTx(r.Context(), tx, req.ConversationID)
-	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
-		return
-	}
-	if _, err := tx.Exec(r.Context(), `UPDATE im_conversation SET hidden_for_all = TRUE, updated_at = NOW() WHERE id = $1`, req.ConversationID); err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
-		return
-	}
-	if err := tx.Commit(r.Context()); err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
-		return
-	}
-	a.broadcastUsernames(affectedUsers, map[string]any{"type": "im.session.updated", "payload": map[string]any{"conversation_id": req.ConversationID, "reason": "hidden", "conversation_title": meta.ConversationTitle}})
+	a.broadcastUsernames(usernameListToSet(result.AffectedUsernames), map[string]any{"type": "im.session.updated", "payload": map[string]any{"conversation_id": req.ConversationID, "reason": "hidden", "conversation_title": result.Item.ConversationTitle}})
 	writeJSON(w, http.StatusOK, map[string]any{"success": true})
 }
 
