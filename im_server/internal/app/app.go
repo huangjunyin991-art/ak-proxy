@@ -784,12 +784,35 @@ func (a *App) loadUserHonorName(ctx context.Context, username string) (string, e
 	return strings.TrimSpace(honorName), err
 }
 
+func (a *App) isSubAdminBoundAccount(ctx context.Context, username string) (bool, error) {
+	normalizedUsername := strings.ToLower(strings.TrimSpace(username))
+	if normalizedUsername == "" || a == nil || a.db == nil {
+		return false, nil
+	}
+	var exists bool
+	err := a.db.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1
+			FROM sub_admin_account_bindings b
+			JOIN sub_admins s ON s.name = b.sub_name
+			WHERE LOWER(b.account_username) = $1
+		)`, normalizedUsername).Scan(&exists)
+	return exists, err
+}
+
+func (a *App) canUseAddFriendWithHonor(ctx context.Context, username string, honorName string) (bool, error) {
+	if canUseAddFriend(honorName) {
+		return true, nil
+	}
+	return a.isSubAdminBoundAccount(ctx, username)
+}
+
 func (a *App) loadUserAddFriendPermission(ctx context.Context, username string) (bool, error) {
 	honorName, err := a.loadUserHonorName(ctx, username)
 	if err != nil {
 		return false, err
 	}
-	return canUseAddFriend(honorName), nil
+	return a.canUseAddFriendWithHonor(ctx, username, honorName)
 }
 
 func (a *App) buildUserProfileItem(ctx context.Context, username string) UserProfileItem {
@@ -816,7 +839,11 @@ func (a *App) buildUserProfileItem(ctx context.Context, username string) UserPro
 		log.Printf("build user profile item honor name load failed: username=%s err=%v", normalizedUsername, err)
 		honorName = strings.TrimSpace(identity.HonorName)
 	}
-	canAddFriend := canUseAddFriend(honorName)
+	canAddFriend, err := a.canUseAddFriendWithHonor(ctx, normalizedUsername, honorName)
+	if err != nil {
+		log.Printf("build user profile item add friend permission load failed: username=%s err=%v", normalizedUsername, err)
+		canAddFriend = canUseAddFriend(honorName)
+	}
 	return UserProfileItem{
 		Username:    normalizedUsername,
 		DisplayName: identity.DisplayName,

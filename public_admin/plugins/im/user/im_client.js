@@ -717,7 +717,7 @@
         if (!state.canAddFriend) {
             openDialog({
                 title: '提示',
-                message: '仅 M3 及以上玩家可添加好友',
+                message: '仅 M3 及以上玩家或子管理员绑定账号可添加好友',
                 confirmText: '知道了',
                 showCancel: false
             });
@@ -3712,7 +3712,7 @@
             if (nextShellState.canAddFriend) {
                 addFriendButton.removeAttribute('title');
             } else {
-                addFriendButton.setAttribute('title', '仅 M3 及以上玩家可添加好友');
+                addFriendButton.setAttribute('title', '仅 M3 及以上玩家或子管理员绑定账号可添加好友');
             }
         }
         Array.prototype.forEach.call(root.querySelectorAll('[data-im-home-tab]'), function(button) {

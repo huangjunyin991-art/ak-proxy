@@ -1307,7 +1307,7 @@
                     if (nextShellState.canAddFriend) {
                         addFriendButton.removeAttribute('title');
                     } else {
-                        addFriendButton.setAttribute('title', '仅 M3 及以上玩家可添加好友');
+                        addFriendButton.setAttribute('title', '仅 M3 及以上玩家或子管理员绑定账号可添加好友');
                     }
                 }
             }

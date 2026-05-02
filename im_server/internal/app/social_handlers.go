@@ -160,7 +160,7 @@ func (a *App) handleSocialSearch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !canAddFriend {
-		writeJSON(w, http.StatusForbidden, map[string]any{"error": true, "message": "仅 M3 及以上玩家可添加好友"})
+		writeJSON(w, http.StatusForbidden, map[string]any{"error": true, "message": "仅 M3 及以上玩家或子管理员绑定账号可添加好友"})
 		return
 	}
 	keyword := strings.TrimSpace(r.URL.Query().Get("keyword"))
@@ -195,7 +195,7 @@ func (a *App) handleSocialContactsAdd(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !canAddFriend {
-		writeJSON(w, http.StatusForbidden, map[string]any{"error": true, "message": "仅 M3 及以上玩家可添加好友"})
+		writeJSON(w, http.StatusForbidden, map[string]any{"error": true, "message": "仅 M3 及以上玩家或子管理员绑定账号可添加好友"})
 		return
 	}
 	targetUsername, err := decodeSocialTargetRequest(r)
