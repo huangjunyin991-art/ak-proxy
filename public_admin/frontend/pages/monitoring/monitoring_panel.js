@@ -1,0 +1,315 @@
+(function() {
+    if (window.AKMonitoringPanelLoaded) return;
+    window.AKMonitoringPanelLoaded = true;
+
+    var state = {
+        initialized: false,
+        active: false,
+        range: '7d',
+        lightTimer: null,
+        heavyTimer: null,
+        loadingHeavy: false,
+        loadingLight: false,
+        data: {
+            system: null,
+            health: null,
+            database: null,
+            chat: null,
+            groups: null
+        }
+    };
+
+    function token() {
+        return sessionStorage.getItem('admin_token') || '';
+    }
+
+    function mount() {
+        return document.getElementById('monitoringPanelMount');
+    }
+
+    function escapeHtml(value) {
+        return String(value == null ? '' : value).replace(/[&<>'"]/g, function(ch) {
+            return {'&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;'}[ch] || ch;
+        });
+    }
+
+    function formatBytes(value) {
+        var n = Number(value || 0);
+        if (!isFinite(n) || n <= 0) return '0 B';
+        var units = ['B', 'KB', 'MB', 'GB', 'TB'];
+        var index = 0;
+        while (n >= 1024 && index < units.length - 1) {
+            n = n / 1024;
+            index += 1;
+        }
+        return (index === 0 ? String(Math.round(n)) : n.toFixed(n >= 10 ? 1 : 2)) + ' ' + units[index];
+    }
+
+    function formatNumber(value) {
+        var n = Number(value || 0);
+        if (!isFinite(n)) return '0';
+        return Math.round(n).toLocaleString('zh-CN');
+    }
+
+    function formatPercent(value) {
+        var n = Number(value);
+        if (!isFinite(n)) return '-';
+        return n.toFixed(1) + '%';
+    }
+
+    function formatTime(value) {
+        if (!value) return '-';
+        var date = new Date(value);
+        if (isNaN(date.getTime())) return '-';
+        return date.toLocaleString('zh-CN', { hour12: false });
+    }
+
+    function api(path, params) {
+        var query = new URLSearchParams(params || {});
+        var url = '/admin/api/monitoring' + path + (query.toString() ? '?' + query.toString() : '');
+        return fetch(url, {
+            headers: { 'Authorization': 'Bearer ' + token() },
+            credentials: 'same-origin'
+        }).then(function(resp) {
+            return resp.json().then(function(body) {
+                if (!resp.ok || body.error) throw new Error(body.message || body.detail || '监控接口请求失败');
+                return body;
+            });
+        });
+    }
+
+    function ensureCss() {
+        if (document.querySelector('link[data-monitoring-panel-css="1"]')) return;
+        var link = document.createElement('link');
+        link.rel = 'stylesheet';
+        link.href = '/admin/api/monitoring-panel.css?v=20260502-01';
+        link.setAttribute('data-monitoring-panel-css', '1');
+        document.head.appendChild(link);
+    }
+
+    function notify(message, type) {
+        try {
+            if (typeof showToast === 'function') {
+                showToast(message, type || 'info');
+                return;
+            }
+        } catch (e) {}
+        if (type === 'error') console.error('[MonitoringPanel]', message);
+    }
+
+    function buildShell() {
+        var el = mount();
+        if (!el) return;
+        el.innerHTML = '<div class="monitoring-root">' +
+            '<div class="monitoring-header">' +
+            '<div class="monitoring-title"><h3>监控中心</h3><p>低成本健康状态 5 秒刷新，高成本统计 1 小时刷新；高负载时优先保护正常业务。</p></div>' +
+            '<div class="monitoring-actions">' +
+            '<select class="monitoring-select" id="monitoringRange"><option value="24h">24小时</option><option value="7d" selected>7天</option><option value="30d">30天</option></select>' +
+            '<button class="monitoring-btn" id="monitoringRefreshLight">刷新状态</button>' +
+            '<button class="monitoring-btn primary" id="monitoringRefreshHeavy">刷新统计</button>' +
+            '</div>' +
+            '</div>' +
+            '<div class="monitoring-alert" id="monitoringAlert"></div>' +
+            '<div class="monitoring-grid" id="monitoringCards"></div>' +
+            '<div class="monitoring-section"><div class="monitoring-section-header"><h4>服务器负载</h4><span class="monitoring-meta" id="monitoringSystemMeta">-</span></div><div class="monitoring-bars" id="monitoringSystemBars"></div></div>' +
+            '<div class="monitoring-section"><div class="monitoring-section-header"><h4>聊天统计</h4><span class="monitoring-meta" id="monitoringChatMeta">-</span></div><div class="monitoring-grid" id="monitoringChatCards"></div><div class="monitoring-bars" id="monitoringTypeBars" style="margin-top:14px;"></div></div>' +
+            '<div class="monitoring-section"><div class="monitoring-section-header"><h4>数据库表占用</h4><span class="monitoring-meta" id="monitoringDbMeta">-</span></div><div class="monitoring-bars" id="monitoringDbBars"></div></div>' +
+            '<div class="monitoring-section"><div class="monitoring-section-header"><h4>群组存储与活跃排行</h4><span class="monitoring-meta" id="monitoringGroupMeta">文件占用为消息载荷估算口径</span></div><div class="monitoring-table-wrap"><table class="monitoring-table"><thead><tr><th>群组</th><th>群主</th><th>成员</th><th>管理员</th><th>总消息</th><th>今日</th><th>范围内</th><th>文本占用</th><th>文件估算</th><th>总占用</th><th>最近活跃</th></tr></thead><tbody id="monitoringGroupRows"></tbody></table></div></div>' +
+            '</div>';
+        document.getElementById('monitoringRange').addEventListener('change', function() {
+            state.range = this.value || '7d';
+            loadHeavy(false);
+        });
+        document.getElementById('monitoringRefreshLight').addEventListener('click', function() { loadLight(true); });
+        document.getElementById('monitoringRefreshHeavy').addEventListener('click', function() { loadHeavy(true); });
+    }
+
+    function renderCard(label, value, sub) {
+        return '<div class="monitoring-card"><div class="monitoring-card-label">' + escapeHtml(label) + '</div><div class="monitoring-card-value">' + escapeHtml(value) + '</div><div class="monitoring-card-sub">' + escapeHtml(sub || '') + '</div></div>';
+    }
+
+    function renderProgress(label, percent, valueText) {
+        var p = Math.max(0, Math.min(100, Number(percent || 0)));
+        return '<div class="monitoring-bar-row"><div>' + escapeHtml(label) + '</div><div class="monitoring-bar-track"><div class="monitoring-bar-fill" style="width:' + p.toFixed(1) + '%"></div></div><div>' + escapeHtml(valueText || formatPercent(p)) + '</div></div>';
+    }
+
+    function renderRankBars(items, labelKey, valueKey, formatter) {
+        var list = Array.isArray(items) ? items.slice(0, 10) : [];
+        if (!list.length) return '<div class="monitoring-empty">暂无数据</div>';
+        var max = list.reduce(function(acc, item) { return Math.max(acc, Number(item[valueKey] || 0)); }, 0) || 1;
+        return list.map(function(item) {
+            var value = Number(item[valueKey] || 0);
+            var label = item[labelKey] || item.table_name || item.message_type || '-';
+            return renderProgress(label, value / max * 100, formatter ? formatter(value) : formatNumber(value));
+        }).join('');
+    }
+
+    function renderAlert() {
+        var alert = document.getElementById('monitoringAlert');
+        if (!alert) return;
+        var messages = [];
+        ['database', 'chat', 'groups'].forEach(function(key) {
+            var item = state.data[key];
+            if (item && item.delayed) messages.push(item.delay_reason || '监控统计已延迟执行');
+        });
+        var system = state.data.system;
+        if (system && system.high_load) messages.push('当前系统负载较高：' + (system.high_load_reasons || []).join('、'));
+        if (!messages.length) {
+            alert.classList.remove('show');
+            alert.textContent = '';
+            return;
+        }
+        alert.classList.add('show');
+        alert.textContent = Array.from(new Set(messages)).join('；');
+        if (!alert.dataset.notified) {
+            alert.dataset.notified = '1';
+            notify(alert.textContent, 'warning');
+        }
+    }
+
+    function render() {
+        var system = state.data.system || {};
+        var health = state.data.health || {};
+        var database = state.data.database || {};
+        var chat = state.data.chat || {};
+        var groups = state.data.groups || {};
+        var memory = system.memory || {};
+        var disk = system.disk || {};
+        var dbOk = health.database && health.database.ok;
+        var imOk = health.im_server && health.im_server.ok;
+        var cards = document.getElementById('monitoringCards');
+        if (cards) {
+            cards.innerHTML = renderCard('数据库', dbOk ? '正常' : '异常', health.database && health.database.message || '-') +
+                renderCard('IM 服务', imOk ? '正常' : '异常', health.im_server && health.im_server.message || '-') +
+                renderCard('CPU', formatPercent(system.cpu_percent), (system.cpu_count || '-') + ' 核') +
+                renderCard('内存', memory.available ? formatPercent(memory.percent) : '-', memory.available ? formatBytes(memory.used_bytes) + ' / ' + formatBytes(memory.total_bytes) : '不可用') +
+                renderCard('磁盘', disk.available ? formatPercent(disk.percent) : '-', disk.available ? formatBytes(disk.used_bytes) + ' / ' + formatBytes(disk.total_bytes) : '不可用') +
+                renderCard('数据库大小', formatBytes(database.database_size_bytes), '连接数 ' + formatNumber(database.active_connections));
+        }
+        var systemBars = document.getElementById('monitoringSystemBars');
+        if (systemBars) {
+            var load = system.load_average || {};
+            var loadPercent = load.available && system.cpu_count ? Math.min(100, Number(load.load1 || 0) / Number(system.cpu_count || 1) * 100) : 0;
+            systemBars.innerHTML = renderProgress('CPU 使用率', system.cpu_percent || 0, formatPercent(system.cpu_percent)) +
+                renderProgress('内存使用率', memory.percent || 0, memory.available ? formatPercent(memory.percent) : '-') +
+                renderProgress('磁盘使用率', disk.percent || 0, disk.available ? formatPercent(disk.percent) : '-') +
+                renderProgress('1分钟负载', loadPercent, load.available ? String(Number(load.load1 || 0).toFixed(2)) : '-');
+        }
+        var systemMeta = document.getElementById('monitoringSystemMeta');
+        if (systemMeta) systemMeta.textContent = '更新于 ' + formatTime(system.generated_at);
+        var chatCards = document.getElementById('monitoringChatCards');
+        if (chatCards) {
+            chatCards.innerHTML = renderCard('会话总数', formatNumber(chat.conversation_total), '群聊 ' + formatNumber(chat.group_total) + ' / 私聊 ' + formatNumber(chat.direct_total)) +
+                renderCard('消息总数', formatNumber(chat.message_total), '今日 ' + formatNumber(chat.message_today)) +
+                renderCard('范围内消息', formatNumber(chat.message_in_range), chat.range || state.range) +
+                renderCard('文件资源', formatBytes(chat.file_storage_bytes), '活跃 ' + formatNumber(chat.file_asset_active)) +
+                renderCard('文本载荷', formatBytes(chat.stored_payload_bytes), '原始 ' + formatBytes(chat.text_storage_bytes)) +
+                renderCard('估算总占用', formatBytes(chat.estimated_storage_bytes), chat.cache && chat.cache.hit ? '缓存 ' + chat.cache.age_seconds + ' 秒' : '实时/新缓存');
+        }
+        var typeBars = document.getElementById('monitoringTypeBars');
+        if (typeBars) typeBars.innerHTML = renderRankBars(chat.message_type_distribution, 'message_type', 'count', formatNumber);
+        var chatMeta = document.getElementById('monitoringChatMeta');
+        if (chatMeta) chatMeta.textContent = '高成本统计每小时自动刷新，更新于 ' + formatTime(chat.generated_at);
+        var dbBars = document.getElementById('monitoringDbBars');
+        if (dbBars) dbBars.innerHTML = renderRankBars(database.table_sizes, 'table_name', 'total_bytes', formatBytes);
+        var dbMeta = document.getElementById('monitoringDbMeta');
+        if (dbMeta) dbMeta.textContent = database.cache && database.cache.hit ? '缓存 ' + database.cache.age_seconds + ' 秒' : '更新于 ' + formatTime(database.generated_at);
+        var groupRows = document.getElementById('monitoringGroupRows');
+        if (groupRows) {
+            var items = Array.isArray(groups.items) ? groups.items : [];
+            groupRows.innerHTML = items.length ? items.map(function(item) {
+                return '<tr><td>' + escapeHtml(item.title || ('群组 ' + item.conversation_id)) + '</td><td>' + escapeHtml(item.owner_username || '-') + '</td><td>' + formatNumber(item.member_count) + '</td><td>' + formatNumber(item.admin_count) + '</td><td>' + formatNumber(item.message_total) + '</td><td>' + formatNumber(item.message_today) + '</td><td>' + formatNumber(item.message_in_range) + '</td><td>' + formatBytes(item.text_storage_bytes) + '</td><td>' + formatBytes(item.file_storage_bytes) + '</td><td>' + formatBytes(item.estimated_storage_bytes) + '</td><td>' + escapeHtml(formatTime(item.last_message_at)) + '</td></tr>';
+            }).join('') : '<tr><td colspan="11"><div class="monitoring-empty">暂无群组统计数据</div></td></tr>';
+        }
+        var groupMeta = document.getElementById('monitoringGroupMeta');
+        if (groupMeta) groupMeta.textContent = (groups.cache && groups.cache.hit ? '缓存 ' + groups.cache.age_seconds + ' 秒；' : '') + '文件占用为消息载荷估算口径';
+        renderAlert();
+    }
+
+    function loadLight(force) {
+        if (!state.active || state.loadingLight) return Promise.resolve();
+        state.loadingLight = true;
+        return Promise.allSettled([
+            api('/system', force ? { force: '1' } : {}).then(function(body) { state.data.system = body.item; }),
+            api('/health', force ? { force: '1' } : {}).then(function(body) { state.data.health = body.item; })
+        ]).then(function(results) {
+            results.forEach(function(result) {
+                if (result.status === 'rejected') notify(result.reason && result.reason.message || '监控状态刷新失败', 'error');
+            });
+            render();
+        }).finally(function() {
+            state.loadingLight = false;
+        });
+    }
+
+    function loadHeavy(force) {
+        if (!state.active || state.loadingHeavy) return Promise.resolve();
+        state.loadingHeavy = true;
+        var params = { range: state.range };
+        var forceParams = { range: state.range, force: force ? '1' : '' };
+        return Promise.allSettled([
+            api('/database', force ? { force: '1' } : {}).then(function(body) { state.data.database = body.item; }),
+            api('/chat/summary', force ? forceParams : params).then(function(body) { state.data.chat = body.item; }),
+            api('/chat/groups', force ? { range: state.range, limit: '100', force: '1' } : { range: state.range, limit: '100' }).then(function(body) { state.data.groups = body.item; })
+        ]).then(function(results) {
+            results.forEach(function(result) {
+                if (result.status === 'rejected') notify(result.reason && result.reason.message || '监控统计刷新失败', 'error');
+            });
+            render();
+        }).finally(function() {
+            state.loadingHeavy = false;
+        });
+    }
+
+    function start() {
+        state.active = true;
+        if (!state.initialized) init();
+        loadLight(false);
+        loadHeavy(false);
+        stopTimers();
+        state.lightTimer = setInterval(function() { loadLight(false); }, 5000);
+        state.heavyTimer = setInterval(function() { loadHeavy(false); }, 3600000);
+    }
+
+    function stopTimers() {
+        if (state.lightTimer) clearInterval(state.lightTimer);
+        if (state.heavyTimer) clearInterval(state.heavyTimer);
+        state.lightTimer = null;
+        state.heavyTimer = null;
+    }
+
+    function stop() {
+        state.active = false;
+        stopTimers();
+    }
+
+    function init() {
+        ensureCss();
+        buildShell();
+        state.initialized = true;
+        render();
+    }
+
+    window.AKMonitoringPanel = {
+        init: init,
+        start: start,
+        stop: stop,
+        refreshLight: function() { return loadLight(true); },
+        refreshHeavy: function() { return loadHeavy(true); }
+    };
+
+    window.addEventListener('ak-admin-panel-changed', function(event) {
+        var panel = event && event.detail && event.detail.panel;
+        if (panel === 'monitoring') {
+            start();
+        } else {
+            stop();
+        }
+    });
+
+    if (document.querySelector('.tab.active[data-panel="monitoring"]')) {
+        start();
+    } else {
+        init();
+    }
+})();

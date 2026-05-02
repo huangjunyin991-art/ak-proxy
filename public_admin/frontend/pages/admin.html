@@ -2338,6 +2338,7 @@
         <div class="tab" data-panel="credits"><svg class="tab-icon" viewBox="0 0 24 24"><circle cx="8" cy="8" r="6"/><path d="M18.09 10.37A6 6 0 1 1 10.34 18"/><path d="M7 6h1v4"/><path d="m16.71 13.88.7.71-2.82 2.82"/></svg> 积分</div>
         <div class="tab" data-panel="license"><svg class="tab-icon" viewBox="0 0 24 24"><path d="M2.586 17.414A2 2 0 0 0 2 18.828V21a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h1a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h.172a2 2 0 0 0 1.414-.586l.814-.814a6.5 6.5 0 1 0-4-4z"/><circle cx="16.5" cy="7.5" r=".5" fill="currentColor"/></svg> 激活码</div>
         <div class="tab" data-panel="database"><svg class="tab-icon" viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14a9 3 0 0 0 18 0V5"/><path d="M3 12a9 3 0 0 0 18 0"/></svg> 数据库</div>
+        <div class="tab" data-panel="monitoring"><svg class="tab-icon" viewBox="0 0 24 24"><path d="M3 3v18h18"/><path d="m7 15 4-4 3 3 5-7"/><path d="M7 19v-4"/><path d="M11 19v-8"/><path d="M15 19v-5"/><path d="M19 19V7"/></svg> 监控中心</div>
         <div class="tab" data-panel="meetings"><svg class="tab-icon" viewBox="0 0 24 24"><path d="M15 10.5V7a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2v-3.5l5 4v-11l-5 4Z"/></svg> 会议</div>
         <div class="tab" data-panel="settings"><svg class="tab-icon" viewBox="0 0 24 24"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg> 设置</div>
     </div>
@@ -3024,6 +3025,10 @@
 
         <div class="panel" id="meetings">
             <div id="meetingAdminMount"></div>
+        </div>
+
+        <div class="panel" id="monitoring">
+            <div id="monitoringPanelMount"></div>
         </div>
 
 
@@ -3761,13 +3766,13 @@
             
             // 子管理员：根据权限显示/隐藏
             const perms = JSON.parse(sessionStorage.getItem('admin_permissions') || '{}');
-            const allTabs = ['dashboard', 'online', 'usage', 'users', 'ips', 'banlist', 'whitelist', 'contacts', 'credits', 'license', 'database', 'meetings', 'settings'];
+            const allTabs = ['dashboard', 'online', 'usage', 'users', 'ips', 'banlist', 'whitelist', 'contacts', 'credits', 'license', 'database', 'monitoring', 'meetings', 'settings'];
             
             allTabs.forEach(tabName => {
                 const tab = document.querySelector(`.tab[data-panel="${tabName}"]`);
                 if (!tab) return;
                 
-                if (tabName === 'settings') {
+                if (tabName === 'settings' || tabName === 'monitoring') {
                     tab.style.display = 'none';
                     tab.dataset.allowed = '0';
                 } else if (tabName === 'whitelist' || tabName === 'contacts' || tabName === 'credits' || tabName === 'meetings') {
@@ -11435,6 +11440,82 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
             setAkBrowserMode('browser');
             await releaseAkAssistSession(closingAssistSessionId);
         }
+    </script>
+    <script>
+        (function() {
+            var monitoringPanelBuildVersion = '20260502-01';
+
+            function reportMonitoringPanelLoadFailure(message) {
+                try {
+                    if (typeof showToast === 'function') {
+                        showToast(message, 'error');
+                    }
+                } catch (e) {}
+                console.error('[MonitoringPanelLoader]', message);
+            }
+
+            function resetMonitoringPanelGlobals() {
+                try {
+                    delete window.AKMonitoringPanel;
+                } catch (e) {
+                    window.AKMonitoringPanel = undefined;
+                }
+                try {
+                    delete window.AKMonitoringPanelLoaded;
+                } catch (e) {
+                    window.AKMonitoringPanelLoaded = undefined;
+                }
+            }
+
+            function removeMonitoringPanelScripts() {
+                Array.prototype.slice.call(document.querySelectorAll('script[data-monitoring-panel-loader="1"]')).forEach(function(node) {
+                    if (node && node.parentNode) {
+                        node.parentNode.removeChild(node);
+                    }
+                });
+            }
+
+            function buildMonitoringPanelUrl(forceRefresh) {
+                if (forceRefresh) {
+                    return '/admin/api/monitoring-panel.js?t=' + Date.now();
+                }
+                return '/admin/api/monitoring-panel.js?v=' + encodeURIComponent(monitoringPanelBuildVersion);
+            }
+
+            function loadMonitoringPanelScript(forceRefresh, attempt) {
+                var script = document.createElement('script');
+                script.src = buildMonitoringPanelUrl(forceRefresh);
+                script.async = false;
+                script.defer = false;
+                script.setAttribute('data-monitoring-panel-loader', '1');
+                script.onload = function() {
+                    if (window.AKMonitoringPanel) {
+                        return;
+                    }
+                    if (attempt < 2) {
+                        resetMonitoringPanelGlobals();
+                        removeMonitoringPanelScripts();
+                        loadMonitoringPanelScript(true, attempt + 1);
+                        return;
+                    }
+                    reportMonitoringPanelLoadFailure('监控中心脚本加载失败，请强制刷新后重试');
+                };
+                script.onerror = function() {
+                    if (attempt < 2) {
+                        resetMonitoringPanelGlobals();
+                        removeMonitoringPanelScripts();
+                        loadMonitoringPanelScript(true, attempt + 1);
+                        return;
+                    }
+                    reportMonitoringPanelLoadFailure('监控中心脚本请求失败，请强制刷新后重试');
+                };
+                (document.body || document.head || document.documentElement).appendChild(script);
+            }
+
+            resetMonitoringPanelGlobals();
+            removeMonitoringPanelScripts();
+            loadMonitoringPanelScript(false, 1);
+        })();
     </script>
     <script>
         (function() {

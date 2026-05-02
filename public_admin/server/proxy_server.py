@@ -247,6 +247,13 @@ from plugins.notification.server.notification_router import create_notification_
 
 from plugins.notification.server.notification_service import NotificationService
 
+try:
+    from .monitoring import create_monitoring_router
+    _MONITORING_IMPORT_ERROR = None
+except Exception as e:
+    create_monitoring_router = None
+    _MONITORING_IMPORT_ERROR = e
+
 # ===== 日志配置 =====
 
 logger = logging.getLogger("TransparentProxy")
@@ -3318,6 +3325,20 @@ app.include_router(create_notification_router(
     get_token_role=get_token_role,
     get_token_sub_name=get_token_sub_name,
 ))
+
+if create_monitoring_router is not None:
+    try:
+        app.include_router(create_monitoring_router(
+            pool_supplier=db._get_pool,
+            verify_admin_token=verify_admin_token,
+            get_token_role=get_token_role,
+            super_admin_role=ROLE_SUPER_ADMIN,
+            im_server_internal_url=IM_SERVER_INTERNAL_URL,
+        ))
+    except Exception as e:
+        logger.warning(f"[Monitoring] 监控中心路由注册失败，已跳过: {e}")
+elif _MONITORING_IMPORT_ERROR is not None:
+    logger.warning(f"[Monitoring] 监控中心模块不可用，已跳过: {_MONITORING_IMPORT_ERROR}")
 
 
 
@@ -8858,6 +8879,28 @@ async def meeting_admin_panel_js():
                                      "Pragma": "no-cache", "Expires": "0"})
 
     return Response(content="// not found", media_type="application/javascript")
+
+
+@app.get("/admin/api/monitoring-panel.js")
+async def monitoring_panel_js():
+    js_path = os.path.join(FRONTEND_PAGES_DIR, "monitoring", "monitoring_panel.js")
+    if os.path.exists(js_path):
+        with open(js_path, "r", encoding="utf-8") as f:
+            return Response(content=f.read(), media_type="application/javascript",
+                            headers={"Cache-Control": "no-cache, no-store, must-revalidate",
+                                     "Pragma": "no-cache", "Expires": "0"})
+    return Response(content="// not found", media_type="application/javascript")
+
+
+@app.get("/admin/api/monitoring-panel.css")
+async def monitoring_panel_css():
+    css_path = os.path.join(FRONTEND_PAGES_DIR, "monitoring", "monitoring_panel.css")
+    if os.path.exists(css_path):
+        with open(css_path, "r", encoding="utf-8") as f:
+            return Response(content=f.read(), media_type="text/css",
+                            headers={"Cache-Control": "no-cache, no-store, must-revalidate",
+                                     "Pragma": "no-cache", "Expires": "0"})
+    return Response(content="", media_type="text/css")
 
 
 @app.get("/admin/api/plugins/notification/admin/index.js")
