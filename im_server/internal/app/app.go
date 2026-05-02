@@ -294,6 +294,7 @@ func New(cfg config.Config) (*App, error) {
 	mux.HandleFunc("/im/api/meetings/preview", app.handleMeetingPreview)
 	mux.HandleFunc("/im/api/meetings/read", app.handleMeetingRead)
 	mux.HandleFunc("/im/api/meetings/delete", app.handleMeetingDelete)
+	mux.HandleFunc("/im/internal/meetings/publish", app.handleInternalMeetingPublish)
 	mux.HandleFunc("/im/internal/whitelist_groups/sync", app.handleInternalWhitelistGroupSync)
 	mux.HandleFunc("/im/internal/group_profile", app.handleInternalGroupProfile)
 	mux.HandleFunc("/im/internal/group_admins/replace", app.handleInternalGroupAdminsReplace)
@@ -514,8 +515,23 @@ func (a *App) ensureSchema(ctx context.Context) error {
 			sender_username TEXT NOT NULL,
 			sender_display_name TEXT NOT NULL DEFAULT '',
 			group_key TEXT NOT NULL DEFAULT '',
+			audience_scope TEXT NOT NULL DEFAULT 'group',
+			audience_owner TEXT NOT NULL DEFAULT '',
+			target_count INTEGER NOT NULL DEFAULT 0,
 			created_at TIMESTAMP NOT NULL DEFAULT NOW(),
 			updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+		)`,
+		`ALTER TABLE im_meetings ADD COLUMN IF NOT EXISTS audience_scope TEXT NOT NULL DEFAULT 'group'`,
+		`ALTER TABLE im_meetings ADD COLUMN IF NOT EXISTS audience_owner TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE im_meetings ADD COLUMN IF NOT EXISTS target_count INTEGER NOT NULL DEFAULT 0`,
+		`CREATE TABLE IF NOT EXISTS meeting_publish_permissions (
+			username TEXT PRIMARY KEY,
+			can_publish_owned BOOLEAN NOT NULL DEFAULT FALSE,
+			can_publish_all BOOLEAN NOT NULL DEFAULT FALSE,
+			granted_by TEXT NOT NULL DEFAULT '',
+			scope_owner TEXT NOT NULL DEFAULT '',
+			created_at TIMESTAMP DEFAULT NOW(),
+			updated_at TIMESTAMP DEFAULT NOW()
 		)`,
 		`CREATE TABLE IF NOT EXISTS im_meeting_reads (
 			user_username TEXT NOT NULL,
@@ -525,6 +541,7 @@ func (a *App) ensureSchema(ctx context.Context) error {
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_im_meetings_created_at ON im_meetings(created_at DESC)`,
 		`CREATE INDEX IF NOT EXISTS idx_im_meetings_group_key ON im_meetings(group_key)`,
+		`CREATE INDEX IF NOT EXISTS idx_im_meetings_audience_scope_owner ON im_meetings(audience_scope, audience_owner)`,
 	}
 	statements = append(statements, emojiAssetSchemaStatements()...)
 	for index, stmt := range statements {

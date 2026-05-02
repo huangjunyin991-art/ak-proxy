@@ -932,7 +932,7 @@
             }
             openDialog({
                 title: '提示',
-                message: state.meetingsError ? ('会议信息加载失败：' + state.meetingsError) : '主群群主或管理员可发布会议',
+                message: state.meetingsError ? ('会议信息加载失败：' + state.meetingsError) : '暂无会议发布权限',
                 confirmText: '知道了',
                 showCancel: false
             });

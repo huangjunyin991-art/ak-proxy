@@ -54,6 +54,9 @@ type MeetingItem struct {
 	SenderDisplayName string `json:"sender_display_name,omitempty"`
 	SenderHonorName   string `json:"sender_honor_name,omitempty"`
 	GroupKey          string `json:"group_key,omitempty"`
+	AudienceScope     string `json:"audience_scope,omitempty"`
+	AudienceOwner     string `json:"audience_owner,omitempty"`
+	TargetCount       int    `json:"target_count,omitempty"`
 	CreatedAt         string `json:"created_at,omitempty"`
 	IsRead            bool   `json:"is_read"`
 }
@@ -69,6 +72,8 @@ type MeetingPublicItem struct {
 	SenderUsername    string `json:"sender_username,omitempty"`
 	SenderDisplayName string `json:"sender_display_name,omitempty"`
 	SenderHonorName   string `json:"sender_honor_name,omitempty"`
+	AudienceScope     string `json:"audience_scope,omitempty"`
+	TargetCount       int    `json:"target_count,omitempty"`
 	CreatedAt         string `json:"created_at,omitempty"`
 	IsRead            bool   `json:"is_read"`
 }
@@ -229,6 +234,25 @@ func (a *App) canPublishMeeting(ctx context.Context, username string) (bool, err
 	if normalized == "" {
 		return false, nil
 	}
+	groupAllowed, err := a.canPublishGroupMeeting(ctx, normalized)
+	if err != nil {
+		return false, err
+	}
+	if groupAllowed {
+		return true, nil
+	}
+	ownedAllowed, allAllowed, _, err := a.loadMeetingPublishPermission(ctx, normalized)
+	if err != nil {
+		return false, err
+	}
+	return ownedAllowed || allAllowed, nil
+}
+
+func (a *App) canPublishGroupMeeting(ctx context.Context, username string) (bool, error) {
+	normalized := strings.ToLower(strings.TrimSpace(username))
+	if normalized == "" {
+		return false, nil
+	}
 	var allowed bool
 	err := a.db.QueryRow(ctx, `
 		SELECT EXISTS (
@@ -250,6 +274,26 @@ func (a *App) canPublishMeeting(ctx context.Context, username string) (bool, err
 		return false, err
 	}
 	return allowed, nil
+}
+
+func (a *App) loadMeetingPublishPermission(ctx context.Context, username string) (bool, bool, string, error) {
+	normalized := strings.ToLower(strings.TrimSpace(username))
+	if normalized == "" {
+		return false, false, "", nil
+	}
+	var canPublishOwned bool
+	var canPublishAll bool
+	var scopeOwner string
+	err := a.db.QueryRow(ctx, `
+		SELECT COALESCE(can_publish_owned, FALSE),
+		       COALESCE(can_publish_all, FALSE),
+		       COALESCE(scope_owner, '')
+		FROM meeting_publish_permissions
+		WHERE username = $1`, normalized).Scan(&canPublishOwned, &canPublishAll, &scopeOwner)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, false, "", nil
+	}
+	return canPublishOwned, canPublishAll, strings.TrimSpace(scopeOwner), err
 }
 
 // listWhitelistGroupMemberUsernames 指定主群 conversation_key 的活跃成员
@@ -287,6 +331,45 @@ func (a *App) listWhitelistGroupMemberUsernames(ctx context.Context, groupKey st
 	return set, rows.Err()
 }
 
+func (a *App) listMeetingAudienceUsernames(ctx context.Context, item MeetingItem) (map[string]struct{}, error) {
+	scope := strings.ToLower(strings.TrimSpace(item.AudienceScope))
+	if scope == "" || scope == "group" {
+		return a.listWhitelistGroupMemberUsernames(ctx, item.GroupKey)
+	}
+	query := `
+		SELECT DISTINCT LOWER(username)
+		FROM authorized_accounts
+		WHERE status = 'active'`
+	args := []any{}
+	if scope == "owned" {
+		owner := strings.TrimSpace(item.AudienceOwner)
+		if owner == "" {
+			return map[string]struct{}{}, nil
+		}
+		query += ` AND added_by = $1`
+		args = append(args, owner)
+	} else if scope != "all" {
+		return map[string]struct{}{}, nil
+	}
+	rows, err := a.db.Query(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	set := map[string]struct{}{}
+	for rows.Next() {
+		var username string
+		if err := rows.Scan(&username); err != nil {
+			return nil, err
+		}
+		username = strings.TrimSpace(username)
+		if username != "" {
+			set[username] = struct{}{}
+		}
+	}
+	return set, rows.Err()
+}
+
 // ============================ DB CRUD ============================
 
 type meetingPublishInput struct {
@@ -303,6 +386,9 @@ type meetingPublishInput struct {
 	SenderUsername    string
 	SenderDisplayName string
 	GroupKey          string
+	AudienceScope     string
+	AudienceOwner     string
+	TargetCount       int
 }
 
 func (a *App) hydrateMeetingSenderIdentity(ctx context.Context, item MeetingItem) MeetingItem {
@@ -349,6 +435,8 @@ func publicMeetingItem(item MeetingItem) MeetingPublicItem {
 		SenderUsername:    item.SenderUsername,
 		SenderDisplayName: item.SenderDisplayName,
 		SenderHonorName:   item.SenderHonorName,
+		AudienceScope:     item.AudienceScope,
+		TargetCount:       item.TargetCount,
 		CreatedAt:         item.CreatedAt,
 		IsRead:            item.IsRead,
 	}
@@ -548,13 +636,14 @@ func (a *App) dbMeetingInsert(ctx context.Context, input meetingPublishInput) (M
 		INSERT INTO im_meetings (
 			url, short_id, meeting_code, subject, begin_time, end_time,
 			creator_nickname, has_password, meeting_password, mtoken,
-			sender_username, sender_display_name, group_key
-		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+			sender_username, sender_display_name, group_key, audience_scope, audience_owner, target_count
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
 		RETURNING id, created_at`,
 		input.URL, input.ShortID, input.MeetingCode, input.Subject,
 		beginTime, endTime,
 		input.CreatorNickname, input.HasPassword, input.MeetingPassword, input.Mtoken,
 		input.SenderUsername, input.SenderDisplayName, input.GroupKey,
+		strings.TrimSpace(input.AudienceScope), strings.TrimSpace(input.AudienceOwner), input.TargetCount,
 	).Scan(&item.ID, &createdAt)
 	if err != nil {
 		return item, err
@@ -572,6 +661,9 @@ func (a *App) dbMeetingInsert(ctx context.Context, input meetingPublishInput) (M
 	item.SenderUsername = input.SenderUsername
 	item.SenderDisplayName = input.SenderDisplayName
 	item.GroupKey = input.GroupKey
+	item.AudienceScope = strings.TrimSpace(input.AudienceScope)
+	item.AudienceOwner = strings.TrimSpace(input.AudienceOwner)
+	item.TargetCount = input.TargetCount
 	item.CreatedAt = createdAt.UTC().Format(time.RFC3339)
 	return a.hydrateMeetingSenderIdentity(ctx, item), nil
 }
@@ -585,20 +677,37 @@ func (a *App) dbMeetingList(ctx context.Context, viewer string, limit int) ([]Me
 		SELECT m.id, m.url, m.short_id, m.meeting_code, m.subject,
 		       m.begin_time, m.end_time, m.creator_nickname, m.has_password,
 		       m.meeting_password, m.mtoken,
-		       m.sender_username, m.sender_display_name, m.group_key, m.created_at,
+		       m.sender_username, m.sender_display_name, m.group_key,
+		       COALESCE(m.audience_scope, 'group'), COALESCE(m.audience_owner, ''),
+		       COALESCE(m.target_count, 0), m.created_at,
 		       (r.user_username IS NOT NULL) AS is_read
 		FROM im_meetings m
 		LEFT JOIN im_meeting_reads r
 		       ON r.meeting_id = m.id AND LOWER(r.user_username) = $1
-		WHERE (m.group_key = '' OR LOWER(m.group_key) IN (
-		         SELECT DISTINCT LOWER(c.conversation_key)
-		         FROM im_conversation c
-		         JOIN im_conversation_member cm ON cm.conversation_id = c.id AND cm.left_at IS NULL
-		         WHERE c.conversation_type = 'group'
-		           AND c.conversation_key LIKE 'group:admin_whitelist:%'
-		           AND c.deleted_at IS NULL
-		           AND LOWER(cm.username) = $1
-		      ))
+		WHERE (
+			(COALESCE(m.audience_scope, 'group') = 'group' AND (
+				m.group_key = '' OR LOWER(m.group_key) IN (
+					SELECT DISTINCT LOWER(c.conversation_key)
+					FROM im_conversation c
+					JOIN im_conversation_member cm ON cm.conversation_id = c.id AND cm.left_at IS NULL
+					WHERE c.conversation_type = 'group'
+					  AND c.conversation_key LIKE 'group:admin_whitelist:%'
+					  AND c.deleted_at IS NULL
+					  AND LOWER(cm.username) = $1
+				)
+			))
+			OR (COALESCE(m.audience_scope, 'group') = 'owned' AND EXISTS (
+				SELECT 1 FROM authorized_accounts aa
+				WHERE LOWER(aa.username) = $1
+				  AND aa.status = 'active'
+				  AND aa.added_by = COALESCE(m.audience_owner, '')
+			))
+			OR (COALESCE(m.audience_scope, 'group') = 'all' AND EXISTS (
+				SELECT 1 FROM authorized_accounts aa
+				WHERE LOWER(aa.username) = $1
+				  AND aa.status = 'active'
+			))
+		)
 		ORDER BY m.created_at DESC
 		LIMIT $2`, normalized, limit)
 	if err != nil {
@@ -613,7 +722,8 @@ func (a *App) dbMeetingList(ctx context.Context, viewer string, limit int) ([]Me
 		if err := rows.Scan(&m.ID, &m.URL, &m.ShortID, &m.MeetingCode, &m.Subject,
 			&beginTime, &endTime, &m.CreatorNickname, &m.HasPassword,
 			&m.MeetingPassword, &m.Mtoken,
-			&m.SenderUsername, &m.SenderDisplayName, &m.GroupKey, &createdAt,
+			&m.SenderUsername, &m.SenderDisplayName, &m.GroupKey,
+			&m.AudienceScope, &m.AudienceOwner, &m.TargetCount, &createdAt,
 			&m.IsRead); err != nil {
 			return nil, 0, err
 		}
@@ -643,12 +753,15 @@ func (a *App) dbMeetingGet(ctx context.Context, id int64) (MeetingItem, error) {
 	err := a.db.QueryRow(ctx, `
 		SELECT id, url, short_id, meeting_code, subject, begin_time, end_time,
 		       creator_nickname, has_password, meeting_password, mtoken,
-		       sender_username, sender_display_name, group_key, created_at
+		       sender_username, sender_display_name, group_key,
+		       COALESCE(audience_scope, 'group'), COALESCE(audience_owner, ''),
+		       COALESCE(target_count, 0), created_at
 		FROM im_meetings WHERE id = $1`, id).Scan(
 		&m.ID, &m.URL, &m.ShortID, &m.MeetingCode, &m.Subject,
 		&beginTime, &endTime, &m.CreatorNickname, &m.HasPassword,
 		&m.MeetingPassword, &m.Mtoken,
-		&m.SenderUsername, &m.SenderDisplayName, &m.GroupKey, &createdAt,
+		&m.SenderUsername, &m.SenderDisplayName, &m.GroupKey,
+		&m.AudienceScope, &m.AudienceOwner, &m.TargetCount, &createdAt,
 	)
 	if err != nil {
 		return m, err
@@ -673,22 +786,40 @@ func (a *App) dbMeetingGetVisible(ctx context.Context, id int64, viewer string) 
 		SELECT m.id, m.url, m.short_id, m.meeting_code, m.subject,
 		       m.begin_time, m.end_time, m.creator_nickname, m.has_password,
 		       m.meeting_password, m.mtoken,
-		       m.sender_username, m.sender_display_name, m.group_key, m.created_at
+		       m.sender_username, m.sender_display_name, m.group_key,
+		       COALESCE(m.audience_scope, 'group'), COALESCE(m.audience_owner, ''),
+		       COALESCE(m.target_count, 0), m.created_at
 		FROM im_meetings m
 		WHERE m.id = $1
-		  AND (m.group_key = '' OR LOWER(m.group_key) IN (
-		         SELECT DISTINCT LOWER(c.conversation_key)
-		         FROM im_conversation c
-		         JOIN im_conversation_member cm ON cm.conversation_id = c.id AND cm.left_at IS NULL
-		         WHERE c.conversation_type = 'group'
-		           AND c.conversation_key LIKE 'group:admin_whitelist:%'
-		           AND c.deleted_at IS NULL
-		           AND LOWER(cm.username) = $2
-		      ))`, id, normalized).Scan(
+		  AND (
+			(COALESCE(m.audience_scope, 'group') = 'group' AND (
+				m.group_key = '' OR LOWER(m.group_key) IN (
+					SELECT DISTINCT LOWER(c.conversation_key)
+					FROM im_conversation c
+					JOIN im_conversation_member cm ON cm.conversation_id = c.id AND cm.left_at IS NULL
+					WHERE c.conversation_type = 'group'
+					  AND c.conversation_key LIKE 'group:admin_whitelist:%'
+					  AND c.deleted_at IS NULL
+					  AND LOWER(cm.username) = $2
+				)
+			))
+			OR (COALESCE(m.audience_scope, 'group') = 'owned' AND EXISTS (
+				SELECT 1 FROM authorized_accounts aa
+				WHERE LOWER(aa.username) = $2
+				  AND aa.status = 'active'
+				  AND aa.added_by = COALESCE(m.audience_owner, '')
+			))
+			OR (COALESCE(m.audience_scope, 'group') = 'all' AND EXISTS (
+				SELECT 1 FROM authorized_accounts aa
+				WHERE LOWER(aa.username) = $2
+				  AND aa.status = 'active'
+			))
+		  )`, id, normalized).Scan(
 		&m.ID, &m.URL, &m.ShortID, &m.MeetingCode, &m.Subject,
 		&beginTime, &endTime, &m.CreatorNickname, &m.HasPassword,
 		&m.MeetingPassword, &m.Mtoken,
-		&m.SenderUsername, &m.SenderDisplayName, &m.GroupKey, &createdAt,
+		&m.SenderUsername, &m.SenderDisplayName, &m.GroupKey,
+		&m.AudienceScope, &m.AudienceOwner, &m.TargetCount, &createdAt,
 	)
 	if err != nil {
 		return m, err
@@ -730,7 +861,32 @@ func (a *App) dbMeetingMarkAllRead(ctx context.Context, username string) error {
 	_, err := a.db.Exec(ctx, `
 		INSERT INTO im_meeting_reads (user_username, meeting_id)
 		SELECT $1, m.id FROM im_meetings m
-		WHERE NOT EXISTS (
+		WHERE (
+			(COALESCE(m.audience_scope, 'group') = 'group' AND (
+				m.group_key = '' OR LOWER(m.group_key) IN (
+					SELECT DISTINCT LOWER(c.conversation_key)
+					FROM im_conversation c
+					JOIN im_conversation_member cm ON cm.conversation_id = c.id AND cm.left_at IS NULL
+					WHERE c.conversation_type = 'group'
+					  AND c.conversation_key LIKE 'group:admin_whitelist:%'
+					  AND c.deleted_at IS NULL
+					  AND LOWER(cm.username) = $1
+				)
+			))
+			OR (COALESCE(m.audience_scope, 'group') = 'owned' AND EXISTS (
+				SELECT 1 FROM authorized_accounts aa
+				WHERE LOWER(aa.username) = $1
+				  AND aa.status = 'active'
+				  AND aa.added_by = COALESCE(m.audience_owner, '')
+			))
+			OR (COALESCE(m.audience_scope, 'group') = 'all' AND EXISTS (
+				SELECT 1 FROM authorized_accounts aa
+				WHERE LOWER(aa.username) = $1
+				  AND aa.status = 'active'
+			))
+		)
+		AND
+		NOT EXISTS (
 		    SELECT 1 FROM im_meeting_reads
 		    WHERE user_username = $1 AND meeting_id = m.id
 		)`, normalized)
@@ -740,7 +896,7 @@ func (a *App) dbMeetingMarkAllRead(ctx context.Context, username string) error {
 // ============================ 广播 ============================
 
 func (a *App) broadcastMeetingEvent(ctx context.Context, item MeetingItem, eventType string) {
-	memberSet, err := a.listWhitelistGroupMemberUsernames(ctx, item.GroupKey)
+	memberSet, err := a.listMeetingAudienceUsernames(ctx, item)
 	if err != nil || len(memberSet) == 0 {
 		return
 	}
@@ -814,6 +970,9 @@ type meetingPublishRequest struct {
 	CreatorNickname string `json:"creator_nickname"`
 	MeetingPassword string `json:"meeting_password"`
 	GroupKey        string `json:"group_key"`
+	AudienceScope   string `json:"audience_scope"`
+	AudienceOwner   string `json:"audience_owner"`
+	SenderUsername  string `json:"sender_username"`
 }
 
 // GET  /im/api/meetings           列表
@@ -841,7 +1000,8 @@ func (a *App) handleMeetingList(w http.ResponseWriter, r *http.Request, username
 			limit = v
 		}
 	}
-	canPublish, _ := a.canPublishMeeting(r.Context(), username)
+	canPublishOwned, canPublishAll, _, _ := a.loadMeetingPublishPermission(r.Context(), username)
+	canPublish := canPublishOwned || canPublishAll
 	items, unread, err := a.dbMeetingList(r.Context(), username, limit)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
@@ -852,6 +1012,8 @@ func (a *App) handleMeetingList(w http.ResponseWriter, r *http.Request, username
 		"items":        publicMeetingItems(items),
 		"unread_count": unread,
 		"can_publish":  canPublish,
+		"can_publish_owned": canPublishOwned,
+		"can_publish_all": canPublishAll,
 	})
 }
 
@@ -899,46 +1061,21 @@ func (a *App) handleMeetingJoin(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) handleMeetingPublish(w http.ResponseWriter, r *http.Request, username string) {
-	allowed, err := a.canPublishMeeting(r.Context(), username)
-	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
-		return
-	}
-	if !allowed {
-		writeJSON(w, http.StatusForbidden, map[string]any{"error": true, "message": "仅主群群主或管理员可发布会议"})
-		return
-	}
 	var req meetingPublishRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": true, "message": "invalid payload"})
 		return
 	}
-	originalURL := strings.TrimSpace(req.URL)
-	normalizedURL := normalizeTencentMeetingURL(req.URL)
-	if normalizedURL == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"error": true, "message": "会议链接不合法"})
+	item, needPassword, err := a.createMeetingFromPublishRequest(r.Context(), req, username)
+	if err != nil {
+		status := http.StatusBadRequest
+		if errors.Is(err, errMeetingPublishForbidden) {
+			status = http.StatusForbidden
+		}
+		writeJSON(w, status, map[string]any{"error": true, "message": cleanMeetingPublishErrorMessage(err)})
 		return
 	}
-	subject := strings.TrimSpace(req.Subject)
-	if subject == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"error": true, "message": "会议主题不能为空"})
-		return
-	}
-	meetingCode := strings.TrimSpace(req.MeetingCode)
-	if meetingCode == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"error": true, "message": "会议号不能为空"})
-		return
-	}
-	// 后端重新解析链接：has_password / mtoken / short_id 以腾讯落地页 __NEXT_DATA__ 为准（避免前端伪造）
-	info, perr := parseTencentMeetingShare(r.Context(), normalizedURL)
-	if perr != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"error": true, "message": "会议链接解析失败：" + perr.Error()})
-		return
-	}
-	hasPassword := info.HasPassword
-	meetingPassword := strings.TrimSpace(req.MeetingPassword)
-	if hasPassword && meetingPassword == "" {
-		// 二级请求信号：前端收到后在当前 modal 弹出入会密码卡片文本框，用户填入后再次提交
+	if needPassword {
 		writeJSON(w, http.StatusOK, map[string]any{
 			"error":         true,
 			"need_password": true,
@@ -946,8 +1083,91 @@ func (a *App) handleMeetingPublish(w http.ResponseWriter, r *http.Request, usern
 		})
 		return
 	}
+	_ = a.dbMeetingMarkRead(r.Context(), item.ID, username)
+	item.IsRead = true
+	go func(m MeetingItem) {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		a.broadcastMeetingEvent(ctx, m, "im.meeting.created")
+	}(item)
+	writeJSON(w, http.StatusOK, map[string]any{"success": true, "item": publicMeetingItem(item)})
+}
+
+func (a *App) handleInternalMeetingPublish(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"error": true})
+		return
+	}
+	var req meetingPublishRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": true, "message": "invalid payload"})
+		return
+	}
+	sender := strings.ToLower(strings.TrimSpace(req.SenderUsername))
+	item, needPassword, err := a.createMeetingFromPublishRequest(r.Context(), req, sender)
+	if err != nil {
+		status := http.StatusBadRequest
+		if errors.Is(err, errMeetingPublishForbidden) {
+			status = http.StatusForbidden
+		}
+		writeJSON(w, status, map[string]any{"error": true, "message": cleanMeetingPublishErrorMessage(err)})
+		return
+	}
+	if needPassword {
+		writeJSON(w, http.StatusOK, map[string]any{
+			"error":         true,
+			"need_password": true,
+			"message":       "此会议需要入会密码，请输入后重试",
+		})
+		return
+	}
+	_ = a.dbMeetingMarkRead(r.Context(), item.ID, sender)
+	item.IsRead = true
+	go func(m MeetingItem) {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		a.broadcastMeetingEvent(ctx, m, "im.meeting.created")
+	}(item)
+	writeJSON(w, http.StatusOK, map[string]any{"success": true, "item": publicMeetingItem(item)})
+}
+
+var errMeetingPublishForbidden = errors.New("meeting publish forbidden")
+
+func cleanMeetingPublishErrorMessage(err error) string {
+	message := err.Error()
+	prefix := errMeetingPublishForbidden.Error() + ": "
+	return strings.TrimPrefix(message, prefix)
+}
+
+func (a *App) createMeetingFromPublishRequest(ctx context.Context, req meetingPublishRequest, senderUsername string) (MeetingItem, bool, error) {
+	var empty MeetingItem
+	sender := strings.ToLower(strings.TrimSpace(senderUsername))
+	if sender == "" {
+		return empty, false, errors.New("发布账号不能为空")
+	}
+	originalURL := strings.TrimSpace(req.URL)
+	normalizedURL := normalizeTencentMeetingURL(req.URL)
+	if normalizedURL == "" {
+		return empty, false, errors.New("会议链接不合法")
+	}
+	subject := strings.TrimSpace(req.Subject)
+	if subject == "" {
+		return empty, false, errors.New("会议主题不能为空")
+	}
+	meetingCode := strings.TrimSpace(req.MeetingCode)
+	if meetingCode == "" {
+		return empty, false, errors.New("会议号不能为空")
+	}
+	info, perr := parseTencentMeetingShare(ctx, normalizedURL)
+	if perr != nil {
+		return empty, false, errors.New("会议链接解析失败：" + perr.Error())
+	}
+	hasPassword := info.HasPassword
+	meetingPassword := strings.TrimSpace(req.MeetingPassword)
+	if hasPassword && meetingPassword == "" {
+		return empty, true, nil
+	}
 	if !hasPassword {
-		// 链接无需密码：忽略前端传的密码
 		meetingPassword = ""
 	}
 	shortID := info.ShortID
@@ -956,9 +1176,48 @@ func (a *App) handleMeetingPublish(w http.ResponseWriter, r *http.Request, usern
 	}
 	mtoken := strings.TrimSpace(info.Mtoken)
 	groupKey := strings.ToLower(strings.TrimSpace(req.GroupKey))
-	if groupKey != "" {
+	audienceScope := strings.ToLower(strings.TrimSpace(req.AudienceScope))
+	if audienceScope == "" {
+		audienceScope = "group"
+	}
+	if audienceScope != "group" && audienceScope != "owned" && audienceScope != "all" {
+		return empty, false, errors.New("会议发布范围无效")
+	}
+	audienceOwner := strings.TrimSpace(req.AudienceOwner)
+	if audienceScope == "group" {
+		allowed, err := a.canPublishGroupMeeting(ctx, sender)
+		if err != nil {
+			return empty, false, err
+		}
+		if !allowed {
+			return empty, false, fmt.Errorf("%w: 仅主群群主或管理员可发布会议", errMeetingPublishForbidden)
+		}
+	}
+	if audienceScope == "owned" || audienceScope == "all" {
+		canPublishOwned, canPublishAll, scopeOwner, err := a.loadMeetingPublishPermission(ctx, sender)
+		if err != nil {
+			return empty, false, err
+		}
+		if audienceScope == "owned" {
+			if !canPublishOwned {
+				return empty, false, fmt.Errorf("%w: 没有发布给伞下玩家的权限", errMeetingPublishForbidden)
+			}
+			audienceOwner = scopeOwner
+			if audienceOwner == "" {
+				return empty, false, errors.New("伞下玩家范围缺失")
+			}
+		}
+		if audienceScope == "all" && !canPublishAll {
+			return empty, false, fmt.Errorf("%w: 没有发布给全体玩家的权限", errMeetingPublishForbidden)
+		}
+		if audienceScope == "all" {
+			audienceOwner = ""
+		}
+		groupKey = ""
+	}
+	if audienceScope == "group" && groupKey != "" {
 		var ok bool
-		if err := a.db.QueryRow(r.Context(), `
+		if err := a.db.QueryRow(ctx, `
 			SELECT EXISTS (
 				SELECT 1 FROM im_conversation c
 				WHERE LOWER(c.conversation_key) = $1
@@ -973,17 +1232,20 @@ func (a *App) handleMeetingPublish(w http.ResponseWriter, r *http.Request, usern
 						  AND ca.revoked_at IS NULL
 					)
 				  )
-			)`, groupKey, strings.ToLower(username)).Scan(&ok); err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
-			return
+			)`, groupKey, sender).Scan(&ok); err != nil {
+			return empty, false, err
 		}
 		if !ok {
-			writeJSON(w, http.StatusForbidden, map[string]any{"error": true, "message": "无权向该主群发布会议"})
-			return
+			return empty, false, fmt.Errorf("%w: 无权向该主群发布会议", errMeetingPublishForbidden)
 		}
 	}
-	senderDisplay := a.fetchDisplayName(r.Context(), username)
-	item, err := a.dbMeetingInsert(r.Context(), meetingPublishInput{
+	targetPreview := MeetingItem{GroupKey: groupKey, AudienceScope: audienceScope, AudienceOwner: audienceOwner}
+	targets, err := a.listMeetingAudienceUsernames(ctx, targetPreview)
+	if err != nil {
+		return empty, false, err
+	}
+	senderDisplay := a.fetchDisplayName(ctx, sender)
+	item, err := a.dbMeetingInsert(ctx, meetingPublishInput{
 		URL:               originalURL,
 		ShortID:           shortID,
 		MeetingCode:       meetingCode,
@@ -994,26 +1256,17 @@ func (a *App) handleMeetingPublish(w http.ResponseWriter, r *http.Request, usern
 		HasPassword:       hasPassword,
 		MeetingPassword:   meetingPassword,
 		Mtoken:            mtoken,
-		SenderUsername:    strings.ToLower(strings.TrimSpace(username)),
+		SenderUsername:    sender,
 		SenderDisplayName: senderDisplay,
 		GroupKey:          groupKey,
+		AudienceScope:     audienceScope,
+		AudienceOwner:     audienceOwner,
+		TargetCount:       len(targets),
 	})
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
-		return
+		return empty, false, err
 	}
-	// 发布者自己默认已读
-	_ = a.dbMeetingMarkRead(r.Context(), item.ID, username)
-	item.IsRead = true
-
-	// 异步广播：失败不影响入库
-	go func(m MeetingItem) {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		a.broadcastMeetingEvent(ctx, m, "im.meeting.created")
-	}(item)
-
-	writeJSON(w, http.StatusOK, map[string]any{"success": true, "item": publicMeetingItem(item)})
+	return item, false, nil
 }
 
 type meetingReadRequest struct {

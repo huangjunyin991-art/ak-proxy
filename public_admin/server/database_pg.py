@@ -449,6 +449,17 @@ async def init_db(host: str = "127.0.0.1", port: int = 5432,
                 UNIQUE(campaign_id, username)
             )
         ''')
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS meeting_publish_permissions (
+                username TEXT PRIMARY KEY,
+                can_publish_owned BOOLEAN NOT NULL DEFAULT FALSE,
+                can_publish_all BOOLEAN NOT NULL DEFAULT FALSE,
+                granted_by TEXT NOT NULL DEFAULT '',
+                scope_owner TEXT NOT NULL DEFAULT '',
+                created_at TIMESTAMP DEFAULT NOW(),
+                updated_at TIMESTAMP DEFAULT NOW()
+            )
+        ''')
 
         # 创建索引
         await conn.execute('CREATE INDEX IF NOT EXISTS idx_sub_groups_created_by ON subscription_groups(created_by)')
@@ -466,6 +477,8 @@ async def init_db(host: str = "127.0.0.1", port: int = 5432,
         await conn.execute('CREATE INDEX IF NOT EXISTS idx_notification_campaigns_created_by ON notification_campaigns(created_by)')
         await conn.execute('CREATE INDEX IF NOT EXISTS idx_notification_deliveries_username ON notification_deliveries(username)')
         await conn.execute('CREATE INDEX IF NOT EXISTS idx_notification_deliveries_campaign_id ON notification_deliveries(campaign_id)')
+        await conn.execute('CREATE INDEX IF NOT EXISTS idx_meeting_publish_permissions_scope_owner ON meeting_publish_permissions(scope_owner)')
+        await conn.execute('CREATE INDEX IF NOT EXISTS idx_meeting_publish_permissions_granted_by ON meeting_publish_permissions(granted_by)')
         await conn.execute('CREATE INDEX IF NOT EXISTS idx_notification_deliveries_unread ON notification_deliveries(username, read_at)')
 
     logger.info("PostgreSQL 数据库表和索引已就绪")
@@ -1846,6 +1859,160 @@ async def get_expiring_accounts(days: int = 7, added_by: str = None) -> List[Dic
                 ORDER BY expire_time ASC
             ''', deadline)
         return [dict(r) for r in rows]
+
+
+def _serialize_meeting_permission(row: Dict[str, Any]) -> Dict:
+    return {
+        'username': str(row.get('username') or '').strip().lower(),
+        'nickname': str(row.get('nickname') or '').strip(),
+        'added_by': str(row.get('added_by') or '').strip(),
+        'status': str(row.get('status') or '').strip(),
+        'expire_time': _serialize_time_value(row.get('expire_time')),
+        'can_publish_owned': bool(row.get('can_publish_owned')),
+        'can_publish_all': bool(row.get('can_publish_all')),
+        'granted_by': str(row.get('granted_by') or '').strip(),
+        'scope_owner': str(row.get('scope_owner') or '').strip(),
+        'created_at': _serialize_time_value(row.get('created_at')),
+        'updated_at': _serialize_time_value(row.get('updated_at')),
+    }
+
+
+async def get_meeting_permission_candidates(added_by: str = None, search: str = None,
+                                            limit: int = 200, offset: int = 0) -> Dict:
+    pool = _get_pool()
+    conditions = ["aa.status = 'active'"]
+    params: List[Any] = []
+    idx = 1
+    if added_by:
+        conditions.append(f"aa.added_by = ${idx}")
+        params.append(added_by)
+        idx += 1
+    if search:
+        conditions.append(f"(aa.username ILIKE ${idx} OR COALESCE(aa.nickname, '') ILIKE ${idx})")
+        params.append(f"%{search}%")
+        idx += 1
+    where = f" WHERE {' AND '.join(conditions)}"
+    async with pool.acquire() as conn:
+        total = await conn.fetchval(f"SELECT COUNT(*) FROM authorized_accounts aa{where}", *params)
+        params.extend([limit, offset])
+        rows = await conn.fetch(f'''
+            SELECT aa.username, aa.nickname, aa.added_by, aa.status, aa.expire_time,
+                   COALESCE(mp.can_publish_owned, FALSE) AS can_publish_owned,
+                   COALESCE(mp.can_publish_all, FALSE) AS can_publish_all,
+                   COALESCE(mp.granted_by, '') AS granted_by,
+                   COALESCE(mp.scope_owner, '') AS scope_owner,
+                   mp.created_at, mp.updated_at
+            FROM authorized_accounts aa
+            LEFT JOIN meeting_publish_permissions mp ON mp.username = aa.username
+            {where}
+            ORDER BY aa.created_at DESC
+            LIMIT ${idx} OFFSET ${idx + 1}
+        ''', *params)
+        return {'total': int(total or 0), 'rows': [_serialize_meeting_permission(dict(row)) for row in rows]}
+
+
+async def get_meeting_publish_permissions(added_by: str = None, search: str = None,
+                                          limit: int = 200, offset: int = 0) -> Dict:
+    pool = _get_pool()
+    conditions = ["(mp.can_publish_owned = TRUE OR mp.can_publish_all = TRUE)"]
+    params: List[Any] = []
+    idx = 1
+    if added_by:
+        conditions.append(f"aa.added_by = ${idx}")
+        params.append(added_by)
+        idx += 1
+    if search:
+        conditions.append(f"(aa.username ILIKE ${idx} OR COALESCE(aa.nickname, '') ILIKE ${idx})")
+        params.append(f"%{search}%")
+        idx += 1
+    where = f" WHERE {' AND '.join(conditions)}"
+    async with pool.acquire() as conn:
+        total = await conn.fetchval(f'''
+            SELECT COUNT(*)
+            FROM meeting_publish_permissions mp
+            JOIN authorized_accounts aa ON aa.username = mp.username AND aa.status = 'active'
+            {where}
+        ''', *params)
+        params.extend([limit, offset])
+        rows = await conn.fetch(f'''
+            SELECT aa.username, aa.nickname, aa.added_by, aa.status, aa.expire_time,
+                   mp.can_publish_owned, mp.can_publish_all, mp.granted_by,
+                   mp.scope_owner, mp.created_at, mp.updated_at
+            FROM meeting_publish_permissions mp
+            JOIN authorized_accounts aa ON aa.username = mp.username AND aa.status = 'active'
+            {where}
+            ORDER BY mp.updated_at DESC
+            LIMIT ${idx} OFFSET ${idx + 1}
+        ''', *params)
+        return {'total': int(total or 0), 'rows': [_serialize_meeting_permission(dict(row)) for row in rows]}
+
+
+async def get_meeting_publish_permission(username: str) -> Optional[Dict]:
+    pool = _get_pool()
+    normalized_username = str(username or '').strip().lower()
+    if not normalized_username:
+        return None
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow('''
+            SELECT aa.username, aa.nickname, aa.added_by, aa.status, aa.expire_time,
+                   COALESCE(mp.can_publish_owned, FALSE) AS can_publish_owned,
+                   COALESCE(mp.can_publish_all, FALSE) AS can_publish_all,
+                   COALESCE(mp.granted_by, '') AS granted_by,
+                   COALESCE(mp.scope_owner, '') AS scope_owner,
+                   mp.created_at, mp.updated_at
+            FROM authorized_accounts aa
+            LEFT JOIN meeting_publish_permissions mp ON mp.username = aa.username
+            WHERE aa.username = $1 AND aa.status = 'active'
+        ''', normalized_username)
+        return _serialize_meeting_permission(dict(row)) if row else None
+
+
+async def set_meeting_publish_permission(username: str, can_publish_owned: bool,
+                                         can_publish_all: bool, granted_by: str,
+                                         scope_owner: str) -> Optional[Dict]:
+    pool = _get_pool()
+    normalized_username = str(username or '').strip().lower()
+    normalized_granted_by = str(granted_by or '').strip()
+    normalized_scope_owner = str(scope_owner or '').strip()
+    if not normalized_username:
+        return None
+    async with pool.acquire() as conn:
+        account = await conn.fetchrow('''
+            SELECT username, added_by
+            FROM authorized_accounts
+            WHERE username = $1 AND status = 'active'
+        ''', normalized_username)
+        if not account:
+            return None
+        await conn.execute('''
+            INSERT INTO meeting_publish_permissions
+                (username, can_publish_owned, can_publish_all, granted_by, scope_owner, created_at, updated_at)
+            VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
+            ON CONFLICT(username) DO UPDATE SET
+                can_publish_owned = $2,
+                can_publish_all = $3,
+                granted_by = $4,
+                scope_owner = $5,
+                updated_at = NOW()
+        ''', normalized_username, bool(can_publish_owned), bool(can_publish_all),
+                           normalized_granted_by, normalized_scope_owner)
+    return await get_meeting_publish_permission(normalized_username)
+
+
+async def revoke_meeting_publish_permission(username: str) -> bool:
+    pool = _get_pool()
+    normalized_username = str(username or '').strip().lower()
+    if not normalized_username:
+        return False
+    async with pool.acquire() as conn:
+        result = await conn.execute('''
+            UPDATE meeting_publish_permissions
+            SET can_publish_owned = FALSE,
+                can_publish_all = FALSE,
+                updated_at = NOW()
+            WHERE username = $1
+        ''', normalized_username)
+        return int(result.split()[-1]) > 0
 
 
 async def expire_overdue_accounts() -> int:
