@@ -49,6 +49,7 @@ async def collect_chat_summary(pool, range_name: str = "7d", timeout_seconds: fl
         "deleted_message_total": 0,
         "text_storage_bytes": 0,
         "stored_payload_bytes": 0,
+        "declared_attachment_bytes": 0,
         "file_asset_total": 0,
         "file_asset_active": 0,
         "file_asset_expired": 0,
@@ -79,8 +80,9 @@ async def collect_chat_summary(pool, range_name: str = "7d", timeout_seconds: fl
                    COUNT(*) FILTER (WHERE sent_at >= date_trunc('day', NOW())) AS message_today,
                    COUNT(*) FILTER (WHERE sent_at >= NOW() - ($1::int * INTERVAL '1 day')) AS message_in_range,
                    COUNT(*) FILTER (WHERE deleted_at IS NOT NULL OR status = 'recalled') AS deleted_message_total,
-                   COALESCE(SUM(content_size_raw) FILTER (WHERE deleted_at IS NULL), 0) AS text_storage_bytes,
-                   COALESCE(SUM(content_size_stored) FILTER (WHERE deleted_at IS NULL), 0) AS stored_payload_bytes
+                   COALESCE(SUM(content_size_stored) FILTER (WHERE deleted_at IS NULL AND message_type = 'text'), 0) AS text_storage_bytes,
+                   COALESCE(SUM(octet_length(content_payload)) FILTER (WHERE deleted_at IS NULL), 0) AS stored_payload_bytes,
+                   COALESCE(SUM(content_size_stored) FILTER (WHERE deleted_at IS NULL AND message_type IN ('image', 'file', 'voice')), 0) AS declared_attachment_bytes
             FROM im_message
         ''', days), timeout_seconds)
         if row:
@@ -90,6 +92,7 @@ async def collect_chat_summary(pool, range_name: str = "7d", timeout_seconds: fl
             data["deleted_message_total"] = _safe_int(_row_get(row, "deleted_message_total"))
             data["text_storage_bytes"] = _safe_int(_row_get(row, "text_storage_bytes"))
             data["stored_payload_bytes"] = _safe_int(_row_get(row, "stored_payload_bytes"))
+            data["declared_attachment_bytes"] = _safe_int(_row_get(row, "declared_attachment_bytes"))
         rows = await _fetch_with_timeout(conn.fetch('''
             SELECT message_type, COUNT(*) AS count
             FROM im_message
@@ -151,7 +154,8 @@ async def collect_group_statistics(pool, range_name: str = "7d", limit: int = 10
                        COUNT(*) FILTER (WHERE deleted_at IS NULL) AS message_total,
                        COUNT(*) FILTER (WHERE deleted_at IS NULL AND sent_at >= date_trunc('day', NOW())) AS message_today,
                        COUNT(*) FILTER (WHERE deleted_at IS NULL AND sent_at >= NOW() - ($1::int * INTERVAL '1 day')) AS message_in_range,
-                       COALESCE(SUM(content_size_stored) FILTER (WHERE deleted_at IS NULL), 0) AS text_storage_bytes,
+                       COALESCE(SUM(content_size_stored) FILTER (WHERE deleted_at IS NULL AND message_type = 'text'), 0) AS text_storage_bytes,
+                       COALESCE(SUM(octet_length(content_payload)) FILTER (WHERE deleted_at IS NULL), 0) AS payload_storage_bytes,
                        COALESCE(SUM(COALESCE(NULLIF(substring(content_payload FROM '"file_size"\\s*:\\s*([0-9]+)'), '')::bigint, 0)) FILTER (WHERE deleted_at IS NULL AND message_type IN ('image', 'file', 'voice')), 0) AS file_storage_bytes,
                        MAX(sent_at) FILTER (WHERE deleted_at IS NULL) AS last_message_at
                 FROM im_message
@@ -175,6 +179,7 @@ async def collect_group_statistics(pool, range_name: str = "7d", limit: int = 10
                    COALESCE(ms.message_today, 0) AS message_today,
                    COALESCE(ms.message_in_range, 0) AS message_in_range,
                    COALESCE(ms.text_storage_bytes, 0) AS text_storage_bytes,
+                   COALESCE(ms.payload_storage_bytes, 0) AS payload_storage_bytes,
                    COALESCE(ms.file_storage_bytes, 0) AS file_storage_bytes,
                    COALESCE(mem.member_count, 0) AS member_count,
                    COALESCE(adm.admin_count, 0) AS admin_count,
@@ -183,7 +188,7 @@ async def collect_group_statistics(pool, range_name: str = "7d", limit: int = 10
             LEFT JOIN message_stats ms ON ms.conversation_id = g.id
             LEFT JOIN member_stats mem ON mem.conversation_id = g.id
             LEFT JOIN admin_stats adm ON adm.conversation_id = g.id
-            ORDER BY (COALESCE(ms.text_storage_bytes, 0) + COALESCE(ms.file_storage_bytes, 0)) DESC,
+            ORDER BY (COALESCE(ms.payload_storage_bytes, 0) + COALESCE(ms.file_storage_bytes, 0)) DESC,
                      COALESCE(ms.message_in_range, 0) DESC,
                      g.id DESC
             LIMIT $2
@@ -191,6 +196,7 @@ async def collect_group_statistics(pool, range_name: str = "7d", limit: int = 10
     items = []
     for row in rows:
         text_storage = _safe_int(_row_get(row, "text_storage_bytes"))
+        payload_storage = _safe_int(_row_get(row, "payload_storage_bytes"))
         file_storage = _safe_int(_row_get(row, "file_storage_bytes"))
         items.append({
             "conversation_id": _safe_int(_row_get(row, "conversation_id")),
@@ -202,8 +208,9 @@ async def collect_group_statistics(pool, range_name: str = "7d", limit: int = 10
             "message_today": _safe_int(_row_get(row, "message_today")),
             "message_in_range": _safe_int(_row_get(row, "message_in_range")),
             "text_storage_bytes": text_storage,
+            "payload_storage_bytes": payload_storage,
             "file_storage_bytes": file_storage,
-            "estimated_storage_bytes": text_storage + file_storage,
+            "estimated_storage_bytes": payload_storage + file_storage,
             "last_message_at": _row_get(row, "last_message_at").isoformat() if _row_get(row, "last_message_at") else "",
         })
     return {
