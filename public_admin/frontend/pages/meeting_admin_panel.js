@@ -15,7 +15,12 @@
 
     function headers(extra) {
         const base = typeof getHeaders === 'function' ? getHeaders() : {};
-        return Object.assign({}, base, extra || {});
+        const merged = Object.assign({}, base, extra || {});
+        if (!merged.Authorization) {
+            const token = sessionStorage.getItem('admin_token') || '';
+            if (token) merged.Authorization = `Bearer ${token}`;
+        }
+        return merged;
     }
 
     function escapeHtml(value) {
