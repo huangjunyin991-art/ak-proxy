@@ -94,15 +94,33 @@ async def collect_chat_summary(pool, range_name: str = "7d", timeout_seconds: fl
             data["stored_payload_bytes"] = _safe_int(_row_get(row, "stored_payload_bytes"))
             data["declared_attachment_bytes"] = _safe_int(_row_get(row, "declared_attachment_bytes"))
         rows = await _fetch_with_timeout(conn.fetch('''
-            SELECT message_type, COUNT(*) AS count
+            SELECT message_type,
+                   COUNT(*) AS count,
+                   COALESCE(SUM(octet_length(content_payload)), 0) AS payload_bytes,
+                   COALESCE(SUM(content_size_stored) FILTER (WHERE message_type = 'text'), 0) AS text_bytes,
+                   COALESCE(SUM(content_size_stored) FILTER (WHERE message_type IN ('image', 'file', 'voice')), 0) AS attachment_bytes,
+                   COALESCE(SUM(
+                       CASE
+                           WHEN message_type = 'text' THEN content_size_stored
+                           WHEN message_type IN ('image', 'file', 'voice') THEN content_size_stored
+                           ELSE octet_length(content_payload)
+                       END
+                   ), 0) AS estimated_storage_bytes
             FROM im_message
             WHERE deleted_at IS NULL
             GROUP BY message_type
-            ORDER BY COUNT(*) DESC, message_type ASC
+            ORDER BY estimated_storage_bytes DESC, COUNT(*) DESC, message_type ASC
             LIMIT 20
         '''), timeout_seconds)
         data["message_type_distribution"] = [
-            {"message_type": str(_row_get(row, "message_type") or "unknown"), "count": _safe_int(_row_get(row, "count"))}
+            {
+                "message_type": str(_row_get(row, "message_type") or "unknown"),
+                "count": _safe_int(_row_get(row, "count")),
+                "payload_bytes": _safe_int(_row_get(row, "payload_bytes")),
+                "text_bytes": _safe_int(_row_get(row, "text_bytes")),
+                "attachment_bytes": _safe_int(_row_get(row, "attachment_bytes")),
+                "estimated_storage_bytes": _safe_int(_row_get(row, "estimated_storage_bytes")),
+            }
             for row in rows
         ]
         rows = await _fetch_with_timeout(conn.fetch('''

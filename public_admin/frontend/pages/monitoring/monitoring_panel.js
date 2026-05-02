@@ -192,6 +192,18 @@
         }).join('');
     }
 
+    function renderMessageTypeStorageBars(items) {
+        var list = Array.isArray(items) ? items.slice(0, 10) : [];
+        if (!list.length) return '<div class="monitoring-empty">暂无数据</div>';
+        var max = list.reduce(function(acc, item) { return Math.max(acc, Number(item.estimated_storage_bytes || 0)); }, 0) || 1;
+        return list.map(function(item) {
+            var value = Number(item.estimated_storage_bytes || 0);
+            var label = item.message_type || '-';
+            var valueText = formatBytes(value) + ' / ' + formatNumber(item.count) + '条';
+            return renderProgress(label, value / max * 100, valueText);
+        }).join('');
+    }
+
     function renderAlert() {
         var alert = document.getElementById('monitoringAlert');
         if (!alert) return;
@@ -265,7 +277,7 @@
                 renderCard('估算总占用', formatBytes(chat.estimated_storage_bytes), '消息载荷 + 文件资源');
         }
         var typeBars = document.getElementById('monitoringTypeBars');
-        if (typeBars) typeBars.innerHTML = renderRankBars(chat.message_type_distribution, 'message_type', 'count', formatNumber);
+        if (typeBars) typeBars.innerHTML = renderMessageTypeStorageBars(chat.message_type_distribution);
         var chatMeta = document.getElementById('monitoringChatMeta');
         if (chatMeta) chatMeta.textContent = '高成本统计每小时自动刷新，更新于 ' + formatTime(chat.generated_at);
         var dbBars = document.getElementById('monitoringDbBars');
