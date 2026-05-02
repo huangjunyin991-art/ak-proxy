@@ -23,6 +23,10 @@
         return merged;
     }
 
+    function hasAdminToken() {
+        return !!String(sessionStorage.getItem('admin_token') || '').trim();
+    }
+
     function escapeHtml(value) {
         const div = document.createElement('div');
         div.textContent = String(value == null ? '' : value);
@@ -76,6 +80,12 @@
     }
 
     function loadAll() {
+        if (!hasAdminToken()) {
+            state.loading = false;
+            state.candidates = [];
+            render();
+            return Promise.resolve();
+        }
         state.loading = true;
         render();
         return request('/admin/api/meeting/candidates?limit=300&search=' + encodeURIComponent(state.candidateSearch || ''), { method: 'GET' }).then(function(data) {
@@ -90,6 +100,10 @@
     }
 
     function savePermission(username, owned, all) {
+        if (!hasAdminToken()) {
+            toast('请先登录后台', 'error');
+            return Promise.resolve();
+        }
         state.saving = true;
         render();
         return request('/admin/api/meeting/permissions', {
@@ -110,6 +124,10 @@
     }
 
     function revokePermission(username) {
+        if (!hasAdminToken()) {
+            toast('请先登录后台', 'error');
+            return;
+        }
         if (!window.confirm('确定收回该账号的全部会议发布权限？')) return;
         state.saving = true;
         render();
@@ -167,7 +185,7 @@
                             <button type="button" class="meeting-small-btn" data-meeting-refresh="1">${state.loading ? '加载中...' : '刷新'}</button>
                         </div>
                     </div>
-                    <div data-scroll-hint="right" style="overflow-x:auto"><table class="meeting-table"><thead><tr><th>账号</th><th>归属</th><th>当前权限</th><th>授权伞下</th><th>授权全体</th><th>操作</th></tr></thead><tbody>${state.loading ? '<tr><td colspan="6" class="meeting-empty">加载中...</td></tr>' : renderPermissionRows()}</tbody></table></div>
+                    <div data-scroll-hint="right" style="overflow-x:auto"><table class="meeting-table"><thead><tr><th>账号</th><th>归属</th><th>当前权限</th><th>授权伞下</th><th>授权全体</th><th>操作</th></tr></thead><tbody>${!hasAdminToken() ? '<tr><td colspan="6" class="meeting-empty">请先登录后台</td></tr>' : (state.loading ? '<tr><td colspan="6" class="meeting-empty">加载中...</td></tr>' : renderPermissionRows())}</tbody></table></div>
                 </section>
             </div>`;
     }
@@ -208,6 +226,7 @@
     }
 
     window.AKMeetingAdminPanel = { init: init, reload: loadAll };
+    window.addEventListener('ak-admin-auth-ready', loadAll);
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', init);
     } else {

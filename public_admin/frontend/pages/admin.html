@@ -3745,6 +3745,7 @@
             syncResponsiveShell();
             restoreViewMode();
             lockAdminPortraitOrientation();
+            window.dispatchEvent(new CustomEvent('ak-admin-auth-ready'));
         }
         
         function applyPermissions() {
@@ -11437,7 +11438,7 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
     </script>
     <script>
         (function() {
-            var meetingPanelBuildVersion = '20260502-03';
+            var meetingPanelBuildVersion = '20260502-04';
 
             function reportMeetingPanelLoadFailure(message) {
                 try {
