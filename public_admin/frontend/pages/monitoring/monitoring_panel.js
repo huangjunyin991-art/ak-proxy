@@ -64,6 +64,16 @@
         return date.toLocaleString('zh-CN', { hour12: false });
     }
 
+    function formatDuration(seconds) {
+        var total = Math.max(0, Math.floor(Number(seconds || 0)));
+        var days = Math.floor(total / 86400);
+        var hours = Math.floor((total % 86400) / 3600);
+        var minutes = Math.floor((total % 3600) / 60);
+        if (days > 0) return days + '天 ' + hours + '小时';
+        if (hours > 0) return hours + '小时 ' + minutes + '分钟';
+        return minutes + '分钟';
+    }
+
     function api(path, params) {
         var query = new URLSearchParams(params || {});
         var url = '/admin/api/monitoring' + path + (query.toString() ? '?' + query.toString() : '');
@@ -82,7 +92,7 @@
         if (document.querySelector('link[data-monitoring-panel-css="1"]')) return;
         var link = document.createElement('link');
         link.rel = 'stylesheet';
-        link.href = '/admin/api/monitoring-panel.css?v=20260502-01';
+        link.href = '/admin/api/monitoring-panel.css?v=20260502-02';
         link.setAttribute('data-monitoring-panel-css', '1');
         document.head.appendChild(link);
     }
@@ -175,6 +185,7 @@
         var groups = state.data.groups || {};
         var memory = system.memory || {};
         var disk = system.disk || {};
+        var process = system.process || {};
         var dbOk = health.database && health.database.ok;
         var imOk = health.im_server && health.im_server.ok;
         var cards = document.getElementById('monitoringCards');
@@ -184,6 +195,8 @@
                 renderCard('CPU', formatPercent(system.cpu_percent), (system.cpu_count || '-') + ' 核') +
                 renderCard('内存', memory.available ? formatPercent(memory.percent) : '-', memory.available ? formatBytes(memory.used_bytes) + ' / ' + formatBytes(memory.total_bytes) : '不可用') +
                 renderCard('磁盘', disk.available ? formatPercent(disk.percent) : '-', disk.available ? formatBytes(disk.used_bytes) + ' / ' + formatBytes(disk.total_bytes) : '不可用') +
+                renderCard('后台进程内存', process.available ? formatBytes(process.rss_bytes) : '-', process.available ? '线程 ' + formatNumber(process.threads) + ' / PID ' + formatNumber(process.pid) : '不可用') +
+                renderCard('后台运行时长', formatDuration(system.process_uptime_seconds), system.platform || '-') +
                 renderCard('数据库大小', formatBytes(database.database_size_bytes), '连接数 ' + formatNumber(database.active_connections));
         }
         var systemBars = document.getElementById('monitoringSystemBars');
@@ -193,7 +206,9 @@
             systemBars.innerHTML = renderProgress('CPU 使用率', system.cpu_percent || 0, formatPercent(system.cpu_percent)) +
                 renderProgress('内存使用率', memory.percent || 0, memory.available ? formatPercent(memory.percent) : '-') +
                 renderProgress('磁盘使用率', disk.percent || 0, disk.available ? formatPercent(disk.percent) : '-') +
-                renderProgress('1分钟负载', loadPercent, load.available ? String(Number(load.load1 || 0).toFixed(2)) : '-');
+                renderProgress('1分钟负载', loadPercent, load.available ? String(Number(load.load1 || 0).toFixed(2)) : '-') +
+                renderProgress('5分钟负载', load.available && system.cpu_count ? Math.min(100, Number(load.load5 || 0) / Number(system.cpu_count || 1) * 100) : 0, load.available ? String(Number(load.load5 || 0).toFixed(2)) : '-') +
+                renderProgress('15分钟负载', load.available && system.cpu_count ? Math.min(100, Number(load.load15 || 0) / Number(system.cpu_count || 1) * 100) : 0, load.available ? String(Number(load.load15 || 0).toFixed(2)) : '-');
         }
         var systemMeta = document.getElementById('monitoringSystemMeta');
         if (systemMeta) systemMeta.textContent = '更新于 ' + formatTime(system.generated_at);
