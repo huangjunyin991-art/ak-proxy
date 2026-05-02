@@ -247,12 +247,6 @@ from plugins.notification.server.notification_router import create_notification_
 
 from plugins.notification.server.notification_service import NotificationService
 
-from plugins.notification.server.tencent_meeting_resolver import TencentMeetingShareLinkResolver
-
-from plugins.notification.server.tencent_meeting_resolver import TencentMeetingShareLinkResolverError
-
-from plugins.notification.server.tencent_meeting_resolver import extract_tencent_meeting_share_url
-
 # ===== 日志配置 =====
 
 logger = logging.getLogger("TransparentProxy")
@@ -5125,9 +5119,6 @@ async def admin_whitelist_toggle_persist(request: Request):
         return {"success": False, "message": f"操作失败: {str(e)}"}
 
 
-_MEETING_ADMIN_RESOLVER = TencentMeetingShareLinkResolver()
-
-
 async def _resolve_meeting_admin_context(request: Request):
     token = request.headers.get('Authorization', '').replace('Bearer ', '')
     if not await verify_admin_token(token):
@@ -5154,27 +5145,6 @@ def _meeting_admin_ensure_account_scope(role: str, sub_name: str, account: dict)
     if role == ROLE_SUB_ADMIN and account_owner != str(sub_name or '').strip():
         raise ValueError("只能操作自己白名单下的账号")
     return account_owner
-
-
-def _meeting_admin_timestamp_to_rfc3339(value) -> str:
-    text = str(value or '').strip()
-    if not text:
-        return ''
-    try:
-        return datetime.utcfromtimestamp(int(text)).replace(microsecond=0).isoformat() + 'Z'
-    except Exception:
-        return ''
-
-
-def _meeting_admin_preview_payload(meeting: dict, share_url: str) -> dict:
-    return {
-        "url": str(meeting.get('source_url') or share_url or '').strip(),
-        "subject": str(meeting.get('meeting_title') or '').strip(),
-        "meeting_code": str(meeting.get('meeting_code') or '').strip(),
-        "begin_time": _meeting_admin_timestamp_to_rfc3339(meeting.get('start_timestamp')),
-        "end_time": _meeting_admin_timestamp_to_rfc3339(meeting.get('end_timestamp')),
-        "creator_nickname": str(meeting.get('creator_name') or '').strip(),
-    }
 
 
 @app.get("/admin/api/meeting/candidates")
@@ -5249,61 +5219,6 @@ async def admin_meeting_revoke_permission(request: Request):
     except Exception as e:
         return JSONResponse(status_code=500, content={"success": False, "message": f"收回会议权限失败: {e}"})
     return {"success": True, "updated": ok}
-
-
-@app.post("/admin/api/meeting/preview")
-async def admin_meeting_preview(request: Request):
-    _, error = await _resolve_meeting_admin_context(request)
-    if error:
-        return error
-    data = await request.json()
-    raw_url = str(data.get('url') or data.get('content') or '').strip()
-    share_url = extract_tencent_meeting_share_url(raw_url) or raw_url
-    try:
-        meeting = _MEETING_ADMIN_RESOLVER.resolve(share_url)
-    except TencentMeetingShareLinkResolverError as e:
-        return JSONResponse(status_code=400, content={"success": False, "message": str(e)})
-    return {"success": True, "data": _meeting_admin_preview_payload(meeting, share_url)}
-
-
-@app.post("/admin/api/meeting/publish")
-async def admin_meeting_publish(request: Request):
-    ctx, error = await _resolve_meeting_admin_context(request)
-    if error:
-        return error
-    data = await request.json()
-    sender_username = str(data.get('sender_username') or data.get('username') or '').strip().lower()
-    audience_scope = str(data.get('audience_scope') or '').strip().lower()
-    if audience_scope not in ('owned', 'all'):
-        return JSONResponse(status_code=400, content={"success": False, "message": "请选择会议发布范围"})
-    try:
-        account = await db.get_authorized_account(sender_username)
-        account_owner = _meeting_admin_ensure_account_scope(ctx["role"], ctx["sub_name"], account)
-        permission = await db.get_meeting_publish_permission(sender_username)
-        if audience_scope == 'owned' and not bool(permission and permission.get('can_publish_owned')):
-            return JSONResponse(status_code=403, content={"success": False, "message": "该账号没有发布给伞下玩家的权限"})
-        if audience_scope == 'all' and not bool(permission and permission.get('can_publish_all')):
-            return JSONResponse(status_code=403, content={"success": False, "message": "该账号没有发布给全体玩家的权限"})
-        scope_owner = str((permission or {}).get('scope_owner') or account_owner or '').strip()
-        status_code, body = await _post_im_internal_json("/im/internal/meetings/publish", {
-            "sender_username": sender_username,
-            "url": str(data.get('url') or '').strip(),
-            "meeting_code": str(data.get('meeting_code') or '').strip(),
-            "subject": str(data.get('subject') or '').strip(),
-            "begin_time": str(data.get('begin_time') or '').strip(),
-            "end_time": str(data.get('end_time') or '').strip(),
-            "creator_nickname": str(data.get('creator_nickname') or '').strip(),
-            "meeting_password": str(data.get('meeting_password') or '').strip(),
-            "audience_scope": audience_scope,
-            "audience_owner": scope_owner if audience_scope == 'owned' else '',
-        })
-    except ValueError as e:
-        return JSONResponse(status_code=400, content={"success": False, "message": str(e)})
-    except Exception as e:
-        return JSONResponse(status_code=500, content={"success": False, "message": f"会议发布失败: {e}"})
-    if status_code >= 400 or body.get('error'):
-        return JSONResponse(status_code=status_code if status_code >= 400 else 400, content={"success": False, "message": body.get('message') or '会议发布失败'})
-    return {"success": True, "data": body}
 
 
 
