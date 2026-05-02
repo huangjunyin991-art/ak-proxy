@@ -281,6 +281,24 @@ func (a *App) loadMeetingPublishPermission(ctx context.Context, username string)
 	if normalized == "" {
 		return false, false, "", nil
 	}
+	var bindingTableName *string
+	if err := a.db.QueryRow(ctx, `SELECT to_regclass('public.sub_admin_account_bindings')`).Scan(&bindingTableName); err != nil {
+		return false, false, "", err
+	}
+	if bindingTableName != nil && strings.TrimSpace(*bindingTableName) != "" {
+		var boundScopeOwner string
+		err := a.db.QueryRow(ctx, `
+		SELECT LOWER(COALESCE(sub_name, ''))
+		FROM sub_admin_account_bindings
+		WHERE LOWER(account_username) = $1
+		LIMIT 1`, normalized).Scan(&boundScopeOwner)
+		if err == nil && strings.TrimSpace(boundScopeOwner) != "" {
+			return true, true, strings.TrimSpace(boundScopeOwner), nil
+		}
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return false, false, "", err
+		}
+	}
 	var canPublishOwned bool
 	var canPublishAll bool
 	var scopeOwner string

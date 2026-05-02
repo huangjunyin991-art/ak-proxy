@@ -5136,6 +5136,39 @@ def _meeting_admin_operator(role: str, sub_name: str) -> str:
     return sub_name if role == ROLE_SUB_ADMIN and sub_name else 'super_admin'
 
 
+def _meeting_admin_bound_username(role: str, sub_name: str) -> str:
+    if role != ROLE_SUB_ADMIN or not sub_name:
+        return ''
+    sub_data = SUB_ADMINS.get(str(sub_name or '').strip(), {})
+    if not isinstance(sub_data, dict):
+        return ''
+    return str(sub_data.get('bound_username') or '').strip().lower()
+
+
+def _meeting_admin_apply_context(data: dict, role: str, sub_name: str) -> dict:
+    result = dict(data or {})
+    rows = []
+    bound_username = _meeting_admin_bound_username(role, sub_name)
+    for item in result.get('rows') or []:
+        row = dict(item or {})
+        username = str(row.get('username') or '').strip().lower()
+        is_default_binding = bool(bound_username and username == bound_username)
+        if is_default_binding:
+            row['can_publish_owned'] = True
+            row['can_publish_all'] = True
+            row['scope_owner'] = str(sub_name or '').strip()
+        elif row.get('can_publish_all'):
+            row['can_publish_owned'] = False
+        row['is_default_admin_binding'] = is_default_binding
+        rows.append(row)
+    result['rows'] = rows
+    result['role'] = role or ''
+    result['sub_name'] = sub_name or ''
+    result['bound_username'] = bound_username
+    result['show_owner_column'] = role != ROLE_SUB_ADMIN
+    return result
+
+
 def _meeting_admin_ensure_account_scope(role: str, sub_name: str, account: dict):
     if not account:
         raise ValueError("账号不存在")
@@ -5153,12 +5186,13 @@ async def admin_meeting_candidates(request: Request, search: str = '', limit: in
     if error:
         return error
     added_by = _meeting_admin_scoped_added_by(ctx["role"], ctx["sub_name"])
-    return await db.get_meeting_permission_candidates(
+    data = await db.get_meeting_permission_candidates(
         added_by=added_by,
         search=(search or '').strip() or None,
         limit=max(1, min(int(limit or 200), 500)),
         offset=max(0, int(offset or 0)),
     )
+    return _meeting_admin_apply_context(data, ctx["role"], ctx["sub_name"])
 
 
 @app.get("/admin/api/meeting/permissions")
@@ -5167,12 +5201,13 @@ async def admin_meeting_permissions(request: Request, search: str = '', limit: i
     if error:
         return error
     added_by = _meeting_admin_scoped_added_by(ctx["role"], ctx["sub_name"])
-    return await db.get_meeting_publish_permissions(
+    data = await db.get_meeting_publish_permissions(
         added_by=added_by,
         search=(search or '').strip() or None,
         limit=max(1, min(int(limit or 200), 500)),
         offset=max(0, int(offset or 0)),
     )
+    return _meeting_admin_apply_context(data, ctx["role"], ctx["sub_name"])
 
 
 @app.post("/admin/api/meeting/permissions")
@@ -5185,12 +5220,16 @@ async def admin_meeting_save_permission(request: Request):
     if not username:
         return JSONResponse(status_code=400, content={"success": False, "message": "请选择授权账号"})
     try:
+        if username == _meeting_admin_bound_username(ctx["role"], ctx["sub_name"]):
+            raise ValueError("管理员绑定账号默认拥有会议发布权限，无需授权")
         account = await db.get_authorized_account(username)
         scope_owner = _meeting_admin_ensure_account_scope(ctx["role"], ctx["sub_name"], account)
+        can_publish_all = bool(data.get('can_publish_all'))
+        can_publish_owned = bool(data.get('can_publish_owned')) and not can_publish_all
         item = await db.set_meeting_publish_permission(
             username,
-            bool(data.get('can_publish_owned')),
-            bool(data.get('can_publish_all')),
+            can_publish_owned,
+            can_publish_all,
             _meeting_admin_operator(ctx["role"], ctx["sub_name"]),
             scope_owner,
         )
@@ -5211,6 +5250,8 @@ async def admin_meeting_revoke_permission(request: Request):
     if not username:
         return JSONResponse(status_code=400, content={"success": False, "message": "请选择授权账号"})
     try:
+        if username == _meeting_admin_bound_username(ctx["role"], ctx["sub_name"]):
+            raise ValueError("管理员绑定账号默认拥有会议发布权限，不能收回")
         account = await db.get_authorized_account(username)
         _meeting_admin_ensure_account_scope(ctx["role"], ctx["sub_name"], account)
         ok = await db.revoke_meeting_publish_permission(username)

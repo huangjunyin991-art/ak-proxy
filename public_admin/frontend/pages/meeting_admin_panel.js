@@ -9,7 +9,8 @@
         candidates: [],
         candidateSearch: '',
         loading: false,
-        saving: false
+        savingUsernames: {},
+        showOwnerColumn: true
     };
     const refs = {};
 
@@ -79,6 +80,20 @@
         }
     }
 
+    function setRowSaving(username, saving) {
+        const normalized = normalizeUsername(username);
+        if (!normalized) return;
+        if (saving) {
+            state.savingUsernames[normalized] = true;
+        } else {
+            delete state.savingUsernames[normalized];
+        }
+    }
+
+    function isRowSaving(username) {
+        return !!state.savingUsernames[normalizeUsername(username)];
+    }
+
     function loadAll() {
         if (!hasAdminToken()) {
             state.loading = false;
@@ -90,6 +105,7 @@
         render();
         return request('/admin/api/meeting/candidates?limit=300&search=' + encodeURIComponent(state.candidateSearch || ''), { method: 'GET' }).then(function(data) {
             state.candidates = Array.isArray(data.rows) ? data.rows : [];
+            state.showOwnerColumn = data.show_owner_column !== false;
             state.loading = false;
             render();
         }).catch(function(error) {
@@ -104,7 +120,7 @@
             toast('请先登录后台', 'error');
             return Promise.resolve();
         }
-        state.saving = true;
+        setRowSaving(username, true);
         render();
         return request('/admin/api/meeting/permissions', {
             method: 'POST',
@@ -115,9 +131,10 @@
             }
         }).then(function() {
             toast('会议发布权限已保存', 'success');
+            setRowSaving(username, false);
             return loadAll();
         }).catch(function(error) {
-            state.saving = false;
+            setRowSaving(username, false);
             toast('保存失败：' + error.message, 'error');
             render();
         });
@@ -129,16 +146,17 @@
             return;
         }
         if (!window.confirm('确定收回该账号的全部会议发布权限？')) return;
-        state.saving = true;
+        setRowSaving(username, true);
         render();
         request('/admin/api/meeting/permissions/revoke', {
             method: 'POST',
             body: { username: username }
         }).then(function() {
             toast('会议发布权限已收回', 'success');
+            setRowSaving(username, false);
             return loadAll();
         }).catch(function(error) {
-            state.saving = false;
+            setRowSaving(username, false);
             toast('收回失败：' + error.message, 'error');
             render();
         });
@@ -149,20 +167,25 @@
             const username = normalizeUsername(item.username);
             const owned = !!item.can_publish_owned;
             const all = !!item.can_publish_all;
+            const isDefaultBinding = !!item.is_default_admin_binding;
+            const ownerCell = state.showOwnerColumn ? `<td><strong>${escapeHtml(item.added_by || '-')}</strong><div class="meeting-muted">过期：${escapeHtml(formatTime(item.expire_time))}</div></td>` : '';
+            const currentPermission = isDefaultBinding ? '<span class="meeting-badge all">默认全权限</span>' : (owned || all ? [owned ? '<span class="meeting-badge owned">伞下</span>' : '', all ? '<span class="meeting-badge all">全体</span>' : ''].join('') : '<span class="meeting-muted">未授权</span>');
+            const rowSaving = isRowSaving(username);
+            const disabled = rowSaving || isDefaultBinding;
             return `
                 <tr data-meeting-user="${escapeHtml(username)}">
                     <td><strong>${escapeHtml(username)}</strong><div class="meeting-muted">${escapeHtml(item.nickname || '')}</div></td>
-                    <td><strong>${escapeHtml(item.added_by || '-')}</strong><div class="meeting-muted">过期：${escapeHtml(formatTime(item.expire_time))}</div></td>
-                    <td>${owned || all ? [owned ? '<span class="meeting-badge owned">伞下</span>' : '', all ? '<span class="meeting-badge all">全体</span>' : ''].join('') : '<span class="meeting-muted">未授权</span>'}</td>
-                    <td><label><input type="checkbox" data-meeting-perm="owned" ${owned ? 'checked' : ''}> 发布给伞下玩家</label></td>
-                    <td><label><input type="checkbox" data-meeting-perm="all" ${all ? 'checked' : ''}> 发布给全体玩家</label></td>
+                    ${ownerCell}
+                    <td>${currentPermission}</td>
+                    <td><label><input type="checkbox" data-meeting-perm="owned" ${owned ? 'checked' : ''} ${disabled ? 'disabled' : ''}> 发布给伞下玩家</label></td>
+                    <td><label><input type="checkbox" data-meeting-perm="all" ${all ? 'checked' : ''} ${disabled ? 'disabled' : ''}> 发布给全体玩家</label></td>
                     <td>
-                        <button type="button" class="meeting-small-btn" data-meeting-save="${escapeHtml(username)}" ${state.saving ? 'disabled' : ''}>保存</button>
-                        <button type="button" class="meeting-small-btn danger" data-meeting-revoke="${escapeHtml(username)}" ${state.saving ? 'disabled' : ''}>收回</button>
+                        <button type="button" class="meeting-small-btn" data-meeting-save="${escapeHtml(username)}" ${disabled ? 'disabled' : ''}>${rowSaving ? '保存中...' : '保存'}</button>
+                        <button type="button" class="meeting-small-btn danger" data-meeting-revoke="${escapeHtml(username)}" ${disabled ? 'disabled' : ''}>收回</button>
                     </td>
                 </tr>`;
         }).join('');
-        return rows || '<tr><td colspan="6" class="meeting-empty">暂无白名单账号</td></tr>';
+        return rows || `<tr><td colspan="${state.showOwnerColumn ? 6 : 5}" class="meeting-empty">暂无白名单账号</td></tr>`;
     }
 
     function render() {
@@ -185,7 +208,7 @@
                             <button type="button" class="meeting-small-btn" data-meeting-refresh="1">${state.loading ? '加载中...' : '刷新'}</button>
                         </div>
                     </div>
-                    <div data-scroll-hint="right" style="overflow-x:auto"><table class="meeting-table"><thead><tr><th>账号</th><th>归属</th><th>当前权限</th><th>授权伞下</th><th>授权全体</th><th>操作</th></tr></thead><tbody>${!hasAdminToken() ? '<tr><td colspan="6" class="meeting-empty">请先登录后台</td></tr>' : (state.loading ? '<tr><td colspan="6" class="meeting-empty">加载中...</td></tr>' : renderPermissionRows())}</tbody></table></div>
+                    <div data-scroll-hint="right" style="overflow-x:auto"><table class="meeting-table"><thead><tr><th>账号</th>${state.showOwnerColumn ? '<th>归属</th>' : ''}<th>当前权限</th><th>授权伞下</th><th>授权全体</th><th>操作</th></tr></thead><tbody>${!hasAdminToken() ? `<tr><td colspan="${state.showOwnerColumn ? 6 : 5}" class="meeting-empty">请先登录后台</td></tr>` : (state.loading ? `<tr><td colspan="${state.showOwnerColumn ? 6 : 5}" class="meeting-empty">加载中...</td></tr>` : renderPermissionRows())}</tbody></table></div>
                 </section>
             </div>`;
     }
@@ -201,6 +224,16 @@
                 clearTimeout(bind.searchTimer);
                 bind.searchTimer = setTimeout(loadAll, 350);
             }
+        });
+        mount.addEventListener('change', function(event) {
+            const checkbox = event.target.closest('[data-meeting-perm]');
+            if (!checkbox || !checkbox.checked) return;
+            const row = checkbox.closest('[data-meeting-user]');
+            if (!row) return;
+            const owned = row.querySelector('[data-meeting-perm="owned"]');
+            const all = row.querySelector('[data-meeting-perm="all"]');
+            if (checkbox.getAttribute('data-meeting-perm') === 'owned' && all) all.checked = false;
+            if (checkbox.getAttribute('data-meeting-perm') === 'all' && owned) owned.checked = false;
         });
         mount.addEventListener('click', function(event) {
             const refresh = event.target.closest('[data-meeting-refresh]');
