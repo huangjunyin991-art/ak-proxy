@@ -5145,31 +5145,92 @@ def _meeting_admin_bound_username(role: str, sub_name: str) -> str:
     return str(sub_data.get('bound_username') or '').strip().lower()
 
 
+def _meeting_admin_all_bound_bindings() -> dict:
+    mapping = {}
+    for sub_key, sub_data in (SUB_ADMINS or {}).items():
+        if not isinstance(sub_data, dict):
+            continue
+        bound = str(sub_data.get('bound_username') or '').strip().lower()
+        if bound:
+            mapping[bound] = str(sub_key or '').strip()
+    return mapping
+
+
+def _meeting_admin_sub_enabled(sub_name: str) -> bool:
+    key = str(sub_name or '').strip()
+    if not key:
+        return True
+    sub_data = SUB_ADMINS.get(key)
+    if not isinstance(sub_data, dict):
+        return True
+    perms = sub_data.get('permissions')
+    if not isinstance(perms, dict):
+        return True
+    value = perms.get('meeting_publish_enabled')
+    if value is None:
+        return True
+    return bool(value)
+
+
+def _meeting_admin_sub_toggles(filter_sub_name: str = '') -> list:
+    toggles = []
+    target = str(filter_sub_name or '').strip()
+    for sub_key, sub_data in (SUB_ADMINS or {}).items():
+        if not isinstance(sub_data, dict):
+            continue
+        name = str(sub_key or '').strip()
+        if not name:
+            continue
+        if target and name != target:
+            continue
+        toggles.append({
+            'sub_name': name,
+            'bound_username': str(sub_data.get('bound_username') or '').strip().lower(),
+            'meeting_publish_enabled': _meeting_admin_sub_enabled(name),
+        })
+    toggles.sort(key=lambda item: item['sub_name'])
+    return toggles
+
+
 def _meeting_admin_apply_context(data: dict, role: str, sub_name: str) -> dict:
     result = dict(data or {})
     rows = []
     bound_username = _meeting_admin_bound_username(role, sub_name)
+    all_bindings = _meeting_admin_all_bound_bindings()
     for item in result.get('rows') or []:
         row = dict(item or {})
         username = str(row.get('username') or '').strip().lower()
-        is_default_binding = bool(bound_username and username == bound_username)
+        binding_owner = all_bindings.get(username, '')
+        is_default_binding = bool(binding_owner)
+        owner_candidate = binding_owner or str(row.get('added_by') or '').strip()
+        sub_admin_owner = owner_candidate if owner_candidate in (SUB_ADMINS or {}) else ''
+        sub_enabled = _meeting_admin_sub_enabled(sub_admin_owner) if sub_admin_owner else True
         if is_default_binding:
-            row['can_publish'] = True
-            row['can_publish_owned'] = True
-            row['can_publish_all'] = True
-            row['scope_owner'] = str(sub_name or '').strip()
+            row['can_publish'] = sub_enabled
+            row['can_publish_owned'] = sub_enabled
+            row['can_publish_all'] = sub_enabled
+            row['scope_owner'] = binding_owner
         else:
-            can_publish = bool(row.get('can_publish')) or bool(row.get('can_publish_owned')) or bool(row.get('can_publish_all'))
-            row['can_publish'] = can_publish
-            row['can_publish_owned'] = can_publish
-            row['can_publish_all'] = can_publish
+            raw_can_publish = bool(row.get('can_publish')) or bool(row.get('can_publish_owned')) or bool(row.get('can_publish_all'))
+            row['can_publish'] = raw_can_publish
+            row['can_publish_owned'] = raw_can_publish
+            row['can_publish_all'] = raw_can_publish
+        effective = bool(row.get('can_publish')) and sub_enabled
+        row['effective_can_publish'] = effective
         row['is_default_admin_binding'] = is_default_binding
+        row['default_binding_owner'] = binding_owner
+        row['sub_admin_owner'] = sub_admin_owner
+        row['sub_admin_meeting_enabled'] = sub_enabled
         rows.append(row)
     result['rows'] = rows
     result['role'] = role or ''
     result['sub_name'] = sub_name or ''
     result['bound_username'] = bound_username
     result['show_owner_column'] = role != ROLE_SUB_ADMIN
+    if role == ROLE_SUB_ADMIN:
+        result['sub_admin_meeting_toggles'] = _meeting_admin_sub_toggles(sub_name)
+    else:
+        result['sub_admin_meeting_toggles'] = _meeting_admin_sub_toggles()
     return result
 
 
@@ -5224,7 +5285,7 @@ async def admin_meeting_save_permission(request: Request):
     if not username:
         return JSONResponse(status_code=400, content={"success": False, "message": "请选择授权账号"})
     try:
-        if username == _meeting_admin_bound_username(ctx["role"], ctx["sub_name"]):
+        if username in _meeting_admin_all_bound_bindings():
             raise ValueError("管理员绑定账号默认拥有会议发布权限，无需授权")
         account = await db.get_authorized_account(username)
         scope_owner = _meeting_admin_ensure_account_scope(ctx["role"], ctx["sub_name"], account)
@@ -5243,6 +5304,33 @@ async def admin_meeting_save_permission(request: Request):
     return {"success": True, "data": item}
 
 
+@app.post("/admin/api/meeting/sub_admin_toggle")
+async def admin_meeting_sub_admin_toggle(request: Request):
+    ctx, error = await _resolve_meeting_admin_context(request)
+    if error:
+        return error
+    if ctx["role"] != ROLE_SUPER_ADMIN:
+        return JSONResponse(status_code=403, content={"success": False, "message": "仅总管理员可调整子管理员会议发布权限"})
+    try:
+        data = await request.json()
+    except Exception:
+        return JSONResponse(status_code=400, content={"success": False, "message": "请求无效"})
+    target = str(data.get('sub_name') or '').strip()
+    if not target or target not in SUB_ADMINS:
+        return JSONResponse(status_code=400, content={"success": False, "message": f"子管理员 [{target}] 不存在"})
+    enabled = bool(data.get('enabled'))
+    sub_data = SUB_ADMINS.get(target) or {}
+    permissions = dict(sub_data.get('permissions') or {}) if isinstance(sub_data, dict) else {}
+    permissions['meeting_publish_enabled'] = enabled
+    try:
+        await db.db_update_sub_admin_permissions(target, permissions)
+        if isinstance(SUB_ADMINS.get(target), dict):
+            SUB_ADMINS[target]['permissions'] = permissions
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"success": False, "message": f"更新失败: {e}"})
+    return {"success": True, "data": {"sub_name": target, "meeting_publish_enabled": enabled}}
+
+
 @app.post("/admin/api/meeting/permissions/revoke")
 async def admin_meeting_revoke_permission(request: Request):
     ctx, error = await _resolve_meeting_admin_context(request)
@@ -5253,7 +5341,7 @@ async def admin_meeting_revoke_permission(request: Request):
     if not username:
         return JSONResponse(status_code=400, content={"success": False, "message": "请选择授权账号"})
     try:
-        if username == _meeting_admin_bound_username(ctx["role"], ctx["sub_name"]):
+        if username in _meeting_admin_all_bound_bindings():
             raise ValueError("管理员绑定账号默认拥有会议发布权限，不能收回")
         account = await db.get_authorized_account(username)
         _meeting_admin_ensure_account_scope(ctx["role"], ctx["sub_name"], account)

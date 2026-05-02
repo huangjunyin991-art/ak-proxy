@@ -293,7 +293,15 @@ func (a *App) loadMeetingPublishPermission(ctx context.Context, username string)
 		WHERE LOWER(account_username) = $1
 		LIMIT 1`, normalized).Scan(&boundScopeOwner)
 		if err == nil && strings.TrimSpace(boundScopeOwner) != "" {
-			return true, true, strings.TrimSpace(boundScopeOwner), nil
+			owner := strings.TrimSpace(boundScopeOwner)
+			enabled, subErr := a.loadSubAdminMeetingEnabled(ctx, owner)
+			if subErr != nil {
+				return false, false, owner, subErr
+			}
+			if !enabled {
+				return false, false, owner, nil
+			}
+			return true, true, owner, nil
 		}
 		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 			return false, false, "", err
@@ -311,8 +319,83 @@ func (a *App) loadMeetingPublishPermission(ctx context.Context, username string)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return false, false, "", nil
 	}
+	if err != nil {
+		return false, false, "", err
+	}
 	canPublish := canPublishOwned || canPublishAll
-	return canPublish, canPublish, strings.TrimSpace(scopeOwner), err
+	scopeOwner = strings.TrimSpace(scopeOwner)
+	if canPublish {
+		ownerKey := scopeOwner
+		if ownerKey == "" {
+			var addedBy string
+			if addedErr := a.db.QueryRow(ctx, `
+				SELECT COALESCE(added_by, '')
+				FROM authorized_accounts
+				WHERE LOWER(username) = $1
+				LIMIT 1`, normalized).Scan(&addedBy); addedErr != nil && !errors.Is(addedErr, pgx.ErrNoRows) {
+				return false, false, scopeOwner, addedErr
+			}
+			ownerKey = strings.TrimSpace(addedBy)
+		}
+		if ownerKey != "" {
+			enabled, subErr := a.loadSubAdminMeetingEnabled(ctx, ownerKey)
+			if subErr != nil {
+				return false, false, scopeOwner, subErr
+			}
+			if !enabled {
+				canPublish = false
+			}
+		}
+	}
+	return canPublish, canPublish, scopeOwner, nil
+}
+
+// loadSubAdminMeetingEnabled 查询子管理员的会议发布总开关，缺省视为允许
+func (a *App) loadSubAdminMeetingEnabled(ctx context.Context, subName string) (bool, error) {
+	key := strings.TrimSpace(subName)
+	if key == "" {
+		return true, nil
+	}
+	var tableName *string
+	if err := a.db.QueryRow(ctx, `SELECT to_regclass('public.sub_admins')`).Scan(&tableName); err != nil {
+		return true, err
+	}
+	if tableName == nil || strings.TrimSpace(*tableName) == "" {
+		return true, nil
+	}
+	var permJSON *string
+	err := a.db.QueryRow(ctx, `
+		SELECT permissions::text
+		FROM sub_admins
+		WHERE name = $1
+		LIMIT 1`, key).Scan(&permJSON)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return true, nil
+	}
+	if err != nil {
+		return true, err
+	}
+	if permJSON == nil || strings.TrimSpace(*permJSON) == "" {
+		return true, nil
+	}
+	var perms map[string]any
+	if jsonErr := json.Unmarshal([]byte(*permJSON), &perms); jsonErr != nil {
+		return true, nil
+	}
+	raw, ok := perms["meeting_publish_enabled"]
+	if !ok {
+		return true, nil
+	}
+	switch v := raw.(type) {
+	case bool:
+		return v, nil
+	case string:
+		trimmed := strings.ToLower(strings.TrimSpace(v))
+		return trimmed == "true" || trimmed == "1" || trimmed == "yes", nil
+	case float64:
+		return v != 0, nil
+	}
+	return true, nil
 }
 
 // listWhitelistGroupMemberUsernames 指定主群 conversation_key 的活跃成员
