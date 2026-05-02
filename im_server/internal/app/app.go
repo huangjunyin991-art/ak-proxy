@@ -300,6 +300,7 @@ func New(cfg config.Config) (*App, error) {
 	mux.HandleFunc("/im/internal/group_admins/replace", app.handleInternalGroupAdminsReplace)
 	mux.HandleFunc("/im/internal/group_owner/transfer", app.handleInternalGroupOwnerTransfer)
 	mux.HandleFunc("/im/internal/file_assets/config", app.handleInternalFileAssetConfig)
+	mux.HandleFunc("/im/internal/file_assets/expire", app.handleInternalFileAssetExpire)
 	mux.HandleFunc("/im/internal/image_upload/config", app.handleInternalImageUploadConfig)
 	mux.HandleFunc("/im/internal/emoji_assets/import", app.handleInternalEmojiAssetImport)
 	mux.HandleFunc("/im/internal/emoji_assets/upload", app.handleInternalEmojiAssetUpload)

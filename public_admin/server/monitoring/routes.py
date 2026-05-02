@@ -95,4 +95,27 @@ def create_monitoring_router(
         except Exception as exc:
             return JSONResponse(status_code=500, content={"error": True, "message": str(exc)[:300]})
 
+    @router.get("/chat/file-assets")
+    async def monitoring_file_assets(request: Request, status: str = "active", limit: int = 50, force: str = ""):
+        _, error_response = await require_super_admin(request)
+        if error_response is not None:
+            return error_response
+        try:
+            return {"success": True, "item": await service.get_file_assets(status=status, limit=limit, force=_parse_force(force))}
+        except Exception as exc:
+            return JSONResponse(status_code=500, content={"error": True, "message": str(exc)[:300]})
+
+    @router.post("/chat/file-assets/{storage_name}/expire")
+    async def monitoring_expire_file_asset(request: Request, storage_name: str):
+        _, error_response = await require_super_admin(request)
+        if error_response is not None:
+            return error_response
+        try:
+            result = await service.expire_file_asset(storage_name)
+            if not result.get("success"):
+                return JSONResponse(status_code=400, content={"error": True, "message": result.get("message") or "文件释放失败"})
+            return result
+        except Exception as exc:
+            return JSONResponse(status_code=500, content={"error": True, "message": str(exc)[:300]})
+
     return router

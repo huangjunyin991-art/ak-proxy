@@ -221,3 +221,64 @@ async def collect_group_statistics(pool, range_name: str = "7d", limit: int = 10
         "items": items,
         "file_storage_scope": "message_payload_file_size_estimate",
     }
+
+
+async def collect_file_assets(pool, status: str = "active", limit: int = 50, timeout_seconds: float = 8.0) -> dict:
+    normalized_status = str(status or "active").strip().lower()
+    if normalized_status not in ("active", "expired", "missing", "all"):
+        normalized_status = "active"
+    normalized_limit = min(max(int(limit or 50), 1), 100)
+    generated_at = datetime.now(timezone.utc).isoformat()
+    async with pool.acquire() as conn:
+        if not await _table_exists(conn, "im_file_asset", timeout_seconds):
+            return {"available": False, "message": "缺少 im_file_asset 表", "generated_at": generated_at, "items": []}
+        if not await _table_exists(conn, "im_message", timeout_seconds):
+            return {"available": False, "message": "缺少 im_message 表", "generated_at": generated_at, "items": []}
+        rows = await _fetch_with_timeout(conn.fetch('''
+            WITH selected_assets AS (
+                SELECT storage_name, original_name, mime_type, file_size, expires_at, status, created_at, updated_at, deleted_at
+                FROM im_file_asset
+                WHERE ($1 = 'all' OR LOWER(status) = $1)
+                ORDER BY file_size DESC, created_at DESC
+                LIMIT $2
+            )
+            SELECT a.storage_name,
+                   a.original_name,
+                   a.mime_type,
+                   a.file_size,
+                   a.expires_at,
+                   a.status,
+                   a.created_at,
+                   a.updated_at,
+                   a.deleted_at,
+                   COALESCE(refs.referenced_messages, 0) AS referenced_messages
+            FROM selected_assets a
+            LEFT JOIN LATERAL (
+                SELECT COUNT(*) AS referenced_messages
+                FROM im_message m
+                WHERE m.deleted_at IS NULL
+                  AND m.content_payload LIKE '%' || a.storage_name || '%'
+            ) refs ON TRUE
+            ORDER BY a.file_size DESC, a.created_at DESC
+        ''', normalized_status, normalized_limit), timeout_seconds)
+    items = []
+    for row in rows:
+        items.append({
+            "storage_name": str(_row_get(row, "storage_name") or ""),
+            "original_name": str(_row_get(row, "original_name") or ""),
+            "mime_type": str(_row_get(row, "mime_type") or ""),
+            "file_size": _safe_int(_row_get(row, "file_size")),
+            "expires_at": _row_get(row, "expires_at").isoformat() if _row_get(row, "expires_at") else "",
+            "status": str(_row_get(row, "status") or ""),
+            "created_at": _row_get(row, "created_at").isoformat() if _row_get(row, "created_at") else "",
+            "updated_at": _row_get(row, "updated_at").isoformat() if _row_get(row, "updated_at") else "",
+            "deleted_at": _row_get(row, "deleted_at").isoformat() if _row_get(row, "deleted_at") else "",
+            "referenced_messages": _safe_int(_row_get(row, "referenced_messages")),
+        })
+    return {
+        "available": True,
+        "generated_at": generated_at,
+        "status": normalized_status,
+        "limit": normalized_limit,
+        "items": items,
+    }

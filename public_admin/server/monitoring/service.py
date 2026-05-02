@@ -4,8 +4,10 @@ import time
 from datetime import datetime, timezone
 from typing import Awaitable, Callable, Optional
 
+import httpx
+
 from .collectors.health_collector import collect_health_snapshot
-from .collectors.im_chat_collector import collect_chat_summary, collect_group_statistics
+from .collectors.im_chat_collector import collect_chat_summary, collect_file_assets, collect_group_statistics
 from .collectors.postgres_collector import collect_database_snapshot
 from .collectors.system_collector import collect_system_snapshot
 from .schemas import error_item, unavailable
@@ -59,6 +61,11 @@ class MonitoringService:
         normalized["cache"] = {"hit": False, "age_seconds": 0, "ttl_seconds": ttl_seconds}
         self._cache[key] = {"stored_at": time.time(), "value": normalized, "ttl_seconds": ttl_seconds}
         return dict(normalized)
+
+    def _cache_delete_prefix(self, prefix: str) -> None:
+        for key in list(self._cache.keys()):
+            if str(key).startswith(prefix):
+                self._cache.pop(key, None)
 
     async def _cached(self, key: str, ttl_seconds: int, collector: Callable[[], Awaitable[dict]], force: bool = False) -> dict:
         if not force:
@@ -131,6 +138,46 @@ class MonitoringService:
         async def collector():
             return await collect_group_statistics(self._pool(), normalized_range, normalized_limit)
         return await self._cached(cache_key, self.heavy_ttl_seconds, collector, force=force)
+
+    async def get_file_assets(self, status: str = "active", limit: int = 50, force: bool = False) -> dict:
+        normalized_status = str(status or "active").strip().lower()
+        if normalized_status not in ("active", "expired", "missing", "all"):
+            normalized_status = "active"
+        normalized_limit = min(max(int(limit or 50), 1), 100)
+        system_snapshot = await self.get_system(force=False)
+        cache_key = f"file_assets:{normalized_status}:{normalized_limit}"
+        delayed = await self._heavy_guard(cache_key, system_snapshot)
+        if delayed is not None:
+            return delayed
+        async def collector():
+            return await collect_file_assets(self._pool(), normalized_status, normalized_limit)
+        return await self._cached(cache_key, self.heavy_ttl_seconds, collector, force=force)
+
+    async def expire_file_asset(self, storage_name: str) -> dict:
+        normalized_storage_name = str(storage_name or "").strip()
+        if not normalized_storage_name:
+            return {"success": False, "message": "storage_name 不能为空"}
+        if not self.im_server_internal_url:
+            return {"success": False, "message": "未配置 IM 服务地址"}
+        async with httpx.AsyncClient(timeout=8.0, trust_env=False) as client:
+            response = await client.post(
+                f"{self.im_server_internal_url}/im/internal/file_assets/expire",
+                json={"storage_name": normalized_storage_name},
+            )
+        try:
+            body = response.json()
+        except Exception:
+            body = {"error": True, "message": response.text[:300] or "IM 服务响应无效"}
+        if response.status_code >= 400 or body.get("error"):
+            return {"success": False, "message": str(body.get("message") or "IM 服务释放文件失败")[:300]}
+        self._cache_delete_prefix("file_assets:")
+        self._cache_delete_prefix("chat_summary:")
+        self._cache_delete_prefix("chat_groups:")
+        return {
+            "success": True,
+            "message": "文件已标记为失效并释放物理文件",
+            "item": body,
+        }
 
     async def get_overview(self, range_name: str = "7d", force: bool = False) -> dict:
         partial_errors = []

@@ -67,6 +67,18 @@
     border-color: transparent;
 }
 
+.monitoring-btn.danger {
+    border-color: rgba(255, 71, 87, 0.45);
+    color: #ff6b7a;
+    background: rgba(255, 71, 87, 0.08);
+}
+
+.monitoring-btn.danger:hover {
+    border-color: #ff4757;
+    color: #fff;
+    background: rgba(255, 71, 87, 0.35);
+}
+
 .monitoring-alert {
     display: none;
     border: 1px solid rgba(245, 205, 96, 0.35);

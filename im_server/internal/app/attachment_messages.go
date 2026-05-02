@@ -1140,6 +1140,49 @@ func (a *App) handleInternalFileAssetConfig(w http.ResponseWriter, r *http.Reque
 	}
 }
 
+func (a *App) handleInternalFileAssetExpire(w http.ResponseWriter, r *http.Request) {
+	if !isLoopbackRequest(r) {
+		writeJSON(w, http.StatusForbidden, map[string]any{"error": true, "message": "forbidden"})
+		return
+	}
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"error": true})
+		return
+	}
+	var req struct {
+		StorageName string `json:"storage_name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": true, "message": "invalid payload"})
+		return
+	}
+	storageName := strings.TrimSpace(req.StorageName)
+	if !ensureFileStorageName(storageName) {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": true, "message": "invalid storage_name"})
+		return
+	}
+	record, err := a.loadFileAssetRecord(r.Context(), storageName)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			writeJSON(w, http.StatusNotFound, map[string]any{"error": true, "message": "file asset not found"})
+			return
+		}
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
+		return
+	}
+	if err := a.expireFileAsset(r.Context(), storageName); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"success": true,
+		"storage_name": storageName,
+		"original_name": record.FileName,
+		"file_size": record.FileSize,
+		"status": "expired",
+	})
+}
+
 func (a *App) handleImageUploadConfig(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"error": true})

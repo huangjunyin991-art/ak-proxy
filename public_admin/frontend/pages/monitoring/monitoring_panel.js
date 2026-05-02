@@ -15,7 +15,8 @@
             health: null,
             database: null,
             chat: null,
-            groups: null
+            groups: null,
+            fileAssets: null
         }
     };
 
@@ -88,11 +89,28 @@
         });
     }
 
+    function apiPost(path, payload) {
+        return fetch('/admin/api/monitoring' + path, {
+            method: 'POST',
+            headers: {
+                'Authorization': 'Bearer ' + token(),
+                'Content-Type': 'application/json'
+            },
+            credentials: 'same-origin',
+            body: JSON.stringify(payload || {})
+        }).then(function(resp) {
+            return resp.json().then(function(body) {
+                if (!resp.ok || body.error) throw new Error(body.message || body.detail || '监控接口请求失败');
+                return body;
+            });
+        });
+    }
+
     function ensureCss() {
         if (document.querySelector('link[data-monitoring-panel-css="1"]')) return;
         var link = document.createElement('link');
         link.rel = 'stylesheet';
-        link.href = '/admin/api/monitoring-panel.css?v=20260502-04';
+        link.href = '/admin/api/monitoring-panel.css?v=20260502-05';
         link.setAttribute('data-monitoring-panel-css', '1');
         document.head.appendChild(link);
     }
@@ -124,8 +142,17 @@
             '<div class="monitoring-section"><div class="monitoring-section-header"><h4>服务器负载</h4><span class="monitoring-meta" id="monitoringSystemMeta">-</span></div><div class="monitoring-donuts" id="monitoringSystemDonuts"></div><div class="monitoring-bars" id="monitoringSystemBars"></div></div>' +
             '<div class="monitoring-section"><div class="monitoring-section-header"><h4>聊天统计</h4><span class="monitoring-meta" id="monitoringChatMeta">-</span></div><div class="monitoring-grid" id="monitoringChatCards"></div><div class="monitoring-bars" id="monitoringTypeBars" style="margin-top:14px;"></div></div>' +
             '<div class="monitoring-section"><div class="monitoring-section-header"><h4>数据库表占用</h4><span class="monitoring-meta" id="monitoringDbMeta">-</span></div><div class="monitoring-bars" id="monitoringDbBars"></div></div>' +
+            '<div class="monitoring-section"><div class="monitoring-section-header"><h4>文件资源 Top</h4><span class="monitoring-meta" id="monitoringFileAssetMeta">按 active 文件大小倒序；删除后聊天消息保留，附件显示失效</span></div><div class="monitoring-table-wrap"><table class="monitoring-table"><thead><tr><th>文件名</th><th>类型</th><th>大小</th><th>状态</th><th>引用消息</th><th>过期时间</th><th>创建时间</th><th>storage_name</th><th>操作</th></tr></thead><tbody id="monitoringFileAssetRows"></tbody></table></div></div>' +
             '<div class="monitoring-section"><div class="monitoring-section-header"><h4>群组存储与活跃排行</h4><span class="monitoring-meta" id="monitoringGroupMeta">文件占用为消息载荷估算口径</span></div><div class="monitoring-table-wrap"><table class="monitoring-table"><thead><tr><th>群组</th><th>群主</th><th>成员</th><th>管理员</th><th>总消息</th><th>今日</th><th>范围内</th><th>纯文本</th><th>消息载荷</th><th>文件估算</th><th>总占用</th><th>最近活跃</th></tr></thead><tbody id="monitoringGroupRows"></tbody></table></div></div>' +
             '</div>';
+        el.addEventListener('click', function(event) {
+            var target = event.target;
+            if (!target || !target.getAttribute || target.getAttribute('data-monitoring-action') !== 'expire-file-asset') return;
+            var storageName = target.getAttribute('data-storage-name') || '';
+            var originalName = target.getAttribute('data-original-name') || storageName;
+            var referencedMessages = Number(target.getAttribute('data-referenced-messages') || 0);
+            expireFileAsset(storageName, originalName, referencedMessages);
+        });
         document.getElementById('monitoringRange').addEventListener('change', function() {
             state.range = this.value || '7d';
             loadHeavy(false);
@@ -194,6 +221,7 @@
         var database = state.data.database || {};
         var chat = state.data.chat || {};
         var groups = state.data.groups || {};
+        var fileAssets = state.data.fileAssets || {};
         var memory = system.memory || {};
         var disk = system.disk || {};
         var process = system.process || {};
@@ -244,6 +272,20 @@
         if (dbBars) dbBars.innerHTML = renderRankBars(database.table_sizes, 'table_name', 'total_bytes', formatBytes);
         var dbMeta = document.getElementById('monitoringDbMeta');
         if (dbMeta) dbMeta.textContent = database.cache && database.cache.hit ? '缓存 ' + database.cache.age_seconds + ' 秒' : '更新于 ' + formatTime(database.generated_at);
+        var fileAssetRows = document.getElementById('monitoringFileAssetRows');
+        if (fileAssetRows) {
+            var assets = Array.isArray(fileAssets.items) ? fileAssets.items : [];
+            fileAssetRows.innerHTML = assets.length ? assets.map(function(item) {
+                var storageName = String(item.storage_name || '');
+                var originalName = String(item.original_name || storageName || '-');
+                var status = String(item.status || '-');
+                var disabled = status.toLowerCase() !== 'active';
+                var button = disabled ? '<span class="monitoring-meta">已失效</span>' : '<button class="monitoring-btn danger" data-monitoring-action="expire-file-asset" data-storage-name="' + escapeHtml(storageName) + '" data-original-name="' + escapeHtml(originalName) + '" data-referenced-messages="' + Number(item.referenced_messages || 0) + '">删除文件</button>';
+                return '<tr><td>' + escapeHtml(originalName) + '</td><td>' + escapeHtml(item.mime_type || '-') + '</td><td>' + formatBytes(item.file_size) + '</td><td>' + escapeHtml(status) + '</td><td>' + formatNumber(item.referenced_messages) + '</td><td>' + escapeHtml(formatTime(item.expires_at)) + '</td><td>' + escapeHtml(formatTime(item.created_at)) + '</td><td>' + escapeHtml(storageName) + '</td><td>' + button + '</td></tr>';
+            }).join('') : '<tr><td colspan="9"><div class="monitoring-empty">暂无 active 文件资源</div></td></tr>';
+        }
+        var fileAssetMeta = document.getElementById('monitoringFileAssetMeta');
+        if (fileAssetMeta) fileAssetMeta.textContent = (fileAssets.cache && fileAssets.cache.hit ? '缓存 ' + fileAssets.cache.age_seconds + ' 秒；' : '') + '删除后聊天消息保留，附件显示失效';
         var groupRows = document.getElementById('monitoringGroupRows');
         if (groupRows) {
             var items = Array.isArray(groups.items) ? groups.items : [];
@@ -280,7 +322,8 @@
         return Promise.allSettled([
             api('/database', force ? { force: '1' } : {}).then(function(body) { state.data.database = body.item; }),
             api('/chat/summary', force ? forceParams : params).then(function(body) { state.data.chat = body.item; }),
-            api('/chat/groups', force ? { range: state.range, limit: '100', force: '1' } : { range: state.range, limit: '100' }).then(function(body) { state.data.groups = body.item; })
+            api('/chat/groups', force ? { range: state.range, limit: '100', force: '1' } : { range: state.range, limit: '100' }).then(function(body) { state.data.groups = body.item; }),
+            api('/chat/file-assets', force ? { status: 'active', limit: '50', force: '1' } : { status: 'active', limit: '50' }).then(function(body) { state.data.fileAssets = body.item; })
         ]).then(function(results) {
             results.forEach(function(result) {
                 if (result.status === 'rejected') notify(result.reason && result.reason.message || '监控统计刷新失败', 'error');
@@ -288,6 +331,21 @@
             render();
         }).finally(function() {
             state.loadingHeavy = false;
+        });
+    }
+
+    function expireFileAsset(storageName, originalName, referencedMessages) {
+        if (!storageName) return;
+        var message = '确认删除文件“' + originalName + '”并释放存储空间？';
+        if (referencedMessages > 0) {
+            message += '\n该文件仍被 ' + referencedMessages + ' 条聊天消息引用，删除后这些附件会显示为已失效。';
+        }
+        if (!window.confirm(message)) return;
+        apiPost('/chat/file-assets/' + encodeURIComponent(storageName) + '/expire', {}).then(function(body) {
+            notify(body.message || '文件已删除并标记失效', 'success');
+            return loadHeavy(true);
+        }).catch(function(err) {
+            notify(err && err.message || '文件删除失败', 'error');
         });
     }
 
