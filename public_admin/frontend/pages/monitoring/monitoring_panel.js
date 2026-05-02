@@ -92,7 +92,7 @@
         if (document.querySelector('link[data-monitoring-panel-css="1"]')) return;
         var link = document.createElement('link');
         link.rel = 'stylesheet';
-        link.href = '/admin/api/monitoring-panel.css?v=20260502-02';
+        link.href = '/admin/api/monitoring-panel.css?v=20260502-03';
         link.setAttribute('data-monitoring-panel-css', '1');
         document.head.appendChild(link);
     }
@@ -121,7 +121,7 @@
             '</div>' +
             '<div class="monitoring-alert" id="monitoringAlert"></div>' +
             '<div class="monitoring-grid" id="monitoringCards"></div>' +
-            '<div class="monitoring-section"><div class="monitoring-section-header"><h4>服务器负载</h4><span class="monitoring-meta" id="monitoringSystemMeta">-</span></div><div class="monitoring-bars" id="monitoringSystemBars"></div></div>' +
+            '<div class="monitoring-section"><div class="monitoring-section-header"><h4>服务器负载</h4><span class="monitoring-meta" id="monitoringSystemMeta">-</span></div><div class="monitoring-donuts" id="monitoringSystemDonuts"></div><div class="monitoring-bars" id="monitoringSystemBars"></div></div>' +
             '<div class="monitoring-section"><div class="monitoring-section-header"><h4>聊天统计</h4><span class="monitoring-meta" id="monitoringChatMeta">-</span></div><div class="monitoring-grid" id="monitoringChatCards"></div><div class="monitoring-bars" id="monitoringTypeBars" style="margin-top:14px;"></div></div>' +
             '<div class="monitoring-section"><div class="monitoring-section-header"><h4>数据库表占用</h4><span class="monitoring-meta" id="monitoringDbMeta">-</span></div><div class="monitoring-bars" id="monitoringDbBars"></div></div>' +
             '<div class="monitoring-section"><div class="monitoring-section-header"><h4>群组存储与活跃排行</h4><span class="monitoring-meta" id="monitoringGroupMeta">文件占用为消息载荷估算口径</span></div><div class="monitoring-table-wrap"><table class="monitoring-table"><thead><tr><th>群组</th><th>群主</th><th>成员</th><th>管理员</th><th>总消息</th><th>今日</th><th>范围内</th><th>文本占用</th><th>文件估算</th><th>总占用</th><th>最近活跃</th></tr></thead><tbody id="monitoringGroupRows"></tbody></table></div></div>' +
@@ -141,6 +141,17 @@
     function renderProgress(label, percent, valueText) {
         var p = Math.max(0, Math.min(100, Number(percent || 0)));
         return '<div class="monitoring-bar-row"><div>' + escapeHtml(label) + '</div><div class="monitoring-bar-track"><div class="monitoring-bar-fill" style="width:' + p.toFixed(1) + '%"></div></div><div>' + escapeHtml(valueText || formatPercent(p)) + '</div></div>';
+    }
+
+    function renderDonut(label, percent, subText, color) {
+        var value = Number(percent);
+        var available = isFinite(value);
+        var p = available ? Math.max(0, Math.min(100, value)) : 0;
+        var display = available ? p.toFixed(1) + '%' : '-';
+        return '<div class="monitoring-donut-card">' +
+            '<div class="monitoring-donut" style="--donut-percent:' + p.toFixed(1) + '%;--donut-color:' + escapeHtml(color || '#00d4ff') + '"><span class="monitoring-donut-value">' + escapeHtml(display) + '</span></div>' +
+            '<div class="monitoring-donut-info"><div class="monitoring-donut-title">' + escapeHtml(label) + '</div><div class="monitoring-donut-sub">' + escapeHtml(subText || '') + '</div></div>' +
+            '</div>';
     }
 
     function renderRankBars(items, labelKey, valueKey, formatter) {
@@ -199,14 +210,17 @@
                 renderCard('后台运行时长', formatDuration(system.process_uptime_seconds), system.platform || '-') +
                 renderCard('数据库大小', formatBytes(database.database_size_bytes), '连接数 ' + formatNumber(database.active_connections));
         }
+        var systemDonuts = document.getElementById('monitoringSystemDonuts');
+        if (systemDonuts) {
+            systemDonuts.innerHTML = renderDonut('CPU 使用率', system.cpu_percent, (system.cpu_count || '-') + ' 核', '#00d4ff') +
+                renderDonut('内存使用率', memory.available ? memory.percent : NaN, memory.available ? formatBytes(memory.used_bytes) + ' / ' + formatBytes(memory.total_bytes) : '不可用', '#00ff88') +
+                renderDonut('磁盘使用率', disk.available ? disk.percent : NaN, disk.available ? formatBytes(disk.used_bytes) + ' / ' + formatBytes(disk.total_bytes) : '不可用', '#f5cd60');
+        }
         var systemBars = document.getElementById('monitoringSystemBars');
         if (systemBars) {
             var load = system.load_average || {};
             var loadPercent = load.available && system.cpu_count ? Math.min(100, Number(load.load1 || 0) / Number(system.cpu_count || 1) * 100) : 0;
-            systemBars.innerHTML = renderProgress('CPU 使用率', system.cpu_percent || 0, formatPercent(system.cpu_percent)) +
-                renderProgress('内存使用率', memory.percent || 0, memory.available ? formatPercent(memory.percent) : '-') +
-                renderProgress('磁盘使用率', disk.percent || 0, disk.available ? formatPercent(disk.percent) : '-') +
-                renderProgress('1分钟负载', loadPercent, load.available ? String(Number(load.load1 || 0).toFixed(2)) : '-') +
+            systemBars.innerHTML = renderProgress('1分钟负载', loadPercent, load.available ? String(Number(load.load1 || 0).toFixed(2)) : '-') +
                 renderProgress('5分钟负载', load.available && system.cpu_count ? Math.min(100, Number(load.load5 || 0) / Number(system.cpu_count || 1) * 100) : 0, load.available ? String(Number(load.load5 || 0).toFixed(2)) : '-') +
                 renderProgress('15分钟负载', load.available && system.cpu_count ? Math.min(100, Number(load.load15 || 0) / Number(system.cpu_count || 1) * 100) : 0, load.available ? String(Number(load.load15 || 0).toFixed(2)) : '-');
         }

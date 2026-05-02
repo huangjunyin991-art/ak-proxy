@@ -146,6 +146,66 @@
     gap: 10px;
 }
 
+.monitoring-donuts {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 14px;
+    margin-bottom: 16px;
+}
+
+.monitoring-donut-card {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 14px;
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    background: rgba(255, 255, 255, 0.03);
+}
+
+.monitoring-donut {
+    width: 86px;
+    height: 86px;
+    border-radius: 50%;
+    display: grid;
+    place-items: center;
+    flex: 0 0 auto;
+    background: conic-gradient(var(--donut-color, #00d4ff) var(--donut-percent, 0%), rgba(255, 255, 255, 0.08) 0);
+    position: relative;
+}
+
+.monitoring-donut::after {
+    content: '';
+    position: absolute;
+    inset: 11px;
+    border-radius: 50%;
+    background: var(--bg-card);
+}
+
+.monitoring-donut-value {
+    position: relative;
+    z-index: 1;
+    color: var(--text-primary);
+    font-size: 16px;
+    font-weight: 700;
+}
+
+.monitoring-donut-info {
+    min-width: 0;
+}
+
+.monitoring-donut-title {
+    color: var(--accent);
+    font-weight: 700;
+    margin-bottom: 6px;
+}
+
+.monitoring-donut-sub {
+    color: var(--text-secondary);
+    font-size: 12px;
+    line-height: 1.5;
+}
+
 .monitoring-bar-row {
     display: grid;
     grid-template-columns: 130px 1fr 70px;
