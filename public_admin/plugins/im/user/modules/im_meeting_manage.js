@@ -138,9 +138,10 @@
                 state.meetingsItems = Array.isArray(data.items) ? data.items : [];
                 state.meetingsLoaded = true;
                 state.meetingsLoading = false;
-                state.meetingsCanPublish = !!data.can_publish;
-                state.meetingsCanPublishOwned = !!data.can_publish_owned;
-                state.meetingsCanPublishAll = !!data.can_publish_all;
+                const canPublish = !!data.can_publish || !!data.can_publish_owned || !!data.can_publish_all;
+                state.meetingsCanPublish = canPublish;
+                state.meetingsCanPublishOwned = canPublish;
+                state.meetingsCanPublishAll = canPublish;
                 if (state.homeTab === 'meetings' && typeof self.markTabSeen === 'function' && self.getTabUnreadCount() > 0) {
                     return self.markTabSeen().then(function() {
                         self.triggerRender();
@@ -681,10 +682,8 @@
             const parsingLabel = form.parsing ? ' · 正在解析...' : (form.parsed ? ' · 解析成功（可修改）' : (form.parse_error ? (' · ' + form.parse_error) : ''));
             const passwordPrompt = state.meetingsPasswordPromptOpen ? this.renderPasswordPrompt() : '';
             const publishButtons = [];
-            if (state.meetingsCanPublishOwned) {
+            if (state.meetingsCanPublish) {
                 publishButtons.push(`<button type="button" class="ak-im-meeting-publish-submit" data-im-meeting-submit="owned"${submitDisabled}>${state.meetingsPublishSubmitting ? '发布中...' : '发布给伞下玩家'}</button>`);
-            }
-            if (state.meetingsCanPublishAll) {
                 publishButtons.push(`<button type="button" class="ak-im-meeting-publish-submit" data-im-meeting-submit="all"${submitDisabled}>${state.meetingsPublishSubmitting ? '发布中...' : '发布给全体玩家'}</button>`);
             }
             elements.body.innerHTML = `

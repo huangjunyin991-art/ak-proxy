@@ -1862,12 +1862,14 @@ async def get_expiring_accounts(days: int = 7, added_by: str = None) -> List[Dic
 
 
 def _serialize_meeting_permission(row: Dict[str, Any]) -> Dict:
+    can_publish = bool(row.get('can_publish_owned')) or bool(row.get('can_publish_all'))
     return {
         'username': str(row.get('username') or '').strip().lower(),
         'nickname': str(row.get('nickname') or '').strip(),
         'added_by': str(row.get('added_by') or '').strip(),
         'status': str(row.get('status') or '').strip(),
         'expire_time': _serialize_time_value(row.get('expire_time')),
+        'can_publish': can_publish,
         'can_publish_owned': bool(row.get('can_publish_owned')),
         'can_publish_all': bool(row.get('can_publish_all')),
         'granted_by': str(row.get('granted_by') or '').strip(),

@@ -311,7 +311,8 @@ func (a *App) loadMeetingPublishPermission(ctx context.Context, username string)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return false, false, "", nil
 	}
-	return canPublishOwned, canPublishAll, strings.TrimSpace(scopeOwner), err
+	canPublish := canPublishOwned || canPublishAll
+	return canPublish, canPublish, strings.TrimSpace(scopeOwner), err
 }
 
 // listWhitelistGroupMemberUsernames 指定主群 conversation_key 的活跃成员
@@ -1029,9 +1030,9 @@ func (a *App) handleMeetingList(w http.ResponseWriter, r *http.Request, username
 		"success":      true,
 		"items":        publicMeetingItems(items),
 		"unread_count": unread,
-		"can_publish":  canPublish,
+		"can_publish":       canPublish,
 		"can_publish_owned": canPublishOwned,
-		"can_publish_all": canPublishAll,
+		"can_publish_all":   canPublishAll,
 	})
 }
 
@@ -1216,17 +1217,15 @@ func (a *App) createMeetingFromPublishRequest(ctx context.Context, req meetingPu
 		if err != nil {
 			return empty, false, err
 		}
+		canPublish := canPublishOwned || canPublishAll
+		if !canPublish {
+			return empty, false, fmt.Errorf("%w: 没有会议发布权限", errMeetingPublishForbidden)
+		}
 		if audienceScope == "owned" {
-			if !canPublishOwned {
-				return empty, false, fmt.Errorf("%w: 没有发布给伞下玩家的权限", errMeetingPublishForbidden)
-			}
 			audienceOwner = scopeOwner
 			if audienceOwner == "" {
 				return empty, false, errors.New("伞下玩家范围缺失")
 			}
-		}
-		if audienceScope == "all" && !canPublishAll {
-			return empty, false, fmt.Errorf("%w: 没有发布给全体玩家的权限", errMeetingPublishForbidden)
 		}
 		if audienceScope == "all" {
 			audienceOwner = ""

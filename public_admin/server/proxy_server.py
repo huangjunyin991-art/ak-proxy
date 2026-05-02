@@ -5154,11 +5154,15 @@ def _meeting_admin_apply_context(data: dict, role: str, sub_name: str) -> dict:
         username = str(row.get('username') or '').strip().lower()
         is_default_binding = bool(bound_username and username == bound_username)
         if is_default_binding:
+            row['can_publish'] = True
             row['can_publish_owned'] = True
             row['can_publish_all'] = True
             row['scope_owner'] = str(sub_name or '').strip()
-        elif row.get('can_publish_all'):
-            row['can_publish_owned'] = False
+        else:
+            can_publish = bool(row.get('can_publish')) or bool(row.get('can_publish_owned')) or bool(row.get('can_publish_all'))
+            row['can_publish'] = can_publish
+            row['can_publish_owned'] = can_publish
+            row['can_publish_all'] = can_publish
         row['is_default_admin_binding'] = is_default_binding
         rows.append(row)
     result['rows'] = rows
@@ -5224,12 +5228,11 @@ async def admin_meeting_save_permission(request: Request):
             raise ValueError("管理员绑定账号默认拥有会议发布权限，无需授权")
         account = await db.get_authorized_account(username)
         scope_owner = _meeting_admin_ensure_account_scope(ctx["role"], ctx["sub_name"], account)
-        can_publish_all = bool(data.get('can_publish_all'))
-        can_publish_owned = bool(data.get('can_publish_owned')) and not can_publish_all
+        can_publish = bool(data.get('can_publish')) or bool(data.get('can_publish_owned')) or bool(data.get('can_publish_all'))
         item = await db.set_meeting_publish_permission(
             username,
-            can_publish_owned,
-            can_publish_all,
+            can_publish,
+            can_publish,
             _meeting_admin_operator(ctx["role"], ctx["sub_name"]),
             scope_owner,
         )
