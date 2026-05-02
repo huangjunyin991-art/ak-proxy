@@ -789,13 +789,19 @@ func (a *App) isSubAdminBoundAccount(ctx context.Context, username string) (bool
 	if normalizedUsername == "" || a == nil || a.db == nil {
 		return false, nil
 	}
+	var bindingTableName *string
+	if err := a.db.QueryRow(ctx, `SELECT to_regclass('public.sub_admin_account_bindings')`).Scan(&bindingTableName); err != nil {
+		return false, err
+	}
+	if bindingTableName == nil || strings.TrimSpace(*bindingTableName) == "" {
+		return false, nil
+	}
 	var exists bool
 	err := a.db.QueryRow(ctx, `
 		SELECT EXISTS (
 			SELECT 1
-			FROM sub_admin_account_bindings b
-			JOIN sub_admins s ON s.name = b.sub_name
-			WHERE LOWER(b.account_username) = $1
+			FROM sub_admin_account_bindings
+			WHERE LOWER(TRIM(account_username)) = $1
 		)`, normalizedUsername).Scan(&exists)
 	return exists, err
 }
