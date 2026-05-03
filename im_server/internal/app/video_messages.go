@@ -219,6 +219,37 @@ func transcodeVideoTo720p(inputPath string, outputPath string) error {
 	return nil
 }
 
+func remuxVideoFastStart(inputPath string, outputPath string) error {
+	if _, err := exec.LookPath("ffmpeg"); err != nil {
+		return errors.New("服务器暂不支持视频压缩")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "ffmpeg", "-y", "-i", inputPath, "-map", "0:v:0", "-map", "0:a?", "-c", "copy", "-movflags", "+faststart", outputPath)
+	if _, err := cmd.CombinedOutput(); err != nil {
+		if ctx.Err() == context.DeadlineExceeded {
+			return errors.New("视频封装超时")
+		}
+		return errors.New("视频封装失败")
+	}
+	return nil
+}
+
+func isVideoFastRemuxCompatible(inputPath string) bool {
+	if _, err := exec.LookPath("ffprobe"); err != nil {
+		return false
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=codec_name,pix_fmt", "-of", "default=noprint_wrappers=1", inputPath)
+	output, err := cmd.CombinedOutput()
+	if err != nil || ctx.Err() != nil {
+		return false
+	}
+	text := strings.ToLower(strings.TrimSpace(string(output)))
+	return strings.Contains(text, "codec_name=h264") && strings.Contains(text, "pix_fmt=yuv420p")
+}
+
 func generateVideoPoster(inputPath string, posterPath string) error {
 	if _, err := exec.LookPath("ffmpeg"); err != nil {
 		return err

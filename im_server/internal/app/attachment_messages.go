@@ -931,9 +931,19 @@ func (a *App) prepareFileVideoAsset(r *http.Request, assetName string) (string, 
 	}
 	tempAssetPath := assetPath + ".tmp.mp4"
 	_ = os.Remove(tempAssetPath)
-	if err := transcodeVideoTo720p(filePath, tempAssetPath); err != nil {
-		_ = os.Remove(tempAssetPath)
-		return "", storedFileAssetRecord{}, err
+	if isVideoFastRemuxCompatible(filePath) {
+		if err := remuxVideoFastStart(filePath, tempAssetPath); err != nil {
+			_ = os.Remove(tempAssetPath)
+			if err := transcodeVideoTo720p(filePath, tempAssetPath); err != nil {
+				_ = os.Remove(tempAssetPath)
+				return "", storedFileAssetRecord{}, err
+			}
+		}
+	} else {
+		if err := transcodeVideoTo720p(filePath, tempAssetPath); err != nil {
+			_ = os.Remove(tempAssetPath)
+			return "", storedFileAssetRecord{}, err
+		}
 	}
 	if err := os.Rename(tempAssetPath, assetPath); err != nil {
 		_ = os.Remove(tempAssetPath)
@@ -1267,27 +1277,49 @@ func (a *App) handleFileVideoPosterAssetFile(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	storageName := strings.TrimSuffix(posterName, ".video.poster.jpg")
-	assetPath, _, err := a.prepareFileVideoAsset(r, buildFileVideoAssetName(storageName))
+	record, err := a.loadFileAssetRecord(r.Context(), storageName)
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) || errors.Is(err, os.ErrNotExist) {
+		if errors.Is(err, pgx.ErrNoRows) {
 			w.WriteHeader(http.StatusNotFound)
-			return
-		}
-		if errors.Is(err, errInvalidFilePayload) {
-			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
+	if status := strings.ToLower(strings.TrimSpace(record.Status)); status != "" && status != "active" {
+		w.WriteHeader(http.StatusNotFound)
+		return
+	}
+	if !record.ExpiresAt.IsZero() && time.Now().After(record.ExpiresAt) {
+		_ = a.expireFileAsset(r.Context(), storageName)
+		w.WriteHeader(http.StatusNotFound)
+		return
+	}
+	mimeType := normalizeFileMimeType(record.MimeType)
+	if resolveInlineVideoMimeType(mimeType, record.FileName) == "" {
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+	filePath := filepath.Join(strings.TrimSpace(a.cfg.FileStoreDir), storageName)
 	posterPath := filepath.Join(strings.TrimSpace(a.cfg.FileStoreDir), posterName)
+	unlock := a.lockFileVideoAsset(posterName)
+	defer unlock()
 	posterFile, err := os.Open(posterPath)
 	if err != nil {
 		if !errors.Is(err, os.ErrNotExist) {
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
-		if err := generateVideoPoster(assetPath, posterPath); err != nil {
+		if _, statErr := os.Stat(filePath); statErr != nil {
+			if errors.Is(statErr, os.ErrNotExist) {
+				_ = a.markFileAssetMissing(r.Context(), storageName)
+				w.WriteHeader(http.StatusNotFound)
+				return
+			}
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		if err := generateVideoPoster(filePath, posterPath); err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}

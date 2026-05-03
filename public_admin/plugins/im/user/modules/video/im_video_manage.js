@@ -250,11 +250,13 @@
             if (!videoEl) return;
             if (videoEl.paused || videoEl.ended) {
                 const bubbleEl = videoEl.closest ? videoEl.closest('.ak-im-video-bubble') : null;
+                const module = this;
                 try {
                     if (bubbleEl) {
                         bubbleEl.classList.add('is-loading');
                         bubbleEl.classList.remove('is-error');
                     }
+                    module.startVideoLoadingTimeout(videoEl);
                     videoEl.controls = false;
                     videoEl.preload = 'auto';
                     if (videoEl.ended) {
@@ -270,6 +272,7 @@
                                 bubbleEl.classList.remove('is-loading');
                                 bubbleEl.classList.add('is-error');
                             }
+                            module.clearVideoLoadingTimeout(videoEl);
                             console.warn('[AK IM Video] play failed', {
                                 message: error && error.message ? error.message : String(error || ''),
                                 name: error && error.name ? error.name : '',
@@ -285,6 +288,7 @@
                         bubbleEl.classList.remove('is-loading');
                         bubbleEl.classList.add('is-error');
                     }
+                    module.clearVideoLoadingTimeout(videoEl);
                     console.warn('[AK IM Video] play exception', {
                         message: error && error.message ? error.message : String(error || ''),
                         name: error && error.name ? error.name : '',
@@ -297,6 +301,26 @@
                 return;
             }
             videoEl.pause();
+        },
+
+        startVideoLoadingTimeout(videoEl) {
+            if (!videoEl) return;
+            this.clearVideoLoadingTimeout(videoEl);
+            videoEl.__akImVideoLoadingTimer = setTimeout(function() {
+                const bubbleEl = videoEl.closest ? videoEl.closest('.ak-im-video-bubble') : null;
+                if (!bubbleEl || !bubbleEl.classList.contains('is-loading')) return;
+                bubbleEl.classList.remove('is-loading');
+                bubbleEl.classList.add('is-error');
+                try {
+                    videoEl.pause();
+                } catch (e) {}
+            }, 15000);
+        },
+
+        clearVideoLoadingTimeout(videoEl) {
+            if (!videoEl || !videoEl.__akImVideoLoadingTimer) return;
+            clearTimeout(videoEl.__akImVideoLoadingTimer);
+            videoEl.__akImVideoLoadingTimer = 0;
         },
 
         resetVideoForReplay(videoEl) {
@@ -356,29 +380,32 @@
                     return;
                 }
                 if (event.type === 'play') {
-                    bubbleEl.classList.remove('is-loading');
                     bubbleEl.classList.remove('is-error');
                     bubbleEl.classList.add('is-playing');
                     return;
                 }
                 if (event.type === 'waiting' || event.type === 'loadstart') {
+                    self.startVideoLoadingTimeout(videoEl);
                     bubbleEl.classList.add('is-loading');
                     bubbleEl.classList.remove('is-error');
                     return;
                 }
                 if (event.type === 'playing' || event.type === 'canplay' || event.type === 'loadeddata') {
+                    self.clearVideoLoadingTimeout(videoEl);
                     bubbleEl.classList.remove('is-loading');
                     bubbleEl.classList.remove('is-error');
                     if (event.type === 'playing') bubbleEl.classList.add('is-playing');
                     return;
                 }
                 if (event.type === 'error') {
+                    self.clearVideoLoadingTimeout(videoEl);
                     bubbleEl.classList.remove('is-loading');
                     bubbleEl.classList.add('is-error');
                     return;
                 }
                 bubbleEl.classList.remove('is-playing');
                 bubbleEl.classList.remove('is-loading');
+                self.clearVideoLoadingTimeout(videoEl);
                 if (event.type === 'ended') self.resetVideoForReplay(videoEl);
             };
             document.addEventListener('play', updateState, true);
