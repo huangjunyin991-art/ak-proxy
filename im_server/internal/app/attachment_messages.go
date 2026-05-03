@@ -810,6 +810,45 @@ func buildDownloadContentDisposition(fileName string) string {
 	return `attachment; filename="` + asciiFileName + `"; filename*=UTF-8''` + neturl.PathEscape(normalizedFileName)
 }
 
+func buildInlineContentDisposition(fileName string) string {
+	normalizedFileName := sanitizeAttachmentFileName(fileName, "attachment.bin")
+	asciiFileName := strings.Map(func(r rune) rune {
+		if r < 32 || r == 127 || r == '"' || r == '\\' {
+			return '_'
+		}
+		if r > 126 {
+			return '_'
+		}
+		return r
+	}, normalizedFileName)
+	asciiFileName = strings.TrimSpace(asciiFileName)
+	if asciiFileName == "" {
+		asciiFileName = "attachment.bin"
+	}
+	return `inline; filename="` + asciiFileName + `"; filename*=UTF-8''` + neturl.PathEscape(normalizedFileName)
+}
+
+func isInlineVideoFileRequest(r *http.Request, mimeType string, fileName string) bool {
+	if strings.TrimSpace(r.URL.Query().Get("inline")) != "1" {
+		return false
+	}
+	if normalizeVideoMimeType(mimeType) != "" {
+		return true
+	}
+	return detectVideoAssetExt(fileName, mimeType) != ""
+}
+
+func resolveInlineVideoMimeType(mimeType string, fileName string) string {
+	if normalized := normalizeVideoMimeType(mimeType); normalized != "" {
+		return normalized
+	}
+	ext := detectVideoAssetExt(fileName, mimeType)
+	if ext == "" {
+		return ""
+	}
+	return supportedVideoInputExts[ext]
+}
+
 func (a *App) handleSendImageMessage(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"error": true})
@@ -1108,8 +1147,18 @@ func (a *App) handleFileAssetFile(w http.ResponseWriter, r *http.Request) {
 	if mimeType == "" {
 		mimeType = "application/octet-stream"
 	}
+	inlineVideo := isInlineVideoFileRequest(r, mimeType, record.FileName)
+	if inlineVideo {
+		if videoMimeType := resolveInlineVideoMimeType(mimeType, record.FileName); videoMimeType != "" {
+			mimeType = videoMimeType
+		}
+	}
 	w.Header().Set("Content-Type", mimeType)
-	w.Header().Set("Content-Disposition", buildDownloadContentDisposition(record.FileName))
+	if inlineVideo {
+		w.Header().Set("Content-Disposition", buildInlineContentDisposition(record.FileName))
+	} else {
+		w.Header().Set("Content-Disposition", buildDownloadContentDisposition(record.FileName))
+	}
 	w.Header().Set("Cache-Control", "private, max-age=0, must-revalidate")
 	http.ServeContent(w, r, record.FileName, info.ModTime(), file)
 }

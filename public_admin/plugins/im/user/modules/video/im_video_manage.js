@@ -78,6 +78,18 @@
             });
         },
 
+        withInlineVideoAssetUrl(url) {
+            const rawUrl = String(url || '').trim();
+            if (!rawUrl || rawUrl.indexOf('/im/assets/file/') < 0) return rawUrl;
+            try {
+                const finalUrl = new URL(rawUrl, window.location.origin);
+                finalUrl.searchParams.set('inline', '1');
+                return finalUrl.toString();
+            } catch (e) {
+                return rawUrl + (rawUrl.indexOf('?') >= 0 ? '&' : '?') + 'inline=1';
+            }
+        },
+
         createLocalVideoUrl(file) {
             try {
                 return URL.createObjectURL(file);
@@ -134,7 +146,7 @@
                 if (messageType === 'file' && (!isFileVideo || parsed && parsed.expired === true || !fileUrl)) return null;
                 return {
                     fileName: fileName,
-                    videoUrl: String(item && item.__akLocalVideoUrl || '').trim() || videoUrl,
+                    videoUrl: String(item && item.__akLocalVideoUrl || '').trim() || (messageType === 'file' ? this.withInlineVideoAssetUrl(videoUrl) : videoUrl),
                     posterUrl: String(parsed && parsed.poster_url || '').trim(),
                     mimeType: mimeType,
                     fileSize: Math.max(0, Number(parsed && parsed.file_size || 0) || 0),
