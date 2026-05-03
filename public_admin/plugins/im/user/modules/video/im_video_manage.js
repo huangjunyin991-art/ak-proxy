@@ -245,9 +245,21 @@
             return this.resolveVideoPayload(item) ? 'ak-im-bubble-video' : '';
         },
 
+        logVideoDebug(message, details) {
+            if (!window || !window.console || typeof window.console.info !== 'function') return;
+            window.console.info('[AK IM Video] ' + message, details || {});
+        },
+
         openVideoViewerFromSurface(surface) {
             if (!surface) return;
             const url = String(surface.getAttribute('data-ak-im-video-url') || '').trim();
+            this.logVideoDebug('open request from surface', {
+                hasSurface: !!surface,
+                hasUrl: !!url,
+                url: url,
+                poster: String(surface.getAttribute('data-ak-im-video-poster') || '').trim(),
+                title: String(surface.getAttribute('data-ak-im-video-title') || '').trim()
+            });
             if (!url) return;
             this.openVideoViewer(url, String(surface.getAttribute('data-ak-im-video-poster') || '').trim(), String(surface.getAttribute('data-ak-im-video-title') || '').trim());
         },
@@ -268,16 +280,31 @@
             this.videoViewerPlayer = viewerEl.querySelector('.ak-im-video-viewer-player');
             const self = this;
             const clearLoading = function() {
+                self.logVideoDebug('viewer playable event', {
+                    readyState: self.videoViewerPlayer && self.videoViewerPlayer.readyState,
+                    networkState: self.videoViewerPlayer && self.videoViewerPlayer.networkState,
+                    currentSrc: self.videoViewerPlayer && (self.videoViewerPlayer.currentSrc || self.videoViewerPlayer.src || '')
+                });
                 viewerEl.classList.remove('is-loading');
                 viewerEl.classList.remove('is-error');
                 viewerEl.classList.remove('needs-user-play');
             };
             this.videoViewerPlayer.addEventListener('loadstart', function() {
+                self.logVideoDebug('viewer loadstart', {
+                    readyState: self.videoViewerPlayer.readyState,
+                    networkState: self.videoViewerPlayer.networkState,
+                    currentSrc: self.videoViewerPlayer.currentSrc || self.videoViewerPlayer.src || ''
+                });
                 viewerEl.classList.add('is-loading');
                 viewerEl.classList.remove('is-error');
                 viewerEl.classList.remove('needs-user-play');
             });
             this.videoViewerPlayer.addEventListener('waiting', function() {
+                self.logVideoDebug('viewer waiting', {
+                    readyState: self.videoViewerPlayer.readyState,
+                    networkState: self.videoViewerPlayer.networkState,
+                    currentSrc: self.videoViewerPlayer.currentSrc || self.videoViewerPlayer.src || ''
+                });
                 viewerEl.classList.add('is-loading');
                 viewerEl.classList.remove('is-error');
                 viewerEl.classList.remove('needs-user-play');
@@ -286,6 +313,13 @@
             this.videoViewerPlayer.addEventListener('canplay', clearLoading);
             this.videoViewerPlayer.addEventListener('loadeddata', clearLoading);
             this.videoViewerPlayer.addEventListener('error', function() {
+                self.logVideoDebug('viewer error event', {
+                    code: self.videoViewerPlayer.error && self.videoViewerPlayer.error.code,
+                    message: self.videoViewerPlayer.error && self.videoViewerPlayer.error.message,
+                    readyState: self.videoViewerPlayer.readyState,
+                    networkState: self.videoViewerPlayer.networkState,
+                    currentSrc: self.videoViewerPlayer.currentSrc || self.videoViewerPlayer.src || ''
+                });
                 viewerEl.classList.remove('is-loading');
                 viewerEl.classList.add('is-error');
             });
@@ -317,8 +351,15 @@
             const viewerEl = this.videoViewerEl;
             const player = this.videoViewerPlayer;
             if (!viewerEl || !player || !url) return;
+            const self = this;
             const token = String(Date.now()) + '-' + Math.random().toString(36).slice(2, 8);
             player.dataset.akImVideoViewerToken = token;
+            this.logVideoDebug('open viewer', {
+                token: token,
+                url: url,
+                poster: posterUrl,
+                title: title
+            });
             viewerEl.classList.add('is-open');
             viewerEl.classList.add('is-loading');
             viewerEl.classList.remove('is-error');
@@ -344,8 +385,27 @@
             } catch (e) {}
             const playResult = player.play();
             if (playResult && typeof playResult.catch === 'function') {
+                playResult.then(function() {
+                    if (player.dataset.akImVideoViewerToken !== token) return;
+                    viewerEl.classList.remove('needs-user-play');
+                    self.logVideoDebug('viewer play resolved', {
+                        token: token,
+                        readyState: player.readyState,
+                        networkState: player.networkState,
+                        currentSrc: player.currentSrc || player.src || ''
+                    });
+                });
                 playResult.catch(function(error) {
                     if (player.dataset.akImVideoViewerToken !== token) return;
+                    self.logVideoDebug('viewer play rejected', {
+                        token: token,
+                        name: error && error.name,
+                        message: error && error.message,
+                        code: player.error && player.error.code,
+                        readyState: player.readyState,
+                        networkState: player.networkState,
+                        currentSrc: player.currentSrc || player.src || ''
+                    });
                     viewerEl.classList.remove('is-loading');
                     const errorName = String(error && error.name || '').trim();
                     if (errorName === 'NotAllowedError') {
@@ -382,7 +442,14 @@
             if (!surfaceEl) return false;
             const now = Date.now();
             const lastAt = Number(surfaceEl.dataset.akImVideoLastActivateAt || 0);
-            if (now - lastAt < debounceMs) return false;
+            if (now - lastAt < debounceMs) {
+                this.logVideoDebug('surface activate blocked by debounce', {
+                    elapsed: now - lastAt,
+                    debounceMs: debounceMs,
+                    url: String(surfaceEl.getAttribute('data-ak-im-video-url') || '').trim()
+                });
+                return false;
+            }
             surfaceEl.dataset.akImVideoLastActivateAt = String(now);
             return true;
         },
@@ -396,6 +463,10 @@
                 if (!button) return;
                 const surface = button.closest ? button.closest('.ak-im-video-surface') : null;
                 if (!surface) return;
+                self.logVideoDebug('button activate', {
+                    type: event && event.type,
+                    url: String(surface.getAttribute('data-ak-im-video-url') || '').trim()
+                });
                 event.preventDefault();
                 event.stopPropagation();
                 if (!self.shouldAcceptSurfaceActivate(surface, 450)) return;
@@ -405,6 +476,10 @@
                 if (event && event.target && event.target.closest && event.target.closest('.ak-im-video-play-badge')) return;
                 const surface = event && event.target && event.target.closest ? event.target.closest('.ak-im-video-surface') : null;
                 if (!surface) return;
+                self.logVideoDebug('surface activate', {
+                    type: event && event.type,
+                    url: String(surface.getAttribute('data-ak-im-video-url') || '').trim()
+                });
                 event.preventDefault();
                 event.stopPropagation();
                 if (!self.shouldAcceptSurfaceActivate(surface, 450)) return;
@@ -414,6 +489,10 @@
                 if (!event || (event.key !== 'Enter' && event.key !== ' ')) return;
                 const surface = event.target && event.target.closest ? event.target.closest('.ak-im-video-surface') : null;
                 if (!surface) return;
+                self.logVideoDebug('surface key activate', {
+                    key: event && event.key,
+                    url: String(surface.getAttribute('data-ak-im-video-url') || '').trim()
+                });
                 event.preventDefault();
                 event.stopPropagation();
                 if (!self.shouldAcceptSurfaceActivate(surface, 450)) return;
