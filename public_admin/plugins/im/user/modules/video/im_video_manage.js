@@ -250,64 +250,69 @@
 
         playOrPauseVideo(videoEl) {
             if (!videoEl) return;
-            if (videoEl.paused || videoEl.ended) {
-                const bubbleEl = videoEl.closest ? videoEl.closest('.ak-im-video-bubble') : null;
-                const module = this;
-                try {
-                    module.setActiveVideo(videoEl);
-                    module.pauseOtherVideos(videoEl);
-                    module.markVideoPlayRequested(videoEl);
-                    if (bubbleEl) {
-                        bubbleEl.classList.add('is-loading');
-                        bubbleEl.classList.remove('is-error');
-                    }
-                    module.startVideoLoadingTimeout(videoEl);
-                    videoEl.controls = false;
-                    videoEl.preload = 'auto';
-                    if (videoEl.ended) {
-                        try {
-                            videoEl.currentTime = 0;
-                        } catch (e) {}
-                    }
-                    if (videoEl.error || videoEl.readyState === 0) videoEl.load();
-                    const playResult = videoEl.play();
-                    if (playResult && typeof playResult.catch === 'function') {
-                        playResult.catch(function(error) {
-                            if (bubbleEl) {
-                                bubbleEl.classList.remove('is-loading');
-                                bubbleEl.classList.add('is-error');
-                            }
+            const bubbleEl = videoEl.closest ? videoEl.closest('.ak-im-video-bubble') : null;
+            if (this.isActiveVideo(videoEl) && !videoEl.paused && !videoEl.ended && !videoEl.error && videoEl.readyState >= 2 && bubbleEl && bubbleEl.classList.contains('is-playing')) {
+                return;
+            }
+            const module = this;
+            try {
+                module.setActiveVideo(videoEl);
+                module.pauseOtherVideos(videoEl);
+                module.markVideoPlayRequested(videoEl);
+                if (bubbleEl) {
+                    bubbleEl.classList.add('is-loading');
+                    bubbleEl.classList.remove('is-error');
+                }
+                module.startVideoLoadingTimeout(videoEl);
+                videoEl.controls = false;
+                videoEl.preload = 'auto';
+                if (videoEl.ended) {
+                    try {
+                        videoEl.currentTime = 0;
+                    } catch (e) {}
+                }
+                if (videoEl.error || videoEl.readyState === 0 || videoEl.networkState === 3) videoEl.load();
+                const playResult = videoEl.play();
+                if (playResult && typeof playResult.catch === 'function') {
+                    playResult.catch(function(error) {
+                        if (!module.isActiveVideo(videoEl) || !module.isVideoPlayRequested(videoEl)) {
                             module.clearVideoLoadingTimeout(videoEl);
                             module.clearVideoPlayRequested(videoEl);
-                            module.clearActiveVideo(videoEl);
-                            console.warn('[AK IM Video] play failed', {
-                                message: error && error.message ? error.message : String(error || ''),
-                                name: error && error.name ? error.name : '',
-                                code: videoEl.error && videoEl.error.code,
-                                networkState: videoEl.networkState,
-                                readyState: videoEl.readyState,
-                                currentSrc: videoEl.currentSrc || videoEl.src || ''
-                            });
+                            return;
+                        }
+                        if (bubbleEl) {
+                            bubbleEl.classList.remove('is-loading');
+                            bubbleEl.classList.add('is-error');
+                        }
+                        module.clearVideoLoadingTimeout(videoEl);
+                        module.clearVideoPlayRequested(videoEl);
+                        module.clearActiveVideo(videoEl);
+                        console.warn('[AK IM Video] play failed', {
+                            message: error && error.message ? error.message : String(error || ''),
+                            name: error && error.name ? error.name : '',
+                            code: videoEl.error && videoEl.error.code,
+                            networkState: videoEl.networkState,
+                            readyState: videoEl.readyState,
+                            currentSrc: videoEl.currentSrc || videoEl.src || ''
                         });
-                    }
-                } catch (error) {
-                    if (bubbleEl) {
-                        bubbleEl.classList.remove('is-loading');
-                        bubbleEl.classList.add('is-error');
-                    }
-                    module.clearVideoLoadingTimeout(videoEl);
-                    module.clearVideoPlayRequested(videoEl);
-                    module.clearActiveVideo(videoEl);
-                    console.warn('[AK IM Video] play exception', {
-                        message: error && error.message ? error.message : String(error || ''),
-                        name: error && error.name ? error.name : '',
-                        code: videoEl.error && videoEl.error.code,
-                        networkState: videoEl.networkState,
-                        readyState: videoEl.readyState,
-                        currentSrc: videoEl.currentSrc || videoEl.src || ''
                     });
                 }
-                return;
+            } catch (error) {
+                if (bubbleEl) {
+                    bubbleEl.classList.remove('is-loading');
+                    bubbleEl.classList.add('is-error');
+                }
+                module.clearVideoLoadingTimeout(videoEl);
+                module.clearVideoPlayRequested(videoEl);
+                module.clearActiveVideo(videoEl);
+                console.warn('[AK IM Video] play exception', {
+                    message: error && error.message ? error.message : String(error || ''),
+                    name: error && error.name ? error.name : '',
+                    code: videoEl.error && videoEl.error.code,
+                    networkState: videoEl.networkState,
+                    readyState: videoEl.readyState,
+                    currentSrc: videoEl.currentSrc || videoEl.src || ''
+                });
             }
         },
 
