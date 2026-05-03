@@ -245,56 +245,9 @@
             return this.resolveVideoPayload(item) ? 'ak-im-bubble-video' : '';
         },
 
-        logVideoDebug(message, details) {
-            if (!window || !window.console || typeof window.console.info !== 'function') return;
-            try {
-                window.console.info('[AK IM Video] ' + message + ' ' + JSON.stringify(details || {}));
-            } catch (e) {
-                window.console.info('[AK IM Video] ' + message, details || {});
-            }
-        },
-
-        getVideoDebugSnapshot(player) {
-            const viewerEl = this.videoViewerEl;
-            const playerEl = player || this.videoViewerPlayer;
-            const viewerRect = viewerEl && viewerEl.getBoundingClientRect ? viewerEl.getBoundingClientRect() : null;
-            const playerRect = playerEl && playerEl.getBoundingClientRect ? playerEl.getBoundingClientRect() : null;
-            const viewerStyle = viewerEl && window.getComputedStyle ? window.getComputedStyle(viewerEl) : null;
-            const playerStyle = playerEl && window.getComputedStyle ? window.getComputedStyle(playerEl) : null;
-            return {
-                currentTime: playerEl ? playerEl.currentTime : 0,
-                duration: playerEl ? playerEl.duration : 0,
-                paused: playerEl ? playerEl.paused : true,
-                ended: playerEl ? playerEl.ended : false,
-                muted: playerEl ? playerEl.muted : false,
-                readyState: playerEl ? playerEl.readyState : 0,
-                networkState: playerEl ? playerEl.networkState : 0,
-                videoWidth: playerEl ? playerEl.videoWidth : 0,
-                videoHeight: playerEl ? playerEl.videoHeight : 0,
-                currentSrc: playerEl ? (playerEl.currentSrc || playerEl.src || '') : '',
-                viewerDisplay: viewerStyle ? viewerStyle.display : '',
-                viewerVisibility: viewerStyle ? viewerStyle.visibility : '',
-                viewerOpacity: viewerStyle ? viewerStyle.opacity : '',
-                viewerWidth: viewerRect ? viewerRect.width : 0,
-                viewerHeight: viewerRect ? viewerRect.height : 0,
-                playerDisplay: playerStyle ? playerStyle.display : '',
-                playerVisibility: playerStyle ? playerStyle.visibility : '',
-                playerOpacity: playerStyle ? playerStyle.opacity : '',
-                playerWidth: playerRect ? playerRect.width : 0,
-                playerHeight: playerRect ? playerRect.height : 0
-            };
-        },
-
         openVideoViewerFromSurface(surface) {
             if (!surface) return;
             const url = String(surface.getAttribute('data-ak-im-video-url') || '').trim();
-            this.logVideoDebug('open request from surface', {
-                hasSurface: !!surface,
-                hasUrl: !!url,
-                url: url,
-                poster: String(surface.getAttribute('data-ak-im-video-poster') || '').trim(),
-                title: String(surface.getAttribute('data-ak-im-video-title') || '').trim()
-            });
             if (!url) return;
             this.openVideoViewer(url, String(surface.getAttribute('data-ak-im-video-poster') || '').trim(), String(surface.getAttribute('data-ak-im-video-title') || '').trim());
         },
@@ -315,65 +268,33 @@
             this.videoViewerPlayer = viewerEl.querySelector('.ak-im-video-viewer-player');
             const self = this;
             const clearLoading = function() {
-                self.logVideoDebug('viewer playable event', {
-                    readyState: self.videoViewerPlayer && self.videoViewerPlayer.readyState,
-                    networkState: self.videoViewerPlayer && self.videoViewerPlayer.networkState,
-                    currentSrc: self.videoViewerPlayer && (self.videoViewerPlayer.currentSrc || self.videoViewerPlayer.src || '')
-                });
                 viewerEl.classList.add('is-playing');
                 viewerEl.classList.remove('is-loading');
                 viewerEl.classList.remove('is-error');
                 viewerEl.classList.remove('needs-user-play');
             };
             this.videoViewerPlayer.addEventListener('loadstart', function() {
-                self.logVideoDebug('viewer loadstart', {
-                    readyState: self.videoViewerPlayer.readyState,
-                    networkState: self.videoViewerPlayer.networkState,
-                    currentSrc: self.videoViewerPlayer.currentSrc || self.videoViewerPlayer.src || ''
-                });
                 viewerEl.classList.remove('is-playing');
                 viewerEl.classList.add('is-loading');
                 viewerEl.classList.remove('is-error');
                 viewerEl.classList.remove('needs-user-play');
             });
             this.videoViewerPlayer.addEventListener('waiting', function() {
-                self.logVideoDebug('viewer waiting', {
-                    readyState: self.videoViewerPlayer.readyState,
-                    networkState: self.videoViewerPlayer.networkState,
-                    currentSrc: self.videoViewerPlayer.currentSrc || self.videoViewerPlayer.src || ''
-                });
                 viewerEl.classList.remove('is-playing');
                 viewerEl.classList.add('is-loading');
                 viewerEl.classList.remove('is-error');
                 viewerEl.classList.remove('needs-user-play');
             });
             this.videoViewerPlayer.addEventListener('playing', clearLoading);
-            this.videoViewerPlayer.addEventListener('playing', function() {
-                self.logVideoDebug('viewer playing', self.getVideoDebugSnapshot(self.videoViewerPlayer));
-            });
             this.videoViewerPlayer.addEventListener('canplay', clearLoading);
             this.videoViewerPlayer.addEventListener('loadeddata', clearLoading);
-            this.videoViewerPlayer.addEventListener('timeupdate', function() {
-                const now = Date.now();
-                const lastAt = Number(self.videoViewerPlayer.dataset.akImVideoLastTimeupdateLogAt || 0);
-                if (now - lastAt < 1000) return;
-                self.videoViewerPlayer.dataset.akImVideoLastTimeupdateLogAt = String(now);
-                self.logVideoDebug('viewer timeupdate', self.getVideoDebugSnapshot(self.videoViewerPlayer));
-            });
             this.videoViewerPlayer.addEventListener('pause', function() {
-                self.logVideoDebug('viewer pause', self.getVideoDebugSnapshot(self.videoViewerPlayer));
                 if (!self.videoViewerPlayer || !self.videoViewerPlayer.ended) viewerEl.classList.remove('is-playing');
             });
             this.videoViewerPlayer.addEventListener('ended', function() {
-                self.logVideoDebug('viewer ended', self.getVideoDebugSnapshot(self.videoViewerPlayer));
                 viewerEl.classList.remove('is-playing');
             });
             this.videoViewerPlayer.addEventListener('error', function() {
-                self.logVideoDebug('viewer error event', {
-                    code: self.videoViewerPlayer.error && self.videoViewerPlayer.error.code,
-                    message: self.videoViewerPlayer.error && self.videoViewerPlayer.error.message,
-                    snapshot: self.getVideoDebugSnapshot(self.videoViewerPlayer)
-                });
                 viewerEl.classList.remove('is-playing');
                 viewerEl.classList.remove('is-loading');
                 viewerEl.classList.add('is-error');
@@ -406,15 +327,8 @@
             const viewerEl = this.videoViewerEl;
             const player = this.videoViewerPlayer;
             if (!viewerEl || !player || !url) return;
-            const self = this;
             const token = String(Date.now()) + '-' + Math.random().toString(36).slice(2, 8);
             player.dataset.akImVideoViewerToken = token;
-            this.logVideoDebug('open viewer', {
-                token: token,
-                url: url,
-                poster: posterUrl,
-                title: title
-            });
             viewerEl.classList.add('is-open');
             viewerEl.classList.add('is-loading');
             viewerEl.classList.remove('is-playing');
@@ -439,10 +353,6 @@
             try {
                 player.load();
             } catch (e) {}
-            setTimeout(function() {
-                if (player.dataset.akImVideoViewerToken !== token) return;
-                self.logVideoDebug('viewer post-open snapshot', self.getVideoDebugSnapshot(player));
-            }, 300);
             const playResult = player.play();
             if (playResult && typeof playResult.catch === 'function') {
                 playResult.then(function() {
@@ -451,17 +361,9 @@
                     viewerEl.classList.remove('is-loading');
                     viewerEl.classList.remove('is-error');
                     viewerEl.classList.remove('needs-user-play');
-                    self.logVideoDebug('viewer play resolved', self.getVideoDebugSnapshot(player));
                 });
                 playResult.catch(function(error) {
                     if (player.dataset.akImVideoViewerToken !== token) return;
-                    self.logVideoDebug('viewer play rejected', {
-                        token: token,
-                        name: error && error.name,
-                        message: error && error.message,
-                        code: player.error && player.error.code,
-                        snapshot: self.getVideoDebugSnapshot(player)
-                    });
                     viewerEl.classList.remove('is-loading');
                     const errorName = String(error && error.name || '').trim();
                     if (errorName === 'NotAllowedError') {
@@ -499,14 +401,7 @@
             if (!surfaceEl) return false;
             const now = Date.now();
             const lastAt = Number(surfaceEl.dataset.akImVideoLastActivateAt || 0);
-            if (now - lastAt < debounceMs) {
-                this.logVideoDebug('surface activate blocked by debounce', {
-                    elapsed: now - lastAt,
-                    debounceMs: debounceMs,
-                    url: String(surfaceEl.getAttribute('data-ak-im-video-url') || '').trim()
-                });
-                return false;
-            }
+            if (now - lastAt < debounceMs) return false;
             surfaceEl.dataset.akImVideoLastActivateAt = String(now);
             return true;
         },
@@ -520,10 +415,6 @@
                 if (!button) return;
                 const surface = button.closest ? button.closest('.ak-im-video-surface') : null;
                 if (!surface) return;
-                self.logVideoDebug('button activate', {
-                    type: event && event.type,
-                    url: String(surface.getAttribute('data-ak-im-video-url') || '').trim()
-                });
                 event.preventDefault();
                 event.stopPropagation();
                 if (!self.shouldAcceptSurfaceActivate(surface, 450)) return;
@@ -533,10 +424,6 @@
                 if (event && event.target && event.target.closest && event.target.closest('.ak-im-video-play-badge')) return;
                 const surface = event && event.target && event.target.closest ? event.target.closest('.ak-im-video-surface') : null;
                 if (!surface) return;
-                self.logVideoDebug('surface activate', {
-                    type: event && event.type,
-                    url: String(surface.getAttribute('data-ak-im-video-url') || '').trim()
-                });
                 event.preventDefault();
                 event.stopPropagation();
                 if (!self.shouldAcceptSurfaceActivate(surface, 450)) return;
@@ -546,10 +433,6 @@
                 if (!event || (event.key !== 'Enter' && event.key !== ' ')) return;
                 const surface = event.target && event.target.closest ? event.target.closest('.ak-im-video-surface') : null;
                 if (!surface) return;
-                self.logVideoDebug('surface key activate', {
-                    key: event && event.key,
-                    url: String(surface.getAttribute('data-ak-im-video-url') || '').trim()
-                });
                 event.preventDefault();
                 event.stopPropagation();
                 if (!self.shouldAcceptSurfaceActivate(surface, 450)) return;
