@@ -8429,6 +8429,7 @@ def _iter_widget_asset_paths() -> list[str]:
         os.path.join(PLUGINS_DIR, "im", "user", "modules", "honor_badge", "im_honor_badge.js"),
         os.path.join(PLUGINS_DIR, "im", "user", "modules", "im_image_manage.js"),
         os.path.join(PLUGINS_DIR, "im", "user", "modules", "im_file_manage.js"),
+        os.path.join(PLUGINS_DIR, "im", "user", "modules", "upload_progress", "im_upload_progress.js"),
         os.path.join(PLUGINS_DIR, "im", "user", "modules", "im_location_manage.js"),
         os.path.join(PLUGINS_DIR, "im", "user", "modules", "im_plus_entry_manage.js"),
         os.path.join(PLUGINS_DIR, "im", "user", "modules", "im_emoji_manage.js"),
@@ -8771,6 +8772,15 @@ async def im_user_plugin_image_manage_module_js(request: Request):
 async def im_user_plugin_file_manage_module_js(request: Request):
 
     js_path = os.path.join(PLUGINS_DIR, "im", "user", "modules", "im_file_manage.js")
+
+    return _build_widget_script_response(request, js_path)
+
+
+@app.get("/chat/plugins/im/user/modules/upload_progress/im_upload_progress.js")
+
+async def im_user_plugin_upload_progress_module_js(request: Request):
+
+    js_path = os.path.join(PLUGINS_DIR, "im", "user", "modules", "upload_progress", "im_upload_progress.js")
 
     return _build_widget_script_response(request, js_path)
 

@@ -31,12 +31,65 @@
         },
 
         formatFileSize(bytes) {
+            if (this.ctx && typeof this.ctx.formatFileSize === 'function') {
+                return this.ctx.formatFileSize(bytes);
+            }
             const size = Math.max(0, Number(bytes || 0) || 0);
             if (!size) return '0 B';
             if (size < 1024) return size + ' B';
             if (size < 1024 * 1024) return (size / 1024).toFixed(size >= 10 * 1024 ? 0 : 1) + ' KB';
             if (size < 1024 * 1024 * 1024) return (size / (1024 * 1024)).toFixed(size >= 100 * 1024 * 1024 ? 0 : 1) + ' MB';
             return (size / (1024 * 1024 * 1024)).toFixed(1) + ' GB';
+        },
+
+        getUploadProgress() {
+            return this.ctx && typeof this.ctx.getUploadProgress === 'function' ? this.ctx.getUploadProgress() : null;
+        },
+
+        createTempId() {
+            const uploadProgress = this.getUploadProgress();
+            if (uploadProgress && typeof uploadProgress.createTempId === 'function') {
+                return uploadProgress.createTempId('file');
+            }
+            return 'file-' + Date.now() + '-' + Math.random().toString(36).slice(2, 10);
+        },
+
+        buildFilePayloadString(file, fileName) {
+            return JSON.stringify({
+                file_url: '',
+                file_name: String(fileName || file && file.name || '文件').trim() || '文件',
+                mime_type: String(file && file.type || '').trim(),
+                file_size: Math.max(0, Number(file && file.size || 0) || 0),
+                expires_at: ''
+            });
+        },
+
+        createTempMessage(file, tempId) {
+            const uploadProgress = this.getUploadProgress();
+            if (uploadProgress && typeof uploadProgress.createFileTempMessage === 'function') {
+                return uploadProgress.createFileTempMessage(file, tempId);
+            }
+            const state = this.getState();
+            const fileName = String(file && file.name || '').trim() || ('attachment-' + Date.now());
+            return {
+                id: 0,
+                conversation_id: Number(state && state.activeConversationId || 0),
+                sender_username: String(state && state.username || '').trim().toLowerCase(),
+                sender_display_name: String(state && (state.displayName || state.username) || '我').trim() || '我',
+                sender_honor_name: String(state && state.honorName || '').trim(),
+                sender_avatar_url: String(state && state.profile && state.profile.avatar_url || '').trim(),
+                seq_no: 0,
+                message_type: 'file',
+                content: this.buildFilePayloadString(file, fileName),
+                content_preview: '[文件] ' + fileName,
+                status: 'sending',
+                sent_at: new Date().toISOString(),
+                client_temp_id: tempId,
+                __akTempId: tempId,
+                __akLocalStatus: 'uploading',
+                __akUploadProgress: 0,
+                __akUploadError: ''
+            };
         },
 
         resolveFilePayload(item) {
@@ -70,9 +123,22 @@
             '</span>';
         },
 
+        buildFileOverlayMarkup(item) {
+            const uploadProgress = this.getUploadProgress();
+            if (uploadProgress && typeof uploadProgress.buildFileOverlayMarkup === 'function') {
+                return uploadProgress.buildFileOverlayMarkup(item);
+            }
+            return '';
+        },
+
         buildMessageBubbleMarkup(item) {
             const payload = this.resolveFilePayload(item);
             if (!payload) return '';
+            const overlayMarkup = this.buildFileOverlayMarkup(item);
+            const isLocal = !!String(item && (item.__akTempId || item.client_temp_id) || '').trim() && Number(item && item.id || 0) <= 0;
+            if (isLocal) {
+                return '<div class="ak-im-file-bubble-local" role="note" aria-label="文件发送中">' + this.buildFileBubbleInnerMarkup(payload, false) + overlayMarkup + '</div>';
+            }
             if (payload.expired || !payload.fileUrl) {
                 return '<div class="ak-im-file-bubble-expired" role="note" aria-label="文件已失效">' + this.buildFileBubbleInnerMarkup(payload, true) + '</div>';
             }
@@ -102,19 +168,47 @@
                 return Promise.resolve(null);
             }
             const fileName = String(file && file.name || '').trim() || ('attachment-' + Date.now());
+            const tempId = this.createTempId();
+            const self = this;
+            let hasLocalMessage = false;
+            if (typeof this.ctx.insertLocalMessage === 'function') {
+                hasLocalMessage = this.ctx.insertLocalMessage(this.createTempMessage(file, tempId));
+            }
             const formData = new FormData();
             formData.append('conversation_id', String(targetConversationId));
+            formData.append('client_temp_id', tempId);
             formData.append('file', file, fileName);
-            const self = this;
             return this.ctx.requestFormData(this.ctx.httpRoot + '/messages/file', formData, {
-                method: 'POST'
+                method: 'POST',
+                onUploadProgress: function(progress) {
+                    if (hasLocalMessage && typeof self.ctx.updateLocalMessage === 'function') {
+                        self.ctx.updateLocalMessage(tempId, {
+                            __akLocalStatus: 'uploading',
+                            __akUploadProgress: Math.max(0, Math.min(100, Number(progress && progress.percent || 0) || 0)),
+                            __akUploadError: ''
+                        });
+                    }
+                }
             }).then(function(data) {
                 const item = data && data.item ? data.item : null;
+                if (hasLocalMessage && item && typeof self.ctx.replaceLocalMessage === 'function' && self.ctx.replaceLocalMessage(tempId, item)) {
+                    return Promise.resolve(typeof self.ctx.loadSessions === 'function' ? self.ctx.loadSessions() : null).then(function() {
+                        return item;
+                    });
+                }
                 return Promise.resolve(typeof self.ctx.applySentMessageItem === 'function' ? self.ctx.applySentMessageItem(item) : null).then(function() {
                     return item;
                 });
             }).catch(function(error) {
-                window.alert(error && error.message ? error.message : '文件发送失败');
+                if (hasLocalMessage && typeof self.ctx.updateLocalMessage === 'function') {
+                    self.ctx.updateLocalMessage(tempId, {
+                        __akLocalStatus: 'failed',
+                        __akUploadProgress: 0,
+                        __akUploadError: error && error.message ? error.message : '文件发送失败'
+                    });
+                } else {
+                    window.alert(error && error.message ? error.message : '文件发送失败');
+                }
                 return Promise.resolve(typeof self.ctx.loadSessions === 'function' ? self.ctx.loadSessions() : null).then(function() {
                     return null;
                 });

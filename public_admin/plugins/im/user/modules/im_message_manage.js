@@ -217,12 +217,37 @@
             }
         },
 
+        buildFileMatchKey(item) {
+            if (!item || typeof item !== 'object') return '';
+            if (String(item.message_type || '').trim().toLowerCase() !== 'file') return '';
+            const rawContent = String(item.content || '').trim();
+            if (!rawContent) return '';
+            try {
+                const parsed = JSON.parse(rawContent);
+                const senderUsername = String(item.sender_username || '').trim().toLowerCase();
+                const fileName = String(parsed && parsed.file_name || '').trim().toLowerCase();
+                const fileSize = Math.max(0, Number(parsed && parsed.file_size || 0) || 0);
+                const mimeType = String(parsed && parsed.mime_type || '').trim().toLowerCase();
+                const parts = [senderUsername, fileName, String(fileSize), mimeType];
+                return parts.join('|');
+            } catch (e) {
+                return '';
+            }
+        },
+
+        buildPendingLocalMatchKey(item) {
+            const messageType = String(item && item.message_type || '').trim().toLowerCase();
+            if (messageType === 'image') return this.buildImageMatchKey(item);
+            if (messageType === 'file') return this.buildFileMatchKey(item);
+            return '';
+        },
+
         findPendingLocalMessageIndex(item) {
             const state = this.getState();
             if (!state || !item || typeof item !== 'object') return -1;
             const targetConversationId = Number(item.conversation_id || 0);
             if (!targetConversationId) return -1;
-            const matchKey = this.buildImageMatchKey(item);
+            const matchKey = this.buildPendingLocalMatchKey(item);
             if (!matchKey) return -1;
             const targetSentAt = new Date(item.sent_at).getTime();
             const self = this;
@@ -232,7 +257,7 @@
                 const localStatus = self.getLocalMessageStatus(current);
                 if (localStatus !== 'preparing' && localStatus !== 'uploading') return;
                 if (Number(current.conversation_id || 0) !== targetConversationId) return;
-                if (self.buildImageMatchKey(current) !== matchKey) return;
+                if (self.buildPendingLocalMatchKey(current) !== matchKey) return;
                 const currentSentAt = new Date(current.sent_at).getTime();
                 if (!isNaN(targetSentAt) && !isNaN(currentSentAt) && Math.abs(targetSentAt - currentSentAt) > (2 * 60 * 1000)) return;
                 matchedIndex = index;

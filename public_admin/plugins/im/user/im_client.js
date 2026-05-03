@@ -65,6 +65,12 @@
             src: `${API_ROOT}/chat/plugins/im/user/modules/im_file_manage.js`,
             errorMessage: '文件模块加载失败'
         },
+        uploadProgress: {
+            selector: 'script[data-ak-im-user-plugin-upload-progress="1"]',
+            datasetKey: 'akImUserPluginUploadProgress',
+            src: `${API_ROOT}/chat/plugins/im/user/modules/upload_progress/im_upload_progress.js`,
+            errorMessage: '上传进度模块加载失败'
+        },
         location: {
             selector: 'script[data-ak-im-user-plugin-location-manage="1"]',
             datasetKey: 'akImUserPluginLocationManage',
@@ -1566,6 +1572,14 @@
         return fileManageModule;
     }
 
+    function getUploadProgressModule() {
+        const modules = window.AKIMUserModules;
+        if (!modules || typeof modules !== 'object') return null;
+        const uploadProgressModule = modules.uploadProgress;
+        if (!uploadProgressModule || typeof uploadProgressModule.init !== 'function') return null;
+        return uploadProgressModule;
+    }
+
     function getPlusEntryModule() {
         const modules = window.AKIMUserModules;
         if (!modules || typeof modules !== 'object') return null;
@@ -1785,7 +1799,24 @@
             httpRoot: HTTP_ROOT,
             requestFormData: requestFormData,
             escapeHtml: escapeHtml,
-            applySentMessageItem: applySentMessageItem
+            formatFileSize: formatFileSize,
+            getUploadProgress: getUploadProgressModule,
+            applySentMessageItem: applySentMessageItem,
+            insertLocalMessage: insertLocalMessage,
+            updateLocalMessage: updateLocalMessage,
+            replaceLocalMessage: replaceLocalMessage,
+            removeLocalMessage: removeLocalMessage,
+            loadSessions: loadSessions
+        });
+    }
+
+    function initUploadProgressModule() {
+        const uploadProgressModule = getUploadProgressModule();
+        if (!uploadProgressModule) return;
+        uploadProgressModule.init({
+            state: state,
+            escapeHtml: escapeHtml,
+            formatFileSize: formatFileSize
         });
     }
 
@@ -1890,6 +1921,7 @@
         if (moduleKey === 'emoji') return getEmojiModule();
         if (moduleKey === 'image') return getImageModule();
         if (moduleKey === 'file') return getFileModule();
+        if (moduleKey === 'uploadProgress') return getUploadProgressModule();
         if (moduleKey === 'location') return getLocationModule();
         if (moduleKey === 'voiceHold') return getVoiceHoldModule();
 	    if (moduleKey === 'social') return getSocialModule();
@@ -1912,6 +1944,7 @@
         else if (moduleKey === 'emoji') initEmojiManageModule();
         else if (moduleKey === 'image') initImageManageModule();
         else if (moduleKey === 'file') initFileManageModule();
+        else if (moduleKey === 'uploadProgress') initUploadProgressModule();
         else if (moduleKey === 'location') initLocationModule();
         else if (moduleKey === 'voiceHold') initVoiceHoldModule();
 	    else if (moduleKey === 'social') initSocialModule();
@@ -1990,6 +2023,7 @@
             ensureOptionalLazyModule('voiceHold'),
             ensureOptionalLazyModule('emoji'),
             ensureOptionalLazyModule('image'),
+            ensureOptionalLazyModule('uploadProgress'),
             ensureOptionalLazyModule('file'),
             ensureOptionalLazyModule('location'),
             ensureOptionalLazyModule('navigation'),
@@ -2232,7 +2266,9 @@
     }
 
     function sendAttachmentFile(file) {
-        return ensureLazyModule('file').then(function(fileModule) {
+        return ensureOptionalLazyModule('uploadProgress').then(function() {
+            return ensureLazyModule('file');
+        }).then(function(fileModule) {
             if (fileModule && typeof fileModule.sendAttachmentFile === 'function') {
                 return fileModule.sendAttachmentFile(file);
             }
