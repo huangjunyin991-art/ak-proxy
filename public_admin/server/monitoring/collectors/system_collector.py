@@ -114,22 +114,26 @@ def _fallback_disk_snapshot() -> dict:
         return {"available": False}
 
 
-def _fallback_process_snapshot() -> dict:
+def _fallback_process_snapshot(pid=None) -> dict:
     try:
+        target_pid = int(pid or os.getpid())
         page_size = os.sysconf("SC_PAGE_SIZE")
-        with open("/proc/self/statm", "r", encoding="utf-8") as f:
+        with open(f"/proc/{target_pid}/statm", "r", encoding="utf-8") as f:
             parts = f.readline().strip().split()
         rss = int(parts[1]) * page_size if len(parts) > 1 else 0
         vms = int(parts[0]) * page_size if parts else 0
         thread_count = 0
-        with open("/proc/self/status", "r", encoding="utf-8") as f:
+        name = ""
+        with open(f"/proc/{target_pid}/status", "r", encoding="utf-8") as f:
             for line in f:
-                if line.startswith("Threads:"):
+                if line.startswith("Name:"):
+                    name = line.split(":", 1)[1].strip()
+                elif line.startswith("Threads:"):
                     thread_count = int(line.split()[1])
-                    break
         return {
             "available": True,
-            "pid": os.getpid(),
+            "pid": target_pid,
+            "name": name,
             "rss_bytes": rss,
             "vms_bytes": vms,
             "threads": thread_count,
@@ -154,21 +158,74 @@ def _process_snapshot(proc) -> dict:
         return {"available": False}
 
 
-def _find_im_server_process() -> dict:
-    if psutil is None:
-        return {"available": False}
+def _listening_socket_inodes(port: int) -> set[str]:
+    inodes = set()
+    expected_port = format(int(port), "04X")
+    for path in ("/proc/net/tcp", "/proc/net/tcp6"):
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                lines = f.readlines()[1:]
+        except Exception:
+            continue
+        for line in lines:
+            parts = line.split()
+            if len(parts) < 10:
+                continue
+            local_address = parts[1]
+            state = parts[3]
+            inode = parts[9]
+            if state == "0A" and local_address.rsplit(":", 1)[-1].upper() == expected_port and inode != "0":
+                inodes.add(inode)
+    return inodes
+
+
+def _find_pid_by_socket_inodes(inodes: set[str]):
+    if not inodes:
+        return None
     try:
-        for proc in psutil.process_iter(["pid", "name", "cmdline"]):
+        entries = os.listdir("/proc")
+    except Exception:
+        return None
+    for entry in entries:
+        if not entry.isdigit():
+            continue
+        fd_dir = f"/proc/{entry}/fd"
+        try:
+            fds = os.listdir(fd_dir)
+        except Exception:
+            continue
+        for fd in fds:
             try:
-                name = str(proc.info.get("name") or "")
-                cmdline = " ".join(str(item or "") for item in (proc.info.get("cmdline") or []))
-                probe = (name + " " + cmdline).lower()
-                if "im-server" in probe or "cmd/im_server" in probe:
-                    return _process_snapshot(proc)
+                target = os.readlink(f"{fd_dir}/{fd}")
             except Exception:
                 continue
-    except Exception:
-        return {"available": False}
+            if target.startswith("socket:[") and target[8:-1] in inodes:
+                return int(entry)
+    return None
+
+
+def _find_im_server_process() -> dict:
+    if psutil is not None:
+        try:
+            for proc in psutil.process_iter(["pid", "name", "cmdline"]):
+                try:
+                    name = str(proc.info.get("name") or "")
+                    cmdline = " ".join(str(item or "") for item in (proc.info.get("cmdline") or []))
+                    probe = (name + " " + cmdline).lower()
+                    if "im-server" in probe or "cmd/im_server" in probe:
+                        return _process_snapshot(proc)
+                except Exception:
+                    continue
+        except Exception:
+            pass
+    pid = _find_pid_by_socket_inodes(_listening_socket_inodes(18081))
+    if pid:
+        if psutil is not None:
+            try:
+                return _process_snapshot(psutil.Process(pid))
+            except Exception:
+                pass
+        return _fallback_process_snapshot(pid)
     return {"available": False}
 
 
