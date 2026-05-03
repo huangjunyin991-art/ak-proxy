@@ -1944,6 +1944,16 @@
         }
     }
 
+    function withWidgetAssetRetryVersion(url) {
+        try {
+            const finalUrl = new URL(withWidgetAssetVersion(url), API_ROOT);
+            finalUrl.searchParams.set('_retry', String(Date.now()));
+            return finalUrl.toString();
+        } catch (e) {
+            return String(url || '');
+        }
+    }
+
     function getLazyModuleInstance(moduleKey) {
         if (moduleKey === 'profile') return getProfileModule();
         if (moduleKey === 'group') return getGroupManageModule();
@@ -2006,8 +2016,22 @@
                 }
                 resolve(moduleInstance);
             };
-            const handleError = function() {
-                reject(new Error(errorMessage));
+            const loadScript = function(useRetryVersion) {
+                const script = document.createElement('script');
+                script.src = useRetryVersion ? withWidgetAssetRetryVersion(config.src) : withWidgetAssetVersion(config.src);
+                script.async = true;
+                script.dataset[config.datasetKey] = '1';
+                if (useRetryVersion) script.dataset.akLazyRetry = '1';
+                script.onload = finalize;
+                script.onerror = function() {
+                    if (!useRetryVersion) {
+                        if (script.parentNode) script.parentNode.removeChild(script);
+                        loadScript(true);
+                        return;
+                    }
+                    reject(new Error(errorMessage));
+                };
+                (document.head || document.documentElement || document.body).appendChild(script);
             };
             const existingScript = document.querySelector(config.selector);
             if (existingScript) {
@@ -2015,17 +2039,11 @@
                     finalize();
                     return;
                 }
-                existingScript.addEventListener('load', finalize, { once: true });
-                existingScript.addEventListener('error', handleError, { once: true });
+                if (existingScript.parentNode) existingScript.parentNode.removeChild(existingScript);
+                loadScript(true);
                 return;
             }
-            const script = document.createElement('script');
-            script.src = withWidgetAssetVersion(config.src);
-            script.async = true;
-            script.dataset[config.datasetKey] = '1';
-            script.onload = finalize;
-            script.onerror = handleError;
-            (document.head || document.documentElement || document.body).appendChild(script);
+            loadScript(false);
         }).then(function(moduleInstance) {
             lazyModuleLoadPromises[moduleKey] = Promise.resolve(moduleInstance);
             return moduleInstance;
