@@ -93,25 +93,59 @@ async def collect_chat_summary(pool, range_name: str = "7d", timeout_seconds: fl
             data["text_storage_bytes"] = _safe_int(_row_get(row, "text_storage_bytes"))
             data["stored_payload_bytes"] = _safe_int(_row_get(row, "stored_payload_bytes"))
             data["declared_attachment_bytes"] = _safe_int(_row_get(row, "declared_attachment_bytes"))
-        rows = await _fetch_with_timeout(conn.fetch('''
-            SELECT message_type,
-                   COUNT(*) AS count,
-                   COALESCE(SUM(octet_length(content_payload)), 0) AS payload_bytes,
-                   COALESCE(SUM(content_size_stored) FILTER (WHERE message_type = 'text'), 0) AS text_bytes,
-                   COALESCE(SUM(content_size_stored) FILTER (WHERE message_type IN ('image', 'file', 'voice')), 0) AS attachment_bytes,
-                   COALESCE(SUM(
-                       CASE
-                           WHEN message_type = 'text' THEN content_size_stored
-                           WHEN message_type IN ('image', 'file', 'voice') THEN content_size_stored
-                           ELSE octet_length(content_payload)
-                       END
-                   ), 0) AS estimated_storage_bytes
-            FROM im_message
-            WHERE deleted_at IS NULL
-            GROUP BY message_type
-            ORDER BY estimated_storage_bytes DESC, COUNT(*) DESC, message_type ASC
-            LIMIT 20
-        '''), timeout_seconds)
+        if has_file_asset:
+            type_rows_sql = '''
+                SELECT m.message_type,
+                       COUNT(*) AS count,
+                       COALESCE(SUM(octet_length(m.content_payload)), 0) AS payload_bytes,
+                       COALESCE(SUM(m.content_size_stored) FILTER (WHERE m.message_type = 'text'), 0) AS text_bytes,
+                       COALESCE(SUM(
+                           CASE
+                               WHEN m.message_type = 'file' THEN COALESCE(fa.file_size, 0)
+                               WHEN m.message_type IN ('image', 'voice') THEN m.content_size_stored
+                               ELSE 0
+                           END
+                       ), 0) AS attachment_bytes,
+                       COALESCE(SUM(
+                           CASE
+                               WHEN m.message_type = 'text' THEN m.content_size_stored
+                               WHEN m.message_type = 'file' THEN COALESCE(fa.file_size, 0)
+                               WHEN m.message_type IN ('image', 'voice') THEN m.content_size_stored
+                               ELSE octet_length(m.content_payload)
+                           END
+                       ), 0) AS estimated_storage_bytes
+                FROM im_message m
+                LEFT JOIN im_file_asset fa ON m.message_type = 'file'
+                    AND fa.storage_name = substring(m.content_payload FROM '"storage_name"[[:space:]]*:[[:space:]]*"([^"]+)"')
+                    AND fa.deleted_at IS NULL
+                    AND fa.status = 'active'
+                    AND fa.expires_at > NOW()
+                WHERE m.deleted_at IS NULL
+                GROUP BY m.message_type
+                ORDER BY estimated_storage_bytes DESC, COUNT(*) DESC, m.message_type ASC
+                LIMIT 20
+            '''
+        else:
+            type_rows_sql = '''
+                SELECT message_type,
+                       COUNT(*) AS count,
+                       COALESCE(SUM(octet_length(content_payload)), 0) AS payload_bytes,
+                       COALESCE(SUM(content_size_stored) FILTER (WHERE message_type = 'text'), 0) AS text_bytes,
+                       COALESCE(SUM(content_size_stored) FILTER (WHERE message_type IN ('image', 'file', 'voice')), 0) AS attachment_bytes,
+                       COALESCE(SUM(
+                           CASE
+                               WHEN message_type = 'text' THEN content_size_stored
+                               WHEN message_type IN ('image', 'file', 'voice') THEN content_size_stored
+                               ELSE octet_length(content_payload)
+                           END
+                       ), 0) AS estimated_storage_bytes
+                FROM im_message
+                WHERE deleted_at IS NULL
+                GROUP BY message_type
+                ORDER BY estimated_storage_bytes DESC, COUNT(*) DESC, message_type ASC
+                LIMIT 20
+            '''
+        rows = await _fetch_with_timeout(conn.fetch(type_rows_sql), timeout_seconds)
         data["message_type_distribution"] = [
             {
                 "message_type": str(_row_get(row, "message_type") or "unknown"),
@@ -138,9 +172,9 @@ async def collect_chat_summary(pool, range_name: str = "7d", timeout_seconds: fl
         if has_file_asset:
             row = await _fetch_with_timeout(conn.fetchrow('''
                 SELECT COUNT(*) AS file_asset_total,
-                       COUNT(*) FILTER (WHERE deleted_at IS NULL AND status = 'active') AS file_asset_active,
-                       COUNT(*) FILTER (WHERE expires_at <= NOW()) AS file_asset_expired,
-                       COALESCE(SUM(file_size) FILTER (WHERE deleted_at IS NULL AND status = 'active'), 0) AS file_storage_bytes
+                       COUNT(*) FILTER (WHERE deleted_at IS NULL AND status = 'active' AND expires_at > NOW()) AS file_asset_active,
+                       COUNT(*) FILTER (WHERE deleted_at IS NOT NULL OR status <> 'active' OR expires_at <= NOW()) AS file_asset_expired,
+                       COALESCE(SUM(file_size) FILTER (WHERE deleted_at IS NULL AND status = 'active' AND expires_at > NOW()), 0) AS file_storage_bytes
                 FROM im_file_asset
             '''), timeout_seconds)
             if row:
@@ -161,7 +195,71 @@ async def collect_group_statistics(pool, range_name: str = "7d", limit: int = 10
         for table_name in required:
             if not await _table_exists(conn, table_name, timeout_seconds):
                 return {"available": False, "message": f"缺少 {table_name} 表", "generated_at": generated_at, "items": []}
-        rows = await _fetch_with_timeout(conn.fetch('''
+        has_file_asset = await _table_exists(conn, "im_file_asset", timeout_seconds)
+        if has_file_asset:
+            group_sql = '''
+                WITH group_base AS (
+                    SELECT id, title, owner_username, last_message_at, created_at
+                    FROM im_conversation
+                    WHERE conversation_type = 'group'
+                      AND deleted_at IS NULL
+                ), message_stats AS (
+                    SELECT m.conversation_id,
+                           COUNT(*) FILTER (WHERE m.deleted_at IS NULL) AS message_total,
+                           COUNT(*) FILTER (WHERE m.deleted_at IS NULL AND m.sent_at >= date_trunc('day', NOW())) AS message_today,
+                           COUNT(*) FILTER (WHERE m.deleted_at IS NULL AND m.sent_at >= NOW() - ($1::int * INTERVAL '1 day')) AS message_in_range,
+                           COALESCE(SUM(m.content_size_stored) FILTER (WHERE m.deleted_at IS NULL AND m.message_type = 'text'), 0) AS text_storage_bytes,
+                           COALESCE(SUM(octet_length(m.content_payload)) FILTER (WHERE m.deleted_at IS NULL), 0) AS payload_storage_bytes,
+                           COALESCE(SUM(
+                               CASE
+                                   WHEN m.message_type = 'file' THEN COALESCE(fa.file_size, 0)
+                                   WHEN m.message_type IN ('image', 'voice') THEN COALESCE(NULLIF(substring(m.content_payload FROM '"file_size"\\s*:\\s*([0-9]+)'), '')::bigint, 0)
+                                   ELSE 0
+                               END
+                           ) FILTER (WHERE m.deleted_at IS NULL), 0) AS file_storage_bytes,
+                           MAX(m.sent_at) FILTER (WHERE m.deleted_at IS NULL) AS last_message_at
+                    FROM im_message m
+                    LEFT JOIN im_file_asset fa ON m.message_type = 'file'
+                        AND fa.storage_name = substring(m.content_payload FROM '"storage_name"[[:space:]]*:[[:space:]]*"([^"]+)"')
+                        AND fa.deleted_at IS NULL
+                        AND fa.status = 'active'
+                        AND fa.expires_at > NOW()
+                    WHERE m.conversation_id IN (SELECT id FROM group_base)
+                    GROUP BY m.conversation_id
+                ), member_stats AS (
+                    SELECT conversation_id, COUNT(*) AS member_count
+                    FROM im_conversation_member
+                    WHERE left_at IS NULL
+                    GROUP BY conversation_id
+                ), admin_stats AS (
+                    SELECT conversation_id, COUNT(*) AS admin_count
+                    FROM im_conversation_admin
+                    WHERE revoked_at IS NULL
+                    GROUP BY conversation_id
+                )
+                SELECT g.id AS conversation_id,
+                       COALESCE(g.title, '') AS title,
+                       COALESCE(g.owner_username, '') AS owner_username,
+                       COALESCE(ms.message_total, 0) AS message_total,
+                       COALESCE(ms.message_today, 0) AS message_today,
+                       COALESCE(ms.message_in_range, 0) AS message_in_range,
+                       COALESCE(ms.text_storage_bytes, 0) AS text_storage_bytes,
+                       COALESCE(ms.payload_storage_bytes, 0) AS payload_storage_bytes,
+                       COALESCE(ms.file_storage_bytes, 0) AS file_storage_bytes,
+                       COALESCE(mem.member_count, 0) AS member_count,
+                       COALESCE(adm.admin_count, 0) AS admin_count,
+                       COALESCE(ms.last_message_at, g.last_message_at, g.created_at) AS last_message_at
+                FROM group_base g
+                LEFT JOIN message_stats ms ON ms.conversation_id = g.id
+                LEFT JOIN member_stats mem ON mem.conversation_id = g.id
+                LEFT JOIN admin_stats adm ON adm.conversation_id = g.id
+                ORDER BY (COALESCE(ms.payload_storage_bytes, 0) + COALESCE(ms.file_storage_bytes, 0)) DESC,
+                         COALESCE(ms.message_in_range, 0) DESC,
+                         g.id DESC
+                LIMIT $2
+            '''
+        else:
+            group_sql = '''
             WITH group_base AS (
                 SELECT id, title, owner_username, last_message_at, created_at
                 FROM im_conversation
@@ -210,7 +308,8 @@ async def collect_group_statistics(pool, range_name: str = "7d", limit: int = 10
                      COALESCE(ms.message_in_range, 0) DESC,
                      g.id DESC
             LIMIT $2
-        ''', days, normalized_limit), timeout_seconds)
+            '''
+        rows = await _fetch_with_timeout(conn.fetch(group_sql, days, normalized_limit), timeout_seconds)
     items = []
     for row in rows:
         text_storage = _safe_int(_row_get(row, "text_storage_bytes"))
@@ -237,7 +336,7 @@ async def collect_group_statistics(pool, range_name: str = "7d", limit: int = 10
         "range": "24h" if days == 1 else f"{days}d",
         "limit": normalized_limit,
         "items": items,
-        "file_storage_scope": "message_payload_file_size_estimate",
+        "file_storage_scope": "active_file_asset_current_bytes",
     }
 
 
@@ -256,7 +355,11 @@ async def collect_file_assets(pool, status: str = "active", limit: int = 50, tim
             WITH selected_assets AS (
                 SELECT storage_name, original_name, mime_type, file_size, expires_at, status, created_at, updated_at, deleted_at
                 FROM im_file_asset
-                WHERE ($1 = 'all' OR LOWER(status) = $1)
+                WHERE (
+                    $1 = 'all'
+                    OR ($1 = 'active' AND deleted_at IS NULL AND LOWER(status) = 'active' AND expires_at > NOW())
+                    OR ($1 <> 'active' AND LOWER(status) = $1)
+                )
                 ORDER BY file_size DESC, created_at DESC
                 LIMIT $2
             )

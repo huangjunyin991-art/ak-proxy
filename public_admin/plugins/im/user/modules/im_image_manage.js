@@ -166,12 +166,78 @@
             const safeUrl = this.escapeAttribute(payload.fileUrl);
             const safeLabel = this.escapeAttribute(label);
             const overlayMarkup = this.buildLocalOverlayMarkup(item);
-            return '<a class="ak-im-image-bubble-link" href="' + safeUrl + '" target="_blank" rel="noopener noreferrer" aria-label="查看图片 ' + safeLabel + '">' +
+            return '<a class="ak-im-image-bubble-link" href="' + safeUrl + '" target="_blank" rel="noopener noreferrer" aria-label="查看图片 ' + safeLabel + '" data-ak-im-image-preview="1" data-ak-im-image-src="' + safeUrl + '" data-ak-im-image-label="' + safeLabel + '">' +
                 '<span class="ak-im-image-bubble-surface">' +
                     '<img class="ak-im-image-bubble-image" src="' + safeUrl + '" alt="' + safeLabel + '" loading="lazy">' +
                     overlayMarkup +
                 '</span>' +
             '</a>';
+        },
+
+        ensurePreviewStyle() {
+            if (document.getElementById('ak-im-image-preview-style')) return;
+            const style = document.createElement('style');
+            style.id = 'ak-im-image-preview-style';
+            style.textContent = '.ak-im-image-preview-overlay{position:fixed;inset:0;z-index:2147483645;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.88);padding:22px;box-sizing:border-box}.ak-im-image-preview-overlay.visible{display:flex}.ak-im-image-preview-img{display:block;max-width:100%;max-height:100%;border-radius:12px;box-shadow:0 18px 60px rgba(0,0,0,.42);object-fit:contain;cursor:zoom-out}.ak-im-image-preview-close{position:absolute;top:calc(14px + env(safe-area-inset-top,0px));right:calc(14px + env(safe-area-inset-right,0px));width:38px;height:38px;border:none;border-radius:999px;background:rgba(255,255,255,.16);color:#fff;font-size:24px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center}.ak-im-image-preview-close:active{transform:scale(.96)}';
+            document.head.appendChild(style);
+        },
+
+        ensurePreviewLayer() {
+            let overlay = document.getElementById('ak-im-image-preview-overlay');
+            if (overlay) return overlay;
+            this.ensurePreviewStyle();
+            overlay = document.createElement('div');
+            overlay.id = 'ak-im-image-preview-overlay';
+            overlay.className = 'ak-im-image-preview-overlay';
+            overlay.setAttribute('role', 'dialog');
+            overlay.setAttribute('aria-modal', 'true');
+            overlay.setAttribute('aria-hidden', 'true');
+            overlay.innerHTML = '<button class="ak-im-image-preview-close" type="button" aria-label="关闭图片预览">×</button><img class="ak-im-image-preview-img" alt="图片预览">';
+            const self = this;
+            overlay.addEventListener('click', function(event) {
+                if (event.target === overlay || event.target.classList.contains('ak-im-image-preview-img') || event.target.classList.contains('ak-im-image-preview-close')) {
+                    self.closeImagePreview();
+                }
+            });
+            document.addEventListener('keydown', function(event) {
+                if (event.key === 'Escape' && overlay.classList.contains('visible')) self.closeImagePreview();
+            });
+            document.body.appendChild(overlay);
+            return overlay;
+        },
+
+        openImagePreview(url, label) {
+            const normalizedUrl = String(url || '').trim();
+            if (!normalizedUrl) return;
+            const overlay = this.ensurePreviewLayer();
+            const image = overlay.querySelector('.ak-im-image-preview-img');
+            if (!image) return;
+            image.src = normalizedUrl;
+            image.alt = String(label || '图片预览');
+            overlay.classList.add('visible');
+            overlay.setAttribute('aria-hidden', 'false');
+        },
+
+        closeImagePreview() {
+            const overlay = document.getElementById('ak-im-image-preview-overlay');
+            if (!overlay) return;
+            overlay.classList.remove('visible');
+            overlay.setAttribute('aria-hidden', 'true');
+            const image = overlay.querySelector('.ak-im-image-preview-img');
+            if (image) image.removeAttribute('src');
+        },
+
+        bindImagePreviewEvents(container) {
+            if (!container || container.__akImagePreviewBound) return;
+            container.__akImagePreviewBound = true;
+            const self = this;
+            container.addEventListener('click', function(event) {
+                const link = event.target && typeof event.target.closest === 'function' ? event.target.closest('[data-ak-im-image-preview="1"]') : null;
+                if (!link || !container.contains(link)) return;
+                event.preventDefault();
+                event.stopPropagation();
+                self.openImagePreview(link.getAttribute('data-ak-im-image-src') || link.getAttribute('href'), link.getAttribute('data-ak-im-image-label') || link.getAttribute('aria-label') || '图片预览');
+            });
         },
 
         getMessageBubbleClassName(item) {

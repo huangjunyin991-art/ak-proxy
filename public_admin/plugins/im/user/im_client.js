@@ -1623,6 +1623,12 @@
             buildDisplayNameWithHonorMarkup: buildDisplayNameWithHonorMarkup,
             buildMessageBubbleMarkup: buildMessageBubbleMarkup,
             getMessageBubbleClassName: getMessageBubbleClassName,
+            bindImagePreviewEvents: function(container) {
+                const imageModule = getImageModule();
+                if (imageModule && typeof imageModule.bindImagePreviewEvents === 'function') {
+                    imageModule.bindImagePreviewEvents(container);
+                }
+            },
             syncVoiceMessageBubbles: function() {
                 const voiceHoldModule = getVoiceHoldModule();
                 if (voiceHoldModule && typeof voiceHoldModule.syncMessageBubblePlaybackState === 'function') {

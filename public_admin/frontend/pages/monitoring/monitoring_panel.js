@@ -271,7 +271,7 @@
             chatCards.innerHTML = renderCard('会话总数', formatNumber(chat.conversation_total), '群聊 ' + formatNumber(chat.group_total) + ' / 私聊 ' + formatNumber(chat.direct_total)) +
                 renderCard('消息总数', formatNumber(chat.message_total), '今日 ' + formatNumber(chat.message_today)) +
                 renderCard('范围内消息', formatNumber(chat.message_in_range), chat.range || state.range) +
-                renderCard('文件资源', formatBytes(chat.file_storage_bytes), '活跃 ' + formatNumber(chat.file_asset_active) + ' / 声明附件 ' + formatBytes(chat.declared_attachment_bytes)) +
+                renderCard('文件资源', formatBytes(chat.file_storage_bytes), '活跃 ' + formatNumber(chat.file_asset_active) + ' / 历史声明 ' + formatBytes(chat.declared_attachment_bytes)) +
                 renderCard('纯文本内容', formatBytes(chat.text_storage_bytes), '仅 text 消息正文') +
                 renderCard('消息载荷', formatBytes(chat.stored_payload_bytes), '文本与 JSON 元数据') +
                 renderCard('估算总占用', formatBytes(chat.estimated_storage_bytes), '消息载荷 + 文件资源');
