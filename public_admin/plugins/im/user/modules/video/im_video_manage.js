@@ -7,11 +7,13 @@
     const videoManageModule = {
         ctx: null,
         playbackBound: false,
+        previewBound: false,
 
         init(ctx) {
             this.ctx = ctx || null;
             this.ensureStyle();
             this.bindPlaybackState();
+            this.bindPreviewWarmup();
         },
 
         getState() {
@@ -175,10 +177,11 @@
             const safeUrl = this.escapeAttribute(payload.videoUrl);
             const safePoster = this.escapeAttribute(payload.posterUrl);
             const posterAttr = safePoster ? ' poster="' + safePoster + '"' : '';
+            const previewAttr = safePoster ? '' : ' data-ak-im-video-preview-warmup="1"';
             const ratioAttr = payload.width && payload.height ? ' style="aspect-ratio:' + Math.max(1, payload.width) + '/' + Math.max(1, payload.height) + '"' : '';
             return '<div class="ak-im-video-bubble' + (isLocal ? ' ak-im-video-bubble-sending' : '') + '">' +
                 '<div class="ak-im-video-surface"' + ratioAttr + '>' +
-                '<video class="ak-im-video-player" controls playsinline preload="metadata" src="' + safeUrl + '"' + posterAttr + '></video>' +
+                '<video class="ak-im-video-player" controls playsinline webkit-playsinline preload="auto" src="' + safeUrl + '"' + posterAttr + previewAttr + '></video>' +
                     '<button class="ak-im-video-play-badge" type="button" aria-label="播放或暂停视频">▶</button>' +
                     overlayMarkup +
                 '</div>' +
@@ -222,6 +225,58 @@
                 }
                 videoEl.pause();
             }, true);
+        },
+
+        warmupVideoPreview(videoEl) {
+            if (!videoEl || videoEl.dataset.akImVideoPreviewReady) return;
+            videoEl.dataset.akImVideoPreviewReady = '1';
+            const seekPreviewFrame = function() {
+                if (!videoEl || videoEl.dataset.akImVideoPreviewSeeked) return;
+                if (!Number.isFinite(Number(videoEl.duration || 0)) || Number(videoEl.duration || 0) <= 0) return;
+                videoEl.dataset.akImVideoPreviewSeeked = '1';
+                try {
+                    videoEl.currentTime = Math.min(0.12, Math.max(0.01, Number(videoEl.duration || 0) / 100));
+                } catch (e) {}
+            };
+            videoEl.addEventListener('loadedmetadata', seekPreviewFrame, { once: true });
+            videoEl.addEventListener('loadeddata', function() {
+                const bubbleEl = videoEl.closest ? videoEl.closest('.ak-im-video-bubble') : null;
+                if (bubbleEl) bubbleEl.classList.add('has-preview-frame');
+            }, { once: true });
+            try {
+                videoEl.load();
+            } catch (e) {}
+            if (videoEl.readyState >= 1) seekPreviewFrame();
+        },
+
+        warmupVisibleVideoPreviews() {
+            const root = document.getElementById('ak-im-root') || document;
+            const self = this;
+            Array.prototype.forEach.call(root.querySelectorAll('.ak-im-video-player[data-ak-im-video-preview-warmup="1"]'), function(videoEl) {
+                self.warmupVideoPreview(videoEl);
+            });
+        },
+
+        bindPreviewWarmup() {
+            if (this.previewBound) return;
+            this.previewBound = true;
+            const self = this;
+            const scheduleWarmup = function() {
+                setTimeout(function() {
+                    self.warmupVisibleVideoPreviews();
+                }, 60);
+                setTimeout(function() {
+                    self.warmupVisibleVideoPreviews();
+                }, 360);
+            };
+            if (document.readyState === 'loading') {
+                document.addEventListener('DOMContentLoaded', scheduleWarmup, { once: true });
+            } else {
+                scheduleWarmup();
+            }
+            const observer = new MutationObserver(scheduleWarmup);
+            const observeRoot = document.getElementById('ak-im-root') || document.body || document.documentElement;
+            if (observeRoot) observer.observe(observeRoot, { childList: true, subtree: true });
         },
 
         sendVideoFile(file) {
