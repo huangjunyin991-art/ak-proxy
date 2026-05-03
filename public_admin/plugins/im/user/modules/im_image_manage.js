@@ -165,8 +165,10 @@
             const label = payload.fileName || '图片';
             const safeUrl = this.escapeAttribute(payload.fileUrl);
             const safeLabel = this.escapeAttribute(label);
+            const previewUrl = '/chat/im/image-preview?src=' + encodeURIComponent(payload.fileUrl) + '&label=' + encodeURIComponent(label);
+            const safePreviewUrl = this.escapeAttribute(previewUrl);
             const overlayMarkup = this.buildLocalOverlayMarkup(item);
-            return '<a class="ak-im-image-bubble-link" href="' + safeUrl + '" target="_blank" rel="noopener noreferrer" aria-label="查看图片 ' + safeLabel + '">' +
+            return '<a class="ak-im-image-bubble-link" href="' + safePreviewUrl + '" target="_blank" rel="noopener noreferrer" aria-label="查看图片 ' + safeLabel + '">' +
                 '<span class="ak-im-image-bubble-surface">' +
                     '<img class="ak-im-image-bubble-image" src="' + safeUrl + '" alt="' + safeLabel + '" loading="lazy">' +
                     overlayMarkup +

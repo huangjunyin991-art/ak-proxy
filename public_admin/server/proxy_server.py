@@ -31,6 +31,7 @@ import re
 import logging
 
 from urllib.parse import parse_qs, urlsplit, urlencode, urlunsplit
+from html import escape as html_escape
 
 from logging.handlers import RotatingFileHandler
 
@@ -8634,6 +8635,63 @@ async def im_user_plugin_client_js(request: Request):
     js_path = os.path.join(PLUGINS_DIR, "im", "user", "im_client.js")
 
     return _build_widget_script_response(request, js_path)
+
+
+@app.get("/chat/im/image-preview", response_class=HTMLResponse)
+
+async def im_image_preview_page(request: Request):
+
+    src = str(request.query_params.get("src") or "").strip()
+
+    label = str(request.query_params.get("label") or "图片预览").strip() or "图片预览"
+
+    safe_src = html_escape(src, quote=True)
+
+    safe_label = html_escape(label, quote=True)
+
+    html = f"""<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>{safe_label}</title>
+<style>
+html,body{{margin:0;width:100%;height:100%;background:#000;overflow:hidden}}
+body{{display:flex;align-items:center;justify-content:center;touch-action:manipulation}}
+.ak-im-image-preview-page{{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:#000;padding:0;box-sizing:border-box;cursor:zoom-out}}
+.ak-im-image-preview-page img{{display:block;max-width:100vw;max-height:100vh;object-fit:contain}}
+</style>
+</head>
+<body>
+<main class="ak-im-image-preview-page" role="button" tabindex="0" aria-label="关闭图片预览">
+<img src="{safe_src}" alt="{safe_label}">
+</main>
+<script>
+(function() {{
+    function closePreview() {{
+        if (window.history.length > 1) {{
+            window.history.back();
+            return;
+        }}
+        window.close();
+    }}
+    var preview = document.querySelector('.ak-im-image-preview-page');
+    if (preview) {{
+        preview.addEventListener('click', closePreview);
+        preview.addEventListener('keydown', function(event) {{
+            if (event.key === 'Enter' || event.key === ' ' || event.key === 'Escape') {{
+                event.preventDefault();
+                closePreview();
+            }}
+        }});
+        preview.focus();
+    }}
+}}());
+</script>
+</body>
+</html>"""
+
+    return HTMLResponse(content=html, headers={"Cache-Control": "no-store"})
 
 
 @app.get("/chat/plugins/im/user/modules/im_app_shell.js")
