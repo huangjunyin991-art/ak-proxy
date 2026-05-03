@@ -91,6 +91,29 @@
             }
         },
 
+        withFileVideoPosterUrl(url) {
+            const rawUrl = String(url || '').trim();
+            if (!rawUrl || rawUrl.indexOf('/im/assets/file/') < 0) return '';
+            try {
+                const finalUrl = new URL(rawUrl, window.location.origin);
+                const prefix = '/im/assets/file/';
+                const prefixIndex = finalUrl.pathname.indexOf(prefix);
+                if (prefixIndex < 0) return '';
+                const storageName = finalUrl.pathname.slice(prefixIndex + prefix.length);
+                if (!storageName) return '';
+                finalUrl.pathname = '/im/assets/file-video-poster/' + storageName + '.poster.jpg';
+                finalUrl.search = '';
+                return finalUrl.toString();
+            } catch (e) {
+                const cleanUrl = rawUrl.split('?')[0];
+                const prefix = '/im/assets/file/';
+                const prefixIndex = cleanUrl.indexOf(prefix);
+                if (prefixIndex < 0) return '';
+                const storageName = cleanUrl.slice(prefixIndex + prefix.length);
+                return storageName ? ('/im/assets/file-video-poster/' + storageName + '.poster.jpg') : '';
+            }
+        },
+
         isTouchVideoEnvironment() {
             return !!(window.matchMedia && window.matchMedia('(pointer: coarse)').matches);
         },
@@ -152,7 +175,7 @@
                 return {
                     fileName: fileName,
                     videoUrl: String(item && item.__akLocalVideoUrl || '').trim() || (messageType === 'file' ? this.withInlineVideoAssetUrl(videoUrl) : videoUrl),
-                    posterUrl: String(parsed && parsed.poster_url || '').trim(),
+                    posterUrl: String(parsed && parsed.poster_url || '').trim() || (messageType === 'file' ? this.withFileVideoPosterUrl(videoUrl) : ''),
                     mimeType: mimeType,
                     fileSize: Math.max(0, Number(parsed && parsed.file_size || 0) || 0),
                     width: Math.max(0, Number(parsed && parsed.width || 0) || 0),
@@ -195,10 +218,11 @@
             const safePoster = this.escapeAttribute(payload.posterUrl);
             const posterAttr = safePoster ? ' poster="' + safePoster + '"' : '';
             const previewAttr = safePoster ? '' : ' data-ak-im-video-preview-warmup="1"';
+            const preloadAttr = safePoster ? 'none' : 'auto';
             const ratioAttr = payload.width && payload.height ? ' style="aspect-ratio:' + Math.max(1, payload.width) + '/' + Math.max(1, payload.height) + '"' : '';
             return '<div class="ak-im-video-bubble' + (isLocal ? ' ak-im-video-bubble-sending' : '') + '">' +
                 '<div class="ak-im-video-surface"' + ratioAttr + '>' +
-                '<video class="ak-im-video-player" controls playsinline webkit-playsinline x5-playsinline preload="auto" src="' + safeUrl + '"' + posterAttr + previewAttr + '></video>' +
+                '<video class="ak-im-video-player" controls playsinline webkit-playsinline x5-playsinline preload="' + preloadAttr + '" src="' + safeUrl + '"' + posterAttr + previewAttr + '></video>' +
                     '<button class="ak-im-video-play-badge" type="button" aria-label="播放或暂停视频">▶</button>' +
                     overlayMarkup +
                 '</div>' +
