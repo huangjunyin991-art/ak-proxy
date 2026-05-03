@@ -46,6 +46,7 @@ type App struct {
 	hub               *Hub
 	server            *http.Server
 	upgrader          websocket.Upgrader
+	imageHEICMu       sync.Mutex
 	fileVideoLocksMu  sync.Mutex
 	fileVideoLocks    map[string]*sync.Mutex
 }

@@ -21,17 +21,18 @@ import (
 )
 
 const (
-	imageMessageMaxBytes        = 20 * 1024 * 1024
-	fileMessageMaxBytes         = 200 * 1024 * 1024
-	defaultFileAssetRetentionDays = 30
-	defaultImageCompressAboveKB = 512
-	defaultImageMaxLongEdgePx   = 1920
-	defaultImageQuality         = 82
-	defaultImageTargetSizeKB    = 1024
-	fileAssetCleanupBatchSize   = 24
-	fileAssetCleanupInterval    = time.Hour
-	imFileAssetConfigKey        = "file_asset_config"
-	imImageUploadConfigKey      = "image_upload_config"
+	imageMessageMaxBytes             = 20 * 1024 * 1024
+	imageUploadMultipartMemoryBytes = 512 * 1024
+	fileMessageMaxBytes              = 200 * 1024 * 1024
+	defaultFileAssetRetentionDays     = 30
+	defaultImageCompressAboveKB       = 512
+	defaultImageMaxLongEdgePx         = 1920
+	defaultImageQuality               = 82
+	defaultImageTargetSizeKB          = 1024
+	fileAssetCleanupBatchSize         = 24
+	fileAssetCleanupInterval          = time.Hour
+	imFileAssetConfigKey              = "file_asset_config"
+	imImageUploadConfigKey            = "image_upload_config"
 )
 
 var supportedImageAssetExts = map[string]string{
@@ -528,7 +529,11 @@ func (a *App) persistHEICImageAsset(reader io.Reader, fileName string, config im
 		return persistedImageAsset{}, err
 	}
 	storagePath := filepath.Join(strings.TrimSpace(a.cfg.ImageStoreDir), storageName)
-	webpBytes, err := transcodeHEICImageToWebP(reader, int64(imageMessageMaxBytes), config.MaxLongEdgePx)
+	webpBytes, err := func() ([]byte, error) {
+		a.imageHEICMu.Lock()
+		defer a.imageHEICMu.Unlock()
+		return transcodeHEICImageToWebP(reader, int64(imageMessageMaxBytes), config.MaxLongEdgePx)
+	}()
 	if err != nil {
 		return persistedImageAsset{}, err
 	}
@@ -962,7 +967,7 @@ func (a *App) handleSendImageMessage(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusForbidden, map[string]any{"error": true, "message": err.Error()})
 		return
 	}
-	if err := r.ParseMultipartForm(int64(imageMessageMaxBytes + 64*1024)); err != nil {
+	if err := r.ParseMultipartForm(int64(imageUploadMultipartMemoryBytes)); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": true, "message": "invalid multipart payload"})
 		return
 	}
