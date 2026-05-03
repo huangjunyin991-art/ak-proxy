@@ -8,6 +8,7 @@
         ctx: null,
         scrollBoundEl: null,
         highlightTimer: null,
+        bottomStabilizeTimers: [],
 
         init(ctx) {
             this.ctx = ctx || null;
@@ -37,7 +38,8 @@
                     newMessageCount: 0,
                     mentionSeqNo: 0,
                     mentionLabel: '',
-                    atBottom: true
+                    atBottom: true,
+                    forceBottomUntil: 0
                 };
             }
             return state.messageNavigation;
@@ -104,6 +106,7 @@
             const targetConversationId = Number(conversationId || 0);
             if (!navState || !targetConversationId) return;
             const unreadCount = this.getUnreadCount(session);
+            const forceBottomUntil = unreadCount <= 0 ? Date.now() + 1800 : 0;
             if (Number(navState.conversationId || 0) !== targetConversationId) {
                 navState.conversationId = targetConversationId;
                 navState.entryUnreadCount = unreadCount;
@@ -114,8 +117,18 @@
                 navState.mentionSeqNo = 0;
                 navState.mentionLabel = '';
                 navState.atBottom = true;
+                navState.forceBottomUntil = forceBottomUntil;
                 this.renderControls();
                 return;
+            }
+            if (forceBottomUntil) {
+                navState.forceBottomUntil = forceBottomUntil;
+                navState.entryUnreadCount = 0;
+                navState.firstUnreadSeqNo = 0;
+                navState.unreadAnchorConsumed = true;
+                navState.newMessageCount = 0;
+                navState.mentionSeqNo = 0;
+                navState.mentionLabel = '';
             }
             if (!navState.unreadAnchorConsumed && navState.entryUnreadCount <= 0 && unreadCount > 0) {
                 navState.entryUnreadCount = unreadCount;
@@ -126,11 +139,14 @@
             this.bindScrollEvents();
             const messageList = this.getElements().messageList;
             if (!messageList) return { shouldScrollBottom: true, distanceFromBottom: 0 };
+            const navState = this.ensureNavigationState();
+            const forceBottom = !!(navState && Number(navState.forceBottomUntil || 0) > Date.now());
             const distanceFromBottom = Math.max(0, messageList.scrollHeight - messageList.scrollTop - messageList.clientHeight);
             return {
-                shouldScrollBottom: distanceFromBottom <= BOTTOM_THRESHOLD_PX,
+                shouldScrollBottom: forceBottom || distanceFromBottom <= BOTTOM_THRESHOLD_PX,
                 distanceFromBottom: distanceFromBottom,
-                scrollTop: messageList.scrollTop
+                scrollTop: messageList.scrollTop,
+                forceBottom: forceBottom
             };
         },
 
@@ -145,6 +161,8 @@
             } else if (snapshot) {
                 messageList.scrollTop = Math.max(0, Number(snapshot.scrollTop || 0) || 0);
             }
+            this.bindMediaBottomStabilizers(messageList);
+            if (snapshot && snapshot.forceBottom) this.scheduleBottomStabilize();
             navState.atBottom = this.isAtBottom();
             if (navState.atBottom) {
                 navState.newMessageCount = 0;
@@ -153,6 +171,42 @@
             }
             this.renderControls();
             return true;
+        },
+
+        scheduleBottomStabilize() {
+            const navState = this.ensureNavigationState();
+            if (!navState || Number(navState.forceBottomUntil || 0) <= Date.now()) return;
+            const self = this;
+            this.bottomStabilizeTimers.forEach(function(timerId) {
+                clearTimeout(timerId);
+            });
+            this.bottomStabilizeTimers = [40, 160, 420, 900, 1500].map(function(delay) {
+                return setTimeout(function() {
+                    const currentState = self.ensureNavigationState();
+                    if (!currentState || Number(currentState.forceBottomUntil || 0) <= Date.now()) return;
+                    self.scrollToBottom({ silent: true });
+                    self.renderControls();
+                }, delay);
+            });
+        },
+
+        bindMediaBottomStabilizers(messageList) {
+            const navState = this.ensureNavigationState();
+            if (!messageList || !navState || Number(navState.forceBottomUntil || 0) <= Date.now()) return;
+            const self = this;
+            Array.prototype.forEach.call(messageList.querySelectorAll('img, video'), function(mediaEl) {
+                if (!mediaEl || mediaEl.dataset.akImBottomStabilized) return;
+                mediaEl.dataset.akImBottomStabilized = '1';
+                const handler = function() {
+                    const currentState = self.ensureNavigationState();
+                    if (!currentState || Number(currentState.forceBottomUntil || 0) <= Date.now()) return;
+                    self.scrollToBottom({ silent: true });
+                    self.renderControls();
+                };
+                mediaEl.addEventListener('load', handler, { once: true });
+                mediaEl.addEventListener('loadedmetadata', handler, { once: true });
+                mediaEl.addEventListener('loadeddata', handler, { once: true });
+            });
         },
 
         isMentionedInMessage(item) {

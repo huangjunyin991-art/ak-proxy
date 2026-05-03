@@ -179,7 +179,7 @@
             return '<div class="ak-im-video-bubble' + (isLocal ? ' ak-im-video-bubble-sending' : '') + '">' +
                 '<div class="ak-im-video-surface"' + ratioAttr + '>' +
                 '<video class="ak-im-video-player" controls playsinline preload="metadata" src="' + safeUrl + '"' + posterAttr + '></video>' +
-                    '<span class="ak-im-video-play-badge" aria-hidden="true">▶</span>' +
+                    '<button class="ak-im-video-play-badge" type="button" aria-label="播放或暂停视频">▶</button>' +
                     overlayMarkup +
                 '</div>' +
                 '<div class="ak-im-video-footer"><span class="ak-im-video-info"><span class="ak-im-video-name">' + safeName + '</span><span class="ak-im-video-detail">' + this.escapeHtml(meta) + '</span></span><a class="ak-im-video-download" href="' + safeUrl + '" target="_blank" rel="noopener noreferrer" download="' + this.escapeAttribute(payload.fileName) + '">下载</a></div>' +
@@ -207,6 +207,21 @@
             document.addEventListener('play', updateState, true);
             document.addEventListener('pause', updateState, true);
             document.addEventListener('ended', updateState, true);
+            document.addEventListener('click', function(event) {
+                const button = event && event.target && event.target.closest ? event.target.closest('.ak-im-video-play-badge') : null;
+                if (!button) return;
+                const surface = button.closest ? button.closest('.ak-im-video-surface') : null;
+                const videoEl = surface && surface.querySelector ? surface.querySelector('.ak-im-video-player') : null;
+                if (!videoEl) return;
+                event.preventDefault();
+                event.stopPropagation();
+                if (videoEl.paused || videoEl.ended) {
+                    const playResult = videoEl.play();
+                    if (playResult && typeof playResult.catch === 'function') playResult.catch(function() {});
+                    return;
+                }
+                videoEl.pause();
+            }, true);
         },
 
         sendVideoFile(file) {
@@ -287,7 +302,7 @@
                 '#ak-im-root .ak-im-video-surface{position:relative;width:100%;aspect-ratio:9/12;background:linear-gradient(135deg,#111827,#020617);overflow:hidden}',
                 '#ak-im-root .ak-im-video-player{display:block;width:100%;height:100%;background:#000;object-fit:cover}',
                 '#ak-im-root .ak-im-video-player::-webkit-media-controls-panel{background:linear-gradient(transparent,rgba(0,0,0,.55))}',
-                '#ak-im-root .ak-im-video-play-badge{position:absolute;left:50%;top:50%;width:58px;height:58px;transform:translate(-50%,-50%);border-radius:999px;display:flex;align-items:center;justify-content:center;background:rgba(15,23,42,.42);border:2px solid rgba(255,255,255,.82);box-shadow:0 8px 24px rgba(0,0,0,.28);font-size:26px;line-height:1;text-indent:4px;pointer-events:none}',
+                '#ak-im-root .ak-im-video-play-badge{position:absolute;left:50%;top:50%;z-index:2;width:58px;height:58px;transform:translate(-50%,-50%);border-radius:999px;display:flex;align-items:center;justify-content:center;background:rgba(15,23,42,.42);border:2px solid rgba(255,255,255,.82);box-shadow:0 8px 24px rgba(0,0,0,.28);font-size:26px;line-height:1;text-indent:4px;color:#fff;cursor:pointer;appearance:none;-webkit-appearance:none;padding:0}',
                 '#ak-im-root .ak-im-video-player:playing+.ak-im-video-play-badge{opacity:0}',
                 '#ak-im-root .ak-im-video-bubble.is-playing .ak-im-video-play-badge{opacity:0}',
                 '#ak-im-root .ak-im-video-footer{position:absolute;left:0;right:0;bottom:0;display:flex;align-items:flex-end;justify-content:space-between;gap:10px;padding:34px 10px 9px;background:linear-gradient(transparent,rgba(0,0,0,.72));box-sizing:border-box;pointer-events:none}',
