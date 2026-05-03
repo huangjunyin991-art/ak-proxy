@@ -1590,6 +1590,79 @@
         return locationManageModule;
     }
 
+    function ensureClientImagePreviewStyle() {
+        if (document.getElementById('ak-im-client-image-preview-style')) return;
+        const style = document.createElement('style');
+        style.id = 'ak-im-client-image-preview-style';
+        style.textContent = '.ak-im-client-image-preview-overlay{position:fixed;inset:0;z-index:2147483645;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.88);padding:22px;box-sizing:border-box}.ak-im-client-image-preview-overlay.visible{display:flex}.ak-im-client-image-preview-img{display:block;max-width:100%;max-height:100%;border-radius:12px;box-shadow:0 18px 60px rgba(0,0,0,.42);object-fit:contain;cursor:zoom-out}.ak-im-client-image-preview-close{position:absolute;top:calc(14px + env(safe-area-inset-top,0px));right:calc(14px + env(safe-area-inset-right,0px));width:38px;height:38px;border:none;border-radius:999px;background:rgba(255,255,255,.16);color:#fff;font-size:24px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center}.ak-im-client-image-preview-close:active{transform:scale(.96)}';
+        document.head.appendChild(style);
+    }
+
+    function closeClientImagePreview() {
+        const overlay = document.getElementById('ak-im-client-image-preview-overlay');
+        if (!overlay) return;
+        overlay.classList.remove('visible');
+        overlay.setAttribute('aria-hidden', 'true');
+        const image = overlay.querySelector('.ak-im-client-image-preview-img');
+        if (image) image.removeAttribute('src');
+    }
+
+    function ensureClientImagePreviewLayer() {
+        let overlay = document.getElementById('ak-im-client-image-preview-overlay');
+        if (overlay) return overlay;
+        ensureClientImagePreviewStyle();
+        overlay = document.createElement('div');
+        overlay.id = 'ak-im-client-image-preview-overlay';
+        overlay.className = 'ak-im-client-image-preview-overlay';
+        overlay.setAttribute('role', 'dialog');
+        overlay.setAttribute('aria-modal', 'true');
+        overlay.setAttribute('aria-hidden', 'true');
+        overlay.innerHTML = '<button class="ak-im-client-image-preview-close" type="button" aria-label="关闭图片预览">×</button><img class="ak-im-client-image-preview-img" alt="图片预览">';
+        overlay.addEventListener('click', function(event) {
+            const target = event.target;
+            if (target === overlay || target.classList.contains('ak-im-client-image-preview-img') || target.classList.contains('ak-im-client-image-preview-close')) {
+                closeClientImagePreview();
+            }
+        });
+        document.addEventListener('keydown', function(event) {
+            if (event.key === 'Escape' && overlay.classList.contains('visible')) closeClientImagePreview();
+        });
+        document.body.appendChild(overlay);
+        return overlay;
+    }
+
+    function openClientImagePreview(url, label) {
+        const imageUrl = String(url || '').trim();
+        if (!imageUrl) return;
+        const overlay = ensureClientImagePreviewLayer();
+        const image = overlay.querySelector('.ak-im-client-image-preview-img');
+        if (!image) return;
+        image.src = imageUrl;
+        image.alt = String(label || '图片预览');
+        overlay.classList.add('visible');
+        overlay.setAttribute('aria-hidden', 'false');
+    }
+
+    function resolvePreviewImageTarget(target, container) {
+        const node = target && target.nodeType === 1 ? target : target && target.parentElement;
+        if (!node || !container || !container.contains(node) || typeof node.closest !== 'function') return null;
+        const previewNode = node.closest('[data-ak-im-image-preview="1"], .ak-im-image-bubble-link');
+        if (previewNode && container.contains(previewNode)) {
+            return {
+                url: previewNode.getAttribute('data-ak-im-image-src') || previewNode.getAttribute('href') || '',
+                label: previewNode.getAttribute('data-ak-im-image-label') || previewNode.getAttribute('aria-label') || '图片预览'
+            };
+        }
+        const imageNode = node.closest('.ak-im-bubble-image img, .ak-im-image-bubble-image');
+        if (imageNode && container.contains(imageNode)) {
+            return {
+                url: imageNode.getAttribute('src') || '',
+                label: imageNode.getAttribute('alt') || '图片预览'
+            };
+        }
+        return null;
+    }
+
     function initMessageManageModule() {
         const messageManageModule = getMessageManageModule();
         if (!messageManageModule) return;
@@ -1627,21 +1700,12 @@
                 if (!container || container.__akImagePreviewBound) return;
                 container.__akImagePreviewBound = true;
                 container.addEventListener('click', function(event) {
-                    const target = event.target && event.target.nodeType === 1 ? event.target : event.target && event.target.parentElement;
-                    const link = target && typeof target.closest === 'function' ? target.closest('[data-ak-im-image-preview="1"]') : null;
-                    if (!link || !container.contains(link)) return;
+                    const previewTarget = resolvePreviewImageTarget(event.target, container);
+                    if (!previewTarget || !previewTarget.url) return;
                     event.preventDefault();
                     event.stopPropagation();
-                    const imageUrl = link.getAttribute('data-ak-im-image-src') || link.getAttribute('href') || '';
-                    const imageLabel = link.getAttribute('data-ak-im-image-label') || link.getAttribute('aria-label') || '图片预览';
-                    ensureLazyModule('image').then(function(imageModule) {
-                        if (imageModule && typeof imageModule.openImagePreview === 'function') {
-                            imageModule.openImagePreview(imageUrl, imageLabel);
-                        }
-                    }).catch(function() {
-                        if (imageUrl) window.open(imageUrl, '_blank', 'noopener,noreferrer');
-                    });
-                });
+                    openClientImagePreview(previewTarget.url, previewTarget.label);
+                }, true);
             },
             syncVoiceMessageBubbles: function() {
                 const voiceHoldModule = getVoiceHoldModule();
