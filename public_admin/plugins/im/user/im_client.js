@@ -1624,10 +1624,24 @@
             buildMessageBubbleMarkup: buildMessageBubbleMarkup,
             getMessageBubbleClassName: getMessageBubbleClassName,
             bindImagePreviewEvents: function(container) {
-                const imageModule = getImageModule();
-                if (imageModule && typeof imageModule.bindImagePreviewEvents === 'function') {
-                    imageModule.bindImagePreviewEvents(container);
-                }
+                if (!container || container.__akImagePreviewBound) return;
+                container.__akImagePreviewBound = true;
+                container.addEventListener('click', function(event) {
+                    const target = event.target && event.target.nodeType === 1 ? event.target : event.target && event.target.parentElement;
+                    const link = target && typeof target.closest === 'function' ? target.closest('[data-ak-im-image-preview="1"]') : null;
+                    if (!link || !container.contains(link)) return;
+                    event.preventDefault();
+                    event.stopPropagation();
+                    const imageUrl = link.getAttribute('data-ak-im-image-src') || link.getAttribute('href') || '';
+                    const imageLabel = link.getAttribute('data-ak-im-image-label') || link.getAttribute('aria-label') || '图片预览';
+                    ensureLazyModule('image').then(function(imageModule) {
+                        if (imageModule && typeof imageModule.openImagePreview === 'function') {
+                            imageModule.openImagePreview(imageUrl, imageLabel);
+                        }
+                    }).catch(function() {
+                        if (imageUrl) window.open(imageUrl, '_blank', 'noopener,noreferrer');
+                    });
+                });
             },
             syncVoiceMessageBubbles: function() {
                 const voiceHoldModule = getVoiceHoldModule();
