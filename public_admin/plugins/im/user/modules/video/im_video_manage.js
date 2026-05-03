@@ -250,6 +250,37 @@
             window.console.info('[AK IM Video] ' + message, details || {});
         },
 
+        getVideoDebugSnapshot(player) {
+            const viewerEl = this.videoViewerEl;
+            const playerEl = player || this.videoViewerPlayer;
+            const viewerRect = viewerEl && viewerEl.getBoundingClientRect ? viewerEl.getBoundingClientRect() : null;
+            const playerRect = playerEl && playerEl.getBoundingClientRect ? playerEl.getBoundingClientRect() : null;
+            const viewerStyle = viewerEl && window.getComputedStyle ? window.getComputedStyle(viewerEl) : null;
+            const playerStyle = playerEl && window.getComputedStyle ? window.getComputedStyle(playerEl) : null;
+            return {
+                currentTime: playerEl ? playerEl.currentTime : 0,
+                duration: playerEl ? playerEl.duration : 0,
+                paused: playerEl ? playerEl.paused : true,
+                ended: playerEl ? playerEl.ended : false,
+                muted: playerEl ? playerEl.muted : false,
+                readyState: playerEl ? playerEl.readyState : 0,
+                networkState: playerEl ? playerEl.networkState : 0,
+                videoWidth: playerEl ? playerEl.videoWidth : 0,
+                videoHeight: playerEl ? playerEl.videoHeight : 0,
+                currentSrc: playerEl ? (playerEl.currentSrc || playerEl.src || '') : '',
+                viewerDisplay: viewerStyle ? viewerStyle.display : '',
+                viewerVisibility: viewerStyle ? viewerStyle.visibility : '',
+                viewerOpacity: viewerStyle ? viewerStyle.opacity : '',
+                viewerWidth: viewerRect ? viewerRect.width : 0,
+                viewerHeight: viewerRect ? viewerRect.height : 0,
+                playerDisplay: playerStyle ? playerStyle.display : '',
+                playerVisibility: playerStyle ? playerStyle.visibility : '',
+                playerOpacity: playerStyle ? playerStyle.opacity : '',
+                playerWidth: playerRect ? playerRect.width : 0,
+                playerHeight: playerRect ? playerRect.height : 0
+            };
+        },
+
         openVideoViewerFromSurface(surface) {
             if (!surface) return;
             const url = String(surface.getAttribute('data-ak-im-video-url') || '').trim();
@@ -310,15 +341,29 @@
                 viewerEl.classList.remove('needs-user-play');
             });
             this.videoViewerPlayer.addEventListener('playing', clearLoading);
+            this.videoViewerPlayer.addEventListener('playing', function() {
+                self.logVideoDebug('viewer playing', self.getVideoDebugSnapshot(self.videoViewerPlayer));
+            });
             this.videoViewerPlayer.addEventListener('canplay', clearLoading);
             this.videoViewerPlayer.addEventListener('loadeddata', clearLoading);
+            this.videoViewerPlayer.addEventListener('timeupdate', function() {
+                const now = Date.now();
+                const lastAt = Number(self.videoViewerPlayer.dataset.akImVideoLastTimeupdateLogAt || 0);
+                if (now - lastAt < 1000) return;
+                self.videoViewerPlayer.dataset.akImVideoLastTimeupdateLogAt = String(now);
+                self.logVideoDebug('viewer timeupdate', self.getVideoDebugSnapshot(self.videoViewerPlayer));
+            });
+            this.videoViewerPlayer.addEventListener('pause', function() {
+                self.logVideoDebug('viewer pause', self.getVideoDebugSnapshot(self.videoViewerPlayer));
+            });
+            this.videoViewerPlayer.addEventListener('ended', function() {
+                self.logVideoDebug('viewer ended', self.getVideoDebugSnapshot(self.videoViewerPlayer));
+            });
             this.videoViewerPlayer.addEventListener('error', function() {
                 self.logVideoDebug('viewer error event', {
                     code: self.videoViewerPlayer.error && self.videoViewerPlayer.error.code,
                     message: self.videoViewerPlayer.error && self.videoViewerPlayer.error.message,
-                    readyState: self.videoViewerPlayer.readyState,
-                    networkState: self.videoViewerPlayer.networkState,
-                    currentSrc: self.videoViewerPlayer.currentSrc || self.videoViewerPlayer.src || ''
+                    snapshot: self.getVideoDebugSnapshot(self.videoViewerPlayer)
                 });
                 viewerEl.classList.remove('is-loading');
                 viewerEl.classList.add('is-error');
@@ -383,17 +428,16 @@
             try {
                 player.load();
             } catch (e) {}
+            setTimeout(function() {
+                if (player.dataset.akImVideoViewerToken !== token) return;
+                self.logVideoDebug('viewer post-open snapshot', self.getVideoDebugSnapshot(player));
+            }, 300);
             const playResult = player.play();
             if (playResult && typeof playResult.catch === 'function') {
                 playResult.then(function() {
                     if (player.dataset.akImVideoViewerToken !== token) return;
                     viewerEl.classList.remove('needs-user-play');
-                    self.logVideoDebug('viewer play resolved', {
-                        token: token,
-                        readyState: player.readyState,
-                        networkState: player.networkState,
-                        currentSrc: player.currentSrc || player.src || ''
-                    });
+                    self.logVideoDebug('viewer play resolved', self.getVideoDebugSnapshot(player));
                 });
                 playResult.catch(function(error) {
                     if (player.dataset.akImVideoViewerToken !== token) return;
@@ -402,9 +446,7 @@
                         name: error && error.name,
                         message: error && error.message,
                         code: player.error && player.error.code,
-                        readyState: player.readyState,
-                        networkState: player.networkState,
-                        currentSrc: player.currentSrc || player.src || ''
+                        snapshot: self.getVideoDebugSnapshot(player)
                     });
                     viewerEl.classList.remove('is-loading');
                     const errorName = String(error && error.name || '').trim();
