@@ -235,10 +235,27 @@
             }
         },
 
+        buildVideoMatchKey(item) {
+            if (!item || typeof item !== 'object') return '';
+            if (String(item.message_type || '').trim().toLowerCase() !== 'video') return '';
+            const rawContent = String(item.content || '').trim();
+            if (!rawContent) return '';
+            try {
+                const parsed = JSON.parse(rawContent);
+                const senderUsername = String(item.sender_username || '').trim().toLowerCase();
+                const fileName = String(parsed && parsed.file_name || '').trim().toLowerCase().replace(/\.[^.]+$/, '');
+                const parts = [senderUsername, fileName];
+                return parts.join('|');
+            } catch (e) {
+                return '';
+            }
+        },
+
         buildPendingLocalMatchKey(item) {
             const messageType = String(item && item.message_type || '').trim().toLowerCase();
             if (messageType === 'image') return this.buildImageMatchKey(item);
             if (messageType === 'file') return this.buildFileMatchKey(item);
+            if (messageType === 'video') return this.buildVideoMatchKey(item);
             return '';
         },
 
@@ -255,7 +272,7 @@
             (Array.isArray(state.activeMessages) ? state.activeMessages : []).forEach(function(current, index) {
                 if (matchedIndex >= 0 || !self.isLocalTempMessage(current)) return;
                 const localStatus = self.getLocalMessageStatus(current);
-                if (localStatus !== 'preparing' && localStatus !== 'uploading') return;
+                if (localStatus !== 'preparing' && localStatus !== 'uploading' && localStatus !== 'compressing') return;
                 if (Number(current.conversation_id || 0) !== targetConversationId) return;
                 if (self.buildPendingLocalMatchKey(current) !== matchKey) return;
                 const currentSentAt = new Date(current.sent_at).getTime();

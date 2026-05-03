@@ -33,6 +33,7 @@ var (
 	errInvalidVoicePayload = errors.New("invalid voice payload")
 	errInvalidImagePayload = errors.New("invalid image payload")
 	errInvalidFilePayload = errors.New("invalid file payload")
+	errInvalidVideoPayload = errors.New("invalid video payload")
 	errInvalidLocationPayload = errors.New("invalid location payload")
 	errEmptyMessageContent = errors.New("empty content")
 )
@@ -241,6 +242,9 @@ func New(cfg config.Config) (*App, error) {
 	if err := app.ensureFileDirectories(); err != nil {
 		return nil, err
 	}
+	if err := app.ensureVideoDirectories(); err != nil {
+		return nil, err
+	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/im/api/bootstrap", app.handleBootstrap)
 	mux.HandleFunc("/im/api/contacts", app.handleContacts)
@@ -284,6 +288,7 @@ func New(cfg config.Config) (*App, error) {
 	mux.HandleFunc("/im/api/image_upload/config", app.handleImageUploadConfig)
 	mux.HandleFunc("/im/api/messages/image", app.handleSendImageMessage)
 	mux.HandleFunc("/im/api/messages/file", app.handleSendFileMessage)
+	mux.HandleFunc("/im/api/messages/video", app.handleSendVideoMessage)
 	mux.HandleFunc("/im/api/messages/voice", app.handleSendVoiceMessage)
 	mux.HandleFunc("/im/api/messages/read_progress", app.handleMessageReadProgress)
 	mux.HandleFunc("/im/api/messages/recall", app.handleRecallMessage)
@@ -307,6 +312,8 @@ func New(cfg config.Config) (*App, error) {
 	mux.HandleFunc("/im/assets/emoji/", app.handleEmojiAssetFile)
 	mux.HandleFunc("/im/assets/image/", app.handleImageAssetFile)
 	mux.HandleFunc("/im/assets/file/", app.handleFileAssetFile)
+	mux.HandleFunc("/im/assets/video/", app.handleVideoAssetFile)
+	mux.HandleFunc("/im/assets/video-poster/", app.handleVideoPosterAssetFile)
 	mux.HandleFunc("/im/assets/voice/", app.handleVoiceAssetFile)
 	mux.HandleFunc("/im/ws", app.handleWS)
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
@@ -1742,7 +1749,7 @@ func (a *App) handleSendMessage(w http.ResponseWriter, r *http.Request, username
 			writeJSON(w, http.StatusForbidden, map[string]any{"error": true, "message": err.Error(), "restriction": "group_mute"})
 			return
 		}
-		if errors.Is(err, errInvalidMessageType) || errors.Is(err, errInvalidEmojiAssetID) || errors.Is(err, errInvalidVoicePayload) || errors.Is(err, errInvalidImagePayload) || errors.Is(err, errInvalidFilePayload) || errors.Is(err, errInvalidLocationPayload) || errors.Is(err, errEmptyMessageContent) {
+		if errors.Is(err, errInvalidMessageType) || errors.Is(err, errInvalidEmojiAssetID) || errors.Is(err, errInvalidVoicePayload) || errors.Is(err, errInvalidImagePayload) || errors.Is(err, errInvalidFilePayload) || errors.Is(err, errInvalidVideoPayload) || errors.Is(err, errInvalidLocationPayload) || errors.Is(err, errEmptyMessageContent) {
 			writeJSON(w, http.StatusBadRequest, map[string]any{"error": true, "message": err.Error()})
 			return
 		}
@@ -1836,6 +1843,21 @@ func buildMessageStorage(req sendMessageRequest) (messageType string, contentPre
 		contentPayload = string(payloadBytes)
 		contentSizeRaw = filePayload.FileSize
 		contentSizeStored = filePayload.FileSize
+	case "video":
+		videoPayload, videoErr := normalizeVideoMessagePayload(req.Content)
+		if videoErr != nil {
+			err = videoErr
+			return
+		}
+		payloadBytes, marshalErr := json.Marshal(videoPayload)
+		if marshalErr != nil {
+			err = marshalErr
+			return
+		}
+		contentPreview = formatVideoMessagePreview(videoPayload.FileName)
+		contentPayload = string(payloadBytes)
+		contentSizeRaw = videoPayload.FileSize
+		contentSizeStored = videoPayload.FileSize
 	case "location":
 		locationPayload, locationErr := normalizeLocationMessagePayload(req.Content)
 		if locationErr != nil {

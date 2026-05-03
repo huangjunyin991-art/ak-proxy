@@ -65,6 +65,12 @@
             src: `${API_ROOT}/chat/plugins/im/user/modules/im_file_manage.js`,
             errorMessage: '文件模块加载失败'
         },
+        video: {
+            selector: 'script[data-ak-im-user-plugin-video-manage="1"]',
+            datasetKey: 'akImUserPluginVideoManage',
+            src: `${API_ROOT}/chat/plugins/im/user/modules/video/im_video_manage.js`,
+            errorMessage: '视频模块加载失败'
+        },
         uploadProgress: {
             selector: 'script[data-ak-im-user-plugin-upload-progress="1"]',
             datasetKey: 'akImUserPluginUploadProgress',
@@ -1572,6 +1578,14 @@
         return fileManageModule;
     }
 
+    function getVideoModule() {
+        const modules = window.AKIMUserModules;
+        if (!modules || typeof modules !== 'object') return null;
+        const videoManageModule = modules.videoManage;
+        if (!videoManageModule || typeof videoManageModule.init !== 'function') return null;
+        return videoManageModule;
+    }
+
     function getUploadProgressModule() {
         const modules = window.AKIMUserModules;
         if (!modules || typeof modules !== 'object') return null;
@@ -1810,6 +1824,25 @@
         });
     }
 
+    function initVideoManageModule() {
+        const videoModule = getVideoModule();
+        if (!videoModule) return;
+        videoModule.init({
+            state: state,
+            httpRoot: HTTP_ROOT,
+            requestFormData: requestFormData,
+            escapeHtml: escapeHtml,
+            formatFileSize: formatFileSize,
+            getUploadProgress: getUploadProgressModule,
+            applySentMessageItem: applySentMessageItem,
+            insertLocalMessage: insertLocalMessage,
+            updateLocalMessage: updateLocalMessage,
+            replaceLocalMessage: replaceLocalMessage,
+            removeLocalMessage: removeLocalMessage,
+            loadSessions: loadSessions
+        });
+    }
+
     function initUploadProgressModule() {
         const uploadProgressModule = getUploadProgressModule();
         if (!uploadProgressModule) return;
@@ -1921,6 +1954,7 @@
         if (moduleKey === 'emoji') return getEmojiModule();
         if (moduleKey === 'image') return getImageModule();
         if (moduleKey === 'file') return getFileModule();
+        if (moduleKey === 'video') return getVideoModule();
         if (moduleKey === 'uploadProgress') return getUploadProgressModule();
         if (moduleKey === 'location') return getLocationModule();
         if (moduleKey === 'voiceHold') return getVoiceHoldModule();
@@ -1944,6 +1978,7 @@
         else if (moduleKey === 'emoji') initEmojiManageModule();
         else if (moduleKey === 'image') initImageManageModule();
         else if (moduleKey === 'file') initFileManageModule();
+        else if (moduleKey === 'video') initVideoManageModule();
         else if (moduleKey === 'uploadProgress') initUploadProgressModule();
         else if (moduleKey === 'location') initLocationModule();
         else if (moduleKey === 'voiceHold') initVoiceHoldModule();
@@ -2024,6 +2059,7 @@
             ensureOptionalLazyModule('emoji'),
             ensureOptionalLazyModule('image'),
             ensureOptionalLazyModule('uploadProgress'),
+            ensureOptionalLazyModule('video'),
             ensureOptionalLazyModule('file'),
             ensureOptionalLazyModule('location'),
             ensureOptionalLazyModule('navigation'),
@@ -2041,6 +2077,11 @@
         if (imageModule && typeof imageModule.buildMessageBubbleMarkup === 'function') {
             const imageMarkup = imageModule.buildMessageBubbleMarkup(item);
             if (imageMarkup) return imageMarkup;
+        }
+        const videoModule = getVideoModule();
+        if (videoModule && typeof videoModule.buildMessageBubbleMarkup === 'function') {
+            const videoMarkup = videoModule.buildMessageBubbleMarkup(item);
+            if (videoMarkup) return videoMarkup;
         }
         const fileModule = getFileModule();
         if (fileModule && typeof fileModule.buildMessageBubbleMarkup === 'function') {
@@ -2070,6 +2111,11 @@
         if (imageModule && typeof imageModule.getMessageBubbleClassName === 'function') {
             const imageClassName = imageModule.getMessageBubbleClassName(item);
             if (imageClassName) return imageClassName;
+        }
+        const videoModule = getVideoModule();
+        if (videoModule && typeof videoModule.getMessageBubbleClassName === 'function') {
+            const videoClassName = videoModule.getMessageBubbleClassName(item);
+            if (videoClassName) return videoClassName;
         }
         const fileModule = getFileModule();
         if (fileModule && typeof fileModule.getMessageBubbleClassName === 'function') {
@@ -2267,12 +2313,17 @@
 
     function sendAttachmentFile(file) {
         return ensureOptionalLazyModule('uploadProgress').then(function() {
-            return ensureLazyModule('file');
-        }).then(function(fileModule) {
-            if (fileModule && typeof fileModule.sendAttachmentFile === 'function') {
-                return fileModule.sendAttachmentFile(file);
+            return ensureOptionalLazyModule('video');
+        }).then(function(videoModule) {
+            if (videoModule && typeof videoModule.isVideoFile === 'function' && videoModule.isVideoFile(file) && typeof videoModule.sendVideoFile === 'function') {
+                return videoModule.sendVideoFile(file);
             }
-            return Promise.reject(new Error('文件发送模块暂不可用'));
+            return ensureLazyModule('file').then(function(fileModule) {
+                if (fileModule && typeof fileModule.sendAttachmentFile === 'function') {
+                    return fileModule.sendAttachmentFile(file);
+                }
+                return Promise.reject(new Error('文件发送模块暂不可用'));
+            });
         });
     }
 

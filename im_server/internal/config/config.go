@@ -13,6 +13,7 @@ type Config struct {
 	VoiceStoreDir    string
 	ImageStoreDir    string
 	FileStoreDir     string
+	VideoStoreDir    string
 }
 
 func Load() Config {
@@ -27,6 +28,7 @@ func Load() Config {
 		VoiceStoreDir:    getEnv("IM_VOICE_STORE_DIR", "./data/im/voice_assets"),
 		ImageStoreDir:    getEnv("IM_IMAGE_STORE_DIR", "./data/im/image_assets"),
 		FileStoreDir:     getEnv("IM_FILE_STORE_DIR", "./data/im/file_assets"),
+		VideoStoreDir:    getEnv("IM_VIDEO_STORE_DIR", "./data/im/video_assets"),
 	}
 }
 
