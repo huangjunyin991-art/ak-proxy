@@ -6,10 +6,12 @@
 
     const videoManageModule = {
         ctx: null,
+        playbackBound: false,
 
         init(ctx) {
             this.ctx = ctx || null;
             this.ensureStyle();
+            this.bindPlaybackState();
         },
 
         getState() {
@@ -74,7 +76,22 @@
             });
         },
 
-        createTempMessage(file, tempId) {
+        createLocalVideoUrl(file) {
+            try {
+                return URL.createObjectURL(file);
+            } catch (e) {
+                return '';
+            }
+        },
+
+        revokeLocalVideoUrl(url) {
+            if (!url) return;
+            try {
+                URL.revokeObjectURL(url);
+            } catch (e) {}
+        },
+
+        createTempMessage(file, tempId, localVideoUrl) {
             const state = this.getState();
             const fileName = String(file && file.name || '').trim() || ('video-' + Date.now());
             return {
@@ -94,22 +111,30 @@
                 __akTempId: tempId,
                 __akLocalStatus: 'uploading',
                 __akUploadProgress: 0,
-                __akUploadError: ''
+                __akUploadError: '',
+                __akLocalVideoUrl: String(localVideoUrl || '').trim()
             };
         },
 
         resolveVideoPayload(item) {
-            if (String(item && item.message_type || '').trim().toLowerCase() !== 'video') return null;
+            const messageType = String(item && item.message_type || '').trim().toLowerCase();
+            if (messageType !== 'video' && messageType !== 'file') return null;
             const rawContent = String(item && item.content || '').trim();
             if (!rawContent) return null;
             try {
                 const parsed = JSON.parse(rawContent);
                 const fileName = String(parsed && parsed.file_name || '视频').trim() || '视频';
+                const fileUrl = String(parsed && parsed.file_url || '').trim();
+                const videoUrl = String(parsed && (parsed.video_url || parsed.file_url) || '').trim();
+                const rawMimeType = String(parsed && parsed.mime_type || '').trim();
+                const mimeType = rawMimeType || (messageType === 'video' ? 'video/mp4' : '');
+                const isFileVideo = messageType === 'file' && (mimeType.toLowerCase().indexOf('video/') === 0 || VIDEO_EXT_RE.test(fileName));
+                if (messageType === 'file' && (!isFileVideo || parsed && parsed.expired === true || !fileUrl)) return null;
                 return {
                     fileName: fileName,
-                    videoUrl: String(parsed && (parsed.video_url || parsed.file_url) || '').trim(),
+                    videoUrl: String(item && item.__akLocalVideoUrl || '').trim() || videoUrl,
                     posterUrl: String(parsed && parsed.poster_url || '').trim(),
-                    mimeType: String(parsed && parsed.mime_type || 'video/mp4').trim() || 'video/mp4',
+                    mimeType: mimeType,
                     fileSize: Math.max(0, Number(parsed && parsed.file_size || 0) || 0),
                     width: Math.max(0, Number(parsed && parsed.width || 0) || 0),
                     height: Math.max(0, Number(parsed && parsed.height || 0) || 0),
@@ -140,7 +165,7 @@
             const isLocal = !!String(item && (item.__akTempId || item.client_temp_id) || '').trim() && Number(item && item.id || 0) <= 0;
             const safeName = this.escapeHtml(payload.fileName);
             const meta = this.formatFileSize(payload.fileSize) + (payload.width && payload.height ? (' · ' + payload.width + '×' + payload.height) : '');
-            if (isLocal || !payload.videoUrl) {
+            if (!payload.videoUrl) {
                 return '<div class="ak-im-video-bubble ak-im-video-bubble-local" role="note" aria-label="视频发送中">' +
                     '<span class="ak-im-video-local-icon" aria-hidden="true">▶</span>' +
                     '<span class="ak-im-video-meta"><span class="ak-im-video-name">' + safeName + '</span><span class="ak-im-video-size">' + this.escapeHtml(meta) + '</span></span>' +
@@ -150,14 +175,38 @@
             const safeUrl = this.escapeAttribute(payload.videoUrl);
             const safePoster = this.escapeAttribute(payload.posterUrl);
             const posterAttr = safePoster ? ' poster="' + safePoster + '"' : '';
-            return '<div class="ak-im-video-bubble">' +
+            const ratioAttr = payload.width && payload.height ? ' style="aspect-ratio:' + Math.max(1, payload.width) + '/' + Math.max(1, payload.height) + '"' : '';
+            return '<div class="ak-im-video-bubble' + (isLocal ? ' ak-im-video-bubble-sending' : '') + '">' +
+                '<div class="ak-im-video-surface"' + ratioAttr + '>' +
                 '<video class="ak-im-video-player" controls playsinline preload="metadata" src="' + safeUrl + '"' + posterAttr + '></video>' +
-                '<div class="ak-im-video-footer"><span class="ak-im-video-name">' + safeName + '</span><a class="ak-im-video-download" href="' + safeUrl + '" target="_blank" rel="noopener noreferrer" download="' + this.escapeAttribute(payload.fileName) + '">下载</a></div>' +
+                    '<span class="ak-im-video-play-badge" aria-hidden="true">▶</span>' +
+                    overlayMarkup +
+                '</div>' +
+                '<div class="ak-im-video-footer"><span class="ak-im-video-info"><span class="ak-im-video-name">' + safeName + '</span><span class="ak-im-video-detail">' + this.escapeHtml(meta) + '</span></span><a class="ak-im-video-download" href="' + safeUrl + '" target="_blank" rel="noopener noreferrer" download="' + this.escapeAttribute(payload.fileName) + '">下载</a></div>' +
             '</div>';
         },
 
         getMessageBubbleClassName(item) {
             return this.resolveVideoPayload(item) ? 'ak-im-bubble-video' : '';
+        },
+
+        bindPlaybackState() {
+            if (this.playbackBound) return;
+            this.playbackBound = true;
+            const updateState = function(event) {
+                const videoEl = event && event.target && event.target.closest ? event.target.closest('.ak-im-video-player') : null;
+                if (!videoEl) return;
+                const bubbleEl = videoEl.closest ? videoEl.closest('.ak-im-video-bubble') : null;
+                if (!bubbleEl) return;
+                if (event.type === 'play') {
+                    bubbleEl.classList.add('is-playing');
+                    return;
+                }
+                bubbleEl.classList.remove('is-playing');
+            };
+            document.addEventListener('play', updateState, true);
+            document.addEventListener('pause', updateState, true);
+            document.addEventListener('ended', updateState, true);
         },
 
         sendVideoFile(file) {
@@ -178,10 +227,11 @@
             const targetConversationId = Number(state.activeConversationId || 0);
             const fileName = String(file && file.name || '').trim() || ('video-' + Date.now());
             const tempId = this.createTempId();
+            const localVideoUrl = this.createLocalVideoUrl(file);
             const self = this;
             let hasLocalMessage = false;
             if (typeof this.ctx.insertLocalMessage === 'function') {
-                hasLocalMessage = this.ctx.insertLocalMessage(this.createTempMessage(file, tempId));
+                hasLocalMessage = this.ctx.insertLocalMessage(this.createTempMessage(file, tempId, localVideoUrl));
             }
             const formData = new FormData();
             formData.append('conversation_id', String(targetConversationId));
@@ -202,10 +252,12 @@
             }).then(function(data) {
                 const item = data && data.item ? data.item : null;
                 if (hasLocalMessage && item && typeof self.ctx.replaceLocalMessage === 'function' && self.ctx.replaceLocalMessage(tempId, item)) {
+                    self.revokeLocalVideoUrl(localVideoUrl);
                     return Promise.resolve(typeof self.ctx.loadSessions === 'function' ? self.ctx.loadSessions() : null).then(function() {
                         return item;
                     });
                 }
+                self.revokeLocalVideoUrl(localVideoUrl);
                 return Promise.resolve(typeof self.ctx.applySentMessageItem === 'function' ? self.ctx.applySentMessageItem(item) : null).then(function() {
                     return item;
                 });
@@ -230,12 +282,19 @@
             const style = document.createElement('style');
             style.id = 'ak-im-video-manage-style';
             style.textContent = [
-                '#ak-im-root .ak-im-bubble-video{padding:0;overflow:hidden;background:#000;color:#fff}',
-                '#ak-im-root .ak-im-video-bubble{position:relative;width:min(280px,66vw);background:#020617;color:#fff;overflow:hidden}',
-                '#ak-im-root .ak-im-video-player{display:block;width:100%;max-height:360px;background:#000;object-fit:contain}',
-                '#ak-im-root .ak-im-video-footer{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 10px;background:rgba(15,23,42,.92);box-sizing:border-box}',
-                '#ak-im-root .ak-im-video-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px;font-weight:700}',
-                '#ak-im-root .ak-im-video-download{color:#bfdbfe;text-decoration:none;font-size:12px;flex:0 0 auto}',
+                '#ak-im-root .ak-im-bubble-video{padding:0;overflow:hidden;background:transparent;color:#fff;box-shadow:none}',
+                '#ak-im-root .ak-im-video-bubble{position:relative;width:min(276px,68vw);border-radius:10px;background:#020617;color:#fff;overflow:hidden;box-shadow:0 6px 18px rgba(15,23,42,.16)}',
+                '#ak-im-root .ak-im-video-surface{position:relative;width:100%;aspect-ratio:9/12;background:linear-gradient(135deg,#111827,#020617);overflow:hidden}',
+                '#ak-im-root .ak-im-video-player{display:block;width:100%;height:100%;background:#000;object-fit:cover}',
+                '#ak-im-root .ak-im-video-player::-webkit-media-controls-panel{background:linear-gradient(transparent,rgba(0,0,0,.55))}',
+                '#ak-im-root .ak-im-video-play-badge{position:absolute;left:50%;top:50%;width:58px;height:58px;transform:translate(-50%,-50%);border-radius:999px;display:flex;align-items:center;justify-content:center;background:rgba(15,23,42,.42);border:2px solid rgba(255,255,255,.82);box-shadow:0 8px 24px rgba(0,0,0,.28);font-size:26px;line-height:1;text-indent:4px;pointer-events:none}',
+                '#ak-im-root .ak-im-video-player:playing+.ak-im-video-play-badge{opacity:0}',
+                '#ak-im-root .ak-im-video-bubble.is-playing .ak-im-video-play-badge{opacity:0}',
+                '#ak-im-root .ak-im-video-footer{position:absolute;left:0;right:0;bottom:0;display:flex;align-items:flex-end;justify-content:space-between;gap:10px;padding:34px 10px 9px;background:linear-gradient(transparent,rgba(0,0,0,.72));box-sizing:border-box;pointer-events:none}',
+                '#ak-im-root .ak-im-video-info{min-width:0;display:flex;flex-direction:column;gap:2px}',
+                '#ak-im-root .ak-im-video-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px;font-weight:700;text-shadow:0 1px 2px rgba(0,0,0,.45)}',
+                '#ak-im-root .ak-im-video-detail{font-size:11px;color:rgba(255,255,255,.78);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-shadow:0 1px 2px rgba(0,0,0,.45)}',
+                '#ak-im-root .ak-im-video-download{color:#e0f2fe;text-decoration:none;font-size:12px;flex:0 0 auto;pointer-events:auto;text-shadow:0 1px 2px rgba(0,0,0,.45)}',
                 '#ak-im-root .ak-im-video-bubble-local{display:flex;align-items:center;gap:12px;min-height:88px;padding:14px;box-sizing:border-box;background:#0f172a}',
                 '#ak-im-root .ak-im-video-local-icon{width:42px;height:42px;border-radius:999px;display:inline-flex;align-items:center;justify-content:center;background:rgba(255,255,255,.16);font-size:18px;flex:0 0 auto}',
                 '#ak-im-root .ak-im-video-meta{display:flex;flex-direction:column;gap:4px;min-width:0}',
