@@ -207,9 +207,11 @@
             const text = status === 'failed'
                 ? (String(item && item.__akUploadError || '').trim() || '发送失败')
                 : (status === 'compressing' ? '正在压缩 720p' : (progress > 0 ? ('上传中 ' + progress + '%') : '上传中'));
-            return '<span class="ak-im-video-progress-overlay' + (status === 'failed' ? ' is-failed' : '') + '">' +
-                '<span class="ak-im-video-progress-ring" aria-hidden="true"></span>' +
+            const progressStyle = status === 'uploading' ? ' style="width:' + progress + '%"' : '';
+            return '<span class="ak-im-video-progress-overlay' + (status === 'failed' ? ' is-failed' : '') + (status === 'uploading' ? ' is-uploading' : '') + '">' +
+                (status === 'failed' ? '<span class="ak-im-video-progress-ring" aria-hidden="true"></span>' : '') +
                 '<span class="ak-im-video-progress-text">' + this.escapeHtml(text) + '</span>' +
+                (status === 'uploading' ? '<span class="ak-im-video-progress-bar" aria-hidden="true"><span class="ak-im-video-progress-bar-fill"' + progressStyle + '></span></span>' : '') +
             '</span>';
         },
 
@@ -252,6 +254,7 @@
                 const bubbleEl = videoEl.closest ? videoEl.closest('.ak-im-video-bubble') : null;
                 const module = this;
                 try {
+                    module.pauseOtherVideos(videoEl);
                     if (bubbleEl) {
                         bubbleEl.classList.add('is-loading');
                         bubbleEl.classList.remove('is-error');
@@ -300,7 +303,26 @@
                 }
                 return;
             }
+            this.clearVideoLoadingTimeout(videoEl);
             videoEl.pause();
+        },
+
+        pauseOtherVideos(activeVideoEl) {
+            const root = document.getElementById('ak-im-root') || document;
+            const module = this;
+            Array.prototype.forEach.call(root.querySelectorAll('.ak-im-video-player'), function(videoEl) {
+                if (!videoEl || videoEl === activeVideoEl) return;
+                module.clearVideoLoadingTimeout(videoEl);
+                try {
+                    videoEl.pause();
+                } catch (e) {}
+                const bubbleEl = videoEl.closest ? videoEl.closest('.ak-im-video-bubble') : null;
+                if (bubbleEl) {
+                    bubbleEl.classList.remove('is-playing');
+                    bubbleEl.classList.remove('is-loading');
+                    bubbleEl.classList.remove('is-error');
+                }
+            });
         },
 
         startVideoLoadingTimeout(videoEl) {
@@ -380,6 +402,9 @@
                     return;
                 }
                 if (event.type === 'play') {
+                    self.pauseOtherVideos(videoEl);
+                    self.clearVideoLoadingTimeout(videoEl);
+                    bubbleEl.classList.remove('is-loading');
                     bubbleEl.classList.remove('is-error');
                     bubbleEl.classList.add('is-playing');
                     return;
@@ -628,6 +653,9 @@
                 '#ak-im-root .ak-im-video-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px;font-weight:700}',
                 '#ak-im-root .ak-im-video-size{font-size:12px;color:#cbd5e1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
                 '#ak-im-root .ak-im-video-progress-overlay{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;gap:8px;background:rgba(2,6,23,.72);color:#fff;font-size:12px;font-weight:800;z-index:2}',
+                '#ak-im-root .ak-im-video-progress-overlay.is-uploading{flex-direction:column;gap:10px}',
+                '#ak-im-root .ak-im-video-progress-bar{width:118px;height:5px;border-radius:999px;background:rgba(255,255,255,.24);overflow:hidden}',
+                '#ak-im-root .ak-im-video-progress-bar-fill{display:block;height:100%;border-radius:999px;background:#fff}',
                 '#ak-im-root .ak-im-video-progress-overlay.is-failed{background:rgba(127,29,29,.86)}',
                 '#ak-im-root .ak-im-video-progress-ring{width:26px;height:26px;border-radius:999px;border:3px solid rgba(255,255,255,.35);border-top-color:#fff;animation:ak-im-video-spin .8s linear infinite}',
                 '#ak-im-root .ak-im-video-progress-overlay.is-failed .ak-im-video-progress-ring{animation:none;border-color:#fecaca;color:#fecaca}',
