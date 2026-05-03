@@ -260,6 +260,7 @@
                 '<button class="ak-im-video-viewer-close" type="button" aria-label="关闭视频">×</button>' +
                 '<video class="ak-im-video-viewer-player" controls playsinline webkit-playsinline x5-playsinline preload="metadata"></video>' +
                 '<span class="ak-im-video-viewer-loading" aria-hidden="true"></span>' +
+                '<span class="ak-im-video-viewer-hint">点击视频开始播放</span>' +
                 '<span class="ak-im-video-viewer-error">视频加载失败</span>' +
             '</div>';
             document.body.appendChild(viewerEl);
@@ -269,14 +270,17 @@
             const clearLoading = function() {
                 viewerEl.classList.remove('is-loading');
                 viewerEl.classList.remove('is-error');
+                viewerEl.classList.remove('needs-user-play');
             };
             this.videoViewerPlayer.addEventListener('loadstart', function() {
                 viewerEl.classList.add('is-loading');
                 viewerEl.classList.remove('is-error');
+                viewerEl.classList.remove('needs-user-play');
             });
             this.videoViewerPlayer.addEventListener('waiting', function() {
                 viewerEl.classList.add('is-loading');
                 viewerEl.classList.remove('is-error');
+                viewerEl.classList.remove('needs-user-play');
             });
             this.videoViewerPlayer.addEventListener('playing', clearLoading);
             this.videoViewerPlayer.addEventListener('canplay', clearLoading);
@@ -284,6 +288,13 @@
             this.videoViewerPlayer.addEventListener('error', function() {
                 viewerEl.classList.remove('is-loading');
                 viewerEl.classList.add('is-error');
+            });
+            this.videoViewerPlayer.addEventListener('click', function() {
+                if (!self.videoViewerEl || !self.videoViewerEl.classList.contains('is-open') || !self.videoViewerPlayer || !self.videoViewerPlayer.paused) return;
+                const playResult = self.videoViewerPlayer.play();
+                if (playResult && typeof playResult.catch === 'function') {
+                    playResult.catch(function() {});
+                }
             });
             viewerEl.querySelector('.ak-im-video-viewer-close').addEventListener('click', function(event) {
                 event.preventDefault();
@@ -311,6 +322,7 @@
             viewerEl.classList.add('is-open');
             viewerEl.classList.add('is-loading');
             viewerEl.classList.remove('is-error');
+            viewerEl.classList.remove('needs-user-play');
             if (title) {
                 player.setAttribute('aria-label', title);
             } else {
@@ -324,15 +336,24 @@
             try {
                 player.pause();
             } catch (e) {}
+            player.controls = true;
+            player.autoplay = true;
             player.src = url;
             try {
                 player.load();
             } catch (e) {}
             const playResult = player.play();
             if (playResult && typeof playResult.catch === 'function') {
-                playResult.catch(function() {
+                playResult.catch(function(error) {
                     if (player.dataset.akImVideoViewerToken !== token) return;
                     viewerEl.classList.remove('is-loading');
+                    const errorName = String(error && error.name || '').trim();
+                    if (errorName === 'NotAllowedError') {
+                        viewerEl.classList.add('needs-user-play');
+                        viewerEl.classList.remove('is-error');
+                        return;
+                    }
+                    viewerEl.classList.remove('needs-user-play');
                     viewerEl.classList.add('is-error');
                 });
             }
@@ -345,6 +366,7 @@
             viewerEl.classList.remove('is-open');
             viewerEl.classList.remove('is-loading');
             viewerEl.classList.remove('is-error');
+            viewerEl.classList.remove('needs-user-play');
             delete player.dataset.akImVideoViewerToken;
             try {
                 player.pause();
@@ -403,9 +425,9 @@
             } else {
                 document.addEventListener('touchend', handleButtonActivate, true);
                 document.addEventListener('touchend', handleSurfaceActivate, true);
-                document.addEventListener('click', handleButtonActivate, true);
-                document.addEventListener('click', handleSurfaceActivate, true);
             }
+            document.addEventListener('click', handleButtonActivate, true);
+            document.addEventListener('click', handleSurfaceActivate, true);
             document.addEventListener('keydown', handleSurfaceKeyActivate, true);
         },
 
@@ -509,6 +531,8 @@
                 '.ak-im-video-viewer-close{position:absolute;right:0;top:-46px;width:38px;height:38px;border:0;border-radius:999px;background:rgba(255,255,255,.16);color:#fff;font-size:28px;line-height:38px;cursor:pointer;appearance:none;-webkit-appearance:none;padding:0}',
                 '.ak-im-video-viewer-loading{position:absolute;left:50%;top:50%;display:none;width:34px;height:34px;margin:-17px 0 0 -17px;border-radius:999px;border:3px solid rgba(255,255,255,.35);border-top-color:#fff;animation:ak-im-video-spin .8s linear infinite}',
                 '.ak-im-video-viewer.is-loading .ak-im-video-viewer-loading{display:block}',
+                '.ak-im-video-viewer-hint{position:absolute;left:50%;bottom:28px;display:none;transform:translateX(-50%);border-radius:999px;background:rgba(15,23,42,.72);color:#fff;font-size:13px;font-weight:800;padding:8px 12px}',
+                '.ak-im-video-viewer.needs-user-play .ak-im-video-viewer-hint{display:block}',
                 '.ak-im-video-viewer-error{position:absolute;left:50%;top:50%;display:none;transform:translate(-50%,-50%);border-radius:999px;background:rgba(127,29,29,.92);color:#fff;font-size:13px;font-weight:800;padding:10px 14px}',
                 '.ak-im-video-viewer.is-error .ak-im-video-viewer-error{display:block}',
                 '@media (pointer:coarse){#ak-im-root .ak-im-video-bubble{width:min(276px,72vw)}#ak-im-root .ak-im-video-surface{aspect-ratio:9/16;background:#000}#ak-im-root .ak-im-video-play-badge{display:flex}.ak-im-video-viewer{padding:0}.ak-im-video-viewer-stage{width:100%;height:100%}.ak-im-video-viewer-player{width:100%;max-height:100%;border-radius:0}.ak-im-video-viewer-close{right:12px;top:12px;z-index:2;background:rgba(15,23,42,.56)}}',
