@@ -237,6 +237,9 @@
         var memory = system.memory || {};
         var disk = system.disk || {};
         var process = system.process || {};
+        var imProcess = system.im_process || {};
+        var memorySub = memory.available ? formatBytes(memory.used_bytes) + ' / ' + formatBytes(memory.total_bytes) : '不可用';
+        var memoryDetail = memory.available ? '可用 ' + formatBytes(memory.available_bytes) + ' / 缓存 ' + formatBytes(memory.cached_bytes) : '不可用';
         var dbOk = health.database && health.database.ok;
         var imOk = health.im_server && health.im_server.ok;
         var cards = document.getElementById('monitoringCards');
@@ -244,16 +247,17 @@
             cards.innerHTML = renderCard('数据库', dbOk ? '正常' : '异常', health.database && health.database.message || '-') +
                 renderCard('IM 服务', imOk ? '正常' : '异常', health.im_server && health.im_server.message || '-') +
                 renderCard('CPU', formatPercent(system.cpu_percent), (system.cpu_count || '-') + ' 核') +
-                renderCard('内存', memory.available ? formatPercent(memory.percent) : '-', memory.available ? formatBytes(memory.used_bytes) + ' / ' + formatBytes(memory.total_bytes) : '不可用') +
+                renderCard('内存', memory.available ? formatPercent(memory.percent) : '-', memorySub + '；' + memoryDetail) +
                 renderCard('磁盘', disk.available ? formatPercent(disk.percent) : '-', disk.available ? formatBytes(disk.used_bytes) + ' / ' + formatBytes(disk.total_bytes) : '不可用') +
-                renderCard('后台进程内存', process.available ? formatBytes(process.rss_bytes) : '-', process.available ? '线程 ' + formatNumber(process.threads) + ' / PID ' + formatNumber(process.pid) : '不可用') +
+                renderCard('管理后台内存', process.available ? formatBytes(process.rss_bytes) : '-', process.available ? '线程 ' + formatNumber(process.threads) + ' / PID ' + formatNumber(process.pid) : '不可用') +
+                renderCard('IM进程内存', imProcess.available ? formatBytes(imProcess.rss_bytes) : '-', imProcess.available ? 'CPU ' + formatPercent(imProcess.cpu_percent) + ' / 线程 ' + formatNumber(imProcess.threads) + ' / PID ' + formatNumber(imProcess.pid) : '未找到 im-server') +
                 renderCard('后台运行时长', formatDuration(system.process_uptime_seconds), system.platform || '-') +
                 renderCard('数据库大小', formatBytes(database.database_size_bytes), '连接数 ' + formatNumber(database.active_connections));
         }
         var systemDonuts = document.getElementById('monitoringSystemDonuts');
         if (systemDonuts) {
             systemDonuts.innerHTML = renderDonut('CPU 使用率', system.cpu_percent, (system.cpu_count || '-') + ' 核', '#00d4ff') +
-                renderDonut('内存使用率', memory.available ? memory.percent : NaN, memory.available ? formatBytes(memory.used_bytes) + ' / ' + formatBytes(memory.total_bytes) : '不可用', '#00ff88') +
+                renderDonut('内存使用率', memory.available ? memory.percent : NaN, memory.available ? memorySub : '不可用', '#00ff88') +
                 renderDonut('磁盘使用率', disk.available ? disk.percent : NaN, disk.available ? formatBytes(disk.used_bytes) + ' / ' + formatBytes(disk.total_bytes) : '不可用', '#f5cd60');
         }
         var systemBars = document.getElementById('monitoringSystemBars');
@@ -262,7 +266,9 @@
             var loadPercent = load.available && system.cpu_count ? Math.min(100, Number(load.load1 || 0) / Number(system.cpu_count || 1) * 100) : 0;
             systemBars.innerHTML = renderProgress('1分钟负载', loadPercent, load.available ? String(Number(load.load1 || 0).toFixed(2)) : '-') +
                 renderProgress('5分钟负载', load.available && system.cpu_count ? Math.min(100, Number(load.load5 || 0) / Number(system.cpu_count || 1) * 100) : 0, load.available ? String(Number(load.load5 || 0).toFixed(2)) : '-') +
-                renderProgress('15分钟负载', load.available && system.cpu_count ? Math.min(100, Number(load.load15 || 0) / Number(system.cpu_count || 1) * 100) : 0, load.available ? String(Number(load.load15 || 0).toFixed(2)) : '-');
+                renderProgress('15分钟负载', load.available && system.cpu_count ? Math.min(100, Number(load.load15 || 0) / Number(system.cpu_count || 1) * 100) : 0, load.available ? String(Number(load.load15 || 0).toFixed(2)) : '-') +
+                renderProgress('可用内存', memory.available && memory.total_bytes ? Number(memory.available_bytes || 0) / Number(memory.total_bytes || 1) * 100 : 0, memory.available ? formatBytes(memory.available_bytes) : '-') +
+                renderProgress('文件缓存', memory.available && memory.total_bytes ? Number(memory.cached_bytes || 0) / Number(memory.total_bytes || 1) * 100 : 0, memory.available ? formatBytes(memory.cached_bytes) : '-');
         }
         var systemMeta = document.getElementById('monitoringSystemMeta');
         if (systemMeta) systemMeta.textContent = '更新于 ' + formatTime(system.generated_at);

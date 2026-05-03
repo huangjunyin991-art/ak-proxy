@@ -20,6 +20,19 @@ def _bytes_to_int(value) -> int:
         return 0
 
 
+def _read_meminfo() -> dict:
+    values = {}
+    try:
+        with open("/proc/meminfo", "r", encoding="utf-8") as f:
+            for line in f:
+                parts = line.split()
+                if len(parts) >= 2:
+                    values[parts[0].rstrip(":")] = int(parts[1]) * 1024
+    except Exception:
+        return {}
+    return values
+
+
 def _get_load_average() -> dict:
     if not hasattr(os, "getloadavg"):
         return {"available": False, "load1": None, "load5": None, "load15": None}
@@ -62,12 +75,7 @@ def _fallback_cpu_percent():
 
 def _fallback_memory_snapshot() -> dict:
     try:
-        values = {}
-        with open("/proc/meminfo", "r", encoding="utf-8") as f:
-            for line in f:
-                parts = line.split()
-                if len(parts) >= 2:
-                    values[parts[0].rstrip(":")] = int(parts[1]) * 1024
+        values = _read_meminfo()
         total = values.get("MemTotal", 0)
         available = values.get("MemAvailable", 0)
         if total <= 0:
@@ -78,6 +86,10 @@ def _fallback_memory_snapshot() -> dict:
             "total_bytes": total,
             "used_bytes": used,
             "available_bytes": available,
+            "free_bytes": values.get("MemFree", 0),
+            "cached_bytes": values.get("Cached", 0) + values.get("SReclaimable", 0),
+            "buffers_bytes": values.get("Buffers", 0),
+            "shared_bytes": values.get("Shmem", 0),
             "percent": used / total * 100.0,
         }
     except Exception:
@@ -126,6 +138,40 @@ def _fallback_process_snapshot() -> dict:
         return {"available": False}
 
 
+def _process_snapshot(proc) -> dict:
+    try:
+        mem = proc.memory_info()
+        return {
+            "available": True,
+            "pid": int(proc.pid),
+            "name": str(proc.name() or ""),
+            "rss_bytes": _bytes_to_int(getattr(mem, "rss", 0)),
+            "vms_bytes": _bytes_to_int(getattr(mem, "vms", 0)),
+            "threads": int(proc.num_threads()),
+            "cpu_percent": float(proc.cpu_percent(interval=0.0)),
+        }
+    except Exception:
+        return {"available": False}
+
+
+def _find_im_server_process() -> dict:
+    if psutil is None:
+        return {"available": False}
+    try:
+        for proc in psutil.process_iter(["pid", "name", "cmdline"]):
+            try:
+                name = str(proc.info.get("name") or "")
+                cmdline = " ".join(str(item or "") for item in (proc.info.get("cmdline") or []))
+                probe = (name + " " + cmdline).lower()
+                if "im-server" in probe or "cmd/im_server" in probe:
+                    return _process_snapshot(proc)
+            except Exception:
+                continue
+    except Exception:
+        return {"available": False}
+    return {"available": False}
+
+
 def collect_system_snapshot() -> dict:
     cpu_count = os.cpu_count() or 1
     load_average = _get_load_average()
@@ -141,9 +187,11 @@ def collect_system_snapshot() -> dict:
         "memory": {"available": False},
         "disk": {"available": False},
         "process": {"available": False},
+        "im_process": {"available": False},
         "high_load": False,
         "high_load_reasons": [],
     }
+    meminfo = _read_meminfo()
     if psutil is not None:
         try:
             data["cpu_percent"] = float(psutil.cpu_percent(interval=0.0))
@@ -156,6 +204,10 @@ def collect_system_snapshot() -> dict:
                 "total_bytes": _bytes_to_int(memory.total),
                 "used_bytes": _bytes_to_int(memory.used),
                 "available_bytes": _bytes_to_int(memory.available),
+                "free_bytes": _bytes_to_int(getattr(memory, "free", 0)),
+                "cached_bytes": _bytes_to_int(getattr(memory, "cached", 0)) + meminfo.get("SReclaimable", 0),
+                "buffers_bytes": _bytes_to_int(getattr(memory, "buffers", 0)),
+                "shared_bytes": _bytes_to_int(getattr(memory, "shared", 0)),
                 "percent": float(memory.percent),
             }
         except Exception:
@@ -191,6 +243,7 @@ def collect_system_snapshot() -> dict:
         data["disk"] = _fallback_disk_snapshot()
     if not data.get("process", {}).get("available"):
         data["process"] = _fallback_process_snapshot()
+    data["im_process"] = _find_im_server_process()
     reasons = []
     cpu_percent = data.get("cpu_percent")
     if isinstance(cpu_percent, (int, float)) and cpu_percent >= 85:
