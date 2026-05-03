@@ -84,10 +84,23 @@
             if (!rawUrl || rawUrl.indexOf('/im/assets/file/') < 0) return rawUrl;
             try {
                 const finalUrl = new URL(rawUrl, window.location.origin);
-                finalUrl.searchParams.set('inline', '1');
+                const prefix = '/im/assets/file/';
+                const prefixIndex = finalUrl.pathname.indexOf(prefix);
+                if (prefixIndex >= 0) {
+                    const storageName = finalUrl.pathname.slice(prefixIndex + prefix.length);
+                    if (storageName) {
+                        finalUrl.pathname = '/im/assets/file-video/' + storageName + '.video.mp4';
+                    }
+                }
+                finalUrl.search = '';
                 return finalUrl.toString();
             } catch (e) {
-                return rawUrl + (rawUrl.indexOf('?') >= 0 ? '&' : '?') + 'inline=1';
+                const cleanUrl = rawUrl.split('?')[0];
+                const prefix = '/im/assets/file/';
+                const prefixIndex = cleanUrl.indexOf(prefix);
+                if (prefixIndex < 0) return rawUrl;
+                const storageName = cleanUrl.slice(prefixIndex + prefix.length);
+                return storageName ? ('/im/assets/file-video/' + storageName + '.video.mp4') : rawUrl;
             }
         },
 
@@ -101,7 +114,7 @@
                 if (prefixIndex < 0) return '';
                 const storageName = finalUrl.pathname.slice(prefixIndex + prefix.length);
                 if (!storageName) return '';
-                finalUrl.pathname = '/im/assets/file-video-poster/' + storageName + '.poster.jpg';
+                finalUrl.pathname = '/im/assets/file-video-poster/' + storageName + '.video.poster.jpg';
                 finalUrl.search = '';
                 return finalUrl.toString();
             } catch (e) {
@@ -110,7 +123,7 @@
                 const prefixIndex = cleanUrl.indexOf(prefix);
                 if (prefixIndex < 0) return '';
                 const storageName = cleanUrl.slice(prefixIndex + prefix.length);
-                return storageName ? ('/im/assets/file-video-poster/' + storageName + '.poster.jpg') : '';
+                return storageName ? ('/im/assets/file-video-poster/' + storageName + '.video.poster.jpg') : '';
             }
         },
 

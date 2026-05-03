@@ -312,6 +312,7 @@ func New(cfg config.Config) (*App, error) {
 	mux.HandleFunc("/im/assets/emoji/", app.handleEmojiAssetFile)
 	mux.HandleFunc("/im/assets/image/", app.handleImageAssetFile)
 	mux.HandleFunc("/im/assets/file-video-poster/", app.handleFileVideoPosterAssetFile)
+	mux.HandleFunc("/im/assets/file-video/", app.handleFileVideoAssetFile)
 	mux.HandleFunc("/im/assets/file/", app.handleFileAssetFile)
 	mux.HandleFunc("/im/assets/video/", app.handleVideoAssetFile)
 	mux.HandleFunc("/im/assets/video-poster/", app.handleVideoPosterAssetFile)

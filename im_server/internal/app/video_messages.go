@@ -209,7 +209,7 @@ func transcodeVideoTo720p(inputPath string, outputPath string) error {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Minute)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "ffmpeg", "-y", "-i", inputPath, "-vf", "scale=-2:min(720\\,ih)", "-c:v", "libx264", "-preset", "veryfast", "-crf", "28", "-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart", outputPath)
+	cmd := exec.CommandContext(ctx, "ffmpeg", "-y", "-i", inputPath, "-vf", "scale=-2:min(720\\,ih)", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-preset", "veryfast", "-crf", "28", "-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart", outputPath)
 	if _, err := cmd.CombinedOutput(); err != nil {
 		if ctx.Err() == context.DeadlineExceeded {
 			return errors.New("视频压缩超时")

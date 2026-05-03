@@ -594,6 +594,7 @@ func (a *App) removeFileAssetFile(storageName string) {
 		return
 	}
 	_ = os.Remove(filepath.Join(strings.TrimSpace(a.cfg.FileStoreDir), storageName))
+	_ = os.Remove(filepath.Join(strings.TrimSpace(a.cfg.FileStoreDir), buildFileVideoAssetName(storageName)))
 	_ = os.Remove(filepath.Join(strings.TrimSpace(a.cfg.FileStoreDir), buildFileVideoPosterName(storageName)))
 }
 
@@ -851,15 +852,73 @@ func resolveInlineVideoMimeType(mimeType string, fileName string) string {
 }
 
 func buildFileVideoPosterName(storageName string) string {
-	return strings.TrimSpace(storageName) + ".poster.jpg"
+	return strings.TrimSpace(storageName) + ".video.poster.jpg"
+}
+
+func buildFileVideoAssetName(storageName string) string {
+	return strings.TrimSpace(storageName) + ".video.mp4"
+}
+
+func ensureFileVideoAssetStorageName(storageName string) bool {
+	normalized := strings.TrimSpace(storageName)
+	if !strings.HasSuffix(strings.ToLower(normalized), ".video.mp4") {
+		return false
+	}
+	return ensureFileStorageName(strings.TrimSuffix(normalized, ".video.mp4"))
 }
 
 func ensureFileVideoPosterStorageName(storageName string) bool {
 	normalized := strings.TrimSpace(storageName)
-	if !strings.HasSuffix(strings.ToLower(normalized), ".poster.jpg") {
+	if !strings.HasSuffix(strings.ToLower(normalized), ".video.poster.jpg") {
 		return false
 	}
-	return ensureFileStorageName(strings.TrimSuffix(normalized, ".poster.jpg"))
+	return ensureFileStorageName(strings.TrimSuffix(normalized, ".video.poster.jpg"))
+}
+
+func (a *App) prepareFileVideoAsset(r *http.Request, assetName string) (string, storedFileAssetRecord, error) {
+	if !ensureFileVideoAssetStorageName(assetName) {
+		return "", storedFileAssetRecord{}, errInvalidFilePayload
+	}
+	storageName := strings.TrimSuffix(assetName, ".video.mp4")
+	record, err := a.loadFileAssetRecord(r.Context(), storageName)
+	if err != nil {
+		return "", storedFileAssetRecord{}, err
+	}
+	if status := strings.ToLower(strings.TrimSpace(record.Status)); status != "" && status != "active" {
+		return "", storedFileAssetRecord{}, os.ErrNotExist
+	}
+	if !record.ExpiresAt.IsZero() && time.Now().After(record.ExpiresAt) {
+		_ = a.expireFileAsset(r.Context(), storageName)
+		return "", storedFileAssetRecord{}, os.ErrNotExist
+	}
+	mimeType := normalizeFileMimeType(record.MimeType)
+	if resolveInlineVideoMimeType(mimeType, record.FileName) == "" {
+		return "", storedFileAssetRecord{}, errInvalidFilePayload
+	}
+	filePath := filepath.Join(strings.TrimSpace(a.cfg.FileStoreDir), storageName)
+	assetPath := filepath.Join(strings.TrimSpace(a.cfg.FileStoreDir), assetName)
+	if _, err := os.Stat(assetPath); err == nil {
+		return assetPath, record, nil
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return "", storedFileAssetRecord{}, err
+	}
+	if _, err := os.Stat(filePath); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			_ = a.markFileAssetMissing(r.Context(), storageName)
+		}
+		return "", storedFileAssetRecord{}, err
+	}
+	tempAssetPath := assetPath + ".tmp.mp4"
+	_ = os.Remove(tempAssetPath)
+	if err := transcodeVideoTo720p(filePath, tempAssetPath); err != nil {
+		_ = os.Remove(tempAssetPath)
+		return "", storedFileAssetRecord{}, err
+	}
+	if err := os.Rename(tempAssetPath, assetPath); err != nil {
+		_ = os.Remove(tempAssetPath)
+		return "", storedFileAssetRecord{}, err
+	}
+	return assetPath, record, nil
 }
 
 func (a *App) handleSendImageMessage(w http.ResponseWriter, r *http.Request) {
@@ -1186,31 +1245,20 @@ func (a *App) handleFileVideoPosterAssetFile(w http.ResponseWriter, r *http.Requ
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
-	storageName := strings.TrimSuffix(posterName, ".poster.jpg")
-	record, err := a.loadFileAssetRecord(r.Context(), storageName)
+	storageName := strings.TrimSuffix(posterName, ".video.poster.jpg")
+	assetPath, _, err := a.prepareFileVideoAsset(r, buildFileVideoAssetName(storageName))
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
+		if errors.Is(err, pgx.ErrNoRows) || errors.Is(err, os.ErrNotExist) {
 			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		if errors.Is(err, errInvalidFilePayload) {
+			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
-	if status := strings.ToLower(strings.TrimSpace(record.Status)); status != "" && status != "active" {
-		w.WriteHeader(http.StatusNotFound)
-		return
-	}
-	if !record.ExpiresAt.IsZero() && time.Now().After(record.ExpiresAt) {
-		_ = a.expireFileAsset(r.Context(), storageName)
-		w.WriteHeader(http.StatusNotFound)
-		return
-	}
-	mimeType := normalizeFileMimeType(record.MimeType)
-	if resolveInlineVideoMimeType(mimeType, record.FileName) == "" {
-		w.WriteHeader(http.StatusBadRequest)
-		return
-	}
-	filePath := filepath.Join(strings.TrimSpace(a.cfg.FileStoreDir), storageName)
 	posterPath := filepath.Join(strings.TrimSpace(a.cfg.FileStoreDir), posterName)
 	posterFile, err := os.Open(posterPath)
 	if err != nil {
@@ -1218,16 +1266,7 @@ func (a *App) handleFileVideoPosterAssetFile(w http.ResponseWriter, r *http.Requ
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
-		if _, statErr := os.Stat(filePath); statErr != nil {
-			if errors.Is(statErr, os.ErrNotExist) {
-				_ = a.markFileAssetMissing(r.Context(), storageName)
-				w.WriteHeader(http.StatusNotFound)
-				return
-			}
-			w.WriteHeader(http.StatusInternalServerError)
-			return
-		}
-		if err := generateVideoPoster(filePath, posterPath); err != nil {
+		if err := generateVideoPoster(assetPath, posterPath); err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
@@ -1246,6 +1285,46 @@ func (a *App) handleFileVideoPosterAssetFile(w http.ResponseWriter, r *http.Requ
 	w.Header().Set("Content-Type", "image/jpeg")
 	w.Header().Set("Cache-Control", "private, max-age=86400")
 	http.ServeContent(w, r, posterName, info.ModTime(), posterFile)
+}
+
+func (a *App) handleFileVideoAssetFile(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	assetName := strings.TrimSpace(strings.TrimPrefix(r.URL.Path, "/im/assets/file-video/"))
+	assetPath, record, err := a.prepareFileVideoAsset(r, assetName)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) || errors.Is(err, os.ErrNotExist) {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		if errors.Is(err, errInvalidFilePayload) {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+	file, err := os.Open(assetPath)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "video/mp4")
+	w.Header().Set("Content-Disposition", buildInlineContentDisposition(record.FileName))
+	w.Header().Set("Cache-Control", "private, max-age=86400")
+	http.ServeContent(w, r, record.FileName, info.ModTime(), file)
 }
 
 func (a *App) handleInternalFileAssetConfig(w http.ResponseWriter, r *http.Request) {
