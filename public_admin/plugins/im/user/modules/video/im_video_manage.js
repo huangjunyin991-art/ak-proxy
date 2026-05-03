@@ -8,7 +8,7 @@
         ctx: null,
         playbackBound: false,
         previewBound: false,
-        lastPlaybackToggleAt: 0,
+        activeVideoEl: null,
 
         init(ctx) {
             this.ctx = ctx || null;
@@ -254,6 +254,7 @@
                 const bubbleEl = videoEl.closest ? videoEl.closest('.ak-im-video-bubble') : null;
                 const module = this;
                 try {
+                    module.setActiveVideo(videoEl);
                     module.pauseOtherVideos(videoEl);
                     module.markVideoPlayRequested(videoEl);
                     if (bubbleEl) {
@@ -278,6 +279,7 @@
                             }
                             module.clearVideoLoadingTimeout(videoEl);
                             module.clearVideoPlayRequested(videoEl);
+                            module.clearActiveVideo(videoEl);
                             console.warn('[AK IM Video] play failed', {
                                 message: error && error.message ? error.message : String(error || ''),
                                 name: error && error.name ? error.name : '',
@@ -295,6 +297,7 @@
                     }
                     module.clearVideoLoadingTimeout(videoEl);
                     module.clearVideoPlayRequested(videoEl);
+                    module.clearActiveVideo(videoEl);
                     console.warn('[AK IM Video] play exception', {
                         message: error && error.message ? error.message : String(error || ''),
                         name: error && error.name ? error.name : '',
@@ -306,6 +309,29 @@
                 }
                 return;
             }
+        },
+
+        shouldAcceptVideoActivate(videoEl, debounceMs) {
+            if (!videoEl) return false;
+            const now = Date.now();
+            const lastAt = Number(videoEl.dataset.akImVideoLastActivateAt || 0);
+            if (now - lastAt < debounceMs) return false;
+            videoEl.dataset.akImVideoLastActivateAt = String(now);
+            return true;
+        },
+
+        setActiveVideo(videoEl) {
+            this.activeVideoEl = videoEl || null;
+        },
+
+        clearActiveVideo(videoEl) {
+            if (!videoEl || this.activeVideoEl === videoEl) {
+                this.activeVideoEl = null;
+            }
+        },
+
+        isActiveVideo(videoEl) {
+            return !!(videoEl && this.activeVideoEl === videoEl);
         },
 
         markVideoPlayRequested(videoEl) {
@@ -419,6 +445,17 @@
                     return;
                 }
                 if (event.type === 'play') {
+                    if (!self.isActiveVideo(videoEl)) {
+                        self.clearVideoLoadingTimeout(videoEl);
+                        self.clearVideoPlayRequested(videoEl);
+                        bubbleEl.classList.remove('is-playing');
+                        bubbleEl.classList.remove('is-loading');
+                        bubbleEl.classList.remove('is-error');
+                        try {
+                            videoEl.pause();
+                        } catch (e) {}
+                        return;
+                    }
                     self.pauseOtherVideos(videoEl);
                     self.clearVideoLoadingTimeout(videoEl);
                     bubbleEl.classList.remove('is-loading');
@@ -427,7 +464,7 @@
                     return;
                 }
                 if (event.type === 'waiting' || event.type === 'loadstart') {
-                    if (!self.isVideoPlayRequested(videoEl)) {
+                    if (!self.isActiveVideo(videoEl) || !self.isVideoPlayRequested(videoEl)) {
                         bubbleEl.classList.remove('is-loading');
                         bubbleEl.classList.remove('is-error');
                         return;
@@ -438,6 +475,11 @@
                     return;
                 }
                 if (event.type === 'playing' || event.type === 'canplay' || event.type === 'loadeddata') {
+                    if (!self.isActiveVideo(videoEl) || !self.isVideoPlayRequested(videoEl)) {
+                        bubbleEl.classList.remove('is-loading');
+                        bubbleEl.classList.remove('is-error');
+                        return;
+                    }
                     self.clearVideoLoadingTimeout(videoEl);
                     bubbleEl.classList.remove('is-loading');
                     bubbleEl.classList.remove('is-error');
@@ -446,12 +488,13 @@
                 }
                 if (event.type === 'error') {
                     self.clearVideoLoadingTimeout(videoEl);
-                    if (!self.isVideoPlayRequested(videoEl)) {
+                    if (!self.isActiveVideo(videoEl) || !self.isVideoPlayRequested(videoEl)) {
                         bubbleEl.classList.remove('is-loading');
                         bubbleEl.classList.remove('is-error');
                         return;
                     }
                     self.clearVideoPlayRequested(videoEl);
+                    self.clearActiveVideo(videoEl);
                     bubbleEl.classList.remove('is-loading');
                     bubbleEl.classList.add('is-error');
                     return;
@@ -460,6 +503,7 @@
                 bubbleEl.classList.remove('is-loading');
                 self.clearVideoLoadingTimeout(videoEl);
                 self.clearVideoPlayRequested(videoEl);
+                self.clearActiveVideo(videoEl);
                 if (event.type === 'ended') self.resetVideoForReplay(videoEl);
             };
             document.addEventListener('play', updateState, true);
@@ -481,11 +525,7 @@
                 if (!videoEl) return;
                 event.preventDefault();
                 event.stopPropagation();
-                const now = Date.now();
-                if (now - Number(self.lastPlaybackToggleAt || 0) < 450) {
-                    return;
-                }
-                self.lastPlaybackToggleAt = now;
+                if (!self.shouldAcceptVideoActivate(videoEl, 450)) return;
                 self.playOrPauseVideo(videoEl);
             };
             const handleVideoReplayActivate = function(event) {
@@ -493,11 +533,7 @@
                 if (!videoEl || (!videoEl.ended && !videoEl.error)) return;
                 event.preventDefault();
                 event.stopPropagation();
-                const now = Date.now();
-                if (now - Number(self.lastPlaybackToggleAt || 0) < 300) {
-                    return;
-                }
-                self.lastPlaybackToggleAt = now;
+                if (!self.shouldAcceptVideoActivate(videoEl, 300)) return;
                 self.playOrPauseVideo(videoEl);
             };
             const handleSurfaceActivate = function(event) {
@@ -507,11 +543,7 @@
                 if (!videoEl) return;
                 event.preventDefault();
                 event.stopPropagation();
-                const now = Date.now();
-                if (now - Number(self.lastPlaybackToggleAt || 0) < 450) {
-                    return;
-                }
-                self.lastPlaybackToggleAt = now;
+                if (!self.shouldAcceptVideoActivate(videoEl, 450)) return;
                 self.playOrPauseVideo(videoEl);
             };
             if (window.PointerEvent) {
