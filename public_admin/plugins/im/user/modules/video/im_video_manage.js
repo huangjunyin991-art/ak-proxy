@@ -247,7 +247,11 @@
 
         logVideoDebug(message, details) {
             if (!window || !window.console || typeof window.console.info !== 'function') return;
-            window.console.info('[AK IM Video] ' + message, details || {});
+            try {
+                window.console.info('[AK IM Video] ' + message + ' ' + JSON.stringify(details || {}));
+            } catch (e) {
+                window.console.info('[AK IM Video] ' + message, details || {});
+            }
         },
 
         getVideoDebugSnapshot(player) {
@@ -316,6 +320,7 @@
                     networkState: self.videoViewerPlayer && self.videoViewerPlayer.networkState,
                     currentSrc: self.videoViewerPlayer && (self.videoViewerPlayer.currentSrc || self.videoViewerPlayer.src || '')
                 });
+                viewerEl.classList.add('is-playing');
                 viewerEl.classList.remove('is-loading');
                 viewerEl.classList.remove('is-error');
                 viewerEl.classList.remove('needs-user-play');
@@ -326,6 +331,7 @@
                     networkState: self.videoViewerPlayer.networkState,
                     currentSrc: self.videoViewerPlayer.currentSrc || self.videoViewerPlayer.src || ''
                 });
+                viewerEl.classList.remove('is-playing');
                 viewerEl.classList.add('is-loading');
                 viewerEl.classList.remove('is-error');
                 viewerEl.classList.remove('needs-user-play');
@@ -336,6 +342,7 @@
                     networkState: self.videoViewerPlayer.networkState,
                     currentSrc: self.videoViewerPlayer.currentSrc || self.videoViewerPlayer.src || ''
                 });
+                viewerEl.classList.remove('is-playing');
                 viewerEl.classList.add('is-loading');
                 viewerEl.classList.remove('is-error');
                 viewerEl.classList.remove('needs-user-play');
@@ -355,9 +362,11 @@
             });
             this.videoViewerPlayer.addEventListener('pause', function() {
                 self.logVideoDebug('viewer pause', self.getVideoDebugSnapshot(self.videoViewerPlayer));
+                if (!self.videoViewerPlayer || !self.videoViewerPlayer.ended) viewerEl.classList.remove('is-playing');
             });
             this.videoViewerPlayer.addEventListener('ended', function() {
                 self.logVideoDebug('viewer ended', self.getVideoDebugSnapshot(self.videoViewerPlayer));
+                viewerEl.classList.remove('is-playing');
             });
             this.videoViewerPlayer.addEventListener('error', function() {
                 self.logVideoDebug('viewer error event', {
@@ -365,6 +374,7 @@
                     message: self.videoViewerPlayer.error && self.videoViewerPlayer.error.message,
                     snapshot: self.getVideoDebugSnapshot(self.videoViewerPlayer)
                 });
+                viewerEl.classList.remove('is-playing');
                 viewerEl.classList.remove('is-loading');
                 viewerEl.classList.add('is-error');
             });
@@ -407,6 +417,7 @@
             });
             viewerEl.classList.add('is-open');
             viewerEl.classList.add('is-loading');
+            viewerEl.classList.remove('is-playing');
             viewerEl.classList.remove('is-error');
             viewerEl.classList.remove('needs-user-play');
             if (title) {
@@ -436,6 +447,9 @@
             if (playResult && typeof playResult.catch === 'function') {
                 playResult.then(function() {
                     if (player.dataset.akImVideoViewerToken !== token) return;
+                    viewerEl.classList.add('is-playing');
+                    viewerEl.classList.remove('is-loading');
+                    viewerEl.classList.remove('is-error');
                     viewerEl.classList.remove('needs-user-play');
                     self.logVideoDebug('viewer play resolved', self.getVideoDebugSnapshot(player));
                 });
@@ -466,6 +480,7 @@
             const player = this.videoViewerPlayer;
             if (!viewerEl || !player) return;
             viewerEl.classList.remove('is-open');
+            viewerEl.classList.remove('is-playing');
             viewerEl.classList.remove('is-loading');
             viewerEl.classList.remove('is-error');
             viewerEl.classList.remove('needs-user-play');
@@ -645,18 +660,21 @@
                 '#ak-im-root .ak-im-video-progress-ring{width:26px;height:26px;border-radius:999px;border:3px solid rgba(255,255,255,.35);border-top-color:#fff;animation:ak-im-video-spin .8s linear infinite}',
                 '#ak-im-root .ak-im-video-progress-overlay.is-failed .ak-im-video-progress-ring{animation:none;border-color:#fecaca;color:#fecaca}',
                 '#ak-im-root .ak-im-video-progress-overlay.is-failed .ak-im-video-progress-ring:after{content:"!";display:flex;align-items:center;justify-content:center;height:100%;font-size:14px;font-weight:900}',
-                '.ak-im-video-viewer{position:fixed;inset:0;z-index:9999;display:none;align-items:center;justify-content:center;background:rgba(2,6,23,.92);padding:18px;box-sizing:border-box}',
-                '.ak-im-video-viewer.is-open{display:flex}',
-                '.ak-im-video-viewer-stage{position:relative;display:flex;align-items:center;justify-content:center;width:min(960px,100%);height:min(86vh,760px)}',
-                '.ak-im-video-viewer-player{display:block;max-width:100%;max-height:100%;background:#000;border-radius:10px;box-shadow:0 20px 70px rgba(0,0,0,.45)}',
-                '.ak-im-video-viewer-close{position:absolute;right:0;top:-46px;width:38px;height:38px;border:0;border-radius:999px;background:rgba(255,255,255,.16);color:#fff;font-size:28px;line-height:38px;cursor:pointer;appearance:none;-webkit-appearance:none;padding:0}',
-                '.ak-im-video-viewer-loading{position:absolute;left:50%;top:50%;display:none;width:34px;height:34px;margin:-17px 0 0 -17px;border-radius:999px;border:3px solid rgba(255,255,255,.35);border-top-color:#fff;animation:ak-im-video-spin .8s linear infinite}',
+                '.ak-im-video-viewer{position:fixed;inset:0;z-index:2147483647;display:none;align-items:center;justify-content:center;background:rgba(2,6,23,.96);padding:18px;box-sizing:border-box;overflow:hidden}',
+                '.ak-im-video-viewer.is-open{display:flex!important}',
+                '.ak-im-video-viewer-stage{position:relative;display:flex;align-items:center;justify-content:center;width:min(960px,100%);height:min(86dvh,760px);min-height:240px;background:#000;overflow:hidden}',
+                '.ak-im-video-viewer-player{position:relative;z-index:1;display:block!important;width:100%;height:100%;max-width:100%;max-height:100%;object-fit:contain;background:#000;border-radius:10px;box-shadow:0 20px 70px rgba(0,0,0,.45)}',
+                '.ak-im-video-viewer-close{position:absolute;right:0;top:-46px;z-index:3;width:38px;height:38px;border:0;border-radius:999px;background:rgba(255,255,255,.16);color:#fff;font-size:28px;line-height:38px;cursor:pointer;appearance:none;-webkit-appearance:none;padding:0}',
+                '.ak-im-video-viewer-loading{position:absolute;left:50%;top:50%;z-index:2;display:none;width:34px;height:34px;margin:-17px 0 0 -17px;border-radius:999px;border:3px solid rgba(255,255,255,.35);border-top-color:#fff;animation:ak-im-video-spin .8s linear infinite;pointer-events:none}',
                 '.ak-im-video-viewer.is-loading .ak-im-video-viewer-loading{display:block}',
-                '.ak-im-video-viewer-hint{position:absolute;left:50%;bottom:28px;display:none;transform:translateX(-50%);border-radius:999px;background:rgba(15,23,42,.72);color:#fff;font-size:13px;font-weight:800;padding:8px 12px}',
+                '.ak-im-video-viewer.is-playing .ak-im-video-viewer-loading{display:none}',
+                '.ak-im-video-viewer-hint{position:absolute;left:50%;bottom:28px;z-index:2;display:none;transform:translateX(-50%);border-radius:999px;background:rgba(15,23,42,.72);color:#fff;font-size:13px;font-weight:800;padding:8px 12px;pointer-events:none}',
                 '.ak-im-video-viewer.needs-user-play .ak-im-video-viewer-hint{display:block}',
-                '.ak-im-video-viewer-error{position:absolute;left:50%;top:50%;display:none;transform:translate(-50%,-50%);border-radius:999px;background:rgba(127,29,29,.92);color:#fff;font-size:13px;font-weight:800;padding:10px 14px}',
+                '.ak-im-video-viewer.is-playing .ak-im-video-viewer-hint{display:none}',
+                '.ak-im-video-viewer-error{position:absolute;left:50%;top:50%;z-index:2;display:none;transform:translate(-50%,-50%);border-radius:999px;background:rgba(127,29,29,.92);color:#fff;font-size:13px;font-weight:800;padding:10px 14px;pointer-events:none}',
                 '.ak-im-video-viewer.is-error .ak-im-video-viewer-error{display:block}',
-                '@media (pointer:coarse){#ak-im-root .ak-im-video-bubble{width:min(276px,72vw)}#ak-im-root .ak-im-video-surface{aspect-ratio:9/16;background:#000}#ak-im-root .ak-im-video-play-badge{display:flex}.ak-im-video-viewer{padding:0}.ak-im-video-viewer-stage{width:100%;height:100%}.ak-im-video-viewer-player{width:100%;max-height:100%;border-radius:0}.ak-im-video-viewer-close{right:12px;top:12px;z-index:2;background:rgba(15,23,42,.56)}}',
+                '.ak-im-video-viewer.is-playing .ak-im-video-viewer-error{display:none}',
+                '@media (pointer:coarse){#ak-im-root .ak-im-video-bubble{width:min(276px,72vw)}#ak-im-root .ak-im-video-surface{aspect-ratio:9/16;background:#000}#ak-im-root .ak-im-video-play-badge{display:flex}.ak-im-video-viewer{padding:0}.ak-im-video-viewer-stage{width:100%;height:100dvh;min-height:100dvh}.ak-im-video-viewer-player{width:100%;height:100%;max-height:100%;border-radius:0}.ak-im-video-viewer-close{right:12px;top:12px;z-index:3;background:rgba(15,23,42,.56)}}',
                 '@keyframes ak-im-video-spin{to{transform:rotate(360deg)}}'
             ].join('');
             document.head.appendChild(style);
