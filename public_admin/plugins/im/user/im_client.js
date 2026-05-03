@@ -2657,6 +2657,15 @@
         });
     }
 
+    function formatFileSize(bytes) {
+        const size = Math.max(0, Number(bytes || 0) || 0);
+        if (!size) return '0 B';
+        if (size < 1024) return size + ' B';
+        if (size < 1024 * 1024) return (size / 1024).toFixed(size >= 10 * 1024 ? 0 : 1) + ' KB';
+        if (size < 1024 * 1024 * 1024) return (size / (1024 * 1024)).toFixed(size >= 100 * 1024 * 1024 ? 0 : 1) + ' MB';
+        return (size / (1024 * 1024 * 1024)).toFixed(1) + ' GB';
+    }
+
     function normalizeHonorName(value) {
         return String(value || '').trim();
     }
