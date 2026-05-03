@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -875,6 +876,19 @@ func ensureFileVideoPosterStorageName(storageName string) bool {
 	return ensureFileStorageName(strings.TrimSuffix(normalized, ".video.poster.jpg"))
 }
 
+func (a *App) lockFileVideoAsset(assetName string) func() {
+	normalized := strings.TrimSpace(assetName)
+	a.fileVideoLocksMu.Lock()
+	lock := a.fileVideoLocks[normalized]
+	if lock == nil {
+		lock = &sync.Mutex{}
+		a.fileVideoLocks[normalized] = lock
+	}
+	a.fileVideoLocksMu.Unlock()
+	lock.Lock()
+	return lock.Unlock
+}
+
 func (a *App) prepareFileVideoAsset(r *http.Request, assetName string) (string, storedFileAssetRecord, error) {
 	if !ensureFileVideoAssetStorageName(assetName) {
 		return "", storedFileAssetRecord{}, errInvalidFilePayload
@@ -897,6 +911,13 @@ func (a *App) prepareFileVideoAsset(r *http.Request, assetName string) (string, 
 	}
 	filePath := filepath.Join(strings.TrimSpace(a.cfg.FileStoreDir), storageName)
 	assetPath := filepath.Join(strings.TrimSpace(a.cfg.FileStoreDir), assetName)
+	if _, err := os.Stat(assetPath); err == nil {
+		return assetPath, record, nil
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return "", storedFileAssetRecord{}, err
+	}
+	unlock := a.lockFileVideoAsset(assetName)
+	defer unlock()
 	if _, err := os.Stat(assetPath); err == nil {
 		return assetPath, record, nil
 	} else if !errors.Is(err, os.ErrNotExist) {

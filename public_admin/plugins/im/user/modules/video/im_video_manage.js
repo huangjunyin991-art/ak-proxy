@@ -249,7 +249,12 @@
         playOrPauseVideo(videoEl) {
             if (!videoEl) return;
             if (videoEl.paused || videoEl.ended) {
+                const bubbleEl = videoEl.closest ? videoEl.closest('.ak-im-video-bubble') : null;
                 try {
+                    if (bubbleEl) {
+                        bubbleEl.classList.add('is-loading');
+                        bubbleEl.classList.remove('is-error');
+                    }
                     videoEl.controls = false;
                     videoEl.preload = 'auto';
                     if (videoEl.ended) {
@@ -261,6 +266,10 @@
                     const playResult = videoEl.play();
                     if (playResult && typeof playResult.catch === 'function') {
                         playResult.catch(function(error) {
+                            if (bubbleEl) {
+                                bubbleEl.classList.remove('is-loading');
+                                bubbleEl.classList.add('is-error');
+                            }
                             console.warn('[AK IM Video] play failed', {
                                 message: error && error.message ? error.message : String(error || ''),
                                 name: error && error.name ? error.name : '',
@@ -272,6 +281,10 @@
                         });
                     }
                 } catch (error) {
+                    if (bubbleEl) {
+                        bubbleEl.classList.remove('is-loading');
+                        bubbleEl.classList.add('is-error');
+                    }
                     console.warn('[AK IM Video] play exception', {
                         message: error && error.message ? error.message : String(error || ''),
                         name: error && error.name ? error.name : '',
@@ -343,13 +356,37 @@
                     return;
                 }
                 if (event.type === 'play') {
+                    bubbleEl.classList.remove('is-loading');
+                    bubbleEl.classList.remove('is-error');
                     bubbleEl.classList.add('is-playing');
                     return;
                 }
+                if (event.type === 'waiting' || event.type === 'loadstart') {
+                    bubbleEl.classList.add('is-loading');
+                    bubbleEl.classList.remove('is-error');
+                    return;
+                }
+                if (event.type === 'playing' || event.type === 'canplay' || event.type === 'loadeddata') {
+                    bubbleEl.classList.remove('is-loading');
+                    bubbleEl.classList.remove('is-error');
+                    if (event.type === 'playing') bubbleEl.classList.add('is-playing');
+                    return;
+                }
+                if (event.type === 'error') {
+                    bubbleEl.classList.remove('is-loading');
+                    bubbleEl.classList.add('is-error');
+                    return;
+                }
                 bubbleEl.classList.remove('is-playing');
+                bubbleEl.classList.remove('is-loading');
                 if (event.type === 'ended') self.resetVideoForReplay(videoEl);
             };
             document.addEventListener('play', updateState, true);
+            document.addEventListener('playing', updateState, true);
+            document.addEventListener('waiting', updateState, true);
+            document.addEventListener('loadstart', updateState, true);
+            document.addEventListener('loadeddata', updateState, true);
+            document.addEventListener('canplay', updateState, true);
             document.addEventListener('pause', updateState, true);
             document.addEventListener('ended', updateState, true);
             document.addEventListener('error', updateState, true);
@@ -396,15 +433,18 @@
                 self.lastPlaybackToggleAt = now;
                 self.playOrPauseVideo(videoEl);
             };
-            document.addEventListener('pointerup', handleButtonActivate, true);
-            document.addEventListener('touchend', handleButtonActivate, true);
-            document.addEventListener('click', handleButtonActivate, true);
-            document.addEventListener('pointerup', handleVideoReplayActivate, true);
-            document.addEventListener('touchend', handleVideoReplayActivate, true);
-            document.addEventListener('click', handleVideoReplayActivate, true);
-            document.addEventListener('pointerup', handleSurfaceActivate, true);
-            document.addEventListener('touchend', handleSurfaceActivate, true);
-            document.addEventListener('click', handleSurfaceActivate, true);
+            if (window.PointerEvent) {
+                document.addEventListener('pointerup', handleButtonActivate, true);
+                document.addEventListener('pointerup', handleVideoReplayActivate, true);
+                document.addEventListener('pointerup', handleSurfaceActivate, true);
+            } else {
+                document.addEventListener('touchend', handleButtonActivate, true);
+                document.addEventListener('touchend', handleVideoReplayActivate, true);
+                document.addEventListener('touchend', handleSurfaceActivate, true);
+                document.addEventListener('click', handleButtonActivate, true);
+                document.addEventListener('click', handleVideoReplayActivate, true);
+                document.addEventListener('click', handleSurfaceActivate, true);
+            }
         },
 
         fitVisibleVideoBubbles() {
@@ -551,6 +591,10 @@
                 '#ak-im-root .ak-im-video-play-badge{position:absolute;left:50%;top:50%;z-index:2;width:58px;height:58px;transform:translate(-50%,-50%);border-radius:999px;display:flex;align-items:center;justify-content:center;background:rgba(15,23,42,.42);border:2px solid rgba(255,255,255,.82);box-shadow:0 8px 24px rgba(0,0,0,.28);font-size:26px;line-height:1;text-indent:4px;color:#fff;cursor:pointer;appearance:none;-webkit-appearance:none;padding:0}',
                 '#ak-im-root .ak-im-video-player:playing+.ak-im-video-play-badge{opacity:0}',
                 '#ak-im-root .ak-im-video-bubble.is-playing .ak-im-video-play-badge{opacity:0}',
+                '#ak-im-root .ak-im-video-bubble.is-loading .ak-im-video-play-badge{font-size:0;text-indent:0;opacity:1}',
+                '#ak-im-root .ak-im-video-bubble.is-loading .ak-im-video-play-badge:after{content:"";width:24px;height:24px;border-radius:999px;border:3px solid rgba(255,255,255,.45);border-top-color:#fff;animation:ak-im-video-spin .8s linear infinite}',
+                '#ak-im-root .ak-im-video-bubble.is-error .ak-im-video-play-badge{font-size:0;text-indent:0;opacity:1}',
+                '#ak-im-root .ak-im-video-bubble.is-error .ak-im-video-play-badge:after{content:"!";font-size:24px;font-weight:900;text-indent:0}',
                 '#ak-im-root .ak-im-video-bubble-local{display:flex;align-items:center;gap:12px;min-height:88px;padding:14px;box-sizing:border-box;background:#0f172a}',
                 '#ak-im-root .ak-im-video-local-icon{width:42px;height:42px;border-radius:999px;display:inline-flex;align-items:center;justify-content:center;background:rgba(255,255,255,.16);font-size:18px;flex:0 0 auto}',
                 '#ak-im-root .ak-im-video-meta{display:flex;flex-direction:column;gap:4px;min-width:0}',

@@ -46,6 +46,8 @@ type App struct {
 	hub               *Hub
 	server            *http.Server
 	upgrader          websocket.Upgrader
+	fileVideoLocksMu  sync.Mutex
+	fileVideoLocks    map[string]*sync.Mutex
 }
 
 type Hub struct {
@@ -207,9 +209,10 @@ func New(cfg config.Config) (*App, error) {
 		return nil, err
 	}
 	app := &App{
-		cfg: cfg,
-		db:  pool,
-		hub: &Hub{conns: map[string]map[*HubConn]struct{}{}},
+		cfg:            cfg,
+		db:             pool,
+		hub:            &Hub{conns: map[string]map[*HubConn]struct{}{}},
+		fileVideoLocks: map[string]*sync.Mutex{},
 		upgrader: websocket.Upgrader{
 			CheckOrigin: func(r *http.Request) bool {
 				origin := strings.TrimSpace(r.Header.Get("Origin"))
