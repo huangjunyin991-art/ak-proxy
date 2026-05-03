@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log"
 	"mime"
 	"net/http"
 	"os"
@@ -170,9 +171,19 @@ func (a *App) persistVideoAsset(inputPath string, fileName string, originalMimeT
 	posterName := baseName + ".jpg"
 	outputPath := filepath.Join(strings.TrimSpace(a.cfg.VideoStoreDir), storageName)
 	posterPath := filepath.Join(strings.TrimSpace(a.cfg.VideoStoreDir), posterName)
-	if err := transcodeVideoTo720p(inputPath, outputPath); err != nil {
-		a.removeVideoAsset(storageName, posterName)
-		return persistedVideoAsset{}, err
+	if isVideoFastRemuxCompatible(inputPath) {
+		if err := remuxVideoFastStart(inputPath, outputPath); err != nil {
+			_ = os.Remove(outputPath)
+			if err := transcodeVideoTo720p(inputPath, outputPath); err != nil {
+				a.removeVideoAsset(storageName, posterName)
+				return persistedVideoAsset{}, err
+			}
+		}
+	} else {
+		if err := transcodeVideoTo720p(inputPath, outputPath); err != nil {
+			a.removeVideoAsset(storageName, posterName)
+			return persistedVideoAsset{}, err
+		}
 	}
 	_ = generateVideoPoster(outputPath, posterPath)
 	info, err := os.Stat(outputPath)
@@ -209,8 +220,9 @@ func transcodeVideoTo720p(inputPath string, outputPath string) error {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Minute)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "ffmpeg", "-y", "-i", inputPath, "-map", "0:v:0", "-map", "0:a?", "-vf", "scale=-2:min(720\\,ih)", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-preset", "veryfast", "-crf", "28", "-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart", outputPath)
-	if _, err := cmd.CombinedOutput(); err != nil {
+	cmd := exec.CommandContext(ctx, "ffmpeg", "-y", "-i", inputPath, "-map", "0:v:0", "-map", "0:a?", "-vf", "scale=-2:trunc(min(720\\,ih)/2)*2", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-preset", "veryfast", "-crf", "28", "-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart", outputPath)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		log.Printf("im video transcode failed input=%s output=%s error=%v ffmpeg=%s", filepath.Base(inputPath), filepath.Base(outputPath), err, truncateVideoCommandOutput(output))
 		if ctx.Err() == context.DeadlineExceeded {
 			return errors.New("视频压缩超时")
 		}
@@ -226,13 +238,22 @@ func remuxVideoFastStart(inputPath string, outputPath string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "ffmpeg", "-y", "-i", inputPath, "-map", "0:v:0", "-map", "0:a?", "-c", "copy", "-movflags", "+faststart", outputPath)
-	if _, err := cmd.CombinedOutput(); err != nil {
+	if output, err := cmd.CombinedOutput(); err != nil {
+		log.Printf("im video remux failed input=%s output=%s error=%v ffmpeg=%s", filepath.Base(inputPath), filepath.Base(outputPath), err, truncateVideoCommandOutput(output))
 		if ctx.Err() == context.DeadlineExceeded {
 			return errors.New("视频封装超时")
 		}
 		return errors.New("视频封装失败")
 	}
 	return nil
+}
+
+func truncateVideoCommandOutput(output []byte) string {
+	text := strings.TrimSpace(string(output))
+	if len(text) <= 1200 {
+		return text
+	}
+	return text[len(text)-1200:]
 }
 
 func isVideoFastRemuxCompatible(inputPath string) bool {
