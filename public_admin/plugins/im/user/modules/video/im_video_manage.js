@@ -198,7 +198,7 @@
             const ratioAttr = payload.width && payload.height ? ' style="aspect-ratio:' + Math.max(1, payload.width) + '/' + Math.max(1, payload.height) + '"' : '';
             return '<div class="ak-im-video-bubble' + (isLocal ? ' ak-im-video-bubble-sending' : '') + '">' +
                 '<div class="ak-im-video-surface"' + ratioAttr + '>' +
-                '<video class="ak-im-video-player" controls playsinline webkit-playsinline preload="auto" src="' + safeUrl + '"' + posterAttr + previewAttr + '></video>' +
+                '<video class="ak-im-video-player" controls playsinline webkit-playsinline x5-playsinline preload="auto" src="' + safeUrl + '"' + posterAttr + previewAttr + '></video>' +
                     '<button class="ak-im-video-play-badge" type="button" aria-label="播放或暂停视频">▶</button>' +
                     overlayMarkup +
                 '</div>' +
@@ -431,6 +431,7 @@
                 '#ak-im-root .ak-im-video-progress-ring{width:26px;height:26px;border-radius:999px;border:3px solid rgba(255,255,255,.35);border-top-color:#fff;animation:ak-im-video-spin .8s linear infinite}',
                 '#ak-im-root .ak-im-video-progress-overlay.is-failed .ak-im-video-progress-ring{animation:none;border-color:#fecaca;color:#fecaca}',
                 '#ak-im-root .ak-im-video-progress-overlay.is-failed .ak-im-video-progress-ring:after{content:"!";display:flex;align-items:center;justify-content:center;height:100%;font-size:14px;font-weight:900}',
+                '@media (pointer:coarse){#ak-im-root .ak-im-video-bubble{width:min(276px,72vw)}#ak-im-root .ak-im-video-surface{aspect-ratio:9/12;background:#000}#ak-im-root .ak-im-video-player{object-fit:contain}#ak-im-root .ak-im-video-play-badge{display:none}#ak-im-root .ak-im-video-bubble.is-playing .ak-im-video-play-badge{display:none}}',
                 '@keyframes ak-im-video-spin{to{transform:rotate(360deg)}}'
             ].join('');
             document.head.appendChild(style);
