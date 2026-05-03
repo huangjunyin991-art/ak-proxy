@@ -8,6 +8,7 @@
         ctx: null,
         playbackBound: false,
         previewBound: false,
+        lastPlaybackToggleAt: 0,
 
         init(ctx) {
             this.ctx = ctx || null;
@@ -88,6 +89,10 @@
             } catch (e) {
                 return rawUrl + (rawUrl.indexOf('?') >= 0 ? '&' : '?') + 'inline=1';
             }
+        },
+
+        isTouchVideoEnvironment() {
+            return !!(window.matchMedia && window.matchMedia('(pointer: coarse)').matches);
         },
 
         createLocalVideoUrl(file) {
@@ -205,9 +210,45 @@
             return this.resolveVideoPayload(item) ? 'ak-im-bubble-video' : '';
         },
 
+        playOrPauseVideo(videoEl) {
+            if (!videoEl) return;
+            if (videoEl.paused || videoEl.ended) {
+                try {
+                    videoEl.controls = true;
+                    videoEl.preload = 'auto';
+                    if (videoEl.readyState === 0) videoEl.load();
+                    const playResult = videoEl.play();
+                    if (playResult && typeof playResult.catch === 'function') {
+                        playResult.catch(function(error) {
+                            console.warn('[AK IM Video] play failed', {
+                                message: error && error.message ? error.message : String(error || ''),
+                                name: error && error.name ? error.name : '',
+                                code: videoEl.error && videoEl.error.code,
+                                networkState: videoEl.networkState,
+                                readyState: videoEl.readyState,
+                                currentSrc: videoEl.currentSrc || videoEl.src || ''
+                            });
+                        });
+                    }
+                } catch (error) {
+                    console.warn('[AK IM Video] play exception', {
+                        message: error && error.message ? error.message : String(error || ''),
+                        name: error && error.name ? error.name : '',
+                        code: videoEl.error && videoEl.error.code,
+                        networkState: videoEl.networkState,
+                        readyState: videoEl.readyState,
+                        currentSrc: videoEl.currentSrc || videoEl.src || ''
+                    });
+                }
+                return;
+            }
+            videoEl.pause();
+        },
+
         bindPlaybackState() {
             if (this.playbackBound) return;
             this.playbackBound = true;
+            const self = this;
             const updateState = function(event) {
                 const videoEl = event && event.target && event.target.closest ? event.target.closest('.ak-im-video-player') : null;
                 if (!videoEl) return;
@@ -222,7 +263,7 @@
             document.addEventListener('play', updateState, true);
             document.addEventListener('pause', updateState, true);
             document.addEventListener('ended', updateState, true);
-            document.addEventListener('click', function(event) {
+            const handleButtonActivate = function(event) {
                 const button = event && event.target && event.target.closest ? event.target.closest('.ak-im-video-play-badge') : null;
                 if (!button) return;
                 const surface = button.closest ? button.closest('.ak-im-video-surface') : null;
@@ -230,16 +271,20 @@
                 if (!videoEl) return;
                 event.preventDefault();
                 event.stopPropagation();
-                if (videoEl.paused || videoEl.ended) {
-                    const playResult = videoEl.play();
-                    if (playResult && typeof playResult.catch === 'function') playResult.catch(function() {});
+                const now = Date.now();
+                if (now - Number(self.lastPlaybackToggleAt || 0) < 450) {
                     return;
                 }
-                videoEl.pause();
-            }, true);
+                self.lastPlaybackToggleAt = now;
+                self.playOrPauseVideo(videoEl);
+            };
+            document.addEventListener('pointerup', handleButtonActivate, true);
+            document.addEventListener('touchend', handleButtonActivate, true);
+            document.addEventListener('click', handleButtonActivate, true);
         },
 
         warmupVideoPreview(videoEl) {
+            if (this.isTouchVideoEnvironment()) return;
             if (!videoEl || videoEl.dataset.akImVideoPreviewReady) return;
             videoEl.dataset.akImVideoPreviewReady = '1';
             const seekPreviewFrame = function() {
