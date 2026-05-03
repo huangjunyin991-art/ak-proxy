@@ -492,9 +492,6 @@
             if (this.ctx && typeof this.ctx.syncVoiceMessageBubbles === 'function') {
                 this.ctx.syncVoiceMessageBubbles();
             }
-            if (this.ctx && typeof this.ctx.bindImagePreviewEvents === 'function') {
-                this.ctx.bindImagePreviewEvents(messageList);
-            }
             if (messageNavigation && typeof messageNavigation.afterRenderMessages === 'function') {
                 messageNavigation.afterRenderMessages(navigationSnapshot);
             } else {
