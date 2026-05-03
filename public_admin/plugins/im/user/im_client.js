@@ -587,6 +587,7 @@
     }
 
     function initShellModules() {
+        bindGlobalImagePreviewEvents();
         initMessageManageModule();
         initMessageNavigationModule();
         initMentionManageModule();
@@ -1661,6 +1662,19 @@
             };
         }
         return null;
+    }
+
+    function bindGlobalImagePreviewEvents() {
+        if (document.__akImGlobalImagePreviewBound) return;
+        document.__akImGlobalImagePreviewBound = true;
+        document.addEventListener('click', function(event) {
+            const previewTarget = resolvePreviewImageTarget(event.target, root || document);
+            if (!previewTarget || !previewTarget.url) return;
+            event.preventDefault();
+            event.stopPropagation();
+            if (typeof event.stopImmediatePropagation === 'function') event.stopImmediatePropagation();
+            openClientImagePreview(previewTarget.url, previewTarget.label);
+        }, true);
     }
 
     function initMessageManageModule() {
