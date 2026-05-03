@@ -255,6 +255,7 @@
                 const module = this;
                 try {
                     module.pauseOtherVideos(videoEl);
+                    module.markVideoPlayRequested(videoEl);
                     if (bubbleEl) {
                         bubbleEl.classList.add('is-loading');
                         bubbleEl.classList.remove('is-error');
@@ -276,6 +277,7 @@
                                 bubbleEl.classList.add('is-error');
                             }
                             module.clearVideoLoadingTimeout(videoEl);
+                            module.clearVideoPlayRequested(videoEl);
                             console.warn('[AK IM Video] play failed', {
                                 message: error && error.message ? error.message : String(error || ''),
                                 name: error && error.name ? error.name : '',
@@ -292,6 +294,7 @@
                         bubbleEl.classList.add('is-error');
                     }
                     module.clearVideoLoadingTimeout(videoEl);
+                    module.clearVideoPlayRequested(videoEl);
                     console.warn('[AK IM Video] play exception', {
                         message: error && error.message ? error.message : String(error || ''),
                         name: error && error.name ? error.name : '',
@@ -303,8 +306,20 @@
                 }
                 return;
             }
-            this.clearVideoLoadingTimeout(videoEl);
-            videoEl.pause();
+        },
+
+        markVideoPlayRequested(videoEl) {
+            if (!videoEl) return;
+            videoEl.dataset.akImVideoPlayRequested = '1';
+        },
+
+        clearVideoPlayRequested(videoEl) {
+            if (!videoEl) return;
+            delete videoEl.dataset.akImVideoPlayRequested;
+        },
+
+        isVideoPlayRequested(videoEl) {
+            return !!(videoEl && videoEl.dataset && videoEl.dataset.akImVideoPlayRequested === '1');
         },
 
         pauseOtherVideos(activeVideoEl) {
@@ -313,6 +328,7 @@
             Array.prototype.forEach.call(root.querySelectorAll('.ak-im-video-player'), function(videoEl) {
                 if (!videoEl || videoEl === activeVideoEl) return;
                 module.clearVideoLoadingTimeout(videoEl);
+                module.clearVideoPlayRequested(videoEl);
                 try {
                     videoEl.pause();
                 } catch (e) {}
@@ -330,9 +346,10 @@
             this.clearVideoLoadingTimeout(videoEl);
             videoEl.__akImVideoLoadingTimer = setTimeout(function() {
                 const bubbleEl = videoEl.closest ? videoEl.closest('.ak-im-video-bubble') : null;
-                if (!bubbleEl || !bubbleEl.classList.contains('is-loading')) return;
+                if (!bubbleEl || videoEl.dataset.akImVideoPlayRequested !== '1' || !bubbleEl.classList.contains('is-loading')) return;
                 bubbleEl.classList.remove('is-loading');
                 bubbleEl.classList.add('is-error');
+                delete videoEl.dataset.akImVideoPlayRequested;
                 try {
                     videoEl.pause();
                 } catch (e) {}
@@ -410,6 +427,11 @@
                     return;
                 }
                 if (event.type === 'waiting' || event.type === 'loadstart') {
+                    if (!self.isVideoPlayRequested(videoEl)) {
+                        bubbleEl.classList.remove('is-loading');
+                        bubbleEl.classList.remove('is-error');
+                        return;
+                    }
                     self.startVideoLoadingTimeout(videoEl);
                     bubbleEl.classList.add('is-loading');
                     bubbleEl.classList.remove('is-error');
@@ -424,6 +446,12 @@
                 }
                 if (event.type === 'error') {
                     self.clearVideoLoadingTimeout(videoEl);
+                    if (!self.isVideoPlayRequested(videoEl)) {
+                        bubbleEl.classList.remove('is-loading');
+                        bubbleEl.classList.remove('is-error');
+                        return;
+                    }
+                    self.clearVideoPlayRequested(videoEl);
                     bubbleEl.classList.remove('is-loading');
                     bubbleEl.classList.add('is-error');
                     return;
@@ -431,6 +459,7 @@
                 bubbleEl.classList.remove('is-playing');
                 bubbleEl.classList.remove('is-loading');
                 self.clearVideoLoadingTimeout(videoEl);
+                self.clearVideoPlayRequested(videoEl);
                 if (event.type === 'ended') self.resetVideoForReplay(videoEl);
             };
             document.addEventListener('play', updateState, true);
