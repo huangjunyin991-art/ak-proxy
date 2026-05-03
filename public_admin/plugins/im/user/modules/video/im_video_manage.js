@@ -7,14 +7,14 @@
     const videoManageModule = {
         ctx: null,
         playbackBound: false,
-        previewBound: false,
-        activeVideoEl: null,
+        videoViewerEl: null,
+        videoViewerPlayer: null,
+        videoViewerCloseBound: false,
 
         init(ctx) {
             this.ctx = ctx || null;
             this.ensureStyle();
             this.bindPlaybackState();
-            this.bindPreviewWarmup();
         },
 
         getState() {
@@ -127,10 +127,6 @@
             }
         },
 
-        isTouchVideoEnvironment() {
-            return !!(window.matchMedia && window.matchMedia('(pointer: coarse)').matches);
-        },
-
         createLocalVideoUrl(file) {
             try {
                 return URL.createObjectURL(file);
@@ -231,14 +227,15 @@
             }
             const safeUrl = this.escapeAttribute(payload.videoUrl);
             const safePoster = this.escapeAttribute(payload.posterUrl);
-            const posterAttr = safePoster ? ' poster="' + safePoster + '"' : '';
-            const previewAttr = safePoster ? '' : ' data-ak-im-video-preview-warmup="1"';
-            const preloadAttr = safePoster ? 'none' : 'auto';
+            const safeTitle = this.escapeAttribute(payload.fileName);
+            const posterMarkup = safePoster
+                ? '<img class="ak-im-video-poster" src="' + safePoster + '" alt="' + safeTitle + '" loading="lazy">'
+                : '<span class="ak-im-video-poster-placeholder" aria-hidden="true">▶</span>';
             const ratioAttr = payload.width && payload.height ? ' style="aspect-ratio:' + Math.max(1, payload.width) + '/' + Math.max(1, payload.height) + '"' : '';
             return '<div class="ak-im-video-bubble' + (isLocal ? ' ak-im-video-bubble-sending' : '') + '">' +
-                '<div class="ak-im-video-surface"' + ratioAttr + '>' +
-                '<video class="ak-im-video-player" playsinline webkit-playsinline x5-playsinline preload="' + preloadAttr + '" src="' + safeUrl + '"' + posterAttr + previewAttr + '></video>' +
-                    '<button class="ak-im-video-play-badge" type="button" aria-label="播放或暂停视频">▶</button>' +
+                '<div class="ak-im-video-surface" role="button" tabindex="0" aria-label="播放视频" data-ak-im-video-url="' + safeUrl + '" data-ak-im-video-poster="' + safePoster + '" data-ak-im-video-title="' + safeTitle + '"' + ratioAttr + '>' +
+                    posterMarkup +
+                    '<button class="ak-im-video-play-badge" type="button" aria-label="播放视频">▶</button>' +
                     overlayMarkup +
                 '</div>' +
             '</div>';
@@ -248,384 +245,168 @@
             return this.resolveVideoPayload(item) ? 'ak-im-bubble-video' : '';
         },
 
-        playOrPauseVideo(videoEl) {
-            if (!videoEl) return;
-            const bubbleEl = videoEl.closest ? videoEl.closest('.ak-im-video-bubble') : null;
-            if (this.isActiveVideo(videoEl) && !videoEl.paused && !videoEl.ended && !videoEl.error && videoEl.readyState >= 2 && bubbleEl && bubbleEl.classList.contains('is-playing')) {
-                return;
-            }
-            const module = this;
-            try {
-                module.setActiveVideo(videoEl);
-                module.pauseOtherVideos(videoEl);
-                module.markVideoPlayRequested(videoEl);
-                if (bubbleEl) {
-                    bubbleEl.classList.add('is-loading');
-                    bubbleEl.classList.remove('is-error');
-                }
-                module.startVideoLoadingTimeout(videoEl);
-                videoEl.controls = false;
-                videoEl.preload = 'auto';
-                if (videoEl.ended) {
-                    try {
-                        videoEl.currentTime = 0;
-                    } catch (e) {}
-                }
-                if (videoEl.error || videoEl.readyState === 0 || videoEl.networkState === 3) videoEl.load();
-                const playResult = videoEl.play();
-                if (playResult && typeof playResult.catch === 'function') {
-                    playResult.catch(function(error) {
-                        if (!module.isActiveVideo(videoEl) || !module.isVideoPlayRequested(videoEl)) {
-                            module.clearVideoLoadingTimeout(videoEl);
-                            module.clearVideoPlayRequested(videoEl);
-                            return;
-                        }
-                        if (bubbleEl) {
-                            bubbleEl.classList.remove('is-loading');
-                            bubbleEl.classList.add('is-error');
-                        }
-                        module.clearVideoLoadingTimeout(videoEl);
-                        module.clearVideoPlayRequested(videoEl);
-                        module.clearActiveVideo(videoEl);
-                        console.warn('[AK IM Video] play failed', {
-                            message: error && error.message ? error.message : String(error || ''),
-                            name: error && error.name ? error.name : '',
-                            code: videoEl.error && videoEl.error.code,
-                            networkState: videoEl.networkState,
-                            readyState: videoEl.readyState,
-                            currentSrc: videoEl.currentSrc || videoEl.src || ''
-                        });
-                    });
-                }
-            } catch (error) {
-                if (bubbleEl) {
-                    bubbleEl.classList.remove('is-loading');
-                    bubbleEl.classList.add('is-error');
-                }
-                module.clearVideoLoadingTimeout(videoEl);
-                module.clearVideoPlayRequested(videoEl);
-                module.clearActiveVideo(videoEl);
-                console.warn('[AK IM Video] play exception', {
-                    message: error && error.message ? error.message : String(error || ''),
-                    name: error && error.name ? error.name : '',
-                    code: videoEl.error && videoEl.error.code,
-                    networkState: videoEl.networkState,
-                    readyState: videoEl.readyState,
-                    currentSrc: videoEl.currentSrc || videoEl.src || ''
+        openVideoViewerFromSurface(surface) {
+            if (!surface) return;
+            const url = String(surface.getAttribute('data-ak-im-video-url') || '').trim();
+            if (!url) return;
+            this.openVideoViewer(url, String(surface.getAttribute('data-ak-im-video-poster') || '').trim(), String(surface.getAttribute('data-ak-im-video-title') || '').trim());
+        },
+
+        ensureVideoViewer() {
+            if (this.videoViewerEl && this.videoViewerPlayer) return;
+            const viewerEl = document.createElement('div');
+            viewerEl.className = 'ak-im-video-viewer';
+            viewerEl.innerHTML = '<div class="ak-im-video-viewer-stage" role="dialog" aria-modal="true" aria-label="视频播放器">' +
+                '<button class="ak-im-video-viewer-close" type="button" aria-label="关闭视频">×</button>' +
+                '<video class="ak-im-video-viewer-player" controls playsinline webkit-playsinline x5-playsinline preload="metadata"></video>' +
+                '<span class="ak-im-video-viewer-loading" aria-hidden="true"></span>' +
+                '<span class="ak-im-video-viewer-error">视频加载失败</span>' +
+            '</div>';
+            document.body.appendChild(viewerEl);
+            this.videoViewerEl = viewerEl;
+            this.videoViewerPlayer = viewerEl.querySelector('.ak-im-video-viewer-player');
+            const self = this;
+            const clearLoading = function() {
+                viewerEl.classList.remove('is-loading');
+                viewerEl.classList.remove('is-error');
+            };
+            this.videoViewerPlayer.addEventListener('loadstart', function() {
+                viewerEl.classList.add('is-loading');
+                viewerEl.classList.remove('is-error');
+            });
+            this.videoViewerPlayer.addEventListener('waiting', function() {
+                viewerEl.classList.add('is-loading');
+                viewerEl.classList.remove('is-error');
+            });
+            this.videoViewerPlayer.addEventListener('playing', clearLoading);
+            this.videoViewerPlayer.addEventListener('canplay', clearLoading);
+            this.videoViewerPlayer.addEventListener('loadeddata', clearLoading);
+            this.videoViewerPlayer.addEventListener('error', function() {
+                viewerEl.classList.remove('is-loading');
+                viewerEl.classList.add('is-error');
+            });
+            viewerEl.querySelector('.ak-im-video-viewer-close').addEventListener('click', function(event) {
+                event.preventDefault();
+                event.stopPropagation();
+                self.closeVideoViewer();
+            });
+            viewerEl.addEventListener('click', function(event) {
+                if (event.target === viewerEl) self.closeVideoViewer();
+            });
+            if (!this.videoViewerCloseBound) {
+                this.videoViewerCloseBound = true;
+                document.addEventListener('keydown', function(event) {
+                    if (event && event.key === 'Escape') self.closeVideoViewer();
                 });
             }
         },
 
-        shouldAcceptVideoActivate(videoEl, debounceMs) {
-            if (!videoEl) return false;
-            const now = Date.now();
-            const lastAt = Number(videoEl.dataset.akImVideoLastActivateAt || 0);
-            if (now - lastAt < debounceMs) return false;
-            videoEl.dataset.akImVideoLastActivateAt = String(now);
-            return true;
-        },
-
-        setActiveVideo(videoEl) {
-            this.activeVideoEl = videoEl || null;
-        },
-
-        clearActiveVideo(videoEl) {
-            if (!videoEl || this.activeVideoEl === videoEl) {
-                this.activeVideoEl = null;
+        openVideoViewer(url, posterUrl, title) {
+            this.ensureVideoViewer();
+            const viewerEl = this.videoViewerEl;
+            const player = this.videoViewerPlayer;
+            if (!viewerEl || !player || !url) return;
+            const token = String(Date.now()) + '-' + Math.random().toString(36).slice(2, 8);
+            player.dataset.akImVideoViewerToken = token;
+            viewerEl.classList.add('is-open');
+            viewerEl.classList.add('is-loading');
+            viewerEl.classList.remove('is-error');
+            if (title) {
+                player.setAttribute('aria-label', title);
+            } else {
+                player.removeAttribute('aria-label');
+            }
+            if (posterUrl) {
+                player.setAttribute('poster', posterUrl);
+            } else {
+                player.removeAttribute('poster');
+            }
+            try {
+                player.pause();
+            } catch (e) {}
+            player.src = url;
+            try {
+                player.load();
+            } catch (e) {}
+            const playResult = player.play();
+            if (playResult && typeof playResult.catch === 'function') {
+                playResult.catch(function() {
+                    if (player.dataset.akImVideoViewerToken !== token) return;
+                    viewerEl.classList.remove('is-loading');
+                    viewerEl.classList.add('is-error');
+                });
             }
         },
 
-        isActiveVideo(videoEl) {
-            return !!(videoEl && this.activeVideoEl === videoEl);
+        closeVideoViewer() {
+            const viewerEl = this.videoViewerEl;
+            const player = this.videoViewerPlayer;
+            if (!viewerEl || !player) return;
+            viewerEl.classList.remove('is-open');
+            viewerEl.classList.remove('is-loading');
+            viewerEl.classList.remove('is-error');
+            delete player.dataset.akImVideoViewerToken;
+            try {
+                player.pause();
+            } catch (e) {}
+            player.removeAttribute('src');
+            player.removeAttribute('poster');
+            try {
+                player.load();
+            } catch (e) {}
         },
 
-        markVideoPlayRequested(videoEl) {
-            if (!videoEl) return;
-            videoEl.dataset.akImVideoPlayRequested = '1';
-        },
-
-        clearVideoPlayRequested(videoEl) {
-            if (!videoEl) return;
-            delete videoEl.dataset.akImVideoPlayRequested;
-        },
-
-        isVideoPlayRequested(videoEl) {
-            return !!(videoEl && videoEl.dataset && videoEl.dataset.akImVideoPlayRequested === '1');
-        },
-
-        pauseOtherVideos(activeVideoEl) {
-            const root = document.getElementById('ak-im-root') || document;
-            const module = this;
-            Array.prototype.forEach.call(root.querySelectorAll('.ak-im-video-player'), function(videoEl) {
-                if (!videoEl || videoEl === activeVideoEl) return;
-                module.clearVideoLoadingTimeout(videoEl);
-                module.clearVideoPlayRequested(videoEl);
-                try {
-                    videoEl.pause();
-                } catch (e) {}
-                const bubbleEl = videoEl.closest ? videoEl.closest('.ak-im-video-bubble') : null;
-                if (bubbleEl) {
-                    bubbleEl.classList.remove('is-playing');
-                    bubbleEl.classList.remove('is-loading');
-                    bubbleEl.classList.remove('is-error');
-                }
-            });
-        },
-
-        startVideoLoadingTimeout(videoEl) {
-            if (!videoEl) return;
-            this.clearVideoLoadingTimeout(videoEl);
-            videoEl.__akImVideoLoadingTimer = setTimeout(function() {
-                const bubbleEl = videoEl.closest ? videoEl.closest('.ak-im-video-bubble') : null;
-                if (!bubbleEl || videoEl.dataset.akImVideoPlayRequested !== '1' || !bubbleEl.classList.contains('is-loading')) return;
-                bubbleEl.classList.remove('is-loading');
-                bubbleEl.classList.add('is-error');
-                delete videoEl.dataset.akImVideoPlayRequested;
-                try {
-                    videoEl.pause();
-                } catch (e) {}
-            }, 15000);
-        },
-
-        clearVideoLoadingTimeout(videoEl) {
-            if (!videoEl || !videoEl.__akImVideoLoadingTimer) return;
-            clearTimeout(videoEl.__akImVideoLoadingTimer);
-            videoEl.__akImVideoLoadingTimer = 0;
-        },
-
-        resetVideoForReplay(videoEl) {
-            if (!videoEl || videoEl.dataset.akImVideoReplayResetting === '1') return;
-            videoEl.dataset.akImVideoReplayResetting = '1';
-            setTimeout(function() {
-                try {
-                    videoEl.pause();
-                } catch (e) {}
-                try {
-                    videoEl.currentTime = 0;
-                } catch (e) {}
-                if (videoEl.getAttribute('poster')) {
-                    try {
-                        videoEl.load();
-                    } catch (e) {}
-                }
-                delete videoEl.dataset.akImVideoReplayResetting;
-            }, 60);
-        },
-
-        applyVideoNaturalRatio(videoEl) {
-            if (!videoEl || !videoEl.videoWidth || !videoEl.videoHeight) return;
-            const surface = videoEl.closest ? videoEl.closest('.ak-im-video-surface') : null;
-            if (!surface) return;
-            const width = Math.max(1, Number(videoEl.videoWidth || 0) || 0);
-            const height = Math.max(1, Number(videoEl.videoHeight || 0) || 0);
-            surface.style.aspectRatio = String(width) + '/' + String(height);
-        },
-
-        applyPosterNaturalRatio(videoEl) {
-            if (!videoEl || videoEl.dataset.akImVideoPosterRatioReady === '1') return;
-            const posterUrl = String(videoEl.getAttribute('poster') || '').trim();
-            if (!posterUrl) return;
-            videoEl.dataset.akImVideoPosterRatioReady = '1';
-            const image = new Image();
-            image.onload = function() {
-                if (!image.naturalWidth || !image.naturalHeight) return;
-                const surface = videoEl.closest ? videoEl.closest('.ak-im-video-surface') : null;
-                if (!surface) return;
-                surface.style.aspectRatio = String(Math.max(1, image.naturalWidth)) + '/' + String(Math.max(1, image.naturalHeight));
-            };
-            image.src = posterUrl;
+        shouldAcceptSurfaceActivate(surfaceEl, debounceMs) {
+            if (!surfaceEl) return false;
+            const now = Date.now();
+            const lastAt = Number(surfaceEl.dataset.akImVideoLastActivateAt || 0);
+            if (now - lastAt < debounceMs) return false;
+            surfaceEl.dataset.akImVideoLastActivateAt = String(now);
+            return true;
         },
 
         bindPlaybackState() {
             if (this.playbackBound) return;
             this.playbackBound = true;
             const self = this;
-            const updateState = function(event) {
-                const videoEl = event && event.target && event.target.closest ? event.target.closest('.ak-im-video-player') : null;
-                if (!videoEl) return;
-                const bubbleEl = videoEl.closest ? videoEl.closest('.ak-im-video-bubble') : null;
-                if (!bubbleEl) return;
-                if (event.type === 'loadedmetadata') {
-                    self.applyVideoNaturalRatio(videoEl);
-                    return;
-                }
-                if (event.type === 'play') {
-                    if (!self.isActiveVideo(videoEl)) {
-                        self.clearVideoLoadingTimeout(videoEl);
-                        self.clearVideoPlayRequested(videoEl);
-                        bubbleEl.classList.remove('is-playing');
-                        bubbleEl.classList.remove('is-loading');
-                        bubbleEl.classList.remove('is-error');
-                        try {
-                            videoEl.pause();
-                        } catch (e) {}
-                        return;
-                    }
-                    self.pauseOtherVideos(videoEl);
-                    self.clearVideoLoadingTimeout(videoEl);
-                    bubbleEl.classList.remove('is-loading');
-                    bubbleEl.classList.remove('is-error');
-                    bubbleEl.classList.add('is-playing');
-                    return;
-                }
-                if (event.type === 'waiting' || event.type === 'loadstart') {
-                    if (!self.isActiveVideo(videoEl) || !self.isVideoPlayRequested(videoEl)) {
-                        bubbleEl.classList.remove('is-loading');
-                        bubbleEl.classList.remove('is-error');
-                        return;
-                    }
-                    self.startVideoLoadingTimeout(videoEl);
-                    bubbleEl.classList.add('is-loading');
-                    bubbleEl.classList.remove('is-error');
-                    return;
-                }
-                if (event.type === 'playing' || event.type === 'canplay' || event.type === 'loadeddata') {
-                    if (!self.isActiveVideo(videoEl) || !self.isVideoPlayRequested(videoEl)) {
-                        bubbleEl.classList.remove('is-loading');
-                        bubbleEl.classList.remove('is-error');
-                        return;
-                    }
-                    self.clearVideoLoadingTimeout(videoEl);
-                    bubbleEl.classList.remove('is-loading');
-                    bubbleEl.classList.remove('is-error');
-                    if (event.type === 'playing') bubbleEl.classList.add('is-playing');
-                    return;
-                }
-                if (event.type === 'error') {
-                    self.clearVideoLoadingTimeout(videoEl);
-                    if (!self.isActiveVideo(videoEl) || !self.isVideoPlayRequested(videoEl)) {
-                        bubbleEl.classList.remove('is-loading');
-                        bubbleEl.classList.remove('is-error');
-                        return;
-                    }
-                    self.clearVideoPlayRequested(videoEl);
-                    self.clearActiveVideo(videoEl);
-                    bubbleEl.classList.remove('is-loading');
-                    bubbleEl.classList.add('is-error');
-                    return;
-                }
-                bubbleEl.classList.remove('is-playing');
-                bubbleEl.classList.remove('is-loading');
-                self.clearVideoLoadingTimeout(videoEl);
-                self.clearVideoPlayRequested(videoEl);
-                self.clearActiveVideo(videoEl);
-                if (event.type === 'ended') self.resetVideoForReplay(videoEl);
-            };
-            document.addEventListener('play', updateState, true);
-            document.addEventListener('playing', updateState, true);
-            document.addEventListener('waiting', updateState, true);
-            document.addEventListener('loadstart', updateState, true);
-            document.addEventListener('loadeddata', updateState, true);
-            document.addEventListener('canplay', updateState, true);
-            document.addEventListener('pause', updateState, true);
-            document.addEventListener('ended', updateState, true);
-            document.addEventListener('error', updateState, true);
-            document.addEventListener('emptied', updateState, true);
-            document.addEventListener('loadedmetadata', updateState, true);
             const handleButtonActivate = function(event) {
                 const button = event && event.target && event.target.closest ? event.target.closest('.ak-im-video-play-badge') : null;
                 if (!button) return;
                 const surface = button.closest ? button.closest('.ak-im-video-surface') : null;
-                const videoEl = surface && surface.querySelector ? surface.querySelector('.ak-im-video-player') : null;
-                if (!videoEl) return;
+                if (!surface) return;
                 event.preventDefault();
                 event.stopPropagation();
-                if (!self.shouldAcceptVideoActivate(videoEl, 450)) return;
-                self.playOrPauseVideo(videoEl);
-            };
-            const handleVideoReplayActivate = function(event) {
-                const videoEl = event && event.target && event.target.closest ? event.target.closest('.ak-im-video-player') : null;
-                if (!videoEl || (!videoEl.ended && !videoEl.error)) return;
-                event.preventDefault();
-                event.stopPropagation();
-                if (!self.shouldAcceptVideoActivate(videoEl, 300)) return;
-                self.playOrPauseVideo(videoEl);
+                if (!self.shouldAcceptSurfaceActivate(surface, 450)) return;
+                self.openVideoViewerFromSurface(surface);
             };
             const handleSurfaceActivate = function(event) {
                 if (event && event.target && event.target.closest && event.target.closest('.ak-im-video-play-badge')) return;
                 const surface = event && event.target && event.target.closest ? event.target.closest('.ak-im-video-surface') : null;
-                const videoEl = surface && surface.querySelector ? surface.querySelector('.ak-im-video-player') : null;
-                if (!videoEl) return;
+                if (!surface) return;
                 event.preventDefault();
                 event.stopPropagation();
-                if (!self.shouldAcceptVideoActivate(videoEl, 450)) return;
-                self.playOrPauseVideo(videoEl);
+                if (!self.shouldAcceptSurfaceActivate(surface, 450)) return;
+                self.openVideoViewerFromSurface(surface);
+            };
+            const handleSurfaceKeyActivate = function(event) {
+                if (!event || (event.key !== 'Enter' && event.key !== ' ')) return;
+                const surface = event.target && event.target.closest ? event.target.closest('.ak-im-video-surface') : null;
+                if (!surface) return;
+                event.preventDefault();
+                event.stopPropagation();
+                if (!self.shouldAcceptSurfaceActivate(surface, 450)) return;
+                self.openVideoViewerFromSurface(surface);
             };
             if (window.PointerEvent) {
                 document.addEventListener('pointerup', handleButtonActivate, true);
-                document.addEventListener('pointerup', handleVideoReplayActivate, true);
                 document.addEventListener('pointerup', handleSurfaceActivate, true);
             } else {
                 document.addEventListener('touchend', handleButtonActivate, true);
-                document.addEventListener('touchend', handleVideoReplayActivate, true);
                 document.addEventListener('touchend', handleSurfaceActivate, true);
                 document.addEventListener('click', handleButtonActivate, true);
-                document.addEventListener('click', handleVideoReplayActivate, true);
                 document.addEventListener('click', handleSurfaceActivate, true);
             }
-        },
-
-        fitVisibleVideoBubbles() {
-            const root = document.getElementById('ak-im-root') || document;
-            const self = this;
-            Array.prototype.forEach.call(root.querySelectorAll('.ak-im-video-player'), function(videoEl) {
-                self.applyPosterNaturalRatio(videoEl);
-                self.applyVideoNaturalRatio(videoEl);
-            });
-        },
-
-        warmupVideoPreview(videoEl) {
-            if (this.isTouchVideoEnvironment()) return;
-            if (!videoEl || videoEl.dataset.akImVideoPreviewReady) return;
-            videoEl.dataset.akImVideoPreviewReady = '1';
-            const seekPreviewFrame = function() {
-                if (!videoEl || videoEl.dataset.akImVideoPreviewSeeked) return;
-                if (!Number.isFinite(Number(videoEl.duration || 0)) || Number(videoEl.duration || 0) <= 0) return;
-                videoEl.dataset.akImVideoPreviewSeeked = '1';
-                try {
-                    videoEl.currentTime = Math.min(0.12, Math.max(0.01, Number(videoEl.duration || 0) / 100));
-                } catch (e) {}
-            };
-            videoEl.addEventListener('loadedmetadata', seekPreviewFrame, { once: true });
-            videoEl.addEventListener('loadeddata', function() {
-                const bubbleEl = videoEl.closest ? videoEl.closest('.ak-im-video-bubble') : null;
-                if (bubbleEl) bubbleEl.classList.add('has-preview-frame');
-            }, { once: true });
-            try {
-                videoEl.load();
-            } catch (e) {}
-            if (videoEl.readyState >= 1) seekPreviewFrame();
-        },
-
-        warmupVisibleVideoPreviews() {
-            const root = document.getElementById('ak-im-root') || document;
-            const self = this;
-            self.fitVisibleVideoBubbles();
-            Array.prototype.forEach.call(root.querySelectorAll('.ak-im-video-player[data-ak-im-video-preview-warmup="1"]'), function(videoEl) {
-                self.warmupVideoPreview(videoEl);
-            });
-        },
-
-        bindPreviewWarmup() {
-            if (this.previewBound) return;
-            this.previewBound = true;
-            const self = this;
-            const scheduleWarmup = function() {
-                setTimeout(function() {
-                    self.warmupVisibleVideoPreviews();
-                }, 60);
-                setTimeout(function() {
-                    self.warmupVisibleVideoPreviews();
-                }, 360);
-            };
-            if (document.readyState === 'loading') {
-                document.addEventListener('DOMContentLoaded', scheduleWarmup, { once: true });
-            } else {
-                scheduleWarmup();
-            }
-            const observer = new MutationObserver(scheduleWarmup);
-            const observeRoot = document.getElementById('ak-im-root') || document.body || document.documentElement;
-            if (observeRoot) observer.observe(observeRoot, { childList: true, subtree: true });
+            document.addEventListener('keydown', handleSurfaceKeyActivate, true);
         },
 
         sendVideoFile(file) {
@@ -703,16 +484,11 @@
             style.textContent = [
                 '#ak-im-root .ak-im-bubble-video{padding:0;overflow:hidden;background:transparent;color:#fff;box-shadow:none}',
                 '#ak-im-root .ak-im-video-bubble{position:relative;width:min(276px,68vw);border-radius:10px;background:#020617;color:#fff;overflow:hidden;box-shadow:0 6px 18px rgba(15,23,42,.16)}',
-                '#ak-im-root .ak-im-video-surface{position:relative;width:100%;aspect-ratio:9/16;background:linear-gradient(135deg,#111827,#020617);overflow:hidden}',
-                '#ak-im-root .ak-im-video-player{display:block;width:100%;height:100%;background:#000;object-fit:cover}',
-                '#ak-im-root .ak-im-video-player::-webkit-media-controls-panel{background:linear-gradient(transparent,rgba(0,0,0,.55))}',
+                '#ak-im-root .ak-im-video-surface{position:relative;width:100%;aspect-ratio:9/16;background:linear-gradient(135deg,#111827,#020617);overflow:hidden;cursor:pointer}',
+                '#ak-im-root .ak-im-video-surface:focus-visible{outline:2px solid rgba(255,255,255,.9);outline-offset:2px}',
+                '#ak-im-root .ak-im-video-poster{display:block;width:100%;height:100%;object-fit:cover;background:#000}',
+                '#ak-im-root .ak-im-video-poster-placeholder{display:flex;width:100%;height:100%;align-items:center;justify-content:center;background:linear-gradient(135deg,#111827,#020617);color:rgba(255,255,255,.62);font-size:42px;text-indent:6px}',
                 '#ak-im-root .ak-im-video-play-badge{position:absolute;left:50%;top:50%;z-index:2;width:58px;height:58px;transform:translate(-50%,-50%);border-radius:999px;display:flex;align-items:center;justify-content:center;background:rgba(15,23,42,.42);border:2px solid rgba(255,255,255,.82);box-shadow:0 8px 24px rgba(0,0,0,.28);font-size:26px;line-height:1;text-indent:4px;color:#fff;cursor:pointer;appearance:none;-webkit-appearance:none;padding:0}',
-                '#ak-im-root .ak-im-video-player:playing+.ak-im-video-play-badge{opacity:0}',
-                '#ak-im-root .ak-im-video-bubble.is-playing .ak-im-video-play-badge{opacity:0}',
-                '#ak-im-root .ak-im-video-bubble.is-loading .ak-im-video-play-badge{font-size:0;text-indent:0;opacity:1}',
-                '#ak-im-root .ak-im-video-bubble.is-loading .ak-im-video-play-badge:after{content:"";width:24px;height:24px;border-radius:999px;border:3px solid rgba(255,255,255,.45);border-top-color:#fff;animation:ak-im-video-spin .8s linear infinite}',
-                '#ak-im-root .ak-im-video-bubble.is-error .ak-im-video-play-badge{font-size:0;text-indent:0;opacity:1}',
-                '#ak-im-root .ak-im-video-bubble.is-error .ak-im-video-play-badge:after{content:"!";font-size:24px;font-weight:900;text-indent:0}',
                 '#ak-im-root .ak-im-video-bubble-local{display:flex;align-items:center;gap:12px;min-height:88px;padding:14px;box-sizing:border-box;background:#0f172a}',
                 '#ak-im-root .ak-im-video-local-icon{width:42px;height:42px;border-radius:999px;display:inline-flex;align-items:center;justify-content:center;background:rgba(255,255,255,.16);font-size:18px;flex:0 0 auto}',
                 '#ak-im-root .ak-im-video-meta{display:flex;flex-direction:column;gap:4px;min-width:0}',
@@ -726,7 +502,16 @@
                 '#ak-im-root .ak-im-video-progress-ring{width:26px;height:26px;border-radius:999px;border:3px solid rgba(255,255,255,.35);border-top-color:#fff;animation:ak-im-video-spin .8s linear infinite}',
                 '#ak-im-root .ak-im-video-progress-overlay.is-failed .ak-im-video-progress-ring{animation:none;border-color:#fecaca;color:#fecaca}',
                 '#ak-im-root .ak-im-video-progress-overlay.is-failed .ak-im-video-progress-ring:after{content:"!";display:flex;align-items:center;justify-content:center;height:100%;font-size:14px;font-weight:900}',
-                '@media (pointer:coarse){#ak-im-root .ak-im-video-bubble{width:min(276px,72vw)}#ak-im-root .ak-im-video-surface{aspect-ratio:9/16;background:#000}#ak-im-root .ak-im-video-player{object-fit:cover}#ak-im-root .ak-im-video-play-badge{display:flex}#ak-im-root .ak-im-video-bubble.is-playing .ak-im-video-play-badge{opacity:0;pointer-events:none}}',
+                '.ak-im-video-viewer{position:fixed;inset:0;z-index:9999;display:none;align-items:center;justify-content:center;background:rgba(2,6,23,.92);padding:18px;box-sizing:border-box}',
+                '.ak-im-video-viewer.is-open{display:flex}',
+                '.ak-im-video-viewer-stage{position:relative;display:flex;align-items:center;justify-content:center;width:min(960px,100%);height:min(86vh,760px)}',
+                '.ak-im-video-viewer-player{display:block;max-width:100%;max-height:100%;background:#000;border-radius:10px;box-shadow:0 20px 70px rgba(0,0,0,.45)}',
+                '.ak-im-video-viewer-close{position:absolute;right:0;top:-46px;width:38px;height:38px;border:0;border-radius:999px;background:rgba(255,255,255,.16);color:#fff;font-size:28px;line-height:38px;cursor:pointer;appearance:none;-webkit-appearance:none;padding:0}',
+                '.ak-im-video-viewer-loading{position:absolute;left:50%;top:50%;display:none;width:34px;height:34px;margin:-17px 0 0 -17px;border-radius:999px;border:3px solid rgba(255,255,255,.35);border-top-color:#fff;animation:ak-im-video-spin .8s linear infinite}',
+                '.ak-im-video-viewer.is-loading .ak-im-video-viewer-loading{display:block}',
+                '.ak-im-video-viewer-error{position:absolute;left:50%;top:50%;display:none;transform:translate(-50%,-50%);border-radius:999px;background:rgba(127,29,29,.92);color:#fff;font-size:13px;font-weight:800;padding:10px 14px}',
+                '.ak-im-video-viewer.is-error .ak-im-video-viewer-error{display:block}',
+                '@media (pointer:coarse){#ak-im-root .ak-im-video-bubble{width:min(276px,72vw)}#ak-im-root .ak-im-video-surface{aspect-ratio:9/16;background:#000}#ak-im-root .ak-im-video-play-badge{display:flex}.ak-im-video-viewer{padding:0}.ak-im-video-viewer-stage{width:100%;height:100%}.ak-im-video-viewer-player{width:100%;max-height:100%;border-radius:0}.ak-im-video-viewer-close{right:12px;top:12px;z-index:2;background:rgba(15,23,42,.56)}}',
                 '@keyframes ak-im-video-spin{to{transform:rotate(360deg)}}'
             ].join('');
             document.head.appendChild(style);
