@@ -1,8 +1,11 @@
 (function(global) {
     'use strict';
 
+    const IMAGE_PREVIEW_REFRESH_DELAY_MS = 3500;
+
     const messageManageModule = {
         ctx: null,
+        imagePreviewRefreshTimer: null,
 
         init(ctx) {
             this.ctx = ctx || null;
@@ -30,6 +33,43 @@
 
         getMentionManage() {
             return this.ctx && typeof this.ctx.getMentionManage === 'function' ? this.ctx.getMentionManage() : null;
+        },
+
+        hasPendingImagePreview() {
+            const state = this.getState();
+            const messages = state && Array.isArray(state.activeMessages) ? state.activeMessages : [];
+            return messages.some(function(item) {
+                if (String(item && item.message_type || '').trim().toLowerCase() !== 'image') return false;
+                try {
+                    const payload = JSON.parse(String(item && item.content || '').trim() || '{}');
+                    return String(payload && payload.preview_status || '').trim().toLowerCase() === 'pending';
+                } catch (e) {
+                    return false;
+                }
+            });
+        },
+
+        scheduleImagePreviewRefresh() {
+            const state = this.getState();
+            if (!state || !Number(state.activeConversationId || 0) || !this.hasPendingImagePreview()) {
+                this.clearImagePreviewRefresh();
+                return;
+            }
+            if (this.imagePreviewRefreshTimer) return;
+            const self = this;
+            const conversationId = Number(state.activeConversationId || 0);
+            this.imagePreviewRefreshTimer = setTimeout(function() {
+                self.imagePreviewRefreshTimer = null;
+                const latestState = self.getState();
+                if (!latestState || Number(latestState.activeConversationId || 0) !== conversationId) return;
+                self.loadMessages(conversationId);
+            }, IMAGE_PREVIEW_REFRESH_DELAY_MS);
+        },
+
+        clearImagePreviewRefresh() {
+            if (!this.imagePreviewRefreshTimer) return;
+            clearTimeout(this.imagePreviewRefreshTimer);
+            this.imagePreviewRefreshTimer = null;
         },
 
         getActiveSession() {
@@ -390,6 +430,7 @@
             }
             messageList.innerHTML = '';
             if (!state.activeConversationId) {
+                this.clearImagePreviewRefresh();
                 const empty = document.createElement('div');
                 empty.className = 'ak-im-empty';
                 empty.textContent = state.allowed ? '选择一个会话\n开始内部单聊' : '当前账号未开通聊天';
@@ -405,6 +446,7 @@
                 messageList.appendChild(allMuteBanner);
             }
             if (state.activeMessagesLoading && !state.activeMessages.length) {
+                this.clearImagePreviewRefresh();
                 const empty = document.createElement('div');
                 empty.className = 'ak-im-empty';
                 empty.textContent = '消息加载中...';
@@ -413,6 +455,7 @@
                 return;
             }
             if (!state.activeMessages.length) {
+                this.clearImagePreviewRefresh();
                 const empty = document.createElement('div');
                 empty.className = 'ak-im-empty';
                 empty.textContent = '还没有消息\n发一条试试';
@@ -539,6 +582,7 @@
             } else {
                 messageList.scrollTop = messageList.scrollHeight;
             }
+            this.scheduleImagePreviewRefresh();
         },
 
         sendMessagePayload(payload, options) {

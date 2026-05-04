@@ -136,19 +136,42 @@
             '</span>';
         },
 
+        buildRemoteOverlayMarkup(payload) {
+            const previewStatus = String(payload && payload.previewStatus || '').trim().toLowerCase();
+            if (previewStatus !== 'pending' && previewStatus !== 'failed') return '';
+            const statusText = previewStatus === 'failed' ? '预览生成失败' : '图片处理中';
+            const progressText = previewStatus === 'failed' ? '可点开原图' : '生成预览中';
+            return '<span class="ak-im-image-bubble-overlay' + (previewStatus === 'failed' ? ' is-failed' : '') + '">' +
+                '<span class="ak-im-image-bubble-status">' + this.escapeHtml(statusText) + '</span>' +
+                '<span class="ak-im-image-bubble-progress">' + this.escapeHtml(progressText) + '</span>' +
+            '</span>';
+        },
+
         resolveImagePayload(item) {
             if (String(item && item.message_type || '').trim().toLowerCase() !== 'image') return null;
             const rawContent = String(item && item.content || '').trim();
             if (!rawContent) return null;
             try {
                 const parsed = JSON.parse(rawContent);
-                const fileUrl = String(parsed && parsed.file_url || '').trim();
+                const previewStatus = String(parsed && parsed.preview_status || '').trim().toLowerCase();
+                const originalUrl = String(parsed && parsed.original_url || '').trim();
+                const previewUrl = String(parsed && parsed.preview_url || '').trim();
+                const rawFileUrl = String(parsed && parsed.file_url || '').trim();
+                let fileUrl = rawFileUrl;
+                if (previewStatus === 'ready' && previewUrl) fileUrl = previewUrl;
                 if (!fileUrl) return null;
                 const fileName = String(parsed && parsed.file_name || '图片').trim() || '图片';
                 const mimeType = String(parsed && parsed.mime_type || '').trim();
                 const fileSize = Math.max(0, Number(parsed && parsed.file_size || 0) || 0);
+                const displayUrl = previewStatus === 'pending' || previewStatus === 'failed'
+                    ? this.buildPlaceholderPreviewUrl(fileName, mimeType)
+                    : fileUrl;
                 return {
                     fileUrl: fileUrl,
+                    displayUrl: displayUrl,
+                    originalUrl: originalUrl,
+                    previewUrl: previewUrl,
+                    previewStatus: previewStatus,
                     fileName: fileName,
                     mimeType: mimeType,
                     fileSize: fileSize,
@@ -163,11 +186,14 @@
             const payload = this.resolveImagePayload(item);
             if (!payload) return '';
             const label = payload.fileName || '图片';
-            const safeUrl = this.escapeAttribute(payload.fileUrl);
+            const safeUrl = this.escapeAttribute(payload.displayUrl || payload.fileUrl);
             const safeLabel = this.escapeAttribute(label);
-            const previewUrl = '/chat/im/image-preview?src=' + encodeURIComponent(payload.fileUrl) + '&label=' + encodeURIComponent(label);
+            const targetUrl = payload.previewStatus === 'ready' && payload.previewUrl
+                ? payload.previewUrl
+                : (payload.originalUrl || payload.fileUrl);
+            const previewUrl = '/chat/im/image-preview?src=' + encodeURIComponent(targetUrl) + '&label=' + encodeURIComponent(label);
             const safePreviewUrl = this.escapeAttribute(previewUrl);
-            const overlayMarkup = this.buildLocalOverlayMarkup(item);
+            const overlayMarkup = this.buildLocalOverlayMarkup(item) || this.buildRemoteOverlayMarkup(payload);
             return '<a class="ak-im-image-bubble-link" href="' + safePreviewUrl + '" target="_blank" rel="noopener noreferrer" aria-label="查看图片 ' + safeLabel + '">' +
                 '<span class="ak-im-image-bubble-surface">' +
                     '<img class="ak-im-image-bubble-image" src="' + safeUrl + '" alt="' + safeLabel + '" loading="lazy">' +

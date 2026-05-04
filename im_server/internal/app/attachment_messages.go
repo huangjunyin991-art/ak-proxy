@@ -22,6 +22,7 @@ import (
 
 const (
 	imageMessageMaxBytes             = 20 * 1024 * 1024
+	heicImageMessageMaxBytes         = 8 * 1024 * 1024
 	imageUploadMultipartMemoryBytes = 512 * 1024
 	fileMessageMaxBytes              = 200 * 1024 * 1024
 	defaultFileAssetRetentionDays     = 30
@@ -45,13 +46,24 @@ var supportedImageAssetExts = map[string]string{
 	".heif": "image/heif",
 }
 
+var supportedImagePreviewAssetExts = map[string]string{
+	".jpg":  "image/jpeg",
+	".jpeg": "image/jpeg",
+	".webp": "image/webp",
+}
+
 type imageMessageStoragePayload struct {
-	StorageName string `json:"storage_name"`
-	FileURL     string `json:"file_url,omitempty"`
-	FileName    string `json:"file_name,omitempty"`
-	MimeType    string `json:"mime_type"`
-	FileSize    int    `json:"file_size"`
-	Source      string `json:"source,omitempty"`
+	StorageName        string `json:"storage_name"`
+	FileURL            string `json:"file_url,omitempty"`
+	FileName           string `json:"file_name,omitempty"`
+	MimeType           string `json:"mime_type"`
+	FileSize           int    `json:"file_size"`
+	Source             string `json:"source,omitempty"`
+	OriginalStorageName string `json:"original_storage_name,omitempty"`
+	OriginalURL         string `json:"original_url,omitempty"`
+	PreviewStorageName  string `json:"preview_storage_name,omitempty"`
+	PreviewURL          string `json:"preview_url,omitempty"`
+	PreviewStatus       string `json:"preview_status,omitempty"`
 }
 
 type fileMessageStoragePayload struct {
@@ -111,6 +123,14 @@ func ensureImageStorageName(storageName string) bool {
 		return false
 	}
 	_, ok := supportedImageAssetExts[strings.ToLower(filepath.Ext(strings.TrimSpace(storageName)))]
+	return ok
+}
+
+func ensureImagePreviewStorageName(storageName string) bool {
+	if !ensureAttachmentStorageName(storageName) {
+		return false
+	}
+	_, ok := supportedImagePreviewAssetExts[strings.ToLower(filepath.Ext(strings.TrimSpace(storageName)))]
 	return ok
 }
 
@@ -239,6 +259,27 @@ func buildImageAssetURL(storageName string) string {
 	return "/im/assets/image/" + normalized
 }
 
+func buildImagePreviewAssetURL(storageName string) string {
+	normalized := strings.TrimSpace(storageName)
+	if normalized == "" {
+		return ""
+	}
+	return "/im/assets/image-preview/" + normalized
+}
+
+func normalizeImagePreviewStatus(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "pending":
+		return "pending"
+	case "ready":
+		return "ready"
+	case "failed":
+		return "failed"
+	default:
+		return ""
+	}
+}
+
 func buildFileAssetURL(storageName string) string {
 	normalized := strings.TrimSpace(storageName)
 	if normalized == "" {
@@ -268,13 +309,42 @@ func normalizeImageMessagePayload(rawContent string) (imageMessageStoragePayload
 	if fileSize <= 0 || fileSize > imageMessageMaxBytes {
 		return imageMessageStoragePayload{}, errInvalidImagePayload
 	}
+	originalStorageName := strings.TrimSpace(payload.OriginalStorageName)
+	if originalStorageName != "" && !ensureImageStorageName(originalStorageName) {
+		return imageMessageStoragePayload{}, errInvalidImagePayload
+	}
+	previewStorageName := strings.TrimSpace(payload.PreviewStorageName)
+	if previewStorageName != "" && !ensureImagePreviewStorageName(previewStorageName) {
+		return imageMessageStoragePayload{}, errInvalidImagePayload
+	}
+	previewStatus := normalizeImagePreviewStatus(payload.PreviewStatus)
+	if previewStatus == "" && previewStorageName != "" {
+		previewStatus = "ready"
+	}
+	fileURL := buildImageAssetURL(normalizedStorageName)
+	previewURL := ""
+	if previewStorageName != "" {
+		previewURL = buildImagePreviewAssetURL(previewStorageName)
+		if previewStatus == "ready" {
+			fileURL = previewURL
+		}
+	}
+	originalURL := ""
+	if originalStorageName != "" {
+		originalURL = buildImageAssetURL(originalStorageName)
+	}
 	return imageMessageStoragePayload{
-		StorageName: normalizedStorageName,
-		FileURL:     buildImageAssetURL(normalizedStorageName),
-		FileName:    fileName,
-		MimeType:    normalizedMimeType,
-		FileSize:    fileSize,
-		Source:      sanitizeImageSource(payload.Source),
+		StorageName:        normalizedStorageName,
+		FileURL:            fileURL,
+		FileName:           fileName,
+		MimeType:           normalizedMimeType,
+		FileSize:           fileSize,
+		Source:             sanitizeImageSource(payload.Source),
+		OriginalStorageName: originalStorageName,
+		OriginalURL:         originalURL,
+		PreviewStorageName:  previewStorageName,
+		PreviewURL:          previewURL,
+		PreviewStatus:       previewStatus,
 	}, nil
 }
 
@@ -523,29 +593,22 @@ func (a *App) ensureFileDirectories() error {
 	return os.MkdirAll(strings.TrimSpace(a.cfg.FileStoreDir), 0o755)
 }
 
-func (a *App) persistHEICImageAsset(reader io.Reader, fileName string, config imageUploadConfigSnapshot) (persistedImageAsset, error) {
-	storageName, err := generateAttachmentStorageName(".webp")
+func (a *App) persistHEICImageAsset(reader io.Reader, fileName string, ext string) (persistedImageAsset, error) {
+	normalizedExt := sanitizeAttachmentExt("image"+ext, ".heic")
+	storageName, err := generateAttachmentStorageName(normalizedExt)
 	if err != nil {
 		return persistedImageAsset{}, err
 	}
 	storagePath := filepath.Join(strings.TrimSpace(a.cfg.ImageStoreDir), storageName)
-	webpBytes, err := func() ([]byte, error) {
-		a.imageHEICMu.Lock()
-		defer a.imageHEICMu.Unlock()
-		return transcodeHEICImageToWebP(reader, int64(imageMessageMaxBytes), config.MaxLongEdgePx)
-	}()
-	if err != nil {
-		return persistedImageAsset{}, err
-	}
-	written, err := writeUploadedBytes(storagePath, webpBytes, int64(imageMessageMaxBytes))
+	written, err := writeUploadedFile(storagePath, reader, int64(heicImageMessageMaxBytes))
 	if err != nil {
 		return persistedImageAsset{}, err
 	}
 	return persistedImageAsset{
 		StorageName: storageName,
 		FileSize:    int(written),
-		FileName:    buildStoredImageFileName(fileName, ".webp"),
-		MimeType:    "image/webp",
+		FileName:    sanitizeAttachmentFileName(fileName, "image"+normalizedExt),
+		MimeType:    supportedImageAssetExts[normalizedExt],
 	}, nil
 }
 
@@ -555,7 +618,7 @@ func (a *App) persistImageAsset(reader io.Reader, fileName string, ext string, c
 		return persistedImageAsset{}, errors.New("unsupported image format")
 	}
 	if isHEICImageExt(normalizedExt) {
-		return a.persistHEICImageAsset(reader, fileName, config)
+		return a.persistHEICImageAsset(reader, fileName, normalizedExt)
 	}
 	storageName, err := generateAttachmentStorageName(normalizedExt)
 	if err != nil {
@@ -999,15 +1062,7 @@ func (a *App) handleSendImageMessage(w http.ResponseWriter, r *http.Request) {
 	if normalizedMimeType == "" {
 		normalizedMimeType = supportedImageAssetExts[ext]
 	}
-	uploadConfig := defaultImageUploadConfigSnapshot()
-	if isHEICImageExt(ext) {
-		uploadConfig, err = a.getImageUploadConfig(r.Context())
-		if err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
-			return
-		}
-	}
-	asset, err := a.persistImageAsset(file, header.Filename, ext, uploadConfig)
+	asset, err := a.persistImageAsset(file, header.Filename, ext, defaultImageUploadConfigSnapshot())
 	if err != nil {
 		messageText := err.Error()
 		if messageText == "file too large" {
@@ -1026,11 +1081,23 @@ func (a *App) handleSendImageMessage(w http.ResponseWriter, r *http.Request) {
 		fileName = sanitizeAttachmentFileName(asset.FileName, fileName)
 	}
 	payloadBytes, err := json.Marshal(imageMessageStoragePayload{
-		StorageName: storageName,
-		FileName:    fileName,
-		MimeType:    normalizedMimeType,
-		FileSize:    fileSize,
-		Source:      sanitizeImageSource(r.FormValue("source")),
+		StorageName:        storageName,
+		FileName:           fileName,
+		MimeType:           normalizedMimeType,
+		FileSize:           fileSize,
+		Source:             sanitizeImageSource(r.FormValue("source")),
+		OriginalStorageName: func() string {
+			if isHEICImageExt(ext) {
+				return storageName
+			}
+			return ""
+		}(),
+		PreviewStatus: func() string {
+			if isHEICImageExt(ext) {
+				return "pending"
+			}
+			return ""
+		}(),
 	})
 	if err != nil {
 		a.removeImageAsset(storageName)
@@ -1198,6 +1265,41 @@ func (a *App) handleImageAssetFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	mimeType := supportedImageAssetExts[strings.ToLower(filepath.Ext(storageName))]
+	if mimeType == "" {
+		mimeType = "application/octet-stream"
+	}
+	w.Header().Set("Content-Type", mimeType)
+	w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+	http.ServeContent(w, r, storageName, info.ModTime(), file)
+}
+
+func (a *App) handleImagePreviewAssetFile(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	storageName := strings.TrimSpace(strings.TrimPrefix(r.URL.Path, "/im/assets/image-preview/"))
+	if !ensureImagePreviewStorageName(storageName) {
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+	filePath := filepath.Join(strings.TrimSpace(a.cfg.ImageStoreDir), storageName)
+	file, err := os.Open(filePath)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+	mimeType := supportedImagePreviewAssetExts[strings.ToLower(filepath.Ext(storageName))]
 	if mimeType == "" {
 		mimeType = "application/octet-stream"
 	}
