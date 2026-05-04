@@ -102,16 +102,6 @@ func (s *Store) ReserveImageHEICPreview(ctx context.Context, conversationID int6
 	if err := s.expireStaleActiveTasks(ctx, normalizedUsername); err != nil {
 		return Task{}, err
 	}
-	if err := s.expireStaleActiveMessages(ctx, normalizedUsername); err != nil {
-		return Task{}, err
-	}
-	activeMessageExists, err := s.activeImageHEICPreviewMessageExists(ctx, normalizedUsername)
-	if err != nil {
-		return Task{}, err
-	}
-	if activeMessageExists {
-		return Task{}, ErrActiveTaskExists
-	}
 	var task Task
 	err = s.db.QueryRow(ctx, `
 		INSERT INTO im_media_preview_task (conversation_id, sender_username, media_kind, status)
