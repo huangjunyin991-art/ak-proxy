@@ -17,6 +17,7 @@ import (
 
 	socialsvc "im_server/internal/app/social"
 	"im_server/internal/config"
+	"im_server/internal/media/taskstore"
 	sessionvisibility "im_server/internal/session_visibility"
 
 	"github.com/gorilla/websocket"
@@ -43,6 +44,7 @@ type App struct {
 	db                *pgxpool.Pool
 	social            *socialsvc.Service
 	sessionVisibility *sessionvisibility.Service
+	mediaTasks        *taskstore.Store
 	hub               *Hub
 	server            *http.Server
 	upgrader          websocket.Upgrader
@@ -226,8 +228,14 @@ func New(cfg config.Config) (*App, error) {
 	}
 	app.social = socialsvc.New(pool, app.buildSocialIdentityItems)
 	app.sessionVisibility = sessionvisibility.New(pool)
+	app.mediaTasks = taskstore.New(pool)
 	if err := app.ensureSchema(ctx); err != nil {
 		return nil, err
+	}
+	if app.mediaTasks != nil {
+		if err := app.mediaTasks.EnsureSchema(ctx); err != nil {
+			return nil, err
+		}
 	}
 	if app.social != nil {
 		if err := app.social.EnsureSchema(ctx); err != nil {

@@ -8,23 +8,30 @@ import (
 	"errors"
 	"log"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"strconv"
+	"runtime/debug"
 	"strings"
 	"time"
+
+	"im_server/internal/media/loadguard"
+	"im_server/internal/media/preview"
+	"im_server/internal/media/taskstore"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 const (
-	defaultScanInterval = 5 * time.Second
-	defaultBatchSize    = 8
-	defaultPreviewEdge  = 1920
+	defaultScanInterval           = 5 * time.Second
+	defaultBatchSize              = 8
+	defaultPreviewEdge            = 1920
+	defaultPreviewGenerateTimeout = 3 * time.Minute
 )
 
 type Worker struct {
 	db             *pgxpool.Pool
+	tasks          *taskstore.Store
+	guard          *loadguard.Guard
+	generator      preview.VipsGenerator
 	imageStoreDir  string
 	scanInterval   time.Duration
 	batchSize      int
@@ -32,17 +39,22 @@ type Worker struct {
 }
 
 type Config struct {
-	DatabaseURL     string
-	ImageStoreDir   string
-	ScanInterval    time.Duration
-	BatchSize       int
-	PreviewLongEdge int
+	DatabaseURL            string
+	ImageStoreDir          string
+	ScanInterval           time.Duration
+	BatchSize              int
+	PreviewLongEdge        int
+	ReserveCPUPercent      int
+	MemoryHighWaterPercent int
+	MinAvailableMemoryMB   int
+	MaxConcurrency         int
 }
 
 type imageTask struct {
 	MessageID      int64
 	ConversationID int64
 	Payload        imagePayload
+	TaskID         int64
 }
 
 type imagePayload struct {
@@ -66,6 +78,7 @@ func NewWorker(ctx context.Context, cfg Config) (*Worker, error) {
 	}
 	worker := &Worker{
 		db:              pool,
+		tasks:           taskstore.New(pool),
 		imageStoreDir:   strings.TrimSpace(cfg.ImageStoreDir),
 		scanInterval:    cfg.ScanInterval,
 		batchSize:       cfg.BatchSize,
@@ -83,6 +96,13 @@ func NewWorker(ctx context.Context, cfg Config) (*Worker, error) {
 	if worker.imageStoreDir == "" {
 		worker.imageStoreDir = "./data/im/image_assets"
 	}
+	worker.generator = preview.VipsGenerator{LongEdge: worker.previewLongEdge}
+	worker.guard = loadguard.New(loadguard.Config{
+		ReserveCPUPercent:      cfg.ReserveCPUPercent,
+		MemoryHighWaterPercent: cfg.MemoryHighWaterPercent,
+		MinAvailableBytes:      uint64(maxInt(0, cfg.MinAvailableMemoryMB)) * 1024 * 1024,
+		MaxConcurrency:         cfg.MaxConcurrency,
+	})
 	return worker, nil
 }
 
@@ -96,11 +116,16 @@ func (w *Worker) Run(ctx context.Context) error {
 	if w == nil || w.db == nil {
 		return errors.New("media worker not initialized")
 	}
-	if _, err := findVipsCommand(); err != nil {
+	if err := w.generator.EnsureAvailable(); err != nil {
 		return err
 	}
 	if err := os.MkdirAll(w.imageStoreDir, 0o755); err != nil {
 		return err
+	}
+	if w.tasks != nil {
+		if err := w.tasks.EnsureSchema(ctx); err != nil {
+			return err
+		}
 	}
 	if err := w.processOnce(ctx); err != nil {
 		log.Printf("media worker process failed: %v", err)
@@ -120,35 +145,143 @@ func (w *Worker) Run(ctx context.Context) error {
 }
 
 func (w *Worker) processOnce(ctx context.Context) error {
-	tasks, err := w.loadPendingTasks(ctx)
-	if err != nil {
-		return err
-	}
-	for _, task := range tasks {
-		if err := w.processTask(ctx, task); err != nil {
-			log.Printf("media worker task failed: message_id=%d err=%v", task.MessageID, err)
-			_ = w.markTaskFailed(ctx, task)
+	for handled := 0; handled < w.batchSize; {
+		snapshot := w.guard.AllowedSlots(1)
+		if snapshot.AllowedSlots <= 0 {
+			if snapshot.BlockedReason != "" {
+				log.Printf("media worker throttled: reason=%s cpu=%.1f mem=%.1f available_mb=%d", snapshot.BlockedReason, snapshot.CPUUsagePercent, snapshot.MemoryUsagePercent, snapshot.AvailableMemoryBytes/1024/1024)
+			}
+			return nil
 		}
+		taskHandled, err := w.processTaskStoreTasks(ctx, 1)
+		if err != nil {
+			return err
+		}
+		if taskHandled > 0 {
+			handled += taskHandled
+			releaseWorkerMemory()
+			continue
+		}
+		legacyHandled, err := w.processLegacyPendingMessages(ctx, 1)
+		if err != nil {
+			return err
+		}
+		if legacyHandled <= 0 {
+			return nil
+		}
+		handled += legacyHandled
+		releaseWorkerMemory()
 	}
 	return nil
 }
 
-func (w *Worker) loadPendingTasks(ctx context.Context) ([]imageTask, error) {
-	rows, err := w.db.Query(ctx, `
+func (w *Worker) processTaskStoreTasks(ctx context.Context, limit int) (int, error) {
+	if w.tasks == nil || limit <= 0 {
+		return 0, nil
+	}
+	tasks, err := w.tasks.ClaimPendingTasks(ctx, limit)
+	if err != nil {
+		return 0, err
+	}
+	handled := 0
+	for _, task := range tasks {
+		handled++
+		if task.MessageID <= 0 || strings.TrimSpace(task.SourceStorageName) == "" {
+			_ = w.tasks.MarkFailed(ctx, task.ID, "invalid media preview task")
+			continue
+		}
+		imageTask, err := w.loadMessageTask(ctx, task.MessageID)
+		if err != nil {
+			log.Printf("media worker load task failed: task_id=%d message_id=%d err=%v", task.ID, task.MessageID, err)
+			_ = w.tasks.MarkFailed(ctx, task.ID, err.Error())
+			continue
+		}
+		imageTask.TaskID = task.ID
+		if strings.TrimSpace(imageTask.Payload.OriginalStorageName) == "" {
+			imageTask.Payload.OriginalStorageName = task.SourceStorageName
+		}
+		if err := w.markTaskProcessing(ctx, imageTask); err != nil {
+			log.Printf("media worker mark processing failed: task_id=%d message_id=%d err=%v", task.ID, task.MessageID, err)
+		}
+		previewName, err := w.processTask(ctx, imageTask)
+		if err != nil {
+			log.Printf("media worker task failed: task_id=%d message_id=%d err=%v", task.ID, task.MessageID, err)
+			_ = w.markTaskFailed(ctx, imageTask)
+			_ = w.tasks.MarkFailed(ctx, task.ID, err.Error())
+			continue
+		}
+		if err := w.tasks.MarkReady(ctx, task.ID, previewName); err != nil {
+			log.Printf("media worker mark ready failed: task_id=%d err=%v", task.ID, err)
+		}
+	}
+	return handled, nil
+}
+
+func (w *Worker) processLegacyPendingMessages(ctx context.Context, limit int) (int, error) {
+	tasks, err := w.loadPendingTasks(ctx, limit)
+	if err != nil {
+		return 0, err
+	}
+	handled := 0
+	for _, task := range tasks {
+		handled++
+		if _, err := w.processTask(ctx, task); err != nil {
+			log.Printf("media worker legacy task failed: message_id=%d err=%v", task.MessageID, err)
+			_ = w.markTaskFailed(ctx, task)
+		}
+	}
+	return handled, nil
+}
+
+func releaseWorkerMemory() {
+	debug.FreeOSMemory()
+}
+
+func (w *Worker) loadMessageTask(ctx context.Context, messageID int64) (imageTask, error) {
+	var task imageTask
+	var rawPayload string
+	if err := w.db.QueryRow(ctx, `
 		SELECT id, conversation_id, content_payload
 		FROM im_message
-		WHERE message_type = 'image'
+		WHERE id = $1
+			AND message_type = 'image'
 			AND status = 'normal'
-			AND deleted_at IS NULL
-			AND content_payload::jsonb ->> 'preview_status' = 'pending'
-			AND content_payload::jsonb ->> 'mime_type' IN ('image/heic', 'image/heif')
-		ORDER BY id ASC
-		LIMIT $1`, w.batchSize)
+			AND deleted_at IS NULL`, messageID).Scan(&task.MessageID, &task.ConversationID, &rawPayload); err != nil {
+		return imageTask{}, err
+	}
+	if err := json.Unmarshal([]byte(strings.TrimSpace(rawPayload)), &task.Payload); err != nil {
+		return imageTask{}, err
+	}
+	if !isHEICMimeType(task.Payload.MimeType) {
+		return imageTask{}, errors.New("media preview task is not heic")
+	}
+	return task, nil
+}
+
+func (w *Worker) loadPendingTasks(ctx context.Context, limit int) ([]imageTask, error) {
+	if limit <= 0 {
+		return []imageTask{}, nil
+	}
+	rows, err := w.db.Query(ctx, `
+		SELECT m.id, m.conversation_id, m.content_payload
+		FROM im_message m
+		WHERE m.message_type = 'image'
+			AND m.status = 'normal'
+			AND m.deleted_at IS NULL
+			AND m.content_payload::jsonb ->> 'preview_status' = 'pending'
+			AND m.content_payload::jsonb ->> 'mime_type' IN ('image/heic', 'image/heif')
+			AND NOT EXISTS (
+				SELECT 1 FROM im_media_preview_task t
+				WHERE t.message_id = m.id
+					AND t.status IN ('pending', 'processing', 'ready', 'failed')
+			)
+		ORDER BY m.id ASC
+		LIMIT $1`, limit)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	tasks := make([]imageTask, 0, w.batchSize)
+	tasks := make([]imageTask, 0, limit)
 	for rows.Next() {
 		var task imageTask
 		var rawPayload string
@@ -169,32 +302,34 @@ func (w *Worker) loadPendingTasks(ctx context.Context) ([]imageTask, error) {
 	return tasks, rows.Err()
 }
 
-func (w *Worker) processTask(ctx context.Context, task imageTask) error {
+func (w *Worker) processTask(ctx context.Context, task imageTask) (string, error) {
 	sourceName := strings.TrimSpace(task.Payload.OriginalStorageName)
 	if sourceName == "" {
 		sourceName = strings.TrimSpace(task.Payload.StorageName)
 	}
 	if !ensureImageStorageName(sourceName) {
-		return errors.New("invalid source image storage name")
+		return "", errors.New("invalid source image storage name")
 	}
 	sourcePath := filepath.Join(w.imageStoreDir, sourceName)
 	if _, err := os.Stat(sourcePath); err != nil {
-		return err
+		return "", err
 	}
 	previewName, err := generateStorageName(".jpg")
 	if err != nil {
-		return err
+		return "", err
 	}
 	previewPath := filepath.Join(w.imageStoreDir, previewName)
 	tempPath := previewPath + ".tmp.jpg"
 	_ = os.Remove(tempPath)
-	if err := runVipsThumbnail(ctx, sourcePath, tempPath, w.previewLongEdge); err != nil {
+	generateCtx, cancel := context.WithTimeout(ctx, defaultPreviewGenerateTimeout)
+	defer cancel()
+	if err := w.generator.Generate(generateCtx, sourcePath, tempPath); err != nil {
 		_ = os.Remove(tempPath)
-		return err
+		return "", err
 	}
 	if err := os.Rename(tempPath, previewPath); err != nil {
 		_ = os.Remove(tempPath)
-		return err
+		return "", err
 	}
 	payload := task.Payload
 	payload.PreviewStorageName = previewName
@@ -205,6 +340,23 @@ func (w *Worker) processTask(ctx context.Context, task imageTask) error {
 		payload.OriginalStorageName = sourceName
 	}
 	payload.OriginalURL = buildImageAssetURL(payload.OriginalStorageName)
+	payloadBytes, err := json.Marshal(payload)
+	if err != nil {
+		return "", err
+	}
+	_, err = w.db.Exec(ctx, `
+		UPDATE im_message
+		SET content_payload = $1, updated_at = NOW()
+		WHERE id = $2 AND message_type = 'image' AND status = 'normal'`, string(payloadBytes), task.MessageID)
+	if err != nil {
+		return "", err
+	}
+	return previewName, nil
+}
+
+func (w *Worker) markTaskProcessing(ctx context.Context, task imageTask) error {
+	payload := task.Payload
+	payload.PreviewStatus = "processing"
 	payloadBytes, err := json.Marshal(payload)
 	if err != nil {
 		return err
@@ -237,29 +389,6 @@ func (w *Worker) markTaskFailed(ctx context.Context, task imageTask) error {
 	return err
 }
 
-func runVipsThumbnail(ctx context.Context, sourcePath string, outputPath string, longEdge int) error {
-	commandName, err := findVipsCommand()
-	if err != nil {
-		return err
-	}
-	if filepath.Base(commandName) == "vipsthumbnail" || strings.EqualFold(filepath.Base(commandName), "vipsthumbnail") {
-		cmd := exec.CommandContext(ctx, commandName, sourcePath, "--size", strconv.Itoa(longEdge)+"x"+strconv.Itoa(longEdge), "--output", outputPath)
-		return cmd.Run()
-	}
-	cmd := exec.CommandContext(ctx, commandName, "thumbnail", sourcePath, outputPath, strconv.Itoa(longEdge), "--size", "down")
-	return cmd.Run()
-}
-
-func findVipsCommand() (string, error) {
-	if path, err := exec.LookPath("vipsthumbnail"); err == nil {
-		return path, nil
-	}
-	if path, err := exec.LookPath("vips"); err == nil {
-		return path, nil
-	}
-	return "", errors.New("libvips command not found")
-}
-
 func generateStorageName(ext string) (string, error) {
 	buf := make([]byte, 16)
 	if _, err := rand.Read(buf); err != nil {
@@ -270,7 +399,7 @@ func generateStorageName(ext string) (string, error) {
 
 func normalizePreviewStatus(value string) string {
 	switch strings.ToLower(strings.TrimSpace(value)) {
-	case "pending", "ready", "failed":
+	case "pending", "processing", "ready", "failed":
 		return strings.ToLower(strings.TrimSpace(value))
 	default:
 		return ""
@@ -330,4 +459,11 @@ func buildImagePreviewAssetURL(storageName string) string {
 		return ""
 	}
 	return "/im/assets/image-preview/" + normalized
+}
+
+func maxInt(a int, b int) int {
+	if a > b {
+		return a
+	}
+	return b
 }

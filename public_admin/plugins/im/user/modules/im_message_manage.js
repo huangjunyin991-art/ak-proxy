@@ -42,7 +42,8 @@
                 if (String(item && item.message_type || '').trim().toLowerCase() !== 'image') return false;
                 try {
                     const payload = JSON.parse(String(item && item.content || '').trim() || '{}');
-                    return String(payload && payload.preview_status || '').trim().toLowerCase() === 'pending';
+                    const previewStatus = String(payload && payload.preview_status || '').trim().toLowerCase();
+                    return previewStatus === 'pending' || previewStatus === 'processing';
                 } catch (e) {
                     return false;
                 }

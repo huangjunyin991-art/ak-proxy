@@ -30,7 +30,7 @@ ensure_command_package() {
     local command_name="$1"
     local package_name="$2"
     if ! command_exists "$command_name"; then
-        echo "📦 安装依赖: $package_name"
+        echo "[INFO] 安装依赖: $package_name"
         install_apt_packages "$package_name"
     fi
 }
@@ -51,13 +51,13 @@ ensure_go() {
         GO_BIN="$(command -v go)"
         return
     fi
-    echo "📦 安装依赖: golang-go"
+    echo "[INFO] 安装依赖: golang-go"
     install_apt_packages golang-go
     GO_BIN="$(command -v go)"
 }
 
 if [ ! -d "$IM_DIR" ]; then
-    echo "❌ im_server 目录不存在: $IM_DIR"
+    echo "[ERROR] im_server 目录不存在: $IM_DIR"
     exit 1
 fi
 
@@ -65,7 +65,7 @@ ensure_runtime_dependencies
 ensure_go
 
 if [ ! -x "$GO_BIN" ]; then
-    echo "❌ Go 未安装或不可执行: $GO_BIN"
+    echo "[ERROR] Go 未安装或不可执行: $GO_BIN"
     exit 1
 fi
 
@@ -74,7 +74,7 @@ mkdir -p "$IM_BIN_DIR"
 cd "$IM_DIR"
 "$GO_BIN" version
 ffmpeg -version | head -1
-"$GO_BIN" mod tidy
+"$GO_BIN" mod download
 "$GO_BIN" build -o "$IM_BIN" ./cmd/im_server
 
 sudo tee /etc/systemd/system/${SERVICE_NAME}.service > /dev/null <<EOF

@@ -19,11 +19,15 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	worker, err := media.NewWorker(ctx, media.Config{
-		DatabaseURL:     cfg.DatabaseURL,
-		ImageStoreDir:   cfg.ImageStoreDir,
-		ScanInterval:    loadDurationSeconds("IM_MEDIA_WORKER_SCAN_SECONDS", 5*time.Second),
-		BatchSize:       loadInt("IM_MEDIA_WORKER_BATCH_SIZE", 8),
-		PreviewLongEdge: loadInt("IM_MEDIA_PREVIEW_LONG_EDGE", 1920),
+		DatabaseURL:            cfg.DatabaseURL,
+		ImageStoreDir:          cfg.ImageStoreDir,
+		ScanInterval:           loadDurationSeconds("IM_MEDIA_WORKER_SCAN_SECONDS", 5*time.Second),
+		BatchSize:              loadInt("IM_MEDIA_WORKER_BATCH_SIZE", 8),
+		PreviewLongEdge:        loadInt("IM_MEDIA_PREVIEW_LONG_EDGE", 1920),
+		ReserveCPUPercent:      loadInt("IM_MEDIA_WORKER_RESERVE_CPU_PERCENT", 50),
+		MemoryHighWaterPercent: loadInt("IM_MEDIA_WORKER_MEMORY_HIGH_WATER_PERCENT", 75),
+		MinAvailableMemoryMB:   loadInt("IM_MEDIA_WORKER_MIN_AVAILABLE_MEMORY_MB", 512),
+		MaxConcurrency:         loadInt("IM_MEDIA_WORKER_MAX_CONCURRENCY", 4),
 	})
 	if err != nil {
 		log.Fatalf("create media worker failed: %v", err)

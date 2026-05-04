@@ -2,6 +2,7 @@
     'use strict';
 
     const IMAGE_UPLOAD_CONFIG_CACHE_MS = 60 * 1000;
+    const HEIC_SINGLE_UPLOAD_MESSAGE = '单次仅允许上传一张 HEIC 格式的图片，请等待处理完成';
     const DEFAULT_UPLOAD_CONFIG = {
         enabled: true,
         compress_above_kb: 512,
@@ -22,6 +23,7 @@
             this.uploadConfigLoadedAt = 0;
             this.uploadConfigPromise = null;
             this.previewUrlMap = {};
+            this.heicUploadInFlight = false;
         },
 
         getState() {
@@ -114,6 +116,24 @@
             return String(item && item.__akLocalStatus || '').trim().toLowerCase();
         },
 
+        hasActiveOwnHeicPreview() {
+            const state = this.getState();
+            const messages = state && Array.isArray(state.activeMessages) ? state.activeMessages : [];
+            const username = String(state && state.username || '').trim().toLowerCase();
+            return messages.some(function(item) {
+                if (String(item && item.message_type || '').trim().toLowerCase() !== 'image') return false;
+                if (username && String(item && item.sender_username || '').trim().toLowerCase() !== username) return false;
+                try {
+                    const payload = JSON.parse(String(item && item.content || '').trim() || '{}');
+                    const mimeType = String(payload && payload.mime_type || '').trim().toLowerCase();
+                    const previewStatus = String(payload && payload.preview_status || '').trim().toLowerCase();
+                    return (mimeType === 'image/heic' || mimeType === 'image/heif') && (previewStatus === 'pending' || previewStatus === 'processing');
+                } catch (e) {
+                    return false;
+                }
+            });
+        },
+
         buildLocalOverlayMarkup(item) {
             const localStatus = this.getLocalMessageStatus(item);
             if (!localStatus) return '';
@@ -138,9 +158,9 @@
 
         buildRemoteOverlayMarkup(payload) {
             const previewStatus = String(payload && payload.previewStatus || '').trim().toLowerCase();
-            if (previewStatus !== 'pending' && previewStatus !== 'failed') return '';
-            const statusText = previewStatus === 'failed' ? '预览生成失败' : '图片处理中';
-            const progressText = previewStatus === 'failed' ? '可点开原图' : '生成预览中';
+            if (previewStatus !== 'pending' && previewStatus !== 'processing' && previewStatus !== 'failed') return '';
+            const statusText = previewStatus === 'failed' ? '预览生成失败' : (previewStatus === 'processing' ? '图片处理中' : '图片排队中');
+            const progressText = previewStatus === 'failed' ? '可点开原图' : (previewStatus === 'processing' ? '生成预览中' : '等待处理');
             return '<span class="ak-im-image-bubble-overlay' + (previewStatus === 'failed' ? ' is-failed' : '') + '">' +
                 '<span class="ak-im-image-bubble-status">' + this.escapeHtml(statusText) + '</span>' +
                 '<span class="ak-im-image-bubble-progress">' + this.escapeHtml(progressText) + '</span>' +
@@ -163,7 +183,7 @@
                 const fileName = String(parsed && parsed.file_name || '图片').trim() || '图片';
                 const mimeType = String(parsed && parsed.mime_type || '').trim();
                 const fileSize = Math.max(0, Number(parsed && parsed.file_size || 0) || 0);
-                const displayUrl = previewStatus === 'pending' || previewStatus === 'failed'
+                const displayUrl = previewStatus === 'pending' || previewStatus === 'processing' || previewStatus === 'failed'
                     ? this.buildPlaceholderPreviewUrl(fileName, mimeType)
                     : fileUrl;
                 return {
@@ -571,10 +591,16 @@
             }
             const targetConversationId = Number(state.activeConversationId || 0);
             if (!targetConversationId) return Promise.resolve(null);
+            const isHeicUpload = this.isHeicLikeFile(file);
+            if (isHeicUpload && (this.heicUploadInFlight || this.hasActiveOwnHeicPreview())) {
+                window.alert(HEIC_SINGLE_UPLOAD_MESSAGE);
+                return Promise.resolve(null);
+            }
+            if (isHeicUpload) this.heicUploadInFlight = true;
             const source = this.normalizeSource(meta && meta.source);
             const self = this;
             const tempId = this.createTempId();
-            const initialPreviewUrl = this.isHeicLikeFile(file)
+            const initialPreviewUrl = isHeicUpload
                 ? this.buildPlaceholderPreviewUrl(file && file.name, file && file.type)
                 : URL.createObjectURL(file);
             this.storePreviewUrl(tempId, initialPreviewUrl);
@@ -624,6 +650,7 @@
                         }
                     }).then(function(data) {
                         const item = data && data.item ? data.item : null;
+                        if (isHeicUpload) self.heicUploadInFlight = false;
                         if (item && typeof self.ctx.replaceLocalMessage === 'function' && self.ctx.replaceLocalMessage(tempId, item)) {
                             self.releasePreviewUrl(tempId);
                             return Promise.resolve(typeof self.ctx.loadSessions === 'function' ? self.ctx.loadSessions() : null).then(function() {
@@ -638,6 +665,7 @@
                 });
                 });
             }).catch(function(error) {
+                if (isHeicUpload) self.heicUploadInFlight = false;
                 if (typeof self.ctx.updateLocalMessage === 'function') {
                     self.ctx.updateLocalMessage(tempId, {
                         __akLocalStatus: 'failed',

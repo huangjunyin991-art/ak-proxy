@@ -17,6 +17,8 @@ import (
 	"sync"
 	"time"
 
+	"im_server/internal/media/taskstore"
+
 	"github.com/jackc/pgx/v5"
 )
 
@@ -271,6 +273,8 @@ func normalizeImagePreviewStatus(value string) string {
 	switch strings.ToLower(strings.TrimSpace(value)) {
 	case "pending":
 		return "pending"
+	case "processing":
+		return "processing"
 	case "ready":
 		return "ready"
 	case "failed":
@@ -1062,8 +1066,25 @@ func (a *App) handleSendImageMessage(w http.ResponseWriter, r *http.Request) {
 	if normalizedMimeType == "" {
 		normalizedMimeType = supportedImageAssetExts[ext]
 	}
+	isHEICUpload := isHEICImageExt(ext)
+	var previewTaskID int64
+	if isHEICUpload {
+		task, err := a.mediaTasks.ReserveImageHEICPreview(r.Context(), conversationID, username)
+		if err != nil {
+			if errors.Is(err, taskstore.ErrActiveTaskExists) {
+				writeJSON(w, http.StatusConflict, map[string]any{"error": true, "message": "单次仅允许上传一张 HEIC 格式的图片，请等待处理完成"})
+				return
+			}
+			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
+			return
+		}
+		previewTaskID = task.ID
+	}
 	asset, err := a.persistImageAsset(file, header.Filename, ext, defaultImageUploadConfigSnapshot())
 	if err != nil {
+		if previewTaskID > 0 {
+			_ = a.mediaTasks.CancelReservedTask(r.Context(), previewTaskID)
+		}
 		messageText := err.Error()
 		if messageText == "file too large" {
 			messageText = "image file too large"
@@ -1087,19 +1108,22 @@ func (a *App) handleSendImageMessage(w http.ResponseWriter, r *http.Request) {
 		FileSize:           fileSize,
 		Source:             sanitizeImageSource(r.FormValue("source")),
 		OriginalStorageName: func() string {
-			if isHEICImageExt(ext) {
+			if isHEICUpload {
 				return storageName
 			}
 			return ""
 		}(),
 		PreviewStatus: func() string {
-			if isHEICImageExt(ext) {
+			if isHEICUpload {
 				return "pending"
 			}
 			return ""
 		}(),
 	})
 	if err != nil {
+		if previewTaskID > 0 {
+			_ = a.mediaTasks.CancelReservedTask(r.Context(), previewTaskID)
+		}
 		a.removeImageAsset(storageName)
 		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
 		return
@@ -1112,6 +1136,9 @@ func (a *App) handleSendImageMessage(w http.ResponseWriter, r *http.Request) {
 		ClientTempID:   clientTempID,
 	})
 	if err != nil {
+		if previewTaskID > 0 {
+			_ = a.mediaTasks.CancelReservedTask(r.Context(), previewTaskID)
+		}
 		a.removeImageAsset(storageName)
 		if isGroupMuteSendError(err) {
 			writeJSON(w, http.StatusForbidden, map[string]any{"error": true, "message": err.Error(), "restriction": "group_mute"})
@@ -1123,6 +1150,11 @@ func (a *App) handleSendImageMessage(w http.ResponseWriter, r *http.Request) {
 		}
 		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
 		return
+	}
+	if previewTaskID > 0 {
+		if err := a.mediaTasks.ActivateImageHEICPreview(r.Context(), previewTaskID, message.ID, storageName); err != nil {
+			_ = a.mediaTasks.CancelReservedTask(r.Context(), previewTaskID)
+		}
 	}
 	a.broadcastConversation(conversationID, map[string]any{
 		"type":    "im.message.created",
