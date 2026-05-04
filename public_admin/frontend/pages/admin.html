@@ -1437,6 +1437,74 @@
             background: linear-gradient(90deg, rgba(120, 248, 255, 0.82) 0%, rgba(120, 248, 255, 0.18) 18%, rgba(70, 229, 255, 0.06) 48%, rgba(70, 229, 255, 0) 100%);
         }
 
+        .wl-card-list {
+            display: none;
+        }
+
+        .wl-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            padding: 14px;
+        }
+
+        .wl-card-head {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 10px;
+            margin-bottom: 12px;
+        }
+
+        .wl-card-username {
+            color: var(--text-primary);
+            font-size: 16px;
+            font-weight: 700;
+            word-break: break-all;
+        }
+
+        .wl-card-status {
+            flex-shrink: 0;
+            border-radius: 999px;
+            padding: 3px 10px;
+            background: rgba(255, 255, 255, 0.06);
+            font-size: 12px;
+            font-weight: 700;
+        }
+
+        .wl-card-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 10px;
+        }
+
+        .wl-card-field {
+            min-width: 0;
+            border-radius: 10px;
+            background: rgba(255, 255, 255, 0.035);
+            padding: 9px 10px;
+        }
+
+        .wl-card-label {
+            color: var(--text-secondary);
+            font-size: 11px;
+            margin-bottom: 5px;
+        }
+
+        .wl-card-value {
+            color: var(--text-primary);
+            font-size: 13px;
+            line-height: 1.35;
+            word-break: break-word;
+        }
+
+        .wl-card-actions {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            margin-top: 12px;
+        }
+
         .editable-real-name-cell {
             min-width: 72px;
             cursor: text;
@@ -2048,6 +2116,40 @@
             
             table th, table td {
                 padding: 8px 6px;
+            }
+
+            #whitelist .wl-section-header {
+                align-items: flex-start !important;
+            }
+
+            #whitelist .wl-toolbar {
+                width: 100%;
+                display: grid !important;
+                grid-template-columns: minmax(0, 1fr) auto auto;
+                align-items: stretch !important;
+            }
+
+            #wlBalanceInfo {
+                grid-column: 1 / -1;
+            }
+
+            #wlSearch {
+                width: 100% !important;
+                box-sizing: border-box;
+            }
+
+            #whitelist .wl-table-wrap {
+                display: none;
+            }
+
+            #wlCardList {
+                display: grid;
+                gap: 10px;
+            }
+
+            #wlCardList .btn {
+                flex: 1 1 0;
+                min-height: 36px;
             }
             
             .btn {
@@ -2821,9 +2923,9 @@
                         </button>
                     </div>
                 </div>
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; flex-wrap: wrap; gap: 10px;">
+                <div class="wl-section-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; flex-wrap: wrap; gap: 10px;">
                     <h3 style="color: var(--accent); margin: 0;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-2px"><rect width="8" height="4" x="8" y="2" rx="1" ry="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="m9 14 2 2 4-4"/></svg> 授权白名单</h3>
-                    <div style="display: flex; align-items: center; gap: 8px;">
+                    <div class="wl-toolbar" style="display: flex; align-items: center; gap: 8px;">
                         <span id="wlBalanceInfo" style="font-size: 13px; color: var(--accent-yellow);"></span>
                         <input type="text" id="wlSearch" placeholder="搜索账号..." onkeyup="if(event.key==='Enter')loadWhitelist()"
                                style="padding: 6px 12px; background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 6px; color: var(--text-primary); font-size: 13px; width: 160px;">
@@ -2837,14 +2939,15 @@
                     <span id="wlExpiringList" style="color: var(--text-secondary); font-size: 13px;"></span>
                 </div>
                 <!-- 白名单表格 -->
-                <div data-scroll-hint="right" style="overflow-x: auto;">
-                    <table>
+                <div class="wl-table-wrap" data-scroll-hint="right" style="overflow-x: auto;">
+                    <table class="wl-table">
                         <thead><tr>
                             <th>账号</th><th>姓名</th><th>计费方式</th><th>到期时间</th><th>状态</th><th>强化登录</th><th>添加人</th><th>备注</th><th>操作</th>
                         </tr></thead>
                         <tbody id="wlTableBody"><tr><td colspan="9" style="text-align:center; color:var(--text-secondary);">加载中...</td></tr></tbody>
                     </table>
                 </div>
+                <div id="wlCardList" class="wl-card-list"></div>
                 <div id="wlPagination" style="display: flex; justify-content: center; gap: 8px; margin-top: 12px;"></div>
             </div>
         </div>
@@ -8827,34 +8930,66 @@
                     alertEl.style.display = 'none';
                 }
 
-                // 表格
                 const tbody = document.getElementById('wlTableBody');
+                const cardList = document.getElementById('wlCardList');
                 const rows = data.rows || [];
                 if (rows.length === 0) {
                     tbody.innerHTML = '<tr><td colspan="9" style="text-align:center; color:var(--text-secondary);">暂无数据</td></tr>';
+                    if (cardList) cardList.innerHTML = '<div class="wl-card" style="text-align:center; color:var(--text-secondary);">暂无数据</div>';
                 } else {
-                    tbody.innerHTML = rows.map(a => {
+                    const renderedRows = rows.map(a => {
                         const statusColors = {active: '#00ff88', expired: '#ff5252', deleted: '#888'};
                         const statusNames = {active: '有效', expired: '已过期', deleted: '已删除'};
                         const expDate = fmtTime(a.expire_time);
                         const isExpired = a.status === 'expired' || (a.expire_time && new Date(a.expire_time) < new Date());
                         const planCfg = wlCreditConfigs.find(c => c.plan_type === a.plan_type);
                         const planDisplay = planCfg ? planCfg.plan_name : (a.plan_type || '-');
+                        const actionUsername = String(a.username || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+                        const persistButton = a.status !== 'deleted' ? `<button onclick="togglePersistLogin('${actionUsername}', ${!a.persistent_login})" style="padding:4px 14px; font-size:12px; border:${a.persistent_login ? 'none' : '1px solid var(--border)'}; border-radius:12px; cursor:pointer; transition:all 0.2s; background:${a.persistent_login ? 'linear-gradient(135deg,#00c9b7,#7ed56f)' : 'var(--bg-primary)'}; color:${a.persistent_login ? '#0a1a2e' : '#ff5252'}; font-weight:bold;">${a.persistent_login ? '已开启' : '关闭'}</button>` : '-';
+                        const actionButtons = a.status !== 'deleted' ? `<button class="btn" onclick="renewWhitelist('${actionUsername}')" style="padding:3px 8px; font-size:11px; margin-right:4px;">续期</button><button class="btn btn-danger" onclick="deleteWhitelist('${actionUsername}')" style="padding:3px 8px; font-size:11px;">删除</button>` : '-';
                         return `<tr>
-                            <td style="font-weight:bold;">${a.username}</td>
-                            <td style="color:var(--text-secondary);">${a.nickname || '-'}</td>
-                            <td>${planDisplay}</td>
+                            <td style="font-weight:bold;">${escapeHtml(a.username || '')}</td>
+                            <td style="color:var(--text-secondary);">${escapeHtml(a.nickname || '-')}</td>
+                            <td>${escapeHtml(planDisplay)}</td>
                             <td style="color:${isExpired ? '#ff5252' : '#00ff88'};">${expDate}</td>
                             <td><span style="color:${statusColors[a.status] || '#888'};">${statusNames[a.status] || a.status}</span></td>
-                            <td>${a.status !== 'deleted' ? `<button onclick="togglePersistLogin('${a.username}', ${!a.persistent_login})" style="padding:4px 14px; font-size:12px; border:${a.persistent_login ? 'none' : '1px solid var(--border)'}; border-radius:12px; cursor:pointer; transition:all 0.2s; background:${a.persistent_login ? 'linear-gradient(135deg,#00c9b7,#7ed56f)' : 'var(--bg-primary)'}; color:${a.persistent_login ? '#0a1a2e' : '#ff5252'}; font-weight:bold;">${a.persistent_login ? '✅ 已开启' : '❌ 关闭'}</button>` : '-'}</td>
-                            <td style="color:var(--text-secondary);">${a.added_by === 'super_admin' ? '系统总管理' : (a.added_by || '-')}</td>
-                            <td style="color:var(--text-secondary); max-width:100px; overflow:hidden; text-overflow:ellipsis;">${a.remark || ''}</td>
+                            <td>${persistButton}</td>
+                            <td style="color:var(--text-secondary);">${escapeHtml(a.added_by === 'super_admin' ? '系统总管理' : (a.added_by || '-'))}</td>
+                            <td style="color:var(--text-secondary); max-width:100px; overflow:hidden; text-overflow:ellipsis;">${escapeHtml(a.remark || '')}</td>
                             <td>
-                                ${a.status !== 'deleted' ? `<button class="btn" onclick="renewWhitelist('${a.username}')" style="padding:3px 8px; font-size:11px; margin-right:4px;">续期</button>
-                                <button class="btn btn-danger" onclick="deleteWhitelist('${a.username}')" style="padding:3px 8px; font-size:11px;">删除</button>` : '-'}
+                                ${actionButtons}
                             </td>
                         </tr>`;
-                    }).join('');
+                    });
+                    tbody.innerHTML = renderedRows.join('');
+                    if (cardList) {
+                        cardList.innerHTML = rows.map(a => {
+                            const statusColors = {active: '#00ff88', expired: '#ff5252', deleted: '#888'};
+                            const statusNames = {active: '有效', expired: '已过期', deleted: '已删除'};
+                            const expDate = fmtTime(a.expire_time);
+                            const isExpired = a.status === 'expired' || (a.expire_time && new Date(a.expire_time) < new Date());
+                            const planCfg = wlCreditConfigs.find(c => c.plan_type === a.plan_type);
+                            const planDisplay = planCfg ? planCfg.plan_name : (a.plan_type || '-');
+                            const actionUsername = String(a.username || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+                            const persistButton = a.status !== 'deleted' ? `<button class="btn" onclick="togglePersistLogin('${actionUsername}', ${!a.persistent_login})">${a.persistent_login ? '已开启强化登录' : '开启强化登录'}</button>` : '';
+                            const actionButtons = a.status !== 'deleted' ? `<button class="btn" onclick="renewWhitelist('${actionUsername}')">续期</button><button class="btn btn-danger" onclick="deleteWhitelist('${actionUsername}')">删除</button>` : '';
+                            return `<div class="wl-card">
+                                <div class="wl-card-head">
+                                    <div class="wl-card-username">${escapeHtml(a.username || '')}</div>
+                                    <div class="wl-card-status" style="color:${statusColors[a.status] || '#888'};">${escapeHtml(statusNames[a.status] || a.status || '-')}</div>
+                                </div>
+                                <div class="wl-card-grid">
+                                    <div class="wl-card-field"><div class="wl-card-label">姓名</div><div class="wl-card-value">${escapeHtml(a.nickname || '-')}</div></div>
+                                    <div class="wl-card-field"><div class="wl-card-label">计费方式</div><div class="wl-card-value">${escapeHtml(planDisplay)}</div></div>
+                                    <div class="wl-card-field"><div class="wl-card-label">到期时间</div><div class="wl-card-value" style="color:${isExpired ? '#ff5252' : '#00ff88'};">${escapeHtml(expDate)}</div></div>
+                                    <div class="wl-card-field"><div class="wl-card-label">添加人</div><div class="wl-card-value">${escapeHtml(a.added_by === 'super_admin' ? '系统总管理' : (a.added_by || '-'))}</div></div>
+                                    <div class="wl-card-field"><div class="wl-card-label">备注</div><div class="wl-card-value">${escapeHtml(a.remark || '-')}</div></div>
+                                    <div class="wl-card-field"><div class="wl-card-label">强化登录</div><div class="wl-card-value">${escapeHtml(a.persistent_login ? '已开启' : '关闭')}</div></div>
+                                </div>
+                                <div class="wl-card-actions">${persistButton}${actionButtons}</div>
+                            </div>`;
+                        }).join('');
+                    }
                 }
 
                 // 分页
