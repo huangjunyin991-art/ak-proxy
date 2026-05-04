@@ -154,7 +154,7 @@
                     state.activeConversationId = item.conversation_id;
                     state.hiddenGroupsActiveSession = null;
                     state.view = 'chat';
-                    state.activeMessages = [];
+                    state.activeMessages = Array.isArray(state.messagesByConversationId && state.messagesByConversationId[String(item.conversation_id)]) ? state.messagesByConversationId[String(item.conversation_id)].slice() : [];
                     state.activeMessagesLoading = true;
                     if (typeof self.ctx.loadMessages === 'function') self.ctx.loadMessages(item.conversation_id);
                     if (typeof self.ctx.render === 'function') self.ctx.render();

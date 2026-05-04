@@ -15,6 +15,30 @@
             return this.ctx && this.ctx.state ? this.ctx.state : null;
         },
 
+        getCachedMessages(conversationId) {
+            const state = this.getState();
+            const key = String(Number(conversationId || 0) || 0);
+            if (!state || !key || !state.messagesByConversationId) return [];
+            return Array.isArray(state.messagesByConversationId[key]) ? state.messagesByConversationId[key] : [];
+        },
+
+        setCachedMessages(conversationId, messages) {
+            const state = this.getState();
+            const key = String(Number(conversationId || 0) || 0);
+            if (!state || !key) return;
+            if (!state.messagesByConversationId || typeof state.messagesByConversationId !== 'object') {
+                state.messagesByConversationId = {};
+            }
+            state.messagesByConversationId[key] = Array.isArray(messages) ? messages.slice() : [];
+        },
+
+        syncActiveMessagesCache() {
+            const state = this.getState();
+            const activeConversationId = Number(state && state.activeConversationId || 0);
+            if (!state || !activeConversationId) return;
+            this.setCachedMessages(activeConversationId, state.activeMessages);
+        },
+
         getElements() {
             return this.ctx && this.ctx.elements ? this.ctx.elements : {};
         },
@@ -636,20 +660,30 @@
                 return Promise.resolve(null);
             }
             const self = this;
+            const cachedMessages = this.getCachedMessages(targetConversationId);
+            if (Number(state.activeConversationId || 0) === targetConversationId && cachedMessages.length && !state.activeMessages.length) {
+                state.activeMessages = cachedMessages.slice();
+            }
             state.activeMessagesLoading = true;
             const messageNavigation = this.getMessageNavigation();
             if (messageNavigation && typeof messageNavigation.beginConversationLoad === 'function') {
                 messageNavigation.beginConversationLoad(targetConversationId, this.getActiveSession());
             }
             return this.ctx.request(this.ctx.httpRoot + '/messages?conversation_id=' + encodeURIComponent(targetConversationId)).then(function(data) {
-                state.activeMessages = Array.isArray(data && data.items) ? data.items : [];
-                state.activeMessagesLoading = false;
-                self.ctx.render();
-                self.markRead(targetConversationId);
+                const items = Array.isArray(data && data.items) ? data.items : [];
+                self.setCachedMessages(targetConversationId, items);
+                if (Number(state.activeConversationId || 0) === targetConversationId) {
+                    state.activeMessages = items.slice();
+                    state.activeMessagesLoading = false;
+                    self.ctx.render();
+                    self.markRead(targetConversationId);
+                }
                 return null;
             }).catch(function() {
-                state.activeMessagesLoading = false;
-                self.ctx.render();
+                if (Number(state.activeConversationId || 0) === targetConversationId) {
+                    state.activeMessagesLoading = false;
+                    self.ctx.render();
+                }
                 return null;
             });
         },
@@ -769,6 +803,7 @@
                     }));
                 });
                 state.activeMessages = next;
+                this.syncActiveMessagesCache();
                 this.renderMessages();
             }
         },
@@ -785,6 +820,7 @@
                     return !current || Number(current.id || 0) !== Number(item.id || 0);
                 });
                 if (state.activeMessages.length !== beforeLength) {
+                    this.syncActiveMessagesCache();
                     this.renderMessages();
                 }
             }
@@ -801,6 +837,7 @@
                 if (current && Number(current.id || 0) === Number(item.id || 0)) {
                     nextMessages[index] = item;
                     state.activeMessages = nextMessages;
+                    this.syncActiveMessagesCache();
                     return true;
                 }
             }
@@ -808,16 +845,19 @@
             if (localTempIndex >= 0) {
                 nextMessages[localTempIndex] = item;
                 state.activeMessages = nextMessages;
+                this.syncActiveMessagesCache();
                 return true;
             }
             const pendingLocalIndex = this.findPendingLocalMessageIndex(item);
             if (pendingLocalIndex >= 0) {
                 nextMessages[pendingLocalIndex] = item;
                 state.activeMessages = nextMessages;
+                this.syncActiveMessagesCache();
                 return true;
             }
             nextMessages.push(item);
             state.activeMessages = nextMessages;
+            this.syncActiveMessagesCache();
             return true;
         },
 
@@ -840,6 +880,7 @@
             });
             if (!replaced) nextMessages.push(item);
             state.activeMessages = nextMessages;
+            this.syncActiveMessagesCache();
             return true;
         },
 
@@ -853,6 +894,7 @@
                 changed = true;
                 return Object.assign({}, current, patch || {});
             });
+            if (changed) this.syncActiveMessagesCache();
             return changed;
         },
 
@@ -867,6 +909,7 @@
                 return item;
             });
             if (!replaced) return this.upsertActiveMessage(item);
+            this.syncActiveMessagesCache();
             return true;
         },
 
@@ -878,7 +921,9 @@
             state.activeMessages = (Array.isArray(state.activeMessages) ? state.activeMessages : []).filter(function(current) {
                 return !current || String(current.__akTempId || current.client_temp_id || '').trim() !== normalizedTempId;
             });
-            return state.activeMessages.length !== beforeLength;
+            const changed = state.activeMessages.length !== beforeLength;
+            if (changed) this.syncActiveMessagesCache();
+            return changed;
         },
 
         clearSessionUnread(conversationId) {

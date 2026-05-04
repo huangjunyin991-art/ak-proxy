@@ -272,7 +272,7 @@
                 state.groupCreateSelectedUsernames = [];
                 if (conversationId) {
                     state.activeConversationId = conversationId;
-                    state.activeMessages = [];
+                    state.activeMessages = Array.isArray(state.messagesByConversationId && state.messagesByConversationId[String(conversationId)]) ? state.messagesByConversationId[String(conversationId)].slice() : [];
                     state.activeMessagesLoading = true;
                     state.view = 'chat';
                     if (typeof self.ctx.render === 'function') self.ctx.render();

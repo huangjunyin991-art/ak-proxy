@@ -174,6 +174,7 @@
         sessions: [],
         activeConversationId: 0,
         activeMessages: [],
+        messagesByConversationId: {},
         activeMessagesLoading: false,
         ws: null,
         open: !!initialOpenRequest,
@@ -4803,7 +4804,7 @@
             state.composerMode = 'text';
             state.activeConversationId = conversationId;
             state.view = 'chat';
-            state.activeMessages = [];
+            state.activeMessages = Array.isArray(state.messagesByConversationId && state.messagesByConversationId[String(conversationId)]) ? state.messagesByConversationId[String(conversationId)].slice() : [];
             state.activeMessagesLoading = true;
             if (options && options.resetCompose) {
                 state.newSessionTarget = '';
@@ -4846,7 +4847,7 @@
         state.hiddenGroupsActiveSession = fallbackSession;
         state.view = 'chat';
         state.homeTab = 'chats';
-        state.activeMessages = [];
+        state.activeMessages = Array.isArray(state.messagesByConversationId && state.messagesByConversationId[String(targetConversationId)]) ? state.messagesByConversationId[String(targetConversationId)].slice() : [];
         state.activeMessagesLoading = true;
         render();
         return loadMessages(targetConversationId);
