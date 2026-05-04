@@ -4341,10 +4341,6 @@
         const USERS_STICKY_COL_MAX_WIDTH = 220;
         let usersStickyMeasureCanvas = null;
 
-        function isUsersDesktopAutoWidthMode() {
-            return window.innerWidth > 768;
-        }
-
         function measureUsersStickyTextWidth(text) {
             if (!usersStickyMeasureCanvas) {
                 usersStickyMeasureCanvas = document.createElement('canvas');
@@ -4364,10 +4360,6 @@
         function syncUsersStickyColWidth(users = usersDataCache) {
             const container = document.getElementById('usersTableContainer');
             if (!container) return;
-            if (!isUsersDesktopAutoWidthMode()) {
-                container.style.setProperty('--users-sticky-col-width', `${USERS_STICKY_COL_MIN_WIDTH}px`);
-                return;
-            }
             const items = Array.isArray(users) ? users : [];
             let contentWidth = measureUsersStickyTextWidth('账号');
             items.forEach(user => {
