@@ -103,7 +103,7 @@ func (s *Store) ReserveImageHEICPreview(ctx context.Context, conversationID int6
 		return Task{}, err
 	}
 	var task Task
-	err = s.db.QueryRow(ctx, `
+	err := s.db.QueryRow(ctx, `
 		INSERT INTO im_media_preview_task (conversation_id, sender_username, media_kind, status)
 		VALUES ($1, $2, $3, $4)
 		RETURNING id, COALESCE(message_id, 0), conversation_id, sender_username, media_kind, source_storage_name, preview_storage_name, status, attempt_count, error_message, COALESCE(locked_at, 'epoch'::timestamp), created_at, updated_at, COALESCE(completed_at, 'epoch'::timestamp)`,
