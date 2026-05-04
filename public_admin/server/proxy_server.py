@@ -4962,6 +4962,52 @@ async def admin_whitelist_add(request: Request):
 
 
 
+@app.post("/admin/api/whitelist/nickname")
+
+async def admin_whitelist_nickname(request: Request):
+
+    token = request.headers.get('Authorization', '').replace('Bearer ', '')
+
+    if not await verify_admin_token(token):
+
+        return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
+
+    try:
+
+        data = await request.json()
+
+    except Exception:
+
+        return JSONResponse(status_code=400, content={"success": False, "message": "请求无效"})
+
+    username = str(data.get('username', '')).strip()
+
+    nickname = str(data.get('nickname', '')).strip()
+
+    if not username:
+
+        return {"success": False, "message": "账号不能为空"}
+
+    if not nickname:
+
+        return {"success": False, "message": "姓名不能为空"}
+
+    role = get_token_role(token)
+
+    sub_name = get_token_sub_name(token)
+
+    added_by = sub_name if role == ROLE_SUB_ADMIN and sub_name else None
+
+    row = await db.update_authorized_account_nickname(username, nickname, added_by=added_by)
+
+    if not row:
+
+        return {"success": False, "message": "账号不存在或无权修改"}
+
+    return {"success": True, "message": "姓名已保存", "data": {"username": row["username"], "nickname": row["nickname"], "real_name": row["nickname"]}}
+
+
+
 @app.post("/admin/api/whitelist/renew")
 
 async def admin_whitelist_renew(request: Request):

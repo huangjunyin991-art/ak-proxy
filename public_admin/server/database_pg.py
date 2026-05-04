@@ -1755,6 +1755,35 @@ async def get_authorized_account(username: str) -> Optional[Dict]:
         return dict(row) if row else None
 
 
+async def update_authorized_account_nickname(username: str, nickname: str,
+                                             added_by: str = None) -> Optional[Dict]:
+    pool = _get_pool()
+    username = username.lower().strip() if username else ''
+    nickname = nickname.strip() if nickname else ''
+    if not username or not nickname:
+        return None
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            if added_by:
+                row = await conn.fetchrow('''
+                    UPDATE authorized_accounts
+                    SET nickname=$1, updated_at=NOW()
+                    WHERE username=$2 AND added_by=$3
+                    RETURNING username, nickname
+                ''', nickname, username, added_by)
+            else:
+                row = await conn.fetchrow('''
+                    UPDATE authorized_accounts
+                    SET nickname=$1, updated_at=NOW()
+                    WHERE username=$2
+                    RETURNING username, nickname
+                ''', nickname, username)
+            if not row:
+                return None
+            await _upsert_user_stats_identity(conn, username, real_name=nickname)
+            return dict(row)
+
+
 async def ensure_sub_admin_bound_account_authorized(sub_name: str, bound_username: str) -> Dict:
     normalized_sub_name = str(sub_name or '').strip()
     normalized_username = _normalize_bound_account_username(bound_username)

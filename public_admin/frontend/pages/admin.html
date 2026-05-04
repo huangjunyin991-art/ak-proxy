@@ -4053,12 +4053,20 @@
             return div.innerHTML;
         }
 
-        function renderRealNameCell(username, realName) {
+        function renderRealNameCell(username, realName, nameScope = 'user') {
             const safeUsername = encodeURIComponent(username || '');
             const rawValue = realName || '';
             const encodedValue = encodeURIComponent(rawValue);
             const textClass = rawValue ? 'editable-real-name-text' : 'editable-real-name-placeholder';
-            return `<td class="editable-real-name-cell" data-username="${safeUsername}" data-real-name="${encodedValue}"><span class="${textClass}">${escapeHtml(rawValue || '-')}</span></td>`;
+            return `<td class="editable-real-name-cell" data-name-scope="${nameScope}" data-username="${safeUsername}" data-real-name="${encodedValue}"><span class="${textClass}">${escapeHtml(rawValue || '-')}</span></td>`;
+        }
+
+        function renderWhitelistNameValue(username, realName) {
+            const safeUsername = encodeURIComponent(username || '');
+            const rawValue = realName || '';
+            const encodedValue = encodeURIComponent(rawValue);
+            const textClass = rawValue ? 'editable-real-name-text' : 'editable-real-name-placeholder';
+            return `<div class="wl-card-value editable-real-name-cell" data-name-scope="whitelist" data-username="${safeUsername}" data-real-name="${encodedValue}"><span class="${textClass}">${escapeHtml(rawValue || '-')}</span></div>`;
         }
 
         function finishRealNameEdit(cell, realName) {
@@ -4101,6 +4109,22 @@
                 throw new Error(data.message || '姓名保存失败');
             }
             return data.data || {username, real_name: realName};
+        }
+
+        async function saveWhitelistNicknameValue(username, realName) {
+            const res = await fetch(`${API_BASE}/admin/api/whitelist/nickname`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    ...getHeaders()
+                },
+                body: JSON.stringify({username, nickname: realName})
+            });
+            const data = await res.json();
+            if (!res.ok || !data.success) {
+                throw new Error(data.message || '姓名保存失败');
+            }
+            return data.data || {username, real_name: realName, nickname: realName};
         }
 
         function buildAutofillGuardName(field, index) {
@@ -4175,13 +4199,16 @@
             const username = decodeURIComponent(cell.dataset.username || '');
             const oldValue = decodeURIComponent(cell.dataset.realName || '');
             const newValue = (input.value || '').trim();
+            const nameScope = cell.dataset.nameScope || 'user';
             if (!newValue || newValue === oldValue) {
                 finishRealNameEdit(cell, oldValue);
                 return;
             }
             cell.dataset.saving = '1';
             try {
-                const saved = await saveRealNameValue(username, newValue);
+                const saved = nameScope === 'whitelist'
+                    ? await saveWhitelistNicknameValue(username, newValue)
+                    : await saveRealNameValue(username, newValue);
                 updateRealNameCaches(saved.username, saved.real_name);
                 syncRealNameCells(saved.username, saved.real_name);
                 showToast(`姓名已保存：${saved.real_name}`);
@@ -8949,7 +8976,7 @@
                         const actionButtons = a.status !== 'deleted' ? `<button class="btn" onclick="renewWhitelist('${actionUsername}')" style="padding:3px 8px; font-size:11px; margin-right:4px;">续期</button><button class="btn btn-danger" onclick="deleteWhitelist('${actionUsername}')" style="padding:3px 8px; font-size:11px;">删除</button>` : '-';
                         return `<tr>
                             <td style="font-weight:bold;">${escapeHtml(a.username || '')}</td>
-                            <td style="color:var(--text-secondary);">${escapeHtml(a.nickname || '-')}</td>
+                            ${renderRealNameCell(a.username, a.nickname, 'whitelist')}
                             <td>${escapeHtml(planDisplay)}</td>
                             <td style="color:${isExpired ? '#ff5252' : '#00ff88'};">${expDate}</td>
                             <td><span style="color:${statusColors[a.status] || '#888'};">${statusNames[a.status] || a.status}</span></td>
@@ -8979,7 +9006,7 @@
                                     <div class="wl-card-status" style="color:${statusColors[a.status] || '#888'};">${escapeHtml(statusNames[a.status] || a.status || '-')}</div>
                                 </div>
                                 <div class="wl-card-grid">
-                                    <div class="wl-card-field"><div class="wl-card-label">姓名</div><div class="wl-card-value">${escapeHtml(a.nickname || '-')}</div></div>
+                                    <div class="wl-card-field"><div class="wl-card-label">姓名</div>${renderWhitelistNameValue(a.username, a.nickname)}</div>
                                     <div class="wl-card-field"><div class="wl-card-label">计费方式</div><div class="wl-card-value">${escapeHtml(planDisplay)}</div></div>
                                     <div class="wl-card-field"><div class="wl-card-label">到期时间</div><div class="wl-card-value" style="color:${isExpired ? '#ff5252' : '#00ff88'};">${escapeHtml(expDate)}</div></div>
                                     <div class="wl-card-field"><div class="wl-card-label">添加人</div><div class="wl-card-value">${escapeHtml(a.added_by === 'super_admin' ? '系统总管理' : (a.added_by || '-'))}</div></div>
