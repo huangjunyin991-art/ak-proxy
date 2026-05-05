@@ -1987,3 +1987,36 @@
 .rt-path-metrics::-webkit-scrollbar {
     height: 4px;
 }
+
+.rt-root {
+    --rt-compact-scale: 0.78;
+    zoom: var(--rt-compact-scale);
+    width: calc(100% / var(--rt-compact-scale));
+}
+
+.rt-path-item {
+    padding: 6px;
+    margin-bottom: 5px;
+}
+
+.rt-path-node {
+    min-width: 78px;
+    max-width: 108px;
+    min-height: 34px;
+    padding: 5px 6px;
+}
+
+.rt-path-node.has-promotion {
+    min-width: 102px;
+    max-width: 128px;
+    min-height: 62px;
+}
+
+.rt-metric {
+    min-height: 22px;
+    padding: 3px 5px;
+}
+
+.rt-metric-value {
+    font-size: 11px;
+}
