@@ -672,7 +672,12 @@
             imHistoryGuardActive = false;
             return;
         }
+        const isHomeView = state.view === 'sessions';
         imHistoryGuardActive = false;
+        if (isHomeView) {
+            showSessionsView({ closePanel: true });
+            return;
+        }
         showSessionsView();
         ensureIMHistoryGuard();
     }
