@@ -19,12 +19,12 @@
     function ensureCss() {
         var existing = document.querySelector('link[data-recommend-tree-panel-css="1"]');
         if (existing) {
-            existing.href = '/admin/api/recommend-tree-panel/recommend_tree_panel.css?v=20260505-08';
+            existing.href = '/admin/api/recommend-tree-panel/recommend_tree_panel.css?v=20260505-09';
             return;
         }
         var link = document.createElement('link');
         link.rel = 'stylesheet';
-        link.href = '/admin/api/recommend-tree-panel/recommend_tree_panel.css?v=20260505-08';
+        link.href = '/admin/api/recommend-tree-panel/recommend_tree_panel.css?v=20260505-09';
         link.setAttribute('data-recommend-tree-panel-css', '1');
         document.head.appendChild(link);
     }
@@ -241,7 +241,7 @@
                 nodeCount: result.meta && result.meta.nodeCount
             };
             render();
-            notify('推荐树已更新并写入缓存', 'success');
+            notify('组织架构已更新并写入缓存', 'success');
         }).catch(function(error) {
             store.state.refreshing = false;
             store.state.error = error.message || String(error);

@@ -231,8 +231,8 @@
 
     function renderBusyLayer(state) {
         if (!state.loading && !state.refreshing) return '';
-        var title = state.refreshing ? '正在远端获取推荐树' : '正在读取缓存';
-        var desc = state.refreshing ? '正在分页拉取血脉节点，请不要关闭页面' : '正在从数据库读取已缓存数据';
+        var title = state.refreshing ? '正在远端获取组织架构' : '正在读取缓存';
+        var desc = state.refreshing ? '正在分页拉取组织成员，请不要关闭页面' : '正在从数据库读取已缓存数据';
         return '<div class="rt-busy-layer"><div class="rt-busy-card"><span class="rt-orbit"></span><b>' + utils.escapeHtml(title) + '</b><small>' + utils.escapeHtml(desc) + '</small><span class="rt-busy-bar"></span></div></div>';
     }
 
