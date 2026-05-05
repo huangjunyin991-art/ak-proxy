@@ -20,7 +20,7 @@
         var meta = state.meta || {};
         var cached = state.cached || (state.selectedAccountMeta && state.selectedAccountMeta.hasCache);
         var statusText = state.refreshing ? '正在重新获取' : state.loading ? '正在读取缓存' : cached ? '已缓存' : '未缓存';
-        return '<section class="rt-hero">' +
+        return '<section class="rt-hero ' + (state.accountDropdownOpen ? 'dropdown-open' : '') + '">' +
             '<div class="rt-hero-top">' +
                 '<div class="rt-title"><strong>组织架构</strong><span>查看推荐组织关系与层级分布，默认读取缓存，手动更新时重新拉取</span></div>' +
                 '<span class="rt-cache-badge ' + (cached ? 'cached' : '') + '">' + utils.escapeHtml(statusText) + '</span>' +
