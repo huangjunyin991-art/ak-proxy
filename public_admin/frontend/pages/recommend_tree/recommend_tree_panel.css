@@ -3068,3 +3068,36 @@
     border-top-right-radius: 12px;
     z-index: 1;
 }
+
+.rt-view-shell {
+    display: grid;
+    grid-template-rows: auto 1fr;
+    gap: 0;
+    position: relative;
+    z-index: 1;
+}
+
+.rt-view-shell .rt-view-tabs {
+    margin-bottom: -1px;
+}
+
+.rt-view-shell .rt-view-tab.active {
+    border-bottom-color: rgba(8, 19, 32, 0.96);
+}
+
+.rt-view-shell .rt-layer-panel,
+.rt-view-shell .rt-path-panel,
+.rt-view-shell .rt-org-panel,
+.rt-view-shell .rt-empty {
+    border-top-left-radius: 12px;
+    border-top-right-radius: 12px;
+}
+
+.rt-account-dropdown {
+    position: fixed;
+    left: var(--rt-account-dropdown-left, 0);
+    top: var(--rt-account-dropdown-top, 0);
+    width: var(--rt-account-dropdown-width, 320px);
+    z-index: 2147483000;
+    max-height: min(270px, calc(100vh - var(--rt-account-dropdown-top, 0px) - 12px));
+}

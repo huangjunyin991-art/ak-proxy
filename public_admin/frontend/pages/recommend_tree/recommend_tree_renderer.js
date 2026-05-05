@@ -10,8 +10,10 @@
                 renderHero(state) +
                 renderStats(state) +
                 renderControls(state) +
-                renderViewTabs(state) +
-                renderBody(state) +
+                '<section class="rt-view-shell">' +
+                    renderViewTabs(state) +
+                    renderBody(state) +
+                '</section>' +
                 renderBusyLayer(state) +
             '</div>';
     }
