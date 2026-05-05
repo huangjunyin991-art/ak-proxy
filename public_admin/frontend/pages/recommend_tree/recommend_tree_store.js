@@ -10,7 +10,7 @@
             refreshing: false,
             query: '',
             generation: '',
-            viewMode: 'org',
+            viewMode: 'level',
             cached: false,
             accountQuery: '',
             accountOptions: [],
@@ -81,8 +81,8 @@
         }
 
         function setViewMode(value) {
-            var next = String(value || 'org');
-            state.viewMode = ['org', 'layer', 'path'].indexOf(next) >= 0 ? next : 'org';
+            var next = String(value || 'level');
+            state.viewMode = ['level', 'depth', 'path'].indexOf(next) >= 0 ? next : 'level';
         }
 
         function resetStatus() {

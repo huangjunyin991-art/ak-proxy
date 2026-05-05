@@ -100,11 +100,11 @@
     }
 
     function renderViewTabs(state) {
-        var active = state.viewMode || 'org';
+        var active = state.viewMode || 'level';
         var tabs = [
-            { value: 'org', label: '组织架构' },
-            { value: 'layer', label: '分层总览' },
-            { value: 'path', label: '路径视图' }
+            { value: 'level', label: '等级视图' },
+            { value: 'depth', label: '代数视图' },
+            { value: 'path', label: '血脉视图' }
         ];
         return '<section class="rt-view-tabs">' + tabs.map(function(tab) {
             return '<button type="button" class="rt-view-tab ' + (active === tab.value ? 'active' : '') + '" data-view-mode="' + utils.escapeHtml(tab.value) + '">' + utils.escapeHtml(tab.label) + '</button>';
@@ -115,65 +115,79 @@
         if (state.error) return '<section class="rt-empty error">' + utils.escapeHtml(state.error) + '</section>';
         if (!state.payload) return '<section class="rt-empty">从账号管理表搜索账号，已有缓存会显示“已缓存”；没有缓存时点击“更新数据”。</section>';
         if (!state.filtered.length) return '<section class="rt-empty">没有匹配的组织成员。</section>';
-        if ((state.viewMode || 'org') === 'layer') return renderLayerBody(state);
-        if ((state.viewMode || 'org') === 'path') return renderPathBody(state);
-        return renderOrgBody(state);
+        if ((state.viewMode || 'level') === 'depth') return renderDepthBody(state);
+        if ((state.viewMode || 'level') === 'path') return renderPathBody(state);
+        return renderLevelBody(state);
     }
 
-    function renderOrgBody(state) {
-        var rows = state.filtered.map(function(node) {
-            var depth = Number(node.depth || 0);
-            var indent = Math.min(depth, 8) * 10;
-            var children = state.index.childrenByParent.get(String(node.id)) || [];
-            return '<div class="rt-org-row rt-node-open" data-id="' + utils.escapeHtml(node.id) + '">' +
-                '<div class="rt-org-main">' +
-                    '<span class="rt-org-indent" style="width:' + indent + 'px"></span>' +
-                    '<span class="rt-org-toggle">' + (children.length ? '▾' : '·') + '</span>' +
-                    '<span class="rt-org-name"><em>第' + utils.escapeHtml(depth) + '代</em><b>' + utils.escapeHtml(utils.shortText(utils.nodeDisplayName(node), 18)) + '</b><small>' + utils.escapeHtml(utils.shortText(utils.nodeAccount(node), 16)) + '</small></span>' +
-                '</div>' +
-                '<div class="rt-org-metrics">' +
-                    '<span class="rt-org-rank ' + utils.escapeHtml(utils.nodeRankClass(node)) + '">' + utils.escapeHtml(utils.nodeRankLabel(node)) + '</span>' +
-                    '<span>左' + utils.escapeHtml(node.L || 0) + '</span><span>右' + utils.escapeHtml(node.R || 0) + '</span><span>直' + utils.escapeHtml(node.F || 0) + '</span><span>子' + utils.escapeHtml(node.S || 0) + '</span>' +
-                '</div>' +
-            '</div>';
-        }).join('');
-        return '<section class="rt-org-panel">' +
-            '<div class="rt-scheme-note">组织架构视图。用缩进表达上下级关系，适合快速查看整个推荐组织；点击任意成员查看完整节点信息。</div>' +
-            '<div class="rt-org-list">' + (rows || '<div class="rt-empty">无匹配成员</div>') + '</div>' +
-        '</section>';
-    }
-
-    function renderLayerBody(state) {
-        var byDepth = {};
-        state.filtered.forEach(function(node) {
-            var depth = Number(node.depth || 0);
-            if (!byDepth[depth]) byDepth[depth] = [];
-            byDepth[depth].push(node);
+    function renderLevelBody(state) {
+        return renderGroupedBody(state, '等级视图。按会员等级归类成员，卡片颜色跟随等级；点击成员查看完整节点信息。', function(node) {
+            return utils.nodeRankLabel(node);
+        }, function(a, b) {
+            return rankOrder(a) - rankOrder(b);
+        }, function(label, nodes) {
+            return '<span>' + utils.escapeHtml(label) + '</span><span>' + utils.escapeHtml(nodes.length) + ' 人</span>';
         });
-        var html = Object.keys(byDepth).map(function(key) { return Number(key); }).sort(function(a, b) { return a - b; }).map(function(depth) {
-            var nodes = byDepth[depth] || [];
+    }
+
+    function renderDepthBody(state) {
+        return renderGroupedBody(state, '代数视图。按不同代数归类成员，适合查看每一层人数、等级与核心数据；点击成员查看完整节点信息。', function(node) {
+            return Number(node.depth || 0);
+        }, function(a, b) {
+            return Number(a) - Number(b);
+        }, function(label, nodes) {
+            return '<span>第' + utils.escapeHtml(label) + '代</span><span>' + utils.escapeHtml(nodes.length) + ' 人</span>';
+        });
+    }
+
+    function renderGroupedBody(state, note, groupGetter, groupSorter, headRenderer) {
+        var groups = {};
+        state.filtered.forEach(function(node) {
+            var key = groupGetter(node);
+            if (!groups[key]) groups[key] = [];
+            groups[key].push(node);
+        });
+        var html = Object.keys(groups).sort(groupSorter).map(function(key) {
+            var nodes = groups[key] || [];
             return '<section class="rt-layer-section">' +
-                '<div class="rt-layer-head"><span>第' + utils.escapeHtml(depth) + '代</span><span>' + utils.escapeHtml(nodes.length) + ' 人</span></div>' +
-                '<div class="rt-layer-grid">' + nodes.map(function(node) {
-                    return '<button type="button" class="rt-layer-card rt-node-open ' + utils.escapeHtml(utils.nodeRankClass(node)) + '" data-id="' + utils.escapeHtml(node.id) + '">' +
-                        '<b>' + utils.escapeHtml(utils.shortText(utils.nodeDisplayName(node), 16)) + '</b>' +
-                        '<span>' + utils.escapeHtml(utils.shortText(utils.nodeAccount(node), 16)) + '</span>' +
-                        '<small>' + utils.escapeHtml(utils.nodeRankLabel(node)) + ' · 左' + utils.escapeHtml(node.L || 0) + ' 右' + utils.escapeHtml(node.R || 0) + ' 直' + utils.escapeHtml(node.F || 0) + ' 子' + utils.escapeHtml(node.S || 0) + '</small>' +
-                    '</button>';
-                }).join('') + '</div>' +
+                '<div class="rt-layer-head">' + headRenderer(key, nodes) + '</div>' +
+                '<div class="rt-layer-grid">' + nodes.map(renderMemberCard).join('') + '</div>' +
             '</section>';
         }).join('');
         return '<section class="rt-layer-panel">' +
-            '<div class="rt-scheme-note">分层总览视图。按代数聚合成员，适合查看每一层的人数和等级分布；点击成员查看完整节点信息。</div>' +
+            '<div class="rt-scheme-note">' + utils.escapeHtml(note) + '</div>' +
             (html || '<div class="rt-empty">无匹配成员</div>') +
         '</section>';
     }
 
+    function renderMemberCard(node) {
+        var rankClass = utils.nodeRankClass(node);
+        return '<button type="button" class="rt-layer-card rt-node-open ' + utils.escapeHtml(rankClass) + '" data-id="' + utils.escapeHtml(node.id) + '">' +
+            '<span class="rt-layer-card-head"><b>' + utils.escapeHtml(utils.nodeDisplayName(node)) + '</b><em class="rt-layer-rank ' + utils.escapeHtml(rankClass) + '">' + utils.escapeHtml(utils.nodeRankLabel(node)) + '</em></span>' +
+            '<span class="rt-layer-account">账号 ' + utils.escapeHtml(utils.nodeAccount(node)) + '</span>' +
+            '<span class="rt-layer-time">注册时间 ' + utils.escapeHtml(utils.nodeCreateTime(node) || '-') + '</span>' +
+            '<span class="rt-layer-metrics">' +
+                '<i>左区 ' + utils.escapeHtml(node.L || 0) + '</i>' +
+                '<i>右区 ' + utils.escapeHtml(node.R || 0) + '</i>' +
+                '<i>直推 ' + utils.escapeHtml(node.F || 0) + '</i>' +
+                '<i>子账号 ' + utils.escapeHtml(node.S || 0) + '</i>' +
+            '</span>' +
+        '</button>';
+    }
+
+    function rankOrder(label) {
+        var text = String(label || '').toUpperCase();
+        var prefix = text.charAt(0);
+        var value = parseInt(text.slice(1), 10);
+        if (!isFinite(value)) value = 0;
+        return prefix === 'A' ? 100 + value : value;
+    }
+
     function renderPathBody(state) {
         var selectedDepth = state.generation === '' ? null : Number(state.generation);
-        var generationLabel = selectedDepth == null ? '全部组织路径' : '第' + selectedDepth + '代成员路径';
+        var generationLabel = selectedDepth == null ? '全部血脉路径' : '第' + selectedDepth + '代血脉路径';
         return '<section class="rt-path-panel">' +
-            '<div class="rt-scheme-note">路径视图。当前显示：' + utils.escapeHtml(generationLabel) + '。卡片左色和右上徽章代表终点等级；点击任意节点查看完整节点信息。</div>' +
+            '<div class="rt-scheme-note">血脉视图。当前显示：' + utils.escapeHtml(generationLabel) + '。卡片左色和右上徽章代表终点等级；点击任意节点查看完整节点信息。</div>' +
             '<div class="rt-level-legend">' +
                 '<span class="rt-level-token level-0">M0 白</span><span class="rt-level-token level-1">M1 绿</span><span class="rt-level-token level-2">M2 蓝</span><span class="rt-level-token level-3">M3 紫</span><span class="rt-level-token level-4">M4 红</span><span class="rt-level-token level-5">M5 金</span><span class="rt-level-token a-rank">A1-A5</span>' +
             '</div>' +
