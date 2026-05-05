@@ -21,12 +21,12 @@
     function ensureCss() {
         var existing = document.querySelector('link[data-recommend-tree-panel-css="1"]');
         if (existing) {
-            existing.href = '/admin/api/recommend-tree-panel/recommend_tree_panel.css?v=20260505-32';
+            existing.href = '/admin/api/recommend-tree-panel/recommend_tree_panel.css?v=20260505-33';
             return;
         }
         var link = document.createElement('link');
         link.rel = 'stylesheet';
-        link.href = '/admin/api/recommend-tree-panel/recommend_tree_panel.css?v=20260505-32';
+        link.href = '/admin/api/recommend-tree-panel/recommend_tree_panel.css?v=20260505-33';
         link.setAttribute('data-recommend-tree-panel-css', '1');
         document.head.appendChild(link);
     }

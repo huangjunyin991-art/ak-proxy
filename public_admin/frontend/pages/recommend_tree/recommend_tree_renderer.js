@@ -149,18 +149,29 @@
 
     function renderGroupedBody(state, note, groupGetter, groupSorter, headRenderer, collapsible, collapsePrefix) {
         var groups = {};
+        var searchKeywords = getSearchKeywords(state);
         state.filtered.forEach(function(node) {
             var key = String(groupGetter(node));
             if (!groups[key]) groups[key] = [];
             groups[key].push(node);
         });
+        var groupScores = {};
+        var bestGroupScore = 0;
+        if (searchKeywords.length) {
+            Object.keys(groups).forEach(function(key) {
+                var score = groupMatchScore(state, groups[key], searchKeywords);
+                groupScores[key] = score;
+                if (score > bestGroupScore) bestGroupScore = score;
+            });
+        }
         var html = Object.keys(groups).sort(groupSorter).map(function(key) {
             var nodes = groups[key] || [];
             var defaultExpanded = nodes.length <= 10;
             var collapseKey = String(collapsePrefix || 'group') + ':' + key;
             var storedExpanded = state.expandedLevelGroups && state.expandedLevelGroups[collapseKey];
-            var searchActive = String(state.query || '').trim().length > 0;
-            var expanded = !collapsible || (searchActive ? defaultExpanded : (storedExpanded == null ? defaultExpanded : !!storedExpanded));
+            var searchActive = searchKeywords.length > 0;
+            var topMatched = bestGroupScore > 0 && groupScores[key] === bestGroupScore;
+            var expanded = !collapsible || (searchActive ? (defaultExpanded && topMatched) : (storedExpanded == null ? defaultExpanded : !!storedExpanded));
             var head = collapsible
                 ? '<button type="button" class="rt-layer-head rt-layer-toggle ' + (expanded ? 'expanded' : 'collapsed') + '" data-level-group="' + utils.escapeHtml(collapseKey) + '" data-default-expanded="' + (defaultExpanded ? '1' : '0') + '">' + headRenderer(key, nodes) + '<i></i></button>'
                 : '<div class="rt-layer-head">' + headRenderer(key, nodes) + '</div>';
@@ -173,6 +184,47 @@
             '<div class="rt-scheme-note">' + utils.escapeHtml(note) + '</div>' +
             (html || '<div class="rt-empty">无匹配成员</div>') +
         '</section>';
+    }
+
+    function getSearchKeywords(state) {
+        return String(state.query || '').trim().toLowerCase().split(/\s+/).filter(Boolean);
+    }
+
+    function groupMatchScore(state, nodes, keywords) {
+        return (nodes || []).reduce(function(best, node) {
+            return Math.max(best, nodeMatchScore(state, node, keywords));
+        }, 0);
+    }
+
+    function nodeMatchScore(state, node, keywords) {
+        return keywords.reduce(function(total, keyword) {
+            return total + keywordMatchScore(state, node, keyword);
+        }, 0);
+    }
+
+    function keywordMatchScore(state, node, keyword) {
+        var account = utils.nodeAccount(node).toLowerCase();
+        var name = utils.nodeDisplayName(node).toLowerCase();
+        var id = String(node && node.id || '').toLowerCase();
+        var flowNumber = utils.nodeFlowNumber(node).toLowerCase();
+        var rank = utils.nodeRankLabel(node).toLowerCase();
+        var text = utils.searchText(state.index, node);
+        return Math.max(
+            textMatchScore(account, keyword, 120),
+            textMatchScore(name, keyword, 110),
+            textMatchScore(id, keyword, 100),
+            textMatchScore(flowNumber, keyword, 100),
+            textMatchScore(rank, keyword, 80),
+            text.indexOf(keyword) >= 0 ? 20 : 0
+        );
+    }
+
+    function textMatchScore(text, keyword, exactScore) {
+        if (!text || !keyword) return 0;
+        if (text === keyword) return exactScore;
+        if (text.indexOf(keyword) === 0) return exactScore - 25;
+        if (text.indexOf(keyword) >= 0) return exactScore - 45;
+        return 0;
     }
 
     function renderMemberCard(state, node) {
