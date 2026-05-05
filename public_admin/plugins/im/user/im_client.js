@@ -10,6 +10,7 @@
     const widgetAssetVersion = String(window.__AK_WIDGET_ASSET_VERSION__ || '').trim();
     const BOOTSTRAP_IDENTITY_RETRY_DELAYS = [120, 250, 500, 900, 1500, 2400, 3600];
     const BOOTSTRAP_REQUEST_RETRY_DELAYS = [800, 1800, 3200];
+    const IM_HISTORY_GUARD_KEY = '__akImHistoryGuard';
     const lazyModuleScriptConfigs = {
         profile: {
             selector: 'script[data-ak-im-user-plugin-profile="1"]',
@@ -118,6 +119,7 @@
     const lazyModuleInitState = {};
     const initialOpenRequest = getInitialOpenRequest();
     let initialOpenRequestConsumed = false;
+    let imHistoryGuardActive = false;
 
     const state = {
         allowed: false,
@@ -638,6 +640,41 @@
         if (options && options.closePanel) state.open = false;
         state.view = 'sessions';
         render();
+    }
+
+    function buildIMHistoryGuardState(sourceState) {
+        const nextState = sourceState && typeof sourceState === 'object' ? Object.assign({}, sourceState) : {};
+        nextState[IM_HISTORY_GUARD_KEY] = true;
+        return nextState;
+    }
+
+    function ensureIMHistoryGuard() {
+        if (!state.open || !state.allowed || imHistoryGuardActive) return;
+        try {
+            if (!window.history || typeof window.history.pushState !== 'function') return;
+            const currentState = window.history.state;
+            if (currentState && typeof currentState === 'object' && currentState[IM_HISTORY_GUARD_KEY]) {
+                imHistoryGuardActive = true;
+                return;
+            }
+            window.history.pushState(buildIMHistoryGuardState(currentState), document.title, window.location.href);
+            imHistoryGuardActive = true;
+        } catch (e) {}
+    }
+
+    function handleIMHistoryPop(event) {
+        const nextState = event && event.state;
+        if (nextState && typeof nextState === 'object' && nextState[IM_HISTORY_GUARD_KEY]) {
+            imHistoryGuardActive = true;
+            return;
+        }
+        if (!state.open || !state.allowed) {
+            imHistoryGuardActive = false;
+            return;
+        }
+        imHistoryGuardActive = false;
+        showSessionsView();
+        ensureIMHistoryGuard();
     }
 
     function isHomeTopActionTab(tab) {
@@ -4209,6 +4246,7 @@
     function render() {
         if (!root) return;
         const shellState = getShellRenderState();
+        ensureIMHistoryGuard();
         if (isFallbackShellActive()) {
             renderFallbackShell(shellState);
             return;
@@ -5215,6 +5253,7 @@
         initAppShellModule();
         ensureRoot();
         bindComposerOutsideDismissEvents();
+        window.addEventListener('popstate', handleIMHistoryPop);
         render();
         loadBootstrapWhenIdentityReady(0);
     }
