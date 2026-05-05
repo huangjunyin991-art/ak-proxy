@@ -2900,3 +2900,18 @@
     text-overflow: ellipsis;
     white-space: nowrap;
 }
+
+.rt-cache-badge,
+.rt-cache-badge.cached {
+    box-sizing: border-box;
+    flex: 0 0 64px;
+    width: 64px;
+    min-width: 64px;
+    height: 26px;
+    min-height: 26px;
+    padding: 0;
+    border-width: 1px;
+    line-height: 1;
+    text-align: center;
+    white-space: nowrap;
+}
