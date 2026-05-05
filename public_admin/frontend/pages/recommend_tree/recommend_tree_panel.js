@@ -19,12 +19,12 @@
     function ensureCss() {
         var existing = document.querySelector('link[data-recommend-tree-panel-css="1"]');
         if (existing) {
-            existing.href = '/admin/api/recommend-tree-panel/recommend_tree_panel.css?v=20260505-10';
+            existing.href = '/admin/api/recommend-tree-panel/recommend_tree_panel.css?v=20260505-11';
             return;
         }
         var link = document.createElement('link');
         link.rel = 'stylesheet';
-        link.href = '/admin/api/recommend-tree-panel/recommend_tree_panel.css?v=20260505-10';
+        link.href = '/admin/api/recommend-tree-panel/recommend_tree_panel.css?v=20260505-11';
         link.setAttribute('data-recommend-tree-panel-css', '1');
         document.head.appendChild(link);
     }
@@ -105,6 +105,14 @@
         root.querySelectorAll('[data-view-mode]').forEach(function(btn) {
             btn.onclick = function() {
                 store.setViewMode(btn.getAttribute('data-view-mode') || 'level');
+                render();
+            };
+        });
+
+        root.querySelectorAll('[data-level-group]').forEach(function(btn) {
+            btn.onclick = function(event) {
+                event.stopPropagation();
+                store.toggleLevelGroup(btn.getAttribute('data-level-group') || '', btn.getAttribute('data-default-expanded') === '1');
                 render();
             };
         });

@@ -2434,3 +2434,49 @@
     text-overflow: clip;
     white-space: normal;
 }
+
+.rt-layer-toggle {
+    appearance: none;
+    width: 100%;
+    border: 0;
+    cursor: pointer;
+}
+
+.rt-layer-toggle i {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 38px;
+    height: 20px;
+    border-radius: 999px;
+    color: #061724;
+    background: linear-gradient(135deg, #00d4ff, #00ff88);
+    font-size: 9px;
+    font-style: normal;
+    font-weight: 950;
+}
+
+.rt-layer-toggle.collapsed {
+    border-color: rgba(129, 212, 250, 0.16);
+    background: rgba(6, 17, 31, 0.72);
+}
+
+.rt-layer-toggle.collapsed i {
+    color: #d8ecff;
+    border: 1px solid rgba(129, 212, 250, 0.18);
+    background: rgba(255,255,255,0.06);
+}
+
+.rt-layer-card .rt-promotion {
+    margin-top: 2px;
+    padding-top: 6px;
+}
+
+.rt-layer-card .rt-promotion-title {
+    font-size: 9px;
+}
+
+.rt-layer-card .rt-promotion-list {
+    max-height: 58px;
+    overflow-y: auto;
+}

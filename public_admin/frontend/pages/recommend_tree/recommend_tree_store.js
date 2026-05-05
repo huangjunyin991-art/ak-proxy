@@ -21,6 +21,7 @@
             payload: null,
             nodes: [],
             filtered: [],
+            expandedLevelGroups: {},
             index: utils.buildNodeIndex([]),
             error: ''
         };
@@ -32,6 +33,7 @@
             state.meta = result && result.meta ? result.meta : null;
             state.payload = payload;
             state.nodes = payload && Array.isArray(payload.nodes) ? payload.nodes : [];
+            state.expandedLevelGroups = {};
             state.index = utils.buildNodeIndex(state.nodes);
             applyFilter();
         }
@@ -85,6 +87,13 @@
             state.viewMode = ['level', 'depth', 'path'].indexOf(next) >= 0 ? next : 'level';
         }
 
+        function toggleLevelGroup(value, defaultExpanded) {
+            var key = String(value || '');
+            var current = state.expandedLevelGroups[key];
+            var active = current == null ? !!defaultExpanded : !!current;
+            state.expandedLevelGroups[key] = !active;
+        }
+
         function resetStatus() {
             state.loading = false;
             state.refreshing = false;
@@ -102,6 +111,7 @@
             setQuery: setQuery,
             setGeneration: setGeneration,
             setViewMode: setViewMode,
+            toggleLevelGroup: toggleLevelGroup,
             resetStatus: resetStatus
         };
     }

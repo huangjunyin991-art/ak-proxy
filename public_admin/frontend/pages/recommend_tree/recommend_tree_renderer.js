@@ -121,13 +121,13 @@
     }
 
     function renderLevelBody(state) {
-        return renderGroupedBody(state, '等级视图。按会员等级归类成员，卡片颜色跟随等级；点击成员查看完整节点信息。', function(node) {
+        return renderGroupedBody(state, '等级视图。按会员等级归类成员，超过20人默认收起；点击等级标题展开或收起成员列表。', function(node) {
             return utils.nodeRankLabel(node);
         }, function(a, b) {
             return rankOrder(a) - rankOrder(b);
         }, function(label, nodes) {
             return '<span>' + utils.escapeHtml(label) + '</span><span>' + utils.escapeHtml(nodes.length) + ' 人</span>';
-        });
+        }, true);
     }
 
     function renderDepthBody(state) {
@@ -140,18 +140,24 @@
         });
     }
 
-    function renderGroupedBody(state, note, groupGetter, groupSorter, headRenderer) {
+    function renderGroupedBody(state, note, groupGetter, groupSorter, headRenderer, collapsible) {
         var groups = {};
         state.filtered.forEach(function(node) {
-            var key = groupGetter(node);
+            var key = String(groupGetter(node));
             if (!groups[key]) groups[key] = [];
             groups[key].push(node);
         });
         var html = Object.keys(groups).sort(groupSorter).map(function(key) {
             var nodes = groups[key] || [];
+            var defaultExpanded = nodes.length <= 20;
+            var storedExpanded = state.expandedLevelGroups && state.expandedLevelGroups[key];
+            var expanded = !collapsible || (storedExpanded == null ? defaultExpanded : !!storedExpanded);
+            var head = collapsible
+                ? '<button type="button" class="rt-layer-head rt-layer-toggle ' + (expanded ? 'expanded' : 'collapsed') + '" data-level-group="' + utils.escapeHtml(key) + '" data-default-expanded="' + (defaultExpanded ? '1' : '0') + '">' + headRenderer(key, nodes) + '<i>' + (expanded ? '收起' : '展开') + '</i></button>'
+                : '<div class="rt-layer-head">' + headRenderer(key, nodes) + '</div>';
             return '<section class="rt-layer-section">' +
-                '<div class="rt-layer-head">' + headRenderer(key, nodes) + '</div>' +
-                '<div class="rt-layer-grid">' + nodes.map(renderMemberCard).join('') + '</div>' +
+                head +
+                (expanded ? '<div class="rt-layer-grid">' + nodes.map(function(node) { return renderMemberCard(state, node); }).join('') + '</div>' : '') +
             '</section>';
         }).join('');
         return '<section class="rt-layer-panel">' +
@@ -160,9 +166,10 @@
         '</section>';
     }
 
-    function renderMemberCard(node) {
+    function renderMemberCard(state, node) {
         var rankClass = utils.nodeRankClass(node);
-        return '<button type="button" class="rt-layer-card rt-node-open ' + utils.escapeHtml(rankClass) + '" data-id="' + utils.escapeHtml(node.id) + '">' +
+        var promotionHtml = renderPromotion(state, node);
+        return '<button type="button" class="rt-layer-card rt-node-open ' + utils.escapeHtml(rankClass) + (promotionHtml ? ' has-promotion' : '') + '" data-id="' + utils.escapeHtml(node.id) + '">' +
             '<span class="rt-layer-card-head"><b>' + utils.escapeHtml(utils.nodeDisplayName(node)) + '</b><em class="rt-layer-rank ' + utils.escapeHtml(rankClass) + '">' + utils.escapeHtml(utils.nodeRankLabel(node)) + '</em></span>' +
             '<span class="rt-layer-account">账号 ' + utils.escapeHtml(utils.nodeAccount(node)) + '</span>' +
             '<span class="rt-layer-time">注册时间 ' + utils.escapeHtml(utils.nodeCreateTime(node) || '-') + '</span>' +
@@ -172,6 +179,7 @@
                 '<i>直推 ' + utils.escapeHtml(node.F || 0) + '</i>' +
                 '<i>子账号 ' + utils.escapeHtml(node.S || 0) + '</i>' +
             '</span>' +
+            promotionHtml +
         '</button>';
     }
 
