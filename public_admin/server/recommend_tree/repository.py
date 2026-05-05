@@ -104,6 +104,52 @@ class RecommendTreeRepository:
             "updatedAt": self._iso(row['updated_at']) if row else '',
         }
 
+    async def search_accounts(self, query: str, limit: int = 12) -> list[dict[str, Any]]:
+        await self.ensure_ready()
+        pool = self.pool_supplier()
+        keyword = str(query or '').strip()
+        safe_limit = max(1, min(int(limit or 12), 30))
+        pattern = f'%{keyword}%'
+        async with pool.acquire() as conn:
+            if keyword:
+                rows = await conn.fetch('''
+                    SELECT us.username,
+                           COALESCE(NULLIF(us.real_name, ''), NULLIF(aa.nickname, ''), '') AS real_name,
+                           us.last_login,
+                           rtc.account IS NOT NULL AS has_cache,
+                           rtc.fetched_at,
+                           rtc.node_count
+                    FROM user_stats us
+                    LEFT JOIN authorized_accounts aa ON us.username = aa.username AND aa.status = 'active'
+                    LEFT JOIN admin_recommend_tree_cache rtc ON rtc.account = LOWER(us.username)
+                    WHERE us.username ILIKE $1
+                       OR COALESCE(NULLIF(us.real_name, ''), NULLIF(aa.nickname, ''), '') ILIKE $1
+                    ORDER BY rtc.fetched_at DESC NULLS LAST, us.last_login DESC NULLS LAST, us.username ASC
+                    LIMIT $2
+                ''', pattern, safe_limit)
+            else:
+                rows = await conn.fetch('''
+                    SELECT us.username,
+                           COALESCE(NULLIF(us.real_name, ''), NULLIF(aa.nickname, ''), '') AS real_name,
+                           us.last_login,
+                           rtc.account IS NOT NULL AS has_cache,
+                           rtc.fetched_at,
+                           rtc.node_count
+                    FROM user_stats us
+                    LEFT JOIN authorized_accounts aa ON us.username = aa.username AND aa.status = 'active'
+                    LEFT JOIN admin_recommend_tree_cache rtc ON rtc.account = LOWER(us.username)
+                    ORDER BY rtc.fetched_at DESC NULLS LAST, us.last_login DESC NULLS LAST, us.username ASC
+                    LIMIT $1
+                ''', safe_limit)
+        return [{
+            "account": str(row['username'] or ''),
+            "realName": str(row['real_name'] or ''),
+            "hasCache": bool(row['has_cache']),
+            "fetchedAt": self._iso(row['fetched_at']),
+            "nodeCount": int(row['node_count'] or 0),
+            "lastLogin": self._iso(row['last_login']),
+        } for row in rows]
+
     async def get_user_password(self, account: str) -> str:
         pool = self.pool_supplier()
         normalized = self.normalize_account(account)

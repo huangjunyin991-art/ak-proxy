@@ -22,6 +22,14 @@
         }).then(parseResponse);
     }
 
+    function searchAccounts(query, limit) {
+        var params = new URLSearchParams({ search: query || '', limit: String(limit || 12) });
+        return fetch('/admin/api/recommend-tree/accounts?' + params.toString(), {
+            headers: { 'Authorization': 'Bearer ' + token() },
+            credentials: 'same-origin'
+        }).then(parseResponse);
+    }
+
     function refresh(payload) {
         return fetch('/admin/api/recommend-tree/refresh', {
             method: 'POST',
@@ -36,6 +44,7 @@
 
     window.AKRecommendTreeApi = {
         getCache: getCache,
+        searchAccounts: searchAccounts,
         refresh: refresh
     };
 })();

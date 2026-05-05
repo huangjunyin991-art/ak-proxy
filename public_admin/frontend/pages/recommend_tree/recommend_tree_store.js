@@ -11,6 +11,11 @@
             query: '',
             generation: '',
             cached: false,
+            accountQuery: '',
+            accountOptions: [],
+            accountSearching: false,
+            accountDropdownOpen: false,
+            selectedAccountMeta: null,
             meta: null,
             payload: null,
             nodes: [],
@@ -28,6 +33,26 @@
             state.nodes = payload && Array.isArray(payload.nodes) ? payload.nodes : [];
             state.index = utils.buildNodeIndex(state.nodes);
             applyFilter();
+        }
+
+        function setAccountQuery(value) {
+            state.accountQuery = value || '';
+            state.account = value || '';
+            state.accountDropdownOpen = true;
+        }
+
+        function setAccountOptions(rows) {
+            state.accountOptions = Array.isArray(rows) ? rows : [];
+            state.accountSearching = false;
+        }
+
+        function selectAccount(row) {
+            var account = row && row.account ? row.account : '';
+            state.account = account;
+            state.accountQuery = account;
+            state.selectedAccountMeta = row || null;
+            state.cached = !!(row && row.hasCache);
+            state.accountDropdownOpen = false;
         }
 
         function applyFilter() {
@@ -57,12 +82,16 @@
         function resetStatus() {
             state.loading = false;
             state.refreshing = false;
+            state.accountSearching = false;
             state.error = '';
         }
 
         return {
             state: state,
             setPayload: setPayload,
+            setAccountQuery: setAccountQuery,
+            setAccountOptions: setAccountOptions,
+            selectAccount: selectAccount,
             applyFilter: applyFilter,
             setQuery: setQuery,
             setGeneration: setGeneration,

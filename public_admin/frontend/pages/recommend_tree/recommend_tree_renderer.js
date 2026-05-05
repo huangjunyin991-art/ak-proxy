@@ -6,26 +6,51 @@
     function render(root, store) {
         var state = store.state;
         root.innerHTML = '' +
-            '<div class="rt-root">' +
-                renderHeader(state) +
+            '<div class="rt-root ' + ((state.loading || state.refreshing) ? 'is-busy' : '') + '">' +
+                renderHero(state) +
                 renderStats(state) +
                 renderControls(state) +
                 renderBody(state) +
+                renderBusyLayer(state) +
             '</div>';
     }
 
-    function renderHeader(state) {
+    function renderHero(state) {
         var meta = state.meta || {};
-        var status = state.refreshing ? '正在更新...' : state.loading ? '正在读取...' : state.cached ? '已缓存' : '未缓存';
-        return '<section class="rt-header">' +
-            '<div class="rt-title"><h3>推荐树 / 血脉线</h3><p>按账号缓存推荐树数据，默认读取缓存，手动更新才重新拉取。</p></div>' +
-            '<div class="rt-query-row">' +
-                '<input class="rt-input" id="rtAccountInput" value="' + utils.escapeHtml(state.account || '') + '" placeholder="输入账号">' +
-                '<button class="rt-btn" id="rtLoadBtn" ' + (state.loading || state.refreshing ? 'disabled' : '') + '>查看血脉线</button>' +
-                '<button class="rt-btn primary" id="rtRefreshBtn" ' + (state.loading || state.refreshing ? 'disabled' : '') + '>更新数据</button>' +
+        var cached = state.cached || (state.selectedAccountMeta && state.selectedAccountMeta.hasCache);
+        var statusText = state.refreshing ? '正在重新获取' : state.loading ? '正在读取缓存' : cached ? '已缓存' : '未缓存';
+        return '<section class="rt-hero">' +
+            '<div class="rt-hero-top">' +
+                '<div class="rt-title"><strong>推荐树移动端多方案预览</strong><span>方案C血脉线路径视图 · 默认读缓存，手动更新才重新拉取</span></div>' +
+                '<span class="rt-cache-badge ' + (cached ? 'cached' : '') + '">' + utils.escapeHtml(statusText) + '</span>' +
             '</div>' +
-            '<div class="rt-cache-line"><span>' + utils.escapeHtml(status) + '</span><span>更新时间 ' + utils.escapeHtml(meta.fetchedAt || '-') + '</span></div>' +
+            '<div class="rt-account-wrap">' +
+                '<input class="rt-input rt-account-input" id="rtAccountInput" value="' + utils.escapeHtml(state.accountQuery || state.account || '') + '" placeholder="在账号管理中搜索账号/姓名">' +
+                renderAccountDropdown(state) +
+            '</div>' +
+            '<div class="rt-action-row">' +
+                '<button class="rt-btn" id="rtLoadBtn" ' + disabled(state) + '>查看血脉线</button>' +
+                '<button class="rt-btn primary" id="rtRefreshBtn" ' + disabled(state) + '>' + (state.refreshing ? '<span class="rt-mini-spinner"></span>获取中' : '更新数据') + '</button>' +
+            '</div>' +
+            '<div class="rt-cache-line"><span>' + utils.escapeHtml(cached ? '缓存可用' : '暂无缓存标记') + '</span><span>更新时间 ' + utils.escapeHtml(meta.fetchedAt || (state.selectedAccountMeta && state.selectedAccountMeta.fetchedAt) || '-') + '</span></div>' +
         '</section>';
+    }
+
+    function renderAccountDropdown(state) {
+        if (!state.accountDropdownOpen) return '';
+        var rows = state.accountOptions || [];
+        if (state.accountSearching) {
+            return '<div class="rt-account-dropdown"><div class="rt-account-loading"><span class="rt-mini-spinner"></span>正在搜索账号管理表</div></div>';
+        }
+        if (!rows.length) {
+            return '<div class="rt-account-dropdown"><div class="rt-account-empty">没有匹配账号</div></div>';
+        }
+        return '<div class="rt-account-dropdown">' + rows.map(function(row) {
+            return '<button type="button" class="rt-account-option" data-account="' + utils.escapeHtml(row.account || '') + '">' +
+                '<span><b>' + utils.escapeHtml(row.account || '-') + '</b><small>' + utils.escapeHtml(row.realName || '未记录姓名') + '</small></span>' +
+                '<span class="rt-option-side">' + (row.hasCache ? '<em>已缓存</em>' : '<i>未缓存</i>') + '<small>' + utils.escapeHtml(row.nodeCount || 0) + ' 节点</small></span>' +
+            '</button>';
+        }).join('') + '</div>';
     }
 
     function renderStats(state) {
@@ -33,7 +58,7 @@
         var meta = state.meta || {};
         var total = payload.totalNodes || meta.nodeCount || 0;
         return '<section class="rt-stats">' +
-            statCard(total, '节点总数') +
+            statCard(total, '全下级') +
             statCard(payload.maxDepth || meta.maxDepth || 0, '最大代数') +
             statCard(payload.branchCount || meta.branchCount || 0, '动态玩家') +
             statCard(payload.leafCount || meta.leafCount || 0, '静态玩家') +
@@ -59,22 +84,29 @@
 
     function renderBody(state) {
         if (state.error) return '<section class="rt-empty error">' + utils.escapeHtml(state.error) + '</section>';
-        if (!state.payload) return '<section class="rt-empty">输入账号后点击“查看血脉线”；没有缓存时点击“更新数据”拉取并保存。</section>';
+        if (!state.payload) return '<section class="rt-empty">从账号管理表搜索账号；已有缓存会显示“已缓存”，没有缓存再点击“更新数据”。</section>';
         if (!state.filtered.length) return '<section class="rt-empty">没有匹配的血脉线。</section>';
-        return '<section class="rt-path-list">' + state.filtered.map(function(node) { return renderPathItem(state, node); }).join('') + '</section>';
+        return '<section class="rt-path-panel">' +
+            '<div class="rt-scheme-note">方案C：血脉线路径视图。卡片左色和右上徽章代表终点等级；点击任意节点查看完整节点信息。</div>' +
+            '<div class="rt-level-legend">' +
+                '<span class="rt-level-token level-0">M0 白</span><span class="rt-level-token level-1">M1 绿</span><span class="rt-level-token level-2">M2 蓝</span><span class="rt-level-token level-3">M3 紫</span><span class="rt-level-token level-4">M4 红</span><span class="rt-level-token level-5">M5 金</span><span class="rt-level-token a-rank">A1-A5</span>' +
+            '</div>' +
+            '<div class="rt-path-list">' + state.filtered.map(function(node) { return renderPathItem(state, node); }).join('') + '</div>' +
+        '</section>';
     }
 
     function renderPathItem(state, node) {
         var pathNodes = utils.getPathNodes(state.index, node);
         var rankClass = utils.nodeRankClass(node);
         var pathHtml = pathNodes.map(function(pathNode, index) {
-            var arrow = index < pathNodes.length - 1 ? '<span class="rt-path-arrow">›</span>' : '';
+            var arrow = index < pathNodes.length - 1 ? '<span class="rt-path-arrow"></span>' : '';
             return renderPathNode(state, pathNode, index === pathNodes.length - 1) + arrow;
         }).join('');
         return '<article class="rt-path-item ' + utils.escapeHtml(rankClass) + '" data-id="' + utils.escapeHtml(node.id) + '">' +
             '<div class="rt-path-title">' +
-                '<div><strong>' + utils.escapeHtml(utils.shortText(utils.nodeDisplayName(node), 22)) + '</strong><span>第' + utils.escapeHtml(node.depth) + '代 · ' + utils.escapeHtml(utils.nodeAccount(node)) + '</span></div>' +
-                '<b class="rt-end-level ' + utils.escapeHtml(rankClass) + '">' + utils.escapeHtml(utils.nodeRankLabel(node)) + '</b>' +
+                '<div class="rt-path-title-main">' + utils.escapeHtml(utils.shortText(utils.nodeDisplayName(node), 18)) + '</div>' +
+                '<div class="rt-path-title-sub">第' + utils.escapeHtml(node.depth) + '代 · ' + utils.escapeHtml(utils.nodeAccount(node)) + '</div>' +
+                '<span class="rt-end-level ' + utils.escapeHtml(rankClass) + '">' + utils.escapeHtml(utils.nodeRankLabel(node)) + '</span>' +
             '</div>' +
             '<div class="rt-path-metrics">' + metric('左区', node.L) + metric('右区', node.R) + metric('直推', node.F) + metric('子账号', node.S) + '</div>' +
             '<div class="rt-path-text">' + pathHtml + '</div>' +
@@ -111,8 +143,19 @@
         '</span>';
     }
 
+    function renderBusyLayer(state) {
+        if (!state.loading && !state.refreshing) return '';
+        var title = state.refreshing ? '正在远端获取推荐树' : '正在读取缓存';
+        var desc = state.refreshing ? '正在分页拉取血脉节点，请不要关闭页面' : '正在从数据库读取已缓存数据';
+        return '<div class="rt-busy-layer"><div class="rt-busy-card"><span class="rt-orbit"></span><b>' + utils.escapeHtml(title) + '</b><small>' + utils.escapeHtml(desc) + '</small><span class="rt-busy-bar"></span></div></div>';
+    }
+
     function metric(label, value) {
-        return '<span class="rt-metric"><span>' + utils.escapeHtml(label) + '</span><b>' + utils.escapeHtml(value || 0) + '</b></span>';
+        return '<span class="rt-metric"><span class="rt-metric-label">' + utils.escapeHtml(label) + '</span><b class="rt-metric-value">' + utils.escapeHtml(value || 0) + '</b></span>';
+    }
+
+    function disabled(state) {
+        return state.loading || state.refreshing ? 'disabled' : '';
     }
 
     function showDetail(node, anchor) {

@@ -41,6 +41,17 @@ def create_recommend_tree_router(
         except Exception as exc:
             return JSONResponse(status_code=500, content={"success": False, "message": str(exc)[:500]})
 
+    @router.get("/accounts")
+    async def recommend_tree_accounts(request: Request, search: str = "", q: str = "", limit: int = 12):
+        error_response = await require_admin(request)
+        if error_response is not None:
+            return error_response
+        try:
+            rows = await repository.search_accounts(search or q, limit)
+            return {"success": True, "rows": rows}
+        except Exception as exc:
+            return JSONResponse(status_code=500, content={"success": False, "message": str(exc)[:500]})
+
     @router.post("/refresh")
     async def recommend_tree_refresh(request: Request):
         error_response = await require_admin(request)
