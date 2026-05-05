@@ -2682,3 +2682,21 @@
     background: linear-gradient(135deg, #ffd45a, #43b7ff);
     border-color: rgba(255, 212, 90, 0.62);
 }
+
+.rt-account-action-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.rt-account-action-row .rt-action-row {
+    display: flex;
+    grid-template-columns: none;
+    flex: 0 0 auto;
+    width: auto;
+}
+
+.rt-account-action-row .rt-btn {
+    width: auto;
+    min-width: 82px;
+    padding: 0 12px;
+    white-space: nowrap;
+}
