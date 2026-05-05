@@ -79,12 +79,22 @@
     function renderControls(state) {
         var payload = state.payload || {};
         var depths = Object.keys(payload.nodesByDepth || {}).map(function(key) { return Number(key); }).filter(function(value) { return value >= 1; }).sort(function(a, b) { return a - b; });
-        var generationButtons = ['<button class="rt-pill ' + (state.generation === '' ? 'active' : '') + '" data-generation="">全部血脉线</button>'].concat(depths.map(function(depth) {
-            return '<button class="rt-pill ' + (String(depth) === String(state.generation) ? 'active' : '') + '" data-generation="' + depth + '">第' + depth + '代</button>';
-        })).join('');
+        var generationOptions = [{ value: '', label: '全部血脉线' }].concat(depths.map(function(depth) {
+            return { value: String(depth), label: '第' + depth + '代血脉线' };
+        }));
+        var activeGeneration = generationOptions.find(function(option) {
+            return option.value === String(state.generation || '');
+        }) || generationOptions[0];
+        var generationMenu = generationOptions.map(function(option) {
+            var active = option.value === String(state.generation || '') ? ' active' : '';
+            return '<button class="rt-generation-option' + active + '" type="button" data-generation="' + utils.escapeHtml(option.value) + '">' + utils.escapeHtml(option.label) + '</button>';
+        }).join('');
         return '<section class="rt-controls">' +
-            '<input class="rt-input" id="rtSearchInput" value="' + utils.escapeHtml(state.query || '') + '" placeholder="搜索账号/姓名/id">' +
-            '<div class="rt-generation-row">' + generationButtons + '</div>' +
+            '<input class="rt-input rt-search-input" id="rtSearchInput" value="' + utils.escapeHtml(state.query || '') + '" placeholder="搜索账号/姓名/id/路径">' +
+            '<div class="rt-generation-filter" id="rtGenerationFilter">' +
+                '<button class="rt-btn rt-generation-trigger" id="rtGenerationTrigger" type="button">' + utils.escapeHtml(activeGeneration.label) + '</button>' +
+                '<div class="rt-generation-menu" id="rtGenerationMenu">' + generationMenu + '</div>' +
+            '</div>' +
         '</section>';
     }
 

@@ -19,12 +19,12 @@
     function ensureCss() {
         var existing = document.querySelector('link[data-recommend-tree-panel-css="1"]');
         if (existing) {
-            existing.href = '/admin/api/recommend-tree-panel/recommend_tree_panel.css?v=20260505-03';
+            existing.href = '/admin/api/recommend-tree-panel/recommend_tree_panel.css?v=20260505-04';
             return;
         }
         var link = document.createElement('link');
         link.rel = 'stylesheet';
-        link.href = '/admin/api/recommend-tree-panel/recommend_tree_panel.css?v=20260505-03';
+        link.href = '/admin/api/recommend-tree-panel/recommend_tree_panel.css?v=20260505-04';
         link.setAttribute('data-recommend-tree-panel-css', '1');
         document.head.appendChild(link);
     }
@@ -60,6 +60,8 @@
     function bindEvents(root) {
         var accountInput = root.querySelector('#rtAccountInput');
         var searchInput = root.querySelector('#rtSearchInput');
+        var generationFilter = root.querySelector('#rtGenerationFilter');
+        var generationTrigger = root.querySelector('#rtGenerationTrigger');
         var loadBtn = root.querySelector('#rtLoadBtn');
         var refreshBtn = root.querySelector('#rtRefreshBtn');
 
@@ -93,6 +95,12 @@
         }
         if (loadBtn) loadBtn.onclick = loadCache;
         if (refreshBtn) refreshBtn.onclick = refreshTree;
+        if (generationTrigger && generationFilter) {
+            generationTrigger.onclick = function(event) {
+                event.stopPropagation();
+                generationFilter.classList.toggle('open');
+            };
+        }
 
         root.querySelectorAll('.rt-account-option').forEach(function(btn) {
             btn.onmousedown = function(event) {
@@ -108,12 +116,19 @@
             };
         });
 
-        root.querySelectorAll('[data-generation]').forEach(function(btn) {
+        root.querySelectorAll('.rt-generation-option').forEach(function(btn) {
             btn.onclick = function() {
+                if (generationFilter) generationFilter.classList.remove('open');
                 store.setGeneration(btn.getAttribute('data-generation') || '');
                 render();
             };
         });
+
+        root.onclick = function(event) {
+            if (generationFilter && !event.target.closest('#rtGenerationFilter')) {
+                generationFilter.classList.remove('open');
+            }
+        };
 
         root.querySelectorAll('.rt-path-list').forEach(function(list) {
             list.onclick = function(event) {
