@@ -4000,18 +4000,29 @@
             contactsListEl.innerHTML = '<div class="ak-im-empty">' + escapeHtml(state.contactsError) + '</div>';
             return;
         }
-        if (!state.contacts.length) {
+        const sections = Array.isArray(state.contactSections) && state.contactSections.length
+            ? state.contactSections
+            : (state.contacts.length ? [{ key: 'all', title: '通讯录', items: state.contacts }] : []);
+        if (!sections.length) {
             contactsListEl.innerHTML = '<div class="ak-im-empty">当前白名单暂无其他联系人</div>';
             return;
         }
-        state.contacts.forEach(function(contact) {
-            const username = getContactUsername(contact);
-            const node = document.createElement('button');
-            node.type = 'button';
-            node.className = 'ak-im-contact-item';
-            node.innerHTML = buildContactItemInnerMarkup(contact);
-            bindContactItemAction(node, contact);
-            contactsListEl.appendChild(node);
+        sections.forEach(function(section) {
+            const sectionNode = document.createElement('div');
+            sectionNode.className = 'ak-im-contact-list-section';
+            sectionNode.innerHTML = '<div class="ak-im-contact-list-section-title">' + escapeHtml(section && section.title || '通讯录') + '</div><div class="ak-im-social-list"></div>';
+            const listEl = sectionNode.querySelector('.ak-im-social-list');
+            (Array.isArray(section && section.items) ? section.items : []).forEach(function(contact) {
+                const username = getContactUsername(contact);
+                if (!username) return;
+                const node = document.createElement('button');
+                node.type = 'button';
+                node.className = 'ak-im-contact-item';
+                node.innerHTML = buildContactItemInnerMarkup(contact);
+                bindContactItemAction(node, contact);
+                listEl.appendChild(node);
+            });
+            contactsListEl.appendChild(sectionNode);
         });
     }
 
