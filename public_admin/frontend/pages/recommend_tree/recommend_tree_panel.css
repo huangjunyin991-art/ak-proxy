@@ -1991,7 +1991,69 @@
 .rt-root {
     --rt-compact-scale: 0.78;
     zoom: var(--rt-compact-scale);
-    width: calc(100% / var(--rt-compact-scale));
+    width: 100%;
+    max-width: 100%;
+    overflow-x: hidden;
+}
+
+.rt-hero,
+.rt-stats,
+.rt-controls,
+.rt-path-panel,
+.rt-empty {
+    max-width: 100%;
+    box-sizing: border-box;
+}
+
+.rt-path-panel {
+    overflow-x: hidden;
+}
+
+.rt-level-legend,
+.rt-path-list,
+.rt-path-metrics,
+.rt-path-text {
+    min-width: 0;
+    max-width: 100%;
+}
+
+.rt-path-list {
+    overflow-x: hidden;
+}
+
+.rt-path-item {
+    min-width: 0;
+    max-width: 100%;
+}
+
+.rt-path-title {
+    min-width: 0;
+    grid-template-columns: minmax(0, 1fr) minmax(72px, auto) minmax(32px, auto);
+}
+
+.rt-path-title-main,
+.rt-path-title-sub {
+    min-width: 0;
+}
+
+.rt-end-level {
+    min-width: 30px;
+    padding: 0 5px;
+}
+
+.rt-path-text,
+.rt-path-metrics,
+.rt-level-legend {
+    overflow-x: auto;
+    overflow-y: hidden;
+}
+
+.rt-path-text {
+    overscroll-behavior-x: contain;
+}
+
+.rt-generation-filter {
+    min-width: 0;
 }
 
 .rt-path-item {

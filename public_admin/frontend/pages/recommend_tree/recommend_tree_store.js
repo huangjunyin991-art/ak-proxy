@@ -10,6 +10,7 @@
             refreshing: false,
             query: '',
             generation: '',
+            viewMode: 'org',
             cached: false,
             accountQuery: '',
             accountOptions: [],
@@ -79,6 +80,11 @@
             applyFilter();
         }
 
+        function setViewMode(value) {
+            var next = String(value || 'org');
+            state.viewMode = ['org', 'layer', 'path'].indexOf(next) >= 0 ? next : 'org';
+        }
+
         function resetStatus() {
             state.loading = false;
             state.refreshing = false;
@@ -95,6 +101,7 @@
             applyFilter: applyFilter,
             setQuery: setQuery,
             setGeneration: setGeneration,
+            setViewMode: setViewMode,
             resetStatus: resetStatus
         };
     }

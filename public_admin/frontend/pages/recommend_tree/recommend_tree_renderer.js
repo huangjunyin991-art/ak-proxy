@@ -10,6 +10,7 @@
                 renderHero(state) +
                 renderStats(state) +
                 renderControls(state) +
+                renderViewTabs(state) +
                 renderBody(state) +
                 renderBusyLayer(state) +
             '</div>';
@@ -21,7 +22,7 @@
         var statusText = state.refreshing ? '正在重新获取' : state.loading ? '正在读取缓存' : cached ? '已缓存' : '未缓存';
         return '<section class="rt-hero">' +
             '<div class="rt-hero-top">' +
-                '<div class="rt-title"><strong>推荐树</strong><span>查看推荐关系与血脉路径，默认读取缓存，手动更新时重新拉取</span></div>' +
+                '<div class="rt-title"><strong>组织架构</strong><span>查看推荐组织关系与层级分布，默认读取缓存，手动更新时重新拉取</span></div>' +
                 '<span class="rt-cache-badge ' + (cached ? 'cached' : '') + '">' + utils.escapeHtml(statusText) + '</span>' +
             '</div>' +
             '<div class="rt-account-wrap">' +
@@ -29,7 +30,7 @@
                 renderAccountDropdown(state) +
             '</div>' +
             '<div class="rt-action-row">' +
-                '<button class="rt-btn" id="rtLoadBtn" ' + disabled(state) + '>查看血脉线</button>' +
+                '<button class="rt-btn" id="rtLoadBtn" ' + disabled(state) + '>查看组织架构</button>' +
                 '<button class="rt-btn primary" id="rtRefreshBtn" ' + disabled(state) + '>' + (state.refreshing ? '<span class="rt-mini-spinner"></span>获取中' : '更新数据') + '</button>' +
             '</div>' +
             '<div class="rt-cache-line"><span>' + utils.escapeHtml(cached ? '缓存可用' : '暂无缓存标记') + '</span><span>更新时间 ' + utils.escapeHtml(meta.fetchedAt || (state.selectedAccountMeta && state.selectedAccountMeta.fetchedAt) || '-') + '</span></div>' +
@@ -79,8 +80,8 @@
     function renderControls(state) {
         var payload = state.payload || {};
         var depths = Object.keys(payload.nodesByDepth || {}).map(function(key) { return Number(key); }).filter(function(value) { return value >= 1; }).sort(function(a, b) { return a - b; });
-        var generationOptions = [{ value: '', label: '全部血脉线' }].concat(depths.map(function(depth) {
-            return { value: String(depth), label: '第' + depth + '代血脉线' };
+        var generationOptions = [{ value: '', label: '全部组织' }].concat(depths.map(function(depth) {
+            return { value: String(depth), label: '第' + depth + '代成员' };
         }));
         var activeGeneration = generationOptions.find(function(option) {
             return option.value === String(state.generation || '');
@@ -90,7 +91,7 @@
             return '<button class="rt-generation-option' + active + '" type="button" data-generation="' + utils.escapeHtml(option.value) + '">' + utils.escapeHtml(option.label) + '</button>';
         }).join('');
         return '<section class="rt-controls">' +
-            '<input class="rt-input rt-search-input" id="rtSearchInput" value="' + utils.escapeHtml(state.query || '') + '" placeholder="搜索账号/姓名/id/路径">' +
+            '<input class="rt-input rt-search-input" id="rtSearchInput" value="' + utils.escapeHtml(state.query || '') + '" placeholder="搜索账号/姓名/id/组织路径">' +
             '<div class="rt-generation-filter" id="rtGenerationFilter">' +
                 '<button class="rt-btn rt-generation-trigger" id="rtGenerationTrigger" type="button">' + utils.escapeHtml(activeGeneration.label) + '</button>' +
                 '<div class="rt-generation-menu" id="rtGenerationMenu">' + generationMenu + '</div>' +
@@ -98,14 +99,81 @@
         '</section>';
     }
 
+    function renderViewTabs(state) {
+        var active = state.viewMode || 'org';
+        var tabs = [
+            { value: 'org', label: '组织架构' },
+            { value: 'layer', label: '分层总览' },
+            { value: 'path', label: '路径视图' }
+        ];
+        return '<section class="rt-view-tabs">' + tabs.map(function(tab) {
+            return '<button type="button" class="rt-view-tab ' + (active === tab.value ? 'active' : '') + '" data-view-mode="' + utils.escapeHtml(tab.value) + '">' + utils.escapeHtml(tab.label) + '</button>';
+        }).join('') + '</section>';
+    }
+
     function renderBody(state) {
         if (state.error) return '<section class="rt-empty error">' + utils.escapeHtml(state.error) + '</section>';
         if (!state.payload) return '<section class="rt-empty">从账号管理表搜索账号，已有缓存会显示“已缓存”；没有缓存时点击“更新数据”。</section>';
-        if (!state.filtered.length) return '<section class="rt-empty">没有匹配的血脉线。</section>';
+        if (!state.filtered.length) return '<section class="rt-empty">没有匹配的组织成员。</section>';
+        if ((state.viewMode || 'org') === 'layer') return renderLayerBody(state);
+        if ((state.viewMode || 'org') === 'path') return renderPathBody(state);
+        return renderOrgBody(state);
+    }
+
+    function renderOrgBody(state) {
+        var rows = state.filtered.map(function(node) {
+            var depth = Number(node.depth || 0);
+            var indent = Math.min(depth, 8) * 10;
+            var children = state.index.childrenByParent.get(String(node.id)) || [];
+            return '<div class="rt-org-row rt-node-open" data-id="' + utils.escapeHtml(node.id) + '">' +
+                '<div class="rt-org-main">' +
+                    '<span class="rt-org-indent" style="width:' + indent + 'px"></span>' +
+                    '<span class="rt-org-toggle">' + (children.length ? '▾' : '·') + '</span>' +
+                    '<span class="rt-org-name"><em>第' + utils.escapeHtml(depth) + '代</em><b>' + utils.escapeHtml(utils.shortText(utils.nodeDisplayName(node), 18)) + '</b><small>' + utils.escapeHtml(utils.shortText(utils.nodeAccount(node), 16)) + '</small></span>' +
+                '</div>' +
+                '<div class="rt-org-metrics">' +
+                    '<span class="rt-org-rank ' + utils.escapeHtml(utils.nodeRankClass(node)) + '">' + utils.escapeHtml(utils.nodeRankLabel(node)) + '</span>' +
+                    '<span>左' + utils.escapeHtml(node.L || 0) + '</span><span>右' + utils.escapeHtml(node.R || 0) + '</span><span>直' + utils.escapeHtml(node.F || 0) + '</span><span>子' + utils.escapeHtml(node.S || 0) + '</span>' +
+                '</div>' +
+            '</div>';
+        }).join('');
+        return '<section class="rt-org-panel">' +
+            '<div class="rt-scheme-note">组织架构视图。用缩进表达上下级关系，适合快速查看整个推荐组织；点击任意成员查看完整节点信息。</div>' +
+            '<div class="rt-org-list">' + (rows || '<div class="rt-empty">无匹配成员</div>') + '</div>' +
+        '</section>';
+    }
+
+    function renderLayerBody(state) {
+        var byDepth = {};
+        state.filtered.forEach(function(node) {
+            var depth = Number(node.depth || 0);
+            if (!byDepth[depth]) byDepth[depth] = [];
+            byDepth[depth].push(node);
+        });
+        var html = Object.keys(byDepth).map(function(key) { return Number(key); }).sort(function(a, b) { return a - b; }).map(function(depth) {
+            var nodes = byDepth[depth] || [];
+            return '<section class="rt-layer-section">' +
+                '<div class="rt-layer-head"><span>第' + utils.escapeHtml(depth) + '代</span><span>' + utils.escapeHtml(nodes.length) + ' 人</span></div>' +
+                '<div class="rt-layer-grid">' + nodes.map(function(node) {
+                    return '<button type="button" class="rt-layer-card rt-node-open ' + utils.escapeHtml(utils.nodeRankClass(node)) + '" data-id="' + utils.escapeHtml(node.id) + '">' +
+                        '<b>' + utils.escapeHtml(utils.shortText(utils.nodeDisplayName(node), 16)) + '</b>' +
+                        '<span>' + utils.escapeHtml(utils.shortText(utils.nodeAccount(node), 16)) + '</span>' +
+                        '<small>' + utils.escapeHtml(utils.nodeRankLabel(node)) + ' · 左' + utils.escapeHtml(node.L || 0) + ' 右' + utils.escapeHtml(node.R || 0) + ' 直' + utils.escapeHtml(node.F || 0) + ' 子' + utils.escapeHtml(node.S || 0) + '</small>' +
+                    '</button>';
+                }).join('') + '</div>' +
+            '</section>';
+        }).join('');
+        return '<section class="rt-layer-panel">' +
+            '<div class="rt-scheme-note">分层总览视图。按代数聚合成员，适合查看每一层的人数和等级分布；点击成员查看完整节点信息。</div>' +
+            (html || '<div class="rt-empty">无匹配成员</div>') +
+        '</section>';
+    }
+
+    function renderPathBody(state) {
         var selectedDepth = state.generation === '' ? null : Number(state.generation);
-        var generationLabel = selectedDepth == null ? '全部血脉线' : '第' + selectedDepth + '代血脉线';
+        var generationLabel = selectedDepth == null ? '全部组织路径' : '第' + selectedDepth + '代成员路径';
         return '<section class="rt-path-panel">' +
-            '<div class="rt-scheme-note">血脉线路径视图。当前显示：' + utils.escapeHtml(generationLabel) + '。卡片左色和右上徽章代表终点等级；点击任意节点查看完整节点信息。</div>' +
+            '<div class="rt-scheme-note">路径视图。当前显示：' + utils.escapeHtml(generationLabel) + '。卡片左色和右上徽章代表终点等级；点击任意节点查看完整节点信息。</div>' +
             '<div class="rt-level-legend">' +
                 '<span class="rt-level-token level-0">M0 白</span><span class="rt-level-token level-1">M1 绿</span><span class="rt-level-token level-2">M2 蓝</span><span class="rt-level-token level-3">M3 紫</span><span class="rt-level-token level-4">M4 红</span><span class="rt-level-token level-5">M5 金</span><span class="rt-level-token a-rank">A1-A5</span>' +
             '</div>' +
