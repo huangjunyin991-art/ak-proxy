@@ -3209,3 +3209,42 @@
     border-radius: 0 0 12px 12px;
     z-index: 2000;
 }
+
+.rt-view-shell .rt-view-tabs {
+    width: 100%;
+    box-sizing: border-box;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0;
+    padding: 0;
+    margin-bottom: -1px;
+    border-radius: 12px 12px 0 0;
+    overflow: hidden;
+}
+
+.rt-view-shell .rt-view-tab,
+.rt-view-shell .rt-view-tab.active {
+    margin: 0;
+    border-radius: 0;
+}
+
+.rt-view-shell .rt-view-tab {
+    border: 1px solid rgba(129, 212, 250, 0.16);
+    border-bottom: 0;
+}
+
+.rt-view-shell .rt-view-tab + .rt-view-tab {
+    border-left: 0;
+}
+
+.rt-view-shell .rt-view-tab.active {
+    border-color: rgba(129, 212, 250, 0.22);
+    border-bottom-color: rgba(8, 19, 32, 0.96);
+}
+
+.rt-view-shell .rt-layer-panel,
+.rt-view-shell .rt-path-panel,
+.rt-view-shell .rt-org-panel,
+.rt-view-shell .rt-empty {
+    width: 100%;
+    box-sizing: border-box;
+}
