@@ -1711,7 +1711,7 @@
     }
 }
 
-@media (max-width: 420px) {
+@media (max-width: 360px) {
     .rt-controls {
         grid-template-columns: 1fr;
     }
@@ -1719,4 +1719,271 @@
         width: 100%;
         min-width: 0;
     }
+}
+
+.rt-root {
+    gap: 6px;
+}
+
+.rt-hero,
+.rt-controls,
+.rt-path-panel {
+    box-shadow: 0 8px 18px rgba(0,0,0,0.18), inset 0 1px 0 rgba(255,255,255,0.04);
+}
+
+.rt-hero {
+    gap: 6px;
+    padding: 8px;
+    border-radius: 12px;
+}
+
+.rt-account-input {
+    height: 36px;
+    min-height: 36px;
+    border-radius: 10px;
+    padding: 0 10px;
+    font-size: 12px;
+}
+
+.rt-action-row {
+    gap: 6px;
+}
+
+.rt-btn {
+    min-height: 34px;
+    border-radius: 9px;
+    padding: 0 10px;
+    font-size: 12px;
+}
+
+.rt-cache-line {
+    font-size: 10px;
+}
+
+.rt-stats {
+    gap: 5px;
+}
+
+.rt-stat {
+    padding: 5px 5px;
+    border-radius: 8px;
+}
+
+.rt-stat b {
+    font-size: 13px;
+}
+
+.rt-stat span {
+    margin-top: 2px;
+    font-size: 9px;
+}
+
+.rt-controls {
+    grid-template-columns: minmax(0, 1fr) minmax(142px, auto);
+    gap: 6px;
+    padding: 6px;
+    border-radius: 10px;
+}
+
+.rt-search-input {
+    height: 34px;
+    min-height: 34px;
+    border-radius: 8px;
+    padding: 0 8px;
+    font-size: 11px;
+}
+
+.rt-generation-filter {
+    min-width: 158px;
+}
+
+.rt-generation-trigger {
+    min-height: 34px;
+    font-size: 11px;
+}
+
+.rt-generation-trigger::after {
+    font-size: 14px;
+}
+
+.rt-generation-menu {
+    width: max(100%, 180px);
+    max-height: 260px;
+    padding: 6px;
+    border-radius: 12px;
+}
+
+.rt-generation-option {
+    min-height: 34px;
+    padding: 0 9px;
+    border-radius: 9px;
+    font-size: 12px;
+}
+
+.rt-path-panel {
+    border-radius: 10px;
+}
+
+.rt-scheme-note {
+    padding: 6px 8px;
+    font-size: 10px;
+    line-height: 1.28;
+}
+
+.rt-level-legend {
+    gap: 5px;
+    padding: 6px 7px 3px;
+}
+
+.rt-level-token {
+    height: 22px;
+    padding: 0 7px;
+    gap: 4px;
+    font-size: 10px;
+}
+
+.rt-level-token.a-rank {
+    font-size: 10px;
+}
+
+.rt-level-token::before {
+    width: 6px;
+    height: 6px;
+}
+
+.rt-path-list {
+    padding: 6px;
+    gap: 6px;
+}
+
+.rt-path-item {
+    padding: 7px;
+    margin-bottom: 6px;
+    border-radius: 11px;
+    border-left-width: 3px;
+}
+
+.rt-path-title {
+    grid-template-columns: minmax(0, 1fr) minmax(92px, auto) auto;
+    gap: 5px;
+    margin-bottom: 6px;
+}
+
+.rt-path-title-main,
+.rt-path-title-sub {
+    font-size: 11px;
+}
+
+.rt-end-level {
+    min-width: 34px;
+    height: 18px;
+    padding: 0 7px;
+    font-size: 9px;
+}
+
+.rt-path-metrics {
+    gap: 5px;
+    margin-bottom: 6px;
+}
+
+.rt-metric {
+    min-height: 24px;
+    padding: 4px 6px;
+    border-radius: 8px;
+    gap: 3px;
+}
+
+.rt-metric-label {
+    font-size: 9px;
+}
+
+.rt-metric-value {
+    font-size: 12px;
+}
+
+.rt-path-text {
+    gap: 5px;
+    padding: 3px 1px 2px;
+}
+
+.rt-path-node {
+    min-width: 86px;
+    max-width: 120px;
+    min-height: 38px;
+    padding: 6px 7px;
+    border-radius: 9px;
+}
+
+.rt-path-node.has-promotion {
+    min-width: 112px;
+    max-width: 138px;
+    min-height: 70px;
+}
+
+.rt-path-node.endpoint::after {
+    top: -4px;
+    right: -4px;
+    width: 10px;
+    height: 10px;
+    box-shadow: 0 0 0 2px rgba(8, 19, 32, 0.96), 0 0 10px var(--level-color);
+}
+
+.rt-level-badge {
+    min-width: 24px;
+    height: 14px;
+    margin-bottom: 3px;
+    font-size: 9px;
+}
+
+.rt-node-name {
+    font-size: 10px;
+}
+
+.rt-node-account {
+    margin-top: 1px;
+    font-size: 9px;
+}
+
+.rt-promotion {
+    margin-top: 4px;
+    padding-top: 4px;
+}
+
+.rt-promotion-title {
+    margin-bottom: 3px;
+    font-size: 8px;
+}
+
+.rt-promotion-title b {
+    font-size: 8px;
+}
+
+.rt-promotion-bars {
+    gap: 2px;
+    margin-bottom: 3px;
+}
+
+.rt-promotion-segment {
+    height: 4px;
+}
+
+.rt-promotion-item {
+    gap: 3px;
+    font-size: 8px;
+}
+
+.rt-promotion-item b {
+    font-size: 8px;
+}
+
+.rt-path-arrow {
+    width: 13px;
+}
+
+.rt-path-text::-webkit-scrollbar {
+    height: 6px;
+}
+
+.rt-path-metrics::-webkit-scrollbar {
+    height: 4px;
 }
