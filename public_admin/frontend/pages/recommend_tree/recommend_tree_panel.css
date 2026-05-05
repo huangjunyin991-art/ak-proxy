@@ -2880,3 +2880,23 @@
     border-radius: 999px;
     background: rgba(129, 212, 250, 0.58);
 }
+
+.rt-account-wrap:focus-within .rt-account-input {
+    border-radius: 13px;
+}
+
+.rt-account-wrap.open .rt-account-input {
+    border-bottom-left-radius: 0;
+    border-bottom-right-radius: 0;
+}
+
+.rt-view-tabs {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.rt-view-tab {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}

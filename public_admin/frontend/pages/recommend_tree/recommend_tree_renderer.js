@@ -26,7 +26,7 @@
                 '<span class="rt-cache-badge ' + (cached ? 'cached' : '') + '">' + utils.escapeHtml(statusText) + '</span>' +
             '</div>' +
             '<div class="rt-account-action-row">' +
-                '<div class="rt-account-wrap">' +
+                '<div class="rt-account-wrap ' + (state.accountDropdownOpen ? 'open' : '') + '">' +
                     '<input class="rt-input rt-account-input" id="rtAccountInput" value="' + utils.escapeHtml(state.accountQuery || state.account || '') + '" placeholder="在账号管理中搜索账号/姓名">' +
                     renderAccountDropdown(state) +
                 '</div>' +
