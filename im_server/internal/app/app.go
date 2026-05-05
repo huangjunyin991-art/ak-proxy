@@ -611,7 +611,7 @@ func (a *App) requireAllowedUser(r *http.Request) (string, error) {
 		return "", errors.New("user not found")
 	}
 	var allowed bool
-	if err := a.db.QueryRow(r.Context(), `SELECT EXISTS(SELECT 1 FROM authorized_accounts WHERE username = $1 AND status = 'active' AND expire_time > NOW())`, username).Scan(&allowed); err != nil {
+	if err := a.db.QueryRow(r.Context(), `SELECT EXISTS(SELECT 1 FROM authorized_accounts WHERE username = $1 AND COALESCE(status, '') <> 'deleted')`, username).Scan(&allowed); err != nil {
 		return "", err
 	}
 	if !allowed {
@@ -1584,7 +1584,7 @@ func (a *App) handleDirectSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var targetAllowed bool
-	if err := a.db.QueryRow(r.Context(), `SELECT EXISTS(SELECT 1 FROM authorized_accounts WHERE username = $1 AND status = 'active' AND expire_time > NOW())`, target).Scan(&targetAllowed); err != nil {
+	if err := a.db.QueryRow(r.Context(), `SELECT EXISTS(SELECT 1 FROM authorized_accounts WHERE username = $1 AND COALESCE(status, '') <> 'deleted')`, target).Scan(&targetAllowed); err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
 		return
 	}

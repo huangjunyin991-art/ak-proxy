@@ -269,7 +269,7 @@ func (a *App) ensureAllowedConversationTarget(ctx context.Context, username stri
 		return errors.New("user not found")
 	}
 	var allowed bool
-	if err := a.db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM authorized_accounts WHERE username = $1 AND status = 'active' AND expire_time > NOW())`, normalizedUsername).Scan(&allowed); err != nil {
+	if err := a.db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM authorized_accounts WHERE username = $1 AND COALESCE(status, '') <> 'deleted')`, normalizedUsername).Scan(&allowed); err != nil {
 		return err
 	}
 	if !allowed {
