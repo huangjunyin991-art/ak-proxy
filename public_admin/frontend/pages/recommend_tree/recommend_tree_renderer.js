@@ -80,7 +80,7 @@
     function renderControls(state) {
         var payload = state.payload || {};
         var depths = Object.keys(payload.nodesByDepth || {}).map(function(key) { return Number(key); }).filter(function(value) { return value >= 1; }).sort(function(a, b) { return a - b; });
-        var generationOptions = [{ value: '', label: '全部组织' }].concat(depths.map(function(depth) {
+        var generationOptions = [{ value: '', label: '全部成员' }].concat(depths.map(function(depth) {
             return { value: String(depth), label: '第' + depth + '代成员' };
         }));
         var activeGeneration = generationOptions.find(function(option) {
@@ -127,7 +127,7 @@
             return rankOrder(a) - rankOrder(b);
         }, function(label, nodes) {
             return '<span>' + utils.escapeHtml(label) + '</span><span>' + utils.escapeHtml(nodes.length) + ' 人</span>';
-        }, true);
+        }, true, 'level');
     }
 
     function renderDepthBody(state) {
@@ -137,10 +137,10 @@
             return Number(a) - Number(b);
         }, function(label, nodes) {
             return '<span>第' + utils.escapeHtml(label) + '代</span><span>' + utils.escapeHtml(nodes.length) + ' 人</span>';
-        });
+        }, true, 'depth');
     }
 
-    function renderGroupedBody(state, note, groupGetter, groupSorter, headRenderer, collapsible) {
+    function renderGroupedBody(state, note, groupGetter, groupSorter, headRenderer, collapsible, collapsePrefix) {
         var groups = {};
         state.filtered.forEach(function(node) {
             var key = String(groupGetter(node));
@@ -150,10 +150,11 @@
         var html = Object.keys(groups).sort(groupSorter).map(function(key) {
             var nodes = groups[key] || [];
             var defaultExpanded = nodes.length <= 20;
-            var storedExpanded = state.expandedLevelGroups && state.expandedLevelGroups[key];
+            var collapseKey = String(collapsePrefix || 'group') + ':' + key;
+            var storedExpanded = state.expandedLevelGroups && state.expandedLevelGroups[collapseKey];
             var expanded = !collapsible || (storedExpanded == null ? defaultExpanded : !!storedExpanded);
             var head = collapsible
-                ? '<button type="button" class="rt-layer-head rt-layer-toggle ' + (expanded ? 'expanded' : 'collapsed') + '" data-level-group="' + utils.escapeHtml(key) + '" data-default-expanded="' + (defaultExpanded ? '1' : '0') + '">' + headRenderer(key, nodes) + '<i>' + (expanded ? '收起' : '展开') + '</i></button>'
+                ? '<button type="button" class="rt-layer-head rt-layer-toggle ' + (expanded ? 'expanded' : 'collapsed') + '" data-level-group="' + utils.escapeHtml(collapseKey) + '" data-default-expanded="' + (defaultExpanded ? '1' : '0') + '">' + headRenderer(key, nodes) + '<i></i></button>'
                 : '<div class="rt-layer-head">' + headRenderer(key, nodes) + '</div>';
             return '<section class="rt-layer-section">' +
                 head +
