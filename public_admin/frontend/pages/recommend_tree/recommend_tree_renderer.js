@@ -25,13 +25,15 @@
                 '<div class="rt-title"><strong>组织架构</strong><span>查看推荐组织关系与层级分布，默认读取缓存，手动更新时重新拉取</span></div>' +
                 '<span class="rt-cache-badge ' + (cached ? 'cached' : '') + '">' + utils.escapeHtml(statusText) + '</span>' +
             '</div>' +
-            '<div class="rt-account-wrap">' +
-                '<input class="rt-input rt-account-input" id="rtAccountInput" value="' + utils.escapeHtml(state.accountQuery || state.account || '') + '" placeholder="在账号管理中搜索账号/姓名">' +
-                renderAccountDropdown(state) +
-            '</div>' +
-            '<div class="rt-action-row">' +
-                '<button class="rt-btn" id="rtLoadBtn" ' + disabled(state) + '>查看组织架构</button>' +
-                '<button class="rt-btn primary" id="rtRefreshBtn" ' + disabled(state) + '>' + (state.refreshing ? '<span class="rt-mini-spinner"></span>获取中' : '更新数据') + '</button>' +
+            '<div class="rt-account-action-row">' +
+                '<div class="rt-account-wrap">' +
+                    '<input class="rt-input rt-account-input" id="rtAccountInput" value="' + utils.escapeHtml(state.accountQuery || state.account || '') + '" placeholder="在账号管理中搜索账号/姓名">' +
+                    renderAccountDropdown(state) +
+                '</div>' +
+                '<div class="rt-action-row">' +
+                    '<button class="rt-btn view" id="rtLoadBtn" ' + disabled(state) + '>查看架构</button>' +
+                    '<button class="rt-btn primary" id="rtRefreshBtn" ' + disabled(state) + '>' + (state.refreshing ? '<span class="rt-mini-spinner"></span>获取中' : '更新数据') + '</button>' +
+                '</div>' +
             '</div>' +
             '<div class="rt-cache-line"><span>' + utils.escapeHtml(cached ? '缓存可用' : '暂无缓存标记') + '</span><span>更新时间 ' + utils.escapeHtml(meta.fetchedAt || (state.selectedAccountMeta && state.selectedAccountMeta.fetchedAt) || '-') + '</span></div>' +
         '</section>';
@@ -47,9 +49,12 @@
             return '<div class="rt-account-dropdown"><div class="rt-account-empty">没有匹配账号</div></div>';
         }
         return '<div class="rt-account-dropdown">' + rows.map(function(row) {
+            var rankLabel = String(row.honorName || 'M0').toUpperCase();
+            var rankClass = utils.nodeRankClass({ honorLevel: rankLabel });
             return '<button type="button" class="rt-account-option" data-account="' + utils.escapeHtml(row.account || '') + '">' +
-                '<span><b>' + utils.escapeHtml(row.account || '-') + '</b><small>' + utils.escapeHtml(row.realName || '未记录姓名') + '</small></span>' +
-                '<span class="rt-option-side">' + (row.hasCache ? '<em>已缓存</em>' : '<i>未缓存</i>') + '<small>' + utils.escapeHtml(row.nodeCount || 0) + ' 节点</small></span>' +
+                '<span class="rt-account-option-main ' + utils.escapeHtml(rankClass) + '"><b>' + utils.escapeHtml(row.account || '-') + '</b><small>' + utils.escapeHtml(row.realName || '未记录姓名') + '</small></span>' +
+                '<span class="rt-option-side">' + (row.hasCache ? '<em>已缓存</em>' : '<i>未缓存</i>') + '<small>' + utils.escapeHtml(row.nodeCount || 0) + ' 伞下成员</small></span>' +
+                '<span class="rt-account-rank ' + utils.escapeHtml(rankClass) + '">' + utils.escapeHtml(rankLabel) + '</span>' +
             '</button>';
         }).join('') + '</div>';
     }
@@ -126,7 +131,7 @@
         }, function(a, b) {
             return rankOrder(a) - rankOrder(b);
         }, function(label, nodes) {
-            return '<span>' + utils.escapeHtml(label) + '</span><span>' + utils.escapeHtml(nodes.length) + ' 人</span>';
+            return '<span>' + utils.escapeHtml(label) + '</span><span>' + utils.escapeHtml(nodes.length) + ' 伞下成员</span>';
         }, true, 'level');
     }
 
@@ -136,7 +141,7 @@
         }, function(a, b) {
             return Number(a) - Number(b);
         }, function(label, nodes) {
-            return '<span>第' + utils.escapeHtml(label) + '代</span><span>' + utils.escapeHtml(nodes.length) + ' 人</span>';
+            return '<span>第' + utils.escapeHtml(label) + '代</span><span>' + utils.escapeHtml(nodes.length) + ' 伞下成员</span>';
         }, true, 'depth');
     }
 
