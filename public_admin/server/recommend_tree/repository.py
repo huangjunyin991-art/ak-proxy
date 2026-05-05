@@ -113,36 +113,36 @@ class RecommendTreeRepository:
         async with pool.acquire() as conn:
             if keyword:
                 rows = await conn.fetch('''
-                    SELECT us.username,
+                    SELECT COALESCE(us.username, ua.username) AS username,
                            COALESCE(NULLIF(us.real_name, ''), NULLIF(aa.nickname, ''), '') AS real_name,
                            COALESCE(NULLIF(ua.honor_name, ''), 'M0') AS honor_name,
                            us.last_login,
                            rtc.account IS NOT NULL AS has_cache,
                            rtc.fetched_at,
                            rtc.node_count
-                    FROM user_stats us
-                    LEFT JOIN authorized_accounts aa ON us.username = aa.username AND aa.status = 'active'
-                    LEFT JOIN user_assets ua ON ua.username = us.username
-                    LEFT JOIN admin_recommend_tree_cache rtc ON rtc.account = LOWER(us.username)
-                    WHERE us.username ILIKE $1
+                    FROM user_assets ua
+                    FULL OUTER JOIN user_stats us ON us.username = ua.username
+                    LEFT JOIN authorized_accounts aa ON aa.username = COALESCE(us.username, ua.username) AND aa.status = 'active'
+                    LEFT JOIN admin_recommend_tree_cache rtc ON rtc.account = LOWER(COALESCE(us.username, ua.username))
+                    WHERE COALESCE(us.username, ua.username) ILIKE $1
                        OR COALESCE(NULLIF(us.real_name, ''), NULLIF(aa.nickname, ''), '') ILIKE $1
-                    ORDER BY rtc.fetched_at DESC NULLS LAST, us.last_login DESC NULLS LAST, us.username ASC
+                    ORDER BY rtc.fetched_at DESC NULLS LAST, us.last_login DESC NULLS LAST, COALESCE(us.username, ua.username) ASC
                     LIMIT $2
                 ''', pattern, safe_limit)
             else:
                 rows = await conn.fetch('''
-                    SELECT us.username,
+                    SELECT COALESCE(us.username, ua.username) AS username,
                            COALESCE(NULLIF(us.real_name, ''), NULLIF(aa.nickname, ''), '') AS real_name,
                            COALESCE(NULLIF(ua.honor_name, ''), 'M0') AS honor_name,
                            us.last_login,
                            rtc.account IS NOT NULL AS has_cache,
                            rtc.fetched_at,
                            rtc.node_count
-                    FROM user_stats us
-                    LEFT JOIN authorized_accounts aa ON us.username = aa.username AND aa.status = 'active'
-                    LEFT JOIN user_assets ua ON ua.username = us.username
-                    LEFT JOIN admin_recommend_tree_cache rtc ON rtc.account = LOWER(us.username)
-                    ORDER BY rtc.fetched_at DESC NULLS LAST, us.last_login DESC NULLS LAST, us.username ASC
+                    FROM user_assets ua
+                    FULL OUTER JOIN user_stats us ON us.username = ua.username
+                    LEFT JOIN authorized_accounts aa ON aa.username = COALESCE(us.username, ua.username) AND aa.status = 'active'
+                    LEFT JOIN admin_recommend_tree_cache rtc ON rtc.account = LOWER(COALESCE(us.username, ua.username))
+                    ORDER BY rtc.fetched_at DESC NULLS LAST, us.last_login DESC NULLS LAST, COALESCE(us.username, ua.username) ASC
                     LIMIT $1
                 ''', safe_limit)
         return [{

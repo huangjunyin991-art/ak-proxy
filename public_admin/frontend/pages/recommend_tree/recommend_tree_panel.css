@@ -2700,3 +2700,27 @@
     padding: 0 12px;
     white-space: nowrap;
 }
+
+.rt-layer-toggle.collapsed i {
+    min-width: 0;
+    width: 0;
+    height: 0;
+    padding: 0;
+    border-style: solid;
+    border-width: 7px 0 7px 12px;
+    border-color: transparent transparent transparent #00d4ff;
+    background: transparent;
+    filter: drop-shadow(0 0 8px rgba(0, 212, 255, 0.70));
+}
+
+.rt-layer-toggle.expanded i {
+    min-width: 0;
+    width: 0;
+    height: 0;
+    padding: 0;
+    border-style: solid;
+    border-width: 12px 8px 0 8px;
+    border-color: #00ff88 transparent transparent transparent;
+    background: transparent;
+    filter: drop-shadow(0 0 8px rgba(0, 255, 136, 0.70));
+}
