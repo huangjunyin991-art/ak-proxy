@@ -5,9 +5,7 @@
     var api = window.AKRecommendTreeApi;
     var storeFactory = window.AKRecommendTreeStore;
     var renderer = window.AKRecommendTreeRenderer;
-    var api = window.AKRecommendTreeApi;
-    var renderer = window.AKRecommendTreeRenderer;
-    var store = window.AKRecommendTreeStore;
+    var store = storeFactory.createStore();
 
     var accountSearchTimer = null;
     var accountSearchSeq = 0;
@@ -23,12 +21,12 @@
     function ensureCss() {
         var existing = document.querySelector('link[data-recommend-tree-panel-css="1"]');
         if (existing) {
-            existing.href = '/admin/api/recommend-tree-panel/recommend_tree_panel.css?v=20260505-30';
+            existing.href = '/admin/api/recommend-tree-panel/recommend_tree_panel.css?v=20260505-31';
             return;
         }
         var link = document.createElement('link');
         link.rel = 'stylesheet';
-        link.href = '/admin/api/recommend-tree-panel/recommend_tree_panel.css?v=20260505-30';
+        link.href = '/admin/api/recommend-tree-panel/recommend_tree_panel.css?v=20260505-31';
         link.setAttribute('data-recommend-tree-panel-css', '1');
         document.head.appendChild(link);
     }
