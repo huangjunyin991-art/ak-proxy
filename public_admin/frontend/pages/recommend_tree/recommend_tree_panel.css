@@ -3302,6 +3302,7 @@
     border-radius: 0;
     background: transparent;
     box-shadow: none;
+    overflow: visible;
 }
 
 .rt-view-shell .rt-view-tab {
@@ -3316,13 +3317,25 @@
 }
 
 .rt-view-shell .rt-view-tab.active {
+    position: relative;
+    z-index: 2;
     border: 0;
     border-right: 1px solid rgba(129, 212, 250, 0.16);
     background:
         radial-gradient(240px 90px at 20% 0%, rgba(33, 209, 159, 0.22), transparent 72%),
         rgba(8, 19, 32, 0.96);
     color: #eaf7ff;
-    box-shadow: inset 0 -1px 0 rgba(8, 19, 32, 0.96);
+    box-shadow: none;
+}
+
+.rt-view-shell .rt-view-tab.active::after {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: -1px;
+    height: 1px;
+    background: rgba(8, 19, 32, 0.96);
 }
 
 .rt-view-shell .rt-view-tab.active:last-child {

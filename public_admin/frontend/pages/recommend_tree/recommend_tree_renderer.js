@@ -110,7 +110,7 @@
         var active = state.viewMode || 'level';
         var tabs = [
             { value: 'level', label: '等级视图' },
-            { value: 'depth', label: '代数视图' },
+            { value: 'depth', label: '代际视图' },
             { value: 'path', label: '血脉视图' }
         ];
         return '<section class="rt-view-tabs">' + tabs.map(function(tab) {
@@ -138,7 +138,7 @@
     }
 
     function renderDepthBody(state) {
-        return renderGroupedBody(state, '代数视图。按不同代数归类成员，适合查看每一层人数、等级与核心数据；点击成员查看完整节点信息。', function(node) {
+        return renderGroupedBody(state, '代际视图。按不同代数归类成员，适合查看每一层人数、等级与核心数据；点击成员查看完整节点信息。', function(node) {
             return Number(node.depth || 0);
         }, function(a, b) {
             return Number(a) - Number(b);
