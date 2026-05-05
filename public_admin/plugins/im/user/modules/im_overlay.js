@@ -210,7 +210,7 @@
             progressPanelEl.removeAttribute('inert');
             progressPanelEl.setAttribute('aria-hidden', 'false');
             if (state.readProgressLoading) {
-                progressPanelBodyEl.innerHTML = '<div class="ak-im-progress-loading">正在加载消息读进度...</div>';
+                progressPanelBodyEl.innerHTML = '<div class="ak-im-progress-loading">正在加载消息已读进度...</div>';
                 return;
             }
             if (state.readProgressError) {
@@ -256,7 +256,7 @@
             }).catch(function(error) {
                 if (Number(state.readProgressMessageId || 0) !== messageId) return;
                 state.readProgressLoading = false;
-                state.readProgressError = error && error.message ? error.message : '读取消息读进度失败';
+                state.readProgressError = error && error.message ? error.message : '读取消息已读进度失败';
                 overlayModule.renderReadProgressPanel();
             });
         },

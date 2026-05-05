@@ -922,7 +922,7 @@
             <div class="ak-im-progress-sheet" aria-hidden="true" inert>
                 <div class="ak-im-progress-mask"></div>
                 <div class="ak-im-progress-panel">
-                    <div class="ak-im-progress-header"><div class="ak-im-progress-title">消息读进度</div><button class="ak-im-progress-close" type="button">关闭</button></div>
+                    <div class="ak-im-progress-header"><div class="ak-im-progress-title">消息已读进度</div><button class="ak-im-progress-close" type="button">关闭</button></div>
                     <div class="ak-im-progress-panel-body"></div>
                 </div>
             </div>

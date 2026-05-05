@@ -2843,7 +2843,19 @@
     function formatTime(value) {
         if (!value) return '';
         try {
-            return new Date(value).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+            const date = new Date(value);
+            if (isNaN(date.getTime())) return '';
+            return date.toLocaleTimeString('zh-CN', { timeZone: 'Asia/Shanghai', hour: '2-digit', minute: '2-digit' });
+        } catch (e) {
+            return '';
+        }
+    }
+
+    function getBeijingDateKey(value) {
+        try {
+            const date = value instanceof Date ? value : new Date(value);
+            if (isNaN(date.getTime())) return '';
+            return date.toLocaleDateString('en-CA', { timeZone: 'Asia/Shanghai' });
         } catch (e) {
             return '';
         }
@@ -2855,10 +2867,10 @@
             const date = new Date(value);
             if (isNaN(date.getTime())) return '';
             const now = new Date();
-            if (date.toDateString() === now.toDateString()) {
-                return date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+            if (getBeijingDateKey(date) === getBeijingDateKey(now)) {
+                return date.toLocaleTimeString('zh-CN', { timeZone: 'Asia/Shanghai', hour: '2-digit', minute: '2-digit' });
             }
-            return date.toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit' });
+            return date.toLocaleDateString('zh-CN', { timeZone: 'Asia/Shanghai', month: '2-digit', day: '2-digit' });
         } catch (e) {
             return '';
         }
@@ -3104,7 +3116,7 @@
         }
         progressPanelEl.removeAttribute('inert');
         progressPanelEl.setAttribute('aria-hidden', 'false');
-        progressPanelBodyEl.innerHTML = isOpen && '<div class="ak-im-progress-empty">消息读进度模块暂不可用，请刷新页面后重试</div>' || '';
+        progressPanelBodyEl.innerHTML = isOpen && '<div class="ak-im-progress-empty">消息已读进度模块暂不可用，请刷新页面后重试</div>' || '';
     }
 
 	function formatSessionMember(member) {

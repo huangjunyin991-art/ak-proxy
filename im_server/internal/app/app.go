@@ -29,6 +29,8 @@ const defaultAvatarStyle = "thumbs"
 const minAddFriendHonorStep = '3'
 const hubConnWriteBufferSize = 64
 
+var imBeijingLocation = time.FixedZone("Asia/Shanghai", 8*60*60)
+
 var (
 	errInvalidMessageType = errors.New("invalid message_type")
 	errInvalidEmojiAssetID = errors.New("invalid emoji_asset_id")
@@ -206,6 +208,25 @@ type wsEnvelope struct {
 type wsReadPayload struct {
 	ConversationID int64 `json:"conversation_id"`
 	SeqNo          int64 `json:"seq_no"`
+}
+
+type wsReadProgressUpdate struct {
+	MessageID    int64                      `json:"message_id"`
+	SeqNo        int64                      `json:"seq_no"`
+	ReadProgress MessageReadProgressSummary `json:"read_progress"`
+}
+
+type wsReadBroadcastPayload struct {
+	ConversationID    int64                  `json:"conversation_id"`
+	SeqNo             int64                  `json:"seq_no"`
+	ReadProgressItems []wsReadProgressUpdate `json:"read_progress_items,omitempty"`
+}
+
+func formatIMTimestamp(value time.Time) string {
+	if value.IsZero() {
+		return ""
+	}
+	return time.Date(value.Year(), value.Month(), value.Day(), value.Hour(), value.Minute(), value.Second(), value.Nanosecond(), imBeijingLocation).Format(time.RFC3339)
 }
 
 func New(cfg config.Config) (*App, error) {
@@ -1486,7 +1507,7 @@ func (a *App) handleSessions(w http.ResponseWriter, r *http.Request) {
 		}
 		item.IsPinned = item.PinType == "system" || item.PinType == "manual"
 		if pinnedAt != nil {
-			item.PinnedAt = pinnedAt.Format(time.RFC3339)
+			item.PinnedAt = formatIMTimestamp(*pinnedAt)
 		}
 		if item.ConversationType == "group" && strings.TrimSpace(item.ConversationTitle) == "" {
 			item.ConversationTitle = "内部群聊"
@@ -1514,7 +1535,7 @@ func (a *App) handleSessions(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if lastMessageAt != nil {
-			item.LastMessageAt = lastMessageAt.Format(time.RFC3339)
+			item.LastMessageAt = formatIMTimestamp(*lastMessageAt)
 		}
 		item.CanSend = true
 		if item.ConversationType == "group" {
@@ -1724,7 +1745,7 @@ func (a *App) handleListMessages(w http.ResponseWriter, r *http.Request, usernam
 			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
 			return
 		}
-		item.SentAt = sentAt.Format(time.RFC3339)
+		item.SentAt = formatIMTimestamp(sentAt)
 		senderIdentity := a.buildUserIdentityItem(r.Context(), item.SenderUsername)
 		item.SenderDisplayName = senderIdentity.DisplayName
 		item.SenderHonorName = senderIdentity.HonorName
@@ -1944,7 +1965,7 @@ func (a *App) insertMessage(ctx context.Context, conversationID int64, username 
 	if err != nil {
 		return MessageItem{}, err
 	}
-	item.SentAt = sentAt.Format(time.RFC3339)
+	item.SentAt = formatIMTimestamp(sentAt)
 	senderIdentity := a.buildUserIdentityItem(ctx, item.SenderUsername)
 	item.SenderDisplayName = senderIdentity.DisplayName
 	item.SenderHonorName = senderIdentity.HonorName
@@ -2129,7 +2150,7 @@ func (a *App) recallMessage(ctx context.Context, messageID int64, username strin
 	if item.Status == "recalled" {
 		return MessageItem{}, errors.New("message already recalled")
 	}
-	item.SentAt = sentAt.Format(time.RFC3339)
+	item.SentAt = formatIMTimestamp(sentAt)
 	senderIdentity := a.buildUserIdentityItem(ctx, item.SenderUsername)
 	item.SenderDisplayName = senderIdentity.DisplayName
 	item.SenderHonorName = senderIdentity.HonorName
@@ -2245,9 +2266,50 @@ func (a *App) handleWS(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 			_, _ = a.db.Exec(r.Context(), `UPDATE im_conversation_member SET last_read_seq_no = GREATEST(last_read_seq_no, $1), last_read_at = NOW(), updated_at = NOW() WHERE conversation_id = $2 AND username = $3`, payload.SeqNo, payload.ConversationID, username)
-			a.broadcastConversation(payload.ConversationID, map[string]any{"type": "im.message.read", "payload": payload})
+			a.broadcastConversation(payload.ConversationID, map[string]any{"type": "im.message.read", "payload": wsReadBroadcastPayload{
+				ConversationID:    payload.ConversationID,
+				SeqNo:             payload.SeqNo,
+				ReadProgressItems: a.buildReadProgressBroadcastItems(r.Context(), payload.ConversationID, payload.SeqNo),
+			}})
 		}
 	}
+}
+
+func (a *App) buildReadProgressBroadcastItems(ctx context.Context, conversationID int64, readSeqNo int64) []wsReadProgressUpdate {
+	members, err := a.listConversationMembers(ctx, conversationID)
+	if err != nil {
+		return nil
+	}
+	rows, err := a.db.Query(ctx, `
+		SELECT id, sender_username, seq_no, sent_at
+		FROM im_message
+		WHERE conversation_id = $1 AND deleted_at IS NULL AND seq_no <= $2
+		ORDER BY seq_no DESC
+		LIMIT 50`, conversationID, readSeqNo)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	items := make([]wsReadProgressUpdate, 0)
+	for rows.Next() {
+		var messageID int64
+		var senderUsername string
+		var seqNo int64
+		var sentAt time.Time
+		if err := rows.Scan(&messageID, &senderUsername, &seqNo, &sentAt); err != nil {
+			continue
+		}
+		summary := buildMessageReadProgressSummary(members, senderUsername, seqNo, sentAt)
+		if summary.TotalCount <= 0 {
+			continue
+		}
+		items = append(items, wsReadProgressUpdate{
+			MessageID:    messageID,
+			SeqNo:        seqNo,
+			ReadProgress: summary,
+		})
+	}
+	return items
 }
 
 func (a *App) broadcastConversation(conversationID int64, payload map[string]any) {

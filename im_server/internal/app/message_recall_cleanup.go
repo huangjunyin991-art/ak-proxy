@@ -53,7 +53,7 @@ func buildDeletedMessageItem(item MessageItem, sentAt time.Time) MessageItem {
 	item.Status = "deleted"
 	item.ClientTempID = ""
 	item.ReadProgress = nil
-	item.SentAt = sentAt.Format(time.RFC3339)
+	item.SentAt = formatIMTimestamp(sentAt)
 	return item
 }
 

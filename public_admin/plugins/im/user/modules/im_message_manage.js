@@ -1010,6 +1010,35 @@
             return changed;
         },
 
+        applyReadProgressUpdates(items) {
+            const state = this.getState();
+            if (!state || !Array.isArray(items) || !items.length) return false;
+            let changed = false;
+            const updatesByMessageId = {};
+            const updatesBySeqNo = {};
+            items.forEach(function(item) {
+                if (!item || !item.read_progress) return;
+                const messageId = Number(item.message_id || 0);
+                const seqNo = Number(item.seq_no || 0);
+                if (messageId > 0) updatesByMessageId[String(messageId)] = item.read_progress;
+                if (seqNo > 0) updatesBySeqNo[String(seqNo)] = item.read_progress;
+            });
+            state.activeMessages = (Array.isArray(state.activeMessages) ? state.activeMessages : []).map(function(current) {
+                if (!current) return current;
+                const messageId = Number(current.id || 0);
+                const seqNo = Number(current.seq_no || 0);
+                const nextProgress = updatesByMessageId[String(messageId)] || updatesBySeqNo[String(seqNo)] || null;
+                if (!nextProgress) return current;
+                changed = true;
+                return Object.assign({}, current, {
+                    read_progress: nextProgress,
+                    read: !!nextProgress.is_fully_read
+                });
+            });
+            if (changed) this.syncActiveMessagesCache();
+            return changed;
+        },
+
         clearSessionUnread(conversationId) {
             const state = this.getState();
             const sessionManage = this.getSessionManage();
@@ -1133,7 +1162,11 @@
                     this.ctx.loadSessions();
                 }
                 if (payload && Number(payload.conversation_id || 0) === Number(state.activeConversationId || 0)) {
-                    this.loadMessages(state.activeConversationId);
+                    if (this.applyReadProgressUpdates(payload.read_progress_items || [])) {
+                        this.renderMessages();
+                    } else {
+                        this.loadMessages(state.activeConversationId);
+                    }
                 }
                 return;
             }
