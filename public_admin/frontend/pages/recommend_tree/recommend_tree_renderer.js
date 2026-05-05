@@ -128,7 +128,7 @@
     }
 
     function renderLevelBody(state) {
-        return renderGroupedBody(state, '等级视图。按会员等级归类成员，超过20人默认收起；点击等级标题展开或收起成员列表。', function(node) {
+        return renderGroupedBody(state, '等级视图。按会员等级归类成员，超过10人默认收起；点击等级标题展开或收起成员列表。', function(node) {
             return utils.nodeRankLabel(node);
         }, function(a, b) {
             return rankOrder(a) - rankOrder(b);
@@ -156,10 +156,11 @@
         });
         var html = Object.keys(groups).sort(groupSorter).map(function(key) {
             var nodes = groups[key] || [];
-            var defaultExpanded = nodes.length <= 20;
+            var defaultExpanded = nodes.length <= 10;
             var collapseKey = String(collapsePrefix || 'group') + ':' + key;
             var storedExpanded = state.expandedLevelGroups && state.expandedLevelGroups[collapseKey];
-            var expanded = !collapsible || (storedExpanded == null ? defaultExpanded : !!storedExpanded);
+            var searchActive = String(state.query || '').trim().length > 0;
+            var expanded = !collapsible || (searchActive ? defaultExpanded : (storedExpanded == null ? defaultExpanded : !!storedExpanded));
             var head = collapsible
                 ? '<button type="button" class="rt-layer-head rt-layer-toggle ' + (expanded ? 'expanded' : 'collapsed') + '" data-level-group="' + utils.escapeHtml(collapseKey) + '" data-default-expanded="' + (defaultExpanded ? '1' : '0') + '">' + headRenderer(key, nodes) + '<i></i></button>'
                 : '<div class="rt-layer-head">' + headRenderer(key, nodes) + '</div>';
