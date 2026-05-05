@@ -21,7 +21,7 @@
         var statusText = state.refreshing ? '正在重新获取' : state.loading ? '正在读取缓存' : cached ? '已缓存' : '未缓存';
         return '<section class="rt-hero">' +
             '<div class="rt-hero-top">' +
-                '<div class="rt-title"><strong>推荐树移动端多方案预览</strong><span>方案C血脉线路径视图 · 默认读缓存，手动更新才重新拉取</span></div>' +
+                '<div class="rt-title"><strong>推荐树</strong><span>查看推荐关系与血脉路径，默认读取缓存，手动更新时重新拉取</span></div>' +
                 '<span class="rt-cache-badge ' + (cached ? 'cached' : '') + '">' + utils.escapeHtml(statusText) + '</span>' +
             '</div>' +
             '<div class="rt-account-wrap">' +
@@ -54,15 +54,21 @@
     }
 
     function renderStats(state) {
-        var payload = state.payload || {};
-        var meta = state.meta || {};
-        var total = payload.totalNodes || meta.nodeCount || 0;
+        var nodes = Array.isArray(state.nodes) ? state.nodes : [];
+        var umbrellaNodes = nodes.filter(function(node) { return Number(node.depth || 0) >= 1; });
+        var parentIds = {};
+        nodes.forEach(function(node) {
+            if (node.parentId != null && node.parentId !== '') parentIds[String(node.parentId)] = true;
+        });
+        var total = umbrellaNodes.length;
+        var maxDepth = nodes.reduce(function(max, node) { return Math.max(max, Number(node.depth || 0)); }, 0);
+        var branchCount = umbrellaNodes.filter(function(node) { return !!parentIds[String(node.id)]; }).length;
+        var leafCount = total - branchCount;
         return '<section class="rt-stats">' +
-            statCard(total, '全下级') +
-            statCard(payload.maxDepth || meta.maxDepth || 0, '最大代数') +
-            statCard(payload.branchCount || meta.branchCount || 0, '动态玩家') +
-            statCard(payload.leafCount || meta.leafCount || 0, '静态玩家') +
-            statCard(state.filtered.length || 0, '当前显示') +
+            statCard(total, '伞下玩家') +
+            statCard(maxDepth, '最大代数') +
+            statCard(branchCount, '动态玩家') +
+            statCard(leafCount, '静态玩家') +
         '</section>';
     }
 
@@ -84,10 +90,12 @@
 
     function renderBody(state) {
         if (state.error) return '<section class="rt-empty error">' + utils.escapeHtml(state.error) + '</section>';
-        if (!state.payload) return '<section class="rt-empty">从账号管理表搜索账号；已有缓存会显示“已缓存”，没有缓存再点击“更新数据”。</section>';
+        if (!state.payload) return '<section class="rt-empty">从账号管理表搜索账号，已有缓存会显示“已缓存”；没有缓存时点击“更新数据”。</section>';
         if (!state.filtered.length) return '<section class="rt-empty">没有匹配的血脉线。</section>';
+        var selectedDepth = state.generation === '' ? null : Number(state.generation);
+        var generationLabel = selectedDepth == null ? '全部血脉线' : '第' + selectedDepth + '代血脉线';
         return '<section class="rt-path-panel">' +
-            '<div class="rt-scheme-note">方案C：血脉线路径视图。卡片左色和右上徽章代表终点等级；点击任意节点查看完整节点信息。</div>' +
+            '<div class="rt-scheme-note">血脉线路径视图。当前显示：' + utils.escapeHtml(generationLabel) + '。卡片左色和右上徽章代表终点等级；点击任意节点查看完整节点信息。</div>' +
             '<div class="rt-level-legend">' +
                 '<span class="rt-level-token level-0">M0 白</span><span class="rt-level-token level-1">M1 绿</span><span class="rt-level-token level-2">M2 蓝</span><span class="rt-level-token level-3">M3 紫</span><span class="rt-level-token level-4">M4 红</span><span class="rt-level-token level-5">M5 金</span><span class="rt-level-token a-rank">A1-A5</span>' +
             '</div>' +
