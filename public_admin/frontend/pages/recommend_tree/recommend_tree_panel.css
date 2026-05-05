@@ -2824,3 +2824,59 @@
     border-color: #e7fff4 transparent transparent transparent;
     filter: drop-shadow(0 0 4px rgba(0, 255, 136, 0.72));
 }
+
+.rt-account-action-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 6px;
+}
+
+.rt-account-action-row .rt-action-row {
+    gap: 5px;
+}
+
+.rt-account-action-row .rt-btn {
+    min-width: 72px;
+    min-height: 42px;
+    padding: 0 9px;
+    border-radius: 11px;
+    font-size: 13px;
+}
+
+.rt-account-action-row .rt-account-input {
+    height: 46px;
+    min-height: 46px;
+    border-radius: 13px;
+    font-size: 15px;
+}
+
+.rt-account-wrap:focus-within .rt-account-input {
+    border-bottom-left-radius: 0;
+    border-bottom-right-radius: 0;
+}
+
+.rt-account-dropdown {
+    top: 100%;
+    max-height: 270px;
+    overflow-y: auto;
+    border-top: 0;
+    border-radius: 0 0 13px 13px;
+    box-shadow: 0 18px 34px rgba(0,0,0,0.46), 0 0 0 1px rgba(255,255,255,0.04);
+}
+
+.rt-account-option {
+    min-height: 54px;
+    padding: 9px 10px;
+}
+
+.rt-account-dropdown::-webkit-scrollbar {
+    width: 8px;
+}
+
+.rt-account-dropdown::-webkit-scrollbar-track {
+    background: rgba(6, 17, 31, 0.72);
+}
+
+.rt-account-dropdown::-webkit-scrollbar-thumb {
+    border-radius: 999px;
+    background: rgba(129, 212, 250, 0.58);
+}
