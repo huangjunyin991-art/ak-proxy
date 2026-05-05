@@ -461,6 +461,23 @@ async def init_db(host: str = "127.0.0.1", port: int = 5432,
             )
         ''')
 
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS admin_recommend_tree_cache (
+                account TEXT PRIMARY KEY,
+                root_rid TEXT DEFAULT '',
+                payload_json TEXT NOT NULL DEFAULT '{}',
+                node_count INTEGER NOT NULL DEFAULT 0,
+                max_depth INTEGER NOT NULL DEFAULT 0,
+                branch_count INTEGER NOT NULL DEFAULT 0,
+                leaf_count INTEGER NOT NULL DEFAULT 0,
+                source_status TEXT NOT NULL DEFAULT 'success',
+                source_error TEXT DEFAULT '',
+                fetched_at TIMESTAMP DEFAULT NOW(),
+                created_at TIMESTAMP DEFAULT NOW(),
+                updated_at TIMESTAMP DEFAULT NOW()
+            )
+        ''')
+
         # 创建索引
         await conn.execute('CREATE INDEX IF NOT EXISTS idx_sub_groups_created_by ON subscription_groups(created_by)')
         await conn.execute('CREATE INDEX IF NOT EXISTS idx_login_username ON login_records(username)')
@@ -480,6 +497,7 @@ async def init_db(host: str = "127.0.0.1", port: int = 5432,
         await conn.execute('CREATE INDEX IF NOT EXISTS idx_meeting_publish_permissions_scope_owner ON meeting_publish_permissions(scope_owner)')
         await conn.execute('CREATE INDEX IF NOT EXISTS idx_meeting_publish_permissions_granted_by ON meeting_publish_permissions(granted_by)')
         await conn.execute('CREATE INDEX IF NOT EXISTS idx_notification_deliveries_unread ON notification_deliveries(username, read_at)')
+        await conn.execute('CREATE INDEX IF NOT EXISTS idx_recommend_tree_cache_fetched_at ON admin_recommend_tree_cache(fetched_at DESC)')
 
     logger.info("PostgreSQL 数据库表和索引已就绪")
 

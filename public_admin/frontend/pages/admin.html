@@ -2433,6 +2433,7 @@
         <div class="tab" data-panel="online"><svg class="tab-icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4" fill="rgba(0,255,136,0.3)"/><circle cx="12" cy="12" r="2" fill="#00ff88"/></svg> 在线用户</div>
         <div class="tab" data-panel="usage"><svg class="tab-icon" viewBox="0 0 24 24"><line x1="12" y1="20" x2="12" y2="10"/><line x1="18" y1="20" x2="18" y2="4"/><line x1="6" y1="20" x2="6" y2="16"/></svg> 账号管理</div>
         <div class="tab" data-panel="users"><svg class="tab-icon" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg> 账号数据</div>
+        <div class="tab" data-panel="recommendTree"><svg class="tab-icon" viewBox="0 0 24 24"><path d="M12 3v4"/><path d="M6 11h12"/><path d="M6 11v4"/><path d="M18 11v4"/><circle cx="12" cy="7" r="2"/><circle cx="6" cy="17" r="2"/><circle cx="18" cy="17" r="2"/></svg> 推荐树</div>
         <div class="tab" data-panel="ips"><svg class="tab-icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></svg> IP管理</div>
         <div class="tab" data-panel="banlist"><svg class="tab-icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="m4.9 4.9 14.2 14.2"/></svg> 封禁列表</div>
         <div class="tab" data-panel="whitelist"><svg class="tab-icon" viewBox="0 0 24 24"><rect width="8" height="4" x="8" y="2" rx="1" ry="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="m9 14 2 2 4-4"/></svg> 白名单</div>
@@ -2674,6 +2675,10 @@
                 <button class="btn-page" onclick="usersGoPage(usersCurrentPage + 1)" id="usersNextBtn" disabled>下一页</button>
                 <button class="btn-page" onclick="usersGoPage(usersTotalPages - 1)" id="usersLastBtn" disabled>末页</button>
             </div>
+        </div>
+        
+        <div class="panel" id="recommendTree">
+            <div id="recommendTreePanelMount"></div>
         </div>
         
         <!-- IP管理 -->
@@ -3217,6 +3222,9 @@
                                     </label>
                                     <label style="display: flex; align-items: center; gap: 4px; cursor: pointer; font-size: 12px; color: var(--text-primary); white-space: nowrap;">
                                         <input type="checkbox" id="perm_users" value="users"> 👥用户
+                                    </label>
+                                    <label style="display: flex; align-items: center; gap: 4px; cursor: pointer; font-size: 12px; color: var(--text-primary); white-space: nowrap;">
+                                        <input type="checkbox" id="perm_recommendTree" value="recommendTree"> 🌳推荐树
                                     </label>
                                     <label style="display: flex; align-items: center; gap: 4px; cursor: pointer; font-size: 12px; color: var(--text-primary); white-space: nowrap;">
                                         <input type="checkbox" id="perm_ips" value="ips"> 🌐IP
@@ -3869,7 +3877,7 @@
             
             // 子管理员：根据权限显示/隐藏
             const perms = JSON.parse(sessionStorage.getItem('admin_permissions') || '{}');
-            const allTabs = ['dashboard', 'online', 'usage', 'users', 'ips', 'banlist', 'whitelist', 'contacts', 'credits', 'license', 'database', 'monitoring', 'meetings', 'settings'];
+            const allTabs = ['dashboard', 'online', 'usage', 'users', 'recommendTree', 'ips', 'banlist', 'whitelist', 'contacts', 'credits', 'license', 'database', 'monitoring', 'meetings', 'settings'];
             
             allTabs.forEach(tabName => {
                 const tab = document.querySelector(`.tab[data-panel="${tabName}"]`);
@@ -5204,7 +5212,7 @@
         
         // 权限全选/全不选
         function toggleAllPerms(checked) {
-            const permKeys = ['dashboard', 'online', 'usage', 'users', 'ips', 'banlist', 'license', 'database'];
+            const permKeys = ['dashboard', 'online', 'usage', 'users', 'recommendTree', 'ips', 'banlist', 'license', 'database'];
             permKeys.forEach(key => {
                 const cb = document.getElementById('perm_' + key);
                 if (cb) cb.checked = checked;
@@ -5214,7 +5222,7 @@
         // 权限名称映射
         const PERM_LABELS = {
             dashboard: '📈仪表盘', online: '🟢在线', usage: '📊使用', users: '👥用户',
-            ips: '🌐IP', banlist: '🚫封禁', license: '🔑激活码', database: '🗄️数据库'
+            recommendTree: '🌳推荐树', ips: '🌐IP', banlist: '🚫封禁', license: '🔑激活码', database: '🗄️数据库'
         };
         
         // 当前选中的子管理员
@@ -5222,7 +5230,7 @@
 
         function collectSubAdminPermissions() {
             const permissions = {};
-            const permKeys = ['dashboard', 'online', 'usage', 'users', 'ips', 'banlist', 'license', 'database'];
+            const permKeys = ['dashboard', 'online', 'usage', 'users', 'recommendTree', 'ips', 'banlist', 'license', 'database'];
             permKeys.forEach(key => {
                 const cb = document.getElementById('perm_' + key);
                 if (cb) permissions[key] = cb.checked;
@@ -5258,7 +5266,7 @@
             const currentBound = String(boundUsername || '').trim().toLowerCase();
             setSubAdminBoundUsername(currentBound);
             // 加载权限到复选框
-            const permKeys = ['dashboard', 'online', 'usage', 'users', 'ips', 'banlist', 'license', 'database'];
+            const permKeys = ['dashboard', 'online', 'usage', 'users', 'recommendTree', 'ips', 'banlist', 'license', 'database'];
             permKeys.forEach(key => {
                 const cb = document.getElementById('perm_' + key);
                 if (cb) cb.checked = !!permissions[key];
@@ -6046,6 +6054,9 @@
                     if (window.showUsersFloatScroll) showUsersFloatScroll();
                 } else {
                     if (window.hideUsersFloatScroll) hideUsersFloatScroll();
+                }
+                if (tab.dataset.panel === 'recommendTree' && window.AKRecommendTreePanel) {
+                    window.AKRecommendTreePanel.start();
                 }
                 if (tab.dataset.panel === 'ips') loadIPs();
                 if (tab.dataset.panel === 'banlist') loadBanlist();
@@ -11745,6 +11756,83 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
             resetMeetingPanelGlobals();
             removeMeetingPanelScripts();
             loadMeetingPanelScript(false, 1);
+        })();
+    </script>
+    <script>
+        (function() {
+            var recommendTreePanelBuildVersion = '20260505-01';
+            var recommendTreePanelAssets = [
+                'recommend_tree_api.js',
+                'recommend_tree_utils.js',
+                'recommend_tree_store.js',
+                'recommend_tree_renderer.js',
+                'recommend_tree_panel.js'
+            ];
+
+            function reportRecommendTreePanelLoadFailure(message) {
+                try {
+                    if (typeof showToast === 'function') {
+                        showToast(message, 'error');
+                    }
+                } catch (e) {}
+                console.error('[RecommendTreePanelLoader]', message);
+            }
+
+            function resetRecommendTreePanelGlobals() {
+                ['AKRecommendTreeApi', 'AKRecommendTreeUtils', 'AKRecommendTreeStore', 'AKRecommendTreeRenderer', 'AKRecommendTreePanel', 'AKRecommendTreePanelLoaded'].forEach(function(name) {
+                    try {
+                        delete window[name];
+                    } catch (e) {
+                        window[name] = undefined;
+                    }
+                });
+            }
+
+            function removeRecommendTreePanelScripts() {
+                Array.prototype.slice.call(document.querySelectorAll('script[data-recommend-tree-panel-loader="1"]')).forEach(function(node) {
+                    if (node && node.parentNode) {
+                        node.parentNode.removeChild(node);
+                    }
+                });
+            }
+
+            function buildRecommendTreePanelUrl(assetName, forceRefresh) {
+                if (forceRefresh) {
+                    return '/admin/api/recommend-tree-panel/' + assetName + '?t=' + Date.now();
+                }
+                return '/admin/api/recommend-tree-panel/' + assetName + '?v=' + encodeURIComponent(recommendTreePanelBuildVersion);
+            }
+
+            function loadRecommendTreePanelAsset(index, forceRefresh, attempt) {
+                if (index >= recommendTreePanelAssets.length) {
+                    if (document.querySelector('.tab.active[data-panel="recommendTree"]') && window.AKRecommendTreePanel) {
+                        window.AKRecommendTreePanel.start();
+                    }
+                    return;
+                }
+                var script = document.createElement('script');
+                script.src = buildRecommendTreePanelUrl(recommendTreePanelAssets[index], forceRefresh);
+                script.async = false;
+                script.defer = false;
+                script.setAttribute('data-recommend-tree-panel-loader', '1');
+                script.onload = function() {
+                    loadRecommendTreePanelAsset(index + 1, forceRefresh, attempt);
+                };
+                script.onerror = function() {
+                    if (attempt < 2) {
+                        resetRecommendTreePanelGlobals();
+                        removeRecommendTreePanelScripts();
+                        loadRecommendTreePanelAsset(0, true, attempt + 1);
+                        return;
+                    }
+                    reportRecommendTreePanelLoadFailure('推荐树面板脚本请求失败，请强制刷新后重试');
+                };
+                (document.body || document.head || document.documentElement).appendChild(script);
+            }
+
+            resetRecommendTreePanelGlobals();
+            removeRecommendTreePanelScripts();
+            loadRecommendTreePanelAsset(0, false, 1);
         })();
     </script>
 </body>

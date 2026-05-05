@@ -255,6 +255,13 @@ except Exception as e:
     create_monitoring_router = None
     _MONITORING_IMPORT_ERROR = e
 
+try:
+    from .recommend_tree import create_recommend_tree_router
+    _RECOMMEND_TREE_IMPORT_ERROR = None
+except Exception as e:
+    create_recommend_tree_router = None
+    _RECOMMEND_TREE_IMPORT_ERROR = e
+
 # ===== 日志配置 =====
 
 logger = logging.getLogger("TransparentProxy")
@@ -3340,6 +3347,17 @@ if create_monitoring_router is not None:
         logger.warning(f"[Monitoring] 监控中心路由注册失败，已跳过: {e}")
 elif _MONITORING_IMPORT_ERROR is not None:
     logger.warning(f"[Monitoring] 监控中心模块不可用，已跳过: {_MONITORING_IMPORT_ERROR}")
+
+if create_recommend_tree_router is not None:
+    try:
+        app.include_router(create_recommend_tree_router(
+            pool_supplier=db._get_pool,
+            verify_admin_token=verify_admin_token,
+        ))
+    except Exception as e:
+        logger.warning(f"[RecommendTree] 推荐树路由注册失败，已跳过: {e}")
+elif _RECOMMEND_TREE_IMPORT_ERROR is not None:
+    logger.warning(f"[RecommendTree] 推荐树模块不可用，已跳过: {_RECOMMEND_TREE_IMPORT_ERROR}")
 
 
 
@@ -9025,6 +9043,28 @@ async def monitoring_panel_css():
                             headers={"Cache-Control": "no-cache, no-store, must-revalidate",
                                      "Pragma": "no-cache", "Expires": "0"})
     return Response(content="", media_type="text/css")
+
+
+@app.get("/admin/api/recommend-tree-panel/{asset_name}")
+async def recommend_tree_panel_asset(asset_name: str):
+    allowed_assets = {
+        "recommend_tree_api.js": "application/javascript",
+        "recommend_tree_store.js": "application/javascript",
+        "recommend_tree_utils.js": "application/javascript",
+        "recommend_tree_renderer.js": "application/javascript",
+        "recommend_tree_panel.js": "application/javascript",
+        "recommend_tree_panel.css": "text/css",
+    }
+    media_type = allowed_assets.get(asset_name)
+    if not media_type:
+        return Response(content="// not found", media_type="application/javascript")
+    asset_path = os.path.join(FRONTEND_PAGES_DIR, "recommend_tree", asset_name)
+    if os.path.exists(asset_path):
+        with open(asset_path, "r", encoding="utf-8") as f:
+            return Response(content=f.read(), media_type=media_type,
+                            headers={"Cache-Control": "no-cache, no-store, must-revalidate",
+                                     "Pragma": "no-cache", "Expires": "0"})
+    return Response(content="" if media_type == "text/css" else "// not found", media_type=media_type)
 
 
 @app.get("/admin/api/plugins/notification/admin/index.js")
