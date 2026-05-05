@@ -19,12 +19,12 @@
     function ensureCss() {
         var existing = document.querySelector('link[data-recommend-tree-panel-css="1"]');
         if (existing) {
-            existing.href = '/admin/api/recommend-tree-panel/recommend_tree_panel.css?v=20260505-26';
+            existing.href = '/admin/api/recommend-tree-panel/recommend_tree_panel.css?v=20260505-27';
             return;
         }
         var link = document.createElement('link');
         link.rel = 'stylesheet';
-        link.href = '/admin/api/recommend-tree-panel/recommend_tree_panel.css?v=20260505-26';
+        link.href = '/admin/api/recommend-tree-panel/recommend_tree_panel.css?v=20260505-27';
         link.setAttribute('data-recommend-tree-panel-css', '1');
         document.head.appendChild(link);
     }
@@ -44,7 +44,6 @@
         if (!root) return;
         renderer.render(root, store);
         bindEvents(root);
-        positionAccountDropdown(root);
         if (focusAccount) {
             var input = root.querySelector('#rtAccountInput');
             if (input) {
@@ -56,16 +55,6 @@
                 }, 0);
             }
         }
-    }
-
-    function positionAccountDropdown(root) {
-        var input = root.querySelector('#rtAccountInput');
-        var dropdown = root.querySelector('.rt-account-dropdown');
-        if (!input || !dropdown) return;
-        var rect = input.getBoundingClientRect();
-        dropdown.style.setProperty('--rt-account-dropdown-left', rect.left + 'px');
-        dropdown.style.setProperty('--rt-account-dropdown-top', (rect.bottom - 1) + 'px');
-        dropdown.style.setProperty('--rt-account-dropdown-width', rect.width + 'px');
     }
 
     function bindEvents(root) {

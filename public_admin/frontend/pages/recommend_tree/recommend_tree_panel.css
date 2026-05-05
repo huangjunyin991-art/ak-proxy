@@ -3093,11 +3093,26 @@
     border-top-right-radius: 12px;
 }
 
-.rt-account-dropdown {
-    position: fixed;
-    left: var(--rt-account-dropdown-left, 0);
-    top: var(--rt-account-dropdown-top, 0);
-    width: var(--rt-account-dropdown-width, 320px);
-    z-index: 2147483000;
-    max-height: min(270px, calc(100vh - var(--rt-account-dropdown-top, 0px) - 12px));
+.rt-account-action-row {
+    align-items: start;
+}
+
+.rt-account-action-row .rt-action-row {
+    align-self: start;
+}
+
+.rt-account-wrap.open {
+    z-index: 5;
+}
+
+.rt-account-wrap.open .rt-account-dropdown {
+    position: static;
+    left: auto;
+    right: auto;
+    top: auto;
+    width: 100%;
+    max-height: 270px;
+    margin-top: 0;
+    box-sizing: border-box;
+    z-index: auto;
 }
