@@ -3140,3 +3140,72 @@
     border-radius: 0 0 12px 12px;
     z-index: auto;
 }
+
+.rt-controls {
+    position: relative;
+    z-index: 20;
+    overflow: visible;
+}
+
+.rt-generation-filter {
+    isolation: auto;
+}
+
+.rt-generation-filter.open {
+    z-index: 2001;
+}
+
+.rt-generation-trigger {
+    position: relative;
+    padding-right: 42px;
+}
+
+.rt-generation-trigger::before {
+    content: "";
+    position: absolute;
+    right: 17px;
+    top: 50%;
+    width: 7px;
+    height: 7px;
+    border-right: 2px solid #dff8ff;
+    border-bottom: 2px solid #dff8ff;
+    transform: translateY(-62%) rotate(45deg);
+    z-index: 1;
+    box-shadow: 1px 1px 4px rgba(0, 212, 255, 0.22);
+}
+
+.rt-generation-trigger::after,
+.rt-generation-filter.open .rt-generation-trigger::after {
+    content: "";
+    position: absolute;
+    right: 8px;
+    top: 50%;
+    width: 24px;
+    height: 24px;
+    border-radius: 999px;
+    border: 1px solid rgba(129, 212, 250, 0.32);
+    background:
+        radial-gradient(circle at 30% 22%, rgba(255,255,255,0.22), transparent 38%),
+        linear-gradient(135deg, rgba(0, 212, 255, 0.22), rgba(33, 209, 159, 0.14));
+    transform: translateY(-50%);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.10), 0 0 12px rgba(0, 212, 255, 0.12);
+}
+
+.rt-generation-filter.open .rt-generation-trigger::before {
+    transform: translateY(-30%) rotate(225deg);
+}
+
+.rt-generation-filter.open .rt-generation-menu {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 100%;
+    width: 100%;
+    min-width: 0;
+    max-height: 260px;
+    margin-top: 0;
+    box-sizing: border-box;
+    border-top: 0;
+    border-radius: 0 0 12px 12px;
+    z-index: 2000;
+}

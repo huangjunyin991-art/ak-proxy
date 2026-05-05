@@ -5,12 +5,15 @@
     var api = window.AKRecommendTreeApi;
     var storeFactory = window.AKRecommendTreeStore;
     var renderer = window.AKRecommendTreeRenderer;
-    var utils = window.AKRecommendTreeUtils;
-    var store = storeFactory.createStore();
-    var initialized = false;
+    var api = window.AKRecommendTreeApi;
+    var renderer = window.AKRecommendTreeRenderer;
+    var store = window.AKRecommendTreeStore;
+
     var accountSearchTimer = null;
     var accountSearchSeq = 0;
     var suppressAccountFocus = false;
+    var searchSelectionStart = 0;
+    var searchSelectionEnd = 0;
 
     function mount() {
         return document.getElementById('recommendTreePanelMount');
@@ -19,12 +22,12 @@
     function ensureCss() {
         var existing = document.querySelector('link[data-recommend-tree-panel-css="1"]');
         if (existing) {
-            existing.href = '/admin/api/recommend-tree-panel/recommend_tree_panel.css?v=20260505-28';
+            existing.href = '/admin/api/recommend-tree-panel/recommend_tree_panel.css?v=20260505-29';
             return;
         }
         var link = document.createElement('link');
         link.rel = 'stylesheet';
-        link.href = '/admin/api/recommend-tree-panel/recommend_tree_panel.css?v=20260505-28';
+        link.href = '/admin/api/recommend-tree-panel/recommend_tree_panel.css?v=20260505-29';
         link.setAttribute('data-recommend-tree-panel-css', '1');
         document.head.appendChild(link);
     }
@@ -39,7 +42,7 @@
         console.log('[RecommendTreePanel]', type || 'info', message);
     }
 
-    function render(focusAccount) {
+    function render(focusAccount, focusSearch) {
         var root = mount();
         if (!root) return;
         renderer.render(root, store);
@@ -53,6 +56,13 @@
                 setTimeout(function() {
                     suppressAccountFocus = false;
                 }, 0);
+            }
+        }
+        if (focusSearch) {
+            var search = root.querySelector('#rtSearchInput');
+            if (search) {
+                search.focus();
+                search.setSelectionRange(searchSelectionStart, searchSelectionEnd);
             }
         }
     }
@@ -89,8 +99,10 @@
         }
         if (searchInput) {
             searchInput.oninput = function() {
+                searchSelectionStart = typeof searchInput.selectionStart === 'number' ? searchInput.selectionStart : searchInput.value.length;
+                searchSelectionEnd = typeof searchInput.selectionEnd === 'number' ? searchInput.selectionEnd : searchInput.value.length;
                 store.setQuery(searchInput.value || '');
-                render();
+                render(false, true);
             };
         }
         if (loadBtn) loadBtn.onclick = loadCache;
