@@ -186,6 +186,56 @@
             if (this.ctx && typeof this.ctx.syncComposerState === 'function') this.ctx.syncComposerState();
         },
 
+        createTempId(prefix) {
+            return String(prefix || 'message') + '-' + Date.now() + '-' + Math.random().toString(36).slice(2, 10);
+        },
+
+        createTextTempMessage(payload, tempId) {
+            const state = this.getState();
+            const content = String(payload && payload.content || '').trim();
+            return {
+                id: 0,
+                conversation_id: Number(state && state.activeConversationId || 0),
+                sender_username: String(state && state.username || '').trim().toLowerCase(),
+                sender_display_name: String(state && (state.displayName || state.username) || '我').trim() || '我',
+                sender_honor_name: String(state && state.honorName || '').trim(),
+                sender_avatar_url: String(state && state.profile && state.profile.avatar_url || '').trim(),
+                seq_no: 0,
+                message_type: 'text',
+                content: content,
+                content_preview: content,
+                status: 'sending',
+                sent_at: new Date().toISOString(),
+                client_temp_id: tempId,
+                mention_usernames: Array.isArray(payload && payload.mention_usernames) ? payload.mention_usernames.slice() : [],
+                mention_all: !!(payload && payload.mention_all),
+                __akTempId: tempId,
+                __akLocalStatus: 'sending',
+                __akUploadError: ''
+            };
+        },
+
+        scheduleTextSendTimeout(tempId) {
+            const normalizedTempId = String(tempId || '').trim();
+            if (!normalizedTempId) return;
+            const self = this;
+            setTimeout(function() {
+                const state = self.getState();
+                if (!state) return;
+                const messages = Array.isArray(state.activeMessages) ? state.activeMessages : [];
+                const matched = messages.some(function(item) {
+                    return item && String(item.__akTempId || item.client_temp_id || '').trim() === normalizedTempId && self.getLocalMessageStatus(item) === 'sending';
+                });
+                if (!matched) return;
+                if (self.updateLocalMessage(normalizedTempId, {
+                    __akLocalStatus: 'failed',
+                    __akUploadError: '发送超时'
+                })) {
+                    self.renderMessages();
+                }
+            }, 20000);
+        },
+
         shouldAutoMarkRead(conversationId) {
             const state = this.getState();
             return !!(state && state.open && state.view === 'chat' && Number(state.activeConversationId || 0) === Number(conversationId || 0) && document.visibilityState !== 'hidden');
@@ -239,11 +289,12 @@
         getLocalMessageMetaText(item, fallbackText) {
             const localStatus = this.getLocalMessageStatus(item);
             if (localStatus === 'preparing') return '图片处理中...';
+            if (localStatus === 'sending') return '发送中...';
             if (localStatus === 'uploading') {
                 const progress = Math.max(0, Math.min(100, Number(item && item.__akUploadProgress || 0) || 0));
                 return progress > 0 ? ('上传中 ' + progress + '%') : '上传中...';
             }
-            if (localStatus === 'failed') return '发送失败';
+            if (localStatus === 'failed') return String(item && item.__akUploadError || '').trim() || '发送失败';
             return String(fallbackText || '').trim();
         },
 
@@ -623,27 +674,60 @@
                 conversation_id: state.activeConversationId
             }, payload || {});
             const self = this;
+            const messageType = String(requestPayload.message_type || '').trim().toLowerCase() || 'text';
+            const tempId = messageType === 'text' ? this.createTempId('text') : '';
+            if (tempId) {
+                requestPayload.client_temp_id = tempId;
+                if (this.insertLocalMessage(this.createTextTempMessage(requestPayload, tempId))) {
+                    this.renderMessages();
+                    this.scheduleTextSendTimeout(tempId);
+                }
+            }
             const finalizeLocalState = function() {
                 if (!options || options.resetComposer !== false) self.resetComposerInput();
                 if (options && typeof options.onAfterLocalSend === 'function') options.onAfterLocalSend();
             };
             if (state.ws && state.ws.readyState === WebSocket.OPEN) {
-                state.ws.send(JSON.stringify({
-                    type: 'im.message.send',
-                    payload: requestPayload
-                }));
-                finalizeLocalState();
-                return Promise.resolve(null);
+                try {
+                    state.ws.send(JSON.stringify({
+                        type: 'im.message.send',
+                        payload: requestPayload
+                    }));
+                    finalizeLocalState();
+                    return Promise.resolve(null);
+                } catch (error) {
+                    if (tempId && this.updateLocalMessage(tempId, {
+                        __akLocalStatus: 'failed',
+                        __akUploadError: error && error.message ? error.message : '发送失败'
+                    })) {
+                        this.renderMessages();
+                    }
+                    return Promise.reject(error);
+                }
             }
             return this.ctx.request(this.ctx.httpRoot + '/messages', {
                 method: 'POST',
                 body: JSON.stringify(requestPayload)
-            }).then(function() {
+            }).then(function(data) {
+                const item = data && data.item ? data.item : null;
                 const activeConversationId = Number(state.activeConversationId || 0);
+                if (tempId && item && self.replaceLocalMessage(tempId, item)) {
+                    self.renderMessages();
+                } else if (item && self.upsertActiveMessage(item)) {
+                    self.renderMessages();
+                }
                 finalizeLocalState();
                 return self.loadMessages(activeConversationId).then(function() {
                     return typeof self.ctx.loadSessions === 'function' ? self.ctx.loadSessions() : null;
                 });
+            }).catch(function(error) {
+                if (tempId && self.updateLocalMessage(tempId, {
+                    __akLocalStatus: 'failed',
+                    __akUploadError: error && error.message ? error.message : '发送失败'
+                })) {
+                    self.renderMessages();
+                }
+                throw error;
             });
         },
 
@@ -1010,6 +1094,13 @@
                 const restrictedConversationId = Number(payload && payload.conversation_id || 0);
                 const restrictedMessage = String(payload && payload.message || '').trim();
                 const restriction = String(payload && payload.restriction || '').trim();
+                const tempId = String(payload && payload.client_temp_id || '').trim();
+                if (tempId && this.updateLocalMessage(tempId, {
+                    __akLocalStatus: 'failed',
+                    __akUploadError: restrictedMessage || '发送失败'
+                })) {
+                    this.renderMessages();
+                }
                 if (restrictedConversationId > 0) {
                     this.markConversationRestricted(restrictedConversationId, restriction, restrictedMessage);
                     if (typeof this.ctx.loadSessions === 'function') {

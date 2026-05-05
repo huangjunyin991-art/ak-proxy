@@ -27,6 +27,7 @@ import (
 
 const defaultAvatarStyle = "thumbs"
 const minAddFriendHonorStep = '3'
+const hubConnWriteBufferSize = 64
 
 var (
 	errInvalidMessageType = errors.New("invalid message_type")
@@ -59,8 +60,11 @@ type Hub struct {
 }
 
 type HubConn struct {
-	conn *websocket.Conn
-	mu   sync.Mutex
+	conn      *websocket.Conn
+	mu        sync.Mutex
+	outbound  chan map[string]any
+	done      chan struct{}
+	closeOnce sync.Once
 }
 
 type BootstrapResponse struct {
@@ -2185,11 +2189,16 @@ func (a *App) handleWS(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		return
 	}
-	client := &HubConn{conn: conn}
+	client := &HubConn{
+		conn:     conn,
+		outbound: make(chan map[string]any, hubConnWriteBufferSize),
+		done:     make(chan struct{}),
+	}
 	a.hub.add(username, client)
+	go client.writePump()
 	defer func() {
 		a.hub.remove(username, client)
-		client.conn.Close()
+		client.Close()
 	}()
 	_ = client.WriteJSON(map[string]any{"type": "im.bootstrap.ready", "payload": map[string]any{"username": username}})
 	for {
@@ -2215,10 +2224,11 @@ func (a *App) handleWS(w http.ResponseWriter, r *http.Request) {
 			if err != nil {
 				var sendRestrictedErr *socialsvc.SendRestrictedError
 				if errors.As(err, &sendRestrictedErr) {
-					_ = client.WriteJSON(map[string]any{"type": "im.message.error", "payload": map[string]any{"conversation_id": payload.ConversationID, "message": sendRestrictedErr.Error(), "restriction": sendRestrictedErr.Rule.SendRestriction}})
-				}
-				if isGroupMuteSendError(err) {
-					_ = client.WriteJSON(map[string]any{"type": "im.message.error", "payload": map[string]any{"conversation_id": payload.ConversationID, "message": err.Error(), "restriction": "group_mute"}})
+					_ = client.WriteJSON(map[string]any{"type": "im.message.error", "payload": map[string]any{"conversation_id": payload.ConversationID, "client_temp_id": strings.TrimSpace(payload.ClientTempID), "message": sendRestrictedErr.Error(), "restriction": sendRestrictedErr.Rule.SendRestriction}})
+				} else if isGroupMuteSendError(err) {
+					_ = client.WriteJSON(map[string]any{"type": "im.message.error", "payload": map[string]any{"conversation_id": payload.ConversationID, "client_temp_id": strings.TrimSpace(payload.ClientTempID), "message": err.Error(), "restriction": "group_mute"}})
+				} else {
+					_ = client.WriteJSON(map[string]any{"type": "im.message.error", "payload": map[string]any{"conversation_id": payload.ConversationID, "client_temp_id": strings.TrimSpace(payload.ClientTempID), "message": "发送失败"}})
 				}
 				continue
 			}
@@ -2260,7 +2270,45 @@ func (a *App) broadcastConversation(conversationID int64, payload map[string]any
 func (c *HubConn) WriteJSON(payload any) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	_ = c.conn.SetWriteDeadline(time.Now().Add(2 * time.Second))
 	return c.conn.WriteJSON(payload)
+}
+
+func (c *HubConn) Enqueue(payload map[string]any) bool {
+	select {
+	case <-c.done:
+		return false
+	default:
+	}
+	select {
+	case c.outbound <- payload:
+		return true
+	case <-c.done:
+		return false
+	default:
+		return false
+	}
+}
+
+func (c *HubConn) Close() {
+	c.closeOnce.Do(func() {
+		close(c.done)
+		_ = c.conn.Close()
+	})
+}
+
+func (c *HubConn) writePump() {
+	for {
+		select {
+		case payload := <-c.outbound:
+			if err := c.WriteJSON(payload); err != nil {
+				c.Close()
+				return
+			}
+		case <-c.done:
+			return
+		}
+	}
 }
 
 func (h *Hub) add(username string, conn *HubConn) {
@@ -2286,9 +2334,16 @@ func (h *Hub) remove(username string, conn *HubConn) {
 
 func (h *Hub) send(username string, payload map[string]any) {
 	h.mu.RLock()
-	defer h.mu.RUnlock()
+	conns := make([]*HubConn, 0, len(h.conns[username]))
 	for conn := range h.conns[username] {
-		_ = conn.WriteJSON(payload)
+		conns = append(conns, conn)
+	}
+	h.mu.RUnlock()
+	for _, conn := range conns {
+		if !conn.Enqueue(payload) {
+			h.remove(username, conn)
+			conn.Close()
+		}
 	}
 }
 
