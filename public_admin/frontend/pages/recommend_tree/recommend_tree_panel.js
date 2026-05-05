@@ -11,6 +11,7 @@
 
     var accountSearchTimer = null;
     var accountSearchSeq = 0;
+    var initialized = false;
     var suppressAccountFocus = false;
     var searchSelectionStart = 0;
     var searchSelectionEnd = 0;
@@ -22,12 +23,12 @@
     function ensureCss() {
         var existing = document.querySelector('link[data-recommend-tree-panel-css="1"]');
         if (existing) {
-            existing.href = '/admin/api/recommend-tree-panel/recommend_tree_panel.css?v=20260505-29';
+            existing.href = '/admin/api/recommend-tree-panel/recommend_tree_panel.css?v=20260505-30';
             return;
         }
         var link = document.createElement('link');
         link.rel = 'stylesheet';
-        link.href = '/admin/api/recommend-tree-panel/recommend_tree_panel.css?v=20260505-29';
+        link.href = '/admin/api/recommend-tree-panel/recommend_tree_panel.css?v=20260505-30';
         link.setAttribute('data-recommend-tree-panel-css', '1');
         document.head.appendChild(link);
     }
