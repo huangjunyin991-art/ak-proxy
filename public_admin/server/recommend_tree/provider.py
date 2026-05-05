@@ -5,9 +5,9 @@ from typing import Any
 
 import httpx
 
-DEFAULT_BASE_URL = "https://ak2025.vip/RPC/"
+DEFAULT_BASE_URL = "http://127.0.0.1:8080/RPC/"
 DEFAULT_PAGE_SIZE = 15
-DEFAULT_MAX_PAGES = 50
+DEFAULT_MAX_PAGES = 0
 
 
 def make_v() -> str:
@@ -26,8 +26,8 @@ def make_headers() -> dict[str, str]:
         "Accept": "application/json, text/javascript, */*; q=0.01",
         "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
         "X-Requested-With": "XMLHttpRequest",
-        "Origin": "https://ak2025.vip",
-        "Referer": "https://ak2025.vip/",
+        "Origin": "https://www.akapi1.com",
+        "Referer": "https://www.akapi1.com/",
     }
 
 
@@ -104,7 +104,10 @@ class RecommendTreeProvider:
         current = {}
         players: list[dict[str, Any]] = []
         request_count = 0
-        for page in range(1, max_pages + 1):
+        page = 1
+        while True:
+            if max_pages and page > max_pages:
+                break
             data = await self.fetch_recommend_page(client, auth, r_id, page, page_size)
             request_count += 1
             if page == 1:
@@ -115,6 +118,7 @@ class RecommendTreeProvider:
             players.extend(batch)
             if len(batch) < page_size:
                 break
+            page += 1
         return current, players, request_count
 
     async def build_tree(self, auth: dict[str, Any], root_rid: Any = "", page_size: int = DEFAULT_PAGE_SIZE, max_pages: int = DEFAULT_MAX_PAGES, max_depth: int = 0, max_nodes: int = 0) -> dict[str, Any]:

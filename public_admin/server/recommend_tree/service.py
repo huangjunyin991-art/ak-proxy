@@ -27,7 +27,7 @@ class RecommendTreeService:
             "payload": cached.get("payload") or {},
         }
 
-    async def refresh(self, account: str, root_rid: str = "", page_size: int = 15, max_pages: int = 50, max_depth: int = 0, max_nodes: int = 0) -> dict[str, Any]:
+    async def refresh(self, account: str, root_rid: str = "", page_size: int = 15, max_pages: int = 0, max_depth: int = 0, max_nodes: int = 0) -> dict[str, Any]:
         normalized = self.repository.normalize_account(account)
         if not normalized:
             return {"success": False, "message": "请输入账号"}
@@ -36,7 +36,7 @@ class RecommendTreeService:
             auth=auth,
             root_rid=root_rid,
             page_size=self._clamp(page_size, 1, 100, 15),
-            max_pages=self._clamp(max_pages, 1, 200, 50),
+            max_pages=self._non_negative_int(max_pages, 0),
             max_depth=self._clamp(max_depth, 0, 100, 0),
             max_nodes=self._clamp(max_nodes, 0, 200000, 0),
         )
@@ -61,3 +61,11 @@ class RecommendTreeService:
         except (TypeError, ValueError):
             parsed = default
         return max(min_value, min(max_value, parsed))
+
+    @staticmethod
+    def _non_negative_int(value: Any, default: int) -> int:
+        try:
+            parsed = int(value)
+        except (TypeError, ValueError):
+            parsed = default
+        return max(0, parsed)

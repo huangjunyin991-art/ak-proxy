@@ -66,7 +66,7 @@ def create_recommend_tree_router(
                 account=str(data.get("account") or ""),
                 root_rid=str(data.get("rootRid") or ""),
                 page_size=data.get("pageSize", 15),
-                max_pages=data.get("maxPages", 50),
+                max_pages=data.get("maxPages", 0),
                 max_depth=data.get("maxDepth", 0),
                 max_nodes=data.get("maxNodes", 0),
             )
