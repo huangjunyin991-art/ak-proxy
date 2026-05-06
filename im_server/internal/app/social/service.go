@@ -147,6 +147,8 @@ func (s *Service) buildIdentityItems(ctx context.Context, usernames []string) (m
 		SELECT input.username,
 			COALESCE(NULLIF(p.nickname, ''), NULLIF(us.real_name, ''), input.username) AS display_name,
 			COALESCE(ua.honor_name, '') AS honor_name,
+			COALESCE(NULLIF(p.avatar_style, ''), 'thumbs') AS avatar_style,
+			COALESCE(p.avatar_seed, '') AS avatar_seed,
 			COALESCE(p.avatar_url, '') AS avatar_url
 		FROM unnest($1::text[]) AS input(username)
 		LEFT JOIN im_user_profile p ON p.username = input.username
@@ -158,7 +160,7 @@ func (s *Service) buildIdentityItems(ctx context.Context, usernames []string) (m
 	defer rows.Close()
 	for rows.Next() {
 		var item IdentityItem
-		if err := rows.Scan(&item.Username, &item.DisplayName, &item.HonorName, &item.AvatarURL); err != nil {
+		if err := rows.Scan(&item.Username, &item.DisplayName, &item.HonorName, &item.AvatarStyle, &item.AvatarSeed, &item.AvatarURL); err != nil {
 			return nil, err
 		}
 		item.Username = normalizeUsername(item.Username)
@@ -167,7 +169,18 @@ func (s *Service) buildIdentityItems(ctx context.Context, usernames []string) (m
 			item.DisplayName = item.Username
 		}
 		item.HonorName = strings.TrimSpace(item.HonorName)
+		item.AvatarStyle = strings.TrimSpace(item.AvatarStyle)
+		item.AvatarSeed = strings.TrimSpace(item.AvatarSeed)
 		item.AvatarURL = strings.TrimSpace(item.AvatarURL)
+		if item.AvatarURL == "" {
+			item.AvatarKind = "generated"
+			if item.AvatarSeed == "" {
+				item.AvatarSeed = item.Username
+			}
+		} else {
+			item.AvatarKind = "custom"
+			item.AvatarSeed = ""
+		}
 		result[item.Username] = item
 	}
 	if err := rows.Err(); err != nil {

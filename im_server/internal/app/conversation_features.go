@@ -515,6 +515,9 @@ func (a *App) loadConversationMemberItems(ctx context.Context, conversationID in
 		}
 		members[index].DisplayName = identity.DisplayName
 		members[index].HonorName = identity.HonorName
+		members[index].AvatarKind = identity.AvatarKind
+		members[index].AvatarStyle = identity.AvatarStyle
+		members[index].AvatarSeed = identity.AvatarSeed
 		members[index].AvatarURL = identity.AvatarURL
 	}
 	sort.Slice(members, func(left int, right int) bool {
