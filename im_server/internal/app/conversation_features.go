@@ -156,6 +156,10 @@ type sessionMembersManageRequest struct {
 	Usernames      []string `json:"usernames"`
 }
 
+type sessionMemberLeaveRequest struct {
+	ConversationID int64 `json:"conversation_id"`
+}
+
 type sessionHistoryClearRequest struct {
 	ConversationID int64 `json:"conversation_id"`
 }
@@ -1321,7 +1325,7 @@ func (a *App) handleSessionMemberLeave(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusForbidden, map[string]any{"error": true, "message": err.Error()})
 		return
 	}
-	var req sessionConversationRequest
+	var req sessionMemberLeaveRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": true, "message": "invalid payload"})
 		return
