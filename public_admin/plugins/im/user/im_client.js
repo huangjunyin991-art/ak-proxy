@@ -1951,6 +1951,9 @@
             } else {
                 render();
             }
+            if (typeof messageManageModule.forceScrollToBottom === 'function') {
+                messageManageModule.forceScrollToBottom(1800);
+            }
         }
         if (typeof loadSessions === 'function') {
             return loadSessions();
@@ -1967,6 +1970,9 @@
             messageManageModule.renderMessages();
         } else {
             render();
+        }
+        if (typeof messageManageModule.forceScrollToBottom === 'function') {
+            messageManageModule.forceScrollToBottom(1800);
         }
         return true;
     }
@@ -1993,6 +1999,9 @@
             messageManageModule.renderMessages();
         } else {
             render();
+        }
+        if (typeof messageManageModule.forceScrollToBottom === 'function') {
+            messageManageModule.forceScrollToBottom(1800);
         }
         return true;
     }

@@ -67,6 +67,16 @@
             return this.ctx && typeof this.ctx.getMessageSync === 'function' ? this.ctx.getMessageSync() : null;
         },
 
+        forceScrollToBottom(durationMs) {
+            const messageNavigation = this.getMessageNavigation();
+            if (messageNavigation && typeof messageNavigation.forceScrollToBottom === 'function') {
+                messageNavigation.forceScrollToBottom(durationMs);
+                return;
+            }
+            const messageList = this.getElements().messageList;
+            if (messageList) messageList.scrollTop = messageList.scrollHeight;
+        },
+
         hasPendingImagePreview() {
             const state = this.getState();
             const messages = state && Array.isArray(state.activeMessages) ? state.activeMessages : [];
@@ -692,6 +702,7 @@
                 requestPayload.client_temp_id = tempId;
                 if (this.insertLocalMessage(this.createTextTempMessage(requestPayload, tempId))) {
                     this.renderMessages();
+                    this.forceScrollToBottom(1800);
                     this.scheduleTextSendTimeout(tempId);
                 }
             }
@@ -725,8 +736,10 @@
                 const activeConversationId = Number(state.activeConversationId || 0);
                 if (tempId && item && self.replaceLocalMessage(tempId, item)) {
                     self.renderMessages();
+                    self.forceScrollToBottom(1800);
                 } else if (item && self.upsertActiveMessage(item)) {
                     self.renderMessages();
+                    self.forceScrollToBottom(1800);
                 }
                 finalizeLocalState();
                 return self.loadMessages(activeConversationId).then(function() {
@@ -874,6 +887,7 @@
                 const item = data && data.item ? data.item : null;
                 if (item && self.upsertActiveMessage(item)) {
                     self.renderMessages();
+                    self.forceScrollToBottom(1800);
                 }
                 return typeof self.ctx.loadSessions === 'function' ? self.ctx.loadSessions() : null;
             });
@@ -1210,6 +1224,7 @@
                     }
                     this.upsertActiveMessage(item);
                     this.renderMessages();
+                    if (item.sender_username === state.username) this.forceScrollToBottom(1800);
                     if (item.sender_username !== state.username) this.markRead(item.conversation_id);
                 }
                 if ((isActiveChat || !sessionUpdated || item.sender_username === state.username) && typeof this.ctx.loadSessions === 'function') this.ctx.loadSessions();

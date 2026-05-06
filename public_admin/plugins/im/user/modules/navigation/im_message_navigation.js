@@ -199,6 +199,22 @@
             });
         },
 
+        forceScrollToBottom(durationMs) {
+            const navState = this.ensureNavigationState();
+            if (navState) {
+                navState.forceBottomUntil = Date.now() + Math.max(600, Number(durationMs || 0) || 1800);
+                navState.entryUnreadCount = 0;
+                navState.firstUnreadSeqNo = 0;
+                navState.unreadAnchorConsumed = true;
+                navState.newMessageCount = 0;
+                navState.mentionSeqNo = 0;
+                navState.mentionLabel = '';
+            }
+            this.scrollToBottom({ silent: true });
+            this.scheduleBottomStabilize();
+            this.renderControls();
+        },
+
         bindMediaBottomStabilizers(messageList) {
             const navState = this.ensureNavigationState();
             if (!messageList || !navState || Number(navState.forceBottomUntil || 0) <= Date.now()) return;

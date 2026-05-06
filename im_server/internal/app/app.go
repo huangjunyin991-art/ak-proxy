@@ -1758,14 +1758,14 @@ func (a *App) handleListMessages(w http.ResponseWriter, r *http.Request, usernam
 		rows, err = a.db.Query(r.Context(), `
 			SELECT m.id, m.conversation_id, m.sender_username, m.seq_no, m.message_type, m.content_payload, m.content_preview, m.status, m.sent_at
 			FROM im_message m
-			WHERE m.conversation_id = $1 AND m.deleted_at IS NULL AND m.seq_no > GREATEST($2, $3)
-			ORDER BY m.seq_no ASC LIMIT $4`, conversationIDValue, meta.PurgedBeforeSeqNo, afterSeqNo, limit)
+			WHERE m.conversation_id = $1::bigint AND m.deleted_at IS NULL AND m.seq_no > GREATEST($2::bigint, $3::bigint)
+			ORDER BY m.seq_no ASC LIMIT $4::bigint`, conversationIDValue, meta.PurgedBeforeSeqNo, afterSeqNo, limit)
 	} else {
 		rows, err = a.db.Query(r.Context(), `
 			SELECT m.id, m.conversation_id, m.sender_username, m.seq_no, m.message_type, m.content_payload, m.content_preview, m.status, m.sent_at
 			FROM im_message m
-			WHERE m.conversation_id = $1 AND m.deleted_at IS NULL AND m.seq_no > $2
-			ORDER BY m.seq_no DESC LIMIT $3`, conversationIDValue, meta.PurgedBeforeSeqNo, limit)
+			WHERE m.conversation_id = $1::bigint AND m.deleted_at IS NULL AND m.seq_no > $2::bigint
+			ORDER BY m.seq_no DESC LIMIT $3::bigint`, conversationIDValue, meta.PurgedBeforeSeqNo, limit)
 	}
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
