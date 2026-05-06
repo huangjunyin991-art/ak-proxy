@@ -64,7 +64,7 @@
         },
 
         hasAllMentionText(text) {
-            return /(^|[\s，,。.!！?？；;：:、])@全体成员(?=$|[\s，,。.!！?？；;：:、])/.test(String(text || ''));
+            return String(text || '').indexOf('@全体成员') >= 0;
         },
 
         escapeHtml(value) {

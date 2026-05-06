@@ -2064,7 +2064,7 @@ func (a *App) saveMessageMentionsTx(ctx context.Context, tx pgx.Tx, messageID in
 		}
 	}
 	mentionAll := false
-	if req.MentionAll {
+	if reqMentionsAll(req) {
 		canMentionAll, err := a.canSendMentionAllTx(ctx, tx, conversationID, normalizedSender)
 		if err != nil {
 			return nil, false, err
@@ -2080,6 +2080,17 @@ func (a *App) saveMessageMentionsTx(ctx context.Context, tx pgx.Tx, messageID in
 		}
 	}
 	return mentionUsernames, mentionAll, nil
+}
+
+func reqMentionsAll(req sendMessageRequest) bool {
+	if req.MentionAll {
+		return true
+	}
+	messageType := strings.TrimSpace(strings.ToLower(req.MessageType))
+	if messageType == "" {
+		messageType = "text"
+	}
+	return messageType == "text" && strings.Contains(strings.TrimSpace(req.Content), "@全体成员")
 }
 
 func (a *App) canSendMentionAllTx(ctx context.Context, tx pgx.Tx, conversationID int64, username string) (bool, error) {
