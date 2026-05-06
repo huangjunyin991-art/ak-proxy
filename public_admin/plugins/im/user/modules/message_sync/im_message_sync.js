@@ -129,8 +129,9 @@
             const targetConversationId = Number(conversationId || 0);
             if (!targetConversationId || !this.ctx || typeof this.ctx.request !== 'function') return Promise.resolve(null);
             const key = String(targetConversationId);
-            if (this.prefetchingByConversationId[key]) return this.prefetchingByConversationId[key];
             const cachedMessages = this.getStoreMessages(targetConversationId);
+            if (cachedMessages.length > 0) return Promise.resolve(cachedMessages);
+            if (this.prefetchingByConversationId[key]) return this.prefetchingByConversationId[key];
             const afterSeqNo = this.getLastSeqNo(cachedMessages);
             this.prefetchingByConversationId[key] = this.ctx.request(this.buildMessagesUrl(targetConversationId, afterSeqNo)).then(function(data) {
                 const incomingItems = Array.isArray(data && data.items) ? data.items : [];
