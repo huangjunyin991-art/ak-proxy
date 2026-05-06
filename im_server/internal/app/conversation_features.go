@@ -684,13 +684,22 @@ func memberEffectiveAt(item conversationMemberSnapshot, sentAt time.Time) bool {
 	if sentAt.IsZero() {
 		return item.LeftAt == nil
 	}
-	if item.JoinedAt.After(sentAt) {
+	joinedAt := normalizeIMWallClockTime(item.JoinedAt)
+	messageSentAt := normalizeIMWallClockTime(sentAt)
+	if joinedAt.After(messageSentAt.Add(2 * time.Second)) {
 		return false
 	}
-	if item.LeftAt != nil && !item.LeftAt.After(sentAt) {
+	if item.LeftAt != nil && !normalizeIMWallClockTime(*item.LeftAt).After(messageSentAt) {
 		return false
 	}
 	return true
+}
+
+func normalizeIMWallClockTime(value time.Time) time.Time {
+	if value.IsZero() {
+		return value
+	}
+	return time.Date(value.Year(), value.Month(), value.Day(), value.Hour(), value.Minute(), value.Second(), value.Nanosecond(), time.UTC)
 }
 
 func buildMessageReadProgressSummary(members []conversationMemberSnapshot, senderUsername string, seqNo int64, sentAt time.Time) MessageReadProgressSummary {

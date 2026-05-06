@@ -253,7 +253,7 @@
         },
 
         applyIncomingMessage(item, isActiveChat) {
-            if (!this.ctx || !this.ctx.state || !item || !item.conversation_id) return;
+            if (!this.ctx || !this.ctx.state || !item || !item.conversation_id) return false;
             const state = this.ctx.state;
             const targetConversationId = Number(item.conversation_id || 0);
             const isSelfMessage = String(item.sender_username || '') === String(state.username || '');
@@ -273,6 +273,7 @@
                 });
             });
             if (changed && typeof this.ctx.render === 'function') this.ctx.render();
+            return changed;
         }
     };
 

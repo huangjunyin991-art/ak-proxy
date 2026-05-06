@@ -1150,8 +1150,9 @@
                 if (!item || !item.conversation_id) return;
                 const isActiveChat = Number(item.conversation_id) === Number(state.activeConversationId || 0) && state.view === 'chat';
                 const sessionManage = this.getSessionManage();
+                let sessionUpdated = false;
                 if (sessionManage && typeof sessionManage.applyIncomingMessage === 'function') {
-                    sessionManage.applyIncomingMessage(item, isActiveChat);
+                    sessionUpdated = !!sessionManage.applyIncomingMessage(item, isActiveChat);
                 }
                 if (isActiveChat) {
                     const messageNavigation = this.getMessageNavigation();
@@ -1162,7 +1163,7 @@
                     this.renderMessages();
                     if (item.sender_username !== state.username) this.markRead(item.conversation_id);
                 }
-                if (typeof this.ctx.loadSessions === 'function') this.ctx.loadSessions();
+                if ((isActiveChat || !sessionUpdated || item.sender_username === state.username) && typeof this.ctx.loadSessions === 'function') this.ctx.loadSessions();
                 return;
             }
             if (data.type === 'im.message.read') {
