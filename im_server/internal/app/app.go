@@ -25,7 +25,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-const defaultAvatarStyle = "smile"
+const defaultAvatarStyle = "thumbs"
+const defaultAvatarAssetVersion = "v2"
 const minAddFriendHonorStep = '3'
 const hubConnWriteBufferSize = 64
 
@@ -690,13 +691,13 @@ func normalizeAvatarStyle(style string) string {
 func buildAvatarSeed(username string, seed string) string {
 	normalizedUsername := strings.ToLower(strings.TrimSpace(username))
 	normalizedSeed := strings.TrimSpace(seed)
-	if normalizedSeed == "" {
-		return normalizedUsername
-	}
 	if normalizedUsername == "" {
-		return normalizedSeed
+		normalizedUsername = "user"
 	}
-	return normalizedUsername + "::" + normalizedSeed
+	if normalizedSeed == "" {
+		return normalizedUsername + "::" + defaultAvatarAssetVersion
+	}
+	return normalizedUsername + "::" + normalizedSeed + "::" + defaultAvatarAssetVersion
 }
 
 func buildDefaultAvatarURL(style string, seed string) string {
@@ -744,7 +745,7 @@ func buildDefaultAvatarSVG(style string, seed string) string {
 	}
 	accentColor := defaultAvatarColor(normalizedSeed, 17)
 	shadowColor := defaultAvatarColor(normalizedSeed, 53)
-	return fmt.Sprintf(`<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0%%" stop-color="#0f9fbd"/><stop offset="100%%" stop-color="#07556e"/></linearGradient></defs><rect width="128" height="128" rx="30" fill="url(#g)"/><path d="M0 30C14 15 31 10 49 13C36 34 31 60 37 87C22 88 10 84 0 74Z" fill="%s" opacity=".95"/><circle cx="70" cy="52" r="7" fill="#f8fafc"/><path d="M42 72C50 91 78 97 94 78" fill="none" stroke="#f8fafc" stroke-width="9" stroke-linecap="round"/><circle cx="46" cy="42" r="6" fill="%s" opacity=".35"/><path d="M88 30c11 8 18 19 21 33" fill="none" stroke="#ffffff" stroke-width="5" stroke-linecap="round" opacity=".22"/></svg>`, accentColor, shadowColor)
+	return fmt.Sprintf(`<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0%%" stop-color="#0f9fbd"/><stop offset="100%%" stop-color="#07556e"/></linearGradient><linearGradient id="a" x1="0" y1="0" x2="1" y2="1"><stop offset="0%%" stop-color="%s"/><stop offset="100%%" stop-color="%s"/></linearGradient></defs><rect width="128" height="128" rx="30" fill="url(#g)"/><path d="M0 23C12 11 29 6 47 10C33 31 28 59 34 88C20 89 8 84 0 76Z" fill="url(#a)" opacity=".96"/><circle cx="70" cy="52" r="7" fill="#f8fafc"/><path d="M42 72C50 91 78 97 94 78" fill="none" stroke="#f8fafc" stroke-width="9" stroke-linecap="round"/><circle cx="43" cy="39" r="6" fill="#f8fafc" opacity=".22"/><path d="M89 31c10 8 16 19 19 32" fill="none" stroke="#ffffff" stroke-width="5" stroke-linecap="round" opacity=".2"/></svg>`, accentColor, shadowColor)
 }
 
 func (a *App) handleDefaultAvatarAsset(w http.ResponseWriter, r *http.Request) {
