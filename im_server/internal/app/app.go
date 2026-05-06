@@ -25,7 +25,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-const defaultAvatarStyle = "thumbs"
+const defaultAvatarStyle = "smile"
 const minAddFriendHonorStep = '3'
 const hubConnWriteBufferSize = 64
 
@@ -742,10 +742,9 @@ func buildDefaultAvatarSVG(style string, seed string) string {
 	if normalizedSeed == "" {
 		normalizedSeed = "user"
 	}
-	startColor := defaultAvatarColor(normalizedSeed, 17)
-	endColor := defaultAvatarColor(normalizedSeed, 53)
-	initial := escapeSVGText(defaultAvatarInitial(normalizedSeed))
-	return fmt.Sprintf(`<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0%%" stop-color="%s"/><stop offset="100%%" stop-color="%s"/></linearGradient></defs><rect width="128" height="128" rx="32" fill="url(#g)"/><circle cx="64" cy="48" r="24" fill="rgba(255,255,255,.82)"/><path d="M22 116c5-28 26-44 42-44s37 16 42 44" fill="rgba(255,255,255,.72)"/><text x="64" y="106" text-anchor="middle" font-size="26" font-family="Arial,sans-serif" font-weight="700" fill="rgba(15,23,42,.62)">%s</text></svg>`, startColor, endColor, initial)
+	accentColor := defaultAvatarColor(normalizedSeed, 17)
+	shadowColor := defaultAvatarColor(normalizedSeed, 53)
+	return fmt.Sprintf(`<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0%%" stop-color="#0f9fbd"/><stop offset="100%%" stop-color="#07556e"/></linearGradient></defs><rect width="128" height="128" rx="30" fill="url(#g)"/><path d="M0 30C14 15 31 10 49 13C36 34 31 60 37 87C22 88 10 84 0 74Z" fill="%s" opacity=".95"/><circle cx="70" cy="52" r="7" fill="#f8fafc"/><path d="M42 72C50 91 78 97 94 78" fill="none" stroke="#f8fafc" stroke-width="9" stroke-linecap="round"/><circle cx="46" cy="42" r="6" fill="%s" opacity=".35"/><path d="M88 30c11 8 18 19 21 33" fill="none" stroke="#ffffff" stroke-width="5" stroke-linecap="round" opacity=".22"/></svg>`, accentColor, shadowColor)
 }
 
 func (a *App) handleDefaultAvatarAsset(w http.ResponseWriter, r *http.Request) {
