@@ -77,9 +77,8 @@
             const displayName = this.getMemberDisplayName(member, '成员');
             const role = this.getMemberRole(member);
             const roleLabel = this.getRoleLabel(role);
-            const avatarUrl = this.ctx && typeof this.ctx.getAvatarUrl === 'function' ? this.ctx.getAvatarUrl(member && member.avatar_url) : String(member && member.avatar_url || '');
             const avatarMarkup = this.ctx && typeof this.ctx.buildAvatarBoxMarkup === 'function'
-                ? this.ctx.buildAvatarBoxMarkup('ak-im-group-admins-avatar', avatarUrl, displayName, displayName + '头像')
+                ? this.ctx.buildAvatarBoxMarkup('ak-im-group-admins-avatar', member, displayName, displayName + '头像')
                 : '<div class="ak-im-group-admins-avatar">' + escapeHtml(displayName.slice(0, 1) || '成') + '</div>';
             const actionMarkup = action ? '<button class="ak-im-group-admins-action' + (action.primary ? ' is-primary' : '') + (action.danger ? ' is-danger' : '') + '" type="button" data-im-admin-action="' + escapeHtml(action.key) + '" data-im-admin-username="' + escapeHtml(username) + '"' + (action.disabled ? ' disabled' : '') + '>' + escapeHtml(action.label) + '</button>' : '';
             const muteMarkup = this.memberMuteActive(member) ? '<span>已禁言</span>' : '';

@@ -128,7 +128,7 @@
             const restoring = Number(state && state.hiddenGroupsActionId || 0) === conversationID;
             return '<div class="ak-im-hidden-group-row" data-im-hidden-group-id="' + conversationID + '">' +
                 '<button class="ak-im-hidden-group-open" type="button" data-im-hidden-group-open="' + conversationID + '">' +
-                    (typeof this.ctx.buildAvatarBoxMarkup === 'function' ? this.ctx.buildAvatarBoxMarkup('ak-im-contact-avatar', item && item.avatar_url, title, title + '头像') : '<div class="ak-im-contact-avatar">群</div>') +
+                    (typeof this.ctx.buildAvatarBoxMarkup === 'function' ? this.ctx.buildAvatarBoxMarkup('ak-im-contact-avatar', item, title, title + '头像') : '<div class="ak-im-contact-avatar">群</div>') +
                     '<span class="ak-im-hidden-group-main">' +
                         '<span class="ak-im-hidden-group-title">' + this.ctx.escapeHtml(title) + '</span>' +
                         '<span class="ak-im-hidden-group-meta">' + this.ctx.escapeHtml(memberCount + ' 名成员' + (updatedAtText ? ' · 更新于 ' + updatedAtText : '')) + '</span>' +

@@ -131,6 +131,18 @@
             datasetKey: 'akImUserPluginResourceTransport',
             src: `${API_ROOT}/chat/plugins/im/user/modules/resource_transport/im_resource_transport.js`,
             errorMessage: '资源加载优化模块加载失败'
+        },
+        dicebearThumbs: {
+            selector: 'script[data-ak-im-user-plugin-dicebear-thumbs="1"]',
+            datasetKey: 'akImUserPluginDicebearThumbs',
+            src: `${API_ROOT}/chat/plugins/im/user/modules/avatar/vendors/dicebear_thumbs/im_dicebear_thumbs.js`,
+            errorMessage: 'DiceBear thumbs头像模块加载失败'
+        },
+        avatarRuntime: {
+            selector: 'script[data-ak-im-user-plugin-avatar-runtime="1"]',
+            datasetKey: 'akImUserPluginAvatarRuntime',
+            src: `${API_ROOT}/chat/plugins/im/user/modules/avatar/im_avatar_runtime.js`,
+            errorMessage: '头像运行时模块加载失败'
         }
     };
     const lazyModuleLoadPromises = {};
@@ -624,6 +636,11 @@
     function initShellModules() {
         ensureOptionalLazyModule('resourceTransport').then(function(resourceTransportModule) {
             if (resourceTransportModule) render();
+        });
+        ensureOptionalLazyModule('dicebearThumbs').then(function() {
+            return ensureOptionalLazyModule('avatarRuntime');
+        }).then(function(avatarRuntimeModule) {
+            if (avatarRuntimeModule) render();
         });
         initMessageManageModule();
         initMessageNavigationModule();
@@ -1757,10 +1774,35 @@
         return resourceTransportModule;
     }
 
+    function getDicebearThumbsModule() {
+        const modules = window.AKIMUserModules;
+        if (!modules || typeof modules !== 'object') return null;
+        const dicebearThumbsModule = modules.dicebearThumbs;
+        if (!dicebearThumbsModule || typeof dicebearThumbsModule.createThumbsDataUri !== 'function') return null;
+        return dicebearThumbsModule;
+    }
+
+    function getAvatarRuntimeModule() {
+        const modules = window.AKIMUserModules;
+        if (!modules || typeof modules !== 'object') return null;
+        const avatarRuntimeModule = modules.avatarRuntime;
+        if (!avatarRuntimeModule || typeof avatarRuntimeModule.init !== 'function') return null;
+        return avatarRuntimeModule;
+    }
+
     function initResourceTransportModule() {
         const resourceTransportModule = getResourceTransportModule();
         if (!resourceTransportModule) return;
         resourceTransportModule.init({
+            state: state,
+            escapeHtml: escapeHtml
+        });
+    }
+
+    function initAvatarRuntimeModule() {
+        const avatarRuntimeModule = getAvatarRuntimeModule();
+        if (!avatarRuntimeModule) return;
+        avatarRuntimeModule.init({
             state: state,
             escapeHtml: escapeHtml
         });
@@ -2238,6 +2280,8 @@
         if (moduleKey === 'messageStore') return getMessageStoreModule();
         if (moduleKey === 'messageSync') return getMessageSyncModule();
         if (moduleKey === 'resourceTransport') return getResourceTransportModule();
+        if (moduleKey === 'dicebearThumbs') return getDicebearThumbsModule();
+        if (moduleKey === 'avatarRuntime') return getAvatarRuntimeModule();
         return null;
     }
 
@@ -2265,6 +2309,8 @@
         else if (moduleKey === 'messageStore') initMessageStoreModule();
         else if (moduleKey === 'messageSync') initMessageSyncModule();
         else if (moduleKey === 'resourceTransport') initResourceTransportModule();
+        else if (moduleKey === 'avatarRuntime') initAvatarRuntimeModule();
+        else if (moduleKey !== 'dicebearThumbs') return null;
         lazyModuleInitState[moduleKey] = true;
         return getLazyModuleInstance(moduleKey) || moduleInstance;
     }
@@ -2351,6 +2397,9 @@
             ensureOptionalLazyModule('location'),
             ensureOptionalLazyModule('navigation'),
             ensureOptionalLazyModule('mentions'),
+            ensureOptionalLazyModule('dicebearThumbs').then(function() {
+                return ensureOptionalLazyModule('avatarRuntime');
+            }),
             ensureOptionalLazyModule('resourceTransport'),
             ensureOptionalLazyModule('messageStore').then(function() {
                 return ensureOptionalLazyModule('messageSync');
@@ -3203,7 +3252,25 @@
     }
 
     function getAvatarUrl(value) {
+        const avatarRuntimeModule = getAvatarRuntimeModule();
+        if (avatarRuntimeModule && typeof avatarRuntimeModule.resolveAvatarUrl === 'function') {
+            const resolvedUrl = avatarRuntimeModule.resolveAvatarUrl(value, { size: 128 });
+            if (resolvedUrl) return resolvedUrl;
+        }
+        if (value && typeof value === 'object') {
+            return String(value.avatar_url || value.avatarUrl || value.sender_avatar_url || value.senderAvatarUrl || value.url || '').trim();
+        }
         return String(value || '').trim();
+    }
+
+    function buildAvatarDescriptor(item, fallbackUrl) {
+        if (!item || typeof item !== 'object') return fallbackUrl;
+        return {
+            avatar_kind: item.avatar_kind || item.avatarKind,
+            avatar_style: item.avatar_style || item.avatarStyle,
+            avatar_seed: item.avatar_seed || item.avatarSeed,
+            avatar_url: item.avatar_url || item.avatarUrl || fallbackUrl
+        };
     }
 
     function buildAvatarImageMarkup(avatarUrl, altText) {
@@ -3266,11 +3333,11 @@
         if (list.length === 1) {
             const only = list[0];
             const onlyName = String(only && (only.display_name || only.username) || '').trim() || String(fallbackText || '群');
-            return '<div class="ak-im-avatar-mosaic is-single" aria-hidden="true">' + buildAvatarCellMarkup(only && only.avatar_url, onlyName, onlyName + '头像') + '</div>';
+            return '<div class="ak-im-avatar-mosaic is-single" aria-hidden="true">' + buildAvatarCellMarkup(buildAvatarDescriptor(only), onlyName, onlyName + '头像') + '</div>';
         }
         const cells = list.map(function(member) {
             const display = String(member && (member.display_name || member.username) || '').trim() || '成员';
-            return buildAvatarCellMarkup(member && member.avatar_url, display, display + '头像');
+            return buildAvatarCellMarkup(buildAvatarDescriptor(member), display, display + '头像');
         });
         if (list.length === 2) {
             return '<div class="ak-im-avatar-mosaic is-duo" aria-hidden="true">' + cells.join('') + '</div>';
@@ -3442,7 +3509,7 @@
 	    const roleLabel = role === 'owner' ? '群主' : (role === 'admin' ? '管理员' : '');
 	    const memberName = displayName || username || '未知成员';
 	    const honorBadgeMarkup = '<div class="ak-im-member-honor">' + (honorName ? buildHonorBadgeMarkup(honorName, 'ak-im-honor-badge ak-im-member-honor-badge') : '') + '</div>';
-	    return '<button class="ak-im-member-item" type="button" data-im-member-username="' + escapeHtml(username.toLowerCase()) + '">' + honorBadgeMarkup + buildAvatarBoxMarkup('ak-im-member-avatar', member && member.avatar_url, displayName || username || '成员', (displayName || username || '成员') + '头像') + '<div class="ak-im-member-body"><div class="ak-im-member-name">' + escapeHtml(memberName) + '</div></div>' + (roleLabel ? '<div class="ak-im-member-role">' + escapeHtml(roleLabel) + '</div>' : '') + '</button>';
+	    return '<button class="ak-im-member-item" type="button" data-im-member-username="' + escapeHtml(username.toLowerCase()) + '">' + honorBadgeMarkup + buildAvatarBoxMarkup('ak-im-member-avatar', buildAvatarDescriptor(member), displayName || username || '成员', (displayName || username || '成员') + '头像') + '<div class="ak-im-member-body"><div class="ak-im-member-name">' + escapeHtml(memberName) + '</div></div>' + (roleLabel ? '<div class="ak-im-member-role">' + escapeHtml(roleLabel) + '</div>' : '') + '</button>';
 	}
 
 	function renderMemberPanel() {
@@ -4241,7 +4308,7 @@
         const username = getContactUsername(contact);
         const displayName = getContactDisplayName(contact);
         const honorName = normalizeHonorName(contact && contact.honor_name);
-        return buildAvatarBoxMarkup('ak-im-contact-avatar', contact && contact.avatar_url, displayName, displayName + '头像') +
+        return buildAvatarBoxMarkup('ak-im-contact-avatar', buildAvatarDescriptor(contact), displayName, displayName + '头像') +
             '<div class="ak-im-contact-body"><div class="ak-im-contact-name">' + buildDisplayNameWithHonorMarkup(displayName, honorName, '联系人') + '</div><div class="ak-im-contact-meta">@' + escapeHtml(username || 'unknown') + '</div></div>';
     }
 
@@ -4412,7 +4479,7 @@
         profilePageEl.innerHTML = (state.profileError ? '<div class="ak-im-profile-error">' + escapeHtml(state.profileError) + '</div>' : '') +
             '<div class="ak-im-profile-card">' +
                 '<div class="ak-im-profile-head">' +
-                    buildAvatarBoxMarkup('ak-im-profile-avatar', profile && profile.avatar_url, displayName || username || '我', (displayName || username || '我') + '头像') +
+                    buildAvatarBoxMarkup('ak-im-profile-avatar', profile, displayName || username || '我', (displayName || username || '我') + '头像') +
                     '<div class="ak-im-profile-name">' + buildDisplayNameWithHonorMarkup(displayName || '我', honorName, '我') + '</div>' +
                     '<div class="ak-im-profile-username">@' + escapeHtml(username || 'unknown') + '</div>' +
                     '<div class="ak-im-profile-meta">' + escapeHtml((nickname ? ('昵称：' + nickname) : '可设置昵称') + ' · 性别：' + genderLabel) + '</div>' +
@@ -4764,17 +4831,21 @@
             can_add_friend: canAddFriend,
             nickname: String(item && item.nickname || '').trim(),
             gender: normalizeProfileGender(item && item.gender),
+            avatar_kind: String(item && item.avatar_kind || '').trim(),
             avatar_style: String(item && item.avatar_style || 'thumbs').trim() || 'thumbs',
+            avatar_seed: String(item && item.avatar_seed || '').trim(),
             hide_honor: !!(item && item.hide_honor),
-            avatar_url: getAvatarUrl(item && item.avatar_url)
+            avatar_url: String(item && item.avatar_url || '').trim()
         };
     }
 
     function normalizeProfileAvatarHistoryItem(item) {
         return {
             id: Number(item && item.id || 0),
+            avatar_kind: String(item && item.avatar_kind || '').trim(),
             avatar_style: String(item && item.avatar_style || 'thumbs').trim() || 'thumbs',
-            avatar_url: getAvatarUrl(item && item.avatar_url),
+            avatar_seed: String(item && item.avatar_seed || '').trim(),
+            avatar_url: String(item && item.avatar_url || '').trim(),
             is_favorite: !!(item && item.is_favorite),
             created_at: String(item && item.created_at || '').trim()
         };
@@ -5391,7 +5462,9 @@
                 honor_name: state.honorName,
                 can_add_friend: state.canAddFriend,
                 hide_honor: !!(data && data.hide_honor),
-                avatar_style: 'thumbs',
+                avatar_kind: data && data.avatar_kind,
+                avatar_style: data && data.avatar_style,
+                avatar_seed: data && data.avatar_seed,
                 avatar_url: data && data.avatar_url
             }) : null;
             syncProfileDraftFromProfile();

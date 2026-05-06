@@ -217,6 +217,9 @@
                 sender_username: String(state && state.username || '').trim().toLowerCase(),
                 sender_display_name: String(state && (state.displayName || state.username) || '我').trim() || '我',
                 sender_honor_name: String(state && state.honorName || '').trim(),
+                sender_avatar_kind: String(state && state.profile && state.profile.avatar_kind || '').trim(),
+                sender_avatar_style: String(state && state.profile && state.profile.avatar_style || '').trim(),
+                sender_avatar_seed: String(state && state.profile && state.profile.avatar_seed || '').trim(),
                 sender_avatar_url: String(state && state.profile && state.profile.avatar_url || '').trim(),
                 seq_no: 0,
                 message_type: 'text',
@@ -643,7 +646,7 @@
                     : '';
                 const progressMarkup = self.buildReadProgressButtonMarkup(item, activeSession);
                 const avatarText = displayName || item.sender_username || '成员';
-                const avatarUrl = isSelf ? self.ctx.getAvatarUrl((state.profile && state.profile.avatar_url) || item.sender_avatar_url) : self.ctx.getAvatarUrl(item.sender_avatar_url);
+                const avatarSource = isSelf && state.profile ? state.profile : item;
                 const bubbleClassName = self.getMessageBubbleClassName(item);
                 const bubbleMarkup = self.getMessageBubbleMarkup(item);
                 const mentionBadgeMarkup = self.buildMentionBadgeMarkup(item);
@@ -657,7 +660,7 @@
                 if (timeMinuteKey) lastTimeMinuteKey = timeMinuteKey;
                 wrapper.innerHTML = timeDividerMarkup +
                     '<div class="ak-im-message-row ' + (isSelf ? 'ak-self' : 'ak-peer') + '">' +
-                        '<div class="ak-im-avatar-wrap" data-im-message-avatar-username="' + self.ctx.escapeHtml(String(item && item.sender_username || '').trim().toLowerCase()) + '">' + self.ctx.buildAvatarBoxMarkup('ak-im-avatar', avatarUrl, avatarText, avatarText + '头像') + '</div>' +
+                        '<div class="ak-im-avatar-wrap" data-im-message-avatar-username="' + self.ctx.escapeHtml(String(item && item.sender_username || '').trim().toLowerCase()) + '">' + self.ctx.buildAvatarBoxMarkup('ak-im-avatar', avatarSource, avatarText, avatarText + '头像') + '</div>' +
                         '<div class="ak-im-message-main">' +
                             (senderMarkup ? '<div class="ak-im-message-sender">' + senderMarkup + '</div>' : '') +
                             '<div class="' + bubbleClassName + '">' + bubbleMarkup + '</div>' +

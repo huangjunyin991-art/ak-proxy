@@ -13,6 +13,9 @@ type IdentityItem struct {
 	Username    string
 	DisplayName string
 	HonorName   string
+	AvatarKind  string
+	AvatarStyle string
+	AvatarSeed  string
 	AvatarURL   string
 }
 
@@ -20,6 +23,9 @@ type ContactItem struct {
 	Username             string `json:"username"`
 	DisplayName          string `json:"display_name"`
 	HonorName            string `json:"honor_name,omitempty"`
+	AvatarKind           string `json:"avatar_kind,omitempty"`
+	AvatarStyle          string `json:"avatar_style,omitempty"`
+	AvatarSeed           string `json:"avatar_seed,omitempty"`
 	AvatarURL            string `json:"avatar_url,omitempty"`
 	Source               string `json:"source,omitempty"`
 	IsContact            bool   `json:"is_contact,omitempty"`

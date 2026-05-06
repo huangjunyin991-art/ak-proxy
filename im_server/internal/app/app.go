@@ -77,6 +77,9 @@ type BootstrapResponse struct {
 	HonorName         string `json:"honor_name,omitempty"`
 	CanAddFriend      bool   `json:"can_add_friend"`
 	HideHonor         bool   `json:"hide_honor"`
+	AvatarKind        string `json:"avatar_kind,omitempty"`
+	AvatarStyle       string `json:"avatar_style,omitempty"`
+	AvatarSeed        string `json:"avatar_seed,omitempty"`
 	AvatarURL         string `json:"avatar_url,omitempty"`
 	EmojiAssets       []EmojiAssetItem `json:"emoji_assets,omitempty"`
 	RetentionDays     int    `json:"retention_days"`
@@ -88,6 +91,9 @@ type SessionItem struct {
 	ConversationID     int64  `json:"conversation_id"`
 	ConversationType   string `json:"conversation_type"`
 	ConversationTitle  string `json:"conversation_title,omitempty"`
+	AvatarKind         string `json:"avatar_kind,omitempty"`
+	AvatarStyle        string `json:"avatar_style,omitempty"`
+	AvatarSeed         string `json:"avatar_seed,omitempty"`
 	AvatarURL          string `json:"avatar_url,omitempty"`
 	OwnerUsername      string `json:"owner_username,omitempty"`
 	MemberCount        int64  `json:"member_count"`
@@ -123,6 +129,9 @@ type MessageItem struct {
 	SenderUsername    string `json:"sender_username"`
 	SenderDisplayName string `json:"sender_display_name,omitempty"`
 	SenderHonorName   string `json:"sender_honor_name,omitempty"`
+	SenderAvatarKind  string `json:"sender_avatar_kind,omitempty"`
+	SenderAvatarStyle string `json:"sender_avatar_style,omitempty"`
+	SenderAvatarSeed  string `json:"sender_avatar_seed,omitempty"`
 	SenderAvatarURL   string `json:"sender_avatar_url,omitempty"`
 	ClientTempID      string `json:"client_temp_id,omitempty"`
 	SeqNo             int64  `json:"seq_no"`
@@ -145,13 +154,17 @@ type UserProfileItem struct {
 	HideHonor   bool   `json:"hide_honor"`
 	Nickname    string `json:"nickname,omitempty"`
 	Gender      string `json:"gender,omitempty"`
+	AvatarKind  string `json:"avatar_kind,omitempty"`
 	AvatarStyle string `json:"avatar_style"`
+	AvatarSeed  string `json:"avatar_seed,omitempty"`
 	AvatarURL   string `json:"avatar_url,omitempty"`
 }
 
 type UserAvatarHistoryItem struct {
 	ID          int64  `json:"id"`
+	AvatarKind  string `json:"avatar_kind,omitempty"`
 	AvatarStyle string `json:"avatar_style"`
+	AvatarSeed  string `json:"avatar_seed,omitempty"`
 	AvatarURL   string `json:"avatar_url,omitempty"`
 	IsFavorite  bool   `json:"is_favorite"`
 	CreatedAt   string `json:"created_at"`
@@ -161,6 +174,9 @@ type ContactItem struct {
 	Username    string `json:"username"`
 	DisplayName string `json:"display_name"`
 	HonorName   string `json:"honor_name,omitempty"`
+	AvatarKind  string `json:"avatar_kind,omitempty"`
+	AvatarStyle string `json:"avatar_style,omitempty"`
+	AvatarSeed  string `json:"avatar_seed,omitempty"`
 	AvatarURL   string `json:"avatar_url,omitempty"`
 	Source      string `json:"source,omitempty"`
 	IsContact   bool   `json:"is_contact,omitempty"`
@@ -348,7 +364,6 @@ func New(cfg config.Config) (*App, error) {
 	mux.HandleFunc("/im/internal/emoji_assets/import", app.handleInternalEmojiAssetImport)
 	mux.HandleFunc("/im/internal/emoji_assets/upload", app.handleInternalEmojiAssetUpload)
 	mux.HandleFunc("/im/assets/emoji/", app.handleEmojiAssetFile)
-	mux.HandleFunc("/im/assets/avatar/", app.handleDefaultAvatarAsset)
 	mux.HandleFunc("/im/assets/image-preview/", app.handleImagePreviewAssetFile)
 	mux.HandleFunc("/im/assets/image/", app.handleImageAssetFile)
 	mux.HandleFunc("/im/assets/file-video-poster/", app.handleFileVideoPosterAssetFile)
@@ -708,71 +723,6 @@ func buildDefaultAvatarURL(style string, seed string) string {
 	return "https://api.dicebear.com/9.x/" + url.PathEscape(normalizedStyle) + "/svg?seed=" + url.QueryEscape(normalizedSeed) + "&size=128"
 }
 
-func defaultAvatarColor(seed string, offset int) string {
-	palette := []string{"#38bdf8", "#818cf8", "#f472b6", "#34d399", "#f59e0b", "#fb7185", "#22d3ee", "#a78bfa"}
-	total := offset
-	for _, char := range seed {
-		total = total*33 + int(char)
-	}
-	if total < 0 {
-		total = -total
-	}
-	return palette[total%len(palette)]
-}
-
-func defaultAvatarInitial(seed string) string {
-	normalizedSeed := strings.TrimSpace(seed)
-	if normalizedSeed == "" {
-		return "AK"
-	}
-	for _, char := range normalizedSeed {
-		if (char >= '0' && char <= '9') || (char >= 'A' && char <= 'Z') || (char >= 'a' && char <= 'z') || char > 127 {
-			return strings.ToUpper(string(char))
-		}
-	}
-	return "AK"
-}
-
-func escapeSVGText(value string) string {
-	return strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;", "\"", "&quot;", "'", "&#39;").Replace(value)
-}
-
-func buildDefaultAvatarSVG(style string, seed string) string {
-	normalizedSeed := strings.TrimSpace(seed)
-	if normalizedSeed == "" {
-		normalizedSeed = "user"
-	}
-	accentColor := defaultAvatarColor(normalizedSeed, 17)
-	shadowColor := defaultAvatarColor(normalizedSeed, 53)
-	return fmt.Sprintf(`<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0%%" stop-color="#0f9fbd"/><stop offset="100%%" stop-color="#07556e"/></linearGradient><linearGradient id="a" x1="0" y1="0" x2="1" y2="1"><stop offset="0%%" stop-color="%s"/><stop offset="100%%" stop-color="%s"/></linearGradient></defs><rect width="128" height="128" rx="30" fill="url(#g)"/><path d="M0 23C12 11 29 6 47 10C33 31 28 59 34 88C20 89 8 84 0 76Z" fill="url(#a)" opacity=".96"/><circle cx="70" cy="52" r="7" fill="#f8fafc"/><path d="M42 72C50 91 78 97 94 78" fill="none" stroke="#f8fafc" stroke-width="9" stroke-linecap="round"/><circle cx="43" cy="39" r="6" fill="#f8fafc" opacity=".22"/><path d="M89 31c10 8 16 19 19 32" fill="none" stroke="#ffffff" stroke-width="5" stroke-linecap="round" opacity=".2"/></svg>`, accentColor, shadowColor)
-}
-
-func (a *App) handleDefaultAvatarAsset(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		w.WriteHeader(http.StatusMethodNotAllowed)
-		return
-	}
-	rawPath := strings.TrimSpace(strings.TrimPrefix(r.URL.Path, "/im/assets/avatar/"))
-	parts := strings.SplitN(rawPath, "/", 2)
-	if len(parts) != 2 || !strings.HasSuffix(parts[1], ".svg") {
-		w.WriteHeader(http.StatusBadRequest)
-		return
-	}
-	style, err := url.PathUnescape(parts[0])
-	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		return
-	}
-	seed, err := url.PathUnescape(strings.TrimSuffix(parts[1], ".svg"))
-	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		return
-	}
-	w.Header().Set("Content-Type", "image/svg+xml; charset=utf-8")
-	w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
-	_, _ = w.Write([]byte(buildDefaultAvatarSVG(style, seed)))
-}
-
 func randomAvatarSeed() string {
 	buffer := make([]byte, 8)
 	if _, err := rand.Read(buffer); err != nil {
@@ -789,6 +739,34 @@ type userProfileRecord struct {
 	AvatarSeed  string
 	AvatarURL   string
 	HideHonor   bool
+}
+
+type userAvatarDescriptor struct {
+	Kind  string
+	Style string
+	Seed  string
+	URL   string
+}
+
+func buildUserAvatarDescriptorFromRecord(username string, record userProfileRecord) userAvatarDescriptor {
+	normalizedUsername := strings.ToLower(strings.TrimSpace(username))
+	style := normalizeAvatarStyle(record.AvatarStyle)
+	customURL := strings.TrimSpace(record.AvatarURL)
+	if customURL != "" {
+		return userAvatarDescriptor{
+			Kind:  "custom",
+			Style: style,
+			Seed:  "",
+			URL:   customURL,
+		}
+	}
+	seed := buildAvatarSeed(normalizedUsername, record.AvatarSeed)
+	return userAvatarDescriptor{
+		Kind:  "generated",
+		Style: style,
+		Seed:  seed,
+		URL:   buildDefaultAvatarURL(style, seed),
+	}
 }
 
 func normalizeProfileGender(value string) string {
@@ -840,9 +818,13 @@ func (a *App) loadUserAvatarProfile(ctx context.Context, username string) (strin
 }
 
 func (a *App) getUserAvatarURL(ctx context.Context, username string) string {
+	return a.getUserAvatarDescriptor(ctx, username).URL
+}
+
+func (a *App) getUserAvatarDescriptor(ctx context.Context, username string) userAvatarDescriptor {
 	normalizedUsername := strings.ToLower(strings.TrimSpace(username))
 	if normalizedUsername == "" {
-		return ""
+		return userAvatarDescriptor{}
 	}
 	record, err := a.loadUserProfileRecord(ctx, normalizedUsername)
 	if err != nil {
@@ -850,10 +832,7 @@ func (a *App) getUserAvatarURL(ctx context.Context, username string) string {
 		record.AvatarStyle = defaultAvatarStyle
 		record.AvatarSeed = ""
 	}
-	if strings.TrimSpace(record.AvatarURL) != "" {
-		return strings.TrimSpace(record.AvatarURL)
-	}
-	return buildDefaultAvatarURL(record.AvatarStyle, buildAvatarSeed(normalizedUsername, record.AvatarSeed))
+	return buildUserAvatarDescriptorFromRecord(normalizedUsername, record)
 }
 
 func normalizeHonorLevelCode(value string) string {
@@ -966,12 +945,12 @@ func (a *App) buildUserProfileItem(ctx context.Context, username string) UserPro
 		profile.Gender = "unknown"
 	}
 	identity := a.buildUserIdentityItem(ctx, normalizedUsername)
-	avatarURL := strings.TrimSpace(identity.AvatarURL)
-	if avatarURL == "" {
-		avatarURL = strings.TrimSpace(profile.AvatarURL)
-	}
-	if avatarURL == "" {
-		avatarURL = buildDefaultAvatarURL(profile.AvatarStyle, buildAvatarSeed(normalizedUsername, profile.AvatarSeed))
+	avatar := buildUserAvatarDescriptorFromRecord(normalizedUsername, profile)
+	if strings.TrimSpace(identity.AvatarURL) != "" {
+		avatar.Kind = identity.AvatarKind
+		avatar.Style = identity.AvatarStyle
+		avatar.Seed = identity.AvatarSeed
+		avatar.URL = identity.AvatarURL
 	}
 	honorName, err := a.loadUserHonorName(ctx, normalizedUsername)
 	if err != nil {
@@ -991,8 +970,10 @@ func (a *App) buildUserProfileItem(ctx context.Context, username string) UserPro
 		HideHonor:   profile.HideHonor,
 		Nickname:    strings.TrimSpace(profile.Nickname),
 		Gender:      normalizeProfileGender(profile.Gender),
-		AvatarStyle: normalizeAvatarStyle(profile.AvatarStyle),
-		AvatarURL:   avatarURL,
+		AvatarKind:  avatar.Kind,
+		AvatarStyle: avatar.Style,
+		AvatarSeed:  avatar.Seed,
+		AvatarURL:   avatar.URL,
 	}
 }
 
@@ -1035,12 +1016,18 @@ func buildUserAvatarHistoryItem(username string, record avatarHistoryRecord) Use
 	avatarStyle := normalizeAvatarStyle(record.AvatarStyle)
 	avatarSeed := strings.TrimSpace(record.AvatarSeed)
 	avatarURL := strings.TrimSpace(record.AvatarURL)
+	avatarKind := "custom"
+	resolvedSeed := ""
 	if avatarURL == "" {
-		avatarURL = buildDefaultAvatarURL(avatarStyle, buildAvatarSeed(normalizedUsername, avatarSeed))
+		avatarKind = "generated"
+		resolvedSeed = buildAvatarSeed(normalizedUsername, avatarSeed)
+		avatarURL = buildDefaultAvatarURL(avatarStyle, resolvedSeed)
 	}
 	return UserAvatarHistoryItem{
 		ID:          record.ID,
+		AvatarKind:  avatarKind,
 		AvatarStyle: avatarStyle,
+		AvatarSeed:  resolvedSeed,
 		AvatarURL:   avatarURL,
 		IsFavorite:  record.IsFavorite,
 		CreatedAt:   record.CreatedAt.Format(time.RFC3339),
@@ -1333,6 +1320,9 @@ func (a *App) handleBootstrap(w http.ResponseWriter, r *http.Request) {
 		CanAddFriend:     profile.CanAddFriend,
 		HideHonor:        profile.HideHonor,
 		AvatarURL:        profile.AvatarURL,
+		AvatarKind:       profile.AvatarKind,
+		AvatarStyle:      profile.AvatarStyle,
+		AvatarSeed:       profile.AvatarSeed,
 		EmojiAssets:      a.loadBootstrapEmojiAssets(r.Context()),
 		RetentionDays:    180,
 		StoreEncoding:    "plain",
@@ -1573,7 +1563,12 @@ func (a *App) handleSessions(w http.ResponseWriter, r *http.Request) {
 		item.PeerDisplayName = peerIdentity.DisplayName
 		item.PeerHonorName = peerIdentity.HonorName
 		if item.ConversationType != "group" {
+			item.AvatarKind = peerIdentity.AvatarKind
+			item.AvatarStyle = peerIdentity.AvatarStyle
+			item.AvatarSeed = peerIdentity.AvatarSeed
 			item.AvatarURL = peerIdentity.AvatarURL
+		} else if strings.TrimSpace(item.AvatarURL) != "" {
+			item.AvatarKind = "custom"
 		}
 		item.IsPinned = item.PinType == "system" || item.PinType == "manual"
 		if pinnedAt != nil {
@@ -1850,6 +1845,9 @@ func (a *App) handleListMessages(w http.ResponseWriter, r *http.Request, usernam
 		senderIdentity := a.buildUserIdentityItem(r.Context(), item.SenderUsername)
 		item.SenderDisplayName = senderIdentity.DisplayName
 		item.SenderHonorName = senderIdentity.HonorName
+		item.SenderAvatarKind = senderIdentity.AvatarKind
+		item.SenderAvatarStyle = senderIdentity.AvatarStyle
+		item.SenderAvatarSeed = senderIdentity.AvatarSeed
 		item.SenderAvatarURL = senderIdentity.AvatarURL
 		item = a.normalizeOutgoingMessageItem(r.Context(), item)
 		items = append(items, item)
@@ -2076,6 +2074,9 @@ func (a *App) insertMessage(ctx context.Context, conversationID int64, username 
 	senderIdentity := a.buildUserIdentityItem(ctx, item.SenderUsername)
 	item.SenderDisplayName = senderIdentity.DisplayName
 	item.SenderHonorName = senderIdentity.HonorName
+	item.SenderAvatarKind = senderIdentity.AvatarKind
+	item.SenderAvatarStyle = senderIdentity.AvatarStyle
+	item.SenderAvatarSeed = senderIdentity.AvatarSeed
 	item.SenderAvatarURL = senderIdentity.AvatarURL
 	item.ClientTempID = strings.TrimSpace(req.ClientTempID)
 	item = a.normalizeOutgoingMessageItem(ctx, item)
@@ -2323,6 +2324,9 @@ func (a *App) recallMessage(ctx context.Context, messageID int64, username strin
 	senderIdentity := a.buildUserIdentityItem(ctx, item.SenderUsername)
 	item.SenderDisplayName = senderIdentity.DisplayName
 	item.SenderHonorName = senderIdentity.HonorName
+	item.SenderAvatarKind = senderIdentity.AvatarKind
+	item.SenderAvatarStyle = senderIdentity.AvatarStyle
+	item.SenderAvatarSeed = senderIdentity.AvatarSeed
 	item.SenderAvatarURL = senderIdentity.AvatarURL
 	if strings.EqualFold(strings.TrimSpace(item.MessageType), "text") {
 		item.Content = ""

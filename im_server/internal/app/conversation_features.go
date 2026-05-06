@@ -67,6 +67,9 @@ type SessionMemberItem struct {
 	Username    string `json:"username"`
 	DisplayName string `json:"display_name"`
 	HonorName   string `json:"honor_name,omitempty"`
+	AvatarKind  string `json:"avatar_kind,omitempty"`
+	AvatarStyle string `json:"avatar_style,omitempty"`
+	AvatarSeed  string `json:"avatar_seed,omitempty"`
 	AvatarURL   string `json:"avatar_url,omitempty"`
 	Role        string `json:"role,omitempty"`
 	MutedUntil  string `json:"muted_until,omitempty"`
@@ -914,7 +917,11 @@ func (a *App) handleSessionMembers(w http.ResponseWriter, r *http.Request) {
 		}
 		item.MutedUntil = formatOptionalTime(muteUntil)
 		item.DisplayName = a.fetchDisplayName(r.Context(), item.Username)
-		item.AvatarURL = a.getUserAvatarURL(r.Context(), item.Username)
+		avatar := a.getUserAvatarDescriptor(r.Context(), item.Username)
+		item.AvatarKind = avatar.Kind
+		item.AvatarStyle = avatar.Style
+		item.AvatarSeed = avatar.Seed
+		item.AvatarURL = avatar.URL
 		members = append(members, item)
 	}
 	if err := rows.Err(); err != nil {

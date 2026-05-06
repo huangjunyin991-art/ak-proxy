@@ -66,7 +66,7 @@
                 }
             }
             const displayName = this.getSessionDisplayName(item);
-            return this.ctx.buildAvatarBoxMarkup('ak-im-session-avatar', item && item.avatar_url, displayName, displayName + '头像');
+            return this.ctx.buildAvatarBoxMarkup('ak-im-session-avatar', item, displayName, displayName + '头像');
         },
 
         getSessionSubtitle(item) {

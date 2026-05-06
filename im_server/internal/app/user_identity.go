@@ -9,6 +9,9 @@ import (
 type userIdentityItem struct {
 	Username    string
 	DisplayName string
+	AvatarKind  string
+	AvatarStyle string
+	AvatarSeed  string
 	AvatarURL   string
 	HonorName   string
 }
@@ -94,10 +97,14 @@ func (a *App) buildUserIdentityItems(ctx context.Context, usernames []string) ma
 		if _, hidden := hideHonorSet[username]; hidden {
 			honorName = ""
 		}
+		avatar := a.getUserAvatarDescriptor(ctx, username)
 		result[username] = userIdentityItem{
 			Username:    username,
 			DisplayName: a.fetchDisplayName(ctx, username),
-			AvatarURL:   a.getUserAvatarURL(ctx, username),
+			AvatarKind:  avatar.Kind,
+			AvatarStyle: avatar.Style,
+			AvatarSeed:  avatar.Seed,
+			AvatarURL:   avatar.URL,
 			HonorName:   honorName,
 		}
 	}
@@ -113,10 +120,14 @@ func (a *App) buildUserIdentityItem(ctx context.Context, username string) userId
 	if item, ok := items[normalizedUsername]; ok {
 		return item
 	}
+	avatar := a.getUserAvatarDescriptor(ctx, normalizedUsername)
 	return userIdentityItem{
 		Username:    normalizedUsername,
 		DisplayName: a.fetchDisplayName(ctx, normalizedUsername),
-		AvatarURL:   a.getUserAvatarURL(ctx, normalizedUsername),
+		AvatarKind:  avatar.Kind,
+		AvatarStyle: avatar.Style,
+		AvatarSeed:  avatar.Seed,
+		AvatarURL:   avatar.URL,
 		HonorName:   "",
 	}
 }
@@ -125,6 +136,9 @@ func buildSessionMemberItemFromIdentity(identity userIdentityItem, role string) 
 	return SessionMemberItem{
 		Username:    identity.Username,
 		DisplayName: identity.DisplayName,
+		AvatarKind:  identity.AvatarKind,
+		AvatarStyle: identity.AvatarStyle,
+		AvatarSeed:  identity.AvatarSeed,
 		AvatarURL:   identity.AvatarURL,
 		HonorName:   identity.HonorName,
 		Role:        role,
@@ -143,6 +157,9 @@ func buildContactItemFromIdentity(identity userIdentityItem) ContactItem {
 	return ContactItem{
 		Username:    identity.Username,
 		DisplayName: identity.DisplayName,
+		AvatarKind:  identity.AvatarKind,
+		AvatarStyle: identity.AvatarStyle,
+		AvatarSeed:  identity.AvatarSeed,
 		AvatarURL:   identity.AvatarURL,
 		HonorName:   identity.HonorName,
 	}

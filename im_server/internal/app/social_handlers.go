@@ -20,6 +20,9 @@ func convertSocialContactItem(item socialsvc.ContactItem) ContactItem {
 		Username:             item.Username,
 		DisplayName:          item.DisplayName,
 		HonorName:            item.HonorName,
+		AvatarKind:           item.AvatarKind,
+		AvatarStyle:          item.AvatarStyle,
+		AvatarSeed:           item.AvatarSeed,
 		AvatarURL:            item.AvatarURL,
 		Source:               item.Source,
 		IsContact:            item.IsContact,
@@ -45,11 +48,15 @@ func (a *App) buildSocialIdentityItems(ctx context.Context, usernames []string) 
 	for _, username := range normalizeUsernames(usernames) {
 		identity, ok := identities[username]
 		if !ok {
+			avatar := a.getUserAvatarDescriptor(ctx, username)
 			result[username] = socialsvc.IdentityItem{
 				Username:    username,
 				DisplayName: a.fetchDisplayName(ctx, username),
 				HonorName:   "",
-				AvatarURL:   a.getUserAvatarURL(ctx, username),
+				AvatarKind:  avatar.Kind,
+				AvatarStyle: avatar.Style,
+				AvatarSeed:  avatar.Seed,
+				AvatarURL:   avatar.URL,
 			}
 			continue
 		}
@@ -61,6 +68,9 @@ func (a *App) buildSocialIdentityItems(ctx context.Context, usernames []string) 
 			Username:    username,
 			DisplayName: displayName,
 			HonorName:   strings.TrimSpace(identity.HonorName),
+			AvatarKind:  strings.TrimSpace(identity.AvatarKind),
+			AvatarStyle: strings.TrimSpace(identity.AvatarStyle),
+			AvatarSeed:  strings.TrimSpace(identity.AvatarSeed),
 			AvatarURL:   strings.TrimSpace(identity.AvatarURL),
 		}
 	}

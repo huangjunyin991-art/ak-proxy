@@ -203,7 +203,7 @@
             this.getFilteredMembers().forEach(function(member) {
                 const username = String(member && member.username || '').trim().toLowerCase();
                 const displayName = this.getDisplayName(member) || username;
-                const avatarUrl = this.getAvatarUrl(member && member.avatar_url);
+                const avatarUrl = this.getAvatarUrl(member);
                 const avatar = avatarUrl ? '<img class="ak-im-mention-avatar" src="' + this.escapeHtml(avatarUrl) + '" alt="">' : '<span class="ak-im-mention-avatar">' + this.escapeHtml(displayName.slice(0, 1) || '@') + '</span>';
                 parts.push('<button class="ak-im-mention-item" type="button" data-im-mention-username="' + this.escapeHtml(username) + '">' + avatar + '<span class="ak-im-mention-main"><span class="ak-im-mention-name">' + this.escapeHtml(displayName) + '</span><span class="ak-im-mention-sub">' + this.escapeHtml(username) + '</span></span></button>');
             }.bind(this));

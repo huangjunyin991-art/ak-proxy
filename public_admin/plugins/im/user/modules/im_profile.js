@@ -23,8 +23,8 @@
 
          isCurrentProfileAvatarHistoryItem(item) {
              const state = this.ctx.state;
-             const currentAvatarUrl = this.ctx.getAvatarUrl(state.profile && state.profile.avatar_url);
-             const historyAvatarUrl = this.ctx.getAvatarUrl(item && item.avatar_url);
+             const currentAvatarUrl = this.ctx.getAvatarUrl(state.profile);
+             const historyAvatarUrl = this.ctx.getAvatarUrl(item);
              return !!currentAvatarUrl && !!historyAvatarUrl && currentAvatarUrl === historyAvatarUrl;
          },
 
@@ -51,7 +51,7 @@
                  '<button class="ak-im-profile-history-remove" type="button" data-im-profile-avatar-remove="' + historyId + '"' + (isBusy || !hasHistoryId ? ' disabled' : '') + '><span class="ak-im-profile-history-remove-mark">' + removeLabel + '</span></button>' +
                  '<button class="ak-im-profile-history-favorite' + (isFavorite ? ' is-active' : '') + '" type="button" data-im-profile-avatar-favorite="' + historyId + '" data-im-profile-avatar-next-favorite="' + (isFavorite ? '0' : '1') + '"' + (isBusy || !hasHistoryId ? ' disabled' : '') + '>' + (favoriting ? '…' : '★') + '</button>' +
                  '<button class="ak-im-profile-history-card" type="button" data-im-profile-avatar-select="' + historyId + '"' + (isBusy || isCurrent || !hasHistoryId ? ' disabled' : '') + '>' +
-                     this.ctx.buildAvatarBoxMarkup('ak-im-profile-history-avatar', item && item.avatar_url, displayName || username || '我', '历史头像') +
+                     this.ctx.buildAvatarBoxMarkup('ak-im-profile-history-avatar', item, displayName || username || '我', '历史头像') +
                      '<div class="ak-im-profile-history-time">' + this.ctx.escapeHtml(historyTime) + '</div>' +
                      '<div class="ak-im-profile-history-hint">' + this.ctx.escapeHtml(selectHint) + '</div>' +
                  '</button>' +
@@ -144,7 +144,7 @@
                 (state.profileAvatarActionError ? '<div class="ak-im-profile-error">' + this.ctx.escapeHtml(state.profileAvatarActionError) + '</div>' : '') +
                 '<div class="ak-im-profile-panel">' +
                     '<div class="ak-im-profile-head">' +
-                        this.ctx.buildAvatarBoxMarkup('ak-im-profile-avatar', profile && profile.avatar_url, displayName || username || '我', (displayName || username || '我') + '头像') +
+                        this.ctx.buildAvatarBoxMarkup('ak-im-profile-avatar', profile, displayName || username || '我', (displayName || username || '我') + '头像') +
                         '<div class="ak-im-profile-name">' + (typeof this.ctx.buildDisplayNameWithHonorMarkup === 'function' ? this.ctx.buildDisplayNameWithHonorMarkup(displayName || '我', honorName, '我') : this.ctx.escapeHtml(displayName || '我')) + '</div>' +
                         '<div class="ak-im-profile-username">@' + this.ctx.escapeHtml(username || 'unknown') + '</div>' +
                     '</div>' +
@@ -281,7 +281,7 @@
              container.innerHTML = (state.profileSettingsError ? '<div class="ak-im-profile-error">' + this.ctx.escapeHtml(state.profileSettingsError) + '</div>' : '') +
              '<div class="ak-im-profile-panel">' +
                  '<div class="ak-im-profile-head">' +
-                     this.ctx.buildAvatarBoxMarkup('ak-im-profile-avatar', profile && profile.avatar_url, displayName || username || '我', (displayName || username || '我') + '头像') +
+                     this.ctx.buildAvatarBoxMarkup('ak-im-profile-avatar', profile, displayName || username || '我', (displayName || username || '我') + '头像') +
                      '<div class="ak-im-profile-name">' + (typeof this.ctx.buildDisplayNameWithHonorMarkup === 'function' ? this.ctx.buildDisplayNameWithHonorMarkup(displayName || '我', honorName, '我') : this.ctx.escapeHtml(displayName || '我')) + '</div>' +
                      '<div class="ak-im-profile-username">@' + this.ctx.escapeHtml(username || 'unknown') + '</div>' +
                  '</div>' +
