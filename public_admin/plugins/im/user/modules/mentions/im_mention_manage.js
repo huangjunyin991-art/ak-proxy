@@ -63,10 +63,14 @@
             return this.isGroupSession() && (role === 'owner' || role === 'admin');
         },
 
+        hasAllMentionText(text) {
+            return /(^|[\s，,。.!！?？；;：:、])@全体成员(?=$|[\s，,。.!！?？；;：:、])/.test(String(text || ''));
+        },
+
         escapeHtml(value) {
             if (this.ctx && typeof this.ctx.escapeHtml === 'function') return this.ctx.escapeHtml(value);
-            return String(value == null ? '' : value).replace(/[&<>'"]/g, function(ch) {
-                return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' })[ch] || ch;
+            return String(value == null ? '' : '').replace(/[&<>'"]/g, function(ch) {
+                return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"' : '&quot;' })[ch] || ch;
             });
         },
 
@@ -347,7 +351,7 @@
                 }
             });
             if (usernames.length) payload.mention_usernames = usernames;
-            if (mentionState.mentionAll && text.indexOf('@' + ALL_LABEL) >= 0 && this.canMentionAll()) payload.mention_all = true;
+            if ((mentionState.mentionAll || this.hasAllMentionText(text)) && this.canMentionAll()) payload.mention_all = true;
             return payload;
         }
     };
