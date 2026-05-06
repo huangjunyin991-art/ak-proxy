@@ -24,30 +24,40 @@ const (
 	defaultScanInterval           = 5 * time.Second
 	defaultBatchSize              = 8
 	defaultPreviewEdge            = 1920
+	defaultBackfillPreviewEdge    = 1280
+	defaultBackfillEnqueueLimit   = 4
+	defaultBackfillMinFileSize    = 128 * 1024
 	defaultPreviewGenerateTimeout = 3 * time.Minute
 )
 
 type Worker struct {
-	db             *pgxpool.Pool
-	tasks          *taskstore.Store
-	guard          *loadguard.Guard
-	generator      preview.VipsGenerator
-	imageStoreDir  string
-	scanInterval   time.Duration
-	batchSize      int
-	previewLongEdge int
+	db                      *pgxpool.Pool
+	tasks                   *taskstore.Store
+	guard                   *loadguard.Guard
+	generator               preview.VipsGenerator
+	backfillGenerator       preview.VipsGenerator
+	imageStoreDir           string
+	scanInterval            time.Duration
+	batchSize               int
+	previewLongEdge         int
+	backfillPreviewLongEdge int
+	backfillEnqueueLimit    int
+	backfillMinFileSize     int
 }
 
 type Config struct {
-	DatabaseURL            string
-	ImageStoreDir          string
-	ScanInterval           time.Duration
-	BatchSize              int
-	PreviewLongEdge        int
-	ReserveCPUPercent      int
-	MemoryHighWaterPercent int
-	MinAvailableMemoryMB   int
-	MaxConcurrency         int
+	DatabaseURL             string
+	ImageStoreDir           string
+	ScanInterval            time.Duration
+	BatchSize               int
+	PreviewLongEdge         int
+	BackfillPreviewLongEdge int
+	BackfillEnqueueLimit    int
+	BackfillMinFileSize     int
+	ReserveCPUPercent       int
+	MemoryHighWaterPercent  int
+	MinAvailableMemoryMB    int
+	MaxConcurrency          int
 }
 
 type imageTask struct {
@@ -55,6 +65,7 @@ type imageTask struct {
 	ConversationID int64
 	Payload        imagePayload
 	TaskID         int64
+	MediaKind      string
 }
 
 type imagePayload struct {
@@ -77,12 +88,15 @@ func NewWorker(ctx context.Context, cfg Config) (*Worker, error) {
 		return nil, err
 	}
 	worker := &Worker{
-		db:              pool,
-		tasks:           taskstore.New(pool),
-		imageStoreDir:   strings.TrimSpace(cfg.ImageStoreDir),
-		scanInterval:    cfg.ScanInterval,
-		batchSize:       cfg.BatchSize,
-		previewLongEdge: cfg.PreviewLongEdge,
+		db:                      pool,
+		tasks:                   taskstore.New(pool),
+		imageStoreDir:           strings.TrimSpace(cfg.ImageStoreDir),
+		scanInterval:            cfg.ScanInterval,
+		batchSize:               cfg.BatchSize,
+		previewLongEdge:         cfg.PreviewLongEdge,
+		backfillPreviewLongEdge: cfg.BackfillPreviewLongEdge,
+		backfillEnqueueLimit:    cfg.BackfillEnqueueLimit,
+		backfillMinFileSize:     cfg.BackfillMinFileSize,
 	}
 	if worker.scanInterval <= 0 {
 		worker.scanInterval = defaultScanInterval
@@ -93,10 +107,20 @@ func NewWorker(ctx context.Context, cfg Config) (*Worker, error) {
 	if worker.previewLongEdge <= 0 {
 		worker.previewLongEdge = defaultPreviewEdge
 	}
+	if worker.backfillPreviewLongEdge <= 0 {
+		worker.backfillPreviewLongEdge = defaultBackfillPreviewEdge
+	}
+	if worker.backfillEnqueueLimit <= 0 {
+		worker.backfillEnqueueLimit = defaultBackfillEnqueueLimit
+	}
+	if worker.backfillMinFileSize <= 0 {
+		worker.backfillMinFileSize = defaultBackfillMinFileSize
+	}
 	if worker.imageStoreDir == "" {
 		worker.imageStoreDir = "./data/im/image_assets"
 	}
 	worker.generator = preview.VipsGenerator{LongEdge: worker.previewLongEdge}
+	worker.backfillGenerator = preview.VipsGenerator{LongEdge: worker.backfillPreviewLongEdge}
 	worker.guard = loadguard.New(loadguard.Config{
 		ReserveCPUPercent:      cfg.ReserveCPUPercent,
 		MemoryHighWaterPercent: cfg.MemoryHighWaterPercent,
@@ -166,11 +190,18 @@ func (w *Worker) processOnce(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		if legacyHandled <= 0 {
+		if legacyHandled > 0 {
+			handled += legacyHandled
+			releaseWorkerMemory()
+			continue
+		}
+		enqueued, err := w.enqueueBackfillPreviewTasks(ctx)
+		if err != nil {
+			return err
+		}
+		if enqueued <= 0 {
 			return nil
 		}
-		handled += legacyHandled
-		releaseWorkerMemory()
 	}
 	return nil
 }
@@ -190,13 +221,14 @@ func (w *Worker) processTaskStoreTasks(ctx context.Context, limit int) (int, err
 			_ = w.tasks.MarkFailed(ctx, task.ID, "invalid media preview task")
 			continue
 		}
-		imageTask, err := w.loadMessageTask(ctx, task.MessageID)
+		imageTask, err := w.loadMessageTask(ctx, task.MessageID, task.MediaKind)
 		if err != nil {
 			log.Printf("media worker load task failed: task_id=%d message_id=%d err=%v", task.ID, task.MessageID, err)
 			_ = w.tasks.MarkFailed(ctx, task.ID, err.Error())
 			continue
 		}
 		imageTask.TaskID = task.ID
+		imageTask.MediaKind = task.MediaKind
 		if strings.TrimSpace(imageTask.Payload.OriginalStorageName) == "" {
 			imageTask.Payload.OriginalStorageName = task.SourceStorageName
 		}
@@ -233,11 +265,18 @@ func (w *Worker) processLegacyPendingMessages(ctx context.Context, limit int) (i
 	return handled, nil
 }
 
+func (w *Worker) enqueueBackfillPreviewTasks(ctx context.Context) (int64, error) {
+	if w == nil || w.tasks == nil || w.backfillEnqueueLimit <= 0 {
+		return 0, nil
+	}
+	return w.tasks.EnqueueImageBackfillPreviewTasks(ctx, w.backfillEnqueueLimit, w.backfillMinFileSize)
+}
+
 func releaseWorkerMemory() {
 	debug.FreeOSMemory()
 }
 
-func (w *Worker) loadMessageTask(ctx context.Context, messageID int64) (imageTask, error) {
+func (w *Worker) loadMessageTask(ctx context.Context, messageID int64, mediaKind string) (imageTask, error) {
 	var task imageTask
 	var rawPayload string
 	if err := w.db.QueryRow(ctx, `
@@ -252,8 +291,9 @@ func (w *Worker) loadMessageTask(ctx context.Context, messageID int64) (imageTas
 	if err := json.Unmarshal([]byte(strings.TrimSpace(rawPayload)), &task.Payload); err != nil {
 		return imageTask{}, err
 	}
-	if !isHEICMimeType(task.Payload.MimeType) {
-		return imageTask{}, errors.New("media preview task is not heic")
+	task.MediaKind = strings.TrimSpace(mediaKind)
+	if !canProcessPreviewTaskMime(task.MediaKind, task.Payload.MimeType) {
+		return imageTask{}, errors.New("unsupported media preview task mime type")
 	}
 	return task, nil
 }
@@ -297,6 +337,7 @@ func (w *Worker) loadPendingTasks(ctx context.Context, limit int) ([]imageTask, 
 		if !ensureImageStorageName(task.Payload.StorageName) {
 			continue
 		}
+		task.MediaKind = taskstore.KindImageHEICPreview
 		tasks = append(tasks, task)
 	}
 	return tasks, rows.Err()
@@ -314,6 +355,7 @@ func (w *Worker) processTask(ctx context.Context, task imageTask) (string, error
 	if _, err := os.Stat(sourcePath); err != nil {
 		return "", err
 	}
+	generator := w.generatorForTask(task)
 	previewName, err := generateStorageName(".jpg")
 	if err != nil {
 		return "", err
@@ -323,7 +365,7 @@ func (w *Worker) processTask(ctx context.Context, task imageTask) (string, error
 	_ = os.Remove(tempPath)
 	generateCtx, cancel := context.WithTimeout(ctx, defaultPreviewGenerateTimeout)
 	defer cancel()
-	if err := w.generator.Generate(generateCtx, sourcePath, tempPath); err != nil {
+	if err := generator.Generate(generateCtx, sourcePath, tempPath); err != nil {
 		_ = os.Remove(tempPath)
 		return "", err
 	}
@@ -413,6 +455,33 @@ func isHEICMimeType(value string) bool {
 	default:
 		return false
 	}
+}
+
+func isBackfillPreviewMimeType(value string) bool {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "image/jpeg", "image/png", "image/webp":
+		return true
+	default:
+		return false
+	}
+}
+
+func canProcessPreviewTaskMime(mediaKind string, mimeType string) bool {
+	switch strings.TrimSpace(mediaKind) {
+	case taskstore.KindImageHEICPreview:
+		return isHEICMimeType(mimeType)
+	case taskstore.KindImageBackfillPreview:
+		return isBackfillPreviewMimeType(mimeType)
+	default:
+		return false
+	}
+}
+
+func (w *Worker) generatorForTask(task imageTask) preview.VipsGenerator {
+	if strings.TrimSpace(task.MediaKind) == taskstore.KindImageBackfillPreview {
+		return w.backfillGenerator
+	}
+	return w.generator
 }
 
 func ensureAttachmentStorageName(storageName string) bool {

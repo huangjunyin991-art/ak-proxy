@@ -12,7 +12,8 @@ import (
 )
 
 const (
-	KindImageHEICPreview = "image_heic_preview"
+	KindImageHEICPreview     = "image_heic_preview"
+	KindImageBackfillPreview = "image_backfill_preview"
 
 	StatusReserved   = "reserved"
 	StatusPending    = "pending"
@@ -70,9 +71,12 @@ func (s *Store) EnsureSchema(ctx context.Context) error {
 			created_at TIMESTAMP NOT NULL DEFAULT NOW(),
 			updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
 			completed_at TIMESTAMP,
-			CHECK (media_kind IN ('image_heic_preview')),
+			CHECK (media_kind IN ('image_heic_preview', 'image_backfill_preview')),
 			CHECK (status IN ('reserved', 'pending', 'processing', 'ready', 'failed'))
 		)`,
+		`ALTER TABLE im_media_preview_task DROP CONSTRAINT IF EXISTS im_media_preview_task_media_kind_check`,
+		`ALTER TABLE im_media_preview_task ADD CONSTRAINT im_media_preview_task_media_kind_check
+			CHECK (media_kind IN ('image_heic_preview', 'image_backfill_preview'))`,
 		`CREATE UNIQUE INDEX IF NOT EXISTS idx_im_media_preview_task_user_active
 			ON im_media_preview_task(sender_username, media_kind)
 			WHERE status IN ('reserved', 'pending', 'processing')`,
@@ -160,20 +164,20 @@ func (s *Store) ClaimPendingTasks(ctx context.Context, limit int) ([]Task, error
 		WITH claimed AS (
 			SELECT id
 			FROM im_media_preview_task
-			WHERE media_kind = $1 AND status = $2
+			WHERE media_kind IN ($1, $2) AND status = $3
 			ORDER BY id ASC
-			LIMIT $3
+			LIMIT $4
 			FOR UPDATE SKIP LOCKED
 		)
 		UPDATE im_media_preview_task t
-		SET status = $4,
+		SET status = $5,
 			attempt_count = attempt_count + 1,
 			locked_at = NOW(),
 			updated_at = NOW()
 		FROM claimed
 		WHERE t.id = claimed.id
 		RETURNING t.id, COALESCE(t.message_id, 0), t.conversation_id, t.sender_username, t.media_kind, t.source_storage_name, t.preview_storage_name, t.status, t.attempt_count, t.error_message, COALESCE(t.locked_at, 'epoch'::timestamp), t.created_at, t.updated_at, COALESCE(t.completed_at, 'epoch'::timestamp)`,
-		KindImageHEICPreview, StatusPending, limit, StatusProcessing)
+		KindImageHEICPreview, KindImageBackfillPreview, StatusPending, limit, StatusProcessing)
 	if err != nil {
 		return nil, err
 	}
@@ -187,6 +191,96 @@ func (s *Store) ClaimPendingTasks(ctx context.Context, limit int) ([]Task, error
 		tasks = append(tasks, task)
 	}
 	return tasks, rows.Err()
+}
+
+func (s *Store) EnqueueImageBackfillPreviewTasks(ctx context.Context, limit int, minFileSize int) (int64, error) {
+	if s == nil || s.db == nil || limit <= 0 {
+		return 0, nil
+	}
+	if err := s.expireStaleBackfillPreviewTasks(ctx); err != nil {
+		return 0, err
+	}
+	if minFileSize < 0 {
+		minFileSize = 0
+	}
+	commandTag, err := s.db.Exec(ctx, `
+		INSERT INTO im_media_preview_task (message_id, conversation_id, sender_username, media_kind, source_storage_name, status)
+		SELECT DISTINCT ON (LOWER(TRIM(m.sender_username)))
+			m.id,
+			m.conversation_id,
+			LOWER(TRIM(m.sender_username)),
+			$1,
+			COALESCE(NULLIF(m.content_payload::jsonb ->> 'original_storage_name', ''), m.content_payload::jsonb ->> 'storage_name'),
+			$2
+		FROM im_message m
+		WHERE m.message_type = 'image'
+			AND m.status = 'normal'
+			AND m.deleted_at IS NULL
+			AND COALESCE(NULLIF(m.content_payload::jsonb ->> 'file_size', '')::int, 0) >= $3
+			AND COALESCE(m.content_payload::jsonb ->> 'preview_storage_name', '') = ''
+			AND COALESCE(m.content_payload::jsonb ->> 'preview_url', '') = ''
+			AND COALESCE(m.content_payload::jsonb ->> 'preview_status', '') NOT IN ('pending', 'processing', 'ready')
+			AND m.content_payload::jsonb ->> 'mime_type' IN ('image/jpeg', 'image/png', 'image/webp')
+			AND COALESCE(NULLIF(m.content_payload::jsonb ->> 'original_storage_name', ''), m.content_payload::jsonb ->> 'storage_name') <> ''
+			AND NOT EXISTS (
+				SELECT 1
+				FROM im_media_preview_task t
+				WHERE t.message_id = m.id
+					AND t.media_kind = $1
+					AND t.status IN ('pending', 'processing', 'ready', 'failed')
+			)
+			AND NOT EXISTS (
+				SELECT 1
+				FROM im_media_preview_task t
+				WHERE t.sender_username = LOWER(TRIM(m.sender_username))
+					AND t.media_kind = $1
+					AND t.status IN ('reserved', 'pending', 'processing')
+			)
+		ORDER BY LOWER(TRIM(m.sender_username)), m.id ASC
+		LIMIT $4`, KindImageBackfillPreview, StatusPending, minFileSize, limit)
+	if err != nil {
+		return 0, err
+	}
+	return commandTag.RowsAffected(), nil
+}
+
+func (s *Store) expireStaleBackfillPreviewTasks(ctx context.Context) error {
+	if s == nil || s.db == nil {
+		return nil
+	}
+	_, err := s.db.Exec(ctx, `
+		WITH expired AS (
+			UPDATE im_media_preview_task
+			SET status = $1,
+				error_message = $2,
+				updated_at = NOW(),
+				completed_at = NOW()
+			WHERE media_kind = $3
+				AND status IN ($4, $5)
+				AND updated_at < $6
+			RETURNING message_id, source_storage_name
+		)
+		UPDATE im_message m
+		SET content_payload = jsonb_set(
+				jsonb_set(
+					jsonb_set(m.content_payload::jsonb, '{preview_status}', '"failed"', true),
+					'{original_url}', to_jsonb('/im/assets/image/' || expired.source_storage_name), true
+				),
+				'{file_url}', to_jsonb('/im/assets/image/' || expired.source_storage_name), true
+			)::text,
+			updated_at = NOW()
+		FROM expired
+		WHERE m.id = expired.message_id
+			AND m.message_type = 'image'
+			AND m.status = 'normal'`,
+		StatusFailed,
+		"media backfill preview task expired",
+		KindImageBackfillPreview,
+		StatusPending,
+		StatusProcessing,
+		time.Now().Add(-activeTaskExpireAfter),
+	)
+	return err
 }
 
 func (s *Store) MarkReady(ctx context.Context, taskID int64, previewStorageName string) error {
