@@ -64,7 +64,7 @@
         },
 
         hasAllMentionText(text) {
-            const value = String(text || '');
+            const value = String(text || '').replace(/＠/g, '@').replace(/[\u200b\u200c\u200d\ufeff]/g, '').trim();
             return value.indexOf('@全体成员') >= 0 || value.indexOf('@所有人') >= 0;
         },
 

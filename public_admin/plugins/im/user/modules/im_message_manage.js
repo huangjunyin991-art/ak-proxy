@@ -316,11 +316,48 @@
             return String(fallbackText || '').trim();
         },
 
+        normalizeMentionText(text) {
+            return String(text || '').replace(/＠/g, '@').replace(/[\u200b\u200c\u200d\ufeff]/g, '').trim();
+        },
+
+        textMentionsAll(item) {
+            if (!item || String(item.message_type || '').trim().toLowerCase() !== 'text') return false;
+            const content = this.normalizeMentionText(item.content);
+            return content.indexOf('@全体成员') >= 0 || content.indexOf('@所有人') >= 0;
+        },
+
+        senderCanMentionAll(item) {
+            const state = this.getState();
+            const activeSession = this.getActiveSession();
+            const senderUsername = String(item && item.sender_username || '').trim().toLowerCase();
+            if (!state || !activeSession || !senderUsername || !this.isGroupSession(activeSession)) return false;
+            if (senderUsername === String(activeSession.owner_username || '').trim().toLowerCase()) return true;
+            if (senderUsername === String(state.username || '').trim().toLowerCase()) {
+                const myRole = String(activeSession.my_role || '').trim().toLowerCase();
+                if (myRole === 'owner' || myRole === 'admin') return true;
+            }
+            return (Array.isArray(activeSession.members_preview) ? activeSession.members_preview : []).some(function(member) {
+                const username = String(member && member.username || '').trim().toLowerCase();
+                const role = String(member && member.role || '').trim().toLowerCase();
+                return username === senderUsername && (role === 'owner' || role === 'admin');
+            });
+        },
+
+        shouldShowMentionAllBadge(item) {
+            return !!(item && (item.mention_all || (this.textMentionsAll(item) && this.senderCanMentionAll(item))));
+        },
+
         buildMentionBadgeMarkup(item) {
             const state = this.getState();
-            if (!state || !item || String(item.sender_username || '') === String(state.username || '')) return '';
+            if (!state || !item) return '';
             const parts = [];
-            if (item.mention_all) parts.push('@全体');
+            if (this.shouldShowMentionAllBadge(item)) parts.push('@全体');
+            if (String(item.sender_username || '') === String(state.username || '')) {
+                if (!parts.length) return '';
+                return '<div class="ak-im-mention-badges">' + parts.map(function(label) {
+                    return '<span class="ak-im-mention-badge">' + this.ctx.escapeHtml(label) + '</span>';
+                }.bind(this)).join('') + '</div>';
+            }
             const currentUsername = String(state.username || '').trim().toLowerCase();
             const mentionUsernames = Array.isArray(item.mention_usernames) ? item.mention_usernames : [];
             const mentionedMe = mentionUsernames.some(function(username) {

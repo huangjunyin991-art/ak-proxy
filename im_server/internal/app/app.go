@@ -1793,6 +1793,7 @@ func (a *App) handleListMessages(w http.ResponseWriter, r *http.Request, usernam
 			items[left], items[right] = items[right], items[left]
 		}
 	}
+	a.ensureTextMentionAllRows(r.Context(), items)
 	a.populateMessageMentions(r.Context(), items)
 	members, err := a.listConversationMembers(r.Context(), conversationIDValue)
 	if err == nil {
@@ -2086,12 +2087,20 @@ func reqMentionsAll(req sendMessageRequest) bool {
 	if req.MentionAll {
 		return true
 	}
-	messageType := strings.TrimSpace(strings.ToLower(req.MessageType))
-	if messageType == "" {
-		messageType = "text"
+	return textMentionsAll(req.MessageType, req.Content)
+}
+
+func textMentionsAll(messageType string, content string) bool {
+	normalizedType := strings.TrimSpace(strings.ToLower(messageType))
+	if normalizedType == "" {
+		normalizedType = "text"
 	}
-	content := strings.TrimSpace(req.Content)
-	return messageType == "text" && (strings.Contains(content, "@全体成员") || strings.Contains(content, "@所有人"))
+	normalizedContent := normalizeMentionText(content)
+	return normalizedType == "text" && (strings.Contains(normalizedContent, "@全体成员") || strings.Contains(normalizedContent, "@所有人"))
+}
+
+func normalizeMentionText(content string) string {
+	return strings.TrimSpace(strings.NewReplacer("＠", "@", "\u200b", "", "\u200c", "", "\u200d", "", "\ufeff", "").Replace(content))
 }
 
 func (a *App) canSendMentionAllTx(ctx context.Context, tx pgx.Tx, conversationID int64, username string) (bool, error) {
@@ -2118,11 +2127,53 @@ func (a *App) canSendMentionAllTx(ctx context.Context, tx pgx.Tx, conversationID
 	if err := tx.QueryRow(ctx, `
 		SELECT EXISTS(
 			SELECT 1 FROM im_conversation_admin
-			WHERE conversation_id = $1 AND username = $2 AND revoked_at IS NULL
+			WHERE conversation_id = $1 AND LOWER(username) = $2 AND revoked_at IS NULL
 		)`, conversationID, normalizedUsername).Scan(&isAdmin); err != nil {
 		return false, err
 	}
 	return isAdmin, nil
+}
+
+func (a *App) canSendMentionAll(ctx context.Context, conversationID int64, username string) (bool, error) {
+	normalizedUsername := strings.ToLower(strings.TrimSpace(username))
+	if conversationID <= 0 || normalizedUsername == "" {
+		return false, nil
+	}
+	var allowed bool
+	err := a.db.QueryRow(ctx, `
+		SELECT EXISTS(
+			SELECT 1
+			FROM im_conversation c
+			WHERE c.id = $1 AND c.deleted_at IS NULL AND c.conversation_type = 'group'
+			  AND (
+				LOWER(COALESCE(c.owner_username, '')) = $2
+				OR EXISTS (
+					SELECT 1
+					FROM im_conversation_admin ca
+					WHERE ca.conversation_id = c.id AND LOWER(ca.username) = $2 AND ca.revoked_at IS NULL
+				)
+			  )
+		)`, conversationID, normalizedUsername).Scan(&allowed)
+	if err != nil {
+		return false, err
+	}
+	return allowed, nil
+}
+
+func (a *App) ensureTextMentionAllRows(ctx context.Context, items []MessageItem) {
+	for _, item := range items {
+		if item.ID <= 0 || item.ConversationID <= 0 || !textMentionsAll(item.MessageType, item.Content) {
+			continue
+		}
+		canMentionAll, err := a.canSendMentionAll(ctx, item.ConversationID, item.SenderUsername)
+		if err != nil || !canMentionAll {
+			continue
+		}
+		_, _ = a.db.Exec(ctx, `
+			INSERT INTO im_message_mention (message_id, conversation_id, mentioned_username, mention_all)
+			VALUES ($1, $2, '', TRUE)
+			ON CONFLICT DO NOTHING`, item.ID, item.ConversationID)
+	}
 }
 
 func (a *App) populateMessageMentions(ctx context.Context, items []MessageItem) {
