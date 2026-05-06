@@ -648,6 +648,12 @@
         return nextState;
     }
 
+    function buildIMHistoryAnchorState(sourceState) {
+        const nextState = sourceState && typeof sourceState === 'object' ? Object.assign({}, sourceState) : {};
+        delete nextState[IM_HISTORY_GUARD_KEY];
+        return nextState;
+    }
+
     function pushIMHistoryGuard(force) {
         if (!state.open || !state.allowed || (!force && imHistoryGuardActive)) return;
         try {
@@ -666,6 +672,13 @@
         pushIMHistoryGuard(false);
     }
 
+    function anchorIMHistoryAfterClose() {
+        try {
+            if (!window.history || typeof window.history.pushState !== 'function') return;
+            window.history.pushState(buildIMHistoryAnchorState(window.history.state), document.title, window.location.href);
+        } catch (e) {}
+    }
+
     function refreshIMHistoryGuard() {
         pushIMHistoryGuard(true);
         setTimeout(function() {
@@ -677,11 +690,6 @@
     }
 
     function handleIMHistoryPop(event) {
-        const nextState = event && event.state;
-        if (nextState && typeof nextState === 'object' && nextState[IM_HISTORY_GUARD_KEY]) {
-            imHistoryGuardActive = true;
-            return;
-        }
         if (!state.open || !state.allowed) {
             imHistoryGuardActive = false;
             return;
@@ -690,6 +698,7 @@
         imHistoryGuardActive = false;
         if (isHomeView) {
             showSessionsView({ closePanel: true });
+            anchorIMHistoryAfterClose();
             return;
         }
         showSessionsView();
