@@ -65,6 +65,11 @@
             return this.isAtBottom();
         },
 
+        shouldSuppressControls() {
+            const state = this.getState();
+            return !state || state.view !== 'chat' || !state.activeConversationId || !!state.emojiPanelOpen || !!state.plusPanelOpen;
+        },
+
         bindScrollEvents() {
             const messageList = this.getElements().messageList;
             if (!messageList || this.scrollBoundEl === messageList) return;
@@ -77,6 +82,10 @@
         onScroll() {
             const navState = this.ensureNavigationState();
             if (!navState) return;
+            if (this.shouldSuppressControls()) {
+                this.clearControls();
+                return;
+            }
             const atBottom = this.isAtBottom();
             navState.atBottom = atBottom;
             if (atBottom && navState.newMessageCount > 0) {
@@ -335,6 +344,10 @@
             const navEl = elements.navigationEl;
             const navState = this.ensureNavigationState();
             if (!navEl || !navState || !this.ctx || typeof this.ctx.escapeHtml !== 'function') return;
+            if (this.shouldSuppressControls()) {
+                this.clearControls();
+                return;
+            }
             const parts = [];
             const entryUnreadCount = Math.max(0, Number(navState.entryUnreadCount || 0) || 0);
             if (entryUnreadCount > 0 && !navState.unreadAnchorConsumed) {

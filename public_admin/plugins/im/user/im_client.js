@@ -648,8 +648,8 @@
         return nextState;
     }
 
-    function ensureIMHistoryGuard() {
-        if (!state.open || !state.allowed || imHistoryGuardActive) return;
+    function pushIMHistoryGuard(force) {
+        if (!state.open || !state.allowed || (!force && imHistoryGuardActive)) return;
         try {
             if (!window.history || typeof window.history.pushState !== 'function') return;
             const currentState = window.history.state;
@@ -660,6 +660,20 @@
             window.history.pushState(buildIMHistoryGuardState(currentState), document.title, window.location.href);
             imHistoryGuardActive = true;
         } catch (e) {}
+    }
+
+    function ensureIMHistoryGuard() {
+        pushIMHistoryGuard(false);
+    }
+
+    function refreshIMHistoryGuard() {
+        pushIMHistoryGuard(true);
+        setTimeout(function() {
+            pushIMHistoryGuard(true);
+        }, 0);
+        setTimeout(function() {
+            pushIMHistoryGuard(true);
+        }, 80);
     }
 
     function handleIMHistoryPop(event) {
@@ -679,7 +693,7 @@
             return;
         }
         showSessionsView();
-        ensureIMHistoryGuard();
+        refreshIMHistoryGuard();
     }
 
     function isHomeTopActionTab(tab) {
