@@ -8814,6 +8814,24 @@ async def im_user_plugin_mention_manage_module_js(request: Request):
     return _build_widget_script_response(request, js_path)
 
 
+@app.get("/chat/plugins/im/user/modules/message_store/im_message_store.js")
+
+async def im_user_plugin_message_store_module_js(request: Request):
+
+    js_path = os.path.join(PLUGINS_DIR, "im", "user", "modules", "message_store", "im_message_store.js")
+
+    return _build_widget_script_response(request, js_path)
+
+
+@app.get("/chat/plugins/im/user/modules/message_sync/im_message_sync.js")
+
+async def im_user_plugin_message_sync_module_js(request: Request):
+
+    js_path = os.path.join(PLUGINS_DIR, "im", "user", "modules", "message_sync", "im_message_sync.js")
+
+    return _build_widget_script_response(request, js_path)
+
+
 @app.get("/chat/plugins/im/user/modules/honor_badge/im_honor_badge.js")
 
 async def im_user_plugin_honor_badge_module_js(request: Request):
