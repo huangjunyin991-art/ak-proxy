@@ -449,7 +449,7 @@
 
         renderMessages() {
             const state = this.getState();
-            if (!state || !this.ctx || typeof this.ctx.escapeHtml !== 'function' || typeof this.ctx.formatTime !== 'function' || typeof this.ctx.buildAvatarBoxMarkup !== 'function' || typeof this.ctx.getAvatarUrl !== 'function') return;
+            if (!state || !this.ctx || typeof this.ctx.escapeHtml !== 'function' || typeof this.ctx.formatTime !== 'function' || typeof this.ctx.getTimeMinuteKey !== 'function' || typeof this.ctx.buildAvatarBoxMarkup !== 'function' || typeof this.ctx.getAvatarUrl !== 'function') return;
             const elements = this.getElements();
             const headerTitle = elements.chatTitleEl;
             const headerSubtitle = elements.chatSubtitleEl;
@@ -540,6 +540,7 @@
                 return;
             }
             const self = this;
+            let lastTimeMinuteKey = '';
             state.activeMessages.forEach(function(item) {
                 const isSelf = item.sender_username === state.username;
                 const isRecalled = String(item.status || '').toLowerCase() === 'recalled';
@@ -596,7 +597,10 @@
                     (metaText ? '<div class="ak-im-meta">' + self.ctx.escapeHtml(metaText) + '</div>' : '') +
                     progressMarkup +
                 '</div>' : '';
-                wrapper.innerHTML = '<div class="ak-im-time-divider">' + self.ctx.escapeHtml(self.ctx.formatTime(item.sent_at)) + '</div>' +
+                const timeMinuteKey = self.ctx.getTimeMinuteKey(item.sent_at);
+                const timeDividerMarkup = timeMinuteKey && timeMinuteKey !== lastTimeMinuteKey ? '<div class="ak-im-time-divider">' + self.ctx.escapeHtml(self.ctx.formatTime(item.sent_at)) + '</div>' : '';
+                if (timeMinuteKey) lastTimeMinuteKey = timeMinuteKey;
+                wrapper.innerHTML = timeDividerMarkup +
                     '<div class="ak-im-message-row ' + (isSelf ? 'ak-self' : 'ak-peer') + '">' +
                         '<div class="ak-im-avatar-wrap" data-im-message-avatar-username="' + self.ctx.escapeHtml(String(item && item.sender_username || '').trim().toLowerCase()) + '">' + self.ctx.buildAvatarBoxMarkup('ak-im-avatar', avatarUrl, avatarText, avatarText + '头像') + '</div>' +
                         '<div class="ak-im-message-main">' +

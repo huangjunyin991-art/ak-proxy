@@ -1689,6 +1689,7 @@
             syncComposerState: syncComposerState,
             escapeHtml: escapeHtml,
             formatTime: formatTime,
+            getTimeMinuteKey: getTimeMinuteKey,
             createLocalSentAt: createLocalSentAt,
             getAvatarUrl: getAvatarUrl,
             buildAvatarBoxMarkup: buildAvatarBoxMarkup,
@@ -2851,6 +2852,29 @@
             const date = parseIMTimestamp(value);
             if (isNaN(date.getTime())) return '';
             return date.toLocaleTimeString('zh-CN', { timeZone: 'Asia/Shanghai', hour: '2-digit', minute: '2-digit' });
+        } catch (e) {
+            return '';
+        }
+    }
+
+    function getTimeMinuteKey(value) {
+        if (!value) return '';
+        try {
+            const date = parseIMTimestamp(value);
+            if (isNaN(date.getTime())) return '';
+            const parts = new Intl.DateTimeFormat('en-CA', {
+                timeZone: 'Asia/Shanghai',
+                year: 'numeric',
+                month: '2-digit',
+                day: '2-digit',
+                hour: '2-digit',
+                minute: '2-digit',
+                hour12: false
+            }).formatToParts(date).reduce(function(map, part) {
+                map[part.type] = part.value;
+                return map;
+            }, {});
+            return parts.year + '-' + parts.month + '-' + parts.day + 'T' + parts.hour + ':' + parts.minute;
         } catch (e) {
             return '';
         }
