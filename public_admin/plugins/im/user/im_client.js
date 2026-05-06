@@ -3254,10 +3254,11 @@
     function getAvatarUrl(value) {
         const avatarRuntimeModule = getAvatarRuntimeModule();
         if (avatarRuntimeModule && typeof avatarRuntimeModule.resolveAvatarUrl === 'function') {
-            const resolvedUrl = avatarRuntimeModule.resolveAvatarUrl(value, { size: 128 });
-            if (resolvedUrl) return resolvedUrl;
+            return avatarRuntimeModule.resolveAvatarUrl(value, { size: 128 });
         }
         if (value && typeof value === 'object') {
+            const kind = String(value.avatar_kind || value.avatarKind || value.sender_avatar_kind || value.senderAvatarKind || '').trim().toLowerCase();
+            if (kind === 'generated' || kind === 'default' || kind === 'dicebear') return '';
             return String(value.avatar_url || value.avatarUrl || value.sender_avatar_url || value.senderAvatarUrl || value.url || '').trim();
         }
         return String(value || '').trim();

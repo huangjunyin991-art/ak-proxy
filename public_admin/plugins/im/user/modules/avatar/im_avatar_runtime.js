@@ -105,9 +105,7 @@
             const descriptor = this.normalizeDescriptor(source);
             if (!descriptor) return '';
             if (this.isGeneratedThumbsDescriptor(descriptor)) {
-                const localDataUri = this.buildLocalThumbsDataUri(descriptor.avatar_seed, options || {});
-                if (localDataUri) return localDataUri;
-                return descriptor.avatar_url || this.buildExternalThumbsUrl(descriptor.avatar_seed, options || {});
+                return this.buildLocalThumbsDataUri(descriptor.avatar_seed, options || {});
             }
             return descriptor.avatar_url || '';
         }
