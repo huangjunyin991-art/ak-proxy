@@ -486,7 +486,7 @@
                 #ak-im-root .ak-im-compose-btn-secondary{background:#e5e7eb;color:#374151}
                 #ak-im-root .ak-im-compose-btn-primary{background:#07c160;color:#ffffff}
                 #ak-im-root .ak-im-compose-btn:disabled{opacity:.42;cursor:not-allowed}
-                #ak-im-root .ak-im-system-row{align-self:center;background:rgba(0,0,0,.06);color:#6b7280;font-size:12px;line-height:1.6;padding:6px 10px;border-radius:999px;max-width:78%;text-align:center}
+                #ak-im-root .ak-im-system-row{align-self:center;width:fit-content;margin:0 auto;box-sizing:border-box;background:rgba(0,0,0,.06);color:#6b7280;font-size:12px;line-height:1.6;padding:6px 10px;border-radius:999px;max-width:78%;text-align:center}
                 #ak-im-root .ak-im-system-row a{color:#07c160;text-decoration:none;margin-left:6px;font-size:12px}
                 #ak-im-root .ak-im-system-row a:active{opacity:.7}
                 #ak-im-root .ak-im-action-sheet{display:none;position:fixed;inset:0;z-index:2147483648}
