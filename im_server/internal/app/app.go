@@ -329,6 +329,7 @@ func New(cfg config.Config) (*App, error) {
 	mux.HandleFunc("/im/api/sessions/all_mute/update", app.handleGroupAllMuteUpdate)
 	mux.HandleFunc("/im/api/sessions/members/add", app.handleSessionMembersAdd)
 	mux.HandleFunc("/im/api/sessions/members/remove", app.handleSessionMembersRemove)
+	mux.HandleFunc("/im/api/sessions/members/leave", app.handleSessionMemberLeave)
 	mux.HandleFunc("/im/api/sessions/members/mute", app.handleSessionMemberMute)
 	mux.HandleFunc("/im/api/sessions/members/unmute", app.handleSessionMemberUnmute)
 	mux.HandleFunc("/im/api/sessions/history/clear", app.handleSessionHistoryClear)

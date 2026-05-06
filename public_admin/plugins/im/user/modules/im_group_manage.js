@@ -112,7 +112,7 @@
                 return {
                     title: '清空指定成员聊天记录',
                     selectedTitle: '已选择清空聊天记录成员',
-                    listTitle: '全部成员',
+                    listTitle: '全部成员与已退群成员',
                     emptyText: '当前没有可清空聊天记录的成员',
                     submitText: '确认清空',
                     submittingText: '正在清空...',
@@ -180,7 +180,7 @@
                     authorMessageCounts[username] = Math.max(0, Number(item && item.message_count || 0) || 0);
                 }
             });
-            return members.map(function(member) {
+            const activeCandidates = members.map(function(member) {
                 const username = String(member && member.username || '').trim().toLowerCase();
                 const displayName = self.getMemberDisplayName(member, '成员');
                 const role = String(member && member.role || '').trim().toLowerCase();
@@ -209,6 +209,35 @@
                     searchText: (displayName + '\n' + username + '\n' + self.getMemberHonorName(member) + '\n' + messageCountLabel).toLowerCase()
                 };
             });
+            if (mode !== 'clear_member_history') return activeCandidates;
+            const activeSet = {};
+            activeCandidates.forEach(function(candidate) {
+                if (candidate && candidate.username) activeSet[candidate.username] = true;
+            });
+            const leftCandidates = (Array.isArray(detail && detail.left_members) ? detail.left_members : []).map(function(member) {
+                const username = String(member && member.username || '').trim().toLowerCase();
+                if (!username || activeSet[username]) return null;
+                const displayName = self.getMemberDisplayName(member, '成员');
+                const messageCount = Math.max(0, Number(member && member.message_count || 0) || 0);
+                const messageCountLabel = messageCount > 0 ? (messageCount + '条聊天记录') : '';
+                const disabledReason = messageCount > 0 ? '' : '无聊天记录';
+                return {
+                    username: username,
+                    displayName: displayName,
+                    honorName: self.getMemberHonorName(member),
+                    avatarUrl: member,
+                    role: '',
+                    roleLabel: '已退群',
+                    messageCount: messageCount,
+                    messageCountLabel: messageCountLabel,
+                    disabledReason: disabledReason,
+                    selectable: !disabledReason,
+                    searchText: (displayName + '\n' + username + '\n' + self.getMemberHonorName(member) + '\n已退群\n' + messageCountLabel).toLowerCase()
+                };
+            }).filter(function(candidate) {
+                return !!(candidate && candidate.username);
+            });
+            return activeCandidates.concat(leftCandidates);
         },
 
         getActiveMemberActionDetail() {
@@ -403,6 +432,28 @@
             }, '解散本群失败');
         },
 
+        executeLeaveGroupRequest(conversationId) {
+            if (!this.ctx || !this.ctx.state || typeof this.ctx.request !== 'function') return;
+            const self = this;
+            const state = this.ctx.state;
+            this.executeSettingsDialogRequest(function() {
+                return self.ctx.request(self.ctx.httpRoot + '/sessions/members/leave', {
+                    method: 'POST',
+                    body: JSON.stringify({ conversation_id: conversationId })
+                });
+            }, function() {
+                if (typeof self.ctx.closeSettingsPanel === 'function') self.ctx.closeSettingsPanel({ silent: true });
+                if (Number(state.activeConversationId || 0) === Number(conversationId || 0)) {
+                    state.activeConversationId = 0;
+                    state.activeMessages = [];
+                    state.activeMessagesLoading = false;
+                    state.view = 'sessions';
+                }
+                if (typeof self.ctx.loadSessions === 'function') return self.ctx.loadSessions();
+                return null;
+            }, '退出群聊失败');
+        },
+
         handleDialogAction(action, payload) {
             if (action === 'member_action_submit') {
                 this.executeMemberActionRequest(payload || null);
@@ -418,6 +469,10 @@
             }
             if (action === 'dissolve_group') {
                 this.executeDissolveGroupRequest(Number(payload && payload.conversationId || 0));
+                return true;
+            }
+            if (action === 'leave_group') {
+                this.executeLeaveGroupRequest(Number(payload && payload.conversationId || 0));
                 return true;
             }
             return false;
@@ -538,6 +593,18 @@
             }
             if (action === 'all_mute') {
                 if (groupAdminsModule && typeof groupAdminsModule.toggleAllMute === 'function') groupAdminsModule.toggleAllMute(conversationId, !detail.all_muted);
+                return;
+            }
+            if (action === 'leave_group' && String(detail.my_role || '').trim().toLowerCase() !== 'owner' && !detail.is_whitelist_managed && typeof this.ctx.openDialog === 'function') {
+                this.ctx.openDialog({
+                    title: '退出群聊？',
+                    message: '退出后你将不再接收本群新消息，但历史聊天记录会保留在群内。',
+                    confirmText: '退出',
+                    cancelText: '取消',
+                    danger: true,
+                    action: 'leave_group',
+                    payload: { conversationId: conversationId }
+                });
                 return;
             }
             if (!detail.can_manage) return;
