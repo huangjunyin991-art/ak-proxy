@@ -2428,14 +2428,35 @@
         plusSheetEl.removeAttribute('inert');
     }
 
+    function shouldKeepMessageListAtBottomAfterComposerPanelChange() {
+        if (state.view !== 'chat' || !state.activeConversationId || !messageList) return false;
+        const messageNavigationModule = getMessageNavigationModule();
+        if (messageNavigationModule && typeof messageNavigationModule.isAtBottom === 'function') {
+            return messageNavigationModule.isAtBottom();
+        }
+        return Math.max(0, messageList.scrollHeight - messageList.scrollTop - messageList.clientHeight) <= 96;
+    }
+
+    function stabilizeMessageListBottomAfterComposerPanelChange(shouldKeepBottom) {
+        if (!shouldKeepBottom) return;
+        const messageNavigationModule = getMessageNavigationModule();
+        if (messageNavigationModule && typeof messageNavigationModule.forceScrollToBottom === 'function') {
+            messageNavigationModule.forceScrollToBottom(900);
+            return;
+        }
+        if (messageList) messageList.scrollTop = messageList.scrollHeight;
+    }
+
     function toggleEmojiPicker() {
         if (normalizeComposerMode(state.composerMode) === 'voice') {
             state.composerMode = 'text';
         }
+        const shouldKeepBottom = shouldKeepMessageListAtBottomAfterComposerPanelChange();
         closePlusPanel({ silent: true });
         ensureLazyModule('emoji').then(function(emojiModule) {
             if (emojiModule && typeof emojiModule.togglePicker === 'function') {
                 emojiModule.togglePicker();
+                stabilizeMessageListBottomAfterComposerPanelChange(shouldKeepBottom);
                 return;
             }
             throw new Error('表情模块暂不可用');
@@ -2446,14 +2467,19 @@
     }
 
     function closeEmojiPicker(options) {
+        const shouldKeepBottom = shouldKeepMessageListAtBottomAfterComposerPanelChange();
         const emojiModule = getEmojiModule();
         if (emojiModule && typeof emojiModule.closePicker === 'function') {
             emojiModule.closePicker(options || null);
+            if (!options || !options.silent) stabilizeMessageListBottomAfterComposerPanelChange(shouldKeepBottom);
             return;
         }
         if (!state.emojiPanelOpen) return;
         state.emojiPanelOpen = false;
-        if (!options || !options.silent) render();
+        if (!options || !options.silent) {
+            render();
+            stabilizeMessageListBottomAfterComposerPanelChange(shouldKeepBottom);
+        }
     }
 
     function togglePlusPanel() {
@@ -2461,6 +2487,7 @@
         if (normalizeComposerMode(state.composerMode) === 'voice') {
             state.composerMode = 'text';
         }
+        const shouldKeepBottom = shouldKeepMessageListAtBottomAfterComposerPanelChange();
         closeEmojiPicker({ silent: true });
         state.plusPanelOpen = !state.plusPanelOpen;
         if (state.plusPanelOpen && inputEl) {
@@ -2469,12 +2496,17 @@
             } catch (e) {}
         }
         render();
+        stabilizeMessageListBottomAfterComposerPanelChange(shouldKeepBottom);
     }
 
     function closePlusPanel(options) {
+        const shouldKeepBottom = shouldKeepMessageListAtBottomAfterComposerPanelChange();
         if (!state.plusPanelOpen) return;
         state.plusPanelOpen = false;
-        if (!options || !options.silent) render();
+        if (!options || !options.silent) {
+            render();
+            stabilizeMessageListBottomAfterComposerPanelChange(shouldKeepBottom);
+        }
     }
 
     function shouldKeepPlusPanelOpen(target) {
