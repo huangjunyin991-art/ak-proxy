@@ -1862,6 +1862,7 @@
             getMessageNavigation: getMessageNavigationModule,
             getMentionManage: getMentionManageModule,
             getGroupAdmins: getGroupAdminsModule,
+            getMessageStore: getMessageStoreModule,
             getMessageSync: getMessageSyncModule
         });
     }
@@ -5551,7 +5552,7 @@
         return Promise.resolve(null);
     }
 
-    function loadMessages(conversationId) {
+    function loadMessages(conversationId, options) {
         const targetConversationId = Number(conversationId || 0);
         if (!targetConversationId) {
             state.activeMessages = [];
@@ -5559,15 +5560,23 @@
             render();
             return Promise.resolve(null);
         }
-        const restoredPersistedMessages = applyPersistedConversationMessages(targetConversationId);
+        const forceRefresh = !!(options && options.forceRefresh);
+        const restoredPersistedMessages = forceRefresh ? false : applyPersistedConversationMessages(targetConversationId);
+        if (forceRefresh) {
+            const key = String(targetConversationId);
+            if (state.messagesByConversationId && typeof state.messagesByConversationId === 'object') {
+                delete state.messagesByConversationId[key];
+            }
+            state.activeMessages = [];
+        }
         state.activeMessagesLoading = true;
-        if (!state.activeMessages.length || restoredPersistedMessages) {
+        if (!state.activeMessages.length || restoredPersistedMessages || forceRefresh) {
             render();
         }
         return ensureChatFeatureModules().then(function() {
             const messageManageModule = getMessageManageModule();
             if (messageManageModule && typeof messageManageModule.loadMessages === 'function') {
-                return messageManageModule.loadMessages(targetConversationId);
+                return messageManageModule.loadMessages(targetConversationId, forceRefresh ? { forceRefresh: true } : null);
             }
             state.activeMessages = [];
             state.activeMessagesLoading = false;

@@ -32,6 +32,18 @@
             state.messagesByConversationId[key] = Array.isArray(messages) ? messages.slice() : [];
         },
 
+        clearCachedMessages(conversationId) {
+            const state = this.getState();
+            const key = String(Number(conversationId || 0) || 0);
+            if (state && state.messagesByConversationId && key) {
+                delete state.messagesByConversationId[key];
+            }
+            const messageStore = this.ctx && typeof this.ctx.getMessageStore === 'function' ? this.ctx.getMessageStore() : null;
+            if (messageStore && typeof messageStore.clearConversation === 'function') {
+                messageStore.clearConversation(conversationId);
+            }
+        },
+
         syncActiveMessagesCache() {
             const state = this.getState();
             const activeConversationId = Number(state && state.activeConversationId || 0);
@@ -796,7 +808,7 @@
             });
         },
 
-        loadMessages(conversationId) {
+        loadMessages(conversationId, options) {
             const state = this.getState();
             if (!state || !this.ctx || typeof this.ctx.request !== 'function' || typeof this.ctx.render !== 'function') {
                 return Promise.resolve(null);
@@ -809,6 +821,13 @@
                 return Promise.resolve(null);
             }
             const self = this;
+            const forceRefresh = !!(options && options.forceRefresh);
+            if (forceRefresh) {
+                this.clearCachedMessages(targetConversationId);
+                if (Number(state.activeConversationId || 0) === targetConversationId) {
+                    state.activeMessages = [];
+                }
+            }
             const cachedMessages = this.getCachedMessages(targetConversationId);
             if (Number(state.activeConversationId || 0) === targetConversationId && cachedMessages.length && !state.activeMessages.length) {
                 state.activeMessages = cachedMessages.slice();
@@ -836,7 +855,7 @@
                 });
             };
             const messageSync = this.getMessageSync();
-            if (messageSync && typeof messageSync.hydrateConversation === 'function') {
+            if (!forceRefresh && messageSync && typeof messageSync.hydrateConversation === 'function') {
                 return messageSync.hydrateConversation(targetConversationId).then(function(result) {
                     if (!result || !result.handled) return loadFullMessages();
                     const items = Array.isArray(result.messages) ? result.messages : [];
@@ -1309,7 +1328,9 @@
                 if (payload && Number(payload.conversation_id || 0) > 0) {
                     const updatedConversationId = Number(payload.conversation_id || 0);
                     if (updatedConversationId === Number(state.activeConversationId || 0)) {
-                        this.loadMessages(state.activeConversationId);
+                        const reason = String(payload.reason || '').trim();
+                        const forceRefreshMessages = reason === 'history_cleared' || reason === 'member_history_cleared';
+                        this.loadMessages(state.activeConversationId, forceRefreshMessages ? { forceRefresh: true } : null);
                     }
                     this.refreshMemberPanel(updatedConversationId);
                     if (state.groupSettingsOpen && Number(state.groupSettingsConversationId || 0) === updatedConversationId && typeof this.ctx.loadGroupSettings === 'function') {

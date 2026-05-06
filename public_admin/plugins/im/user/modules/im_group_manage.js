@@ -376,7 +376,9 @@
                     body: JSON.stringify(config.buildRequestBody(conversationId, usernames))
                 });
             }, function() {
-                return self.refreshAfterSettingsAction(conversationId).then(function() {
+                return self.refreshAfterSettingsAction(conversationId, {
+                    forceRefreshMessages: mode === 'clear_member_history'
+                }).then(function() {
                     if (typeof self.ctx.closeMemberActionPage === 'function') {
                         self.ctx.closeMemberActionPage({ silent: true, fallbackView: 'group_info' });
                     }
@@ -398,7 +400,7 @@
                     body: JSON.stringify({ conversation_id: conversationId })
                 });
             }, function() {
-                return self.refreshAfterSettingsAction(conversationId);
+                return self.refreshAfterSettingsAction(conversationId, { forceRefreshMessages: true });
             }, '清空本群聊天记录失败');
         },
 
@@ -562,12 +564,13 @@
             });
         },
 
-        refreshAfterSettingsAction(conversationId) {
+        refreshAfterSettingsAction(conversationId, options) {
             if (!this.ctx) return Promise.resolve(null);
             const self = this;
+            const forceRefreshMessages = !!(options && options.forceRefreshMessages);
             return Promise.resolve(typeof this.ctx.loadSessions === 'function' ? this.ctx.loadSessions() : null).then(function() {
                 if (Number(self.ctx.state && self.ctx.state.activeConversationId || 0) === Number(conversationId || 0) && typeof self.ctx.loadMessages === 'function') {
-                    return self.ctx.loadMessages(conversationId);
+                    return self.ctx.loadMessages(conversationId, forceRefreshMessages ? { forceRefresh: true } : null);
                 }
                 return null;
             }).then(function() {
@@ -595,7 +598,7 @@
                 if (groupAdminsModule && typeof groupAdminsModule.toggleAllMute === 'function') groupAdminsModule.toggleAllMute(conversationId, !detail.all_muted);
                 return;
             }
-            if (action === 'leave_group' && String(detail.my_role || '').trim().toLowerCase() !== 'owner' && !detail.is_whitelist_managed && typeof this.ctx.openDialog === 'function') {
+            if (action === 'leave_group' && String(detail.my_role || '').trim().toLowerCase() !== 'owner' && !!detail.can_leave && typeof this.ctx.openDialog === 'function') {
                 this.ctx.openDialog({
                     title: '退出群聊？',
                     message: '退出后你将不再接收本群新消息，但历史聊天记录会保留在群内。',

@@ -397,7 +397,8 @@
             const adminsAction = detail.can_manage_admins ? 'admins' : 'admins_view';
             const allMuteAction = detail.can_toggle_all_mute ? 'all_mute' : '';
             const isOwner = String(detail.my_role || '').trim().toLowerCase() === 'owner';
-            const canLeaveGroup = !isOwner && !detail.is_whitelist_managed;
+            const canLeaveGroup = !!detail.can_leave;
+            const leaveBlockReason = String(detail.leave_block_reason || '').trim();
             if (groupInfoTitleEl) groupInfoTitleEl.textContent = '聊天信息(' + memberCount + ')';
             const heroTitle = String(detail.conversation_title || '群聊');
             const heroMosaicSource = members.length ? members : (detail.owner ? [detail.owner] : []);
@@ -422,7 +423,7 @@
                     (isOwner ? groupManage.buildGroupInfoCell('解散本群', '', 'dissolve_group', 'is-danger') : '') +
                     (isOwner ? groupManage.buildGroupInfoCell('隐藏本群', '', 'hide_group', 'is-danger') : '') +
                 '</div>' : '') +
-                (canLeaveGroup ? '<div class="ak-im-group-info-section">' + groupManage.buildGroupInfoCell('退出群聊', '', 'leave_group', 'is-danger') + '</div>' : '');
+                (!isOwner && (canLeaveGroup || leaveBlockReason) ? '<div class="ak-im-group-info-section">' + (canLeaveGroup ? groupManage.buildGroupInfoCell('退出群聊', '', 'leave_group', 'is-danger') : groupManage.buildGroupInfoCell('退出群聊', leaveBlockReason)) + '</div>' : '');
             const self = this;
             Array.prototype.forEach.call(settingsPanelBodyEl.querySelectorAll('[data-im-settings-action]'), function(button) {
                 button.addEventListener('click', function() {

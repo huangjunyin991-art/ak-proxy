@@ -118,6 +118,8 @@ type SessionGroupProfileItem struct {
 	CanManageMembers   bool                `json:"can_manage_members"`
 	CanToggleAllMute   bool                `json:"can_toggle_all_mute"`
 	IsWhitelistManaged bool                `json:"is_whitelist_managed"`
+	CanLeave           bool                `json:"can_leave"`
+	LeaveBlockReason   string              `json:"leave_block_reason,omitempty"`
 	Owner              SessionMemberItem   `json:"owner"`
 	Members            []SessionMemberItem `json:"members"`
 	Admins             []SessionMemberItem `json:"admins"`
@@ -246,6 +248,54 @@ func collectRequestedUsernames(primary string, items []string) []string {
 
 func isWhitelistManagedConversation(meta conversationMeta) bool {
 	return strings.HasPrefix(strings.ToLower(strings.TrimSpace(meta.ConversationKey)), whitelistGroupKeyPrefix)
+}
+
+func (a *App) isWhitelistRuleConversationMember(ctx context.Context, meta conversationMeta, username string) (bool, error) {
+	normalizedUsername := strings.ToLower(strings.TrimSpace(username))
+	if normalizedUsername == "" || !isWhitelistManagedConversation(meta) {
+		return false, nil
+	}
+	normalizedAdminKey := extractWhitelistGroupAdminKey(meta.ConversationKey)
+	if normalizedAdminKey == "" {
+		normalizedAdminKey = strings.ToLower(strings.TrimSpace(meta.OwnerUsername))
+	}
+	if normalizedAdminKey == "" {
+		return false, nil
+	}
+	var exists bool
+	if err := a.db.QueryRow(ctx, `
+		SELECT EXISTS(
+			SELECT 1
+			FROM authorized_accounts
+			WHERE LOWER(username) = $1
+				AND LOWER(COALESCE(added_by, '')) = $2
+				AND status = 'active'
+				AND expire_time > NOW()
+		)`, normalizedUsername, normalizedAdminKey).Scan(&exists); err != nil {
+		return false, err
+	}
+	return exists, nil
+}
+
+func (a *App) resolveConversationMemberLeavePermission(ctx context.Context, meta conversationMeta, username string) (bool, string, error) {
+	normalizedUsername := strings.ToLower(strings.TrimSpace(username))
+	if normalizedUsername == "" {
+		return false, "账号无效", nil
+	}
+	if strings.EqualFold(normalizedUsername, meta.OwnerUsername) {
+		return false, "群主不可退群，请先转让群主或解散本群", nil
+	}
+	if !isWhitelistManagedConversation(meta) {
+		return true, "", nil
+	}
+	isRuleMember, err := a.isWhitelistRuleConversationMember(ctx, meta, normalizedUsername)
+	if err != nil {
+		return false, "", err
+	}
+	if isRuleMember {
+		return false, "白名单成员不支持主动退出", nil
+	}
+	return true, "", nil
 }
 
 func extractWhitelistGroupAdminKey(conversationKey string) string {
@@ -579,6 +629,10 @@ func (a *App) buildConversationGroupProfileItem(ctx context.Context, conversatio
 		myRole = "member"
 	}
 	canManage := forceCanManage || isGroupAdmin
+	canLeave, leaveBlockReason, err := a.resolveConversationMemberLeavePermission(ctx, meta, normalizedUsername)
+	if err != nil {
+		return SessionGroupProfileItem{}, err
+	}
 	item := SessionGroupProfileItem{
 		ConversationID:     conversationID,
 		ConversationType:   meta.ConversationType,
@@ -595,6 +649,8 @@ func (a *App) buildConversationGroupProfileItem(ctx context.Context, conversatio
 		CanManageMembers:   canManage,
 		CanToggleAllMute:   canManage,
 		IsWhitelistManaged: isWhitelistManagedConversation(meta),
+		CanLeave:           canLeave,
+		LeaveBlockReason:   leaveBlockReason,
 		Owner:             buildSessionMemberItemFromIdentity(a.buildUserIdentityItem(ctx, ownerUsername), "owner"),
 		Members: members,
 		Admins:  admins,
@@ -1352,12 +1408,16 @@ func (a *App) handleSessionMemberLeave(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	normalizedUsername := strings.ToLower(strings.TrimSpace(username))
-	if strings.EqualFold(normalizedUsername, meta.OwnerUsername) {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"error": true, "message": "群主不可退群，请先转让群主或解散本群"})
+	canLeave, leaveBlockReason, err := a.resolveConversationMemberLeavePermission(r.Context(), meta, normalizedUsername)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
 		return
 	}
-	if isWhitelistManagedConversation(meta) {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"error": true, "message": "白名单群聊不支持主动退群"})
+	if !canLeave {
+		if strings.TrimSpace(leaveBlockReason) == "" {
+			leaveBlockReason = "当前群聊不支持主动退群"
+		}
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": true, "message": leaveBlockReason})
 		return
 	}
 	tx, err := a.db.Begin(r.Context())
@@ -1370,6 +1430,14 @@ func (a *App) handleSessionMemberLeave(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
 		return
+	}
+	if isWhitelistManagedConversation(meta) {
+		if _, err := tx.Exec(r.Context(), `
+			DELETE FROM im_conversation_member_override
+			WHERE conversation_id = $1 AND username = $2 AND override_type = 'add'`, req.ConversationID, normalizedUsername); err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
+			return
+		}
 	}
 	if _, err := tx.Exec(r.Context(), `
 		UPDATE im_conversation_member
