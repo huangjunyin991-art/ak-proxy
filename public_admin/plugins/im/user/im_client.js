@@ -1926,7 +1926,7 @@
         if (!username) return [];
         try {
             if (!window.localStorage) return [];
-            const raw = window.localStorage.getItem(['ak.im.messages.v1', username, String(targetConversationId)].join(':'));
+            const raw = window.localStorage.getItem(['ak.im.messages.v2', username, String(targetConversationId)].join(':'));
             if (!raw) return [];
             const parsed = JSON.parse(raw);
             return normalizePersistedMessageItems(parsed && parsed.messages);

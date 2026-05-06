@@ -1,7 +1,7 @@
 (function(global) {
     'use strict';
 
-    const STORE_PREFIX = 'ak.im.messages.v1';
+    const STORE_PREFIX = 'ak.im.messages.v2';
     const MAX_MESSAGES_PER_CONVERSATION = 200;
 
     const messageStoreModule = {
