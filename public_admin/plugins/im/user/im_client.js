@@ -120,6 +120,8 @@
     const initialOpenRequest = getInitialOpenRequest();
     let initialOpenRequestConsumed = false;
     let imHistoryGuardActive = false;
+    let imHistoryGuardSuppressed = false;
+    let imHistoryRestoringGuard = false;
 
     const state = {
         allowed: false,
@@ -669,6 +671,7 @@
     }
 
     function ensureIMHistoryGuard() {
+        if (imHistoryGuardSuppressed) return;
         pushIMHistoryGuard(false);
     }
 
@@ -689,7 +692,29 @@
         }, 80);
     }
 
+    function restoreIMHistoryGuardPosition() {
+        let restoreRequested = false;
+        try {
+            if (window.history && typeof window.history.forward === 'function') {
+                restoreRequested = true;
+                window.history.forward();
+            }
+        } catch (e) {}
+        setTimeout(function() {
+            if (!imHistoryRestoringGuard) return;
+            imHistoryRestoringGuard = false;
+            imHistoryGuardSuppressed = false;
+            if (!restoreRequested) refreshIMHistoryGuard();
+        }, 120);
+    }
+
     function handleIMHistoryPop(event) {
+        if (imHistoryRestoringGuard) {
+            imHistoryRestoringGuard = false;
+            imHistoryGuardSuppressed = false;
+            imHistoryGuardActive = true;
+            return;
+        }
         if (!state.open || !state.allowed) {
             imHistoryGuardActive = false;
             return;
@@ -701,8 +726,10 @@
             anchorIMHistoryAfterClose();
             return;
         }
+        imHistoryGuardSuppressed = true;
+        imHistoryRestoringGuard = true;
         showSessionsView();
-        refreshIMHistoryGuard();
+        restoreIMHistoryGuardPosition();
     }
 
     function isHomeTopActionTab(tab) {
