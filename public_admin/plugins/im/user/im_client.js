@@ -5525,7 +5525,6 @@
         const sessionManageModule = getSessionManageModule();
         if (sessionManageModule && typeof sessionManageModule.loadSessions === 'function') {
             return sessionManageModule.loadSessions().then(function(result) {
-                prefetchRecentSessionMessages();
                 return result;
             });
         }
