@@ -348,6 +348,7 @@ func New(cfg config.Config) (*App, error) {
 	mux.HandleFunc("/im/internal/emoji_assets/import", app.handleInternalEmojiAssetImport)
 	mux.HandleFunc("/im/internal/emoji_assets/upload", app.handleInternalEmojiAssetUpload)
 	mux.HandleFunc("/im/assets/emoji/", app.handleEmojiAssetFile)
+	mux.HandleFunc("/im/assets/avatar/", app.handleDefaultAvatarAsset)
 	mux.HandleFunc("/im/assets/image-preview/", app.handleImagePreviewAssetFile)
 	mux.HandleFunc("/im/assets/image/", app.handleImageAssetFile)
 	mux.HandleFunc("/im/assets/file-video-poster/", app.handleFileVideoPosterAssetFile)
@@ -698,13 +699,79 @@ func buildAvatarSeed(username string, seed string) string {
 	return normalizedUsername + "::" + normalizedSeed
 }
 
-func buildDicebearAvatarURL(style string, seed string) string {
+func buildDefaultAvatarURL(style string, seed string) string {
 	normalizedStyle := normalizeAvatarStyle(style)
 	normalizedSeed := strings.TrimSpace(seed)
 	if normalizedSeed == "" {
 		normalizedSeed = "user"
 	}
-	return "https://api.dicebear.com/9.x/" + url.PathEscape(normalizedStyle) + "/svg?seed=" + url.QueryEscape(normalizedSeed) + "&size=128"
+	return "/im/assets/avatar/" + url.PathEscape(normalizedStyle) + "/" + url.PathEscape(normalizedSeed) + ".svg"
+}
+
+func defaultAvatarColor(seed string, offset int) string {
+	palette := []string{"#38bdf8", "#818cf8", "#f472b6", "#34d399", "#f59e0b", "#fb7185", "#22d3ee", "#a78bfa"}
+	total := offset
+	for _, char := range seed {
+		total = total*33 + int(char)
+	}
+	if total < 0 {
+		total = -total
+	}
+	return palette[total%len(palette)]
+}
+
+func defaultAvatarInitial(seed string) string {
+	normalizedSeed := strings.TrimSpace(seed)
+	if normalizedSeed == "" {
+		return "AK"
+	}
+	for _, char := range normalizedSeed {
+		if (char >= '0' && char <= '9') || (char >= 'A' && char <= 'Z') || (char >= 'a' && char <= 'z') || char > 127 {
+			return strings.ToUpper(string(char))
+		}
+	}
+	return "AK"
+}
+
+func escapeSVGText(value string) string {
+	return strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;", "\"", "&quot;", "'", "&#39;").Replace(value)
+}
+
+func buildDefaultAvatarSVG(style string, seed string) string {
+	normalizedSeed := strings.TrimSpace(seed)
+	if normalizedSeed == "" {
+		normalizedSeed = "user"
+	}
+	startColor := defaultAvatarColor(normalizedSeed, 17)
+	endColor := defaultAvatarColor(normalizedSeed, 53)
+	initial := escapeSVGText(defaultAvatarInitial(normalizedSeed))
+	return fmt.Sprintf(`<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0%%" stop-color="%s"/><stop offset="100%%" stop-color="%s"/></linearGradient></defs><rect width="128" height="128" rx="32" fill="url(#g)"/><circle cx="64" cy="48" r="24" fill="rgba(255,255,255,.82)"/><path d="M22 116c5-28 26-44 42-44s37 16 42 44" fill="rgba(255,255,255,.72)"/><text x="64" y="106" text-anchor="middle" font-size="26" font-family="Arial,sans-serif" font-weight="700" fill="rgba(15,23,42,.62)">%s</text></svg>`, startColor, endColor, initial)
+}
+
+func (a *App) handleDefaultAvatarAsset(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	rawPath := strings.TrimSpace(strings.TrimPrefix(r.URL.Path, "/im/assets/avatar/"))
+	parts := strings.SplitN(rawPath, "/", 2)
+	if len(parts) != 2 || !strings.HasSuffix(parts[1], ".svg") {
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+	style, err := url.PathUnescape(parts[0])
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+	seed, err := url.PathUnescape(strings.TrimSuffix(parts[1], ".svg"))
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+	w.Header().Set("Content-Type", "image/svg+xml; charset=utf-8")
+	w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+	_, _ = w.Write([]byte(buildDefaultAvatarSVG(style, seed)))
 }
 
 func randomAvatarSeed() string {
@@ -787,7 +854,7 @@ func (a *App) getUserAvatarURL(ctx context.Context, username string) string {
 	if strings.TrimSpace(record.AvatarURL) != "" {
 		return strings.TrimSpace(record.AvatarURL)
 	}
-	return buildDicebearAvatarURL(record.AvatarStyle, buildAvatarSeed(normalizedUsername, record.AvatarSeed))
+	return buildDefaultAvatarURL(record.AvatarStyle, buildAvatarSeed(normalizedUsername, record.AvatarSeed))
 }
 
 func normalizeHonorLevelCode(value string) string {
@@ -905,7 +972,7 @@ func (a *App) buildUserProfileItem(ctx context.Context, username string) UserPro
 		avatarURL = strings.TrimSpace(profile.AvatarURL)
 	}
 	if avatarURL == "" {
-		avatarURL = buildDicebearAvatarURL(profile.AvatarStyle, buildAvatarSeed(normalizedUsername, profile.AvatarSeed))
+		avatarURL = buildDefaultAvatarURL(profile.AvatarStyle, buildAvatarSeed(normalizedUsername, profile.AvatarSeed))
 	}
 	honorName, err := a.loadUserHonorName(ctx, normalizedUsername)
 	if err != nil {
@@ -970,7 +1037,7 @@ func buildUserAvatarHistoryItem(username string, record avatarHistoryRecord) Use
 	avatarSeed := strings.TrimSpace(record.AvatarSeed)
 	avatarURL := strings.TrimSpace(record.AvatarURL)
 	if avatarURL == "" {
-		avatarURL = buildDicebearAvatarURL(avatarStyle, buildAvatarSeed(normalizedUsername, avatarSeed))
+		avatarURL = buildDefaultAvatarURL(avatarStyle, buildAvatarSeed(normalizedUsername, avatarSeed))
 	}
 	return UserAvatarHistoryItem{
 		ID:          record.ID,

@@ -125,6 +125,12 @@
             datasetKey: 'akImUserPluginMessageSync',
             src: `${API_ROOT}/chat/plugins/im/user/modules/message_sync/im_message_sync.js`,
             errorMessage: '消息同步模块加载失败'
+        },
+        resourceTransport: {
+            selector: 'script[data-ak-im-user-plugin-resource-transport="1"]',
+            datasetKey: 'akImUserPluginResourceTransport',
+            src: `${API_ROOT}/chat/plugins/im/user/modules/resource_transport/im_resource_transport.js`,
+            errorMessage: '资源加载优化模块加载失败'
         }
     };
     const lazyModuleLoadPromises = {};
@@ -616,6 +622,9 @@
     }
 
     function initShellModules() {
+        ensureOptionalLazyModule('resourceTransport').then(function(resourceTransportModule) {
+            if (resourceTransportModule) render();
+        });
         initMessageManageModule();
         initMessageNavigationModule();
         initMentionManageModule();
@@ -1740,6 +1749,23 @@
         return locationManageModule;
     }
 
+    function getResourceTransportModule() {
+        const modules = window.AKIMUserModules;
+        if (!modules || typeof modules !== 'object') return null;
+        const resourceTransportModule = modules.resourceTransport;
+        if (!resourceTransportModule || typeof resourceTransportModule.init !== 'function') return null;
+        return resourceTransportModule;
+    }
+
+    function initResourceTransportModule() {
+        const resourceTransportModule = getResourceTransportModule();
+        if (!resourceTransportModule) return;
+        resourceTransportModule.init({
+            state: state,
+            escapeHtml: escapeHtml
+        });
+    }
+
     function initMessageManageModule() {
         const messageManageModule = getMessageManageModule();
         if (!messageManageModule) return;
@@ -2034,7 +2060,8 @@
             updateLocalMessage: updateLocalMessage,
             replaceLocalMessage: replaceLocalMessage,
             removeLocalMessage: removeLocalMessage,
-            loadSessions: loadSessions
+            loadSessions: loadSessions,
+            getResourceTransport: getResourceTransportModule
         });
     }
 
@@ -2210,6 +2237,7 @@
         if (moduleKey === 'mentions') return getMentionManageModule();
         if (moduleKey === 'messageStore') return getMessageStoreModule();
         if (moduleKey === 'messageSync') return getMessageSyncModule();
+        if (moduleKey === 'resourceTransport') return getResourceTransportModule();
         return null;
     }
 
@@ -2236,6 +2264,7 @@
         else if (moduleKey === 'mentions') initMentionManageModule();
         else if (moduleKey === 'messageStore') initMessageStoreModule();
         else if (moduleKey === 'messageSync') initMessageSyncModule();
+        else if (moduleKey === 'resourceTransport') initResourceTransportModule();
         lazyModuleInitState[moduleKey] = true;
         return getLazyModuleInstance(moduleKey) || moduleInstance;
     }
@@ -2322,6 +2351,7 @@
             ensureOptionalLazyModule('location'),
             ensureOptionalLazyModule('navigation'),
             ensureOptionalLazyModule('mentions'),
+            ensureOptionalLazyModule('resourceTransport'),
             ensureOptionalLazyModule('messageStore').then(function() {
                 return ensureOptionalLazyModule('messageSync');
             })
@@ -3179,7 +3209,20 @@
     function buildAvatarImageMarkup(avatarUrl, altText) {
         const normalizedAvatarUrl = getAvatarUrl(avatarUrl);
         if (!normalizedAvatarUrl) return '';
-        return '<img class="ak-im-avatar-photo" src="' + escapeHtml(normalizedAvatarUrl) + '" alt="' + escapeHtml(String(altText || '头像')) + '" loading="lazy" referrerpolicy="no-referrer">';
+        const resourceTransportModule = getResourceTransportModule();
+        if (resourceTransportModule && typeof resourceTransportModule.buildImageMarkup === 'function') {
+            const markup = resourceTransportModule.buildImageMarkup({
+                kind: 'avatar',
+                className: 'ak-im-avatar-photo',
+                src: normalizedAvatarUrl,
+                alt: String(altText || '头像'),
+                attrs: {
+                    referrerpolicy: 'no-referrer'
+                }
+            });
+            if (markup) return markup;
+        }
+        return '<img class="ak-im-avatar-photo" src="' + escapeHtml(normalizedAvatarUrl) + '" alt="' + escapeHtml(String(altText || '头像')) + '" loading="lazy" decoding="async" fetchpriority="low" referrerpolicy="no-referrer">';
     }
 
     function buildAvatarInnerMarkup(avatarUrl, fallbackText, altText) {

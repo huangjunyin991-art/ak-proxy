@@ -206,7 +206,11 @@
             const payload = this.resolveImagePayload(item);
             if (!payload) return '';
             const label = payload.fileName || '图片';
-            const safeUrl = this.escapeAttribute(payload.displayUrl || payload.fileUrl);
+            const resourceTransportModule = this.ctx && typeof this.ctx.getResourceTransport === 'function' ? this.ctx.getResourceTransport() : null;
+            const displayUrl = resourceTransportModule && typeof resourceTransportModule.resolveImageDisplayUrl === 'function'
+                ? (resourceTransportModule.resolveImageDisplayUrl(payload) || payload.displayUrl || payload.fileUrl)
+                : (payload.displayUrl || payload.fileUrl);
+            const safeUrl = this.escapeAttribute(displayUrl);
             const safeLabel = this.escapeAttribute(label);
             const targetUrl = payload.previewStatus === 'ready' && payload.previewUrl
                 ? payload.previewUrl
@@ -214,9 +218,17 @@
             const previewUrl = '/chat/im/image-preview?src=' + encodeURIComponent(targetUrl) + '&label=' + encodeURIComponent(label);
             const safePreviewUrl = this.escapeAttribute(previewUrl);
             const overlayMarkup = this.buildLocalOverlayMarkup(item) || this.buildRemoteOverlayMarkup(payload);
+            const imageMarkup = resourceTransportModule && typeof resourceTransportModule.buildImageMarkup === 'function'
+                ? (resourceTransportModule.buildImageMarkup({
+                    kind: 'message-image',
+                    className: 'ak-im-image-bubble-image',
+                    src: displayUrl,
+                    alt: label
+                }) || '<img class="ak-im-image-bubble-image" src="' + safeUrl + '" alt="' + safeLabel + '" loading="lazy" decoding="async" fetchpriority="low">')
+                : '<img class="ak-im-image-bubble-image" src="' + safeUrl + '" alt="' + safeLabel + '" loading="lazy" decoding="async" fetchpriority="low">';
             return '<a class="ak-im-image-bubble-link" href="' + safePreviewUrl + '" target="_blank" rel="noopener noreferrer" aria-label="查看图片 ' + safeLabel + '">' +
                 '<span class="ak-im-image-bubble-surface">' +
-                    '<img class="ak-im-image-bubble-image" src="' + safeUrl + '" alt="' + safeLabel + '" loading="lazy">' +
+                    imageMarkup +
                     overlayMarkup +
                 '</span>' +
             '</a>';
