@@ -1731,11 +1731,42 @@ func (a *App) handleListMessages(w http.ResponseWriter, r *http.Request, usernam
 		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
 		return
 	}
-	rows, err := a.db.Query(r.Context(), `
-		SELECT m.id, m.conversation_id, m.sender_username, m.seq_no, m.message_type, m.content_payload, m.content_preview, m.status, m.sent_at
-		FROM im_message m
-		WHERE m.conversation_id = $1::bigint AND m.deleted_at IS NULL AND m.seq_no > $2
-		ORDER BY m.seq_no DESC LIMIT 50`, conversationID, meta.PurgedBeforeSeqNo)
+	var afterSeqNo int64
+	afterSeqNoRaw := strings.TrimSpace(r.URL.Query().Get("after_seq_no"))
+	if afterSeqNoRaw != "" {
+		if _, err := fmt.Sscan(afterSeqNoRaw, &afterSeqNo); err != nil || afterSeqNo < 0 {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": true, "message": "invalid after_seq_no"})
+			return
+		}
+	}
+	limit := int64(50)
+	if afterSeqNo > 0 {
+		limit = 200
+	}
+	limitRaw := strings.TrimSpace(r.URL.Query().Get("limit"))
+	if limitRaw != "" {
+		if _, err := fmt.Sscan(limitRaw, &limit); err != nil || limit <= 0 {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": true, "message": "invalid limit"})
+			return
+		}
+		if limit > 200 {
+			limit = 200
+		}
+	}
+	var rows pgx.Rows
+	if afterSeqNo > 0 {
+		rows, err = a.db.Query(r.Context(), `
+			SELECT m.id, m.conversation_id, m.sender_username, m.seq_no, m.message_type, m.content_payload, m.content_preview, m.status, m.sent_at
+			FROM im_message m
+			WHERE m.conversation_id = $1 AND m.deleted_at IS NULL AND m.seq_no > GREATEST($2, $3)
+			ORDER BY m.seq_no ASC LIMIT $4`, conversationIDValue, meta.PurgedBeforeSeqNo, afterSeqNo, limit)
+	} else {
+		rows, err = a.db.Query(r.Context(), `
+			SELECT m.id, m.conversation_id, m.sender_username, m.seq_no, m.message_type, m.content_payload, m.content_preview, m.status, m.sent_at
+			FROM im_message m
+			WHERE m.conversation_id = $1 AND m.deleted_at IS NULL AND m.seq_no > $2
+			ORDER BY m.seq_no DESC LIMIT $3`, conversationIDValue, meta.PurgedBeforeSeqNo, limit)
+	}
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
 		return
@@ -1757,8 +1788,10 @@ func (a *App) handleListMessages(w http.ResponseWriter, r *http.Request, usernam
 		item = a.normalizeOutgoingMessageItem(r.Context(), item)
 		items = append(items, item)
 	}
-	for left, right := 0, len(items)-1; left < right; left, right = left+1, right-1 {
-		items[left], items[right] = items[right], items[left]
+	if afterSeqNo <= 0 {
+		for left, right := 0, len(items)-1; left < right; left, right = left+1, right-1 {
+			items[left], items[right] = items[right], items[left]
+		}
 	}
 	a.populateMessageMentions(r.Context(), items)
 	members, err := a.listConversationMembers(r.Context(), conversationIDValue)

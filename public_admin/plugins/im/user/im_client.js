@@ -113,6 +113,18 @@
             datasetKey: 'akImUserPluginMentionManage',
             src: `${API_ROOT}/chat/plugins/im/user/modules/mentions/im_mention_manage.js`,
             errorMessage: '@提及模块加载失败'
+        },
+        messageStore: {
+            selector: 'script[data-ak-im-user-plugin-message-store="1"]',
+            datasetKey: 'akImUserPluginMessageStore',
+            src: `${API_ROOT}/chat/plugins/im/user/modules/message_store/im_message_store.js`,
+            errorMessage: '消息缓存模块加载失败'
+        },
+        messageSync: {
+            selector: 'script[data-ak-im-user-plugin-message-sync="1"]',
+            datasetKey: 'akImUserPluginMessageSync',
+            src: `${API_ROOT}/chat/plugins/im/user/modules/message_sync/im_message_sync.js`,
+            errorMessage: '消息同步模块加载失败'
         }
     };
     const lazyModuleLoadPromises = {};
@@ -1639,6 +1651,22 @@
         return messageManageModule;
     }
 
+    function getMessageStoreModule() {
+        const modules = window.AKIMUserModules;
+        if (!modules || typeof modules !== 'object') return null;
+        const messageStoreModule = modules.messageStore;
+        if (!messageStoreModule || typeof messageStoreModule.init !== 'function') return null;
+        return messageStoreModule;
+    }
+
+    function getMessageSyncModule() {
+        const modules = window.AKIMUserModules;
+        if (!modules || typeof modules !== 'object') return null;
+        const messageSyncModule = modules.messageSync;
+        if (!messageSyncModule || typeof messageSyncModule.init !== 'function') return null;
+        return messageSyncModule;
+    }
+
     function getMessageNavigationModule() {
         const modules = window.AKIMUserModules;
         if (!modules || typeof modules !== 'object') return null;
@@ -1764,7 +1792,36 @@
             getGroupManage: getGroupManageModule,
             getMessageNavigation: getMessageNavigationModule,
             getMentionManage: getMentionManageModule,
-            getGroupAdmins: getGroupAdminsModule
+            getGroupAdmins: getGroupAdminsModule,
+            getMessageSync: getMessageSyncModule
+        });
+    }
+
+    function initMessageStoreModule() {
+        const messageStoreModule = getMessageStoreModule();
+        if (!messageStoreModule) return;
+        messageStoreModule.init({
+            state: state
+        });
+    }
+
+    function initMessageSyncModule() {
+        const messageSyncModule = getMessageSyncModule();
+        if (!messageSyncModule) return;
+        messageSyncModule.init({
+            state: state,
+            httpRoot: HTTP_ROOT,
+            request: request,
+            render: render,
+            getMessageStore: getMessageStoreModule,
+            setCachedMessages: function(conversationId, messages) {
+                const key = String(Number(conversationId || 0) || 0);
+                if (!key) return;
+                if (!state.messagesByConversationId || typeof state.messagesByConversationId !== 'object') {
+                    state.messagesByConversationId = {};
+                }
+                state.messagesByConversationId[key] = Array.isArray(messages) ? messages.slice() : [];
+            }
         });
     }
 
@@ -2071,6 +2128,8 @@
         if (moduleKey === 'hiddenGroups') return getHiddenGroupsModule();
         if (moduleKey === 'navigation') return getMessageNavigationModule();
         if (moduleKey === 'mentions') return getMentionManageModule();
+        if (moduleKey === 'messageStore') return getMessageStoreModule();
+        if (moduleKey === 'messageSync') return getMessageSyncModule();
         return null;
     }
 
@@ -2095,6 +2154,8 @@
         else if (moduleKey === 'hiddenGroups') initHiddenGroupsModule();
         else if (moduleKey === 'navigation') initMessageNavigationModule();
         else if (moduleKey === 'mentions') initMentionManageModule();
+        else if (moduleKey === 'messageStore') initMessageStoreModule();
+        else if (moduleKey === 'messageSync') initMessageSyncModule();
         lazyModuleInitState[moduleKey] = true;
         return getLazyModuleInstance(moduleKey) || moduleInstance;
     }
@@ -2180,7 +2241,10 @@
             ensureOptionalLazyModule('file'),
             ensureOptionalLazyModule('location'),
             ensureOptionalLazyModule('navigation'),
-            ensureOptionalLazyModule('mentions')
+            ensureOptionalLazyModule('mentions'),
+            ensureOptionalLazyModule('messageStore').then(function() {
+                return ensureOptionalLazyModule('messageSync');
+            })
         ]);
     }
 

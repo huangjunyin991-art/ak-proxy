@@ -37,6 +37,10 @@
             const activeConversationId = Number(state && state.activeConversationId || 0);
             if (!state || !activeConversationId) return;
             this.setCachedMessages(activeConversationId, state.activeMessages);
+            const messageSync = this.getMessageSync();
+            if (messageSync && typeof messageSync.saveConversation === 'function') {
+                messageSync.saveConversation(activeConversationId, state.activeMessages);
+            }
         },
 
         getElements() {
@@ -57,6 +61,10 @@
 
         getMentionManage() {
             return this.ctx && typeof this.ctx.getMentionManage === 'function' ? this.ctx.getMentionManage() : null;
+        },
+
+        getMessageSync() {
+            return this.ctx && typeof this.ctx.getMessageSync === 'function' ? this.ctx.getMessageSync() : null;
         },
 
         hasPendingImagePreview() {
@@ -757,17 +765,45 @@
             if (messageNavigation && typeof messageNavigation.beginConversationLoad === 'function') {
                 messageNavigation.beginConversationLoad(targetConversationId, this.getActiveSession());
             }
-            return this.ctx.request(this.ctx.httpRoot + '/messages?conversation_id=' + encodeURIComponent(targetConversationId)).then(function(data) {
-                const items = Array.isArray(data && data.items) ? data.items : [];
-                self.setCachedMessages(targetConversationId, items);
-                if (Number(state.activeConversationId || 0) === targetConversationId) {
-                    state.activeMessages = items.slice();
-                    state.activeMessagesLoading = false;
-                    self.ctx.render();
-                    self.markRead(targetConversationId);
-                }
-                return null;
-            }).catch(function() {
+            const loadFullMessages = function() {
+                return self.ctx.request(self.ctx.httpRoot + '/messages?conversation_id=' + encodeURIComponent(targetConversationId)).then(function(data) {
+                    const items = Array.isArray(data && data.items) ? data.items : [];
+                    self.setCachedMessages(targetConversationId, items);
+                    const syncModule = self.getMessageSync();
+                    if (syncModule && typeof syncModule.saveConversation === 'function') {
+                        syncModule.saveConversation(targetConversationId, items);
+                    }
+                    if (Number(state.activeConversationId || 0) === targetConversationId) {
+                        state.activeMessages = items.slice();
+                        state.activeMessagesLoading = false;
+                        self.ctx.render();
+                        self.markRead(targetConversationId);
+                    }
+                    return null;
+                });
+            };
+            const messageSync = this.getMessageSync();
+            if (messageSync && typeof messageSync.hydrateConversation === 'function') {
+                return messageSync.hydrateConversation(targetConversationId).then(function(result) {
+                    if (!result || !result.handled) return loadFullMessages();
+                    const items = Array.isArray(result.messages) ? result.messages : [];
+                    self.setCachedMessages(targetConversationId, items);
+                    if (Number(state.activeConversationId || 0) === targetConversationId) {
+                        state.activeMessagesLoading = false;
+                        self.markRead(targetConversationId);
+                    }
+                    return null;
+                }).catch(function() {
+                    return loadFullMessages().catch(function() {
+                        if (Number(state.activeConversationId || 0) === targetConversationId) {
+                            state.activeMessagesLoading = false;
+                            self.ctx.render();
+                        }
+                        return null;
+                    });
+                });
+            }
+            return loadFullMessages().catch(function() {
                 if (Number(state.activeConversationId || 0) === targetConversationId) {
                     state.activeMessagesLoading = false;
                     self.ctx.render();
@@ -877,6 +913,7 @@
             if (!state || !item || !item.id) return;
             const cid = Number(item.conversation_id || 0);
             if (!cid) return;
+            const messageSync = this.getMessageSync();
             if (Number(cid) === Number(state.activeConversationId || 0)) {
                 const next = [];
                 state.activeMessages.forEach(function(current) {
@@ -893,6 +930,12 @@
                 state.activeMessages = next;
                 this.syncActiveMessagesCache();
                 this.renderMessages();
+            } else if (messageSync && typeof messageSync.replaceMessage === 'function') {
+                messageSync.replaceMessage(Object.assign({}, item, {
+                    status: 'recalled',
+                    content: '',
+                    content_preview: '[消息已撤回]'
+                }));
             }
         },
 
@@ -900,8 +943,8 @@
             const state = this.getState();
             if (!state || !item || !item.id) return;
             const cid = Number(item.conversation_id || 0);
-            delete state.recalledDraftByMessageId[item.id];
             if (!cid) return;
+            const messageSync = this.getMessageSync();
             if (Number(cid) === Number(state.activeConversationId || 0)) {
                 const beforeLength = Array.isArray(state.activeMessages) ? state.activeMessages.length : 0;
                 state.activeMessages = (Array.isArray(state.activeMessages) ? state.activeMessages : []).filter(function(current) {
@@ -911,6 +954,8 @@
                     this.syncActiveMessagesCache();
                     this.renderMessages();
                 }
+            } else if (messageSync && typeof messageSync.removeMessage === 'function') {
+                messageSync.removeMessage(item);
             }
         },
 
@@ -1149,6 +1194,10 @@
                 const item = data.payload || null;
                 if (!item || !item.conversation_id) return;
                 const isActiveChat = Number(item.conversation_id) === Number(state.activeConversationId || 0) && state.view === 'chat';
+                const messageSync = this.getMessageSync();
+                if (messageSync && typeof messageSync.mergeIncomingMessage === 'function') {
+                    messageSync.mergeIncomingMessage(item);
+                }
                 const sessionManage = this.getSessionManage();
                 let sessionUpdated = false;
                 if (sessionManage && typeof sessionManage.applyIncomingMessage === 'function') {
