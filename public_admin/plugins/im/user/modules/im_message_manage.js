@@ -1148,7 +1148,12 @@
             if (data.type === 'im.message.created') {
                 const item = data.payload || null;
                 if (!item || !item.conversation_id) return;
-                if (Number(item.conversation_id) === Number(state.activeConversationId || 0)) {
+                const isActiveChat = Number(item.conversation_id) === Number(state.activeConversationId || 0) && state.view === 'chat';
+                const sessionManage = this.getSessionManage();
+                if (sessionManage && typeof sessionManage.applyIncomingMessage === 'function') {
+                    sessionManage.applyIncomingMessage(item, isActiveChat);
+                }
+                if (isActiveChat) {
                     const messageNavigation = this.getMessageNavigation();
                     if (messageNavigation && typeof messageNavigation.handleIncomingMessage === 'function') {
                         messageNavigation.handleIncomingMessage(item);

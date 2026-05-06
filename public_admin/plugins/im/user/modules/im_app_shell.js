@@ -122,7 +122,7 @@
                 #ak-im-root .ak-im-avatar-cell{min-width:0;min-height:0;display:inline-flex;align-items:center;justify-content:center;background:linear-gradient(180deg,#8fe3a8 0%,#56c57b 100%);color:#ffffff;font-weight:700;line-height:1;box-sizing:border-box}
                 #ak-im-root .ak-im-avatar-mosaic.is-stack .ak-im-avatar-cell{flex:0 0 calc((100% - 2px)/3);width:calc((100% - 2px)/3)}
                 #ak-im-root .ak-im-session-avatar,#ak-im-root .ak-im-avatar,#ak-im-root .ak-im-member-avatar,#ak-im-root .ak-im-member-action-avatar,#ak-im-root .ak-im-contact-avatar,#ak-im-root .ak-im-profile-avatar,#ak-im-root .ak-im-avatar-cell{overflow:hidden}
-                #ak-im-root .ak-im-session-body{min-width:0;flex:1;display:grid;grid-template-columns:1fr auto;grid-template-areas:'name time' 'preview unread';align-items:center;column-gap:10px;row-gap:4px}
+                #ak-im-root .ak-im-session-body{position:relative;min-width:0;flex:1;display:grid;grid-template-columns:1fr auto;grid-template-areas:'name time' 'preview preview';align-items:center;column-gap:10px;row-gap:4px}
                 #ak-im-root .ak-im-session-title{grid-area:name;display:flex;align-items:center;gap:6px;min-width:0;font-size:16px;font-weight:500;color:#111827}
                 #ak-im-root .ak-im-session-title-text{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
                 #ak-im-root .ak-im-session-title-text.ak-im-name-with-honor{display:inline-flex;align-items:center;gap:6px;max-width:100%}
@@ -130,8 +130,8 @@
                 #ak-im-root .ak-im-session-pin-tag.visible{display:inline-flex}
                 #ak-im-root .ak-im-session-pin-tag.is-system{background:rgba(7,193,96,.12);color:#07c160}
                 #ak-im-root .ak-im-session-time{grid-area:time;font-size:11px;color:#9ca3af;white-space:nowrap}
-                #ak-im-root .ak-im-session-preview{grid-area:preview;font-size:13px;color:#6b7280;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-                #ak-im-root .ak-im-session-unread{grid-area:unread;justify-self:end;min-width:18px;height:18px;padding:0 5px;border-radius:999px;background:#ef4444;color:#fff;font-size:11px;display:none;align-items:center;justify-content:center}
+                #ak-im-root .ak-im-session-preview{grid-area:preview;padding-right:30px;font-size:13px;color:#6b7280;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+                #ak-im-root .ak-im-session-unread{position:absolute;right:0;bottom:0;min-width:18px;height:18px;padding:0 5px;border-radius:999px;background:#ef4444;color:#fff;font-size:11px;font-weight:700;display:none;align-items:center;justify-content:center;box-sizing:border-box;box-shadow:0 0 0 2px #ffffff}
                 #ak-im-root .ak-im-session-unread.visible{display:inline-flex}
                 #ak-im-root .ak-im-contact-search-page{display:none;flex:1;min-height:0;overflow:auto;background:#f7f7f7;flex-direction:column}
                 #ak-im-root.ak-contact-search-open .ak-im-home-panels{display:none}

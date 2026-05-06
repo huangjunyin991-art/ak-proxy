@@ -104,6 +104,7 @@ type SessionItem struct {
 	PinnedAt           string `json:"pinned_at,omitempty"`
 	IsPinned           bool   `json:"is_pinned"`
 	LastMessageID      int64  `json:"last_message_id,omitempty"`
+	LastMessageType    string `json:"last_message_type,omitempty"`
 	LastMessagePreview string `json:"last_message_preview,omitempty"`
 	LastMessageAt      string `json:"last_message_at,omitempty"`
 	UnreadCount        int64  `json:"unread_count"`
@@ -1468,6 +1469,7 @@ func (a *App) handleSessions(w http.ResponseWriter, r *http.Request) {
 			COALESCE(cm.pin_type, 'none') AS pin_type,
 			cm.pinned_at,
 			COALESCE(c.last_message_id, 0) AS last_message_id,
+			COALESCE(lm.message_type, '') AS last_message_type,
 			COALESCE(c.last_message_preview, '') AS last_message_preview,
 			c.last_message_at,
 			COALESCE((SELECT COUNT(1) FROM im_message m2 WHERE m2.conversation_id = c.id AND m2.deleted_at IS NULL AND m2.sender_username <> $1 AND m2.seq_no > COALESCE(cm.last_read_seq_no, 0) AND m2.seq_no > COALESCE(c.purged_before_seq_no, 0) AND m2.sent_at >= cm.joined_at), 0) AS unread_count,
@@ -1477,6 +1479,7 @@ func (a *App) handleSessions(w http.ResponseWriter, r *http.Request) {
 			COALESCE((SELECT peer.username FROM im_conversation_member peer WHERE peer.conversation_id = c.id AND peer.username <> $1 AND peer.left_at IS NULL ORDER BY peer.username LIMIT 1), '') AS peer_username
 		FROM im_conversation c
 		JOIN im_conversation_member cm ON cm.conversation_id = c.id AND cm.username = $1 AND cm.left_at IS NULL
+		LEFT JOIN im_message lm ON lm.id = c.last_message_id
 		WHERE c.deleted_at IS NULL AND COALESCE(c.hidden_for_all, FALSE) = FALSE
 		ORDER BY CASE COALESCE(cm.pin_type, 'none') WHEN 'system' THEN 2 WHEN 'manual' THEN 1 ELSE 0 END DESC,
 			COALESCE(cm.pinned_at, c.last_message_at, c.created_at) DESC,
@@ -1493,7 +1496,7 @@ func (a *App) handleSessions(w http.ResponseWriter, r *http.Request) {
 		var pinnedAt *time.Time
 		var allMutedAt *time.Time
 		var muteUntil *time.Time
-		if err := rows.Scan(&item.ConversationID, &item.ConversationType, &item.ConversationTitle, &item.AvatarURL, &item.OwnerUsername, &item.MemberCount, &item.AllMuted, &item.AllMutedBy, &allMutedAt, &muteUntil, &item.PinType, &pinnedAt, &item.LastMessageID, &item.LastMessagePreview, &lastMessageAt, &item.UnreadCount, &item.MentionUnreadCount, &item.MentionMeUnread, &item.MentionAllUnread, &item.PeerUsername); err != nil {
+		if err := rows.Scan(&item.ConversationID, &item.ConversationType, &item.ConversationTitle, &item.AvatarURL, &item.OwnerUsername, &item.MemberCount, &item.AllMuted, &item.AllMutedBy, &allMutedAt, &muteUntil, &item.PinType, &pinnedAt, &item.LastMessageID, &item.LastMessageType, &item.LastMessagePreview, &lastMessageAt, &item.UnreadCount, &item.MentionUnreadCount, &item.MentionMeUnread, &item.MentionAllUnread, &item.PeerUsername); err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
 			return
 		}
@@ -1824,13 +1827,16 @@ func buildMessageStorage(req sendMessageRequest) (messageType string, contentPre
 			err = errInvalidEmojiAssetID
 			return
 		}
-		contentPreview = strings.TrimSpace(req.Content)
+		emojiCode := strings.TrimSpace(req.Content)
+		contentPreview = emojiCode
 		if contentPreview == "" {
 			contentPreview = "[表情]"
+		} else if !strings.HasPrefix(contentPreview, "[") || !strings.HasSuffix(contentPreview, "]") {
+			contentPreview = "[" + contentPreview + "]"
 		}
 		payloadBytes, marshalErr := json.Marshal(map[string]any{
 			"emoji_asset_id": req.EmojiAssetID,
-			"code":           strings.TrimSpace(req.Content),
+			"code":           emojiCode,
 		})
 		if marshalErr != nil {
 			err = marshalErr

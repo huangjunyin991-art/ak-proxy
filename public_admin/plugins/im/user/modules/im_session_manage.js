@@ -79,7 +79,10 @@
         },
 
         getSessionPreview(item) {
-            const preview = String(item && item.last_message_preview || '').trim() || '暂无消息';
+            let preview = String(item && item.last_message_preview || '').trim() || '暂无消息';
+            if (String(item && item.last_message_type || '').trim().toLowerCase() === 'emoji_custom' && preview && preview !== '暂无消息' && !/^\[.*\]$/.test(preview)) {
+                preview = '[' + preview + ']';
+            }
             const mentionLabel = this.getSessionMentionLabel(item);
             return mentionLabel ? (mentionLabel + ' ' + preview) : preview;
         },
@@ -244,6 +247,29 @@
                     mention_unread_count: 0,
                     mention_me_unread: false,
                     mention_all_unread: false
+                });
+            });
+            if (changed && typeof this.ctx.render === 'function') this.ctx.render();
+        },
+
+        applyIncomingMessage(item, isActiveChat) {
+            if (!this.ctx || !this.ctx.state || !item || !item.conversation_id) return;
+            const state = this.ctx.state;
+            const targetConversationId = Number(item.conversation_id || 0);
+            const isSelfMessage = String(item.sender_username || '') === String(state.username || '');
+            let changed = false;
+            state.sessions = (Array.isArray(state.sessions) ? state.sessions : []).map(function(session) {
+                if (!session || Number(session.conversation_id || 0) !== targetConversationId) return session;
+                const currentUnreadCount = Math.max(0, Number(session.unread_count || session.unread || 0) || 0);
+                const nextUnreadCount = isSelfMessage || isActiveChat ? currentUnreadCount : currentUnreadCount + 1;
+                changed = true;
+                return Object.assign({}, session, {
+                    last_message_id: Number(item.id || session.last_message_id || 0) || 0,
+                    last_message_type: String(item.message_type || session.last_message_type || '').trim(),
+                    last_message_preview: String(item.content_preview || session.last_message_preview || '').trim(),
+                    last_message_at: String(item.sent_at || session.last_message_at || '').trim(),
+                    unread_count: nextUnreadCount,
+                    unread: nextUnreadCount
                 });
             });
             if (changed && typeof this.ctx.render === 'function') this.ctx.render();
