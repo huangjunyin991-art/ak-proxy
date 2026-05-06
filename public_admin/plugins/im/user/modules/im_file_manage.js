@@ -83,7 +83,7 @@
                 content: this.buildFilePayloadString(file, fileName),
                 content_preview: '[文件] ' + fileName,
                 status: 'sending',
-                sent_at: new Date().toISOString(),
+                sent_at: this.ctx.createLocalSentAt(),
                 client_temp_id: tempId,
                 __akTempId: tempId,
                 __akLocalStatus: 'uploading',

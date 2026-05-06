@@ -458,6 +458,7 @@ func (a *App) ensureSchema(ctx context.Context) error {
 			deleted_at TIMESTAMP,
 			UNIQUE(conversation_id, seq_no)
 		)`,
+		`ALTER TABLE im_message ALTER COLUMN sent_at SET DEFAULT timezone('Asia/Shanghai', NOW())`,
 		`CREATE TABLE IF NOT EXISTS im_conversation_admin (
 			id BIGSERIAL PRIMARY KEY,
 			conversation_id BIGINT NOT NULL REFERENCES im_conversation(id) ON DELETE CASCADE,
@@ -1957,8 +1958,8 @@ func (a *App) insertMessage(ctx context.Context, conversationID int64, username 
 	var item MessageItem
 	var sentAt time.Time
 	err = tx.QueryRow(ctx, `
-		INSERT INTO im_message (conversation_id, sender_username, seq_no, message_type, content_preview, content_payload, content_size_raw, content_size_stored)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		INSERT INTO im_message (conversation_id, sender_username, seq_no, message_type, content_preview, content_payload, content_size_raw, content_size_stored, sent_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, timezone('Asia/Shanghai', NOW()))
 		RETURNING id, conversation_id, sender_username, seq_no, message_type, content_payload, content_preview, status, sent_at`,
 		conversationID, username, nextSeqNo, messageType, preview, contentPayload, contentSizeRaw, contentSizeStored,
 	).Scan(&item.ID, &item.ConversationID, &item.SenderUsername, &item.SeqNo, &item.MessageType, &item.Content, &item.ContentPreview, &item.Status, &sentAt)
@@ -1983,7 +1984,7 @@ func (a *App) insertMessage(ctx context.Context, conversationID int64, username 
 			return MessageItem{}, err
 		}
 	}
-	if _, err := tx.Exec(ctx, `UPDATE im_conversation SET last_message_id = $1, last_message_preview = $2, last_message_at = NOW(), updated_at = NOW() WHERE id = $3`, item.ID, item.ContentPreview, conversationID); err != nil {
+	if _, err := tx.Exec(ctx, `UPDATE im_conversation SET last_message_id = $1, last_message_preview = $2, last_message_at = timezone('Asia/Shanghai', NOW()), updated_at = NOW() WHERE id = $3`, item.ID, item.ContentPreview, conversationID); err != nil {
 		return MessageItem{}, err
 	}
 	if _, err := tx.Exec(ctx, `UPDATE im_conversation_member SET last_read_seq_no = GREATEST(last_read_seq_no, $1), last_read_at = NOW(), updated_at = NOW() WHERE conversation_id = $2 AND username = $3`, item.SeqNo, conversationID, username); err != nil {

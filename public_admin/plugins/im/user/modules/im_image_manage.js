@@ -286,7 +286,7 @@
                 content: this.buildImagePayloadString(previewUrl, file && file.name, file && file.type, file && file.size, source),
                 content_preview: '[图片]',
                 status: 'sending',
-                sent_at: new Date().toISOString(),
+                sent_at: this.ctx.createLocalSentAt(),
                 client_temp_id: tempId,
                 __akTempId: tempId,
                 __akLocalStatus: 'preparing',

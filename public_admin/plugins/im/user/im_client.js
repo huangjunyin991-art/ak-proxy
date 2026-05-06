@@ -1689,6 +1689,7 @@
             syncComposerState: syncComposerState,
             escapeHtml: escapeHtml,
             formatTime: formatTime,
+            createLocalSentAt: createLocalSentAt,
             getAvatarUrl: getAvatarUrl,
             buildAvatarBoxMarkup: buildAvatarBoxMarkup,
             buildDisplayNameWithHonorMarkup: buildDisplayNameWithHonorMarkup,
@@ -1839,6 +1840,7 @@
             request: request,
             requestFormData: requestFormData,
             escapeHtml: escapeHtml,
+            createLocalSentAt: createLocalSentAt,
             applySentMessageItem: applySentMessageItem,
             insertLocalMessage: insertLocalMessage,
             updateLocalMessage: updateLocalMessage,
@@ -1857,6 +1859,7 @@
             requestFormData: requestFormData,
             escapeHtml: escapeHtml,
             formatFileSize: formatFileSize,
+            createLocalSentAt: createLocalSentAt,
             getUploadProgress: getUploadProgressModule,
             applySentMessageItem: applySentMessageItem,
             insertLocalMessage: insertLocalMessage,
@@ -1876,6 +1879,7 @@
             requestFormData: requestFormData,
             escapeHtml: escapeHtml,
             formatFileSize: formatFileSize,
+            createLocalSentAt: createLocalSentAt,
             getUploadProgress: getUploadProgressModule,
             applySentMessageItem: applySentMessageItem,
             insertLocalMessage: insertLocalMessage,
@@ -1892,7 +1896,8 @@
         uploadProgressModule.init({
             state: state,
             escapeHtml: escapeHtml,
-            formatFileSize: formatFileSize
+            formatFileSize: formatFileSize,
+            createLocalSentAt: createLocalSentAt
         });
     }
 
@@ -2843,7 +2848,7 @@
     function formatTime(value) {
         if (!value) return '';
         try {
-            const date = new Date(value);
+            const date = parseIMTimestamp(value);
             if (isNaN(date.getTime())) return '';
             return date.toLocaleTimeString('zh-CN', { timeZone: 'Asia/Shanghai', hour: '2-digit', minute: '2-digit' });
         } catch (e) {
@@ -2851,9 +2856,26 @@
         }
     }
 
+    function createLocalSentAt() {
+        return new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString().replace(/\.\d{3}Z$/, '+08:00');
+    }
+
+    function parseIMTimestamp(value) {
+        if (typeof value === 'string') {
+            const normalizedValue = value.trim();
+            if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/.test(normalizedValue)) {
+                return new Date(normalizedValue.replace(/Z$/, '+08:00'));
+            }
+            if (/^\d{4}-\d{2}-\d{2}[T\s]\d{2}:\d{2}:\d{2}(?:\.\d+)?$/.test(normalizedValue)) {
+                return new Date(normalizedValue.replace(' ', 'T') + '+08:00');
+            }
+        }
+        return new Date(value);
+    }
+
     function getBeijingDateKey(value) {
         try {
-            const date = value instanceof Date ? value : new Date(value);
+            const date = value instanceof Date ? value : parseIMTimestamp(value);
             if (isNaN(date.getTime())) return '';
             return date.toLocaleDateString('en-CA', { timeZone: 'Asia/Shanghai' });
         } catch (e) {
@@ -2864,7 +2886,7 @@
     function formatSessionTime(value) {
         if (!value) return '';
         try {
-            const date = new Date(value);
+            const date = parseIMTimestamp(value);
             if (isNaN(date.getTime())) return '';
             const now = new Date();
             if (getBeijingDateKey(date) === getBeijingDateKey(now)) {

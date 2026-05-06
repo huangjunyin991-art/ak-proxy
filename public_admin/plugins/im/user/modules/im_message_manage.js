@@ -205,7 +205,7 @@
                 content: content,
                 content_preview: content,
                 status: 'sending',
-                sent_at: new Date().toISOString(),
+                sent_at: this.ctx.createLocalSentAt(),
                 client_temp_id: tempId,
                 mention_usernames: Array.isArray(payload && payload.mention_usernames) ? payload.mention_usernames.slice() : [],
                 mention_all: !!(payload && payload.mention_all),
