@@ -2,12 +2,16 @@
     'use strict';
 
     const DEFAULT_INCREMENT_LIMIT = 200;
+    const PREFETCH_SESSION_LIMIT = 12;
+    const PREFETCH_BATCH_SIZE = 4;
 
     const messageSyncModule = {
         ctx: null,
+        prefetchingByConversationId: {},
 
         init(ctx) {
             this.ctx = ctx || null;
+            this.prefetchingByConversationId = {};
         },
 
         getState() {
@@ -119,6 +123,53 @@
                 }
                 throw error;
             }.bind(this));
+        },
+
+        prefetchConversation(conversationId) {
+            const targetConversationId = Number(conversationId || 0);
+            if (!targetConversationId || !this.ctx || typeof this.ctx.request !== 'function') return Promise.resolve(null);
+            const key = String(targetConversationId);
+            if (this.prefetchingByConversationId[key]) return this.prefetchingByConversationId[key];
+            const cachedMessages = this.getStoreMessages(targetConversationId);
+            const afterSeqNo = this.getLastSeqNo(cachedMessages);
+            this.prefetchingByConversationId[key] = this.ctx.request(this.buildMessagesUrl(targetConversationId, afterSeqNo)).then(function(data) {
+                const incomingItems = Array.isArray(data && data.items) ? data.items : [];
+                const mergedMessages = afterSeqNo > 0 ? this.mergeMessages(cachedMessages, incomingItems) : incomingItems;
+                const savedMessages = this.saveConversation(targetConversationId, mergedMessages);
+                if (this.ctx && typeof this.ctx.setCachedMessages === 'function') {
+                    this.ctx.setCachedMessages(targetConversationId, savedMessages);
+                }
+                this.renderActive(targetConversationId, savedMessages, false);
+                delete this.prefetchingByConversationId[key];
+                return savedMessages;
+            }.bind(this)).catch(function() {
+                delete this.prefetchingByConversationId[key];
+                return null;
+            }.bind(this));
+            return this.prefetchingByConversationId[key];
+        },
+
+        prefetchRecentSessions(sessions) {
+            if (!Array.isArray(sessions) || !sessions.length) return Promise.resolve(null);
+            const self = this;
+            const conversationIds = [];
+            sessions.forEach(function(item) {
+                const conversationId = Number(item && item.conversation_id || 0);
+                if (!conversationId || conversationIds.indexOf(conversationId) >= 0) return;
+                conversationIds.push(conversationId);
+            });
+            const batches = [];
+            const targets = conversationIds.slice(0, PREFETCH_SESSION_LIMIT);
+            for (let index = 0; index < targets.length; index += PREFETCH_BATCH_SIZE) {
+                batches.push(targets.slice(index, index + PREFETCH_BATCH_SIZE));
+            }
+            return batches.reduce(function(chain, batch) {
+                return chain.then(function() {
+                    return Promise.all(batch.map(function(conversationId) {
+                        return self.prefetchConversation(conversationId);
+                    }));
+                });
+            }, Promise.resolve(null));
         },
 
         mergeIncomingMessage(item) {

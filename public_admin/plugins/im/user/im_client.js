@@ -1439,6 +1439,7 @@
             closeSettingsPanel: closeSettingsPanel,
             openSessionActionSheet: openSessionActionSheet,
             loadMessages: loadMessages,
+            restorePersistedConversationMessages: applyPersistedConversationMessages,
             buildAvatarBoxMarkup: buildAvatarBoxMarkup,
             buildDisplayNameWithHonorMarkup: buildDisplayNameWithHonorMarkup,
             buildGroupAvatarMosaicMarkup: buildGroupAvatarMosaicMarkup
@@ -1822,6 +1823,76 @@
                 }
                 state.messagesByConversationId[key] = Array.isArray(messages) ? messages.slice() : [];
             }
+        });
+    }
+
+    function normalizePersistedMessageItems(messages) {
+        const byKey = {};
+        (Array.isArray(messages) ? messages : []).forEach(function(item) {
+            if (!item || typeof item !== 'object') return;
+            const messageId = Number(item.id || 0);
+            const seqNo = Number(item.seq_no || 0);
+            if (messageId <= 0 && seqNo <= 0) return;
+            const key = messageId > 0 ? ('id:' + messageId) : ('seq:' + seqNo);
+            byKey[key] = Object.assign({}, item);
+        });
+        return Object.keys(byKey).map(function(key) {
+            return byKey[key];
+        }).sort(function(left, right) {
+            const leftSeq = Number(left && left.seq_no || 0);
+            const rightSeq = Number(right && right.seq_no || 0);
+            if (leftSeq !== rightSeq) return leftSeq - rightSeq;
+            return Number(left && left.id || 0) - Number(right && right.id || 0);
+        });
+    }
+
+    function readPersistedConversationMessages(conversationId) {
+        const targetConversationId = Number(conversationId || 0);
+        if (!targetConversationId) return [];
+        const messageStoreModule = getMessageStoreModule();
+        if (messageStoreModule && typeof messageStoreModule.load === 'function') {
+            const storeItems = messageStoreModule.load(targetConversationId);
+            if (Array.isArray(storeItems) && storeItems.length) return storeItems;
+        }
+        const username = String(state.username || getCanonicalUsername() || '').trim().toLowerCase();
+        if (!username) return [];
+        try {
+            if (!window.localStorage) return [];
+            const raw = window.localStorage.getItem(['ak.im.messages.v1', username, String(targetConversationId)].join(':'));
+            if (!raw) return [];
+            const parsed = JSON.parse(raw);
+            return normalizePersistedMessageItems(parsed && parsed.messages);
+        } catch (e) {
+            return [];
+        }
+    }
+
+    function applyPersistedConversationMessages(conversationId) {
+        const targetConversationId = Number(conversationId || 0);
+        if (!targetConversationId) return false;
+        const key = String(targetConversationId);
+        const memoryItems = Array.isArray(state.messagesByConversationId && state.messagesByConversationId[key]) ? state.messagesByConversationId[key] : [];
+        const items = memoryItems.length ? memoryItems : readPersistedConversationMessages(targetConversationId);
+        if (!items.length) return false;
+        if (!state.messagesByConversationId || typeof state.messagesByConversationId !== 'object') {
+            state.messagesByConversationId = {};
+        }
+        state.messagesByConversationId[key] = items.slice();
+        if (Number(state.activeConversationId || 0) === targetConversationId) {
+            state.activeMessages = items.slice();
+        }
+        return true;
+    }
+
+    function prefetchRecentSessionMessages() {
+        if (!state.allowed || !Array.isArray(state.sessions) || !state.sessions.length) return Promise.resolve(null);
+        return ensureOptionalLazyModule('messageStore').then(function() {
+            return ensureOptionalLazyModule('messageSync');
+        }).then(function(messageSyncModule) {
+            if (!messageSyncModule || typeof messageSyncModule.prefetchRecentSessions !== 'function') return null;
+            return messageSyncModule.prefetchRecentSessions(state.sessions);
+        }).catch(function() {
+            return null;
         });
     }
 
@@ -5030,7 +5101,8 @@
             state.composerMode = 'text';
             state.activeConversationId = conversationId;
             state.view = 'chat';
-            state.activeMessages = Array.isArray(state.messagesByConversationId && state.messagesByConversationId[String(conversationId)]) ? state.messagesByConversationId[String(conversationId)].slice() : [];
+            state.activeMessages = [];
+            applyPersistedConversationMessages(conversationId);
             state.activeMessagesLoading = true;
             if (options && options.resetCompose) {
                 state.newSessionTarget = '';
@@ -5073,7 +5145,8 @@
         state.hiddenGroupsActiveSession = fallbackSession;
         state.view = 'chat';
         state.homeTab = 'chats';
-        state.activeMessages = Array.isArray(state.messagesByConversationId && state.messagesByConversationId[String(targetConversationId)]) ? state.messagesByConversationId[String(targetConversationId)].slice() : [];
+        state.activeMessages = [];
+        applyPersistedConversationMessages(targetConversationId);
         state.activeMessagesLoading = true;
         render();
         return loadMessages(targetConversationId);
@@ -5248,6 +5321,9 @@
                 return null;
             }
             ensureWebSocket();
+            ensureOptionalLazyModule('messageStore').then(function() {
+                return ensureOptionalLazyModule('messageSync');
+            });
             const imageModule = getImageModule();
             if (imageModule && typeof imageModule.loadUploadConfig === 'function') {
                 imageModule.loadUploadConfig(false).catch(function() {
@@ -5289,7 +5365,10 @@
     function loadSessions() {
         const sessionManageModule = getSessionManageModule();
         if (sessionManageModule && typeof sessionManageModule.loadSessions === 'function') {
-            return sessionManageModule.loadSessions();
+            return sessionManageModule.loadSessions().then(function(result) {
+                prefetchRecentSessionMessages();
+                return result;
+            });
         }
         state.sessions = [];
         if (Number(state.activeConversationId || 0) > 0) {
@@ -5322,8 +5401,9 @@
             render();
             return Promise.resolve(null);
         }
+        const restoredPersistedMessages = applyPersistedConversationMessages(targetConversationId);
         state.activeMessagesLoading = true;
-        if (!state.activeMessages.length) {
+        if (!state.activeMessages.length || restoredPersistedMessages) {
             render();
         }
         return ensureChatFeatureModules().then(function() {
