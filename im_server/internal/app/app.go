@@ -26,7 +26,6 @@ import (
 )
 
 const defaultAvatarStyle = "thumbs"
-const defaultAvatarAssetVersion = "v2"
 const minAddFriendHonorStep = '3'
 const hubConnWriteBufferSize = 64
 
@@ -691,13 +690,13 @@ func normalizeAvatarStyle(style string) string {
 func buildAvatarSeed(username string, seed string) string {
 	normalizedUsername := strings.ToLower(strings.TrimSpace(username))
 	normalizedSeed := strings.TrimSpace(seed)
-	if normalizedUsername == "" {
-		normalizedUsername = "user"
-	}
 	if normalizedSeed == "" {
-		return normalizedUsername + "::" + defaultAvatarAssetVersion
+		return normalizedUsername
 	}
-	return normalizedUsername + "::" + normalizedSeed + "::" + defaultAvatarAssetVersion
+	if normalizedUsername == "" {
+		return normalizedSeed
+	}
+	return normalizedUsername + "::" + normalizedSeed
 }
 
 func buildDefaultAvatarURL(style string, seed string) string {
@@ -706,7 +705,7 @@ func buildDefaultAvatarURL(style string, seed string) string {
 	if normalizedSeed == "" {
 		normalizedSeed = "user"
 	}
-	return "/im/assets/avatar/" + url.PathEscape(normalizedStyle) + "/" + url.PathEscape(normalizedSeed) + ".svg"
+	return "https://api.dicebear.com/9.x/" + url.PathEscape(normalizedStyle) + "/svg?seed=" + url.QueryEscape(normalizedSeed) + "&size=128"
 }
 
 func defaultAvatarColor(seed string, offset int) string {
