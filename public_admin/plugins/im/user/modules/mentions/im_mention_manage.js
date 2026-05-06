@@ -64,7 +64,8 @@
         },
 
         hasAllMentionText(text) {
-            return String(text || '').indexOf('@全体成员') >= 0;
+            const value = String(text || '');
+            return value.indexOf('@全体成员') >= 0 || value.indexOf('@所有人') >= 0;
         },
 
         escapeHtml(value) {

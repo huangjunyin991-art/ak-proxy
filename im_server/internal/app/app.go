@@ -2090,7 +2090,8 @@ func reqMentionsAll(req sendMessageRequest) bool {
 	if messageType == "" {
 		messageType = "text"
 	}
-	return messageType == "text" && strings.Contains(strings.TrimSpace(req.Content), "@全体成员")
+	content := strings.TrimSpace(req.Content)
+	return messageType == "text" && (strings.Contains(content, "@全体成员") || strings.Contains(content, "@所有人"))
 }
 
 func (a *App) canSendMentionAllTx(ctx context.Context, tx pgx.Tx, conversationID int64, username string) (bool, error) {
