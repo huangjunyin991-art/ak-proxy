@@ -8,6 +8,8 @@ ENV_FILE="${AK_PROXY_ENV_FILE:-/etc/ak-proxy/ak-proxy.env}"
 ENV_DIR="$(dirname "$ENV_FILE")"
 BRANCH="${DEPLOY_BRANCH:-main}"
 VENV_PY="${VENV_PY:-$REPO_DIR/venv/bin/python}"
+DEFAULT_LICENSE_SERVER_URL="http://121.4.46.66:8080"
+DEFAULT_LICENSE_ADMIN_KEY="ak-lovejjy1314"
 DO_PULL=1
 DO_RESTART=1
 DO_STATUS=1
@@ -169,6 +171,12 @@ pull_latest() {
 update_env() {
     echo "[2/5] 检查环境变量文件: $ENV_FILE"
     ensure_env_file
+    if [ -z "$LICENSE_SERVER_URL_VALUE" ] && ! sudo grep -q '^LICENSE_SERVER_URL=' "$ENV_FILE"; then
+        LICENSE_SERVER_URL_VALUE="$DEFAULT_LICENSE_SERVER_URL"
+    fi
+    if [ -z "$LICENSE_ADMIN_KEY_VALUE" ] && ! sudo grep -q '^LICENSE_ADMIN_KEY=' "$ENV_FILE"; then
+        LICENSE_ADMIN_KEY_VALUE="$DEFAULT_LICENSE_ADMIN_KEY"
+    fi
     validate_license_url "$LICENSE_SERVER_URL_VALUE"
     upsert_env_var LICENSE_SERVER_URL "$LICENSE_SERVER_URL_VALUE"
     upsert_env_var LICENSE_ADMIN_KEY "$LICENSE_ADMIN_KEY_VALUE"
