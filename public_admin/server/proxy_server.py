@@ -1468,53 +1468,57 @@ async def proxy_login(request: Request):
 
         logger.info(f"[Login] L={user_data.get('L')}, R={user_data.get('R')}, F={user_data.get('F')}, S={user_data.get('S')}")
 
-        try:
+        asset_keys = {"ACECount", "TotalACE", "WeeklyMoney", "EP", "SP", "RP", "TP", "AP", "Rate", "HonorName"}
 
-            await db.update_user_assets(account, user_data)
+        if asset_keys.intersection(user_data.keys()):
 
-        except Exception as e:
+            try:
 
-            logger.warning(f"[Login] 资产保存失败: {e}")
+                await db.update_user_assets(account, user_data)
 
-        report_data["assets"] = {
+            except Exception as e:
 
-            "EP": user_data.get("EP", 0),
+                logger.warning(f"[Login] 资产保存失败: {e}")
 
-            "SP": user_data.get("SP", 0),
+            report_data["assets"] = {
 
-            "RP": user_data.get("RP", 0),
+                "EP": user_data.get("EP", 0),
 
-            "TP": user_data.get("TP", 0),
+                "SP": user_data.get("SP", 0),
 
-            "ACECount": user_data.get("ACECount", 0),
+                "RP": user_data.get("RP", 0),
 
-            "TotalACE": user_data.get("TotalACE", 0),
+                "TP": user_data.get("TP", 0),
 
-            "WeeklyMoney": user_data.get("WeeklyMoney", 0),
+                "ACECount": user_data.get("ACECount", 0),
 
-            "HonorName": user_data.get("HonorName", ""),
+                "TotalACE": user_data.get("TotalACE", 0),
 
-            "LevelNumber": user_data.get("LevelNumber", 0),
+                "WeeklyMoney": user_data.get("WeeklyMoney", 0),
 
-            "Rate": user_data.get("Rate", 0),
+                "HonorName": user_data.get("HonorName", ""),
 
-            "Credit": user_data.get("Credit", 0),
+                "LevelNumber": user_data.get("LevelNumber", 0),
 
-            "AP": user_data.get("AP", 0),
+                "Rate": user_data.get("Rate", 0),
 
-            "LP": user_data.get("LP", 0),
+                "Credit": user_data.get("Credit", 0),
 
-            "Convertbalance": user_data.get("Convertbalance", 0),
+                "AP": user_data.get("AP", 0),
 
-            "L": user_data.get("L", 0),
+                "LP": user_data.get("LP", 0),
 
-            "R": user_data.get("R", 0),
+                "Convertbalance": user_data.get("Convertbalance", 0),
 
-            "F": user_data.get("F", 0),
+                "L": user_data.get("L", 0),
 
-            "S": user_data.get("S", 0),
+                "R": user_data.get("R", 0),
 
-        }
+                "F": user_data.get("F", 0),
+
+                "S": user_data.get("S", 0),
+
+            }
 
     asyncio.create_task(report_to_monitor("login", report_data))
 
