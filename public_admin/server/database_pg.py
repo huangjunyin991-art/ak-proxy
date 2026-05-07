@@ -12,9 +12,36 @@ import time
 import logging
 import os
 from datetime import datetime, timedelta
-from typing import Optional, List, Dict, Any
+from typing import Dict, List, Optional, Any
 
 logger = logging.getLogger("TransparentProxy.DB")
+
+SENSITIVE_OUTPUT_FIELDS = {
+    'password',
+    'token',
+    'ak_userkey',
+    'ak_login_cookies',
+    'ak_login_payload',
+}
+
+
+def _mask_sensitive_value(value: Any) -> str:
+    return '***' if value not in (None, '') else ''
+
+
+def _sanitize_output_row(row: Dict[str, Any]) -> Dict[str, Any]:
+    sanitized = dict(row)
+    for key in list(sanitized.keys()):
+        normalized = str(key or '').lower()
+        if normalized in SENSITIVE_OUTPUT_FIELDS or 'password' in normalized or 'token' in normalized or 'cookie' in normalized or 'payload' in normalized or 'secret' in normalized:
+            sanitized[f'has_{normalized}'] = sanitized.get(key) not in (None, '')
+            sanitized[key] = _mask_sensitive_value(sanitized.get(key))
+    return sanitized
+
+
+def _sanitize_output_rows(rows) -> List[Dict[str, Any]]:
+    return [_sanitize_output_row(dict(row)) for row in rows]
+
 
 # 全局连接池
 _pool: Optional[asyncpg.Pool] = None
@@ -626,7 +653,7 @@ async def get_all_users(limit: int = 100, offset: int = 0,
             total = await conn.fetchval("SELECT COUNT(*) FROM user_stats")
             rows = await conn.fetch(
                 base + " ORDER BY us.last_login DESC LIMIT $1 OFFSET $2", limit, offset)
-        return {'total': total or 0, 'rows': [dict(r) for r in rows]}
+        return {'total': total or 0, 'rows': _sanitize_output_rows(rows)}
 
 
 async def get_user_password(username: str) -> Optional[str]:
@@ -732,7 +759,7 @@ async def get_user_detail(username: str) -> Optional[Dict]:
         ''', username)
         if not row:
             return None
-        user_dict = dict(row)
+        user_dict = _sanitize_output_row(dict(row))
         logins = await conn.fetch('''
             SELECT * FROM login_records WHERE username = $1 ORDER BY login_time DESC LIMIT 20
         ''', username)
@@ -1202,7 +1229,7 @@ async def get_all_users_with_assets(limit: int = 100, offset: int = 0) -> List[D
             FROM user_stats us LEFT JOIN user_assets ua ON us.username = ua.username
             ORDER BY us.last_login DESC NULLS LAST LIMIT $1 OFFSET $2
         ''', limit, offset)
-        return [dict(r) for r in rows]
+        return _sanitize_output_rows(rows)
 
 
 async def get_dashboard_data() -> Dict:
@@ -1309,7 +1336,7 @@ async def query_table(table_name: str, limit: int = 100, offset: int = 0,
             sql += f' ORDER BY {order_by} {direction}'
         sql += f' LIMIT {limit} OFFSET {offset}'
         rows = await conn.fetch(sql)
-        return {'total': total, 'rows': [dict(r) for r in rows]}
+        return {'total': total, 'rows': _sanitize_output_rows(rows)}
 
 
 async def insert_row(table_name: str, data: dict) -> int:
@@ -1404,8 +1431,7 @@ async def execute_sql(sql: str):
     pool = _get_pool()
     async with pool.acquire() as conn:
         if sql.strip().upper().startswith('SELECT'):
-            rows = await conn.fetch(sql)
-            return [dict(r) for r in rows]
+            raise ValueError("自定义SQL暂不支持SELECT查询")
         else:
             result = await conn.execute(sql)
             return {'affected_rows': int(result.split()[-1]) if result else 0}
@@ -1885,7 +1911,7 @@ async def get_authorized_accounts(added_by: str = None, status: str = None,
             SELECT * FROM authorized_accounts{where}
             ORDER BY created_at DESC LIMIT ${idx} OFFSET ${idx+1}
         ''', *params)
-        return {'total': total or 0, 'rows': [dict(r) for r in rows]}
+        return {'total': total or 0, 'rows': _sanitize_output_rows(rows)}
 
 
 async def get_expiring_accounts(days: int = 7, added_by: str = None) -> List[Dict]:
@@ -1905,7 +1931,7 @@ async def get_expiring_accounts(days: int = 7, added_by: str = None) -> List[Dic
                 WHERE status='active' AND expire_time <= $1 AND expire_time > NOW()
                 ORDER BY expire_time ASC
             ''', deadline)
-        return [dict(r) for r in rows]
+        return _sanitize_output_rows(rows)
 
 
 def _serialize_meeting_permission(row: Dict[str, Any]) -> Dict:

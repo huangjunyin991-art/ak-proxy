@@ -2596,7 +2596,7 @@
                         <tr>
                             <th>账号</th>
                             <th>姓名</th>
-                            <th>密码</th>
+                            <th>登录凭据</th>
                             <th>操作</th>
                         </tr>
                     </thead>
@@ -4365,7 +4365,7 @@
         }
 
         function renderUsageActionButton(user) {
-            const hasPassword = !!user.password;
+            const hasPassword = !!user.has_password || (!!user.password && user.password !== '***');
             if (!hasPassword) {
                 return `<div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:center;">
                             <button class="btn btn-ak-disabled" style="padding:4px 12px;font-size:12px;" disabled aria-disabled="true">打开后台</button>
@@ -4397,7 +4397,7 @@
                 <tr>
                     <td><strong>${escapeHtml(user.username || '')}</strong></td>
                     ${renderRealNameCell(user.username, user.real_name)}
-                    <td style="color: var(--accent-yellow); font-family: monospace; font-size: 12px;">${user.password || '-'}</td>
+                    <td style="color: var(--accent-yellow); font-family: monospace; font-size: 12px;">${user.has_password ? '已保存' : '-'}</td>
                     <td>${renderUsageActionButton(user)}</td>
                 </tr>
             `).join('');
