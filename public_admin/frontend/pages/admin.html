@@ -3955,7 +3955,7 @@
                 return;
             }
             const targetText = isSuperTarget ? '主管理员' : `子管理员 ${subName}`;
-            if (!await showConfirm('确认生成/重置', `确定要为${targetText}生成新的 Google 密钥吗？\n旧验证码会立即失效，需要重新绑定。`)) return;
+            if (!confirm(`确定要为${targetText}生成新的 Google 密钥吗？\n旧验证码会立即失效，需要重新绑定。`)) return;
             try {
                 const res = await fetch(`${API_BASE}/admin/api/operation_auth/secrets/reset`, {
                     method: 'POST',
