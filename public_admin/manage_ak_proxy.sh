@@ -17,6 +17,8 @@ ADMIN_DOMAIN=""
 ADMIN_PASSWORD_VALUE=""
 DB_SECONDARY_PASSWORD_VALUE=""
 AK_PROXY_DB_PASSWORD_VALUE=""
+LICENSE_SERVER_URL_VALUE="${LICENSE_SERVER_URL:-}"
+LICENSE_ADMIN_KEY_VALUE="${LICENSE_ADMIN_KEY:-}"
 SKIP_ENV=0
 SKIP_NGINX=0
 SKIP_RESTART=0
@@ -30,6 +32,8 @@ usage() {
   --admin-password <值>
   --secondary-password <值>
   --db-password <值>
+  --license-server-url <URL>
+  --license-admin-key <值>
   --service-user <用户>
   --service-name <服务名>
   --skip-env
@@ -55,6 +59,14 @@ while [ $# -gt 0 ]; do
             ;;
         --db-password)
             AK_PROXY_DB_PASSWORD_VALUE="${2:-}"
+            shift 2
+            ;;
+        --license-server-url)
+            LICENSE_SERVER_URL_VALUE="${2:-}"
+            shift 2
+            ;;
+        --license-admin-key)
+            LICENSE_ADMIN_KEY_VALUE="${2:-}"
             shift 2
             ;;
         --service-user)
@@ -122,6 +134,16 @@ validate_domain() {
     fi
 }
 
+validate_license_url() {
+    if [ -z "$LICENSE_SERVER_URL_VALUE" ]; then
+        return
+    fi
+    if ! printf '%s' "$LICENSE_SERVER_URL_VALUE" | grep -Eq '^https?://'; then
+        echo "[ERROR] LICENSE_SERVER_URL 必须以 http:// 或 https:// 开头"
+        exit 1
+    fi
+}
+
 write_env_file() {
     local admin_password="$1"
     local secondary_password="$2"
@@ -132,6 +154,12 @@ write_env_file() {
         printf 'ADMIN_PASSWORD="%s"\n' "$(escape_env_value "$admin_password")"
         printf 'DB_SECONDARY_PASSWORD="%s"\n' "$(escape_env_value "$secondary_password")"
         printf 'AK_PROXY_DB_PASSWORD="%s"\n' "$(escape_env_value "$db_password")"
+        if [ -n "$LICENSE_SERVER_URL_VALUE" ]; then
+            printf 'LICENSE_SERVER_URL="%s"\n' "$(escape_env_value "$LICENSE_SERVER_URL_VALUE")"
+        fi
+        if [ -n "$LICENSE_ADMIN_KEY_VALUE" ]; then
+            printf 'LICENSE_ADMIN_KEY="%s"\n' "$(escape_env_value "$LICENSE_ADMIN_KEY_VALUE")"
+        fi
     } > "$tmp_file"
     sudo install -d -m 700 -o root -g root "$ENV_DIR"
     sudo install -m 600 -o root -g root "$tmp_file" "$ENV_FILE"
@@ -185,6 +213,7 @@ restart_service() {
 }
 
 validate_domain
+validate_license_url
 
 if [ "$SKIP_ENV" -eq 0 ]; then
     ADMIN_PASSWORD_VALUE="$(read_secret ADMIN_PASSWORD "管理员主密码" "$ADMIN_PASSWORD_VALUE")"

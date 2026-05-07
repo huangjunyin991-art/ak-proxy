@@ -9,6 +9,8 @@ REPO_DIR="${REPO_DIR:?请设置 REPO_DIR}"
 APP_DIR="$REPO_DIR/public_admin"
 LOG_FILE="$APP_DIR/proxy.log"
 VENV_BIN="${VENV_BIN:-$REPO_DIR/venv/bin}"
+ENV_DIR="${AK_PROXY_ENV_DIR:-/etc/ak-proxy}"
+ENV_FILE="${AK_PROXY_ENV_FILE:-$ENV_DIR/ak-proxy.env}"
 NGINX_CONF_SRC="${NGINX_CONF_SRC:-$REPO_DIR/public_admin/config/nginx.conf}"
 NGINX_CONF_DST="${NGINX_CONF_DST:-/etc/nginx/sites-enabled/nginx.conf}"
 NGINX_RENDER_SCRIPT="${NGINX_RENDER_SCRIPT:-$REPO_DIR/public_admin/render_nginx_config.sh}"
@@ -38,6 +40,7 @@ After=network.target
 Type=simple
 User=${SERVICE_USER}
 WorkingDirectory=${APP_DIR}
+EnvironmentFile=-${ENV_FILE}
 Environment="PATH=${VENV_BIN}:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 ExecStart=${VENV_BIN}/python proxy_server.py
 Restart=always

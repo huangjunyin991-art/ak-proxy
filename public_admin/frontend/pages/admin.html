@@ -3871,12 +3871,13 @@
             }
             showModal('Google 密钥管理', `
                 <div id="totpSecretManagerBody" style="min-width:360px;">
-                    <div style="color:var(--text-secondary);font-size:13px;margin-bottom:12px;line-height:1.6;">主管理员可查看和重置子管理员 Google 密钥。查看全部密钥和重置密钥需要先完成 Google 验证授权。</div>
-                    <div id="totpSelfSecretBox" style="background:var(--bg-primary);border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:12px;">加载主管理员密钥中...</div>
+                    <div style="color:var(--text-secondary);font-size:13px;margin-bottom:12px;line-height:1.6;">主管理员可查看 Google 验证器绑定状态并重置密钥。密钥明文只会在重置成功后一次性显示，请立即保存并绑定。</div>
+                    <div id="totpSelfSecretBox" style="background:var(--bg-primary);border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:12px;">加载主管理员绑定状态中...</div>
                     <div style="display:flex;gap:8px;margin-bottom:12px;">
-                        <button class="btn btn-primary" onclick="loadTotpSecretList()" style="flex:1;padding:9px 0;">查看全部密钥</button>
+                        <button class="btn btn-primary" onclick="loadTotpSecretList()" style="flex:1;padding:9px 0;">查看绑定状态</button>
                         <button class="btn" onclick="resetTotpSecret('super_admin','')" style="flex:1;padding:9px 0;background:var(--bg-secondary);color:var(--accent-yellow);border:1px solid rgba(255,165,2,0.35);">重置主管理员密钥</button>
                     </div>
+                    <div id="totpResetResultBox"></div>
                     <div id="totpSecretListBox" style="max-height:320px;overflow:auto;"></div>
                 </div>
             `, () => closeModal(), '关闭');
@@ -3903,9 +3904,12 @@
             const box = document.getElementById('totpSelfSecretBox');
             if (!box) return;
             box.innerHTML = `
-                <div style="font-size:13px;color:var(--text-secondary);margin-bottom:6px;">主管理员 Google 密钥</div>
-                <div style="font-family:monospace;color:var(--accent-green);word-break:break-all;background:rgba(0,255,136,0.08);border-radius:6px;padding:8px;margin-bottom:8px;">${escapeHtml(item.secret || '')}</div>
-                <div style="font-size:12px;color:var(--text-secondary);word-break:break-all;">${escapeHtml(item.otpauth_uri || '')}</div>
+                <div style="font-size:13px;color:var(--text-secondary);margin-bottom:6px;">主管理员 Google 验证器</div>
+                <div style="display:flex;align-items:center;gap:8px;">
+                    <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${item.has_secret ? 'var(--accent-green)' : 'var(--accent-red)'};"></span>
+                    <strong style="color:${item.has_secret ? 'var(--accent-green)' : 'var(--accent-red)'};">${item.has_secret ? '已生成密钥' : '未生成密钥'}</strong>
+                </div>
+                <div style="font-size:12px;color:var(--text-secondary);margin-top:6px;">更新时间：${escapeHtml(item.updated_at || item.created_at || '-')}</div>
             `;
         }
 
@@ -3938,10 +3942,13 @@
                     <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
                         <strong style="color:var(--accent);">${escapeHtml(item.role === 'super_admin' ? '主管理员' : item.sub_name || item.identity)}</strong>
                         <span style="font-size:12px;color:var(--text-secondary);">${escapeHtml(item.role)}</span>
+                        <span style="font-size:12px;color:${item.has_secret ? 'var(--accent-green)' : 'var(--accent-red)'};">${item.has_secret ? '已生成' : '未生成'}</span>
                         <button class="btn totp-reset-secret-btn" data-role="${escapeHtml(item.role)}" data-sub-name="${escapeHtml(item.sub_name || '')}" style="margin-left:auto;padding:4px 10px;font-size:12px;background:var(--bg-secondary);color:var(--accent-yellow);border:1px solid rgba(255,165,2,0.35);">重置</button>
                     </div>
-                    <div style="font-family:monospace;color:var(--accent-green);word-break:break-all;background:rgba(0,255,136,0.08);border-radius:6px;padding:7px;margin-bottom:6px;">${escapeHtml(item.secret || '')}</div>
-                    <div style="font-size:12px;color:var(--text-secondary);word-break:break-all;">${escapeHtml(item.otpauth_uri || '')}</div>
+                    <div style="font-size:12px;color:var(--text-secondary);line-height:1.6;">
+                        <div>创建时间：${escapeHtml(item.created_at || '-')}</div>
+                        <div>更新时间：${escapeHtml(item.updated_at || '-')}</div>
+                    </div>
                 </div>
             `).join('');
             box.querySelectorAll('.totp-reset-secret-btn').forEach(btn => {
@@ -3963,6 +3970,7 @@
                     return;
                 }
                 showToast('Google 密钥已重置', 'success');
+                renderTotpResetSecret(data.item);
                 if (role === 'super_admin') {
                     renderTotpSelfSecret(data.item);
                 }
@@ -3970,6 +3978,19 @@
             } catch (e) {
                 showToast('重置失败: ' + e.message, 'error');
             }
+        }
+
+        function renderTotpResetSecret(item) {
+            const box = document.getElementById('totpResetResultBox');
+            if (!box || !item) return;
+            box.innerHTML = `
+                <div style="background:rgba(255,165,2,0.08);border:1px solid rgba(255,165,2,0.35);border-radius:10px;padding:12px;margin-bottom:12px;">
+                    <div style="font-weight:bold;color:var(--accent-yellow);margin-bottom:8px;">新 Google 密钥仅本次显示，请立即绑定保存</div>
+                    <div style="font-size:12px;color:var(--text-secondary);margin-bottom:6px;">账号：${escapeHtml(item.role === 'super_admin' ? '主管理员' : item.sub_name || item.identity || '')}</div>
+                    <div style="font-family:monospace;color:var(--accent-green);word-break:break-all;background:rgba(0,255,136,0.08);border-radius:6px;padding:8px;margin-bottom:8px;">${escapeHtml(item.secret || '')}</div>
+                    <div style="font-size:12px;color:var(--text-secondary);word-break:break-all;">${escapeHtml(item.otpauth_uri || '')}</div>
+                </div>
+            `;
         }
         
         // 权限常量

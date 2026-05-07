@@ -12,7 +12,7 @@ def create_operation_auth_router(*, service, resolve_admin_identity, super_admin
             return JSONResponse(status_code=401, content={'error': True, 'message': '未授权'})
         sub_name = '' if identity == '__super__' else identity
         item = await service.ensure_secret(role, sub_name)
-        if role != super_admin_role and item:
+        if item:
             item = {
                 'identity': item.get('identity'),
                 'role': item.get('role'),
@@ -59,7 +59,7 @@ def create_operation_auth_router(*, service, resolve_admin_identity, super_admin
         if not token or not role:
             return JSONResponse(status_code=401, content={'error': True, 'message': '未授权'})
         if role != super_admin_role:
-            return JSONResponse(status_code=403, content={'error': True, 'message': '仅系统总管理员可查看 Google 密钥'})
+            return JSONResponse(status_code=403, content={'error': True, 'message': '仅系统总管理员可查看 Google 绑定状态'})
         return {'success': True, 'items': await service.list_secrets()}
 
     @router.post('/secrets/reset')

@@ -46,7 +46,7 @@ class OperationAuthService:
 
     async def list_secrets(self):
         rows = await self.repository.list_totp_secrets()
-        return [self._secret_payload(row) for row in rows]
+        return [self._secret_status_payload(row) for row in rows]
 
     async def issue_lease(self, admin_token: str, role: str, sub_name: str, scope: str,
                           code: str, duration_seconds: int | None = None,
@@ -89,7 +89,7 @@ class OperationAuthService:
         for row in rows:
             secret = str(row.get('secret') or '')
             if secret and self.totp.verify(secret, code):
-                matches.append(self._secret_payload(row))
+                matches.append(self._secret_status_payload(row))
         if len(matches) == 1:
             return {'success': True, 'item': matches[0]}
         if len(matches) > 1:
@@ -137,7 +137,18 @@ class OperationAuthService:
             'role': role,
             'sub_name': sub_name,
             'secret': secret,
+            'has_secret': bool(secret),
             'otpauth_uri': self.totp.otpauth_uri(self.issuer, account_name, secret),
+            'created_at': row.get('created_at'),
+            'updated_at': row.get('updated_at'),
+        }
+
+    def _secret_status_payload(self, row: dict):
+        return {
+            'identity': str(row.get('identity') or ''),
+            'role': str(row.get('role') or ''),
+            'sub_name': str(row.get('sub_name') or ''),
+            'has_secret': bool(row.get('secret')),
             'created_at': row.get('created_at'),
             'updated_at': row.get('updated_at'),
         }
