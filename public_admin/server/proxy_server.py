@@ -29,6 +29,7 @@ import time
 import re
 
 import logging
+import ipaddress
 
 from urllib.parse import parse_qs, urlsplit, urlencode, urlunsplit
 from html import escape as html_escape
@@ -883,6 +884,27 @@ def parse_request_params(content_type: str, query_params: dict, raw_body: bytes)
     return params
 
 
+def _extract_client_ip(request: Request) -> str:
+    candidates = [
+        request.headers.get("cf-connecting-ip", ""),
+        request.headers.get("x-real-ip", ""),
+    ]
+    forwarded_for = request.headers.get("x-forwarded-for", "")
+    if forwarded_for:
+        candidates.extend(part.strip() for part in forwarded_for.split(","))
+    if request.client and request.client.host:
+        candidates.append(request.client.host)
+    for candidate in candidates:
+        candidate = str(candidate or "").strip()
+        if not candidate:
+            continue
+        try:
+            return str(ipaddress.ip_address(candidate))
+        except ValueError:
+            continue
+    return "unknown"
+
+
 
 
 
@@ -1189,7 +1211,7 @@ async def proxy_login(request: Request):
 
     
 
-    client_ip = request.client.host if request.client else "unknown"
+    client_ip = _extract_client_ip(request)
 
     user_agent = request.headers.get("user-agent", "")
 
@@ -1224,6 +1246,15 @@ async def proxy_login(request: Request):
         if account.lower() in stats.banned_accounts or client_ip in stats.banned_ips:
 
             logger.warning(f"[Login] 封禁拦截: account={account}, IP={client_ip}")
+            try:
+                await db.record_login(
+                    username=account, ip_address=client_ip,
+                    user_agent=user_agent[:200], request_path="/RPC/Login",
+                    status_code=403, is_success=False, password='',
+                    extra_data=json.dumps({"status": "blocked", "reason": "local_ban"})
+                )
+            except Exception as e:
+                logger.warning(f"[Login] 封禁记录失败: {e}")
 
             return JSONResponse({"Error": True, "Msg": "您的账号或IP已被封禁"})
 
@@ -1248,13 +1279,29 @@ async def proxy_login(request: Request):
             if not auth_info:
 
                 logger.info(f"[Login] 白名单拦截(未授权): {account}")
-
+                try:
+                    await db.record_login(
+                        username=account, ip_address=client_ip,
+                        user_agent=user_agent[:200], request_path="/RPC/Login",
+                        status_code=403, is_success=False, password='',
+                        extra_data=json.dumps({"status": "blocked", "reason": "whitelist_unauthorized"})
+                    )
+                except Exception as e:
+                    logger.warning(f"[Login] 白名单拦截记录失败: {e}")
                 return JSONResponse({"Error": True, "Msg": "未获得访问权限，请联系上属老师获取权限或使用ak2018，ak928登录！"})
 
             if auth_info['expire_time'] < datetime.now():
 
                 logger.info(f"[Login] 白名单拦截(已过期): {account}")
-
+                try:
+                    await db.record_login(
+                        username=account, ip_address=client_ip,
+                        user_agent=user_agent[:200], request_path="/RPC/Login",
+                        status_code=403, is_success=False, password='',
+                        extra_data=json.dumps({"status": "blocked", "reason": "whitelist_expired"})
+                    )
+                except Exception as e:
+                    logger.warning(f"[Login] 白名单过期记录失败: {e}")
                 return JSONResponse({"Error": True, "Msg": "您的访问权限已到期，请联系上属老师续期或使用ak2018，ak928登录！"})
 
             persistent_login = auth_info.get('persistent_login', False)
@@ -1528,7 +1575,7 @@ async def proxy_index_data(request: Request):
 
     
 
-    client_ip = request.client.host if request.client else "unknown"
+    client_ip = _extract_client_ip(request)
 
     content_type = request.headers.get("content-type", "")
 
@@ -1674,7 +1721,7 @@ async def proxy_rpc(path: str, request: Request):
 
     
 
-    client_ip = request.client.host if request.client else "unknown"
+    client_ip = _extract_client_ip(request)
 
     content_type = request.headers.get("content-type", "")
 
@@ -3497,7 +3544,7 @@ async def admin_shutdown():
 
 async def admin_login(request: Request):
 
-    client_ip = request.client.host if request.client else "unknown"
+    client_ip = _extract_client_ip(request)
 
     is_locked, remaining = check_login_lockout(client_ip)
 
@@ -10228,7 +10275,7 @@ async def _forward_admin_ak_rpc_request(path: str, request: Request, session: di
 
     response = await forward_request(
         request.method, path, content_type, params, raw_body, headers,
-        client_ip=request.client.host if request.client else "admin-panel",
+        client_ip=_extract_client_ip(request),
         is_login=is_login_path,
         selected_exit=selected_exit,
         force_direct=_ADMIN_AK_FORCE_DIRECT

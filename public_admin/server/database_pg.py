@@ -529,7 +529,7 @@ async def record_login(username: str, ip_address: str, user_agent: str = "",
     pool = _get_pool()
     now = datetime.now().replace(microsecond=0)
     username = username.lower() if username else username
-    record_username = username if is_success else ''
+    record_username = username or ''
 
     async with pool.acquire() as conn:
         async with conn.transaction():
