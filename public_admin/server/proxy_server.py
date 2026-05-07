@@ -348,8 +348,6 @@ stats = ProxyStats()
 
 LOGIN_INDEXDATA_GRACE_SECONDS = 5
 
-LOGIN_INDEXDATA_BAN_DAYS = 1
-
 
 
 # ===== FastAPI 应用 =====
@@ -384,14 +382,9 @@ def _login_indexdata_key(client_ip: str, username: str) -> tuple[str, str]:
     return (str(client_ip or "").strip(), str(username or "").strip().lower())
 
 
-async def _ban_ip_for_missing_indexdata(client_ip: str, username: str) -> None:
+async def _record_missing_indexdata_followup(client_ip: str, username: str) -> None:
     reason = f"登录成功后未在{LOGIN_INDEXDATA_GRACE_SECONDS}秒内调用public_IndexData: {username}"
-    stats.banned_ips.add(client_ip)
-    try:
-        await db.ban_ip(client_ip, reason, duration_days=LOGIN_INDEXDATA_BAN_DAYS)
-    except Exception as e:
-        logger.warning(f"[LoginIndexDataGuard] 自动封禁IP写库失败 ip={client_ip} account={username}: {e}")
-    logger.warning(f"[LoginIndexDataGuard] 自动封禁IP一天 ip={client_ip} account={username}")
+    logger.warning(f"[LoginIndexDataGuard] 可疑登录后续行为 ip={client_ip} account={username} reason={reason}")
 
 
 async def _check_login_indexdata_followup(client_ip: str, username: str, marker: float) -> None:
@@ -400,7 +393,7 @@ async def _check_login_indexdata_followup(client_ip: str, username: str, marker:
     current = stats.pending_indexdata_logins.get(key)
     if current == marker:
         stats.pending_indexdata_logins.pop(key, None)
-        await _ban_ip_for_missing_indexdata(client_ip, username)
+        await _record_missing_indexdata_followup(client_ip, username)
 
 
 def _track_login_indexdata_followup(client_ip: str, username: str) -> None:
@@ -415,6 +408,20 @@ def _track_login_indexdata_followup(client_ip: str, username: str) -> None:
 def _mark_indexdata_followup_seen(client_ip: str, username: str) -> None:
     key = _login_indexdata_key(client_ip, username)
     stats.pending_indexdata_logins.pop(key, None)
+
+
+def _mark_login_followup_activity_seen(client_ip: str, activity: str) -> None:
+    normalized_ip = str(client_ip or "").strip()
+    if not normalized_ip:
+        return
+    removed = []
+    for key in list(stats.pending_indexdata_logins.keys()):
+        if key[0] == normalized_ip:
+            removed.append(key)
+            stats.pending_indexdata_logins.pop(key, None)
+    if removed:
+        accounts = ",".join(sorted({key[1] for key in removed if key[1]}))
+        logger.info(f"[LoginIndexDataGuard] 后续请求确认正常 ip={normalized_ip} activity={activity} accounts={accounts}")
 
 
 async def _sync_im_whitelist_group_owners(owners: Iterable[str]) -> None:
@@ -1683,6 +1690,8 @@ async def proxy_index_data(request: Request):
         if username and username != "unknown":
 
             _mark_indexdata_followup_seen(client_ip, username)
+        else:
+            _mark_login_followup_activity_seen(client_ip, "RPC/public_IndexData")
 
         if username and username != "unknown" and ('ACECount' in data or 'EP' in data):
 
@@ -1896,6 +1905,8 @@ async def proxy_rpc(path: str, request: Request):
             picked_exit_name=selected_exit.name,
 
         )
+        if response.status_code < 500:
+            _mark_login_followup_activity_seen(client_ip, f"RPC/{path}")
 
         return _build_proxy_passthrough_response(response)
 
