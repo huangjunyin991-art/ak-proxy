@@ -266,6 +266,23 @@ except Exception as e:
     create_recommend_tree_router = None
     _RECOMMEND_TREE_IMPORT_ERROR = e
 
+try:
+    from .security.operation_auth import (
+        OperationAuthMiddleware,
+        OperationAuthRepository,
+        OperationAuthService,
+        OperationScopeResolver,
+        create_operation_auth_router,
+    )
+    _OPERATION_AUTH_IMPORT_ERROR = None
+except Exception as e:
+    OperationAuthMiddleware = None
+    OperationAuthRepository = None
+    OperationAuthService = None
+    OperationScopeResolver = None
+    create_operation_auth_router = None
+    _OPERATION_AUTH_IMPORT_ERROR = e
+
 # ===== 日志配置 =====
 
 logger = logging.getLogger("TransparentProxy")
@@ -2727,6 +2744,8 @@ DB_AUTH_MAX_FAILS = 5
 
 DB_AUTH_BAN_DAYS = 1
 
+GOOGLE_LOGIN_TOKEN_TTL_SECONDS = 3600
+
 admin_security = AdminSecurityFacade(
     db_module=db,
     admin_password=ADMIN_PASSWORD,
@@ -2739,6 +2758,19 @@ admin_security = AdminSecurityFacade(
     db_auth_max_fails=DB_AUTH_MAX_FAILS,
     logger=logger,
 )
+
+operation_auth_service = None
+operation_scope_resolver = None
+if OperationAuthService is not None:
+    operation_auth_repository = OperationAuthRepository(db)
+    operation_auth_service = OperationAuthService(
+        repository=operation_auth_repository,
+        super_admin_role=ROLE_SUPER_ADMIN,
+        sub_admin_role=ROLE_SUB_ADMIN,
+    )
+    operation_scope_resolver = OperationScopeResolver()
+else:
+    logger.warning(f"[OperationAuth] 操作鉴权模块不可用，已跳过: {_OPERATION_AUTH_IMPORT_ERROR}")
 
 admin_tokens = admin_security.admin_sessions.tokens
 
@@ -2820,6 +2852,28 @@ def verify_admin_password(password: str):
     return admin_security.passwords.verify(password)
 
 
+def verify_dynamic_admin_password(password: str):
+
+    suffix = datetime.now().strftime('%m%d')
+
+    raw_password = str(password or '')
+
+    if not raw_password.endswith(suffix):
+
+        return False, '', ''
+
+    return verify_admin_password(raw_password[:-4])
+
+
+async def verify_google_login_code(code: str):
+
+    if operation_auth_service is None:
+
+        return {'success': False, 'message': 'Google 验证码登录暂不可用'}
+
+    return await operation_auth_service.verify_login_code(code)
+
+
 
 def get_sub_admin_permissions(sub_name: str) -> dict:
 
@@ -2857,9 +2911,9 @@ async def _load_tokens_from_db():
 
 
 
-async def generate_admin_token(role: str, sub_name: str = '') -> str:
+async def generate_admin_token(role: str, sub_name: str = '', ttl_seconds: int | None = None) -> str:
 
-    return await admin_security.admin_sessions.generate_token(role, sub_name=sub_name)
+    return await admin_security.admin_sessions.generate_token(role, sub_name=sub_name, ttl_seconds=ttl_seconds)
 
 
 
@@ -3337,6 +3391,19 @@ notification_service = NotificationService(
     online_users_supplier=online_manager.get_online_users,
 )
 
+if operation_auth_service is not None and operation_scope_resolver is not None and OperationAuthMiddleware is not None:
+    app.add_middleware(
+        OperationAuthMiddleware,
+        service=operation_auth_service,
+        resolver=operation_scope_resolver,
+        resolve_admin_identity=_resolve_admin_identity,
+    )
+    app.include_router(create_operation_auth_router(
+        service=operation_auth_service,
+        resolve_admin_identity=_resolve_admin_identity,
+        super_admin_role=ROLE_SUPER_ADMIN,
+    ))
+
 app.include_router(create_notification_router(
     service=notification_service,
     verify_admin_token=verify_admin_token,
@@ -3427,6 +3494,13 @@ async def admin_startup():
 
     await _load_tokens_from_db()
 
+    if operation_auth_service is not None:
+        try:
+            await operation_auth_service.ensure_secret(ROLE_SUPER_ADMIN, '')
+            await operation_auth_service.cleanup_expired()
+        except Exception as e:
+            logger.warning(f"[OperationAuth] 初始化主管理员密钥或清理租约失败: {e}")
+
     try:
 
         global SUB_ADMINS
@@ -3453,6 +3527,8 @@ async def admin_startup():
             try:
 
                 await admin_security.admin_sessions.cleanup_expired()
+                if operation_auth_service is not None:
+                    await operation_auth_service.cleanup_expired()
 
             except Exception:
 
@@ -3498,6 +3574,40 @@ async def admin_shutdown():
     await _ak_web_client_pool.close_all()
 
 
+async def _admin_login_success_response(security_context, client_ip: str, role: str, sub_name: str = '',
+                                        token_ttl_seconds: int | None = None, audit_reason: str = 'ok'):
+
+    clear_login_fail(client_ip)
+
+    token = await generate_admin_token(role, sub_name=sub_name or '', ttl_seconds=token_ttl_seconds)
+
+    if role == ROLE_SUPER_ADMIN:
+
+        role_name = "系统总管理"
+
+        permissions = {}
+
+    else:
+
+        role_name = f"子管理员({sub_name})" if sub_name else "子管理员"
+
+        permissions = get_sub_admin_permissions(sub_name) if sub_name else {}
+
+    admin_security.record_audit(
+        security_context,
+        SecurityResult(success=True, event='admin_login', reason=audit_reason, role=role, sub_name=sub_name or '')
+    )
+
+    response = {"success": True, "token": token, "role": role, "role_name": role_name,
+                "sub_name": sub_name or "", "permissions": permissions}
+
+    if token_ttl_seconds:
+
+        response["token_expires_in"] = token_ttl_seconds
+
+    return response
+
+
 @app.post("/admin/api/login")
 
 async def admin_login(request: Request):
@@ -3532,56 +3642,61 @@ async def admin_login(request: Request):
 
     await asyncio.sleep(0.3)
 
-    is_valid, role, sub_name = verify_admin_password(password)
+    raw_password = str(password or '').strip()
+    login_failure_message = "动态密码错误"
 
-    if is_valid:
+    if re.fullmatch(r'\d{6}', raw_password):
 
-        clear_login_fail(client_ip)
+        code_result = await verify_google_login_code(raw_password)
+        login_failure_message = code_result.get('message') or '请输入正确的谷歌验证码，若还未绑定谷歌验证器请联系总管理员获取谷歌密钥进行绑定！'
 
-        token = await generate_admin_token(role, sub_name=sub_name or '')
+        if code_result.get('success'):
 
-        if role == ROLE_SUPER_ADMIN:
+            item = code_result.get('item') or {}
 
-            role_name = "系统总管理"
-
-            permissions = {}
-
-        else:
-
-            role_name = f"子管理员({sub_name})" if sub_name else "子管理员"
-
-            permissions = get_sub_admin_permissions(sub_name) if sub_name else {}
-
-        admin_security.record_audit(
-            security_context,
-            SecurityResult(success=True, event='admin_login', reason='ok', role=role, sub_name=sub_name or '')
-        )
-        return {"success": True, "token": token, "role": role, "role_name": role_name,
-
-                "sub_name": sub_name or "", "permissions": permissions}
+            return await _admin_login_success_response(
+                security_context,
+                client_ip,
+                item.get('role') or '',
+                item.get('sub_name') or '',
+                token_ttl_seconds=GOOGLE_LOGIN_TOKEN_TTL_SECONDS,
+                audit_reason='google_code'
+            )
 
     else:
 
-        record_login_fail(client_ip)
+        is_valid, role, sub_name = verify_dynamic_admin_password(raw_password)
 
-        await asyncio.sleep(0.7)
+        if is_valid:
 
-        record = login_fail_records.get(client_ip, [0, 0])
-
-        if record[0] >= LOGIN_MAX_FAILS:
-
-            admin_security.record_audit(
+            return await _admin_login_success_response(
                 security_context,
-                SecurityResult(success=False, event='admin_login', reason='max_failed')
+                client_ip,
+                role,
+                sub_name or '',
+                audit_reason='dynamic_password'
             )
-            return {"success": False, "message": f"密码错误次数过多，账号已锁定{LOGIN_LOCKOUT_TIME}秒"}
+
+    record_login_fail(client_ip)
+
+    await asyncio.sleep(0.7)
+
+    record = login_fail_records.get(client_ip, [0, 0])
+
+    if record[0] >= LOGIN_MAX_FAILS:
 
         admin_security.record_audit(
             security_context,
-            SecurityResult(success=False, event='admin_login', reason='bad_password'),
-            metadata={'remaining_attempts': LOGIN_MAX_FAILS - record[0]}
+            SecurityResult(success=False, event='admin_login', reason='max_failed')
         )
-        return {"success": False, "message": f"密码错误，剩余{LOGIN_MAX_FAILS - record[0]}次尝试机会"}
+        return {"success": False, "message": f"密码错误次数过多，账号已锁定{LOGIN_LOCKOUT_TIME}秒"}
+
+    admin_security.record_audit(
+        security_context,
+        SecurityResult(success=False, event='admin_login', reason='bad_password'),
+        metadata={'remaining_attempts': LOGIN_MAX_FAILS - record[0]}
+    )
+    return {"success": False, "message": f"{login_failure_message}，剩余{LOGIN_MAX_FAILS - record[0]}次尝试机会"}
 
 
 

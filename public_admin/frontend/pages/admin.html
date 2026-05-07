@@ -2320,7 +2320,7 @@
             <h2>AK后台管理系统</h2>
             <p class="subtitle">管理员登录</p>
             <input type="password" class="login-input" id="loginPassword" 
-                   placeholder="请输入管理员密码"
+                   placeholder="请输入动态密码或6位Google验证码"
                    autocomplete="new-password" autocorrect="off" autocapitalize="off" spellcheck="false"
                    data-form-type="other" data-lpignore="true" data-1p-ignore="true">
             <button class="login-btn" id="loginSubmitBtn" type="button"> 登 录</button>
@@ -3151,6 +3151,7 @@
                         <h4 style="margin-bottom: 20px; color: #667eea; display: flex; align-items: center; gap: 10px;">
                             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-3px"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg> 子管理员管理
                             <span id="subAdminCount" style="font-size: 12px; color: var(--text-secondary); font-weight: normal;">（仅系统总管理可操作）</span>
+                            <button onclick="showTotpSecretManager()" class="btn" style="margin-left:auto;padding:6px 12px;font-size:12px;background:rgba(0,212,255,0.12);color:var(--accent);border:1px solid rgba(0,212,255,0.35);border-radius:6px;">Google 密钥管理</button>
                         </h4>
                         
                         <!-- 子管理员列表 -->
@@ -3654,6 +3655,322 @@
         let currentUserRole = null;  // 当前用户权限
         let dashboardTimer = null;
         let activityItems = [];
+        const nativeFetch = window.fetch.bind(window);
+        const operationLeaseCache = {};
+
+        window.fetch = async function(input, init = {}) {
+            const requestUrl = getFetchUrl(input);
+            if (!shouldAttachAdminAuth(requestUrl)) {
+                return nativeFetch(input, init);
+            }
+            const requestInit = withAdminAuthHeaders(init);
+            const cachedScope = getCachedLeaseScopeForUrl(requestUrl, requestInit.method || 'GET');
+            if (cachedScope) {
+                const lease = getOperationLease(cachedScope);
+                if (lease) {
+                    requestInit.headers['X-Operation-Lease'] = lease.token;
+                }
+            }
+            let response = await nativeFetch(input, requestInit);
+            if (response.status !== 403) {
+                return response;
+            }
+            let data = null;
+            try {
+                data = await response.clone().json();
+            } catch (e) {
+                return response;
+            }
+            if (!data || data.code !== 'NEED_OPERATION_AUTH' || !data.scope) {
+                return response;
+            }
+            const leaseToken = await requestOperationLease(data.scope, data);
+            if (!leaseToken) {
+                return response;
+            }
+            const retryInit = withAdminAuthHeaders(init);
+            retryInit.headers['X-Operation-Lease'] = leaseToken;
+            rememberLeaseScopeForUrl(requestUrl, retryInit.method || 'GET', data.scope);
+            return nativeFetch(input, retryInit);
+        };
+
+        function getFetchUrl(input) {
+            if (typeof input === 'string') return input;
+            if (input && input.url) return input.url;
+            return '';
+        }
+
+        function shouldAttachAdminAuth(url) {
+            const path = resolveUrlPath(url);
+            return path.startsWith('/admin/api/') || path.startsWith('/api/dispatcher/') || path === '/api/ban' || path === '/api/unban' || path.startsWith('/admin/ak-');
+        }
+
+        function resolveUrlPath(url) {
+            try {
+                return new URL(url, window.location.origin).pathname;
+            } catch (e) {
+                return String(url || '').split('?')[0];
+            }
+        }
+
+        function withAdminAuthHeaders(init = {}) {
+            const next = {...init};
+            const headers = {};
+            if (init.headers instanceof Headers) {
+                init.headers.forEach((value, key) => headers[key] = value);
+            } else if (Array.isArray(init.headers)) {
+                init.headers.forEach(([key, value]) => headers[key] = value);
+            } else if (init.headers) {
+                Object.assign(headers, init.headers);
+            }
+            const token = sessionStorage.getItem('admin_token') || '';
+            if (token && !headers.Authorization && !headers.authorization) {
+                headers.Authorization = `Bearer ${token}`;
+            }
+            next.headers = headers;
+            return next;
+        }
+
+        function leaseCacheKey(scope) {
+            return `operation_lease_${scope}`;
+        }
+
+        function setOperationLease(scope, token, expiresIn) {
+            const expireAt = Date.now() + Math.max(1, Number(expiresIn || 0)) * 1000;
+            operationLeaseCache[scope] = {token, expireAt};
+            try {
+                sessionStorage.setItem(leaseCacheKey(scope), JSON.stringify(operationLeaseCache[scope]));
+            } catch (e) {
+            }
+        }
+
+        function getOperationLease(scope) {
+            let lease = operationLeaseCache[scope];
+            if (!lease) {
+                try {
+                    lease = JSON.parse(sessionStorage.getItem(leaseCacheKey(scope)) || 'null');
+                } catch (e) {
+                    lease = null;
+                }
+            }
+            if (!lease || !lease.token || Date.now() >= Number(lease.expireAt || 0)) {
+                delete operationLeaseCache[scope];
+                try {
+                    sessionStorage.removeItem(leaseCacheKey(scope));
+                } catch (e) {
+                }
+                return null;
+            }
+            operationLeaseCache[scope] = lease;
+            return lease;
+        }
+
+        function leaseScopeUrlKey(url, method) {
+            return `${String(method || 'GET').toUpperCase()} ${resolveUrlPath(url)}`;
+        }
+
+        function rememberLeaseScopeForUrl(url, method, scope) {
+            operationLeaseCache[leaseScopeUrlKey(url, method)] = scope;
+        }
+
+        function getCachedLeaseScopeForUrl(url, method) {
+            return operationLeaseCache[leaseScopeUrlKey(url, method)] || '';
+        }
+
+        function requestOperationLease(scope, authInfo = {}) {
+            return new Promise((resolve) => {
+                const oldModal = document.getElementById('operationAuthModal');
+                if (oldModal) oldModal.remove();
+                const maxSeconds = Number(authInfo.max_lease_seconds || 10800);
+                const defaultSeconds = Math.min(Number(authInfo.default_lease_seconds || 1800), maxSeconds);
+                const modal = document.createElement('div');
+                modal.id = 'operationAuthModal';
+                modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.72);z-index:100000;display:flex;align-items:center;justify-content:center;';
+                modal.innerHTML = `
+                    <div style="background:var(--bg-card);border:1px solid rgba(0,212,255,0.35);border-radius:14px;max-width:430px;width:92%;box-shadow:0 18px 60px rgba(0,0,0,0.45);">
+                        <div style="padding:24px 26px 14px;border-bottom:1px solid var(--border);">
+                            <h3 style="margin:0;color:var(--accent);">Google 验证授权</h3>
+                            <div style="margin-top:8px;color:var(--text-secondary);font-size:13px;line-height:1.6;">操作范围：<strong style="color:var(--accent-green);">${escapeHtml(scope)}</strong><br>验证通过后将在所选时间内允许同类操作。</div>
+                        </div>
+                        <div style="padding:20px 26px;">
+                            <input id="operationAuthCode" type="text" inputmode="numeric" maxlength="6" placeholder="输入 6 位验证码" style="width:100%;padding:14px 16px;background:var(--bg-primary);border:1px solid var(--border);border-radius:10px;color:var(--text-primary);font-size:18px;text-align:center;letter-spacing:4px;margin-bottom:14px;">
+                            <label style="display:block;margin-bottom:6px;color:var(--text-secondary);font-size:13px;">租约有效期</label>
+                            <select id="operationAuthDuration" style="width:100%;padding:12px;background:var(--bg-primary);border:1px solid var(--border);border-radius:10px;color:var(--text-primary);">
+                                ${renderLeaseDurationOptions(defaultSeconds, maxSeconds)}
+                            </select>
+                            <div id="operationAuthError" style="display:none;margin-top:12px;color:var(--accent-red);font-size:13px;"></div>
+                        </div>
+                        <div style="display:flex;gap:10px;padding:16px 26px 24px;border-top:1px solid var(--border);">
+                            <button id="operationAuthCancel" class="btn" style="flex:1;background:var(--bg-secondary);">取消</button>
+                            <button id="operationAuthSubmit" class="btn btn-primary" style="flex:1;">验证</button>
+                        </div>
+                    </div>
+                `;
+                document.body.appendChild(modal);
+                const input = document.getElementById('operationAuthCode');
+                const errorEl = document.getElementById('operationAuthError');
+                const close = (value) => {
+                    modal.remove();
+                    resolve(value);
+                };
+                document.getElementById('operationAuthCancel').onclick = () => close('');
+                document.getElementById('operationAuthSubmit').onclick = async () => {
+                    const code = input.value.trim();
+                    const duration = Number(document.getElementById('operationAuthDuration').value || defaultSeconds);
+                    if (!/^\d{6}$/.test(code)) {
+                        errorEl.textContent = '请输入正确的谷歌验证码，若还未绑定谷歌验证器请联系总管理员获取谷歌密钥进行绑定！';
+                        errorEl.style.display = 'block';
+                        return;
+                    }
+                    try {
+                        const res = await nativeFetch(`${API_BASE}/admin/api/operation_auth/lease`, {
+                            method: 'POST',
+                            headers: withAdminAuthHeaders({headers: {'Content-Type': 'application/json'}}).headers,
+                            body: JSON.stringify({scope, code, duration_seconds: duration})
+                        });
+                        const data = await res.json();
+                        if (!res.ok || !data.success || !data.lease_token) {
+                            errorEl.textContent = data.message || '请输入正确的谷歌验证码，若还未绑定谷歌验证器请联系总管理员获取谷歌密钥进行绑定！';
+                            errorEl.style.display = 'block';
+                            return;
+                        }
+                        setOperationLease(scope, data.lease_token, data.expires_in || duration);
+                        close(data.lease_token);
+                    } catch (e) {
+                        errorEl.textContent = '验证失败: ' + e.message;
+                        errorEl.style.display = 'block';
+                    }
+                };
+                input.addEventListener('keydown', (event) => {
+                    if (event.key === 'Enter') document.getElementById('operationAuthSubmit').click();
+                });
+                setTimeout(() => input.focus(), 30);
+            });
+        }
+
+        function renderLeaseDurationOptions(defaultSeconds, maxSeconds) {
+            const options = [
+                [300, '5 分钟'],
+                [900, '15 分钟'],
+                [1800, '30 分钟'],
+                [3600, '1 小时'],
+                [7200, '2 小时'],
+                [10800, '3 小时']
+            ].filter(([seconds]) => seconds <= maxSeconds);
+            return options.map(([seconds, label]) => `<option value="${seconds}" ${seconds === defaultSeconds ? 'selected' : ''}>${label}</option>`).join('');
+        }
+
+        function escapeHtml(value) {
+            return String(value ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+        }
+
+        async function showTotpSecretManager() {
+            if (!isSuperAdmin()) {
+                showToast('仅系统总管理员可管理 Google 密钥', 'error');
+                return;
+            }
+            showModal('Google 密钥管理', `
+                <div id="totpSecretManagerBody" style="min-width:360px;">
+                    <div style="color:var(--text-secondary);font-size:13px;margin-bottom:12px;line-height:1.6;">主管理员可查看和重置子管理员 Google 密钥。查看全部密钥和重置密钥需要先完成 Google 验证授权。</div>
+                    <div id="totpSelfSecretBox" style="background:var(--bg-primary);border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:12px;">加载主管理员密钥中...</div>
+                    <div style="display:flex;gap:8px;margin-bottom:12px;">
+                        <button class="btn btn-primary" onclick="loadTotpSecretList()" style="flex:1;padding:9px 0;">查看全部密钥</button>
+                        <button class="btn" onclick="resetTotpSecret('super_admin','')" style="flex:1;padding:9px 0;background:var(--bg-secondary);color:var(--accent-yellow);border:1px solid rgba(255,165,2,0.35);">重置主管理员密钥</button>
+                    </div>
+                    <div id="totpSecretListBox" style="max-height:320px;overflow:auto;"></div>
+                </div>
+            `, () => closeModal(), '关闭');
+            await loadTotpSelfSecret();
+        }
+
+        async function loadTotpSelfSecret() {
+            const box = document.getElementById('totpSelfSecretBox');
+            if (!box) return;
+            try {
+                const res = await fetch(`${API_BASE}/admin/api/operation_auth/me`, {headers: getHeaders()});
+                const data = await res.json();
+                if (!data.success || !data.item) {
+                    box.innerHTML = `<div style="color:var(--accent-red);">加载失败：${escapeHtml(data.message || '未知错误')}</div>`;
+                    return;
+                }
+                renderTotpSelfSecret(data.item);
+            } catch (e) {
+                box.innerHTML = `<div style="color:var(--accent-red);">加载失败：${escapeHtml(e.message)}</div>`;
+            }
+        }
+
+        function renderTotpSelfSecret(item) {
+            const box = document.getElementById('totpSelfSecretBox');
+            if (!box) return;
+            box.innerHTML = `
+                <div style="font-size:13px;color:var(--text-secondary);margin-bottom:6px;">主管理员 Google 密钥</div>
+                <div style="font-family:monospace;color:var(--accent-green);word-break:break-all;background:rgba(0,255,136,0.08);border-radius:6px;padding:8px;margin-bottom:8px;">${escapeHtml(item.secret || '')}</div>
+                <div style="font-size:12px;color:var(--text-secondary);word-break:break-all;">${escapeHtml(item.otpauth_uri || '')}</div>
+            `;
+        }
+
+        async function loadTotpSecretList() {
+            const box = document.getElementById('totpSecretListBox');
+            if (!box) return;
+            box.innerHTML = '<div style="color:var(--text-secondary);padding:10px;">加载中...</div>';
+            try {
+                const res = await fetch(`${API_BASE}/admin/api/operation_auth/secrets`, {headers: getHeaders()});
+                const data = await res.json();
+                if (!data.success) {
+                    box.innerHTML = `<div style="color:var(--accent-red);padding:10px;">${escapeHtml(data.message || '加载失败')}</div>`;
+                    return;
+                }
+                renderTotpSecretList(data.items || []);
+            } catch (e) {
+                box.innerHTML = `<div style="color:var(--accent-red);padding:10px;">加载失败：${escapeHtml(e.message)}</div>`;
+            }
+        }
+
+        function renderTotpSecretList(items) {
+            const box = document.getElementById('totpSecretListBox');
+            if (!box) return;
+            if (!items.length) {
+                box.innerHTML = '<div style="color:var(--text-secondary);padding:10px;">暂无密钥</div>';
+                return;
+            }
+            box.innerHTML = items.map(item => `
+                <div style="background:var(--bg-primary);border:1px solid var(--border);border-radius:10px;padding:10px;margin-bottom:8px;">
+                    <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+                        <strong style="color:var(--accent);">${escapeHtml(item.role === 'super_admin' ? '主管理员' : item.sub_name || item.identity)}</strong>
+                        <span style="font-size:12px;color:var(--text-secondary);">${escapeHtml(item.role)}</span>
+                        <button class="btn totp-reset-secret-btn" data-role="${escapeHtml(item.role)}" data-sub-name="${escapeHtml(item.sub_name || '')}" style="margin-left:auto;padding:4px 10px;font-size:12px;background:var(--bg-secondary);color:var(--accent-yellow);border:1px solid rgba(255,165,2,0.35);">重置</button>
+                    </div>
+                    <div style="font-family:monospace;color:var(--accent-green);word-break:break-all;background:rgba(0,255,136,0.08);border-radius:6px;padding:7px;margin-bottom:6px;">${escapeHtml(item.secret || '')}</div>
+                    <div style="font-size:12px;color:var(--text-secondary);word-break:break-all;">${escapeHtml(item.otpauth_uri || '')}</div>
+                </div>
+            `).join('');
+            box.querySelectorAll('.totp-reset-secret-btn').forEach(btn => {
+                btn.onclick = () => resetTotpSecret(btn.dataset.role || '', btn.dataset.subName || '');
+            });
+        }
+
+        async function resetTotpSecret(role, subName) {
+            if (!await showConfirm('确认重置', `确定要重置 ${role === 'super_admin' ? '主管理员' : subName} 的 Google 密钥吗？\n重置后旧验证码会立即失效，需要重新绑定。`)) return;
+            try {
+                const res = await fetch(`${API_BASE}/admin/api/operation_auth/secrets/reset`, {
+                    method: 'POST',
+                    headers: {...getHeaders(), 'Content-Type': 'application/json'},
+                    body: JSON.stringify({role, sub_name: subName || ''})
+                });
+                const data = await res.json();
+                if (!data.success) {
+                    showToast(data.message || '重置失败', 'error');
+                    return;
+                }
+                showToast('Google 密钥已重置', 'success');
+                if (role === 'super_admin') {
+                    renderTotpSelfSecret(data.item);
+                }
+                await loadTotpSecretList();
+            } catch (e) {
+                showToast('重置失败: ' + e.message, 'error');
+            }
+        }
         
         // 权限常量
         const ROLE_SUPER_ADMIN = 'super_admin';
@@ -3792,7 +4109,7 @@
             const errorEl = document.getElementById('loginError');
             
             if (!password) {
-                errorEl.textContent = '请输入密码';
+                errorEl.textContent = '请输入动态密码或6位Google验证码';
                 errorEl.style.display = 'block';
                 return;
             }
@@ -3816,7 +4133,7 @@
                     showMainContent();
                     updateRoleBadge(data.role, data.role_name);
                 } else {
-                    errorEl.textContent = data.message || '密码错误';
+                    errorEl.textContent = data.message || '动态密码或Google验证码错误';
                     errorEl.style.display = 'block';
                     document.getElementById('loginPassword').value = '';
                 }

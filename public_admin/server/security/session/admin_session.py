@@ -19,7 +19,7 @@ class AdminSessionService:
             logger.warning(f"[Token] 加载Token失败: {e}")
             self.tokens.clear()
 
-    async def generate_token(self, role: str, sub_name: str = '') -> str:
+    async def generate_token(self, role: str, sub_name: str = '', ttl_seconds: int | None = None) -> str:
         if role == self.sub_admin_role and sub_name:
             tokens_to_remove = [t for t, d in self.tokens.items()
                                 if d.get('role') == self.sub_admin_role and d.get('sub_name') == sub_name]
@@ -33,7 +33,7 @@ class AdminSessionService:
             await self.db.delete_admin_tokens_by_role(role)
 
         token = secrets.token_urlsafe(32)
-        expire = time.time() + self.token_ttl_seconds
+        expire = time.time() + int(ttl_seconds or self.token_ttl_seconds)
         self.tokens[token] = {'expire': expire, 'role': role, 'sub_name': sub_name}
         await self.db.save_admin_token(token, role, expire, sub_name)
         return token

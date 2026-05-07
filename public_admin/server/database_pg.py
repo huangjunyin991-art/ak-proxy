@@ -277,6 +277,32 @@ async def init_db(host: str = "127.0.0.1", port: int = 5432,
             )
         ''')
 
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS admin_totp_secrets (
+                identity TEXT PRIMARY KEY,
+                role TEXT NOT NULL,
+                sub_name TEXT DEFAULT '',
+                secret TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT NOW(),
+                updated_at TIMESTAMP DEFAULT NOW()
+            )
+        ''')
+
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS admin_operation_leases (
+                lease_token TEXT PRIMARY KEY,
+                admin_token TEXT NOT NULL,
+                role TEXT NOT NULL,
+                sub_name TEXT DEFAULT '',
+                scope TEXT NOT NULL,
+                expire DOUBLE PRECISION NOT NULL,
+                client_ip TEXT DEFAULT '',
+                user_agent TEXT DEFAULT '',
+                issued_at TIMESTAMP DEFAULT NOW(),
+                last_used_at TIMESTAMP
+            )
+        ''')
+
         # 子管理员表
         await conn.execute('''
             CREATE TABLE IF NOT EXISTS sub_admins (
@@ -529,6 +555,9 @@ async def init_db(host: str = "127.0.0.1", port: int = 5432,
         await conn.execute('CREATE INDEX IF NOT EXISTS idx_meeting_publish_permissions_granted_by ON meeting_publish_permissions(granted_by)')
         await conn.execute('CREATE INDEX IF NOT EXISTS idx_notification_deliveries_unread ON notification_deliveries(username, read_at)')
         await conn.execute('CREATE INDEX IF NOT EXISTS idx_recommend_tree_cache_fetched_at ON admin_recommend_tree_cache(fetched_at DESC)')
+        await conn.execute('CREATE INDEX IF NOT EXISTS idx_admin_operation_leases_admin_token ON admin_operation_leases(admin_token)')
+        await conn.execute('CREATE INDEX IF NOT EXISTS idx_admin_operation_leases_scope_expire ON admin_operation_leases(scope, expire)')
+        await conn.execute('CREATE INDEX IF NOT EXISTS idx_admin_operation_leases_expire ON admin_operation_leases(expire)')
 
     logger.info("PostgreSQL 数据库表和索引已就绪")
 
@@ -1571,24 +1600,37 @@ async def delete_admin_token(token: str):
     """删除指定Token"""
     pool = _get_pool()
     async with pool.acquire() as conn:
-        await conn.execute('DELETE FROM admin_tokens WHERE token = $1', token)
+        async with conn.transaction():
+            await conn.execute('DELETE FROM admin_operation_leases WHERE admin_token = $1', token)
+            await conn.execute('DELETE FROM admin_tokens WHERE token = $1', token)
 
 
 async def delete_admin_tokens_by_role(role: str) -> int:
     """删除指定角色的所有Token"""
     pool = _get_pool()
     async with pool.acquire() as conn:
-        result = await conn.execute('DELETE FROM admin_tokens WHERE role = $1', role)
-        return int(result.split()[-1])
+        async with conn.transaction():
+            rows = await conn.fetch('SELECT token FROM admin_tokens WHERE role = $1', role)
+            tokens = [r['token'] for r in rows]
+            if tokens:
+                await conn.execute('DELETE FROM admin_operation_leases WHERE admin_token = ANY($1::text[])', tokens)
+            result = await conn.execute('DELETE FROM admin_tokens WHERE role = $1', role)
+            return int(result.split()[-1])
 
 
 async def delete_admin_tokens_by_sub_name(sub_name: str) -> int:
     """删除指定子管理员的所有Token"""
     pool = _get_pool()
     async with pool.acquire() as conn:
-        result = await conn.execute(
-            "DELETE FROM admin_tokens WHERE role = 'sub_admin' AND sub_name = $1", sub_name)
-        return int(result.split()[-1])
+        async with conn.transaction():
+            rows = await conn.fetch(
+                "SELECT token FROM admin_tokens WHERE role = 'sub_admin' AND sub_name = $1", sub_name)
+            tokens = [r['token'] for r in rows]
+            if tokens:
+                await conn.execute('DELETE FROM admin_operation_leases WHERE admin_token = ANY($1::text[])', tokens)
+            result = await conn.execute(
+                "DELETE FROM admin_tokens WHERE role = 'sub_admin' AND sub_name = $1", sub_name)
+            return int(result.split()[-1])
 
 
 async def cleanup_expired_tokens() -> int:
@@ -1596,8 +1638,15 @@ async def cleanup_expired_tokens() -> int:
     import time as _time
     pool = _get_pool()
     async with pool.acquire() as conn:
-        result = await conn.execute('DELETE FROM admin_tokens WHERE expire < $1', _time.time())
-        return int(result.split()[-1])
+        now = _time.time()
+        async with conn.transaction():
+            rows = await conn.fetch('SELECT token FROM admin_tokens WHERE expire < $1', now)
+            tokens = [r['token'] for r in rows]
+            if tokens:
+                await conn.execute('DELETE FROM admin_operation_leases WHERE admin_token = ANY($1::text[])', tokens)
+            await conn.execute('DELETE FROM admin_operation_leases WHERE expire < $1', now)
+            result = await conn.execute('DELETE FROM admin_tokens WHERE expire < $1', now)
+            return int(result.split()[-1])
 
 
 async def load_all_admin_tokens() -> Dict:
@@ -1608,6 +1657,109 @@ async def load_all_admin_tokens() -> Dict:
         rows = await conn.fetch(
             'SELECT token, role, expire, sub_name FROM admin_tokens WHERE expire > $1', _time.time())
         return {r['token']: {'role': r['role'], 'expire': r['expire'], 'sub_name': r['sub_name'] or ''} for r in rows}
+
+
+async def get_admin_totp_secret(identity: str) -> Optional[Dict]:
+    pool = _get_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            '''
+            SELECT identity, role, sub_name, secret, created_at, updated_at
+            FROM admin_totp_secrets
+            WHERE identity = $1
+            ''',
+            identity
+        )
+        return dict(row) if row else None
+
+
+async def upsert_admin_totp_secret(identity: str, role: str, sub_name: str, secret: str) -> Dict:
+    pool = _get_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            '''
+            INSERT INTO admin_totp_secrets (identity, role, sub_name, secret, created_at, updated_at)
+            VALUES ($1, $2, $3, $4, NOW(), NOW())
+            ON CONFLICT(identity) DO UPDATE SET
+                role = $2,
+                sub_name = $3,
+                secret = $4,
+                updated_at = NOW()
+            RETURNING identity, role, sub_name, secret, created_at, updated_at
+            ''',
+            identity, role, sub_name or '', secret
+        )
+        return dict(row)
+
+
+async def list_admin_totp_secrets() -> List[Dict]:
+    pool = _get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            '''
+            SELECT identity, role, sub_name, secret, created_at, updated_at
+            FROM admin_totp_secrets
+            ORDER BY role, sub_name
+            '''
+        )
+        return [dict(r) for r in rows]
+
+
+async def save_admin_operation_lease(lease_token: str, admin_token: str, role: str, sub_name: str,
+                                     scope: str, expire: float, client_ip: str = '',
+                                     user_agent: str = '') -> Dict:
+    pool = _get_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            '''
+            INSERT INTO admin_operation_leases
+                (lease_token, admin_token, role, sub_name, scope, expire, client_ip, user_agent, issued_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
+            RETURNING lease_token, admin_token, role, sub_name, scope, expire, client_ip, user_agent, issued_at, last_used_at
+            ''',
+            lease_token, admin_token, role, sub_name or '', scope, expire, client_ip or '', user_agent or ''
+        )
+        return dict(row)
+
+
+async def get_admin_operation_lease(lease_token: str) -> Optional[Dict]:
+    pool = _get_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            '''
+            SELECT lease_token, admin_token, role, sub_name, scope, expire, client_ip, user_agent, issued_at, last_used_at
+            FROM admin_operation_leases
+            WHERE lease_token = $1
+            ''',
+            lease_token
+        )
+        return dict(row) if row else None
+
+
+async def touch_admin_operation_lease(lease_token: str) -> None:
+    pool = _get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute(
+            'UPDATE admin_operation_leases SET last_used_at = NOW() WHERE lease_token = $1',
+            lease_token
+        )
+
+
+async def delete_admin_operation_lease(lease_token: str) -> None:
+    pool = _get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute('DELETE FROM admin_operation_leases WHERE lease_token = $1', lease_token)
+
+
+async def cleanup_expired_admin_operation_leases(now_ts: float = None) -> int:
+    import time as _time
+    pool = _get_pool()
+    async with pool.acquire() as conn:
+        result = await conn.execute(
+            'DELETE FROM admin_operation_leases WHERE expire < $1',
+            now_ts if now_ts is not None else _time.time()
+        )
+        return int(result.split()[-1])
 
 
 # ===== 激活码操作日志 =====
