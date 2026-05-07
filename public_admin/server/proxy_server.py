@@ -2694,6 +2694,12 @@ login_fail_records = {}
 
 db_auth_tokens = {}
 
+DB_AUTH_MAX_FAILS = 5
+
+DB_AUTH_BAN_DAYS = 1
+
+db_auth_fail_records = {}
+
 
 
 LICENSE_SERVER_URL = os.environ.get('LICENSE_SERVER_URL', 'http://121.4.46.66:8080')
@@ -2740,6 +2746,47 @@ def clear_login_fail(ip: str):
 
     login_fail_records.pop(ip, None)
 
+
+
+def record_db_auth_fail(ip: str) -> int:
+
+    record = db_auth_fail_records.get(ip, [0, 0])
+
+    record[0] += 1
+
+    record[1] = time.time()
+
+    db_auth_fail_records[ip] = record
+
+    return record[0]
+
+
+
+def clear_db_auth_fail(ip: str):
+
+    db_auth_fail_records.pop(ip, None)
+
+
+
+async def ban_db_auth_fail_ip(ip: str, fail_count: int):
+
+    if not ip or ip == "unknown":
+
+        return
+
+    reason = f"数据库二级密码验证失败{fail_count}次"
+
+    stats.banned_ips.add(ip)
+
+    try:
+
+        await db.ban_ip(ip, reason, duration_days=DB_AUTH_BAN_DAYS)
+
+    except Exception as e:
+
+        logger.warning(f"[DBAuthBan] 写入IP封禁失败 ip={ip}: {e}")
+
+    logger.warning(f"[DBAuthBan] IP已封禁一天 ip={ip} fails={fail_count}")
 
 
 
@@ -4420,6 +4467,12 @@ async def admin_sub_admin_set_monitoring(request: Request):
 
 async def admin_db_auth(request: Request):
 
+    client_ip = _extract_client_ip(request)
+
+    if ENABLE_LOCAL_BAN and client_ip in stats.banned_ips:
+
+        raise HTTPException(status_code=403, detail="您的IP已被封禁")
+
     try:
 
         data = await request.json()
@@ -4428,11 +4481,23 @@ async def admin_db_auth(request: Request):
 
         if verify_db_password(data.get('password', '')):
 
+            clear_db_auth_fail(client_ip)
+
             token = generate_db_token()
 
             return {"success": True, "token": token, "expires_in": 1800}
 
         await asyncio.sleep(1)
+
+        fail_count = record_db_auth_fail(client_ip)
+
+        logger.warning(f"[DBAuthBan] 二级密码验证失败 ip={client_ip} fails={fail_count}")
+
+        if fail_count >= DB_AUTH_MAX_FAILS:
+
+            clear_db_auth_fail(client_ip)
+
+            await ban_db_auth_fail_ip(client_ip, fail_count)
 
         raise HTTPException(status_code=401, detail="二级密码错误")
 
