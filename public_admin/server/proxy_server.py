@@ -150,6 +150,9 @@ except NameError:
 # 数据库模块
 
 from . import database_pg as db
+from .security import AdminSecurityFacade
+from .security.context import build_security_context
+from .security.result import SecurityResult
 
 from plugins.remote_assist.server import remote_assist
 
@@ -2684,21 +2687,34 @@ ROLE_SUB_ADMIN = "sub_admin"
 
 SUB_ADMINS = {}
 
-admin_tokens = {}
-
 LOGIN_MAX_FAILS = 5
 
 LOGIN_LOCKOUT_TIME = 300
-
-login_fail_records = {}
-
-db_auth_tokens = {}
 
 DB_AUTH_MAX_FAILS = 5
 
 DB_AUTH_BAN_DAYS = 1
 
-db_auth_fail_records = {}
+admin_security = AdminSecurityFacade(
+    db_module=db,
+    admin_password=ADMIN_PASSWORD,
+    secondary_password=DB_SECONDARY_PASSWORD,
+    super_admin_role=ROLE_SUPER_ADMIN,
+    sub_admin_role=ROLE_SUB_ADMIN,
+    sub_admins=SUB_ADMINS,
+    login_max_fails=LOGIN_MAX_FAILS,
+    login_lockout_seconds=LOGIN_LOCKOUT_TIME,
+    db_auth_max_fails=DB_AUTH_MAX_FAILS,
+    logger=logger,
+)
+
+admin_tokens = admin_security.admin_sessions.tokens
+
+login_fail_records = admin_security.login_lockouts.records
+
+db_auth_tokens = admin_security.db_auth_sessions.tokens
+
+db_auth_fail_records = admin_security.db_auth_failures.records
 
 
 
@@ -2714,57 +2730,31 @@ LICENSE_ADMIN_KEY = os.environ.get('LICENSE_ADMIN_KEY', '')
 
 def check_login_lockout(ip: str):
 
-    record = login_fail_records.get(ip, [0, 0])
-
-    if record[0] >= LOGIN_MAX_FAILS:
-
-        elapsed = time.time() - record[1]
-
-        if elapsed < LOGIN_LOCKOUT_TIME:
-
-            return True, int(LOGIN_LOCKOUT_TIME - elapsed)
-
-        login_fail_records.pop(ip, None)
-
-    return False, 0
+    return admin_security.login_lockouts.check(ip)
 
 
 
 def record_login_fail(ip: str):
 
-    record = login_fail_records.get(ip, [0, 0])
-
-    record[0] += 1
-
-    record[1] = time.time()
-
-    login_fail_records[ip] = record
+    return admin_security.login_lockouts.record_fail(ip)
 
 
 
 def clear_login_fail(ip: str):
 
-    login_fail_records.pop(ip, None)
+    admin_security.login_lockouts.clear(ip)
 
 
 
 def record_db_auth_fail(ip: str) -> int:
 
-    record = db_auth_fail_records.get(ip, [0, 0])
-
-    record[0] += 1
-
-    record[1] = time.time()
-
-    db_auth_fail_records[ip] = record
-
-    return record[0]
+    return admin_security.db_auth_failures.record_fail(ip)
 
 
 
 def clear_db_auth_fail(ip: str):
 
-    db_auth_fail_records.pop(ip, None)
+    admin_security.db_auth_failures.clear(ip)
 
 
 
@@ -2795,31 +2785,13 @@ async def ban_db_auth_fail_ip(ip: str, fail_count: int):
 
 def verify_admin_password(password: str):
 
-    if not password or not isinstance(password, str):
-
-        return False, None, None
-
-    if secrets.compare_digest(password, ADMIN_PASSWORD):
-
-        return True, ROLE_SUPER_ADMIN, None
-
-    for sub_name, sub_data in SUB_ADMINS.items():
-
-        sub_pwd = sub_data.get('password', '') if isinstance(sub_data, dict) else sub_data
-
-        if sub_pwd and secrets.compare_digest(password, sub_pwd):
-
-            return True, ROLE_SUB_ADMIN, sub_name
-
-    return False, None, None
+    return admin_security.passwords.verify(password)
 
 
 
 def get_sub_admin_permissions(sub_name: str) -> dict:
 
-    sub_data = SUB_ADMINS.get(sub_name, {})
-
-    return sub_data.get('permissions', {}) if isinstance(sub_data, dict) else {}
+    return admin_security.passwords.get_sub_admin_permissions(sub_name)
 
 
 
@@ -2849,121 +2821,31 @@ def check_token_permission(token: str, perm_key: str) -> bool:
 
 async def _load_tokens_from_db():
 
-    global admin_tokens
-
-    try:
-
-        admin_tokens = await db.load_all_admin_tokens()
-
-        logger.info(f"[Token] 从数据库恢复了 {len(admin_tokens)} 个有效Token")
-
-    except Exception as e:
-
-        logger.warning(f"[Token] 加载Token失败: {e}")
-
-        admin_tokens = {}
+    await admin_security.admin_sessions.load_from_db(logger)
 
 
 
 async def generate_admin_token(role: str, sub_name: str = '') -> str:
 
-    if role == ROLE_SUB_ADMIN and sub_name:
-
-        tokens_to_remove = [t for t, d in admin_tokens.items()
-
-                            if d.get('role') == ROLE_SUB_ADMIN and d.get('sub_name') == sub_name]
-
-        for t in tokens_to_remove:
-
-            admin_tokens.pop(t, None)
-
-        await db.delete_admin_tokens_by_sub_name(sub_name)
-
-    else:
-
-        tokens_to_remove = [t for t, d in admin_tokens.items() if d.get('role') == role]
-
-        for t in tokens_to_remove:
-
-            admin_tokens.pop(t, None)
-
-        await db.delete_admin_tokens_by_role(role)
-
-
-
-    token = secrets.token_urlsafe(32)
-
-    expire = time.time() + 86400
-
-    admin_tokens[token] = {'expire': expire, 'role': role, 'sub_name': sub_name}
-
-    await db.save_admin_token(token, role, expire, sub_name)
-
-    return token
+    return await admin_security.admin_sessions.generate_token(role, sub_name=sub_name)
 
 
 
 async def verify_admin_token(token: str) -> bool:
 
-    if not token:
-
-        return False
-
-    token_data = admin_tokens.get(token)
-
-    if not token_data:
-
-        token_data = await db.get_admin_token(token)
-
-        if token_data:
-
-            admin_tokens[token] = token_data
-
-    if not token_data:
-
-        return False
-
-    if time.time() > token_data.get('expire', 0):
-
-        admin_tokens.pop(token, None)
-
-        await db.delete_admin_token(token)
-
-        return False
-
-    return True
+    return await admin_security.admin_sessions.verify_token(token)
 
 
 
 def get_token_role(token: str):
 
-    if not token:
-
-        return None
-
-    td = admin_tokens.get(token)
-
-    if td and time.time() <= td.get('expire', 0):
-
-        return td.get('role')
-
-    return None
+    return admin_security.admin_sessions.get_role(token)
 
 
 
 def get_token_sub_name(token: str) -> str:
 
-    if not token:
-
-        return ''
-
-    td = admin_tokens.get(token)
-
-    if td and time.time() <= td.get('expire', 0):
-
-        return td.get('sub_name', '')
-
-    return ''
+    return admin_security.admin_sessions.get_sub_name(token)
 
 
 
@@ -3005,31 +2887,7 @@ async def _resolve_admin_identity(request: Request):
 
 async def kick_sub_admins(target_name: str = None) -> int:
 
-    if target_name:
-
-        tokens_to_remove = [t for t, d in admin_tokens.items()
-
-                            if d.get('role') == ROLE_SUB_ADMIN and d.get('sub_name') == target_name]
-
-        for t in tokens_to_remove:
-
-            admin_tokens.pop(t, None)
-
-        count = await db.delete_admin_tokens_by_sub_name(target_name)
-
-        return max(len(tokens_to_remove), count)
-
-    else:
-
-        tokens_to_remove = [t for t, d in admin_tokens.items() if d.get('role') == ROLE_SUB_ADMIN]
-
-        for t in tokens_to_remove:
-
-            admin_tokens.pop(t, None)
-
-        count = await db.delete_admin_tokens_by_role(ROLE_SUB_ADMIN)
-
-        return max(len(tokens_to_remove), count)
+    return await admin_security.admin_sessions.kick_sub_admins(target_name=target_name)
 
 
 
@@ -3039,45 +2897,19 @@ async def kick_sub_admins(target_name: str = None) -> int:
 
 def generate_db_token():
 
-    token = secrets.token_urlsafe(32)
-
-    db_auth_tokens[token] = time.time() + 1800
-
-    expired = [k for k, v in db_auth_tokens.items() if v < time.time()]
-
-    for k in expired:
-
-        del db_auth_tokens[k]
-
-    return token
+    return admin_security.db_auth_sessions.generate_token()
 
 
 
 def verify_db_token(token: str) -> bool:
 
-    if not token:
-
-        return False
-
-    expire_time = db_auth_tokens.get(token)
-
-    if not expire_time or time.time() > expire_time:
-
-        db_auth_tokens.pop(token, None)
-
-        return False
-
-    return True
+    return admin_security.db_auth_sessions.verify_token(token)
 
 
 
 def verify_db_password(password: str) -> bool:
 
-    if not password or not isinstance(password, str):
-
-        return False
-
-    return secrets.compare_digest(password, DB_SECONDARY_PASSWORD)
+    return admin_security.db_auth_sessions.verify_password(password)
 
 
 
@@ -3568,6 +3400,7 @@ async def admin_startup():
         global SUB_ADMINS
 
         SUB_ADMINS = await db.db_get_all_sub_admins()
+        admin_security.bind_sub_admins(SUB_ADMINS)
 
         logger.info(f"[SubAdmin] 加载了 {len(SUB_ADMINS)} 个子管理员")
 
@@ -3587,13 +3420,7 @@ async def admin_startup():
 
             try:
 
-                expired = [k for k, v in admin_tokens.items() if v.get('expire', 0) < time.time()]
-
-                for k in expired:
-
-                    admin_tokens.pop(k, None)
-
-                await db.cleanup_expired_tokens()
+                await admin_security.admin_sessions.cleanup_expired()
 
             except Exception:
 
@@ -3644,11 +3471,17 @@ async def admin_shutdown():
 async def admin_login(request: Request):
 
     client_ip = _extract_client_ip(request)
+    security_context = build_security_context(request, client_ip=client_ip)
 
     is_locked, remaining = check_login_lockout(client_ip)
 
     if is_locked:
 
+        admin_security.record_audit(
+            security_context,
+            SecurityResult(success=False, event='admin_login', reason='locked'),
+            metadata={'remaining_seconds': remaining}
+        )
         return {"success": False, "message": f"登录尝试过多，请{remaining}秒后重试"}
 
     try:
@@ -3659,6 +3492,10 @@ async def admin_login(request: Request):
 
     except Exception:
 
+        admin_security.record_audit(
+            security_context,
+            SecurityResult(success=False, event='admin_login', reason='invalid_request')
+        )
         return {"success": False, "message": "请求无效"}
 
     await asyncio.sleep(0.3)
@@ -3683,6 +3520,10 @@ async def admin_login(request: Request):
 
             permissions = get_sub_admin_permissions(sub_name) if sub_name else {}
 
+        admin_security.record_audit(
+            security_context,
+            SecurityResult(success=True, event='admin_login', reason='ok', role=role, sub_name=sub_name or '')
+        )
         return {"success": True, "token": token, "role": role, "role_name": role_name,
 
                 "sub_name": sub_name or "", "permissions": permissions}
@@ -3697,8 +3538,17 @@ async def admin_login(request: Request):
 
         if record[0] >= LOGIN_MAX_FAILS:
 
+            admin_security.record_audit(
+                security_context,
+                SecurityResult(success=False, event='admin_login', reason='max_failed')
+            )
             return {"success": False, "message": f"密码错误次数过多，账号已锁定{LOGIN_LOCKOUT_TIME}秒"}
 
+        admin_security.record_audit(
+            security_context,
+            SecurityResult(success=False, event='admin_login', reason='bad_password'),
+            metadata={'remaining_attempts': LOGIN_MAX_FAILS - record[0]}
+        )
         return {"success": False, "message": f"密码错误，剩余{LOGIN_MAX_FAILS - record[0]}次尝试机会"}
 
 
@@ -3707,10 +3557,15 @@ async def admin_login(request: Request):
 
 async def verify_token_api(request: Request):
 
+    security_context = build_security_context(request, client_ip=_extract_client_ip(request))
     token = request.headers.get('Authorization', '').replace('Bearer ', '')
 
     if not token or not await verify_admin_token(token):
 
+        admin_security.record_audit(
+            security_context,
+            SecurityResult(success=False, event='admin_token_verify', reason='invalid')
+        )
         return JSONResponse(status_code=401, content={"valid": False, "message": "未登录"})
 
     role = get_token_role(token)
@@ -3727,6 +3582,10 @@ async def verify_token_api(request: Request):
 
         permissions = get_sub_admin_permissions(sub_name) if sub_name else {}
 
+    admin_security.record_audit(
+        security_context,
+        SecurityResult(success=True, event='admin_token_verify', reason='ok', role=role, sub_name=sub_name or '')
+    )
     return {"valid": True, "role": role, "role_name": role_name, "sub_name": sub_name or "", "permissions": permissions}
 
 
@@ -4186,7 +4045,7 @@ async def admin_sub_admin_set(request: Request):
 
         return {"success": False, "message": "子管理员密码至少6位"}
 
-    if secrets.compare_digest(new_sub_password, ADMIN_PASSWORD):
+    if admin_security.passwords.is_super_admin_password(new_sub_password):
 
         return {"success": False, "message": "不能与总管理员密码相同"}
 
@@ -4468,9 +4327,14 @@ async def admin_sub_admin_set_monitoring(request: Request):
 async def admin_db_auth(request: Request):
 
     client_ip = _extract_client_ip(request)
+    security_context = build_security_context(request, client_ip=client_ip)
 
     if ENABLE_LOCAL_BAN and client_ip in stats.banned_ips:
 
+        admin_security.record_audit(
+            security_context,
+            SecurityResult(success=False, event='admin_db_auth', reason='banned_ip')
+        )
         raise HTTPException(status_code=403, detail="您的IP已被封禁")
 
     try:
@@ -4485,6 +4349,10 @@ async def admin_db_auth(request: Request):
 
             token = generate_db_token()
 
+            admin_security.record_audit(
+                security_context,
+                SecurityResult(success=True, event='admin_db_auth', reason='ok')
+            )
             return {"success": True, "token": token, "expires_in": 1800}
 
         await asyncio.sleep(1)
@@ -4499,6 +4367,11 @@ async def admin_db_auth(request: Request):
 
             await ban_db_auth_fail_ip(client_ip, fail_count)
 
+        admin_security.record_audit(
+            security_context,
+            SecurityResult(success=False, event='admin_db_auth', reason='bad_password'),
+            metadata={'fail_count': fail_count}
+        )
         raise HTTPException(status_code=401, detail="二级密码错误")
 
     except HTTPException:
@@ -4507,6 +4380,10 @@ async def admin_db_auth(request: Request):
 
     except Exception:
 
+        admin_security.record_audit(
+            security_context,
+            SecurityResult(success=False, event='admin_db_auth', reason='invalid_request')
+        )
         raise HTTPException(status_code=400, detail="验证请求无效")
 
 
