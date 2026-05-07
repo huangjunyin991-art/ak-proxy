@@ -4736,6 +4736,18 @@
         }
         
         // 加载IP列表
+        function renderIpStatus(ip) {
+            if (ip.is_banned) {
+                return '<span class="badge danger">已封禁</span>';
+            }
+            if (ip.is_prebanned) {
+                const count = Number(ip.preban_count || 0);
+                const reason = escapeHtml(ip.preban_reason || '异常行为观察中');
+                return `<span class="badge warning">异常 ${count}/5</span><div style="margin-top:4px;color:var(--accent-yellow);font-size:11px;max-width:360px;white-space:normal;">${reason}</div>`;
+            }
+            return '<span class="badge success">正常</span>';
+        }
+
         async function loadIPs() {
             try {
                 const res = await fetch(`${API_BASE}/admin/api/ips`);
@@ -4749,15 +4761,11 @@
                 
                 tbody.innerHTML = data.map(ip => `
                     <tr>
-                        <td><strong>${ip.ip_address}</strong></td>
+                        <td><strong>${escapeHtml(ip.ip_address || '')}</strong></td>
                         <td>${ip.request_count}</td>
                         <td>${fmtTime(ip.first_seen)}</td>
                         <td>${fmtTime(ip.last_seen)}</td>
-                        <td>
-                            <span class="badge ${ip.is_banned ? 'danger' : 'success'}">
-                                ${ip.is_banned ? '已封禁' : '正常'}
-                            </span>
-                        </td>
+                        <td>${renderIpStatus(ip)}</td>
                         <td>
                             ${ip.is_banned 
                                 ? `<button class="btn btn-success" onclick="unban('ip', '${ip.ip_address}')">解封</button>`

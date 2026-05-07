@@ -377,6 +377,10 @@ async def init_db(host: str = "127.0.0.1", port: int = 5432,
             await conn.execute("ALTER TABLE user_stats ADD COLUMN IF NOT EXISTS ak_auth_updated_at TIMESTAMP")
             await conn.execute("ALTER TABLE user_stats ADD COLUMN IF NOT EXISTS ak_auth_expires_at TIMESTAMP")
             await conn.execute("ALTER TABLE user_stats ADD COLUMN IF NOT EXISTS real_name TEXT DEFAULT ''")
+            await conn.execute("ALTER TABLE ip_stats ADD COLUMN IF NOT EXISTS preban_count INTEGER DEFAULT 0")
+            await conn.execute("ALTER TABLE ip_stats ADD COLUMN IF NOT EXISTS preban_first_seen TIMESTAMP")
+            await conn.execute("ALTER TABLE ip_stats ADD COLUMN IF NOT EXISTS preban_last_seen TIMESTAMP")
+            await conn.execute("ALTER TABLE ip_stats ADD COLUMN IF NOT EXISTS preban_reason TEXT DEFAULT ''")
         except Exception:
             pass
 
@@ -983,7 +987,9 @@ async def ban_ip(ip_address: str, reason: str = "", duration_days: int = None):
     async with pool.acquire() as conn:
         async with conn.transaction():
             await conn.execute('''
-                UPDATE ip_stats SET is_banned = TRUE, banned_at = $1, banned_reason = $2
+                UPDATE ip_stats
+                SET is_banned = TRUE, banned_at = $1, banned_reason = $2,
+                    preban_count = 0, preban_first_seen = NULL, preban_last_seen = NULL, preban_reason = ''
                 WHERE ip_address = $3
             ''', now, reason, ip_address)
             await conn.execute('''
@@ -1000,13 +1006,53 @@ async def unban_ip(ip_address: str):
     async with pool.acquire() as conn:
         async with conn.transaction():
             await conn.execute('''
-                UPDATE ip_stats SET is_banned = FALSE, banned_at = NULL, banned_reason = ''
+                UPDATE ip_stats
+                SET is_banned = FALSE, banned_at = NULL, banned_reason = '',
+                    preban_count = 0, preban_first_seen = NULL, preban_last_seen = NULL, preban_reason = ''
                 WHERE ip_address = $1
             ''', ip_address)
             await conn.execute('''
                 UPDATE ban_list SET is_active = FALSE
                 WHERE ban_type = 'ip' AND ban_value = $1
             ''', ip_address)
+
+
+async def record_ip_preban_event(ip_address: str, reason: str, window_seconds: int = 60) -> Dict:
+    pool = _get_pool()
+    now = datetime.now().replace(microsecond=0)
+    window_start = now - timedelta(seconds=window_seconds)
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            row = await conn.fetchrow(
+                '''
+                SELECT preban_count, preban_first_seen, preban_last_seen, is_banned
+                FROM ip_stats
+                WHERE ip_address = $1
+                FOR UPDATE
+                ''',
+                ip_address
+            )
+            if row and row['is_banned']:
+                return {'count': int(row['preban_count'] or 0), 'is_banned': True}
+            if row and row['preban_first_seen'] and row['preban_first_seen'] >= window_start:
+                count = int(row['preban_count'] or 0) + 1
+                first_seen = row['preban_first_seen']
+            else:
+                count = 1
+                first_seen = now
+            await conn.execute(
+                '''
+                INSERT INTO ip_stats (ip_address, request_count, first_seen, last_seen, preban_count, preban_first_seen, preban_last_seen, preban_reason)
+                VALUES ($1, 0, $2, $2, $3, $4, $2, $5)
+                ON CONFLICT(ip_address) DO UPDATE SET
+                    preban_count = $3,
+                    preban_first_seen = $4,
+                    preban_last_seen = $2,
+                    preban_reason = $5
+                ''',
+                ip_address, now, count, first_seen, reason
+            )
+            return {'count': count, 'is_banned': False, 'window_seconds': window_seconds}
 
 
 async def load_banned_sets() -> tuple[set, set]:
@@ -1113,7 +1159,29 @@ async def get_all_ips(limit: int = 100, offset: int = 0) -> List[Dict]:
     pool = _get_pool()
     async with pool.acquire() as conn:
         rows = await conn.fetch('''
-            SELECT ip_address, request_count, first_seen, last_seen, is_banned
+            SELECT ip_address, request_count, first_seen, last_seen, is_banned,
+                   CASE
+                       WHEN is_banned THEN FALSE
+                       WHEN preban_last_seen IS NULL THEN FALSE
+                       WHEN preban_last_seen < NOW() - INTERVAL '60 seconds' THEN FALSE
+                       ELSE TRUE
+                   END AS is_prebanned,
+                   CASE
+                       WHEN preban_last_seen IS NULL OR preban_last_seen < NOW() - INTERVAL '60 seconds' THEN 0
+                       ELSE COALESCE(preban_count, 0)
+                   END AS preban_count,
+                   CASE
+                       WHEN preban_last_seen IS NULL OR preban_last_seen < NOW() - INTERVAL '60 seconds' THEN NULL
+                       ELSE preban_first_seen
+                   END AS preban_first_seen,
+                   CASE
+                       WHEN preban_last_seen IS NULL OR preban_last_seen < NOW() - INTERVAL '60 seconds' THEN NULL
+                       ELSE preban_last_seen
+                   END AS preban_last_seen,
+                   CASE
+                       WHEN preban_last_seen IS NULL OR preban_last_seen < NOW() - INTERVAL '60 seconds' THEN ''
+                       ELSE COALESCE(preban_reason, '')
+                   END AS preban_reason
             FROM ip_stats ORDER BY last_seen DESC LIMIT $1 OFFSET $2
         ''', limit, offset)
         return [dict(r) for r in rows]

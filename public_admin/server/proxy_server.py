@@ -348,6 +348,12 @@ stats = ProxyStats()
 
 LOGIN_INDEXDATA_GRACE_SECONDS = 5
 
+IP_PREBAN_WINDOW_SECONDS = 60
+
+IP_PREBAN_AUTO_BAN_THRESHOLD = 5
+
+IP_PREBAN_AUTO_BAN_DAYS = 1
+
 
 
 # ===== FastAPI 应用 =====
@@ -384,7 +390,22 @@ def _login_indexdata_key(client_ip: str, username: str) -> tuple[str, str]:
 
 async def _record_missing_indexdata_followup(client_ip: str, username: str) -> None:
     reason = f"登录成功后未在{LOGIN_INDEXDATA_GRACE_SECONDS}秒内调用public_IndexData: {username}"
-    logger.warning(f"[LoginIndexDataGuard] 可疑登录后续行为 ip={client_ip} account={username} reason={reason}")
+    result = await db.record_ip_preban_event(client_ip, reason, window_seconds=IP_PREBAN_WINDOW_SECONDS)
+    count = int(result.get('count') or 0)
+    if result.get('is_banned'):
+        logger.warning(f"[LoginIndexDataGuard] 可疑登录后续行为 ip={client_ip} account={username} already_banned=1 reason={reason}")
+        return
+    if count >= IP_PREBAN_AUTO_BAN_THRESHOLD:
+        ban_reason = f"{IP_PREBAN_WINDOW_SECONDS}秒内连续触发异常{count}次: {reason}"
+        stats.banned_ips.add(client_ip)
+        await db.ban_ip(client_ip, ban_reason, duration_days=IP_PREBAN_AUTO_BAN_DAYS)
+        try:
+            await ws_manager.broadcast({"type": "ip_banned", "data": {"ip": client_ip, "reason": ban_reason}})
+        except Exception:
+            pass
+        logger.warning(f"[LoginIndexDataGuard] 自动封禁IP ip={client_ip} account={username} count={count} reason={ban_reason}")
+        return
+    logger.warning(f"[LoginIndexDataGuard] IP进入预封禁观察 ip={client_ip} account={username} count={count}/{IP_PREBAN_AUTO_BAN_THRESHOLD} reason={reason}")
 
 
 async def _check_login_indexdata_followup(client_ip: str, username: str, marker: float) -> None:
