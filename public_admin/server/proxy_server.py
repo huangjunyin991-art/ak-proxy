@@ -337,9 +337,15 @@ class ProxyStats:
 
         self.banned_cache_ready = False
 
+        self.pending_indexdata_logins: dict = {}
+
 
 
 stats = ProxyStats()
+
+LOGIN_INDEXDATA_GRACE_SECONDS = 5
+
+LOGIN_INDEXDATA_BAN_DAYS = 1
 
 
 
@@ -369,6 +375,43 @@ app.add_middleware(
 
 IM_SERVER_INTERNAL_URL = os.getenv("IM_SERVER_INTERNAL_URL", "http://127.0.0.1:18081").rstrip("/")
 
+
+
+def _login_indexdata_key(client_ip: str, username: str) -> tuple[str, str]:
+    return (str(client_ip or "").strip(), str(username or "").strip().lower())
+
+
+async def _ban_ip_for_missing_indexdata(client_ip: str, username: str) -> None:
+    reason = f"登录成功后未在{LOGIN_INDEXDATA_GRACE_SECONDS}秒内调用public_IndexData: {username}"
+    stats.banned_ips.add(client_ip)
+    try:
+        await db.ban_ip(client_ip, reason, duration_days=LOGIN_INDEXDATA_BAN_DAYS)
+    except Exception as e:
+        logger.warning(f"[LoginIndexDataGuard] 自动封禁IP写库失败 ip={client_ip} account={username}: {e}")
+    logger.warning(f"[LoginIndexDataGuard] 自动封禁IP一天 ip={client_ip} account={username}")
+
+
+async def _check_login_indexdata_followup(client_ip: str, username: str, marker: float) -> None:
+    await asyncio.sleep(LOGIN_INDEXDATA_GRACE_SECONDS)
+    key = _login_indexdata_key(client_ip, username)
+    current = stats.pending_indexdata_logins.get(key)
+    if current == marker:
+        stats.pending_indexdata_logins.pop(key, None)
+        await _ban_ip_for_missing_indexdata(client_ip, username)
+
+
+def _track_login_indexdata_followup(client_ip: str, username: str) -> None:
+    key = _login_indexdata_key(client_ip, username)
+    if not key[0] or not key[1] or key[1] == "unknown":
+        return
+    marker = time.time()
+    stats.pending_indexdata_logins[key] = marker
+    asyncio.create_task(_check_login_indexdata_followup(key[0], key[1], marker))
+
+
+def _mark_indexdata_followup_seen(client_ip: str, username: str) -> None:
+    key = _login_indexdata_key(client_ip, username)
+    stats.pending_indexdata_logins.pop(key, None)
 
 
 async def _sync_im_whitelist_group_owners(owners: Iterable[str]) -> None:
@@ -1353,6 +1396,7 @@ async def proxy_login(request: Request):
         stats.last_login_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
         logger.info(f"[Login] 登录成功: {account}")
+        _track_login_indexdata_followup(client_ip, account)
 
         cached = _cache_ak_auth(account, password, result, response.headers)
 
@@ -1632,6 +1676,10 @@ async def proxy_index_data(request: Request):
                    data.get("UserName") or data.get("Account") or
 
                    request.cookies.get("ak_username") or "unknown")
+
+        if username and username != "unknown":
+
+            _mark_indexdata_followup_seen(client_ip, username)
 
         if username and username != "unknown" and ('ACECount' in data or 'EP' in data):
 

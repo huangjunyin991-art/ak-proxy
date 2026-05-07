@@ -975,10 +975,11 @@ async def unban_user(username: str):
             ''', username)
 
 
-async def ban_ip(ip_address: str, reason: str = ""):
+async def ban_ip(ip_address: str, reason: str = "", duration_days: int = None):
     """封禁IP"""
     pool = _get_pool()
     now = datetime.now().replace(microsecond=0)
+    banned_until = (now + timedelta(days=duration_days)) if duration_days else None
     async with pool.acquire() as conn:
         async with conn.transaction():
             await conn.execute('''
@@ -986,11 +987,11 @@ async def ban_ip(ip_address: str, reason: str = ""):
                 WHERE ip_address = $3
             ''', now, reason, ip_address)
             await conn.execute('''
-                INSERT INTO ban_list (ban_type, ban_value, banned_at, banned_reason, is_active)
-                VALUES ('ip', $1, $2, $3, TRUE)
+                INSERT INTO ban_list (ban_type, ban_value, banned_at, banned_reason, banned_until, is_active)
+                VALUES ('ip', $1, $2, $3, $4, TRUE)
                 ON CONFLICT(ban_type, ban_value) DO UPDATE SET
-                    banned_at = $2, banned_reason = $3, is_active = TRUE
-            ''', ip_address, now, reason)
+                    banned_at = $2, banned_reason = $3, banned_until = $4, is_active = TRUE
+            ''', ip_address, now, reason, banned_until)
 
 
 async def unban_ip(ip_address: str):
@@ -1013,7 +1014,7 @@ async def load_banned_sets() -> tuple[set, set]:
     pool = _get_pool()
     async with pool.acquire() as conn:
         rows = await conn.fetch(
-            "SELECT ban_type, ban_value FROM ban_list WHERE is_active = TRUE"
+            "SELECT ban_type, ban_value FROM ban_list WHERE is_active = TRUE AND (banned_until IS NULL OR banned_until > NOW())"
         )
     usernames, ips = set(), set()
     for r in rows:
@@ -1030,17 +1031,27 @@ async def is_banned(username: str = None, ip_address: str = None) -> bool:
     async with pool.acquire() as conn:
         if username:
             row = await conn.fetchrow(
-                'SELECT is_banned FROM user_stats WHERE username = $1',
+                '''
+                SELECT bl.id
+                FROM ban_list bl
+                WHERE bl.ban_type = 'username' AND bl.ban_value = $1
+                  AND bl.is_active = TRUE AND (bl.banned_until IS NULL OR bl.banned_until > NOW())
+                ''',
                 username.lower()
             )
-            if row and row['is_banned']:
+            if row:
                 return True
         if ip_address:
             row = await conn.fetchrow(
-                'SELECT is_banned FROM ip_stats WHERE ip_address = $1',
+                '''
+                SELECT bl.id
+                FROM ban_list bl
+                WHERE bl.ban_type = 'ip' AND bl.ban_value = $1
+                  AND bl.is_active = TRUE AND (bl.banned_until IS NULL OR bl.banned_until > NOW())
+                ''',
                 ip_address
             )
-            if row and row['is_banned']:
+            if row:
                 return True
     return False
 
@@ -1050,7 +1061,9 @@ async def get_ban_list() -> List[Dict]:
     pool = _get_pool()
     async with pool.acquire() as conn:
         rows = await conn.fetch('''
-            SELECT * FROM ban_list WHERE is_active = TRUE ORDER BY banned_at DESC
+            SELECT * FROM ban_list
+            WHERE is_active = TRUE AND (banned_until IS NULL OR banned_until > NOW())
+            ORDER BY banned_at DESC
         ''')
         return [dict(r) for r in rows]
 
