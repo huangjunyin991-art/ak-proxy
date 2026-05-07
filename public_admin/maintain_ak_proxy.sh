@@ -162,6 +162,23 @@ upsert_env_var() {
     fi
 }
 
+require_env_var() {
+    local key="$1"
+    if ! sudo awk -F= -v key="$key" '
+        $1 == key {
+            value = $0
+            sub("^[^=]*=", "", value)
+            gsub(/^[ \t"]+|[ \t"]+$/, "", value)
+            if (length(value) > 0) found = 1
+        }
+        END { exit found ? 0 : 1 }
+    ' "$ENV_FILE"; then
+        echo "[ERROR] $key 未配置，拒绝重启服务以避免线上 502"
+        exit 1
+    fi
+    echo "[OK] $key 已配置"
+}
+
 pull_latest() {
     echo "[1/5] 拉取最新代码: $BRANCH"
     git -C "$REPO_DIR" fetch origin "$BRANCH"
@@ -180,6 +197,9 @@ update_env() {
     validate_license_url "$LICENSE_SERVER_URL_VALUE"
     upsert_env_var LICENSE_SERVER_URL "$LICENSE_SERVER_URL_VALUE"
     upsert_env_var LICENSE_ADMIN_KEY "$LICENSE_ADMIN_KEY_VALUE"
+    require_env_var ADMIN_PASSWORD
+    require_env_var DB_SECONDARY_PASSWORD
+    require_env_var AK_PROXY_DB_PASSWORD
     if sudo grep -q '^LICENSE_SERVER_URL=' "$ENV_FILE"; then
         sudo grep -n '^LICENSE_SERVER_URL=' "$ENV_FILE"
     else
