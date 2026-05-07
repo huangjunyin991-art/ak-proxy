@@ -818,6 +818,21 @@ async def update_user_assets(username: str, data: Dict):
     username = username.lower() if username else username
     now = datetime.now().replace(microsecond=0)
 
+    has_ace_count = "ACECount" in data
+    has_total_ace = "TotalACE" in data
+    has_weekly_money = "WeeklyMoney" in data
+    has_sp = "SP" in data
+    has_tp = "TP" in data
+    has_ep = "EP" in data
+    has_rp = "RP" in data
+    has_ap = "AP" in data
+    has_rate = "Rate" in data
+    has_honor_name = "HonorName" in data
+    has_left_area = "L" in data
+    has_right_area = "R" in data
+    has_direct_push = "F" in data
+    has_sub_account = "S" in data
+
     ace_count = float(data.get("ACECount", 0) or 0)
     total_ace = float(data.get("TotalACE", 0) or 0)
     weekly_money = float(data.get("WeeklyMoney", 0) or 0)
@@ -841,17 +856,28 @@ async def update_user_assets(username: str, data: Dict):
                     left_area, right_area, direct_push, sub_account, updated_at)
                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
                 ON CONFLICT(username) DO UPDATE SET
-                    ace_count=$2, total_ace=$3, weekly_money=$4,
-                    sp=$5, tp=$6, ep=$7, rp=$8, ap=$9,
-                    rate=$10, honor_name=$11,
-                    left_area=CASE WHEN $12>0 THEN $12 ELSE user_assets.left_area END,
-                    right_area=CASE WHEN $13>0 THEN $13 ELSE user_assets.right_area END,
-                    direct_push=CASE WHEN $14>0 THEN $14 ELSE user_assets.direct_push END,
-                    sub_account=CASE WHEN $15>0 THEN $15 ELSE user_assets.sub_account END,
+                    ace_count=CASE WHEN $17 THEN $2 ELSE user_assets.ace_count END,
+                    total_ace=CASE WHEN $18 THEN $3 ELSE user_assets.total_ace END,
+                    weekly_money=CASE WHEN $19 THEN $4 ELSE user_assets.weekly_money END,
+                    sp=CASE WHEN $20 THEN $5 ELSE user_assets.sp END,
+                    tp=CASE WHEN $21 THEN $6 ELSE user_assets.tp END,
+                    ep=CASE WHEN $22 THEN $7 ELSE user_assets.ep END,
+                    rp=CASE WHEN $23 THEN $8 ELSE user_assets.rp END,
+                    ap=CASE WHEN $24 THEN $9 ELSE user_assets.ap END,
+                    rate=CASE WHEN $25 THEN $10 ELSE user_assets.rate END,
+                    honor_name=CASE WHEN $26 THEN $11 ELSE user_assets.honor_name END,
+                    left_area=CASE WHEN $27 THEN $12 ELSE user_assets.left_area END,
+                    right_area=CASE WHEN $28 THEN $13 ELSE user_assets.right_area END,
+                    direct_push=CASE WHEN $29 THEN $14 ELSE user_assets.direct_push END,
+                    sub_account=CASE WHEN $30 THEN $15 ELSE user_assets.sub_account END,
                     updated_at=$16
             ''', username, ace_count, total_ace, weekly_money,
                  sp, tp, ep, rp, ap, rate, honor_name,
-                 left_area, right_area, direct_push, sub_account, now)
+                 left_area, right_area, direct_push, sub_account, now,
+                 has_ace_count, has_total_ace, has_weekly_money,
+                 has_sp, has_tp, has_ep, has_rp, has_ap, has_rate,
+                 has_honor_name, has_left_area, has_right_area,
+                 has_direct_push, has_sub_account)
 
 
 
