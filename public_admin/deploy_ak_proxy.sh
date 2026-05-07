@@ -5,14 +5,17 @@
 
 set -e
 
-REPO_DIR="/home/ubuntu/ak-proxy"
+REPO_DIR="${REPO_DIR:?请设置 REPO_DIR}"
 APP_DIR="$REPO_DIR/public_admin"
 LOG_FILE="$APP_DIR/proxy.log"
-VENV_BIN="$REPO_DIR/venv/bin"
-NGINX_CONF_SRC="$REPO_DIR/public_admin/config/nginx.conf"
-NGINX_CONF_DST="/etc/nginx/sites-enabled/nginx.conf"
-LEGACY_NGINX_CONF="/etc/nginx/sites-enabled/ak2025.conf"
-SERVICE_NAME="ak-proxy"
+VENV_BIN="${VENV_BIN:-$REPO_DIR/venv/bin}"
+NGINX_CONF_SRC="${NGINX_CONF_SRC:-$REPO_DIR/public_admin/config/nginx.conf}"
+NGINX_CONF_DST="${NGINX_CONF_DST:-/etc/nginx/sites-enabled/nginx.conf}"
+NGINX_RENDER_SCRIPT="${NGINX_RENDER_SCRIPT:-$REPO_DIR/public_admin/render_nginx_config.sh}"
+LEGACY_NGINX_CONF="${LEGACY_NGINX_CONF:-}"
+SERVICE_NAME="${AK_PROXY_SERVICE_NAME:-ak-proxy}"
+SERVICE_USER="${AK_PROXY_SERVICE_USER:?请设置 AK_PROXY_SERVICE_USER}"
+ADMIN_DOMAIN="${ADMIN_DOMAIN:?请设置 ADMIN_DOMAIN}"
 
 echo "========================================="
 echo "AK-Proxy 一键部署脚本"
@@ -20,7 +23,7 @@ echo "========================================="
 
 # 检查是否为root用户
 if [ "$EUID" -eq 0 ]; then
-    echo "[ERROR] 不要使用root用户运行此脚本，请使用 ubuntu 用户"
+    echo "[ERROR] 不要使用 root 用户运行此脚本"
     exit 1
 fi
 
@@ -33,7 +36,7 @@ After=network.target
 
 [Service]
 Type=simple
-User=ubuntu
+User=${SERVICE_USER}
 WorkingDirectory=${APP_DIR}
 Environment="PATH=${VENV_BIN}:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 ExecStart=${VENV_BIN}/python proxy_server.py
@@ -51,7 +54,7 @@ echo "[OK] systemd 服务文件创建成功（崩溃自动重启已启用）"
 # ===== [2/7] 初始化日志文件权限 =====
 echo -e "\n[2/7] 初始化日志文件权限..."
 sudo touch "$LOG_FILE"
-sudo chown ubuntu:ubuntu "$LOG_FILE"
+sudo chown "${SERVICE_USER}:${SERVICE_USER}" "$LOG_FILE"
 echo "[OK] 日志文件权限已设置: $LOG_FILE"
 
 # ===== [3/7] 启动 ak-proxy 服务 =====
@@ -75,14 +78,18 @@ if [ ! -f "$NGINX_CONF_SRC" ]; then
     echo "[ERROR] nginx 配置文件不存在: $NGINX_CONF_SRC"
     exit 1
 fi
-if [ -f "$LEGACY_NGINX_CONF" ] && [ "$LEGACY_NGINX_CONF" != "$NGINX_CONF_DST" ]; then
+if [ ! -f "$NGINX_RENDER_SCRIPT" ]; then
+    echo "[ERROR] nginx 渲染脚本不存在: $NGINX_RENDER_SCRIPT"
+    exit 1
+fi
+if [ -n "$LEGACY_NGINX_CONF" ] && [ -f "$LEGACY_NGINX_CONF" ] && [ "$LEGACY_NGINX_CONF" != "$NGINX_CONF_DST" ]; then
     LEGACY_MIGRATION_BACKUP="${LEGACY_NGINX_CONF}.migrated_$(date +%Y%m%d_%H%M%S)"
     sudo cp "$LEGACY_NGINX_CONF" "$LEGACY_MIGRATION_BACKUP"
     echo "[OK] 已备份旧 nginx 配置: $LEGACY_MIGRATION_BACKUP"
 fi
-sudo cp "$NGINX_CONF_SRC" "$NGINX_CONF_DST"
+ADMIN_DOMAIN="$ADMIN_DOMAIN" NGINX_CONF_SRC="$NGINX_CONF_SRC" NGINX_CONF_DST="$NGINX_CONF_DST" bash "$NGINX_RENDER_SCRIPT"
 echo "[OK] nginx 配置已复制到 $NGINX_CONF_DST"
-if [ -f "$LEGACY_NGINX_CONF" ] && [ "$LEGACY_NGINX_CONF" != "$NGINX_CONF_DST" ]; then
+if [ -n "$LEGACY_NGINX_CONF" ] && [ -f "$LEGACY_NGINX_CONF" ] && [ "$LEGACY_NGINX_CONF" != "$NGINX_CONF_DST" ]; then
     sudo rm -f "$LEGACY_NGINX_CONF"
     echo "[OK] 已移除旧 nginx 配置: $LEGACY_NGINX_CONF"
 fi

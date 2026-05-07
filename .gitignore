@@ -17,3 +17,7 @@
 **/bin/
 *.vsix
 *.zip
+
+public_admin/config/nginx_ak2025.conf
+public_admin/deploy.ps1
+public_admin/deploy_nginx_api.sh

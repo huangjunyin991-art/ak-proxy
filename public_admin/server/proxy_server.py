@@ -117,7 +117,7 @@ except ImportError:
 
     DB_USER = "ak_proxy"
 
-    DB_PASSWORD = "ak2026db"
+    DB_PASSWORD = os.environ.get("AK_PROXY_DB_PASSWORD", "")
 
     DB_MIN_POOL = 10
 
@@ -2674,9 +2674,9 @@ async def api_unban(request: Request):
 
 
 
-ADMIN_PASSWORD = "ak-lovejjy1314"
+ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "")
 
-DB_SECONDARY_PASSWORD = "aa292180"
+DB_SECONDARY_PASSWORD = os.environ.get("DB_SECONDARY_PASSWORD", "")
 
 ROLE_SUPER_ADMIN = "super_admin"
 
@@ -2702,9 +2702,9 @@ db_auth_fail_records = {}
 
 
 
-LICENSE_SERVER_URL = os.environ.get('LICENSE_SERVER_URL', 'http://121.4.46.66:8080')
+LICENSE_SERVER_URL = os.environ.get('LICENSE_SERVER_URL', '')
 
-LICENSE_ADMIN_KEY = os.environ.get('LICENSE_ADMIN_KEY', 'ak-lovejjy1314')
+LICENSE_ADMIN_KEY = os.environ.get('LICENSE_ADMIN_KEY', '')
 
 
 

@@ -1,13 +1,14 @@
 #!/bin/bash
 set -e
 
-REPO_DIR="/home/ubuntu/ak-proxy"
+REPO_DIR="${REPO_DIR:?请设置 REPO_DIR}"
 IM_DIR="$REPO_DIR/im_server"
 IM_BIN_DIR="$IM_DIR/bin"
 WORKER_BIN="$IM_BIN_DIR/im-media-worker"
-SERVICE_NAME="im-media-worker"
+SERVICE_NAME="${IM_MEDIA_WORKER_SERVICE_NAME:-im-media-worker}"
+SERVICE_USER="${IM_MEDIA_WORKER_SERVICE_USER:?请设置 IM_MEDIA_WORKER_SERVICE_USER}"
 GO_BIN="${GO_BIN:-/usr/local/go/bin/go}"
-DB_URL="${IM_DATABASE_URL:-postgres://ak_proxy:ak2026db@127.0.0.1:5432/ak_proxy?sslmode=disable}"
+DB_URL="${IM_DATABASE_URL:?请设置 IM_DATABASE_URL}"
 APT_UPDATED=0
 CPU_CORES="$(nproc 2>/dev/null || echo 2)"
 CPU_QUOTA_PERCENT="${IM_MEDIA_WORKER_CPU_QUOTA_PERCENT:-$((CPU_CORES * 50))}"
@@ -87,7 +88,7 @@ After=network.target postgresql.service
 
 [Service]
 Type=simple
-User=ubuntu
+User=${SERVICE_USER}
 WorkingDirectory=${IM_DIR}
 Environment="IM_DATABASE_URL=${DB_URL}"
 Environment="IM_IMAGE_STORE_DIR=$IM_DIR/data/im/image_assets"

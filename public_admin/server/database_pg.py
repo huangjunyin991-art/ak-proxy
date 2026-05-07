@@ -161,7 +161,7 @@ def get_pool_info() -> Dict:
 
 async def init_db(host: str = "127.0.0.1", port: int = 5432,
                   database: str = "ak_proxy", user: str = "ak_proxy",
-                  password: str = "ak2026db",
+                  password: str = "",
                   min_size: int = 5, max_size: int = 20):
     """初始化数据库连接池并创建表"""
     global _pool, _pool_config

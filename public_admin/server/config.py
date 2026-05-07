@@ -3,6 +3,8 @@
 透明代理 - 配置文件
 """
 
+import os
+
 # ===== 代理服务器设置 =====
 PROXY_HOST = "0.0.0.0"
 PROXY_PORT = 8080
@@ -12,11 +14,11 @@ AKAPI_URL = "https://www.akapi1.com/RPC/"
 
 # ===== 中央监控服务器（可选，留空则不上报） =====
 # 填写你的监控服务器地址，透明代理会将登录/资产数据上报
-MONITOR_SERVER = ""  # 例如: "http://ak2025.vip:8000"
-MONITOR_API_KEY = ""  # 上报认证密钥（预留）
+MONITOR_SERVER = os.environ.get("MONITOR_SERVER", "")
+MONITOR_API_KEY = os.environ.get("MONITOR_API_KEY", "")
 
-IM_LOCATION_AMAP_WEB_KEY = "9a21efae7f236e91f24cf3af4cb2d692"
-IM_LOCATION_AMAP_SECURITY_JS_CODE = "2ada8a45530406b4254091a3a99865b0"
+IM_LOCATION_AMAP_WEB_KEY = os.environ.get("IM_LOCATION_AMAP_WEB_KEY", "")
+IM_LOCATION_AMAP_SECURITY_JS_CODE = os.environ.get("IM_LOCATION_AMAP_SECURITY_JS_CODE", "")
 
 # ===== 本地日志 =====
 LOG_FILE = "proxy.log"
@@ -35,7 +37,7 @@ DB_HOST = "127.0.0.1"
 DB_PORT = 5432
 DB_NAME = "ak_proxy"
 DB_USER = "ak_proxy"
-DB_PASSWORD = "ak2026db"  # 部署时修改
+DB_PASSWORD = os.environ.get("AK_PROXY_DB_PASSWORD", "")
 DB_MIN_POOL = 10   # 最小连接数
 DB_MAX_POOL = 30   # 最大连接数（4核8G服务器最估值，PG默认max_connections=100）
 

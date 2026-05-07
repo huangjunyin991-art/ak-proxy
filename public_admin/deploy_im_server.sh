@@ -1,13 +1,15 @@
 #!/bin/bash
 set -e
 
-REPO_DIR="/home/ubuntu/ak-proxy"
+REPO_DIR="${REPO_DIR:?请设置 REPO_DIR}"
 IM_DIR="$REPO_DIR/im_server"
 IM_BIN_DIR="$IM_DIR/bin"
 IM_BIN="$IM_BIN_DIR/im-server"
-SERVICE_NAME="im-server"
+SERVICE_NAME="${IM_SERVER_SERVICE_NAME:-im-server}"
+SERVICE_USER="${IM_SERVER_SERVICE_USER:?请设置 IM_SERVER_SERVICE_USER}"
 GO_BIN="${GO_BIN:-/usr/local/go/bin/go}"
-DB_URL="${IM_DATABASE_URL:-postgres://ak_proxy:ak2026db@127.0.0.1:5432/ak_proxy?sslmode=disable}"
+DB_URL="${IM_DATABASE_URL:?请设置 IM_DATABASE_URL}"
+ALLOWED_ORIGIN="${IM_ALLOWED_ORIGIN:?请设置 IM_ALLOWED_ORIGIN}"
 APT_UPDATED=0
 
 command_exists() {
@@ -84,11 +86,11 @@ After=network.target
 
 [Service]
 Type=simple
-User=ubuntu
+User=${SERVICE_USER}
 WorkingDirectory=${IM_DIR}
 Environment="IM_ADDR=:18081"
 Environment="IM_DATABASE_URL=${DB_URL}"
-Environment="IM_ALLOWED_ORIGIN=https://ak2025.vip"
+Environment="IM_ALLOWED_ORIGIN=${ALLOWED_ORIGIN}"
 Environment="IM_AUTH_COOKIE=ak_username"
 ExecStart=${IM_BIN}
 Restart=always
