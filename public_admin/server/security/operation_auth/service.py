@@ -59,7 +59,7 @@ class OperationAuthService:
         for name in sorted({str(item or '').strip() for item in sub_admin_names if str(item or '').strip()}, key=str.lower):
             row = row_map.get(name)
             if row:
-                items.append(self._secret_status_payload(row))
+                items.append(self._secret_payload(row))
                 continue
             items.append({
                 'identity': name,

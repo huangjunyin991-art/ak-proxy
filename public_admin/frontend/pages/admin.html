@@ -3684,7 +3684,13 @@
             if (!data || data.code !== 'NEED_OPERATION_AUTH' || !data.scope) {
                 return response;
             }
-            const leaseToken = await requestOperationLease(data.scope, data);
+            let leaseToken = '';
+            const existingLease = getOperationLease(data.scope);
+            if (existingLease) {
+                leaseToken = existingLease.token;
+            } else {
+                leaseToken = await requestOperationLease(data.scope, data);
+            }
             if (!leaseToken) {
                 return response;
             }
@@ -3916,7 +3922,7 @@
                 </div>
                 <div style="font-family:monospace;color:var(--accent-green);word-break:break-all;background:rgba(0,255,136,0.08);border-radius:6px;padding:8px;margin-bottom:8px;">${escapeHtml(item.secret || '')}</div>
                 <div style="font-size:12px;color:var(--text-secondary);word-break:break-all;">${escapeHtml(item.otpauth_uri || '')}</div>
-                <div style="font-size:12px;color:var(--text-secondary);margin-top:6px;">更新时间：${escapeHtml(item.updated_at || item.created_at || '-')}</div>
+                <div style="font-size:12px;color:var(--text-secondary);margin-top:6px;">更新时间：${fmtTime(item.updated_at || item.created_at)}</div>
             `;
             const btn = box.querySelector('.totp-reset-super-secret-btn');
             if (btn) btn.onclick = () => resetTotpSecret(ROLE_SUPER_ADMIN, '');
@@ -3937,9 +3943,13 @@
                         <span style="font-size:12px;color:${item.has_secret ? 'var(--accent-green)' : 'var(--accent-red)'};">${item.has_secret ? '已生成密钥' : '未生成密钥'}</span>
                         <button class="btn totp-reset-secret-btn" data-role="${escapeHtml(item.role)}" data-sub-name="${escapeHtml(item.sub_name || '')}" style="margin-left:auto;padding:4px 10px;font-size:12px;background:var(--bg-secondary);color:var(--accent-yellow);border:1px solid rgba(255,165,2,0.35);">${item.has_secret ? '重置密钥' : '生成密钥'}</button>
                     </div>
+                    ${item.has_secret ? `
+                        <div style="font-family:monospace;color:var(--accent-green);word-break:break-all;background:rgba(0,255,136,0.08);border-radius:6px;padding:8px;margin-bottom:8px;">${escapeHtml(item.secret || '')}</div>
+                        <div style="font-size:12px;color:var(--text-secondary);word-break:break-all;margin-bottom:8px;">${escapeHtml(item.otpauth_uri || '')}</div>
+                    ` : ''}
                     <div style="font-size:12px;color:var(--text-secondary);line-height:1.6;">
-                        <div>创建时间：${escapeHtml(item.created_at || '-')}</div>
-                        <div>更新时间：${escapeHtml(item.updated_at || '-')}</div>
+                        <div>创建时间：${fmtTime(item.created_at)}</div>
+                        <div>更新时间：${fmtTime(item.updated_at)}</div>
                     </div>
                 </div>
             `).join('');
