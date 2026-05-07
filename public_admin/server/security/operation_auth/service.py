@@ -48,6 +48,29 @@ class OperationAuthService:
         rows = await self.repository.list_totp_secrets()
         return [self._secret_status_payload(row) for row in rows]
 
+    async def list_sub_admin_secrets(self, sub_admin_names):
+        rows = await self.repository.list_totp_secrets()
+        row_map = {
+            str(row.get('identity') or ''): row
+            for row in rows
+            if str(row.get('role') or '') == self.sub_admin_role
+        }
+        items = []
+        for name in sorted({str(item or '').strip() for item in sub_admin_names if str(item or '').strip()}, key=str.lower):
+            row = row_map.get(name)
+            if row:
+                items.append(self._secret_status_payload(row))
+                continue
+            items.append({
+                'identity': name,
+                'role': self.sub_admin_role,
+                'sub_name': name,
+                'has_secret': False,
+                'created_at': None,
+                'updated_at': None,
+            })
+        return items
+
     async def issue_lease(self, admin_token: str, role: str, sub_name: str, scope: str,
                           code: str, duration_seconds: int | None = None,
                           client_ip: str = '', user_agent: str = ''):

@@ -3871,46 +3871,17 @@
             }
             showModal('Google 密钥管理', `
                 <div id="totpSecretManagerBody" style="min-width:360px;">
-                    <div style="color:var(--text-secondary);font-size:13px;margin-bottom:12px;line-height:1.6;">主管理员可查看 Google 验证器绑定状态并重置密钥。密钥明文只会在重置成功后一次性显示，请立即保存并绑定。</div>
-                    <div id="totpSelfSecretBox" style="background:var(--bg-primary);border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:12px;">加载主管理员绑定状态中...</div>
-                    <div style="display:flex;gap:8px;margin-bottom:12px;">
-                        <button class="btn btn-primary" onclick="loadTotpSecretList()" style="flex:1;padding:9px 0;">查看绑定状态</button>
-                        <button class="btn" onclick="resetTotpSecret('super_admin','')" style="flex:1;padding:9px 0;background:var(--bg-secondary);color:var(--accent-yellow);border:1px solid rgba(255,165,2,0.35);">重置主管理员密钥</button>
-                    </div>
+                    <div style="color:var(--text-secondary);font-size:13px;margin-bottom:12px;line-height:1.6;">主管理员可查看和重置自己的 Google 密钥，也可为子管理员生成或重置 Google 验证器密钥。子管理员密钥明文只会在生成/重置成功后一次性显示，请立即复制给对应子管理员绑定。</div>
+                    <div id="totpSuperSecretBox" style="background:var(--bg-primary);border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:12px;">加载主管理员密钥中...</div>
                     <div id="totpResetResultBox"></div>
+                    <div style="display:flex;align-items:center;gap:8px;margin:12px 0 8px;">
+                        <strong style="color:var(--accent);">子管理员 Google 密钥</strong>
+                        <button class="btn btn-primary" onclick="loadTotpSecretList()" style="margin-left:auto;padding:6px 12px;font-size:12px;">刷新</button>
+                    </div>
                     <div id="totpSecretListBox" style="max-height:320px;overflow:auto;"></div>
                 </div>
             `, () => closeModal(), '关闭');
-            await loadTotpSelfSecret();
-        }
-
-        async function loadTotpSelfSecret() {
-            const box = document.getElementById('totpSelfSecretBox');
-            if (!box) return;
-            try {
-                const res = await fetch(`${API_BASE}/admin/api/operation_auth/me`, {headers: getHeaders()});
-                const data = await res.json();
-                if (!data.success || !data.item) {
-                    box.innerHTML = `<div style="color:var(--accent-red);">加载失败：${escapeHtml(data.message || '未知错误')}</div>`;
-                    return;
-                }
-                renderTotpSelfSecret(data.item);
-            } catch (e) {
-                box.innerHTML = `<div style="color:var(--accent-red);">加载失败：${escapeHtml(e.message)}</div>`;
-            }
-        }
-
-        function renderTotpSelfSecret(item) {
-            const box = document.getElementById('totpSelfSecretBox');
-            if (!box) return;
-            box.innerHTML = `
-                <div style="font-size:13px;color:var(--text-secondary);margin-bottom:6px;">主管理员 Google 验证器</div>
-                <div style="display:flex;align-items:center;gap:8px;">
-                    <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${item.has_secret ? 'var(--accent-green)' : 'var(--accent-red)'};"></span>
-                    <strong style="color:${item.has_secret ? 'var(--accent-green)' : 'var(--accent-red)'};">${item.has_secret ? '已生成密钥' : '未生成密钥'}</strong>
-                </div>
-                <div style="font-size:12px;color:var(--text-secondary);margin-top:6px;">更新时间：${escapeHtml(item.updated_at || item.created_at || '-')}</div>
-            `;
+            await loadTotpSecretList();
         }
 
         async function loadTotpSecretList() {
@@ -3924,26 +3895,47 @@
                     box.innerHTML = `<div style="color:var(--accent-red);padding:10px;">${escapeHtml(data.message || '加载失败')}</div>`;
                     return;
                 }
+                renderTotpSuperSecret(data.super_admin);
                 renderTotpSecretList(data.items || []);
             } catch (e) {
                 box.innerHTML = `<div style="color:var(--accent-red);padding:10px;">加载失败：${escapeHtml(e.message)}</div>`;
             }
         }
 
+        function renderTotpSuperSecret(item) {
+            const box = document.getElementById('totpSuperSecretBox');
+            if (!box) return;
+            if (!item) {
+                box.innerHTML = '<div style="color:var(--accent-red);">主管理员密钥加载失败</div>';
+                return;
+            }
+            box.innerHTML = `
+                <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+                    <strong style="color:var(--accent);">主管理员 Google 密钥</strong>
+                    <button class="btn totp-reset-super-secret-btn" style="margin-left:auto;padding:4px 10px;font-size:12px;background:var(--bg-secondary);color:var(--accent-yellow);border:1px solid rgba(255,165,2,0.35);">重置主管理员密钥</button>
+                </div>
+                <div style="font-family:monospace;color:var(--accent-green);word-break:break-all;background:rgba(0,255,136,0.08);border-radius:6px;padding:8px;margin-bottom:8px;">${escapeHtml(item.secret || '')}</div>
+                <div style="font-size:12px;color:var(--text-secondary);word-break:break-all;">${escapeHtml(item.otpauth_uri || '')}</div>
+                <div style="font-size:12px;color:var(--text-secondary);margin-top:6px;">更新时间：${escapeHtml(item.updated_at || item.created_at || '-')}</div>
+            `;
+            const btn = box.querySelector('.totp-reset-super-secret-btn');
+            if (btn) btn.onclick = () => resetTotpSecret(ROLE_SUPER_ADMIN, '');
+        }
+
         function renderTotpSecretList(items) {
             const box = document.getElementById('totpSecretListBox');
             if (!box) return;
             if (!items.length) {
-                box.innerHTML = '<div style="color:var(--text-secondary);padding:10px;">暂无密钥</div>';
+                box.innerHTML = '<div style="color:var(--text-secondary);padding:10px;">暂无子管理员可管理</div>';
                 return;
             }
             box.innerHTML = items.map(item => `
                 <div style="background:var(--bg-primary);border:1px solid var(--border);border-radius:10px;padding:10px;margin-bottom:8px;">
                     <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
-                        <strong style="color:var(--accent);">${escapeHtml(item.role === 'super_admin' ? '主管理员' : item.sub_name || item.identity)}</strong>
-                        <span style="font-size:12px;color:var(--text-secondary);">${escapeHtml(item.role)}</span>
-                        <span style="font-size:12px;color:${item.has_secret ? 'var(--accent-green)' : 'var(--accent-red)'};">${item.has_secret ? '已生成' : '未生成'}</span>
-                        <button class="btn totp-reset-secret-btn" data-role="${escapeHtml(item.role)}" data-sub-name="${escapeHtml(item.sub_name || '')}" style="margin-left:auto;padding:4px 10px;font-size:12px;background:var(--bg-secondary);color:var(--accent-yellow);border:1px solid rgba(255,165,2,0.35);">重置</button>
+                        <strong style="color:var(--accent);">${escapeHtml(item.sub_name || item.identity)}</strong>
+                        <span style="font-size:12px;color:var(--text-secondary);">子管理员</span>
+                        <span style="font-size:12px;color:${item.has_secret ? 'var(--accent-green)' : 'var(--accent-red)'};">${item.has_secret ? '已生成密钥' : '未生成密钥'}</span>
+                        <button class="btn totp-reset-secret-btn" data-role="${escapeHtml(item.role)}" data-sub-name="${escapeHtml(item.sub_name || '')}" style="margin-left:auto;padding:4px 10px;font-size:12px;background:var(--bg-secondary);color:var(--accent-yellow);border:1px solid rgba(255,165,2,0.35);">${item.has_secret ? '重置密钥' : '生成密钥'}</button>
                     </div>
                     <div style="font-size:12px;color:var(--text-secondary);line-height:1.6;">
                         <div>创建时间：${escapeHtml(item.created_at || '-')}</div>
@@ -3957,12 +3949,18 @@
         }
 
         async function resetTotpSecret(role, subName) {
-            if (!await showConfirm('确认重置', `确定要重置 ${role === 'super_admin' ? '主管理员' : subName} 的 Google 密钥吗？\n重置后旧验证码会立即失效，需要重新绑定。`)) return;
+            const isSuperTarget = role === ROLE_SUPER_ADMIN;
+            if (!isSuperTarget && !subName) {
+                showToast('缺少子管理员名称', 'error');
+                return;
+            }
+            const targetText = isSuperTarget ? '主管理员' : `子管理员 ${subName}`;
+            if (!await showConfirm('确认生成/重置', `确定要为${targetText}生成新的 Google 密钥吗？\n旧验证码会立即失效，需要重新绑定。`)) return;
             try {
                 const res = await fetch(`${API_BASE}/admin/api/operation_auth/secrets/reset`, {
                     method: 'POST',
                     headers: {...getHeaders(), 'Content-Type': 'application/json'},
-                    body: JSON.stringify({role, sub_name: subName || ''})
+                    body: JSON.stringify({role: isSuperTarget ? ROLE_SUPER_ADMIN : ROLE_SUB_ADMIN, sub_name: subName || ''})
                 });
                 const data = await res.json();
                 if (!data.success) {
@@ -3971,8 +3969,8 @@
                 }
                 showToast('Google 密钥已重置', 'success');
                 renderTotpResetSecret(data.item);
-                if (role === 'super_admin') {
-                    renderTotpSelfSecret(data.item);
+                if (isSuperTarget) {
+                    renderTotpSuperSecret(data.item);
                 }
                 await loadTotpSecretList();
             } catch (e) {
@@ -3986,7 +3984,7 @@
             box.innerHTML = `
                 <div style="background:rgba(255,165,2,0.08);border:1px solid rgba(255,165,2,0.35);border-radius:10px;padding:12px;margin-bottom:12px;">
                     <div style="font-weight:bold;color:var(--accent-yellow);margin-bottom:8px;">新 Google 密钥仅本次显示，请立即绑定保存</div>
-                    <div style="font-size:12px;color:var(--text-secondary);margin-bottom:6px;">账号：${escapeHtml(item.role === 'super_admin' ? '主管理员' : item.sub_name || item.identity || '')}</div>
+                    <div style="font-size:12px;color:var(--text-secondary);margin-bottom:6px;">账号：${escapeHtml(item.role === ROLE_SUPER_ADMIN ? '主管理员' : item.sub_name || item.identity || '')}</div>
                     <div style="font-family:monospace;color:var(--accent-green);word-break:break-all;background:rgba(0,255,136,0.08);border-radius:6px;padding:8px;margin-bottom:8px;">${escapeHtml(item.secret || '')}</div>
                     <div style="font-size:12px;color:var(--text-secondary);word-break:break-all;">${escapeHtml(item.otpauth_uri || '')}</div>
                 </div>

@@ -3402,6 +3402,8 @@ if operation_auth_service is not None and operation_scope_resolver is not None a
         service=operation_auth_service,
         resolve_admin_identity=_resolve_admin_identity,
         super_admin_role=ROLE_SUPER_ADMIN,
+        sub_admin_role=ROLE_SUB_ADMIN,
+        sub_admin_names_supplier=lambda: list(SUB_ADMINS.keys()),
     ))
 
 app.include_router(create_notification_router(

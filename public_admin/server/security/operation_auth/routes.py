@@ -2,7 +2,8 @@ from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 
 
-def create_operation_auth_router(*, service, resolve_admin_identity, super_admin_role: str):
+def create_operation_auth_router(*, service, resolve_admin_identity, super_admin_role: str, sub_admin_role: str,
+                                 sub_admin_names_supplier=None):
     router = APIRouter(prefix='/admin/api/operation_auth')
 
     @router.get('/me')
@@ -60,7 +61,12 @@ def create_operation_auth_router(*, service, resolve_admin_identity, super_admin
             return JSONResponse(status_code=401, content={'error': True, 'message': '未授权'})
         if role != super_admin_role:
             return JSONResponse(status_code=403, content={'error': True, 'message': '仅系统总管理员可查看 Google 绑定状态'})
-        return {'success': True, 'items': await service.list_secrets()}
+        sub_admin_names = sub_admin_names_supplier() if sub_admin_names_supplier else []
+        return {
+            'success': True,
+            'super_admin': await service.ensure_secret(super_admin_role, ''),
+            'items': await service.list_sub_admin_secrets(sub_admin_names),
+        }
 
     @router.post('/secrets/reset')
     async def operation_auth_reset_secret(request: Request):
@@ -77,6 +83,16 @@ def create_operation_auth_router(*, service, resolve_admin_identity, super_admin
         sub_name = str(data.get('sub_name') or '').strip()
         if not target_role:
             return JSONResponse(status_code=400, content={'error': True, 'message': '缺少目标角色'})
+        if target_role == super_admin_role:
+            item = await service.reset_secret(target_role, '')
+            if not item:
+                return JSONResponse(status_code=400, content={'error': True, 'message': '目标管理员身份无效'})
+            return {'success': True, 'item': item}
+        if target_role != sub_admin_role:
+            return JSONResponse(status_code=400, content={'error': True, 'message': '仅支持管理子管理员 Google 密钥'})
+        sub_admin_names = set(sub_admin_names_supplier() if sub_admin_names_supplier else [])
+        if sub_name not in sub_admin_names:
+            return JSONResponse(status_code=400, content={'error': True, 'message': '目标子管理员不存在'})
         item = await service.reset_secret(target_role, sub_name)
         if not item:
             return JSONResponse(status_code=400, content={'error': True, 'message': '目标管理员身份无效'})
