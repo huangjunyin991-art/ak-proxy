@@ -188,7 +188,7 @@
         .glow-border {
             position: relative;
             background: var(--bg-card);
-            border: none !important;
+            border: 1px solid var(--glow-color, var(--accent)) !important;
             overflow: hidden;
             isolation: isolate;
         }
@@ -200,16 +200,9 @@
             left: -50%;
             width: 200%;
             height: 200%;
-            background: conic-gradient(
-                from 0deg,
-                transparent 0deg 60deg,
-                var(--glow-color, var(--accent)) 60deg 120deg,
-                transparent 120deg 180deg,
-                var(--glow-color, var(--accent)) 180deg 240deg,
-                transparent 240deg 300deg,
-                var(--glow-color, var(--accent)) 300deg 360deg
-            );
-            animation: glow-spin 3s linear infinite;
+            background: transparent;
+            animation: none;
+            display: none;
             z-index: -2;
         }
         
@@ -219,6 +212,7 @@
             inset: 2px;
             background: var(--bg-card);
             border-radius: 10px;
+            display: none;
             z-index: -1;
         }
         
