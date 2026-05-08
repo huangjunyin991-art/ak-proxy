@@ -110,7 +110,7 @@
         if (document.querySelector('link[data-monitoring-panel-css="1"]')) return;
         var link = document.createElement('link');
         link.rel = 'stylesheet';
-        link.href = '/admin/api/monitoring-panel.css?v=20260502-05';
+        link.href = '/admin/api/monitoring-panel.css?v=20260508-01';
         link.setAttribute('data-monitoring-panel-css', '1');
         document.head.appendChild(link);
     }
@@ -161,8 +161,16 @@
         document.getElementById('monitoringRefreshHeavy').addEventListener('click', function() { loadHeavy(true); });
     }
 
+    function renderCardSub(sub) {
+        return String(sub || '').split('；').map(function(part) {
+            return part.trim();
+        }).filter(Boolean).map(function(part) {
+            return '<span>' + escapeHtml(part) + '</span>';
+        }).join('');
+    }
+
     function renderCard(label, value, sub) {
-        return '<div class="monitoring-card"><div class="monitoring-card-label">' + escapeHtml(label) + '</div><div class="monitoring-card-value">' + escapeHtml(value) + '</div><div class="monitoring-card-sub">' + escapeHtml(sub || '') + '</div></div>';
+        return '<div class="monitoring-card"><div class="monitoring-card-label">' + escapeHtml(label) + '</div><div class="monitoring-card-value">' + escapeHtml(value) + '</div><div class="monitoring-card-sub">' + renderCardSub(sub) + '</div></div>';
     }
 
     function renderProgress(label, percent, valueText) {
