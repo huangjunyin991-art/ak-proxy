@@ -9283,6 +9283,17 @@ async def monitoring_panel_css():
     return Response(content="", media_type="text/css")
 
 
+@app.get("/admin/api/admin-theme.css")
+async def admin_theme_css():
+    css_path = os.path.join(FRONTEND_PAGES_DIR, "admin_recommend_theme.css")
+    if os.path.exists(css_path):
+        with open(css_path, "r", encoding="utf-8") as f:
+            return Response(content=f.read(), media_type="text/css",
+                            headers={"Cache-Control": "no-cache, no-store, must-revalidate",
+                                     "Pragma": "no-cache", "Expires": "0"})
+    return Response(content="", media_type="text/css")
+
+
 @app.get("/admin/api/recommend-tree-panel/{asset_name}")
 async def recommend_tree_panel_asset(asset_name: str):
     allowed_assets = {
