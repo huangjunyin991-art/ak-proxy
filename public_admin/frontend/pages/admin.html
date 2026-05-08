@@ -417,6 +417,32 @@
             display: flex;
             gap: 8px;
         }
+
+        .sub-admin-permission-header {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 6px;
+        }
+
+        .sub-admin-permission-grid {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 4px 12px;
+            background: var(--bg-secondary);
+            border-radius: 6px;
+            padding: 8px 10px;
+        }
+
+        .sub-admin-permission-item {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            cursor: pointer;
+            font-size: 12px;
+            color: var(--text-primary);
+            white-space: nowrap;
+        }
         
         @keyframes crown-bounce {
             0%, 100% { transform: translateY(0) rotate(0deg); }
@@ -2304,6 +2330,23 @@
                 gap: 6px !important;
             }
 
+            .sub-admin-permission-header {
+                flex-wrap: wrap;
+                align-items: center !important;
+            }
+
+            .sub-admin-permission-grid {
+                display: grid !important;
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+                gap: 8px !important;
+                padding: 10px !important;
+            }
+
+            .sub-admin-permission-item {
+                min-height: 30px;
+                white-space: normal !important;
+            }
+
             .sub-admin-form-grid {
                 display: grid !important;
                 grid-template-columns: 1fr;
@@ -3376,38 +3419,38 @@
                             
                             <!-- 权限配置 -->
                             <div style="margin-bottom: 10px;">
-                                <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 6px;">
-                                    <span style="color: var(--accent); font-size: 12px; font-weight: bold;">🛡️ 权限</span>
+                                <div class="sub-admin-permission-header" style="display: flex; align-items: center; gap: 8px; margin-bottom: 6px;">
+                                    <span style="color: var(--accent); font-size: 12px; font-weight: bold;">权限</span>
                                     <button type="button" onclick="toggleAllPerms(true)" style="padding: 1px 8px; font-size: 10px; background: transparent; color: var(--accent); border: 1px solid var(--accent); border-radius: 3px; cursor: pointer;">全选</button>
                                     <button type="button" onclick="toggleAllPerms(false)" style="padding: 1px 8px; font-size: 10px; background: transparent; color: var(--text-secondary); border: 1px solid var(--border); border-radius: 3px; cursor: pointer;">清空</button>
                                 </div>
-                                <div style="display: flex; flex-wrap: wrap; gap: 4px 12px; background: var(--bg-secondary); border-radius: 6px; padding: 8px 10px;">
-                                    <label style="display: flex; align-items: center; gap: 4px; cursor: pointer; font-size: 12px; color: var(--text-primary); white-space: nowrap;">
-                                        <input type="checkbox" id="perm_dashboard" value="dashboard"> 📈仪表盘
+                                <div class="sub-admin-permission-grid" style="display: flex; flex-wrap: wrap; gap: 4px 12px; background: var(--bg-secondary); border-radius: 6px; padding: 8px 10px;">
+                                    <label class="sub-admin-permission-item" style="display: flex; align-items: center; gap: 4px; cursor: pointer; font-size: 12px; color: var(--text-primary); white-space: nowrap;">
+                                        <input type="checkbox" id="perm_dashboard" value="dashboard"> 仪表盘
                                     </label>
-                                    <label style="display: flex; align-items: center; gap: 4px; cursor: pointer; font-size: 12px; color: var(--text-primary); white-space: nowrap;">
-                                        <input type="checkbox" id="perm_online" value="online"> 🟢在线
+                                    <label class="sub-admin-permission-item" style="display: flex; align-items: center; gap: 4px; cursor: pointer; font-size: 12px; color: var(--text-primary); white-space: nowrap;">
+                                        <input type="checkbox" id="perm_online" value="online"> 在线
                                     </label>
-                                    <label style="display: flex; align-items: center; gap: 4px; cursor: pointer; font-size: 12px; color: var(--text-primary); white-space: nowrap;">
-                                        <input type="checkbox" id="perm_usage" value="usage"> 📊使用
+                                    <label class="sub-admin-permission-item" style="display: flex; align-items: center; gap: 4px; cursor: pointer; font-size: 12px; color: var(--text-primary); white-space: nowrap;">
+                                        <input type="checkbox" id="perm_usage" value="usage"> 使用
                                     </label>
-                                    <label style="display: flex; align-items: center; gap: 4px; cursor: pointer; font-size: 12px; color: var(--text-primary); white-space: nowrap;">
-                                        <input type="checkbox" id="perm_users" value="users"> 👥用户
+                                    <label class="sub-admin-permission-item" style="display: flex; align-items: center; gap: 4px; cursor: pointer; font-size: 12px; color: var(--text-primary); white-space: nowrap;">
+                                        <input type="checkbox" id="perm_users" value="users"> 用户
                                     </label>
-                                    <label style="display: flex; align-items: center; gap: 4px; cursor: pointer; font-size: 12px; color: var(--text-primary); white-space: nowrap;">
-                                        <input type="checkbox" id="perm_recommendTree" value="recommendTree"> 🌳组织架构
+                                    <label class="sub-admin-permission-item" style="display: flex; align-items: center; gap: 4px; cursor: pointer; font-size: 12px; color: var(--text-primary); white-space: nowrap;">
+                                        <input type="checkbox" id="perm_recommendTree" value="recommendTree"> 组织架构
                                     </label>
-                                    <label style="display: flex; align-items: center; gap: 4px; cursor: pointer; font-size: 12px; color: var(--text-primary); white-space: nowrap;">
-                                        <input type="checkbox" id="perm_ips" value="ips"> 🌐IP
+                                    <label class="sub-admin-permission-item" style="display: flex; align-items: center; gap: 4px; cursor: pointer; font-size: 12px; color: var(--text-primary); white-space: nowrap;">
+                                        <input type="checkbox" id="perm_ips" value="ips"> IP
                                     </label>
-                                    <label style="display: flex; align-items: center; gap: 4px; cursor: pointer; font-size: 12px; color: var(--text-primary); white-space: nowrap;">
-                                        <input type="checkbox" id="perm_banlist" value="banlist"> 🚫封禁
+                                    <label class="sub-admin-permission-item" style="display: flex; align-items: center; gap: 4px; cursor: pointer; font-size: 12px; color: var(--text-primary); white-space: nowrap;">
+                                        <input type="checkbox" id="perm_banlist" value="banlist"> 封禁
                                     </label>
-                                    <label style="display: flex; align-items: center; gap: 4px; cursor: pointer; font-size: 12px; color: var(--text-primary); white-space: nowrap;">
-                                        <input type="checkbox" id="perm_license" value="license"> 🔑激活码
+                                    <label class="sub-admin-permission-item" style="display: flex; align-items: center; gap: 4px; cursor: pointer; font-size: 12px; color: var(--text-primary); white-space: nowrap;">
+                                        <input type="checkbox" id="perm_license" value="license"> 激活码
                                     </label>
-                                    <label style="display: flex; align-items: center; gap: 4px; cursor: pointer; font-size: 12px; color: var(--text-primary); white-space: nowrap;">
-                                        <input type="checkbox" id="perm_database" value="database"> 🗄️数据库
+                                    <label class="sub-admin-permission-item" style="display: flex; align-items: center; gap: 4px; cursor: pointer; font-size: 12px; color: var(--text-primary); white-space: nowrap;">
+                                        <input type="checkbox" id="perm_database" value="database"> 数据库
                                     </label>
                                 </div>
                             </div>
@@ -3417,7 +3460,7 @@
                                     ✅ 添加/更新子管理员
                                 </button>
                                 <button id="updatePermBtn" onclick="updateSubAdminPermissions()" style="display: none; padding: 8px 14px; background: var(--bg-secondary); color: var(--accent); border: 1px solid var(--accent); border-radius: 4px; cursor: pointer; font-size: 13px;">
-                                    🛡️ 更新权限
+                                    更新权限
                                 </button>
                                 <button id="bindAccountBtn" onclick="bindSubAdminAccount()" style="display: none; padding: 8px 14px; background: var(--bg-secondary); color: var(--accent-green); border: 1px solid rgba(0,255,136,0.3); border-radius: 4px; cursor: pointer; font-size: 13px;">
                                     🔗 补绑账号
@@ -5742,8 +5785,8 @@
         
         // 权限名称映射
         const PERM_LABELS = {
-            dashboard: '📈仪表盘', online: '🟢在线', usage: '📊使用', users: '👥用户',
-            recommendTree: '🌳组织架构', ips: '🌐IP', banlist: '🚫封禁', license: '🔑激活码', database: '🗄️数据库'
+            dashboard: '仪表盘', online: '在线', usage: '使用', users: '用户',
+            recommendTree: '组织架构', ips: 'IP', banlist: '封禁', license: '激活码', database: '数据库'
         };
         
         // 当前选中的子管理员
