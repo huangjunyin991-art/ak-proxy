@@ -9567,6 +9567,15 @@ _BROWSE_SESSION_COOKIE = "ak_admin_bs"
 _AK_WEB_PREFIX = "/admin/ak-web"
 _AK_NATIVE_WEB_PREFIX = "/ak-web"
 _AK_SITE_PREFIX = "/admin/ak-site"
+_AK_WEB_STATIC_CACHE: dict[str, dict] = {}
+_AK_WEB_STATIC_CACHE_TTL = 24 * 3600
+_AK_WEB_STATIC_BROWSER_MAX_AGE = 6 * 3600
+_AK_WEB_STATIC_CACHE_MAX_ITEMS = 512
+_AK_WEB_STATIC_CACHE_MAX_BYTES = 5 * 1024 * 1024
+_AK_WEB_STATIC_CACHE_EXTENSIONS = {
+    ".js", ".css", ".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".ico",
+    ".woff", ".woff2", ".ttf", ".eot", ".otf", ".map", ".wasm"
+}
 
 
 def _lazy_warning(enabled: bool, message_or_factory):
@@ -10183,6 +10192,69 @@ def _apply_no_store_headers(response: Response):
     response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
     response.headers["Pragma"] = "no-cache"
     response.headers["Expires"] = "0"
+    return response
+
+
+def _is_ak_web_static_asset_request(method: str, normalized_path: str, content_type: str = "") -> bool:
+    if str(method or "").upper() != "GET":
+        return False
+    path = (normalized_path or "").split("?", 1)[0].lower()
+    if not path or path.endswith("/") or path.startswith("rpc/"):
+        return False
+    if path.startswith("pages/") and path.endswith(".html"):
+        return False
+    ext = os.path.splitext(path)[1]
+    if ext in _AK_WEB_STATIC_CACHE_EXTENSIONS:
+        return True
+    lowered_content_type = (content_type or "").lower()
+    return any(token in lowered_content_type for token in (
+        "text/css",
+        "javascript",
+        "ecmascript",
+        "image/",
+        "font/",
+        "application/font",
+        "application/wasm",
+    ))
+
+
+def _ak_web_static_cache_key(site_prefix: str, target_url: str) -> str:
+    return f"{site_prefix}|{target_url}"
+
+
+def _get_ak_web_static_cache_entry(cache_key: str) -> Optional[dict]:
+    entry = _AK_WEB_STATIC_CACHE.get(cache_key)
+    if not entry:
+        return None
+    if time.time() >= float(entry.get("expires") or 0):
+        _AK_WEB_STATIC_CACHE.pop(cache_key, None)
+        return None
+    return entry
+
+
+def _store_ak_web_static_cache_entry(cache_key: str, content: bytes, status_code: int, headers: dict, content_type: str):
+    if not cache_key or status_code != 200 or len(content or b"") > _AK_WEB_STATIC_CACHE_MAX_BYTES:
+        return
+    while len(_AK_WEB_STATIC_CACHE) >= _AK_WEB_STATIC_CACHE_MAX_ITEMS:
+        oldest_key = next(iter(_AK_WEB_STATIC_CACHE), "")
+        if not oldest_key:
+            break
+        _AK_WEB_STATIC_CACHE.pop(oldest_key, None)
+    _AK_WEB_STATIC_CACHE[cache_key] = {
+        "content": bytes(content or b""),
+        "status_code": int(status_code),
+        "headers": dict(headers or {}),
+        "content_type": content_type or "application/octet-stream",
+        "expires": time.time() + _AK_WEB_STATIC_CACHE_TTL,
+    }
+
+
+def _apply_ak_web_static_cache_headers(response: Response):
+    response.headers["Cache-Control"] = f"public, max-age={_AK_WEB_STATIC_BROWSER_MAX_AGE}"
+    if "Pragma" in response.headers:
+        del response.headers["Pragma"]
+    if "Expires" in response.headers:
+        del response.headers["Expires"]
     return response
 
 
@@ -11002,6 +11074,18 @@ async def ak_web_proxy(request: Request, path: str):
     target_url = f"{_AK_BASE}/{path}" if path else f"{_AK_BASE}/"
     if query_parts:
         target_url += "?" + "&".join(query_parts)
+    static_cache_key = ""
+    if _is_ak_web_static_asset_request(request.method, normalized_path):
+        static_cache_key = _ak_web_static_cache_key(site_prefix, target_url)
+        cached_static = _get_ak_web_static_cache_entry(static_cache_key)
+        if cached_static:
+            response = Response(
+                content=cached_static.get("content") or b"",
+                status_code=int(cached_static.get("status_code") or 200),
+                headers=dict(cached_static.get("headers") or {}),
+                media_type=cached_static.get("content_type") or "application/octet-stream",
+            )
+            return _apply_ak_web_static_cache_headers(response)
 
     # 透传浏览器请求头，补充缺失的字段，模拟真实 Chrome 指纹
     fwd_headers = _build_ak_site_forward_headers(request)
@@ -11030,7 +11114,7 @@ async def ak_web_proxy(request: Request, path: str):
             logger.warning(f"[AkWebLoginBounce/{path}] bs={bs_id} source={bs_source} cookie_bs={cookie_bs} referer={referer} target={target_url} final_url={final_url_str} history={history_chain}")
 
         # 同步响应中的 Set-Cookie 到缓存 session，保持 session 刷新
-        if session and bs_id:
+        if session and bs_id and not static_cache_key:
             for sc in resp.headers.get_list("set-cookie"):
                 kv = sc.split(";", 1)[0].strip()
                 if "=" in kv:
@@ -11049,6 +11133,7 @@ async def ak_web_proxy(request: Request, path: str):
 
         content = resp.content
         content_type = resp.headers.get("content-type", "")
+        is_static_asset = _is_ak_web_static_asset_request(request.method, normalized_path, content_type)
         rewrite_started_at = time.perf_counter()
         if fetch_dest == "script" and "application/json" in content_type.lower():
             body_head = content[:200].decode("utf-8", errors="replace")
@@ -11171,7 +11256,11 @@ async def ak_web_proxy(request: Request, path: str):
                             headers=resp_headers, media_type=content_type or "application/octet-stream")
         if "text/html" in content_type and normalized_path.startswith("pages/") and normalized_path.endswith(".html"):
             _apply_no_store_headers(response)
-        if bs_id:
+        if is_static_asset:
+            _apply_ak_web_static_cache_headers(response)
+            if static_cache_key:
+                _store_ak_web_static_cache_entry(static_cache_key, content, resp.status_code, dict(response.headers), content_type or "application/octet-stream")
+        if bs_id and not is_static_asset:
             _set_browse_session_cookie(response, bs_id)
         total_ms = _elapsed_ms(request_started_at)
         _log_user_ak_web_document_hit(
