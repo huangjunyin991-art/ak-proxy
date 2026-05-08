@@ -3824,6 +3824,16 @@ async def admin_point_stats(request: Request, username: str = None, point_type: 
         return JSONResponse(status_code=400, content={"error": True, "message": str(e)})
 
 
+@app.get("/admin/api/point-stats/users")
+async def admin_point_stats_users(request: Request, search: str = None, limit: int = 12):
+    token = request.headers.get('Authorization', '').replace('Bearer ', '')
+    if not token or not await verify_admin_token(token):
+        return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
+    if not check_token_permission(token, 'pointStats'):
+        return JSONResponse(status_code=403, content={"error": True, "message": "无点数统计权限"})
+    return await db.search_point_stat_users(search=search, limit=limit)
+
+
 
 @app.get("/admin/api/dashboard")
 

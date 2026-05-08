@@ -1162,11 +1162,123 @@ async def get_point_stats(username: str = None, point_type: str = None, limit: i
             ORDER BY net_change DESC NULLS LAST
             LIMIT ${len(args) + 1}
         ''', *args, limit)
+        active_stats = None
+        category_rows = []
+        detail_rows = []
+        if username and code:
+            active_stats = await conn.fetchrow('''
+                SELECT COUNT(*) AS total_records,
+                       SUM(CASE WHEN operation_type = 1 THEN amount ELSE 0 END) AS total_income,
+                       SUM(CASE WHEN operation_type <> 1 THEN amount ELSE 0 END) AS total_expense,
+                       SUM(CASE WHEN operation_type = 1 THEN amount ELSE -amount END) AS net_change,
+                       (
+                           SELECT balance
+                           FROM point_history_records
+                           WHERE username = $1 AND point_type = $2 AND balance IS NOT NULL
+                           ORDER BY saved_at DESC, id DESC
+                           LIMIT 1
+                       ) AS current_balance,
+                       MAX(saved_at) AS latest_saved_at
+                FROM point_history_records
+                WHERE username = $1 AND point_type = $2
+            ''', username, code)
+            category_rows = await conn.fetch('''
+                SELECT COALESCE(NULLIF(type_name_cn, ''), NULLIF(type_name, ''), '未分类') AS name,
+                       COUNT(*) AS count,
+                       SUM(CASE WHEN operation_type = 1 THEN amount ELSE 0 END) AS income,
+                       SUM(CASE WHEN operation_type <> 1 THEN amount ELSE 0 END) AS expense,
+                       SUM(CASE WHEN operation_type = 1 THEN amount ELSE -amount END) AS net
+                FROM point_history_records
+                WHERE username = $1 AND point_type = $2
+                GROUP BY COALESCE(NULLIF(type_name_cn, ''), NULLIF(type_name, ''), '未分类')
+                ORDER BY count DESC, name ASC
+            ''', username, code)
+            detail_rows = await conn.fetch('''
+                SELECT COALESCE(NULLIF(type_name_cn, ''), NULLIF(type_name, ''), '未分类') AS category,
+                       record_time, operation_type, amount, balance, type_name, type_name_cn,
+                       description, saved_at
+                FROM point_history_records
+                WHERE username = $1 AND point_type = $2
+                ORDER BY saved_at DESC, id DESC
+                LIMIT $3
+            ''', username, code, limit)
+    detail_by_category = {}
+    for row in detail_rows:
+        item = dict(row)
+        category = item.pop('category') or '未分类'
+        item['time'] = item.get('record_time') or item.get('saved_at')
+        item['direction'] = '收入' if int(item.get('operation_type') or 0) == 1 else '支出'
+        detail_by_category.setdefault(category, []).append(item)
+    categories = []
+    for row in category_rows:
+        item = dict(row)
+        item['records'] = detail_by_category.get(item.get('name') or '未分类', [])
+        categories.append(item)
     return {
         'summary': [dict(r) for r in summary_rows],
         'recent_records': [dict(r) for r in recent_rows],
         'leaderboard': [dict(r) for r in leaderboard_rows],
+        'active_stats': dict(active_stats) if active_stats else None,
+        'categories': categories,
+        'username': username,
+        'point_type': code,
     }
+
+async def search_point_stat_users(search: str = None, limit: int = 12) -> Dict:
+    pool = _get_pool()
+    limit = max(1, min(int(limit or 12), 30))
+    keyword = str(search or '').strip()
+    async with pool.acquire() as conn:
+        if keyword:
+            rows = await conn.fetch('''
+                WITH account_pool AS (
+                    SELECT username FROM user_assets
+                    UNION
+                    SELECT username FROM user_stats
+                    UNION
+                    SELECT username FROM point_history_records
+                )
+                SELECT ap.username,
+                       COALESCE(NULLIF(us.real_name, ''), '') AS real_name,
+                       ua.updated_at,
+                       COALESCE(ph.record_count, 0) AS point_record_count
+                FROM account_pool ap
+                LEFT JOIN user_assets ua ON ua.username = ap.username
+                LEFT JOIN user_stats us ON us.username = ap.username
+                LEFT JOIN (
+                    SELECT username, COUNT(*) AS record_count
+                    FROM point_history_records
+                    GROUP BY username
+                ) ph ON ph.username = ap.username
+                WHERE ap.username ILIKE $1 OR COALESCE(NULLIF(us.real_name, ''), '') ILIKE $1
+                ORDER BY point_record_count DESC, ua.updated_at DESC NULLS LAST
+                LIMIT $2
+            ''', f'%{keyword}%', limit)
+        else:
+            rows = await conn.fetch('''
+                WITH account_pool AS (
+                    SELECT username FROM user_assets
+                    UNION
+                    SELECT username FROM user_stats
+                    UNION
+                    SELECT username FROM point_history_records
+                )
+                SELECT ap.username,
+                       COALESCE(NULLIF(us.real_name, ''), '') AS real_name,
+                       ua.updated_at,
+                       COALESCE(ph.record_count, 0) AS point_record_count
+                FROM account_pool ap
+                LEFT JOIN user_assets ua ON ua.username = ap.username
+                LEFT JOIN user_stats us ON us.username = ap.username
+                LEFT JOIN (
+                    SELECT username, COUNT(*) AS record_count
+                    FROM point_history_records
+                    GROUP BY username
+                ) ph ON ph.username = ap.username
+                ORDER BY point_record_count DESC, ua.updated_at DESC NULLS LAST
+                LIMIT $1
+            ''', limit)
+    return {'rows': [dict(r) for r in rows]}
 
 
 # ===== 封禁管理 =====
