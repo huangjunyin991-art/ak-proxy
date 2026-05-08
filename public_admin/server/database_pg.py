@@ -266,6 +266,26 @@ async def init_db(host: str = "127.0.0.1", port: int = 5432,
                 updated_at TIMESTAMP DEFAULT NOW()
             )
         ''')
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS point_history_records (
+                id BIGSERIAL PRIMARY KEY,
+                username TEXT NOT NULL,
+                point_type TEXT NOT NULL,
+                record_key TEXT NOT NULL,
+                record_time TEXT DEFAULT '',
+                operation_type INTEGER DEFAULT 0,
+                amount DOUBLE PRECISION DEFAULT 0,
+                balance DOUBLE PRECISION,
+                type_name TEXT DEFAULT '',
+                type_name_cn TEXT DEFAULT '',
+                description TEXT DEFAULT '',
+                raw_data JSONB DEFAULT '{}'::jsonb,
+                saved_at TIMESTAMP DEFAULT NOW(),
+                UNIQUE(username, point_type, record_key)
+            )
+        ''')
+        await conn.execute('CREATE INDEX IF NOT EXISTS idx_point_history_records_user_type_time ON point_history_records(username, point_type, saved_at DESC)')
+        await conn.execute('CREATE INDEX IF NOT EXISTS idx_point_history_records_type_time ON point_history_records(point_type, saved_at DESC)')
 
         # 管理员Token持久化表
         await conn.execute('''
@@ -966,6 +986,187 @@ async def get_all_user_assets(limit: int = 100, offset: int = 0,
                 base + f" {order_clause} LIMIT $1 OFFSET $2",
                 limit, offset)
         return {'total': total or 0, 'rows': [dict(r) for r in rows]}
+
+
+_POINT_HISTORY_TYPES = frozenset({'EP', 'SP', 'TP', 'RP'})
+
+def _point_history_type(point_type: str) -> str:
+    code = str(point_type or '').strip().upper()
+    if code not in _POINT_HISTORY_TYPES:
+        raise ValueError(f'不支持的点数类型: {point_type}')
+    return code
+
+def _point_float(value, default=None):
+    if value is None or value == '':
+        return default
+    return float(value)
+
+def _point_int(value, default=0):
+    if value is None or value == '':
+        return default
+    return int(value)
+
+def _point_text(value) -> str:
+    return str(value or '').strip()
+
+def _point_record_key(record: Dict, index: int) -> str:
+    key = _point_text(record.get('id') or record.get('Id') or record.get('FlowNumber') or record.get('flow_number'))
+    if key:
+        return key
+    time_value = _point_text(record.get('time') or record.get('CreateTime') or record.get('Time') or record.get('RecordTime'))
+    amount = _point_text(record.get('amount') or record.get('Amount'))
+    operation_type = _point_text(record.get('operation_type') or record.get('OperationType'))
+    description = _point_text(record.get('description') or record.get('Des'))
+    return f'{time_value}|{operation_type}|{amount}|{description}|{index}'
+
+async def replace_point_history_records(username: str, point_type: str, records: List[Dict]) -> int:
+    pool = _get_pool()
+    username = username.lower() if username else username
+    code = _point_history_type(point_type)
+    saved_at = datetime.now().replace(microsecond=0)
+    normalized = []
+    for index, record in enumerate(records or []):
+        if not isinstance(record, dict):
+            continue
+        normalized.append((
+            username,
+            code,
+            _point_record_key(record, index),
+            _point_text(record.get('time') or record.get('CreateTime') or record.get('Time') or record.get('RecordTime')),
+            _point_int(record.get('operation_type') if 'operation_type' in record else record.get('OperationType')),
+            _point_float(record.get('amount') if 'amount' in record else record.get('Amount'), 0),
+            _point_float(record.get('balance') if 'balance' in record else record.get('SurplusTotalAmount'), None),
+            _point_text(record.get('type_name') or record.get('TypeName')),
+            _point_text(record.get('type_name_cn') or record.get('category')),
+            _point_text(record.get('description') or record.get('Des')),
+            json.dumps(record, ensure_ascii=False),
+            saved_at,
+        ))
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            await conn.execute(
+                'DELETE FROM point_history_records WHERE username = $1 AND point_type = $2',
+                username, code
+            )
+            if not normalized:
+                return 0
+            await conn.executemany('''
+                INSERT INTO point_history_records (
+                    username, point_type, record_key, record_time, operation_type,
+                    amount, balance, type_name, type_name_cn, description, raw_data, saved_at
+                )
+                VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb,$12)
+                ON CONFLICT(username, point_type, record_key) DO UPDATE SET
+                    record_time = EXCLUDED.record_time,
+                    operation_type = EXCLUDED.operation_type,
+                    amount = EXCLUDED.amount,
+                    balance = EXCLUDED.balance,
+                    type_name = EXCLUDED.type_name,
+                    type_name_cn = EXCLUDED.type_name_cn,
+                    description = EXCLUDED.description,
+                    raw_data = EXCLUDED.raw_data,
+                    saved_at = EXCLUDED.saved_at
+            ''', normalized)
+            return len(normalized)
+
+async def save_point_history_records(username: str, point_type: str, records: List[Dict]) -> int:
+    pool = _get_pool()
+    username = username.lower() if username else username
+    code = _point_history_type(point_type)
+    saved_at = datetime.now().replace(microsecond=0)
+    normalized = []
+    for index, record in enumerate(records or []):
+        if not isinstance(record, dict):
+            continue
+        normalized.append((
+            username,
+            code,
+            _point_record_key(record, index),
+            _point_text(record.get('time') or record.get('CreateTime') or record.get('Time') or record.get('RecordTime')),
+            _point_int(record.get('operation_type') if 'operation_type' in record else record.get('OperationType')),
+            _point_float(record.get('amount') if 'amount' in record else record.get('Amount'), 0),
+            _point_float(record.get('balance') if 'balance' in record else record.get('SurplusTotalAmount'), None),
+            _point_text(record.get('type_name') or record.get('TypeName')),
+            _point_text(record.get('type_name_cn') or record.get('category')),
+            _point_text(record.get('description') or record.get('Des')),
+            json.dumps(record, ensure_ascii=False),
+            saved_at,
+        ))
+    if not normalized:
+        return 0
+    async with pool.acquire() as conn:
+        await conn.executemany('''
+            INSERT INTO point_history_records (
+                username, point_type, record_key, record_time, operation_type,
+                amount, balance, type_name, type_name_cn, description, raw_data, saved_at
+            )
+            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb,$12)
+            ON CONFLICT(username, point_type, record_key) DO UPDATE SET
+                record_time = EXCLUDED.record_time,
+                operation_type = EXCLUDED.operation_type,
+                amount = EXCLUDED.amount,
+                balance = EXCLUDED.balance,
+                type_name = EXCLUDED.type_name,
+                type_name_cn = EXCLUDED.type_name_cn,
+                description = EXCLUDED.description,
+                raw_data = EXCLUDED.raw_data,
+                saved_at = EXCLUDED.saved_at
+        ''', normalized)
+    return len(normalized)
+
+async def get_point_stats(username: str = None, point_type: str = None, limit: int = 50) -> Dict:
+    pool = _get_pool()
+    limit = max(1, min(int(limit or 50), 200))
+    username = username.lower() if username else None
+    code = _point_history_type(point_type) if point_type else None
+    filters = []
+    args = []
+    if username:
+        args.append(username)
+        filters.append(f'username = ${len(args)}')
+    if code:
+        args.append(code)
+        filters.append(f'point_type = ${len(args)}')
+    where_clause = f"WHERE {' AND '.join(filters)}" if filters else ''
+    async with pool.acquire() as conn:
+        summary_rows = await conn.fetch(f'''
+            SELECT point_type,
+                   COUNT(*) AS total_records,
+                   SUM(CASE WHEN operation_type = 1 THEN amount ELSE 0 END) AS total_income,
+                   SUM(CASE WHEN operation_type <> 1 THEN amount ELSE 0 END) AS total_expense,
+                   SUM(CASE WHEN operation_type = 1 THEN amount ELSE -amount END) AS net_change,
+                   COUNT(DISTINCT username) AS account_count,
+                   MAX(saved_at) AS latest_saved_at
+            FROM point_history_records
+            {where_clause}
+            GROUP BY point_type
+            ORDER BY point_type
+        ''', *args)
+        recent_rows = await conn.fetch(f'''
+            SELECT username, point_type, record_time, operation_type, amount, balance,
+                   type_name, type_name_cn, description, saved_at
+            FROM point_history_records
+            {where_clause}
+            ORDER BY saved_at DESC, id DESC
+            LIMIT ${len(args) + 1}
+        ''', *args, limit)
+        leaderboard_rows = await conn.fetch(f'''
+            SELECT username, point_type, COUNT(*) AS total_records,
+                   SUM(CASE WHEN operation_type = 1 THEN amount ELSE 0 END) AS total_income,
+                   SUM(CASE WHEN operation_type <> 1 THEN amount ELSE 0 END) AS total_expense,
+                   SUM(CASE WHEN operation_type = 1 THEN amount ELSE -amount END) AS net_change,
+                   MAX(saved_at) AS latest_saved_at
+            FROM point_history_records
+            {where_clause}
+            GROUP BY username, point_type
+            ORDER BY net_change DESC NULLS LAST
+            LIMIT ${len(args) + 1}
+        ''', *args, limit)
+    return {
+        'summary': [dict(r) for r in summary_rows],
+        'recent_records': [dict(r) for r in recent_rows],
+        'leaderboard': [dict(r) for r in leaderboard_rows],
+    }
 
 
 # ===== 封禁管理 =====

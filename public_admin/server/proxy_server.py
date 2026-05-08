@@ -371,9 +371,71 @@ IP_PREBAN_AUTO_BAN_THRESHOLD = 5
 
 IP_PREBAN_AUTO_BAN_DAYS = 1
 
+_POINT_HISTORY_RPC_TYPES = {
+    "record_ep": "EP",
+    "record_sp": "SP",
+    "record_tp": "TP",
+    "record_rp": "RP",
+}
+
+_point_history_auth_by_user_id: dict[str, tuple[str, float]] = {}
+_point_history_auth_by_key: dict[str, tuple[str, float]] = {}
 
 
-# ===== FastAPI 应用 =====
+def _remember_point_history_user(username: str, result: dict) -> None:
+    normalized = str(username or "").strip().lower()
+    if not normalized or not isinstance(result, dict):
+        return
+    user_data = result.get("UserData") if isinstance(result.get("UserData"), dict) else {}
+    expires = time.time() + 86400
+    user_id = str(user_data.get("Id") or result.get("UserID") or "").strip()
+    user_key = str(result.get("Key") or result.get("key") or "").strip()
+    if user_id:
+        _point_history_auth_by_user_id[user_id] = (normalized, expires)
+    if user_key:
+        _point_history_auth_by_key[user_key] = (normalized, expires)
+
+
+def _resolve_point_history_username(request: Request, params: dict) -> str:
+    username = str(
+        params.get("account") or params.get("Account") or params.get("username") or
+        params.get("Username") or request.cookies.get("ak_username") or ""
+    ).strip().lower()
+    if username:
+        return username
+    now = time.time()
+    user_id = str(params.get("UserID") or params.get("userid") or params.get("Id") or "").strip()
+    if user_id:
+        cached = _point_history_auth_by_user_id.get(user_id)
+        if cached and cached[1] > now:
+            return cached[0]
+        _point_history_auth_by_user_id.pop(user_id, None)
+    user_key = str(params.get("key") or params.get("Key") or "").strip()
+    if user_key:
+        cached = _point_history_auth_by_key.get(user_key)
+        if cached and cached[1] > now:
+            return cached[0]
+        _point_history_auth_by_key.pop(user_key, None)
+    return ""
+
+
+async def _save_point_history_rpc_result(path: str, request: Request, params: dict, response: httpx.Response) -> None:
+    point_type = _POINT_HISTORY_RPC_TYPES.get(str(path or "").strip("/").lower())
+    if not point_type or response.status_code != 200:
+        return
+    try:
+        result = response.json()
+        if not isinstance(result, dict) or result.get("Error"):
+            return
+        data = result.get("Data")
+        records = data.get("List", []) if isinstance(data, dict) else data if isinstance(data, list) else []
+        username = _resolve_point_history_username(request, params)
+        if username and records:
+            saved = await db.save_point_history_records(username, point_type, records)
+            logger.info(f"[PointHistory] 保存{point_type}流水: username={username} count={saved}")
+    except Exception as e:
+        logger.warning(f"[PointHistory] 保存失败 path={path}: {e}")
+
 
 app = FastAPI(title="AK透明代理")
 
@@ -1445,6 +1507,7 @@ async def proxy_login(request: Request):
 
         logger.info(f"[Login] 登录成功: {account}")
         _track_login_indexdata_followup(client_ip, account)
+        _remember_point_history_user(account, result)
 
         cached = _cache_ak_auth(account, password, result, response.headers)
 
@@ -1945,6 +2008,8 @@ async def proxy_rpc(path: str, request: Request):
         )
         if response.status_code < 500:
             _mark_login_followup_activity_seen(client_ip, f"RPC/{path}")
+
+        await _save_point_history_rpc_result(path, request, params, response)
 
         return _build_proxy_passthrough_response(response)
 
@@ -3744,6 +3809,19 @@ async def verify_token_api(request: Request):
 async def admin_stats():
 
     return await db.get_stats_summary()
+
+
+@app.get("/admin/api/point-stats")
+async def admin_point_stats(request: Request, username: str = None, point_type: str = None, limit: int = 50):
+    token = request.headers.get('Authorization', '').replace('Bearer ', '')
+    if not token or not await verify_admin_token(token):
+        return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
+    if not check_token_permission(token, 'pointStats'):
+        return JSONResponse(status_code=403, content={"error": True, "message": "无点数统计权限"})
+    try:
+        return await db.get_point_stats(username=username, point_type=point_type, limit=limit)
+    except ValueError as e:
+        return JSONResponse(status_code=400, content={"error": True, "message": str(e)})
 
 
 

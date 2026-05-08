@@ -2831,6 +2831,7 @@
         <div class="tab" data-panel="online"><svg class="tab-icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4" fill="rgba(0,255,136,0.3)"/><circle cx="12" cy="12" r="2" fill="#00ff88"/></svg> 在线用户</div>
         <div class="tab" data-panel="usage"><svg class="tab-icon" viewBox="0 0 24 24"><line x1="12" y1="20" x2="12" y2="10"/><line x1="18" y1="20" x2="18" y2="4"/><line x1="6" y1="20" x2="6" y2="16"/></svg> 账号管理</div>
         <div class="tab" data-panel="users"><svg class="tab-icon" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg> 账号数据</div>
+        <div class="tab" data-panel="pointStats"><svg class="tab-icon" viewBox="0 0 24 24"><path d="M3 3v18h18"/><path d="M7 16v-4"/><path d="M12 16V8"/><path d="M17 16v-6"/><path d="M6 20h12"/></svg> 点数统计</div>
         <div class="tab" data-panel="recommendTree"><svg class="tab-icon" viewBox="0 0 24 24"><path d="M12 3v4"/><path d="M6 11h12"/><path d="M6 11v4"/><path d="M18 11v4"/><circle cx="12" cy="7" r="2"/><circle cx="6" cy="17" r="2"/><circle cx="18" cy="17" r="2"/></svg> 组织架构</div>
         <div class="tab" data-panel="ips"><svg class="tab-icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></svg> IP管理</div>
         <div class="tab" data-panel="banlist"><svg class="tab-icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="m4.9 4.9 14.2 14.2"/></svg> 封禁列表</div>
@@ -3075,6 +3076,48 @@
             </div>
         </div>
         
+        <div class="panel" id="pointStats">
+            <div>
+                <div style="display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 16px;">
+                    <h3 style="margin: 0; color: var(--accent);"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-2px"><path d="M3 3v18h18"/><path d="M7 16v-4"/><path d="M12 16V8"/><path d="M17 16v-6"/></svg> 点数统计</h3>
+                    <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                        <input id="pointStatsUsername" type="text" placeholder="筛选账号" style="padding: 8px 12px; background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 8px; color: var(--text-primary); font-size: 13px; width: 150px;" onkeypress="if(event.keyCode===13)loadPointStats()">
+                        <select id="pointStatsType" style="padding: 8px 12px; background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 8px; color: var(--text-primary); font-size: 13px;">
+                            <option value="">全部类型</option>
+                            <option value="EP">EP</option>
+                            <option value="SP">SP</option>
+                            <option value="TP">TP</option>
+                            <option value="RP">RP</option>
+                        </select>
+                        <button class="btn btn-primary" onclick="loadPointStats()" style="padding: 8px 16px; font-size: 13px;">刷新</button>
+                    </div>
+                </div>
+                <div id="pointStatsSummary" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin-bottom: 16px;">
+                    <div class="stat-card"><div class="label">加载中</div><div class="value">-</div></div>
+                </div>
+                <div style="display: grid; grid-template-columns: minmax(320px, 1fr) minmax(320px, 1.4fr); gap: 16px; align-items: start;">
+                    <div style="background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px; padding: 15px;">
+                        <h4 style="margin: 0 0 12px 0; color: var(--accent-yellow);">账号排行</h4>
+                        <div class="table-container" style="overflow-x: auto;">
+                            <table>
+                                <thead><tr><th>账号</th><th>类型</th><th>记录数</th><th>收入</th><th>支出</th><th>净变化</th></tr></thead>
+                                <tbody id="pointStatsLeaderboard"><tr><td colspan="6" style="text-align:center; color:var(--text-secondary);">暂无数据</td></tr></tbody>
+                            </table>
+                        </div>
+                    </div>
+                    <div style="background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px; padding: 15px;">
+                        <h4 style="margin: 0 0 12px 0; color: var(--accent-green);">最近流水</h4>
+                        <div class="table-container" style="overflow-x: auto;">
+                            <table>
+                                <thead><tr><th>账号</th><th>类型</th><th>时间</th><th>方向</th><th>金额</th><th>余额</th><th>分类</th><th>描述</th></tr></thead>
+                                <tbody id="pointStatsRecent"><tr><td colspan="8" style="text-align:center; color:var(--text-secondary);">暂无数据</td></tr></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <div class="panel" id="recommendTree">
             <div id="recommendTreePanelMount"></div>
         </div>
@@ -3622,6 +3665,9 @@
                                     </label>
                                     <label class="sub-admin-permission-item" style="display: flex; align-items: center; gap: 4px; cursor: pointer; font-size: 12px; color: var(--text-primary); white-space: nowrap;">
                                         <input type="checkbox" id="perm_users" value="users"> 用户
+                                    </label>
+                                    <label class="sub-admin-permission-item" style="display: flex; align-items: center; gap: 4px; cursor: pointer; font-size: 12px; color: var(--text-primary); white-space: nowrap;">
+                                        <input type="checkbox" id="perm_pointStats" value="pointStats"> 点数统计
                                     </label>
                                     <label class="sub-admin-permission-item" style="display: flex; align-items: center; gap: 4px; cursor: pointer; font-size: 12px; color: var(--text-primary); white-space: nowrap;">
                                         <input type="checkbox" id="perm_recommendTree" value="recommendTree"> 组织架构
@@ -4619,7 +4665,7 @@
             
             // 子管理员：根据权限显示/隐藏
             const perms = JSON.parse(sessionStorage.getItem('admin_permissions') || '{}');
-            const allTabs = ['dashboard', 'online', 'usage', 'users', 'recommendTree', 'ips', 'banlist', 'whitelist', 'contacts', 'credits', 'license', 'database', 'monitoring', 'meetings', 'settings'];
+            const allTabs = ['dashboard', 'online', 'usage', 'users', 'pointStats', 'recommendTree', 'ips', 'banlist', 'whitelist', 'contacts', 'credits', 'license', 'database', 'monitoring', 'meetings', 'settings'];
             
             allTabs.forEach(tabName => {
                 const tab = document.querySelector(`.tab[data-panel="${tabName}"]`);
@@ -5628,6 +5674,84 @@
             if (!t) return '-';
             return String(t).replace('T', ' ').slice(0, 16);
         }
+
+        function pointStatsAmountClass(value) {
+            const num = Number(value || 0);
+            if (num > 0) return 'color:var(--accent-green);';
+            if (num < 0) return 'color:var(--accent-red);';
+            return 'color:var(--text-primary);';
+        }
+
+        async function loadPointStats() {
+            const summaryBox = document.getElementById('pointStatsSummary');
+            const leaderboardBody = document.getElementById('pointStatsLeaderboard');
+            const recentBody = document.getElementById('pointStatsRecent');
+            if (!summaryBox || !leaderboardBody || !recentBody) return;
+            summaryBox.innerHTML = '<div class="stat-card"><div class="label">加载中</div><div class="value">-</div></div>';
+            leaderboardBody.innerHTML = '<tr><td colspan="6" style="text-align:center; color:var(--text-secondary);">加载中...</td></tr>';
+            recentBody.innerHTML = '<tr><td colspan="8" style="text-align:center; color:var(--text-secondary);">加载中...</td></tr>';
+            try {
+                const params = new URLSearchParams();
+                const username = (document.getElementById('pointStatsUsername')?.value || '').trim();
+                const pointType = (document.getElementById('pointStatsType')?.value || '').trim();
+                if (username) params.set('username', username);
+                if (pointType) params.set('point_type', pointType);
+                params.set('limit', '80');
+                const res = await fetch(`${API_BASE}/admin/api/point-stats?${params.toString()}`, withAdminAuthHeaders());
+                const data = await res.json();
+                if (!res.ok || data.error) {
+                    throw new Error(data.message || '加载失败');
+                }
+                const summary = data.summary || [];
+                const leaderboard = data.leaderboard || [];
+                const recent = data.recent_records || [];
+                if (!summary.length) {
+                    summaryBox.innerHTML = '<div class="stat-card"><div class="label">暂无点数流水</div><div class="value">0</div></div>';
+                } else {
+                    summaryBox.innerHTML = summary.map(item => `
+                        <div class="stat-card">
+                            <div class="label">${escapeHtml(item.point_type || '-')} · ${formatNumber(item.account_count)}个账号</div>
+                            <div class="value">${formatNumber(item.total_records)}</div>
+                            <div style="font-size:12px;color:var(--text-secondary);line-height:1.8;margin-top:8px;">
+                                <div>收入：<span style="color:var(--accent-green);">${formatNumber(item.total_income)}</span></div>
+                                <div>支出：<span style="color:var(--accent-red);">${formatNumber(item.total_expense)}</span></div>
+                                <div>净变化：<span style="${pointStatsAmountClass(item.net_change)}">${formatNumber(item.net_change)}</span></div>
+                            </div>
+                        </div>
+                    `).join('');
+                }
+                leaderboardBody.innerHTML = leaderboard.length ? leaderboard.map(item => `
+                    <tr>
+                        <td>${escapeHtml(item.username || '-')}</td>
+                        <td>${escapeHtml(item.point_type || '-')}</td>
+                        <td>${formatNumber(item.total_records)}</td>
+                        <td style="color:var(--accent-green);">${formatNumber(item.total_income)}</td>
+                        <td style="color:var(--accent-red);">${formatNumber(item.total_expense)}</td>
+                        <td style="${pointStatsAmountClass(item.net_change)}">${formatNumber(item.net_change)}</td>
+                    </tr>
+                `).join('') : '<tr><td colspan="6" style="text-align:center; color:var(--text-secondary);">暂无数据</td></tr>';
+                recentBody.innerHTML = recent.length ? recent.map(item => {
+                    const isIncome = Number(item.operation_type || 0) === 1;
+                    return `
+                        <tr>
+                            <td>${escapeHtml(item.username || '-')}</td>
+                            <td>${escapeHtml(item.point_type || '-')}</td>
+                            <td>${fmtTime(item.record_time || item.saved_at)}</td>
+                            <td style="color:${isIncome ? 'var(--accent-green)' : 'var(--accent-red)'};">${isIncome ? '收入' : '支出'}</td>
+                            <td>${formatNumber(item.amount)}</td>
+                            <td>${item.balance === null || item.balance === undefined ? '-' : formatNumber(item.balance)}</td>
+                            <td>${escapeHtml(item.type_name_cn || item.type_name || '-')}</td>
+                            <td title="${escapeHtml(item.description || '')}">${escapeHtml(item.description || '-')}</td>
+                        </tr>
+                    `;
+                }).join('') : '<tr><td colspan="8" style="text-align:center; color:var(--text-secondary);">暂无数据</td></tr>';
+            } catch (e) {
+                console.error('加载点数统计失败', e);
+                summaryBox.innerHTML = `<div class="stat-card"><div class="label">加载失败</div><div class="value">!</div><div style="font-size:12px;color:var(--accent-red);margin-top:8px;">${escapeHtml(e.message)}</div></div>`;
+                leaderboardBody.innerHTML = '<tr><td colspan="6" style="text-align:center; color:var(--accent-red);">加载失败</td></tr>';
+                recentBody.innerHTML = '<tr><td colspan="8" style="text-align:center; color:var(--accent-red);">加载失败</td></tr>';
+            }
+        }
         
         // 加载在线用户
         // 页面路径 → 中文描述映射
@@ -6021,7 +6145,7 @@
         
         // 权限全选/全不选
         function toggleAllPerms(checked) {
-            const permKeys = ['dashboard', 'online', 'usage', 'users', 'recommendTree', 'ips', 'banlist', 'license', 'database'];
+            const permKeys = ['dashboard', 'online', 'usage', 'users', 'pointStats', 'recommendTree', 'ips', 'banlist', 'license', 'database'];
             permKeys.forEach(key => {
                 const cb = document.getElementById('perm_' + key);
                 if (cb) cb.checked = checked;
@@ -6031,7 +6155,7 @@
         // 权限名称映射
         const PERM_LABELS = {
             dashboard: '仪表盘', online: '在线', usage: '使用', users: '用户',
-            recommendTree: '组织架构', ips: 'IP', banlist: '封禁', license: '激活码', database: '数据库'
+            pointStats: '点数统计', recommendTree: '组织架构', ips: 'IP', banlist: '封禁', license: '激活码', database: '数据库'
         };
         
         // 当前选中的子管理员
@@ -6039,7 +6163,7 @@
 
         function collectSubAdminPermissions() {
             const permissions = {};
-            const permKeys = ['dashboard', 'online', 'usage', 'users', 'recommendTree', 'ips', 'banlist', 'license', 'database'];
+            const permKeys = ['dashboard', 'online', 'usage', 'users', 'pointStats', 'recommendTree', 'ips', 'banlist', 'license', 'database'];
             permKeys.forEach(key => {
                 const cb = document.getElementById('perm_' + key);
                 if (cb) permissions[key] = cb.checked;
@@ -6075,7 +6199,7 @@
             const currentBound = String(boundUsername || '').trim().toLowerCase();
             setSubAdminBoundUsername(currentBound);
             // 加载权限到复选框
-            const permKeys = ['dashboard', 'online', 'usage', 'users', 'recommendTree', 'ips', 'banlist', 'license', 'database'];
+            const permKeys = ['dashboard', 'online', 'usage', 'users', 'pointStats', 'recommendTree', 'ips', 'banlist', 'license', 'database'];
             permKeys.forEach(key => {
                 const cb = document.getElementById('perm_' + key);
                 if (cb) cb.checked = !!permissions[key];
@@ -6864,6 +6988,7 @@
                 } else {
                     if (window.hideUsersFloatScroll) hideUsersFloatScroll();
                 }
+                if (tab.dataset.panel === 'pointStats') loadPointStats();
                 if (tab.dataset.panel === 'recommendTree' && window.AKRecommendTreePanel) {
                     window.AKRecommendTreePanel.start();
                 }
