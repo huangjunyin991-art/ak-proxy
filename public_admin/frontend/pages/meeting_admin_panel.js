@@ -98,6 +98,40 @@
         return !!state.savingUsernames[normalizeUsername(username)];
     }
 
+    function buildPermissionView(item) {
+        const username = normalizeUsername(item.username);
+        const rawCanPublish = !!item.can_publish || !!item.can_publish_owned || !!item.can_publish_all;
+        const isDefaultBinding = !!item.is_default_admin_binding;
+        const subEnabled = item.sub_admin_meeting_enabled !== false;
+        const subOwner = String(item.sub_admin_owner || '').trim();
+        const effective = !!item.effective_can_publish && subEnabled && rawCanPublish;
+        const rowSaving = isRowSaving(username);
+        const disabled = rowSaving || isDefaultBinding;
+        let stateLabel;
+        if (isDefaultBinding) {
+            stateLabel = subEnabled ? '默认允许（由子管理员总开关控制）' : '已被总管理员停用';
+        } else if (rowSaving) {
+            stateLabel = '保存中...';
+        } else if (rawCanPublish && !subEnabled) {
+            stateLabel = subOwner ? ('已授权，但子管理员 [' + subOwner + '] 已被停用，当前不生效') : '已授权，但当前不生效';
+        } else if (effective) {
+            stateLabel = '已允许发布';
+        } else if (rawCanPublish) {
+            stateLabel = '已允许发布';
+        } else {
+            stateLabel = '未授权';
+        }
+        return {
+            username,
+            nickname: String(item.nickname || ''),
+            owner: String(item.added_by || '-'),
+            expireText: formatTime(item.expire_time),
+            rawCanPublish,
+            disabled,
+            stateLabel
+        };
+    }
+
     function loadAll() {
         if (!hasAdminToken()) {
             state.loading = false;
@@ -170,38 +204,37 @@
 
     function renderPermissionRows() {
         const rows = state.candidates.map(function(item) {
-            const username = normalizeUsername(item.username);
-            const rawCanPublish = !!item.can_publish || !!item.can_publish_owned || !!item.can_publish_all;
-            const isDefaultBinding = !!item.is_default_admin_binding;
-            const subEnabled = item.sub_admin_meeting_enabled !== false;
-            const subOwner = String(item.sub_admin_owner || '').trim();
-            const effective = !!item.effective_can_publish && subEnabled && rawCanPublish;
-            const ownerCell = state.showOwnerColumn ? `<td data-label="归属" class="meeting-owner-cell"><strong>${escapeHtml(item.added_by || '-')}</strong><span class="meeting-expire-text">过期：${escapeHtml(formatTime(item.expire_time))}</span></td>` : '';
-            const rowSaving = isRowSaving(username);
-            const disabled = rowSaving || isDefaultBinding;
-            let stateLabel;
-            if (isDefaultBinding) {
-                stateLabel = subEnabled ? '默认允许（由子管理员总开关控制）' : '已被总管理员停用';
-            } else if (rowSaving) {
-                stateLabel = '保存中...';
-            } else if (rawCanPublish && !subEnabled) {
-                stateLabel = subOwner ? ('已授权，但子管理员 [' + subOwner + '] 已被停用，当前不生效') : '已授权，但当前不生效';
-            } else if (effective) {
-                stateLabel = '已允许发布';
-            } else if (rawCanPublish) {
-                stateLabel = '已允许发布';
-            } else {
-                stateLabel = '未授权';
-            }
+            const view = buildPermissionView(item);
+            const ownerCell = state.showOwnerColumn ? `<td data-label="归属"><strong>${escapeHtml(view.owner)}</strong><div class="meeting-muted">过期：${escapeHtml(view.expireText)}</div></td>` : '';
             return `
-                <tr data-meeting-user="${escapeHtml(username)}">
-                    <td data-label="账号"><strong>${escapeHtml(username)}</strong><div class="meeting-muted">${escapeHtml(item.nickname || '')}</div></td>
+                <tr data-meeting-user="${escapeHtml(view.username)}">
+                    <td data-label="账号"><strong>${escapeHtml(view.username)}</strong><div class="meeting-muted">${escapeHtml(view.nickname)}</div></td>
                     ${ownerCell}
-                    <td data-label="允许发布"><label><input type="checkbox" data-meeting-perm="publish" data-meeting-user="${escapeHtml(username)}" ${rawCanPublish ? 'checked' : ''} ${disabled ? 'disabled' : ''}> 允许发布会议</label></td>
-                    <td data-label="状态"><span class="meeting-muted">${escapeHtml(stateLabel)}</span></td>
+                    <td data-label="允许发布"><label><input type="checkbox" data-meeting-perm="publish" data-meeting-user="${escapeHtml(view.username)}" ${view.rawCanPublish ? 'checked' : ''} ${view.disabled ? 'disabled' : ''}> 允许发布会议</label></td>
+                    <td data-label="状态"><span class="meeting-muted">${escapeHtml(view.stateLabel)}</span></td>
                 </tr>`;
         }).join('');
         return rows || `<tr><td colspan="${state.showOwnerColumn ? 4 : 3}" class="meeting-empty">暂无白名单账号</td></tr>`;
+    }
+
+    function renderPermissionCards() {
+        const cards = state.candidates.map(function(item) {
+            const view = buildPermissionView(item);
+            const ownerMeta = state.showOwnerColumn ? `<span>归属：<strong>${escapeHtml(view.owner)}</strong></span><span>过期：${escapeHtml(view.expireText)}</span>` : '';
+            const nickname = view.nickname ? `<span>昵称：${escapeHtml(view.nickname)}</span>` : '';
+            return `
+                <div class="meeting-mobile-card" data-meeting-user="${escapeHtml(view.username)}">
+                    <div class="meeting-mobile-top">
+                        <div class="meeting-mobile-title"><span>账号</span><strong>${escapeHtml(view.username)}</strong></div>
+                        <div class="meeting-mobile-meta">${ownerMeta}${nickname}</div>
+                    </div>
+                    <div class="meeting-mobile-actions">
+                        <label class="meeting-mobile-check"><input type="checkbox" data-meeting-perm="publish" data-meeting-user="${escapeHtml(view.username)}" ${view.rawCanPublish ? 'checked' : ''} ${view.disabled ? 'disabled' : ''}> 允许发布会议</label>
+                        <span class="meeting-mobile-status">状态：${escapeHtml(view.stateLabel)}</span>
+                    </div>
+                </div>`;
+        }).join('');
+        return cards || '<div class="meeting-empty">暂无白名单账号</div>';
     }
 
     function renderSubAdminToggles() {
@@ -239,6 +272,24 @@
                     <td data-label="状态"><span class="meeting-muted">${saving ? '保存中...' : (enabled ? '允许发布' : '已停用（伞下会议发布暂时失效）')}</span></td>
                 </tr>`;
         }).join('');
+        const cards = toggles.map(function(toggle) {
+            const subName = String(toggle.sub_name || '').trim();
+            const enabled = !!toggle.meeting_publish_enabled;
+            const bound = String(toggle.bound_username || '').trim();
+            const saving = !!state.savingSubAdmins[subName];
+            const stateLabel = saving ? '保存中...' : (enabled ? '允许发布' : '已停用（伞下会议发布暂时失效）');
+            return `
+                <div class="meeting-mobile-card">
+                    <div class="meeting-mobile-top">
+                        <div class="meeting-mobile-title"><span>子管理员</span><strong>${escapeHtml(subName)}</strong></div>
+                        <div class="meeting-mobile-meta"><span>绑定账号：${escapeHtml(bound || '-')}</span></div>
+                    </div>
+                    <div class="meeting-mobile-actions">
+                        <label class="meeting-mobile-check"><input type="checkbox" data-meeting-sub-toggle="${escapeHtml(subName)}" ${enabled ? 'checked' : ''} ${saving ? 'disabled' : ''}> 允许发布会议</label>
+                        <span class="meeting-mobile-status">状态：${escapeHtml(stateLabel)}</span>
+                    </div>
+                </div>`;
+        }).join('');
         return `
             <section class="meeting-card">
                 <div class="meeting-head">
@@ -247,7 +298,8 @@
                         <div class="meeting-subtitle">关闭后，此子管理员的绑定账号与伞下全部账号的会议发布能力暂时失效，授权数据不变。</div>
                     </div>
                 </div>
-                <div data-scroll-hint="right" style="overflow-x:auto"><table class="meeting-table"><thead><tr><th>子管理员</th><th>允许发布</th><th>状态</th></tr></thead><tbody>${rows}</tbody></table></div>
+                <div class="meeting-mobile-list">${cards}</div>
+                <div class="meeting-table-wrap" data-scroll-hint="right" style="overflow-x:auto"><table class="meeting-table"><thead><tr><th>子管理员</th><th>允许发布</th><th>状态</th></tr></thead><tbody>${rows}</tbody></table></div>
             </section>`;
     }
 
@@ -257,10 +309,10 @@
         refs.mount = mount;
         mount.innerHTML = `
             <style>
-                .meeting-admin-wrap{display:flex;flex-direction:column;gap:16px}.meeting-card{background:rgba(15,23,42,.55);border:1px solid rgba(148,163,184,.18);border-radius:16px;padding:16px}.meeting-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:12px;flex-wrap:wrap}.meeting-head-main{display:flex;flex-direction:column;gap:4px}.meeting-title{font-size:18px;font-weight:800;color:var(--text-primary)}.meeting-subtitle,.meeting-muted,.meeting-empty{color:var(--text-secondary);font-size:12px}.meeting-toolbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.meeting-search{height:36px;border-radius:9px;border:1px solid rgba(148,163,184,.22);background:rgba(15,23,42,.72);color:var(--text-primary);padding:0 10px;min-width:220px}.meeting-small-btn{border:0;border-radius:10px;padding:8px 12px;background:rgba(59,130,246,.85);color:white;font-weight:700;cursor:pointer;font-size:12px}.meeting-small-btn.danger{background:rgba(239,68,68,.82)}.meeting-small-btn:disabled{opacity:.55;cursor:not-allowed}.meeting-table{width:100%;border-collapse:collapse}.meeting-table th,.meeting-table td{padding:11px 10px;border-bottom:1px solid rgba(148,163,184,.12);text-align:left;vertical-align:top}.meeting-table label{color:var(--text-primary);font-size:13px;white-space:nowrap}.meeting-badge{display:inline-flex;align-items:center;border-radius:999px;padding:3px 8px;margin-right:6px;font-size:12px;font-weight:700}.meeting-badge.owned{background:rgba(14,165,233,.18);color:#bae6fd}.meeting-badge.all{background:rgba(168,85,247,.18);color:#e9d5ff}
+                .meeting-admin-wrap{display:flex;flex-direction:column;gap:16px}.meeting-card{background:rgba(15,23,42,.55);border:1px solid rgba(148,163,184,.18);border-radius:16px;padding:16px}.meeting-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:12px;flex-wrap:wrap}.meeting-head-main{display:flex;flex-direction:column;gap:4px}.meeting-title{font-size:18px;font-weight:800;color:var(--text-primary)}.meeting-subtitle,.meeting-muted,.meeting-empty{color:var(--text-secondary);font-size:12px}.meeting-toolbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.meeting-search{height:36px;border-radius:9px;border:1px solid rgba(148,163,184,.22);background:rgba(15,23,42,.72);color:var(--text-primary);padding:0 10px;min-width:220px}.meeting-small-btn{border:0;border-radius:10px;padding:8px 12px;background:rgba(59,130,246,.85);color:white;font-weight:700;cursor:pointer;font-size:12px}.meeting-small-btn.danger{background:rgba(239,68,68,.82)}.meeting-small-btn:disabled{opacity:.55;cursor:not-allowed}.meeting-table{width:100%;border-collapse:collapse}.meeting-table th,.meeting-table td{padding:11px 10px;border-bottom:1px solid rgba(148,163,184,.12);text-align:left;vertical-align:top}.meeting-table label{color:var(--text-primary);font-size:13px;white-space:nowrap}.meeting-mobile-list{display:none}.meeting-badge{display:inline-flex;align-items:center;border-radius:999px;padding:3px 8px;margin-right:6px;font-size:12px;font-weight:700}.meeting-badge.owned{background:rgba(14,165,233,.18);color:#bae6fd}.meeting-badge.all{background:rgba(168,85,247,.18);color:#e9d5ff}
             </style>
             <style>
-                @media (max-width:768px){.meeting-admin-wrap{gap:12px}.meeting-card{padding:14px 12px;border-radius:18px}.meeting-head{gap:10px;margin-bottom:12px}.meeting-title{font-size:20px;line-height:1.2}.meeting-subtitle{font-size:12px;line-height:1.45}.meeting-toolbar{display:grid;grid-template-columns:minmax(0,1fr)72px;width:100%;gap:8px}.meeting-search{min-width:0;width:100%;height:42px;box-sizing:border-box}.meeting-small-btn{min-height:42px;padding:8px 10px}.meeting-card [data-scroll-hint="right"]{overflow:visible!important}.meeting-table{min-width:0;border-collapse:separate;border-spacing:0}.meeting-table thead{display:none}.meeting-table tbody{display:grid;gap:10px}.meeting-table tr{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.25fr);gap:9px 12px;padding:12px;border:1px solid rgba(148,163,184,.14);border-radius:14px;background:rgba(15,23,42,.45)}.meeting-table td{display:flex;gap:7px;align-items:baseline;padding:0;border-bottom:0;font-size:13px;min-width:0}.meeting-table td::before{content:attr(data-label);flex:0 0 auto;color:var(--text-secondary);font-size:12px;line-height:1.45}.meeting-table td strong{font-size:16px;line-height:1.2;overflow-wrap:anywhere}.meeting-table label{white-space:normal;font-size:14px;line-height:1.35}.meeting-table input[type="checkbox"]{width:16px;height:16px;vertical-align:-2px}.meeting-muted{font-size:12px;line-height:1.4;overflow-wrap:anywhere}.meeting-owner-cell{display:grid;grid-template-columns:auto minmax(0,1fr);gap:2px 7px}.meeting-owner-cell::before{grid-row:1;grid-column:1}.meeting-owner-cell strong{grid-row:1;grid-column:2}.meeting-expire-text{grid-column:1 / -1;color:var(--text-secondary);font-size:11px;line-height:1.25;white-space:nowrap}.meeting-subadmin-cell{grid-column:1 / -1;display:flex;align-items:baseline;gap:8px;white-space:nowrap}.meeting-bound-text{color:var(--text-secondary);font-size:12px}.meeting-empty{grid-column:1 / -1;padding:18px 0;text-align:center}.meeting-empty::before{content:none!important}}
+                @media (max-width:768px){.meeting-admin-wrap{gap:12px}.meeting-card{padding:14px 12px;border-radius:18px}.meeting-head{gap:10px;margin-bottom:12px}.meeting-title{font-size:20px;line-height:1.2}.meeting-subtitle{font-size:12px;line-height:1.45}.meeting-toolbar{display:grid;grid-template-columns:minmax(0,1fr)72px;width:100%;gap:8px}.meeting-search{min-width:0;width:100%;height:42px;box-sizing:border-box}.meeting-small-btn{min-height:42px;padding:8px 10px}.meeting-table-wrap{display:none}.meeting-mobile-list{display:grid;gap:10px}.meeting-mobile-card{display:grid;gap:12px;padding:12px;border:1px solid rgba(148,163,184,.14);border-radius:14px;background:rgba(15,23,42,.45)}.meeting-mobile-top{display:flex;align-items:baseline;justify-content:space-between;gap:8px 12px;flex-wrap:wrap}.meeting-mobile-title{display:flex;align-items:baseline;gap:8px;min-width:0}.meeting-mobile-title span,.meeting-mobile-meta,.meeting-mobile-status{color:var(--text-secondary);font-size:12px;line-height:1.35}.meeting-mobile-title strong{color:var(--text-primary);font-size:18px;line-height:1.15;white-space:nowrap}.meeting-mobile-meta{display:flex;align-items:baseline;gap:8px 12px;flex-wrap:wrap;min-width:0}.meeting-mobile-meta span{white-space:nowrap}.meeting-mobile-meta strong{color:var(--text-primary);font-size:14px;white-space:nowrap}.meeting-mobile-actions{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:8px 12px;align-items:center}.meeting-mobile-check{display:inline-flex;align-items:center;gap:6px;color:var(--text-primary);font-size:14px;font-weight:700;line-height:1.3;white-space:nowrap}.meeting-mobile-check input{width:17px;height:17px;flex:0 0 auto}.meeting-mobile-status{overflow-wrap:anywhere}.meeting-empty{padding:18px 0;text-align:center}}
             </style>
             <div class="meeting-admin-wrap">
                 ${renderSubAdminToggles()}
@@ -275,7 +327,8 @@
                             <button type="button" class="meeting-small-btn" data-meeting-refresh="1">${state.loading ? '加载中...' : '刷新'}</button>
                         </div>
                     </div>
-                    <div data-scroll-hint="right" style="overflow-x:auto"><table class="meeting-table"><thead><tr><th>账号</th>${state.showOwnerColumn ? '<th>归属</th>' : ''}<th>允许发布</th><th>状态</th></tr></thead><tbody>${!hasAdminToken() ? `<tr><td colspan="${state.showOwnerColumn ? 4 : 3}" class="meeting-empty">请先登录后台</td></tr>` : (state.loading ? `<tr><td colspan="${state.showOwnerColumn ? 4 : 3}" class="meeting-empty">加载中...</td></tr>` : renderPermissionRows())}</tbody></table></div>
+                    ${!hasAdminToken() ? '<div class="meeting-mobile-list"><div class="meeting-empty">请先登录后台</div></div>' : (state.loading ? '<div class="meeting-mobile-list"><div class="meeting-empty">加载中...</div></div>' : '<div class="meeting-mobile-list">' + renderPermissionCards() + '</div>')}
+                    <div class="meeting-table-wrap" data-scroll-hint="right" style="overflow-x:auto"><table class="meeting-table"><thead><tr><th>账号</th>${state.showOwnerColumn ? '<th>归属</th>' : ''}<th>允许发布</th><th>状态</th></tr></thead><tbody>${!hasAdminToken() ? `<tr><td colspan="${state.showOwnerColumn ? 4 : 3}" class="meeting-empty">请先登录后台</td></tr>` : (state.loading ? `<tr><td colspan="${state.showOwnerColumn ? 4 : 3}" class="meeting-empty">加载中...</td></tr>` : renderPermissionRows())}</tbody></table></div>
                 </section>
             </div>`;
     }
