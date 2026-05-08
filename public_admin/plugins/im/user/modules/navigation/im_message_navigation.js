@@ -62,7 +62,7 @@
         },
 
         shouldMarkReadNow() {
-            return this.isAtBottom();
+            return this.isAtBottom() || this.areEntryUnreadMessagesFullyVisible();
         },
 
         shouldSuppressControls() {
@@ -94,6 +94,7 @@
                 navState.mentionLabel = '';
                 this.markReadActiveConversation();
             }
+            this.consumeVisibleEntryUnread();
             this.renderControls();
         },
 
@@ -178,6 +179,7 @@
                 navState.mentionSeqNo = 0;
                 navState.mentionLabel = '';
             }
+            this.consumeVisibleEntryUnread();
             this.renderControls();
             return true;
         },
@@ -261,6 +263,42 @@
             const anchorMessage = peerMessages[anchorIndex] || peerMessages[0];
             navState.firstUnreadSeqNo = Number(anchorMessage && anchorMessage.seq_no || 0) || 0;
             navState.unreadAnchorPartial = entryUnreadCount > peerMessages.length;
+        },
+
+        getEntryUnreadMessages() {
+            const state = this.getState();
+            const navState = this.ensureNavigationState();
+            if (!state || !navState || navState.unreadAnchorConsumed || navState.unreadAnchorPartial) return [];
+            const entryUnreadCount = Math.max(0, Number(navState.entryUnreadCount || 0) || 0);
+            if (entryUnreadCount <= 0) return [];
+            const peerMessages = (Array.isArray(state.activeMessages) ? state.activeMessages : []).filter(function(item) {
+                return item && Number(item.seq_no || 0) > 0 && String(item.sender_username || '') !== String(state.username || '');
+            });
+            if (peerMessages.length < entryUnreadCount) return [];
+            return peerMessages.slice(peerMessages.length - entryUnreadCount);
+        },
+
+        areEntryUnreadMessagesFullyVisible() {
+            const messageList = this.getElements().messageList;
+            const unreadMessages = this.getEntryUnreadMessages();
+            if (!messageList || !unreadMessages.length) return false;
+            const listRect = messageList.getBoundingClientRect();
+            return unreadMessages.every((item) => {
+                const node = this.findMessageNodeBySeqNo(item.seq_no);
+                if (!node) return false;
+                const rect = node.getBoundingClientRect();
+                return rect.top >= listRect.top && rect.bottom <= listRect.bottom;
+            });
+        },
+
+        consumeVisibleEntryUnread() {
+            const navState = this.ensureNavigationState();
+            if (!navState || navState.unreadAnchorConsumed || !this.areEntryUnreadMessagesFullyVisible()) return false;
+            this.markReadActiveConversation();
+            navState.unreadAnchorConsumed = true;
+            navState.entryUnreadCount = 0;
+            navState.firstUnreadSeqNo = 0;
+            return true;
         },
 
         handleIncomingMessage(item) {
