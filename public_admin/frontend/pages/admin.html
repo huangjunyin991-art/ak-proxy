@@ -1556,6 +1556,40 @@
             white-space: nowrap;
         }
 
+        .credits-table-wrap {
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+            overscroll-behavior-x: contain;
+        }
+
+        .credits-overview-table,
+        .credits-transactions-table {
+            width: max-content;
+            min-width: 100%;
+            table-layout: auto;
+        }
+
+        .credits-overview-table th,
+        .credits-overview-table td,
+        .credits-transactions-table th,
+        .credits-transactions-table td {
+            white-space: nowrap;
+            word-break: keep-all;
+        }
+
+        .credits-overview-table .credits-name-cell,
+        .credits-transactions-table .credits-time-cell,
+        .credits-transactions-table .credits-admin-cell,
+        .credits-transactions-table .credits-operator-cell {
+            min-width: max-content;
+        }
+
+        .credits-transactions-table .credits-desc-cell {
+            max-width: 240px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
         #usersTableContainer {
             overflow-x: auto;
             -webkit-overflow-scrolling: touch;
@@ -3439,8 +3473,8 @@
                 <div id="creditsOverviewSection">
                     <div style="background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px; padding: 15px; margin-bottom: 15px;">
                         <h4 style="color: var(--accent-yellow); margin-bottom: 12px;">子管理员积分概览</h4>
-                        <div id="creditsOverviewTable" data-scroll-hint="right" style="overflow-x: auto;">
-                            <table><thead><tr><th>名称</th><th>余额</th><th>活跃账号</th><th>总账号</th><th>操作</th></tr></thead>
+                        <div id="creditsOverviewTable" class="credits-table-wrap" data-scroll-hint="right">
+                            <table class="credits-overview-table"><thead><tr><th>名称</th><th>余额</th><th>活跃账号</th><th>总账号</th><th>操作</th></tr></thead>
                             <tbody id="creditsOverviewBody"><tr><td colspan="5" style="text-align:center; color:var(--text-secondary);">加载中...</td></tr></tbody></table>
                         </div>
                     </div>
@@ -3486,8 +3520,8 @@
                             <option value="">全部</option>
                         </select>
                     </div>
-                    <div data-scroll-hint="right" style="overflow-x: auto;">
-                        <table><thead><tr><th>时间</th><th>管理员</th><th>类型</th><th>金额</th><th>余额</th><th>说明</th><th>操作人</th></tr></thead>
+                    <div class="credits-table-wrap" data-scroll-hint="right">
+                        <table class="credits-transactions-table"><thead><tr><th>时间</th><th>管理员</th><th>类型</th><th>金额</th><th>余额</th><th>说明</th><th>操作人</th></tr></thead>
                         <tbody id="txTableBody"><tr><td colspan="7" style="text-align:center; color:var(--text-secondary);">加载中...</td></tr></tbody></table>
                     </div>
                     <div id="txPagination" style="display: flex; justify-content: center; gap: 8px; margin-top: 12px;"></div>
@@ -9940,7 +9974,7 @@
                     return;
                 }
                 tbody.innerHTML = data.map(s => `<tr>
-                    <td style="font-weight:bold;">${s.name}</td>
+                    <td class="credits-name-cell" style="font-weight:bold;">${s.name}</td>
                     <td style="color:var(--accent-yellow); font-weight:bold;">${s.credits}</td>
                     <td style="color:#00ff88;">${s.active_count}</td>
                     <td>${s.total_count}</td>
@@ -10085,13 +10119,13 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                         const amtPrefix = isTopup ? '+' : '';
                         const typeNames = {topup: '充值', deduct: '扣除', refund: '退回'};
                         return `<tr>
-                            <td style="font-size:12px;">${fmtTime(t.created_at)}</td>
-                            <td>${t.admin_name}</td>
+                            <td class="credits-time-cell" style="font-size:12px;">${fmtTime(t.created_at)}</td>
+                            <td class="credits-admin-cell">${t.admin_name}</td>
                             <td style="color:${amtColor};">${typeNames[t.type] || t.type}</td>
                             <td style="color:${amtColor}; font-weight:bold;">${amtPrefix}${t.amount}</td>
                             <td>${t.balance_after}</td>
-                            <td style="color:var(--text-secondary); max-width:150px; overflow:hidden; text-overflow:ellipsis;">${t.description || ''}</td>
-                            <td style="color:var(--text-secondary);">${t.operator || ''}</td>
+                            <td class="credits-desc-cell" style="color:var(--text-secondary);">${t.description || ''}</td>
+                            <td class="credits-operator-cell" style="color:var(--text-secondary);">${t.operator || ''}</td>
                         </tr>`;
                     }).join('');
                 }
