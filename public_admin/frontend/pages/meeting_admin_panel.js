@@ -175,7 +175,7 @@
             const subEnabled = item.sub_admin_meeting_enabled !== false;
             const subOwner = String(item.sub_admin_owner || '').trim();
             const effective = !!item.effective_can_publish && subEnabled && rawCanPublish;
-            const ownerCell = state.showOwnerColumn ? `<td><strong>${escapeHtml(item.added_by || '-')}</strong><div class="meeting-muted">过期：${escapeHtml(formatTime(item.expire_time))}</div></td>` : '';
+            const ownerCell = state.showOwnerColumn ? `<td data-label="归属"><strong>${escapeHtml(item.added_by || '-')}</strong><div class="meeting-muted">过期：${escapeHtml(formatTime(item.expire_time))}</div></td>` : '';
             const rowSaving = isRowSaving(username);
             const disabled = rowSaving || isDefaultBinding;
             let stateLabel;
@@ -194,10 +194,10 @@
             }
             return `
                 <tr data-meeting-user="${escapeHtml(username)}">
-                    <td><strong>${escapeHtml(username)}</strong><div class="meeting-muted">${escapeHtml(item.nickname || '')}</div></td>
+                    <td data-label="账号"><strong>${escapeHtml(username)}</strong><div class="meeting-muted">${escapeHtml(item.nickname || '')}</div></td>
                     ${ownerCell}
-                    <td><label><input type="checkbox" data-meeting-perm="publish" data-meeting-user="${escapeHtml(username)}" ${rawCanPublish ? 'checked' : ''} ${disabled ? 'disabled' : ''}> 允许发布会议</label></td>
-                    <td><span class="meeting-muted">${escapeHtml(stateLabel)}</span></td>
+                    <td data-label="允许发布"><label><input type="checkbox" data-meeting-perm="publish" data-meeting-user="${escapeHtml(username)}" ${rawCanPublish ? 'checked' : ''} ${disabled ? 'disabled' : ''}> 允许发布会议</label></td>
+                    <td data-label="状态"><span class="meeting-muted">${escapeHtml(stateLabel)}</span></td>
                 </tr>`;
         }).join('');
         return rows || `<tr><td colspan="${state.showOwnerColumn ? 4 : 3}" class="meeting-empty">暂无白名单账号</td></tr>`;
@@ -233,9 +233,9 @@
             const saving = !!state.savingSubAdmins[subName];
             return `
                 <tr>
-                    <td><strong>${escapeHtml(subName)}</strong><div class="meeting-muted">绑定账号：${escapeHtml(bound || '-')}</div></td>
-                    <td><label><input type="checkbox" data-meeting-sub-toggle="${escapeHtml(subName)}" ${enabled ? 'checked' : ''} ${saving ? 'disabled' : ''}> 允许发布会议</label></td>
-                    <td><span class="meeting-muted">${saving ? '保存中...' : (enabled ? '允许发布' : '已停用（伞下会议发布暂时失效）')}</span></td>
+                    <td data-label="子管理员"><strong>${escapeHtml(subName)}</strong><div class="meeting-muted">绑定账号：${escapeHtml(bound || '-')}</div></td>
+                    <td data-label="允许发布"><label><input type="checkbox" data-meeting-sub-toggle="${escapeHtml(subName)}" ${enabled ? 'checked' : ''} ${saving ? 'disabled' : ''}> 允许发布会议</label></td>
+                    <td data-label="状态"><span class="meeting-muted">${saving ? '保存中...' : (enabled ? '允许发布' : '已停用（伞下会议发布暂时失效）')}</span></td>
                 </tr>`;
         }).join('');
         return `
@@ -257,6 +257,9 @@
         mount.innerHTML = `
             <style>
                 .meeting-admin-wrap{display:flex;flex-direction:column;gap:16px}.meeting-card{background:rgba(15,23,42,.55);border:1px solid rgba(148,163,184,.18);border-radius:16px;padding:16px}.meeting-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:12px;flex-wrap:wrap}.meeting-head-main{display:flex;flex-direction:column;gap:4px}.meeting-title{font-size:18px;font-weight:800;color:var(--text-primary)}.meeting-subtitle,.meeting-muted,.meeting-empty{color:var(--text-secondary);font-size:12px}.meeting-toolbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.meeting-search{height:36px;border-radius:9px;border:1px solid rgba(148,163,184,.22);background:rgba(15,23,42,.72);color:var(--text-primary);padding:0 10px;min-width:220px}.meeting-small-btn{border:0;border-radius:10px;padding:8px 12px;background:rgba(59,130,246,.85);color:white;font-weight:700;cursor:pointer;font-size:12px}.meeting-small-btn.danger{background:rgba(239,68,68,.82)}.meeting-small-btn:disabled{opacity:.55;cursor:not-allowed}.meeting-table{width:100%;border-collapse:collapse}.meeting-table th,.meeting-table td{padding:11px 10px;border-bottom:1px solid rgba(148,163,184,.12);text-align:left;vertical-align:top}.meeting-table label{color:var(--text-primary);font-size:13px;white-space:nowrap}.meeting-badge{display:inline-flex;align-items:center;border-radius:999px;padding:3px 8px;margin-right:6px;font-size:12px;font-weight:700}.meeting-badge.owned{background:rgba(14,165,233,.18);color:#bae6fd}.meeting-badge.all{background:rgba(168,85,247,.18);color:#e9d5ff}
+            </style>
+            <style>
+                @media (max-width:768px){.meeting-admin-wrap{gap:12px}.meeting-card{padding:14px 12px;border-radius:18px}.meeting-head{gap:10px;margin-bottom:12px}.meeting-title{font-size:20px;line-height:1.2}.meeting-subtitle{font-size:12px;line-height:1.45}.meeting-toolbar{display:grid;grid-template-columns:minmax(0,1fr)72px;width:100%;gap:8px}.meeting-search{min-width:0;width:100%;height:42px;box-sizing:border-box}.meeting-small-btn{min-height:42px;padding:8px 10px}.meeting-card [data-scroll-hint="right"]{overflow:visible!important}.meeting-table{min-width:0;border-collapse:separate;border-spacing:0}.meeting-table thead{display:none}.meeting-table tbody{display:grid;gap:10px}.meeting-table tr{display:grid;grid-template-columns:minmax(0,1fr);gap:8px;padding:12px;border:1px solid rgba(148,163,184,.14);border-radius:14px;background:rgba(15,23,42,.45)}.meeting-table td{display:grid;grid-template-columns:74px minmax(0,1fr);gap:10px;align-items:start;padding:0;border-bottom:0;font-size:13px;min-width:0}.meeting-table td::before{content:attr(data-label);color:var(--text-secondary);font-size:12px;line-height:1.45}.meeting-table td strong{font-size:16px;line-height:1.2;overflow-wrap:anywhere}.meeting-table label{white-space:normal;font-size:14px;line-height:1.35}.meeting-table input[type="checkbox"]{width:16px;height:16px;vertical-align:-2px}.meeting-muted{font-size:12px;line-height:1.4;overflow-wrap:anywhere}.meeting-empty{padding:18px 0;text-align:center}.meeting-empty::before{content:none!important}}
             </style>
             <div class="meeting-admin-wrap">
                 ${renderSubAdminToggles()}
