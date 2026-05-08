@@ -443,6 +443,81 @@
             color: var(--text-primary);
             white-space: nowrap;
         }
+
+        .ip-card-list {
+            display: none;
+        }
+
+        .ip-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            padding: 14px;
+        }
+
+        .ip-card-main {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 10px;
+            margin-bottom: 12px;
+        }
+
+        .ip-card-address {
+            min-width: 0;
+            flex: 1;
+            color: var(--text-primary);
+            font-weight: 800;
+            line-height: 1.45;
+            overflow-wrap: anywhere;
+            word-break: break-word;
+        }
+
+        .ip-card-meta {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 8px;
+            margin-bottom: 12px;
+        }
+
+        .ip-card-meta-item {
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            border-radius: 10px;
+            padding: 8px;
+            min-width: 0;
+        }
+
+        .ip-card-meta-label {
+            display: block;
+            color: var(--text-secondary);
+            font-size: 11px;
+            margin-bottom: 4px;
+        }
+
+        .ip-card-meta-value {
+            color: var(--text-primary);
+            font-size: 12px;
+            line-height: 1.35;
+            overflow-wrap: anywhere;
+        }
+
+        .ip-card-bottom {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .ip-card-status {
+            flex: 0 0 auto;
+            text-align: right;
+            max-width: 138px;
+        }
+
+        .ip-card-status .badge {
+            white-space: nowrap;
+        }
         
         @keyframes crown-bounce {
             0%, 100% { transform: translateY(0) rotate(0deg); }
@@ -2245,6 +2320,81 @@
                 flex: 1 1 0;
                 min-height: 36px;
             }
+
+            #ips .ip-table-wrap {
+                display: none;
+            }
+
+            #ipsCardList {
+                display: grid;
+                gap: 10px;
+            }
+
+            #ips .ip-card {
+                padding: 14px 12px;
+                border-radius: 14px;
+                background: linear-gradient(180deg, rgba(22, 39, 82, 0.92), rgba(17, 31, 66, 0.94));
+            }
+
+            #ips .ip-card-main {
+                display: grid;
+                grid-template-columns: minmax(0, 1fr) auto;
+                align-items: flex-start;
+                gap: 10px;
+            }
+
+            #ips .ip-card-address {
+                font-size: 13px;
+                line-height: 1.5;
+            }
+
+            #ips .ip-card-status {
+                max-width: 116px;
+            }
+
+            #ips .ip-card-status .badge {
+                display: inline-flex;
+                justify-content: center;
+                min-width: 52px;
+                padding: 6px 10px;
+                line-height: 1.2;
+            }
+
+            #ips .ip-card-status .badge + div {
+                max-width: 116px !important;
+                font-size: 10px !important;
+                line-height: 1.35;
+                overflow-wrap: anywhere;
+            }
+
+            #ips .ip-card-meta {
+                grid-template-columns: repeat(3, minmax(0, 1fr));
+                gap: 8px;
+            }
+
+            #ips .ip-card-meta-item {
+                padding: 8px 6px;
+            }
+
+            #ips .ip-card-meta-value {
+                font-size: 12px;
+            }
+
+            #ips .ip-card-bottom {
+                align-items: stretch;
+                flex-wrap: wrap;
+            }
+
+            #ips .ip-card-bottom > span {
+                flex: 1 1 100%;
+                line-height: 1.4;
+            }
+
+            #ips .ip-card-bottom .btn {
+                width: 100%;
+                min-height: 38px;
+                font-size: 12px;
+            }
             
             .btn {
                 padding: 5px 8px;
@@ -2896,14 +3046,14 @@
         
         <!-- IP管理 -->
         <div class="panel" id="ips">
-            <div class="table-container">
+            <div class="table-container ip-table-wrap">
                 <table>
                     <thead>
                         <tr>
                             <th>IP地址</th>
-                            <th>请求次数</th>
-                            <th>首次访问</th>
-                            <th>最后访问</th>
+                            <th>登录次数</th>
+                            <th>首次登录</th>
+                            <th>最后登录</th>
                             <th>状态</th>
                             <th>操作</th>
                         </tr>
@@ -2913,6 +3063,7 @@
                     </tbody>
                 </table>
             </div>
+            <div id="ipsCardList" class="ip-card-list"></div>
         </div>
         
         <!-- 封禁列表 -->
@@ -5304,32 +5455,93 @@
             return '<span class="badge success">正常</span>';
         }
 
+        function ipPriorityScore(ip) {
+            if (ip.is_prebanned) return 3;
+            if (ip.is_banned) return 2;
+            return 1;
+        }
+
+        function ipTimeValue(value) {
+            const time = new Date(value || 0).getTime();
+            return Number.isFinite(time) ? time : 0;
+        }
+
+        function sortIpsByPriority(items) {
+            return [...items].sort((a, b) => {
+                const stateDiff = ipPriorityScore(b) - ipPriorityScore(a);
+                if (stateDiff) return stateDiff;
+                const requestDiff = Number(b.request_count || 0) - Number(a.request_count || 0);
+                if (requestDiff) return requestDiff;
+                return ipTimeValue(b.last_seen) - ipTimeValue(a.last_seen);
+            });
+        }
+
+        function renderIpActionButton(ip) {
+            const address = escapeHtml(ip.ip_address || '');
+            return ip.is_banned
+                ? `<button class="btn btn-success" onclick="unban('ip', '${address}')">解封</button>`
+                : `<button class="btn btn-danger" onclick="showBanModal('ip', '${address}')">封禁</button>`;
+        }
+
+        function renderIpCards(items) {
+            const cardList = document.getElementById('ipsCardList');
+            if (!cardList) return;
+            if (!items.length) {
+                cardList.innerHTML = '<div style="text-align:center;color:var(--text-secondary);padding:28px 10px;">暂无数据</div>';
+                return;
+            }
+            cardList.innerHTML = items.map(ip => `
+                <div class="ip-card">
+                    <div class="ip-card-main">
+                        <div class="ip-card-address">${escapeHtml(ip.ip_address || '')}</div>
+                        <div class="ip-card-status">${renderIpStatus(ip)}</div>
+                    </div>
+                    <div class="ip-card-meta">
+                        <div class="ip-card-meta-item">
+                            <span class="ip-card-meta-label">登录次数</span>
+                            <strong class="ip-card-meta-value">${Number(ip.request_count || 0)}</strong>
+                        </div>
+                        <div class="ip-card-meta-item">
+                            <span class="ip-card-meta-label">最后登录</span>
+                            <span class="ip-card-meta-value">${fmtTime(ip.last_seen)}</span>
+                        </div>
+                        <div class="ip-card-meta-item">
+                            <span class="ip-card-meta-label">首次登录</span>
+                            <span class="ip-card-meta-value">${fmtTime(ip.first_seen)}</span>
+                        </div>
+                    </div>
+                    <div class="ip-card-bottom">
+                        <span style="color:var(--text-secondary);font-size:12px;">按异常状态、次数、最近登录排序</span>
+                        ${renderIpActionButton(ip)}
+                    </div>
+                </div>
+            `).join('');
+        }
+
         async function loadIPs() {
             try {
                 const res = await fetch(`${API_BASE}/admin/api/ips`);
                 const data = await res.json();
                 const tbody = document.getElementById('ipsTable');
+                const sortedData = sortIpsByPriority(Array.isArray(data) ? data : []);
                 
-                if (data.length === 0) {
+                if (sortedData.length === 0) {
                     tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: var(--text-secondary);">暂无数据</td></tr>';
+                    renderIpCards([]);
                     return;
                 }
                 
-                tbody.innerHTML = data.map(ip => `
+                tbody.innerHTML = sortedData.map(ip => `
                     <tr>
                         <td><strong>${escapeHtml(ip.ip_address || '')}</strong></td>
                         <td>${ip.request_count}</td>
                         <td>${fmtTime(ip.first_seen)}</td>
                         <td>${fmtTime(ip.last_seen)}</td>
                         <td>${renderIpStatus(ip)}</td>
-                        <td>
-                            ${ip.is_banned 
-                                ? `<button class="btn btn-success" onclick="unban('ip', '${ip.ip_address}')">解封</button>`
-                                : `<button class="btn btn-danger" onclick="showBanModal('ip', '${ip.ip_address}')">封禁</button>`
-                            }
-                        </td>
+                        <td>${renderIpActionButton(ip)}</td>
                     </tr>
                 `).join('');
+                renderIpCards(sortedData);
             } catch (e) {
                 console.error('加载IP失败', e);
             }

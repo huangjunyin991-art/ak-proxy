@@ -1211,7 +1211,16 @@ async def get_all_ips(limit: int = 100, offset: int = 0) -> List[Dict]:
                        WHEN preban_last_seen IS NULL OR preban_last_seen < NOW() - INTERVAL '60 seconds' THEN ''
                        ELSE COALESCE(preban_reason, '')
                    END AS preban_reason
-            FROM ip_stats ORDER BY last_seen DESC LIMIT $1 OFFSET $2
+            FROM ip_stats
+            ORDER BY
+                CASE
+                    WHEN is_banned THEN 2
+                    WHEN preban_last_seen IS NOT NULL AND preban_last_seen >= NOW() - INTERVAL '60 seconds' THEN 3
+                    ELSE 1
+                END DESC,
+                COALESCE(request_count, 0) DESC,
+                last_seen DESC
+            LIMIT $1 OFFSET $2
         ''', limit, offset)
         return [dict(r) for r in rows]
 
