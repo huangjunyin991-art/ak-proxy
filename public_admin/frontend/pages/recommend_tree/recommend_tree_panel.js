@@ -19,14 +19,16 @@
     }
 
     function ensureCss() {
+        var version = window.AKRecommendTreePanelAssetVersion || '20260508-37';
+        var href = '/admin/api/recommend-tree-panel/recommend_tree_panel.css?v=' + encodeURIComponent(version);
         var existing = document.querySelector('link[data-recommend-tree-panel-css="1"]');
         if (existing) {
-            existing.href = '/admin/api/recommend-tree-panel/recommend_tree_panel.css?v=20260505-36';
+            if (existing.getAttribute('href') !== href) existing.href = href;
             return;
         }
         var link = document.createElement('link');
         link.rel = 'stylesheet';
-        link.href = '/admin/api/recommend-tree-panel/recommend_tree_panel.css?v=20260505-36';
+        link.href = href;
         link.setAttribute('data-recommend-tree-panel-css', '1');
         document.head.appendChild(link);
     }

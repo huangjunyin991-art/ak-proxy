@@ -12324,7 +12324,8 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
     </script>
     <script>
         (function() {
-            var recommendTreePanelBuildVersion = '20260505-36';
+            var recommendTreePanelBuildVersion = '20260508-37';
+            window.AKRecommendTreePanelAssetVersion = recommendTreePanelBuildVersion;
             var recommendTreePanelAssets = [
                 'recommend_tree_api.js',
                 'recommend_tree_utils.js',
@@ -12367,6 +12368,22 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                 return '/admin/api/recommend-tree-panel/' + assetName + '?v=' + encodeURIComponent(recommendTreePanelBuildVersion);
             }
 
+            function ensureRecommendTreePanelCss(forceRefresh) {
+                var href = buildRecommendTreePanelUrl('recommend_tree_panel.css', forceRefresh);
+                var existing = document.querySelector('link[data-recommend-tree-panel-css="1"]');
+                if (existing) {
+                    if (existing.getAttribute('href') !== href) {
+                        existing.href = href;
+                    }
+                    return;
+                }
+                var link = document.createElement('link');
+                link.rel = 'stylesheet';
+                link.href = href;
+                link.setAttribute('data-recommend-tree-panel-css', '1');
+                document.head.appendChild(link);
+            }
+
             function loadRecommendTreePanelAsset(index, forceRefresh, attempt) {
                 if (index >= recommendTreePanelAssets.length) {
                     if (document.querySelector('.tab.active[data-panel="recommendTree"]') && window.AKRecommendTreePanel) {
@@ -12386,6 +12403,7 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                     if (attempt < 2) {
                         resetRecommendTreePanelGlobals();
                         removeRecommendTreePanelScripts();
+                        ensureRecommendTreePanelCss(true);
                         loadRecommendTreePanelAsset(0, true, attempt + 1);
                         return;
                     }
@@ -12396,6 +12414,7 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
 
             resetRecommendTreePanelGlobals();
             removeRecommendTreePanelScripts();
+            ensureRecommendTreePanelCss(false);
             loadRecommendTreePanelAsset(0, false, 1);
         })();
     </script>
