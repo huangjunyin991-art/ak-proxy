@@ -3392,3 +3392,51 @@
     color: #00ff88;
     box-shadow: inset 0 -2px 0 rgba(0, 255, 136, 0.86);
 }
+
+.rt-view-shell .rt-view-tabs,
+.rt-view-shell .rt-segment-tabs {
+    display: grid !important;
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+    gap: 8px !important;
+    margin: 0 !important;
+    padding: 7px !important;
+    border: 0 !important;
+    border-bottom: 1px solid rgba(129, 212, 250, 0.18) !important;
+    border-radius: 0 !important;
+    background: rgba(129, 212, 250, 0.08) !important;
+    box-shadow: none !important;
+    overflow: visible !important;
+}
+
+.rt-view-shell .rt-view-tab,
+.rt-view-shell .rt-view-tab.active,
+.rt-view-shell .rt-segment-tab,
+.rt-view-shell .rt-segment-tab.active {
+    appearance: none !important;
+    min-width: 0 !important;
+    min-height: 34px !important;
+    margin: 0 !important;
+    padding: 0 8px !important;
+    border: 1px solid rgba(129, 212, 250, 0.22) !important;
+    border-radius: 999px !important;
+    background: rgba(129, 212, 250, 0.10) !important;
+    box-shadow: none !important;
+    transform: none !important;
+    color: #d8ecff !important;
+    font: inherit !important;
+    font-size: 12px !important;
+    font-weight: 900 !important;
+}
+
+.rt-view-shell .rt-view-tab.active,
+.rt-view-shell .rt-segment-tab.active {
+    border-color: rgba(0, 255, 136, 0.72) !important;
+    background: linear-gradient(135deg, #00ff88 0%, #4fc3f7 100%) !important;
+    color: #00130d !important;
+    box-shadow: 0 0 14px rgba(0, 255, 136, 0.28) !important;
+}
+
+.rt-view-shell .rt-view-tab.active::after,
+.rt-view-shell .rt-segment-tab.active::after {
+    content: none !important;
+}
