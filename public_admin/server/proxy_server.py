@@ -3809,7 +3809,9 @@ async def _sync_point_history_records(username: str, point_type: str, page_size:
     if point_type not in _POINT_HISTORY_RPC_TYPES:
         raise ValueError(f"不支持的点数类型: {point_type}")
     page_size = max(1, min(int(page_size or 50), 100))
-    max_pages = max(1, min(int(max_pages or 200), 1000))
+    max_pages = int(max_pages or 0)
+    if max_pages < 0:
+        max_pages = 0
     auth_state = await db.get_ak_auth_state(username)
     if not auth_state:
         raise RuntimeError("该账号没有可用登录态，请先让该账号登录一次")
@@ -3818,7 +3820,12 @@ async def _sync_point_history_records(username: str, point_type: str, page_size:
     fetched_count = 0
     new_records = []
     stop_reason = ""
-    for page in range(1, max_pages + 1):
+    page = 0
+    while True:
+        page += 1
+        if max_pages and page > max_pages:
+            stop_reason = "max_pages"
+            break
         records = await _fetch_point_history_page(username, point_type, page, page_size, auth_state)
         if not records:
             stop_reason = "empty_page"
@@ -3849,6 +3856,89 @@ async def _sync_point_history_records(username: str, point_type: str, page_size:
     }
 
 
+_POINT_HISTORY_SYNC_TASKS: Dict[str, Dict[str, Any]] = {}
+
+
+def _point_history_sync_task_key(username: str, point_type: str) -> str:
+    return f"{(username or '').strip().lower()}:{(point_type or '').strip().upper()}"
+
+
+async def _run_point_history_sync_task(task_key: str, username: str, point_type: str, page_size: int, max_pages: int):
+    state = _POINT_HISTORY_SYNC_TASKS.get(task_key)
+    if state is None:
+        return
+    try:
+        page_size_int = max(1, min(int(page_size or 50), 100))
+        max_pages_int = int(max_pages or 0)
+        if max_pages_int < 0:
+            max_pages_int = 0
+        auth_state = await db.get_ak_auth_state(username)
+        if not auth_state:
+            raise RuntimeError("该账号没有可用登录态，请先让该账号登录一次")
+        cached_keys = await db.get_point_history_record_keys(username, point_type)
+        full_sync = not cached_keys
+        state.update({
+            'mode': 'full' if full_sync else 'incremental',
+            'message': f"{point_type} 开始{'全量' if full_sync else '增量'}拉取...",
+        })
+        fetched_count = 0
+        new_records: list = []
+        stop_reason = ""
+        page = 0
+        while True:
+            page += 1
+            if max_pages_int and page > max_pages_int:
+                stop_reason = "max_pages"
+                break
+            state['pages_fetched'] = page
+            state['message'] = (
+                f"{point_type} {'全量' if full_sync else '增量'}拉取中：第 {page} 页"
+                f"（已抓取 {fetched_count} 条）"
+            )
+            records = await _fetch_point_history_page(username, point_type, page, page_size_int, auth_state)
+            if not records:
+                stop_reason = "empty_page"
+                break
+            fetched_count += len(records)
+            state['fetched_count'] = fetched_count
+            for index, record in enumerate(records):
+                rec_key = db.build_point_history_record_key(record, (page - 1) * page_size_int + index)
+                if rec_key in cached_keys:
+                    stop_reason = "hit_cache"
+                    records = []
+                    break
+                new_records.append(record)
+            state['new_count'] = len(new_records)
+            if not full_sync and stop_reason == "hit_cache":
+                break
+            if len(records) < page_size_int:
+                stop_reason = "last_page"
+                break
+        saved_count = await db.save_point_history_records(username, point_type, new_records) if new_records else 0
+        state.update({
+            'status': 'finished',
+            'finished_at': time.time(),
+            'fetched_count': fetched_count,
+            'new_count': len(new_records),
+            'saved_count': saved_count,
+            'stop_reason': stop_reason or 'unknown',
+            'message': (
+                f"{point_type} {'全量' if full_sync else '增量'}拉取完成：抓取 {fetched_count} 条，"
+                f"新增 {len(new_records)} 条，保存 {saved_count} 条"
+            ),
+            'error': '',
+        })
+    except Exception as exc:
+        logger.warning(f"[PointHistorySync] 后台任务失败 {task_key}: {exc}")
+        if state is not None:
+            state.update({
+                'status': 'error',
+                'finished_at': time.time(),
+                'error': str(exc),
+                'message': f"拉取失败：{exc}",
+            })
+
+
 @app.post("/admin/api/point-stats/sync")
 async def admin_point_stats_sync(request: Request):
     token = request.headers.get('Authorization', '').replace('Bearer ', '')
@@ -3858,17 +3948,58 @@ async def admin_point_stats_sync(request: Request):
         return JSONResponse(status_code=403, content={"error": True, "message": "无点数统计权限"})
     try:
         data = await request.json()
-        return await _sync_point_history_records(
-            username=data.get("username"),
-            point_type=data.get("point_type"),
-            page_size=data.get("page_size", 50),
-            max_pages=data.get("max_pages", 200),
-        )
-    except ValueError as e:
-        return JSONResponse(status_code=400, content={"error": True, "message": str(e)})
+        username = (data.get("username") or "").strip().lower()
+        point_type = (data.get("point_type") or "").strip().upper()
+        if not username:
+            return JSONResponse(status_code=400, content={"error": True, "message": "缺少账号"})
+        if point_type not in _POINT_HISTORY_RPC_TYPES:
+            return JSONResponse(status_code=400, content={"error": True, "message": f"不支持的点数类型: {point_type}"})
+        task_key = _point_history_sync_task_key(username, point_type)
+        existing = _POINT_HISTORY_SYNC_TASKS.get(task_key)
+        if existing and existing.get('status') == 'running':
+            return {"task_id": task_key, "status": "running", "state": existing}
+        state = {
+            'task_id': task_key,
+            'status': 'running',
+            'username': username,
+            'point_type': point_type,
+            'started_at': time.time(),
+            'finished_at': None,
+            'pages_fetched': 0,
+            'fetched_count': 0,
+            'new_count': 0,
+            'saved_count': 0,
+            'mode': '',
+            'stop_reason': '',
+            'message': f"{point_type} 已加入后台拉取队列...",
+            'error': '',
+        }
+        _POINT_HISTORY_SYNC_TASKS[task_key] = state
+        asyncio.create_task(_run_point_history_sync_task(
+            task_key,
+            username,
+            point_type,
+            data.get("page_size", 50),
+            data.get("max_pages", 0),
+        ))
+        return {"task_id": task_key, "status": "running", "state": state}
     except Exception as e:
-        logger.warning(f"[PointHistorySync] 同步失败: {e}")
+        logger.warning(f"[PointHistorySync] 启动后台任务失败: {e}")
         return JSONResponse(status_code=500, content={"error": True, "message": str(e)})
+
+
+@app.get("/admin/api/point-stats/sync/status")
+async def admin_point_stats_sync_status(request: Request, username: str = None, point_type: str = None):
+    token = request.headers.get('Authorization', '').replace('Bearer ', '')
+    if not token or not await verify_admin_token(token):
+        return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
+    if not check_token_permission(token, 'pointStats'):
+        return JSONResponse(status_code=403, content={"error": True, "message": "无点数统计权限"})
+    task_key = _point_history_sync_task_key(username or '', point_type or '')
+    state = _POINT_HISTORY_SYNC_TASKS.get(task_key)
+    if not state:
+        return {"task_id": task_key, "status": "idle", "state": None}
+    return {"task_id": task_key, "status": state.get('status'), "state": state}
 
 
 @app.get("/admin/api/point-stats/users")

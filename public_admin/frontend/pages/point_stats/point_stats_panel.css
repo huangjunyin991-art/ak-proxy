@@ -104,9 +104,10 @@
 
 .ps-rt-account-action-row {
     display: grid !important;
-    grid-template-columns: minmax(0, 1fr) auto auto !important;
+    grid-template-columns: minmax(0, 1fr) auto !important;
     gap: 6px !important;
     align-items: end !important;
+    position: relative !important;
 }
 
 .ps-rt-account-action-row .ps-rt-btn,

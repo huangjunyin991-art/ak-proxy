@@ -8,6 +8,9 @@
     var mounted = false;
     var searchTimer = null;
     var restoringFocus = false;
+    var syncPollTimer = null;
+    var syncPollKey = '';
+    var SYNC_POLL_INTERVAL_MS = 1500;
 
     function mountNode() {
         return document.getElementById('pointStatsPanelMount');
@@ -64,27 +67,72 @@
         });
     }
 
+    function stopSyncPoll() {
+        if (syncPollTimer) {
+            clearInterval(syncPollTimer);
+            syncPollTimer = null;
+        }
+        syncPollKey = '';
+    }
+
+    function pollSyncOnce(username, pointType) {
+        return api.syncStatus({ username: username, pointType: pointType }).then(function(resp) {
+            var s = resp && resp.state;
+            var status = (resp && resp.status) || (s && s.status) || 'idle';
+            if (s && s.message) {
+                store.setStatus(s.message, status === 'error');
+            }
+            if (status !== 'running') {
+                store.state.syncing = false;
+                stopSyncPoll();
+                if (status === 'finished') {
+                    store.state.expandedCategory = null;
+                    loadStats();
+                } else {
+                    render();
+                }
+            } else {
+                render();
+            }
+        }).catch(function(error) {
+            store.setStatus(error.message || '获取后台任务状态失败', true);
+            stopSyncPoll();
+            store.state.syncing = false;
+            render();
+        });
+    }
+
+    function startSyncPoll(username, pointType) {
+        stopSyncPoll();
+        syncPollKey = (username || '').toLowerCase() + ':' + (pointType || '').toUpperCase();
+        syncPollTimer = setInterval(function() {
+            pollSyncOnce(username, pointType);
+        }, SYNC_POLL_INTERVAL_MS);
+        pollSyncOnce(username, pointType);
+    }
+
     function syncRecords() {
         if (!api || !store) return;
         var username = String(store.state.username || '').trim();
         if (!username) {
-            store.setStatus('请先选择或输入要同步的账号。', true);
+            store.setStatus('请先选择或输入要拉取的账号。', true);
             render();
             return;
         }
+        var pointType = store.state.pointType;
         store.state.syncing = true;
-        store.setStatus('正在同步 ' + username + ' 的 ' + store.state.pointType + ' 流水：无缓存全量拉取，有缓存增量更新...', false);
+        store.setStatus(pointType + ' 后台拉取任务提交中，可继续其他操作...', false);
         render();
-        api.syncRecords({ username: username, pointType: store.state.pointType, pageSize: 50 }).then(function(data) {
-            var modeText = data.mode === 'full' ? '全量' : '增量';
-            store.setStatus(modeText + '同步完成：拉取 ' + numberText(data.fetched_count) + ' 条，新增 ' + numberText(data.new_count) + ' 条，保存 ' + numberText(data.saved_count) + ' 条。', false);
-            store.state.expandedCategory = null;
-            loadStats();
+        api.syncRecords({ username: username, pointType: pointType, pageSize: 50, maxPages: 0 }).then(function(resp) {
+            var s = resp && resp.state;
+            if (s && s.message) {
+                store.setStatus(s.message, false);
+            }
+            startSyncPoll(username, pointType);
         }).catch(function(error) {
-            store.setStatus(error.message || '同步失败', true);
-            notify(error.message || '同步失败', 'error');
-        }).finally(function() {
             store.state.syncing = false;
+            store.setStatus(error.message || '启动后台拉取失败', true);
+            notify(error.message || '启动后台拉取失败', 'error');
             render();
         });
     }

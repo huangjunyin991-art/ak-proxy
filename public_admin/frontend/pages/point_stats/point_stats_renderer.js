@@ -58,7 +58,6 @@
             var rankClass = rankClassOf(rankLabel);
             return '<button class="ps-account-option ' + rankClass + (index === state.selectedAccountIndex ? ' active' : '') + '" data-action="select-account" data-index="' + index + '">' +
                 '<span class="ps-account-option-main"><b>' + html(item.username || '-') + '</b><small>' + html(item.real_name || '未记录姓名') + '</small></span>' +
-                '<span class="ps-account-option-side"><em>' + number(item.point_record_count) + ' 条流水</em></span>' +
                 '<span class="ps-account-rank ' + rankClass + '">' + html(rankLabel) + '</span>' +
             '</button>';
         }).join('') + '</div>';
@@ -121,7 +120,7 @@
         return [
             '<div class="ps-rt-root' + ((state.loading || state.syncing) ? ' is-busy' : '') + '">',
             '<section class="ps-rt-hero">',
-            '<div class="ps-rt-account-action-row"><div class="ps-account-wrap"><label class="ps-rt-field"><input class="ps-rt-input ps-account-input" data-role="account-input" value="' + html(state.accountQuery) + '" placeholder="请输入账号" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">' + renderOptions(state) + '</label></div><button class="ps-rt-btn primary" data-action="load"' + (state.loading ? ' disabled' : '') + '>' + (state.loading ? '统计中' : '数据统计') + '</button><button class="ps-rt-btn secondary" data-action="clear-account">清空</button></div>',
+            '<div class="ps-rt-account-action-row"><div class="ps-account-wrap"><label class="ps-rt-field"><input class="ps-rt-input ps-account-input" data-role="account-input" value="' + html(state.accountQuery) + '" placeholder="请输入账号" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"></label></div><button class="ps-rt-btn primary" data-action="sync">' + (state.syncing ? '拉取中' : '数据统计') + '</button>' + renderOptions(state) + '</div>',
             '<div class="ps-rt-cache-line ' + (state.error ? 'error' : 'info') + '">' + html(state.status) + '</div>',
             '</section>',
             '<section class="ps-rt-stats">' + renderSummary(state) + '</section>',

@@ -49,14 +49,26 @@
             body: JSON.stringify({
                 username: payload && payload.username ? payload.username : '',
                 point_type: payload && payload.pointType ? payload.pointType : 'EP',
-                page_size: payload && payload.pageSize ? payload.pageSize : 50
+                page_size: payload && payload.pageSize ? payload.pageSize : 50,
+                max_pages: payload && payload.maxPages ? payload.maxPages : 0
             })
+        }).then(parseResponse);
+    }
+
+    function syncStatus(payload) {
+        var params = new URLSearchParams();
+        if (payload && payload.username) params.set('username', payload.username);
+        if (payload && payload.pointType) params.set('point_type', payload.pointType);
+        return fetch('/admin/api/point-stats/sync/status?' + params.toString(), {
+            headers: authHeaders(),
+            credentials: 'same-origin'
         }).then(parseResponse);
     }
 
     window.AKPointStatsApi = {
         getStats: getStats,
         searchUsers: searchUsers,
-        syncRecords: syncRecords
+        syncRecords: syncRecords,
+        syncStatus: syncStatus
     };
 })();
