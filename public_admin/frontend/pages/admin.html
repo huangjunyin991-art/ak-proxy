@@ -3267,7 +3267,8 @@
                                    oninput="handlePointStatsSearchInput()" onfocus="handlePointStatsSearchFocus()" onkeydown="handlePointStatsSearchKeydown(event)">
                             <div id="pointStatsUserSuggest" class="point-stats-suggest"></div>
                         </div>
-                        <button class="btn btn-primary" onclick="loadPointStats()" style="padding: 11px 18px;">读取统计</button>
+                        <button class="btn btn-primary" onclick="syncPointStats()" style="padding: 11px 18px;">同步流水</button>
+                        <button class="btn" onclick="loadPointStats()" style="padding: 11px 18px;">读取统计</button>
                         <button class="btn" onclick="clearPointStatsAccount()" style="padding: 11px 18px;">清空账号</button>
                     </div>
                     <div id="pointStatsStatus" class="point-stats-status">请选择账号，或直接查看全局账号排行。</div>
@@ -6099,6 +6100,33 @@
             closePointStatsSuggestions();
             pointStatsExpandedCategory = null;
             loadPointStats();
+        }
+
+        async function syncPointStats() {
+            const username = (document.getElementById('pointStatsUsername')?.value || '').trim();
+            if (!username) {
+                setPointStatsStatus('请先选择或输入要同步的账号。', true);
+                return;
+            }
+            setPointStatsStatus(`正在同步 ${username} 的 ${pointStatsActiveType} 流水：无缓存全量拉取，有缓存增量更新...`, false);
+            try {
+                const res = await fetch(`${API_BASE}/admin/api/point-stats/sync`, {
+                    method: 'POST',
+                    headers: {...getHeaders(), 'Content-Type': 'application/json'},
+                    body: JSON.stringify({username, point_type: pointStatsActiveType, page_size: 50})
+                });
+                const data = await res.json();
+                if (!res.ok || data.error) {
+                    throw new Error(data.message || '同步失败');
+                }
+                const modeText = data.mode === 'full' ? '全量' : '增量';
+                setPointStatsStatus(`${modeText}同步完成：拉取 ${formatNumber(data.fetched_count)} 条，新增 ${formatNumber(data.new_count)} 条，保存 ${formatNumber(data.saved_count)} 条。`, false);
+                pointStatsExpandedCategory = null;
+                loadPointStats();
+            } catch (e) {
+                console.error('同步点数流水失败', e);
+                setPointStatsStatus(e.message || '同步失败', true);
+            }
         }
 
         async function loadPointStats() {

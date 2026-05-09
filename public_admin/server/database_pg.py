@@ -1017,7 +1017,40 @@ def _point_record_key(record: Dict, index: int) -> str:
     amount = _point_text(record.get('amount') or record.get('Amount'))
     operation_type = _point_text(record.get('operation_type') or record.get('OperationType'))
     description = _point_text(record.get('description') or record.get('Des'))
-    return f'{time_value}|{operation_type}|{amount}|{description}|{index}'
+    balance = _point_text(record.get('balance') or record.get('SurplusTotalAmount'))
+    type_name = _point_text(record.get('type_name') or record.get('TypeName'))
+    return f'{time_value}|{operation_type}|{amount}|{balance}|{type_name}|{description}'
+
+def build_point_history_record_key(record: Dict, index: int) -> str:
+    return _point_record_key(record, index)
+
+async def get_point_history_record_keys(username: str, point_type: str) -> set:
+    pool = _get_pool()
+    username = username.lower() if username else username
+    code = _point_history_type(point_type)
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            'SELECT record_key FROM point_history_records WHERE username = $1 AND point_type = $2',
+            username, code
+        )
+    return {str(row['record_key']) for row in rows}
+
+async def clear_point_history_records(username: str = None, point_type: str = None) -> int:
+    pool = _get_pool()
+    username = username.lower() if username else None
+    code = _point_history_type(point_type) if point_type else None
+    filters = []
+    args = []
+    if username:
+        args.append(username)
+        filters.append(f'username = ${len(args)}')
+    if code:
+        args.append(code)
+        filters.append(f'point_type = ${len(args)}')
+    where_clause = f"WHERE {' AND '.join(filters)}" if filters else ''
+    async with pool.acquire() as conn:
+        result = await conn.execute(f'DELETE FROM point_history_records {where_clause}', *args)
+    return int(result.split()[-1])
 
 async def replace_point_history_records(username: str, point_type: str, records: List[Dict]) -> int:
     pool = _get_pool()
@@ -1132,9 +1165,9 @@ async def get_point_stats(username: str = None, point_type: str = None, limit: i
         summary_rows = await conn.fetch(f'''
             SELECT point_type,
                    COUNT(*) AS total_records,
-                   SUM(CASE WHEN operation_type = 1 THEN amount ELSE 0 END) AS total_income,
-                   SUM(CASE WHEN operation_type <> 1 THEN amount ELSE 0 END) AS total_expense,
-                   SUM(CASE WHEN operation_type = 1 THEN amount ELSE -amount END) AS net_change,
+                   SUM(CASE WHEN operation_type = 1 THEN ABS(amount) ELSE 0 END) AS total_income,
+                   SUM(CASE WHEN operation_type <> 1 THEN ABS(amount) ELSE 0 END) AS total_expense,
+                   SUM(CASE WHEN operation_type = 1 THEN ABS(amount) ELSE -ABS(amount) END) AS net_change,
                    COUNT(DISTINCT username) AS account_count,
                    MAX(saved_at) AS latest_saved_at
             FROM point_history_records
@@ -1152,9 +1185,9 @@ async def get_point_stats(username: str = None, point_type: str = None, limit: i
         ''', *args, limit)
         leaderboard_rows = await conn.fetch(f'''
             SELECT username, point_type, COUNT(*) AS total_records,
-                   SUM(CASE WHEN operation_type = 1 THEN amount ELSE 0 END) AS total_income,
-                   SUM(CASE WHEN operation_type <> 1 THEN amount ELSE 0 END) AS total_expense,
-                   SUM(CASE WHEN operation_type = 1 THEN amount ELSE -amount END) AS net_change,
+                   SUM(CASE WHEN operation_type = 1 THEN ABS(amount) ELSE 0 END) AS total_income,
+                   SUM(CASE WHEN operation_type <> 1 THEN ABS(amount) ELSE 0 END) AS total_expense,
+                   SUM(CASE WHEN operation_type = 1 THEN ABS(amount) ELSE -ABS(amount) END) AS net_change,
                    MAX(saved_at) AS latest_saved_at
             FROM point_history_records
             {where_clause}
@@ -1168,9 +1201,9 @@ async def get_point_stats(username: str = None, point_type: str = None, limit: i
         if username and code:
             active_stats = await conn.fetchrow('''
                 SELECT COUNT(*) AS total_records,
-                       SUM(CASE WHEN operation_type = 1 THEN amount ELSE 0 END) AS total_income,
-                       SUM(CASE WHEN operation_type <> 1 THEN amount ELSE 0 END) AS total_expense,
-                       SUM(CASE WHEN operation_type = 1 THEN amount ELSE -amount END) AS net_change,
+                       SUM(CASE WHEN operation_type = 1 THEN ABS(amount) ELSE 0 END) AS total_income,
+                       SUM(CASE WHEN operation_type <> 1 THEN ABS(amount) ELSE 0 END) AS total_expense,
+                       SUM(CASE WHEN operation_type = 1 THEN ABS(amount) ELSE -ABS(amount) END) AS net_change,
                        (
                            SELECT balance
                            FROM point_history_records
@@ -1185,9 +1218,9 @@ async def get_point_stats(username: str = None, point_type: str = None, limit: i
             category_rows = await conn.fetch('''
                 SELECT COALESCE(NULLIF(type_name_cn, ''), NULLIF(type_name, ''), '未分类') AS name,
                        COUNT(*) AS count,
-                       SUM(CASE WHEN operation_type = 1 THEN amount ELSE 0 END) AS income,
-                       SUM(CASE WHEN operation_type <> 1 THEN amount ELSE 0 END) AS expense,
-                       SUM(CASE WHEN operation_type = 1 THEN amount ELSE -amount END) AS net
+                       SUM(CASE WHEN operation_type = 1 THEN ABS(amount) ELSE 0 END) AS income,
+                       SUM(CASE WHEN operation_type <> 1 THEN ABS(amount) ELSE 0 END) AS expense,
+                       SUM(CASE WHEN operation_type = 1 THEN ABS(amount) ELSE -ABS(amount) END) AS net
                 FROM point_history_records
                 WHERE username = $1 AND point_type = $2
                 GROUP BY COALESCE(NULLIF(type_name_cn, ''), NULLIF(type_name, ''), '未分类')

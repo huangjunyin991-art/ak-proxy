@@ -372,69 +372,16 @@ IP_PREBAN_AUTO_BAN_THRESHOLD = 5
 IP_PREBAN_AUTO_BAN_DAYS = 1
 
 _POINT_HISTORY_RPC_TYPES = {
-    "record_ep": "EP",
-    "record_sp": "SP",
-    "record_tp": "TP",
-    "record_rp": "RP",
+    "EP": "Record_EP",
+    "SP": "Record_SP",
+    "TP": "Record_TP",
+    "RP": "Record_RP",
 }
 
-_point_history_auth_by_user_id: dict[str, tuple[str, float]] = {}
-_point_history_auth_by_key: dict[str, tuple[str, float]] = {}
 
-
-def _remember_point_history_user(username: str, result: dict) -> None:
-    normalized = str(username or "").strip().lower()
-    if not normalized or not isinstance(result, dict):
-        return
-    user_data = result.get("UserData") if isinstance(result.get("UserData"), dict) else {}
-    expires = time.time() + 86400
-    user_id = str(user_data.get("Id") or result.get("UserID") or "").strip()
-    user_key = str(result.get("Key") or result.get("key") or "").strip()
-    if user_id:
-        _point_history_auth_by_user_id[user_id] = (normalized, expires)
-    if user_key:
-        _point_history_auth_by_key[user_key] = (normalized, expires)
-
-
-def _resolve_point_history_username(request: Request, params: dict) -> str:
-    username = str(
-        params.get("account") or params.get("Account") or params.get("username") or
-        params.get("Username") or request.cookies.get("ak_username") or ""
-    ).strip().lower()
-    if username:
-        return username
-    now = time.time()
-    user_id = str(params.get("UserID") or params.get("userid") or params.get("Id") or "").strip()
-    if user_id:
-        cached = _point_history_auth_by_user_id.get(user_id)
-        if cached and cached[1] > now:
-            return cached[0]
-        _point_history_auth_by_user_id.pop(user_id, None)
-    user_key = str(params.get("key") or params.get("Key") or "").strip()
-    if user_key:
-        cached = _point_history_auth_by_key.get(user_key)
-        if cached and cached[1] > now:
-            return cached[0]
-        _point_history_auth_by_key.pop(user_key, None)
-    return ""
-
-
-async def _save_point_history_rpc_result(path: str, request: Request, params: dict, response: httpx.Response) -> None:
-    point_type = _POINT_HISTORY_RPC_TYPES.get(str(path or "").strip("/").lower())
-    if not point_type or response.status_code != 200:
-        return
-    try:
-        result = response.json()
-        if not isinstance(result, dict) or result.get("Error"):
-            return
-        data = result.get("Data")
-        records = data.get("List", []) if isinstance(data, dict) else data if isinstance(data, list) else []
-        username = _resolve_point_history_username(request, params)
-        if username and records:
-            saved = await db.save_point_history_records(username, point_type, records)
-            logger.info(f"[PointHistory] 保存{point_type}流水: username={username} count={saved}")
-    except Exception as e:
-        logger.warning(f"[PointHistory] 保存失败 path={path}: {e}")
+def _make_rpc_v() -> str:
+    now = datetime.now()
+    return str(now.year + now.month + now.day + now.hour + now.minute)
 
 
 app = FastAPI(title="AK透明代理")
@@ -1507,7 +1454,6 @@ async def proxy_login(request: Request):
 
         logger.info(f"[Login] 登录成功: {account}")
         _track_login_indexdata_followup(client_ip, account)
-        _remember_point_history_user(account, result)
 
         cached = _cache_ak_auth(account, password, result, response.headers)
 
@@ -2008,8 +1954,6 @@ async def proxy_rpc(path: str, request: Request):
         )
         if response.status_code < 500:
             _mark_login_followup_activity_seen(client_ip, f"RPC/{path}")
-
-        await _save_point_history_rpc_result(path, request, params, response)
 
         return _build_proxy_passthrough_response(response)
 
@@ -3822,6 +3766,109 @@ async def admin_point_stats(request: Request, username: str = None, point_type: 
         return await db.get_point_stats(username=username, point_type=point_type, limit=limit)
     except ValueError as e:
         return JSONResponse(status_code=400, content={"error": True, "message": str(e)})
+
+
+async def _fetch_point_history_page(username: str, point_type: str, page: int, page_size: int, auth_state: dict) -> list:
+    point_code = str(point_type or '').strip().upper()
+    endpoint = _POINT_HISTORY_RPC_TYPES.get(point_code)
+    if not endpoint:
+        raise ValueError(f"不支持的点数类型: {point_type}")
+    login_result = auth_state.get("login_result") if isinstance(auth_state, dict) else {}
+    user_id = _extract_login_user_id(login_result)
+    userkey = str(auth_state.get("userkey") or _extract_login_result_userkey(login_result) or "").strip()
+    if not user_id or not userkey:
+        raise RuntimeError("该账号没有可用登录态，请先让该账号登录一次")
+    response = await forward_request(
+        "POST",
+        endpoint,
+        "application/x-www-form-urlencoded",
+        {
+            "p": str(page),
+            "pageSize": str(page_size),
+            "key": userkey,
+            "UserID": user_id,
+            "v": _make_rpc_v(),
+            "lang": "cn",
+        },
+        b"",
+        {},
+        force_direct=True,
+    )
+    payload = response.json()
+    if response.status_code != 200 or not isinstance(payload, dict) or payload.get("Error"):
+        raise RuntimeError(str(payload.get("Msg") if isinstance(payload, dict) else "") or f"同步失败 HTTP {response.status_code}")
+    data = payload.get("Data")
+    return data.get("List", []) if isinstance(data, dict) else data if isinstance(data, list) else []
+
+
+async def _sync_point_history_records(username: str, point_type: str, page_size: int = 50, max_pages: int = 200) -> dict:
+    username = str(username or '').strip().lower()
+    point_type = str(point_type or '').strip().upper()
+    if not username:
+        raise ValueError("缺少账号")
+    if point_type not in _POINT_HISTORY_RPC_TYPES:
+        raise ValueError(f"不支持的点数类型: {point_type}")
+    page_size = max(1, min(int(page_size or 50), 100))
+    max_pages = max(1, min(int(max_pages or 200), 1000))
+    auth_state = await db.get_ak_auth_state(username)
+    if not auth_state:
+        raise RuntimeError("该账号没有可用登录态，请先让该账号登录一次")
+    cached_keys = await db.get_point_history_record_keys(username, point_type)
+    full_sync = not cached_keys
+    fetched_count = 0
+    new_records = []
+    stop_reason = ""
+    for page in range(1, max_pages + 1):
+        records = await _fetch_point_history_page(username, point_type, page, page_size, auth_state)
+        if not records:
+            stop_reason = "empty_page"
+            break
+        fetched_count += len(records)
+        for index, record in enumerate(records):
+            key = db.build_point_history_record_key(record, (page - 1) * page_size + index)
+            if key in cached_keys:
+                stop_reason = "hit_cache"
+                records = []
+                break
+            new_records.append(record)
+        if not full_sync and stop_reason == "hit_cache":
+            break
+        if len(records) < page_size:
+            stop_reason = "last_page"
+            break
+    saved_count = await db.save_point_history_records(username, point_type, new_records) if new_records else 0
+    return {
+        "success": True,
+        "mode": "full" if full_sync else "incremental",
+        "username": username,
+        "point_type": point_type,
+        "fetched_count": fetched_count,
+        "new_count": len(new_records),
+        "saved_count": saved_count,
+        "stop_reason": stop_reason or "max_pages",
+    }
+
+
+@app.post("/admin/api/point-stats/sync")
+async def admin_point_stats_sync(request: Request):
+    token = request.headers.get('Authorization', '').replace('Bearer ', '')
+    if not token or not await verify_admin_token(token):
+        return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
+    if not check_token_permission(token, 'pointStats'):
+        return JSONResponse(status_code=403, content={"error": True, "message": "无点数统计权限"})
+    try:
+        data = await request.json()
+        return await _sync_point_history_records(
+            username=data.get("username"),
+            point_type=data.get("point_type"),
+            page_size=data.get("page_size", 50),
+            max_pages=data.get("max_pages", 200),
+        )
+    except ValueError as e:
+        return JSONResponse(status_code=400, content={"error": True, "message": str(e)})
+    except Exception as e:
+        logger.warning(f"[PointHistorySync] 同步失败: {e}")
+        return JSONResponse(status_code=500, content={"error": True, "message": str(e)})
 
 
 @app.get("/admin/api/point-stats/users")
