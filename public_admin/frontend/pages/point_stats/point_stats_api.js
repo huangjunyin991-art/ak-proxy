@@ -41,7 +41,7 @@
         }).then(parseResponse);
     }
 
-    function syncRecords(payload) {
+    function runStats(payload) {
         return fetch('/admin/api/point-stats/sync', {
             method: 'POST',
             headers: authHeaders({ 'Content-Type': 'application/json' }),
@@ -57,6 +57,6 @@
     window.AKPointStatsApi = {
         getStats: getStats,
         searchUsers: searchUsers,
-        syncRecords: syncRecords
+        runStats: runStats
     };
 })();
