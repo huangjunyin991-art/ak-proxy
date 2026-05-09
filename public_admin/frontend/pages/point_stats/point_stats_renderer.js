@@ -40,7 +40,7 @@
     function renderSummary(state) {
         var active = activeStats(state);
         var items = [
-            ['记录数', active ? active.total_records : null, 'ps-metric-records'],
+            ['记录数', active ? active.total_records : null, ''],
             ['总收入', active ? active.total_income : null, 'ps-amount-income'],
             ['总支出', active ? active.total_expense : null, 'ps-amount-expense'],
             ['净变化', active ? active.net_change : null, active ? amountTone(active.net_change).trim() : ''],
@@ -48,17 +48,17 @@
         ];
         if (!active || Number(active.total_records || 0) === 0) {
             return items.map(function(item) {
-                return '<article class="ps-metric-card"><span>' + item[0] + '</span><strong>-</strong></article>';
+                return '<div class="ps-stat"><b>-</b><span>' + item[0] + '</span></div>';
             }).join('');
         }
         return items.map(function(item) {
-            return '<article class="ps-metric-card"><span>' + item[0] + '</span><strong class="' + item[2] + '">' + (item[1] == null ? '-' : number(item[1])) + '</strong></article>';
+            return '<div class="ps-stat"><b class="' + item[2] + '">' + (item[1] == null ? '-' : number(item[1])) + '</b><span>' + item[0] + '</span></div>';
         }).join('');
     }
 
     function renderTabs(state) {
         return state.types.map(function(type) {
-            return '<button class="ps-type-tab' + (type === state.pointType ? ' active' : '') + '" data-action="point-type" data-point-type="' + html(type) + '"><b>' + html(type) + '</b><span>流水统计</span></button>';
+            return '<button class="ps-pill' + (type === state.pointType ? ' active' : '') + '" data-action="point-type" data-point-type="' + html(type) + '">' + html(type) + '</button>';
         }).join('');
     }
 
@@ -100,7 +100,8 @@
 
     function render(state) {
         var metaText = state.username ? html(state.username) + ' · ' + html(state.pointType) : '全局 · ' + html(state.pointType);
-        return '<div class="ps-root"><section class="ps-command-center"><div class="ps-command-copy"><span>点数统计工作台</span><strong>流水查询与同步</strong><em>选择账号、切换点数类型后查看分类汇总和最近流水。</em></div><div class="ps-command-tools"><div class="ps-account-search"><input class="ps-account-input" data-role="account-input" value="' + html(state.accountQuery) + '" placeholder="搜索账号 / 姓名" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">' + renderOptions(state) + '</div><button class="ps-primary" data-action="sync"' + (state.syncing ? ' disabled' : '') + '>' + (state.syncing ? '同步中...' : '同步流水') + '</button><button class="ps-button" data-action="load"' + (state.loading ? ' disabled' : '') + '>' + (state.loading ? '读取中...' : '读取统计') + '</button><button class="ps-button" data-action="clear-account">清空账号</button></div><div class="ps-status' + (state.error ? ' error' : '') + '">' + html(state.status) + '</div></section><section class="ps-metric-strip">' + renderSummary(state) + '</section><section class="ps-workspace"><aside class="ps-sidebar"><div class="ps-panel ps-filter-panel"><div class="ps-panel-head"><span>筛选条件</span><em>当前：' + metaText + '</em></div><div class="ps-type-list">' + renderTabs(state) + '</div></div><div class="ps-panel ps-rank-panel"><div class="ps-panel-head"><span>账号排行</span><em>按净变化排序</em></div><div class="ps-rank-list">' + renderLeaderboard(state) + '</div></div></aside><main class="ps-main"><div class="ps-panel ps-detail-panel"><div class="ps-panel-head"><span>' + html(state.pointType) + ' 分类流水</span><em>' + metaText + '</em></div><div class="ps-category-list">' + renderCategories(state) + '</div></div></main></section></div>';
+        var badgeText = state.error ? '异常' : state.loading ? '读取中' : state.syncing ? '同步中' : state.username ? '已选择账号' : '全局统计';
+        return '<div class="ps-root' + ((state.loading || state.syncing) ? ' is-busy' : '') + '"><section class="ps-hero ' + (state.accountDropdownOpen ? 'dropdown-open' : '') + '"><div class="ps-hero-top"><div class="ps-title"><strong>点数统计</strong><span>查看 EP/SP/TP/RP 点数流水、账号排行与分类明细，按需主动同步最新流水。</span></div><span class="ps-cache-badge ' + (state.username ? 'cached' : '') + '">' + html(badgeText) + '</span></div><div class="ps-account-action-row"><div class="ps-account-wrap ' + (state.accountDropdownOpen ? 'open' : '') + '"><input class="ps-input ps-account-input" data-role="account-input" value="' + html(state.accountQuery) + '" placeholder="在账号中搜索账号/姓名" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">' + renderOptions(state) + '</div><div class="ps-action-row"><button class="ps-btn view" data-action="load"' + (state.loading ? ' disabled' : '') + '>' + (state.loading ? '读取中' : '查看统计') + '</button><button class="ps-btn primary" data-action="sync"' + (state.syncing ? ' disabled' : '') + '>' + (state.syncing ? '同步中' : '同步流水') + '</button><button class="ps-btn" data-action="clear-account">清空账号</button></div></div><div class="ps-cache-line"><span class="' + (state.error ? 'error' : '') + '">' + html(state.status) + '</span><span>当前视图 ' + metaText + '</span></div></section><section class="ps-stats">' + renderSummary(state) + '</section><section class="ps-controls"><div class="ps-generation-row">' + renderTabs(state) + '</div></section><section class="ps-view-shell"><section class="ps-view-tabs"><button type="button" class="ps-view-tab active">' + html(state.pointType) + ' 分类明细</button></section><div class="ps-body-grid"><main class="ps-layer-panel"><div class="ps-scheme-note">分类视图。选择账号后可展开每个分类查看流水明细；未选择账号时展示全局排行和当前类型汇总。</div><div class="ps-category-list">' + renderCategories(state) + '</div></main><aside class="ps-rank-panel"><div class="ps-panel-head"><span>账号排行</span><em>按净变化排序</em></div><div class="ps-rank-list">' + renderLeaderboard(state) + '</div></aside></div></section></div>';
     }
 
     window.AKPointStatsRenderer = {
