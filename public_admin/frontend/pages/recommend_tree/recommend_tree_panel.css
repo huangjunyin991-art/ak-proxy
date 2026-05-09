@@ -3305,6 +3305,13 @@
     overflow: visible;
 }
 
+.rt-view-shell .rt-view-tab,
+.rt-view-shell .rt-view-tab.active {
+    margin: 0;
+    border-radius: 0;
+    transform: none;
+}
+
 .rt-view-shell .rt-view-tab {
     min-height: 38px;
     border: 0;
