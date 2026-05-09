@@ -64,25 +64,25 @@
         });
     }
 
-    function runDataStats() {
+    function syncRecords() {
         if (!api || !store) return;
         var username = String(store.state.username || '').trim();
         if (!username) {
-            store.setStatus('请先选择或输入要统计的账号。', true);
+            store.setStatus('请先选择或输入要同步的账号。', true);
             render();
             return;
         }
         store.state.syncing = true;
-        store.setStatus('正在统计 ' + username + ' 的 ' + store.state.pointType + ' 流水：无缓存全量拉取，有缓存增量更新...', false);
+        store.setStatus('正在同步 ' + username + ' 的 ' + store.state.pointType + ' 流水：无缓存全量拉取，有缓存增量更新...', false);
         render();
-        api.runStats({ username: username, pointType: store.state.pointType, pageSize: 50 }).then(function(data) {
-            var modeText = data.mode === 'full' ? '无缓存全量统计' : '增量统计';
-            store.setStatus(modeText + '完成：拉取 ' + numberText(data.fetched_count) + ' 条，新增 ' + numberText(data.new_count) + ' 条，保存 ' + numberText(data.saved_count) + ' 条。', false);
+        api.syncRecords({ username: username, pointType: store.state.pointType, pageSize: 50 }).then(function(data) {
+            var modeText = data.mode === 'full' ? '全量' : '增量';
+            store.setStatus(modeText + '同步完成：拉取 ' + numberText(data.fetched_count) + ' 条，新增 ' + numberText(data.new_count) + ' 条，保存 ' + numberText(data.saved_count) + ' 条。', false);
             store.state.expandedCategory = null;
             loadStats();
         }).catch(function(error) {
-            store.setStatus(error.message || '统计失败', true);
-            notify(error.message || '统计失败', 'error');
+            store.setStatus(error.message || '同步失败', true);
+            notify(error.message || '同步失败', 'error');
         }).finally(function() {
             store.state.syncing = false;
             render();
@@ -128,14 +128,20 @@
             store.setPointType(actionNode.getAttribute('data-point-type'));
             render();
             loadStats();
-        } else if (action === 'stats') {
-            runDataStats();
+        } else if (action === 'load') {
+            loadStats();
+        } else if (action === 'sync') {
+            syncRecords();
         } else if (action === 'clear-account') {
             store.clearAccount();
             render();
             loadStats();
         } else if (action === 'select-account') {
             selectOption(Number(actionNode.getAttribute('data-index') || 0));
+        } else if (action === 'rank-account') {
+            store.selectAccount({ username: actionNode.getAttribute('data-username') || '' });
+            render();
+            loadStats();
         } else if (action === 'toggle-category') {
             store.toggleCategory(actionNode.getAttribute('data-name') || '');
             render();
