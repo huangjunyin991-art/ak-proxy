@@ -108,7 +108,7 @@
             '</section>',
             '<section class="ps-rt-stats">' + renderSummary(state) + '</section>',
             '<section class="ps-rt-view-shell"><section class="ps-rt-controls"><div class="ps-rt-view-tabs">' + renderTabs(state) + '</div></section>',
-            '<section class="ps-rt-path-panel"><div class="ps-rt-scheme-note"><span>' + html(state.pointType) + ' 历史记录</span><span class="meta">' + renderPanelMeta(state) + '</span></div><div class="ps-rt-table-wrap"><table><thead><tr><th>统计项</th><th>数量</th><th>收入</th><th>支出</th><th>净变化</th><th>明细</th></tr></thead><tbody>' + renderCategories(state) + '</tbody></table></div></section></section>',
+            '<section class="ps-rt-path-panel"><div class="ps-rt-table-wrap"><table><thead><tr><th>统计项</th><th>数量</th><th>收入</th><th>支出</th><th>净变化</th><th>明细</th></tr></thead><tbody>' + renderCategories(state) + '</tbody></table></div></section></section>',
             '</div>'
         ].join('');
     }

@@ -54,7 +54,7 @@
             store.setPayload(data);
             var active = data && data.active_stats ? data.active_stats : null;
             var total = active && active.total_records != null ? active.total_records : 0;
-            store.setStatus(store.state.pointType + ' 缓存统计完成：' + numberText(total) + ' 条', false);
+            store.setStatus(store.state.pointType + ' 数据统计完成：' + numberText(total) + ' 条', false);
         }).catch(function(error) {
             store.setStatus(error.message || '加载失败', true);
             notify(error.message || '加载失败', 'error');
