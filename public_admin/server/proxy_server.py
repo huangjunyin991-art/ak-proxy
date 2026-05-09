@@ -9451,6 +9451,27 @@ async def recommend_tree_panel_asset(asset_name: str):
     return Response(content="" if media_type == "text/css" else "// not found", media_type=media_type)
 
 
+@app.get("/admin/api/point-stats-panel/{asset_name}")
+async def point_stats_panel_asset(asset_name: str):
+    allowed_assets = {
+        "point_stats_api.js": "application/javascript",
+        "point_stats_store.js": "application/javascript",
+        "point_stats_renderer.js": "application/javascript",
+        "point_stats_panel.js": "application/javascript",
+        "point_stats_panel.css": "text/css",
+    }
+    media_type = allowed_assets.get(asset_name)
+    if not media_type:
+        return Response(content="// not found", media_type="application/javascript")
+    asset_path = os.path.join(FRONTEND_PAGES_DIR, "point_stats", asset_name)
+    if os.path.exists(asset_path):
+        with open(asset_path, "r", encoding="utf-8") as f:
+            return Response(content=f.read(), media_type=media_type,
+                            headers={"Cache-Control": "no-cache, no-store, must-revalidate",
+                                     "Pragma": "no-cache", "Expires": "0"})
+    return Response(content="" if media_type == "text/css" else "// not found", media_type=media_type)
+
+
 @app.get("/admin/api/plugins/notification/admin/index.js")
 
 async def notification_admin_plugin_index_js():

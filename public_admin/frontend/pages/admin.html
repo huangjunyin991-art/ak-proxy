@@ -248,186 +248,6 @@
         .glow-border.glow-yellow:hover { box-shadow: 0 0 30px rgba(247, 183, 49, 0.5); }
         .glow-border.glow-purple:hover { box-shadow: 0 0 30px rgba(165, 94, 234, 0.5); }
 
-        .point-stats-root {
-            display: flex;
-            flex-direction: column;
-            gap: 14px;
-        }
-
-        .point-stats-hero,
-        .point-stats-path-panel {
-            background: rgba(5, 18, 31, 0.78);
-            border: 1px solid rgba(0, 212, 255, 0.24);
-            border-radius: 14px;
-            padding: 14px;
-            box-shadow: inset 0 1px 0 rgba(255,255,255,0.04);
-        }
-
-        .point-stats-hero-top,
-        .point-stats-action-row,
-        .point-stats-tabs {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            flex-wrap: wrap;
-        }
-
-        .point-stats-title strong {
-            color: var(--accent);
-            font-size: 18px;
-        }
-
-        .point-stats-title span,
-        .point-stats-status,
-        .point-stats-meta {
-            display: block;
-            color: var(--text-secondary);
-            font-size: 12px;
-            margin-top: 5px;
-        }
-
-        .point-stats-badge {
-            margin-left: auto;
-            color: var(--accent);
-            border: 1px solid rgba(0,212,255,0.28);
-            border-radius: 999px;
-            padding: 6px 12px;
-            font-size: 12px;
-            background: rgba(0,212,255,0.08);
-        }
-
-        .point-stats-search {
-            position: relative;
-            min-width: 260px;
-            flex: 1;
-        }
-
-        .point-stats-input {
-            width: 100%;
-            padding: 11px 13px;
-            background: var(--bg-secondary);
-            border: 1px solid var(--border);
-            border-radius: 10px;
-            color: var(--text-primary);
-            font-size: 14px;
-            outline: none;
-        }
-
-        .point-stats-input:focus {
-            border-color: rgba(0,212,255,0.55);
-            box-shadow: 0 0 0 3px rgba(0,212,255,0.08);
-        }
-
-        .point-stats-suggest {
-            position: absolute;
-            top: calc(100% + 6px);
-            left: 0;
-            right: 0;
-            z-index: 20;
-            display: none;
-            max-height: 280px;
-            overflow-y: auto;
-            background: rgba(5, 18, 31, 0.98);
-            border: 1px solid rgba(0,212,255,0.28);
-            border-radius: 12px;
-            box-shadow: 0 16px 40px rgba(0,0,0,0.34);
-            padding: 6px;
-        }
-
-        .point-stats-suggest.active {
-            display: block;
-        }
-
-        .point-stats-suggest-item {
-            cursor: pointer;
-            border-radius: 9px;
-            padding: 9px 10px;
-            display: flex;
-            justify-content: space-between;
-            gap: 10px;
-            color: var(--text-primary);
-        }
-
-        .point-stats-suggest-item:hover {
-            background: rgba(0,212,255,0.12);
-        }
-
-        .point-stats-suggest-item small {
-            color: var(--text-secondary);
-        }
-
-        .point-stats-tab {
-            flex: 1;
-            min-width: 100px;
-            padding: 10px 18px;
-            color: var(--accent);
-            background: rgba(2, 12, 24, 0.88);
-            border: 1px solid rgba(0,212,255,0.18);
-            border-radius: 10px;
-            cursor: pointer;
-            font-weight: 800;
-        }
-
-        .point-stats-tab.active {
-            color: #051520;
-            background: linear-gradient(135deg, #00d4ff, #00ff88);
-            border-color: transparent;
-            box-shadow: 0 10px 22px rgba(0,255,136,0.16);
-        }
-
-        .point-stats-summary {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-            gap: 10px;
-        }
-
-        .point-stats-card {
-            min-height: 76px;
-            border: 1px solid rgba(0,212,255,0.24);
-            background: linear-gradient(135deg, rgba(0,212,255,0.08), rgba(255,255,255,0.02));
-            border-radius: 12px;
-            padding: 14px;
-        }
-
-        .point-stats-card span {
-            color: var(--text-secondary);
-            font-size: 12px;
-        }
-
-        .point-stats-card strong {
-            display: block;
-            margin-top: 8px;
-            color: var(--accent);
-            font-size: 24px;
-            letter-spacing: .02em;
-        }
-
-        .point-stats-card.income strong,
-        .point-stats-income {
-            color: var(--accent-green);
-        }
-
-        .point-stats-card.expense strong,
-        .point-stats-expense {
-            color: var(--accent-red);
-        }
-
-        .point-stats-path-head {
-            display: flex;
-            justify-content: space-between;
-            gap: 12px;
-            align-items: center;
-            margin-bottom: 10px;
-            color: var(--accent);
-            font-weight: 800;
-        }
-
-        .point-stats-detail-wrap {
-            padding: 10px;
-            background: rgba(0, 0, 0, 0.16);
-            border-radius: 10px;
-        }
-        
         /* 可排序表头 */
         th.sortable {
             cursor: pointer;
@@ -3251,68 +3071,7 @@
         </div>
         
         <div class="panel" id="pointStats">
-            <div class="point-stats-root">
-                <section class="point-stats-hero">
-                    <div class="point-stats-hero-top">
-                        <div class="point-stats-title">
-                            <strong>点数历史记录统计</strong>
-                            <span>对接服务器数据库，按账号与 EP/SP/TP/RP 分类查看流水统计和明细。</span>
-                        </div>
-                        <span class="point-stats-badge">后台统计</span>
-                    </div>
-                    <div class="point-stats-action-row" style="margin-top: 12px;">
-                        <div class="point-stats-search">
-                            <input id="pointStatsUsername" class="point-stats-input" type="text" placeholder="输入账号或姓名模糊搜索"
-                                   autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
-                                   oninput="handlePointStatsSearchInput()" onfocus="handlePointStatsSearchFocus()" onkeydown="handlePointStatsSearchKeydown(event)">
-                            <div id="pointStatsUserSuggest" class="point-stats-suggest"></div>
-                        </div>
-                        <button class="btn btn-primary" onclick="syncPointStats()" style="padding: 11px 18px;">同步流水</button>
-                        <button class="btn" onclick="loadPointStats()" style="padding: 11px 18px;">读取统计</button>
-                        <button class="btn" onclick="clearPointStatsAccount()" style="padding: 11px 18px;">清空账号</button>
-                    </div>
-                    <div id="pointStatsStatus" class="point-stats-status">请选择账号，或直接查看全局账号排行。</div>
-                </section>
-
-                <section id="pointStatsSummary" class="point-stats-summary"></section>
-
-                <section class="point-stats-tabs" id="pointStatsTabs"></section>
-
-                <section class="point-stats-path-panel">
-                    <div class="point-stats-path-head">
-                        <span id="pointStatsTitle">EP 历史记录</span>
-                        <span id="pointStatsMeta" class="point-stats-meta"></span>
-                    </div>
-                    <div class="table-container" style="overflow-x: auto;">
-                        <table>
-                            <thead>
-                                <tr>
-                                    <th>统计项</th>
-                                    <th>数量</th>
-                                    <th>收入</th>
-                                    <th>支出</th>
-                                    <th>净变化</th>
-                                    <th>明细</th>
-                                </tr>
-                            </thead>
-                            <tbody id="pointStatsCategoryBody"><tr><td colspan="6" style="text-align:center; color:var(--text-secondary);">请选择账号查看分类统计</td></tr></tbody>
-                        </table>
-                    </div>
-                </section>
-
-                <section class="point-stats-path-panel">
-                    <div class="point-stats-path-head">
-                        <span>账号排行</span>
-                        <span class="point-stats-meta">按净变化排序</span>
-                    </div>
-                    <div class="table-container" style="overflow-x: auto;">
-                        <table>
-                            <thead><tr><th>账号</th><th>类型</th><th>记录数</th><th>收入</th><th>支出</th><th>净变化</th></tr></thead>
-                            <tbody id="pointStatsLeaderboard"><tr><td colspan="6" style="text-align:center; color:var(--text-secondary);">暂无数据</td></tr></tbody>
-                        </table>
-                    </div>
-                </section>
-            </div>
+            <div id="pointStatsPanelMount"></div>
         </div>
 
         <div class="panel" id="recommendTree">
@@ -5872,298 +5631,6 @@
             return String(t).replace('T', ' ').slice(0, 16);
         }
 
-        function pointStatsAmountClass(value) {
-            const num = Number(value || 0);
-            if (num > 0) return 'color:var(--accent-green);';
-            if (num < 0) return 'color:var(--accent-red);';
-            return 'color:var(--text-primary);';
-        }
-
-        const POINT_STATS_TYPES = ['EP', 'SP', 'TP', 'RP'];
-        let pointStatsActiveType = 'EP';
-        let pointStatsExpandedCategory = null;
-        let pointStatsSearchTimer = null;
-        let pointStatsSuggestRows = [];
-        let pointStatsSuggestIndex = -1;
-
-        function pointStatsSignedAmount(value, operationType) {
-            const prefix = Number(operationType || 0) === 1 ? '+' : '-';
-            return `${prefix}${formatNumber(value)}`;
-        }
-
-        function pointStatsEncodeParam(value) {
-            return encodeURIComponent(String(value || '')).replace(/'/g, '%27');
-        }
-
-        function renderPointStatsTabs() {
-            const tabs = document.getElementById('pointStatsTabs');
-            if (!tabs) return;
-            tabs.innerHTML = POINT_STATS_TYPES.map(type => `
-                <button class="point-stats-tab${type === pointStatsActiveType ? ' active' : ''}" onclick="selectPointStatsType('${type}')">${type}</button>
-            `).join('');
-            const title = document.getElementById('pointStatsTitle');
-            if (title) title.textContent = `${pointStatsActiveType} 历史记录`;
-        }
-
-        function renderPointStatsSummary(data) {
-            const summaryBox = document.getElementById('pointStatsSummary');
-            if (!summaryBox) return;
-            const active = data?.active_stats || (data?.summary || []).find(item => item.point_type === pointStatsActiveType);
-            if (!active || Number(active.total_records || 0) === 0) {
-                summaryBox.innerHTML = ['记录数', '总收入', '总支出', '净变化', '当前余额']
-                    .map(label => `<div class="point-stats-card"><strong>-</strong><span>${label}</span></div>`)
-                    .join('');
-                return;
-            }
-            summaryBox.innerHTML = `
-                <div class="point-stats-card"><strong>${formatNumber(active.total_records)}</strong><span>记录数</span></div>
-                <div class="point-stats-card income"><strong>${formatNumber(active.total_income)}</strong><span>总收入</span></div>
-                <div class="point-stats-card expense"><strong>${formatNumber(active.total_expense)}</strong><span>总支出</span></div>
-                <div class="point-stats-card"><strong style="${pointStatsAmountClass(active.net_change)}">${formatNumber(active.net_change)}</strong><span>净变化</span></div>
-                <div class="point-stats-card"><strong>${active.current_balance === null || active.current_balance === undefined ? '-' : formatNumber(active.current_balance)}</strong><span>当前余额</span></div>
-            `;
-        }
-
-        function renderPointStatsDetail(records) {
-            if (!records || !records.length) {
-                return '<div style="text-align:center;color:var(--text-secondary);padding:16px;">暂无明细</div>';
-            }
-            return `
-                <div class="point-stats-detail-wrap">
-                    <table>
-                        <thead><tr><th>时间</th><th>方向</th><th>金额</th><th>余额</th><th>类型</th><th>描述</th></tr></thead>
-                        <tbody>
-                            ${records.map(record => {
-                                const isIncome = Number(record.operation_type || 0) === 1;
-                                return `
-                                    <tr>
-                                        <td>${fmtTime(record.time || record.record_time || record.saved_at)}</td>
-                                        <td class="${isIncome ? 'point-stats-income' : 'point-stats-expense'}">${isIncome ? '收入' : '支出'}</td>
-                                        <td class="${isIncome ? 'point-stats-income' : 'point-stats-expense'}">${pointStatsSignedAmount(record.amount, record.operation_type)}</td>
-                                        <td>${record.balance === null || record.balance === undefined ? '-' : formatNumber(record.balance)}</td>
-                                        <td>${escapeHtml(record.type_name_cn || record.type_name || '-')}</td>
-                                        <td title="${escapeHtml(record.description || '')}">${escapeHtml(record.description || '-')}</td>
-                                    </tr>
-                                `;
-                            }).join('')}
-                        </tbody>
-                    </table>
-                </div>
-            `;
-        }
-
-        function renderPointStatsCategories(categories) {
-            const body = document.getElementById('pointStatsCategoryBody');
-            if (!body) return;
-            if (!categories || !categories.length) {
-                body.innerHTML = '<tr><td colspan="6" style="text-align:center; color:var(--text-secondary);">暂无统计数据</td></tr>';
-                return;
-            }
-            body.innerHTML = categories.map(category => {
-                const name = category.name || '未分类';
-                const key = encodeURIComponent(name);
-                const expanded = pointStatsExpandedCategory === name;
-                return `
-                    <tr>
-                        <td><button class="btn btn-primary" style="padding:5px 10px;font-size:12px;" onclick="togglePointStatsCategory('${key}')">${expanded ? '收起' : '展开'}</button> ${escapeHtml(name)}</td>
-                        <td>${formatNumber(category.count)}</td>
-                        <td class="point-stats-income">${formatNumber(category.income)}</td>
-                        <td class="point-stats-expense">${formatNumber(category.expense)}</td>
-                        <td style="${pointStatsAmountClass(category.net)}">${formatNumber(category.net)}</td>
-                        <td>${formatNumber((category.records || []).length)}</td>
-                    </tr>
-                    ${expanded ? `<tr><td colspan="6">${renderPointStatsDetail(category.records)}</td></tr>` : ''}
-                `;
-            }).join('');
-        }
-
-        function renderPointStatsLeaderboard(leaderboard) {
-            const body = document.getElementById('pointStatsLeaderboard');
-            if (!body) return;
-            body.innerHTML = leaderboard && leaderboard.length ? leaderboard.map(item => `
-                <tr onclick="selectPointStatsUser('${pointStatsEncodeParam(item.username)}')" style="cursor:pointer;">
-                    <td>${escapeHtml(item.username || '-')}</td>
-                    <td>${escapeHtml(item.point_type || '-')}</td>
-                    <td>${formatNumber(item.total_records)}</td>
-                    <td class="point-stats-income">${formatNumber(item.total_income)}</td>
-                    <td class="point-stats-expense">${formatNumber(item.total_expense)}</td>
-                    <td style="${pointStatsAmountClass(item.net_change)}">${formatNumber(item.net_change)}</td>
-                </tr>
-            `).join('') : '<tr><td colspan="6" style="text-align:center; color:var(--text-secondary);">暂无数据</td></tr>';
-        }
-
-        function setPointStatsStatus(text, isError) {
-            const status = document.getElementById('pointStatsStatus');
-            if (!status) return;
-            status.textContent = text;
-            status.style.color = isError ? 'var(--accent-red)' : 'var(--text-secondary)';
-        }
-
-        function selectPointStatsType(type) {
-            if (!POINT_STATS_TYPES.includes(type)) return;
-            pointStatsActiveType = type;
-            pointStatsExpandedCategory = null;
-            renderPointStatsTabs();
-            loadPointStats();
-        }
-
-        function togglePointStatsCategory(encodedName) {
-            const name = decodeURIComponent(encodedName);
-            pointStatsExpandedCategory = pointStatsExpandedCategory === name ? null : name;
-            loadPointStats();
-        }
-
-        function closePointStatsSuggestions() {
-            const suggest = document.getElementById('pointStatsUserSuggest');
-            if (suggest) suggest.classList.remove('active');
-            pointStatsSuggestIndex = -1;
-        }
-
-        function renderPointStatsSuggestions(rows) {
-            const suggest = document.getElementById('pointStatsUserSuggest');
-            if (!suggest) return;
-            pointStatsSuggestRows = rows || [];
-            pointStatsSuggestIndex = -1;
-            if (!pointStatsSuggestRows.length) {
-                suggest.innerHTML = '<div style="padding:10px;color:var(--text-secondary);text-align:center;">暂无匹配账号</div>';
-                suggest.classList.add('active');
-                return;
-            }
-            suggest.innerHTML = pointStatsSuggestRows.map((item, index) => `
-                <div class="point-stats-suggest-item" onclick="selectPointStatsUser('${pointStatsEncodeParam(item.username)}')" data-index="${index}">
-                    <div><strong>${escapeHtml(item.real_name || item.username || '-')}</strong><small style="display:block;">${escapeHtml(item.username || '-')}</small></div>
-                    <small>${formatNumber(item.point_record_count)} 条流水</small>
-                </div>
-            `).join('');
-            suggest.classList.add('active');
-        }
-
-        async function fetchPointStatsUserSuggestions(search) {
-            const params = new URLSearchParams();
-            if (search) params.set('search', search);
-            params.set('limit', '12');
-            const res = await fetch(`${API_BASE}/admin/api/point-stats/users?${params.toString()}`, withAdminAuthHeaders());
-            const data = await res.json();
-            if (!res.ok || data.error) {
-                throw new Error(data.message || '账号搜索失败');
-            }
-            renderPointStatsSuggestions(data.rows || []);
-        }
-
-        function handlePointStatsSearchInput() {
-            clearTimeout(pointStatsSearchTimer);
-            const value = (document.getElementById('pointStatsUsername')?.value || '').trim();
-            pointStatsSearchTimer = setTimeout(() => {
-                fetchPointStatsUserSuggestions(value).catch(e => setPointStatsStatus(e.message, true));
-            }, 250);
-        }
-
-        function handlePointStatsSearchFocus() {
-            const value = (document.getElementById('pointStatsUsername')?.value || '').trim();
-            fetchPointStatsUserSuggestions(value).catch(e => setPointStatsStatus(e.message, true));
-        }
-
-        function handlePointStatsSearchKeydown(event) {
-            if (event.key === 'Enter') {
-                event.preventDefault();
-                if (pointStatsSuggestIndex >= 0 && pointStatsSuggestRows[pointStatsSuggestIndex]) {
-                    selectPointStatsUser(pointStatsEncodeParam(pointStatsSuggestRows[pointStatsSuggestIndex].username));
-                } else {
-                    closePointStatsSuggestions();
-                    loadPointStats();
-                }
-            } else if (event.key === 'Escape') {
-                closePointStatsSuggestions();
-            } else if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
-                event.preventDefault();
-                if (!pointStatsSuggestRows.length) return;
-                const delta = event.key === 'ArrowDown' ? 1 : -1;
-                pointStatsSuggestIndex = (pointStatsSuggestIndex + delta + pointStatsSuggestRows.length) % pointStatsSuggestRows.length;
-                const suggest = document.getElementById('pointStatsUserSuggest');
-                suggest?.querySelectorAll('.point-stats-suggest-item').forEach((node, index) => {
-                    node.style.background = index === pointStatsSuggestIndex ? 'rgba(0,212,255,0.18)' : '';
-                });
-            }
-        }
-
-        function selectPointStatsUser(username) {
-            const input = document.getElementById('pointStatsUsername');
-            if (input) input.value = decodeURIComponent(String(username || '')).trim();
-            closePointStatsSuggestions();
-            pointStatsExpandedCategory = null;
-            loadPointStats();
-        }
-
-        function clearPointStatsAccount() {
-            const input = document.getElementById('pointStatsUsername');
-            if (input) input.value = '';
-            closePointStatsSuggestions();
-            pointStatsExpandedCategory = null;
-            loadPointStats();
-        }
-
-        async function syncPointStats() {
-            const username = (document.getElementById('pointStatsUsername')?.value || '').trim();
-            if (!username) {
-                setPointStatsStatus('请先选择或输入要同步的账号。', true);
-                return;
-            }
-            setPointStatsStatus(`正在同步 ${username} 的 ${pointStatsActiveType} 流水：无缓存全量拉取，有缓存增量更新...`, false);
-            try {
-                const res = await fetch(`${API_BASE}/admin/api/point-stats/sync`, {
-                    method: 'POST',
-                    headers: {...getHeaders(), 'Content-Type': 'application/json'},
-                    body: JSON.stringify({username, point_type: pointStatsActiveType, page_size: 50})
-                });
-                const data = await res.json();
-                if (!res.ok || data.error) {
-                    throw new Error(data.message || '同步失败');
-                }
-                const modeText = data.mode === 'full' ? '全量' : '增量';
-                setPointStatsStatus(`${modeText}同步完成：拉取 ${formatNumber(data.fetched_count)} 条，新增 ${formatNumber(data.new_count)} 条，保存 ${formatNumber(data.saved_count)} 条。`, false);
-                pointStatsExpandedCategory = null;
-                loadPointStats();
-            } catch (e) {
-                console.error('同步点数流水失败', e);
-                setPointStatsStatus(e.message || '同步失败', true);
-            }
-        }
-
-        async function loadPointStats() {
-            const summaryBox = document.getElementById('pointStatsSummary');
-            const leaderboardBody = document.getElementById('pointStatsLeaderboard');
-            const categoryBody = document.getElementById('pointStatsCategoryBody');
-            if (!summaryBox || !leaderboardBody || !categoryBody) return;
-            renderPointStatsTabs();
-            summaryBox.innerHTML = '<div class="point-stats-card"><strong>-</strong><span>加载中</span></div>';
-            leaderboardBody.innerHTML = '<tr><td colspan="6" style="text-align:center; color:var(--text-secondary);">加载中...</td></tr>';
-            categoryBody.innerHTML = '<tr><td colspan="6" style="text-align:center; color:var(--text-secondary);">加载中...</td></tr>';
-            try {
-                const params = new URLSearchParams();
-                const username = (document.getElementById('pointStatsUsername')?.value || '').trim();
-                if (username) params.set('username', username);
-                params.set('point_type', pointStatsActiveType);
-                params.set('limit', '80');
-                const res = await fetch(`${API_BASE}/admin/api/point-stats?${params.toString()}`, withAdminAuthHeaders());
-                const data = await res.json();
-                if (!res.ok || data.error) {
-                    throw new Error(data.message || '加载失败');
-                }
-                renderPointStatsSummary(data);
-                renderPointStatsCategories(data.categories || []);
-                renderPointStatsLeaderboard(data.leaderboard || []);
-                const meta = document.getElementById('pointStatsMeta');
-                if (meta) meta.textContent = username ? `${username} · ${pointStatsActiveType} · ${formatNumber(data.active_stats?.total_records || 0)} 条` : `全局 · ${pointStatsActiveType}`;
-                setPointStatsStatus(username ? `已读取 ${username} 的 ${pointStatsActiveType} 历史统计。` : '已读取全局账号排行，选择账号后可查看分类明细。', false);
-            } catch (e) {
-                console.error('加载点数统计失败', e);
-                summaryBox.innerHTML = `<div class="point-stats-card"><strong>!</strong><span>${escapeHtml(e.message)}</span></div>`;
-                leaderboardBody.innerHTML = '<tr><td colspan="6" style="text-align:center; color:var(--accent-red);">加载失败</td></tr>';
-                categoryBody.innerHTML = '<tr><td colspan="6" style="text-align:center; color:var(--accent-red);">加载失败</td></tr>';
-                setPointStatsStatus(e.message || '加载失败', true);
-            }
-        }
-        
         // 加载在线用户
         // 页面路径 → 中文描述映射
         const PAGE_NAME_MAP = {
@@ -7399,7 +6866,9 @@
                 } else {
                     if (window.hideUsersFloatScroll) hideUsersFloatScroll();
                 }
-                if (tab.dataset.panel === 'pointStats') loadPointStats();
+                if (tab.dataset.panel === 'pointStats' && window.AKPointStatsPanel) {
+                    window.AKPointStatsPanel.start();
+                }
                 if (tab.dataset.panel === 'recommendTree' && window.AKRecommendTreePanel) {
                     window.AKRecommendTreePanel.start();
                 }
@@ -13197,6 +12666,121 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
             removeRecommendTreePanelScripts();
             ensureRecommendTreePanelCss(false);
             loadRecommendTreePanelAsset(0, false, 1);
+        })();
+    </script>
+    <script>
+        (function() {
+            var pointStatsPanelBuildVersion = '20260509-01';
+            window.AKPointStatsPanelAssetVersion = pointStatsPanelBuildVersion;
+            var pointStatsPanelAssets = [
+                'point_stats_api.js',
+                'point_stats_store.js',
+                'point_stats_renderer.js',
+                'point_stats_panel.js'
+            ];
+
+            function pointStatsMount() {
+                return document.getElementById('pointStatsPanelMount');
+            }
+
+            function reportPointStatsPanelLoadFailure(message) {
+                var mount = pointStatsMount();
+                if (mount) {
+                    mount.innerHTML = '<div class="ps-module-error">' + message + '</div>';
+                }
+                try {
+                    if (typeof showToast === 'function') {
+                        showToast(message, 'error');
+                    }
+                } catch (e) {}
+                console.error('[PointStatsPanelLoader]', message);
+            }
+
+            function resetPointStatsPanelGlobals() {
+                ['AKPointStatsApi', 'AKPointStatsStore', 'AKPointStatsRenderer', 'AKPointStatsPanel', 'AKPointStatsPanelLoaded'].forEach(function(name) {
+                    try {
+                        delete window[name];
+                    } catch (e) {
+                        window[name] = undefined;
+                    }
+                });
+            }
+
+            function removePointStatsPanelScripts() {
+                Array.prototype.slice.call(document.querySelectorAll('script[data-point-stats-panel-loader="1"]')).forEach(function(node) {
+                    if (node && node.parentNode) {
+                        node.parentNode.removeChild(node);
+                    }
+                });
+            }
+
+            function buildPointStatsPanelUrl(assetName, forceRefresh) {
+                if (forceRefresh) {
+                    return '/admin/api/point-stats-panel/' + assetName + '?t=' + Date.now();
+                }
+                return '/admin/api/point-stats-panel/' + assetName + '?v=' + encodeURIComponent(pointStatsPanelBuildVersion);
+            }
+
+            function ensurePointStatsPanelCss(forceRefresh) {
+                var href = buildPointStatsPanelUrl('point_stats_panel.css', forceRefresh);
+                var existing = document.querySelector('link[data-point-stats-panel-css="1"]');
+                if (existing) {
+                    if (existing.getAttribute('href') !== href) {
+                        existing.href = href;
+                    }
+                    return;
+                }
+                var link = document.createElement('link');
+                link.rel = 'stylesheet';
+                link.href = href;
+                link.setAttribute('data-point-stats-panel-css', '1');
+                document.head.appendChild(link);
+            }
+
+            function loadPointStatsPanelAsset(index, forceRefresh, attempt) {
+                if (index >= pointStatsPanelAssets.length) {
+                    if (window.AKPointStatsPanel) {
+                        window.AKPointStatsPanelLoaded = true;
+                    } else if (attempt < 2) {
+                        resetPointStatsPanelGlobals();
+                        removePointStatsPanelScripts();
+                        ensurePointStatsPanelCss(true);
+                        loadPointStatsPanelAsset(0, true, attempt + 1);
+                        return;
+                    } else {
+                        reportPointStatsPanelLoadFailure('点数统计面板模块初始化失败，请强制刷新后重试');
+                        return;
+                    }
+                    if (document.querySelector('.tab.active[data-panel="pointStats"]')) {
+                        window.AKPointStatsPanel.start();
+                    }
+                    return;
+                }
+                var script = document.createElement('script');
+                script.src = buildPointStatsPanelUrl(pointStatsPanelAssets[index], forceRefresh);
+                script.async = false;
+                script.defer = false;
+                script.setAttribute('data-point-stats-panel-loader', '1');
+                script.onload = function() {
+                    loadPointStatsPanelAsset(index + 1, forceRefresh, attempt);
+                };
+                script.onerror = function() {
+                    if (attempt < 2) {
+                        resetPointStatsPanelGlobals();
+                        removePointStatsPanelScripts();
+                        ensurePointStatsPanelCss(true);
+                        loadPointStatsPanelAsset(0, true, attempt + 1);
+                        return;
+                    }
+                    reportPointStatsPanelLoadFailure('点数统计面板脚本请求失败，请强制刷新后重试');
+                };
+                (document.body || document.head || document.documentElement).appendChild(script);
+            }
+
+            resetPointStatsPanelGlobals();
+            removePointStatsPanelScripts();
+            ensurePointStatsPanelCss(false);
+            loadPointStatsPanelAsset(0, false, 1);
         })();
     </script>
 </body>
