@@ -113,8 +113,8 @@
             { value: 'depth', label: '代际视图' },
             { value: 'path', label: '血脉视图' }
         ];
-        return '<section class="rt-view-tabs">' + tabs.map(function(tab) {
-            return '<button type="button" class="rt-view-tab ' + (active === tab.value ? 'active' : '') + '" data-view-mode="' + utils.escapeHtml(tab.value) + '">' + utils.escapeHtml(tab.label) + '</button>';
+        return '<section class="rt-segment-tabs">' + tabs.map(function(tab) {
+            return '<button type="button" class="rt-segment-tab ' + (active === tab.value ? 'active' : '') + '" data-view-mode="' + utils.escapeHtml(tab.value) + '">' + utils.escapeHtml(tab.label) + '</button>';
         }).join('') + '</section>';
     }
 
