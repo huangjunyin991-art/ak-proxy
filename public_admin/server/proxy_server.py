@@ -3856,7 +3856,7 @@ async def _sync_point_history_records(username: str, point_type: str, page_size:
     }
 
 
-_POINT_HISTORY_SYNC_TASKS: Dict[str, Dict[str, Any]] = {}
+_POINT_HISTORY_SYNC_TASKS = {}
 
 
 def _point_history_sync_task_key(username: str, point_type: str) -> str:
