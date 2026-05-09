@@ -89,18 +89,31 @@
         }).join('');
     }
 
-    function renderLeaderboard(state) {
-        var rows = state.payload && Array.isArray(state.payload.leaderboard) ? state.payload.leaderboard : [];
-        if (!rows.length) return '<tr><td colspan="6" class="ps-empty">暂无账号排行</td></tr>';
-        return rows.map(function(item, index) {
-            return '<tr><td>TOP ' + (index + 1) + '</td><td><button class="ps-rank-link" data-action="rank-account" data-username="' + html(item.username || '') + '">' + html(item.username || '-') + '</button></td><td>' + number(item.total_records) + '</td><td class="income">' + number(item.total_income) + '</td><td class="expense">' + number(item.total_expense) + '</td><td class="' + amountTone(item.net_change).trim() + '">' + number(item.net_change) + '</td></tr>';
-        }).join('');
+    function renderPanelMeta(state) {
+        var payload = state.payload || {};
+        var parts = [];
+        if (payload.source) parts.push(payload.source === 'remote' ? '远端拉取' : '本地缓存');
+        if (payload.saved != null) parts.push('保存 ' + number(payload.saved) + ' 条');
+        if (payload.pages_fetched != null) parts.push('页数 ' + number(payload.pages_fetched));
+        if (payload.stop_reason) parts.push(html(payload.stop_reason));
+        if (!parts.length) parts.push(state.username ? html(state.username) : 'cache');
+        return parts.join(' · ');
     }
 
     function render(state) {
-        var current = state.username ? html(state.username) : '全局排行';
-        var badgeText = state.error ? '异常' : state.loading ? '读取中' : state.syncing ? '同步中' : state.username ? '账号视图' : '全局视图';
-        return '<div class="ps-rt-root' + ((state.loading || state.syncing) ? ' is-busy' : '') + '"><section class="ps-rt-hero"><div class="ps-rt-hero-top"><div class="ps-rt-title"><strong>点数统计</strong><span>查看 EP/SP/TP/RP 历史流水、分类统计、账号排行和展开明细。</span></div><span class="ps-rt-cache-badge">' + html(badgeText) + '</span></div><div class="ps-rt-account-action-row"><div class="ps-account-wrap"><label class="ps-rt-field"><span>账号</span><input class="ps-rt-input ps-account-input" data-role="account-input" value="' + html(state.accountQuery) + '" placeholder="搜索账号 / 姓名" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">' + renderOptions(state) + '</label></div><div class="ps-rt-action-row"><button class="ps-rt-btn" data-action="load"' + (state.loading ? ' disabled' : '') + '>' + (state.loading ? '读取中' : '读取缓存') + '</button><button class="ps-rt-btn primary" data-action="sync"' + (state.syncing ? ' disabled' : '') + '>' + (state.syncing ? '同步中' : '同步流水') + '</button><button class="ps-rt-btn" data-action="clear-account">清空账号</button></div></div><div class="ps-rt-cache-line ' + (state.error ? 'error' : 'info') + '">' + html(state.status) + '</div></section><section class="ps-rt-stats">' + renderSummary(state) + '</section><section class="ps-rt-controls"><div class="ps-rt-view-tabs">' + renderTabs(state) + '</div></section><section class="ps-rt-path-panel"><div class="ps-rt-scheme-note"><span>' + html(state.pointType) + ' 历史记录</span><span class="meta">' + current + '</span></div><div class="ps-rt-table-wrap"><table><thead><tr><th>统计项</th><th>数量</th><th>收入</th><th>支出</th><th>净变化</th><th>明细</th></tr></thead><tbody>' + renderCategories(state) + '</tbody></table></div></section><section class="ps-rt-path-panel"><div class="ps-rt-scheme-note"><span>账号排行</span><span class="meta">按净变化排序 · ' + html(state.pointType) + '</span></div><div class="ps-rt-table-wrap"><table><thead><tr><th>排名</th><th>账号</th><th>记录数</th><th>收入</th><th>支出</th><th>净变化</th></tr></thead><tbody>' + renderLeaderboard(state) + '</tbody></table></div></section></div>';
+        var badgeText = state.error ? '异常' : '测试页';
+        return [
+            '<div class="ps-rt-root' + ((state.loading || state.syncing) ? ' is-busy' : '') + '">',
+            '<section class="ps-rt-hero">',
+            '<div class="ps-rt-hero-top"><div class="ps-rt-title"><strong>点数历史记录测试页</strong><span>独立验证 EP/SP/TP/RP 历史拉取、缓存、分类统计和明细展开。</span></div><span class="ps-rt-cache-badge">' + html(badgeText) + '</span></div>',
+            '<div class="ps-rt-account-action-row"><div class="ps-account-wrap"><label class="ps-rt-field"><span>账号</span><input class="ps-rt-input ps-account-input" data-role="account-input" value="' + html(state.accountQuery) + '" placeholder="请输入账号" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">' + renderOptions(state) + '</label></div><div class="ps-rt-action-row"><button class="ps-rt-btn secondary" data-action="load"' + (state.loading ? ' disabled' : '') + '>' + (state.loading ? '读取中' : '读取缓存') + '</button><button class="ps-rt-btn primary" data-action="sync"' + (state.syncing ? ' disabled' : '') + '>' + (state.syncing ? '同步中' : '拉取完整历史') + '</button><button class="ps-rt-btn secondary" data-action="clear-account">清空</button></div></div>',
+            '<div class="ps-rt-cache-line ' + (state.error ? 'error' : 'info') + '">' + html(state.status) + '</div>',
+            '</section>',
+            '<section class="ps-rt-stats">' + renderSummary(state) + '</section>',
+            '<section class="ps-rt-controls"><div class="ps-rt-view-tabs">' + renderTabs(state) + '</div></section>',
+            '<section class="ps-rt-path-panel"><div class="ps-rt-scheme-note"><span>' + html(state.pointType) + ' 历史记录</span><span class="meta">' + renderPanelMeta(state) + '</span></div><div class="ps-rt-table-wrap"><table><thead><tr><th>统计项</th><th>数量</th><th>收入</th><th>支出</th><th>净变化</th><th>明细</th></tr></thead><tbody>' + renderCategories(state) + '</tbody></table></div></section>',
+            '</div>'
+        ].join('');
     }
 
     window.AKPointStatsRenderer = {

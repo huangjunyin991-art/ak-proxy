@@ -52,7 +52,9 @@
         render();
         api.getStats({ username: store.state.username, pointType: store.state.pointType, limit: 80 }).then(function(data) {
             store.setPayload(data);
-            store.setStatus(store.state.username ? '已读取 ' + store.state.username + ' 的 ' + store.state.pointType + ' 历史统计。' : '已读取全局账号排行，选择账号后可查看分类明细。', false);
+            var active = data && data.active_stats ? data.active_stats : null;
+            var total = active && active.total_records != null ? active.total_records : 0;
+            store.setStatus(store.state.pointType + ' 缓存统计完成：' + numberText(total) + ' 条', false);
         }).catch(function(error) {
             store.setStatus(error.message || '加载失败', true);
             notify(error.message || '加载失败', 'error');

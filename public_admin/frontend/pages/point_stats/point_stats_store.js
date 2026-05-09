@@ -13,7 +13,7 @@
             selectedAccountIndex: -1,
             loading: false,
             syncing: false,
-            status: '请选择账号，或直接查看全局账号排行。',
+            status: '请输入账号，选择点数类型后开始测试。',
             error: '',
             payload: null,
             expandedCategory: null
