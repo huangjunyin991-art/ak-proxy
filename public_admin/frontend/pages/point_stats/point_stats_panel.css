@@ -356,7 +356,8 @@
 .ps-rt-table-wrap table,
 .ps-rt-detail-wrap table {
     width: 100%;
-    min-width: 760px;
+    min-width: 0;
+    table-layout: auto;
     overflow: hidden;
     border: 1px solid rgba(79, 195, 247, 0.22);
     border-radius: 8px;
@@ -369,10 +370,15 @@
 .ps-rt-table-wrap td,
 .ps-rt-detail-wrap th,
 .ps-rt-detail-wrap td {
-    padding: 10px 12px;
+    padding: 7px 10px;
     text-align: left;
     white-space: nowrap;
     border-bottom: 1px solid rgba(79, 195, 247, 0.14);
+}
+
+.ps-rt-table-wrap th:nth-child(-n+5),
+.ps-rt-table-wrap td:nth-child(-n+5) {
+    width: 1%;
 }
 
 .ps-rt-table-wrap th,

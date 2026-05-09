@@ -11,6 +11,7 @@ import json
 import time
 import logging
 import os
+import re
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Any
 
@@ -1009,6 +1010,89 @@ def _point_int(value, default=0):
 def _point_text(value) -> str:
     return str(value or '').strip()
 
+
+_POINT_TYPE_NAME_MAPS = {
+    'EP': {
+        'Sumup': '子账户归集',
+        'Reward': '奖励',
+        'EP -> RP': 'EP转RP',
+        'EP -> SP': 'EP转SP',
+        'Sell': '挂卖EP',
+        'Buy': '购买EP',
+        'Service charge': 'EP服务费',
+        'Acquisition': 'EP获取',
+        'Monthly Fee': '月费',
+        'MonthlyFee': '月费',
+        'Monthly Fee ': '月费',
+        'Freed': 'ULP补偿',
+        'Stocksaleincome': '出售AK收入',
+        'Transfer out': 'EP转出',
+        'Rollback': '系统回滚',
+        'Arbitration return': '平台仲裁回款',
+        '--': '其他',
+    },
+    'SP': {
+        'EP -> SP': 'EP转SP',
+        'EP to SP': 'EP转SP',
+        'RP -> SP': 'RP转SP',
+        'RP to SP': 'RP转SP',
+        'Sumup': '子账户归集',
+        'Add sub account': '子账号复投消耗',
+        ' Add sub account': '子账号复投消耗',
+        'Stocksaleincome-Register': '子账号复投消耗',
+        'Stocksaleincome': '股票挂卖收益',
+        'Transfer in': 'SP转入',
+        'Transfer out': 'SP转出',
+        '--': '其他',
+    },
+    'TP': {
+        'Register-Sub': '注册子账号消耗',
+        'Register': '注册主账号消耗',
+        'Transfer': 'TP转账',
+        'Transfer in': 'TP转入',
+        'Transfer out': 'TP转出',
+        '--': '其他',
+    },
+    'RP': {
+        'EP -> RP': 'EP转RP',
+        'EP to RP': 'EP转RP',
+        'Register': '注册消耗',
+        'Transfer in': 'RP转入',
+        'Transfer out': 'RP转出',
+        '--': '其他',
+    },
+}
+
+
+_RP_UPLIFT_RE = re.compile(r'^T(\d+)\s+Uplift$')
+
+
+def resolve_point_category(point_type: str, raw_type_name: str, description: str) -> str:
+    code = str(point_type or '').strip().upper()
+    raw = str(raw_type_name or '').strip()
+    desc = str(description or '').strip()
+    type_map = _POINT_TYPE_NAME_MAPS.get(code, {})
+    if raw == 'Stocksaleincome-Register':
+        if '报单减少' in desc:
+            return '子账号复投消耗'
+        if '总挂卖' in desc or '出售' in desc or '获得EP' in desc:
+            return '股票挂卖收益'
+        return type_map.get(raw) or raw or '未分类'
+    if raw in ('Add sub account', ' Add sub account'):
+        return '子账号复投消耗'
+    if code == 'TP' and raw == 'Transfer':
+        if desc.startswith('From '):
+            return 'TP转入'
+        if desc.startswith('To '):
+            return 'TP转出'
+        return 'TP转账'
+    if code == 'RP' and desc:
+        match = _RP_UPLIFT_RE.match(desc)
+        if match:
+            return f'晋级M{match.group(1)}奖励'
+    return type_map.get(raw) or type_map.get(raw.strip()) or raw or '未分类'
+
+
 def _point_record_key(record: Dict, index: int) -> str:
     key = _point_text(record.get('id') or record.get('Id') or record.get('FlowNumber') or record.get('flow_number'))
     if key:
@@ -1196,8 +1280,7 @@ async def get_point_stats(username: str = None, point_type: str = None, limit: i
             LIMIT ${len(args) + 1}
         ''', *args, limit)
         active_stats = None
-        category_rows = []
-        detail_rows = []
+        raw_rows = []
         if username and code:
             active_stats = await conn.fetchrow('''
                 SELECT COUNT(*) AS total_records,
@@ -1215,38 +1298,54 @@ async def get_point_stats(username: str = None, point_type: str = None, limit: i
                 FROM point_history_records
                 WHERE username = $1 AND point_type = $2
             ''', username, code)
-            category_rows = await conn.fetch('''
-                SELECT COALESCE(NULLIF(type_name_cn, ''), NULLIF(type_name, ''), '未分类') AS name,
-                       COUNT(*) AS count,
-                       SUM(CASE WHEN operation_type = 1 THEN ABS(amount) ELSE 0 END) AS income,
-                       SUM(CASE WHEN operation_type <> 1 THEN ABS(amount) ELSE 0 END) AS expense,
-                       SUM(CASE WHEN operation_type = 1 THEN ABS(amount) ELSE -ABS(amount) END) AS net
-                FROM point_history_records
-                WHERE username = $1 AND point_type = $2
-                GROUP BY COALESCE(NULLIF(type_name_cn, ''), NULLIF(type_name, ''), '未分类')
-                ORDER BY count DESC, name ASC
-            ''', username, code)
-            detail_rows = await conn.fetch('''
-                SELECT COALESCE(NULLIF(type_name_cn, ''), NULLIF(type_name, ''), '未分类') AS category,
-                       record_time, operation_type, amount, balance, type_name, type_name_cn,
-                       description, saved_at
+            raw_rows = await conn.fetch('''
+                SELECT record_time, operation_type, amount, balance,
+                       type_name, type_name_cn, description, saved_at
                 FROM point_history_records
                 WHERE username = $1 AND point_type = $2
                 ORDER BY saved_at DESC, id DESC
-                LIMIT $3
-            ''', username, code, limit)
-    detail_by_category = {}
-    for row in detail_rows:
+            ''', username, code)
+    category_agg: Dict[str, Dict] = {}
+    detail_by_category: Dict[str, List[Dict]] = {}
+    for row in raw_rows:
         item = dict(row)
-        category = item.pop('category') or '未分类'
-        item['time'] = item.get('record_time') or item.get('saved_at')
-        item['direction'] = '收入' if int(item.get('operation_type') or 0) == 1 else '支出'
-        detail_by_category.setdefault(category, []).append(item)
+        raw_type = (item.get('type_name') or '').strip()
+        description = (item.get('description') or '').strip()
+        op = int(item.get('operation_type') or 0)
+        amount_value = float(item.get('amount') or 0)
+        abs_amount = abs(amount_value)
+        category = resolve_point_category(code or '', raw_type, description)
+        agg = category_agg.setdefault(category, {
+            'name': category,
+            'count': 0,
+            'income': 0.0,
+            'expense': 0.0,
+            'net': 0.0,
+        })
+        agg['count'] += 1
+        if op == 1:
+            agg['income'] += abs_amount
+            agg['net'] += abs_amount
+        else:
+            agg['expense'] += abs_amount
+            agg['net'] -= abs_amount
+        bucket = detail_by_category.setdefault(category, [])
+        if len(bucket) < limit:
+            item['time'] = item.get('record_time') or item.get('saved_at')
+            item['direction'] = '收入' if op == 1 else '支出'
+            item['category'] = category
+            item['type_name_cn'] = item.get('type_name_cn') or category
+            bucket.append(item)
     categories = []
-    for row in category_rows:
-        item = dict(row)
-        item['records'] = detail_by_category.get(item.get('name') or '未分类', [])
-        categories.append(item)
+    for name, agg in sorted(category_agg.items(), key=lambda kv: kv[1]['count'], reverse=True):
+        categories.append({
+            'name': name,
+            'count': agg['count'],
+            'income': round(agg['income'], 2),
+            'expense': round(agg['expense'], 2),
+            'net': round(agg['net'], 2),
+            'records': detail_by_category.get(name, []),
+        })
     return {
         'summary': [dict(r) for r in summary_rows],
         'recent_records': [dict(r) for r in recent_rows],
