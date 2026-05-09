@@ -91,10 +91,10 @@
 }
 
 .ps-rt-account-action-row {
-    display: grid;
-    grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr) minmax(0, 1fr);
-    gap: 6px;
-    align-items: end;
+    display: grid !important;
+    grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr) minmax(0, 1fr) !important;
+    gap: 6px !important;
+    align-items: end !important;
 }
 
 .ps-account-wrap {
@@ -486,11 +486,6 @@
 @media (max-width: 760px) {
     .ps-rt-root {
         padding: 8px 0 40px;
-    }
-
-    .ps-rt-account-action-row,
-    .ps-rt-action-row {
-        grid-template-columns: 1fr;
     }
 
     .ps-rt-root .ps-rt-stats {
