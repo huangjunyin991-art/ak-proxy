@@ -46,77 +46,64 @@
         }).join('') + '</div>';
     }
 
-    function testPageTone(value) {
-        var num = Number(value || 0);
-        if (num > 0) return ' ps-income';
-        if (num < 0) return ' ps-expense';
-        return '';
-    }
-
-    function testPageLevel(index) {
-        return ' level-' + (index % 5);
-    }
-
-    function testPageMetric(label, value, className) {
-        return '<span class="ps-metric-chip"><span class="ps-metric-label">' + label + '</span><b class="ps-metric-value ' + (className || '') + '">' + value + '</b></span>';
-    }
-
-    function renderTestPageSummary(state) {
+    function renderSummary(state) {
         var active = activeStats(state);
         var items = [
-            ['记录', active ? active.total_records : null, ''],
-            ['收入', active ? active.total_income : null, 'ps-income'],
-            ['支出', active ? active.total_expense : null, 'ps-expense'],
-            ['净变', active ? active.net_change : null, active ? testPageTone(active.net_change).trim() : ''],
-            ['余额', active && active.current_balance != null ? active.current_balance : null, '']
+            ['记录数', active ? active.total_records : null, ''],
+            ['总收入', active ? active.total_income : null, 'income'],
+            ['总支出', active ? active.total_expense : null, 'expense'],
+            ['净变化', active ? active.net_change : null, active ? amountTone(active.net_change).trim() : ''],
+            ['当前余额', active && active.current_balance != null ? active.current_balance : null, '']
         ];
         return items.map(function(item) {
-            return '<div class="ps-mini-stat"><b class="' + item[2] + '">' + (item[1] == null ? '-' : number(item[1])) + '</b><span>' + item[0] + '</span></div>';
+            return '<div class="ps-rt-stat ' + item[2] + '"><b>' + (item[1] == null ? '-' : number(item[1])) + '</b><span>' + item[0] + '</span></div>';
         }).join('');
     }
 
-    function renderTestPageTabs(state) {
+    function renderTabs(state) {
         return state.types.map(function(type) {
-            return '<button class="ps-test-tab' + (type === state.pointType ? ' active' : '') + '" data-action="point-type" data-point-type="' + html(type) + '">' + html(type) + '</button>';
+            return '<button class="ps-rt-view-tab' + (type === state.pointType ? ' active' : '') + '" data-action="point-type" data-point-type="' + html(type) + '">' + html(type) + '</button>';
         }).join('');
     }
 
-    function renderTestPageCategories(state) {
+    function recordDirection(record) {
+        return Number(record.operation_type || 0) === 1 ? '收入' : '支出';
+    }
+
+    function renderDetailTable(records) {
+        if (!records || !records.length) return '<div class="ps-empty compact">暂无明细</div>';
+        return '<div class="ps-rt-detail-wrap"><table class="ps-detail-table"><thead><tr><th>时间</th><th>方向</th><th>金额</th><th>余额</th><th>类型</th><th>描述</th></tr></thead><tbody>' + records.map(function(record) {
+            var isIncome = Number(record.operation_type || 0) === 1;
+            var tone = isIncome ? 'income' : 'expense';
+            return '<tr><td>' + html(time(record.time || record.record_time || record.saved_at)) + '</td><td class="' + tone + '">' + recordDirection(record) + '</td><td class="' + tone + '">' + signedAmount(record.amount, record.operation_type) + '</td><td>' + (record.balance == null ? '-' : number(record.balance)) + '</td><td>' + html(record.type_name_cn || record.type_name || '-') + '</td><td>' + html(record.description || '-') + '</td></tr>';
+        }).join('') + '</tbody></table></div>';
+    }
+
+    function renderCategories(state) {
         var rows = state.payload && Array.isArray(state.payload.categories) ? state.payload.categories : [];
-        if (!rows.length) return '<div class="ps-test-empty">请选择账号查看分类统计，或当前账号暂无统计数据。</div>';
-        return '<div class="ps-path-list">' + rows.map(function(item, index) {
+        if (!rows.length) return '<tr><td colspan="6" class="ps-empty">请选择账号查看分类统计，或当前账号暂无统计数据。</td></tr>';
+        return rows.map(function(item) {
             var name = item.name || '未分类';
             var expanded = state.expandedCategory === name;
-            var netClass = testPageTone(item.net).trim();
-            return '<article class="ps-path-card' + testPageLevel(index) + '"><div class="ps-card-title"><span><b>' + html(name) + '</b><small>' + number((item.records || []).length) + ' 条可展开明细</small></span><button class="ps-card-action" data-action="toggle-category" data-name="' + html(name) + '">' + (expanded ? '收起' : '展开') + '</button></div><div class="ps-card-metrics">' + testPageMetric('记录', number(item.count), '') + testPageMetric('收入', number(item.income), 'ps-income') + testPageMetric('支出', number(item.expense), 'ps-expense') + testPageMetric('净变', number(item.net), netClass) + '</div>' + (expanded ? renderTestPageRecords(item.records || []) : '') + '</article>';
-        }).join('') + '</div>';
+            return '<tr class="ps-category-row"><td><button class="ps-rt-btn primary ps-expand-btn" data-action="toggle-category" data-name="' + html(name) + '">' + (expanded ? '收起' : '展开') + '</button>' + html(name) + '</td><td>' + number(item.count) + '</td><td class="income">' + number(item.income) + '</td><td class="expense">' + number(item.expense) + '</td><td class="' + amountTone(item.net).trim() + '">' + number(item.net) + '</td><td>' + number((item.records || []).length) + '</td></tr>' + (expanded ? '<tr class="ps-detail-row"><td colspan="6">' + renderDetailTable(item.records || []) + '</td></tr>' : '');
+        }).join('');
     }
 
-    function renderTestPageRecords(records) {
-        if (!records || !records.length) return '<div class="ps-test-empty compact">暂无明细</div>';
-        return '<div class="ps-test-record-list">' + records.map(function(record, index) {
-            var isIncome = Number(record.operation_type || 0) === 1;
-            var tone = isIncome ? 'ps-income' : 'ps-expense';
-            return '<article class="ps-test-record level-' + (index % 5) + '"><span class="ps-record-main"><b>' + html(record.description || record.type_name_cn || record.type_name || '-') + '</b><small>' + time(record.time || record.record_time || record.saved_at) + '</small></span><div class="ps-card-metrics">' + testPageMetric(isIncome ? '收入' : '支出', signedAmount(record.amount, record.operation_type), tone) + testPageMetric('余额', record.balance == null ? '-' : number(record.balance), '') + testPageMetric('类型', html(record.type_name_cn || record.type_name || '-'), '') + '</div></article>';
-        }).join('') + '</div>';
-    }
-
-    function renderTestPageLeaderboard(state) {
+    function renderLeaderboard(state) {
         var rows = state.payload && Array.isArray(state.payload.leaderboard) ? state.payload.leaderboard : [];
-        if (!rows.length) return '<div class="ps-test-empty">暂无账号排行</div>';
-        return '<div class="ps-path-list compact">' + rows.map(function(item, index) {
-            var netClass = testPageTone(item.net_change).trim();
-            return '<button class="ps-path-card ps-rank-card' + testPageLevel(index + 1) + '" data-action="rank-account" data-username="' + html(item.username || '') + '"><div class="ps-card-title"><span><b>' + html(item.username || '-') + '</b><small>' + html(item.point_type || state.pointType) + ' · ' + number(item.total_records) + ' 条流水</small></span><em>TOP ' + (index + 1) + '</em></div><div class="ps-card-metrics">' + testPageMetric('收入', number(item.total_income), 'ps-income') + testPageMetric('支出', number(item.total_expense), 'ps-expense') + testPageMetric('净变', number(item.net_change), netClass) + '</div></button>';
-        }).join('') + '</div>';
+        if (!rows.length) return '<tr><td colspan="6" class="ps-empty">暂无账号排行</td></tr>';
+        return rows.map(function(item, index) {
+            return '<tr><td>TOP ' + (index + 1) + '</td><td><button class="ps-rank-link" data-action="rank-account" data-username="' + html(item.username || '') + '">' + html(item.username || '-') + '</button></td><td>' + number(item.total_records) + '</td><td class="income">' + number(item.total_income) + '</td><td class="expense">' + number(item.total_expense) + '</td><td class="' + amountTone(item.net_change).trim() + '">' + number(item.net_change) + '</td></tr>';
+        }).join('');
     }
 
-    function renderTestPage(state) {
+    function render(state) {
         var current = state.username ? html(state.username) : '全局排行';
         var badgeText = state.error ? '异常' : state.loading ? '读取中' : state.syncing ? '同步中' : state.username ? '账号视图' : '全局视图';
-        return '<div class="ps-app' + ((state.loading || state.syncing) ? ' is-busy' : '') + '"><section class="ps-topbar"><div class="ps-title-row"><h1>点数统计</h1><span class="ps-test-badge">' + html(badgeText) + '</span></div><div class="ps-status-line ' + (state.error ? 'error' : '') + '">' + html(state.status) + '</div><div class="ps-mini-stats">' + renderTestPageSummary(state) + '</div><div class="ps-test-controls"><div class="ps-search-wrap"><input class="ps-test-search ps-account-input" data-role="account-input" value="' + html(state.accountQuery) + '" placeholder="搜索账号 / 姓名" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">' + renderOptions(state) + '</div><div class="ps-test-actions"><button class="ps-test-btn" data-action="load"' + (state.loading ? ' disabled' : '') + '>' + (state.loading ? '读取中' : '读取') + '</button><button class="ps-test-btn primary" data-action="sync"' + (state.syncing ? ' disabled' : '') + '>' + (state.syncing ? '同步中' : '同步') + '</button><button class="ps-test-btn ghost" data-action="clear-account">清空</button></div></div><div class="ps-test-tabs">' + renderTestPageTabs(state) + '</div></section><section class="ps-test-panel"><div class="ps-test-panel-head"><span><b>' + html(state.pointType) + ' 分类流水</b><small>' + current + '</small></span><em>分类卡片</em></div>' + renderTestPageCategories(state) + '</section><section class="ps-test-panel"><div class="ps-test-panel-head"><span><b>账号排行</b><small>按净变化排序</small></span><em>' + html(state.pointType) + '</em></div>' + renderTestPageLeaderboard(state) + '</section></div>';
+        return '<div class="ps-rt-root' + ((state.loading || state.syncing) ? ' is-busy' : '') + '"><section class="ps-rt-hero"><div class="ps-rt-hero-top"><div class="ps-rt-title"><strong>点数统计</strong><span>查看 EP/SP/TP/RP 历史流水、分类统计、账号排行和展开明细。</span></div><span class="ps-rt-cache-badge">' + html(badgeText) + '</span></div><div class="ps-rt-account-action-row"><div class="ps-account-wrap"><label class="ps-rt-field"><span>账号</span><input class="ps-rt-input ps-account-input" data-role="account-input" value="' + html(state.accountQuery) + '" placeholder="搜索账号 / 姓名" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">' + renderOptions(state) + '</label></div><div class="ps-rt-action-row"><button class="ps-rt-btn" data-action="load"' + (state.loading ? ' disabled' : '') + '>' + (state.loading ? '读取中' : '读取缓存') + '</button><button class="ps-rt-btn primary" data-action="sync"' + (state.syncing ? ' disabled' : '') + '>' + (state.syncing ? '同步中' : '同步流水') + '</button><button class="ps-rt-btn" data-action="clear-account">清空账号</button></div></div><div class="ps-rt-cache-line ' + (state.error ? 'error' : 'info') + '">' + html(state.status) + '</div></section><section class="ps-rt-stats">' + renderSummary(state) + '</section><section class="ps-rt-controls"><div class="ps-rt-view-tabs">' + renderTabs(state) + '</div></section><section class="ps-rt-path-panel"><div class="ps-rt-scheme-note"><span>' + html(state.pointType) + ' 历史记录</span><span class="meta">' + current + '</span></div><div class="ps-rt-table-wrap"><table><thead><tr><th>统计项</th><th>数量</th><th>收入</th><th>支出</th><th>净变化</th><th>明细</th></tr></thead><tbody>' + renderCategories(state) + '</tbody></table></div></section><section class="ps-rt-path-panel"><div class="ps-rt-scheme-note"><span>账号排行</span><span class="meta">按净变化排序 · ' + html(state.pointType) + '</span></div><div class="ps-rt-table-wrap"><table><thead><tr><th>排名</th><th>账号</th><th>记录数</th><th>收入</th><th>支出</th><th>净变化</th></tr></thead><tbody>' + renderLeaderboard(state) + '</tbody></table></div></section></div>';
     }
 
     window.AKPointStatsRenderer = {
-        render: renderTestPage
+        render: render
     };
 })();
