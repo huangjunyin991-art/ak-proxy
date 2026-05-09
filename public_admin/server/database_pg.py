@@ -1273,6 +1273,7 @@ async def search_point_stat_users(search: str = None, limit: int = 12) -> Dict:
                 )
                 SELECT ap.username,
                        COALESCE(NULLIF(us.real_name, ''), '') AS real_name,
+                       COALESCE(NULLIF(ua.honor_name, ''), 'M0') AS honor_name,
                        ua.updated_at,
                        COALESCE(ph.record_count, 0) AS point_record_count
                 FROM account_pool ap
@@ -1298,6 +1299,7 @@ async def search_point_stat_users(search: str = None, limit: int = 12) -> Dict:
                 )
                 SELECT ap.username,
                        COALESCE(NULLIF(us.real_name, ''), '') AS real_name,
+                       COALESCE(NULLIF(ua.honor_name, ''), 'M0') AS honor_name,
                        ua.updated_at,
                        COALESCE(ph.record_count, 0) AS point_record_count
                 FROM account_pool ap
