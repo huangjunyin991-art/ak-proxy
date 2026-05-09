@@ -97,6 +97,18 @@
     align-items: end !important;
 }
 
+.ps-rt-account-action-row .ps-rt-btn,
+.ps-rt-account-action-row .ps-rt-btn.primary,
+.ps-rt-account-action-row .ps-rt-btn.secondary {
+    height: 31px !important;
+    min-height: 31px !important;
+    padding: 0 8px !important;
+    border-radius: 7px !important;
+    font-size: 12px !important;
+    font-weight: 800 !important;
+    line-height: 1 !important;
+}
+
 .ps-account-wrap {
     min-width: 0;
 }
