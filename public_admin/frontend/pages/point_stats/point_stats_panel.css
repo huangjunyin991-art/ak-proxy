@@ -92,8 +92,8 @@
 
 .ps-rt-account-action-row {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(252px, auto);
-    gap: 8px;
+    grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr) minmax(0, 1fr);
+    gap: 6px;
     align-items: end;
 }
 
@@ -195,7 +195,7 @@
 
 .ps-rt-stats {
     display: grid;
-    grid-template-columns: repeat(5, minmax(0, 1fr));
+    grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: 6px;
     margin-bottom: 8px;
 }
