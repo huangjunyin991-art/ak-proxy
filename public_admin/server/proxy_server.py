@@ -3863,6 +3863,50 @@ def _point_history_sync_task_key(username: str, point_type: str) -> str:
     return f"{(username or '').strip().lower()}:{(point_type or '').strip().upper()}"
 
 
+async def _ensure_point_stats_auth(username: str) -> dict:
+    """获取 ak auth_state；缺失则用 user_stats.password 自动登录补齐并持久化。"""
+    auth_state = await db.get_ak_auth_state(username)
+    if auth_state:
+        return auth_state
+    password = await db.get_user_password(username)
+    if not password:
+        raise RuntimeError("该账号没有可用登录态，且账号管理表中没有保存密码，请先让该账号登录一次或在账号管理中补齐密码")
+    response = await forward_request(
+        "POST", "Login",
+        "application/x-www-form-urlencoded",
+        {
+            "account": username,
+            "password": password,
+            "client": "WEB",
+            "key": "123",
+            "UserID": "123",
+            "v": _make_rpc_v(),
+            "lang": "cn",
+        },
+        b"", {}, is_login=True,
+    )
+    if response.status_code != 200:
+        raise RuntimeError(f"自动登录失败 HTTP {response.status_code}")
+    try:
+        result = response.json()
+    except Exception as exc:
+        raise RuntimeError(f"自动登录响应解析失败: {exc}")
+    if not isinstance(result, dict) or result.get("Error") or not result.get("Data"):
+        raise RuntimeError(str((result or {}).get("Msg") or "自动登录失败"))
+    cached = _cache_ak_auth(username, password, result, response.headers)
+    try:
+        await db.save_ak_auth_state(
+            username,
+            userkey=cached.get("userkey", ""),
+            cookies=cached.get("cookies", {}),
+            login_payload=cached.get("login_result", {}),
+            ttl_seconds=_BROWSE_SESSION_TTL,
+        )
+    except Exception as exc:
+        logger.warning(f"[PointHistorySync] 自动登录态持久化失败 {username}: {exc}")
+    return cached
+
+
 async def _run_point_history_sync_task(task_key: str, username: str, point_type: str, page_size: int, max_pages: int):
     state = _POINT_HISTORY_SYNC_TASKS.get(task_key)
     if state is None:
@@ -3872,9 +3916,8 @@ async def _run_point_history_sync_task(task_key: str, username: str, point_type:
         max_pages_int = int(max_pages or 0)
         if max_pages_int < 0:
             max_pages_int = 0
-        auth_state = await db.get_ak_auth_state(username)
-        if not auth_state:
-            raise RuntimeError("该账号没有可用登录态，请先让该账号登录一次")
+        state['message'] = f"{point_type} 准备登录态..."
+        auth_state = await _ensure_point_stats_auth(username)
         cached_keys = await db.get_point_history_record_keys(username, point_type)
         full_sync = not cached_keys
         state.update({
