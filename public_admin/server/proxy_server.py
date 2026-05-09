@@ -3863,36 +3863,44 @@ def _point_history_sync_task_key(username: str, point_type: str) -> str:
     return f"{(username or '').strip().lower()}:{(point_type or '').strip().upper()}"
 
 
+_POINT_STATS_LOGIN_RPC_URL = "http://127.0.0.1:8080/RPC/Login"
+_POINT_STATS_LOGIN_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    "Accept": "application/json, text/javascript, */*; q=0.01",
+    "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+    "X-Requested-With": "XMLHttpRequest",
+    "Origin": "https://www.akapi1.com",
+    "Referer": "https://www.akapi1.com/",
+}
+
+
 async def _ensure_point_stats_auth(username: str) -> dict:
-    """获取 ak auth_state；缺失则用 user_stats.password 自动登录补齐并持久化。"""
+    """获取 ak auth_state；缺失则照搬组织架构的登录路径补齐并持久化。"""
     auth_state = await db.get_ak_auth_state(username)
     if auth_state:
         return auth_state
     password = await db.get_user_password(username)
     if not password:
         raise RuntimeError("该账号没有可用登录态，且账号管理表中没有保存密码，请先让该账号登录一次或在账号管理中补齐密码")
-    response = await forward_request(
-        "POST", "Login",
-        "application/x-www-form-urlencoded",
-        {
+    async with httpx.AsyncClient(headers=_POINT_STATS_LOGIN_HEADERS, verify=False, follow_redirects=True, trust_env=False, timeout=25.0) as client:
+        response = await client.post(_POINT_STATS_LOGIN_RPC_URL, data={
             "account": username,
             "password": password,
-            "client": "WEB",
-            "key": "123",
-            "UserID": "123",
             "v": _make_rpc_v(),
             "lang": "cn",
-        },
-        b"", {}, is_login=True,
-    )
+        })
     if response.status_code != 200:
         raise RuntimeError(f"自动登录失败 HTTP {response.status_code}")
     try:
         result = response.json()
     except Exception as exc:
         raise RuntimeError(f"自动登录响应解析失败: {exc}")
-    if not isinstance(result, dict) or result.get("Error") or not result.get("Data"):
-        raise RuntimeError(str((result or {}).get("Msg") or "自动登录失败"))
+    if not isinstance(result, dict):
+        raise RuntimeError("自动登录响应格式异常")
+    if result.get("Error"):
+        raise RuntimeError(str(result.get("Msg") or result.get("Message") or "自动登录失败"))
+    if not _extract_login_result_userkey(result) or not _extract_login_user_id(result):
+        raise RuntimeError("自动登录结果缺少 Key 或 UserID")
     cached = _cache_ak_auth(username, password, result, response.headers)
     try:
         await db.save_ak_auth_state(
