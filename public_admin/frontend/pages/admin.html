@@ -18,7 +18,32 @@
                 window.__akAdminPerfLog = log;
                 log('html-head');
                 document.addEventListener('DOMContentLoaded', function(){ log('DOMContentLoaded'); });
-                window.addEventListener('load', function(){ log('window.load'); });
+                window.addEventListener('load', function(){
+                    log('window.load');
+                    try {
+                        var entries = performance.getEntriesByType ? performance.getEntriesByType('navigation') : [];
+                        var nav = entries && entries[0];
+                        if (nav) {
+                            console.log('[AKAdminPerf] navigation', JSON.stringify({
+                                fetchStart: Math.round(nav.fetchStart) + 'ms',
+                                requestStart: Math.round(nav.requestStart) + 'ms',
+                                ttfb_ms: Math.round(nav.responseStart - nav.requestStart),
+                                contentDownload_ms: Math.round(nav.responseEnd - nav.responseStart),
+                                domInteractive_ms: Math.round(nav.domInteractive),
+                                domContentLoaded_ms: Math.round(nav.domContentLoadedEventEnd),
+                                loadEvent_ms: Math.round(nav.loadEventEnd),
+                                transferSize: nav.transferSize,
+                                encodedSize: nav.encodedBodySize,
+                                decodedSize: nav.decodedBodySize
+                            }));
+                        }
+                        var resources = performance.getEntriesByType ? performance.getEntriesByType('resource') : [];
+                        var slow = resources.filter(function(r){ return r.duration > 1000; })
+                            .map(function(r){ return { name: r.name.replace(/^https?:\/\/[^/]+/, ''), duration_ms: Math.round(r.duration) }; });
+                        if (slow.length) console.warn('[AKAdminPerf] slow resources (>1s)', slow);
+                        else console.log('[AKAdminPerf] no resource >1s');
+                    } catch(e) { console.warn('[AKAdminPerf] navigation timing failed', e); }
+                });
                 window.addEventListener('ak-admin-auth-ready', function(){ log('auth-ready'); });
                 window.addEventListener('error', function(e){
                     try { console.warn('[AKAdminPerf] error', e && (e.message || e.error || e)); } catch(_){}
