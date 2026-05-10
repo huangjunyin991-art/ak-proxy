@@ -408,8 +408,13 @@
         }
 
         .sub-admin-form-actions {
-            display: flex;
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
             gap: 8px;
+        }
+
+        .sub-admin-form-actions > button {
+            min-width: 0;
         }
 
         .sub-admin-permission-header {
@@ -2562,13 +2567,16 @@
             }
 
             .sub-admin-form-actions {
-                flex-wrap: wrap;
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+                gap: 6px;
                 align-items: stretch;
             }
 
             .sub-admin-form-actions > button {
-                flex: 1 1 150px !important;
-                min-height: 40px;
+                flex: none !important;
+                min-height: 38px;
+                padding: 6px 8px !important;
+                font-size: 12px !important;
                 white-space: normal;
                 line-height: 1.25;
             }
@@ -3761,18 +3769,18 @@
                                 </div>
                             </div>
                             
-                            <div class="sub-admin-form-actions" style="display: flex; gap: 8px;">
-                                <button onclick="setSubAdmin()" class="btn btn-primary" style="flex: 1; padding: 8px; font-size: 13px;">
-                                    ✅ 添加/更新子管理员
+                            <div class="sub-admin-form-actions">
+                                <button onclick="setSubAdmin()" class="btn btn-primary" style="padding: 8px; font-size: 13px;">
+                                    添加/更新子管理员
                                 </button>
                                 <button id="updatePermBtn" onclick="updateSubAdminPermissions()" style="display: none; padding: 8px 14px; background: var(--bg-secondary); color: var(--accent); border: 1px solid var(--accent); border-radius: 4px; cursor: pointer; font-size: 13px;">
                                     更新权限
                                 </button>
                                 <button id="bindAccountBtn" onclick="bindSubAdminAccount()" style="display: none; padding: 8px 14px; background: var(--bg-secondary); color: var(--accent-green); border: 1px solid rgba(0,255,136,0.3); border-radius: 4px; cursor: pointer; font-size: 13px;">
-                                    🔗 补绑账号
+                                    补绑账号
                                 </button>
                                 <button id="unbindAccountBtn" onclick="unbindSubAdminAccount()" style="display: none; padding: 8px 14px; background: var(--bg-secondary); color: var(--accent-red); border: 1px solid rgba(255,71,87,0.3); border-radius: 4px; cursor: pointer; font-size: 13px;">
-                                    🔓 解绑账号
+                                    解绑账号
                                 </button>
                                 <button onclick="kickAllSubAdmins()" style="padding: 8px 14px; background: var(--bg-secondary); color: var(--accent-yellow); border: 1px solid rgba(255,165,2,0.3); border-radius: 4px; cursor: pointer; font-size: 13px;">
                                     踢出全部
@@ -6195,7 +6203,7 @@
             setSubAdminBoundUsername('');
             document.getElementById('updatePermBtn').style.display = 'none';
             document.getElementById('bindAccountBtn').style.display = 'none';
-            document.getElementById('bindAccountBtn').textContent = '🔗 补绑账号';
+            document.getElementById('bindAccountBtn').textContent = '补绑账号';
             const unbindBtn = document.getElementById('unbindAccountBtn');
             if (unbindBtn) unbindBtn.style.display = 'none';
             document.querySelectorAll('#subAdminList [data-subname]').forEach(card => {
@@ -6230,7 +6238,7 @@
             // 显示操作按钮
             document.getElementById('updatePermBtn').style.display = '';
             document.getElementById('bindAccountBtn').style.display = '';
-            document.getElementById('bindAccountBtn').textContent = currentBound ? '🔁 换绑账号' : '🔗 补绑账号';
+            document.getElementById('bindAccountBtn').textContent = currentBound ? '换绑账号' : '补绑账号';
             const unbindBtn = document.getElementById('unbindAccountBtn');
             if (unbindBtn) unbindBtn.style.display = currentBound ? '' : 'none';
             showSubAdminMsg(currentBound
