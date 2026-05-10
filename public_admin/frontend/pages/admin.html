@@ -2694,35 +2694,22 @@
             }
             #license > div:first-child > div {
                 display: grid !important;
-                grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+                grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
                 gap: 8px !important;
                 width: 100%;
             }
-            /* 搜索框跨整行 */
-            #license > div:first-child > div > #licenseSearch {
-                grid-column: 1 / -1 !important;
-                width: 100% !important;
-                box-sizing: border-box;
-                min-height: 40px;
-            }
-            /* 两个 select 各占一格 */
-            #license > div:first-child > div > select {
-                width: 100% !important;
-                box-sizing: border-box;
-                min-height: 40px;
-            }
-            /* 搜索 / 清除按钮各占一格 */
+            /* 6 个控件 3 列 2 行：搜索框/计费/状态 + 搜索/清除/创建 */
+            #license > div:first-child > div > #licenseSearch,
+            #license > div:first-child > div > select,
             #license > div:first-child > div > button {
                 width: 100% !important;
                 box-sizing: border-box;
                 min-height: 40px;
-                padding: 8px 12px !important;
+                padding: 8px 10px !important;
                 font-size: 13px !important;
             }
-            /* 创建激活码按钮跨整行（绿色 accent） */
-            #license > div:first-child > div > button:last-child {
-                grid-column: 1 / -1 !important;
-                font-weight: 700;
+            #license > div:first-child > div > button {
+                font-weight: 600;
             }
             
             /* 聊天区域适配 */
