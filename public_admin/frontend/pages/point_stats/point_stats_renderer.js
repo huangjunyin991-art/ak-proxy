@@ -51,7 +51,7 @@
     function renderQuotaLine(state) {
         var q = state.quota || {};
         if (q.isSuperAdmin) {
-            return '<div class="ps-rt-quota-line super">超管：今日不限次数</div>';
+            return '<div class="ps-rt-quota-line super">顶级管理员无限使用</div>';
         }
         var limit = q.limit == null ? 3 : Number(q.limit);
         var used = Number(q.usedCount || 0);
