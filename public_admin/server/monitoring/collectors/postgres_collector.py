@@ -30,6 +30,8 @@ async def collect_database_snapshot(pool, timeout_seconds: float = 4.0) -> dict:
             row_data = dict(row)
             data["database_size_bytes"] = _safe_int(row_data.get("database_size_bytes"))
             data["active_connections"] = _safe_int(row_data.get("active_connections"))
+        # 动态扫描 public schema 全部业务 BASE TABLE，避免新增表遗漏。
+        # 只保留 relkind='r'（普通表）+ relpersistence='p'（持久化，排除临时/unlogged 表）。
         rows = await _fetch_with_timeout(conn.fetch('''
             SELECT relname AS table_name,
                    pg_total_relation_size(c.oid) AS total_bytes,
@@ -38,35 +40,9 @@ async def collect_database_snapshot(pool, timeout_seconds: float = 4.0) -> dict:
             JOIN pg_namespace n ON n.oid = c.relnamespace
             WHERE n.nspname = 'public'
               AND c.relkind = 'r'
-              AND relname IN (
-                  -- IM 消息与会话
-                  'im_message', 'im_message_mention', 'im_conversation',
-                  'im_conversation_member', 'im_conversation_admin',
-                  'im_conversation_member_override', 'im_direct_message_gate',
-                  -- IM 用户档案与社交
-                  'im_user_profile', 'im_user_avatar_history',
-                  'im_user_contact', 'im_user_blacklist',
-                  -- IM 资产与表情
-                  'im_file_asset', 'im_emoji_asset', 'im_media_preview_task',
-                  -- IM 会议
-                  'im_meetings', 'im_meeting_reads', 'meeting_publish_permissions',
-                  -- IM 系统配置
-                  'im_system_config',
-                  -- 用户与登录
-                  'authorized_accounts', 'login_records', 'user_stats',
-                  'user_assets', 'ip_stats', 'ban_list',
-                  -- 积分与点数
-                  'point_history_records', 'credit_config', 'credit_transactions',
-                  'admin_point_stats_quota',
-                  -- 管理员与权限
-                  'admin_tokens', 'admin_totp_secrets', 'admin_operation_leases',
-                  'sub_admins', 'sub_admin_account_bindings',
-                  'admin_recommend_tree_cache',
-                  -- 业务运营
-                  'license_logs', 'subscription_groups', 'exit_events',
-                  'notification_campaigns', 'notification_deliveries',
-                  'system_config'
-              )
+              AND c.relpersistence = 'p'
+              AND relname NOT LIKE 'pg\\_%' ESCAPE '\\'
+              AND relname NOT LIKE 'sql\\_%' ESCAPE '\\'
             ORDER BY pg_total_relation_size(c.oid) DESC
             LIMIT 100
         '''), timeout_seconds)
