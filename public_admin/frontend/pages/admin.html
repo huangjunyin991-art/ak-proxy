@@ -2686,10 +2686,43 @@
                 min-width: 650px;
             }
             
-            /* 激活码管理顶部工具栏 */
+            /* 激活码管理顶部工具栏：移动端整齐 2 列 grid 布局 */
             #license > div:first-child {
                 flex-direction: column;
-                align-items: flex-start !important;
+                align-items: stretch !important;
+                gap: 10px !important;
+            }
+            #license > div:first-child > div {
+                display: grid !important;
+                grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+                gap: 8px !important;
+                width: 100%;
+            }
+            /* 搜索框跨整行 */
+            #license > div:first-child > div > #licenseSearch {
+                grid-column: 1 / -1 !important;
+                width: 100% !important;
+                box-sizing: border-box;
+                min-height: 40px;
+            }
+            /* 两个 select 各占一格 */
+            #license > div:first-child > div > select {
+                width: 100% !important;
+                box-sizing: border-box;
+                min-height: 40px;
+            }
+            /* 搜索 / 清除按钮各占一格 */
+            #license > div:first-child > div > button {
+                width: 100% !important;
+                box-sizing: border-box;
+                min-height: 40px;
+                padding: 8px 12px !important;
+                font-size: 13px !important;
+            }
+            /* 创建激活码按钮跨整行（绿色 accent） */
+            #license > div:first-child > div > button:last-child {
+                grid-column: 1 / -1 !important;
+                font-weight: 700;
             }
             
             /* 聊天区域适配 */
