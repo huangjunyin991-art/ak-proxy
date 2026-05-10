@@ -79,6 +79,11 @@
         if (accountInput) {
             accountInput.onfocus = function() {
                 if (suppressAccountFocus) return;
+                if (store.state.accountAuthRequired) {
+                    store.state.accountDropdownOpen = false;
+                    render(true);
+                    return;
+                }
                 store.state.accountDropdownOpen = true;
                 store.state.accountSearching = true;
                 render(true);
@@ -86,6 +91,12 @@
             };
             accountInput.oninput = function() {
                 store.setAccountQuery(accountInput.value || '');
+                if (store.state.accountAuthRequired) {
+                    store.state.accountDropdownOpen = false;
+                    store.state.accountSearching = false;
+                    render(true);
+                    return;
+                }
                 store.state.accountSearching = true;
                 scheduleAccountSearch(accountInput.value || '');
                 render(true);
@@ -196,6 +207,7 @@
         var seq = ++accountSearchSeq;
         store.state.accountSearching = true;
         store.state.accountDropdownOpen = true;
+        store.state.accountAuthRequired = false;
         api.searchAccounts(query || '', 12).then(function(result) {
             if (seq !== accountSearchSeq) return;
             store.setAccountOptions(result.rows || []);
@@ -204,6 +216,12 @@
             if (seq !== accountSearchSeq) return;
             store.state.accountSearching = false;
             store.state.accountOptions = [];
+            if (error && error.code === 'NEED_OPERATION_AUTH') {
+                store.state.accountAuthRequired = true;
+                store.state.accountDropdownOpen = false;
+                render(true);
+                return;
+            }
             render(true);
             notify(error.message || String(error), 'error');
         });

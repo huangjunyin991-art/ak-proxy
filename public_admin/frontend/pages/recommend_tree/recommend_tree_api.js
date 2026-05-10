@@ -8,7 +8,11 @@
     function parseResponse(response) {
         return response.json().then(function(body) {
             if (!response.ok || body.error || body.success === false) {
-                throw new Error(body.message || body.detail || '组织架构接口请求失败');
+                var err = new Error(body.message || body.detail || '组织架构接口请求失败');
+                err.code = body.code || '';
+                err.status = response.status;
+                err.body = body;
+                throw err;
             }
             return body;
         });

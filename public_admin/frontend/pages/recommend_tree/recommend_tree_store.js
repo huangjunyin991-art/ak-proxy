@@ -16,6 +16,7 @@
             accountOptions: [],
             accountSearching: false,
             accountDropdownOpen: false,
+            accountAuthRequired: false,
             selectedAccountMeta: null,
             meta: null,
             payload: null,

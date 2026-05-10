@@ -541,6 +541,31 @@
     padding: 0 16px;
 }
 
+.rt-account-input.auth-required {
+    border-color: rgba(255, 122, 122, 0.55) !important;
+    box-shadow: 0 0 0 2px rgba(255, 122, 122, 0.16), inset 0 0 0 1px rgba(255, 122, 122, 0.18);
+}
+
+.rt-account-input.auth-required::placeholder {
+    color: #ff7a7a;
+    font-weight: 800;
+    letter-spacing: 0.4px;
+    opacity: 1;
+}
+
+.rt-account-input.auth-required::-webkit-input-placeholder {
+    color: #ff7a7a;
+    font-weight: 800;
+    letter-spacing: 0.4px;
+}
+
+.rt-account-input.auth-required::-moz-placeholder {
+    color: #ff7a7a;
+    font-weight: 800;
+    letter-spacing: 0.4px;
+    opacity: 1;
+}
+
 .rt-account-dropdown {
     position: absolute;
     left: 0;

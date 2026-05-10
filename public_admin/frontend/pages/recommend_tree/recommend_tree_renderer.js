@@ -29,7 +29,7 @@
             '</div>' +
             '<div class="rt-account-action-row">' +
                 '<div class="rt-account-wrap ' + (state.accountDropdownOpen ? 'open' : '') + '">' +
-                    '<input class="rt-input rt-account-input" id="rtAccountInput" value="' + utils.escapeHtml(state.accountQuery || state.account || '') + '" placeholder="在账号管理中搜索账号/姓名">' +
+                    '<input class="rt-input rt-account-input' + (state.accountAuthRequired ? ' auth-required' : '') + '" id="rtAccountInput" value="' + utils.escapeHtml(state.accountQuery || state.account || '') + '" placeholder="' + utils.escapeHtml(state.accountAuthRequired ? '该操作需要进行谷歌验证！' : '在账号管理中搜索账号/姓名') + '">' +
                     renderAccountDropdown(state) +
                 '</div>' +
                 '<div class="rt-action-row">' +
