@@ -113,21 +113,32 @@
 .ps-rt-account-action-row .ps-rt-btn,
 .ps-rt-account-action-row .ps-rt-btn.primary,
 .ps-rt-account-action-row .ps-rt-btn.secondary {
-    height: 31px !important;
-    min-height: 31px !important;
-    padding: 0 8px !important;
-    border-radius: 7px !important;
+    height: 28px !important;
+    min-height: 28px !important;
+    padding: 0 10px !important;
+    border-radius: 6px !important;
     font-size: 12px !important;
     font-weight: 800 !important;
     line-height: 1 !important;
 }
 
+.ps-rt-account-action-row .ps-rt-input {
+    height: 28px !important;
+    min-height: 28px !important;
+    padding: 0 10px !important;
+    border-radius: 6px !important;
+}
+
 .ps-rt-action-stack {
+    position: relative;
     display: flex;
-    flex-direction: column;
-    align-items: stretch;
-    gap: 4px;
+    align-items: center;
     min-width: 96px;
+}
+
+.ps-rt-action-stack .ps-rt-btn,
+.ps-rt-action-stack .ps-rt-btn.primary {
+    width: 100%;
 }
 
 .ps-rt-action-stack .ps-rt-btn[disabled],
@@ -138,13 +149,20 @@
 }
 
 .ps-rt-quota-line {
-    font-size: 11px;
+    position: absolute;
+    top: calc(100% + 2px);
+    left: 0;
+    right: 0;
+    margin: 0;
+    font-size: 10px;
     font-weight: 700;
     color: #8fb6c9;
-    letter-spacing: 0.4px;
+    letter-spacing: 0.3px;
     text-align: center;
-    line-height: 1.4;
+    line-height: 1.2;
+    white-space: nowrap;
     user-select: none;
+    pointer-events: none;
 }
 
 .ps-rt-quota-line b {

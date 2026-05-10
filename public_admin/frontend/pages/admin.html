@@ -4196,7 +4196,7 @@
                     <div style="background:var(--bg-card);border:1px solid rgba(0,212,255,0.35);border-radius:14px;max-width:430px;width:92%;box-shadow:0 18px 60px rgba(0,0,0,0.45);">
                         <div style="padding:24px 26px 14px;border-bottom:1px solid var(--border);">
                             <h3 style="margin:0;color:var(--accent);">Google 验证授权</h3>
-                            <div style="margin-top:8px;color:var(--text-secondary);font-size:13px;line-height:1.6;">操作范围：<strong style="color:var(--accent-green);">${escapeHtml(scope)}</strong><br>验证通过后将在所选时间内允许同类操作。</div>
+                            <div data-operation-scope="${escapeHtml(scope)}" style="margin-top:8px;color:var(--text-secondary);font-size:13px;line-height:1.6;"><strong style="color:var(--accent-green);">检测到敏感操作，请进行 Google 验证</strong><br>验证通过后将在所选时间内自动允许同类操作，无需重复验证。</div>
                         </div>
                         <div style="padding:20px 26px;">
                             <input id="operationAuthCode" type="text" inputmode="numeric" maxlength="6" placeholder="输入 6 位验证码" style="width:100%;padding:14px 16px;background:var(--bg-primary);border:1px solid var(--border);border-radius:10px;color:var(--text-primary);font-size:18px;text-align:center;letter-spacing:4px;margin-bottom:14px;">
