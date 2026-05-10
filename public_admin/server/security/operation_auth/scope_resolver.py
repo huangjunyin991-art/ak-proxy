@@ -78,6 +78,8 @@ class OperationScopeResolver:
             ('POST', '/admin/ak-rpc/', 'dispatcher_ops'),
             ('POST', '/admin/ak-site/', 'dispatcher_ops'),
             ('POST', '/admin/ak-web/', 'dispatcher_ops'),
+            ('GET', '/admin/api/recommend-tree/', 'recommend_tree_ops'),
+            ('POST', '/admin/api/recommend-tree/', 'recommend_tree_ops'),
         ]
 
     def resolve(self, method: str, path: str, body: bytes | None = None) -> str:
