@@ -3327,8 +3327,16 @@
                 </div>
                 <div class="wl-section-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; flex-wrap: wrap; gap: 10px;">
                     <h3 style="color: var(--accent); margin: 0;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-2px"><rect width="8" height="4" x="8" y="2" rx="1" ry="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="m9 14 2 2 4-4"/></svg> 授权白名单</h3>
-                    <div class="wl-toolbar" style="display: flex; align-items: center; gap: 8px;">
+                    <div class="wl-toolbar" style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
                         <span id="wlBalanceInfo" style="font-size: 13px; color: var(--accent-yellow);"></span>
+                        <select id="wlFilter" onchange="applyWhitelistFilter()"
+                                style="padding: 6px 10px; background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 6px; color: var(--text-primary); font-size: 13px;">
+                            <option value="all">全部</option>
+                            <option value="expiring">临期(7天内)</option>
+                            <option value="normal">正常</option>
+                            <option value="expired">已过期</option>
+                            <option value="deleted">已删除</option>
+                        </select>
                         <input type="text" id="wlSearch" placeholder="搜索账号..." onkeyup="if(event.key==='Enter')loadWhitelist()"
                                style="padding: 6px 12px; background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 6px; color: var(--text-primary); font-size: 13px; width: 160px;">
                         <button class="btn" onclick="loadWhitelist()" style="padding: 6px 14px; font-size: 13px;">搜索</button>
@@ -3336,9 +3344,11 @@
                     </div>
                 </div>
                 <!-- 即将到期提醒 -->
-                <div id="wlExpiringAlert" style="display:none; background: rgba(255,165,0,0.1); border: 1px solid rgba(255,165,0,0.3); border-radius: 8px; padding: 10px 15px; margin-bottom: 12px;">
-                    <span style="color: #ffa500; font-weight: bold;">⚠️ 即将到期:</span>
-                    <span id="wlExpiringList" style="color: var(--text-secondary); font-size: 13px;"></span>
+                <div id="wlExpiringAlert" style="display:none; background: rgba(255,165,0,0.1); border: 1px solid rgba(255,165,0,0.3); border-radius: 8px; padding: 10px 15px; margin-bottom: 12px; display: flex; flex-wrap: wrap; align-items: center; gap: 10px;">
+                    <span style="color: #ffa500; font-weight: bold; flex-shrink: 0;">⚠️ 即将到期:</span>
+                    <span id="wlExpiringList" style="color: var(--text-secondary); font-size: 13px; flex: 1; min-width: 0;"></span>
+                    <button class="btn btn-success" onclick="showBatchRenewModal()"
+                            style="padding: 6px 14px; font-size: 13px; flex-shrink: 0;">🔄 一键续期</button>
                 </div>
                 <!-- 白名单表格 -->
                 <div class="wl-table-wrap" data-scroll-hint="right" style="overflow-x: auto;">
@@ -8978,6 +8988,9 @@
         let wlPage = 0;
         let wlCreditConfigs = [];
         let wlGlobalEnabled = false;
+        let wlAllRows = [];
+        let wlExpiringList = [];
+        const WL_EXPIRING_DAYS = 7;
 
         async function loadWhitelistGlobalStatus() {
             try {
@@ -9791,76 +9804,18 @@
                 }
 
                 // 到期提醒
+                wlExpiringList = Array.isArray(expData) ? expData : [];
                 const alertEl = document.getElementById('wlExpiringAlert');
-                if (Array.isArray(expData) && expData.length > 0) {
-                    alertEl.style.display = 'block';
-                    document.getElementById('wlExpiringList').textContent = expData.map(a =>
+                if (wlExpiringList.length > 0) {
+                    alertEl.style.display = 'flex';
+                    document.getElementById('wlExpiringList').textContent = wlExpiringList.map(a =>
                         `${a.username}(${new Date(a.expire_time).toLocaleDateString()})`).join(', ');
                 } else {
                     alertEl.style.display = 'none';
                 }
 
-                const tbody = document.getElementById('wlTableBody');
-                const cardList = document.getElementById('wlCardList');
-                const rows = data.rows || [];
-                if (rows.length === 0) {
-                    tbody.innerHTML = '<tr><td colspan="9" style="text-align:center; color:var(--text-secondary);">暂无数据</td></tr>';
-                    if (cardList) cardList.innerHTML = '<div class="wl-card" style="text-align:center; color:var(--text-secondary);">暂无数据</div>';
-                } else {
-                    const renderedRows = rows.map(a => {
-                        const statusColors = {active: '#00ff88', expired: '#ff5252', deleted: '#888'};
-                        const statusNames = {active: '有效', expired: '已过期', deleted: '已删除'};
-                        const expDate = fmtTime(a.expire_time);
-                        const isExpired = a.status === 'expired' || (a.expire_time && new Date(a.expire_time) < new Date());
-                        const planCfg = wlCreditConfigs.find(c => c.plan_type === a.plan_type);
-                        const planDisplay = planCfg ? planCfg.plan_name : (a.plan_type || '-');
-                        const actionUsername = String(a.username || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
-                        const persistButton = a.status !== 'deleted' ? `<button onclick="togglePersistLogin('${actionUsername}', ${!a.persistent_login})" style="padding:4px 14px; font-size:12px; border:${a.persistent_login ? 'none' : '1px solid var(--border)'}; border-radius:12px; cursor:pointer; transition:all 0.2s; background:${a.persistent_login ? 'linear-gradient(135deg,#00c9b7,#7ed56f)' : 'var(--bg-primary)'}; color:${a.persistent_login ? '#0a1a2e' : '#ff5252'}; font-weight:bold;">${a.persistent_login ? '已开启' : '关闭'}</button>` : '-';
-                        const actionButtons = a.status !== 'deleted' ? `<button class="btn" onclick="renewWhitelist('${actionUsername}')" style="padding:3px 8px; font-size:11px; margin-right:4px;">续期</button><button class="btn btn-danger" onclick="deleteWhitelist('${actionUsername}')" style="padding:3px 8px; font-size:11px;">删除</button>` : '-';
-                        return `<tr>
-                            <td style="font-weight:bold;">${escapeHtml(a.username || '')}</td>
-                            ${renderRealNameCell(a.username, a.nickname, 'whitelist')}
-                            <td>${escapeHtml(planDisplay)}</td>
-                            <td style="color:${isExpired ? '#ff5252' : '#00ff88'};">${expDate}</td>
-                            <td><span style="color:${statusColors[a.status] || '#888'};">${statusNames[a.status] || a.status}</span></td>
-                            <td>${persistButton}</td>
-                            <td style="color:var(--text-secondary);">${escapeHtml(a.added_by === 'super_admin' ? '系统总管理' : (a.added_by || '-'))}</td>
-                            <td style="color:var(--text-secondary); max-width:100px; overflow:hidden; text-overflow:ellipsis;">${escapeHtml(a.remark || '')}</td>
-                            <td>
-                                ${actionButtons}
-                            </td>
-                        </tr>`;
-                    });
-                    tbody.innerHTML = renderedRows.join('');
-                    if (cardList) {
-                        cardList.innerHTML = rows.map(a => {
-                            const statusColors = {active: '#00ff88', expired: '#ff5252', deleted: '#888'};
-                            const statusNames = {active: '有效', expired: '已过期', deleted: '已删除'};
-                            const expDate = fmtTime(a.expire_time);
-                            const isExpired = a.status === 'expired' || (a.expire_time && new Date(a.expire_time) < new Date());
-                            const planCfg = wlCreditConfigs.find(c => c.plan_type === a.plan_type);
-                            const planDisplay = planCfg ? planCfg.plan_name : (a.plan_type || '-');
-                            const actionUsername = String(a.username || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
-                            const persistButton = a.status !== 'deleted' ? `<button class="btn" onclick="togglePersistLogin('${actionUsername}', ${!a.persistent_login})">${a.persistent_login ? '已开启强化登录' : '开启强化登录'}</button>` : '';
-                            const actionButtons = a.status !== 'deleted' ? `<button class="btn" onclick="renewWhitelist('${actionUsername}')">续期</button><button class="btn btn-danger" onclick="deleteWhitelist('${actionUsername}')">删除</button>` : '';
-                            return `<div class="wl-card">
-                                <div class="wl-card-head">
-                                    <div class="wl-card-username">${escapeHtml(a.username || '')}</div>
-                                    <div class="wl-card-status" style="color:${statusColors[a.status] || '#888'};">${escapeHtml(statusNames[a.status] || a.status || '-')}</div>
-                                </div>
-                                <div class="wl-card-grid">
-                                    <div class="wl-card-field"><div class="wl-card-label">姓名</div>${renderWhitelistNameValue(a.username, a.nickname)}</div>
-                                    <div class="wl-card-field"><div class="wl-card-label">计费方式</div><div class="wl-card-value">${escapeHtml(planDisplay)}</div></div>
-                                    <div class="wl-card-field"><div class="wl-card-label">到期时间</div><div class="wl-card-value" style="color:${isExpired ? '#ff5252' : '#00ff88'};">${escapeHtml(expDate)}</div></div>
-                                    <div class="wl-card-field"><div class="wl-card-label">添加人</div><div class="wl-card-value">${escapeHtml(a.added_by === 'super_admin' ? '系统总管理' : (a.added_by || '-'))}</div></div>
-                                    <div class="wl-card-field"><div class="wl-card-label">备注</div><div class="wl-card-value">${escapeHtml(a.remark || '-')}</div></div>
-                                    <div class="wl-card-field"><div class="wl-card-label">强化登录</div><div class="wl-card-value">${escapeHtml(a.persistent_login ? '已开启' : '关闭')}</div></div>
-                                </div>
-                                <div class="wl-card-actions">${persistButton}${actionButtons}</div>
-                            </div>`;
-                        }).join('');
-                    }
-                }
+                wlAllRows = data.rows || [];
+                renderWhitelistRows();
 
                 // 分页
                 const total = data.total || 0;
@@ -9876,6 +9831,238 @@
             } catch (e) {
                 console.error('加载白名单失败', e);
             }
+        }
+
+        function classifyWhitelistRow(a) {
+            // 返回 'deleted' | 'expired' | 'expiring' | 'normal'
+            if (a.status === 'deleted') return 'deleted';
+            const exp = a.expire_time ? new Date(a.expire_time) : null;
+            const now = new Date();
+            if (a.status === 'expired' || (exp && exp < now)) return 'expired';
+            if (exp) {
+                const diffMs = exp.getTime() - now.getTime();
+                if (diffMs <= WL_EXPIRING_DAYS * 24 * 60 * 60 * 1000) return 'expiring';
+            }
+            return 'normal';
+        }
+
+        function applyWhitelistFilter() {
+            renderWhitelistRows();
+        }
+
+        function renderWhitelistRows() {
+            const tbody = document.getElementById('wlTableBody');
+            const cardList = document.getElementById('wlCardList');
+            const filterEl = document.getElementById('wlFilter');
+            const filter = filterEl ? filterEl.value : 'all';
+            const rows = (wlAllRows || []).filter(a => filter === 'all' ? true : classifyWhitelistRow(a) === filter);
+            if (rows.length === 0) {
+                const emptyMsg = filter === 'all' ? '暂无数据' : '当前筛选下暂无数据';
+                tbody.innerHTML = `<tr><td colspan="9" style="text-align:center; color:var(--text-secondary);">${emptyMsg}</td></tr>`;
+                if (cardList) cardList.innerHTML = `<div class="wl-card" style="text-align:center; color:var(--text-secondary);">${emptyMsg}</div>`;
+                return;
+            }
+            const statusColors = {active: '#00ff88', expired: '#ff5252', deleted: '#888'};
+            const statusNames = {active: '有效', expired: '已过期', deleted: '已删除'};
+            const renderedRows = rows.map(a => {
+                const expDate = fmtTime(a.expire_time);
+                const isExpired = a.status === 'expired' || (a.expire_time && new Date(a.expire_time) < new Date());
+                const planCfg = wlCreditConfigs.find(c => c.plan_type === a.plan_type);
+                const planDisplay = planCfg ? planCfg.plan_name : (a.plan_type || '-');
+                const actionUsername = String(a.username || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+                const persistButton = a.status !== 'deleted' ? `<button onclick="togglePersistLogin('${actionUsername}', ${!a.persistent_login})" style="padding:4px 14px; font-size:12px; border:${a.persistent_login ? 'none' : '1px solid var(--border)'}; border-radius:12px; cursor:pointer; transition:all 0.2s; background:${a.persistent_login ? 'linear-gradient(135deg,#00c9b7,#7ed56f)' : 'var(--bg-primary)'}; color:${a.persistent_login ? '#0a1a2e' : '#ff5252'}; font-weight:bold;">${a.persistent_login ? '已开启' : '关闭'}</button>` : '-';
+                const actionButtons = a.status !== 'deleted' ? `<button class="btn" onclick="renewWhitelist('${actionUsername}')" style="padding:3px 8px; font-size:11px; margin-right:4px;">续期</button><button class="btn btn-danger" onclick="deleteWhitelist('${actionUsername}')" style="padding:3px 8px; font-size:11px;">删除</button>` : '-';
+                return `<tr>
+                    <td style="font-weight:bold;">${escapeHtml(a.username || '')}</td>
+                    ${renderRealNameCell(a.username, a.nickname, 'whitelist')}
+                    <td>${escapeHtml(planDisplay)}</td>
+                    <td style="color:${isExpired ? '#ff5252' : '#00ff88'};">${expDate}</td>
+                    <td><span style="color:${statusColors[a.status] || '#888'};">${statusNames[a.status] || a.status}</span></td>
+                    <td>${persistButton}</td>
+                    <td style="color:var(--text-secondary);">${escapeHtml(a.added_by === 'super_admin' ? '系统总管理' : (a.added_by || '-'))}</td>
+                    <td style="color:var(--text-secondary); max-width:100px; overflow:hidden; text-overflow:ellipsis;">${escapeHtml(a.remark || '')}</td>
+                    <td>${actionButtons}</td>
+                </tr>`;
+            });
+            tbody.innerHTML = renderedRows.join('');
+            if (cardList) {
+                cardList.innerHTML = rows.map(a => {
+                    const expDate = fmtTime(a.expire_time);
+                    const isExpired = a.status === 'expired' || (a.expire_time && new Date(a.expire_time) < new Date());
+                    const planCfg = wlCreditConfigs.find(c => c.plan_type === a.plan_type);
+                    const planDisplay = planCfg ? planCfg.plan_name : (a.plan_type || '-');
+                    const actionUsername = String(a.username || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+                    const persistButton = a.status !== 'deleted' ? `<button class="btn" onclick="togglePersistLogin('${actionUsername}', ${!a.persistent_login})">${a.persistent_login ? '已开启强化登录' : '开启强化登录'}</button>` : '';
+                    const actionButtons = a.status !== 'deleted' ? `<button class="btn" onclick="renewWhitelist('${actionUsername}')">续期</button><button class="btn btn-danger" onclick="deleteWhitelist('${actionUsername}')">删除</button>` : '';
+                    return `<div class="wl-card">
+                        <div class="wl-card-head">
+                            <div class="wl-card-username">${escapeHtml(a.username || '')}</div>
+                            <div class="wl-card-status" style="color:${statusColors[a.status] || '#888'};">${escapeHtml(statusNames[a.status] || a.status || '-')}</div>
+                        </div>
+                        <div class="wl-card-grid">
+                            <div class="wl-card-field"><div class="wl-card-label">姓名</div>${renderWhitelistNameValue(a.username, a.nickname)}</div>
+                            <div class="wl-card-field"><div class="wl-card-label">计费方式</div><div class="wl-card-value">${escapeHtml(planDisplay)}</div></div>
+                            <div class="wl-card-field"><div class="wl-card-label">到期时间</div><div class="wl-card-value" style="color:${isExpired ? '#ff5252' : '#00ff88'};">${escapeHtml(expDate)}</div></div>
+                            <div class="wl-card-field"><div class="wl-card-label">添加人</div><div class="wl-card-value">${escapeHtml(a.added_by === 'super_admin' ? '系统总管理' : (a.added_by || '-'))}</div></div>
+                            <div class="wl-card-field"><div class="wl-card-label">备注</div><div class="wl-card-value">${escapeHtml(a.remark || '-')}</div></div>
+                            <div class="wl-card-field"><div class="wl-card-label">强化登录</div><div class="wl-card-value">${escapeHtml(a.persistent_login ? '已开启' : '关闭')}</div></div>
+                        </div>
+                        <div class="wl-card-actions">${persistButton}${actionButtons}</div>
+                    </div>`;
+                }).join('');
+            }
+        }
+
+        // ===== 批量续期临期账号 =====
+        function showBatchRenewModal() {
+            if (!wlExpiringList || wlExpiringList.length === 0) {
+                showToast('当前没有临期账号', 'info');
+                return;
+            }
+            if (!Array.isArray(wlCreditConfigs) || wlCreditConfigs.length === 0) {
+                showToast('套餐配置未加载，请刷新页面', 'error');
+                return;
+            }
+            const planOptions = wlCreditConfigs.map(c =>
+                `<option value="${c.plan_type}">${c.plan_name} (${c.credits_cost}积分/${c.duration_days}天)</option>`).join('');
+            const rowHtml = wlExpiringList.map((a, idx) => {
+                const expDate = new Date(a.expire_time).toLocaleDateString();
+                const safeUser = escapeHtml(a.username || '');
+                return `<div class="wl-batch-row" data-username="${safeUser}" style="display:flex; align-items:center; gap:8px; padding:8px 6px; border-bottom:1px solid var(--border);">
+                    <input type="checkbox" class="wl-batch-cb" data-idx="${idx}" checked
+                           style="width:16px; height:16px; cursor:pointer; flex-shrink:0;">
+                    <div style="flex:1; min-width:0;">
+                        <div style="font-weight:bold; color:var(--text-primary);">${safeUser}</div>
+                        <div style="font-size:12px; color:#ffa500;">到期: ${expDate}</div>
+                    </div>
+                    <select class="wl-batch-plan" data-idx="${idx}"
+                            style="padding:5px 8px; background:var(--bg-primary); border:1px solid var(--border); border-radius:5px; color:var(--text-primary); font-size:12px; min-width:140px;" disabled>
+                        ${planOptions}
+                    </select>
+                </div>`;
+            }).join('');
+            const content = `
+                <div style="margin-bottom:10px; color:var(--text-secondary); font-size:13px;">
+                    临期账号 <strong style="color:var(--accent);">${wlExpiringList.length}</strong> 个，默认全部勾选。可取消勾选个别账号，或切换"分开续期"为不同账号选不同套餐。
+                </div>
+                <div style="display:flex; gap:14px; padding:10px 12px; background:var(--bg-primary); border:1px solid var(--border); border-radius:6px; margin-bottom:10px;">
+                    <label style="display:flex; align-items:center; gap:6px; cursor:pointer; font-size:13px;">
+                        <input type="radio" name="wlBatchMode" value="unified" checked onchange="onBatchRenewModeChange()"> 统一续期
+                    </label>
+                    <label style="display:flex; align-items:center; gap:6px; cursor:pointer; font-size:13px;">
+                        <input type="radio" name="wlBatchMode" value="separate" onchange="onBatchRenewModeChange()"> 分开续期
+                    </label>
+                </div>
+                <div id="wlBatchUnifiedPlanWrap" style="margin-bottom:10px;">
+                    <label style="display:block; margin-bottom:4px; color:var(--text-secondary); font-size:13px;">统一套餐</label>
+                    <select id="wlBatchUnifiedPlan"
+                            style="width:100%; padding:8px 10px; background:var(--bg-primary); border:1px solid var(--border); border-radius:6px; color:var(--text-primary);">
+                        ${planOptions}
+                    </select>
+                </div>
+                <div style="display:flex; align-items:center; gap:10px; margin-bottom:6px;">
+                    <label style="display:flex; align-items:center; gap:6px; cursor:pointer; font-size:13px; color:var(--text-secondary);">
+                        <input type="checkbox" id="wlBatchSelectAll" checked onchange="onBatchRenewSelectAllChange()">
+                        全选
+                    </label>
+                    <span id="wlBatchSelectedCount" style="font-size:12px; color:var(--accent);">已选 ${wlExpiringList.length} / ${wlExpiringList.length}</span>
+                </div>
+                <div id="wlBatchListWrap" style="max-height:280px; overflow-y:auto; border:1px solid var(--border); border-radius:6px; padding:0 6px;">
+                    ${rowHtml}
+                </div>
+                <div id="wlBatchProgress" style="display:none; margin-top:10px; padding:8px 10px; background:var(--bg-primary); border-radius:6px; font-size:12px; color:var(--text-secondary);"></div>
+            `;
+            showModal('🔄 批量续期临期账号', content, confirmBatchRenew, '确认续期');
+            // 绑定复选框 → 更新计数
+            setTimeout(() => {
+                document.querySelectorAll('.wl-batch-cb').forEach(cb => {
+                    cb.addEventListener('change', updateBatchRenewSelectedCount);
+                });
+            }, 0);
+        }
+
+        function onBatchRenewModeChange() {
+            const mode = (document.querySelector('input[name="wlBatchMode"]:checked') || {}).value || 'unified';
+            const unifiedWrap = document.getElementById('wlBatchUnifiedPlanWrap');
+            if (unifiedWrap) unifiedWrap.style.display = mode === 'unified' ? 'block' : 'none';
+            document.querySelectorAll('.wl-batch-plan').forEach(sel => {
+                sel.disabled = mode !== 'separate';
+            });
+        }
+
+        function onBatchRenewSelectAllChange() {
+            const all = document.getElementById('wlBatchSelectAll');
+            if (!all) return;
+            document.querySelectorAll('.wl-batch-cb').forEach(cb => {
+                cb.checked = all.checked;
+            });
+            updateBatchRenewSelectedCount();
+        }
+
+        function updateBatchRenewSelectedCount() {
+            const total = document.querySelectorAll('.wl-batch-cb').length;
+            const checked = document.querySelectorAll('.wl-batch-cb:checked').length;
+            const span = document.getElementById('wlBatchSelectedCount');
+            if (span) span.textContent = `已选 ${checked} / ${total}`;
+            const all = document.getElementById('wlBatchSelectAll');
+            if (all) all.checked = (checked === total && total > 0);
+        }
+
+        async function confirmBatchRenew() {
+            const mode = (document.querySelector('input[name="wlBatchMode"]:checked') || {}).value || 'unified';
+            const unifiedPlan = (document.getElementById('wlBatchUnifiedPlan') || {}).value || '';
+            const tasks = [];
+            document.querySelectorAll('.wl-batch-cb:checked').forEach(cb => {
+                const idx = Number(cb.dataset.idx);
+                const item = wlExpiringList[idx];
+                if (!item) return;
+                let plan = unifiedPlan;
+                if (mode === 'separate') {
+                    const sel = document.querySelector(`.wl-batch-plan[data-idx="${idx}"]`);
+                    plan = sel ? sel.value : unifiedPlan;
+                }
+                if (item.username && plan) {
+                    tasks.push({username: item.username, plan_type: plan});
+                }
+            });
+            if (tasks.length === 0) {
+                showToast('请至少勾选一个账号', 'error');
+                return;
+            }
+            const progressEl = document.getElementById('wlBatchProgress');
+            if (progressEl) {
+                progressEl.style.display = 'block';
+                progressEl.textContent = `0 / ${tasks.length} 处理中...`;
+            }
+            let okCount = 0;
+            const failures = [];
+            for (let i = 0; i < tasks.length; i++) {
+                const task = tasks[i];
+                if (progressEl) progressEl.textContent = `${i} / ${tasks.length} 正在续期: ${task.username}`;
+                try {
+                    const res = await fetch(`${API_BASE}/admin/api/whitelist/renew`, {
+                        method: 'POST',
+                        headers: {...getHeaders(), 'Content-Type': 'application/json'},
+                        body: JSON.stringify(task)
+                    });
+                    const data = await res.json();
+                    if (res.ok && data.success) {
+                        okCount++;
+                    } else {
+                        failures.push(`${task.username}: ${data.message || data.detail || '失败'}`);
+                    }
+                } catch (e) {
+                    failures.push(`${task.username}: ${e.message}`);
+                }
+            }
+            if (progressEl) progressEl.textContent = `已完成 ${okCount} / ${tasks.length}` + (failures.length ? `（失败 ${failures.length}）` : '');
+            if (failures.length === 0) {
+                closeModal();
+                showToast(`成功续期 ${okCount} 个账号`);
+            } else {
+                showAlert(`成功 ${okCount} 个，失败 ${failures.length} 个：\n${failures.slice(0, 10).join('\n')}`, failures.length === tasks.length ? 'error' : 'warning');
+            }
+            loadWhitelist(wlPage);
         }
 
         function showAddWhitelistModal() {
