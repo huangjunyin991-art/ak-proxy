@@ -9071,14 +9071,11 @@ def _inject_admin_panel_versions(content: str, panel_versions: dict) -> str:
 @app.get("/admin", response_class=HTMLResponse)
 @app.get("/admin/", response_class=HTMLResponse)
 async def admin_page(request: Request):
-    t0 = time.perf_counter()
     html_path = os.path.join(FRONTEND_PAGES_DIR, "admin.html")
     if not os.path.exists(html_path):
         return HTMLResponse("<h1>管理页面未找到</h1>", status_code=404)
     html_mtime = os.path.getmtime(html_path)
-    t1 = time.perf_counter()
     panel_versions = _admin_panel_versions()
-    t2 = time.perf_counter()
     cache_key = (
         html_mtime,
         panel_versions['monitoring'],
@@ -9086,8 +9083,7 @@ async def admin_page(request: Request):
         panel_versions['recommendTree'],
         panel_versions['pointStats'],
     )
-    cache_hit = _ADMIN_HTML_CACHE["key"] == cache_key
-    if not cache_hit:
+    if _ADMIN_HTML_CACHE["key"] != cache_key:
         with open(html_path, "r", encoding="utf-8") as f:
             content = f.read()
         content = _inject_admin_panel_versions(content, panel_versions)
@@ -9095,25 +9091,11 @@ async def admin_page(request: Request):
         _ADMIN_HTML_CACHE["key"] = cache_key
         _ADMIN_HTML_CACHE["content"] = content
         _ADMIN_HTML_CACHE["etag"] = '"' + hashlib.md5(content_bytes).hexdigest() + '"'
-    t3 = time.perf_counter()
     etag = _ADMIN_HTML_CACHE["etag"]
-    if_none_match = request.headers.get("if-none-match")
-    is_304 = if_none_match == etag
-    logger.info(
-        "[AdminPage] %s mtime=%.1fms panels=%.1fms render=%.1fms total=%.1fms cache_hit=%s is_304=%s size=%d",
-        request.client.host if request.client else "-",
-        (t1 - t0) * 1000,
-        (t2 - t1) * 1000,
-        (t3 - t2) * 1000,
-        (t3 - t0) * 1000,
-        cache_hit,
-        is_304,
-        len(_ADMIN_HTML_CACHE["content"] or ""),
-    )
-    # max-age=300 让浏览器在 5 分钟内直接用本地副本，零网络请求；
-    # must-revalidate 保证超期后必须协商；ETag 跟随 mtime 自动变化，代码改动会让协商立即拿到新版。
+    # max-age=300 让浏览器在 5 分钟内直接用本地副本；must-revalidate 保证超期后协商；
+    # ETag 跟随 panel 资源 mtime 自动变化，代码改动后下一次协商立即拿到新版。
     cache_control = "public, max-age=300, must-revalidate"
-    if is_304:
+    if request.headers.get("if-none-match") == etag:
         return Response(status_code=304, headers={
             "ETag": etag,
             "Cache-Control": cache_control,
