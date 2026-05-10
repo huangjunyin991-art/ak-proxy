@@ -91,7 +91,7 @@
         return '<div class="ps-rt-detail-wrap"><table class="ps-detail-table"><thead><tr><th>时间</th><th>方向</th><th>金额</th><th>余额</th><th>类型</th><th>描述</th></tr></thead><tbody>' + records.map(function(record) {
             var isIncome = Number(record.operation_type || 0) === 1;
             var tone = isIncome ? 'income' : 'expense';
-            return '<tr><td>' + html(time(record.time || record.record_time || record.saved_at)) + '</td><td class="' + tone + '">' + recordDirection(record) + '</td><td class="' + tone + '">' + signedAmount(record.amount, record.operation_type) + '</td><td>' + (record.balance == null ? '-' : number(record.balance)) + '</td><td>' + html(record.type_name_cn || record.type_name || '-') + '</td><td>' + html(record.description || '-') + '</td></tr>';
+            return '<tr><td>' + html(time(record.time || record.record_time || record.saved_at)) + '</td><td class="' + tone + '">' + recordDirection(record) + '</td><td class="' + tone + '">' + signedAmount(record.amount, record.operation_type) + '</td><td>' + (record.balance == null ? '-' : number(record.balance)) + '</td><td>' + html(record.type_name_cn || record.type_name || '-') + '</td><td>' + html(record.description_display || record.description || '-') + '</td></tr>';
         }).join('') + '</tbody></table></div>';
     }
 

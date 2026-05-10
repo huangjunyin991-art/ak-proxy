@@ -1098,6 +1098,28 @@ def resolve_point_category(point_type: str, raw_type_name: str, description: str
     return type_map.get(raw) or type_map.get(raw.strip()) or raw or '未分类'
 
 
+_POINT_USER_PAREN_RE = re.compile(r'User\s*[:：]\s*([^,，)）]+?)\s*[（(]\s*([^)）]+)\s*[)）]')
+_POINT_INVESTOR_PAREN_RE = re.compile(r'投资人\s*[:：]\s*([^,，)）]+?)\s*[（(]\s*([^)）]+)\s*[)）]')
+
+
+def _format_point_record_description(category: str, description: str) -> str:
+    if not description:
+        return description
+    if category == '注册子账号消耗':
+        m = _POINT_USER_PAREN_RE.search(description)
+        if m:
+            return f'{m.group(1).strip()}（{m.group(2).strip()}）注册子账号'
+    if category == '注册主账号消耗':
+        m = _POINT_USER_PAREN_RE.search(description)
+        if m:
+            return f'{m.group(1).strip()}（{m.group(2).strip()}）注册主账号'
+    if category == '子账号复投消耗':
+        m = _POINT_INVESTOR_PAREN_RE.search(description)
+        if m:
+            return f'{m.group(1).strip()}（{m.group(2).strip()}）复投子账号'
+    return description
+
+
 def _point_record_key(record: Dict, index: int) -> str:
     key = _point_text(record.get('id') or record.get('Id') or record.get('FlowNumber') or record.get('flow_number'))
     if key:
@@ -1340,6 +1362,7 @@ async def get_point_stats(username: str = None, point_type: str = None, limit: i
             item['direction'] = '收入' if op == 1 else '支出'
             item['category'] = category
             item['type_name_cn'] = item.get('type_name_cn') or category
+            item['description_display'] = _format_point_record_description(category, description)
             bucket.append(item)
     categories = []
     for name, agg in sorted(category_agg.items(), key=lambda kv: kv[1]['count'], reverse=True):
