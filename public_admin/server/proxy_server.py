@@ -3777,6 +3777,13 @@ async def _fetch_point_history_page(username: str, point_type: str, page: int, p
     user_id = _extract_login_user_id(login_result)
     userkey = str(auth_state.get("userkey") or _extract_login_result_userkey(login_result) or "").strip()
     if not user_id or not userkey:
+        auth_keys = list(auth_state.keys()) if isinstance(auth_state, dict) else []
+        login_keys = list(login_result.keys()) if isinstance(login_result, dict) else []
+        logger.warning(
+            f"[PointHistorySync] auth 缺失 username={username} point_type={point_code} page={page} "
+            f"has_user_id={bool(user_id)} has_userkey={bool(userkey)} "
+            f"auth_keys={auth_keys} login_keys={login_keys}"
+        )
         raise RuntimeError("该账号没有可用登录态，请先让该账号登录一次")
     response = await forward_request(
         "POST",
@@ -3794,9 +3801,23 @@ async def _fetch_point_history_page(username: str, point_type: str, page: int, p
         {},
         force_direct=True,
     )
-    payload = response.json()
+    try:
+        payload = response.json()
+    except Exception as exc:
+        body_preview = (response.text or '')[:200]
+        logger.warning(
+            f"[PointHistorySync] JSON 解析失败 username={username} point_type={point_code} page={page} "
+            f"status={response.status_code} err={exc} body={body_preview!r}"
+        )
+        raise RuntimeError(f"同步失败：响应解析失败 HTTP {response.status_code}")
     if response.status_code != 200 or not isinstance(payload, dict) or payload.get("Error"):
-        raise RuntimeError(str(payload.get("Msg") if isinstance(payload, dict) else "") or f"同步失败 HTTP {response.status_code}")
+        msg = (payload.get("Msg") if isinstance(payload, dict) else "") or ""
+        logger.warning(
+            f"[PointHistorySync] 接口错误 username={username} point_type={point_code} page={page} "
+            f"status={response.status_code} Error={payload.get('Error') if isinstance(payload, dict) else None} "
+            f"Msg={msg!r} payload_keys={list(payload.keys()) if isinstance(payload, dict) else type(payload).__name__}"
+        )
+        raise RuntimeError(str(msg) or f"同步失败 HTTP {response.status_code}")
     data = payload.get("Data")
     return data.get("List", []) if isinstance(data, dict) else data if isinstance(data, list) else []
 
@@ -3980,7 +4001,12 @@ async def _run_point_history_sync_task(task_key: str, username: str, point_type:
             'error': '',
         })
     except Exception as exc:
-        logger.warning(f"[PointHistorySync] 后台任务失败 {task_key}: {exc}")
+        logger.warning(
+            f"[PointHistorySync] 后台任务失败 task_key={task_key} username={username} point_type={point_type} "
+            f"page={state.get('pages_fetched') if state else None} fetched={state.get('fetched_count') if state else None} "
+            f"err_type={type(exc).__name__} err={exc}",
+            exc_info=True,
+        )
         if state is not None:
             state.update({
                 'status': 'error',
