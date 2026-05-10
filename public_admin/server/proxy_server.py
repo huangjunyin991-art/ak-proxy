@@ -371,6 +371,8 @@ IP_PREBAN_AUTO_BAN_THRESHOLD = 5
 
 IP_PREBAN_AUTO_BAN_DAYS = 1
 
+_POINT_HISTORY_PAGE_DELAY = 0.8
+
 _POINT_HISTORY_RPC_TYPES = {
     "EP": "Record_EP",
     "SP": "Record_SP",
@@ -3799,7 +3801,6 @@ async def _fetch_point_history_page(username: str, point_type: str, page: int, p
         },
         b"",
         {},
-        force_direct=True,
     )
     try:
         payload = response.json()
@@ -3847,6 +3848,8 @@ async def _sync_point_history_records(username: str, point_type: str, page_size:
         if max_pages and page > max_pages:
             stop_reason = "max_pages"
             break
+        if page > 1:
+            await asyncio.sleep(_POINT_HISTORY_PAGE_DELAY)
         records = await _fetch_point_history_page(username, point_type, page, page_size, auth_state)
         if not records:
             stop_reason = "empty_page"
@@ -3962,6 +3965,8 @@ async def _run_point_history_sync_task(task_key: str, username: str, point_type:
             if max_pages_int and page > max_pages_int:
                 stop_reason = "max_pages"
                 break
+            if page > 1:
+                await asyncio.sleep(_POINT_HISTORY_PAGE_DELAY)
             state['pages_fetched'] = page
             state['message'] = (
                 f"{point_type} {'全量' if full_sync else '增量'}拉取中：第 {page} 页"
