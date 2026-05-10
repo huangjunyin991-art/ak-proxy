@@ -239,7 +239,64 @@
         });
     }
 
-    function refreshTree() {
+    function showRefreshConfirm(onConfirm) {
+        var existing = document.getElementById('rtRefreshConfirmModal');
+        if (existing) existing.remove();
+        var modal = document.createElement('div');
+        modal.id = 'rtRefreshConfirmModal';
+        modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.72);z-index:100000;display:flex;align-items:center;justify-content:center;';
+        modal.innerHTML = ''
+            + '<div style="background:var(--bg-card);border:1px solid rgba(255,196,90,0.4);border-radius:14px;max-width:460px;width:92%;box-shadow:0 18px 60px rgba(0,0,0,0.5);">'
+            +   '<div style="padding:22px 26px 14px;border-bottom:1px solid var(--border);">'
+            +     '<h3 style="margin:0;color:#ffc45a;font-size:18px;">确认更新数据</h3>'
+            +     '<div style="margin-top:10px;color:var(--text-secondary);font-size:14px;line-height:1.75;">'
+            +       '如果近期<strong style="color:#ffc45a;">没有新玩家报单</strong>，建议直接点击「<strong style="color:#00ff88;">查看架构</strong>」读取本地缓存，'
+            +       '<strong>无需更新数据</strong>，以<strong>减少您的等待时间</strong>！'
+            +     '</div>'
+            +     '<div style="margin-top:8px;color:var(--text-secondary);font-size:12px;line-height:1.6;opacity:0.75;">'
+            +       '更新数据会从远程拉取最新组织架构，耗时较长。'
+            +     '</div>'
+            +   '</div>'
+            +   '<div style="display:flex;gap:10px;padding:16px 26px 22px;">'
+            +     '<button id="rtRefreshCancelBtn" class="btn" style="flex:1;background:var(--bg-secondary);">取消，使用缓存</button>'
+            +     '<button id="rtRefreshConfirmBtn" class="btn btn-primary" style="flex:1;" disabled>确定 (5)</button>'
+            +   '</div>'
+            + '</div>';
+        document.body.appendChild(modal);
+
+        var cancelBtn = document.getElementById('rtRefreshCancelBtn');
+        var confirmBtn = document.getElementById('rtRefreshConfirmBtn');
+        var remaining = 5;
+        var timer = setInterval(function() {
+            remaining -= 1;
+            if (remaining <= 0) {
+                clearInterval(timer);
+                timer = null;
+                if (confirmBtn) {
+                    confirmBtn.disabled = false;
+                    confirmBtn.textContent = '确定更新';
+                }
+            } else if (confirmBtn) {
+                confirmBtn.textContent = '确定 (' + remaining + ')';
+            }
+        }, 1000);
+
+        function close() {
+            if (timer) { clearInterval(timer); timer = null; }
+            if (modal && modal.parentNode) modal.parentNode.removeChild(modal);
+        }
+        if (cancelBtn) cancelBtn.onclick = close;
+        if (confirmBtn) confirmBtn.onclick = function() {
+            if (confirmBtn.disabled) return;
+            close();
+            try { onConfirm && onConfirm(); } catch (e) { console.error('[RecommendTreePanel] refresh confirm error', e); }
+        };
+        modal.onclick = function(event) {
+            if (event.target === modal) close();
+        };
+    }
+
+    function doRefreshTree() {
         var account = currentAccount();
         if (!account) {
             notify('请输入账号', 'warning');
@@ -269,6 +326,15 @@
             render();
             notify(store.state.error, 'error');
         });
+    }
+
+    function refreshTree() {
+        var account = currentAccount();
+        if (!account) {
+            notify('请输入账号', 'warning');
+            return;
+        }
+        showRefreshConfirm(doRefreshTree);
     }
 
     function start() {

@@ -33,7 +33,7 @@
                     renderAccountDropdown(state) +
                 '</div>' +
                 '<div class="rt-action-row">' +
-                    '<button class="rt-btn view" id="rtLoadBtn" ' + disabled(state) + '>查看架构</button>' +
+                    '<button class="rt-btn primary" id="rtLoadBtn" ' + disabled(state) + '>查看架构</button>' +
                     '<button class="rt-btn primary" id="rtRefreshBtn" ' + disabled(state) + '>' + (state.refreshing ? '<span class="rt-mini-spinner"></span>获取中' : '更新数据') + '</button>' +
                 '</div>' +
             '</div>' +
