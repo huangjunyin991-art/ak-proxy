@@ -165,7 +165,6 @@
         if (!row) return;
         store.selectAccount(row);
         render();
-        loadStats();
     }
 
     function handleAction(target) {
@@ -189,7 +188,6 @@
         } else if (action === 'rank-account') {
             store.selectAccount({ username: actionNode.getAttribute('data-username') || '' });
             render();
-            loadStats();
         } else if (action === 'toggle-category') {
             store.toggleCategory(actionNode.getAttribute('data-name') || '');
             render();
@@ -238,9 +236,19 @@
                     store.state.accountDropdownOpen = false;
                     store.state.username = store.state.accountQuery;
                     render();
-                    loadStats();
                 }
             }
+        });
+        mount.addEventListener('focusout', function(event) {
+            if (!event.target || event.target.getAttribute('data-role') !== 'account-input') return;
+            setTimeout(function() {
+                var active = document.activeElement;
+                if (active && active.getAttribute && active.getAttribute('data-role') === 'account-input') return;
+                if (!store.state.accountDropdownOpen) return;
+                store.state.accountDropdownOpen = false;
+                store.state.selectedAccountIndex = -1;
+                render();
+            }, 180);
         });
     }
 
