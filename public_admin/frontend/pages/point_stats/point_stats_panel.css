@@ -559,6 +559,41 @@
     cursor: progress;
 }
 
+.ps-detail-pager {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin: 8px 8px 0;
+    padding: 6px 10px;
+    color: rgba(215, 255, 240, 0.86);
+    border: 1px solid rgba(79, 195, 247, 0.18);
+    border-radius: 8px;
+    background: rgba(5, 14, 24, 0.62);
+    font-size: 11px;
+    font-weight: 800;
+}
+
+.ps-detail-pager-info {
+    color: rgba(167, 226, 255, 0.78);
+    white-space: nowrap;
+}
+
+.ps-detail-pager-btns {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.ps-detail-pager-btns .ps-rt-btn {
+    min-height: 26px;
+    padding: 0 10px;
+    font-size: 11px;
+    font-weight: 800;
+}
+
 @media (max-width: 760px) {
     .ps-rt-root {
         padding: 8px 0 40px;

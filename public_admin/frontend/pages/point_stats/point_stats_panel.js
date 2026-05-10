@@ -191,6 +191,25 @@
         } else if (action === 'toggle-category') {
             store.toggleCategory(actionNode.getAttribute('data-name') || '');
             render();
+        } else if (action === 'detail-page') {
+            if (actionNode.disabled) return;
+            var name = actionNode.getAttribute('data-name') || '';
+            if (!name) return;
+            var target = actionNode.getAttribute('data-target') || 'next';
+            var rows = (store.state.payload && Array.isArray(store.state.payload.categories)) ? store.state.payload.categories : [];
+            var match = null;
+            for (var i = 0; i < rows.length; i++) { if ((rows[i].name || '未分类') === name) { match = rows[i]; break; } }
+            var total = match && Array.isArray(match.records) ? match.records.length : 0;
+            var pageSize = store.state.detailPageSize || 50;
+            var totalPages = Math.max(1, Math.ceil(total / pageSize));
+            var current = (store.state.detailPageMap && store.state.detailPageMap[name]) || 1;
+            var next = current;
+            if (target === 'first') next = 1;
+            else if (target === 'prev') next = Math.max(1, current - 1);
+            else if (target === 'next') next = Math.min(totalPages, current + 1);
+            else if (target === 'last') next = totalPages;
+            store.setDetailPage(name, next);
+            render();
         }
     }
 

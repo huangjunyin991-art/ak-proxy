@@ -1357,13 +1357,12 @@ async def get_point_stats(username: str = None, point_type: str = None, limit: i
             agg['expense'] += abs_amount
             agg['net'] -= abs_amount
         bucket = detail_by_category.setdefault(category, [])
-        if len(bucket) < limit:
-            item['time'] = item.get('record_time') or item.get('saved_at')
-            item['direction'] = '收入' if op == 1 else '支出'
-            item['category'] = category
-            item['type_name_cn'] = item.get('type_name_cn') or category
-            item['description_display'] = _format_point_record_description(category, description)
-            bucket.append(item)
+        item['time'] = item.get('record_time') or item.get('saved_at')
+        item['direction'] = '收入' if op == 1 else '支出'
+        item['category'] = category
+        item['type_name_cn'] = item.get('type_name_cn') or category
+        item['description_display'] = _format_point_record_description(category, description)
+        bucket.append(item)
     categories = []
     for name, agg in sorted(category_agg.items(), key=lambda kv: kv[1]['count'], reverse=True):
         categories.append({

@@ -371,7 +371,8 @@ IP_PREBAN_AUTO_BAN_THRESHOLD = 5
 
 IP_PREBAN_AUTO_BAN_DAYS = 1
 
-_POINT_HISTORY_PAGE_DELAY = 0.8
+_POINT_HISTORY_PAGE_DELAY = 0.5
+_POINT_HISTORY_PAGE_MAX_RETRIES = 3
 
 _POINT_HISTORY_RPC_TYPES = {
     "EP": "Record_EP",
@@ -3823,6 +3824,31 @@ async def _fetch_point_history_page(username: str, point_type: str, page: int, p
     return data.get("List", []) if isinstance(data, dict) else data if isinstance(data, list) else []
 
 
+async def _fetch_point_history_page_with_retry(
+    username: str,
+    point_type: str,
+    page: int,
+    page_size: int,
+    auth_state: dict,
+    max_retries: int = _POINT_HISTORY_PAGE_MAX_RETRIES,
+) -> list:
+    last_exc = None
+    for attempt in range(1, max_retries + 1):
+        try:
+            return await _fetch_point_history_page(username, point_type, page, page_size, auth_state)
+        except RuntimeError as exc:
+            last_exc = exc
+            if attempt >= max_retries:
+                break
+            backoff = _POINT_HISTORY_PAGE_DELAY * (2 ** (attempt - 1))
+            logger.warning(
+                f"[PointHistorySync] page 重试 username={username} point_type={point_type} "
+                f"page={page} attempt={attempt}/{max_retries} backoff={backoff:.1f}s err={exc}"
+            )
+            await asyncio.sleep(backoff)
+    raise last_exc if last_exc else RuntimeError("点数拉取失败")
+
+
 async def _sync_point_history_records(username: str, point_type: str, page_size: int = 50, max_pages: int = 200) -> dict:
     username = str(username or '').strip().lower()
     point_type = str(point_type or '').strip().upper()
@@ -3850,7 +3876,7 @@ async def _sync_point_history_records(username: str, point_type: str, page_size:
             break
         if page > 1:
             await asyncio.sleep(_POINT_HISTORY_PAGE_DELAY)
-        records = await _fetch_point_history_page(username, point_type, page, page_size, auth_state)
+        records = await _fetch_point_history_page_with_retry(username, point_type, page, page_size, auth_state)
         if not records:
             stop_reason = "empty_page"
             break
@@ -3972,7 +3998,7 @@ async def _run_point_history_sync_task(task_key: str, username: str, point_type:
                 f"{point_type} {'全量' if full_sync else '增量'}拉取中：第 {page} 页"
                 f"（已抓取 {fetched_count} 条）"
             )
-            records = await _fetch_point_history_page(username, point_type, page, page_size_int, auth_state)
+            records = await _fetch_point_history_page_with_retry(username, point_type, page, page_size_int, auth_state)
             if not records:
                 stop_reason = "empty_page"
                 break

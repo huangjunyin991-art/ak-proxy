@@ -16,13 +16,16 @@
             status: '请输入账号，选择点数类型后开始统计。',
             error: '',
             payload: null,
-            expandedCategory: null
+            expandedCategory: null,
+            detailPageSize: 50,
+            detailPageMap: {}
         };
 
         function setPointType(type) {
             if (state.types.indexOf(type) < 0) return;
             state.pointType = type;
             state.expandedCategory = null;
+            state.detailPageMap = {};
         }
 
         function setAccountQuery(value) {
@@ -46,6 +49,7 @@
             state.accountDropdownOpen = false;
             state.selectedAccountIndex = -1;
             state.expandedCategory = null;
+            state.detailPageMap = {};
         }
 
         function moveAccountSelection(delta) {
@@ -60,6 +64,7 @@
             state.accountDropdownOpen = false;
             state.selectedAccountIndex = -1;
             state.expandedCategory = null;
+            state.detailPageMap = {};
         }
 
         function setPayload(payload) {
@@ -73,6 +78,16 @@
 
         function toggleCategory(name) {
             state.expandedCategory = state.expandedCategory === name ? null : name;
+            if (state.expandedCategory && state.detailPageMap[state.expandedCategory] == null) {
+                state.detailPageMap[state.expandedCategory] = 1;
+            }
+        }
+
+        function setDetailPage(name, page) {
+            if (!name) return;
+            var p = parseInt(page, 10);
+            if (!isFinite(p) || p < 1) p = 1;
+            state.detailPageMap[name] = p;
         }
 
         return {
@@ -85,7 +100,8 @@
             clearAccount: clearAccount,
             setPayload: setPayload,
             setStatus: setStatus,
-            toggleCategory: toggleCategory
+            toggleCategory: toggleCategory,
+            setDetailPage: setDetailPage
         };
     }
 

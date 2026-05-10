@@ -86,22 +86,45 @@
         return Number(record.operation_type || 0) === 1 ? '收入' : '支出';
     }
 
-    function renderDetailTable(records) {
+    function renderDetailTable(records, category, page, pageSize) {
         if (!records || !records.length) return '<div class="ps-empty compact">暂无明细</div>';
-        return '<div class="ps-rt-detail-wrap"><table class="ps-detail-table"><thead><tr><th>时间</th><th>方向</th><th>金额</th><th>余额</th><th>类型</th><th>描述</th></tr></thead><tbody>' + records.map(function(record) {
+        var total = records.length;
+        var size = Math.max(1, parseInt(pageSize, 10) || 50);
+        var totalPages = Math.max(1, Math.ceil(total / size));
+        var current = Math.min(Math.max(1, parseInt(page, 10) || 1), totalPages);
+        var start = (current - 1) * size;
+        var slice = records.slice(start, start + size);
+        var nameAttr = html(category || '');
+        var firstDisabled = current <= 1;
+        var lastDisabled = current >= totalPages;
+        var rangeFrom = total === 0 ? 0 : start + 1;
+        var rangeTo = Math.min(start + size, total);
+        var pager = '<div class="ps-detail-pager">' +
+            '<span class="ps-detail-pager-info">共 ' + number(total) + ' 条，第 ' + number(current) + ' / ' + number(totalPages) + ' 页，当前显示 ' + number(rangeFrom) + '-' + number(rangeTo) + '</span>' +
+            '<div class="ps-detail-pager-btns">' +
+            '<button class="ps-rt-btn" data-action="detail-page" data-name="' + nameAttr + '" data-target="first"' + (firstDisabled ? ' disabled' : '') + '>首页</button>' +
+            '<button class="ps-rt-btn" data-action="detail-page" data-name="' + nameAttr + '" data-target="prev"' + (firstDisabled ? ' disabled' : '') + '>上一页</button>' +
+            '<button class="ps-rt-btn primary" data-action="detail-page" data-name="' + nameAttr + '" data-target="next"' + (lastDisabled ? ' disabled' : '') + '>下一页</button>' +
+            '<button class="ps-rt-btn" data-action="detail-page" data-name="' + nameAttr + '" data-target="last"' + (lastDisabled ? ' disabled' : '') + '>末页</button>' +
+            '</div></div>';
+        var body = '<div class="ps-rt-detail-wrap"><table class="ps-detail-table"><thead><tr><th>时间</th><th>方向</th><th>金额</th><th>余额</th><th>类型</th><th>描述</th></tr></thead><tbody>' + slice.map(function(record) {
             var isIncome = Number(record.operation_type || 0) === 1;
             var tone = isIncome ? 'income' : 'expense';
             return '<tr><td>' + html(time(record.time || record.record_time || record.saved_at)) + '</td><td class="' + tone + '">' + recordDirection(record) + '</td><td class="' + tone + '">' + signedAmount(record.amount, record.operation_type) + '</td><td>' + (record.balance == null ? '-' : number(record.balance)) + '</td><td>' + html(record.type_name_cn || record.type_name || '-') + '</td><td>' + html(record.description_display || record.description || '-') + '</td></tr>';
         }).join('') + '</tbody></table></div>';
+        return body + pager;
     }
 
     function renderCategories(state) {
         var rows = state.payload && Array.isArray(state.payload.categories) ? state.payload.categories : [];
         if (!rows.length) return '<tr><td colspan="6" class="ps-empty">请选择账号查看分类统计，或当前账号暂无统计数据。</td></tr>';
+        var pageSize = state.detailPageSize || 50;
+        var pageMap = state.detailPageMap || {};
         return rows.map(function(item) {
             var name = item.name || '未分类';
             var expanded = state.expandedCategory === name;
-            return '<tr class="ps-category-row"><td><button class="ps-rt-btn primary ps-expand-btn" data-action="toggle-category" data-name="' + html(name) + '">' + (expanded ? '收起' : '展开') + '</button>' + html(name) + '</td><td>' + number(item.count) + '</td><td class="income">' + number(item.income) + '</td><td class="expense">' + number(item.expense) + '</td><td class="' + amountTone(item.net).trim() + '">' + number(item.net) + '</td><td>' + number((item.records || []).length) + '</td></tr>' + (expanded ? '<tr class="ps-detail-row"><td colspan="6">' + renderDetailTable(item.records || []) + '</td></tr>' : '');
+            var page = pageMap[name] || 1;
+            return '<tr class="ps-category-row"><td><button class="ps-rt-btn primary ps-expand-btn" data-action="toggle-category" data-name="' + html(name) + '">' + (expanded ? '收起' : '展开') + '</button>' + html(name) + '</td><td>' + number(item.count) + '</td><td class="income">' + number(item.income) + '</td><td class="expense">' + number(item.expense) + '</td><td class="' + amountTone(item.net).trim() + '">' + number(item.net) + '</td><td>' + number((item.records || []).length) + '</td></tr>' + (expanded ? '<tr class="ps-detail-row"><td colspan="6">' + renderDetailTable(item.records || [], name, page, pageSize) + '</td></tr>' : '');
         }).join('');
     }
 
