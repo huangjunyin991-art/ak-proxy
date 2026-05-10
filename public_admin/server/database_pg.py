@@ -1854,60 +1854,79 @@ async def get_all_users_with_assets(limit: int = 100, offset: int = 0) -> List[D
 async def get_dashboard_data() -> Dict:
     """获取仪表盘数据"""
     pool = _get_pool()
-    async with pool.acquire() as conn:
-        today = datetime.now().date()
+    today = datetime.now().date()
+    tomorrow = today + timedelta(days=1)
 
-        today_requests = await conn.fetchval(
-            "SELECT COUNT(*) FROM login_records WHERE login_time::date = $1::date", today)
+    async def q_total_success():
+        async with pool.acquire() as conn:
+            return await conn.fetchrow('''
+                SELECT COUNT(*) AS total,
+                       SUM(CASE WHEN status_code = 200 THEN 1 ELSE 0 END) AS success
+                FROM login_records
+                WHERE login_time >= $1 AND login_time < $2
+            ''', today, tomorrow)
 
-        row = await conn.fetchrow('''
-            SELECT COUNT(*) as total,
-                   SUM(CASE WHEN status_code = 200 THEN 1 ELSE 0 END) as success
-            FROM login_records WHERE login_time::date = $1::date
-        ''', today)
-        total = row['total'] or 1
-        success = row['success'] or 0
-        success_rate = (success / total) * 100 if total > 0 else 0
+    async def q_active_users():
+        async with pool.acquire() as conn:
+            return await conn.fetchval('''
+                SELECT COUNT(DISTINCT username) FROM login_records
+                WHERE login_time >= $1 AND login_time < $2
+            ''', today, tomorrow)
 
-        active_users = await conn.fetchval(
-            "SELECT COUNT(DISTINCT username) FROM login_records WHERE login_time::date = $1::date", today)
+    async def q_peak_rpm():
+        async with pool.acquire() as conn:
+            return await conn.fetchrow('''
+                SELECT COUNT(*) AS count FROM login_records
+                WHERE login_time >= $1 AND login_time < $2
+                GROUP BY date_trunc('minute', login_time)
+                ORDER BY count DESC LIMIT 1
+            ''', today, tomorrow)
 
-        peak_row = await conn.fetchrow('''
-            SELECT COUNT(*) as count FROM login_records
-            WHERE login_time::date = $1::date
-            GROUP BY date_trunc('minute', login_time)
-            ORDER BY count DESC LIMIT 1
-        ''', today)
-        peak_rpm = peak_row['count'] if peak_row else 0
+    async def q_hourly():
+        async with pool.acquire() as conn:
+            return await conn.fetch('''
+                SELECT EXTRACT(HOUR FROM login_time)::int AS hour, COUNT(*) AS count
+                FROM login_records
+                WHERE login_time >= $1 AND login_time < $2
+                GROUP BY hour ORDER BY hour
+            ''', today, tomorrow)
 
-        hourly_rows = await conn.fetch('''
-            SELECT EXTRACT(HOUR FROM login_time)::int as hour, COUNT(*) as count
-            FROM login_records WHERE login_time::date = $1::date
-            GROUP BY hour ORDER BY hour
-        ''', today)
-        hourly_data = [{'hour': r['hour'], 'count': r['count']} for r in hourly_rows]
+    async def q_top_users():
+        async with pool.acquire() as conn:
+            return await conn.fetch('''
+                SELECT username, COUNT(*) AS count FROM login_records
+                WHERE login_time >= $1 AND login_time < $2
+                GROUP BY username ORDER BY count DESC LIMIT 10
+            ''', today, tomorrow)
 
-        top_users = await conn.fetch('''
-            SELECT username, COUNT(*) as count FROM login_records
-            WHERE login_time::date = $1::date
-            GROUP BY username ORDER BY count DESC LIMIT 10
-        ''', today)
+    async def q_top_ips():
+        async with pool.acquire() as conn:
+            return await conn.fetch('''
+                SELECT ip_address AS ip, COUNT(*) AS count FROM login_records
+                WHERE login_time >= $1 AND login_time < $2
+                GROUP BY ip_address ORDER BY count DESC LIMIT 10
+            ''', today, tomorrow)
 
-        top_ips = await conn.fetch('''
-            SELECT ip_address as ip, COUNT(*) as count FROM login_records
-            WHERE login_time::date = $1::date
-            GROUP BY ip_address ORDER BY count DESC LIMIT 10
-        ''', today)
+    total_row, active_users, peak_row, hourly_rows, top_users, top_ips = await asyncio.gather(
+        q_total_success(), q_active_users(), q_peak_rpm(),
+        q_hourly(), q_top_users(), q_top_ips(),
+    )
 
-        return {
-            'today_requests': today_requests or 0,
-            'success_rate': round(success_rate, 1),
-            'active_users': active_users or 0,
-            'peak_rpm': peak_rpm,
-            'hourly_data': hourly_data,
-            'top_users': [dict(r) for r in top_users],
-            'top_ips': [dict(r) for r in top_ips]
-        }
+    total = (total_row['total'] if total_row else 0) or 0
+    success = (total_row['success'] if total_row else 0) or 0
+    success_rate = (success / total) * 100 if total > 0 else 0
+    peak_rpm = peak_row['count'] if peak_row else 0
+    hourly_data = [{'hour': r['hour'], 'count': r['count']} for r in hourly_rows]
+
+    return {
+        'today_requests': total,
+        'success_rate': round(success_rate, 1),
+        'active_users': active_users or 0,
+        'peak_rpm': peak_rpm,
+        'hourly_data': hourly_data,
+        'top_users': [dict(r) for r in top_users],
+        'top_ips': [dict(r) for r in top_ips]
+    }
 
 
 # ===== 数据库管理（通用表操作） =====

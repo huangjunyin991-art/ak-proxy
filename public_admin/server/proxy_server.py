@@ -9004,31 +9004,58 @@ async def chat_websocket(websocket: WebSocket):
 
 # --- 管理后台页面 ---
 
+_ADMIN_HTML_CACHE = {"mtime": 0.0, "content": "", "etag": ""}
+
+
 @app.get("/admin", response_class=HTMLResponse)
 
 @app.get("/admin/", response_class=HTMLResponse)
 
-async def admin_page():
+async def admin_page(request: Request):
 
     html_path = os.path.join(FRONTEND_PAGES_DIR, "admin.html")
 
-    if os.path.exists(html_path):
+    if not os.path.exists(html_path):
 
-        with open(html_path, "r", encoding="utf-8") as f:
+        return HTMLResponse("<h1>管理页面未找到</h1>", status_code=404)
 
-            content = f.read()
+    mtime = os.path.getmtime(html_path)
 
-        return HTMLResponse(content=content, headers={
+    if _ADMIN_HTML_CACHE["mtime"] != mtime:
 
-            "X-AK-Admin-Source": "public_admin-admin-page-v1",
+        with open(html_path, "rb") as f:
 
-            "Cache-Control": "no-cache, no-store, must-revalidate",
+            content_bytes = f.read()
 
-            "Pragma": "no-cache", "Expires": "0"
+        _ADMIN_HTML_CACHE["mtime"] = mtime
+
+        _ADMIN_HTML_CACHE["content"] = content_bytes.decode("utf-8")
+
+        _ADMIN_HTML_CACHE["etag"] = '"' + hashlib.md5(content_bytes).hexdigest() + '"'
+
+    etag = _ADMIN_HTML_CACHE["etag"]
+
+    if request.headers.get("if-none-match") == etag:
+
+        return Response(status_code=304, headers={
+
+            "ETag": etag,
+
+            "Cache-Control": "no-cache",
+
+            "X-AK-Admin-Source": "public_admin-admin-page-v2",
 
         })
 
-    return "<h1>管理页面未找到</h1>"
+    return HTMLResponse(content=_ADMIN_HTML_CACHE["content"], headers={
+
+        "X-AK-Admin-Source": "public_admin-admin-page-v2",
+
+        "Cache-Control": "no-cache",
+
+        "ETag": etag,
+
+    })
 
 
 _WIDGET_CACHE_MAX_AGE = 31536000
