@@ -4583,7 +4583,8 @@
             const displayVal = isCompactMode ? 'none' : '';
             
             statsGrid.style.display = displayVal;
-            tabDashboard.style.display = displayVal;
+            // 注意：精简模式只隐藏统计卡片（statsGrid / licenseStats），不隐藏 tabDashboard 导航入口，
+            // 否则会导致用户感觉「流量仪表盘」tab 缺失，需要主动切回完整模式才出现。
             if (licenseStats) licenseStats.style.display = displayVal;
             
             if (isCompactMode) {
@@ -4595,9 +4596,7 @@
                     btn.style.background = 'var(--accent)';
                     btn.style.color = 'white';
                 });
-                if (tabDashboard.classList.contains('active')) {
-                    document.querySelector('.tab[data-panel="online"]').click();
-                }
+                // 精简模式不再自动切走 online tab：tabDashboard 已保留为可见入口，由用户自由选择面板。
             } else {
                 fullBtns.forEach(btn => {
                     btn.style.background = 'var(--accent)';
