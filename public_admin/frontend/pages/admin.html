@@ -48,6 +48,36 @@
                 window.addEventListener('error', function(e){
                     try { console.warn('[AKAdminPerf] error', e && (e.message || e.error || e)); } catch(_){}
                 });
+                // 长任务探针：监听任意 >100ms 的主线程阻塞，定位 resize/拖拽/layout 期间的卡顿源
+                if (window.PerformanceObserver) {
+                    try {
+                        var po = new PerformanceObserver(function(list) {
+                            list.getEntries().forEach(function(entry) {
+                                if (entry.duration > 100) {
+                                    console.warn('[AKAdminPerf] long-task', Math.round(entry.duration) + 'ms @' + Math.round(entry.startTime) + 'ms', entry.attribution || '');
+                                }
+                            });
+                        });
+                        po.observe({ entryTypes: ['longtask'] });
+                    } catch (e) {}
+                }
+                // resize 频次与每次回调耗时统计：拖拽期间会被频繁调用
+                var resizeCount = 0;
+                var resizeBudget = 0;
+                var resizeReportTimer = null;
+                window.addEventListener('resize', function() {
+                    var s = performance.now();
+                    resizeCount++;
+                    if (resizeReportTimer) clearTimeout(resizeReportTimer);
+                    resizeReportTimer = setTimeout(function() {
+                        console.log('[AKAdminPerf] resize burst: count=' + resizeCount + ' total_handler_ms=' + Math.round(resizeBudget));
+                        resizeCount = 0;
+                        resizeBudget = 0;
+                    }, 500);
+                    requestAnimationFrame(function() {
+                        resizeBudget += (performance.now() - s);
+                    });
+                }, true);
             } catch(e){}
         })();
     </script>
