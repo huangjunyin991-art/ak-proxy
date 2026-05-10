@@ -3444,6 +3444,7 @@ if create_recommend_tree_router is not None:
         app.include_router(create_recommend_tree_router(
             pool_supplier=db._get_pool,
             verify_admin_token=verify_admin_token,
+            check_token_permission=check_token_permission,
         ))
     except Exception as e:
         logger.warning(f"[RecommendTree] 推荐树路由注册失败，已跳过: {e}")

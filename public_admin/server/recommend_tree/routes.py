@@ -1,4 +1,4 @@
-from typing import Callable
+from typing import Callable, Optional
 
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
@@ -17,6 +17,7 @@ def _extract_bearer_token(request: Request) -> str:
 def create_recommend_tree_router(
     pool_supplier: Callable[[], object],
     verify_admin_token: Callable[[str], object],
+    check_token_permission: Optional[Callable[[str, str], bool]] = None,
 ) -> APIRouter:
     router = APIRouter(prefix="/admin/api/recommend-tree")
     repository = RecommendTreeRepository(pool_supplier=pool_supplier)
@@ -26,6 +27,8 @@ def create_recommend_tree_router(
         token = _extract_bearer_token(request)
         if not token or not await verify_admin_token(token):
             return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
+        if check_token_permission is not None and not check_token_permission(token, 'recommendTree'):
+            return JSONResponse(status_code=403, content={"error": True, "message": "无组织架构权限"})
         return None
 
     @router.get("/cache")
