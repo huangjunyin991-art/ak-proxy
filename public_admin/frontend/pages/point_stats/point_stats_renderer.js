@@ -106,7 +106,8 @@
             '<button class="ps-rt-btn" data-action="detail-page" data-name="' + nameAttr + '" data-target="prev"' + (firstDisabled ? ' disabled' : '') + '>上一页</button>' +
             '<button class="ps-rt-btn primary" data-action="detail-page" data-name="' + nameAttr + '" data-target="next"' + (lastDisabled ? ' disabled' : '') + '>下一页</button>' +
             '<button class="ps-rt-btn" data-action="detail-page" data-name="' + nameAttr + '" data-target="last"' + (lastDisabled ? ' disabled' : '') + '>末页</button>' +
-            '</div></div>';
+            '</div>' +
+            '</div>';
         var body = '<div class="ps-rt-detail-wrap"><table class="ps-detail-table"><thead><tr><th>时间</th><th>方向</th><th>金额</th><th>余额</th><th>类型</th><th>描述</th></tr></thead><tbody>' + slice.map(function(record) {
             var isIncome = Number(record.operation_type || 0) === 1;
             var tone = isIncome ? 'income' : 'expense';

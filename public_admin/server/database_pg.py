@@ -1291,7 +1291,7 @@ async def get_point_stats(username: str = None, point_type: str = None, limit: i
                    type_name, type_name_cn, description, saved_at
             FROM point_history_records
             {where_clause}
-            ORDER BY saved_at DESC, id DESC
+            ORDER BY record_time DESC NULLS LAST, id ASC
             LIMIT ${len(args) + 1}
         ''', *args, limit)
         leaderboard_rows = await conn.fetch(f'''
@@ -1318,7 +1318,7 @@ async def get_point_stats(username: str = None, point_type: str = None, limit: i
                            SELECT balance
                            FROM point_history_records
                            WHERE username = $1 AND point_type = $2 AND balance IS NOT NULL
-                           ORDER BY saved_at DESC, id DESC
+                           ORDER BY record_time DESC NULLS LAST, id ASC
                            LIMIT 1
                        ) AS current_balance,
                        MAX(saved_at) AS latest_saved_at
@@ -1330,7 +1330,7 @@ async def get_point_stats(username: str = None, point_type: str = None, limit: i
                        type_name, type_name_cn, description, saved_at
                 FROM point_history_records
                 WHERE username = $1 AND point_type = $2
-                ORDER BY saved_at DESC, id DESC
+                ORDER BY record_time DESC NULLS LAST, id ASC
             ''', username, code)
     category_agg: Dict[str, Dict] = {}
     detail_by_category: Dict[str, List[Dict]] = {}
