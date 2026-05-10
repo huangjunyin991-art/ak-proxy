@@ -348,10 +348,7 @@
     white-space: nowrap;
 }
 
-.ps-rt-table-wrap {
-    padding: 0 8px 8px;
-}
-
+.ps-rt-table-wrap,
 .ps-rt-detail-wrap {
     overflow-x: auto;
     padding: 0 8px 8px;

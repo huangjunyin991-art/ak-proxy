@@ -13,7 +13,7 @@
             selectedAccountIndex: -1,
             loading: false,
             syncing: false,
-            status: '请输入账号，选择点数类型后开始测试。',
+            status: '请输入账号，选择点数类型后开始统计。',
             error: '',
             payload: null,
             expandedCategory: null
