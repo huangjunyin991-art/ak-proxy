@@ -1455,12 +1455,38 @@
             height: 30px;
             padding: 0 8px;
             border-radius: 8px;
-            border: none;
+            border: 1px solid transparent;
             background: transparent;
             color: var(--text-secondary);
             cursor: pointer;
             font-size: 11px;
             line-height: 1;
+            font-weight: 500;
+            transition: background 0.22s ease, color 0.22s ease, box-shadow 0.22s ease, transform 0.22s ease, font-weight 0.22s ease;
+        }
+        .mobile-shell-mode-btn:hover:not(.active) {
+            color: var(--accent);
+            background: rgba(0, 212, 255, 0.08);
+        }
+        .mobile-shell-mode-btn.active {
+            background: linear-gradient(135deg, var(--accent), #00b8d9) !important;
+            color: #ffffff !important;
+            font-weight: 700;
+            border-color: rgba(0, 212, 255, 0.5);
+            box-shadow: 0 0 0 1px rgba(0, 212, 255, 0.35), 0 6px 14px rgba(0, 212, 255, 0.35);
+            transform: scale(1.04);
+        }
+        /* PC 端「显示模式」div 按钮的 active 强化 */
+        #modeFullBtn.active,
+        #modeCompactBtn.active {
+            background: linear-gradient(135deg, var(--accent), #00b8d9) !important;
+            color: #ffffff !important;
+            font-weight: 700;
+            box-shadow: inset 0 0 0 1px rgba(255,255,255,0.18), 0 4px 12px rgba(0,212,255,0.35);
+        }
+        #modeFullBtn,
+        #modeCompactBtn {
+            transition: background 0.22s ease, color 0.22s ease, box-shadow 0.22s ease, font-weight 0.22s ease;
         }
 
         .mobile-shell-title {
@@ -4564,42 +4590,37 @@
             }
         }
 
-        function setViewMode(compact) {
-            saveViewMode(compact);
-            if (isCompactMode === compact) return;
-            isCompactMode = compact;
+        function syncViewModeButtons() {
             const fullBtns = [document.getElementById('modeFullBtn'), document.getElementById('mobileModeFullBtn')].filter(Boolean);
             const compactBtns = [document.getElementById('modeCompactBtn'), document.getElementById('mobileModeCompactBtn')].filter(Boolean);
+            const activeBtns = isCompactMode ? compactBtns : fullBtns;
+            const inactiveBtns = isCompactMode ? fullBtns : compactBtns;
+            activeBtns.forEach(btn => {
+                btn.classList.add('active');
+                btn.style.background = '';
+                btn.style.color = '';
+            });
+            inactiveBtns.forEach(btn => {
+                btn.classList.remove('active');
+                btn.style.background = 'transparent';
+                btn.style.color = 'var(--text-secondary)';
+            });
+        }
+
+        function setViewMode(compact) {
+            saveViewMode(compact);
+            const changed = isCompactMode !== compact;
+            isCompactMode = compact;
+            syncViewModeButtons();
+            if (!changed) return;
             const statsGrid = document.getElementById('statsGrid');
-            const tabDashboard = document.getElementById('tabDashboard');
             const licenseStats = document.getElementById('licenseStatsGrid');
             const displayVal = isCompactMode ? 'none' : '';
-            
-            statsGrid.style.display = displayVal;
             // 注意：精简模式只隐藏统计卡片（statsGrid / licenseStats），不隐藏 tabDashboard 导航入口，
             // 否则会导致用户感觉「流量仪表盘」tab 缺失，需要主动切回完整模式才出现。
+            if (statsGrid) statsGrid.style.display = displayVal;
             if (licenseStats) licenseStats.style.display = displayVal;
-            
-            if (isCompactMode) {
-                fullBtns.forEach(btn => {
-                    btn.style.background = 'transparent';
-                    btn.style.color = 'var(--text-secondary)';
-                });
-                compactBtns.forEach(btn => {
-                    btn.style.background = 'var(--accent)';
-                    btn.style.color = 'white';
-                });
-                // 精简模式不再自动切走 online tab：tabDashboard 已保留为可见入口，由用户自由选择面板。
-            } else {
-                fullBtns.forEach(btn => {
-                    btn.style.background = 'var(--accent)';
-                    btn.style.color = 'white';
-                });
-                compactBtns.forEach(btn => {
-                    btn.style.background = 'transparent';
-                    btn.style.color = 'var(--text-secondary)';
-                });
-            }
+            // 精简模式不再自动切走 online tab：tabDashboard 已保留为可见入口，由用户自由选择面板。
         }
 
         function restoreViewMode() {
@@ -4610,7 +4631,10 @@
             }
             if (savedMode === 'full') {
                 setViewMode(false);
+                return;
             }
+            // 未保存过偏好：保持默认完整模式，但仍同步按钮 active 状态
+            syncViewModeButtons();
         }
         
         // ===== 移动端方向检测 =====
