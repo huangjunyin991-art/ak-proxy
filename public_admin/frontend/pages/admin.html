@@ -5,6 +5,27 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="ak-admin-source" content="public_admin-admin-html-v1">
     <title>AK后台管理系统</title>
+    <script>
+        // 首屏加载耗时探针：通过 console 直接观察各关键节点时间
+        (function(){
+            try {
+                var marks = window.__akAdminMarks = [];
+                function log(name) {
+                    var t = performance.now();
+                    marks.push({name: name, t: t});
+                    try { console.log('[AKAdminPerf] ' + name + ' @ ' + t.toFixed(0) + 'ms'); } catch(e){}
+                }
+                window.__akAdminPerfLog = log;
+                log('html-head');
+                document.addEventListener('DOMContentLoaded', function(){ log('DOMContentLoaded'); });
+                window.addEventListener('load', function(){ log('window.load'); });
+                window.addEventListener('ak-admin-auth-ready', function(){ log('auth-ready'); });
+                window.addEventListener('error', function(e){
+                    try { console.warn('[AKAdminPerf] error', e && (e.message || e.error || e)); } catch(_){}
+                });
+            } catch(e){}
+        })();
+    </script>
     <style>
         * {
             margin: 0;
