@@ -1086,6 +1086,11 @@ def resolve_point_category(point_type: str, raw_type_name: str, description: str
         if desc.startswith('To '):
             return 'TP转出'
         return 'TP转账'
+    if code == 'SP' and desc:
+        if 'RP -> SP' in desc or 'RP to SP' in desc:
+            return 'RP转SP'
+        if 'EP -> SP' in desc or 'EP to SP' in desc:
+            return 'EP转SP'
     if code == 'RP' and desc:
         match = _RP_UPLIFT_RE.match(desc)
         if match:
