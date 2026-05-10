@@ -48,6 +48,50 @@
                 window.addEventListener('error', function(e){
                     try { console.warn('[AKAdminPerf] error', e && (e.message || e.error || e)); } catch(_){}
                 });
+                // tabDashboard / desktopTabs 属性变化监听：精确捕获谁在何时改了流量仪表盘 tab 的样式/类
+                function attachTabsMutationObserver() {
+                    if (!window.MutationObserver) return;
+                    var tabDash = document.getElementById('tabDashboard');
+                    var desktopTabs = document.getElementById('desktopTabs');
+                    function dump(label, target, mut) {
+                        try {
+                            var cs = getComputedStyle(target);
+                            console.log('[AKAdminPerf] mut ' + label + ' @' + Math.round(performance.now()) + 'ms', {
+                                attr: mut.attributeName,
+                                old: mut.oldValue,
+                                inline_style: target.getAttribute('style') || '',
+                                inline_class: target.className,
+                                computed_display: cs.display,
+                                computed_visibility: cs.visibility,
+                                computed_opacity: cs.opacity
+                            });
+                        } catch(e) {}
+                    }
+                    if (tabDash) {
+                        try {
+                            var moTab = new MutationObserver(function(muts) {
+                                muts.forEach(function(m) { dump('tabDashboard', tabDash, m); });
+                            });
+                            moTab.observe(tabDash, { attributes: true, attributeOldValue: true });
+                            console.log('[AKAdminPerf] tabDashboard mutation observer attached @' + Math.round(performance.now()) + 'ms');
+                        } catch(e) {}
+                    } else {
+                        console.warn('[AKAdminPerf] tabDashboard not found at observer attach');
+                    }
+                    if (desktopTabs) {
+                        try {
+                            var moTabs = new MutationObserver(function(muts) {
+                                muts.forEach(function(m) {
+                                    if (m.type === 'attributes') dump('desktopTabs', desktopTabs, m);
+                                });
+                            });
+                            moTabs.observe(desktopTabs, { attributes: true, attributeOldValue: true });
+                            console.log('[AKAdminPerf] desktopTabs mutation observer attached @' + Math.round(performance.now()) + 'ms');
+                        } catch(e) {}
+                    }
+                }
+                document.addEventListener('DOMContentLoaded', attachTabsMutationObserver);
+
                 // 长任务探针：监听任意 >100ms 的主线程阻塞，定位 resize/拖拽/layout 期间的卡顿源
                 if (window.PerformanceObserver) {
                     try {
