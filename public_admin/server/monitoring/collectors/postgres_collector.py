@@ -39,12 +39,36 @@ async def collect_database_snapshot(pool, timeout_seconds: float = 4.0) -> dict:
             WHERE n.nspname = 'public'
               AND c.relkind = 'r'
               AND relname IN (
-                  'im_message', 'im_file_asset', 'im_conversation', 'im_conversation_member',
-                  'im_conversation_admin', 'im_message_mention', 'im_meetings', 'authorized_accounts',
-                  'login_records', 'user_stats'
+                  -- IM 消息与会话
+                  'im_message', 'im_message_mention', 'im_conversation',
+                  'im_conversation_member', 'im_conversation_admin',
+                  'im_conversation_member_override', 'im_direct_message_gate',
+                  -- IM 用户档案与社交
+                  'im_user_profile', 'im_user_avatar_history',
+                  'im_user_contact', 'im_user_blacklist',
+                  -- IM 资产与表情
+                  'im_file_asset', 'im_emoji_asset', 'im_media_preview_task',
+                  -- IM 会议
+                  'im_meetings', 'im_meeting_reads', 'meeting_publish_permissions',
+                  -- IM 系统配置
+                  'im_system_config',
+                  -- 用户与登录
+                  'authorized_accounts', 'login_records', 'user_stats',
+                  'user_assets', 'ip_stats', 'ban_list',
+                  -- 积分与点数
+                  'point_history_records', 'credit_config', 'credit_transactions',
+                  'admin_point_stats_quota',
+                  -- 管理员与权限
+                  'admin_tokens', 'admin_totp_secrets', 'admin_operation_leases',
+                  'sub_admins', 'sub_admin_account_bindings',
+                  'admin_recommend_tree_cache',
+                  -- 业务运营
+                  'license_logs', 'subscription_groups', 'exit_events',
+                  'notification_campaigns', 'notification_deliveries',
+                  'system_config'
               )
             ORDER BY pg_total_relation_size(c.oid) DESC
-            LIMIT 20
+            LIMIT 100
         '''), timeout_seconds)
         data["table_sizes"] = [
             {
