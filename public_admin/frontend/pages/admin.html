@@ -1379,11 +1379,10 @@
             display: none;
         }
         
+        /* mainContent 默认就保留可见，依赖 fixed 全屏的 .login-overlay 盖住未登录态。
+           这样浏览器流式渲染 HTML 时 tab 行/面板立即可见，无需等待全部 inline JS 解析完。
+           .visible 类保留作为登录态语义标记（移动端样式与 syncResponsiveShell 中仍在使用）。 */
         .main-content {
-            display: none;
-        }
-        
-        .main-content.visible {
             display: block;
         }
 
@@ -12670,7 +12669,7 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
     </script>
     <script>
         (function() {
-            var pointStatsPanelBuildVersion = '20260509-22';
+            var pointStatsPanelBuildVersion = '20260509-23';
             window.AKPointStatsPanelAssetVersion = pointStatsPanelBuildVersion;
             var pointStatsPanelAssets = [
                 'point_stats_api.js',
