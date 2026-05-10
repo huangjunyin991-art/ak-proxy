@@ -9,6 +9,7 @@
 
         init(ctx) {
             this.ctx = ctx || null;
+            try { this.bindVisibilityForceMarkRead(); } catch (e) {}
         },
 
         getState() {
@@ -849,7 +850,8 @@
                         state.activeMessages = items.slice();
                         state.activeMessagesLoading = false;
                         self.ctx.render();
-                        self.markRead(targetConversationId);
+                        // 进入会话 + 加载完成 = 强已读触发点，不受「是否滚到底」限制
+                        self.markRead(targetConversationId, { force: true });
                     }
                     return null;
                 });
@@ -862,7 +864,8 @@
                     self.setCachedMessages(targetConversationId, items);
                     if (Number(state.activeConversationId || 0) === targetConversationId) {
                         state.activeMessagesLoading = false;
-                        self.markRead(targetConversationId);
+                        // 本地缓存命中恢复会话同样作为强已读触发点
+                        self.markRead(targetConversationId, { force: true });
                     }
                     return null;
                 }).catch(function() {
@@ -1185,13 +1188,17 @@
             if (changed && this.ctx && typeof this.ctx.render === 'function') this.ctx.render();
         },
 
-        markRead(conversationId) {
+        markRead(conversationId, options) {
             const state = this.getState();
             if (!state || !state.ws || state.ws.readyState !== WebSocket.OPEN) return;
             const targetConversationId = Number(conversationId || state.activeConversationId || 0);
             if (!targetConversationId || !this.shouldAutoMarkRead(targetConversationId) || !state.activeMessages.length) return;
-            const messageNavigation = this.getMessageNavigation();
-            if (messageNavigation && typeof messageNavigation.shouldMarkReadNow === 'function' && !messageNavigation.shouldMarkReadNow()) return;
+            const force = !!(options && options.force);
+            // 强已读路径：跳过「必须在底部/未读锚点全可见」业务限制，仅保留 view+visibility+消息非空三道底线
+            if (!force) {
+                const messageNavigation = this.getMessageNavigation();
+                if (messageNavigation && typeof messageNavigation.shouldMarkReadNow === 'function' && !messageNavigation.shouldMarkReadNow()) return;
+            }
             let lastPeerMessage = null;
             for (let index = state.activeMessages.length - 1; index >= 0; index -= 1) {
                 const candidate = state.activeMessages[index];
@@ -1354,6 +1361,15 @@
             try {
                 state.ws = this.ctx.createWebSocket();
                 if (!state.ws) return;
+                state.ws.addEventListener('open', function() {
+                    // WS 建立/重连后，若当前身处 chat 视图，补发一次强已读，避免由于进入会话时 WS 未 OPEN 导致首次丢失
+                    try {
+                        const cur = self.getState();
+                        if (cur && cur.open && cur.view === 'chat' && Number(cur.activeConversationId || 0) > 0) {
+                            self.markRead(cur.activeConversationId, { force: true });
+                        }
+                    } catch (e) {}
+                });
                 state.ws.addEventListener('message', function(event) {
                     try {
                         const data = JSON.parse(event.data || '{}');
@@ -1365,6 +1381,22 @@
                     setTimeout(function() {
                         if (state.allowed) self.ensureWebSocket();
                     }, 1500);
+                });
+            } catch (e) {}
+        },
+
+        // 可见性恢复时补发一次强已读：用户从后台/锁屏回来后，如仍停留在同一会话则重新计为已读
+        bindVisibilityForceMarkRead() {
+            if (this._visibilityBound) return;
+            this._visibilityBound = true;
+            const self = this;
+            try {
+                document.addEventListener('visibilitychange', function() {
+                    if (document.visibilityState !== 'visible') return;
+                    const cur = self.getState();
+                    if (cur && cur.open && cur.view === 'chat' && Number(cur.activeConversationId || 0) > 0) {
+                        self.markRead(cur.activeConversationId, { force: true });
+                    }
                 });
             } catch (e) {}
         }
