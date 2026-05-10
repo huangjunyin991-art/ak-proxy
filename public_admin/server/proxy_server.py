@@ -9004,57 +9004,104 @@ async def chat_websocket(websocket: WebSocket):
 
 # --- 管理后台页面 ---
 
-_ADMIN_HTML_CACHE = {"mtime": 0.0, "content": "", "etag": ""}
+_ADMIN_HTML_CACHE = {"key": None, "content": "", "etag": ""}
+
+
+def _max_mtime_among(paths):
+    """返回给定路径列表中所有文件 mtime 的最大值；目录会递归。"""
+    latest = 0.0
+    for p in paths:
+        try:
+            if os.path.isfile(p):
+                latest = max(latest, os.path.getmtime(p))
+            elif os.path.isdir(p):
+                for root, _dirs, files in os.walk(p):
+                    for fname in files:
+                        try:
+                            latest = max(latest, os.path.getmtime(os.path.join(root, fname)))
+                        except OSError:
+                            pass
+        except OSError:
+            pass
+    return latest
+
+
+def _admin_panel_versions():
+    """根据各 panel 资源目录 max(mtime) 计算 admin 内联 buildVersion 占位符的真实值。"""
+    return {
+        'monitoring': _max_mtime_among([
+            os.path.join(FRONTEND_PAGES_DIR, "monitoring", "monitoring_panel.js"),
+            os.path.join(FRONTEND_PAGES_DIR, "monitoring", "monitoring_panel.css"),
+        ]),
+        'meeting': _max_mtime_among([
+            os.path.join(FRONTEND_PAGES_DIR, "meeting_admin_panel.js"),
+        ]),
+        'recommendTree': _max_mtime_among([
+            os.path.join(FRONTEND_PAGES_DIR, "recommend_tree"),
+        ]),
+        'pointStats': _max_mtime_among([
+            os.path.join(FRONTEND_PAGES_DIR, "point_stats"),
+        ]),
+    }
+
+
+_ADMIN_PANEL_VERSION_PATTERN = re.compile(
+    r"var\s+(monitoringPanelBuildVersion|meetingPanelBuildVersion|"
+    r"recommendTreePanelBuildVersion|pointStatsPanelBuildVersion)\s*=\s*'[^']*'"
+)
+
+_ADMIN_PANEL_VAR_TO_KEY = {
+    'monitoringPanelBuildVersion': 'monitoring',
+    'meetingPanelBuildVersion': 'meeting',
+    'recommendTreePanelBuildVersion': 'recommendTree',
+    'pointStatsPanelBuildVersion': 'pointStats',
+}
+
+
+def _inject_admin_panel_versions(content: str, panel_versions: dict) -> str:
+    """把 admin.html 中各 panel 的硬编码 buildVersion 替换为基于资源 mtime 的动态版本号。"""
+    def _replace(match):
+        var_name = match.group(1)
+        key = _ADMIN_PANEL_VAR_TO_KEY.get(var_name)
+        mtime = panel_versions.get(key, 0.0) if key else 0.0
+        return "var %s = 'mt-%d'" % (var_name, int(mtime))
+    return _ADMIN_PANEL_VERSION_PATTERN.sub(_replace, content)
 
 
 @app.get("/admin", response_class=HTMLResponse)
-
 @app.get("/admin/", response_class=HTMLResponse)
-
 async def admin_page(request: Request):
-
     html_path = os.path.join(FRONTEND_PAGES_DIR, "admin.html")
-
     if not os.path.exists(html_path):
-
         return HTMLResponse("<h1>管理页面未找到</h1>", status_code=404)
-
-    mtime = os.path.getmtime(html_path)
-
-    if _ADMIN_HTML_CACHE["mtime"] != mtime:
-
-        with open(html_path, "rb") as f:
-
-            content_bytes = f.read()
-
-        _ADMIN_HTML_CACHE["mtime"] = mtime
-
-        _ADMIN_HTML_CACHE["content"] = content_bytes.decode("utf-8")
-
+    html_mtime = os.path.getmtime(html_path)
+    panel_versions = _admin_panel_versions()
+    cache_key = (
+        html_mtime,
+        panel_versions['monitoring'],
+        panel_versions['meeting'],
+        panel_versions['recommendTree'],
+        panel_versions['pointStats'],
+    )
+    if _ADMIN_HTML_CACHE["key"] != cache_key:
+        with open(html_path, "r", encoding="utf-8") as f:
+            content = f.read()
+        content = _inject_admin_panel_versions(content, panel_versions)
+        content_bytes = content.encode("utf-8")
+        _ADMIN_HTML_CACHE["key"] = cache_key
+        _ADMIN_HTML_CACHE["content"] = content
         _ADMIN_HTML_CACHE["etag"] = '"' + hashlib.md5(content_bytes).hexdigest() + '"'
-
     etag = _ADMIN_HTML_CACHE["etag"]
-
     if request.headers.get("if-none-match") == etag:
-
         return Response(status_code=304, headers={
-
             "ETag": etag,
-
             "Cache-Control": "no-cache",
-
-            "X-AK-Admin-Source": "public_admin-admin-page-v2",
-
+            "X-AK-Admin-Source": "public_admin-admin-page-v3",
         })
-
     return HTMLResponse(content=_ADMIN_HTML_CACHE["content"], headers={
-
-        "X-AK-Admin-Source": "public_admin-admin-page-v2",
-
+        "X-AK-Admin-Source": "public_admin-admin-page-v3",
         "Cache-Control": "no-cache",
-
         "ETag": etag,
-
     })
 
 
