@@ -9110,15 +9110,18 @@ async def admin_page(request: Request):
         is_304,
         len(_ADMIN_HTML_CACHE["content"] or ""),
     )
+    # max-age=300 让浏览器在 5 分钟内直接用本地副本，零网络请求；
+    # must-revalidate 保证超期后必须协商；ETag 跟随 mtime 自动变化，代码改动会让协商立即拿到新版。
+    cache_control = "public, max-age=300, must-revalidate"
     if is_304:
         return Response(status_code=304, headers={
             "ETag": etag,
-            "Cache-Control": "no-cache",
-            "X-AK-Admin-Source": "public_admin-admin-page-v3",
+            "Cache-Control": cache_control,
+            "X-AK-Admin-Source": "public_admin-admin-page-v4",
         })
     return HTMLResponse(content=_ADMIN_HTML_CACHE["content"], headers={
-        "X-AK-Admin-Source": "public_admin-admin-page-v3",
-        "Cache-Control": "no-cache",
+        "X-AK-Admin-Source": "public_admin-admin-page-v4",
+        "Cache-Control": cache_control,
         "ETag": etag,
     })
 
