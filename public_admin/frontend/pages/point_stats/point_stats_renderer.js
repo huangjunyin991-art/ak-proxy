@@ -120,7 +120,7 @@
         return [
             '<div class="ps-rt-root' + ((state.loading || state.syncing) ? ' is-busy' : '') + '">',
             '<section class="ps-rt-hero">',
-            '<div class="ps-rt-account-action-row"><div class="ps-account-wrap"><label class="ps-rt-field"><input class="ps-rt-input ps-account-input" data-role="account-input" value="' + html(state.accountQuery) + '" placeholder="请输入账号" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"></label></div><button class="ps-rt-btn primary" data-action="sync">' + (state.syncing ? '拉取中' : '数据统计') + '</button>' + renderOptions(state) + '</div>',
+            '<div class="ps-rt-account-action-row"><div class="ps-account-wrap"><label class="ps-rt-field"><input class="ps-rt-input ps-account-input" data-role="account-input" value="' + html(state.accountQuery) + '" placeholder="请输入账号" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"></label>' + renderOptions(state) + '</div><button class="ps-rt-btn primary" data-action="sync">' + (state.syncing ? '拉取中' : '数据统计') + '</button></div>',
             '<div class="ps-rt-cache-line ' + (state.error ? 'error' : 'info') + '">' + html(state.status) + '</div>',
             '</section>',
             '<section class="ps-rt-stats">' + renderSummary(state) + '</section>',

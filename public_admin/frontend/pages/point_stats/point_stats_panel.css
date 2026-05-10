@@ -123,6 +123,7 @@
 }
 
 .ps-account-wrap {
+    position: relative;
     min-width: 0;
 }
 
@@ -347,7 +348,10 @@
     white-space: nowrap;
 }
 
-.ps-rt-table-wrap,
+.ps-rt-table-wrap {
+    padding: 0 8px 8px;
+}
+
 .ps-rt-detail-wrap {
     overflow-x: auto;
     padding: 0 8px 8px;
@@ -425,10 +429,10 @@
 .ps-rt-root .ps-account-menu {
     position: absolute;
     z-index: 9999;
-    top: calc(100% + 6px);
+    top: 100%;
     left: 0;
     right: 0;
-    z-index: 500;
+    margin-top: -1px;
     display: grid;
     gap: 4px;
     max-height: 318px;

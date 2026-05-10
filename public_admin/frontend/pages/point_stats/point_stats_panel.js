@@ -259,7 +259,7 @@
         }
         bindEvents();
         render();
-        if (!store.state.payload && !store.state.loading) loadStats();
+        if (store.state.username && !store.state.payload && !store.state.loading) loadStats();
     }
 
     window.AKPointStatsPanel = {
