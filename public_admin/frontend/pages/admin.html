@@ -4092,7 +4092,27 @@
                 leaseToken = await requestOperationLease(data.scope, data);
             }
             if (!leaseToken) {
-                return response;
+                // 用户取消了 Google 验证码弹窗 → 构造一个清晰的失败响应让业务层各自显示
+                // 同时统一弹一个全局 toast，避免业务层显示「未知错误」/「未授权」等模糊提示
+                const cancelledMessage = 'Google 验证码验证已取消，操作未执行';
+                const cancelledBody = {
+                    error: true,
+                    success: false,
+                    code: 'NEED_OPERATION_AUTH',
+                    scope: data.scope,
+                    message: cancelledMessage,
+                    detail: cancelledMessage
+                };
+                try {
+                    if (typeof showToast === 'function') {
+                        showToast(cancelledMessage, 'warning');
+                    }
+                } catch (e) {}
+                return new Response(JSON.stringify(cancelledBody), {
+                    status: 403,
+                    statusText: response.statusText || 'Forbidden',
+                    headers: { 'Content-Type': 'application/json' }
+                });
             }
             const retryInit = withAdminAuthHeaders(init);
             retryInit.headers['X-Operation-Lease'] = leaseToken;
