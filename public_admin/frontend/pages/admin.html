@@ -3683,33 +3683,44 @@
                         <div style="background: var(--bg-primary); border-radius: 8px; padding: 15px; margin-bottom: 15px;">
                             <div style="margin-bottom: 10px; color: var(--accent); font-size: 14px; font-weight: bold;">➕ 添加/更新子管理员</div>
                             
-                            <div class="sub-admin-form-grid" style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px;">
-                                <div class="sub-admin-form-field" style="min-width: 0;">
+                            <!-- 反 autofill 诱饵：吸走浏览器/密码管理器的 username+password 自动填充 -->
+                            <div aria-hidden="true" style="position:absolute; left:-9999px; top:-9999px; width:1px; height:1px; overflow:hidden;">
+                                <input type="text" tabindex="-1" autocomplete="username" name="fake-username-autofill-trap">
+                                <input type="password" tabindex="-1" autocomplete="current-password" name="fake-password-autofill-trap">
+                            </div>
+
+                            <div class="sub-admin-form-grid">
+                                <div class="sub-admin-form-field">
                                     <label style="display: block; margin-bottom: 4px; color: var(--text-secondary); font-size: 11px;">名称</label>
-                                    <input type="text" id="newSubAdminName" placeholder="如：运营1号" 
+                                    <input type="text" id="newSubAdminName" name="sub_admin_name_v2" placeholder="如：运营1号"
+                                           autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
+                                           data-form-type="other" data-lpignore="true" data-1p-ignore="true"
                                            style="width: 100%; padding: 8px 10px; background: var(--bg-secondary); border: 1px solid var(--border); 
                                                   border-radius: 6px; color: var(--text-primary); font-size: 13px;">
                                 </div>
-                                <div class="sub-admin-form-field" style="min-width: 0;">
+                                <div class="sub-admin-form-field">
                                     <label style="display: block; margin-bottom: 4px; color: var(--text-secondary); font-size: 11px;">登录密码</label>
-                                    <input type="password" id="newSubAdminPassword" placeholder="至少6位" 
-                                           autocomplete="new-password" autocorrect="off" autocapitalize="off" spellcheck="false"
+                                    <input type="password" id="newSubAdminPassword" name="sub_login_password_v2" placeholder="至少6位"
+                                           readonly onfocus="this.removeAttribute('readonly')"
+                                           autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
                                            data-form-type="other" data-lpignore="true" data-1p-ignore="true"
                                            style="width: 100%; padding: 8px 10px; background: var(--bg-secondary); border: 1px solid var(--border); 
                                                   border-radius: 6px; color: var(--text-primary); font-size: 13px;">
                                 </div>
-                                <div class="sub-admin-form-field" style="min-width: 0;">
+                                <div class="sub-admin-form-field">
                                     <label style="display: block; margin-bottom: 4px; color: var(--text-secondary); font-size: 11px;">总管理密码</label>
-                                    <input type="password" id="subAdminSuperPassword" placeholder="验证身份" 
-                                           autocomplete="new-password" autocorrect="off" autocapitalize="off" spellcheck="false"
+                                    <input type="password" id="subAdminSuperPassword" name="super_admin_password_v2" placeholder="验证身份"
+                                           readonly onfocus="this.removeAttribute('readonly')"
+                                           autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
                                            data-form-type="other" data-lpignore="true" data-1p-ignore="true"
                                            style="width: 100%; padding: 8px 10px; background: var(--bg-secondary); border: 1px solid var(--border); 
                                                   border-radius: 6px; color: var(--text-primary); font-size: 13px;">
                                 </div>
-                                <div class="sub-admin-form-field" style="min-width: 0;">
+                                <div class="sub-admin-form-field">
                                     <label style="display: block; margin-bottom: 4px; color: var(--accent-yellow); font-size: 11px;">二级密码</label>
-                                    <input type="password" id="subAdminSecondaryPassword" placeholder="确认操作" 
-                                           autocomplete="new-password" autocorrect="off" autocapitalize="off" spellcheck="false"
+                                    <input type="password" id="subAdminSecondaryPassword" name="secondary_password_v2" placeholder="确认操作"
+                                           readonly onfocus="this.removeAttribute('readonly')"
+                                           autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
                                            data-form-type="other" data-lpignore="true" data-1p-ignore="true"
                                            style="width: 100%; padding: 8px 10px; background: var(--bg-secondary); border: 1px solid var(--accent-yellow); 
                                                   border-radius: 6px; color: var(--text-primary); font-size: 13px;">
@@ -6298,14 +6309,20 @@
         // 仅更新权限（不需要改密码）
         async function updateSubAdminPermissions() {
             const subName = selectedSubAdmin || document.getElementById('newSubAdminName').value.trim();
-            const superPassword = document.getElementById('subAdminSuperPassword').value;
-            
+            const superPwInput = document.getElementById('subAdminSuperPassword');
+            const superPassword = superPwInput ? superPwInput.value : '';
+
             if (!subName) {
                 showSubAdminMsg('请先点击选择一个子管理员', 'error');
                 return;
             }
             if (!superPassword) {
-                showSubAdminMsg('请填写系统总管理员密码', 'error');
+                showSubAdminMsg('请填写系统总管理员密码（输入框检测为空，请清空后手动重新输入，避免浏览器自动填充未生效）', 'error');
+                if (superPwInput) try { superPwInput.focus(); } catch (e) {}
+                return;
+            }
+            if (/\s/.test(superPassword)) {
+                showSubAdminMsg('系统总管理员密码包含空格/换行字符，请清空后重新输入', 'error');
                 return;
             }
             
