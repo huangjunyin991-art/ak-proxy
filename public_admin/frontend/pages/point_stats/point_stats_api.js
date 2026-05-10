@@ -8,7 +8,11 @@
     function parseResponse(response) {
         return response.json().then(function(body) {
             if (!response.ok || body.error || body.success === false) {
-                throw new Error(body.message || body.detail || '点数统计接口请求失败');
+                var err = new Error(body.message || body.detail || '点数统计接口请求失败');
+                err.code = body.code || '';
+                err.status = response.status;
+                err.body = body;
+                throw err;
             }
             return body;
         });
@@ -65,10 +69,18 @@
         }).then(parseResponse);
     }
 
+    function getQuota() {
+        return fetch('/admin/api/point-stats/quota', {
+            headers: authHeaders(),
+            credentials: 'same-origin'
+        }).then(parseResponse);
+    }
+
     window.AKPointStatsApi = {
         getStats: getStats,
         searchUsers: searchUsers,
         syncRecords: syncRecords,
-        syncStatus: syncStatus
+        syncStatus: syncStatus,
+        getQuota: getQuota
     };
 })();

@@ -4047,6 +4047,47 @@ async def _run_point_history_sync_task(task_key: str, username: str, point_type:
             })
 
 
+# ===== 点数统计配额辅助 =====
+
+def _admin_id_for_point_stats(token: str) -> str:
+    """点数统计配额表使用的 admin_id：超管返 'super'，子管理员返 'sub:<name>'。"""
+    role = get_token_role(token) or ''
+    if role == ROLE_SUPER_ADMIN:
+        return 'super'
+    if role == ROLE_SUB_ADMIN:
+        sub_name = get_token_sub_name(token) or ''
+        if sub_name:
+            return f'sub:{sub_name}'
+    return ''
+
+
+async def _check_point_stats_quota(token: str, username: str, point_type: str):
+    """判定 (admin, account, type) 是否允许向外部 API 发起 sync。
+    返回 (allowed, reason, info)：
+    - allowed=False reason='COOLDOWN_ACTIVE' info={'cooldown_seconds': N}：5 分钟内已拉过，应静默走缓存
+    - allowed=False reason='DAILY_QUOTA_EXHAUSTED' info={'used_count','limit','used_accounts'}：非超管当日 3 账号已满
+    - allowed=True reason='' info={}：放行
+    超管：仅受冷却限制，不消耗日额度。
+    """
+    admin_id = _admin_id_for_point_stats(token)
+    if not admin_id:
+        return False, 'UNAUTHORIZED', {}
+    role = get_token_role(token) or ''
+    cooldown_remaining = await db.get_point_stats_cooldown_remaining(admin_id, username, point_type)
+    if cooldown_remaining > 0:
+        return False, 'COOLDOWN_ACTIVE', {'cooldown_seconds': cooldown_remaining}
+    if role == ROLE_SUPER_ADMIN:
+        return True, '', {}
+    quota = await db.get_point_stats_quota_status(admin_id)
+    if quota['used_count'] >= db.POINT_STATS_DAILY_ACCOUNT_LIMIT and username not in quota['used_accounts']:
+        return False, 'DAILY_QUOTA_EXHAUSTED', {
+            'used_count': quota['used_count'],
+            'limit': db.POINT_STATS_DAILY_ACCOUNT_LIMIT,
+            'used_accounts': quota['used_accounts'],
+        }
+    return True, '', {}
+
+
 @app.post("/admin/api/point-stats/sync")
 async def admin_point_stats_sync(request: Request):
     token = request.headers.get('Authorization', '').replace('Bearer ', '')
@@ -4062,10 +4103,38 @@ async def admin_point_stats_sync(request: Request):
             return JSONResponse(status_code=400, content={"error": True, "message": "缺少账号"})
         if point_type not in _POINT_HISTORY_RPC_TYPES:
             return JSONResponse(status_code=400, content={"error": True, "message": f"不支持的点数类型: {point_type}"})
+        allowed, reason, info = await _check_point_stats_quota(token, username, point_type)
+        if not allowed:
+            if reason == 'COOLDOWN_ACTIVE':
+                cooldown_seconds = int(info.get('cooldown_seconds', 0) or 0)
+                return {
+                    "task_id": _point_history_sync_task_key(username, point_type),
+                    "status": "skipped",
+                    "cooldown_active": True,
+                    "cooldown_seconds": cooldown_seconds,
+                    "state": {
+                        "status": "skipped",
+                        "cooldown_active": True,
+                        "cooldown_seconds": cooldown_seconds,
+                        "message": f"{point_type} 5 分钟内已拉取过，已自动使用缓存",
+                    },
+                }
+            if reason == 'DAILY_QUOTA_EXHAUSTED':
+                return JSONResponse(status_code=429, content={
+                    "error": True,
+                    "code": "DAILY_QUOTA_EXHAUSTED",
+                    "message": f"今日点数统计 {info.get('limit', db.POINT_STATS_DAILY_ACCOUNT_LIMIT)} 个账号额度已用完",
+                    "used_count": info.get('used_count', 0),
+                    "limit": info.get('limit', db.POINT_STATS_DAILY_ACCOUNT_LIMIT),
+                    "used_accounts": info.get('used_accounts', []),
+                })
+            return JSONResponse(status_code=403, content={"error": True, "code": reason or "FORBIDDEN", "message": "未授权"})
         task_key = _point_history_sync_task_key(username, point_type)
         existing = _POINT_HISTORY_SYNC_TASKS.get(task_key)
         if existing and existing.get('status') == 'running':
             return {"task_id": task_key, "status": "running", "state": existing}
+        admin_id = _admin_id_for_point_stats(token)
+        await db.record_point_stats_quota_usage(admin_id, username, point_type)
         state = {
             'task_id': task_key,
             'status': 'running',
@@ -4094,6 +4163,29 @@ async def admin_point_stats_sync(request: Request):
     except Exception as e:
         logger.warning(f"[PointHistorySync] 启动后台任务失败: {e}")
         return JSONResponse(status_code=500, content={"error": True, "message": str(e)})
+
+
+@app.get("/admin/api/point-stats/quota")
+async def admin_point_stats_quota(request: Request):
+    token = request.headers.get('Authorization', '').replace('Bearer ', '')
+    if not token or not await verify_admin_token(token):
+        return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
+    if not check_token_permission(token, 'pointStats'):
+        return JSONResponse(status_code=403, content={"error": True, "message": "无点数统计权限"})
+    role = get_token_role(token) or ''
+    admin_id = _admin_id_for_point_stats(token)
+    if not admin_id:
+        return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
+    status = await db.get_point_stats_quota_status(admin_id)
+    is_super = (role == ROLE_SUPER_ADMIN)
+    return {
+        "is_super_admin": is_super,
+        "limit": None if is_super else db.POINT_STATS_DAILY_ACCOUNT_LIMIT,
+        "used_count": status['used_count'],
+        "used_accounts": status['used_accounts'],
+        "cooldowns": status['cooldowns'],
+        "cooldown_seconds": db.POINT_STATS_COOLDOWN_SECONDS,
+    }
 
 
 @app.get("/admin/api/point-stats/sync/status")

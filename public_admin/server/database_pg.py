@@ -556,6 +556,17 @@ async def init_db(host: str = "127.0.0.1", port: int = 5432,
             )
         ''')
 
+        # 点数统计配额表：每个管理员每天最多操作 3 个不同账号；同 (admin, 账号, 类型) 5 分钟冷却
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS admin_point_stats_quota (
+                admin_id TEXT NOT NULL,
+                target_account TEXT NOT NULL,
+                point_type TEXT NOT NULL,
+                used_at TIMESTAMP NOT NULL DEFAULT NOW(),
+                PRIMARY KEY (admin_id, target_account, point_type)
+            )
+        ''')
+
         # 创建索引
         await conn.execute('CREATE INDEX IF NOT EXISTS idx_sub_groups_created_by ON subscription_groups(created_by)')
         await conn.execute('CREATE INDEX IF NOT EXISTS idx_login_username ON login_records(username)')
@@ -579,6 +590,7 @@ async def init_db(host: str = "127.0.0.1", port: int = 5432,
         await conn.execute('CREATE INDEX IF NOT EXISTS idx_admin_operation_leases_admin_token ON admin_operation_leases(admin_token)')
         await conn.execute('CREATE INDEX IF NOT EXISTS idx_admin_operation_leases_scope_expire ON admin_operation_leases(scope, expire)')
         await conn.execute('CREATE INDEX IF NOT EXISTS idx_admin_operation_leases_expire ON admin_operation_leases(expire)')
+        await conn.execute('CREATE INDEX IF NOT EXISTS idx_admin_point_stats_quota_admin_used ON admin_point_stats_quota(admin_id, used_at)')
 
     logger.info("PostgreSQL 数据库表和索引已就绪")
 
@@ -3422,3 +3434,75 @@ async def set_whitelist_global_status(enabled: bool) -> bool:
         bool(enabled),
         '全体白名单：开启后所有人可登录AK服务器，关闭后仅白名单用户可登录'
     )
+
+
+# ===== 点数统计配额：5 分钟冷却 + 每日 3 账号限额 =====
+
+POINT_STATS_COOLDOWN_SECONDS = 300
+POINT_STATS_DAILY_ACCOUNT_LIMIT = 3
+
+
+async def record_point_stats_quota_usage(admin_id: str, target_account: str, point_type: str) -> None:
+    """记录一次点数统计 sync 调用：UPSERT used_at = NOW()。
+    超管也记录（用于配额接口展示），但调用方在外层判定是否豁免限额。
+    """
+    pool = _get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute('''
+            INSERT INTO admin_point_stats_quota (admin_id, target_account, point_type, used_at)
+            VALUES ($1, $2, $3, NOW())
+            ON CONFLICT (admin_id, target_account, point_type) DO UPDATE SET used_at = NOW()
+        ''', admin_id, target_account.lower(), point_type.upper())
+
+
+async def get_point_stats_cooldown_remaining(admin_id: str, target_account: str, point_type: str) -> int:
+    """返回 (admin, account, type) 组合的剩余冷却秒数；无记录或已过期返回 0。"""
+    pool = _get_pool()
+    async with pool.acquire() as conn:
+        used_at = await conn.fetchval('''
+            SELECT used_at FROM admin_point_stats_quota
+            WHERE admin_id = $1 AND target_account = $2 AND point_type = $3
+        ''', admin_id, target_account.lower(), point_type.upper())
+    if used_at is None:
+        return 0
+    elapsed = (datetime.now() - used_at).total_seconds()
+    remaining = int(POINT_STATS_COOLDOWN_SECONDS - elapsed)
+    return remaining if remaining > 0 else 0
+
+
+async def get_point_stats_quota_status(admin_id: str) -> Dict[str, Any]:
+    """返回某管理员当日点数统计配额状态：已操作 distinct 账号集合 + 当前冷却中条目。
+    used_count 仅按 distinct target_account 计数（同账号多个 point_type 算 1 个）。
+    """
+    pool = _get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch('''
+            SELECT target_account, point_type, used_at
+            FROM admin_point_stats_quota
+            WHERE admin_id = $1 AND used_at::date = CURRENT_DATE
+            ORDER BY used_at DESC
+        ''', admin_id)
+    used_accounts: List[str] = []
+    seen_accounts = set()
+    cooldowns: List[Dict[str, Any]] = []
+    now = datetime.now()
+    for row in rows:
+        account = row['target_account']
+        point_type = row['point_type']
+        used_at = row['used_at']
+        if account not in seen_accounts:
+            seen_accounts.add(account)
+            used_accounts.append(account)
+        elapsed = (now - used_at).total_seconds()
+        remaining = int(POINT_STATS_COOLDOWN_SECONDS - elapsed)
+        if remaining > 0:
+            cooldowns.append({
+                'account': account,
+                'point_type': point_type,
+                'remaining_seconds': remaining,
+            })
+    return {
+        'used_count': len(used_accounts),
+        'used_accounts': used_accounts,
+        'cooldowns': cooldowns,
+    }

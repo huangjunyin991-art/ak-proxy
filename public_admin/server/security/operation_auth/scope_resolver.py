@@ -64,6 +64,7 @@ class OperationScopeResolver:
             ('POST', '/admin/api/im/image_upload/config'): 'im_admin_ops',
             ('GET', '/admin/api/operation_auth/secrets'): 'totp_secret_ops',
             ('POST', '/admin/api/operation_auth/secrets/reset'): 'totp_secret_ops',
+            ('POST', '/admin/api/point-stats/sync'): 'point_stats_ops',
         }
         self.prefixes = [
             ('POST', '/admin/api/db/insert/', 'db_write_ops'),

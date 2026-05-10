@@ -18,7 +18,16 @@
             payload: null,
             expandedCategory: null,
             detailPageSize: 50,
-            detailPageMap: {}
+            detailPageMap: {},
+            quota: {
+                isSuperAdmin: false,
+                limit: 3,
+                usedCount: 0,
+                usedAccounts: [],
+                cooldownSeconds: 300,
+                cooldownMap: {},
+                fetchedAt: 0
+            }
         };
 
         function setPointType(type) {
@@ -90,6 +99,59 @@
             state.detailPageMap[name] = p;
         }
 
+        function _cooldownKey(account, pointType) {
+            return String(account || '').toLowerCase() + '|' + String(pointType || '').toUpperCase();
+        }
+
+        function setQuota(payload) {
+            if (!payload || typeof payload !== 'object') return;
+            var now = Date.now();
+            state.quota.isSuperAdmin = !!payload.is_super_admin;
+            state.quota.limit = payload.limit == null ? null : Number(payload.limit);
+            state.quota.usedCount = Number(payload.used_count || 0);
+            state.quota.usedAccounts = Array.isArray(payload.used_accounts) ? payload.used_accounts.slice() : [];
+            state.quota.cooldownSeconds = Number(payload.cooldown_seconds || 300);
+            var map = {};
+            (Array.isArray(payload.cooldowns) ? payload.cooldowns : []).forEach(function(item) {
+                if (!item) return;
+                var k = _cooldownKey(item.account, item.point_type);
+                map[k] = now + Number(item.remaining_seconds || 0) * 1000;
+            });
+            state.quota.cooldownMap = map;
+            state.quota.fetchedAt = now;
+        }
+
+        function markCooldown(account, pointType) {
+            if (!account || !pointType) return;
+            var k = _cooldownKey(account, pointType);
+            var seconds = Number(state.quota.cooldownSeconds || 300);
+            state.quota.cooldownMap[k] = Date.now() + seconds * 1000;
+            var lower = String(account || '').toLowerCase();
+            if (state.quota.usedAccounts.indexOf(lower) < 0) {
+                state.quota.usedAccounts.push(lower);
+                state.quota.usedCount = state.quota.usedAccounts.length;
+            }
+        }
+
+        function getCooldownRemaining(account, pointType) {
+            if (!account || !pointType) return 0;
+            var expireAt = state.quota.cooldownMap[_cooldownKey(account, pointType)];
+            if (!expireAt) return 0;
+            var remain = Math.max(0, Math.ceil((expireAt - Date.now()) / 1000));
+            return remain;
+        }
+
+        function isQuotaExhausted() {
+            if (state.quota.isSuperAdmin) return false;
+            if (state.quota.limit == null) return false;
+            return state.quota.usedCount >= state.quota.limit;
+        }
+
+        function isAccountInQuota(account) {
+            if (!account) return false;
+            return state.quota.usedAccounts.indexOf(String(account).toLowerCase()) >= 0;
+        }
+
         return {
             state: state,
             setPointType: setPointType,
@@ -101,7 +163,12 @@
             setPayload: setPayload,
             setStatus: setStatus,
             toggleCategory: toggleCategory,
-            setDetailPage: setDetailPage
+            setDetailPage: setDetailPage,
+            setQuota: setQuota,
+            markCooldown: markCooldown,
+            getCooldownRemaining: getCooldownRemaining,
+            isQuotaExhausted: isQuotaExhausted,
+            isAccountInQuota: isAccountInQuota
         };
     }
 

@@ -37,6 +37,28 @@
         return (payload.summary || []).find(function(item) { return item.point_type === state.pointType; }) || null;
     }
 
+    function quotaIsExhaustedForButton(state) {
+        var q = state.quota || {};
+        if (q.isSuperAdmin) return false;
+        var limit = q.limit == null ? 3 : Number(q.limit);
+        var used = Number(q.usedCount || 0);
+        if (used < limit) return false;
+        var current = String(state.username || '').toLowerCase();
+        if (!current) return true;
+        return (q.usedAccounts || []).indexOf(current) < 0;
+    }
+
+    function renderQuotaLine(state) {
+        var q = state.quota || {};
+        if (q.isSuperAdmin) {
+            return '<div class="ps-rt-quota-line super">超管：今日不限次数</div>';
+        }
+        var limit = q.limit == null ? 3 : Number(q.limit);
+        var used = Number(q.usedCount || 0);
+        var cls = used >= limit ? 'exhausted' : (used > 0 ? 'active' : '');
+        return '<div class="ps-rt-quota-line ' + cls + '">今日 <b>' + used + '</b>/' + limit + ' 个账号</div>';
+    }
+
     function rankClassOf(label) {
         var raw = String(label || 'M0').toUpperCase();
         if (raw.charAt(0) === 'A') {
@@ -141,10 +163,13 @@
     }
 
     function render(state) {
+        var btnDisabled = quotaIsExhaustedForButton(state);
+        var btnLabel = state.syncing ? '拉取中' : (btnDisabled ? '额度已满' : '数据统计');
+        var btnAttr = btnDisabled && !state.syncing ? ' disabled' : '';
         return [
             '<div class="ps-rt-root' + ((state.loading || state.syncing) ? ' is-busy' : '') + '">',
             '<section class="ps-rt-hero">',
-            '<div class="ps-rt-account-action-row"><div class="ps-account-wrap"><label class="ps-rt-field"><input class="ps-rt-input ps-account-input" data-role="account-input" value="' + html(state.accountQuery) + '" placeholder="请输入账号" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"></label>' + renderOptions(state) + '</div><button class="ps-rt-btn primary" data-action="sync">' + (state.syncing ? '拉取中' : '数据统计') + '</button></div>',
+            '<div class="ps-rt-account-action-row"><div class="ps-account-wrap"><label class="ps-rt-field"><input class="ps-rt-input ps-account-input" data-role="account-input" value="' + html(state.accountQuery) + '" placeholder="请输入账号" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"></label>' + renderOptions(state) + '</div><div class="ps-rt-action-stack"><button class="ps-rt-btn primary" data-action="sync"' + btnAttr + '>' + html(btnLabel) + '</button>' + renderQuotaLine(state) + '</div></div>',
             '<div class="ps-rt-cache-line ' + (state.error ? 'error' : 'info') + '">' + html(state.status) + '</div>',
             '</section>',
             '<section class="ps-rt-stats">' + renderSummary(state) + '</section>',

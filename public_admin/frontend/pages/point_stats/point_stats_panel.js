@@ -111,15 +111,47 @@
         pollSyncOnce(username, pointType);
     }
 
-    function syncRecords() {
+    function refreshQuota() {
+        if (!api || !store || !api.getQuota) return Promise.resolve();
+        return api.getQuota().then(function(payload) {
+            store.setQuota(payload);
+            render();
+        }).catch(function(error) {
+            // 配额接口失败不阻塞主流程，仅打日志
+            try { console.warn('[PointStats] 配额查询失败', error && error.message); } catch (e) {}
+        });
+    }
+
+    function syncRecords(options) {
         if (!api || !store) return;
+        var silent = !!(options && options.silent);
         var username = String(store.state.username || '').trim();
         if (!username) {
-            store.setStatus('请先选择或输入要拉取的账号。', true);
-            render();
+            if (!silent) {
+                store.setStatus('请先选择或输入要拉取的账号。', true);
+                render();
+            }
             return;
         }
         var pointType = store.state.pointType;
+        // 前端预判冷却：5 分钟内已拉过则不再请求外部 API，仅刷新本地缓存
+        if (store.getCooldownRemaining(username, pointType) > 0) {
+            store.state.syncing = false;
+            if (!silent) {
+                store.setStatus(pointType + ' 5 分钟内已拉取过，使用本地缓存', false);
+            }
+            loadStats();
+            return;
+        }
+        // 前端预判额度：非超管已用满 3 个账号且当前账号不在已操作列表中，直接拒绝
+        if (!store.state.quota.isSuperAdmin && store.isQuotaExhausted() && !store.isAccountInQuota(username)) {
+            store.state.syncing = false;
+            var msg = '今日点数统计 ' + store.state.quota.limit + ' 个账号额度已用完，明天再来';
+            store.setStatus(msg, true);
+            notify(msg, 'error');
+            render();
+            return;
+        }
         store.state.syncing = true;
         store.setStatus(pointType + ' 后台拉取任务提交中，可继续其他操作...', false);
         render();
@@ -128,11 +160,33 @@
             if (s && s.message) {
                 store.setStatus(s.message, false);
             }
+            // 后端命中冷却（理论上前端已预判，这里兜底）：不启动 poll，直接读 DB 缓存
+            if (resp && resp.cooldown_active) {
+                store.state.syncing = false;
+                loadStats();
+                refreshQuota();
+                render();
+                return;
+            }
+            // 乐观标记冷却 + 当日额度，避免短时间重复触发
+            store.markCooldown(username, pointType);
             startSyncPoll(username, pointType);
+            refreshQuota();
         }).catch(function(error) {
             store.state.syncing = false;
-            store.setStatus(error.message || '启动后台拉取失败', true);
-            notify(error.message || '启动后台拉取失败', 'error');
+            var code = error && error.code;
+            if (code === 'DAILY_QUOTA_EXHAUSTED') {
+                var body = (error && error.body) || {};
+                var limit = body.limit || store.state.quota.limit || 3;
+                var used = body.used_count || store.state.quota.usedCount || 0;
+                var msg = '今日点数统计 ' + used + '/' + limit + ' 个账号额度已用完';
+                store.setStatus(msg, true);
+                notify(msg, 'error');
+                refreshQuota();
+            } else {
+                store.setStatus(error.message || '启动后台拉取失败', true);
+                if (!silent) notify(error.message || '启动后台拉取失败', 'error');
+            }
             render();
         });
     }
@@ -175,6 +229,9 @@
             store.setPointType(actionNode.getAttribute('data-point-type'));
             render();
             loadStats();
+            // 切换 EP/SP/TP/RP 时自动尝试增量更新：syncRecords 内部会预判冷却/额度静默处理
+            var u = String(store.state.username || '').trim();
+            if (u) syncRecords({ silent: true });
         } else if (action === 'load') {
             loadStats();
         } else if (action === 'sync') {
@@ -279,10 +336,12 @@
         bindEvents();
         render();
         if (store.state.username && !store.state.payload && !store.state.loading) loadStats();
+        refreshQuota();
     }
 
     window.AKPointStatsPanel = {
         start: start,
-        refresh: loadStats
+        refresh: loadStats,
+        refreshQuota: refreshQuota
     };
 })();

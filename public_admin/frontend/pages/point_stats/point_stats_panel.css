@@ -122,6 +122,52 @@
     line-height: 1 !important;
 }
 
+.ps-rt-action-stack {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 4px;
+    min-width: 96px;
+}
+
+.ps-rt-action-stack .ps-rt-btn[disabled],
+.ps-rt-action-stack .ps-rt-btn.primary[disabled] {
+    opacity: 0.55 !important;
+    cursor: not-allowed !important;
+    filter: grayscale(0.4);
+}
+
+.ps-rt-quota-line {
+    font-size: 11px;
+    font-weight: 700;
+    color: #8fb6c9;
+    letter-spacing: 0.4px;
+    text-align: center;
+    line-height: 1.4;
+    user-select: none;
+}
+
+.ps-rt-quota-line b {
+    color: #00ff88;
+    font-weight: 800;
+}
+
+.ps-rt-quota-line.active b {
+    color: #ffd54f;
+}
+
+.ps-rt-quota-line.exhausted {
+    color: #ff7a7a;
+}
+
+.ps-rt-quota-line.exhausted b {
+    color: #ff7a7a;
+}
+
+.ps-rt-quota-line.super {
+    color: #00d4ff;
+}
+
 .ps-account-wrap {
     position: relative;
     min-width: 0;
