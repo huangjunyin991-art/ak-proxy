@@ -189,7 +189,7 @@
             '</div>';
     }
 
-    function renderRankBars(items, labelKey, valueKey, formatter, limit) {
+    function renderRankBars(items, labelKey, valueKey, formatter, limit, itemTextBuilder) {
         var maxItems = Number(limit) > 0 ? Number(limit) : 10;
         var list = Array.isArray(items) ? items.slice(0, maxItems) : [];
         if (!list.length) return '<div class="monitoring-empty">暂无数据</div>';
@@ -197,7 +197,10 @@
         return list.map(function(item) {
             var value = Number(item[valueKey] || 0);
             var label = item[labelKey] || item.table_name || item.message_type || '-';
-            return renderProgress(label, value / max * 100, formatter ? formatter(value) : formatNumber(value));
+            var valueText = typeof itemTextBuilder === 'function'
+                ? itemTextBuilder(item, value)
+                : (formatter ? formatter(value) : formatNumber(value));
+            return renderProgress(label, value / max * 100, valueText);
         }).join('');
     }
 
@@ -296,7 +299,12 @@
         var chatMeta = document.getElementById('monitoringChatMeta');
         if (chatMeta) chatMeta.textContent = '高成本统计每小时自动刷新，更新于 ' + formatTime(chat.generated_at);
         var dbBars = document.getElementById('monitoringDbBars');
-        if (dbBars) dbBars.innerHTML = renderRankBars(database.table_sizes, 'table_name', 'total_bytes', formatBytes, 100);
+        if (dbBars) {
+            dbBars.innerHTML = renderRankBars(database.table_sizes, 'table_name', 'total_bytes', formatBytes, 100, function(item, value) {
+                var rowCount = Number(item.row_count || 0);
+                return formatBytes(value) + ' · ' + formatNumber(rowCount) + ' 行';
+            });
+        }
         var dbMeta = document.getElementById('monitoringDbMeta');
         if (dbMeta) {
             var tableCount = Array.isArray(database.table_sizes) ? database.table_sizes.length : 0;
