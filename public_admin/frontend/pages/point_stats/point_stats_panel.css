@@ -561,6 +561,7 @@
 
 .ps-detail-pager {
     display: flex;
+    flex-direction: row;
     align-items: center;
     justify-content: space-between;
     flex-wrap: wrap;
@@ -575,16 +576,18 @@
     font-weight: 800;
 }
 
-.ps-detail-pager-info {
-    color: rgba(167, 226, 255, 0.78);
-    white-space: nowrap;
-}
-
 .ps-detail-pager-btns {
+    order: 0;
     display: inline-flex;
     align-items: center;
     gap: 6px;
     flex-wrap: wrap;
+}
+
+.ps-detail-pager-info {
+    order: 1;
+    color: rgba(167, 226, 255, 0.78);
+    white-space: nowrap;
 }
 
 .ps-detail-pager-btns .ps-rt-btn {
