@@ -118,14 +118,14 @@
 
     function renderCategories(state) {
         var rows = state.payload && Array.isArray(state.payload.categories) ? state.payload.categories : [];
-        if (!rows.length) return '<tr><td colspan="6" class="ps-empty">请选择账号查看分类统计，或当前账号暂无统计数据。</td></tr>';
+        if (!rows.length) return '<tr><td colspan="5" class="ps-empty">请选择账号查看分类统计，或当前账号暂无统计数据。</td></tr>';
         var pageSize = state.detailPageSize || 50;
         var pageMap = state.detailPageMap || {};
         return rows.map(function(item) {
             var name = item.name || '未分类';
             var expanded = state.expandedCategory === name;
             var page = pageMap[name] || 1;
-            return '<tr class="ps-category-row"><td><button class="ps-rt-btn primary ps-expand-btn" data-action="toggle-category" data-name="' + html(name) + '">' + (expanded ? '收起' : '展开') + '</button>' + html(name) + '</td><td>' + number(item.count) + '</td><td class="income">' + number(item.income) + '</td><td class="expense">' + number(item.expense) + '</td><td class="' + amountTone(item.net).trim() + '">' + number(item.net) + '</td><td>' + number((item.records || []).length) + '</td></tr>' + (expanded ? '<tr class="ps-detail-row"><td colspan="6">' + renderDetailTable(item.records || [], name, page, pageSize) + '</td></tr>' : '');
+            return '<tr class="ps-category-row"><td><button class="ps-rt-btn primary ps-expand-btn" data-action="toggle-category" data-name="' + html(name) + '">' + (expanded ? '收起' : '展开') + '</button>' + html(name) + '</td><td>' + number(item.count) + '</td><td class="income">' + number(item.income) + '</td><td class="expense">' + number(item.expense) + '</td><td class="' + amountTone(item.net).trim() + '">' + number(item.net) + '</td></tr>' + (expanded ? '<tr class="ps-detail-row"><td colspan="5">' + renderDetailTable(item.records || [], name, page, pageSize) + '</td></tr>' : '');
         }).join('');
     }
 
@@ -149,7 +149,7 @@
             '</section>',
             '<section class="ps-rt-stats">' + renderSummary(state) + '</section>',
             '<section class="ps-rt-view-shell"><section class="ps-rt-controls"><div class="ps-rt-view-tabs">' + renderTabs(state) + '</div></section>',
-            '<section class="ps-rt-path-panel"><div class="ps-rt-table-wrap"><table><thead><tr><th>统计类型</th><th>数量</th><th>收入</th><th>支出</th><th>净变化</th><th>明细</th></tr></thead><tbody>' + renderCategories(state) + '</tbody></table></div></section></section>',
+            '<section class="ps-rt-path-panel"><div class="ps-rt-table-wrap"><table><thead><tr><th>统计类型</th><th>数量</th><th>收入</th><th>支出</th><th>净变化</th></tr></thead><tbody>' + renderCategories(state) + '</tbody></table></div></section></section>',
             '</div>'
         ].join('');
     }
