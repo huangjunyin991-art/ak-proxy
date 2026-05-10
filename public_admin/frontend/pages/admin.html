@@ -10703,6 +10703,30 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
         async function openAkBrowser(username) {
             await closeRemoteAssistPanel();
             await releaseAkAssistSession();
+            // 先发 browse_login 触发全局 fetch 拦截器的 TOTP 验证（如有需要），
+            // 验证通过且 success=true 才真正打开面板，避免出现空白等待页。
+            let data;
+            try {
+                const res = await fetch(`${API_BASE}/admin/api/browse_login`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({username})
+                });
+                data = await res.json();
+            } catch (e) {
+                if (typeof showToast === 'function') {
+                    showToast(`打开后台失败: ${e.message}`, 'error');
+                }
+                return;
+            }
+            if (!data || !data.success) {
+                const msg = (data && (data.message || data.detail)) || '该操作需要 Google 验证码授权';
+                if (typeof showToast === 'function') {
+                    showToast(`打开后台失败: ${msg}`, 'error');
+                }
+                return;
+            }
+            // 验证通过 → 真正打开 AK 浏览器面板
             setAkBrowserMode('browser');
             const panel = document.getElementById('akBrowserPanel');
             const overlay = document.getElementById('akBrowserOverlay');
@@ -10721,25 +10745,13 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
             overlay.style.display = getMobileLayoutMedia().matches ? 'none' : 'block';
             syncAkBrowserViewport();
             try {
-                const res = await fetch(`${API_BASE}/admin/api/browse_login`, {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({username})
-                });
-                const data = await res.json();
-                if (data.success) {
-                    setAkBrowserTitle(username, 'browser');
-                    if ('serviceWorker' in navigator) {
-                        const regs = await navigator.serviceWorker.getRegistrations();
-                        await Promise.all(regs.map(r => r.unregister()));
-                    }
-                    bindAkBrowserFrame(username, seq);
-                    const entryUrl = `${API_BASE}/admin/ak-web/pages/account/login.html`;
-                    frame.src = entryUrl;
-                } else {
-                    setAkBrowserLoading(false);
-                    document.getElementById('akBrowserTitle').textContent = `登录失败: ${data.message}`;
+                if ('serviceWorker' in navigator) {
+                    const regs = await navigator.serviceWorker.getRegistrations();
+                    await Promise.all(regs.map(r => r.unregister()));
                 }
+                bindAkBrowserFrame(username, seq);
+                const entryUrl = `${API_BASE}/admin/ak-web/pages/account/login.html`;
+                frame.src = entryUrl;
             } catch (e) {
                 setAkBrowserLoading(false);
                 document.getElementById('akBrowserTitle').textContent = `登录失败: ${e.message}`;
@@ -12300,7 +12312,39 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
         async function openRemoteAssist(username) {
             await closeAkBrowser();
             await closeRemoteAssistPanel();
-            remoteAssistPanelUsername = String(username || '').trim();
+            const targetUsername = String(username || '').trim();
+            // 先发 remote_assist/start 触发全局 fetch 拦截器的 TOTP 验证（如有需要），
+            // 验证通过且 success=true 才真正打开远程指导面板，避免出现空白等待页。
+            let data;
+            try {
+                const res = await fetch(`${API_BASE}/admin/api/remote_assist/start`, {
+                    method: 'POST',
+                    headers: {
+                        ...getHeaders(),
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ username: targetUsername })
+                });
+                data = await res.json();
+            } catch (e) {
+                logRemoteAssistDebug('open_remote_assist_error', {
+                    username: targetUsername,
+                    message: String((e && e.message) || e || '')
+                });
+                if (typeof showToast === 'function') {
+                    showToast(`远程指导失败: ${e.message}`, 'error');
+                }
+                return;
+            }
+            if (!data || !data.success) {
+                const msg = (data && (data.message || data.detail)) || '该操作需要 Google 验证码授权';
+                if (typeof showToast === 'function') {
+                    showToast(`远程指导失败: ${msg}`, 'error');
+                }
+                return;
+            }
+            // 验证通过 → 真正打开远程指导面板
+            remoteAssistPanelUsername = targetUsername;
             const panel = document.getElementById('remoteAssistPanel');
             const overlay = document.getElementById('remoteAssistOverlay');
             setRemoteAssistTitle(remoteAssistPanelUsername);
@@ -12320,34 +12364,11 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
             panel.classList.add('open');
             overlay.style.display = getMobileLayoutMedia().matches ? 'none' : 'block';
             resetRemoteAssistFrameDocument(buildRemoteAssistPlaceholderHtml('正在等待用户确认远程指导'));
-            try {
-                const res = await fetch(`${API_BASE}/admin/api/remote_assist/start`, {
-                    method: 'POST',
-                    headers: {
-                        ...getHeaders(),
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({ username: remoteAssistPanelUsername })
-                });
-                const data = await res.json();
-                if (!data.success) {
-                    setRemoteAssistLoading(false);
-                    setRemoteAssistMeta(`远程指导失败：${data.message || '未知错误'}`);
-                    return;
-                }
-                remoteAssistPanelSessionId = String(data.session_id || '').trim();
-                remoteAssistPanelConsentStatus = String(data.consent_status || 'waiting');
-                updateRemoteAssistVoiceButton();
-                loadRemoteAssistVoiceState();
-                connectRemoteAssistPanelSocket(remoteAssistPanelSessionId);
-            } catch (e) {
-                logRemoteAssistDebug('open_remote_assist_error', {
-                    username: remoteAssistPanelUsername,
-                    message: String((e && e.message) || e || '')
-                });
-                setRemoteAssistLoading(false);
-                setRemoteAssistMeta(`远程指导失败：${e.message}`);
-            }
+            remoteAssistPanelSessionId = String(data.session_id || '').trim();
+            remoteAssistPanelConsentStatus = String(data.consent_status || 'waiting');
+            updateRemoteAssistVoiceButton();
+            loadRemoteAssistVoiceState();
+            connectRemoteAssistPanelSocket(remoteAssistPanelSessionId);
         }
 
         async function closeRemoteAssistPanel(releaseSession = true) {
