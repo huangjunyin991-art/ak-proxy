@@ -4204,7 +4204,14 @@
         let banValue = '';
         let isLoggedIn = false;
         let currentUserRole = null;  // 当前用户权限
+        let currentPanelName = 'dashboard';
+        let currentChatUser = null;
+        let chatRefreshTimer = null;
+        let ppRefreshTimer = null;
         let dashboardTimer = null;
+        let adminStatsTimer = null;
+        let adminVerifyTimer = null;
+        let adminAppInitialized = false;
         let activityItems = [];
         const nativeFetch = window.fetch.bind(window);
         const operationLeaseCache = {};
@@ -4280,7 +4287,20 @@
 
         function shouldAttachAdminAuth(url) {
             const path = resolveUrlPath(url);
-            return path.startsWith('/admin/api/') || path.startsWith('/api/dispatcher/') || path === '/api/ban' || path === '/api/unban' || path.startsWith('/admin/ak-');
+            return path.startsWith('/admin/api/') || path.startsWith('/api/dispatcher/') || path.startsWith('/api/db/') || path === '/api/ban' || path === '/api/unban' || path.startsWith('/admin/ak-');
+        }
+
+        function isAdminPageActive() {
+            const main = document.getElementById('mainContent');
+            return !!isLoggedIn && document.visibilityState === 'visible' && document.hasFocus() && !!main && main.classList.contains('visible');
+        }
+
+        function shouldRunAdminGlobalPoll() {
+            return isAdminPageActive();
+        }
+
+        function shouldRunAdminPanelPoll(panelName) {
+            return isAdminPageActive() && currentPanelName === panelName;
         }
 
         function resolveUrlPath(url) {
@@ -4820,6 +4840,7 @@
         }
         
         function logout() {
+            pauseAdminPolling();
             unlockAdminOrientation();
             sessionStorage.removeItem('admin_token');
             sessionStorage.removeItem('admin_role');
@@ -4834,6 +4855,7 @@
         let sessionExpiredShown = false;
         function handleKickedOut(message) {
             if (sessionExpiredShown) return; // 防止重复弹窗
+            pauseAdminPolling();
             sessionExpiredShown = true;
             document.getElementById('sessionExpiredMsg').textContent = message || '您的登录状态已过期，请重新登录';
             document.getElementById('sessionExpiredModal').style.display = 'flex';
@@ -4853,9 +4875,6 @@
             }
             return true;
         }
-        
-        // 页面加载时检查登录状态
-        checkLogin();
         
         // 初始化WebSocket
         function initWebSocket() {
@@ -4908,8 +4927,8 @@
         }
         
         // 当前聊天用户
-        let currentChatUser = null;
-        let chatRefreshTimer = null;
+        currentChatUser = currentChatUser || null;
+        chatRefreshTimer = chatRefreshTimer || null;
         
         // 处理WebSocket消息
         function handleWebSocketMessage(data) {
@@ -5220,6 +5239,7 @@
         
         // 加载统计
         async function refreshStats() {
+            if (!shouldRunAdminGlobalPoll()) return;
             try {
                 const res = await fetch(`${API_BASE}/admin/api/stats`);
                 const data = await res.json();
@@ -5882,7 +5902,10 @@
 
         function startOnlineUsersAutoRefresh() {
             stopOnlineUsersAutoRefresh();
-            _onlineUsersRefreshTimer = setInterval(loadOnlineUsers, ONLINE_REFRESH_INTERVAL);
+            if (!shouldRunAdminPanelPoll('online')) return;
+            _onlineUsersRefreshTimer = setInterval(() => {
+                if (shouldRunAdminPanelPoll('online')) loadOnlineUsers();
+            }, ONLINE_REFRESH_INTERVAL);
         }
 
         function stopOnlineUsersAutoRefresh() {
@@ -5893,12 +5916,14 @@
         }
 
         function loadOnlineUsers() {
+            if (!shouldRunAdminPanelPoll('online')) return;
             // 防抖：300ms内多次调用只执行最后一次
             if (_onlineUsersDebounceTimer) clearTimeout(_onlineUsersDebounceTimer);
             _onlineUsersDebounceTimer = setTimeout(_doLoadOnlineUsers, 300);
         }
 
         async function _doLoadOnlineUsers() {
+            if (!shouldRunAdminPanelPoll('online')) return;
             // 取消上一个未完成的请求
             if (_onlineUsersAbortCtrl) _onlineUsersAbortCtrl.abort();
             _onlineUsersAbortCtrl = new AbortController();
@@ -5946,6 +5971,7 @@
         // 刷新聊天记录
         async function refreshChatHistory() {
             if (!currentChatUser) return;
+            if (!shouldRunAdminPanelPoll('online')) return;
             
             try {
                 const res = await fetch(`${API_BASE}/admin/api/chat/history/${currentChatUser}`);
@@ -6179,7 +6205,10 @@
         function startSubAdminStatusRefresh() {
             if (!isSuperAdmin()) return;
             stopSubAdminStatusRefresh();
-            subAdminStatusTimer = setInterval(loadSubAdminStatus, 10000);
+            if (!shouldRunAdminPanelPoll('settings')) return;
+            subAdminStatusTimer = setInterval(() => {
+                if (shouldRunAdminPanelPoll('settings')) loadSubAdminStatus();
+            }, 10000);
         }
         
         // 停止子管理员状态定时刷新
@@ -6410,6 +6439,7 @@
         
         // 加载子管理员状态
         async function loadSubAdminStatus() {
+            if (!shouldRunAdminPanelPoll('settings')) return;
             if (!isSuperAdmin()) {
                 document.getElementById('subAdminSection').style.display = 'none';
                 document.getElementById('proxyPoolSection').style.display = 'none';
@@ -6744,11 +6774,12 @@
         }
         
         // ===== 代理池管理 =====
-        let ppRefreshTimer = null;
+        ppRefreshTimer = ppRefreshTimer || null;
         let ppCurrentView = 'slots';
         let ppCachedNodes = [];
 
         async function loadProxyPoolStatus() {
+            if (!shouldRunAdminPanelPoll('settings')) return;
             try {
                 const res = await fetch(`${API_BASE}/admin/api/proxy_pool/status`, {
                     headers: { 'Authorization': `Bearer ${sessionStorage.getItem('admin_token')}` }
@@ -6820,7 +6851,9 @@
                     if (ppCurrentView === 'nodes') renderPPNodes(ppCachedNodes);
 
                     if (!ppRefreshTimer) {
-                        ppRefreshTimer = setInterval(loadProxyPoolStatus, 5000);
+                        ppRefreshTimer = setInterval(() => {
+                            if (shouldRunAdminPanelPoll('settings')) loadProxyPoolStatus();
+                        }, 5000);
                     }
                 } else {
                     document.getElementById('proxyPoolStatus').textContent = '已加载·未启用';
@@ -6831,6 +6864,13 @@
                 }
             } catch (e) {
                 console.error('加载代理池状态失败:', e);
+            }
+        }
+
+        function stopProxyPoolRefresh() {
+            if (ppRefreshTimer) {
+                clearInterval(ppRefreshTimer);
+                ppRefreshTimer = null;
             }
         }
 
@@ -6906,7 +6946,7 @@
             }).join('');
         }
 
-        let currentPanelName = 'dashboard';
+        currentPanelName = currentPanelName || 'dashboard';
 
         function getMobileLayoutMedia() {
             return window.matchMedia('(max-width: 1024px)');
@@ -7116,12 +7156,17 @@
         window.addEventListener('beforeunload', unlockAdminOrientation);
         document.addEventListener('visibilitychange', () => {
             if (document.hidden) {
+                pauseAdminPolling();
                 setMobileNavOpen(false);
                 unlockAdminOrientation();
                 return;
             }
             scheduleResponsiveShellSync();
+            resumeAdminPolling();
         });
+        window.addEventListener('focus', resumeAdminPolling);
+        window.addEventListener('blur', pauseAdminPolling);
+        window.addEventListener('ak-admin-panel-changed', resumeAdminPolling);
 
         syncResponsiveShell();
         renderMobileTabList();
@@ -8305,6 +8350,7 @@
         
         // 加载仪表盘数据
         async function loadDashboard() {
+            if (!shouldRunAdminPanelPoll('dashboard')) return;
             try {
                 const res = await fetch(`${API_BASE}/admin/api/dashboard`);
                 const data = await res.json();
@@ -8421,10 +8467,13 @@
         
         // 启动仪表盘
         function startDashboard() {
+            if (!shouldRunAdminPanelPoll('dashboard')) return;
             loadDashboard();
             // 每30秒刷新一次
             if (dashboardTimer) clearInterval(dashboardTimer);
-            dashboardTimer = setInterval(loadDashboard, 30000);
+            dashboardTimer = setInterval(() => {
+                if (shouldRunAdminPanelPoll('dashboard')) loadDashboard();
+            }, 30000);
         }
         
         // 停止仪表盘
@@ -8437,6 +8486,7 @@
         
         // 验证Token有效性
         async function verifyToken() {
+            if (!shouldRunAdminGlobalPoll()) return;
             const token = sessionStorage.getItem('admin_token');
             if (!token) return;
             
@@ -8474,6 +8524,7 @@
         let remoteVoiceRefreshTimer = null;
 
         async function loadLbStatus() {
+            if (!shouldRunAdminPanelPoll('settings')) return;
             try {
                 const res = await fetch(`${API_BASE}/api/dispatcher/full`);
                 const data = await res.json();
@@ -8503,7 +8554,10 @@
 
         function startLbRefresh() {
             stopLbRefresh();
-            lbRefreshTimer = setInterval(loadLbStatus, 8000);
+            if (!shouldRunAdminPanelPoll('settings')) return;
+            lbRefreshTimer = setInterval(() => {
+                if (shouldRunAdminPanelPoll('settings')) loadLbStatus();
+            }, 8000);
         }
 
         function stopLbRefresh() {
@@ -8512,7 +8566,10 @@
 
         function startRemoteVoiceRefresh() {
             stopRemoteVoiceRefresh();
-            remoteVoiceRefreshTimer = setInterval(loadRemoteVoicePanel, 8000);
+            if (!shouldRunAdminPanelPoll('settings')) return;
+            remoteVoiceRefreshTimer = setInterval(() => {
+                if (shouldRunAdminPanelPoll('settings')) loadRemoteVoicePanel();
+            }, 8000);
         }
 
         function stopRemoteVoiceRefresh() {
@@ -8599,6 +8656,7 @@
         }
 
         async function loadRemoteVoicePanel() {
+            if (!shouldRunAdminPanelPoll('settings')) return;
             if (!isSuperAdmin()) return;
             try {
                 const res = await fetch(`${API_BASE}/admin/api/remote_voice/usage`, { headers: getHeaders() });
@@ -9126,14 +9184,90 @@
 
         // 初始化应用（登录成功后调用）
         function initApp() {
+            if (adminAppInitialized) {
+                resumeAdminPolling();
+                return;
+            }
+            adminAppInitialized = true;
             initWebSocket();
+            resumeAdminPolling();
+        }
+
+        function startAdminGlobalPolling() {
+            if (!shouldRunAdminGlobalPoll()) return;
             refreshStats();
-            // 启动仪表盘
-            startDashboard();
-            // 定时刷新统计
-            setInterval(refreshStats, 15000);
-            // 定期验证token（每30秒检查一次是否被踢出）
-            setInterval(verifyToken, 30000);
+            verifyToken();
+            if (!adminStatsTimer) {
+                adminStatsTimer = setInterval(() => {
+                    if (shouldRunAdminGlobalPoll()) refreshStats();
+                }, 15000);
+            }
+            if (!adminVerifyTimer) {
+                adminVerifyTimer = setInterval(() => {
+                    if (shouldRunAdminGlobalPoll()) verifyToken();
+                }, 30000);
+            }
+        }
+
+        function stopAdminGlobalPolling() {
+            if (adminStatsTimer) {
+                clearInterval(adminStatsTimer);
+                adminStatsTimer = null;
+            }
+            if (adminVerifyTimer) {
+                clearInterval(adminVerifyTimer);
+                adminVerifyTimer = null;
+            }
+        }
+
+        function pauseAdminPolling() {
+            stopAdminGlobalPolling();
+            stopDashboard();
+            stopOnlineUsersAutoRefresh();
+            stopSubAdminStatusRefresh();
+            stopLbRefresh();
+            stopRemoteVoiceRefresh();
+            stopProxyPoolRefresh();
+            if (chatRefreshTimer) {
+                clearInterval(chatRefreshTimer);
+                chatRefreshTimer = null;
+            }
+        }
+
+        function resumeAdminPolling() {
+            if (!shouldRunAdminGlobalPoll()) {
+                pauseAdminPolling();
+                return;
+            }
+            startAdminGlobalPolling();
+            if (currentPanelName === 'dashboard') {
+                startDashboard();
+            } else {
+                stopDashboard();
+            }
+            if (currentPanelName === 'online') {
+                loadOnlineUsers();
+                startOnlineUsersAutoRefresh();
+            } else {
+                stopOnlineUsersAutoRefresh();
+                if (chatRefreshTimer) {
+                    clearInterval(chatRefreshTimer);
+                    chatRefreshTimer = null;
+                }
+            }
+            if (currentPanelName === 'settings') {
+                loadSubAdminStatus();
+                startSubAdminStatusRefresh();
+            } else {
+                stopSubAdminStatusRefresh();
+                stopLbRefresh();
+                stopRemoteVoiceRefresh();
+                stopProxyPoolRefresh();
+            }
+            if (currentPanelName === 'online' && currentChatUser && !chatRefreshTimer) {
+                refreshChatHistory();
+                chatRefreshTimer = setInterval(refreshChatHistory, 3000);
+            }
         }
         
         // 通用认证header
@@ -10529,11 +10663,6 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
             } catch (e) { console.error('加载流水失败', e); }
         }
 
-        // 如果已登录，直接初始化
-        if (isLoggedIn) {
-            initApp();
-        }
-
         // ===== 订阅组管理 =====
         let subscriptionGroups = [];
         let expandedGroups = new Set();
@@ -10782,6 +10911,9 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                 showToast('删除失败: ' + e.message, 'error');
             }
         }
+
+        // 页面加载时检查登录状态
+        checkLogin();
     </script>
 
     <!-- 用户管理悬浮水平滚动条 -->

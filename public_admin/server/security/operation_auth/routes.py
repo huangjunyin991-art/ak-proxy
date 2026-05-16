@@ -3,7 +3,9 @@ from fastapi.responses import JSONResponse
 
 
 def create_operation_auth_router(*, service, resolve_admin_identity, super_admin_role: str, sub_admin_role: str,
-                                 sub_admin_names_supplier=None):
+                                 sub_admin_names_supplier=None, totp_lockout_store=None,
+                                 totp_max_fails: int = 5, totp_lockout_seconds: int = 3600,
+                                 logger=None):
     router = APIRouter(prefix='/admin/api/operation_auth')
 
     @router.get('/me')
@@ -29,6 +31,17 @@ def create_operation_auth_router(*, service, resolve_admin_identity, super_admin
         token, role, identity = await resolve_admin_identity(request)
         if not token or not role:
             return JSONResponse(status_code=401, content={'error': True, 'message': '未授权'})
+        client_ip = _extract_client_ip(request)
+        if totp_lockout_store is not None:
+            locked, remaining = totp_lockout_store.check(client_ip)
+            if locked:
+                return JSONResponse(status_code=403, content={
+                    'error': True,
+                    'success': False,
+                    'locked': True,
+                    'remaining_seconds': remaining,
+                    'message': f'Google 验证失败次数过多，请{remaining}秒后重试',
+                })
         try:
             data = await request.json()
         except Exception:
@@ -47,11 +60,29 @@ def create_operation_auth_router(*, service, resolve_admin_identity, super_admin
             scope=scope,
             code=code,
             duration_seconds=data.get('duration_seconds'),
-            client_ip=_extract_client_ip(request),
+            client_ip=client_ip,
             user_agent=str(request.headers.get('User-Agent') or ''),
         )
         if not result.get('success'):
+            if totp_lockout_store is not None:
+                fail_count = totp_lockout_store.record_fail(client_ip)
+                if logger is not None:
+                    logger.warning(f"[OperationAuth] Google 验证失败 ip={client_ip} fails={fail_count}")
+                if fail_count >= totp_max_fails:
+                    locked, remaining = totp_lockout_store.check(client_ip)
+                    if logger is not None:
+                        logger.warning(f"[OperationAuth] Google 验证失败过多，临时封禁IP ip={client_ip} seconds={totp_lockout_seconds}")
+                    return JSONResponse(status_code=403, content={
+                        'error': True,
+                        'success': False,
+                        'locked': True,
+                        'remaining_seconds': remaining or totp_lockout_seconds,
+                        'message': f'Google 验证失败次数过多，请{remaining or totp_lockout_seconds}秒后重试',
+                    })
+                result = {**result, 'remaining_attempts': max(0, totp_max_fails - fail_count)}
             return JSONResponse(status_code=403, content={'error': True, **result})
+        if totp_lockout_store is not None:
+            totp_lockout_store.clear(client_ip)
         return result
 
     @router.get('/secrets')

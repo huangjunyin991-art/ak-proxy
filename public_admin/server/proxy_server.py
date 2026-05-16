@@ -311,6 +311,8 @@ except Exception as e:
     create_operation_auth_router = None
     _OPERATION_AUTH_IMPORT_ERROR = e
 
+from .security.risk import LockoutStore
+
 # ===== 日志配置 =====
 
 logger = logging.getLogger("TransparentProxy")
@@ -2060,9 +2062,13 @@ async def api_status():
 
 @app.get("/api/dispatcher")
 
-async def api_dispatcher_status():
+async def api_dispatcher_status(request: Request):
 
     """获取出口调度器状态"""
+
+    _, error_response = await _require_admin_token(request)
+    if error_response is not None:
+        return error_response
 
     return dispatcher.get_status()
 
@@ -2075,6 +2081,10 @@ async def api_dispatcher_status():
 async def api_dispatcher_add(request: Request):
 
     """添加一个SOCKS5出口"""
+
+    _, error_response = await _require_admin_token(request, super_admin_only=True)
+    if error_response is not None:
+        return error_response
 
     data = await request.json()
 
@@ -2108,6 +2118,10 @@ async def api_dispatcher_remove(request: Request):
 
     """移除一个出口"""
 
+    _, error_response = await _require_admin_token(request, super_admin_only=True)
+    if error_response is not None:
+        return error_response
+
     data = await request.json()
 
     index = data.get("index")
@@ -2136,9 +2150,13 @@ async def api_dispatcher_remove(request: Request):
 
 @app.post("/api/dispatcher/detect_ips")
 
-async def api_dispatcher_detect_ips():
+async def api_dispatcher_detect_ips(request: Request):
 
     """手动触发所有出口的IP检测"""
+
+    _, error_response = await _require_admin_token(request, super_admin_only=True)
+    if error_response is not None:
+        return error_response
 
     await dispatcher.detect_all_ips()
 
@@ -2157,6 +2175,10 @@ async def api_dispatcher_detect_ips():
 @app.post("/api/dispatcher/rate_limit")
 async def api_dispatcher_rate_limit(request: Request):
     """设置指定出口的速率限制（req/min），0=不限速"""
+    _, error_response = await _require_admin_token(request, super_admin_only=True)
+    if error_response is not None:
+        return error_response
+
     data = await request.json()
     index = data.get("index")
     limit = data.get("limit", 0)
@@ -2170,6 +2192,10 @@ async def api_dispatcher_rate_limit(request: Request):
 @app.post("/api/dispatcher/max_login")
 async def api_dispatcher_max_login(request: Request):
     """动态调整每出口每分钟最大登录次数"""
+    _, error_response = await _require_admin_token(request, super_admin_only=True)
+    if error_response is not None:
+        return error_response
+
     data = await request.json()
     value = data.get("value", 10)
     ok = dispatcher.set_max_login_per_min(int(value))
@@ -2177,8 +2203,12 @@ async def api_dispatcher_max_login(request: Request):
 
 
 @app.post("/api/dispatcher/start_singbox")
-async def api_dispatcher_start_singbox():
+async def api_dispatcher_start_singbox(request: Request):
     """手动启动 sing-box 服务"""
+    _, error_response = await _require_admin_token(request, super_admin_only=True)
+    if error_response is not None:
+        return error_response
+
     from . import singbox_manager as sbm
     try:
         result = await run_blocking(sbm.reload_service)
@@ -2191,9 +2221,13 @@ async def api_dispatcher_start_singbox():
 
 
 @app.get("/api/dispatcher/events")
-async def api_dispatcher_events(exit_name: str = None, status_code: int = None,
+async def api_dispatcher_events(request: Request, exit_name: str = None, status_code: int = None,
                                  hours: int = 24, limit: int = 200):
     """查询403/429风控事件，支持按出口名/状态码/时间范围过滤"""
+    _, error_response = await _require_admin_token(request)
+    if error_response is not None:
+        return error_response
+
     try:
         rows = await db.query_exit_events(exit_name=exit_name, status_code=status_code,
                                           hours=hours, limit=limit)
@@ -2204,9 +2238,13 @@ async def api_dispatcher_events(exit_name: str = None, status_code: int = None,
 
 @app.get("/api/dispatcher/logs/{index}")
 
-async def api_dispatcher_exit_logs(index: int):
+async def api_dispatcher_exit_logs(index: int, request: Request):
 
     """获取指定出口的错误日志"""
+
+    _, error_response = await _require_admin_token(request)
+    if error_response is not None:
+        return error_response
 
     logs = dispatcher.get_exit_logs(index)
 
@@ -2223,6 +2261,10 @@ async def api_dispatcher_exit_logs(index: int):
 async def api_dispatcher_parse_sub(request: Request, response: Response):
 
     """解析订阅: 支持URL自动获取、文本解析或JSON配置提取"""
+
+    _, error_response = await _require_admin_token(request, super_admin_only=True)
+    if error_response is not None:
+        return error_response
 
     from .sub_parser import fetch_subscription, parse_subscription_text
     import json as json_lib
@@ -2312,6 +2354,10 @@ async def api_dispatcher_apply_sub(request: Request):
     前端批量添加时调用此接口，实现热重载生效
 
     """
+
+    _, error_response = await _require_admin_token(request, super_admin_only=True)
+    if error_response is not None:
+        return error_response
 
     from . import singbox_manager as sbm
 
@@ -2534,9 +2580,13 @@ async def api_dispatcher_apply_sub(request: Request):
 
 @app.post("/api/dispatcher/reload_singbox")
 
-async def api_dispatcher_reload_singbox():
+async def api_dispatcher_reload_singbox(request: Request):
 
     """手动热重载 sing-box 服务"""
+
+    _, error_response = await _require_admin_token(request, super_admin_only=True)
+    if error_response is not None:
+        return error_response
 
     from . import singbox_manager as sbm
 
@@ -2550,16 +2600,24 @@ async def api_dispatcher_reload_singbox():
 
 @app.get("/api/dispatcher/singbox_status")
 
-async def api_dispatcher_singbox_status():
+async def api_dispatcher_singbox_status(request: Request):
 
     """获取 sing-box 服务状态"""
+
+    _, error_response = await _require_admin_token(request)
+    if error_response is not None:
+        return error_response
 
     return await _get_singbox_service_status_cached(force_refresh=True)
 
 
 @app.get("/api/dispatcher/full")
-async def api_dispatcher_full():
+async def api_dispatcher_full(request: Request):
     """合并 dispatcher 状态 + singbox 状态，减少前端轮询请求数"""
+    _, error_response = await _require_admin_token(request)
+    if error_response is not None:
+        return error_response
+
     singbox_status = await _get_singbox_service_status_cached()
     return {**dispatcher.get_status(), "singbox": singbox_status}
 
@@ -2569,9 +2627,13 @@ async def api_dispatcher_full():
 
 @app.get("/api/db/size")
 
-async def api_db_size():
+async def api_db_size(request: Request):
 
     """查看数据库各表存储占用"""
+
+    _, error_response = await _require_admin_token(request)
+    if error_response is not None:
+        return error_response
 
     try:
 
@@ -2603,6 +2665,10 @@ async def api_db_delete(request: Request):
 
     """
 
+    _, error_response = await _require_admin_token(request, super_admin_only=True)
+    if error_response is not None:
+        return error_response
+
     try:
 
         data = await request.json()
@@ -2633,9 +2699,13 @@ async def api_db_delete(request: Request):
 
 @app.get("/api/db/stats")
 
-async def api_db_stats():
+async def api_db_stats(request: Request):
 
     """获取数据库统计摘要 + 连接池状态"""
+
+    _, error_response = await _require_admin_token(request)
+    if error_response is not None:
+        return error_response
 
     try:
 
@@ -2660,6 +2730,10 @@ async def api_db_stats():
 async def api_ban(request: Request):
 
     """封禁账号或IP（持久化到PostgreSQL）"""
+
+    _, error_response = await _require_admin_token(request, 'banlist')
+    if error_response is not None:
+        return error_response
 
     data = await request.json()
 
@@ -2716,6 +2790,10 @@ async def api_ban(request: Request):
 async def api_unban(request: Request):
 
     """解除封禁（持久化到PostgreSQL）"""
+
+    _, error_response = await _require_admin_token(request, 'banlist')
+    if error_response is not None:
+        return error_response
 
     data = await request.json()
 
@@ -2787,6 +2865,10 @@ DB_AUTH_MAX_FAILS = 5
 
 DB_AUTH_BAN_DAYS = 1
 
+OPERATION_TOTP_MAX_FAILS = 5
+
+OPERATION_TOTP_LOCKOUT_SECONDS = 3600
+
 GOOGLE_LOGIN_TOKEN_TTL_SECONDS = 3600
 
 admin_security = AdminSecurityFacade(
@@ -2804,6 +2886,7 @@ admin_security = AdminSecurityFacade(
 
 operation_auth_service = None
 operation_scope_resolver = None
+operation_totp_lockouts = LockoutStore(OPERATION_TOTP_MAX_FAILS, OPERATION_TOTP_LOCKOUT_SECONDS)
 if OperationAuthService is not None:
     operation_auth_repository = OperationAuthRepository(db)
     operation_auth_service = OperationAuthService(
@@ -3011,6 +3094,27 @@ async def _resolve_admin_identity(request: Request):
         return token, role, sub_name
 
     return token, role, ''
+
+
+async def _require_admin_token(request: Request, permission: str = '', super_admin_only: bool = False):
+
+    token = _extract_admin_bearer_token(request)
+
+    if not token or not await verify_admin_token(token):
+
+        return '', JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
+
+    role = get_token_role(token)
+
+    if super_admin_only and role != ROLE_SUPER_ADMIN:
+
+        return token, JSONResponse(status_code=403, content={"error": True, "message": "仅系统总管理员可操作"})
+
+    if permission and not check_token_permission(token, permission):
+
+        return token, JSONResponse(status_code=403, content={"error": True, "message": "权限不足"})
+
+    return token, None
 
 
 
@@ -3447,6 +3551,10 @@ if operation_auth_service is not None and operation_scope_resolver is not None a
         super_admin_role=ROLE_SUPER_ADMIN,
         sub_admin_role=ROLE_SUB_ADMIN,
         sub_admin_names_supplier=lambda: list(SUB_ADMINS.keys()),
+        totp_lockout_store=operation_totp_lockouts,
+        totp_max_fails=OPERATION_TOTP_MAX_FAILS,
+        totp_lockout_seconds=OPERATION_TOTP_LOCKOUT_SECONDS,
+        logger=logger,
     ))
 
 app.include_router(create_notification_router(
@@ -3802,18 +3910,20 @@ async def verify_token_api(request: Request):
 
 @app.get("/admin/api/stats")
 
-async def admin_stats():
+async def admin_stats(request: Request):
+
+    _, error_response = await _require_admin_token(request)
+    if error_response is not None:
+        return error_response
 
     return await db.get_stats_summary()
 
 
 @app.get("/admin/api/point-stats")
 async def admin_point_stats(request: Request, username: str = None, point_type: str = None, limit: int = 50):
-    token = request.headers.get('Authorization', '').replace('Bearer ', '')
-    if not token or not await verify_admin_token(token):
-        return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
-    if not check_token_permission(token, 'pointStats'):
-        return JSONResponse(status_code=403, content={"error": True, "message": "无点数统计权限"})
+    _, error_response = await _require_admin_token(request, 'pointStats')
+    if error_response is not None:
+        return error_response
     try:
         return await db.get_point_stats(username=username, point_type=point_type, limit=limit)
     except ValueError as e:
@@ -4139,11 +4249,9 @@ async def _check_point_stats_quota(token: str, username: str, point_type: str):
 
 @app.post("/admin/api/point-stats/sync")
 async def admin_point_stats_sync(request: Request):
-    token = request.headers.get('Authorization', '').replace('Bearer ', '')
-    if not token or not await verify_admin_token(token):
-        return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
-    if not check_token_permission(token, 'pointStats'):
-        return JSONResponse(status_code=403, content={"error": True, "message": "无点数统计权限"})
+    token, error_response = await _require_admin_token(request, 'pointStats')
+    if error_response is not None:
+        return error_response
     try:
         data = await request.json()
         username = (data.get("username") or "").strip().lower()
@@ -4216,11 +4324,9 @@ async def admin_point_stats_sync(request: Request):
 
 @app.get("/admin/api/point-stats/quota")
 async def admin_point_stats_quota(request: Request):
-    token = request.headers.get('Authorization', '').replace('Bearer ', '')
-    if not token or not await verify_admin_token(token):
-        return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
-    if not check_token_permission(token, 'pointStats'):
-        return JSONResponse(status_code=403, content={"error": True, "message": "无点数统计权限"})
+    token, error_response = await _require_admin_token(request, 'pointStats')
+    if error_response is not None:
+        return error_response
     role = get_token_role(token) or ''
     admin_id = _admin_id_for_point_stats(token)
     if not admin_id:
@@ -4239,11 +4345,9 @@ async def admin_point_stats_quota(request: Request):
 
 @app.get("/admin/api/point-stats/sync/status")
 async def admin_point_stats_sync_status(request: Request, username: str = None, point_type: str = None):
-    token = request.headers.get('Authorization', '').replace('Bearer ', '')
-    if not token or not await verify_admin_token(token):
-        return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
-    if not check_token_permission(token, 'pointStats'):
-        return JSONResponse(status_code=403, content={"error": True, "message": "无点数统计权限"})
+    _, error_response = await _require_admin_token(request, 'pointStats')
+    if error_response is not None:
+        return error_response
     task_key = _point_history_sync_task_key(username or '', point_type or '')
     state = _POINT_HISTORY_SYNC_TASKS.get(task_key)
     if not state:
@@ -4253,18 +4357,20 @@ async def admin_point_stats_sync_status(request: Request, username: str = None, 
 
 @app.get("/admin/api/point-stats/users")
 async def admin_point_stats_users(request: Request, search: str = None, limit: int = 12):
-    token = request.headers.get('Authorization', '').replace('Bearer ', '')
-    if not token or not await verify_admin_token(token):
-        return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
-    if not check_token_permission(token, 'pointStats'):
-        return JSONResponse(status_code=403, content={"error": True, "message": "无点数统计权限"})
+    _, error_response = await _require_admin_token(request, 'pointStats')
+    if error_response is not None:
+        return error_response
     return await db.search_point_stat_users(search=search, limit=limit)
 
 
 
 @app.get("/admin/api/dashboard")
 
-async def admin_dashboard():
+async def admin_dashboard(request: Request):
+
+    _, error_response = await _require_admin_token(request, 'dashboard')
+    if error_response is not None:
+        return error_response
 
     try:
 
@@ -4280,7 +4386,11 @@ async def admin_dashboard():
 
 @app.get("/admin/api/users")
 
-async def admin_users(limit: int = 100, offset: int = 0):
+async def admin_users(request: Request, limit: int = 100, offset: int = 0):
+
+    _, error_response = await _require_admin_token(request, 'users')
+    if error_response is not None:
+        return error_response
 
     return await db.get_all_users_with_assets(limit, offset)
 
@@ -4288,7 +4398,11 @@ async def admin_users(limit: int = 100, offset: int = 0):
 
 @app.get("/admin/api/ips")
 
-async def admin_ips(limit: int = 100, offset: int = 0):
+async def admin_ips(request: Request, limit: int = 100, offset: int = 0):
+
+    _, error_response = await _require_admin_token(request, 'ips')
+    if error_response is not None:
+        return error_response
 
     return await db.get_all_ips(limit, offset)
 
@@ -4296,7 +4410,11 @@ async def admin_ips(limit: int = 100, offset: int = 0):
 
 @app.get("/admin/api/usage")
 
-async def admin_usage(limit: int = 100, offset: int = 0, search: str = None):
+async def admin_usage(request: Request, limit: int = 100, offset: int = 0, search: str = None):
+
+    _, error_response = await _require_admin_token(request, 'usage')
+    if error_response is not None:
+        return error_response
 
     return await db.get_all_users(limit, offset, search)
 
@@ -4304,7 +4422,11 @@ async def admin_usage(limit: int = 100, offset: int = 0, search: str = None):
 
 @app.get("/admin/api/logins")
 
-async def admin_logins(limit: int = 50):
+async def admin_logins(request: Request, limit: int = 50):
+
+    _, error_response = await _require_admin_token(request, 'usage')
+    if error_response is not None:
+        return error_response
 
     return await db.get_recent_logins(limit)
 
@@ -4312,7 +4434,11 @@ async def admin_logins(limit: int = 50):
 
 @app.get("/admin/api/user/{username}")
 
-async def admin_user_detail(username: str):
+async def admin_user_detail(username: str, request: Request):
+
+    _, error_response = await _require_admin_token(request, 'usage')
+    if error_response is not None:
+        return error_response
 
     user = await db.get_user_detail(username)
 
@@ -4327,11 +4453,9 @@ async def admin_user_detail(username: str):
 
 async def admin_user_real_name(request: Request):
 
-    token = request.headers.get('Authorization', '').replace('Bearer ', '')
-
-    if not await verify_admin_token(token):
-
-        return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
+    _, error_response = await _require_admin_token(request, 'users')
+    if error_response is not None:
+        return error_response
 
     try:
 
@@ -4365,7 +4489,11 @@ async def admin_user_real_name(request: Request):
 
 @app.get("/admin/api/banlist")
 
-async def admin_banlist():
+async def admin_banlist(request: Request):
+
+    _, error_response = await _require_admin_token(request, 'banlist')
+    if error_response is not None:
+        return error_response
 
     return await db.get_ban_list()
 
@@ -4373,8 +4501,12 @@ async def admin_banlist():
 
 @app.get("/admin/api/assets")
 
-async def admin_assets(limit: int = 100, offset: int = 0, search: str = None,
+async def admin_assets(request: Request, limit: int = 100, offset: int = 0, search: str = None,
                        sort_field: str = 'updated_at', sort_dir: str = 'desc'):
+
+    _, error_response = await _require_admin_token(request, 'users')
+    if error_response is not None:
+        return error_response
 
     return await db.get_all_user_assets(limit, offset, search, sort_field, sort_dir)
 
@@ -4382,7 +4514,11 @@ async def admin_assets(limit: int = 100, offset: int = 0, search: str = None,
 
 @app.get("/admin/api/assets/{username}")
 
-async def admin_user_assets(username: str):
+async def admin_user_assets(username: str, request: Request):
+
+    _, error_response = await _require_admin_token(request, 'users')
+    if error_response is not None:
+        return error_response
 
     assets = await db.get_user_assets(username)
 
@@ -4397,6 +4533,10 @@ async def admin_user_assets(username: str):
 @app.post("/admin/api/ban/user")
 
 async def admin_ban_user(request: Request):
+
+    _, error_response = await _require_admin_token(request, 'banlist')
+    if error_response is not None:
+        return error_response
 
     data = await request.json()
 
@@ -4418,6 +4558,10 @@ async def admin_ban_user(request: Request):
 
 async def admin_unban_user(request: Request):
 
+    _, error_response = await _require_admin_token(request, 'banlist')
+    if error_response is not None:
+        return error_response
+
     data = await request.json()
 
     value = data.get('value', '')
@@ -4435,6 +4579,10 @@ async def admin_unban_user(request: Request):
 @app.post("/admin/api/ban/ip")
 
 async def admin_ban_ip(request: Request):
+
+    _, error_response = await _require_admin_token(request, 'banlist')
+    if error_response is not None:
+        return error_response
 
     data = await request.json()
 
@@ -4454,6 +4602,10 @@ async def admin_ban_ip(request: Request):
 
 async def admin_unban_ip(request: Request):
 
+    _, error_response = await _require_admin_token(request, 'banlist')
+    if error_response is not None:
+        return error_response
+
     data = await request.json()
 
     value = data.get('value', '')
@@ -4470,7 +4622,11 @@ async def admin_unban_ip(request: Request):
 
 @app.get("/admin/api/online")
 
-async def admin_online_users():
+async def admin_online_users(request: Request):
+
+    _, error_response = await _require_admin_token(request, 'online')
+    if error_response is not None:
+        return error_response
 
     return online_manager.get_online_users()
 
@@ -4523,6 +4679,10 @@ async def force_logout_user(username: str) -> str:
 
 async def admin_kick_user(request: Request):
 
+    _, error_response = await _require_admin_token(request, 'online')
+    if error_response is not None:
+        return error_response
+
     data = await request.json()
 
     username = data.get("username", "").strip()
@@ -4540,6 +4700,10 @@ async def admin_kick_user(request: Request):
 @app.post("/admin/api/chat/send")
 
 async def admin_chat_send(request: Request):
+
+    _, error_response = await _require_admin_token(request, 'online')
+    if error_response is not None:
+        return error_response
 
     data = await request.json()
 
@@ -4567,7 +4731,11 @@ async def admin_chat_send(request: Request):
 
 @app.get("/admin/api/chat/history/{username}")
 
-async def admin_chat_history(username: str):
+async def admin_chat_history(username: str, request: Request):
+
+    _, error_response = await _require_admin_token(request, 'online')
+    if error_response is not None:
+        return error_response
 
     return online_manager.get_messages(username)
 
@@ -4576,6 +4744,10 @@ async def admin_chat_history(username: str):
 @app.post("/admin/api/chat/broadcast")
 
 async def admin_chat_broadcast(request: Request):
+
+    _, error_response = await _require_admin_token(request, 'online')
+    if error_response is not None:
+        return error_response
 
     data = await request.json()
 
@@ -4948,9 +5120,9 @@ async def admin_sub_admin_kick(request: Request):
 @app.get("/admin/api/sub_admin/monitoring_status")
 async def admin_sub_admin_monitoring_status(request: Request):
     """获取子管理员在线监控开关状态"""
-    token = request.headers.get('Authorization', '').replace('Bearer ', '')
-    if not await verify_admin_token(token):
-        return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
+    _, error_response = await _require_admin_token(request, super_admin_only=True)
+    if error_response is not None:
+        return error_response
     try:
         enabled = await db.get_sub_admin_monitoring_status()
         return {
@@ -4966,10 +5138,9 @@ async def admin_sub_admin_monitoring_status(request: Request):
 @app.post("/admin/api/sub_admin/set_monitoring")
 async def admin_sub_admin_set_monitoring(request: Request):
     """设置子管理员在线监控开关（仅系统总管理员）"""
-    token = request.headers.get('Authorization', '').replace('Bearer ', '')
-    user_info = await verify_admin_token(token)
-    if not user_info or get_token_role(token) != ROLE_SUPER_ADMIN:
-        return JSONResponse(status_code=403, content={"error": True, "message": "仅系统总管理员可操作"})
+    _, error_response = await _require_admin_token(request, super_admin_only=True)
+    if error_response is not None:
+        return error_response
     data = await request.json()
     enabled = bool(data.get('enabled', False))
     try:
@@ -4989,6 +5160,10 @@ async def admin_sub_admin_set_monitoring(request: Request):
 @app.post("/admin/api/db/auth")
 
 async def admin_db_auth(request: Request):
+
+    _, error_response = await _require_admin_token(request, 'database')
+    if error_response is not None:
+        return error_response
 
     client_ip = _extract_client_ip(request)
     security_context = build_security_context(request, client_ip=client_ip)
@@ -5056,6 +5231,10 @@ async def admin_db_auth(request: Request):
 
 async def admin_db_verify(request: Request):
 
+    _, error_response = await _require_admin_token(request, 'database')
+    if error_response is not None:
+        return error_response
+
     token = request.headers.get("X-DB-Token")
 
     return {"valid": verify_db_token(token)}
@@ -5066,6 +5245,10 @@ async def admin_db_verify(request: Request):
 
 async def admin_db_tables(request: Request):
 
+    _, error_response = await _require_admin_token(request, 'database')
+    if error_response is not None:
+        return error_response
+
     check_db_auth(request)
 
     return await db.get_all_tables()
@@ -5075,6 +5258,10 @@ async def admin_db_tables(request: Request):
 @app.get("/admin/api/db/schema/{table_name}")
 
 async def admin_db_schema(table_name: str, request: Request):
+
+    _, error_response = await _require_admin_token(request, 'database')
+    if error_response is not None:
+        return error_response
 
     check_db_auth(request)
 
@@ -5090,6 +5277,10 @@ async def admin_db_query(table_name: str, request: Request,
 
                          order_by: str = None, order_desc: bool = True):
 
+    _, error_response = await _require_admin_token(request, 'database')
+    if error_response is not None:
+        return error_response
+
     check_db_auth(request)
 
     return await db.query_table(table_name, limit, offset, order_by, order_desc)
@@ -5099,6 +5290,10 @@ async def admin_db_query(table_name: str, request: Request,
 @app.post("/admin/api/db/insert/{table_name}")
 
 async def admin_db_insert(table_name: str, request: Request):
+
+    _, error_response = await _require_admin_token(request, 'database')
+    if error_response is not None:
+        return error_response
 
     check_db_auth(request)
 
@@ -5119,6 +5314,10 @@ async def admin_db_insert(table_name: str, request: Request):
 @app.put("/admin/api/db/update/{table_name}")
 
 async def admin_db_update(table_name: str, request: Request):
+
+    _, error_response = await _require_admin_token(request, 'database')
+    if error_response is not None:
+        return error_response
 
     check_db_auth(request)
 
@@ -5150,6 +5349,10 @@ async def admin_db_delete_row(table_name: str, request: Request,
 
                               pk_column: str = "id", pk_value: str = None):
 
+    _, error_response = await _require_admin_token(request, 'database')
+    if error_response is not None:
+        return error_response
+
     check_db_auth(request)
 
     if pk_value is None:
@@ -5171,6 +5374,10 @@ async def admin_db_delete_row(table_name: str, request: Request,
 @app.post("/admin/api/db/sql")
 
 async def admin_db_sql(request: Request):
+
+    _, error_response = await _require_admin_token(request, 'database')
+    if error_response is not None:
+        return error_response
 
     check_db_auth(request)
 
@@ -5242,11 +5449,9 @@ async def proxy_license_request(method: str, path: str, params: dict = None, jso
 
 async def license_statistics(request: Request):
 
-    token = request.headers.get('Authorization', '').replace('Bearer ', '')
-
-    if not await verify_admin_token(token):
-
-        return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
+    _, error_response = await _require_admin_token(request, 'license')
+    if error_response is not None:
+        return error_response
 
     return await proxy_license_request('GET', '/admin/statistics')
 
@@ -5255,11 +5460,9 @@ async def license_statistics(request: Request):
 
 async def license_list(request: Request, limit: int = 50, offset: int = 0):
 
-    token = request.headers.get('Authorization', '').replace('Bearer ', '')
-
-    if not await verify_admin_token(token):
-
-        return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
+    _, error_response = await _require_admin_token(request, 'license')
+    if error_response is not None:
+        return error_response
 
     return await proxy_license_request('GET', '/admin/licenses', params={'limit': limit, 'offset': offset})
 
@@ -5269,11 +5472,9 @@ async def license_list(request: Request, limit: int = 50, offset: int = 0):
 
 async def license_info(license_key: str, request: Request):
 
-    token = request.headers.get('Authorization', '').replace('Bearer ', '')
-
-    if not await verify_admin_token(token):
-
-        return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
+    _, error_response = await _require_admin_token(request, 'license')
+    if error_response is not None:
+        return error_response
 
     return await proxy_license_request('GET', f'/admin/license-info/{license_key}')
 
@@ -5283,15 +5484,9 @@ async def license_info(license_key: str, request: Request):
 
 async def license_create(request: Request):
 
-    token = request.headers.get('Authorization', '').replace('Bearer ', '')
-
-    if not await verify_admin_token(token):
-
-        return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
-
-    if not check_token_permission(token, 'license'):
-
-        return {"error": True, "message": "您没有激活码管理权限"}
+    token, error_response = await _require_admin_token(request, 'license')
+    if error_response is not None:
+        return error_response
 
     data = await request.json()
 
@@ -5315,15 +5510,9 @@ async def license_create(request: Request):
 
 async def license_revoke(request: Request):
 
-    token = request.headers.get('Authorization', '').replace('Bearer ', '')
-
-    if not await verify_admin_token(token):
-
-        return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
-
-    if not check_token_permission(token, 'license'):
-
-        return {"error": True, "message": "您没有激活码管理权限"}
+    token, error_response = await _require_admin_token(request, 'license')
+    if error_response is not None:
+        return error_response
 
     data = await request.json()
 
@@ -5341,15 +5530,9 @@ async def license_revoke(request: Request):
 
 async def license_edit(request: Request):
 
-    token = request.headers.get('Authorization', '').replace('Bearer ', '')
-
-    if not await verify_admin_token(token):
-
-        return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
-
-    if not check_token_permission(token, 'license'):
-
-        return {"error": True, "message": "您没有激活码管理权限"}
+    _, error_response = await _require_admin_token(request, 'license')
+    if error_response is not None:
+        return error_response
 
     data = await request.json()
 
@@ -5361,11 +5544,9 @@ async def license_edit(request: Request):
 
 async def license_clients(request: Request, limit: int = 100, offset: int = 0):
 
-    token = request.headers.get('Authorization', '').replace('Bearer ', '')
-
-    if not await verify_admin_token(token):
-
-        return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
+    _, error_response = await _require_admin_token(request, 'license')
+    if error_response is not None:
+        return error_response
 
     return await proxy_license_request('GET', '/admin/clients', params={'limit': limit, 'offset': offset})
 
@@ -5375,11 +5556,9 @@ async def license_clients(request: Request, limit: int = 100, offset: int = 0):
 
 async def license_client_detail(client_id: str, request: Request):
 
-    token = request.headers.get('Authorization', '').replace('Bearer ', '')
-
-    if not await verify_admin_token(token):
-
-        return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
+    _, error_response = await _require_admin_token(request, 'license')
+    if error_response is not None:
+        return error_response
 
     return await proxy_license_request('GET', f'/admin/clients/{client_id}')
 
@@ -5389,15 +5568,9 @@ async def license_client_detail(client_id: str, request: Request):
 
 async def license_blacklist_add(request: Request):
 
-    token = request.headers.get('Authorization', '').replace('Bearer ', '')
-
-    if not await verify_admin_token(token):
-
-        return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
-
-    if not check_token_permission(token, 'license'):
-
-        return {"error": True, "message": "您没有激活码管理权限"}
+    _, error_response = await _require_admin_token(request, 'license')
+    if error_response is not None:
+        return error_response
 
     data = await request.json()
 
@@ -5409,15 +5582,9 @@ async def license_blacklist_add(request: Request):
 
 async def license_blacklist_remove(request: Request):
 
-    token = request.headers.get('Authorization', '').replace('Bearer ', '')
-
-    if not await verify_admin_token(token):
-
-        return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
-
-    if not check_token_permission(token, 'license'):
-
-        return {"error": True, "message": "您没有激活码管理权限"}
+    _, error_response = await _require_admin_token(request, 'license')
+    if error_response is not None:
+        return error_response
 
     data = await request.json()
 
@@ -5429,11 +5596,9 @@ async def license_blacklist_remove(request: Request):
 
 async def license_blacklist_list(request: Request):
 
-    token = request.headers.get('Authorization', '').replace('Bearer ', '')
-
-    if not await verify_admin_token(token):
-
-        return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
+    _, error_response = await _require_admin_token(request, 'license')
+    if error_response is not None:
+        return error_response
 
     return await proxy_license_request('GET', '/admin/blacklist')
 
@@ -5443,11 +5608,9 @@ async def license_blacklist_list(request: Request):
 
 async def license_online_clients(request: Request):
 
-    token = request.headers.get('Authorization', '').replace('Bearer ', '')
-
-    if not await verify_admin_token(token):
-
-        return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
+    _, error_response = await _require_admin_token(request, 'license')
+    if error_response is not None:
+        return error_response
 
     return await proxy_license_request('GET', '/admin/online-clients')
 
@@ -5457,15 +5620,9 @@ async def license_online_clients(request: Request):
 
 async def license_disable_client(request: Request):
 
-    token = request.headers.get('Authorization', '').replace('Bearer ', '')
-
-    if not await verify_admin_token(token):
-
-        return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
-
-    if get_token_role(token) != ROLE_SUPER_ADMIN:
-
-        return {"error": True, "message": "仅系统总管理员可禁用客户端"}
+    _, error_response = await _require_admin_token(request, super_admin_only=True)
+    if error_response is not None:
+        return error_response
 
     data = await request.json()
 
@@ -5477,15 +5634,9 @@ async def license_disable_client(request: Request):
 
 async def license_enable_client(request: Request):
 
-    token = request.headers.get('Authorization', '').replace('Bearer ', '')
-
-    if not await verify_admin_token(token):
-
-        return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
-
-    if get_token_role(token) != ROLE_SUPER_ADMIN:
-
-        return {"error": True, "message": "仅系统总管理员可启用客户端"}
+    _, error_response = await _require_admin_token(request, super_admin_only=True)
+    if error_response is not None:
+        return error_response
 
     data = await request.json()
 
@@ -5497,11 +5648,9 @@ async def license_enable_client(request: Request):
 
 async def license_logs(request: Request, limit: int = 100, offset: int = 0):
 
-    token = request.headers.get('Authorization', '').replace('Bearer ', '')
-
-    if not await verify_admin_token(token):
-
-        return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
+    _, error_response = await _require_admin_token(request, 'license')
+    if error_response is not None:
+        return error_response
 
     return await proxy_license_request('GET', '/admin/logs', params={'limit': limit, 'offset': offset})
 
@@ -5511,11 +5660,9 @@ async def license_logs(request: Request, limit: int = 100, offset: int = 0):
 
 async def license_local_logs(request: Request, action: str = None, limit: int = 50, offset: int = 0):
 
-    token = request.headers.get('Authorization', '').replace('Bearer ', '')
-
-    if not await verify_admin_token(token):
-
-        return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
+    _, error_response = await _require_admin_token(request, 'license')
+    if error_response is not None:
+        return error_response
 
     return await db.get_license_logs(action=action or None, limit=limit, offset=offset)
 
@@ -5525,11 +5672,9 @@ async def license_local_logs(request: Request, action: str = None, limit: int = 
 
 async def license_products(request: Request):
 
-    token = request.headers.get('Authorization', '').replace('Bearer ', '')
-
-    if not await verify_admin_token(token):
-
-        return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
+    _, error_response = await _require_admin_token(request, 'license')
+    if error_response is not None:
+        return error_response
 
     return await proxy_license_request('GET', '/admin/products')
 
@@ -5537,7 +5682,11 @@ async def license_products(request: Request):
 
 @app.get("/admin/api/license/health")
 
-async def license_health():
+async def license_health(request: Request):
+
+    _, error_response = await _require_admin_token(request, 'license')
+    if error_response is not None:
+        return error_response
 
     return await proxy_license_request('GET', '/health')
 
@@ -5545,7 +5694,11 @@ async def license_health():
 
 @app.get("/admin/api/proxy_pool/status")
 
-async def admin_proxy_pool_status():
+async def admin_proxy_pool_status(request: Request):
+
+    _, error_response = await _require_admin_token(request, super_admin_only=True)
+    if error_response is not None:
+        return error_response
 
     return {"config": {}, "pool": None, "available": False}
 
@@ -5563,11 +5716,9 @@ async def admin_whitelist_list(request: Request, limit: int = 100, offset: int =
 
                                 status: str = None, search: str = None):
 
-    token = request.headers.get('Authorization', '').replace('Bearer ', '')
-
-    if not await verify_admin_token(token):
-
-        return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
+    token, error_response = await _require_admin_token(request)
+    if error_response is not None:
+        return error_response
 
     role = get_token_role(token)
 
@@ -5585,11 +5736,9 @@ async def admin_whitelist_list(request: Request, limit: int = 100, offset: int =
 
 async def admin_whitelist_add(request: Request):
 
-    token = request.headers.get('Authorization', '').replace('Bearer ', '')
-
-    if not await verify_admin_token(token):
-
-        return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
+    token, error_response = await _require_admin_token(request)
+    if error_response is not None:
+        return error_response
 
     role = get_token_role(token)
 
@@ -5689,11 +5838,9 @@ async def admin_whitelist_add(request: Request):
 
 async def admin_whitelist_nickname(request: Request):
 
-    token = request.headers.get('Authorization', '').replace('Bearer ', '')
-
-    if not await verify_admin_token(token):
-
-        return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
+    token, error_response = await _require_admin_token(request)
+    if error_response is not None:
+        return error_response
 
     try:
 
@@ -5735,11 +5882,9 @@ async def admin_whitelist_nickname(request: Request):
 
 async def admin_whitelist_renew(request: Request):
 
-    token = request.headers.get('Authorization', '').replace('Bearer ', '')
-
-    if not await verify_admin_token(token):
-
-        return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
+    token, error_response = await _require_admin_token(request)
+    if error_response is not None:
+        return error_response
 
     role = get_token_role(token)
 
@@ -5825,11 +5970,9 @@ async def admin_whitelist_renew(request: Request):
 
 async def admin_whitelist_delete(request: Request):
 
-    token = request.headers.get('Authorization', '').replace('Bearer ', '')
-
-    if not await verify_admin_token(token):
-
-        return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
+    _, error_response = await _require_admin_token(request)
+    if error_response is not None:
+        return error_response
 
     data = await request.json()
 
@@ -5857,11 +6000,9 @@ async def admin_whitelist_delete(request: Request):
 
 async def admin_whitelist_expiring(request: Request, days: int = 7):
 
-    token = request.headers.get('Authorization', '').replace('Bearer ', '')
-
-    if not await verify_admin_token(token):
-
-        return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
+    token, error_response = await _require_admin_token(request)
+    if error_response is not None:
+        return error_response
 
     role = get_token_role(token)
 
@@ -5877,11 +6018,9 @@ async def admin_whitelist_expiring(request: Request, days: int = 7):
 
 async def admin_whitelist_toggle_persist(request: Request):
 
-    token = request.headers.get('Authorization', '').replace('Bearer ', '')
-
-    if not await verify_admin_token(token):
-
-        return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
+    _, error_response = await _require_admin_token(request)
+    if error_response is not None:
+        return error_response
 
     data = await request.json()
 
@@ -5911,9 +6050,9 @@ async def admin_whitelist_toggle_persist(request: Request):
 
 
 async def _resolve_meeting_admin_context(request: Request):
-    token = request.headers.get('Authorization', '').replace('Bearer ', '')
-    if not await verify_admin_token(token):
-        return None, JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
+    token, error_response = await _require_admin_token(request)
+    if error_response is not None:
+        return None, error_response
     role = get_token_role(token)
     sub_name = get_token_sub_name(token)
     return {"role": role or "", "sub_name": sub_name or ""}, None
@@ -6150,9 +6289,9 @@ async def admin_meeting_revoke_permission(request: Request):
 @app.get("/admin/api/whitelist/global_status")
 async def admin_whitelist_global_status(request: Request):
     """获取全体白名单开关状态"""
-    token = request.headers.get('Authorization', '').replace('Bearer ', '')
-    if not await verify_admin_token(token):
-        return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
+    _, error_response = await _require_admin_token(request)
+    if error_response is not None:
+        return error_response
     try:
         enabled = await db.get_whitelist_global_status()
         return {
@@ -6168,9 +6307,9 @@ async def admin_whitelist_global_status(request: Request):
 @app.post("/admin/api/whitelist/set_global")
 async def admin_whitelist_set_global(request: Request):
     """设置全体白名单开关"""
-    token = request.headers.get('Authorization', '').replace('Bearer ', '')
-    if not await verify_admin_token(token):
-        return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
+    _, error_response = await _require_admin_token(request, super_admin_only=True)
+    if error_response is not None:
+        return error_response
     data = await request.json()
     enabled = bool(data.get('enabled', False))
     try:
@@ -6995,7 +7134,11 @@ async def admin_im_image_upload_config_update(request: Request):
 
 @app.get("/admin/api/credits/config")
 
-async def admin_credits_config():
+async def admin_credits_config(request: Request):
+
+    _, error_response = await _require_admin_token(request)
+    if error_response is not None:
+        return error_response
 
     return await db.get_credit_config()
 
@@ -7005,15 +7148,9 @@ async def admin_credits_config():
 
 async def admin_credits_config_update(request: Request):
 
-    token = request.headers.get('Authorization', '').replace('Bearer ', '')
-
-    if not await verify_admin_token(token):
-
-        return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
-
-    if get_token_role(token) != ROLE_SUPER_ADMIN:
-
-        return {"success": False, "message": "仅总管理员可修改积分定价"}
+    _, error_response = await _require_admin_token(request, super_admin_only=True)
+    if error_response is not None:
+        return error_response
 
     data = await request.json()
 
@@ -7039,15 +7176,9 @@ async def admin_credits_config_update(request: Request):
 
 async def admin_credits_config_delete(plan_type: str, request: Request):
 
-    token = request.headers.get('Authorization', '').replace('Bearer ', '')
-
-    if not await verify_admin_token(token):
-
-        return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
-
-    if get_token_role(token) != ROLE_SUPER_ADMIN:
-
-        return {"success": False, "message": "仅总管理员可删除积分定价"}
+    _, error_response = await _require_admin_token(request, super_admin_only=True)
+    if error_response is not None:
+        return error_response
 
     ok = await db.delete_credit_config(plan_type)
 
@@ -7059,15 +7190,9 @@ async def admin_credits_config_delete(plan_type: str, request: Request):
 
 async def admin_credits_overview(request: Request):
 
-    token = request.headers.get('Authorization', '').replace('Bearer ', '')
-
-    if not await verify_admin_token(token):
-
-        return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
-
-    if get_token_role(token) != ROLE_SUPER_ADMIN:
-
-        return {"success": False, "message": "仅总管理员可查看"}
+    _, error_response = await _require_admin_token(request, super_admin_only=True)
+    if error_response is not None:
+        return error_response
 
     return await db.get_all_sub_admin_credits()
 
@@ -7077,11 +7202,9 @@ async def admin_credits_overview(request: Request):
 
 async def admin_credits_balance(request: Request):
 
-    token = request.headers.get('Authorization', '').replace('Bearer ', '')
-
-    if not await verify_admin_token(token):
-
-        return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
+    token, error_response = await _require_admin_token(request)
+    if error_response is not None:
+        return error_response
 
     role = get_token_role(token)
 
@@ -7101,15 +7224,9 @@ async def admin_credits_balance(request: Request):
 
 async def admin_credits_topup(request: Request):
 
-    token = request.headers.get('Authorization', '').replace('Bearer ', '')
-
-    if not await verify_admin_token(token):
-
-        return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
-
-    if get_token_role(token) != ROLE_SUPER_ADMIN:
-
-        return {"success": False, "message": "仅总管理员可充值积分"}
+    _, error_response = await _require_admin_token(request, super_admin_only=True)
+    if error_response is not None:
+        return error_response
 
     data = await request.json()
 
@@ -7149,11 +7266,9 @@ async def admin_credits_transactions(request: Request, admin_name: str = None,
 
                                       limit: int = 50, offset: int = 0):
 
-    token = request.headers.get('Authorization', '').replace('Bearer ', '')
-
-    if not await verify_admin_token(token):
-
-        return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
+    token, error_response = await _require_admin_token(request)
+    if error_response is not None:
+        return error_response
 
     role = get_token_role(token)
 
@@ -7177,9 +7292,9 @@ async def admin_credits_transactions(request: Request, admin_name: str = None,
 @app.get("/admin/api/nodes")
 async def admin_get_nodes(request: Request):
     """获取节点列表（含group_id）"""
-    token = request.headers.get('Authorization', '').replace('Bearer ', '')
-    if not await verify_admin_token(token):
-        return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
+    _, error_response = await _require_admin_token(request, super_admin_only=True)
+    if error_response is not None:
+        return error_response
     try:
         from . import singbox_manager as sbm
         nodes = sbm.load_saved_nodes()
@@ -7192,9 +7307,9 @@ async def admin_get_nodes(request: Request):
 @app.get("/admin/api/subscription_groups")
 async def admin_get_subscription_groups(request: Request):
     """获取订阅组列表"""
-    token = request.headers.get('Authorization', '').replace('Bearer ', '')
-    if not await verify_admin_token(token):
-        return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
+    token, error_response = await _require_admin_token(request)
+    if error_response is not None:
+        return error_response
     try:
         role = get_token_role(token)
         sub_name = get_token_sub_name(token)
@@ -7209,9 +7324,9 @@ async def admin_get_subscription_groups(request: Request):
 @app.patch("/admin/api/subscription_groups/{group_id}/notes")
 async def admin_update_subscription_group_notes(group_id: str, request: Request):
     """更新订阅组备注"""
-    token = request.headers.get('Authorization', '').replace('Bearer ', '')
-    if not await verify_admin_token(token):
-        return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
+    _, error_response = await _require_admin_token(request, super_admin_only=True)
+    if error_response is not None:
+        return error_response
     try:
         data = await request.json()
         notes = data.get('notes', '')
@@ -7225,9 +7340,9 @@ async def admin_update_subscription_group_notes(group_id: str, request: Request)
 @app.delete("/admin/api/subscription_groups/{group_id}")
 async def admin_delete_subscription_group(group_id: str, request: Request):
     """删除订阅组"""
-    token = request.headers.get('Authorization', '').replace('Bearer ', '')
-    if not await verify_admin_token(token):
-        return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
+    _, error_response = await _require_admin_token(request, super_admin_only=True)
+    if error_response is not None:
+        return error_response
     try:
         ok = await db.delete_subscription_group(group_id)
         if ok:
@@ -7252,9 +7367,9 @@ async def admin_delete_subscription_group(group_id: str, request: Request):
 @app.post("/admin/api/subscription_groups/{group_id}/toggle_by_ip")
 async def admin_toggle_server_by_ip(group_id: str, request: Request):
     """按IP批量切换服务器状态"""
-    token = request.headers.get('Authorization', '').replace('Bearer ', '')
-    if not await verify_admin_token(token):
-        return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
+    _, error_response = await _require_admin_token(request, super_admin_only=True)
+    if error_response is not None:
+        return error_response
     data = await request.json()
     server = data.get('server', '')
     enabled = bool(data.get('enabled', True))
@@ -7283,9 +7398,9 @@ async def admin_toggle_server_by_ip(group_id: str, request: Request):
 @app.post("/admin/api/subscription_groups/{group_id}/toggle_all")
 async def admin_toggle_all_servers(group_id: str, request: Request):
     """批量切换订阅组所有服务器状态"""
-    token = request.headers.get('Authorization', '').replace('Bearer ', '')
-    if not await verify_admin_token(token):
-        return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
+    _, error_response = await _require_admin_token(request, super_admin_only=True)
+    if error_response is not None:
+        return error_response
     data = await request.json()
     enabled = bool(data.get('enabled', True))
     try:
@@ -7313,9 +7428,9 @@ async def admin_toggle_all_servers(group_id: str, request: Request):
 @app.post("/admin/api/subscription_groups/{group_id}/toggle_server")
 async def admin_toggle_server(group_id: str, request: Request):
     """切换单个服务器启用/禁用状态"""
-    token = request.headers.get('Authorization', '').replace('Bearer ', '')
-    if not await verify_admin_token(token):
-        return JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
+    _, error_response = await _require_admin_token(request, super_admin_only=True)
+    if error_response is not None:
+        return error_response
     data = await request.json()
     server_index = data.get('server_index', -1)
     enabled = bool(data.get('enabled', True))
