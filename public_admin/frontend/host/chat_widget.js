@@ -345,6 +345,15 @@
         }
     }
 
+    function isPluginBootPage() {
+        try {
+            var path = String(window.location.pathname || '').toLowerCase();
+            return path === '/' || path === '/pages/home.html';
+        } catch(e) {
+            return false;
+        }
+    }
+
     function scheduleDeferredStartup(task, delay) {
         var started = false;
         function run() {
@@ -461,7 +470,9 @@
     setTimeout(fixApiUrl, 500);
     setTimeout(fixApiUrl, 1500);
     setTimeout(fixApiUrl, 3000);
-    scheduleDeferredStartup(setupPWA, 1800);
+    if (isPluginBootPage()) {
+        scheduleDeferredStartup(setupPWA, 1800);
+    }
     
     // ===== 以下是聊天组件代码，需要等待 DOM 准备好 =====
     function initChatWidget() {
@@ -4475,6 +4486,7 @@
     }
     
     function scheduleChatWidgetInit() {
+        if (!isPluginBootPage()) return;
         scheduleDeferredStartup(tryInit, 700);
     }
 
