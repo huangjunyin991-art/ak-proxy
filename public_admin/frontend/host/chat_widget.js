@@ -4354,19 +4354,23 @@
         rejectVoiceRequest: rejectVoiceRequest,
         toggleVoiceMute: toggleRemoteVoiceMute
     };
-    scheduleDeferredStartup(function() {
-        ensureNotificationWidget();
-        ensureIMPlugin();
-        syncIMPluginVisibility();
-    }, 1600);
+    if (isPluginBootPage()) {
+        scheduleDeferredStartup(function() {
+            ensureNotificationWidget();
+            ensureIMPlugin();
+            syncIMPluginVisibility();
+        }, 1600);
+    }
     emitChatBridgeEvent('ak-chat-ready', { api: window.AKChat });
     
     // 监听SPA路由变化（history.pushState / replaceState / 浏览器前进后退）
     function onUrlChange() {
-        scheduleDeferredStartup(function() {
-            ensureIMPlugin();
-            syncIMPluginVisibility();
-        }, 500);
+        if (isPluginBootPage()) {
+            scheduleDeferredStartup(function() {
+                ensureIMPlugin();
+                syncIMPluginVisibility();
+            }, 500);
+        }
         if (ws && ws.readyState === WebSocket.OPEN && !document.hidden) {
             sendPresence('online');
         }
@@ -4486,7 +4490,6 @@
     }
     
     function scheduleChatWidgetInit() {
-        if (!isPluginBootPage()) return;
         scheduleDeferredStartup(tryInit, 700);
     }
 
