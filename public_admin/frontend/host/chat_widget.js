@@ -334,9 +334,44 @@
     }
     
     // 助记词和首页拦截已由nginx 302处理，JS层不再需要
+
+    function isMobileLightBoot() {
+        try {
+            if (/Android|iPhone|iPad|iPod|Mobile|Windows Phone/i.test(navigator.userAgent || '')) return true;
+            if (window.matchMedia && window.matchMedia('(pointer: coarse)').matches) return true;
+            return Math.min(window.innerWidth || 9999, screen.width || 9999) <= 768;
+        } catch(e) {
+            return false;
+        }
+    }
+
+    function scheduleDeferredStartup(task, delay) {
+        var started = false;
+        function run() {
+            if (started) return;
+            started = true;
+            task();
+        }
+        var wait = typeof delay === 'number' ? delay : 1200;
+        if (!isMobileLightBoot()) {
+            setTimeout(run, 0);
+            return;
+        }
+        if ('requestIdleCallback' in window) {
+            window.requestIdleCallback(run, { timeout: wait + 1500 });
+        }
+        if (document.readyState === 'complete') {
+            setTimeout(run, wait);
+        } else {
+            window.addEventListener('load', function() {
+                setTimeout(run, wait);
+            }, { once: true });
+            setTimeout(run, wait + 2500);
+        }
+    }
     
     // ===== PWA支持：注入manifest + 注册Service Worker + 安装提示 =====
-    (function setupPWA() {
+    function setupPWA() {
         function injectManifestLinkIfValid() {
             if (document.querySelector('link[rel="manifest"]')) return;
             if (!window.fetch) return;
@@ -412,7 +447,7 @@
                 try { localStorage.setItem('ak_pwa_dismiss', Date.now()); } catch(e) {}
             };
         }
-    })();
+    }
     
     // 持久化登录：尽早隐藏登录页并自动登录
     autoLogin();
@@ -426,6 +461,7 @@
     setTimeout(fixApiUrl, 500);
     setTimeout(fixApiUrl, 1500);
     setTimeout(fixApiUrl, 3000);
+    scheduleDeferredStartup(setupPWA, 1800);
     
     // ===== 以下是聊天组件代码，需要等待 DOM 准备好 =====
     function initChatWidget() {
@@ -4307,15 +4343,19 @@
         rejectVoiceRequest: rejectVoiceRequest,
         toggleVoiceMute: toggleRemoteVoiceMute
     };
-    ensureNotificationWidget();
-    ensureIMPlugin();
-    syncIMPluginVisibility();
+    scheduleDeferredStartup(function() {
+        ensureNotificationWidget();
+        ensureIMPlugin();
+        syncIMPluginVisibility();
+    }, 1600);
     emitChatBridgeEvent('ak-chat-ready', { api: window.AKChat });
     
     // 监听SPA路由变化（history.pushState / replaceState / 浏览器前进后退）
     function onUrlChange() {
-        ensureIMPlugin();
-        syncIMPluginVisibility();
+        scheduleDeferredStartup(function() {
+            ensureIMPlugin();
+            syncIMPluginVisibility();
+        }, 500);
         if (ws && ws.readyState === WebSocket.OPEN && !document.hidden) {
             sendPresence('online');
         }
@@ -4434,10 +4474,14 @@
         }
     }
     
+    function scheduleChatWidgetInit() {
+        scheduleDeferredStartup(tryInit, 700);
+    }
+
     if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', tryInit);
+        document.addEventListener('DOMContentLoaded', scheduleChatWidgetInit);
     } else {
-        tryInit();
+        scheduleChatWidgetInit();
     }
     
 })();
