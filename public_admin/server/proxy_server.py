@@ -161,17 +161,37 @@ from plugins.remote_voice.server import remote_voice, VoiceSessionStatus
 from plugins.remote_voice.server.signal_bus import remote_voice_signal_bus
 
 from plugins.remote_voice.server.types import COUNTED_VOICE_SESSION_STATUSES
-
 from plugins.remote_assist.server.types import AssistConsentStatus, AssistRole
 
 # 出口IP调度模块
 
 from .outbound_dispatcher import dispatcher, ace_sell_dispatcher, OutboundExit
+from .runtime_performance import TimedServiceStatusCache, resolve_worker_policy, run_blocking
 
 if SOCKS5_EXITS:
     dispatcher.configure_from_list(SOCKS5_EXITS)
 
 dispatcher.MAX_LOGIN_PER_MIN = LOGIN_RATE_PER_EXIT
+
+
+async def _load_singbox_service_status() -> dict:
+    from . import singbox_manager as sbm
+    return await run_blocking(sbm.get_service_status)
+
+
+def _fallback_singbox_service_status() -> dict:
+    return {"installed": False, "active": False, "message": "sing-box 状态暂不可用"}
+
+
+_SINGBOX_STATUS_CACHE = TimedServiceStatusCache(
+    loader=_load_singbox_service_status,
+    ttl_seconds=3.0,
+    fallback=_fallback_singbox_service_status,
+)
+
+
+async def _get_singbox_service_status_cached(force_refresh: bool = False) -> dict:
+    return await _SINGBOX_STATUS_CACHE.get(force_refresh=force_refresh)
 
 
 def _restore_dispatcher_exits_from_disk() -> int:
@@ -2153,7 +2173,10 @@ async def api_dispatcher_start_singbox():
     """手动启动 sing-box 服务"""
     from . import singbox_manager as sbm
     try:
-        sbm.reload_service()
+        result = await run_blocking(sbm.reload_service)
+        _SINGBOX_STATUS_CACHE.invalidate()
+        if isinstance(result, dict) and not result.get("success"):
+            return result
         return {"success": True, "message": "sing-box 已启动/重载"}
     except Exception as e:
         return {"success": False, "message": f"启动失败: {str(e)}"}
@@ -2509,7 +2532,9 @@ async def api_dispatcher_reload_singbox():
 
     from . import singbox_manager as sbm
 
-    return sbm.reload_service()
+    result = await run_blocking(sbm.reload_service)
+    _SINGBOX_STATUS_CACHE.invalidate()
+    return result
 
 
 
@@ -2521,16 +2546,14 @@ async def api_dispatcher_singbox_status():
 
     """获取 sing-box 服务状态"""
 
-    from . import singbox_manager as sbm
-
-    return sbm.get_service_status()
+    return await _get_singbox_service_status_cached(force_refresh=True)
 
 
 @app.get("/api/dispatcher/full")
 async def api_dispatcher_full():
     """合并 dispatcher 状态 + singbox 状态，减少前端轮询请求数"""
-    from . import singbox_manager as sbm
-    return {**dispatcher.get_status(), "singbox": sbm.get_service_status()}
+    singbox_status = await _get_singbox_service_status_cached()
+    return {**dispatcher.get_status(), "singbox": singbox_status}
 
 
 
@@ -7189,7 +7212,8 @@ async def admin_delete_subscription_group(group_id: str, request: Request):
             if len(filtered) < len(nodes):
                 sbm.save_nodes(filtered)
                 sbm.write_config(filtered)
-                sbm.reload_service()
+                await run_blocking(sbm.reload_service)
+                _SINGBOX_STATUS_CACHE.invalidate()
             # 从 dispatcher 内存移除所有 SOCKS5 出口（保留直连 #0）
             for i in range(len(dispatcher.exits) - 1, 0, -1):
                 dispatcher.remove_exit(i)
@@ -7223,7 +7247,8 @@ async def admin_toggle_server_by_ip(group_id: str, request: Request):
         enabled_servers = set(n.get('server') for n in group_nodes if n.get('enabled', True) and n.get('server'))
         await db.update_subscription_group_servers(group_id, len(unique_servers), len(enabled_servers))
         sbm.write_config(nodes)
-        sbm.reload_service()
+        await run_blocking(sbm.reload_service)
+        _SINGBOX_STATUS_CACHE.invalidate()
         return {"success": True, "message": f"已{'启用' if enabled else '禁用'}{server}的{len(matching)}个节点"}
     except Exception as e:
         logger.error(f"[SubGroup] 按IP切换服务器状态失败: {e}")
@@ -7252,7 +7277,8 @@ async def admin_toggle_all_servers(group_id: str, request: Request):
         active_count = len(unique_servers) if enabled else 0
         await db.update_subscription_group_servers(group_id, len(unique_servers), active_count)
         sbm.write_config(nodes)
-        sbm.reload_service()
+        await run_blocking(sbm.reload_service)
+        _SINGBOX_STATUS_CACHE.invalidate()
         return {"success": True, "message": f"已{'启用' if enabled else '禁用'}{len(unique_servers)}个独立IP"}
     except Exception as e:
         logger.error(f"[SubGroup] 批量切换服务器状态失败: {e}")
@@ -7279,7 +7305,8 @@ async def admin_toggle_server(group_id: str, request: Request):
             active_count = sum(1 for i in group_indices if nodes[i].get('enabled', True))
             await db.update_subscription_group_servers(group_id, len(group_indices), active_count)
             sbm.write_config(nodes)
-            sbm.reload_service()
+            await run_blocking(sbm.reload_service)
+            _SINGBOX_STATUS_CACHE.invalidate()
             return {"success": True, "message": f"服务器已{'启用' if enabled else '禁用'}"}
         return {"success": False, "message": "服务器索引无效"}
     except Exception as e:
@@ -11879,6 +11906,8 @@ async def ak_web_proxy(request: Request, path: str):
 def main():
 
     """启动透明代理服务器"""
+    worker_policy = resolve_worker_policy()
+    worker_count = worker_policy.count
 
     print("=" * 60)
 
@@ -11895,6 +11924,7 @@ def main():
     print(f"  本地封禁: {'启用' if ENABLE_LOCAL_BAN else '禁用'}")
 
     print(f"  PostgreSQL: {DB_HOST}:{DB_PORT}/{DB_NAME} (pool={DB_MIN_POOL}-{DB_MAX_POOL})")
+    print(f"  Uvicorn Workers: {worker_count}")
 
     print("=" * 60)
 
@@ -11916,7 +11946,11 @@ def main():
 
     
 
-    uvicorn.run(app, host=PROXY_HOST, port=PROXY_PORT, log_level="warning")
+    if worker_policy.multi_worker_enabled:
+        uvicorn.run("server.proxy_server:app", host=PROXY_HOST, port=PROXY_PORT,
+                    log_level="warning", workers=worker_count)
+    else:
+        uvicorn.run(app, host=PROXY_HOST, port=PROXY_PORT, log_level="warning")
 
 
 
