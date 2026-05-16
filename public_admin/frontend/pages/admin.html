@@ -12261,7 +12261,7 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                     styleHost.appendChild(scrollLockStyle);
                 }
                 if (scrollLockStyle) {
-                    scrollLockStyle.textContent = 'html::-webkit-scrollbar,body::-webkit-scrollbar,[data-ra-admin-scroll-root="1"]::-webkit-scrollbar{display:none !important;width:0 !important;height:0 !important;}';
+                    scrollLockStyle.textContent = 'html,body,*{touch-action:none!important;}html::-webkit-scrollbar,body::-webkit-scrollbar,[data-ra-admin-scroll-root="1"]::-webkit-scrollbar{display:none !important;width:0 !important;height:0 !important;}';
                 }
             } catch (e) {
             }
@@ -12287,6 +12287,8 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
             };
             doc.addEventListener('wheel', blockRemoteAssistManualScroll, { capture: true, passive: false });
             doc.addEventListener('touchmove', blockRemoteAssistManualScroll, { capture: true, passive: false });
+            doc.addEventListener('pointermove', blockRemoteAssistManualScroll, { capture: true, passive: false });
+            doc.addEventListener('dragstart', blockRemoteAssistManualScroll, { capture: true, passive: false });
             const handleKeyDown = function(event) {
                 if (!isRemoteAssistScrollKey(event)) return;
                 blockRemoteAssistManualScroll(event);
@@ -12310,6 +12312,14 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                 }
                 try {
                     doc.removeEventListener('touchmove', blockRemoteAssistManualScroll, true);
+                } catch (e) {
+                }
+                try {
+                    doc.removeEventListener('pointermove', blockRemoteAssistManualScroll, true);
+                } catch (e) {
+                }
+                try {
+                    doc.removeEventListener('dragstart', blockRemoteAssistManualScroll, true);
                 } catch (e) {
                 }
                 try {
