@@ -322,8 +322,23 @@ logger.setLevel(getattr(logging, LOG_LEVEL, logging.INFO))
 formatter = logging.Formatter('[%(asctime)s] [%(levelname)s] %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
 
 
+log_path = os.path.join(PUBLIC_ADMIN_DIR, LOG_FILE)
 
-if LOG_TO_CONSOLE:
+
+def _stdout_targets_log_file(target_log_path: str) -> bool:
+    try:
+        stdout_path = os.path.realpath("/proc/self/fd/1")
+        if not os.path.exists(stdout_path) or not os.path.exists(target_log_path):
+            return False
+        return os.path.samefile(stdout_path, target_log_path)
+    except Exception:
+        return False
+
+
+skip_console_handler = bool(LOG_TO_FILE and _stdout_targets_log_file(log_path))
+
+
+if LOG_TO_CONSOLE and not skip_console_handler:
 
     ch = logging.StreamHandler(sys.stdout)
 
@@ -334,8 +349,6 @@ if LOG_TO_CONSOLE:
 
 
 if LOG_TO_FILE:
-
-    log_path = os.path.join(PUBLIC_ADMIN_DIR, LOG_FILE)
 
     fh = RotatingFileHandler(
 
