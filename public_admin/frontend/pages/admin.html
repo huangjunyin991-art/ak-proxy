@@ -8728,10 +8728,39 @@
         function formatLbLatency(ex) {
             if (ex.latency_probing) return { text: '测速中...', color: '#00d4ff' };
             const latency = ex.latency_ms;
-            if (latency === null || latency === undefined) return { text: '未测速', color: 'var(--text-secondary)' };
+            if (latency === null || latency === undefined) {
+                if (ex.latency_checked_at || ex.latency_probe_failures > 0) {
+                    return { text: '测速失败', color: '#ff4757' };
+                }
+                return { text: '未测速', color: 'var(--text-secondary)' };
+            }
             if (latency < 100) return { text: `${latency}ms`, color: '#00ff88' };
             if (latency < 300) return { text: `${latency}ms`, color: '#00d4ff' };
             return { text: `${latency}ms`, color: '#ffa502' };
+        }
+
+        function formatLbExitIp(ex, healthColor) {
+            if (ex.exit_ip) {
+                return { text: ex.exit_ip, color: healthColor, title: ex.exit_ip, badge: '' };
+            }
+            if (ex.ip_detecting) {
+                return {
+                    text: '检测中...',
+                    color: '#00d4ff',
+                    title: '出口IP检测中',
+                    badge: `<span style="display:inline-flex;align-items:center;margin-left:6px;padding:1px 6px;border-radius:999px;font-size:10px;color:#001018;background:rgba(0,212,255,0.85);font-weight:bold;">检测中</span>`
+                };
+            }
+            if (ex.ip_detect_checked_at || ex.ip_detect_failures > 0) {
+                const err = ex.ip_detect_last_error ? ` | ${ex.ip_detect_last_error}` : '';
+                return {
+                    text: '检测失败',
+                    color: '#ff4757',
+                    title: `上次检测: ${ex.ip_detect_checked_at || '-'}${err}`,
+                    badge: `<span style="display:inline-flex;align-items:center;margin-left:6px;padding:1px 6px;border-radius:999px;font-size:10px;color:#fff;background:rgba(255,71,87,0.85);font-weight:bold;">失败${ex.ip_detect_failures ? '×' + ex.ip_detect_failures : ''}</span>`
+                };
+            }
+            return { text: '未检测', color: 'var(--text-secondary)', title: '暂未开始出口IP检测', badge: '' };
         }
 
         function renderLbStatus(data) {
@@ -8786,14 +8815,10 @@
                 }
 
                 const serverLabel = isDirect ? '直连服务器' : `负载均衡服务器${i}`;
-                const exitIpText = ex.exit_ip || (ex.ip_detecting ? '检测中...' : '未检测');
-                const exitIpColor = ex.exit_ip ? healthColor : (ex.ip_detecting ? '#00d4ff' : 'var(--text-secondary)');
-                const exitIpTitle = ex.exit_ip || (ex.ip_detecting ? '出口IP检测中' : '暂未检测到出口IP');
-                const exitIpBadge = ex.ip_detecting
-                    ? `<span style="display:inline-flex;align-items:center;margin-left:6px;padding:1px 6px;border-radius:999px;font-size:10px;color:#001018;background:rgba(0,212,255,0.85);font-weight:bold;">检测中</span>`
-                    : '';
+                const exitIpMeta = formatLbExitIp(ex, healthColor);
                 const latencyMeta = formatLbLatency(ex);
-                const latencyTitle = ex.latency_checked_at ? `上次测速: ${ex.latency_checked_at}` : '暂未完成延迟测速';
+                const latencyErr = ex.latency_probe_error ? ` | ${ex.latency_probe_error}` : '';
+                const latencyTitle = ex.latency_checked_at ? `上次测速: ${ex.latency_checked_at}${latencyErr}` : '暂未开始延迟测速';
 
                 return `<div style="background:var(--bg-card);border-radius:10px;padding:14px;border:1px solid ${borderColor};position:relative;overflow:hidden;">
                     <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px;">
@@ -8809,8 +8834,8 @@
                     </div>
                     <div style="display:flex;gap:6px;margin-bottom:8px;flex-wrap:nowrap;">
                         <div style="background:${healthBg};border-radius:6px;padding:6px 8px;flex:3;min-width:0;overflow:hidden;">
-                            <div style="font-size:10px;color:var(--text-secondary);display:flex;align-items:center;">出口IP${exitIpBadge}</div>
-                            <div style="font-size:12px;font-weight:bold;color:${exitIpColor};font-family:monospace;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${exitIpTitle}">${exitIpText}</div>
+                            <div style="font-size:10px;color:var(--text-secondary);display:flex;align-items:center;">出口IP${exitIpMeta.badge}</div>
+                            <div style="font-size:12px;font-weight:bold;color:${exitIpMeta.color};font-family:monospace;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${escapeHtml(exitIpMeta.title)}">${escapeHtml(exitIpMeta.text)}</div>
                         </div>
                         <div style="background:rgba(102,126,234,0.1);border-radius:6px;padding:6px 8px;flex:1;min-width:0;text-align:center;">
                             <div style="font-size:10px;color:var(--text-secondary);">并发</div>

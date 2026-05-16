@@ -2160,13 +2160,7 @@ async def api_dispatcher_detect_ips(request: Request):
 
     await dispatcher.detect_all_ips()
 
-    return {"success": True, "message": "IP检测完成", "exits": [
-
-        {"index": i, "name": ex.name, "exit_ip": ex.exit_ip}
-
-        for i, ex in enumerate(dispatcher.exits)
-
-    ]}
+    return {"success": True, "message": "IP检测完成", **dispatcher.get_status()}
 
 
 

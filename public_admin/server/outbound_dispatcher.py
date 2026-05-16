@@ -52,7 +52,8 @@ class OutboundExit:
                  'warn_403', 'warn_429', 'active', 'exit_ip', 'ip_detecting', '_login_timestamps',
                  '_error_logs', '_req_timestamps', 'rate_limit', '_rate_lock',
                  '_inflight_logins', '_frozen_until', '_ip_detect_failures',
-                 'latency_ms', 'latency_checked_at', 'latency_probe_failures', 'latency_probing',
+                 'ip_detect_checked_at', 'ip_detect_last_error',
+                 'latency_ms', 'latency_checked_at', 'latency_probe_failures', 'latency_probe_error', 'latency_probing',
                  '_client', '_client_lock')
 
     def __init__(self, name: str, proxy_url: Optional[str] = None):
@@ -76,9 +77,12 @@ class OutboundExit:
         self._inflight_logins: int = 0  # 正在飞行中的登录请求数
         self._frozen_until: float = 0    # 403后冻结截止时间戳
         self._ip_detect_failures: int = 0  # 连续IP检测失败次数（用于剔除死节点）
+        self.ip_detect_checked_at: str = ""
+        self.ip_detect_last_error: str = ""
         self.latency_ms: Optional[int] = None
         self.latency_checked_at: str = ""
         self.latency_probe_failures: int = 0
+        self.latency_probe_error: str = ""
         self.latency_probing: bool = False
         self._client: Optional[httpx.AsyncClient] = None   # 持久连接池
         self._client_lock = asyncio.Lock()                 # 保护 client 创建
@@ -697,10 +701,14 @@ class OutboundDispatcher:
 
     async def _detect_exit_ip(self, ex: OutboundExit) -> bool:
         """通过外部服务检测出口的公网IP（复用持久连接），返回 True 表示本次探测成功"""
+        checked_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        ex.ip_detect_checked_at = checked_at
         try:
             client = await ex.get_client()
-        except Exception:
+        except Exception as e:
+            ex.ip_detect_last_error = str(e)
             return False
+        last_error = ""
         tasks = [
             asyncio.create_task(
                 client.get(
@@ -714,7 +722,8 @@ class OutboundDispatcher:
             for task in asyncio.as_completed(tasks):
                 try:
                     resp = await task
-                except Exception:
+                except Exception as e:
+                    last_error = str(e)
                     continue
                 if resp.status_code == 200:
                     text = resp.text.strip()
@@ -728,7 +737,10 @@ class OutboundDispatcher:
                             logger.info(f"[Dispatcher] 出口IP检测: {ex.name} -> {ip}")
                             ex.exit_ip = ip
                         ex._ip_detect_failures = 0  # 连通成功，重置失败计数
+                        ex.ip_detect_last_error = ""
                         return True  # 连通即成功，不管 IP 是否变化
+                else:
+                    last_error = f"HTTP {resp.status_code}"
         finally:
             for task in tasks:
                 if not task.done():
@@ -736,6 +748,7 @@ class OutboundDispatcher:
             if tasks:
                 await asyncio.gather(*tasks, return_exceptions=True)
         # 所有服务均失败
+        ex.ip_detect_last_error = last_error or "所有IP检测服务均失败"
         if not ex.is_direct:
             ex._ip_detect_failures += 1
             if ex._ip_detect_failures >= 3 and ex._ever_healthy and ex.healthy:
@@ -746,6 +759,7 @@ class OutboundDispatcher:
     async def detect_all_ips(self):
         """全量IP检测：两轮检测，两轮均失败才标记死节点下线（Semaphore=40 限并发）"""
         sem = asyncio.Semaphore(40)
+        exits_snapshot = list(self.exits)
 
         async def _probe(ex: OutboundExit) -> bool:
             async with sem:
@@ -756,10 +770,10 @@ class OutboundDispatcher:
                     ex.ip_detecting = False
 
         # 第一轮：并发检测（逐个清空、逐个更新，前端实时可见）
-        results = await asyncio.gather(*[_probe(ex) for ex in self.exits], return_exceptions=True)
+        results = await asyncio.gather(*[_probe(ex) for ex in exits_snapshot], return_exceptions=True)
 
         # 找出第一轮失败的出口
-        failed = [ex for ex, r in zip(self.exits, results)
+        failed = [ex for ex, r in zip(exits_snapshot, results)
                   if not (isinstance(r, bool) and r)]
 
         if not failed:
@@ -803,9 +817,11 @@ class OutboundDispatcher:
                 if result.get("success"):
                     ex.latency_ms = result.get("latency_ms")
                     ex.latency_probe_failures = 0
+                    ex.latency_probe_error = ""
                 else:
                     ex.latency_ms = None
                     ex.latency_probe_failures += 1
+                    ex.latency_probe_error = result.get("error") or "延迟测速失败"
             for ex in exits_snapshot:
                 ex.latency_probing = False
             return {"success": True, "message": "节点延迟测试完成", "exits": self.get_status().get("exits", [])}
@@ -828,6 +844,9 @@ class OutboundDispatcher:
                     "healthy": ex.healthy,
                     "exit_ip": ex.exit_ip,
                     "ip_detecting": ex.ip_detecting,
+                    "ip_detect_checked_at": ex.ip_detect_checked_at,
+                    "ip_detect_failures": ex._ip_detect_failures,
+                    "ip_detect_last_error": ex.ip_detect_last_error,
                     "active": ex.active,
                     "total_requests": ex.total,
                     "login_requests": ex.login_count,
@@ -843,6 +862,7 @@ class OutboundDispatcher:
                     "latency_ms": ex.latency_ms,
                     "latency_checked_at": ex.latency_checked_at,
                     "latency_probe_failures": ex.latency_probe_failures,
+                    "latency_probe_error": ex.latency_probe_error,
                     "latency_probing": ex.latency_probing,
                 })
 
