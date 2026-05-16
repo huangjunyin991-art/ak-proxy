@@ -337,13 +337,30 @@
     
     // ===== PWA支持：注入manifest + 注册Service Worker + 安装提示 =====
     (function setupPWA() {
-        // 注入manifest link
-        if (!document.querySelector('link[rel="manifest"]')) {
-            var link = document.createElement('link');
-            link.rel = 'manifest';
-            link.href = '/admin/api/pwa-manifest';
-            (document.head || document.documentElement).appendChild(link);
+        function injectManifestLinkIfValid() {
+            if (document.querySelector('link[rel="manifest"]')) return;
+            if (!window.fetch) return;
+            fetch('/admin/api/pwa-manifest', { credentials: 'same-origin', cache: 'no-store' }).then(function(resp) {
+                var contentType = String((resp && resp.headers && resp.headers.get('content-type')) || '').toLowerCase();
+                if (!resp || !resp.ok || (contentType.indexOf('json') === -1 && contentType.indexOf('manifest') === -1)) return null;
+                return resp.text();
+            }).then(function(text) {
+                if (!text) return;
+                var data = null;
+                try {
+                    data = JSON.parse(text);
+                } catch(e) {
+                    data = null;
+                }
+                if (!data || typeof data !== 'object' || !data.name) return;
+                if (document.querySelector('link[rel="manifest"]')) return;
+                var link = document.createElement('link');
+                link.rel = 'manifest';
+                link.href = '/admin/api/pwa-manifest';
+                (document.head || document.documentElement).appendChild(link);
+            }).catch(function(){});
         }
+        injectManifestLinkIfValid();
         // theme-color不设置，保持浏览器默认样式
         // 注册Service Worker（用API路径绕过CDN对.js文件的拦截）
         if ('serviceWorker' in navigator) {
@@ -486,7 +503,9 @@
     let pendingVoiceRequest = null;
     const CHAT_PAGE_CLIENT_ID_STORAGE_KEY = 'ak_chat_page_client_id';
     const ASSIST_SESSION_STORAGE_KEY = 'ak_chat_assist_session_id';
+    const ASSIST_MAX_CONNECT_FAILURES = 3;
     let pageClientId = '';
+    let assistConnectFailureCount = 0;
     let remoteVoiceLibraryPromise = null;
     let remoteVoiceClient = null;
     let remoteVoiceSessionId = '';
@@ -3863,6 +3882,10 @@
     function scheduleAssistReconnect() {
         clearAssistReconnectTimer();
         if (!assistSessionId) return;
+        if (assistConnectFailureCount >= ASSIST_MAX_CONNECT_FAILURES) {
+            disconnectAssist(assistSessionId, true);
+            return;
+        }
         logAssistDebug('assist_reconnect_scheduled', {
             delayMs: 1500
         });
@@ -3956,6 +3979,7 @@
             assistWs = currentAssistWs;
             currentAssistWs.onopen = function() {
                 if (assistWs !== currentAssistWs) return;
+                assistConnectFailureCount = 0;
                 logAssistDebug('assist_ws_open', {
                     wantedSessionId: wantedSessionId
                 });
@@ -4004,12 +4028,14 @@
                     reason: String((event && event.reason) || '')
                 });
                 if (Number((event && event.code) || 0) === 1008) {
+                    assistConnectFailureCount = ASSIST_MAX_CONNECT_FAILURES;
                     disconnectAssist(wantedSessionId, true);
                     return;
                 }
                 stopAssistHeartbeat();
                 stopAssistDomObserver();
                 assistWs = null;
+                assistConnectFailureCount += 1;
                 scheduleAssistReconnect();
             };
             currentAssistWs.onerror = function(err) {
@@ -4018,13 +4044,13 @@
                     wantedSessionId: wantedSessionId,
                     type: String((err && err.type) || '')
                 });
-                console.error('[AKChatAssist] WebSocket 错误:', err);
             };
         } catch (e) {
             logAssistDebug('assist_connect_exception', {
                 wantedSessionId: wantedSessionId,
                 message: String((e && e.message) || e || '')
             });
+            assistConnectFailureCount += 1;
             scheduleAssistReconnect();
         }
     }
