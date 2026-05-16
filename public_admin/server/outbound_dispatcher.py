@@ -21,6 +21,21 @@ from typing import Optional
 
 import httpx
 
+try:
+    from .dispatcher_policy import (
+        DispatcherPolicyConfig,
+        LatencyAwareStrategy,
+        LatencyProbeService,
+        PerSecondRateLimiter,
+    )
+    _DISPATCHER_POLICY_IMPORT_ERROR = None
+except Exception as e:
+    DispatcherPolicyConfig = None
+    LatencyAwareStrategy = None
+    LatencyProbeService = None
+    PerSecondRateLimiter = None
+    _DISPATCHER_POLICY_IMPORT_ERROR = e
+
 logger = logging.getLogger("TransparentProxy")
 
 # 需要告警的HTTP状态码
@@ -37,6 +52,7 @@ class OutboundExit:
                  'warn_403', 'warn_429', 'active', 'exit_ip', 'ip_detecting', '_login_timestamps',
                  '_error_logs', '_req_timestamps', 'rate_limit', '_rate_lock',
                  '_inflight_logins', '_frozen_until', '_ip_detect_failures',
+                 'latency_ms', 'latency_checked_at', 'latency_probe_failures', 'latency_probing',
                  '_client', '_client_lock')
 
     def __init__(self, name: str, proxy_url: Optional[str] = None):
@@ -60,6 +76,10 @@ class OutboundExit:
         self._inflight_logins: int = 0  # 正在飞行中的登录请求数
         self._frozen_until: float = 0    # 403后冻结截止时间戳
         self._ip_detect_failures: int = 0  # 连续IP检测失败次数（用于剔除死节点）
+        self.latency_ms: Optional[int] = None
+        self.latency_checked_at: str = ""
+        self.latency_probe_failures: int = 0
+        self.latency_probing: bool = False
         self._client: Optional[httpx.AsyncClient] = None   # 持久连接池
         self._client_lock = asyncio.Lock()                 # 保护 client 创建
 
@@ -132,6 +152,11 @@ class OutboundExit:
         cutoff = now - window
         self._req_timestamps = [t for t in self._req_timestamps if t > cutoff]
         return len(self._req_timestamps)
+
+    def count_recent_requests(self, window: float = 1.0) -> int:
+        now = time.time()
+        cutoff = now - window
+        return sum(1 for t in self._req_timestamps if t > cutoff)
 
     def auto_throttle_on_403(self):
         """收到403时自动限速:
@@ -235,9 +260,18 @@ class OutboundDispatcher:
             OutboundExit("direct", None),
         ]
         self._health_task: Optional[asyncio.Task] = None
+        self._latency_probe_task: Optional[asyncio.Task] = None
         self._started = False
         self._rr_counter: int = 0
         self.alert_callback = None  # Optional[Callable[[str,str,int,str], Awaitable]]
+        self.policy_config = DispatcherPolicyConfig() if DispatcherPolicyConfig is not None else None
+        self.latency_probe = LatencyProbeService() if LatencyProbeService is not None else None
+        self.rate_limiter = PerSecondRateLimiter() if PerSecondRateLimiter is not None else None
+        self.latency_strategy = LatencyAwareStrategy(
+            self.policy_config.latency_tier_tolerance_ms
+        ) if self.policy_config is not None and LatencyAwareStrategy is not None else None
+        if _DISPATCHER_POLICY_IMPORT_ERROR is not None:
+            logger.warning(f"[DispatcherPolicy] 策略模块不可用，使用原始调度策略: {_DISPATCHER_POLICY_IMPORT_ERROR}")
 
     def _safe_create_task(self, coro, name: str = ""):
         """创建异步任务并捕获未处理异常（防止静默丢失）"""
@@ -293,6 +327,16 @@ class OutboundDispatcher:
         self._health_task = self._safe_create_task(self._health_check_loop(), "health_check_loop")
         logger.info("[Dispatcher] 健康检查已启动")
 
+    def _ensure_latency_probe_started(self):
+        if not self._started:
+            return
+        if self.policy_config is None or self.latency_probe is None:
+            return
+        if self._latency_probe_task and not self._latency_probe_task.done():
+            return
+        self._latency_probe_task = self._safe_create_task(self._latency_probe_loop(), "latency_probe_loop")
+        logger.info("[Dispatcher] 延迟测速任务已启动")
+
     # ===== 启停 =====
 
     async def start(self):
@@ -301,6 +345,7 @@ class OutboundDispatcher:
             return
         self._started = True
         self._ensure_health_check_started()
+        self._ensure_latency_probe_started()
         # 启动每日凌晨4点定时IP检测任务
         self._safe_create_task(self._scheduled_ip_detect_loop(), "scheduled_ip_detect")
         logger.info(f"[Dispatcher] 调度器就绪: {len(self.exits)} 个出口")
@@ -312,6 +357,12 @@ class OutboundDispatcher:
             self._health_task.cancel()
             try:
                 await self._health_task
+            except asyncio.CancelledError:
+                pass
+        if self._latency_probe_task:
+            self._latency_probe_task.cancel()
+            try:
+                await self._latency_probe_task
             except asyncio.CancelledError:
                 pass
         # 关闭所有出口的持久 client
@@ -366,6 +417,31 @@ class OutboundDispatcher:
         """获取所有健康且未冻结的出口索引（直连永远包含）"""
         return [i for i, ex in enumerate(self.exits) if (ex.healthy or ex.is_direct) and not ex.is_frozen]
 
+    def _pick_from_pool(self, pool: list[int]) -> int:
+        if not pool:
+            return 0
+        self._rr_counter += 1
+        pool = self._filter_below_per_second_limit(pool)
+        if self.policy_config is not None and self.policy_config.latency_strategy_enabled and self.latency_strategy is not None:
+            try:
+                best = self.latency_strategy.pick(self.exits, pool, self._rr_counter)
+                if best is not None:
+                    return best
+            except Exception as e:
+                logger.warning(f"[DispatcherPolicy] 延迟策略异常，回退最少连接: {e}")
+        min_active = min(self.exits[i].active for i in pool)
+        candidates = [i for i in pool if self.exits[i].active == min_active]
+        return candidates[self._rr_counter % len(candidates)]
+
+    def _filter_below_per_second_limit(self, pool: list[int]) -> list[int]:
+        if self.policy_config is None:
+            return pool
+        limit = int(self.policy_config.per_exit_rate_per_second or 0)
+        if limit <= 0:
+            return pool
+        available = [i for i in pool if self.exits[i].count_recent_requests(1.0) < limit]
+        return available if available else pool
+
     # ===== 调度（全部异常安全） =====
 
     def pick_login_exit(self) -> OutboundExit:
@@ -393,11 +469,7 @@ class OutboundDispatcher:
                 # 优先选不限速的出口，再按活跃连接数排序
                 unrestricted = [i for i in candidates if self.exits[i].rate_limit == 0]
                 pool = unrestricted if unrestricted else candidates
-                # active相等时使用round-robin避免总选第一个
-                min_active = min(self.exits[i].active for i in pool)
-                equal_active = [i for i in pool if self.exits[i].active == min_active]
-                self._rr_counter = (self._rr_counter + 1) % len(equal_active)
-                best = equal_active[self._rr_counter % len(equal_active)]
+                best = self._pick_from_pool(pool)
                 ex = self.exits[best]
                 ex.reserve_login()
                 ex.record_request()
@@ -429,11 +501,7 @@ class OutboundDispatcher:
             # 优先选不限速的出口，再按活跃连接数排序
             unrestricted = [i for i in healthy if self.exits[i].rate_limit == 0]
             pool = unrestricted if unrestricted else healthy
-            # active相等时使用round-robin避免总选第一个
-            min_active = min(self.exits[i].active for i in pool)
-            candidates = [i for i in pool if self.exits[i].active == min_active]
-            self._rr_counter = (self._rr_counter + 1) % len(candidates)
-            best = candidates[self._rr_counter % len(candidates)]
+            best = self._pick_from_pool(pool)
             ex = self.exits[best]
             ex.record_request()
             return ex
@@ -454,6 +522,9 @@ class OutboundDispatcher:
         - 隧道出口失败时自动降级直连重试
         """
         # 限速等待
+        per_second_wait = await self._wait_for_per_second_rate(exit_obj)
+        if per_second_wait > 0.5:
+            logger.debug(f"[RateLimit] {exit_obj.name} 每秒限速等待 {per_second_wait:.1f}s")
         wait_sec = await exit_obj.wait_for_rate()
         if wait_sec > 0.5:
             logger.debug(f"[RateLimit] {exit_obj.name} 等待 {wait_sec:.1f}s")
@@ -473,6 +544,9 @@ class OutboundDispatcher:
             fallback = self._pick_fallback(exit_obj)
             if fallback is not exit_obj:
                 logger.warning(f"[Dispatcher] {exit_obj.name} 失败({e})，降级至 {fallback.name} 重试")
+                fallback_wait = await self._wait_for_per_second_rate(fallback)
+                if fallback_wait > 0.5:
+                    logger.debug(f"[RateLimit] {fallback.name} 每秒限速等待 {fallback_wait:.1f}s")
                 fallback.active += 1
                 try:
                     resp = await self._do_request(fallback, method, url, headers,
@@ -490,6 +564,16 @@ class OutboundDispatcher:
                 raise
         finally:
             exit_obj.active -= 1
+
+    async def _wait_for_per_second_rate(self, exit_obj: OutboundExit) -> float:
+        if self.policy_config is None or self.rate_limiter is None:
+            return 0.0
+        try:
+            key = f"{exit_obj.name}|{exit_obj.proxy_url or 'direct'}"
+            return await self.rate_limiter.wait(key, self.policy_config.per_exit_rate_per_second)
+        except Exception as e:
+            logger.warning(f"[RateLimit] 每秒限速模块异常，已跳过: {e}")
+            return 0.0
 
     async def _do_request(self, exit_obj: OutboundExit, method: str, url: str,
                           headers: dict, content_type: str,
@@ -693,6 +777,42 @@ class OutboundDispatcher:
                 ex.healthy = False
                 logger.warning(f"[Dispatcher] 死节点: {ex.name} 两轮IP检测均失败，标记下线")
 
+    async def _latency_probe_loop(self):
+        await asyncio.sleep(self.policy_config.initial_probe_delay_seconds)
+        while self._started:
+            try:
+                await self.probe_latencies_now()
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.warning(f"[Dispatcher] 延迟测速异常: {e}")
+            await asyncio.sleep(self.policy_config.latency_probe_interval_seconds)
+
+    async def probe_latencies_now(self) -> dict:
+        if self.latency_probe is None:
+            return {"success": False, "message": "延迟测速模块不可用", "exits": []}
+        exits_snapshot = list(self.exits)
+        for ex in exits_snapshot:
+            ex.latency_probing = True
+        try:
+            results = await self.latency_probe.probe_all(exits_snapshot)
+            checked_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            for result in results:
+                ex = exits_snapshot[result["index"]]
+                ex.latency_checked_at = checked_at
+                if result.get("success"):
+                    ex.latency_ms = result.get("latency_ms")
+                    ex.latency_probe_failures = 0
+                else:
+                    ex.latency_ms = None
+                    ex.latency_probe_failures += 1
+            for ex in exits_snapshot:
+                ex.latency_probing = False
+            return {"success": True, "message": "节点延迟测试完成", "exits": self.get_status().get("exits", [])}
+        finally:
+            for ex in exits_snapshot:
+                ex.latency_probing = False
+
     # ===== 状态查询 =====
 
     def get_status(self) -> dict:
@@ -720,6 +840,10 @@ class OutboundDispatcher:
                     "recent_errors": ex._error_logs[-5:] if ex._error_logs else [],
                     "rpm": ex.get_current_rpm(),
                     "rate_limit": ex.rate_limit,
+                    "latency_ms": ex.latency_ms,
+                    "latency_checked_at": ex.latency_checked_at,
+                    "latency_probe_failures": ex.latency_probe_failures,
+                    "latency_probing": ex.latency_probing,
                 })
 
             healthy_count = sum(1 for ex in self.exits if ex.healthy)
@@ -729,6 +853,7 @@ class OutboundDispatcher:
                 "healthy_exits": healthy_count,
                 "total_active": total_active,
                 "max_login_per_min": self.MAX_LOGIN_PER_MIN,
+                "policy": self.policy_config.to_dict() if self.policy_config is not None else {},
                 "exits": exits_info,
             }
         except Exception as e:
@@ -751,6 +876,22 @@ class OutboundDispatcher:
             logger.info(f"[RateLimit] {self.exits[index].name} 限速调整: {old or '无限'} -> {limit or '无限'}/min")
             return True
         return False
+
+    def set_policy(self, *, per_exit_rate_per_second=None, latency_strategy_enabled=None) -> bool:
+        if self.policy_config is None:
+            return False
+        old_rate = self.policy_config.per_exit_rate_per_second
+        old_enabled = self.policy_config.latency_strategy_enabled
+        ok = self.policy_config.update(
+            per_exit_rate_per_second=per_exit_rate_per_second,
+            latency_strategy_enabled=latency_strategy_enabled,
+        )
+        if ok:
+            logger.info(
+                f"[DispatcherPolicy] 策略调整: req/s {old_rate} -> {self.policy_config.per_exit_rate_per_second}, "
+                f"latency_enabled {old_enabled} -> {self.policy_config.latency_strategy_enabled}"
+            )
+        return ok
 
     def get_exit_logs(self, index: int) -> list[dict]:
         """获取指定出口的错误日志"""

@@ -2170,6 +2170,15 @@ async def api_dispatcher_detect_ips(request: Request):
 
 
 
+@app.post("/api/dispatcher/probe_latency")
+async def api_dispatcher_probe_latency(request: Request):
+    _, error_response = await _require_admin_token(request, super_admin_only=True)
+    if error_response is not None:
+        return error_response
+
+    return await dispatcher.probe_latencies_now()
+
+
 
 
 @app.post("/api/dispatcher/rate_limit")
@@ -2187,6 +2196,22 @@ async def api_dispatcher_rate_limit(request: Request):
     ok = dispatcher.set_rate_limit(int(index), int(limit))
     msg = f"出口 #{index} 限速已设置: {limit or '不限速'}" if limit else f"出口 #{index} 限速已解除"
     return {"success": ok, "message": msg if ok else f"出口 #{index} 不存在"}
+
+
+@app.post("/api/dispatcher/policy")
+async def api_dispatcher_policy(request: Request):
+    _, error_response = await _require_admin_token(request, super_admin_only=True)
+    if error_response is not None:
+        return error_response
+
+    data = await request.json()
+    ok = dispatcher.set_policy(
+        per_exit_rate_per_second=data.get("per_exit_rate_per_second"),
+        latency_strategy_enabled=data.get("latency_strategy_enabled"),
+    )
+    if not ok:
+        return {"success": False, "message": "策略配置无效（每节点速率需在 1~20 req/s 之间）"}
+    return {"success": True, "message": "负载均衡策略已更新", "policy": dispatcher.get_status().get("policy", {})}
 
 
 @app.post("/api/dispatcher/max_login")

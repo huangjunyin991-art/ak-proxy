@@ -3831,6 +3831,8 @@
                                 <span id="lbSummary" style="font-size: 12px; color: var(--text-secondary);"></span>
                                 <button class="btn" onclick="lbReloadSingbox()" id="lbReloadBtn" style="padding: 4px 10px; font-size: 12px; background: var(--bg-secondary); color: var(--accent-yellow); border: 1px solid rgba(255,165,2,0.3);">🔄 热重载</button>
                                 <button class="btn" onclick="lbDetectIPs()" style="padding: 4px 10px; font-size: 12px; background: rgba(102,126,234,0.15); color: #667eea; border: 1px solid rgba(102,126,234,0.3);">刷新IP</button>
+                                <button class="btn" onclick="lbProbeLatency()" style="padding: 4px 10px; font-size: 12px; background: rgba(0,212,255,0.12); color: #00d4ff; border: 1px solid rgba(0,212,255,0.3);">测速</button>
+                                <button class="btn" onclick="lbShowPolicyModal()" style="padding: 4px 10px; font-size: 12px; background: rgba(255,165,2,0.12); color: #ffa502; border: 1px solid rgba(255,165,2,0.3);">策略</button>
                                 <button class="btn" onclick="showLbAddModal()" style="padding: 4px 10px; font-size: 12px; background: rgba(0,255,136,0.1); color: #00ff88; border: 1px solid rgba(0,255,136,0.3);">➕ 添加</button>
                                 <button class="btn" onclick="showLbSubModal()" style="padding: 4px 10px; font-size: 12px; background: linear-gradient(135deg, #667eea, #764ba2); color: white; border: none;">📡 导入订阅</button>
                             </div>
@@ -3854,6 +3856,15 @@
                                 <div style="color: var(--text-secondary); font-size: 11px;">登录限额/分 ✏️</div>
                                 <div style="color: var(--accent-yellow); font-size: 20px; font-weight: bold;" id="lbLoginLimit">-</div>
                             </div>
+                        </div>
+
+                        <div id="lbPolicyBar" style="background: var(--bg-primary); border-radius: 6px; padding: 8px 12px; border: 1px solid var(--border); margin-bottom: 10px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 12px;">
+                            <span style="font-weight: bold; color: var(--text-secondary);">调度策略:</span>
+                            <span id="lbLatencyStrategy" style="color: var(--accent);">-</span>
+                            <span style="color: var(--text-secondary);">每节点限速:</span>
+                            <span id="lbPerSecondLimit" style="color: var(--accent-yellow); font-weight: bold;">-</span>
+                            <span style="color: var(--text-secondary);">测速周期:</span>
+                            <span id="lbProbeInterval" style="color: var(--text-secondary);">-</span>
                         </div>
 
                         <!-- sing-box 服务状态 -->
@@ -8714,12 +8725,25 @@
             }
         }
 
+        function formatLbLatency(ex) {
+            if (ex.latency_probing) return { text: '测速中...', color: '#00d4ff' };
+            const latency = ex.latency_ms;
+            if (latency === null || latency === undefined) return { text: '未测速', color: 'var(--text-secondary)' };
+            if (latency < 100) return { text: `${latency}ms`, color: '#00ff88' };
+            if (latency < 300) return { text: `${latency}ms`, color: '#00d4ff' };
+            return { text: `${latency}ms`, color: '#ffa502' };
+        }
+
         function renderLbStatus(data) {
             if (!data || data.error) return;
+            const policy = data.policy || {};
             document.getElementById('lbTotalExits').textContent = data.total_exits;
             document.getElementById('lbHealthyExits').textContent = data.healthy_exits;
             document.getElementById('lbTotalActive').textContent = data.total_active;
             document.getElementById('lbLoginLimit').textContent = data.max_login_per_min;
+            document.getElementById('lbLatencyStrategy').textContent = policy.latency_strategy_enabled === false ? '最少连接' : '延迟优先';
+            document.getElementById('lbPerSecondLimit').textContent = `${policy.per_exit_rate_per_second || 3} req/s/节点`;
+            document.getElementById('lbProbeInterval').textContent = `${Math.round((policy.latency_probe_interval_seconds || 1800) / 60)} 分钟`;
             document.getElementById('lbSummary').textContent =
                 `${data.healthy_exits}/${data.total_exits} 健康 | ${data.total_active} 活跃连接`;
 
@@ -8768,6 +8792,8 @@
                 const exitIpBadge = ex.ip_detecting
                     ? `<span style="display:inline-flex;align-items:center;margin-left:6px;padding:1px 6px;border-radius:999px;font-size:10px;color:#001018;background:rgba(0,212,255,0.85);font-weight:bold;">检测中</span>`
                     : '';
+                const latencyMeta = formatLbLatency(ex);
+                const latencyTitle = ex.latency_checked_at ? `上次测速: ${ex.latency_checked_at}` : '暂未完成延迟测速';
 
                 return `<div style="background:var(--bg-card);border-radius:10px;padding:14px;border:1px solid ${borderColor};position:relative;overflow:hidden;">
                     <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px;">
@@ -8793,6 +8819,10 @@
                         <div style="background:rgba(0,212,255,0.1);border-radius:6px;padding:6px 8px;flex:1;min-width:0;text-align:center;">
                             <div style="font-size:10px;color:var(--text-secondary);">请求</div>
                             <div style="font-size:12px;font-weight:bold;color:var(--accent);">${ex.total_requests}</div>
+                        </div>
+                        <div style="background:rgba(0,212,255,0.08);border-radius:6px;padding:6px 8px;flex:1;min-width:0;text-align:center;" title="${latencyTitle}">
+                            <div style="font-size:10px;color:var(--text-secondary);">延迟</div>
+                            <div style="font-size:12px;font-weight:bold;color:${latencyMeta.color};">${latencyMeta.text}</div>
                         </div>
                         <div style="background:rgba(255,165,0,0.08);border-radius:6px;padding:6px 8px;flex:1.2;min-width:0;text-align:center;cursor:pointer;" onclick="lbShowRateLimit(${i},'${ex.name}',${ex.rate_limit})" title="点击调整限速">
                             <div style="font-size:10px;color:var(--text-secondary);">速率${ex.rate_limit > 0 ? ' ⚡' : ''}</div>
@@ -8827,6 +8857,18 @@
                 }
             } catch (e) {
                 showToast('检测请求失败: ' + e.message, 'error');
+            }
+        }
+
+        async function lbProbeLatency() {
+            try {
+                showToast('正在测试节点延迟...', 'info');
+                const res = await fetch(`${API_BASE}/api/dispatcher/probe_latency`, {method: 'POST'});
+                const data = await res.json();
+                showToast(data.message || (data.success ? '测速完成' : '测速失败'), data.success ? 'success' : 'error');
+                loadLbStatus();
+            } catch (e) {
+                showToast('测速请求失败: ' + e.message, 'error');
             }
         }
 
@@ -9079,6 +9121,60 @@
                 const res = await fetch(`${API_BASE}/api/dispatcher/max_login`, {
                     method: 'POST', headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({ value })
+                });
+                const data = await res.json();
+                showToast(data.message, data.success ? 'success' : 'error');
+                closeModal();
+                loadLbStatus();
+            } catch (e) {
+                showToast('设置失败: ' + e.message, 'error');
+            }
+        }
+
+        function lbShowPolicyModal() {
+            const policy = (lbData && lbData.policy) || {};
+            const rate = policy.per_exit_rate_per_second || 3;
+            const enabled = policy.latency_strategy_enabled !== false;
+            const content = `
+                <div style="margin-bottom:12px;">
+                    <div style="font-size:12px;color:var(--text-secondary);margin-bottom:12px;">
+                        控制所有出口节点的每秒请求上限，并决定是否优先使用低延迟节点。
+                    </div>
+                    <div style="display:flex;flex-direction:column;gap:10px;">
+                        <label style="font-size:13px;color:var(--text-primary);">每节点请求上限 (req/s):</label>
+                        <input id="lbPolicyRpsInput" type="number" min="1" max="20" step="1" value="${rate}"
+                            style="background:var(--bg-primary);border:1px solid var(--border);border-radius:6px;padding:8px 12px;color:var(--text-primary);font-size:14px;width:100%;">
+                        <label style="display:flex;align-items:center;gap:8px;font-size:13px;color:var(--text-primary);">
+                            <input id="lbPolicyLatencyEnabled" type="checkbox" ${enabled ? 'checked' : ''} style="accent-color:var(--accent);">
+                            启用延迟优先调度
+                        </label>
+                        <div style="font-size:11px;color:var(--text-secondary);">
+                            默认 3 req/s/节点；节点会每 30 分钟自动测速一次，也可以点击“测速”立即触发。
+                        </div>
+                    </div>
+                    <div style="display:flex;gap:8px;margin-top:12px;">
+                        <button onclick="lbSetPolicy(1,true)" style="flex:1;padding:6px;border-radius:6px;border:1px solid rgba(255,165,0,0.3);background:rgba(255,165,0,0.1);color:#ffa502;cursor:pointer;font-size:12px;">1/s</button>
+                        <button onclick="lbSetPolicy(3,true)" style="flex:1;padding:6px;border-radius:6px;border:1px solid rgba(0,212,255,0.3);background:rgba(0,212,255,0.1);color:var(--accent);cursor:pointer;font-size:12px;">3/s</button>
+                        <button onclick="lbSetPolicy(5,true)" style="flex:1;padding:6px;border-radius:6px;border:1px solid rgba(0,255,136,0.3);background:rgba(0,255,136,0.1);color:#00ff88;cursor:pointer;font-size:12px;">5/s</button>
+                    </div>
+                </div>
+            `;
+            showModal('⚙️ 负载均衡策略', content, async () => {
+                const val = parseInt(document.getElementById('lbPolicyRpsInput')?.value || '3', 10);
+                const latencyEnabled = !!document.getElementById('lbPolicyLatencyEnabled')?.checked;
+                await lbSetPolicy(val, latencyEnabled);
+            }, '应用策略');
+        }
+
+        async function lbSetPolicy(perExitRatePerSecond, latencyStrategyEnabled) {
+            try {
+                const res = await fetch(`${API_BASE}/api/dispatcher/policy`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        per_exit_rate_per_second: perExitRatePerSecond,
+                        latency_strategy_enabled: latencyStrategyEnabled
+                    })
                 });
                 const data = await res.json();
                 showToast(data.message, data.success ? 'success' : 'error');
