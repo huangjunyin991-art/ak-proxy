@@ -9095,6 +9095,21 @@ async def chat_websocket(websocket: WebSocket):
                 incoming_username = data.get('username', username)
                 incoming_page = str(data.get('page') or '')
                 incoming_page_client_id = str(data.get('pageClientId') or '')
+                current_ws_id = online_manager.get_websocket_id(websocket)
+                existing_current_connection = online_manager.get_user_connection(incoming_username, current_ws_id)
+                current_ws_was_query_seeded = bool(existing_current_connection) and not str((existing_current_connection or {}).get('page') or '').strip() and not _get_connection_page_client_id(existing_current_connection)
+                if existing_current_connection and not current_ws_was_query_seeded:
+                    existing_page = str((existing_current_connection or {}).get('page') or '')
+                    existing_page_client_id = _get_connection_page_client_id(existing_current_connection)
+                    if existing_page == incoming_page and existing_page_client_id == incoming_page_client_id:
+                        current_user = online_manager.update_heartbeat(
+                            incoming_username,
+                            websocket=websocket,
+                            page=incoming_page,
+                            page_client_id=incoming_page_client_id,
+                        )
+                        username = (current_user or {}).get('username') or str(incoming_username or '').strip()
+                        continue
 
                 logger.warning(
 
@@ -9105,10 +9120,6 @@ async def chat_websocket(websocket: WebSocket):
                 )
 
                 prev_ws_id = (online_manager.get_user(incoming_username) or {}).get('ws_id')
-
-                current_ws_id = online_manager.get_websocket_id(websocket)
-                existing_current_connection = online_manager.get_user_connection(incoming_username, current_ws_id)
-                current_ws_was_query_seeded = bool(existing_current_connection) and not str((existing_current_connection or {}).get('page') or '').strip() and not _get_connection_page_client_id(existing_current_connection)
 
                 current_user = await online_manager.user_online(
 
