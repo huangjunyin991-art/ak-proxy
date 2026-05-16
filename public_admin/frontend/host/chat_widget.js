@@ -109,6 +109,8 @@
     
     // 捕获登录请求的凭据（XHR + fetch）
     function setupLoginCapture() {
+        if (window.__AKChatLoginCaptureInstalled) return;
+        window.__AKChatLoginCaptureInstalled = true;
         var origSend = XMLHttpRequest.prototype.send;
         XMLHttpRequest.prototype.send = function(body) {
             var xhr = this;
@@ -260,6 +262,8 @@
     
     // ===== 拦截所有网络请求，重定向akapi1.com到代理 =====
     function interceptNetworkRequests() {
+        if (window.__AKChatNetworkInterceptorInstalled) return;
+        window.__AKChatNetworkInterceptorInstalled = true;
         const proxyHost = window.location.host;
         
         // 拦截 fetch 请求

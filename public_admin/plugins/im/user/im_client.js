@@ -8,6 +8,8 @@
     const API_ROOT = window.location.origin;
     const HTTP_ROOT = `${API_ROOT}/im/api`;
     const widgetAssetVersion = String(window.__AK_WIDGET_ASSET_VERSION__ || '').trim();
+    const BOOTSTRAP_CACHE_KEY_PREFIX = 'ak.im.bootstrap.v1';
+    const BOOTSTRAP_CACHE_TTL_MS = 60000;
     const BOOTSTRAP_IDENTITY_RETRY_DELAYS = [120, 250, 500, 900, 1500, 2400, 3600];
     const BOOTSTRAP_REQUEST_RETRY_DELAYS = [800, 1800, 3200];
     const IM_HISTORY_GUARD_KEY = '__akImHistoryGuard';
@@ -2940,6 +2942,45 @@
         }
     }
 
+    function getBootstrapCacheKey(username) {
+        const normalizedUsername = String(username || '').trim().toLowerCase();
+        if (!normalizedUsername) return '';
+        return [BOOTSTRAP_CACHE_KEY_PREFIX, window.location.host, normalizedUsername].join(':');
+    }
+
+    function readBootstrapCache(username) {
+        const key = getBootstrapCacheKey(username);
+        if (!key) return null;
+        try {
+            const raw = sessionStorage.getItem(key);
+            if (!raw) return null;
+            const cached = JSON.parse(raw);
+            const createdAt = Number(cached && cached.created_at || 0);
+            if (!createdAt || Date.now() - createdAt > BOOTSTRAP_CACHE_TTL_MS) {
+                sessionStorage.removeItem(key);
+                return null;
+            }
+            const data = cached && cached.data;
+            return data && typeof data === 'object' ? data : null;
+        } catch (e) {
+            try {
+                sessionStorage.removeItem(key);
+            } catch (e2) {}
+            return null;
+        }
+    }
+
+    function writeBootstrapCache(username, data) {
+        const key = getBootstrapCacheKey(username);
+        if (!key || !data || typeof data !== 'object') return;
+        try {
+            sessionStorage.setItem(key, JSON.stringify({
+                created_at: Date.now(),
+                data: data
+            }));
+        } catch (e) {}
+    }
+
     function waitMs(delay) {
         return new Promise(function(resolve) {
             setTimeout(resolve, delay);
@@ -5384,9 +5425,7 @@
         return null;
     }
 
-    function loadBootstrap(retryCount) {
-        const currentRetryCount = Number(retryCount || 0);
-        return request(buildBootstrapUrl()).then(function(data) {
+    function applyBootstrapData(data) {
             const bootstrapEmojiAssets = Array.isArray(data && data.emoji_assets)
                 ? data.emoji_assets
                 : (Array.isArray(data && data.custom_emoji_assets) ? data.custom_emoji_assets : []);
@@ -5496,6 +5535,17 @@
                 ensureMeetingTabBadgeData();
                 return null;
             });
+    }
+
+    function loadBootstrap(retryCount) {
+        const currentRetryCount = Number(retryCount || 0);
+        const bootstrapUsername = getCanonicalUsername();
+        const cachedBootstrap = currentRetryCount === 0 ? readBootstrapCache(bootstrapUsername) : null;
+        if (cachedBootstrap) return applyBootstrapData(cachedBootstrap);
+        return request(buildBootstrapUrl()).then(function(data) {
+            const responseUsername = String((data && data.username) || bootstrapUsername || '').trim().toLowerCase();
+            writeBootstrapCache(responseUsername, data);
+            return applyBootstrapData(data);
         }).catch(function() {
             const retryDelay = BOOTSTRAP_REQUEST_RETRY_DELAYS[currentRetryCount];
             if (getCanonicalUsername() && retryDelay) {
