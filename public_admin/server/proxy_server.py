@@ -37,6 +37,7 @@ from html import escape as html_escape
 from logging.handlers import RotatingFileHandler
 
 from datetime import datetime
+from pathlib import Path
 
 from typing import Any, Iterable, Optional
 
@@ -167,6 +168,13 @@ from plugins.remote_assist.server.types import AssistConsentStatus, AssistRole
 
 from .outbound_dispatcher import dispatcher, ace_sell_dispatcher, OutboundExit
 from .runtime_performance import TimedServiceStatusCache, resolve_worker_policy, run_blocking
+from .static_resource_cache import (
+    StaticResourceCacheConfig,
+    StaticResourcePayload,
+    StaticResourceRequest,
+    StaticResourceResponseAdapter,
+    create_static_resource_cache_service,
+)
 
 if SOCKS5_EXITS:
     dispatcher.configure_from_list(SOCKS5_EXITS)
@@ -3573,6 +3581,23 @@ async def admin_startup():
                 pass
 
     asyncio.create_task(_token_cleanup())
+
+
+    async def _static_resource_cache_cleanup():
+
+        while True:
+
+            await asyncio.sleep(_AK_WEB_STATIC_CACHE_CONFIG.cleanup_interval_seconds)
+
+            try:
+
+                await _AK_WEB_STATIC_CACHE_SERVICE.cleanup_expired()
+
+            except Exception:
+
+                pass
+
+    asyncio.create_task(_static_resource_cache_cleanup())
 
 
 
@@ -10170,15 +10195,11 @@ _BROWSE_SESSION_COOKIE = "ak_admin_bs"
 _AK_WEB_PREFIX = "/admin/ak-web"
 _AK_NATIVE_WEB_PREFIX = "/ak-web"
 _AK_SITE_PREFIX = "/admin/ak-site"
-_AK_WEB_STATIC_CACHE: dict[str, dict] = {}
-_AK_WEB_STATIC_CACHE_TTL = 24 * 3600
-_AK_WEB_STATIC_BROWSER_MAX_AGE = 6 * 3600
-_AK_WEB_STATIC_CACHE_MAX_ITEMS = 512
-_AK_WEB_STATIC_CACHE_MAX_BYTES = 5 * 1024 * 1024
-_AK_WEB_STATIC_CACHE_EXTENSIONS = {
-    ".js", ".css", ".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".ico",
-    ".woff", ".woff2", ".ttf", ".eot", ".otf", ".map", ".wasm"
-}
+_AK_WEB_STATIC_CACHE_CONFIG = StaticResourceCacheConfig(
+    root_dir=Path(PUBLIC_ADMIN_DIR) / "runtime_cache" / "static_resources"
+)
+_AK_WEB_STATIC_CACHE_SERVICE = create_static_resource_cache_service(_AK_WEB_STATIC_CACHE_CONFIG)
+_AK_WEB_STATIC_CACHE_RESPONSE_ADAPTER = StaticResourceResponseAdapter(_AK_WEB_STATIC_CACHE_CONFIG)
 
 
 def _lazy_warning(enabled: bool, message_or_factory):
@@ -10798,67 +10819,16 @@ def _apply_no_store_headers(response: Response):
     return response
 
 
-def _is_ak_web_static_asset_request(method: str, normalized_path: str, content_type: str = "") -> bool:
-    if str(method or "").upper() != "GET":
-        return False
-    path = (normalized_path or "").split("?", 1)[0].lower()
-    if not path or path.endswith("/") or path.startswith("rpc/"):
-        return False
-    if path.startswith("pages/") and path.endswith(".html"):
-        return False
-    ext = os.path.splitext(path)[1]
-    if ext in _AK_WEB_STATIC_CACHE_EXTENSIONS:
-        return True
-    lowered_content_type = (content_type or "").lower()
-    return any(token in lowered_content_type for token in (
-        "text/css",
-        "javascript",
-        "ecmascript",
-        "image/",
-        "font/",
-        "application/font",
-        "application/wasm",
-    ))
-
-
-def _ak_web_static_cache_key(site_prefix: str, target_url: str) -> str:
-    return f"{site_prefix}|{target_url}"
-
-
-def _get_ak_web_static_cache_entry(cache_key: str) -> Optional[dict]:
-    entry = _AK_WEB_STATIC_CACHE.get(cache_key)
-    if not entry:
+def _build_ak_web_static_cache_request(method: str, site_prefix: str, target_url: str, normalized_path: str):
+    cache_request = StaticResourceRequest(
+        method=method,
+        namespace=site_prefix,
+        url=target_url,
+        path=normalized_path,
+    )
+    if not _AK_WEB_STATIC_CACHE_SERVICE.can_read(cache_request):
         return None
-    if time.time() >= float(entry.get("expires") or 0):
-        _AK_WEB_STATIC_CACHE.pop(cache_key, None)
-        return None
-    return entry
-
-
-def _store_ak_web_static_cache_entry(cache_key: str, content: bytes, status_code: int, headers: dict, content_type: str):
-    if not cache_key or status_code != 200 or len(content or b"") > _AK_WEB_STATIC_CACHE_MAX_BYTES:
-        return
-    while len(_AK_WEB_STATIC_CACHE) >= _AK_WEB_STATIC_CACHE_MAX_ITEMS:
-        oldest_key = next(iter(_AK_WEB_STATIC_CACHE), "")
-        if not oldest_key:
-            break
-        _AK_WEB_STATIC_CACHE.pop(oldest_key, None)
-    _AK_WEB_STATIC_CACHE[cache_key] = {
-        "content": bytes(content or b""),
-        "status_code": int(status_code),
-        "headers": dict(headers or {}),
-        "content_type": content_type or "application/octet-stream",
-        "expires": time.time() + _AK_WEB_STATIC_CACHE_TTL,
-    }
-
-
-def _apply_ak_web_static_cache_headers(response: Response):
-    response.headers["Cache-Control"] = f"public, max-age={_AK_WEB_STATIC_BROWSER_MAX_AGE}"
-    if "Pragma" in response.headers:
-        del response.headers["Pragma"]
-    if "Expires" in response.headers:
-        del response.headers["Expires"]
-    return response
+    return cache_request
 
 
 def _rewrite_site_root_url(url: str, site_prefix: str) -> str:
@@ -11677,18 +11647,19 @@ async def ak_web_proxy(request: Request, path: str):
     target_url = f"{_AK_BASE}/{path}" if path else f"{_AK_BASE}/"
     if query_parts:
         target_url += "?" + "&".join(query_parts)
-    static_cache_key = ""
-    if _is_ak_web_static_asset_request(request.method, normalized_path):
-        static_cache_key = _ak_web_static_cache_key(site_prefix, target_url)
-        cached_static = _get_ak_web_static_cache_entry(static_cache_key)
+    static_cache_request = _build_ak_web_static_cache_request(request.method, site_prefix, target_url, normalized_path)
+    static_cache_lock = None
+    if static_cache_request:
+        cached_static = await _AK_WEB_STATIC_CACHE_SERVICE.get(static_cache_request)
         if cached_static:
-            response = Response(
-                content=cached_static.get("content") or b"",
-                status_code=int(cached_static.get("status_code") or 200),
-                headers=dict(cached_static.get("headers") or {}),
-                media_type=cached_static.get("content_type") or "application/octet-stream",
-            )
-            return _apply_ak_web_static_cache_headers(response)
+            return _AK_WEB_STATIC_CACHE_RESPONSE_ADAPTER.from_cached(cached_static)
+        static_cache_lock = await _AK_WEB_STATIC_CACHE_SERVICE.get_or_lock(static_cache_request)
+        await static_cache_lock.acquire()
+        cached_static = await _AK_WEB_STATIC_CACHE_SERVICE.get(static_cache_request)
+        if cached_static:
+            static_cache_lock.release()
+            static_cache_lock = None
+            return _AK_WEB_STATIC_CACHE_RESPONSE_ADAPTER.from_cached(cached_static)
 
     # 透传浏览器请求头，补充缺失的字段，模拟真实 Chrome 指纹
     fwd_headers = _build_ak_site_forward_headers(request)
@@ -11717,7 +11688,7 @@ async def ak_web_proxy(request: Request, path: str):
             logger.warning(f"[AkWebLoginBounce/{path}] bs={bs_id} source={bs_source} cookie_bs={cookie_bs} referer={referer} target={target_url} final_url={final_url_str} history={history_chain}")
 
         # 同步响应中的 Set-Cookie 到缓存 session，保持 session 刷新
-        if session and bs_id and not static_cache_key:
+        if session and bs_id and not static_cache_request:
             for sc in resp.headers.get_list("set-cookie"):
                 kv = sc.split(";", 1)[0].strip()
                 if "=" in kv:
@@ -11736,7 +11707,7 @@ async def ak_web_proxy(request: Request, path: str):
 
         content = resp.content
         content_type = resp.headers.get("content-type", "")
-        is_static_asset = _is_ak_web_static_asset_request(request.method, normalized_path, content_type)
+        is_static_asset = bool(static_cache_request)
         rewrite_started_at = time.perf_counter()
         if fetch_dest == "script" and "application/json" in content_type.lower():
             body_head = content[:200].decode("utf-8", errors="replace")
@@ -11860,11 +11831,22 @@ async def ak_web_proxy(request: Request, path: str):
         if "text/html" in content_type and normalized_path.startswith("pages/") and normalized_path.endswith(".html"):
             _apply_no_store_headers(response)
         if is_static_asset:
-            _apply_ak_web_static_cache_headers(response)
-            if static_cache_key:
-                _store_ak_web_static_cache_entry(static_cache_key, content, resp.status_code, dict(response.headers), content_type or "application/octet-stream")
+            stored_static = await _AK_WEB_STATIC_CACHE_SERVICE.store_payload(
+                static_cache_request,
+                StaticResourcePayload(
+                    status_code=resp.status_code,
+                    headers=dict(response.headers),
+                    policy_headers=dict(resp.headers),
+                    content_type=content_type or "application/octet-stream",
+                    body=content,
+                ),
+            )
+            _AK_WEB_STATIC_CACHE_RESPONSE_ADAPTER.mark(response, "MISS" if stored_static else "BYPASS")
         if bs_id and not is_static_asset:
             _set_browse_session_cookie(response, bs_id)
+        if static_cache_lock:
+            static_cache_lock.release()
+            static_cache_lock = None
         total_ms = _elapsed_ms(request_started_at)
         _log_user_ak_web_document_hit(
             path=path,
@@ -11897,6 +11879,8 @@ async def ak_web_proxy(request: Request, path: str):
         ))
         return response
     except Exception as e:
+        if static_cache_lock:
+            static_cache_lock.release()
         logger.error(f"[AkWebProxy] {path}: {e}")
         return Response(content=f"代理错误: {str(e)}".encode(), status_code=502)
 
