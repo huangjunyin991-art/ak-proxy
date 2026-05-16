@@ -5,6 +5,7 @@ from .totp import TotpProvider
 
 
 class OperationAuthService:
+    GLOBAL_SCOPE = 'admin_sensitive_ops'
     MAX_LEASE_SECONDS = 3 * 60 * 60
     DEFAULT_LEASE_SECONDS = 30 * 60
     MIN_LEASE_SECONDS = 60
@@ -85,7 +86,7 @@ class OperationAuthService:
             admin_token=admin_token,
             role=role,
             sub_name=sub_name or '',
-            scope=scope,
+            scope=self.GLOBAL_SCOPE,
             expire=expire,
             client_ip=client_ip,
             user_agent=user_agent,
@@ -93,7 +94,8 @@ class OperationAuthService:
         return {
             'success': True,
             'lease_token': lease_token,
-            'scope': scope,
+            'scope': self.GLOBAL_SCOPE,
+            'requested_scope': scope,
             'expires_in': ttl,
             'expire': row.get('expire'),
         }
@@ -135,7 +137,8 @@ class OperationAuthService:
             return False
         if str(row.get('sub_name') or '') != str(sub_name or ''):
             return False
-        if str(row.get('scope') or '') != scope:
+        row_scope = str(row.get('scope') or '')
+        if row_scope != scope and row_scope != self.GLOBAL_SCOPE:
             return False
         await self.repository.touch_lease(lease_token)
         return True

@@ -4208,6 +4208,7 @@
         let activityItems = [];
         const nativeFetch = window.fetch.bind(window);
         const operationLeaseCache = {};
+        const OPERATION_GLOBAL_SCOPE = 'admin_sensitive_ops';
 
         window.fetch = async function(input, init = {}) {
             const requestUrl = getFetchUrl(input);
@@ -4216,8 +4217,8 @@
             }
             const requestInit = withAdminAuthHeaders(init);
             const cachedScope = getCachedLeaseScopeForUrl(requestUrl, requestInit.method || 'GET');
-            if (cachedScope) {
-                const lease = getOperationLease(cachedScope);
+            if (cachedScope || getOperationLease(OPERATION_GLOBAL_SCOPE)) {
+                const lease = getOperationLease(OPERATION_GLOBAL_SCOPE) || getOperationLease(cachedScope);
                 if (lease) {
                     requestInit.headers['X-Operation-Lease'] = lease.token;
                 }
@@ -4236,7 +4237,7 @@
                 return response;
             }
             let leaseToken = '';
-            const existingLease = getOperationLease(data.scope);
+            const existingLease = getOperationLease(OPERATION_GLOBAL_SCOPE) || getOperationLease(data.scope);
             if (existingLease) {
                 leaseToken = existingLease.token;
             } else {
@@ -4314,9 +4315,10 @@
 
         function setOperationLease(scope, token, expiresIn) {
             const expireAt = Date.now() + Math.max(1, Number(expiresIn || 0)) * 1000;
-            operationLeaseCache[scope] = {token, expireAt};
+            const normalizedScope = String(scope || OPERATION_GLOBAL_SCOPE);
+            operationLeaseCache[normalizedScope] = {token, expireAt};
             try {
-                sessionStorage.setItem(leaseCacheKey(scope), JSON.stringify(operationLeaseCache[scope]));
+                sessionStorage.setItem(leaseCacheKey(normalizedScope), JSON.stringify(operationLeaseCache[normalizedScope]));
             } catch (e) {
             }
         }
@@ -4367,7 +4369,7 @@
                     <div style="background:var(--bg-card);border:1px solid rgba(0,212,255,0.35);border-radius:14px;max-width:430px;width:92%;box-shadow:0 18px 60px rgba(0,0,0,0.45);">
                         <div style="padding:24px 26px 14px;border-bottom:1px solid var(--border);">
                             <h3 style="margin:0;color:var(--accent);">Google 验证授权</h3>
-                            <div data-operation-scope="${escapeHtml(scope)}" style="margin-top:8px;color:var(--text-secondary);font-size:13px;line-height:1.6;"><strong style="color:var(--accent-green);">检测到敏感操作，请进行 Google 验证</strong><br>验证通过后将在所选时间内自动允许同类操作，无需重复验证。</div>
+                            <div data-operation-scope="${escapeHtml(scope)}" style="margin-top:8px;color:var(--text-secondary);font-size:13px;line-height:1.6;"><strong style="color:var(--accent-green);">检测到敏感操作，请进行 Google 验证</strong><br>验证通过后将在所选时间内自动允许所有敏感操作，无需重复验证。</div>
                         </div>
                         <div style="padding:20px 26px;">
                             <input id="operationAuthCode" type="text" inputmode="numeric" maxlength="6" placeholder="输入 6 位验证码" style="width:100%;padding:14px 16px;background:var(--bg-primary);border:1px solid var(--border);border-radius:10px;color:var(--text-primary);font-size:18px;text-align:center;letter-spacing:4px;margin-bottom:14px;">
@@ -4411,7 +4413,7 @@
                             errorEl.style.display = 'block';
                             return;
                         }
-                        setOperationLease(scope, data.lease_token, data.expires_in || duration);
+                        setOperationLease(data.scope || OPERATION_GLOBAL_SCOPE, data.lease_token, data.expires_in || duration);
                         close(data.lease_token);
                     } catch (e) {
                         errorEl.textContent = '验证失败: ' + e.message;
