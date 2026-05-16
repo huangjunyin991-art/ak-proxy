@@ -10407,26 +10407,29 @@ def _log_user_ak_web_document_hit(path: str, site_prefix: str, selected_exit: Op
     )
 
 
-def _is_ak_web_document_request(site_prefix: str, path: str, fetch_dest: str = "") -> bool:
+def _is_ak_web_document_request(site_prefix: str, path: str, fetch_dest: str = "", content_type: str = "") -> bool:
     if site_prefix not in (_AK_NATIVE_WEB_PREFIX, _AK_WEB_PREFIX, _AK_SITE_PREFIX):
         return False
     normalized_path = path.lstrip("/").lower()
     normalized_fetch_dest = (fetch_dest or "").strip().lower()
+    normalized_content_type = (content_type or "").strip().lower()
     if normalized_fetch_dest == "document":
+        return True
+    if "text/html" in normalized_content_type:
         return True
     return normalized_path.startswith("pages/") and normalized_path.endswith(".html")
 
 
 def _log_ak_web_document_perf(path: str, site_prefix: str, selected_exit: Optional[OutboundExit],
                               fetch_dest: str, upstream_ms: int, rewrite_ms: int, inject_ms: int,
-                              total_ms: int, status_code: int, bs_id: str = ""):
-    if not _is_ak_web_document_request(site_prefix, path, fetch_dest):
+                              total_ms: int, status_code: int, bs_id: str = "", content_type: str = ""):
+    if not _is_ak_web_document_request(site_prefix, path, fetch_dest, content_type):
         return
     exit_name = selected_exit.name if selected_exit else "direct"
     logger.info(
         f"[AkWebDocPerf/{path}] prefix={site_prefix} exit={exit_name} upstream_ms={upstream_ms} "
         f"rewrite_ms={rewrite_ms} inject_ms={inject_ms} total_ms={total_ms} "
-        f"status={status_code} dest={fetch_dest or '-'} bs={bs_id or '-'}"
+        f"status={status_code} dest={fetch_dest or '-'} content_type={content_type or '-'} bs={bs_id or '-'}"
     )
 
 
@@ -12016,6 +12019,7 @@ async def ak_web_proxy(request: Request, path: str):
             total_ms=total_ms,
             status_code=resp.status_code,
             bs_id=bs_id,
+            content_type=content_type,
         )
         _log_user_ak_web_document_hit(
             path=path,
