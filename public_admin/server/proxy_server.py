@@ -281,6 +281,23 @@ from plugins.notification.server.notification_router import create_notification_
 from plugins.notification.server.notification_service import NotificationService
 
 try:
+    from plugins.wechat_notify.server.channels.wxpusher import WxPusherChannel
+    from plugins.wechat_notify.server.config import WechatNotifyConfig
+    from plugins.wechat_notify.server.outbox_worker import WechatNotifyOutboxWorker
+    from plugins.wechat_notify.server.repository import WechatNotifyRepository
+    from plugins.wechat_notify.server.router import create_wechat_notify_router
+    from plugins.wechat_notify.server.service import WechatNotifyService
+    _WECHAT_NOTIFY_IMPORT_ERROR = None
+except Exception as e:
+    WxPusherChannel = None
+    WechatNotifyConfig = None
+    WechatNotifyOutboxWorker = None
+    WechatNotifyRepository = None
+    WechatNotifyService = None
+    create_wechat_notify_router = None
+    _WECHAT_NOTIFY_IMPORT_ERROR = e
+
+try:
     from .monitoring import create_monitoring_router
     _MONITORING_IMPORT_ERROR = None
 except Exception as e:
@@ -3639,6 +3656,32 @@ notification_service = NotificationService(
     online_users_supplier=online_manager.get_online_users,
 )
 
+wechat_notify_service = None
+wechat_notify_worker = None
+if (
+    WechatNotifyConfig is not None
+    and WechatNotifyRepository is not None
+    and WxPusherChannel is not None
+    and WechatNotifyService is not None
+    and WechatNotifyOutboxWorker is not None
+):
+    try:
+        _wechat_notify_config = WechatNotifyConfig.from_env()
+        _wechat_notify_repository = WechatNotifyRepository(db._get_pool)
+        _wechat_notify_channel = WxPusherChannel(_wechat_notify_config)
+        wechat_notify_service = WechatNotifyService(
+            config=_wechat_notify_config,
+            repository=_wechat_notify_repository,
+            channel=_wechat_notify_channel,
+        )
+        wechat_notify_worker = WechatNotifyOutboxWorker(service=wechat_notify_service, logger=logger)
+    except Exception as e:
+        wechat_notify_service = None
+        wechat_notify_worker = None
+        logger.warning(f"[WechatNotify] 初始化失败，已跳过: {e}")
+elif _WECHAT_NOTIFY_IMPORT_ERROR is not None:
+    logger.warning(f"[WechatNotify] 模块不可用，已跳过: {_WECHAT_NOTIFY_IMPORT_ERROR}")
+
 if operation_auth_service is not None and operation_scope_resolver is not None and OperationAuthMiddleware is not None:
     app.add_middleware(
         OperationAuthMiddleware,
@@ -3664,6 +3707,15 @@ app.include_router(create_notification_router(
     get_token_role=get_token_role,
     get_token_sub_name=get_token_sub_name,
 ))
+
+if wechat_notify_service is not None and create_wechat_notify_router is not None:
+    try:
+        app.include_router(create_wechat_notify_router(
+            service=wechat_notify_service,
+            verify_admin_token=verify_admin_token,
+        ))
+    except Exception as e:
+        logger.warning(f"[WechatNotify] 路由注册失败，已跳过: {e}")
 
 if create_monitoring_router is not None:
     try:
@@ -3718,6 +3770,15 @@ async def admin_startup():
         logger.error(f"PostgreSQL 连接失败: {e}")
 
         raise
+
+    if wechat_notify_service is not None:
+        try:
+            await wechat_notify_service.ensure_schema()
+            if wechat_notify_worker is not None:
+                await wechat_notify_worker.start()
+            logger.info("[WechatNotify] 微信提醒模块已初始化")
+        except Exception as e:
+            logger.warning(f"[WechatNotify] 初始化数据表或启动 worker 失败，已跳过: {e}")
 
     if ENABLE_LOCAL_BAN:
 
@@ -3842,6 +3903,9 @@ async def admin_shutdown():
     await _browse_session_persist_queue.stop()
 
     await _user_asset_persist_queue.stop()
+
+    if wechat_notify_worker is not None:
+        await wechat_notify_worker.stop()
 
     await _ak_web_client_pool.close_all()
 

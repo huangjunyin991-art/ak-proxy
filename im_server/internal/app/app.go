@@ -49,6 +49,7 @@ type App struct {
 	sessionVisibility *sessionvisibility.Service
 	mediaTasks        *taskstore.Store
 	hub               *Hub
+	messageNotifier   *MessageNotifyPublisher
 	server            *http.Server
 	upgrader          websocket.Upgrader
 	imageHEICMu       sync.Mutex
@@ -257,6 +258,7 @@ func New(cfg config.Config) (*App, error) {
 		cfg:            cfg,
 		db:             pool,
 		hub:            &Hub{conns: map[string]map[*HubConn]struct{}{}},
+		messageNotifier: NewMessageNotifyPublisher(cfg),
 		fileVideoLocks: map[string]*sync.Mutex{},
 		upgrader: websocket.Upgrader{
 			CheckOrigin: func(r *http.Request) bool {
@@ -385,6 +387,9 @@ func New(cfg config.Config) (*App, error) {
 }
 
 func (a *App) Run() error {
+	if a.messageNotifier != nil {
+		defer a.messageNotifier.Close()
+	}
 	go a.runWhitelistGroupSelfHeal()
 	go a.runExpiredFileAssetCleanupLoop()
 	go a.runRecalledTextCleanupLoop()
@@ -1899,10 +1904,7 @@ func (a *App) handleSendMessage(w http.ResponseWriter, r *http.Request, username
 		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
 		return
 	}
-	a.broadcastConversation(req.ConversationID, map[string]any{
-		"type": "im.message.created",
-		"payload": message,
-	})
+	a.broadcastMessageCreated(r.Context(), req.ConversationID, message)
 	writeJSON(w, http.StatusOK, map[string]any{"item": message})
 }
 
@@ -2427,7 +2429,7 @@ func (a *App) handleWS(w http.ResponseWriter, r *http.Request) {
 				}
 				continue
 			}
-			a.broadcastConversation(payload.ConversationID, map[string]any{"type": "im.message.created", "payload": item})
+			a.broadcastMessageCreated(r.Context(), payload.ConversationID, item)
 		case "im.message.read":
 			var payload wsReadPayload
 			if err := json.Unmarshal(env.Payload, &payload); err != nil {

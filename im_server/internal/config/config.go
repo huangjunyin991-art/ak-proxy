@@ -1,6 +1,9 @@
 package config
 
-import "os"
+import (
+	"os"
+	"strconv"
+)
 
 type Config struct {
 	Addr             string
@@ -14,6 +17,10 @@ type Config struct {
 	ImageStoreDir    string
 	FileStoreDir     string
 	VideoStoreDir    string
+	WechatNotifyEnabled       bool
+	WechatNotifyWebhookURL    string
+	WechatNotifyWebhookSecret string
+	WechatNotifyTimeoutMS     int
 }
 
 func Load() Config {
@@ -29,6 +36,10 @@ func Load() Config {
 		ImageStoreDir:    getEnv("IM_IMAGE_STORE_DIR", "./data/im/image_assets"),
 		FileStoreDir:     getEnv("IM_FILE_STORE_DIR", "./data/im/file_assets"),
 		VideoStoreDir:    getEnv("IM_VIDEO_STORE_DIR", "./data/im/video_assets"),
+		WechatNotifyEnabled:       getEnvBool("IM_WECHAT_NOTIFY_ENABLED", false),
+		WechatNotifyWebhookURL:    getEnv("IM_WECHAT_NOTIFY_WEBHOOK_URL", ""),
+		WechatNotifyWebhookSecret: getEnv("IM_WECHAT_NOTIFY_WEBHOOK_SECRET", getEnv("WECHAT_NOTIFY_INTERNAL_SECRET", "")),
+		WechatNotifyTimeoutMS:     getEnvInt("IM_WECHAT_NOTIFY_TIMEOUT_MS", 1500),
 	}
 }
 
@@ -38,4 +49,29 @@ func getEnv(key string, fallback string) string {
 		return fallback
 	}
 	return value
+}
+
+func getEnvBool(key string, fallback bool) bool {
+	value := os.Getenv(key)
+	if value == "" {
+		return fallback
+	}
+	switch value {
+	case "1", "true", "TRUE", "yes", "YES", "on", "ON", "enabled", "ENABLED":
+		return true
+	default:
+		return false
+	}
+}
+
+func getEnvInt(key string, fallback int) int {
+	value := os.Getenv(key)
+	if value == "" {
+		return fallback
+	}
+	parsed, err := strconv.Atoi(value)
+	if err != nil {
+		return fallback
+	}
+	return parsed
 }

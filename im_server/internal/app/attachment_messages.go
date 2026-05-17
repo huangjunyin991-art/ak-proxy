@@ -1156,10 +1156,7 @@ func (a *App) handleSendImageMessage(w http.ResponseWriter, r *http.Request) {
 			_ = a.mediaTasks.CancelReservedTask(r.Context(), previewTaskID)
 		}
 	}
-	a.broadcastConversation(conversationID, map[string]any{
-		"type":    "im.message.created",
-		"payload": message,
-	})
+	a.broadcastMessageCreated(r.Context(), conversationID, message)
 	writeJSON(w, http.StatusOK, map[string]any{"item": message})
 }
 
@@ -1263,10 +1260,7 @@ func (a *App) handleSendFileMessage(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
 		return
 	}
-	a.broadcastConversation(conversationID, map[string]any{
-		"type":    "im.message.created",
-		"payload": message,
-	})
+	a.broadcastMessageCreated(r.Context(), conversationID, message)
 	writeJSON(w, http.StatusOK, map[string]any{"item": message})
 }
 
