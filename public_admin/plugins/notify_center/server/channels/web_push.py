@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 from typing import Any
 
 from ..config import NotifyCenterConfig
@@ -37,13 +38,14 @@ class WebPushChannel:
             },
         }
         data = json.dumps(payload or {}, ensure_ascii=False, separators=(',', ':'))
+        vapid_private_key = self._resolve_vapid_private_key()
         try:
             response = await asyncio.wait_for(
                 asyncio.to_thread(
                     webpush,
                     subscription_info=subscription_info,
                     data=data,
-                    vapid_private_key=self._config.vapid_private_key,
+                    vapid_private_key=vapid_private_key,
                     vapid_claims={'sub': self._config.vapid_subject},
                     ttl=self._config.web_push_ttl_seconds,
                 ),
@@ -72,3 +74,14 @@ class WebPushChannel:
             subscription_expired=status_code in {404, 410},
             raw={'status_code': status_code},
         )
+
+    def _resolve_vapid_private_key(self) -> str:
+        key_file = str(getattr(self._config, 'vapid_private_key_file', '') or '').strip()
+        if key_file:
+            return key_file
+        key = str(self._config.vapid_private_key or '').strip()
+        if key and os.path.exists(key):
+            return key
+        if '\\n' in key:
+            return key.replace('\\n', '\n')
+        return key

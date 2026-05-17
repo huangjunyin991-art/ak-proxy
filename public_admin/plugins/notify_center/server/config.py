@@ -31,6 +31,7 @@ class NotifyCenterConfig:
     public_base_url: str
     vapid_public_key: str
     vapid_private_key: str
+    vapid_private_key_file: str
     vapid_subject: str
     outbox_batch_size: int
     worker_interval_seconds: int
@@ -50,6 +51,7 @@ class NotifyCenterConfig:
             public_base_url=str(os.environ.get('NOTIFY_CENTER_PUBLIC_BASE_URL') or '').strip().rstrip('/'),
             vapid_public_key=str(os.environ.get('WEB_PUSH_VAPID_PUBLIC_KEY') or '').strip(),
             vapid_private_key=str(os.environ.get('WEB_PUSH_VAPID_PRIVATE_KEY') or '').strip(),
+            vapid_private_key_file=str(os.environ.get('WEB_PUSH_VAPID_PRIVATE_KEY_FILE') or '').strip(),
             vapid_subject=str(os.environ.get('WEB_PUSH_VAPID_SUBJECT') or 'mailto:admin@example.com').strip() or 'mailto:admin@example.com',
             outbox_batch_size=_env_int('NOTIFY_CENTER_OUTBOX_BATCH_SIZE', 100, 1, 500),
             worker_interval_seconds=_env_int('NOTIFY_CENTER_WORKER_INTERVAL_SECONDS', 5, 2, 300),
@@ -62,4 +64,4 @@ class NotifyCenterConfig:
         )
 
     def is_web_push_ready(self) -> bool:
-        return self.enabled and bool(self.vapid_public_key) and bool(self.vapid_private_key)
+        return self.enabled and bool(self.vapid_public_key) and bool(self.vapid_private_key or self.vapid_private_key_file)
