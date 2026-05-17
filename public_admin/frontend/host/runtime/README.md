@@ -204,6 +204,7 @@ public_admin/frontend/host/runtime/runtime_manifest.json
 ```text
 patches/recommend_friend_patch.js  optional
 pwa/pwa_runtime.js                 optional
+im/im_loader.js                    optional
 ak_client_runtime.js              required
 ```
 
@@ -250,6 +251,37 @@ window.AKClientRuntimeContext.hasPersistCookie
 PWA 模块通过该接口判断持久登录状态，不直接依赖主运行时闭包内部函数。
 
 如果该 optional 模块缺失，只会导致 PWA manifest 注入、Service Worker 注册和安装提示缺失，不影响其它运行时能力。
+
+已抽离的 IM/通知启动模块：
+
+```text
+public_admin/frontend/host/runtime/im/im_loader.js
+```
+
+该模块通过以下命名空间暴露首页插件启动函数：
+
+```js
+window.AKClientRuntimeIM.bootHomePlugins
+window.AKClientRuntimeIM.refreshHomePlugins
+```
+
+主运行时继续负责首页判断和延迟调度，只做能力检测式调用：
+
+```js
+if (window.AKClientRuntimeIM && typeof window.AKClientRuntimeIM.bootHomePlugins === 'function') {
+    window.AKClientRuntimeIM.bootHomePlugins();
+}
+```
+
+主运行时同时暴露版本化资源 URL 能力：
+
+```js
+window.AKClientRuntimeContext.withWidgetAssetVersion
+```
+
+IM 模块通过该接口为 `/chat/plugins/im/user/im_entry.js` 追加运行时版本号，不直接依赖主运行时闭包内部函数。
+
+如果该 optional 模块缺失，只会导致首页 IM/通知入口缺失，不影响登录、API 拦截、PWA、ChatWS、远程协助、远程语音和页面补丁。
 
 后端拼接策略：
 
@@ -301,12 +333,11 @@ public_admin/frontend/host/runtime/
 
 ### 推荐拆分顺序
 
-1. `im/im_loader.js` 与 `im/notification_widget.js`
-2. `auth/`
-3. `network/`
-4. `chat/`
-5. `assist/`
-6. `voice/`
+1. `auth/`
+2. `network/`
+3. `chat/`
+4. `assist/`
+5. `voice/`
 
 远程协助和语音风险最高，应最后拆。
 
@@ -351,6 +382,7 @@ public_admin/frontend/host/runtime/
 ```powershell
 node --check public_admin/frontend/host/runtime/patches/recommend_friend_patch.js
 node --check public_admin/frontend/host/runtime/pwa/pwa_runtime.js
+node --check public_admin/frontend/host/runtime/im/im_loader.js
 node --check public_admin/frontend/host/runtime/ak_client_runtime.js
 python -m json.tool public_admin/frontend/host/runtime/runtime_manifest.json
 python -m py_compile public_admin/server/proxy_server.py

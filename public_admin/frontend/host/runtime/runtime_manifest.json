@@ -12,6 +12,11 @@
       "required": false
     },
     {
+      "name": "im_loader",
+      "path": "im/im_loader.js",
+      "required": false
+    },
+    {
       "name": "ak_client_runtime",
       "path": "ak_client_runtime.js",
       "required": true

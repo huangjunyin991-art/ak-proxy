@@ -450,7 +450,10 @@
             return String(url || '');
         }
     }
-    const IM_PLUGIN_ENTRY_URL = withWidgetAssetVersion(`${window.location.origin}/chat/plugins/im/user/im_entry.js`);
+    try {
+        window.AKClientRuntimeContext = window.AKClientRuntimeContext || {};
+        window.AKClientRuntimeContext.withWidgetAssetVersion = withWidgetAssetVersion;
+    } catch (e) {}
     const HEARTBEAT_INTERVAL = 5000; // 5秒心跳间隔
     
     // 状态
@@ -1249,50 +1252,21 @@
         } catch(e) {}
     }
 
-    function ensureNotificationWidget() {
+    function bootIMFeature() {
         try {
-            const root = document.getElementById('ak-notification-widget-root');
-            if (root && root.parentNode) root.parentNode.removeChild(root);
-            const style = document.getElementById('ak-notification-widget-style');
-            if (style && style.parentNode) style.parentNode.removeChild(style);
-        } catch(e) {}
-    }
-
-    function isLoginPage() {
-        try {
-            return window.location.pathname.toLowerCase().indexOf('/login') !== -1;
-        } catch(e) {
-            return false;
-        }
-    }
-
-    function syncIMPluginVisibility() {
-        try {
-            const root = document.getElementById('ak-im-root');
-            if (!root) return;
-            if (isLoginPage()) {
-                root.classList.remove('ak-visible');
-                root.classList.remove('ak-im-open');
-                root.style.display = 'none';
-            } else {
-                root.style.display = '';
+            const im = window.AKClientRuntimeIM;
+            if (im && typeof im.bootHomePlugins === 'function') {
+                im.bootHomePlugins();
             }
         } catch(e) {}
     }
 
-    function ensureIMPlugin() {
+    function refreshIMFeature() {
         try {
-            if (isLoginPage()) {
-                syncIMPluginVisibility();
-                return;
+            const im = window.AKClientRuntimeIM;
+            if (im && typeof im.refreshHomePlugins === 'function') {
+                im.refreshHomePlugins();
             }
-            if (window.AKIMClientLoaded) return;
-            if (document.querySelector('script[data-ak-im-plugin-entry="1"]')) return;
-            const script = document.createElement('script');
-            script.src = IM_PLUGIN_ENTRY_URL;
-            script.async = true;
-            script.dataset.akImPluginEntry = '1';
-            document.head.appendChild(script);
         } catch(e) {}
     }
     
@@ -4291,21 +4265,14 @@
         toggleVoiceMute: toggleRemoteVoiceMute
     };
     if (isPluginBootPage()) {
-        scheduleDeferredStartup(function() {
-            ensureNotificationWidget();
-            ensureIMPlugin();
-            syncIMPluginVisibility();
-        }, 1600);
+        scheduleDeferredStartup(bootIMFeature, 1600);
     }
     emitChatBridgeEvent('ak-chat-ready', { api: window.AKChat });
     
     // 监听SPA路由变化（history.pushState / replaceState / 浏览器前进后退）
     function onUrlChange() {
         if (isPluginBootPage()) {
-            scheduleDeferredStartup(function() {
-                ensureIMPlugin();
-                syncIMPluginVisibility();
-            }, 500);
+            scheduleDeferredStartup(refreshIMFeature, 500);
         }
         if (ws && ws.readyState === WebSocket.OPEN && !document.hidden) {
             sendPresence('online');
