@@ -356,6 +356,7 @@
             scheduleScroll: scheduleAssistScroll,
             scrollSettleDelay: ASSIST_SCROLL_SETTLE_DELAY,
             sendEvent: sendAssistEvent,
+            emitSnapshot: emitAssistSnapshot,
             pickMeta: pickAssistMeta
         });
         return assistRealtimeScheduler;
@@ -3085,7 +3086,7 @@
             });
             if (shouldRefresh) {
                 if (isAssistScrollSettling()) return;
-                scheduleAssistSnapshot(600, 'mutation');
+                scheduleAssistSnapshot(220, 'mutation');
             }
         });
         assistMutationObserver.observe(document.body, {
@@ -3690,7 +3691,21 @@
             if (!isAssistManagedRoute()) return;
             sendAssistEvent('click_highlight', pickAssistMeta(target));
             if (!isAssistFormFieldTarget(target)) {
-                scheduleAssistSnapshot(100, 'click_interaction');
+                setTimeout(function() {
+                    if (!assistWs || assistWs.readyState !== WebSocket.OPEN || !assistSessionId) return;
+                    if (!isAssistManagedRoute()) return;
+                    emitAssistSnapshot('click_interaction_fast');
+                }, 40);
+                setTimeout(function() {
+                    if (!assistWs || assistWs.readyState !== WebSocket.OPEN || !assistSessionId) return;
+                    if (!isAssistManagedRoute()) return;
+                    emitAssistSnapshot('click_interaction_settle');
+                }, 160);
+                setTimeout(function() {
+                    if (!assistWs || assistWs.readyState !== WebSocket.OPEN || !assistSessionId) return;
+                    if (!isAssistManagedRoute()) return;
+                    emitAssistSnapshot('click_interaction_final');
+                }, 360);
             }
         }, true);
         document.addEventListener('input', handleAssistFormValueChange, true);

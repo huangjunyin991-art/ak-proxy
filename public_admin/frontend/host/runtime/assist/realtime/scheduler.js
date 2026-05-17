@@ -34,12 +34,25 @@
             return !!call(ctx.isFormFieldTarget, false, [target]);
         }
 
+        function emitSnapshot(reason) {
+            return !!call(ctx.emitSnapshot, false, [reason]);
+        }
+
         function shouldIgnoreTarget(target) {
             try {
                 return !target || isWidgetTarget(target);
             } catch (e) {
                 return true;
             }
+        }
+
+        function emitTimedSnapshot(reason, delay) {
+            const snapshotReason = String(reason || 'interaction_fast_frame');
+            const nextDelay = typeof delay === 'number' ? delay : 40;
+            setTimeout(function() {
+                if (!isActive() || !isManagedRoute()) return;
+                emitSnapshot(snapshotReason);
+            }, Math.max(0, nextDelay));
         }
 
         function stopDomObserver() {
@@ -64,7 +77,7 @@
                 });
                 if (!shouldRefresh) return;
                 if (call(ctx.isScrollSettling, false)) return;
-                call(ctx.scheduleSnapshot, undefined, [600, 'mutation']);
+                call(ctx.scheduleSnapshot, undefined, [220, 'mutation']);
             });
             mutationObserver.observe(document.body, {
                 childList: true,
@@ -103,7 +116,9 @@
             if (!isManagedRoute()) return;
             call(ctx.sendEvent, undefined, ['click_highlight', call(ctx.pickMeta, {}, [target])]);
             if (!isFormFieldTarget(target)) {
-                call(ctx.scheduleSnapshot, undefined, [100, 'click_interaction']);
+                emitTimedSnapshot('click_interaction_fast', 40);
+                emitTimedSnapshot('click_interaction_settle', 160);
+                emitTimedSnapshot('click_interaction_final', 360);
             }
         }
 
