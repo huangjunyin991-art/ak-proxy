@@ -2877,8 +2877,8 @@
     }
 
     function getCanonicalUsername() {
-        const cookieUsername = String(getCookie('ak_username') || '').trim().toLowerCase();
-        if (cookieUsername) return cookieUsername;
+        const confirmedUsername = String(state.username || '').trim().toLowerCase();
+        if (confirmedUsername) return confirmedUsername;
         try {
             if (window.APP && APP.USER && APP.USER.MODEL) {
                 const value = pickUsernameFromObject(APP.USER.MODEL);
@@ -2891,28 +2891,10 @@
                 if (value) return value;
             }
         } catch (e) {}
-        try {
-            const raw = localStorage.getItem('AK_user_model') || sessionStorage.getItem('AK_user_model');
-            if (raw) {
-                const value = pickUsernameFromObject(JSON.parse(raw));
-                if (value) return value;
-            }
-        } catch (e) {}
-        try {
-            const userDataRaw = localStorage.getItem('UserData') || sessionStorage.getItem('UserData');
-            if (userDataRaw) {
-                const value = pickUsernameFromObject(JSON.parse(userDataRaw));
-                if (value) return value;
-            }
-        } catch (e) {}
-        try {
-            const loginResultRaw = localStorage.getItem('ak_login_result') || sessionStorage.getItem('ak_login_result');
-            if (loginResultRaw) {
-                const parsed = JSON.parse(loginResultRaw);
-                const value = pickUsernameFromObject(parsed && parsed.UserData && typeof parsed.UserData === 'object' ? parsed.UserData : null);
-                if (value) return value;
-            }
-        } catch (e) {}
+        const imCookieUsername = String(getCookie('ak_im_username') || '').trim().toLowerCase();
+        if (imCookieUsername) return imCookieUsername;
+        const cookieUsername = String(getCookie('ak_username') || '').trim().toLowerCase();
+        if (cookieUsername) return cookieUsername;
         return '';
     }
 

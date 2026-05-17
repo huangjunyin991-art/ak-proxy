@@ -114,6 +114,7 @@ def _resolve_username(request: Request, cookie_name: str, payload: dict | None =
     payload_username = payload.get('im_username') if isinstance(payload, dict) else ''
     return (
         normalize_username(payload_username)
+        or normalize_username(request.query_params.get('im_username'))
         or normalize_username(request.headers.get('X-AK-IM-Username'))
         or normalize_username(request.cookies.get('ak_im_username'))
         or normalize_username(request.cookies.get(cookie_name or 'ak_username'))
