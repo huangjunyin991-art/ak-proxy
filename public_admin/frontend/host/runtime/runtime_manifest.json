@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "modules": [
+    {
+      "name": "recommend_friend_patch",
+      "path": "patches/recommend_friend_patch.js",
+      "required": false
+    },
+    {
+      "name": "ak_client_runtime",
+      "path": "ak_client_runtime.js",
+      "required": true
+    }
+  ]
+}

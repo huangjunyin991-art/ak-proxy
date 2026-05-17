@@ -189,9 +189,54 @@ public_admin/frontend/host/chat_widget.js
 
 旧路径继续保留兼容。
 
+## 已完成：第五阶段第一步 manifest 与页面补丁模块
+
+当前已引入运行时模块清单：
+
+```text
+public_admin/frontend/host/runtime/runtime_manifest.json
+```
+
+后端只读取 manifest，并按 manifest 顺序拼接运行时模块。
+
+当前 manifest 包含：
+
+```text
+patches/recommend_friend_patch.js  optional
+ak_client_runtime.js              required
+```
+
+已抽离的页面补丁模块：
+
+```text
+public_admin/frontend/host/runtime/patches/recommend_friend_patch.js
+```
+
+该模块通过以下命名空间暴露安装函数：
+
+```js
+window.AKClientRuntimePatches.installRecommendFriendFirstCardBackPatch
+```
+
+主运行时只做能力检测式调用：
+
+```js
+if (window.AKClientRuntimePatches && typeof window.AKClientRuntimePatches.installRecommendFriendFirstCardBackPatch === 'function') {
+    window.AKClientRuntimePatches.installRecommendFriendFirstCardBackPatch();
+}
+```
+
+如果该 optional 模块缺失，只会导致“附近玩家首卡返回上一级”功能失效，不影响登录、API 拦截、IM、PWA、ChatWS、远程协助和远程语音。
+
+后端拼接策略：
+
+- `required: true` 模块缺失时，返回 `// not found`
+- `required: false` 模块缺失时，跳过该模块并继续返回主运行时
+- `runtime_manifest.json` 与各模块文件都会参与版本号计算
+
 ## 后续推荐阶段
 
-### 第五阶段：内部模块化拆分
+### 后续内部模块化拆分
 
 建议目录：
 
@@ -283,7 +328,9 @@ public_admin/frontend/host/runtime/
 每个阶段完成后建议验证：
 
 ```powershell
+node --check public_admin/frontend/host/runtime/patches/recommend_friend_patch.js
 node --check public_admin/frontend/host/runtime/ak_client_runtime.js
+python -m json.tool public_admin/frontend/host/runtime/runtime_manifest.json
 python -m py_compile public_admin/server/proxy_server.py
 ```
 
@@ -331,7 +378,8 @@ os.path.join(FRONTEND_HOST_DIR, "chat_widget.js")
 
 ## 当前注意事项
 
-- 当前尚未执行 Git 提交。
+- 当前阶段已提交并推送：`ccbb3d7 重构用户侧运行时入口命名`。
+- 第五阶段第一步 manifest 与页面补丁模块拆分尚未提交。
 - 当前尚未删除旧 `chat_widget.js`。
-- 当前尚未执行命令验证。
-- 需要用户明确授权后，才可执行验证命令或 Git 操作。
+- 上一提交已执行本地静态验证：`node --check public_admin/frontend/host/runtime/ak_client_runtime.js`、`python -m py_compile public_admin/server/proxy_server.py`、`git diff --check -- public_admin/server/proxy_server.py public_admin/config/nginx.conf`。
+- 后续新的验证命令或 Git 操作仍需要用户明确授权后执行。

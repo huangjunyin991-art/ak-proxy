@@ -9421,13 +9421,74 @@ IM_LOCATION_AMAP_WEB_KEY = str(os.getenv("IM_LOCATION_AMAP_WEB_KEY", str(globals
 IM_LOCATION_AMAP_SECURITY_JS_CODE = str(os.getenv("IM_LOCATION_AMAP_SECURITY_JS_CODE", str(globals().get("IM_LOCATION_AMAP_SECURITY_JS_CODE", "")))).strip()
 
 
-AK_CLIENT_RUNTIME_JS_PATH = os.path.join(FRONTEND_HOST_DIR, "runtime", "ak_client_runtime.js")
+AK_CLIENT_RUNTIME_DIR = os.path.join(FRONTEND_HOST_DIR, "runtime")
+
+AK_CLIENT_RUNTIME_JS_PATH = os.path.join(AK_CLIENT_RUNTIME_DIR, "ak_client_runtime.js")
+
+AK_CLIENT_RUNTIME_MANIFEST_PATH = os.path.join(AK_CLIENT_RUNTIME_DIR, "runtime_manifest.json")
+
+
+def _resolve_client_runtime_module_path(module_path: str) -> str:
+    normalized = os.path.normpath(str(module_path or "").strip().replace("\\", "/"))
+    if not normalized or normalized.startswith("..") or os.path.isabs(normalized):
+        return ""
+    return os.path.join(AK_CLIENT_RUNTIME_DIR, normalized)
+
+
+def _get_client_runtime_modules() -> list[dict]:
+    fallback_modules = [
+        {"name": "ak_client_runtime", "path": AK_CLIENT_RUNTIME_JS_PATH, "required": True}
+    ]
+    try:
+        with open(AK_CLIENT_RUNTIME_MANIFEST_PATH, "r", encoding="utf-8") as f:
+            manifest = json.load(f)
+        modules = manifest.get("modules") if isinstance(manifest, dict) else None
+        if not isinstance(modules, list):
+            return fallback_modules
+        resolved_modules = []
+        for module in modules:
+            if not isinstance(module, dict):
+                continue
+            module_path = _resolve_client_runtime_module_path(module.get("path", ""))
+            if not module_path:
+                continue
+            resolved_modules.append({
+                "name": str(module.get("name") or "").strip(),
+                "path": module_path,
+                "required": bool(module.get("required", False)),
+            })
+        return resolved_modules or fallback_modules
+    except Exception:
+        return fallback_modules
+
+
+def _iter_client_runtime_asset_paths() -> list[str]:
+    asset_paths = [AK_CLIENT_RUNTIME_MANIFEST_PATH]
+    for module in _get_client_runtime_modules():
+        module_path = str(module.get("path") or "")
+        if module_path:
+            asset_paths.append(module_path)
+    return asset_paths
+
+
+def _build_client_runtime_content() -> tuple[str, list[str]]:
+    chunks = []
+    missing_required = []
+    for module in _get_client_runtime_modules():
+        module_path = str(module.get("path") or "")
+        if not module_path or not os.path.exists(module_path):
+            if bool(module.get("required", False)):
+                missing_required.append(module_path)
+            continue
+        with open(module_path, "r", encoding="utf-8") as f:
+            chunks.append(f.read())
+    return "\n;\n".join(chunks), missing_required
 
 
 def _iter_widget_asset_paths() -> list[str]:
     return [
         __file__,
-        AK_CLIENT_RUNTIME_JS_PATH,
+        *_iter_client_runtime_asset_paths(),
         os.path.join(PLUGINS_DIR, "notification", "user", "index.js"),
         os.path.join(PLUGINS_DIR, "notification", "user", "widget.js"),
         os.path.join(PLUGINS_DIR, "im", "user", "im_entry.js"),
@@ -9595,6 +9656,19 @@ def _build_widget_script_response(request: Request, js_path: str, extra_prelude:
     )
 
 
+def _build_client_runtime_script_response(request: Request) -> Response:
+    content, missing_required = _build_client_runtime_content()
+    if missing_required:
+        return Response(content="// not found", media_type="application/javascript")
+    asset_version = _get_widget_asset_version()
+    prelude = f"window.__AK_WIDGET_ASSET_VERSION__ = {json.dumps(asset_version)};\n"
+    return Response(
+        content=prelude + content,
+        media_type="application/javascript",
+        headers=_build_widget_cache_headers(request, asset_version),
+    )
+
+
 @app.get("/chat/widget.js")
 
 async def chat_widget_js():
@@ -9608,9 +9682,7 @@ async def chat_widget_js():
 
 async def ak_client_runtime_js(request: Request):
 
-    js_path = AK_CLIENT_RUNTIME_JS_PATH
-
-    return _build_widget_script_response(request, js_path)
+    return _build_client_runtime_script_response(request)
 
 
 @app.get("/chat/notification-widget.js")
