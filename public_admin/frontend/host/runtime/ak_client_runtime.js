@@ -8,240 +8,66 @@
 (function() {
     'use strict';
     
-    // ===== 持久化登录 - 保持登录状态跨浏览器会话 =====
-    var AK_CRED_KEY = '_ak_sl';
-    
-    function _akEncode(a, p) {
-        try { return btoa(unescape(encodeURIComponent(JSON.stringify({a:a,p:p,t:Date.now()})))); }
-        catch(e) { return null; }
+    function getAuthModule() {
+        try {
+            return window.AKClientRuntimeAuth || null;
+        } catch(e) {}
+        return null;
     }
-    
+
     function _akDecode() {
         try {
-            var raw = localStorage.getItem(AK_CRED_KEY);
-            if (!raw) return null;
-            var d = JSON.parse(decodeURIComponent(escape(atob(raw))));
-            if (Date.now() - d.t > 30*86400000) { localStorage.removeItem(AK_CRED_KEY); return null; }
-            return {account:d.a, password:d.p};
-        } catch(e) { localStorage.removeItem(AK_CRED_KEY); return null; }
+            var auth = getAuthModule();
+            if (auth && typeof auth.decodeCredentials === 'function') return auth.decodeCredentials();
+        } catch(e) {}
+        return null;
     }
-    
-    function _akSaveCred(account, password) {
-        if (account && password) {
-            var e = _akEncode(account, password);
-            if (e) localStorage.setItem(AK_CRED_KEY, e);
-        }
-    }
-    
-    function _akClearCred() { localStorage.removeItem(AK_CRED_KEY); }
-    
-    function _akExtractUserKey(data) {
+
+    function _akClearCred() {
         try {
-            if (!data || typeof data !== 'object') return '';
-            if (Array.isArray(data)) {
-                for (var i = 0; i < data.length; i++) {
-                    var arrKey = _akExtractUserKey(data[i]);
-                    if (arrKey) return arrKey;
-                }
-                return '';
-            }
-            for (var k in data) {
-                if (!Object.prototype.hasOwnProperty.call(data, k)) continue;
-                var lk = String(k || '').toLowerCase();
-                if ((lk === 'key' || lk === 'userkey' || lk === 'user_key' || lk === 'ukey') && data[k] != null && data[k] !== '') {
-                    return String(data[k]);
-                }
-            }
-            for (var k2 in data) {
-                if (!Object.prototype.hasOwnProperty.call(data, k2)) continue;
-                var subKey = _akExtractUserKey(data[k2]);
-                if (subKey) return subKey;
+            var auth = getAuthModule();
+            if (auth && typeof auth.clearCredentials === 'function') {
+                auth.clearCredentials();
+                return;
             }
         } catch(e) {}
-        return '';
-    }
-    
-    function _akStoreUserModel(result) {
         try {
-            if (!result || typeof result !== 'object') return;
-            var userData = result.UserData && typeof result.UserData === 'object' ? result.UserData : null;
-            if (!userData) return;
-            var model = Object.assign({}, userData);
-            var key = _akExtractUserKey(result);
-            if (key) model.Key = key;
-            var storeKey = 'AK_user_model';
-            try {
-                if (window.APP && APP.CONFIG && APP.CONFIG.SYSTEM_KEYS && APP.CONFIG.SYSTEM_KEYS.USER_MODEL_KEY) {
-                    storeKey = APP.CONFIG.SYSTEM_KEYS.USER_MODEL_KEY;
-                }
-            } catch(e) {}
-            localStorage.setItem(storeKey, JSON.stringify(model));
-            if (window.APP && APP.USER) {
-                APP.USER.MODEL = model;
-            }
-            window.USER_MODEL = model;
+            localStorage.removeItem('_ak_sl');
         } catch(e) {}
     }
-    
+
     function _akHasPersistCookie() {
+        try {
+            var auth = getAuthModule();
+            if (auth && typeof auth.hasPersistCookie === 'function') return auth.hasPersistCookie();
+        } catch(e) {}
         return document.cookie.indexOf('ak_persist=1') !== -1;
     }
 
     function installRuntimeContext() {
         try {
+            var auth = getAuthModule();
+            if (auth && typeof auth.installRuntimeContext === 'function') {
+                auth.installRuntimeContext();
+                return;
+            }
             window.AKClientRuntimeContext = window.AKClientRuntimeContext || {};
             window.AKClientRuntimeContext.hasPersistCookie = _akHasPersistCookie;
-        } catch(e) {
-        }
+        } catch(e) {}
     }
-    
-    function _akExtractCreds(body) {
-        var account = '', password = '';
-        if (!body) return null;
-        if (typeof body === 'string') {
-            try {
-                var json = JSON.parse(body);
-                account = json.account || json.Account || '';
-                password = json.password || json.Password || '';
-            } catch(e) {
-                try {
-                    var params = new URLSearchParams(body);
-                    account = params.get('account') || params.get('Account') || '';
-                    password = params.get('password') || params.get('Password') || '';
-                } catch(e2) {}
-            }
-        }
-        if (account && password) return {account: account, password: password};
-        return null;
-    }
-    
-    // 捕获登录请求的凭据（XHR + fetch）
-    function setupLoginCapture() {
-        if (window.__AKChatLoginCaptureInstalled) return;
-        window.__AKChatLoginCaptureInstalled = true;
-        var origSend = XMLHttpRequest.prototype.send;
-        XMLHttpRequest.prototype.send = function(body) {
-            var xhr = this;
-            xhr._akReqBody = body;
-            xhr.addEventListener('load', function() {
-                try {
-                    var url = xhr.responseURL || '';
-                    if (url.indexOf('/Login') === -1) return;
-                    var result = JSON.parse(xhr.responseText);
-                    if (result.Error !== false && (result.Error || !result.UserData)) return;
-                    if (!_akHasPersistCookie()) return;
-                    _akStoreUserModel(result);
-                    var creds = _akExtractCreds(xhr._akReqBody);
-                    if (creds) {
-                        _akSaveCred(creds.account, creds.password);
-                        if (window.AKChat && window.AKChat.reconnect) window.AKChat.reconnect();
-                    }
-                } catch(e) {}
-            });
-            return origSend.call(this, body);
-        };
-        
-        var prevFetch = window.fetch;
-        window.fetch = function(url, options) {
-            var isLogin = typeof url === 'string' && url.indexOf('/Login') !== -1;
-            var result = prevFetch.call(this, url, options);
-            if (isLogin && options && options.body) {
-                result.then(function(resp) {
-                    resp.clone().json().then(function(data) {
-                        if (data.Error === false || (!data.Error && data.UserData)) {
-                            if (!_akHasPersistCookie()) return;
-                            _akStoreUserModel(data);
-                            var creds = _akExtractCreds(options.body);
-                            if (creds) {
-                                _akSaveCred(creds.account, creds.password);
-                                if (window.AKChat && window.AKChat.reconnect) window.AKChat.reconnect();
-                            }
-                        }
-                    }).catch(function(){});
-                }).catch(function(){});
-            }
-            return result;
-        };
-    }
-    
-    // 登录页自动登录
-    function autoLogin() {
-        var path = window.location.pathname.toLowerCase();
-        if (path.indexOf('/login') === -1) return;
-        
-        var creds = _akDecode();
-        if (!creds) { return; }
-        if (!_akHasPersistCookie()) { _akClearCred(); return; }
-        
-        // 隐藏页面防止登录表单闪烁
-        var hideStyle = document.createElement('style');
-        hideStyle.id = 'ak-autologin-hide';
-        hideStyle.textContent = 'body{visibility:hidden!important}';
-        (document.head || document.documentElement).appendChild(hideStyle);
-        setTimeout(clearAutoLoginHide, 800);
-        
-        var attempts = 0;
-        function clearAutoLoginHide() {
-            var s = document.getElementById('ak-autologin-hide');
-            if (s) s.remove();
-        }
 
-        function tryFormLogin() {
-            attempts++;
-            if (attempts > 15) {
-                clearAutoLoginHide();
-                return;
-            }
-            
-            var inputs = document.querySelectorAll('input');
-            var accountInput = null, passwordInput = null;
-            for (var i = 0; i < inputs.length; i++) {
-                var type = (inputs[i].type || '').toLowerCase();
-                if (type === 'password') passwordInput = inputs[i];
-                else if (type === 'text' || type === 'tel' || type === 'email') {
-                    if (!accountInput) accountInput = inputs[i];
-                }
-            }
-            
-            if (!accountInput || !passwordInput) {
-                setTimeout(tryFormLogin, 500);
-                return;
-            }
-            
-            // 使用原生setter填充（兼容Vue/React等框架）
-            try {
-                var setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
-                setter.call(accountInput, creds.account);
-                setter.call(passwordInput, creds.password);
-            } catch(e) {
-                accountInput.value = creds.account;
-                passwordInput.value = creds.password;
-            }
-            ['input','change','keyup'].forEach(function(evt) {
-                accountInput.dispatchEvent(new Event(evt, {bubbles:true}));
-                passwordInput.dispatchEvent(new Event(evt, {bubbles:true}));
-            });
-            
-            // 查找并点击登录按钮
-            setTimeout(function() {
-                var btns = document.querySelectorAll('button, input[type="submit"], a.btn, .btn, [onclick]');
-                for (var i = 0; i < btns.length; i++) {
-                    var text = (btns[i].textContent || btns[i].value || '').trim();
-                    if (text.indexOf('登录') !== -1 || text.indexOf('登入') !== -1 || text.toLowerCase().indexOf('login') !== -1) {
-                        clearAutoLoginHide();
-                        btns[i].click();
-                        return;
-                    }
-                }
-                clearAutoLoginHide();
-            }, 500);
-        }
-        
-        if (document.readyState === 'loading') {
-            document.addEventListener('DOMContentLoaded', function() { setTimeout(tryFormLogin, 300); });
-        } else {
-            setTimeout(tryFormLogin, 300);
-        }
+    function setupLoginCapture() {
+        try {
+            var auth = getAuthModule();
+            if (auth && typeof auth.setupLoginCapture === 'function') auth.setupLoginCapture();
+        } catch(e) {}
+    }
+
+    function autoLogin() {
+        try {
+            var auth = getAuthModule();
+            if (auth && typeof auth.autoLogin === 'function') auth.autoLogin();
+        } catch(e) {}
     }
     
     // 手动登出时清除保存的凭据

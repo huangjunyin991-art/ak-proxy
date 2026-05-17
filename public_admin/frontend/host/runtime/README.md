@@ -206,6 +206,7 @@ public_admin/frontend/host/runtime/runtime_manifest.json
 ```text
 network/api_url_rewriter.js       required
 network/request_interceptor.js    required
+auth/session.js                   optional
 presence/identity.js              optional
 patches/recommend_friend_patch.js  optional
 pwa/pwa_runtime.js                 optional
@@ -256,6 +257,25 @@ window.AKClientRuntimeContext.hasPersistCookie
 PWA 模块通过该接口判断持久登录状态，不直接依赖主运行时闭包内部函数。
 
 如果该 optional 模块缺失，只会导致 PWA manifest 注入、Service Worker 注册和安装提示缺失，不影响其它运行时能力。
+
+已抽离的持久登录模块：
+
+```text
+public_admin/frontend/host/runtime/auth/session.js
+```
+
+该模块通过以下命名空间暴露登录会话函数：
+
+```js
+window.AKClientRuntimeAuth.decodeCredentials
+window.AKClientRuntimeAuth.clearCredentials
+window.AKClientRuntimeAuth.hasPersistCookie
+window.AKClientRuntimeAuth.installRuntimeContext
+window.AKClientRuntimeAuth.setupLoginCapture
+window.AKClientRuntimeAuth.autoLogin
+```
+
+主运行时通过该模块处理持久登录凭据、登录响应用户模型落库、登录页自动填充和提交。如果该 optional 模块缺失，只会导致持久登录、自动登录和登录凭据捕获能力缺失，不影响 Network、ChatWS、在线状态、IM、PWA、远程协助和远程语音主链路。
 
 已抽离的在线身份模块：
 

@@ -12,6 +12,11 @@
       "required": true
     },
     {
+      "name": "auth_session",
+      "path": "auth/session.js",
+      "required": false
+    },
+    {
       "name": "presence_identity",
       "path": "presence/identity.js",
       "required": false
