@@ -5218,7 +5218,7 @@
         if (status === 'unsupported') {
             return {
                 title: '消息通知不可用',
-                meta: '当前浏览器或环境不支持 Web Push 通知',
+                meta: push && typeof push.getLastError === 'function' && push.getLastError() ? push.getLastError() : '当前浏览器或环境不支持 Web Push 通知',
                 disabled: true,
                 checked: false
             };
@@ -5241,7 +5241,7 @@
         }
         const status = push.getPermissionStatus && push.getPermissionStatus();
         if (status === 'unsupported') {
-            state.pushNotificationMessage = '当前浏览器或环境不支持消息通知';
+            state.pushNotificationMessage = push && typeof push.getLastError === 'function' && push.getLastError() ? push.getLastError() : '当前浏览器或环境不支持消息通知';
             render();
             return Promise.resolve(false);
         }
@@ -5254,17 +5254,17 @@
         render();
         return push.requestAndRegister().then(function(result) {
             const nextStatus = push.getPermissionStatus && push.getPermissionStatus();
-            if (result || nextStatus === 'granted') {
+            if (result) {
                 state.pushNotificationMessage = '消息通知已开启';
             } else if (nextStatus === 'denied') {
                 state.pushNotificationMessage = '浏览器已阻止通知，请到站点设置中允许通知权限';
             } else {
-                state.pushNotificationMessage = '未开启消息通知';
+                state.pushNotificationMessage = typeof push.getLastError === 'function' && push.getLastError() ? push.getLastError() : '未开启消息通知';
             }
             render();
             return !!result;
         }).catch(function() {
-            state.pushNotificationMessage = '开启消息通知失败，请稍后重试';
+            state.pushNotificationMessage = typeof push.getLastError === 'function' && push.getLastError() ? push.getLastError() : '开启消息通知失败，请稍后重试';
             render();
             return false;
         });
