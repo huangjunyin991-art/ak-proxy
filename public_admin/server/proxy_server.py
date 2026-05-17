@@ -9421,10 +9421,13 @@ IM_LOCATION_AMAP_WEB_KEY = str(os.getenv("IM_LOCATION_AMAP_WEB_KEY", str(globals
 IM_LOCATION_AMAP_SECURITY_JS_CODE = str(os.getenv("IM_LOCATION_AMAP_SECURITY_JS_CODE", str(globals().get("IM_LOCATION_AMAP_SECURITY_JS_CODE", "")))).strip()
 
 
+AK_CLIENT_RUNTIME_JS_PATH = os.path.join(FRONTEND_HOST_DIR, "runtime", "ak_client_runtime.js")
+
+
 def _iter_widget_asset_paths() -> list[str]:
     return [
         __file__,
-        os.path.join(FRONTEND_HOST_DIR, "chat_widget.js"),
+        AK_CLIENT_RUNTIME_JS_PATH,
         os.path.join(PLUGINS_DIR, "notification", "user", "index.js"),
         os.path.join(PLUGINS_DIR, "notification", "user", "widget.js"),
         os.path.join(PLUGINS_DIR, "im", "user", "im_entry.js"),
@@ -9507,7 +9510,7 @@ def _version_widget_asset_url(url: str, asset_version: str = "") -> str:
 def _rewrite_widget_asset_url(url: str, asset_version: str = "") -> str:
     try:
         if urlsplit(url).path.lower() == "/chat/widget.js":
-            return "/admin/api/chat-widget-loader"
+            return "/admin/api/ak-client-runtime-loader"
     except Exception:
         return url
     return _version_widget_asset_url(url, asset_version)
@@ -9518,7 +9521,7 @@ def _rewrite_widget_asset_urls(text: str, asset_version: str = "") -> str:
     if not text or not version:
         return text
     pattern = re.compile(
-        r'(?P<quote>["\'])(?P<url>(?:/chat/widget\.js|/chat/widget\.bundle\.js|/chat/notification-widget\.js|/chat/plugins/notification/user/widget\.js)(?:\?[^"\']*)?)(?P=quote)',
+        r'(?P<quote>["\'])(?P<url>(?:/chat/widget\.js|/chat/widget\.bundle\.js|/ak/client-runtime\.js|/chat/notification-widget\.js|/chat/plugins/notification/user/widget\.js)(?:\?[^"\']*)?)(?P=quote)',
         re.IGNORECASE,
     )
     return pattern.sub(
@@ -9538,7 +9541,7 @@ def _build_widget_loader_headers(asset_version: str) -> dict[str, str]:
 
 def _build_widget_loader_response() -> Response:
     asset_version = _get_widget_asset_version()
-    bundle_url = _version_widget_asset_url("/chat/widget.bundle.js", asset_version)
+    bundle_url = _version_widget_asset_url("/ak/client-runtime.js", asset_version)
     loader = (
         "(function(){"
         "try{"
@@ -9601,9 +9604,11 @@ async def chat_widget_js():
 
 @app.get("/chat/widget.bundle.js")
 
-async def chat_widget_bundle_js(request: Request):
+@app.get("/ak/client-runtime.js")
 
-    js_path = os.path.join(FRONTEND_HOST_DIR, "chat_widget.js")
+async def ak_client_runtime_js(request: Request):
+
+    js_path = AK_CLIENT_RUNTIME_JS_PATH
 
     return _build_widget_script_response(request, js_path)
 
@@ -10301,6 +10306,8 @@ async def pwa_icon_maskable_api(size: int):
 
 
 @app.get("/admin/api/chat-widget-loader")
+
+@app.get("/admin/api/ak-client-runtime-loader")
 
 @app.get("/admin/api/pwa-widget")
 
