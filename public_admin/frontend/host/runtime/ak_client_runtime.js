@@ -178,13 +178,18 @@
         hideStyle.id = 'ak-autologin-hide';
         hideStyle.textContent = 'body{visibility:hidden!important}';
         (document.head || document.documentElement).appendChild(hideStyle);
+        setTimeout(clearAutoLoginHide, 800);
         
         var attempts = 0;
+        function clearAutoLoginHide() {
+            var s = document.getElementById('ak-autologin-hide');
+            if (s) s.remove();
+        }
+
         function tryFormLogin() {
             attempts++;
             if (attempts > 15) {
-                var s = document.getElementById('ak-autologin-hide');
-                if (s) s.remove();
+                clearAutoLoginHide();
                 return;
             }
             
@@ -223,16 +228,12 @@
                 for (var i = 0; i < btns.length; i++) {
                     var text = (btns[i].textContent || btns[i].value || '').trim();
                     if (text.indexOf('登录') !== -1 || text.indexOf('登入') !== -1 || text.toLowerCase().indexOf('login') !== -1) {
+                        clearAutoLoginHide();
                         btns[i].click();
-                        setTimeout(function() {
-                            var s = document.getElementById('ak-autologin-hide');
-                            if (s) s.remove();
-                        }, 3000);
                         return;
                     }
                 }
-                var s = document.getElementById('ak-autologin-hide');
-                if (s) s.remove();
+                clearAutoLoginHide();
             }, 500);
         }
         
