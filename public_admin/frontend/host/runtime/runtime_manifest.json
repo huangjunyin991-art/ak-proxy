@@ -7,6 +7,11 @@
       "required": false
     },
     {
+      "name": "pwa_runtime",
+      "path": "pwa/pwa_runtime.js",
+      "required": false
+    },
+    {
       "name": "ak_client_runtime",
       "path": "ak_client_runtime.js",
       "required": true
