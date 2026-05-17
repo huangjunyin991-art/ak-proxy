@@ -77,6 +77,14 @@
         return subscription.unregisterSubscription();
     }
 
+    function diagnose() {
+        var subscription = window.AKClientRuntimePushSubscription;
+        if (!subscription || typeof subscription.diagnoseSubscription !== 'function') {
+            return Promise.resolve({last_error: '消息通知诊断模块暂不可用'});
+        }
+        return subscription.diagnoseSubscription();
+    }
+
     function getPermissionStatus() {
         var permission = window.AKClientRuntimePushPermission;
         if (!permission || !permission.isSupported || !permission.isSupported()) return 'unsupported';
@@ -121,6 +129,7 @@
     window.AKClientRuntimePush.registerIfGranted = setupWebPush;
     window.AKClientRuntimePush.requestAndRegister = requestAndRegister;
     window.AKClientRuntimePush.unregister = unregister;
+    window.AKClientRuntimePush.diagnose = diagnose;
     window.AKClientRuntimePush.getPermissionStatus = getPermissionStatus;
     window.AKClientRuntimePush.isSubscriptionEnabled = isSubscriptionEnabled;
     window.AKClientRuntimePush.getLastError = getLastError;

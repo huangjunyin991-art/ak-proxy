@@ -313,7 +313,10 @@
                      '<input class="ak-im-profile-switch-input" type="checkbox" data-im-profile-enable-push="1"' + (pushStatus.checked ? ' checked' : '') + (pushStatus.disabled ? ' disabled' : '') + ' />' +
                      '<span class="ak-im-profile-switch-track" aria-hidden="true"><span class="ak-im-profile-switch-thumb"></span></span>' +
                  '</label>' +
-             '</div>' +
+                 '<div class="ak-im-profile-action-row">' +
+                    '<button class="ak-im-profile-primary-btn" type="button" data-im-profile-diagnose-push="1">诊断消息通知</button>' +
+                '</div>' +
+            '</div>' +
              '<div class="ak-im-profile-panel">' +
                  '<div class="ak-im-profile-entry-label">当前资料</div>' +
                  '<div class="ak-im-profile-subtitle">昵称：' + this.ctx.escapeHtml(nickname || displayName || '未设置') + '</div>' +
@@ -341,6 +344,14 @@
                      }
                      if (typeof self.ctx.requestPushNotificationPermission === 'function') {
                          self.ctx.requestPushNotificationPermission();
+                     }
+                 });
+             }
+             const diagnosePushButton = container.querySelector('[data-im-profile-diagnose-push]');
+             if (diagnosePushButton) {
+                 diagnosePushButton.addEventListener('click', function() {
+                     if (typeof self.ctx.diagnosePushNotification === 'function') {
+                         self.ctx.diagnosePushNotification();
                      }
                  });
              }

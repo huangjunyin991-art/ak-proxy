@@ -1297,7 +1297,8 @@
             saveProfileHonorVisibility: saveProfileHonorVisibility,
             getPushNotificationStatus: getPushNotificationStatus,
             requestPushNotificationPermission: requestPushNotificationPermission,
-            disablePushNotification: disablePushNotification
+            disablePushNotification: disablePushNotification,
+            diagnosePushNotification: diagnosePushNotification
         });
     }
 
@@ -5286,6 +5287,36 @@
             state.pushNotificationMessage = '关闭消息通知失败，请稍后重试';
             render();
             return false;
+        });
+    }
+
+    function diagnosePushNotification() {
+        const push = window.AKClientRuntimePush;
+        if (!push || typeof push.diagnose !== 'function') {
+            state.pushNotificationMessage = '消息通知诊断模块暂不可用，请刷新页面后重试';
+            render();
+            return Promise.resolve(null);
+        }
+        state.pushNotificationMessage = '正在诊断消息通知...';
+        render();
+        return push.diagnose().then(function(result) {
+            const item = result && typeof result === 'object' ? result : {};
+            const parts = [
+                '账号=' + String(item.im_username || state.username || ''),
+                '权限=' + String(item.permission || ''),
+                'SW=' + (item.service_worker_ready ? 'ready' : (item.service_worker_supported ? 'not-ready' : 'unsupported')),
+                'Push=' + (item.push_manager_supported ? 'supported' : 'unsupported'),
+                '本机订阅=' + (item.has_subscription ? '有' : '无'),
+                '保存=' + (item.saved ? '成功' : '失败')
+            ];
+            if (item.last_error) parts.push('原因=' + String(item.last_error));
+            state.pushNotificationMessage = '通知诊断：' + parts.join('；');
+            render();
+            return item;
+        }).catch(function(error) {
+            state.pushNotificationMessage = error && error.message ? error.message : '诊断消息通知失败';
+            render();
+            return null;
         });
     }
 

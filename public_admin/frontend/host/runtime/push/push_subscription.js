@@ -183,6 +183,47 @@
         });
     }
 
+    function diagnoseSubscription() {
+        setLastError('');
+        var result = {
+            im_username: getIMUsername(),
+            permission: ('Notification' in window) ? Notification.permission : 'unsupported',
+            service_worker_supported: !!navigator.serviceWorker,
+            push_manager_supported: !!window.PushManager,
+            service_worker_ready: false,
+            has_subscription: false,
+            saved: false,
+            last_error: ''
+        };
+        if (!navigator.serviceWorker) {
+            result.last_error = '当前浏览器不支持 Service Worker';
+            return Promise.resolve(result);
+        }
+        return getRegistration().then(function(registration) {
+            result.service_worker_ready = !!registration;
+            result.push_manager_supported = !!(registration && registration.pushManager);
+            if (!registration || !registration.pushManager) {
+                result.last_error = lastError || 'Service Worker 或 PushManager 未就绪';
+                return result;
+            }
+            return withTimeout(registration.pushManager.getSubscription(), 5000, '读取当前通知订阅超时').then(function(subscription) {
+                result.has_subscription = !!subscription;
+                if (!subscription) {
+                    result.last_error = '当前浏览器没有本机 Push 订阅';
+                    return result;
+                }
+                return saveSubscription(subscription).then(function(saved) {
+                    result.saved = !!saved;
+                    result.last_error = lastError || '';
+                    return result;
+                });
+            });
+        }).catch(function(error) {
+            result.last_error = error && error.message ? error.message : '诊断消息通知失败';
+            return result;
+        });
+    }
+
     function unregisterSubscription() {
         return getRegistration().then(function(registration) {
             if (!registration || !registration.pushManager) return true;
@@ -204,5 +245,6 @@
     window.AKClientRuntimePushSubscription = window.AKClientRuntimePushSubscription || {};
     window.AKClientRuntimePushSubscription.registerSubscription = registerSubscription;
     window.AKClientRuntimePushSubscription.unregisterSubscription = unregisterSubscription;
+    window.AKClientRuntimePushSubscription.diagnoseSubscription = diagnoseSubscription;
     window.AKClientRuntimePushSubscription.getLastError = getLastError;
 })();
