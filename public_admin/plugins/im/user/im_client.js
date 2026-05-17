@@ -197,6 +197,7 @@
         profileSaveError: '',
         profileSettingsSaving: false,
         profileSettingsError: '',
+        pushNotificationMessage: '',
         profileAvatarHistory: [],
         profileAvatarHistoryLoaded: false,
         profileAvatarHistoryLoading: false,
@@ -1293,7 +1294,9 @@
             setProfileAvatarFavorite: setProfileAvatarFavorite,
             openProfileAvatarRemoveDialog: openProfileAvatarRemoveDialog,
             saveProfileDetail: saveProfileDetail,
-            saveProfileHonorVisibility: saveProfileHonorVisibility
+            saveProfileHonorVisibility: saveProfileHonorVisibility,
+            getPushNotificationStatus: getPushNotificationStatus,
+            requestPushNotificationPermission: requestPushNotificationPermission
         });
     }
 
@@ -4123,6 +4126,7 @@
         closeDialog({ silent: true, force: true });
         state.profileSaveError = '';
         state.profileSettingsError = '';
+        state.pushNotificationMessage = '';
         state.profileAvatarActionError = '';
         state.profileAvatarHistoryActionId = 0;
         state.profileAvatarHistoryActionType = '';
@@ -5183,6 +5187,76 @@
         });
     }
 
+    function getPushNotificationStatus() {
+        const push = window.AKClientRuntimePush;
+        const status = push && typeof push.getPermissionStatus === 'function' ? push.getPermissionStatus() : 'unsupported';
+        if (status === 'granted') {
+            return {
+                title: '消息通知已开启',
+                meta: '当前设备会接收新消息提醒',
+                disabled: false
+            };
+        }
+        if (status === 'denied') {
+            return {
+                title: '消息通知已关闭',
+                meta: '浏览器已阻止通知，请到站点设置中允许',
+                disabled: true
+            };
+        }
+        if (status === 'unsupported') {
+            return {
+                title: '消息通知不可用',
+                meta: '当前浏览器或环境不支持 Web Push 通知',
+                disabled: true
+            };
+        }
+        return {
+            title: '开启消息通知',
+            meta: '点击后允许浏览器通知，离线也能收到新消息提醒',
+            disabled: false
+        };
+    }
+
+    function requestPushNotificationPermission() {
+        if (!state.allowed) return Promise.resolve(false);
+        const push = window.AKClientRuntimePush;
+        if (!push || typeof push.requestAndRegister !== 'function') {
+            state.pushNotificationMessage = '消息通知模块暂不可用，请刷新页面后重试';
+            render();
+            return Promise.resolve(false);
+        }
+        const status = push.getPermissionStatus && push.getPermissionStatus();
+        if (status === 'unsupported') {
+            state.pushNotificationMessage = '当前浏览器或环境不支持消息通知';
+            render();
+            return Promise.resolve(false);
+        }
+        if (status === 'denied') {
+            state.pushNotificationMessage = '浏览器已阻止通知，请到站点设置中允许通知权限';
+            render();
+            return Promise.resolve(false);
+        }
+        state.pushNotificationMessage = '正在开启消息通知...';
+        render();
+        return push.requestAndRegister().then(function(result) {
+            const nextStatus = push.getPermissionStatus && push.getPermissionStatus();
+            if (result || nextStatus === 'granted') {
+                state.pushNotificationMessage = '消息通知已开启';
+            } else if (nextStatus === 'denied') {
+                state.pushNotificationMessage = '浏览器已阻止通知，请到站点设置中允许通知权限';
+            } else {
+                state.pushNotificationMessage = '未开启消息通知';
+            }
+            render();
+            return !!result;
+        }).catch(function() {
+            state.pushNotificationMessage = '开启消息通知失败，请稍后重试';
+            render();
+            return false;
+        });
+    }
+
     function refreshProfileAvatar() {
         if (!state.allowed || state.profileRefreshing) return Promise.resolve(null);
         state.profileRefreshing = true;
@@ -5577,21 +5651,6 @@
         });
     }
 
-    function dispatchChatEnteredEvent(conversationId) {
-        const targetConversationId = Number(conversationId || 0);
-        if (!state.allowed || state.view !== 'chat' || !targetConversationId) return;
-        try {
-            window.AKIMClientActiveConversationId = targetConversationId;
-            window.dispatchEvent(new CustomEvent('ak-im-chat-entered', {
-                detail: {
-                    conversationId: targetConversationId,
-                    username: state.username || ''
-                }
-            }));
-        } catch (e) {
-        }
-    }
-
     function loadSessions() {
         const sessionManageModule = getSessionManageModule();
         if (sessionManageModule && typeof sessionManageModule.loadSessions === 'function') {
@@ -5630,7 +5689,6 @@
             render();
             return Promise.resolve(null);
         }
-        dispatchChatEnteredEvent(targetConversationId);
         const forceRefresh = !!(options && options.forceRefresh);
         const restoredPersistedMessages = forceRefresh ? false : applyPersistedConversationMessages(targetConversationId);
         if (forceRefresh) {

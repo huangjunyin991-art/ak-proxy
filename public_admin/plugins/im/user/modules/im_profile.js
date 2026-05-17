@@ -278,7 +278,11 @@
              const state = this.ctx.state;
              const hideHonor = !!(profile && profile.hide_honor);
              const saving = !!state.profileSettingsSaving || !state.profileLoaded || !!state.profileLoading;
+             const pushStatus = typeof this.ctx.getPushNotificationStatus === 'function'
+                 ? this.ctx.getPushNotificationStatus()
+                 : { title: '消息通知不可用', meta: '当前环境不支持消息通知', disabled: true };
              container.innerHTML = (state.profileSettingsError ? '<div class="ak-im-profile-error">' + this.ctx.escapeHtml(state.profileSettingsError) + '</div>' : '') +
+             (state.pushNotificationMessage ? '<div class="ak-im-profile-note">' + this.ctx.escapeHtml(state.pushNotificationMessage) + '</div>' : '') +
              '<div class="ak-im-profile-panel">' +
                  '<div class="ak-im-profile-head">' +
                      this.ctx.buildAvatarBoxMarkup('ak-im-profile-avatar', profile, displayName || username || '我', (displayName || username || '我') + '头像') +
@@ -300,6 +304,13 @@
                  '<div class="ak-im-profile-subtitle">当前状态：' + this.ctx.escapeHtml(hideHonor ? '已隐藏，只有你自己能看到等级' : '公开显示等级') + (state.profileSettingsSaving ? ' · 保存中...' : (!state.profileLoaded || state.profileLoading ? ' · 正在读取设置...' : '')) + '</div>' +
              '</div>' +
              '<div class="ak-im-profile-panel">' +
+                 '<div class="ak-im-profile-entry-label">消息提醒</div>' +
+                 '<button class="ak-im-profile-entry" type="button" data-im-profile-enable-push="1"' + (pushStatus.disabled ? ' disabled' : '') + '>' +
+                     '<div class="ak-im-profile-entry-main"><div class="ak-im-profile-entry-label">' + this.ctx.escapeHtml(pushStatus.title) + '</div><div class="ak-im-profile-entry-meta">' + this.ctx.escapeHtml(pushStatus.meta) + '</div></div>' +
+                     '<div class="ak-im-profile-entry-arrow" aria-hidden="true">›</div>' +
+                 '</button>' +
+             '</div>' +
+             '<div class="ak-im-profile-panel">' +
                  '<div class="ak-im-profile-entry-label">当前资料</div>' +
                  '<div class="ak-im-profile-subtitle">昵称：' + this.ctx.escapeHtml(nickname || displayName || '未设置') + '</div>' +
                  '<div class="ak-im-profile-subtitle">等级：' + this.ctx.escapeHtml(honorName || '未设置') + '</div>' +
@@ -312,6 +323,14 @@
                  hideHonorInput.addEventListener('change', function() {
                      if (typeof self.ctx.saveProfileHonorVisibility === 'function') {
                          self.ctx.saveProfileHonorVisibility(!!hideHonorInput.checked);
+                     }
+                 });
+             }
+             const pushButton = container.querySelector('[data-im-profile-enable-push]');
+             if (pushButton) {
+                 pushButton.addEventListener('click', function() {
+                     if (typeof self.ctx.requestPushNotificationPermission === 'function') {
+                         self.ctx.requestPushNotificationPermission();
                      }
                  });
              }
