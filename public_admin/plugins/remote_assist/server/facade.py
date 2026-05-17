@@ -61,6 +61,9 @@ class RemoteAssistFacade:
     def find_session_by_target_username(self, username: str) -> Optional[AssistSession]:
         return self.sessions.find_by_target_username(username)
 
+    def find_session_by_browse_session_id(self, browse_session_id: str) -> Optional[AssistSession]:
+        return self.sessions.find_by_browse_session_id(browse_session_id)
+
     def close_session(self, session_id: str) -> Optional[AssistSession]:
         return self.sessions.close_session(session_id)
 

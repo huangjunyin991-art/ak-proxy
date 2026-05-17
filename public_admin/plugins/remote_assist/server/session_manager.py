@@ -261,6 +261,16 @@ class RemoteAssistSessionManager:
                 return session
         return None
 
+    def find_by_browse_session_id(self, browse_session_id: str) -> Optional[AssistSession]:
+        wanted = (browse_session_id or "").strip()
+        if not wanted:
+            return None
+        self.prune()
+        for session in self.sessions.values():
+            if session.status in {AssistStatus.PENDING, AssistStatus.ACTIVE} and session.browse_session_id == wanted:
+                return session
+        return None
+
     def append_event(self, event: AssistEvent) -> None:
         queue = self.event_history.get(event.session_id)
         if queue is None:

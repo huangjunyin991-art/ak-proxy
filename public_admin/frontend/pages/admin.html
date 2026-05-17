@@ -11462,9 +11462,14 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
         let remoteAssistPanelFrameBindingCleanup = null;
         let remoteAssistPanelRenderReadyTimer = null;
         let remoteAssistPanelLastViewportSyncDebugKey = '';
+        let remoteAssistPanelProxySnapshotRequestAt = 0;
+        let remoteAssistPanelProxySnapshotRequestKey = '';
+        let remoteAssistPanelProxySnapshotTimer = null;
         const REMOTE_ASSIST_PREPARE_LOG_THRESHOLD_MS = 80;
         const REMOTE_ASSIST_RENDER_LOG_THRESHOLD_MS = 200;
         const REMOTE_ASSIST_PENDING_ROUTE_REQUEST_RETRY_MS = 1000;
+        const REMOTE_ASSIST_PROXY_EVENT_SNAPSHOT_MIN_INTERVAL_MS = 600;
+        const REMOTE_ASSIST_PROXY_EVENT_SNAPSHOT_DELAY_MS = 120;
 
         function clearRemoteAssistReconnectTimer() {
             if (remoteAssistPanelReconnectTimer) {
@@ -12064,6 +12069,13 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
             }
         }
 
+        function clearRemoteAssistProxySnapshotTimer() {
+            if (remoteAssistPanelProxySnapshotTimer) {
+                clearTimeout(remoteAssistPanelProxySnapshotTimer);
+                remoteAssistPanelProxySnapshotTimer = null;
+            }
+        }
+
         function clearRemoteAssistFrameBinding() {
             if (typeof remoteAssistPanelFrameBindingCleanup === 'function') {
                 try {
@@ -12081,8 +12093,11 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
             remoteAssistPanelReadyRenderSeq = 0;
             remoteAssistPanelRenderingSnapshot = false;
             remoteAssistPanelQueuedSnapshot = null;
+            remoteAssistPanelProxySnapshotRequestAt = 0;
+            remoteAssistPanelProxySnapshotRequestKey = '';
             clearRemoteAssistRenderReadyTimer();
             clearRemoteAssistSnapshotDrainTimer();
+            clearRemoteAssistProxySnapshotTimer();
             clearRemoteAssistFrameBinding();
             syncRemoteAssistViewport(null);
             if (!frame) return;
@@ -12863,11 +12878,74 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
             }
         }
 
+        function shouldRequestSnapshotForRemoteAssistProxyEvent(payload) {
+            const contentType = String(payload && payload.content_type || '').toLowerCase();
+            const normalizedPath = String(payload && payload.normalized_path || '').toLowerCase();
+            const fetchDest = String(payload && payload.fetch_dest || '').toLowerCase();
+            return remoteAssistPanelWaitingForRouteSnapshot
+                || contentType.indexOf('text/html') >= 0
+                || contentType.indexOf('application/json') >= 0
+                || normalizedPath.indexOf('api/') === 0
+                || normalizedPath.indexOf('/api/') >= 0
+                || normalizedPath.indexOf('rpc/') === 0
+                || normalizedPath.indexOf('/rpc/') >= 0
+                || (fetchDest === 'document' && contentType.indexOf('text/') >= 0);
+        }
+
+        function handleRemoteAssistProxyEvent(payload) {
+            const now = Date.now();
+            const proxyTs = Number(payload && payload.proxy_ts || 0);
+            const normalizedPath = String(payload && payload.normalized_path || payload && payload.path || '').trim();
+            const method = String(payload && payload.method || '').toUpperCase();
+            const requestKey = [method, normalizedPath].join(':');
+            logRemoteAssistDebug('proxy_event_received', {
+                kind: String(payload && payload.kind || ''),
+                method,
+                path: String(payload && payload.path || ''),
+                normalized_path: normalizedPath,
+                content_type: String(payload && payload.content_type || ''),
+                fetch_dest: String(payload && payload.fetch_dest || ''),
+                status: Number(payload && payload.status || 0),
+                bytes: Number(payload && payload.bytes || 0),
+                upstream_ms: Number(payload && payload.upstream_ms || 0),
+                rewrite_ms: Number(payload && payload.rewrite_ms || 0),
+                inject_ms: Number(payload && payload.inject_ms || 0),
+                total_ms: Number(payload && payload.total_ms || 0),
+                proxy_to_admin_ms: proxyTs > 0 ? Math.max(0, now - proxyTs) : 0,
+                waiting: !!remoteAssistPanelWaitingForRouteSnapshot,
+                pending_route: remoteAssistPanelPendingRoute,
+                current_route: getRemoteAssistSnapshotRoute(remoteAssistPanelLastSnapshot)
+            });
+            if (!remoteAssistPanelSessionId || remoteAssistPanelConsentStatus !== 'accepted') return;
+            if (!shouldRequestSnapshotForRemoteAssistProxyEvent(payload)) return;
+            if (remoteAssistPanelProxySnapshotRequestKey === requestKey
+                && (now - remoteAssistPanelProxySnapshotRequestAt) < REMOTE_ASSIST_PROXY_EVENT_SNAPSHOT_MIN_INTERVAL_MS) {
+                return;
+            }
+            if ((now - remoteAssistPanelProxySnapshotRequestAt) < REMOTE_ASSIST_PROXY_EVENT_SNAPSHOT_MIN_INTERVAL_MS) {
+                if (!remoteAssistPanelProxySnapshotTimer) {
+                    remoteAssistPanelProxySnapshotTimer = setTimeout(function() {
+                        remoteAssistPanelProxySnapshotTimer = null;
+                        requestRemoteAssistSnapshot('proxy_event');
+                    }, REMOTE_ASSIST_PROXY_EVENT_SNAPSHOT_MIN_INTERVAL_MS - (now - remoteAssistPanelProxySnapshotRequestAt));
+                }
+                return;
+            }
+            remoteAssistPanelProxySnapshotRequestKey = requestKey;
+            remoteAssistPanelProxySnapshotRequestAt = now;
+            clearRemoteAssistProxySnapshotTimer();
+            remoteAssistPanelProxySnapshotTimer = setTimeout(function() {
+                remoteAssistPanelProxySnapshotTimer = null;
+                requestRemoteAssistSnapshot('proxy_event');
+            }, REMOTE_ASSIST_PROXY_EVENT_SNAPSHOT_DELAY_MS);
+        }
+
         function reconnectRemoteAssistPanel() {
             const sessionId = String(remoteAssistPanelSessionId || '').trim();
             if (!sessionId) return;
             clearRemoteAssistReconnectTimer();
             clearRemoteAssistRouteSnapshotTimer();
+            clearRemoteAssistProxySnapshotTimer();
             stopRemoteAssistHeartbeat();
             remoteAssistPanelPendingRoute = '';
             remoteAssistPanelWaitingForRouteSnapshot = false;
@@ -12965,6 +13043,10 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                         renderRemoteAssistSnapshot(data.payload);
                         return;
                     }
+                    if (data.type === 'proxy_event' && data.payload) {
+                        handleRemoteAssistProxyEvent(data.payload);
+                        return;
+                    }
                     if (data.type === 'route_changed' && data.payload) {
                         const route = String(data.payload.route || '').trim();
                         const traceMeta = getRemoteAssistTraceMeta(data.payload);
@@ -13012,6 +13094,7 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                 if (remoteAssistPanelWs !== currentWs) return;
                 stopRemoteAssistHeartbeat();
                 clearRemoteAssistRouteSnapshotTimer();
+                clearRemoteAssistProxySnapshotTimer();
                 remoteAssistPanelWs = null;
                 setRemoteAssistLoading(true, '指导连接断开，正在重连');
                 setRemoteAssistMeta('指导连接断开，正在重连');
@@ -13097,6 +13180,7 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
             resetRemoteAssistPendingSnapshotRequest();
             clearRemoteAssistScrollRestoreTimer();
             clearRemoteAssistRouteSnapshotTimer();
+            clearRemoteAssistProxySnapshotTimer();
             updateRemoteAssistVoiceButton();
             panel.classList.add('open');
             overlay.style.display = getMobileLayoutMedia().matches ? 'none' : 'block';
@@ -13123,6 +13207,7 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
             resetRemoteAssistPendingSnapshotRequest();
             clearRemoteAssistScrollRestoreTimer();
             clearRemoteAssistRouteSnapshotTimer();
+            clearRemoteAssistProxySnapshotTimer();
             clearRemoteAssistReconnectTimer();
             stopRemoteAssistHeartbeat();
             if (remoteAssistPanelWs) {

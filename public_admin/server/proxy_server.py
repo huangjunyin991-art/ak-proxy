@@ -7618,6 +7618,8 @@ async def admin_websocket(websocket: WebSocket):
 _REMOTE_ASSIST_AUTO_UNBIND_DELAY_SECONDS = 5
 
 _remote_assist_unbind_tasks: dict[str, asyncio.Task] = {}
+_REMOTE_ASSIST_PROXY_EVENT_MIN_INTERVAL_MS = 600
+_remote_assist_proxy_event_last_sent: dict[str, int] = {}
 
 def _assist_session_has_connected_admin(session) -> bool:
 
@@ -7637,6 +7639,151 @@ def _assist_session_has_accepted_consent(session) -> bool:
         session
         and getattr(session, 'consent_status', AssistConsentStatus.ACCEPTED) == AssistConsentStatus.ACCEPTED
     )
+
+
+def _resolve_remote_assist_proxy_session(bs_id: str, browse_session: Optional[dict]):
+
+    if not bs_id or not browse_session or not remote_assist.is_enabled():
+
+        return None
+
+    tagged_role = str(browse_session.get('assist_role') or '').strip().lower()
+
+    if tagged_role == 'admin':
+
+        return None
+
+    tagged_session_id = str(browse_session.get('assist_session_id') or '').strip()
+
+    if tagged_session_id:
+
+        tagged_session = remote_assist.get_session(tagged_session_id)
+
+        if tagged_session and tagged_session.site_type == 'ak_web' and _assist_session_has_accepted_consent(tagged_session):
+
+            return tagged_session
+
+    browse_session_match = remote_assist.find_session_by_browse_session_id(bs_id)
+
+    if browse_session_match and browse_session_match.site_type == 'ak_web' and _assist_session_has_accepted_consent(browse_session_match):
+
+        return browse_session_match
+
+    return None
+
+
+def _should_publish_remote_assist_proxy_event(method: str, normalized_path: str, content_type: str, fetch_dest: str) -> bool:
+
+    if str(method or '').upper() not in {'GET', 'POST', 'PUT', 'DELETE'}:
+
+        return False
+
+    path_text = str(normalized_path or '').lower()
+
+    type_text = str(content_type or '').lower()
+
+    dest_text = str(fetch_dest or '').lower()
+
+    if 'text/html' in type_text:
+
+        return True
+
+    if 'application/json' in type_text or path_text.startswith('api/') or '/api/' in path_text:
+
+        return True
+
+    if path_text.startswith('rpc/') or '/rpc/' in path_text:
+
+        return True
+
+    return bool(dest_text in {'document', 'empty'} and ('json' in type_text or 'text/plain' in type_text))
+
+
+async def _publish_remote_assist_proxy_event(
+    *,
+    bs_id: str,
+    browse_session: Optional[dict],
+    method: str,
+    path: str,
+    normalized_path: str,
+    request_path: str,
+    target_url: str,
+    content_type: str,
+    fetch_dest: str,
+    status_code: int,
+    bytes_length: int,
+    upstream_ms: int,
+    rewrite_ms: int,
+    inject_ms: int,
+    total_ms: int,
+) -> None:
+
+    if not _should_publish_remote_assist_proxy_event(method, normalized_path, content_type, fetch_dest):
+
+        return
+
+    assist_session = _resolve_remote_assist_proxy_session(bs_id, browse_session)
+
+    if not assist_session:
+
+        return
+
+    now_ms = int(time.time() * 1000)
+
+    key = f"{assist_session.session_id}:{str(method or '').upper()}:{str(normalized_path or '').lower()}"
+
+    last_sent = int(_remote_assist_proxy_event_last_sent.get(key) or 0)
+
+    if now_ms - last_sent < _REMOTE_ASSIST_PROXY_EVENT_MIN_INTERVAL_MS:
+
+        return
+
+    _remote_assist_proxy_event_last_sent[key] = now_ms
+
+    await remote_assist.publish_event(
+        'proxy_event',
+        assist_session.session_id,
+        assist_session.site_type,
+        'ak_web_proxy',
+        {
+            'kind': 'response_ready',
+            'method': str(method or '').upper(),
+            'path': str(path or '').strip(),
+            'normalized_path': str(normalized_path or '').strip(),
+            'request_path': str(request_path or '').strip(),
+            'target_url': str(target_url or '').strip(),
+            'content_type': str(content_type or '').strip(),
+            'fetch_dest': str(fetch_dest or '').strip(),
+            'status': int(status_code or 0),
+            'bytes': int(bytes_length or 0),
+            'upstream_ms': int(upstream_ms or 0),
+            'rewrite_ms': int(rewrite_ms or 0),
+            'inject_ms': int(inject_ms or 0),
+            'total_ms': int(total_ms or 0),
+            'proxy_ts': now_ms,
+            'browse_session_id': str(bs_id or '').strip(),
+        },
+        include_roles={'admin'},
+    )
+
+
+def _schedule_remote_assist_proxy_event(**kwargs) -> None:
+
+    async def _publish_later():
+
+        try:
+
+            await _publish_remote_assist_proxy_event(**kwargs)
+
+        except Exception as proxy_event_error:
+
+            logger.warning(
+                f"[RemoteAssistProxyEvent] publish_failed "
+                f"path={str(kwargs.get('path') or '')} bs={str(kwargs.get('bs_id') or '-')}"
+                f" error={proxy_event_error}"
+            )
+
+    asyncio.create_task(_publish_later())
 
 
 def _build_remote_assist_session_state_payload(session, role: Optional[AssistRole] = None, readonly: Optional[bool] = None) -> dict:
@@ -8795,6 +8942,7 @@ async def remote_assist_websocket(websocket: WebSocket):
     site = (websocket.query_params.get('site') or 'ak_web').strip() or 'ak_web'
     readonly = (websocket.query_params.get('readonly') or '1').strip() != '0'
     role = AssistRole.ADMIN if role_name == 'admin' else AssistRole.USER
+    browse_session_id = (websocket.cookies.get(_BROWSE_SESSION_COOKIE) or '').strip()
     participant_id = f"{role.value}_{secrets.token_hex(8)}"
     logger.warning(
         f"[RemoteAssistWS] incoming client={websocket.client} session={session_id or '-'} "
@@ -8816,7 +8964,7 @@ async def remote_assist_websocket(websocket: WebSocket):
         participant_id=participant_id,
         readonly=readonly,
         capabilities=['route_sync', 'click_highlight', 'snapshot_replace', 'snapshot_request'],
-        client_meta={'site': site},
+        client_meta={'site': site, 'browse_session_id': browse_session_id},
     )
 
     if not session:
@@ -8831,6 +8979,8 @@ async def remote_assist_websocket(websocket: WebSocket):
             f"[RemoteAssistWS] connected session={session.session_id} role={role.value} "
             f"participant={participant_id} connection={connection_id}"
         )
+        if role == AssistRole.USER and browse_session_id:
+            session = remote_assist.attach_browse_session(session.session_id, browse_session_id) or session
         await websocket.send_json({
             'v': 1,
             'type': 'session_state',
@@ -11332,6 +11482,7 @@ async def admin_ak_test():
 
 async def _forward_admin_ak_rpc_request(path: str, request: Request, session: dict,
                                         referer: str = "", fetch_dest: str = "", accept: str = ""):
+    request_started_at = time.perf_counter()
     content_type = request.headers.get("content-type", "")
     raw_body = await request.body() if request.method in ["POST", "PUT"] else b""
     query_params = {k: v for k, v in dict(request.query_params).items() if k != "bs"}
@@ -11455,6 +11606,25 @@ async def _forward_admin_ak_rpc_request(path: str, request: Request, session: di
             _admin_ak_trace(lambda: f"[IframeLoginApi] route=/admin/ak-rpc/Login phase=response status={response.status_code} referer={referer} body_head={json.dumps(result, ensure_ascii=False)[:200]}")
         _admin_ak_trace(lambda: f"[AdminAkRpc/{path}] status={response.status_code} dest={fetch_dest} accept={accept} referer={referer} body_head={json.dumps(result, ensure_ascii=False)[:200]}")
         proxy_response = JSONResponse(content=result, status_code=response.status_code)
+        response_body = json.dumps(result, ensure_ascii=False).encode("utf-8")
+        total_ms = _elapsed_ms(request_started_at)
+        _schedule_remote_assist_proxy_event(
+            bs_id=str(session.get("id") or ""),
+            browse_session=session,
+            method=request.method,
+            path=path,
+            normalized_path=f"rpc/{normalized_path}",
+            request_path=str(request.url.path or ""),
+            target_url=f"/RPC/{path}",
+            content_type="application/json",
+            fetch_dest=fetch_dest,
+            status_code=response.status_code,
+            bytes_length=len(response_body),
+            upstream_ms=total_ms,
+            rewrite_ms=0,
+            inject_ms=0,
+            total_ms=total_ms,
+        )
         return _mirror_upstream_set_cookies(proxy_response, response.headers)
     except Exception:
         if set_cookie_values:
@@ -11462,6 +11632,24 @@ async def _forward_admin_ak_rpc_request(path: str, request: Request, session: di
         _admin_ak_trace(lambda: f"[AdminAkRpc/{path}] status={response.status_code} dest={fetch_dest} accept={accept} referer={referer} content_type={response.headers.get('content-type','')}")
         proxy_response = Response(content=response.content, status_code=response.status_code,
                         media_type=response.headers.get("content-type", "application/octet-stream"))
+        total_ms = _elapsed_ms(request_started_at)
+        _schedule_remote_assist_proxy_event(
+            bs_id=str(session.get("id") or ""),
+            browse_session=session,
+            method=request.method,
+            path=path,
+            normalized_path=f"rpc/{normalized_path}",
+            request_path=str(request.url.path or ""),
+            target_url=f"/RPC/{path}",
+            content_type=response.headers.get("content-type", "application/octet-stream"),
+            fetch_dest=fetch_dest,
+            status_code=response.status_code,
+            bytes_length=len(response.content or b""),
+            upstream_ms=total_ms,
+            rewrite_ms=0,
+            inject_ms=0,
+            total_ms=total_ms,
+        )
         return _mirror_upstream_set_cookies(proxy_response, response.headers)
 
 
@@ -12158,8 +12346,6 @@ async def ak_web_proxy(request: Request, path: str):
                         if active_session and active_session.site_type == 'ak_web':
                             assist_session = active_session
                             assist_role = tagged_assist_role
-                            if tagged_assist_role == 'admin':
-                                remote_assist.attach_browse_session(active_session.session_id, bs_id)
                     if assist_session and assist_role:
                         assist_script = remote_assist.build_bridge_script(
                             'ak_web',
@@ -12246,6 +12432,23 @@ async def ak_web_proxy(request: Request, path: str):
             f"total_ms={total_ms} status={resp.status_code} "
             f"content_type={content_type or '-'} bytes={len(content)} dest={fetch_dest or '-'}"
         ))
+        _schedule_remote_assist_proxy_event(
+            bs_id=bs_id,
+            browse_session=session,
+            method=request.method,
+            path=path,
+            normalized_path=normalized_path,
+            request_path=request_path,
+            target_url=target_url,
+            content_type=content_type,
+            fetch_dest=fetch_dest,
+            status_code=resp.status_code,
+            bytes_length=len(content),
+            upstream_ms=upstream_ms,
+            rewrite_ms=rewrite_ms,
+            inject_ms=inject_ms,
+            total_ms=total_ms,
+        )
         return response
     except Exception as e:
         if static_cache_lock:
