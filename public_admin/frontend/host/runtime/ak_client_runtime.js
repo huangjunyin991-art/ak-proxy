@@ -4331,12 +4331,22 @@
         }
     }
 
-    if (!isLoginRuntimePage()) {
-        if (document.readyState === 'loading') {
-            document.addEventListener('DOMContentLoaded', scheduleChatWidgetInit);
-        } else {
+    function scheduleChatWidgetInitWhenAllowed() {
+        if (!isLoginRuntimePage()) {
             scheduleChatWidgetInit();
+            return;
         }
+        var loginRouteTimer = setInterval(function() {
+            if (isLoginRuntimePage()) return;
+            clearInterval(loginRouteTimer);
+            scheduleChatWidgetInit();
+        }, 500);
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', scheduleChatWidgetInitWhenAllowed);
+    } else {
+        scheduleChatWidgetInitWhenAllowed();
     }
     
 })();

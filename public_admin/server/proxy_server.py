@@ -9485,6 +9485,19 @@ def _build_client_runtime_content() -> tuple[str, list[str]]:
     return "\n;\n".join(chunks), missing_required
 
 
+def _build_client_runtime_bootstrap_content() -> str:
+    chunks = []
+    bootstrap_names = {"api_url_rewriter", "request_interceptor"}
+    for module in _get_client_runtime_modules():
+        module_name = str(module.get("name") or "").strip()
+        module_path = str(module.get("path") or "")
+        if module_name not in bootstrap_names or not module_path or not os.path.exists(module_path):
+            continue
+        with open(module_path, "r", encoding="utf-8") as f:
+            chunks.append(f.read())
+    return "\n;\n".join(chunks)
+
+
 def _iter_widget_asset_paths() -> list[str]:
     return [
         __file__,
@@ -9603,6 +9616,7 @@ def _build_widget_loader_headers(asset_version: str) -> dict[str, str]:
 def _build_widget_loader_response() -> Response:
     asset_version = _get_widget_asset_version()
     bundle_url = _version_widget_asset_url("/ak/client-runtime.js", asset_version)
+    bootstrap_content = _build_client_runtime_bootstrap_content()
     loader = (
         "(function(){"
         "try{"
@@ -9613,18 +9627,22 @@ def _build_widget_loader_response() -> Response:
         + "if(window.__AKChatWidgetBundleRequested)return;"
         + "window.__AKChatWidgetBundleRequested=1;"
         + "var src=" + json.dumps(bundle_url, ensure_ascii=False) + ";"
-        + "if(document.currentScript&&document.readyState==='loading'&&typeof document.write==='function'){"
-        + "document.write('<script src=\"'+src+'\" data-ak-chat-widget-bundle=\"1\"><\\/script>');"
-        + "return;"
-        + "}"
         + "if(document.querySelector('script[data-ak-chat-widget-bundle=\"1\"]'))return;"
+        + "if(!window.__AKClientRuntimeNetworkBootstrapped){"
+        + "window.__AKClientRuntimeNetworkBootstrapped=1;"
+        + "var network=window.AKClientRuntimeNetwork;"
+        + "if(network&&typeof network.fixApiUrl==='function')network.fixApiUrl();"
+        + "if(network&&typeof network.interceptNetworkRequests==='function')network.interceptNetworkRequests();"
+        + "}"
         + "var script=document.createElement('script');"
         + "script.src=src;"
-        + "script.async=false;"
+        + "script.async=true;"
         + "script.dataset.akChatWidgetBundle='1';"
         + "(document.head||document.documentElement||document.body).appendChild(script);"
         + "}catch(_e){}})();"
     )
+    if bootstrap_content:
+        loader = bootstrap_content + "\n;\n" + loader
     return Response(
         content=loader,
         media_type="application/javascript",

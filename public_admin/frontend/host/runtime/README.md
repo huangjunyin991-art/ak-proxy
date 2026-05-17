@@ -187,6 +187,8 @@ public_admin/frontend/host/chat_widget.js
 <script src="/admin/api/ak-client-runtime-loader"></script>
 ```
 
+loader 会同步内联并启动 Network 小引导模块，确保 API URL 重写和请求拦截尽早生效；完整 `/ak/client-runtime.js` 通过动态 `script.async = true` 加载，避免在 `<head>` 阶段用 `document.write` 同步阻塞首屏渲染。
+
 旧路径继续保留兼容。
 
 ## 已完成：第五阶段模块化拆分
@@ -402,6 +404,8 @@ public_admin/frontend/host/runtime/
 原因：登录页只需要完成登录链路，不应初始化 Chat/Assist/Voice 主体，避免移动端登录页加载变慢。
 
 自动登录仍会短暂隐藏页面以避免表单闪烁，但隐藏样式必须在 800ms 内强制移除，并且在自动点击登录按钮前立即移除，避免登录请求或刷新过程卡住时出现长时间白屏。
+
+如果登录页在同一文档内跳转到 `/pages/home.html`，运行时会检测到已离开 `/login` 并补启动 Chat/IM 主体，避免首页 IM 按钮缺失。
 
 ### 仅首页执行
 
