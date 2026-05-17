@@ -1932,9 +1932,8 @@
             const normalizedReason = String(reason || '').toLowerCase();
             if (normalizedReason === 'snapshot_request' || normalizedReason === 'route_settled_request') return false;
             if (normalizedReason === 'scroll_viewport') {
-                return !!assistLastSnapshotPayload
-                    && !!assistLastSnapshotPayload.truncated
-                    && (Date.now() - assistLastSnapshotSentAt) >= ASSIST_SCROLL_VIEWPORT_SNAPSHOT_MIN_INTERVAL_MS;
+                if ((Date.now() - assistLastSnapshotSentAt) < ASSIST_SCROLL_VIEWPORT_SNAPSHOT_MIN_INTERVAL_MS) return false;
+                return isAssistViewportModeEligible() || !!(assistLastSnapshotPayload && assistLastSnapshotPayload.truncated);
             }
             if (isAssistViewportModeEligible()) return true;
             if (!assistLastSnapshotPayload || !assistLastSnapshotPayload.truncated) return false;
@@ -2859,6 +2858,16 @@
         return !!assistScrollTimer;
     }
 
+    function shouldEmitAssistScrollViewportSnapshot() {
+        try {
+            if (!assistSessionId || !isAssistManagedRoute()) return false;
+            if ((Date.now() - assistLastSnapshotSentAt) < ASSIST_SCROLL_VIEWPORT_SNAPSHOT_MIN_INTERVAL_MS) return false;
+            return isAssistViewportModeEligible() || !!(assistLastSnapshotPayload && assistLastSnapshotPayload.truncated);
+        } catch (e) {
+            return false;
+        }
+    }
+
     function scheduleAssistScroll(delay) {
         if (!assistSessionId) return;
         clearAssistScrollTimer();
@@ -2866,7 +2875,14 @@
         assistScrollTimer = setTimeout(function() {
             assistScrollTimer = null;
             refreshAssistScrollTarget('scroll_settled_sync', false);
-            emitAssistScroll(true);
+            const scrollSent = emitAssistScroll(true);
+            if (scrollSent && shouldEmitAssistScrollViewportSnapshot()) {
+                markAssistSnapshotTrigger('scroll_viewport', {
+                    source: 'scroll_settled_sync',
+                    scheduled_delay_ms: nextDelay
+                });
+                emitAssistSnapshot('scroll_viewport');
+            }
         }, nextDelay);
     }
 
