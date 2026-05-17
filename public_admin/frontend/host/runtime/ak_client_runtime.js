@@ -2850,11 +2850,6 @@
             assistScrollTimer = null;
             refreshAssistScrollTarget('scroll_settled_sync', false);
             emitAssistScroll(true);
-            markAssistSnapshotTrigger('scroll_settled', {
-                source: 'scroll_settled_sync',
-                scheduled_delay_ms: nextDelay
-            });
-            emitAssistSnapshot('scroll_settled');
         }, nextDelay);
     }
 
@@ -3062,7 +3057,7 @@
         if (!assistWs || assistWs.readyState !== WebSocket.OPEN || !assistSessionId) return;
         if (!isAssistFormFieldTarget(target) || isAssistWidgetTarget(target)) return;
         if (!isAssistManagedRoute()) return;
-        scheduleAssistSnapshot(120, 'form_input');
+        scheduleAssistSnapshot(350, 'form_input');
     }
 
     function pickAssistMeta(target) {
@@ -3627,9 +3622,6 @@
         if (isAssistWidgetTarget(target)) return;
         if (!isAssistManagedRoute()) return;
         sendAssistEvent('click_highlight', pickAssistMeta(target));
-        if (!isAssistFormFieldTarget(target)) {
-            scheduleAssistSnapshot(100, 'click_interaction');
-        }
     }, true);
     document.addEventListener('input', handleAssistFormValueChange, true);
     document.addEventListener('change', handleAssistFormValueChange, true);
