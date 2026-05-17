@@ -4230,7 +4230,8 @@
             const params = new URL(window.location.href).searchParams;
             if (params.get('ak_im_open') !== '1') return null;
             return {
-                tab: normalizeHomeTab(params.get('ak_im_tab'))
+                tab: normalizeHomeTab(params.get('ak_im_tab')),
+                conversationId: Math.max(0, Number(params.get('conversation_id') || 0) || 0)
             };
         } catch (e) {
             return null;
@@ -4247,6 +4248,10 @@
         closeHomeAddMenu({ silent: true });
         ensureHomeTabData(state.homeTab);
         clearInitialOpenRequestURL();
+        if (openRequest.conversationId > 0) {
+            openConversationById(openRequest.conversationId);
+            return true;
+        }
         render();
         return true;
     }
@@ -4254,9 +4259,10 @@
     function clearInitialOpenRequestURL() {
         try {
             const url = new URL(window.location.href);
-            if (!url.searchParams.has('ak_im_open') && !url.searchParams.has('ak_im_tab')) return;
+            if (!url.searchParams.has('ak_im_open') && !url.searchParams.has('ak_im_tab') && !url.searchParams.has('conversation_id')) return;
             url.searchParams.delete('ak_im_open');
             url.searchParams.delete('ak_im_tab');
+            url.searchParams.delete('conversation_id');
             const nextURL = url.pathname + (url.search || '') + url.hash;
             window.history.replaceState(window.history.state, document.title, nextURL);
         } catch (e) {}

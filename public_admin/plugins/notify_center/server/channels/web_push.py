@@ -1,0 +1,74 @@
+from __future__ import annotations
+
+import asyncio
+import json
+from typing import Any
+
+from ..config import NotifyCenterConfig
+from .base import ChannelSendResult
+
+try:
+    from pywebpush import webpush
+    _WEB_PUSH_IMPORT_ERROR = None
+except Exception as e:
+    webpush = None
+    _WEB_PUSH_IMPORT_ERROR = e
+
+
+class WebPushChannel:
+    def __init__(self, config: NotifyCenterConfig):
+        self._config = config
+
+    async def send(self, *, subscription: dict[str, Any], payload: dict[str, Any]) -> ChannelSendResult:
+        if not self._config.is_web_push_ready():
+            return ChannelSendResult(success=False, error='Web Push 通道未启用或 VAPID 未配置')
+        if webpush is None:
+            return ChannelSendResult(success=False, error=f'pywebpush 不可用: {_WEB_PUSH_IMPORT_ERROR}')
+        endpoint = str(subscription.get('endpoint') or '').strip()
+        p256dh = str(subscription.get('p256dh') or '').strip()
+        auth = str(subscription.get('auth') or '').strip()
+        if not endpoint or not p256dh or not auth:
+            return ChannelSendResult(success=False, error='Push subscription 不完整', subscription_expired=True)
+        subscription_info = {
+            'endpoint': endpoint,
+            'keys': {
+                'p256dh': p256dh,
+                'auth': auth,
+            },
+        }
+        data = json.dumps(payload or {}, ensure_ascii=False, separators=(',', ':'))
+        try:
+            response = await asyncio.wait_for(
+                asyncio.to_thread(
+                    webpush,
+                    subscription_info=subscription_info,
+                    data=data,
+                    vapid_private_key=self._config.vapid_private_key,
+                    vapid_claims={'sub': self._config.vapid_subject},
+                    ttl=self._config.web_push_ttl_seconds,
+                ),
+                timeout=max(1, int(self._config.web_push_timeout_seconds or 8)),
+            )
+        except Exception as exc:
+            expired = False
+            status_code = 0
+            response = getattr(exc, 'response', None)
+            if response is not None:
+                status_code = int(getattr(response, 'status_code', 0) or 0)
+                expired = status_code in {404, 410}
+            return ChannelSendResult(
+                success=False,
+                error=str(exc),
+                subscription_expired=expired,
+                raw={'status_code': status_code},
+            )
+        status_code = int(getattr(response, 'status_code', 201) or 201)
+        success = 200 <= status_code < 300
+        return ChannelSendResult(
+            success=success,
+            provider_message_id=str(getattr(response, 'headers', {}).get('Location') or ''),
+            provider_record_id=str(status_code),
+            error='' if success else f'Web Push HTTP {status_code}',
+            subscription_expired=status_code in {404, 410},
+            raw={'status_code': status_code},
+        )

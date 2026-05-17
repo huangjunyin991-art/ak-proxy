@@ -281,21 +281,21 @@ from plugins.notification.server.notification_router import create_notification_
 from plugins.notification.server.notification_service import NotificationService
 
 try:
-    from plugins.wechat_notify.server.channels.wxpusher import WxPusherChannel
-    from plugins.wechat_notify.server.config import WechatNotifyConfig
-    from plugins.wechat_notify.server.outbox_worker import WechatNotifyOutboxWorker
-    from plugins.wechat_notify.server.repository import WechatNotifyRepository
-    from plugins.wechat_notify.server.router import create_wechat_notify_router
-    from plugins.wechat_notify.server.service import WechatNotifyService
-    _WECHAT_NOTIFY_IMPORT_ERROR = None
+    from plugins.notify_center.server.channels.web_push import WebPushChannel
+    from plugins.notify_center.server.config import NotifyCenterConfig
+    from plugins.notify_center.server.outbox_worker import NotifyCenterOutboxWorker
+    from plugins.notify_center.server.repository import NotifyCenterRepository
+    from plugins.notify_center.server.router import create_notify_center_router
+    from plugins.notify_center.server.service import NotifyCenterService
+    _NOTIFY_CENTER_IMPORT_ERROR = None
 except Exception as e:
-    WxPusherChannel = None
-    WechatNotifyConfig = None
-    WechatNotifyOutboxWorker = None
-    WechatNotifyRepository = None
-    WechatNotifyService = None
-    create_wechat_notify_router = None
-    _WECHAT_NOTIFY_IMPORT_ERROR = e
+    WebPushChannel = None
+    NotifyCenterConfig = None
+    NotifyCenterOutboxWorker = None
+    NotifyCenterRepository = None
+    NotifyCenterService = None
+    create_notify_center_router = None
+    _NOTIFY_CENTER_IMPORT_ERROR = e
 
 try:
     from .monitoring import create_monitoring_router
@@ -3656,31 +3656,31 @@ notification_service = NotificationService(
     online_users_supplier=online_manager.get_online_users,
 )
 
-wechat_notify_service = None
-wechat_notify_worker = None
+notify_center_service = None
+notify_center_worker = None
 if (
-    WechatNotifyConfig is not None
-    and WechatNotifyRepository is not None
-    and WxPusherChannel is not None
-    and WechatNotifyService is not None
-    and WechatNotifyOutboxWorker is not None
+    NotifyCenterConfig is not None
+    and NotifyCenterRepository is not None
+    and WebPushChannel is not None
+    and NotifyCenterService is not None
+    and NotifyCenterOutboxWorker is not None
 ):
     try:
-        _wechat_notify_config = WechatNotifyConfig.from_env()
-        _wechat_notify_repository = WechatNotifyRepository(db._get_pool)
-        _wechat_notify_channel = WxPusherChannel(_wechat_notify_config)
-        wechat_notify_service = WechatNotifyService(
-            config=_wechat_notify_config,
-            repository=_wechat_notify_repository,
-            channel=_wechat_notify_channel,
+        _notify_center_config = NotifyCenterConfig.from_env()
+        _notify_center_repository = NotifyCenterRepository(db._get_pool)
+        _notify_center_web_push_channel = WebPushChannel(_notify_center_config)
+        notify_center_service = NotifyCenterService(
+            config=_notify_center_config,
+            repository=_notify_center_repository,
+            web_push_channel=_notify_center_web_push_channel,
         )
-        wechat_notify_worker = WechatNotifyOutboxWorker(service=wechat_notify_service, logger=logger)
+        notify_center_worker = NotifyCenterOutboxWorker(service=notify_center_service, logger=logger)
     except Exception as e:
-        wechat_notify_service = None
-        wechat_notify_worker = None
-        logger.warning(f"[WechatNotify] 初始化失败，已跳过: {e}")
-elif _WECHAT_NOTIFY_IMPORT_ERROR is not None:
-    logger.warning(f"[WechatNotify] 模块不可用，已跳过: {_WECHAT_NOTIFY_IMPORT_ERROR}")
+        notify_center_service = None
+        notify_center_worker = None
+        logger.warning(f"[NotifyCenter] 初始化失败，已跳过: {e}")
+elif _NOTIFY_CENTER_IMPORT_ERROR is not None:
+    logger.warning(f"[NotifyCenter] 模块不可用，已跳过: {_NOTIFY_CENTER_IMPORT_ERROR}")
 
 if operation_auth_service is not None and operation_scope_resolver is not None and OperationAuthMiddleware is not None:
     app.add_middleware(
@@ -3708,14 +3708,14 @@ app.include_router(create_notification_router(
     get_token_sub_name=get_token_sub_name,
 ))
 
-if wechat_notify_service is not None and create_wechat_notify_router is not None:
+if notify_center_service is not None and create_notify_center_router is not None:
     try:
-        app.include_router(create_wechat_notify_router(
-            service=wechat_notify_service,
+        app.include_router(create_notify_center_router(
+            service=notify_center_service,
             verify_admin_token=verify_admin_token,
         ))
     except Exception as e:
-        logger.warning(f"[WechatNotify] 路由注册失败，已跳过: {e}")
+        logger.warning(f"[NotifyCenter] 路由注册失败，已跳过: {e}")
 
 if create_monitoring_router is not None:
     try:
@@ -3771,14 +3771,14 @@ async def admin_startup():
 
         raise
 
-    if wechat_notify_service is not None:
+    if notify_center_service is not None:
         try:
-            await wechat_notify_service.ensure_schema()
-            if wechat_notify_worker is not None:
-                await wechat_notify_worker.start()
-            logger.info("[WechatNotify] 微信提醒模块已初始化")
+            await notify_center_service.ensure_schema()
+            if notify_center_worker is not None:
+                await notify_center_worker.start()
+            logger.info("[NotifyCenter] 通知中心已初始化")
         except Exception as e:
-            logger.warning(f"[WechatNotify] 初始化数据表或启动 worker 失败，已跳过: {e}")
+            logger.warning(f"[NotifyCenter] 初始化数据表或启动 worker 失败，已跳过: {e}")
 
     if ENABLE_LOCAL_BAN:
 
@@ -3904,8 +3904,8 @@ async def admin_shutdown():
 
     await _user_asset_persist_queue.stop()
 
-    if wechat_notify_worker is not None:
-        await wechat_notify_worker.stop()
+    if notify_center_worker is not None:
+        await notify_center_worker.stop()
 
     await _ak_web_client_pool.close_all()
 
@@ -10552,6 +10552,12 @@ async def pwa_manifest():
     return Response(content="{}", media_type="application/manifest+json")
 
 
+def _build_notify_center_sw_content(base_content: str = "") -> str:
+    push_content = "self.addEventListener('install',function(){if(self.skipWaiting){self.skipWaiting();}});self.addEventListener('activate',function(event){if(event&&event.waitUntil&&self.clients&&self.clients.claim){event.waitUntil(self.clients.claim());}});self.addEventListener('push',function(event){var payload={};try{payload=event.data?event.data.json():{};}catch(e){payload={body:event.data?event.data.text():''};}var title=payload.title||'有新消息';var options={body:payload.body||'点击查看',icon:'/admin/api/pwa-icon/192',badge:'/admin/api/pwa-icon/192',tag:payload.tag||'ak-notify',renotify:true,data:{url:payload.url||'/',event_id:payload.data&&payload.data.event_id||'',conversation_id:payload.data&&payload.data.conversation_id||0}};if(event&&event.waitUntil&&self.registration&&self.registration.showNotification){event.waitUntil(self.registration.showNotification(title,options));}});self.addEventListener('notificationclick',function(event){if(event.notification){event.notification.close();}var target=((event.notification&&event.notification.data&&event.notification.data.url)||'/');var targetUrl;try{targetUrl=new URL(target,self.location.origin).href;}catch(e){targetUrl=self.location.origin+'/';}if(!event.waitUntil||!self.clients){return;}event.waitUntil(self.clients.matchAll({type:'window',includeUncontrolled:true}).then(function(list){for(var i=0;i<list.length;i++){var client=list[i];try{if(client.url&&new URL(client.url).origin===self.location.origin){if(client.focus){client.focus();}if(client.navigate){return client.navigate(targetUrl);}return;}}catch(e){}}if(self.clients.openWindow){return self.clients.openWindow(targetUrl);}}));});"
+    content = str(base_content or '').strip()
+    return f"{content}\n;\n{push_content}" if content else push_content
+
+
 
 @app.get("/sw.js")
 
@@ -10563,11 +10569,19 @@ async def pwa_sw():
 
         with open(path, "r", encoding="utf-8") as f:
 
-            return Response(content=f.read(), media_type="application/javascript",
+            return Response(content=_build_notify_center_sw_content(f.read()), media_type="application/javascript",
 
                           headers={"Service-Worker-Allowed": "/"})
 
-    return Response(content="// not found", media_type="application/javascript")
+    return Response(
+
+        content=_build_notify_center_sw_content(),
+
+        media_type="application/javascript",
+
+        headers={"Service-Worker-Allowed": "/"},
+
+    )
 
 
 
@@ -10583,13 +10597,13 @@ async def pwa_sw_api():
 
         with open(path, "r", encoding="utf-8") as f:
 
-            return Response(content=f.read(), media_type="application/javascript",
+            return Response(content=_build_notify_center_sw_content(f.read()), media_type="application/javascript",
 
                           headers={"Service-Worker-Allowed": "/"})
 
     return Response(
 
-        content="self.addEventListener('install',function(){if(self.skipWaiting){self.skipWaiting();}});self.addEventListener('activate',function(event){if(event&&event.waitUntil&&self.clients&&self.clients.claim){event.waitUntil(self.clients.claim());}});",
+        content=_build_notify_center_sw_content(),
 
         media_type="application/javascript",
 

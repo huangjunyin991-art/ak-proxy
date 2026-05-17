@@ -37,6 +37,21 @@
       "required": false
     },
     {
+      "name": "push_permission",
+      "path": "push/push_permission.js",
+      "required": false
+    },
+    {
+      "name": "push_subscription",
+      "path": "push/push_subscription.js",
+      "required": false
+    },
+    {
+      "name": "push_client",
+      "path": "push/push_client.js",
+      "required": false
+    },
+    {
       "name": "im_loader",
       "path": "im/im_loader.js",
       "required": false

@@ -3,13 +3,13 @@ from __future__ import annotations
 import asyncio
 import logging
 
-from .service import WechatNotifyService
+from .service import NotifyCenterService
 
 
-class WechatNotifyOutboxWorker:
-    def __init__(self, *, service: WechatNotifyService, logger: logging.Logger | None = None):
+class NotifyCenterOutboxWorker:
+    def __init__(self, *, service: NotifyCenterService, logger: logging.Logger | None = None):
         self._service = service
-        self._logger = logger or logging.getLogger('WechatNotify')
+        self._logger = logger or logging.getLogger('NotifyCenter')
         self._task: asyncio.Task | None = None
         self._stopped = asyncio.Event()
 
@@ -32,16 +32,16 @@ class WechatNotifyOutboxWorker:
             self._task = None
 
     async def _run(self) -> None:
-        interval = max(2, int(self._service.config.worker_interval_seconds or 10))
+        interval = max(2, int(self._service.config.worker_interval_seconds or 5))
         while not self._stopped.is_set():
             try:
                 result = await self._service.flush_outbox_once()
                 if result.get('claimed'):
-                    self._logger.info('[WechatNotify] outbox claimed=%s sent=%s failed=%s', result.get('claimed'), result.get('sent'), result.get('failed'))
+                    self._logger.info('[NotifyCenter] outbox claimed=%s sent=%s failed=%s expired=%s', result.get('claimed'), result.get('sent'), result.get('failed'), result.get('expired'))
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
-                self._logger.warning('[WechatNotify] outbox worker failed: %s', exc)
+                self._logger.warning('[NotifyCenter] outbox worker failed: %s', exc)
             try:
                 await asyncio.wait_for(self._stopped.wait(), timeout=interval)
             except asyncio.TimeoutError:

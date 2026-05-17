@@ -14,19 +14,21 @@ def build_notification_title(event: dict[str, Any]) -> str:
     return f'{sender_name or "有人"} 向您发送了新消息'
 
 
-def build_notification_content(event: dict[str, Any]) -> str:
-    title = build_notification_title(event)
-    sent_at = normalize_text(event.get('sent_at'), 40)
-    sender_name = normalize_text(event.get('sender_display_name') or event.get('sender_username'), 40)
-    message_type = normalize_message_type(event.get('message_type'))
-    lines = [title]
-    if sender_name:
-        lines.append(f'发送人：{sender_name}')
-    if message_type:
-        lines.append(f'消息类型：{message_type}')
-    if sent_at:
-        lines.append(f'时间：{sent_at}')
-    return '<br/>'.join(lines)
+def build_notification_body(event: dict[str, Any], *, show_preview: bool = False) -> str:
+    if show_preview:
+        preview = normalize_text(event.get('message_preview') or event.get('content') or '', 80)
+        if preview:
+            return preview
+    return '点击查看'
+
+
+def build_notification_url(event: dict[str, Any], public_base_url: str = '') -> str:
+    conversation_id = int(event.get('conversation_id') or 0)
+    path = '/?ak_im_open=1'
+    if conversation_id > 0:
+        path = f'/?ak_im_open=1&conversation_id={conversation_id}'
+    base = str(public_base_url or '').strip().rstrip('/')
+    return f'{base}{path}' if base else path
 
 
 def build_recipient_usernames(event: dict[str, Any]) -> list[str]:
@@ -40,17 +42,3 @@ def build_recipient_usernames(event: dict[str, Any]) -> list[str]:
         seen.add(username)
         recipients.append(username)
     return recipients
-
-
-def normalize_message_type(value: Any) -> str:
-    message_type = str(value or '').strip().lower()
-    labels = {
-        'text': '文本',
-        'image': '图片',
-        'voice': '语音',
-        'file': '文件',
-        'video': '视频',
-        'location': '位置',
-        'emoji_custom': '表情',
-    }
-    return labels.get(message_type, '消息')

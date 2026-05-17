@@ -159,6 +159,16 @@
         } catch(e) {
         }
     }
+
+    function bootWebPushFeature() {
+        try {
+            var push = window.AKClientRuntimePush;
+            if (push && typeof push.setupWebPush === 'function') {
+                push.setupWebPush();
+            }
+        } catch(e) {
+        }
+    }
     
     // 持久化登录：尽早隐藏登录页并自动登录
     installRuntimeContext();
@@ -176,6 +186,7 @@
     setTimeout(fixApiUrl, 3000);
     if (isPluginBootPage()) {
         scheduleDeferredStartup(bootPWAFeature, 1800);
+        scheduleDeferredStartup(bootWebPushFeature, 2600);
     }
     
     // ===== 以下是聊天组件代码，需要等待 DOM 准备好 =====

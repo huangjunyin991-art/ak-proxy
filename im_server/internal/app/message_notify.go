@@ -31,14 +31,14 @@ type MessageNotifyPublisher struct {
 }
 
 func NewMessageNotifyPublisher(cfg config.Config) *MessageNotifyPublisher {
-	webhookURL := strings.TrimSpace(cfg.WechatNotifyWebhookURL)
-	secret := strings.TrimSpace(cfg.WechatNotifyWebhookSecret)
-	timeoutMS := cfg.WechatNotifyTimeoutMS
+	webhookURL := strings.TrimSpace(cfg.NotifyCenterWebhookURL)
+	secret := strings.TrimSpace(cfg.NotifyCenterWebhookSecret)
+	timeoutMS := cfg.NotifyCenterTimeoutMS
 	if timeoutMS <= 0 {
 		timeoutMS = 1500
 	}
 	publisher := &MessageNotifyPublisher{
-		enabled:    cfg.WechatNotifyEnabled && webhookURL != "" && secret != "",
+		enabled:    cfg.NotifyCenterEnabled && webhookURL != "" && secret != "",
 		webhookURL: webhookURL,
 		secret:     secret,
 		client:     &http.Client{Timeout: time.Duration(timeoutMS) * time.Millisecond},
@@ -59,7 +59,7 @@ func (p *MessageNotifyPublisher) Publish(ctx context.Context, payload map[string
 	_ = ctx
 	body, err := json.Marshal(payload)
 	if err != nil {
-		log.Printf("im wechat notify marshal failed: %v", err)
+		log.Printf("im notify center marshal failed: %v", err)
 		return
 	}
 	p.mu.Lock()
@@ -70,7 +70,7 @@ func (p *MessageNotifyPublisher) Publish(ctx context.Context, payload map[string
 	select {
 	case p.queue <- body:
 	default:
-		log.Printf("im wechat notify queue full, dropped")
+		log.Printf("im notify center queue full, dropped")
 	}
 }
 
@@ -91,7 +91,7 @@ func (p *MessageNotifyPublisher) Close() {
 		select {
 		case <-finished:
 		case <-time.After(3 * time.Second):
-			log.Printf("im wechat notify publisher close timeout")
+			log.Printf("im notify center publisher close timeout")
 		}
 	})
 }
@@ -114,7 +114,7 @@ func (p *MessageNotifyPublisher) post(body []byte) {
 	signature := p.sign(timestamp, nonce, body)
 	req, err := http.NewRequest(http.MethodPost, p.webhookURL, bytes.NewReader(body))
 	if err != nil {
-		log.Printf("im wechat notify request build failed: %v", err)
+		log.Printf("im notify center request build failed: %v", err)
 		return
 	}
 	req.Header.Set("Content-Type", "application/json")
@@ -123,12 +123,12 @@ func (p *MessageNotifyPublisher) post(body []byte) {
 	req.Header.Set("X-Notify-Signature", signature)
 	resp, err := p.client.Do(req)
 	if err != nil {
-		log.Printf("im wechat notify post failed: %v", err)
+		log.Printf("im notify center post failed: %v", err)
 		return
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		log.Printf("im wechat notify post status=%d", resp.StatusCode)
+		log.Printf("im notify center post status=%d", resp.StatusCode)
 	}
 }
 
@@ -153,12 +153,12 @@ func (a *App) notifyMessageCreated(ctx context.Context, item MessageItem) {
 	}
 	meta, err := a.loadConversationMeta(ctx, item.ConversationID)
 	if err != nil {
-		log.Printf("im wechat notify load conversation meta failed: conversation_id=%d err=%v", item.ConversationID, err)
+		log.Printf("im notify center load conversation meta failed: conversation_id=%d err=%v", item.ConversationID, err)
 		return
 	}
 	members, err := a.listConversationMembers(ctx, item.ConversationID)
 	if err != nil {
-		log.Printf("im wechat notify load members failed: conversation_id=%d err=%v", item.ConversationID, err)
+		log.Printf("im notify center load members failed: conversation_id=%d err=%v", item.ConversationID, err)
 		return
 	}
 	sender := strings.ToLower(strings.TrimSpace(item.SenderUsername))
