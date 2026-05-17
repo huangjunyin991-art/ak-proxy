@@ -3445,10 +3445,22 @@ class OnlineUserManager:
         user = self._prune_stale_connections(normalized)
         if not user:
             return None
-        candidate = self._pick_primary_connection(user, prefer_non_login=True)
-        if not candidate or self.is_login_page(candidate.get('page')):
+        connections = list((user.get('connections') or {}).values())
+        now = datetime.now()
+        candidates = [
+            item for item in connections
+            if self._is_connection_active(item, now) and not self.is_login_page(item.get('page'))
+        ]
+        if not candidates:
             return None
-        return candidate
+
+        def _score(item):
+            has_page = 1 if str(item.get('page') or '').strip() else 0
+            heartbeat = item.get('last_heartbeat')
+            heartbeat_ts = heartbeat.timestamp() if isinstance(heartbeat, datetime) else 0
+            return (has_page, heartbeat_ts)
+
+        return max(candidates, key=_score)
 
     async def user_online(self, username, websocket, page, user_agent, page_client_id=''):
         normalized = self.normalize_username(username)

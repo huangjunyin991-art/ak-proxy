@@ -3381,7 +3381,7 @@
         presenceBlurTimer = setTimeout(function() {
             presenceBlurTimer = null;
             if (hasForegroundProtectedRealtimeSession()) return;
-            if (typeof document.hasFocus === 'function' && document.hasFocus()) return;
+            if (!document.hidden) return;
             suspendPresence(reason || 'window:blur');
         }, 1200);
     }
