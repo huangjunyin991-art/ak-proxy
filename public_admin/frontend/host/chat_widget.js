@@ -602,9 +602,6 @@
     let assistRouteSettleUntil = 0;
     let assistRouteSettleRoute = '';
     let assistRouteSettleNeedsFreshSnapshot = false;
-    let isOpen = false;
-    let hasNewMessage = false;
-    let messageCount = 0;
     let username = 'visitor';
     let heartbeatTimer = null;
     let reconnectTimer = null;
@@ -729,10 +726,6 @@
     }
 
     function logChatWsDebug(eventName, extra) {
-        return;
-    }
-
-    function reportAssistClientDebug(eventName, extra) {
         return;
     }
 
@@ -1691,12 +1684,6 @@
         } catch (e) {
             return false;
         }
-    }
-
-    async function hangupRemoteVoice() {
-        if (!remoteVoiceSessionId) return false;
-        await stopRemoteVoiceClient(true, 'user_hangup', true);
-        return true;
     }
 
     async function handleRemoteVoiceBind(payload) {
@@ -3706,7 +3693,7 @@
         const nextDelay = typeof delay === 'number' ? delay : ASSIST_SCROLL_SETTLE_DELAY;
         assistScrollTimer = setTimeout(function() {
             assistScrollTimer = null;
-            const settledTarget = refreshAssistScrollTarget('scroll_settled_sync', false);
+            refreshAssistScrollTarget('scroll_settled_sync', false);
             emitAssistScroll(true);
             markAssistSnapshotTrigger('scroll_settled', {
                 source: 'scroll_settled_sync',
@@ -4346,13 +4333,11 @@
         if (chatBox) {
             chatBox.classList.add('visible');
         }
-        isOpen = true;
     }
     
     // 关闭聊天窗口
     function closeChat() {
         chatBox.classList.remove('visible');
-        isOpen = false;
     }
     
     // 发送消息
