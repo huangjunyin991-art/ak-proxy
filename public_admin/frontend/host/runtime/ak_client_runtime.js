@@ -1930,6 +1930,7 @@
     function shouldUseAssistViewportSnapshot(reason) {
         try {
             const normalizedReason = String(reason || '').toLowerCase();
+            if (normalizedReason === 'snapshot_request' || normalizedReason === 'route_settled_request') return false;
             if (normalizedReason === 'scroll_viewport') {
                 return !!assistLastSnapshotPayload
                     && !!assistLastSnapshotPayload.truncated
@@ -2897,6 +2898,7 @@
             && assistLastSnapshotPayload
             && assistLastSnapshotPayload.route === route
             && !isAssistRouteSettling(route)
+            && !assistLastSnapshotPayload.truncated
             && (now - assistLastSnapshotSentAt) < 3000) {
             const cachedBuildTs = Date.now();
             snapshotTraceMeta.user_snapshot_build_start_ts = cachedBuildTs;
