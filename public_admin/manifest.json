@@ -1,0 +1,36 @@
+{
+  "name": "AK Proxy",
+  "short_name": "AK",
+  "description": "AK Proxy IM",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#0a0e1a",
+  "gcm_sender_id": "103953800507",
+  "icons": [
+    {
+      "src": "/admin/api/pwa-icon/192",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/admin/api/pwa-icon/512",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/admin/api/pwa-icon-maskable/192",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/admin/api/pwa-icon-maskable/512",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}
