@@ -187,7 +187,7 @@ public_admin/frontend/host/chat_widget.js
 <script src="/admin/api/ak-client-runtime-loader"></script>
 ```
 
-loader 会同步内联并启动 Network 小引导模块，确保 API URL 重写和请求拦截尽早生效；完整 `/ak/client-runtime.js` 通过动态 `script.async = true` 加载，避免在 `<head>` 阶段用 `document.write` 同步阻塞首屏渲染。
+loader 会同步内联并启动 Network 小引导模块，确保 API URL 重写和请求拦截尽早生效；完整 `/ak/client-runtime.js` 通过动态 script 加载，不再用 `document.write` 同步阻塞首屏渲染。完整 runtime 的动态脚本保持 `async = false`，避免 ChatWS 在线状态、首页 IM 等运行时主体出现无序启动。
 
 旧路径继续保留兼容。
 
