@@ -34,6 +34,18 @@ class NotifyCenterService:
             'public_key': self.config.vapid_public_key if self.config.enabled else '',
         }
 
+    async def get_user_web_push_diagnostics(self, username: str) -> dict[str, Any]:
+        normalized_username = normalize_username(username)
+        if not normalized_username:
+            raise ValueError('未识别当前用户')
+        data = await self.repository.get_user_push_diagnostics(normalized_username)
+        return {
+            'username': normalized_username,
+            'enabled': self.config.enabled,
+            'web_push_ready': self.config.is_web_push_ready(),
+            **data,
+        }
+
     async def upsert_web_push_subscription(self, *, username: str, subscription: dict[str, Any], user_agent: str, platform: str) -> dict[str, Any]:
         normalized_username = normalize_username(username)
         if not normalized_username:

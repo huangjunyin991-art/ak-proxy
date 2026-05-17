@@ -145,6 +145,34 @@ class NotifyCenterRepository:
             result.setdefault(str(item.get('username') or '').lower(), []).append(item)
         return result
 
+    async def get_user_push_diagnostics(self, username: str, *, limit: int = 10) -> dict[str, Any]:
+        normalized = str(username or '').strip().lower()
+        if not normalized:
+            return {'active_subscription_count': 0, 'subscriptions': [], 'recent_outbox': []}
+        pool = self._pool_supplier()
+        async with pool.acquire() as conn:
+            subscription_rows = await conn.fetch('''
+                SELECT id, username, endpoint_hash, user_agent, platform, enabled, created_at, updated_at, last_seen_at, disabled_at
+                FROM notify_push_subscriptions
+                WHERE username = $1
+                ORDER BY updated_at DESC, id DESC
+                LIMIT $2
+            ''', normalized, max(1, int(limit or 10)))
+            outbox_rows = await conn.fetch('''
+                SELECT id, event_id, channel, recipient_username, subscription_id, conversation_id, status, attempt_count, max_attempts, next_retry_at, last_error, provider_record_id, created_at, updated_at, sent_at
+                FROM notify_outbox
+                WHERE recipient_username = $1
+                ORDER BY created_at DESC, id DESC
+                LIMIT $2
+            ''', normalized, max(1, int(limit or 10)))
+        subscriptions = [_serialize_row(row) for row in subscription_rows]
+        active_count = sum(1 for item in subscriptions if item.get('enabled') and not item.get('disabled_at'))
+        return {
+            'active_subscription_count': active_count,
+            'subscriptions': subscriptions,
+            'recent_outbox': [_serialize_row(row) for row in outbox_rows],
+        }
+
     async def record_event(self, *, event_id: str, event_type: str, message_id: int, conversation_id: int, payload: dict[str, Any]) -> bool:
         pool = self._pool_supplier()
         payload_json = json.dumps(payload or {}, ensure_ascii=False)

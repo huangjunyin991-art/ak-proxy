@@ -51,6 +51,17 @@ def create_notify_center_router(
             return JSONResponse(status_code=500, content={'success': False, 'message': f'保存 Push 订阅失败: {exc}'})
         return {'success': True, 'data': data}
 
+    @router.get('/api/notify-center/web-push/diagnostics')
+    async def web_push_diagnostics(request: Request):
+        username = _resolve_username(request, service.config.cookie_name)
+        if not username:
+            return JSONResponse(status_code=401, content={'success': False, 'message': '未识别当前用户'})
+        try:
+            data = await service.get_user_web_push_diagnostics(username)
+        except ValueError as exc:
+            return JSONResponse(status_code=400, content={'success': False, 'message': str(exc)})
+        return {'success': True, 'data': data}
+
     @router.delete('/api/notify-center/web-push/subscriptions')
     async def delete_web_push_subscription(request: Request):
         username = _resolve_username(request, service.config.cookie_name)
