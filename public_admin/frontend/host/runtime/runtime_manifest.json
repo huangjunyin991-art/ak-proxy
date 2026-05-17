@@ -12,6 +12,11 @@
       "required": true
     },
     {
+      "name": "presence_identity",
+      "path": "presence/identity.js",
+      "required": false
+    },
+    {
       "name": "recommend_friend_patch",
       "path": "patches/recommend_friend_patch.js",
       "required": false

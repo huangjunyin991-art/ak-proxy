@@ -206,6 +206,7 @@ public_admin/frontend/host/runtime/runtime_manifest.json
 ```text
 network/api_url_rewriter.js       required
 network/request_interceptor.js    required
+presence/identity.js              optional
 patches/recommend_friend_patch.js  optional
 pwa/pwa_runtime.js                 optional
 im/im_loader.js                    optional
@@ -255,6 +256,21 @@ window.AKClientRuntimeContext.hasPersistCookie
 PWA 模块通过该接口判断持久登录状态，不直接依赖主运行时闭包内部函数。
 
 如果该 optional 模块缺失，只会导致 PWA manifest 注入、Service Worker 注册和安装提示缺失，不影响其它运行时能力。
+
+已抽离的在线身份模块：
+
+```text
+public_admin/frontend/host/runtime/presence/identity.js
+```
+
+该模块通过以下命名空间暴露在线身份函数：
+
+```js
+window.AKClientRuntimePresenceIdentity.getUsername
+window.AKClientRuntimePresenceIdentity.getPageClientId
+```
+
+主运行时通过该模块解析真实用户名、生成并复用页面级 `pageClientId`。如果该 optional 模块缺失，主运行时会降级为当前用户名或临时访客名，并生成临时页面 ID，不影响 ChatWS 主链路启动。
 
 已抽离的 IM/通知启动模块：
 
