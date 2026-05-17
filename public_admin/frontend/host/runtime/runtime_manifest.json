@@ -27,6 +27,11 @@
       "required": false
     },
     {
+      "name": "assist_realtime_scheduler",
+      "path": "assist/realtime/scheduler.js",
+      "required": false
+    },
+    {
       "name": "recommend_friend_patch",
       "path": "patches/recommend_friend_patch.js",
       "required": false

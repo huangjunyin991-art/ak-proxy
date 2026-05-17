@@ -215,6 +215,7 @@
     let assistSessionId = '';
     let assistReconnectTimer = null;
     let assistHeartbeatTimer = null;
+    let assistRealtimeScheduler = null;
     let assistMutationObserver = null;
     let assistSnapshotTimer = null;
     let assistOverlaySnapshotTimer = null;
@@ -320,6 +321,52 @@
 
     function logAssistDebug(eventName, extra) {
         return;
+    }
+
+    function getAssistRealtimeModule() {
+        try {
+            return window.AKClientRuntimeAssistRealtime || null;
+        } catch (e) {}
+        return null;
+    }
+
+    function getAssistRealtimeScheduler() {
+        if (assistRealtimeScheduler) return assistRealtimeScheduler;
+        const realtime = getAssistRealtimeModule();
+        if (!realtime || typeof realtime.createScheduler !== 'function') return null;
+        assistRealtimeScheduler = realtime.createScheduler({
+            isActive: function() {
+                return !!(assistWs && assistWs.readyState === WebSocket.OPEN && assistSessionId);
+            },
+            normalizeRoute: normalizeAssistRoute,
+            isManagedRoute: isAssistManagedRoute,
+            isSnapshotSuppressed: function() {
+                return Date.now() < assistSuppressSnapshotUntil;
+            },
+            isScrollSettling: isAssistScrollSettling,
+            scheduleSnapshot: scheduleAssistSnapshot,
+            clearSnapshotTimer: clearAssistSnapshotTimer,
+            clearOverlaySnapshotTimer: clearAssistOverlaySnapshotTimer,
+            isWidgetTarget: isAssistWidgetTarget,
+            isFormFieldTarget: isAssistFormFieldTarget,
+            logScrollCapture: logAssistScrollCapture,
+            rememberScrollTarget: rememberAssistScrollTarget,
+            scheduleRouteFastScrollSync: scheduleAssistRouteFastScrollSync,
+            routeFastScrollDelay: ASSIST_ROUTE_FAST_SCROLL_DELAY,
+            scheduleScroll: scheduleAssistScroll,
+            scrollSettleDelay: ASSIST_SCROLL_SETTLE_DELAY,
+            sendEvent: sendAssistEvent,
+            pickMeta: pickAssistMeta
+        });
+        return assistRealtimeScheduler;
+    }
+
+    function bindAssistRealtimeEvents() {
+        const scheduler = getAssistRealtimeScheduler();
+        if (scheduler && typeof scheduler.bindGlobalEvents === 'function') {
+            return !!scheduler.bindGlobalEvents();
+        }
+        return false;
     }
 
     function readPersistedAssistSessionId() {
@@ -1333,6 +1380,10 @@
     }
 
     function stopAssistDomObserver() {
+        const scheduler = getAssistRealtimeScheduler();
+        if (scheduler && typeof scheduler.stopDomObserver === 'function') {
+            scheduler.stopDomObserver();
+        }
         if (assistMutationObserver) {
             try {
                 assistMutationObserver.disconnect();
@@ -3019,6 +3070,11 @@
 
     function startAssistDomObserver() {
         stopAssistDomObserver();
+        const scheduler = getAssistRealtimeScheduler();
+        if (scheduler && typeof scheduler.startDomObserver === 'function') {
+            scheduler.startDomObserver();
+            return;
+        }
         if (!assistSessionId || !document.body || typeof MutationObserver === 'undefined') return;
         assistMutationObserver = new MutationObserver(function(mutations) {
             if (!isAssistManagedRoute()) return;
@@ -3601,38 +3657,45 @@
     })();
     window.addEventListener('popstate', onUrlChange);
     window.addEventListener('hashchange', onUrlChange);
-    window.addEventListener('scroll', function() {
-        if (!assistWs || assistWs.readyState !== WebSocket.OPEN || !assistSessionId) return;
-        const route = normalizeAssistRoute();
-        if (!isAssistManagedRoute(route)) return;
-        logAssistScrollCapture('window', window);
-        rememberAssistScrollTarget(window);
-        scheduleAssistRouteFastScrollSync(route, ASSIST_ROUTE_FAST_SCROLL_DELAY);
-        scheduleAssistScroll(ASSIST_SCROLL_SETTLE_DELAY);
-    }, { passive: true });
-    document.addEventListener('scroll', function(event) {
-        if (!assistWs || assistWs.readyState !== WebSocket.OPEN || !assistSessionId) return;
-        const route = normalizeAssistRoute();
-        if (!isAssistManagedRoute(route)) return;
-        const target = event && event.target;
-        if (isAssistWidgetTarget(target)) return;
-        logAssistScrollCapture('document', target);
-        rememberAssistScrollTarget(target);
-        scheduleAssistRouteFastScrollSync(route, ASSIST_ROUTE_FAST_SCROLL_DELAY);
-        scheduleAssistScroll(ASSIST_SCROLL_SETTLE_DELAY);
-    }, true);
-    document.addEventListener('click', function(event) {
-        if (!assistWs || assistWs.readyState !== WebSocket.OPEN || !assistSessionId) return;
-        const target = event && event.target;
-        if (isAssistWidgetTarget(target)) return;
-        if (!isAssistManagedRoute()) return;
-        sendAssistEvent('click_highlight', pickAssistMeta(target));
-        if (!isAssistFormFieldTarget(target)) {
-            scheduleAssistSnapshot(100, 'click_interaction');
-        }
-    }, true);
-    document.addEventListener('input', handleAssistFormValueChange, true);
-    document.addEventListener('change', handleAssistFormValueChange, true);
+    if (!bindAssistRealtimeEvents()) {
+        window.addEventListener('scroll', function() {
+            if (!assistWs || assistWs.readyState !== WebSocket.OPEN || !assistSessionId) return;
+            const route = normalizeAssistRoute();
+            if (!isAssistManagedRoute(route)) return;
+            logAssistScrollCapture('window', window);
+            rememberAssistScrollTarget(window);
+            scheduleAssistRouteFastScrollSync(route, ASSIST_ROUTE_FAST_SCROLL_DELAY);
+            scheduleAssistScroll(ASSIST_SCROLL_SETTLE_DELAY);
+        }, { passive: true });
+        window.addEventListener('resize', function() {
+            if (!assistWs || assistWs.readyState !== WebSocket.OPEN || !assistSessionId) return;
+            if (!isAssistManagedRoute()) return;
+            scheduleAssistSnapshot(180, 'viewport_resize');
+        });
+        document.addEventListener('scroll', function(event) {
+            if (!assistWs || assistWs.readyState !== WebSocket.OPEN || !assistSessionId) return;
+            const route = normalizeAssistRoute();
+            if (!isAssistManagedRoute(route)) return;
+            const target = event && event.target;
+            if (isAssistWidgetTarget(target)) return;
+            logAssistScrollCapture('document', target);
+            rememberAssistScrollTarget(target);
+            scheduleAssistRouteFastScrollSync(route, ASSIST_ROUTE_FAST_SCROLL_DELAY);
+            scheduleAssistScroll(ASSIST_SCROLL_SETTLE_DELAY);
+        }, true);
+        document.addEventListener('click', function(event) {
+            if (!assistWs || assistWs.readyState !== WebSocket.OPEN || !assistSessionId) return;
+            const target = event && event.target;
+            if (isAssistWidgetTarget(target)) return;
+            if (!isAssistManagedRoute()) return;
+            sendAssistEvent('click_highlight', pickAssistMeta(target));
+            if (!isAssistFormFieldTarget(target)) {
+                scheduleAssistSnapshot(100, 'click_interaction');
+            }
+        }, true);
+        document.addEventListener('input', handleAssistFormValueChange, true);
+        document.addEventListener('change', handleAssistFormValueChange, true);
+    }
 
     document.addEventListener('visibilitychange', function() {
         logAssistDebug('page_visibility_change', {
