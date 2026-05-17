@@ -11,6 +11,19 @@
         return lastError;
     }
 
+    function getIMUsername() {
+        try {
+            if (window.AKIMClientUsername) return String(window.AKIMClientUsername || '').trim().toLowerCase();
+        } catch(e) {
+        }
+        try {
+            var match = document.cookie.match(/(?:^|; )ak_im_username=([^;]*)/);
+            return match ? decodeURIComponent(match[1]).trim().toLowerCase() : '';
+        } catch(e) {
+            return '';
+        }
+    }
+
     function withTimeout(promise, timeoutMs, message) {
         return new Promise(function(resolve, reject) {
             var settled = false;
@@ -106,11 +119,16 @@
 
     function saveSubscription(subscription) {
         if (!subscription) return Promise.resolve(false);
+        var imUsername = getIMUsername();
         return withTimeout(fetch('/api/notify-center/web-push/subscriptions', {
             method: 'POST',
             credentials: 'same-origin',
-            headers: {'Content-Type': 'application/json'},
+            headers: {
+                'Content-Type': 'application/json',
+                'X-AK-IM-Username': imUsername
+            },
             body: JSON.stringify({
+                im_username: imUsername,
                 subscription: subscription.toJSON ? subscription.toJSON() : subscription,
                 platform: navigator.platform || ''
             })
@@ -129,11 +147,15 @@
         var data = subscription.toJSON ? subscription.toJSON() : subscription;
         var endpoint = String(data && data.endpoint || '').trim();
         if (!endpoint) return Promise.resolve(true);
+        var imUsername = getIMUsername();
         return fetch('/api/notify-center/web-push/subscriptions', {
             method: 'DELETE',
             credentials: 'same-origin',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({endpoint: endpoint})
+            headers: {
+                'Content-Type': 'application/json',
+                'X-AK-IM-Username': imUsername
+            },
+            body: JSON.stringify({endpoint: endpoint, im_username: imUsername})
         }).then(function(resp) {
             return !!(resp && resp.ok);
         }).catch(function() {

@@ -29,13 +29,13 @@ def create_notify_center_router(
 
     @router.post('/api/notify-center/web-push/subscriptions')
     async def upsert_web_push_subscription(request: Request):
-        username = _resolve_username(request, service.config.cookie_name)
-        if not username:
-            return JSONResponse(status_code=401, content={'success': False, 'message': '未识别当前用户'})
         try:
             payload = await request.json()
         except Exception:
             return JSONResponse(status_code=400, content={'success': False, 'message': '请求体无效'})
+        username = _resolve_username(request, service.config.cookie_name, payload)
+        if not username:
+            return JSONResponse(status_code=401, content={'success': False, 'message': '未识别当前用户'})
         subscription = payload.get('subscription') if isinstance(payload, dict) and isinstance(payload.get('subscription'), dict) else {}
         platform = str(payload.get('platform') or '') if isinstance(payload, dict) else ''
         try:
@@ -64,13 +64,13 @@ def create_notify_center_router(
 
     @router.delete('/api/notify-center/web-push/subscriptions')
     async def delete_web_push_subscription(request: Request):
-        username = _resolve_username(request, service.config.cookie_name)
-        if not username:
-            return JSONResponse(status_code=401, content={'success': False, 'message': '未识别当前用户'})
         try:
             payload = await request.json()
         except Exception:
             payload = {}
+        username = _resolve_username(request, service.config.cookie_name, payload)
+        if not username:
+            return JSONResponse(status_code=401, content={'success': False, 'message': '未识别当前用户'})
         endpoint = str(payload.get('endpoint') or '').strip() if isinstance(payload, dict) else ''
         if not endpoint:
             return JSONResponse(status_code=400, content={'success': False, 'message': '缺少 endpoint'})
@@ -110,5 +110,11 @@ def create_notify_center_router(
     return router
 
 
-def _resolve_username(request: Request, cookie_name: str) -> str:
-    return normalize_username(request.cookies.get(cookie_name or 'ak_username'))
+def _resolve_username(request: Request, cookie_name: str, payload: dict | None = None) -> str:
+    payload_username = payload.get('im_username') if isinstance(payload, dict) else ''
+    return (
+        normalize_username(payload_username)
+        or normalize_username(request.headers.get('X-AK-IM-Username'))
+        or normalize_username(request.cookies.get('ak_im_username'))
+        or normalize_username(request.cookies.get(cookie_name or 'ak_username'))
+    )

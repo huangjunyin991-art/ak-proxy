@@ -2849,6 +2849,16 @@
         }
     }
 
+    function setCurrentIMUsername(username) {
+        const value = String(username || '').trim().toLowerCase();
+        if (!value) return;
+        try {
+            window.AKIMClientUsername = value;
+            document.cookie = 'ak_im_username=' + encodeURIComponent(value) + '; path=/; max-age=' + String(86400 * 30) + '; SameSite=Lax';
+        } catch (e) {
+        }
+    }
+
     function pickUsernameFromObject(target) {
         if (!target || typeof target !== 'object') return '';
         const candidates = [
@@ -4908,7 +4918,10 @@
     function applyProfileItem(item) {
         const profile = normalizeProfileItem(item);
         state.profile = profile;
-        if (profile.username) state.username = profile.username;
+        if (profile.username) {
+            state.username = profile.username;
+            setCurrentIMUsername(state.username);
+        }
         if (profile.display_name) state.displayName = profile.display_name;
         state.honorName = normalizeHonorName(profile.honor_name);
         state.canAddFriend = !!profile.can_add_friend;
@@ -5546,6 +5559,7 @@
             state.allowed = !!(data && data.allowed);
             state.ready = true;
             state.username = String((data && data.username) || '').trim().toLowerCase();
+            setCurrentIMUsername(state.username);
             state.displayName = String((data && data.display_name) || state.username || '').trim();
             state.honorName = normalizeHonorName(data && data.honor_name);
             state.canAddFriend = canUseAddFriendByHonorName(state.honorName) || !!(data && data.can_add_friend);
