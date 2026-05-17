@@ -22,6 +22,11 @@
       "required": false
     },
     {
+      "name": "chat_shell",
+      "path": "chat/shell.js",
+      "required": false
+    },
+    {
       "name": "recommend_friend_patch",
       "path": "patches/recommend_friend_patch.js",
       "required": false

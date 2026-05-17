@@ -208,6 +208,7 @@ network/api_url_rewriter.js       required
 network/request_interceptor.js    required
 auth/session.js                   optional
 presence/identity.js              optional
+chat/shell.js                     optional
 patches/recommend_friend_patch.js  optional
 pwa/pwa_runtime.js                 optional
 im/im_loader.js                    optional
@@ -291,6 +292,23 @@ window.AKClientRuntimePresenceIdentity.getPageClientId
 ```
 
 主运行时通过该模块解析真实用户名、生成并复用页面级 `pageClientId`。如果该 optional 模块缺失，主运行时会降级为当前用户名或临时访客名，并生成临时页面 ID，不影响 ChatWS 主链路启动。
+
+已抽离的聊天外壳模块：
+
+```text
+public_admin/frontend/host/runtime/chat/shell.js
+```
+
+该模块通过以下命名空间暴露聊天外壳和 UI 辅助函数：
+
+```js
+window.AKClientRuntimeChatShell.mountShell
+window.AKClientRuntimeChatUI.playNotificationSound
+window.AKClientRuntimeChatUI.escapeHtml
+window.AKClientRuntimeChatUI.addMessage
+```
+
+主运行时通过该模块注入聊天/远程协助/远程语音外壳样式与 DOM，并复用提示音、消息转义和聊天气泡渲染能力。如果该 optional 模块缺失，主运行时会使用本地最小 DOM 降级实现，不影响 ChatWS、在线状态、远程协助和远程语音主链路启动。
 
 已抽离的 IM/通知启动模块：
 
