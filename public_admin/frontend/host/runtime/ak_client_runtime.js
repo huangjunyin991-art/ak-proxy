@@ -2522,7 +2522,7 @@
             const type = String(element.getAttribute('type') || '').toLowerCase();
             if (tag === 'TEXTAREA') return String(element.value || '');
             if (tag === 'INPUT') {
-                if (type === 'password') return element.value ? '••••' : '';
+                if (type === 'password') return '•'.repeat(String(element.value || '').length);
                 if (type === 'checkbox' || type === 'radio') return element.checked ? '已选中' : '未选中';
                 return String(element.value || '');
             }
