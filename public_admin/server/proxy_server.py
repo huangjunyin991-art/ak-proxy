@@ -3347,6 +3347,36 @@ class OnlineUserManager:
 
         return max(pool, key=_score)
 
+    def _remove_connection_aliases(self, normalized, ws_id, page_client_id):
+        current_normalized = self.normalize_username(normalized)
+        current_ws_id = str(ws_id or '').strip()
+        current_page_client_id = str(page_client_id or '').strip()
+        if not current_ws_id and not current_page_client_id:
+            return
+        for other_normalized in list(self.users.keys()):
+            if other_normalized == current_normalized:
+                continue
+            user = self.users.get(other_normalized)
+            if not user:
+                continue
+            connections = user.get('connections') or {}
+            removed = False
+            for other_ws_id, connection in list(connections.items()):
+                connection_ws_id = str(connection.get('ws_id') or other_ws_id or '').strip()
+                connection_page_client_id = str(connection.get('page_client_id') or '').strip()
+                if (current_ws_id and connection_ws_id == current_ws_id) or (
+                    current_page_client_id and connection_page_client_id == current_page_client_id
+                ):
+                    connections.pop(other_ws_id, None)
+                    removed = True
+            if not removed:
+                continue
+            if connections:
+                user['connections'] = connections
+                self._refresh_user_summary(other_normalized)
+            else:
+                self.users.pop(other_normalized, None)
+
     def _refresh_user_summary(self, normalized, preferred_ws_id=''):
         user = self._prune_stale_connections(normalized)
         if not user:
@@ -3427,6 +3457,7 @@ class OnlineUserManager:
             return None
         ws_id = self.get_websocket_id(websocket)
         now = datetime.now()
+        self._remove_connection_aliases(normalized, ws_id, page_client_id)
         existing = self.users.get(normalized, {})
         connections = dict(existing.get('connections') or {})
         current_connection = connections.get(ws_id, {})
