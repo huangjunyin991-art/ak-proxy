@@ -2,6 +2,16 @@
   "version": 1,
   "modules": [
     {
+      "name": "api_url_rewriter",
+      "path": "network/api_url_rewriter.js",
+      "required": true
+    },
+    {
+      "name": "request_interceptor",
+      "path": "network/request_interceptor.js",
+      "required": true
+    },
+    {
       "name": "recommend_friend_patch",
       "path": "patches/recommend_friend_patch.js",
       "required": false

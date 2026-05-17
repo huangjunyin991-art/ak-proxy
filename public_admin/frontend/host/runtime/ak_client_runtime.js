@@ -249,96 +249,22 @@
         window.location.href = '/pages/account/login.html';
     };
     
-    // ===== 自动修改API地址，让请求走代理 =====
     function fixApiUrl() {
         try {
-            if (typeof APP !== 'undefined' && APP.CONFIG && APP.CONFIG.BASE_URL) {
-                const oldUrl = APP.CONFIG.BASE_URL;
-                if (oldUrl.includes('akapi1.com') || oldUrl.includes('akapi3.com')) {
-                    APP.CONFIG.BASE_URL = 'https://' + window.location.host + '/RPC/';
-                }
+            var network = window.AKClientRuntimeNetwork;
+            if (network && typeof network.fixApiUrl === 'function') {
+                network.fixApiUrl();
             }
         } catch(e) {}
     }
-    
-    // 更新用户活动时间（仅记录，不触发任何操作）
-    function updateActivity() {
-        if (window._akChatInitialized) {
-            window._akLastActivity = Date.now();
-        }
-    }
-    
-    // ===== 拦截所有网络请求，重定向akapi1.com到代理 =====
+
     function interceptNetworkRequests() {
-        if (window.__AKChatNetworkInterceptorInstalled) return;
-        window.__AKChatNetworkInterceptorInstalled = true;
-        const proxyHost = window.location.host;
-        
-        // 拦截 fetch 请求
-        if (window.fetch) {
-            const originalFetch = window.fetch;
-            window.fetch = function(url, options) {
-                // 记录用户活动
-                updateActivity();
-                
-                let finalUrl = url;
-                if (typeof url === 'string') {
-                    // 特定API强制重定向
-                    if (url.includes('public_IndexData')) {
-                        finalUrl = `https://${proxyHost}/RPC/public_IndexData`;
-                    }
-                    // 通用akapi重定向
-                    else if (url.includes('akapi1.com') || url.includes('akapi3.com')) {
-                        finalUrl = url.replace(/https?:\/\/(www\.)?akapi[13]\.com\/RPC\//, `https://${proxyHost}/RPC/`);
-                    }
-                }
-                
-                // 不在这里重连，避免重复连接
-                return originalFetch.call(this, finalUrl, options);
-            };
-        }
-        
-        // 拦截 XMLHttpRequest
-        if (window.XMLHttpRequest) {
-            const originalOpen = XMLHttpRequest.prototype.open;
-            XMLHttpRequest.prototype.open = function(method, url, async, user, password) {
-                // 记录用户活动
-                updateActivity();
-                
-                if (typeof url === 'string') {
-                    // 特定API强制重定向
-                    if (url.includes('public_IndexData')) {
-                        const newUrl = `https://${proxyHost}/RPC/public_IndexData`;
-                        return originalOpen.call(this, method, newUrl, async, user, password);
-                    }
-                    // 通用akapi重定向
-                    if (url.includes('akapi1.com') || url.includes('akapi3.com')) {
-                        const newUrl = url.replace(/https?:\/\/(www\.)?akapi[13]\.com\/RPC\//, `https://${proxyHost}/RPC/`);
-                        return originalOpen.call(this, method, newUrl, async, user, password);
-                    }
-                }
-                return originalOpen.call(this, method, url, async, user, password);
-            };
-        }
-        
-        // 拦截 jQuery AJAX (如果存在)
-        if (window.$ && window.$.ajaxPrefilter) {
-            window.$.ajaxPrefilter(function(options, originalOptions, jqXHR) {
-                if (options.url) {
-                    // 特定API强制重定向
-                    if (options.url.includes('public_IndexData')) {
-                        const newUrl = `https://${proxyHost}/RPC/public_IndexData`;
-                        options.url = newUrl;
-                        return;
-                    }
-                    // 通用akapi重定向
-                    if (options.url.includes('akapi1.com') || options.url.includes('akapi3.com')) {
-                        const newUrl = options.url.replace(/https?:\/\/(www\.)?akapi[13]\.com\/RPC\//, `https://${proxyHost}/RPC/`);
-                        options.url = newUrl;
-                    }
-                }
-            });
-        }
+        try {
+            var network = window.AKClientRuntimeNetwork;
+            if (network && typeof network.interceptNetworkRequests === 'function') {
+                network.interceptNetworkRequests();
+            }
+        } catch(e) {}
     }
     
     // 助记词和首页拦截已由nginx 302处理，JS层不再需要
