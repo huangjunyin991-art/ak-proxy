@@ -508,7 +508,9 @@
                 if (!isPresenceForeground() || presenceSuspended) return;
                 const nextUsername = getUsername();
                 if (!nextUsername || nextUsername === username) return;
-                sendPresence('online');
+                if (sendPresence('online')) {
+                    startHeartbeat();
+                }
             }, delay);
         });
     }
