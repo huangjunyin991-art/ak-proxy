@@ -1,6 +1,9 @@
 (function() {
     'use strict';
 
+    var listenerInstalled = false;
+    var activated = false;
+
     function hasLoginCookie() {
         try {
             return document.cookie.indexOf('ak_username=') !== -1;
@@ -10,11 +13,26 @@
     }
 
     function setupWebPush() {
+        if (!listenerInstalled) {
+            listenerInstalled = true;
+            window.addEventListener('ak-im-chat-entered', function(event) {
+                if (event && event.detail && !event.detail.conversationId) return;
+                activateWebPush();
+            });
+        }
+        if (window.AKIMClientActiveConversationId) {
+            activateWebPush();
+        }
+    }
+
+    function activateWebPush() {
+        if (activated) return;
         var permission = window.AKClientRuntimePushPermission;
         var subscription = window.AKClientRuntimePushSubscription;
         if (!permission || !subscription) return;
         if (!permission.isSupported || !permission.isSupported()) return;
         if (!hasLoginCookie()) return;
+        activated = true;
         if (permission.getPermission && permission.getPermission() === 'granted') {
             subscription.registerSubscription();
             return;
@@ -22,7 +40,10 @@
         if (permission.getPermission && permission.getPermission() === 'denied') return;
         try {
             var askedAt = parseInt(localStorage.getItem('ak_push_permission_asked_at') || '0', 10) || 0;
-            if (Date.now() - askedAt < 86400000) return;
+            if (Date.now() - askedAt < 86400000) {
+                activated = false;
+                return;
+            }
         } catch(e) {
         }
         showEnableBanner(permission, subscription);

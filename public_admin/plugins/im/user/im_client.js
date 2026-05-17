@@ -5577,6 +5577,21 @@
         });
     }
 
+    function dispatchChatEnteredEvent(conversationId) {
+        const targetConversationId = Number(conversationId || 0);
+        if (!state.allowed || state.view !== 'chat' || !targetConversationId) return;
+        try {
+            window.AKIMClientActiveConversationId = targetConversationId;
+            window.dispatchEvent(new CustomEvent('ak-im-chat-entered', {
+                detail: {
+                    conversationId: targetConversationId,
+                    username: state.username || ''
+                }
+            }));
+        } catch (e) {
+        }
+    }
+
     function loadSessions() {
         const sessionManageModule = getSessionManageModule();
         if (sessionManageModule && typeof sessionManageModule.loadSessions === 'function') {
@@ -5615,6 +5630,7 @@
             render();
             return Promise.resolve(null);
         }
+        dispatchChatEnteredEvent(targetConversationId);
         const forceRefresh = !!(options && options.forceRefresh);
         const restoredPersistedMessages = forceRefresh ? false : applyPersistedConversationMessages(targetConversationId);
         if (forceRefresh) {
