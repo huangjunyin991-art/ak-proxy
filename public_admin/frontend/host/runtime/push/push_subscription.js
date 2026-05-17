@@ -112,9 +112,26 @@
                 applicationServerKey: urlBase64ToUint8Array(publicKey)
             }), 10000, '创建通知订阅超时，当前手机浏览器可能不支持 Web Push');
         }).catch(function(error) {
-            setLastError(error && error.message ? error.message : '创建通知订阅失败，当前浏览器可能不支持 Web Push');
+            setLastError(formatSubscribeError(error));
             return null;
         });
+    }
+
+    function formatSubscribeError(error) {
+        var message = error && error.message ? String(error.message) : '';
+        var name = error && error.name ? String(error.name) : '';
+        var raw = (name ? name + ': ' : '') + message;
+        var normalized = raw.toLowerCase();
+        if (normalized.indexOf('push service error') >= 0 || normalized.indexOf('registration failed') >= 0) {
+            return '移动端浏览器推送服务注册失败，请确认不是微信/QQ等内置浏览器；iPhone 请添加到主屏幕后从桌面图标打开；Android 请优先使用 Chrome/Edge。原始错误：' + raw;
+        }
+        if (normalized.indexOf('notallowed') >= 0 || normalized.indexOf('permission') >= 0) {
+            return '浏览器拒绝创建通知订阅，请在站点设置中允许通知权限后重试。原始错误：' + raw;
+        }
+        if (normalized.indexOf('notsupported') >= 0 || normalized.indexOf('not supported') >= 0) {
+            return '当前移动浏览器不支持创建 Web Push 订阅，请更换支持 Web Push 的浏览器。原始错误：' + raw;
+        }
+        return message || '创建通知订阅失败，当前浏览器可能不支持 Web Push';
     }
 
     function saveSubscription(subscription) {
