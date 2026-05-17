@@ -2855,6 +2855,10 @@
         try {
             window.AKIMClientUsername = value;
             document.cookie = 'ak_im_username=' + encodeURIComponent(value) + '; path=/; max-age=' + String(86400 * 30) + '; SameSite=Lax';
+            const push = window.AKClientRuntimePush;
+            if (push && typeof push.setupWebPush === 'function') {
+                push.setupWebPush();
+            }
         } catch (e) {
         }
     }
