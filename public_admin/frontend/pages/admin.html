@@ -11465,6 +11465,7 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
         let remoteAssistPanelProxySnapshotRequestAt = 0;
         let remoteAssistPanelProxySnapshotRequestKey = '';
         let remoteAssistPanelProxySnapshotTimer = null;
+        let remoteAssistPanelSnapshotRequestSeq = 0;
         const REMOTE_ASSIST_PREPARE_LOG_THRESHOLD_MS = 80;
         const REMOTE_ASSIST_RENDER_LOG_THRESHOLD_MS = 200;
         const REMOTE_ASSIST_PENDING_ROUTE_REQUEST_RETRY_MS = 1000;
@@ -12624,11 +12625,43 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
         function getRemoteAssistTraceMeta(payload) {
             const clientEmitTs = Number(payload && payload.client_emit_ts || 0);
             const normalizedClientEmitTs = Number.isFinite(clientEmitTs) && clientEmitTs > 0 ? clientEmitTs : 0;
+            const adminRequestTs = Number(payload && payload.admin_request_ts || 0);
+            const userRequestReceivedTs = Number(payload && payload.user_request_received_ts || 0);
+            const userBuildStartTs = Number(payload && payload.user_snapshot_build_start_ts || 0);
+            const userBuildDoneTs = Number(payload && payload.user_snapshot_build_done_ts || 0);
+            const userSentTs = Number(payload && payload.user_snapshot_sent_ts || 0);
             return {
                 trace_id: String(payload && payload.trace_id || ''),
                 client_emit_ts: normalizedClientEmitTs,
                 trace_type: String(payload && payload.trace_type || ''),
-                trace_reason: String(payload && payload.trace_reason || '')
+                trace_reason: String(payload && payload.trace_reason || ''),
+                admin_request_ts: Number.isFinite(adminRequestTs) && adminRequestTs > 0 ? adminRequestTs : 0,
+                user_request_received_ts: Number.isFinite(userRequestReceivedTs) && userRequestReceivedTs > 0 ? userRequestReceivedTs : 0,
+                user_snapshot_build_start_ts: Number.isFinite(userBuildStartTs) && userBuildStartTs > 0 ? userBuildStartTs : 0,
+                user_snapshot_build_done_ts: Number.isFinite(userBuildDoneTs) && userBuildDoneTs > 0 ? userBuildDoneTs : 0,
+                user_snapshot_sent_ts: Number.isFinite(userSentTs) && userSentTs > 0 ? userSentTs : 0,
+                html_bytes: Number(payload && payload.html_bytes || 0)
+            };
+        }
+
+        function buildRemoteAssistSnapshotTraceTiming(traceMeta, adminTs = Date.now()) {
+            const adminRequestTs = Number(traceMeta && traceMeta.admin_request_ts || 0);
+            const userRequestReceivedTs = Number(traceMeta && traceMeta.user_request_received_ts || 0);
+            const userBuildStartTs = Number(traceMeta && traceMeta.user_snapshot_build_start_ts || 0);
+            const userBuildDoneTs = Number(traceMeta && traceMeta.user_snapshot_build_done_ts || 0);
+            const userSentTs = Number(traceMeta && traceMeta.user_snapshot_sent_ts || 0);
+            return {
+                admin_request_ts: adminRequestTs,
+                user_request_received_ts: userRequestReceivedTs,
+                user_snapshot_build_start_ts: userBuildStartTs,
+                user_snapshot_build_done_ts: userBuildDoneTs,
+                user_snapshot_sent_ts: userSentTs,
+                admin_received_ts: adminTs,
+                admin_request_to_received_ms: adminRequestTs > 0 ? Math.max(0, adminTs - adminRequestTs) : 0,
+                user_request_to_build_start_ms: userRequestReceivedTs > 0 && userBuildStartTs > 0 ? Math.max(0, userBuildStartTs - userRequestReceivedTs) : 0,
+                user_snapshot_build_ms: userBuildStartTs > 0 && userBuildDoneTs > 0 ? Math.max(0, userBuildDoneTs - userBuildStartTs) : 0,
+                user_snapshot_send_wait_ms: userBuildDoneTs > 0 && userSentTs > 0 ? Math.max(0, userSentTs - userBuildDoneTs) : 0,
+                html_bytes: Number(traceMeta && traceMeta.html_bytes || 0)
             };
         }
 
@@ -12660,12 +12693,23 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
             if (remoteAssistPanelReadyRenderSeq === renderSeq) return true;
             remoteAssistPanelReadyRenderSeq = renderSeq;
             clearRemoteAssistRenderReadyTimer();
+            const adminReadyTs = Date.now();
+            const traceTiming = buildRemoteAssistSnapshotTraceTiming(traceMeta, adminReadyTs);
             if (stage !== 'load') {
                 logRemoteAssistDebug('snapshot_render_ready', {
                     route,
                     trace_id: String(traceMeta && traceMeta.trace_id || ''),
                     client_emit_ts: Number(traceMeta && traceMeta.client_emit_ts || 0),
-                    admin_ready_ts: Date.now(),
+                    admin_ready_ts: adminReadyTs,
+                    admin_request_ts: traceTiming.admin_request_ts,
+                    user_request_received_ts: traceTiming.user_request_received_ts,
+                    user_snapshot_build_start_ts: traceTiming.user_snapshot_build_start_ts,
+                    user_snapshot_build_done_ts: traceTiming.user_snapshot_build_done_ts,
+                    user_snapshot_sent_ts: traceTiming.user_snapshot_sent_ts,
+                    admin_request_to_ready_ms: traceTiming.admin_request_ts > 0 ? Math.max(0, adminReadyTs - traceTiming.admin_request_ts) : 0,
+                    user_request_to_build_start_ms: traceTiming.user_request_to_build_start_ms,
+                    user_snapshot_build_ms: traceTiming.user_snapshot_build_ms,
+                    user_snapshot_send_wait_ms: traceTiming.user_snapshot_send_wait_ms,
                     render_seq: renderSeq,
                     ready_ms: Math.max(0, Math.round(getRemoteAssistPerfNow() - renderStartedAt)),
                     prepare_ms: prepareMs,
@@ -12729,14 +12773,19 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
             }
             const route = getRemoteAssistSnapshotRoute(snapshot);
             const traceMeta = getRemoteAssistTraceMeta(snapshot);
+            const adminReceivedTs = Date.now();
+            const traceTiming = buildRemoteAssistSnapshotTraceTiming(traceMeta, adminReceivedTs);
             const previousRenderedRoute = getRemoteAssistSnapshotRoute(remoteAssistPanelLastSnapshot);
             if (remoteAssistPanelWaitingForRouteSnapshot && remoteAssistPanelPendingRoute && route && route !== remoteAssistPanelPendingRoute) {
                 logRemoteAssistDebug('snapshot_render_dropped_pending_route', {
                     route,
                     trace_id: String(traceMeta.trace_id || ''),
+                    admin_request_ts: traceTiming.admin_request_ts,
+                    admin_received_ts: adminReceivedTs,
                     pending_route: remoteAssistPanelPendingRoute,
                     waiting: !!remoteAssistPanelWaitingForRouteSnapshot,
                     html_length: String(snapshot && snapshot.html || '').length,
+                    html_bytes: traceTiming.html_bytes,
                     truncated: !!(snapshot && snapshot.truncated),
                     node_count: Number(snapshot && snapshot.node_count || 0)
                 });
@@ -12748,11 +12797,21 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                     route,
                     trace_id: String(traceMeta.trace_id || ''),
                     client_emit_ts: Number(traceMeta.client_emit_ts || 0),
-                    admin_received_ts: Date.now(),
+                    admin_received_ts: adminReceivedTs,
+                    admin_request_ts: traceTiming.admin_request_ts,
+                    user_request_received_ts: traceTiming.user_request_received_ts,
+                    user_snapshot_build_start_ts: traceTiming.user_snapshot_build_start_ts,
+                    user_snapshot_build_done_ts: traceTiming.user_snapshot_build_done_ts,
+                    user_snapshot_sent_ts: traceTiming.user_snapshot_sent_ts,
+                    admin_request_to_received_ms: traceTiming.admin_request_to_received_ms,
+                    user_request_to_build_start_ms: traceTiming.user_request_to_build_start_ms,
+                    user_snapshot_build_ms: traceTiming.user_snapshot_build_ms,
+                    user_snapshot_send_wait_ms: traceTiming.user_snapshot_send_wait_ms,
                     previous_route: previousRenderedRoute,
                     pending_route: remoteAssistPanelPendingRoute,
                     waiting: !!remoteAssistPanelWaitingForRouteSnapshot,
                     html_length: String(snapshot && snapshot.html || '').length,
+                    html_bytes: traceTiming.html_bytes,
                     truncated: !!(snapshot && snapshot.truncated),
                     node_count: Number(snapshot && snapshot.node_count || 0)
                 });
@@ -12773,6 +12832,7 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                     route,
                     trace_id: String(traceMeta.trace_id || ''),
                     html_length: rawHtml.length,
+                    html_bytes: traceTiming.html_bytes,
                     sanitized_html_length: sanitizedHtml.length,
                     prepare_ms: prepareMs,
                     is_fast_path: !!isFastPath,
@@ -12793,6 +12853,7 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                     route,
                     trace_id: String(traceMeta.trace_id || ''),
                     html_length: sanitizedHtml.length,
+                    html_bytes: traceTiming.html_bytes,
                     prepare_ms: prepareMs,
                     render_seq: remoteAssistPanelRenderSeq
                 });
@@ -12820,14 +12881,21 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                 if (renderSeq !== remoteAssistPanelRenderSeq) return;
                 remoteAssistPanelLoadedRenderSeq = renderSeq;
                 const renderMs = Math.max(0, Math.round(getRemoteAssistPerfNow() - renderStartedAt));
+                const adminLoadTs = Date.now();
                 if (renderMs >= REMOTE_ASSIST_RENDER_LOG_THRESHOLD_MS) {
                     logRemoteAssistDebug('snapshot_render_timing', {
                         route,
                         trace_id: String(traceMeta.trace_id || ''),
                         client_emit_ts: Number(traceMeta.client_emit_ts || 0),
-                        admin_load_ts: Date.now(),
+                        admin_load_ts: adminLoadTs,
+                        admin_request_ts: traceTiming.admin_request_ts,
+                        admin_request_to_load_ms: traceTiming.admin_request_ts > 0 ? Math.max(0, adminLoadTs - traceTiming.admin_request_ts) : 0,
+                        user_request_to_build_start_ms: traceTiming.user_request_to_build_start_ms,
+                        user_snapshot_build_ms: traceTiming.user_snapshot_build_ms,
+                        user_snapshot_send_wait_ms: traceTiming.user_snapshot_send_wait_ms,
                         render_seq: renderSeq,
                         html_length: sanitizedHtml.length,
+                        html_bytes: traceTiming.html_bytes,
                         prepare_ms: prepareMs,
                         render_ms: renderMs,
                         is_fast_path: !!isFastPath
@@ -12863,11 +12931,33 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
             }
             setRemoteAssistLoading(true, '正在请求用户页面快照');
             const requestReason = String(reason || 'admin_refresh');
-            const sent = sendRemoteAssistMessage('snapshot_request', { reason: requestReason });
+            const adminRequestTs = Date.now();
+            remoteAssistPanelSnapshotRequestSeq += 1;
+            const traceId = `ras_${adminRequestTs.toString(36)}_${remoteAssistPanelSnapshotRequestSeq.toString(36)}`;
+            const payload = {
+                reason: requestReason,
+                trace_id: traceId,
+                trace_type: 'snapshot_request',
+                trace_reason: requestReason,
+                admin_request_ts: adminRequestTs
+            };
+            const sent = sendRemoteAssistMessage('snapshot_request', payload);
+            if (sent) {
+                logRemoteAssistDebug('snapshot_request_sent', {
+                    session_id: remoteAssistPanelSessionId,
+                    reason: requestReason,
+                    trace_id: traceId,
+                    admin_request_ts: adminRequestTs,
+                    pending_route: remoteAssistPanelPendingRoute,
+                    waiting: !!remoteAssistPanelWaitingForRouteSnapshot
+                });
+            }
             if (!sent) {
                 logRemoteAssistDebug('snapshot_request_failed', {
                     session_id: remoteAssistPanelSessionId,
                     reason: requestReason,
+                    trace_id: traceId,
+                    admin_request_ts: adminRequestTs,
                     pending_route: remoteAssistPanelPendingRoute,
                     waiting: !!remoteAssistPanelWaitingForRouteSnapshot
                 });

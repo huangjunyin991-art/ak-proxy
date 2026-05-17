@@ -246,6 +246,7 @@
     let assistRouteSettleUntil = 0;
     let assistRouteSettleRoute = '';
     let assistRouteSettleNeedsFreshSnapshot = false;
+    let assistRouteSettleSnapshotTraceMeta = null;
     let username = 'visitor';
     let heartbeatTimer = null;
     let reconnectTimer = null;
@@ -366,6 +367,17 @@
             trace_reason: String(reason || ''),
             trace_route: String(route || '')
         };
+    }
+
+    function mergeAssistSnapshotRequestTraceMeta(baseMeta, extra) {
+        const nextMeta = Object.assign({}, baseMeta || {});
+        const requestTraceId = String(extra && extra.trace_id || '').trim();
+        const adminRequestTs = Number(extra && extra.admin_request_ts || 0);
+        const userRequestReceivedTs = Number(extra && extra.user_request_received_ts || 0);
+        if (requestTraceId) nextMeta.trace_id = requestTraceId;
+        if (Number.isFinite(adminRequestTs) && adminRequestTs > 0) nextMeta.admin_request_ts = adminRequestTs;
+        if (Number.isFinite(userRequestReceivedTs) && userRequestReceivedTs > 0) nextMeta.user_request_received_ts = userRequestReceivedTs;
+        return nextMeta;
     }
 
     function markAssistSnapshotTrigger(reason, extra) {
@@ -1178,6 +1190,7 @@
         assistRouteSettleUntil = 0;
         assistRouteSettleRoute = '';
         assistRouteSettleNeedsFreshSnapshot = false;
+        assistRouteSettleSnapshotTraceMeta = null;
     }
 
     function isAssistRouteSettling(route) {
@@ -1208,11 +1221,12 @@
         refreshAssistScrollTarget('route_settled_sync', true);
         emitAssistScroll(true);
         const snapshotReason = assistRouteSettleNeedsFreshSnapshot ? 'route_settled_request' : 'route_settled';
-        markAssistSnapshotTrigger(snapshotReason, {
+        const pendingSnapshotTraceMeta = assistRouteSettleNeedsFreshSnapshot ? assistRouteSettleSnapshotTraceMeta : null;
+        markAssistSnapshotTrigger(snapshotReason, Object.assign({
             source: 'route_settled_sync',
             expected_route: String(expectedRoute || ''),
             needs_fresh_snapshot: !!assistRouteSettleNeedsFreshSnapshot
-        });
+        }, pendingSnapshotTraceMeta || {}));
         emitAssistSnapshot(snapshotReason);
         if (!assistRouteSettleRoute || assistRouteSettleRoute === expectedRoute) {
             clearAssistRouteSettleState();
@@ -2706,7 +2720,9 @@
 
     function sendAssistSnapshotPayload(payload, traceMeta = null) {
         if (!payload) return false;
-        const nextPayload = traceMeta ? Object.assign({}, payload, traceMeta) : payload;
+        const nextPayload = traceMeta ? Object.assign({}, payload, traceMeta) : Object.assign({}, payload);
+        nextPayload.user_snapshot_sent_ts = Date.now();
+        nextPayload.html_bytes = String(nextPayload.html || '').length;
         const sent = sendAssistEvent('snapshot_replace', nextPayload);
         if (sent) {
             assistLastSnapshotPayload = nextPayload;
@@ -2858,7 +2874,7 @@
         const now = Date.now();
         const route = normalizeAssistRoute();
         const snapshotReason = String(reason || '');
-        const snapshotTraceMeta = buildAssistTraceMeta('snapshot_replace', route, snapshotReason);
+        let snapshotTraceMeta = buildAssistTraceMeta('snapshot_replace', route, snapshotReason);
         const emitStartedAt = getAssistPerfNow();
         const triggerMeta = assistLastSnapshotTriggerMeta && assistLastSnapshotTriggerMeta.reason === snapshotReason
             ? assistLastSnapshotTriggerMeta
@@ -2866,6 +2882,7 @@
         if (triggerMeta) {
             assistLastSnapshotTriggerMeta = null;
         }
+        snapshotTraceMeta = mergeAssistSnapshotRequestTraceMeta(snapshotTraceMeta, triggerMeta && triggerMeta.extra);
         const triggerWaitMs = triggerMeta ? Math.max(0, Math.round(emitStartedAt - triggerMeta.at)) : 0;
         if (triggerWaitMs >= ASSIST_SNAPSHOT_TRIGGER_LOG_THRESHOLD_MS) {
             logAssistDebug('snapshot_trigger_timing', {
@@ -2881,6 +2898,10 @@
             && assistLastSnapshotPayload.route === route
             && !isAssistRouteSettling(route)
             && (now - assistLastSnapshotSentAt) < 3000) {
+            const cachedBuildTs = Date.now();
+            snapshotTraceMeta.user_snapshot_build_start_ts = cachedBuildTs;
+            snapshotTraceMeta.user_snapshot_build_done_ts = cachedBuildTs;
+            snapshotTraceMeta.snapshot_mode = 'cached';
             const sendStartedAt = getAssistPerfNow();
             const sent = sendAssistSnapshotPayload(assistLastSnapshotPayload, snapshotTraceMeta);
             const sendMs = Math.max(0, Math.round(getAssistPerfNow() - sendStartedAt));
@@ -2896,6 +2917,10 @@
                     buildMs: 0,
                     sendMs,
                     triggerWaitMs,
+                    adminRequestTs: Number(snapshotTraceMeta.admin_request_ts || 0),
+                    userRequestReceivedTs: Number(snapshotTraceMeta.user_request_received_ts || 0),
+                    userBuildStartTs: cachedBuildTs,
+                    userBuildDoneTs: cachedBuildTs,
                     source: String(triggerMeta && triggerMeta.extra && triggerMeta.extra.source || ''),
                     scheduledDelayMs: Number(triggerMeta && triggerMeta.extra && triggerMeta.extra.scheduled_delay_ms || 0),
                     requestReason: String(triggerMeta && triggerMeta.extra && triggerMeta.extra.request_reason || '')
@@ -2922,9 +2947,14 @@
             && (now - assistLastSnapshotSentAt) < 1200) {
             return false;
         }
+        const userBuildStartTs = Date.now();
         const buildStartedAt = getAssistPerfNow();
         const payload = buildAssistSnapshotPayload(snapshotReason);
         const buildMs = Math.max(0, Math.round(getAssistPerfNow() - buildStartedAt));
+        const userBuildDoneTs = Date.now();
+        snapshotTraceMeta.user_snapshot_build_start_ts = userBuildStartTs;
+        snapshotTraceMeta.user_snapshot_build_done_ts = userBuildDoneTs;
+        snapshotTraceMeta.snapshot_mode = 'fresh';
         if (!payload) {
             if (shouldLogAssistSnapshotBuild(snapshotReason, buildMs, triggerWaitMs)) {
                 logAssistDebug('snapshot_trigger_timing', {
@@ -2976,6 +3006,10 @@
                 buildMs,
                 sendMs,
                 triggerWaitMs,
+                adminRequestTs: Number(snapshotTraceMeta.admin_request_ts || 0),
+                userRequestReceivedTs: Number(snapshotTraceMeta.user_request_received_ts || 0),
+                userBuildStartTs,
+                userBuildDoneTs,
                 source: String(triggerMeta && triggerMeta.extra && triggerMeta.extra.source || ''),
                 scheduledDelayMs: Number(triggerMeta && triggerMeta.extra && triggerMeta.extra.scheduled_delay_ms || 0),
                 requestReason: String(triggerMeta && triggerMeta.extra && triggerMeta.extra.request_reason || '')
@@ -3243,12 +3277,21 @@
                         applyAssistHighlight(data.payload);
                     } else if (data.type === 'snapshot_request') {
                         const snapshotRequestReason = String(data.payload && data.payload.reason || '');
+                        const snapshotRequestTraceMeta = {
+                            trace_id: String(data.payload && data.payload.trace_id || ''),
+                            admin_request_ts: Number(data.payload && data.payload.admin_request_ts || 0),
+                            user_request_received_ts: Date.now()
+                        };
                         if (deferAssistSnapshotUntilRouteSettled(normalizeAssistRoute(), snapshotRequestReason)) {
+                            assistRouteSettleSnapshotTraceMeta = snapshotRequestTraceMeta;
                             return;
                         }
                         markAssistSnapshotTrigger('snapshot_request', {
                             source: 'snapshot_request',
-                            request_reason: snapshotRequestReason
+                            request_reason: snapshotRequestReason,
+                            trace_id: snapshotRequestTraceMeta.trace_id,
+                            admin_request_ts: snapshotRequestTraceMeta.admin_request_ts,
+                            user_request_received_ts: snapshotRequestTraceMeta.user_request_received_ts
                         });
                         emitAssistSnapshot('snapshot_request');
                     } else if (data.type === 'session_state') {
