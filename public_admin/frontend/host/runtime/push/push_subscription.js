@@ -134,10 +134,14 @@
             })
         }), 8000, '保存通知订阅超时，请检查网络后重试').then(function(resp) {
             if (resp && resp.ok) return true;
-            setLastError('保存通知订阅失败，请稍后重试');
-            return false;
+            var statusText = resp ? String(resp.status || '') : '';
+            return (resp ? resp.json().catch(function() { return null; }) : Promise.resolve(null)).then(function(data) {
+                var message = data && data.message ? String(data.message) : '';
+                setLastError('保存通知订阅失败' + (statusText ? ' HTTP ' + statusText : '') + (imUsername ? '，当前账号 ' + imUsername : '，当前账号为空') + (message ? '：' + message : ''));
+                return false;
+            });
         }).catch(function(error) {
-            setLastError(error && error.message ? error.message : '保存通知订阅失败，请稍后重试');
+            setLastError((error && error.message ? error.message : '保存通知订阅失败，请稍后重试') + (imUsername ? '，当前账号 ' + imUsername : '，当前账号为空'));
             return false;
         });
     }
