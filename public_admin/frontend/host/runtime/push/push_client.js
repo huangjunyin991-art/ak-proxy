@@ -45,13 +45,14 @@
             return Promise.resolve(false);
         }
         if (permission.getPermission && permission.getPermission() === 'granted') {
-            setSubscriptionEnabled(true);
-            subscription.registerSubscription().then(function(result) {
+            return subscription.registerSubscription().then(function(result) {
+                if (result) setSubscriptionEnabled(true);
                 if (!result && subscription.getLastError) lastError = subscription.getLastError();
+                return !!result;
             }).catch(function(error) {
                 lastError = error && error.message ? error.message : '开启消息通知失败，请稍后重试';
+                return false;
             });
-            return Promise.resolve(true);
         }
         return withTimeout(permission.requestPermission(), 10000, '等待浏览器通知授权超时，请重新点击开关').then(function(result) {
             if (result === 'granted') {
