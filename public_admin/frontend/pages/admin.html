@@ -4986,10 +4986,10 @@
                 loadBanlist();
                 refreshStats();
             } else if (data.type === 'user_online') {
-                loadOnlineUsers();
+                loadOnlineUsers({ force: true });
                 addActivityItem('success', '🟢', `<strong>${data.data?.username || ''}</strong> 上线`, time);
             } else if (data.type === 'user_offline') {
-                loadOnlineUsers();
+                loadOnlineUsers({ force: true });
                 addActivityItem('info', '⚪', `<strong>${data.data?.username || ''}</strong> 离线`, time);
             } else if (data.type === 'chat_message') {
                 if (data.data.username === currentChatUser) {
@@ -5939,15 +5939,25 @@
             }
         }
 
-        function loadOnlineUsers() {
-            if (!shouldRunAdminPanelPoll('online')) return;
-            // 防抖：300ms内多次调用只执行最后一次
-            if (_onlineUsersDebounceTimer) clearTimeout(_onlineUsersDebounceTimer);
-            _onlineUsersDebounceTimer = setTimeout(_doLoadOnlineUsers, 300);
+        function shouldRefreshOnlineUsers(force) {
+            if (!force) return shouldRunAdminPanelPoll('online');
+            const panel = document.getElementById('online');
+            return !!isLoggedIn
+                && document.visibilityState === 'visible'
+                && !!panel
+                && (currentPanelName === 'online' || panel.classList.contains('active'));
         }
 
-        async function _doLoadOnlineUsers() {
-            if (!shouldRunAdminPanelPoll('online')) return;
+        function loadOnlineUsers(options) {
+            const force = !!(options && options.force);
+            if (!shouldRefreshOnlineUsers(force)) return;
+            // 防抖：300ms内多次调用只执行最后一次
+            if (_onlineUsersDebounceTimer) clearTimeout(_onlineUsersDebounceTimer);
+            _onlineUsersDebounceTimer = setTimeout(() => _doLoadOnlineUsers(force), force ? 0 : 300);
+        }
+
+        async function _doLoadOnlineUsers(force) {
+            if (!shouldRefreshOnlineUsers(!!force)) return;
             // 取消上一个未完成的请求
             if (_onlineUsersAbortCtrl) _onlineUsersAbortCtrl.abort();
             _onlineUsersAbortCtrl = new AbortController();
