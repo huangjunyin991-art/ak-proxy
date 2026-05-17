@@ -4322,10 +4322,20 @@
         scheduleDeferredStartup(tryInit, 700);
     }
 
-    if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', scheduleChatWidgetInit);
-    } else {
-        scheduleChatWidgetInit();
+    function isLoginRuntimePage() {
+        try {
+            return String(window.location.pathname || '').toLowerCase().indexOf('/login') !== -1;
+        } catch(e) {
+            return false;
+        }
+    }
+
+    if (!isLoginRuntimePage()) {
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', scheduleChatWidgetInit);
+        } else {
+            scheduleChatWidgetInit();
+        }
     }
     
 })();
