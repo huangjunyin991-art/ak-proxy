@@ -11499,9 +11499,13 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
             const loadingText = document.getElementById('remoteAssistLoadingText');
             const frame = document.getElementById('remoteAssistFrame');
             if (!loading || !loadingText || !frame) return;
-            loading.style.display = visible ? 'flex' : 'none';
+            const keepCurrentFrame = !!visible && !!remoteAssistPanelLastSnapshot && !!remoteAssistPanelLastHtml;
+            loading.style.display = visible && !keepCurrentFrame ? 'flex' : 'none';
             if (text) loadingText.textContent = text;
-            frame.style.visibility = visible ? 'hidden' : 'visible';
+            frame.style.visibility = visible && !keepCurrentFrame ? 'hidden' : 'visible';
+            if (keepCurrentFrame && text) {
+                setRemoteAssistMeta(text);
+            }
         }
 
         function setRemoteAssistMeta(text) {
