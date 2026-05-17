@@ -3355,7 +3355,8 @@
         const currentWs = ws;
         sendPresence('offline');
         setTimeout(function() {
-            if (currentWs.readyState === WebSocket.OPEN || currentWs.readyState === WebSocket.CONNECTING) {
+            if (!presenceSuspended || ws !== currentWs) return;
+            if (currentWs.readyState === WebSocket.OPEN) {
                 currentWs.close();
             }
         }, 80);

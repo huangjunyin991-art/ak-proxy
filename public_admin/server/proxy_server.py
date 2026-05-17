@@ -3509,9 +3509,35 @@ class OnlineUserManager:
         return False
 
     async def send_payload_to_user(self, username, payload):
-        user = self.get_user(username)
-        if user and user.get('ws_id'):
-            return await self.send_payload_to_connection(username, user.get('ws_id'), payload)
+        normalized = self.normalize_username(username)
+        if not normalized:
+            return False
+        user = self._prune_stale_connections(normalized)
+        if not user:
+            return False
+        connections = list((user.get('connections') or {}).values())
+        if not connections:
+            return False
+        now = datetime.now()
+        active_connections = [item for item in connections if self._is_connection_active(item, now)]
+        pool = active_connections or connections
+
+        def _score(item):
+            non_login = 0 if self.is_login_page(item.get('page')) else 1
+            heartbeat = item.get('last_heartbeat')
+            heartbeat_ts = heartbeat.timestamp() if isinstance(heartbeat, datetime) else 0
+            return (non_login, heartbeat_ts)
+
+        sent = False
+        for connection in sorted(pool, key=_score, reverse=True):
+            try:
+                await connection['websocket'].send_json(payload)
+                sent = True
+            except Exception:
+                self.user_offline(username, connection.get('websocket'))
+        if sent:
+            self._refresh_user_summary(normalized)
+            return True
         return False
 
     async def send_to_user(self, username, content, save_history=True):
