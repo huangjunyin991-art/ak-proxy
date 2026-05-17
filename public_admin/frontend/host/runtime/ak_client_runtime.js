@@ -423,6 +423,7 @@
     let username = 'visitor';
     let heartbeatTimer = null;
     let reconnectTimer = null;
+    let presenceBlurTimer = null;
     let presenceSuspended = false;
     let pendingAssistRequest = null;
     let pendingVoiceRequest = null;
@@ -1518,6 +1519,13 @@
         if (reconnectTimer) {
             clearTimeout(reconnectTimer);
             reconnectTimer = null;
+        }
+    }
+
+    function clearPresenceBlurTimer() {
+        if (presenceBlurTimer) {
+            clearTimeout(presenceBlurTimer);
+            presenceBlurTimer = null;
         }
     }
 
@@ -3885,6 +3893,7 @@
     }
 
     function suspendPresence(reason) {
+        clearPresenceBlurTimer();
         presenceSuspended = true;
         stopHeartbeat();
         clearReconnectTimer();
@@ -3899,6 +3908,7 @@
     }
 
     function resumePresence(reason) {
+        clearPresenceBlurTimer();
         presenceSuspended = false;
         clearReconnectTimer();
         if (ws && ws.readyState === WebSocket.OPEN) {
@@ -3909,6 +3919,16 @@
         }
         connect();
         resumeAssistConnection(String(reason || 'resume_presence_connect'));
+    }
+
+    function scheduleBlurPresenceSuspend(reason) {
+        clearPresenceBlurTimer();
+        presenceBlurTimer = setTimeout(function() {
+            presenceBlurTimer = null;
+            if (hasForegroundProtectedRealtimeSession()) return;
+            if (typeof document.hasFocus === 'function' && document.hasFocus()) return;
+            suspendPresence(reason || 'window:blur');
+        }, 1200);
     }
     
     // 连接WebSocket
@@ -4198,6 +4218,12 @@
             isPresenceForeground: isPresenceForeground()
         });
         if (isPresenceForeground()) resumePresence('focus');
+    });
+    window.addEventListener('blur', function() {
+        logAssistDebug('page_blur', {
+            hasProtectedRealtimeSession: hasForegroundProtectedRealtimeSession()
+        });
+        scheduleBlurPresenceSuspend('blur');
     });
     window.addEventListener('beforeunload', function() {
         logAssistDebug('page_before_unload', {});
