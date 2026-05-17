@@ -1296,7 +1296,8 @@
             saveProfileDetail: saveProfileDetail,
             saveProfileHonorVisibility: saveProfileHonorVisibility,
             getPushNotificationStatus: getPushNotificationStatus,
-            requestPushNotificationPermission: requestPushNotificationPermission
+            requestPushNotificationPermission: requestPushNotificationPermission,
+            disablePushNotification: disablePushNotification
         });
     }
 
@@ -5191,30 +5192,42 @@
         const push = window.AKClientRuntimePush;
         const status = push && typeof push.getPermissionStatus === 'function' ? push.getPermissionStatus() : 'unsupported';
         if (status === 'granted') {
+            if (push && typeof push.isSubscriptionEnabled === 'function' && !push.isSubscriptionEnabled()) {
+                return {
+                    title: '开启消息通知',
+                    meta: '当前设备已关闭新消息提醒',
+                    disabled: false,
+                    checked: false
+                };
+            }
             return {
                 title: '消息通知已开启',
                 meta: '当前设备会接收新消息提醒',
-                disabled: false
+                disabled: false,
+                checked: true
             };
         }
         if (status === 'denied') {
             return {
                 title: '消息通知已关闭',
                 meta: '浏览器已阻止通知，请到站点设置中允许',
-                disabled: true
+                disabled: true,
+                checked: false
             };
         }
         if (status === 'unsupported') {
             return {
                 title: '消息通知不可用',
                 meta: '当前浏览器或环境不支持 Web Push 通知',
-                disabled: true
+                disabled: true,
+                checked: false
             };
         }
         return {
             title: '开启消息通知',
             meta: '点击后允许浏览器通知，离线也能收到新消息提醒',
-            disabled: false
+            disabled: false,
+            checked: false
         };
     }
 
@@ -5252,6 +5265,26 @@
             return !!result;
         }).catch(function() {
             state.pushNotificationMessage = '开启消息通知失败，请稍后重试';
+            render();
+            return false;
+        });
+    }
+
+    function disablePushNotification() {
+        const push = window.AKClientRuntimePush;
+        if (!push || typeof push.unregister !== 'function') {
+            state.pushNotificationMessage = '消息通知模块暂不可用，请刷新页面后重试';
+            render();
+            return Promise.resolve(false);
+        }
+        state.pushNotificationMessage = '正在关闭当前设备消息通知...';
+        render();
+        return push.unregister().then(function(result) {
+            state.pushNotificationMessage = result ? '当前设备消息通知已关闭' : '关闭消息通知失败，请稍后重试';
+            render();
+            return !!result;
+        }).catch(function() {
+            state.pushNotificationMessage = '关闭消息通知失败，请稍后重试';
             render();
             return false;
         });

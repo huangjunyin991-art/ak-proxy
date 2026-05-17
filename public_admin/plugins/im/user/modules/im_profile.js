@@ -280,7 +280,7 @@
              const saving = !!state.profileSettingsSaving || !state.profileLoaded || !!state.profileLoading;
              const pushStatus = typeof this.ctx.getPushNotificationStatus === 'function'
                  ? this.ctx.getPushNotificationStatus()
-                 : { title: '消息通知不可用', meta: '当前环境不支持消息通知', disabled: true };
+                 : { title: '消息通知不可用', meta: '当前环境不支持消息通知', disabled: true, checked: false };
              container.innerHTML = (state.profileSettingsError ? '<div class="ak-im-profile-error">' + this.ctx.escapeHtml(state.profileSettingsError) + '</div>' : '') +
              (state.pushNotificationMessage ? '<div class="ak-im-profile-note">' + this.ctx.escapeHtml(state.pushNotificationMessage) + '</div>' : '') +
              '<div class="ak-im-profile-panel">' +
@@ -305,10 +305,14 @@
              '</div>' +
              '<div class="ak-im-profile-panel">' +
                  '<div class="ak-im-profile-entry-label">消息提醒</div>' +
-                 '<button class="ak-im-profile-entry" type="button" data-im-profile-enable-push="1"' + (pushStatus.disabled ? ' disabled' : '') + '>' +
-                     '<div class="ak-im-profile-entry-main"><div class="ak-im-profile-entry-label">' + this.ctx.escapeHtml(pushStatus.title) + '</div><div class="ak-im-profile-entry-meta">' + this.ctx.escapeHtml(pushStatus.meta) + '</div></div>' +
-                     '<div class="ak-im-profile-entry-arrow" aria-hidden="true">›</div>' +
-                 '</button>' +
+                 '<label class="ak-im-profile-switch-row">' +
+                     '<span class="ak-im-profile-switch-copy">' +
+                         '<span class="ak-im-profile-switch-title">' + this.ctx.escapeHtml(pushStatus.title) + '</span>' +
+                         '<span class="ak-im-profile-switch-meta">' + this.ctx.escapeHtml(pushStatus.meta) + '</span>' +
+                     '</span>' +
+                     '<input class="ak-im-profile-switch-input" type="checkbox" data-im-profile-enable-push="1"' + (pushStatus.checked ? ' checked' : '') + (pushStatus.disabled ? ' disabled' : '') + ' />' +
+                     '<span class="ak-im-profile-switch-track" aria-hidden="true"><span class="ak-im-profile-switch-thumb"></span></span>' +
+                 '</label>' +
              '</div>' +
              '<div class="ak-im-profile-panel">' +
                  '<div class="ak-im-profile-entry-label">当前资料</div>' +
@@ -328,7 +332,13 @@
              }
              const pushButton = container.querySelector('[data-im-profile-enable-push]');
              if (pushButton) {
-                 pushButton.addEventListener('click', function() {
+                 pushButton.addEventListener('change', function() {
+                     if (!pushButton.checked) {
+                         if (typeof self.ctx.disablePushNotification === 'function') {
+                             self.ctx.disablePushNotification();
+                         }
+                         return;
+                     }
                      if (typeof self.ctx.requestPushNotificationPermission === 'function') {
                          self.ctx.requestPushNotificationPermission();
                      }

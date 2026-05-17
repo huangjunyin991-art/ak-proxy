@@ -62,6 +62,23 @@
         });
     }
 
+    function deleteSubscription(subscription) {
+        if (!subscription) return Promise.resolve(true);
+        var data = subscription.toJSON ? subscription.toJSON() : subscription;
+        var endpoint = String(data && data.endpoint || '').trim();
+        if (!endpoint) return Promise.resolve(true);
+        return fetch('/api/notify-center/web-push/subscriptions', {
+            method: 'DELETE',
+            credentials: 'same-origin',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({endpoint: endpoint})
+        }).then(function(resp) {
+            return !!(resp && resp.ok);
+        }).catch(function() {
+            return false;
+        });
+    }
+
     function registerSubscription() {
         return fetchVapidPublicKey().then(function(publicKey) {
             if (!publicKey) return false;
@@ -73,6 +90,25 @@
         });
     }
 
+    function unregisterSubscription() {
+        return getRegistration().then(function(registration) {
+            if (!registration || !registration.pushManager) return true;
+            return registration.pushManager.getSubscription();
+        }).then(function(subscription) {
+            if (!subscription) return true;
+            return deleteSubscription(subscription).then(function(serverRemoved) {
+                return subscription.unsubscribe().then(function(localRemoved) {
+                    return !!localRemoved || !!serverRemoved;
+                }).catch(function() {
+                    return !!serverRemoved;
+                });
+            });
+        }).catch(function() {
+            return false;
+        });
+    }
+
     window.AKClientRuntimePushSubscription = window.AKClientRuntimePushSubscription || {};
     window.AKClientRuntimePushSubscription.registerSubscription = registerSubscription;
+    window.AKClientRuntimePushSubscription.unregisterSubscription = unregisterSubscription;
 })();
