@@ -5307,6 +5307,8 @@
                 'SW=' + (item.service_worker_ready ? 'ready' : (item.service_worker_supported ? 'not-ready' : 'unsupported')),
                 'Push=' + (item.push_manager_supported ? 'supported' : 'unsupported'),
                 '本机订阅=' + (item.has_subscription ? '有' : '无'),
+                '尝试创建=' + (item.attempted_create ? '是' : '否'),
+                '创建=' + (item.created_subscription ? '成功' : '未创建'),
                 '保存=' + (item.saved ? '成功' : '失败')
             ];
             if (item.last_error) parts.push('原因=' + String(item.last_error));

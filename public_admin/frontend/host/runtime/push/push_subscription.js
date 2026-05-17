@@ -192,6 +192,8 @@
             push_manager_supported: !!window.PushManager,
             service_worker_ready: false,
             has_subscription: false,
+            attempted_create: false,
+            created_subscription: false,
             saved: false,
             last_error: ''
         };
@@ -209,8 +211,26 @@
             return withTimeout(registration.pushManager.getSubscription(), 5000, '读取当前通知订阅超时').then(function(subscription) {
                 result.has_subscription = !!subscription;
                 if (!subscription) {
-                    result.last_error = '当前浏览器没有本机 Push 订阅';
-                    return result;
+                    result.attempted_create = true;
+                    return fetchVapidPublicKey().then(function(publicKey) {
+                        if (!publicKey) {
+                            result.last_error = lastError || '通知服务尚未配置完成';
+                            return null;
+                        }
+                        return subscribe(registration, publicKey);
+                    }).then(function(createdSubscription) {
+                        result.created_subscription = !!createdSubscription;
+                        result.has_subscription = !!createdSubscription;
+                        if (!createdSubscription) {
+                            result.last_error = lastError || '当前浏览器没有本机 Push 订阅，且创建订阅失败';
+                            return result;
+                        }
+                        return saveSubscription(createdSubscription).then(function(saved) {
+                            result.saved = !!saved;
+                            result.last_error = lastError || '';
+                            return result;
+                        });
+                    });
                 }
                 return saveSubscription(subscription).then(function(saved) {
                     result.saved = !!saved;
