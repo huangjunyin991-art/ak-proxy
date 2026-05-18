@@ -8005,14 +8005,14 @@
             tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: var(--text-secondary);">加载中...</td></tr>';
             
             try {
-                const res = await fetch(`${API_BASE}/admin/api/license/local-logs?action=create&limit=${licLogsPageSize}&offset=${page * licLogsPageSize}`, {
+                const res = await fetch(`${API_BASE}/admin/api/license/list?limit=${licLogsPageSize}&offset=${page * licLogsPageSize}`, {
                     headers: getLicenseHeaders()
                 });
                 if (!checkTokenValid(res)) return;
                 const data = await res.json();
                 
-                const rows = data.rows || [];
-                const total = data.total || 0;
+                const rows = data.data?.items || [];
+                const total = data.data?.total || 0;
                 
                 if (rows.length === 0) {
                     tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: var(--text-secondary);">暂无创建记录</td></tr>';
@@ -8020,6 +8020,10 @@
                     const billingTextMap = {'per_use': '按次数', 'time_based': '按时间', 'unlimited': '无限制'};
                     tbody.innerHTML = rows.map(row => {
                         const rowLicenseKey = row.license_key || '';
+                        const detailParts = [];
+                        if (row.expiry_date) detailParts.push(`有效期至 ${fmtTime(row.expiry_date)}`);
+                        if (row.max_uses) detailParts.push(`总次数 ${row.max_uses}`);
+                        if (row.usage_time) detailParts.push(`使用时长 ${row.usage_time} 分钟`);
                         return `
                         <tr>
                             <td style="white-space: nowrap;">${fmtTime(row.created_at)}</td>
@@ -8028,8 +8032,8 @@
                             </td>
                             <td>${escapeHtml(row.product_id || '-')}</td>
                             <td>${escapeHtml(billingTextMap[row.billing_mode] || row.billing_mode || '-')}</td>
-                            <td>${escapeHtml(row.detail || '-')}</td>
-                            <td>${escapeHtml(row.operator || '-')}</td>
+                            <td>${escapeHtml(detailParts.join('，') || '-')}</td>
+                            <td>${escapeHtml(row.created_by || '-')}</td>
                         </tr>
                     `;
                     }).join('');
@@ -8050,11 +8054,8 @@
             
             try {
                 // 同时请求远程使用日志和本地操作日志
-                const [remoteRes, localRes] = await Promise.all([
+                const [remoteRes] = await Promise.all([
                     fetch(`${API_BASE}/admin/api/license/logs?limit=${licLogsPageSize}&offset=${page * licLogsPageSize}`, {
-                        headers: getLicenseHeaders()
-                    }).catch(() => null),
-                    fetch(`${API_BASE}/admin/api/license/local-logs?limit=${licLogsPageSize}&offset=${page * licLogsPageSize}`, {
                         headers: getLicenseHeaders()
                     }).catch(() => null)
                 ]);
@@ -8081,20 +8082,6 @@
                 }
                 
                 // 如果远程没数据，用本地非create的日志
-                if (allRows.length === 0 && localRes && localRes.ok) {
-                    const localData = await localRes.json();
-                    const rows = localData.rows || [];
-                    total = localData.total || 0;
-                    const actionMap = {'create': '创建', 'revoke': '撤销', 'activate': '激活', 'use': '使用'};
-                    allRows = rows.map(r => ({
-                        time: r.created_at || '',
-                        license_key: r.license_key || '',
-                        action: actionMap[r.action] || r.action || '',
-                        detail: r.detail || '-',
-                        operator: r.operator || '-'
-                    }));
-                }
-                
                 if (allRows.length === 0) {
                     tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: var(--text-secondary);">暂无使用记录</td></tr>';
                 } else {
