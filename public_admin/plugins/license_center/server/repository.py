@@ -119,13 +119,15 @@ class LicenseCenterRepository:
             await conn.execute('''
                 INSERT INTO license_center_products(product_id, name, description, current_version)
                 VALUES ($1, $2, $3, $4)
-                ON CONFLICT(product_id) DO NOTHING
-            ''', 'ak_admin_panel', 'AK 管理面板', '默认管理面板产品', '4.0.0')
+                ON CONFLICT(product_id) DO UPDATE SET
+                    name = EXCLUDED.name,
+                    description = EXCLUDED.description,
+                    updated_at = NOW()
+            ''', 'ak_admin_panel', 'AK智能后台管理系统', 'AK智能后台管理系统', '4.0.0')
             await conn.execute('''
-                INSERT INTO license_center_products(product_id, name, description, current_version)
-                VALUES ($1, $2, $3, $4)
-                ON CONFLICT(product_id) DO NOTHING
-            ''', 'auto_read', 'AutoRead', '自动阅读客户端', '1.0.0')
+                DELETE FROM license_center_products
+                WHERE product_id <> $1
+            ''', 'ak_admin_panel')
 
     async def create_license(self, row: Dict[str, Any]) -> Dict[str, Any]:
         pool = self._pool()
@@ -385,7 +387,7 @@ class LicenseCenterRepository:
     async def list_products(self) -> List[Dict[str, Any]]:
         pool = self._pool()
         async with pool.acquire() as conn:
-            rows = await conn.fetch('SELECT * FROM license_center_products ORDER BY created_at DESC')
+            rows = await conn.fetch('SELECT * FROM license_center_products WHERE product_id = $1 ORDER BY created_at DESC', 'ak_admin_panel')
             return [dict(r) for r in rows]
 
     async def get_latest_release(self, product_id: str, channel: str = 'stable') -> Optional[Dict[str, Any]]:
@@ -397,3 +399,72 @@ class LicenseCenterRepository:
                 ORDER BY created_at DESC LIMIT 1
             ''', product_id, channel or 'stable')
             return dict(row) if row else None
+
+    async def upsert_release(self, row: Dict[str, Any]) -> Dict[str, Any]:
+        pool = self._pool()
+        async with pool.acquire() as conn:
+            record = await conn.fetchrow('''
+                INSERT INTO license_center_releases(
+                    product_id, version, channel, update_type, is_mandatory,
+                    can_skip, download_url, file_size, file_hash, announcement,
+                    announcement_content, release_notes, published, created_by
+                ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+                ON CONFLICT(product_id, version, channel) DO UPDATE SET
+                    update_type = EXCLUDED.update_type,
+                    is_mandatory = EXCLUDED.is_mandatory,
+                    can_skip = EXCLUDED.can_skip,
+                    download_url = EXCLUDED.download_url,
+                    file_size = EXCLUDED.file_size,
+                    file_hash = EXCLUDED.file_hash,
+                    announcement = EXCLUDED.announcement,
+                    announcement_content = EXCLUDED.announcement_content,
+                    release_notes = EXCLUDED.release_notes,
+                    published = EXCLUDED.published,
+                    created_by = EXCLUDED.created_by,
+                    updated_at = NOW()
+                RETURNING *
+            ''',
+                row['product_id'],
+                row['version'],
+                row.get('channel') or 'stable',
+                row.get('update_type') or 'recommended',
+                bool(row.get('is_mandatory')),
+                bool(row.get('can_skip', True)),
+                row.get('download_url') or '',
+                int(row.get('file_size') or 0),
+                row.get('file_hash') or '',
+                row.get('announcement') or '',
+                row.get('announcement_content') or '',
+                row.get('release_notes') or '',
+                bool(row.get('published', True)),
+                row.get('created_by') or 'admin',
+            )
+            await conn.execute('''
+                UPDATE license_center_products
+                SET current_version = $1, updated_at = NOW()
+                WHERE product_id = $2
+            ''', row['version'], row['product_id'])
+            return dict(record)
+
+    async def list_releases(self, product_id: str = '', channel: str = '', limit: int = 50, offset: int = 0) -> Dict[str, Any]:
+        pool = self._pool()
+        conditions = []
+        values = []
+        if product_id:
+            values.append(product_id)
+            conditions.append(f'product_id = ${len(values)}')
+        if channel:
+            values.append(channel)
+            conditions.append(f'channel = ${len(values)}')
+        where = f"WHERE {' AND '.join(conditions)}" if conditions else ''
+        values_for_count = list(values)
+        values.extend([limit, offset])
+        async with pool.acquire() as conn:
+            total = await conn.fetchval(f'SELECT COUNT(*) FROM license_center_releases {where}', *values_for_count)
+            rows = await conn.fetch(f'''
+                SELECT * FROM license_center_releases
+                {where}
+                ORDER BY created_at DESC
+                LIMIT ${len(values) - 1} OFFSET ${len(values)}
+            ''', *values)
+            return {'total': int(total or 0), 'items': [dict(r) for r in rows]}

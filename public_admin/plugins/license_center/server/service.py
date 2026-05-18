@@ -6,6 +6,10 @@ from typing import Any, Dict, Optional
 from .repository import LicenseCenterRepository
 
 
+PUBLIC_LICENSE_SERVER_URL = 'https://ak2025.vip'
+DEFAULT_PRODUCT_ID = 'ak_admin_panel'
+
+
 class LicenseCenterService:
     def __init__(self, repository: LicenseCenterRepository):
         self.repository = repository
@@ -28,8 +32,21 @@ class LicenseCenterService:
             return 'time_based'
         return 'unlimited'
 
+    def normalize_product_id(self, value: str) -> str:
+        return DEFAULT_PRODUCT_ID
+
+    def public_url(self, value: str) -> str:
+        url = str(value or '').strip()
+        if not url:
+            return ''
+        if url.startswith('http://') or url.startswith('https://'):
+            return url
+        if not url.startswith('/'):
+            url = f'/{url}'
+        return f'{PUBLIC_LICENSE_SERVER_URL}{url}'
+
     async def create_license(self, data: Dict[str, Any], operator: str = 'admin') -> Dict[str, Any]:
-        product_id = str(data.get('product_id') or 'ak_admin_panel').strip() or 'ak_admin_panel'
+        product_id = self.normalize_product_id(data.get('product_id'))
         billing_mode = self.normalize_billing_mode(data.get('billing_mode'))
         expiry_days = max(1, int(data.get('expiry_days') or 365))
         max_devices = max(1, int(data.get('max_devices') or 1))
@@ -69,30 +86,30 @@ class LicenseCenterService:
             'detail': detail,
             'metadata': {},
         })
-        return {'error': False, 'message': '创建成功', 'data': self.format_license(row)}
+        return {'error': False, 'success': True, 'message': '创建成功', 'data': self.format_license(row)}
 
     async def list_licenses(self, limit: int = 50, offset: int = 0) -> Dict[str, Any]:
         result = await self.repository.list_licenses(max(1, min(int(limit or 50), 200)), max(0, int(offset or 0)))
-        return {'error': False, 'data': {'total': result['total'], 'items': [self.format_license(row) for row in result['items']]}}
+        return {'error': False, 'success': True, 'data': {'total': result['total'], 'items': [self.format_license(row) for row in result['items']]}}
 
     async def get_license_info(self, license_key: str) -> Dict[str, Any]:
         row = await self.repository.get_license(str(license_key or '').strip().upper())
         if not row:
-            return {'error': True, 'message': '激活码不存在'}
-        return {'error': False, 'data': self.format_license(row)}
+            return {'error': True, 'success': False, 'message': '激活码不存在'}
+        return {'error': False, 'success': True, 'data': self.format_license(row)}
 
     async def revoke_license(self, license_key: str, reason: str = '', operator: str = 'admin') -> Dict[str, Any]:
         key = str(license_key or '').strip().upper()
         row = await self.repository.update_license(key, {'status': 'revoked'})
         if not row:
-            return {'error': True, 'message': '激活码不存在'}
+            return {'error': True, 'success': False, 'message': '激活码不存在'}
         await self.repository.add_legacy_log('revoke', key, row.get('product_id'), row.get('billing_mode'), reason or '撤销激活码', operator)
-        return {'error': False, 'message': '撤销成功', 'data': self.format_license(row)}
+        return {'error': False, 'success': True, 'message': '撤销成功', 'data': self.format_license(row)}
 
     async def edit_license(self, data: Dict[str, Any], operator: str = 'admin') -> Dict[str, Any]:
         key = str(data.get('license_key') or '').strip().upper()
         if not key:
-            return {'error': True, 'message': '缺少激活码'}
+            return {'error': True, 'success': False, 'message': '缺少激活码'}
         fields = {}
         for name in ('product_id', 'max_devices', 'max_uses', 'remaining_uses', 'usage_time', 'status'):
             if name in data:
@@ -103,61 +120,61 @@ class LicenseCenterService:
             fields['expiry_date'] = datetime.now() + timedelta(days=max(1, int(data.get('expiry_days') or 1)))
         row = await self.repository.update_license(key, fields)
         if not row:
-            return {'error': True, 'message': '激活码不存在'}
+            return {'error': True, 'success': False, 'message': '激活码不存在'}
         await self.repository.add_legacy_log('edit', key, row.get('product_id'), row.get('billing_mode'), '编辑激活码', operator)
-        return {'error': False, 'message': '保存成功', 'data': self.format_license(row)}
+        return {'error': False, 'success': True, 'message': '保存成功', 'data': self.format_license(row)}
 
     async def statistics(self) -> Dict[str, Any]:
-        return {'error': False, 'data': await self.repository.statistics()}
+        return {'error': False, 'success': True, 'data': await self.repository.statistics()}
 
     async def products(self) -> Dict[str, Any]:
-        return {'error': False, 'data': {'items': await self.repository.list_products()}}
+        return {'error': False, 'success': True, 'data': {'items': await self.repository.list_products()}}
 
     async def health(self) -> Dict[str, Any]:
-        return {'error': False, 'success': True, 'message': '授权中心正常', 'data': {'mode': 'local'}}
+        return {'error': False, 'success': True, 'message': '授权中心正常', 'data': {'mode': 'local', 'server_url': PUBLIC_LICENSE_SERVER_URL, 'product_id': DEFAULT_PRODUCT_ID}}
 
     async def admin_logs(self, limit: int = 100, offset: int = 0) -> Dict[str, Any]:
         result = await self.repository.list_verification_logs(max(1, min(int(limit or 100), 200)), max(0, int(offset or 0)))
-        return {'error': False, 'data': result}
+        return {'error': False, 'success': True, 'data': result}
 
     async def list_clients(self, limit: int = 100, offset: int = 0) -> Dict[str, Any]:
         result = await self.repository.list_devices(max(1, min(int(limit or 100), 200)), max(0, int(offset or 0)))
-        return {'error': False, 'data': {'total': result['total'], 'items': [self.format_device(row) for row in result['items']]}}
+        return {'error': False, 'success': True, 'data': {'total': result['total'], 'items': [self.format_device(row) for row in result['items']]}}
 
     async def client_detail(self, client_id: str) -> Dict[str, Any]:
         row = await self.repository.get_device(client_id)
         if not row:
-            return {'error': True, 'message': '客户端不存在'}
-        return {'error': False, 'data': self.format_device(row)}
+            return {'error': True, 'success': False, 'message': '客户端不存在'}
+        return {'error': False, 'success': True, 'data': self.format_device(row)}
 
     async def set_client_status(self, data: Dict[str, Any], status: str, operator: str = 'admin') -> Dict[str, Any]:
         device_id = str(data.get('client_id') or data.get('device_id') or data.get('machine_id') or '').strip()
         if not device_id:
-            return {'error': True, 'message': '客户端标识不能为空'}
+            return {'error': True, 'success': False, 'message': '客户端标识不能为空'}
         row = await self.repository.set_device_status(device_id, status)
         if not row:
-            return {'error': True, 'message': '客户端不存在'}
+            return {'error': True, 'success': False, 'message': '客户端不存在'}
         await self.repository.add_legacy_log(status, row.get('license_key'), row.get('product_id'), None, row.get('machine_id'), operator)
-        return {'error': False, 'message': '操作成功', 'data': self.format_device(row)}
+        return {'error': False, 'success': True, 'message': '操作成功', 'data': self.format_device(row)}
 
     async def blacklist_add(self, data: Dict[str, Any], operator: str = 'admin') -> Dict[str, Any]:
         target_type = str(data.get('target_type') or data.get('type') or 'machine_id').strip()
         target_value = str(data.get('target_value') or data.get('value') or data.get('machine_id') or data.get('license_key') or '').strip()
         if not target_value:
-            return {'error': True, 'message': '封禁目标不能为空'}
+            return {'error': True, 'success': False, 'message': '封禁目标不能为空'}
         row = await self.repository.add_blacklist(target_type, target_value, str(data.get('reason') or ''), operator)
-        return {'error': False, 'message': '已加入黑名单', 'data': row}
+        return {'error': False, 'success': True, 'message': '已加入黑名单', 'data': row}
 
     async def blacklist_remove(self, data: Dict[str, Any], operator: str = 'admin') -> Dict[str, Any]:
         target_type = str(data.get('target_type') or data.get('type') or 'machine_id').strip()
         target_value = str(data.get('target_value') or data.get('value') or data.get('machine_id') or data.get('license_key') or '').strip()
         if not target_value:
-            return {'error': True, 'message': '解封目标不能为空'}
+            return {'error': True, 'success': False, 'message': '解封目标不能为空'}
         ok = await self.repository.remove_blacklist(target_type, target_value, operator)
-        return {'error': False, 'message': '已移出黑名单' if ok else '黑名单记录不存在'}
+        return {'error': False, 'success': True, 'message': '已移出黑名单' if ok else '黑名单记录不存在'}
 
     async def blacklist_list(self) -> Dict[str, Any]:
-        return {'error': False, 'data': {'items': await self.repository.list_blacklist()}}
+        return {'error': False, 'success': True, 'data': {'items': await self.repository.list_blacklist()}}
 
     async def activate(self, data: Dict[str, Any], ip_address: str = '') -> Dict[str, Any]:
         return await self._verify_or_activate(data, ip_address, activate=True)
@@ -172,30 +189,63 @@ class LicenseCenterService:
         key = str(data.get('license_key') or verify_result.get('data', {}).get('license_key') or '').strip().upper()
         row = await self.repository.get_license(key)
         if not row:
-            return {'error': True, 'message': '激活码不存在'}
+            return {'error': True, 'success': False, 'message': '激活码不存在'}
         if row.get('billing_mode') == 'per_use':
             remaining = row.get('remaining_uses')
             if remaining is not None and int(remaining) <= 0:
-                return {'error': True, 'message': '使用次数已用完', 'error_code': 'LICENSE_EXPIRED'}
+                return {'error': True, 'success': False, 'message': '使用次数已用完', 'error_code': 'LICENSE_EXPIRED'}
             row = await self.repository.update_license(key, {'remaining_uses': int(remaining or 0) - 1})
         await self.repository.add_verification_log(self._log_payload(data, ip_address, 'consume', 'success', '消耗成功'))
-        return {'error': False, 'message': '消耗成功', 'data': self.format_license(row)}
+        return {'error': False, 'success': True, 'message': '消耗成功', 'data': self.format_license(row)}
 
     async def check_update(self, product_id: str, current_version: str, channel: str = 'stable') -> Dict[str, Any]:
-        product_id = str(product_id or 'ak_admin_panel').strip()
+        product_id = self.normalize_product_id(product_id)
         release = await self.repository.get_latest_release(product_id, channel or 'stable')
         if not release:
-            return {'error': False, 'data': {'has_update': False}}
+            return {'error': False, 'success': True, 'data': {'has_update': False, 'server_url': PUBLIC_LICENSE_SERVER_URL}}
         has_update = self.compare_versions(str(release.get('version') or ''), str(current_version or '')) > 0
         if not has_update:
-            return {'error': False, 'data': {'has_update': False}}
+            return {'error': False, 'success': True, 'data': {'has_update': False, 'server_url': PUBLIC_LICENSE_SERVER_URL}}
         data = self.format_update(release)
         data['has_update'] = True
-        return {'error': False, 'data': data}
+        return {'error': False, 'success': True, 'data': data}
+
+    async def publish_release(self, data: Dict[str, Any], operator: str = 'admin') -> Dict[str, Any]:
+        version = str(data.get('version') or '').strip()
+        if not version:
+            return {'error': True, 'success': False, 'message': '版本号不能为空'}
+        update_type = str(data.get('update_type') or 'recommended').strip().lower()
+        is_mandatory = bool(data.get('is_mandatory')) or update_type == 'mandatory'
+        release = await self.repository.upsert_release({
+            'product_id': self.normalize_product_id(data.get('product_id')),
+            'version': version,
+            'channel': str(data.get('channel') or 'stable').strip() or 'stable',
+            'update_type': update_type,
+            'is_mandatory': is_mandatory,
+            'can_skip': bool(data.get('can_skip', not is_mandatory)),
+            'download_url': str(data.get('download_url') or '').strip(),
+            'file_size': int(data.get('file_size') or 0),
+            'file_hash': str(data.get('file_hash') or '').strip(),
+            'announcement': str(data.get('announcement') or '').strip(),
+            'announcement_content': str(data.get('announcement_content') or '').strip(),
+            'release_notes': str(data.get('release_notes') or '').strip(),
+            'published': bool(data.get('published', True)),
+            'created_by': operator,
+        })
+        return {'error': False, 'success': True, 'message': '更新发布已保存', 'data': self.format_update(release)}
+
+    async def list_releases(self, product_id: str = '', channel: str = '', limit: int = 50, offset: int = 0) -> Dict[str, Any]:
+        result = await self.repository.list_releases(
+            product_id=self.normalize_product_id(product_id) if product_id else '',
+            channel=str(channel or '').strip(),
+            limit=max(1, min(int(limit or 50), 200)),
+            offset=max(0, int(offset or 0)),
+        )
+        return {'error': False, 'success': True, 'data': {'total': result['total'], 'items': [self.format_update(row) for row in result['items']]}}
 
     async def _verify_or_activate(self, data: Dict[str, Any], ip_address: str, activate: bool) -> Dict[str, Any]:
-        product_id = str(data.get('product_id') or 'ak_admin_panel').strip()
-        license_key = str(data.get('license_key') or '').strip().upper()
+        product_id = self.normalize_product_id(data.get('product_id'))
+        license_key = str(data.get('license_key') or data.get('activation_code') or '').strip().upper()
         machine_id = str(data.get('machine_id') or '').strip()
         account_name = str(data.get('account_name') or '').strip()
         client_version = str(data.get('client_version') or '').strip()
@@ -205,21 +255,21 @@ class LicenseCenterService:
             if found:
                 license_key = str(found.get('license_key') or '')
         if not license_key:
-            result = {'error': True, 'message': '缺少激活码', 'error_code': 'LICENSE_REQUIRED'}
+            result = {'error': True, 'success': False, 'message': '缺少激活码', 'error_code': 'LICENSE_REQUIRED'}
             await self.repository.add_verification_log(self._log_payload(data, ip_address, action, 'failed', result['message']))
             return result
         row = await self.repository.get_license(license_key)
         if not row:
-            result = {'error': True, 'message': '激活码不存在', 'error_code': 'LICENSE_NOT_FOUND'}
+            result = {'error': True, 'success': False, 'message': '激活码不存在', 'error_code': 'LICENSE_NOT_FOUND'}
             await self.repository.add_verification_log(self._log_payload(data, ip_address, action, 'failed', result['message']))
             return result
         if product_id and row.get('product_id') != product_id:
-            result = {'error': True, 'message': '产品不匹配', 'error_code': 'PRODUCT_MISMATCH'}
+            result = {'error': True, 'success': False, 'message': '产品不匹配', 'error_code': 'PRODUCT_MISMATCH'}
             await self.repository.add_verification_log(self._log_payload(data, ip_address, action, 'failed', result['message']))
             return result
         ban = await self.find_blacklist(row, machine_id, account_name, ip_address)
         if ban:
-            result = {'error': True, 'message': ban.get('reason') or '设备或授权已被封禁', 'error_code': 'LICENSE_BANNED', 'data': {'banned': True, 'ban_reason': ban.get('reason') or ''}}
+            result = {'error': True, 'success': False, 'message': ban.get('reason') or '设备或授权已被封禁', 'error_code': 'DEVICE_BLACKLISTED', 'data': {'banned': True, 'ban_reason': ban.get('reason') or '', 'blacklist_reason': ban.get('reason') or ''}}
             await self.repository.add_verification_log(self._log_payload(data, ip_address, action, 'failed', result['message']))
             return result
         validity_error = self.validate_license_time_and_count(row)
@@ -227,19 +277,19 @@ class LicenseCenterService:
             await self.repository.add_verification_log(self._log_payload(data, ip_address, action, 'failed', validity_error['message']))
             return validity_error
         if row.get('status') == 'revoked':
-            result = {'error': True, 'message': '激活码已撤销', 'error_code': 'LICENSE_REVOKED'}
+            result = {'error': True, 'success': False, 'message': '激活码已撤销', 'error_code': 'LICENSE_REVOKED'}
             await self.repository.add_verification_log(self._log_payload(data, ip_address, action, 'failed', result['message']))
             return result
         if machine_id:
             bound_device = await self.repository.get_license_device(license_key, machine_id)
             if bound_device and bound_device.get('status') != 'active':
-                result = {'error': True, 'message': '客户端已被禁用', 'error_code': 'CLIENT_DISABLED'}
+                result = {'error': True, 'success': False, 'message': '客户端已被禁用', 'error_code': 'DEVICE_BLACKLISTED', 'data': {'banned': True, 'ban_reason': '客户端已被禁用'}}
                 await self.repository.add_verification_log(self._log_payload(data, ip_address, action, 'failed', result['message']))
                 return result
             device_count = await self.repository.count_devices(license_key)
             existing = await self.repository.find_license_by_machine(machine_id, product_id)
             if device_count >= int(row.get('max_devices') or 1) and (not existing or existing.get('license_key') != license_key):
-                result = {'error': True, 'message': '设备数量已达上限', 'error_code': 'DEVICE_LIMIT_EXCEEDED'}
+                result = {'error': True, 'success': False, 'message': '设备数量已达上限', 'error_code': 'DEVICE_LIMIT_EXCEEDED'}
                 await self.repository.add_verification_log(self._log_payload(data, ip_address, action, 'failed', result['message']))
                 return result
             if row.get('status') == 'inactive' or activate:
@@ -249,7 +299,7 @@ class LicenseCenterService:
             elif row.get('status') == 'active':
                 await self.repository.upsert_device(license_key, product_id, machine_id, data.get('hardware') or data.get('hardware_fingerprint') or {}, account_name, client_version, ip_address)
         elif activate:
-            result = {'error': True, 'message': '缺少机器码', 'error_code': 'MACHINE_ID_REQUIRED'}
+            result = {'error': True, 'success': False, 'message': '缺少机器码', 'error_code': 'MACHINE_ID_REQUIRED'}
             await self.repository.add_verification_log(self._log_payload(data, ip_address, action, 'failed', result['message']))
             return result
         formatted = self.format_license(row)
@@ -257,7 +307,7 @@ class LicenseCenterService:
         if not update_result.get('error'):
             formatted['update_available'] = update_result.get('data') or {'has_update': False}
         await self.repository.add_verification_log(self._log_payload(dict(data, license_key=license_key), ip_address, action, 'success', '验证成功'))
-        return {'error': False, 'message': '激活成功' if activate else '验证成功', 'data': formatted}
+        return {'error': False, 'success': True, 'message': '激活成功' if activate else '验证成功', 'data': formatted}
 
     async def find_blacklist(self, row: Dict[str, Any], machine_id: str, account_name: str, ip_address: str) -> Optional[Dict[str, Any]]:
         checks = [
@@ -275,14 +325,14 @@ class LicenseCenterService:
     def validate_license_time_and_count(self, row: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         status = str(row.get('status') or '')
         if status not in ('inactive', 'active'):
-            return {'error': True, 'message': '激活码不可用', 'error_code': 'LICENSE_INVALID'}
+            return {'error': True, 'success': False, 'message': '激活码不可用', 'error_code': 'LICENSE_INVALID'}
         expiry_date = row.get('expiry_date')
         if expiry_date and expiry_date < datetime.now():
-            return {'error': True, 'message': '激活码已过期', 'error_code': 'LICENSE_EXPIRED', 'data': {'expired': True}}
+            return {'error': True, 'success': False, 'message': '激活码已过期', 'error_code': 'LICENSE_EXPIRED', 'data': {'expired': True}}
         if row.get('billing_mode') == 'per_use':
             remaining = row.get('remaining_uses')
             if remaining is not None and int(remaining) <= 0:
-                return {'error': True, 'message': '使用次数已用完', 'error_code': 'LICENSE_EXPIRED', 'data': {'expired': True}}
+                return {'error': True, 'success': False, 'message': '使用次数已用完', 'error_code': 'LICENSE_EXPIRED', 'data': {'expired': True}}
         return None
 
     def format_license(self, row: Optional[Dict[str, Any]]) -> Dict[str, Any]:
@@ -316,6 +366,7 @@ class LicenseCenterService:
         return max(0, int((expires_at - now).total_seconds() / 60))
 
     def format_update(self, release: Dict[str, Any]) -> Dict[str, Any]:
+        download_url = self.public_url(release.get('download_url') or '')
         return {
             'latest_version': release.get('version'),
             'version': release.get('version'),
@@ -326,11 +377,13 @@ class LicenseCenterService:
             'announcement': release.get('announcement') or '',
             'announcement_content': release.get('announcement_content') or '',
             'release_notes': release.get('release_notes') or '',
-            'download_url': release.get('download_url') or '',
+            'download_url': download_url,
             'file_size': release.get('file_size') or 0,
             'file_hash': release.get('file_hash') or '',
+            'server_url': PUBLIC_LICENSE_SERVER_URL,
+            'product_id': DEFAULT_PRODUCT_ID,
             'update_info': {
-                'download_url': release.get('download_url') or '',
+                'download_url': download_url,
                 'file_size': release.get('file_size') or 0,
                 'file_hash': release.get('file_hash') or '',
             },

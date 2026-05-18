@@ -51,6 +51,12 @@ def create_license_center_router(
             return real_ip
         return request.client.host if request.client else ''
 
+    async def read_json(request: Request):
+        try:
+            return await request.json()
+        except Exception:
+            return None
+
     @router.get('/admin/api/license/statistics')
     async def license_statistics(request: Request):
         _, error = await require_license_admin(request)
@@ -118,6 +124,23 @@ def create_license_center_router(
         if error is not None:
             return error
         return await service.health()
+
+    @router.get('/admin/api/license/releases')
+    async def license_releases(request: Request, product_id: str = '', channel: str = '', limit: int = 50, offset: int = 0):
+        _, error = await require_license_admin(request)
+        if error is not None:
+            return error
+        return await service.list_releases(product_id=product_id, channel=channel, limit=limit, offset=offset)
+
+    @router.post('/admin/api/license/releases/publish')
+    async def license_publish_release(request: Request):
+        token, error = await require_license_admin(request)
+        if error is not None:
+            return error
+        data = await read_json(request)
+        if data is None:
+            return JSONResponse(status_code=400, content={'error': True, 'success': False, 'message': '请求体无效'})
+        return await service.publish_release(data, operator=operator_from_token(token))
 
     @router.get('/admin/api/license/logs')
     async def license_logs(request: Request, limit: int = 100, offset: int = 0):
@@ -200,26 +223,23 @@ def create_license_center_router(
 
     @router.post('/api/v1/activate')
     async def client_activate(request: Request):
-        try:
-            data = await request.json()
-        except Exception:
-            return JSONResponse(status_code=400, content={'error': True, 'message': '请求体无效'})
+        data = await read_json(request)
+        if data is None:
+            return JSONResponse(status_code=400, content={'error': True, 'success': False, 'message': '请求体无效'})
         return await service.activate(data, ip_address=client_ip(request))
 
     @router.post('/api/v1/verify')
     async def client_verify(request: Request):
-        try:
-            data = await request.json()
-        except Exception:
-            return JSONResponse(status_code=400, content={'error': True, 'message': '请求体无效'})
+        data = await read_json(request)
+        if data is None:
+            return JSONResponse(status_code=400, content={'error': True, 'success': False, 'message': '请求体无效'})
         return await service.verify(data, ip_address=client_ip(request))
 
     @router.post('/api/v1/consume')
     async def client_consume(request: Request):
-        try:
-            data = await request.json()
-        except Exception:
-            return JSONResponse(status_code=400, content={'error': True, 'message': '请求体无效'})
+        data = await read_json(request)
+        if data is None:
+            return JSONResponse(status_code=400, content={'error': True, 'success': False, 'message': '请求体无效'})
         return await service.consume(data, ip_address=client_ip(request))
 
     @router.get('/api/v1/check-update')
@@ -228,15 +248,56 @@ def create_license_center_router(
 
     @router.post('/api/v1/check-update')
     async def client_check_update_post(request: Request):
-        try:
-            data = await request.json()
-        except Exception:
-            return JSONResponse(status_code=400, content={'error': True, 'message': '请求体无效'})
+        data = await read_json(request)
+        if data is None:
+            return JSONResponse(status_code=400, content={'error': True, 'success': False, 'message': '请求体无效'})
         return await service.check_update(
             product_id=str(data.get('product_id') or 'ak_admin_panel'),
             current_version=str(data.get('current_version') or '0.0.0'),
             channel=str(data.get('channel') or 'stable'),
         )
+
+    @router.get('/api/check-update')
+    async def legacy_check_update_get(product_id: str = 'ak_admin_panel', current_version: str = '0.0.0', channel: str = 'stable'):
+        return await service.check_update(product_id=product_id, current_version=current_version, channel=channel)
+
+    @router.post('/api/check-update')
+    async def legacy_check_update_post(request: Request):
+        data = await read_json(request)
+        if data is None:
+            return JSONResponse(status_code=400, content={'error': True, 'success': False, 'message': '请求体无效'})
+        return await service.check_update(
+            product_id=str(data.get('product_id') or 'ak_admin_panel'),
+            current_version=str(data.get('current_version') or '0.0.0'),
+            channel=str(data.get('channel') or 'stable'),
+        )
+
+    @router.get('/api/license/status')
+    async def legacy_license_status():
+        result = await service.health()
+        return {
+            'success': True,
+            'error': False,
+            'message': result.get('message') or '授权中心正常',
+            'product_id': result.get('data', {}).get('product_id') or 'ak_admin_panel',
+            'server_url': result.get('data', {}).get('server_url') or 'https://ak2025.vip',
+        }
+
+    @router.post('/api/license/activate')
+    async def legacy_license_activate(request: Request):
+        data = await read_json(request)
+        if data is None:
+            return JSONResponse(status_code=400, content={'error': True, 'success': False, 'message': '请求体无效'})
+        if data.get('activation_code') and not data.get('license_key'):
+            data['license_key'] = data.get('activation_code')
+        return await service.activate(data, ip_address=client_ip(request))
+
+    @router.post('/api/license/verify')
+    async def legacy_license_verify(request: Request):
+        data = await read_json(request)
+        if data is None:
+            data = {}
+        return await service.verify(data, ip_address=client_ip(request))
 
     @router.get('/api/v1/health')
     async def client_health():

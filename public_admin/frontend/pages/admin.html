@@ -3292,6 +3292,9 @@
                     <button onclick="showCreateLicenseModal()" class="btn btn-primary" style="padding: 8px 15px; background: linear-gradient(135deg, #00ff88, #00cc6a);">
                         ➕ 创建激活码
                     </button>
+                    <button onclick="showPublishReleaseModal()" class="btn btn-primary" style="padding: 8px 15px;">
+                        🚀 发布更新
+                    </button>
                 </div>
             </div>
             
@@ -4100,7 +4103,7 @@
     </div>
     
     <!-- 创建激活码弹窗 -->
-    <div class="modal" id="createLicenseModal">
+    <div id="createLicenseModal" class="modal">
         <div class="modal-content" style="max-width: 500px;">
             <h3 style="flex-shrink: 0;">➕ 创建激活码</h3>
             
@@ -4109,8 +4112,7 @@
                     <label style="display: block; margin-bottom: 8px; color: var(--text-secondary); font-size: 14px;">产品类型</label>
                     <select id="licProductId" onchange="onProductTypeChange()" style="width: 100%; padding: 10px; background: var(--bg-primary); border: 1px solid var(--border); 
                             border-radius: 8px; color: var(--text-primary);">
-                        <option value="ak_admin_panel">管理面板 (ak_admin_panel)</option>
-                        <option value="auto_sell_system">自动销售系统 (auto_sell_system)</option>
+                        <option value="ak_admin_panel">AK智能后台管理系统 (ak_admin_panel)</option>
                     </select>
                 </div>
                 
@@ -4169,6 +4171,73 @@
             <div class="modal-buttons" style="flex-shrink: 0;">
                 <button class="btn-page" onclick="closeCreateLicenseModal()">取消</button>
                 <button class="btn btn-primary" id="createLicenseBtn" onclick="doCreateLicense()">创建</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal" id="publishReleaseModal">
+        <div class="modal-content" style="max-width: 560px;">
+            <h3 style="flex-shrink: 0;">🚀 发布更新</h3>
+            <div style="flex: 1; overflow-y: auto; margin-bottom: 20px;">
+                <div style="margin-bottom: 15px;">
+                    <label style="display: block; margin-bottom: 8px; color: var(--text-secondary); font-size: 14px;">产品</label>
+                    <input type="text" value="AK智能后台管理系统 (ak_admin_panel)" disabled
+                           style="width: 100%; padding: 10px; background: var(--bg-primary); border: 1px solid var(--border); border-radius: 8px; color: var(--text-secondary);">
+                </div>
+                <div style="margin-bottom: 15px;">
+                    <label style="display: block; margin-bottom: 8px; color: var(--text-secondary); font-size: 14px;">版本号</label>
+                    <input type="text" id="releaseVersion" placeholder="例如 4.0.1"
+                           style="width: 100%; padding: 10px; background: var(--bg-primary); border: 1px solid var(--border); border-radius: 8px; color: var(--text-primary);">
+                </div>
+                <div style="margin-bottom: 15px;">
+                    <label style="display: block; margin-bottom: 8px; color: var(--text-secondary); font-size: 14px;">更新类型</label>
+                    <select id="releaseUpdateType" onchange="onReleaseUpdateTypeChange()" style="width: 100%; padding: 10px; background: var(--bg-primary); border: 1px solid var(--border); border-radius: 8px; color: var(--text-primary);">
+                        <option value="recommended">建议更新</option>
+                        <option value="mandatory">强制更新</option>
+                        <option value="optional">可选更新</option>
+                    </select>
+                </div>
+                <div style="margin-bottom: 15px;">
+                    <label style="display: block; margin-bottom: 8px; color: var(--text-secondary); font-size: 14px;">下载地址</label>
+                    <input type="text" id="releaseDownloadUrl" placeholder="/downloads/AK_AdminPanel_Setup_v4.0.1.exe 或完整 https 地址"
+                           style="width: 100%; padding: 10px; background: var(--bg-primary); border: 1px solid var(--border); border-radius: 8px; color: var(--text-primary);">
+                </div>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 15px;">
+                    <div>
+                        <label style="display: block; margin-bottom: 8px; color: var(--text-secondary); font-size: 14px;">文件大小（字节）</label>
+                        <input type="number" id="releaseFileSize" value="0" min="0"
+                               style="width: 100%; padding: 10px; background: var(--bg-primary); border: 1px solid var(--border); border-radius: 8px; color: var(--text-primary);">
+                    </div>
+                    <div>
+                        <label style="display: block; margin-bottom: 8px; color: var(--text-secondary); font-size: 14px;">文件哈希</label>
+                        <input type="text" id="releaseFileHash" placeholder="可选"
+                               style="width: 100%; padding: 10px; background: var(--bg-primary); border: 1px solid var(--border); border-radius: 8px; color: var(--text-primary);">
+                    </div>
+                </div>
+                <div style="margin-bottom: 15px;">
+                    <label style="display: block; margin-bottom: 8px; color: var(--text-secondary); font-size: 14px;">更新公告标题</label>
+                    <input type="text" id="releaseAnnouncement" placeholder="可选"
+                           style="width: 100%; padding: 10px; background: var(--bg-primary); border: 1px solid var(--border); border-radius: 8px; color: var(--text-primary);">
+                </div>
+                <div style="margin-bottom: 15px;">
+                    <label style="display: block; margin-bottom: 8px; color: var(--text-secondary); font-size: 14px;">更新公告内容</label>
+                    <textarea id="releaseAnnouncementContent" rows="3" placeholder="可选"
+                              style="width: 100%; padding: 10px; background: var(--bg-primary); border: 1px solid var(--border); border-radius: 8px; color: var(--text-primary); resize: vertical;"></textarea>
+                </div>
+                <div style="margin-bottom: 15px;">
+                    <label style="display: block; margin-bottom: 8px; color: var(--text-secondary); font-size: 14px;">更新说明</label>
+                    <textarea id="releaseNotes" rows="4" placeholder="可选"
+                              style="width: 100%; padding: 10px; background: var(--bg-primary); border: 1px solid var(--border); border-radius: 8px; color: var(--text-primary); resize: vertical;"></textarea>
+                </div>
+                <label style="display: flex; gap: 8px; align-items: center; color: var(--text-secondary); font-size: 14px; margin-bottom: 15px;">
+                    <input type="checkbox" id="releaseCanSkip" checked>
+                    允许用户跳过
+                </label>
+                <div id="publishReleaseMsg" style="margin-bottom: 15px; padding: 10px; border-radius: 6px; display: none;"></div>
+            </div>
+            <div class="modal-buttons" style="flex-shrink: 0;">
+                <button class="btn-page" onclick="closePublishReleaseModal()">取消</button>
+                <button class="btn btn-primary" id="publishReleaseBtn" onclick="doPublishRelease()">发布</button>
             </div>
         </div>
     </div>
@@ -8175,30 +8244,110 @@
             document.getElementById('createLicenseMsg').style.display = 'none';
             document.getElementById('createLicenseProgress').style.display = 'none';
         }
+
+        function showPublishReleaseModal() {
+            document.getElementById('publishReleaseModal').style.display = 'flex';
+            document.getElementById('releaseVersion').value = '';
+            document.getElementById('releaseUpdateType').value = 'recommended';
+            document.getElementById('releaseDownloadUrl').value = '';
+            document.getElementById('releaseFileSize').value = 0;
+            document.getElementById('releaseFileHash').value = '';
+            document.getElementById('releaseAnnouncement').value = '';
+            document.getElementById('releaseAnnouncementContent').value = '';
+            document.getElementById('releaseNotes').value = '';
+            document.getElementById('releaseCanSkip').checked = true;
+            document.getElementById('publishReleaseMsg').style.display = 'none';
+            document.getElementById('publishReleaseBtn').disabled = false;
+            document.getElementById('publishReleaseBtn').textContent = '发布';
+        }
+
+        function closePublishReleaseModal() {
+            document.getElementById('publishReleaseModal').style.display = 'none';
+            document.getElementById('publishReleaseMsg').style.display = 'none';
+        }
+
+        function onReleaseUpdateTypeChange() {
+            const updateType = document.getElementById('releaseUpdateType').value;
+            const canSkipEl = document.getElementById('releaseCanSkip');
+            if (updateType === 'mandatory') {
+                canSkipEl.checked = false;
+                canSkipEl.disabled = true;
+            } else {
+                canSkipEl.disabled = false;
+                if (updateType === 'optional') canSkipEl.checked = true;
+            }
+        }
+
+        async function doPublishRelease() {
+            const version = document.getElementById('releaseVersion').value.trim();
+            const msgDiv = document.getElementById('publishReleaseMsg');
+            const btn = document.getElementById('publishReleaseBtn');
+            if (!version) {
+                msgDiv.textContent = '请输入版本号';
+                msgDiv.style.background = 'rgba(255, 71, 87, 0.1)';
+                msgDiv.style.color = 'var(--accent-red)';
+                msgDiv.style.display = 'block';
+                return;
+            }
+            const updateType = document.getElementById('releaseUpdateType').value;
+            btn.disabled = true;
+            btn.textContent = '发布中...';
+            try {
+                const res = await fetch(`${API_BASE}/admin/api/license/releases/publish`, {
+                    method: 'POST',
+                    headers: getLicenseHeaders(),
+                    body: JSON.stringify({
+                        product_id: 'ak_admin_panel',
+                        version,
+                        channel: 'stable',
+                        update_type: updateType,
+                        is_mandatory: updateType === 'mandatory',
+                        can_skip: document.getElementById('releaseCanSkip').checked,
+                        download_url: document.getElementById('releaseDownloadUrl').value.trim(),
+                        file_size: parseInt(document.getElementById('releaseFileSize').value) || 0,
+                        file_hash: document.getElementById('releaseFileHash').value.trim(),
+                        announcement: document.getElementById('releaseAnnouncement').value.trim(),
+                        announcement_content: document.getElementById('releaseAnnouncementContent').value.trim(),
+                        release_notes: document.getElementById('releaseNotes').value.trim(),
+                        published: true
+                    })
+                });
+                if (!checkTokenValid(res)) return;
+                const data = await res.json();
+                if (data.error) {
+                    msgDiv.textContent = data.message || '发布失败';
+                    msgDiv.style.background = 'rgba(255, 71, 87, 0.1)';
+                    msgDiv.style.color = 'var(--accent-red)';
+                    msgDiv.style.display = 'block';
+                    return;
+                }
+                msgDiv.textContent = '发布成功，客户端下次验证或检查更新时会收到推送';
+                msgDiv.style.background = 'rgba(0, 255, 136, 0.1)';
+                msgDiv.style.color = 'var(--accent-green)';
+                msgDiv.style.display = 'block';
+                setTimeout(() => closePublishReleaseModal(), 1200);
+            } catch (e) {
+                msgDiv.textContent = `发布失败: ${e.message}`;
+                msgDiv.style.background = 'rgba(255, 71, 87, 0.1)';
+                msgDiv.style.color = 'var(--accent-red)';
+                msgDiv.style.display = 'block';
+            } finally {
+                btn.disabled = false;
+                btn.textContent = '发布';
+            }
+        }
         
         // 产品类型变化
         function onProductTypeChange() {
-            const productId = document.getElementById('licProductId').value;
             const billingModeSelect = document.getElementById('licBillingMode');
             
             // 清空现有选项
             billingModeSelect.innerHTML = '';
             
-            // 根据产品类型添加对应的计费模式
-            if (productId === 'ak_admin_panel') {
-                // 管理面板：只支持无限制和按时间
-                billingModeSelect.innerHTML = `
-                    <option value="unlimited">无限制 (unlimited)</option>
-                    <option value="time_based">按时间 (time_based)</option>
-                `;
-            } else {
-                // 其他产品：支持所有计费模式
-                billingModeSelect.innerHTML = `
-                    <option value="unlimited">无限制 (unlimited)</option>
-                    <option value="per_use">按次数 (per_use)</option>
-                    <option value="time_based">按时间 (time_based)</option>
-                `;
-            }
+            billingModeSelect.innerHTML = `
+                <option value="unlimited">无限制 (unlimited)</option>
+                <option value="time_based">按时间 (time_based)</option>
+            `;
             
             // 更新计费模式相关显示
             onBillingModeChange();
