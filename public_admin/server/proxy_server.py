@@ -454,19 +454,23 @@ IP_PREBAN_AUTO_BAN_DAYS = 1
 
 LOGIN_403_DISTINCT_ACCOUNT_THRESHOLD = 3
 
-LOGIN_403_IP_BAN_HOURS = 12
+LOGIN_403_IP_BAN_HOURS = 1
 
 ADMIN_LOGIN_RATE_WINDOW_SECONDS = 60
 
 ADMIN_LOGIN_RATE_THRESHOLD = 20
 
-ADMIN_LOGIN_RATE_BAN_BASE_SECONDS = 12 * 3600
+ADMIN_LOGIN_RATE_BAN_BASE_SECONDS = 3600
 
 ADMIN_LOGIN_MIN_INTERVAL_SECONDS = 3
 
 RPC_LOGIN_FAIL_ACCOUNT_WINDOW_SECONDS = 60
 
-RPC_LOGIN_FAIL_ACCOUNT_BAN_BASE_SECONDS = 12 * 3600
+RPC_LOGIN_FAIL_ACCOUNT_BAN_BASE_SECONDS = 3600
+
+RPC_LOGIN_ACCOUNT_PASSWORD_FAIL_WINDOW_HOURS = 24
+
+RPC_LOGIN_ACCOUNT_PASSWORD_FAIL_THRESHOLD = 20
 
 _POINT_HISTORY_PAGE_DELAY = 0.5
 _POINT_HISTORY_PAGE_MAX_RETRIES = 3
@@ -549,20 +553,8 @@ async def _record_login_endpoint_call_and_maybe_ban_ip(client_ip: str, endpoint:
     last_call_at = max(timestamps) if timestamps else 0
     if last_call_at and now - float(last_call_at) < ADMIN_LOGIN_MIN_INTERVAL_SECONDS:
         short_interval_count = int(stats.admin_login_short_interval_counts.get(normalized_ip) or 0) + 1
-        if short_interval_count < 2:
-            stats.admin_login_short_interval_counts[normalized_ip] = short_interval_count
-            timestamps.append(now)
-            return {"count": len(timestamps), "interval_seconds": now - float(last_call_at)}
-        trigger_reason = f"连续登录接口调用间隔小于{ADMIN_LOGIN_MIN_INTERVAL_SECONDS}秒: {endpoint}"
-        result = await ban_admin_login_fail_ip(
-            normalized_ip,
-            short_interval_count,
-            trigger_reason=trigger_reason,
-            base_seconds=ADMIN_LOGIN_RATE_BAN_BASE_SECONDS,
-        )
-        stats.admin_login_request_timestamps.pop(normalized_ip, None)
-        stats.admin_login_short_interval_counts.pop(normalized_ip, None)
-        return {**result, "interval_seconds": now - float(last_call_at)}
+        stats.admin_login_short_interval_counts[normalized_ip] = short_interval_count
+        logger.warning(f"[LoginRateGuard] 登录接口短间隔记录 ip={normalized_ip} endpoint={endpoint} interval={now - float(last_call_at):.3f}s count={short_interval_count}")
     if last_call_at:
         stats.admin_login_short_interval_counts.pop(normalized_ip, None)
     timestamps.append(now)
@@ -607,6 +599,39 @@ async def _record_login_403_and_maybe_ban_ip(client_ip: str, username: str, reas
     )
     stats.login_403_ip_accounts.pop(normalized_ip, None)
     logger.warning(f"[Login403Guard] 自动封禁IP ip={normalized_ip} accounts={sorted(accounts.keys())} reason={trigger_reason}")
+
+
+def _is_rpc_login_password_failure(result: dict, local_password_mismatch: bool = False) -> bool:
+    if local_password_mismatch:
+        return True
+    msg = str((result or {}).get("Msg") or (result or {}).get("Message") or "")
+    normalized_msg = msg.replace(" ", "")
+    return "賬戶或密碼不正確" in normalized_msg or "账户或密码" in normalized_msg or "密碼不正確" in normalized_msg or "密码不正确" in normalized_msg
+
+
+async def _record_account_password_fail_and_maybe_ban_ip(client_ip: str, username: str) -> None:
+    normalized_ip = str(client_ip or "").strip()
+    normalized_username = str(username or "").strip().lower()
+    if not normalized_ip or normalized_ip == "unknown" or not normalized_username or normalized_username == "unknown":
+        return
+    if await _is_ip_banned_for_penalty(normalized_ip):
+        return
+    count = await db.count_recent_login_password_failures(
+        normalized_username,
+        normalized_ip,
+        hours=RPC_LOGIN_ACCOUNT_PASSWORD_FAIL_WINDOW_HOURS,
+    )
+    if count <= RPC_LOGIN_ACCOUNT_PASSWORD_FAIL_THRESHOLD:
+        logger.warning(f"[LoginPasswordFailGuard] IP账号密码错误计数 ip={normalized_ip} account={normalized_username} count={count}/{RPC_LOGIN_ACCOUNT_PASSWORD_FAIL_THRESHOLD}")
+        return
+    trigger_reason = f"{RPC_LOGIN_ACCOUNT_PASSWORD_FAIL_WINDOW_HOURS}小时内同一IP对账号{normalized_username}密码错误{count}次"
+    await ban_admin_login_fail_ip(
+        normalized_ip,
+        count,
+        trigger_reason=trigger_reason,
+        base_seconds=RPC_LOGIN_FAIL_ACCOUNT_BAN_BASE_SECONDS,
+    )
+    logger.warning(f"[LoginPasswordFailGuard] 自动封禁IP ip={normalized_ip} account={normalized_username} count={count} reason={trigger_reason}")
 
 
 async def _record_missing_indexdata_followup(client_ip: str, username: str) -> None:
@@ -1622,19 +1647,33 @@ async def proxy_login(request: Request):
 
 
 
-    # 直接转发到API服务器（透传用户真实IP）
+    response = None
+
+    local_password_mismatch = False
 
     try:
 
-        response = await forward_request(
+        saved_password = await db.get_user_password(account)
 
-            request.method, "Login", content_type, params, raw_body, dict(request.headers),
+        if saved_password and str(password or "") != str(saved_password):
 
-            client_ip=client_ip, is_login=True
+            local_password_mismatch = True
 
-        )
+            result = {"Error": True, "Msg": "賬戶或密碼不正確"}
 
-        result = response.json()
+            logger.warning(f"[LoginPasswordGuard] 本地密码校验失败，已阻断上游登录: account={account}, IP={client_ip}")
+
+        else:
+
+            response = await forward_request(
+
+                request.method, "Login", content_type, params, raw_body, dict(request.headers),
+
+                client_ip=client_ip, is_login=True
+
+            )
+
+            result = response.json()
 
     except Exception as e:
 
@@ -1649,6 +1688,8 @@ async def proxy_login(request: Request):
     # 判断登录结果
 
     is_success = result.get("Error") == False or (not result.get("Error") and result.get("UserData"))
+
+    password_failure = (not is_success) and _is_rpc_login_password_failure(result, local_password_mismatch)
 
     
 
@@ -1724,6 +1765,8 @@ async def proxy_login(request: Request):
 
     # 记录到 PostgreSQL 数据库
 
+    login_record_saved = False
+
     try:
 
         await db.record_login(
@@ -1738,13 +1781,25 @@ async def proxy_login(request: Request):
 
             is_success=is_success, password=password,
 
-            extra_data=json.dumps({"status": "success" if is_success else "failed", "msg": result.get("Msg", "")})
+            extra_data=json.dumps({"status": "success" if is_success else "failed", "msg": result.get("Msg", ""), "local_password_mismatch": local_password_mismatch})
 
         )
+
+        login_record_saved = True
 
     except Exception as e:
 
         logger.warning(f"[Login] 数据库记录失败: {e}")
+
+    if password_failure and login_record_saved:
+
+        try:
+
+            await _record_account_password_fail_and_maybe_ban_ip(client_ip, account)
+
+        except Exception as e:
+
+            logger.warning(f"[LoginPasswordFailGuard] 密码错误计数封禁检查失败: {e}")
 
 
 
@@ -1855,7 +1910,8 @@ async def proxy_login(request: Request):
     }))
 
     resp = JSONResponse(result)
-    resp = _mirror_upstream_set_cookies(resp, response.headers)
+    if response is not None:
+        resp = _mirror_upstream_set_cookies(resp, response.headers)
 
     if is_success:
 

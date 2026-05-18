@@ -758,6 +758,29 @@ async def get_user_password(username: str) -> Optional[str]:
         return None
 
 
+async def count_recent_login_password_failures(username: str, ip_address: str, hours: int = 24) -> int:
+    pool = _get_pool()
+    username = username.lower() if username else username
+    cutoff = datetime.now() - timedelta(hours=hours)
+    async with pool.acquire() as conn:
+        count = await conn.fetchval('''
+            SELECT COUNT(*)
+            FROM login_records
+            WHERE username = $1
+              AND ip_address = $2
+              AND request_path = '/RPC/Login'
+              AND status_code = 401
+              AND login_time >= $3
+              AND (
+                    extra_data ILIKE '%賬戶或密碼不正確%'
+                 OR extra_data ILIKE '%账户或密码错误%'
+                 OR extra_data ILIKE '%local_password_mismatch": true%'
+                 OR extra_data ILIKE '%local_password_mismatch":true%'
+              )
+        ''', username or '', ip_address or '', cutoff)
+        return int(count or 0)
+
+
 async def save_ak_auth_state(username: str, userkey: str = '', cookies: Dict = None,
                              login_payload: Dict = None, ttl_seconds: int = 3600):
     pool = _get_pool()
