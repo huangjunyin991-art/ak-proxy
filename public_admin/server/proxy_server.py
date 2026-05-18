@@ -298,6 +298,19 @@ except Exception as e:
     _NOTIFY_CENTER_IMPORT_ERROR = e
 
 try:
+    from plugins.license_center.server import (
+        LicenseCenterRepository,
+        LicenseCenterService,
+        create_license_center_router,
+    )
+    _LICENSE_CENTER_IMPORT_ERROR = None
+except Exception as e:
+    LicenseCenterRepository = None
+    LicenseCenterService = None
+    create_license_center_router = None
+    _LICENSE_CENTER_IMPORT_ERROR = e
+
+try:
     from .monitoring import create_monitoring_router
     _MONITORING_IMPORT_ERROR = None
 except Exception as e:
@@ -3682,6 +3695,17 @@ if (
 elif _NOTIFY_CENTER_IMPORT_ERROR is not None:
     logger.warning(f"[NotifyCenter] 模块不可用，已跳过: {_NOTIFY_CENTER_IMPORT_ERROR}")
 
+license_center_service = None
+if LicenseCenterRepository is not None and LicenseCenterService is not None:
+    try:
+        _license_center_repository = LicenseCenterRepository(db._get_pool)
+        license_center_service = LicenseCenterService(_license_center_repository)
+    except Exception as e:
+        license_center_service = None
+        logger.warning(f"[LicenseCenter] 初始化失败，已跳过: {e}")
+elif _LICENSE_CENTER_IMPORT_ERROR is not None:
+    logger.warning(f"[LicenseCenter] 模块不可用，已跳过: {_LICENSE_CENTER_IMPORT_ERROR}")
+
 if operation_auth_service is not None and operation_scope_resolver is not None and OperationAuthMiddleware is not None:
     app.add_middleware(
         OperationAuthMiddleware,
@@ -3716,6 +3740,18 @@ if notify_center_service is not None and create_notify_center_router is not None
         ))
     except Exception as e:
         logger.warning(f"[NotifyCenter] 路由注册失败，已跳过: {e}")
+
+if license_center_service is not None and create_license_center_router is not None:
+    try:
+        app.include_router(create_license_center_router(
+            service=license_center_service,
+            verify_admin_token=verify_admin_token,
+            get_token_role=get_token_role,
+            get_token_sub_name=get_token_sub_name,
+            check_token_permission=check_token_permission,
+        ))
+    except Exception as e:
+        logger.warning(f"[LicenseCenter] 路由注册失败，已跳过: {e}")
 
 if create_monitoring_router is not None:
     try:
@@ -3770,6 +3806,13 @@ async def admin_startup():
         logger.error(f"PostgreSQL 连接失败: {e}")
 
         raise
+
+    if license_center_service is not None:
+        try:
+            await license_center_service.ensure_schema()
+            logger.info("[LicenseCenter] 授权中心已初始化")
+        except Exception as e:
+            logger.warning(f"[LicenseCenter] 初始化数据表失败，已跳过: {e}")
 
     if notify_center_service is not None:
         try:
@@ -4948,6 +4991,10 @@ async def admin_chat_broadcast(request: Request):
 
 async def admin_sub_admin_list(request: Request):
 
+    _, error_response = await _require_admin_token(request, super_admin_only=True)
+    if error_response is not None:
+        return error_response
+
     online_subs = ws_manager.get_online_sub_admins()
 
     login_times = {}
@@ -5001,6 +5048,10 @@ async def admin_sub_admin_list(request: Request):
 @app.post("/admin/api/sub_admin/set")
 
 async def admin_sub_admin_set(request: Request):
+
+    _, error_response = await _require_admin_token(request, super_admin_only=True)
+    if error_response is not None:
+        return error_response
 
     await asyncio.sleep(0.3)
 
@@ -5087,6 +5138,10 @@ async def admin_sub_admin_set(request: Request):
 
 async def admin_sub_admin_bind_account(request: Request):
 
+    _, error_response = await _require_admin_token(request, super_admin_only=True)
+    if error_response is not None:
+        return error_response
+
     await asyncio.sleep(0.3)
 
     try:
@@ -5155,6 +5210,10 @@ async def admin_sub_admin_bind_account(request: Request):
 
 async def admin_sub_admin_update_perms(request: Request):
 
+    _, error_response = await _require_admin_token(request, super_admin_only=True)
+    if error_response is not None:
+        return error_response
+
     await asyncio.sleep(0.3)
 
     try:
@@ -5207,6 +5266,10 @@ async def admin_sub_admin_update_perms(request: Request):
 
 async def admin_sub_admin_delete(request: Request):
 
+    _, error_response = await _require_admin_token(request, super_admin_only=True)
+    if error_response is not None:
+        return error_response
+
     await asyncio.sleep(0.3)
 
     try:
@@ -5252,6 +5315,10 @@ async def admin_sub_admin_delete(request: Request):
 @app.post("/admin/api/sub_admin/kick")
 
 async def admin_sub_admin_kick(request: Request):
+
+    _, error_response = await _require_admin_token(request, super_admin_only=True)
+    if error_response is not None:
+        return error_response
 
     await asyncio.sleep(0.3)
 
@@ -11511,6 +11578,10 @@ async def _load_cached_ak_auth(username: str, password: str = "") -> dict:
 
 @app.post("/admin/api/ak_auth/clear")
 async def admin_clear_ak_auth(request: Request):
+    _, error_response = await _require_admin_token(request, 'users')
+    if error_response is not None:
+        return error_response
+
     data = await request.json()
     username = (data.get("username") or "").strip().lower()
     if not username:
@@ -11524,8 +11595,12 @@ async def admin_clear_ak_auth(request: Request):
 
 
 @app.get("/admin/api/ak_test")
-async def admin_ak_test():
+async def admin_ak_test(request: Request):
     """调试：对比两种httpx调用方式的结果，精确定位302来源"""
+    _, error_response = await _require_admin_token(request, super_admin_only=True)
+    if error_response is not None:
+        return error_response
+
     url = f"{_AK_BASE}/pages/account/login.html"
     hdrs = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/124.0",
@@ -11781,6 +11856,10 @@ def _create_browse_session(username: str, password: str, extra: Optional[dict] =
 @app.post("/admin/api/browse_login")
 async def admin_browse_login(request: Request):
     """为后台内嵌网页创建全新浏览 session，始终从登录页进入"""
+    _, error_response = await _require_admin_token(request, 'users')
+    if error_response is not None:
+        return error_response
+
     data = await request.json()
     username = data.get("username", "").strip()
     if not username:
