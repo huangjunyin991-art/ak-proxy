@@ -12345,6 +12345,9 @@ async def ak_web_proxy(request: Request, path: str):
     fetch_dest = request.headers.get("sec-fetch-dest", "")
     accept = request.headers.get("accept", "")
     cookie_bs = (request.cookies.get(_BROWSE_SESSION_COOKIE) or "").strip()
+    if not session:
+        logger.warning(f"[AkWebProxy/{path}] no_session bs={bs_id} source={bs_source} cookie_bs={cookie_bs} dest={fetch_dest} accept={accept} referer={referer}")
+        return JSONResponse({"Error": True, "IsLogin": False, "Msg": "用戶未登錄"}, status_code=401)
     cookies = {}
     selected_exit = None
     force_direct_ak_web = _should_force_direct_ak_web(site_prefix)

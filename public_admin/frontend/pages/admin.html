@@ -4963,7 +4963,7 @@
             }
             
             if (data.type === 'new_login') {
-                addActivityItem('success', '🆕', `<strong>${data.data.username}</strong> 登录`, time);
+                addActivityItem('success', '🆕', `<strong>${escapeHtml(data.data.username || '')}</strong> 登录`, time);
                 refreshStats();
                 // 如果有资产数据，也刷新用户列表
                 if (data.data.assets) {
@@ -4973,24 +4973,24 @@
                 addAssetLogItem(data.data);
                 loadUsers();
                 refreshStats();
-                addActivityItem('info', '💰', `<strong>${data.data.username}</strong> 资产已更新`, time);
+                addActivityItem('info', '💰', `<strong>${escapeHtml(data.data.username || '')}</strong> 资产已更新`, time);
             } else if (data.type === 'user_banned' || data.type === 'user_unbanned') {
                 loadBanlist().then(() => loadUsers());
                 refreshStats();
                 const action = data.type === 'user_banned' ? '已封禁' : '已解封';
                 addActivityItem(data.type === 'user_banned' ? 'failed' : 'success', 
                     data.type === 'user_banned' ? '🚫' : '✅', 
-                    `用户 <strong>${data.data?.value || ''}</strong> ${action}`, time);
+                    `用户 <strong>${escapeHtml(data.data?.value || '')}</strong> ${action}`, time);
             } else if (data.type === 'ip_banned' || data.type === 'ip_unbanned') {
                 loadIPs();
                 loadBanlist();
                 refreshStats();
             } else if (data.type === 'user_online') {
                 loadOnlineUsers({ force: true });
-                addActivityItem('success', '🟢', `<strong>${data.data?.username || ''}</strong> 上线`, time);
+                addActivityItem('success', '🟢', `<strong>${escapeHtml(data.data?.username || '')}</strong> 上线`, time);
             } else if (data.type === 'user_offline') {
                 loadOnlineUsers({ force: true });
-                addActivityItem('info', '⚪', `<strong>${data.data?.username || ''}</strong> 离线`, time);
+                addActivityItem('info', '⚪', `<strong>${escapeHtml(data.data?.username || '')}</strong> 离线`, time);
             } else if (data.type === 'chat_message') {
                 if (data.data.username === currentChatUser) {
                     if (!data.data.is_admin) {
@@ -4999,7 +4999,7 @@
                 }
                 if (!data.data.is_admin) {
                     addChatLogItem(data.data);
-                    addActivityItem('info', '💬', `<strong>${data.data.username}</strong> 发送消息`, time);
+                    addActivityItem('info', '💬', `<strong>${escapeHtml(data.data.username || '')}</strong> 发送消息`, time);
                 }
             }
         }
@@ -5015,6 +5015,10 @@
             const div = document.createElement('div');
             div.textContent = text;
             return div.innerHTML;
+        }
+
+        function jsArg(value) {
+            return escapeHtml(JSON.stringify(String(value ?? '')));
         }
 
         function renderRealNameCell(username, realName, nameScope = 'user') {
@@ -5321,6 +5325,7 @@
 
         function renderUsageActionButton(user) {
             const hasPassword = !!user.has_password || (!!user.password && user.password !== '***');
+            const usernameArg = jsArg(user.username || '');
             if (!hasPassword) {
                 return `<div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:center;">
                             <button class="btn btn-ak-disabled" style="padding:4px 12px;font-size:12px;" disabled aria-disabled="true">打开后台</button>
@@ -5329,11 +5334,11 @@
             }
             return `<div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:center;">
                             <button class="btn btn-primary" style="padding:4px 12px;font-size:12px;"
-                                onclick="openAkBrowser('${user.username}')">
+                                onclick="openAkBrowser(${usernameArg})">
                                 打开后台
                             </button>
                             <button class="btn" style="padding:4px 12px;font-size:12px;border:1px solid rgba(255,148,64,0.35);background:rgba(255,148,64,0.12);color:#ffd9b3;"
-                                onclick="openRemoteAssist('${user.username}')">
+                                onclick="openRemoteAssist(${usernameArg})">
                                 远程指导
                             </button>
                         </div>`;
@@ -5529,9 +5534,10 @@
             
             tbody.innerHTML = users.map(user => {
                 const banned = bannedUsersSet.has((user.username || '').toLowerCase());
+                const usernameArg = jsArg(user.username || '');
                 const banBtn = banned
-                    ? `<button class="btn btn-success" onclick="unban('user', '${user.username}')" style="padding: 4px 12px; font-size: 12px;">解封</button>`
-                    : `<button class="btn btn-danger" onclick="showBanModal('user', '${user.username}')" style="padding: 4px 12px; font-size: 12px;">封禁</button>`;
+                    ? `<button class="btn btn-success" onclick="unban('user', ${usernameArg})" style="padding: 4px 12px; font-size: 12px;">解封</button>`
+                    : `<button class="btn btn-danger" onclick="showBanModal('user', ${usernameArg})" style="padding: 4px 12px; font-size: 12px;">封禁</button>`;
                 const realName = escapeHtml(user.real_name || '-');
                 return `<tr class="${banned ? 'banned-row' : ''}" onclick="selectUsersRow(this)">
                     <td style="position:sticky;left:0;z-index:2;background:${banned ? '#1a1a2e' : 'var(--bg-card)'};"><strong>${escapeHtml(user.username || '')}</strong></td>
@@ -5548,7 +5554,7 @@
                     <td style="color: #45aaf2;">${user.right_area || 0}</td>
                     <td style="color: #fc5c65;">${user.direct_push || 0}</td>
                     <td style="color: #fed330;">${user.sub_account || 0}</td>
-                    <td><span class="badge warning">${user.honor_name || '-'}</span></td>
+                    <td><span class="badge warning">${escapeHtml(user.honor_name || '-')}</span></td>
                     <td style="color: var(--text-secondary); font-size: 11px;">${fmtTime(user.updated_at)}</td>
                     <td>${banBtn}</td>
                 </tr>`;
@@ -5725,10 +5731,10 @@
         }
 
         function renderIpActionButton(ip) {
-            const address = escapeHtml(ip.ip_address || '');
+            const address = ip.ip_address || '';
             return ip.is_banned
-                ? `<button class="btn btn-success" onclick="unban('ip', '${address}')">解封</button>`
-                : `<button class="btn btn-danger" onclick="showBanModal('ip', '${address}')">封禁</button>`;
+                ? `<button class="btn btn-success" onclick="unban('ip', ${jsArg(address)})">解封</button>`
+                : `<button class="btn btn-danger" onclick="showBanModal('ip', ${jsArg(address)})">封禁</button>`;
         }
 
         function renderIpCards(items) {
@@ -5816,17 +5822,21 @@
                     return;
                 }
                 
-                tbody.innerHTML = data.map(item => `
+                tbody.innerHTML = data.map(item => {
+                    const banType = item.ban_type === 'ip' ? 'ip' : 'username';
+                    const banValue = item.ban_value || '';
+                    return `
                     <tr>
                         <td><span class="badge ${item.ban_type === 'ip' ? 'warning' : 'danger'}">${item.ban_type === 'ip' ? 'IP' : '用户'}</span></td>
-                        <td><strong>${item.ban_value}</strong></td>
+                        <td><strong>${escapeHtml(banValue)}</strong></td>
                         <td>${fmtTime(item.banned_at)}</td>
-                        <td>${item.banned_reason || '-'}</td>
+                        <td>${escapeHtml(item.banned_reason || '-')}</td>
                         <td>
-                            <button class="btn btn-success" onclick="unban('${item.ban_type}', '${item.ban_value}')">解封</button>
+                            <button class="btn btn-success" onclick="unban(${jsArg(banType)}, ${jsArg(banValue)})">解封</button>
                         </td>
                     </tr>
-                `).join('');
+                `;
+                }).join('');
             } catch (e) {
                 console.error('加载封禁列表失败', e);
             }
@@ -5972,21 +5982,25 @@
                     return;
                 }
                 
-                tbody.innerHTML = data.map(user => `
+                tbody.innerHTML = data.map(user => {
+                    const username = user.username || '';
+                    const usernameArg = jsArg(username);
+                    return `
                     <tr>
                         <td>
                             <span style="display: inline-block; width: 8px; height: 8px; background: var(--accent-green); border-radius: 50%; margin-right: 8px;"></span>
-                            <strong>${user.username}</strong>
+                            <strong>${escapeHtml(username)}</strong>
                         </td>
-                        <td style="color: var(--text-secondary); font-size: 12px;" title="${user.page}">${getPageName(user.page)}</td>
-                        <td style="color: var(--text-secondary); font-size: 12px;">${user.online_time}</td>
+                        <td style="color: var(--text-secondary); font-size: 12px;" title="${escapeHtml(user.page || '')}">${escapeHtml(getPageName(user.page))}</td>
+                        <td style="color: var(--text-secondary); font-size: 12px;">${escapeHtml(user.online_time || '')}</td>
                         <td>
-                            <button class="btn btn-primary" onclick="startChat('${user.username}')" style="padding: 4px 12px; font-size: 12px;">聊天</button>
-                            <button class="btn btn-danger" onclick="showBanModal('user', '${user.username}')" style="padding: 4px 12px; font-size: 12px;">封禁</button>
-                            <button class="btn" onclick="kickUser('${user.username}')" style="padding: 4px 12px; font-size: 12px; background: var(--text-secondary); color: var(--bg-dark);">踢出</button>
+                            <button class="btn btn-primary" onclick="startChat(${usernameArg})" style="padding: 4px 12px; font-size: 12px;">聊天</button>
+                            <button class="btn btn-danger" onclick="showBanModal('user', ${usernameArg})" style="padding: 4px 12px; font-size: 12px;">封禁</button>
+                            <button class="btn" onclick="kickUser(${usernameArg})" style="padding: 4px 12px; font-size: 12px; background: var(--text-secondary); color: var(--bg-dark);">踢出</button>
                         </td>
                     </tr>
-                `).join('');
+                `;
+                }).join('');
             } catch (e) {
                 if (e.name !== 'AbortError') console.error('加载在线用户失败', e);
             }
@@ -6540,26 +6554,26 @@
                     const boundExpired = !!boundExpireTime && boundExpireTime.getTime() <= Date.now();
                     const boundHealthy = isBound && hasAuthRecord && boundStatus === 'active' && !boundExpired;
                     const boundExpireText = boundExpireTime ? ` · 到期: ${fmtTime(sub.bound_account_expire_time)}` : '';
-                    const boundStatusText = boundStatus ? ` · ${boundStatus}` : '';
+                    const boundStatusText = boundStatus ? ` · ${escapeHtml(boundStatus)}` : '';
                     let boundLine;
                     if (!isBound) {
                         boundLine = '<span style="color: var(--accent-red); font-size: 11px;">⚠️ 未绑定账号</span>';
                     } else if (boundHealthy) {
-                        boundLine = `<span style="color: var(--accent-green); font-size: 11px;">🔗 已绑定: ${boundUsername}${boundStatusText}${boundExpireText}</span>`;
+                        boundLine = `<span style="color: var(--accent-green); font-size: 11px;">🔗 已绑定: ${escapeHtml(boundUsername)}${boundStatusText}${boundExpireText}</span>`;
                     } else if (!hasAuthRecord) {
-                        boundLine = `<span style="color: var(--accent-yellow); font-size: 11px;">❓ 绑定账号未获授权: ${boundUsername}</span>`;
+                        boundLine = `<span style="color: var(--accent-yellow); font-size: 11px;">❓ 绑定账号未获授权: ${escapeHtml(boundUsername)}</span>`;
                     } else if (boundExpired) {
-                        boundLine = `<span style="color: var(--accent-yellow); font-size: 11px;">⚠️ 绑定账号已过期: ${boundUsername}${boundExpireText}</span>`;
+                        boundLine = `<span style="color: var(--accent-yellow); font-size: 11px;">⚠️ 绑定账号已过期: ${escapeHtml(boundUsername)}${boundExpireText}</span>`;
                     } else {
                         const abnormal = (boundStatus && boundStatus !== 'active') ? boundStatus : '失效';
-                        boundLine = `<span style="color: var(--accent-yellow); font-size: 11px;">⚠️ 绑定账号${abnormal}: ${boundUsername}${boundExpireText}</span>`;
+                        boundLine = `<span style="color: var(--accent-yellow); font-size: 11px;">⚠️ 绑定账号${escapeHtml(abnormal)}: ${escapeHtml(boundUsername)}${boundExpireText}</span>`;
                     }
-                    const nameJson = JSON.stringify(sub.name).replace(/"/g, '&quot;');
-                    const permJson = JSON.stringify(perms).replace(/"/g, '&quot;');
-                    const boundJson = JSON.stringify(boundUsername).replace(/"/g, '&quot;');
+                    const nameJson = jsArg(sub.name || '');
+                    const permJson = escapeHtml(JSON.stringify(perms || {}));
+                    const boundJson = jsArg(boundUsername);
                     const defaultBorder = sub.is_online ? 'rgba(0,255,136,0.3)' : 'var(--border)';
                     return `
-                        <div data-subname="${sub.name}" style="padding: 12px 15px; background: var(--bg-primary); 
+                        <div data-subname="${escapeHtml(sub.name || '')}" style="padding: 12px 15px; background: var(--bg-primary);
                                     border-radius: 8px; border: 1px solid ${defaultBorder}; margin-bottom: 8px; cursor: pointer; transition: border-color 0.2s, box-shadow 0.2s;"
                              data-default-border="${defaultBorder}"
                              onclick="selectSubAdmin(${nameJson}, ${permJson}, ${boundJson})"
@@ -6569,10 +6583,10 @@
                             <div class="sub-admin-card-row" style="display: flex; align-items: center; gap: 12px;">
                                 ${onlineDot}
                                 <div class="sub-admin-card-body" style="flex: 1; min-width: 0;">
-                                    <div style="font-weight: bold; color: var(--text-primary); font-size: 14px;">⭐ ${sub.name}</div>
+                                    <div style="font-weight: bold; color: var(--text-primary); font-size: 14px;">⭐ ${escapeHtml(sub.name || '')}</div>
                                     <div class="sub-admin-status-row" style="display: flex; align-items: center; gap: 8px; margin-top: 4px;">
                                         ${statusText}
-                                        <span style="color: var(--text-secondary); font-size: 11px;">密码: ${sub.password_hint}</span>
+                                        <span style="color: var(--text-secondary); font-size: 11px;">密码: ${escapeHtml(sub.password_hint || '')}</span>
                                     </div>
                                     <div class="sub-admin-bound-line" style="margin-top: 4px;">${boundLine}</div>
                                 </div>
@@ -6916,14 +6930,14 @@
                 const statusText = s.alive ? (s.status === 'blocked' ? '冷却中' : '在线') : '离线';
                 const statusDot = `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${statusColor};margin-right:6px;"></span>`;
                 const tierColor = s.node_tier === 'T1' ? 'var(--accent-green)' : s.node_tier === 'T3' ? 'var(--accent-red)' : 'var(--accent-yellow)';
-                const tierBadge = `<span style="color:${tierColor};font-size:10px;font-weight:bold;padding:1px 4px;border:1px solid ${tierColor};border-radius:3px;margin-left:4px;">${s.node_tier || '?'}</span>`;
+                const tierBadge = `<span style="color:${tierColor};font-size:10px;font-weight:bold;padding:1px 4px;border:1px solid ${tierColor};border-radius:3px;margin-left:4px;">${escapeHtml(s.node_tier || '?')}</span>`;
                 const cooldownInfo = s.cooldown_left > 0 ? `<span style="color:var(--accent-yellow);margin-left:8px;">⏳ ${s.cooldown_left}s</span>` : '';
-                const errorInfo = s.last_error ? `<div style="color:var(--accent-red);font-size:11px;margin-top:3px;opacity:0.8;">最近错误: ${s.last_error}</div>` : '';
+                const errorInfo = s.last_error ? `<div style="color:var(--accent-red);font-size:11px;margin-top:3px;opacity:0.8;">最近错误: ${escapeHtml(s.last_error)}</div>` : '';
                 const blockedInfo = s.blocked_count > 0 ? `<span style="color:var(--accent-yellow);">🚫${s.blocked_count}</span>` : '';
                 const failStreak = s.consecutive_fails > 0 ? `<span style="color:var(--accent-red);">连败${s.consecutive_fails}</span>` : '';
                 return `<div style="padding:8px 12px;background:var(--bg-primary);border-radius:6px;border:1px solid var(--border);margin-bottom:4px;font-size:12px;">
                     <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:4px;">
-                        <span>${statusDot}<strong>Slot ${s.slot_id}</strong> <span style="color:${statusColor};font-size:11px;">[${statusText}]</span>${tierBadge} → ${s.node || '-'} <span style="color:var(--text-secondary);font-size:11px;">:${s.port}</span>${cooldownInfo}</span>
+                        <span>${statusDot}<strong>Slot ${escapeHtml(s.slot_id || '')}</strong> <span style="color:${statusColor};font-size:11px;">[${statusText}]</span>${tierBadge} → ${escapeHtml(s.node || '-')} <span style="color:var(--text-secondary);font-size:11px;">:${escapeHtml(s.port || '')}</span>${cooldownInfo}</span>
                         <span style="color:var(--text-secondary);">${s.requests_1min}/min | ${s.success}✓ ${s.fail}✗ | ${s.success_rate} ${blockedInfo} ${failStreak}</span>
                     </div>
                     ${errorInfo}
@@ -6964,7 +6978,7 @@
             if (!nodes.length) { container.innerHTML = '<span style="color:var(--text-secondary);font-size:12px;">无节点数据</span>'; return; }
             container.innerHTML = nodes.map((n, i) => {
                 const tierColor = n.tier === 'T1' ? 'var(--accent-green)' : n.tier === 'T3' ? 'var(--accent-red)' : 'var(--accent-yellow)';
-                const tierBadge = `<span style="color:${tierColor};font-size:10px;font-weight:bold;padding:1px 4px;border:1px solid ${tierColor};border-radius:3px;">${n.tier}</span>`;
+                const tierBadge = `<span style="color:${tierColor};font-size:10px;font-weight:bold;padding:1px 4px;border:1px solid ${tierColor};border-radius:3px;">${escapeHtml(n.tier || '')}</span>`;
                 const inUseBadge = n.in_use ? '<span style="color:#00c8ff;font-size:10px;padding:1px 4px;border:1px solid #00c8ff;border-radius:3px;margin-left:4px;">使用中</span>' : '';
                 const verifiedIcon = n.verified ? '✅' : (n.fail_count > 0 ? '❌' : '⏳');
                 const latencyText = n.latency > 0 ? `<span style="color:${n.latency < 500 ? 'var(--accent-green)' : n.latency < 1500 ? 'var(--accent-yellow)' : 'var(--accent-red)'};">${Math.round(n.latency)}ms</span>` : '<span style="color:var(--text-secondary);">-</span>';
@@ -6973,7 +6987,7 @@
                 const borderColor = n.in_use ? 'rgba(0,200,255,0.3)' : 'var(--border)';
                 return `<div style="padding:6px 12px;background:${bgColor};border-radius:6px;border:1px solid ${borderColor};margin-bottom:3px;font-size:12px;">
                     <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:4px;">
-                        <span>${verifiedIcon} ${tierBadge}${inUseBadge} <strong style="margin-left:4px;">${n.name}</strong> <span style="color:var(--text-secondary);font-size:11px;">${n.type} | ${n.host}:${n.port}</span></span>
+                        <span>${verifiedIcon} ${tierBadge}${inUseBadge} <strong style="margin-left:4px;">${escapeHtml(n.name || '')}</strong> <span style="color:var(--text-secondary);font-size:11px;">${escapeHtml(n.type || '')} | ${escapeHtml(n.host || '')}:${Number(n.port || 0)}</span></span>
                         <span style="color:var(--text-secondary);">延迟: ${latencyText}${failInfo}</span>
                     </div>
                 </div>`;
@@ -7377,7 +7391,7 @@
                 // 渲染表头
                 const thead = document.getElementById('dbTableHead');
                 thead.innerHTML = '<tr><th style="width:40px;"><input type="checkbox" onchange="dbToggleAll(this.checked)" id="dbCheckAll"></th>' + 
-                    dbSchema.map(c => `<th style="white-space: nowrap;">${c.name}<br><span style="font-size: 10px; color: var(--text-secondary);">${c.type}</span></th>`).join('') +
+                    dbSchema.map(c => `<th style="white-space: nowrap;">${escapeHtml(c.name)}<br><span style="font-size: 10px; color: var(--text-secondary);">${escapeHtml(c.type)}</span></th>`).join('') +
                     '<th>操作</th></tr>';
                 
                 // 渲染数据
@@ -7387,17 +7401,18 @@
                 } else {
                     tbody.innerHTML = data.rows.map(row => {
                         const pkValue = row[dbPkColumn];
-                        return `<tr><td><input type="checkbox" class="db-row-check" value="${pkValue}" onchange="dbUpdateSelected()"></td>` + 
+                        return `<tr><td><input type="checkbox" class="db-row-check" value="${escapeHtml(pkValue)}" onchange="dbUpdateSelected()"></td>` +
                             dbSchema.map(c => {
                                 let val = row[c.name];
                                 if (val === null) val = '<span style="color: #666;">NULL</span>';
                                 else if (c.type && c.type.toLowerCase().includes('timestamp') && val) val = fmtTime(val);
                                 else if (typeof val === 'string' && val.length > 50) val = val.substring(0, 50) + '...';
-                                return `<td style="max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${String(row[c.name] || '')}">${val}</td>`;
+                                if (val !== '<span style="color: #666;">NULL</span>') val = escapeHtml(val);
+                                return `<td style="max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${escapeHtml(String(row[c.name] || ''))}">${val}</td>`;
                             }).join('') +
                             `<td style="white-space: nowrap;">
-                                <button class="btn" onclick="showEditRowModal('${pkValue}')" style="padding: 4px 10px; font-size: 12px; background: #45aaf2; color: #fff;">编辑</button>
-                                <button class="btn btn-danger" onclick="deleteDbRow('${pkValue}')" style="padding: 4px 10px; font-size: 12px;">删除</button>
+                                <button class="btn" onclick="showEditRowModal(${jsArg(pkValue)})" style="padding: 4px 10px; font-size: 12px; background: #45aaf2; color: #fff;">编辑</button>
+                                <button class="btn btn-danger" onclick="deleteDbRow(${jsArg(pkValue)})" style="padding: 4px 10px; font-size: 12px;">删除</button>
                             </td></tr>`;
                     }).join('');
                 }
@@ -7626,17 +7641,17 @@
                                 resultDiv.innerHTML = '<span style="color: var(--text-secondary);">查询结果为空</span>';
                             } else {
                                 const cols = Object.keys(result.result[0]);
-                                resultDiv.innerHTML = `<table style="width: 100%; font-size: 12px;"><thead><tr>${cols.map(c => `<th>${c}</th>`).join('')}</tr></thead><tbody>${result.result.map(r => `<tr>${cols.map(c => `<td>${r[c]}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
+                                resultDiv.innerHTML = `<table style="width: 100%; font-size: 12px;"><thead><tr>${cols.map(c => `<th>${escapeHtml(c)}</th>`).join('')}</tr></thead><tbody>${result.result.map(r => `<tr>${cols.map(c => `<td>${escapeHtml(r[c])}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
                             }
                         } else {
                             resultDiv.innerHTML = `<span style="color: var(--accent-green);">执行成功，影响 ${result.result.affected_rows} 行</span>`;
                             loadTableData();
                         }
                     } else {
-                        resultDiv.innerHTML = `<span style="color: var(--accent-red);">错误: ${result.detail}</span>`;
+                        resultDiv.innerHTML = `<span style="color: var(--accent-red);">错误: ${escapeHtml(result.detail)}</span>`;
                     }
                 } catch (e) {
-                    document.getElementById('sqlResult').innerHTML = `<span style="color: var(--accent-red);">错误: ${e.message}</span>`;
+                    document.getElementById('sqlResult').innerHTML = `<span style="color: var(--accent-red);">错误: ${escapeHtml(e.message)}</span>`;
                     document.getElementById('sqlResult').style.display = 'block';
                 }
             }, '执行');
@@ -7693,11 +7708,11 @@
             modal.style.cssText = 'position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.7); display: flex; align-items: center; justify-content: center; z-index: 10000;';
             modal.innerHTML = `
                 <div style="background: var(--bg-card); border-radius: 12px; max-width: 420px; width: 90%; max-height: 80vh; border: 1px solid var(--border); display: flex; flex-direction: column;">
-                    <h3 style="padding: 20px 25px 15px; margin: 0; color: var(--accent); border-bottom: 1px solid var(--border); flex-shrink: 0;">${title}</h3>
+                    <h3 style="padding: 20px 25px 15px; margin: 0; color: var(--accent); border-bottom: 1px solid var(--border); flex-shrink: 0;">${escapeHtml(title)}</h3>
                     <div style="padding: 15px 25px; overflow-y: auto; flex: 1;">${content}</div>
                     <div style="display: flex; gap: 10px; padding: 15px 25px 20px; border-top: 1px solid var(--border); flex-shrink: 0;">
                         <button class="btn" onclick="closeModal()" style="flex:1; padding: 12px 0; background: var(--accent-red); color: white; font-size: 15px; border-radius: 8px;">取消</button>
-                        <button class="btn btn-primary" id="modalConfirmBtn" style="flex:1; padding: 12px 0; font-size: 15px; border-radius: 8px;">${confirmText}</button>
+                        <button class="btn btn-primary" id="modalConfirmBtn" style="flex:1; padding: 12px 0; font-size: 15px; border-radius: 8px;">${escapeHtml(confirmText)}</button>
                     </div>
                 </div>
             `;
@@ -7770,7 +7785,7 @@
                 
                 if (data.error) {
                     document.getElementById('licenseTable').innerHTML = 
-                        `<tr><td colspan="7" style="text-align: center; color: var(--accent-red);">加载失败: ${data.message}</td></tr>`;
+                        `<tr><td colspan="7" style="text-align: center; color: var(--accent-red);">加载失败: ${escapeHtml(data.message || '')}</td></tr>`;
                     return;
                 }
                 
@@ -7782,7 +7797,7 @@
             } catch (e) {
                 console.error('加载激活码列表失败', e);
                 document.getElementById('licenseTable').innerHTML = 
-                    `<tr><td colspan="7" style="text-align: center; color: var(--accent-red);">网络错误: ${e.message}</td></tr>`;
+                    `<tr><td colspan="7" style="text-align: center; color: var(--accent-red);">网络错误: ${escapeHtml(e.message)}</td></tr>`;
             }
         }
         
@@ -7827,6 +7842,7 @@
             }
             
             document.getElementById('licenseTable').innerHTML = filtered.map(license => {
+                const licenseKey = license.license_key || '';
                 const statusClass = {
                     'active': 'status-active',
                     'inactive': 'status-inactive',
@@ -7840,13 +7856,13 @@
                     'expired': '已过期',
                     'revoked': '已撤销',
                     'suspended': '已暂停'
-                }[license.status] || license.status;
+                }[license.status] || escapeHtml(license.status || '-');
                 
                 const billingText = {
                     'per_use': '按次数',
                     'time_based': '按时间',
                     'unlimited': '无限制'
-                }[license.billing_mode] || license.billing_mode;
+                }[license.billing_mode] || escapeHtml(license.billing_mode || '-');
                 
                 // 剩余显示
                 let remainingText = '-';
@@ -7863,16 +7879,16 @@
                 return `
                     <tr>
                         <td style="font-family: monospace; font-size: 12px;">
-                            <span style="cursor: pointer;" onclick="copyToClipboard('${license.license_key}')" title="点击复制">${license.license_key}</span>
+                            <span style="cursor: pointer;" onclick="copyToClipboard(${jsArg(licenseKey)})" title="点击复制">${escapeHtml(licenseKey)}</span>
                         </td>
-                        <td>${license.product_id || '-'}</td>
+                        <td>${escapeHtml(license.product_id || '-')}</td>
                         <td>${billingText}</td>
                         <td>${remainingText}</td>
                         <td><span class="status ${statusClass}">${statusText}</span></td>
                         <td>${fmtTime(license.created_at)}</td>
                         <td>
-                            <button class="btn-small" onclick="showLicenseDetail('${license.license_key}')" style="padding: 4px 10px; font-size: 12px; background: var(--bg-secondary); color: var(--accent); border: 1px solid var(--border); border-radius: 4px; cursor: pointer;">详情</button>
-                            ${license.status === 'active' ? `<button class="btn-small" onclick="revokeLicense('${license.license_key}')" style="padding: 4px 10px; font-size: 12px; background: var(--bg-secondary); color: var(--accent-red); border: 1px solid rgba(255,71,87,0.3); border-radius: 4px; cursor: pointer;">撤销</button>` : ''}
+                            <button class="btn-small" onclick="showLicenseDetail(${jsArg(licenseKey)})" style="padding: 4px 10px; font-size: 12px; background: var(--bg-secondary); color: var(--accent); border: 1px solid var(--border); border-radius: 4px; cursor: pointer;">详情</button>
+                            ${license.status === 'active' ? `<button class="btn-small" onclick="revokeLicense(${jsArg(licenseKey)})" style="padding: 4px 10px; font-size: 12px; background: var(--bg-secondary); color: var(--accent-red); border: 1px solid rgba(255,71,87,0.3); border-radius: 4px; cursor: pointer;">撤销</button>` : ''}
                         </td>
                     </tr>
                 `;
@@ -8002,24 +8018,27 @@
                     tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: var(--text-secondary);">暂无创建记录</td></tr>';
                 } else {
                     const billingTextMap = {'per_use': '按次数', 'time_based': '按时间', 'unlimited': '无限制'};
-                    tbody.innerHTML = rows.map(row => `
+                    tbody.innerHTML = rows.map(row => {
+                        const rowLicenseKey = row.license_key || '';
+                        return `
                         <tr>
                             <td style="white-space: nowrap;">${fmtTime(row.created_at)}</td>
                             <td style="font-family: monospace; font-size: 12px;">
-                                <span style="cursor: pointer;" onclick="copyToClipboard('${row.license_key || ''}')" title="点击复制">${row.license_key || '-'}</span>
+                                <span style="cursor: pointer;" onclick="copyToClipboard(${jsArg(rowLicenseKey)})" title="点击复制">${escapeHtml(rowLicenseKey || '-')}</span>
                             </td>
-                            <td>${row.product_id || '-'}</td>
-                            <td>${billingTextMap[row.billing_mode] || row.billing_mode || '-'}</td>
-                            <td>${row.detail || '-'}</td>
-                            <td>${row.operator || '-'}</td>
+                            <td>${escapeHtml(row.product_id || '-')}</td>
+                            <td>${escapeHtml(billingTextMap[row.billing_mode] || row.billing_mode || '-')}</td>
+                            <td>${escapeHtml(row.detail || '-')}</td>
+                            <td>${escapeHtml(row.operator || '-')}</td>
                         </tr>
-                    `).join('');
+                    `;
+                    }).join('');
                 }
                 
                 // 分页
                 renderLogsPagination('licCreateLogsPagination', total, licLogsPageSize, page, 'loadLicenseCreateLogs');
             } catch (e) {
-                tbody.innerHTML = `<tr><td colspan="6" style="text-align: center; color: var(--accent-red);">加载失败: ${e.message}</td></tr>`;
+                tbody.innerHTML = `<tr><td colspan="6" style="text-align: center; color: var(--accent-red);">加载失败: ${escapeHtml(e.message)}</td></tr>`;
             }
         }
         
@@ -8088,10 +8107,10 @@
                         return `
                             <tr>
                                 <td style="white-space: nowrap;">${fmtTime(row.time)}</td>
-                                <td style="font-family: monospace; font-size: 12px;">${row.license_key || '-'}</td>
-                                <td><span class="status ${actionClass}">${row.action || '-'}</span></td>
-                                <td style="max-width: 300px; overflow: hidden; text-overflow: ellipsis;">${row.detail || '-'}</td>
-                                <td>${row.operator || '-'}</td>
+                                <td style="font-family: monospace; font-size: 12px;">${escapeHtml(row.license_key || '-')}</td>
+                                <td><span class="status ${actionClass}">${escapeHtml(row.action || '-')}</span></td>
+                                <td style="max-width: 300px; overflow: hidden; text-overflow: ellipsis;">${escapeHtml(row.detail || '-')}</td>
+                                <td>${escapeHtml(row.operator || '-')}</td>
                             </tr>
                         `;
                     }).join('');
@@ -8099,7 +8118,7 @@
                 
                 renderLogsPagination('licUsageLogsPagination', total, licLogsPageSize, page, 'loadLicenseUsageLogs');
             } catch (e) {
-                tbody.innerHTML = `<tr><td colspan="5" style="text-align: center; color: var(--accent-red);">加载失败: ${e.message}</td></tr>`;
+                tbody.innerHTML = `<tr><td colspan="5" style="text-align: center; color: var(--accent-red);">加载失败: ${escapeHtml(e.message)}</td></tr>`;
             }
         }
         
@@ -8296,14 +8315,14 @@
                     'per_use': '按次数',
                     'time_based': '按时间',
                     'unlimited': '无限制'
-                }[license.billing_mode] || license.billing_mode;
+                }[license.billing_mode] || escapeHtml(license.billing_mode || '-');
                 
                 const statusText = {
                     'active': '已激活',
                     'inactive': '未激活',
                     'expired': '已过期',
                     'revoked': '已撤销'
-                }[license.status] || license.status;
+                }[license.status] || escapeHtml(license.status || '-');
                 
                 let remainingText = '-';
                 if (license.billing_mode === 'per_use') {
@@ -8319,9 +8338,9 @@
                 document.getElementById('licenseDetailContent').innerHTML = `
                     <table style="width: 100%;">
                         <tr><td style="color: var(--text-secondary); padding: 8px 0;">激活码</td>
-                            <td style="font-family: monospace; padding: 8px 0;">${license.license_key}</td></tr>
+                            <td style="font-family: monospace; padding: 8px 0;">${escapeHtml(license.license_key || '-')}</td></tr>
                         <tr><td style="color: var(--text-secondary); padding: 8px 0;">产品</td>
-                            <td style="padding: 8px 0;">${license.product_id}</td></tr>
+                            <td style="padding: 8px 0;">${escapeHtml(license.product_id || '-')}</td></tr>
                         <tr><td style="color: var(--text-secondary); padding: 8px 0;">计费模式</td>
                             <td style="padding: 8px 0;">${billingText}</td></tr>
                         <tr><td style="color: var(--text-secondary); padding: 8px 0;">剩余</td>
@@ -8329,7 +8348,7 @@
                         <tr><td style="color: var(--text-secondary); padding: 8px 0;">状态</td>
                             <td style="padding: 8px 0;">${statusText}</td></tr>
                         <tr><td style="color: var(--text-secondary); padding: 8px 0;">绑定机器</td>
-                            <td style="padding: 8px 0; font-family: monospace; font-size: 11px;">${license.machine_id || '未绑定'}</td></tr>
+                            <td style="padding: 8px 0; font-family: monospace; font-size: 11px;">${escapeHtml(license.machine_id || '未绑定')}</td></tr>
                         <tr><td style="color: var(--text-secondary); padding: 8px 0;">创建时间</td>
                             <td style="padding: 8px 0;">${fmtTime(license.created_at)}</td></tr>
                         <tr><td style="color: var(--text-secondary); padding: 8px 0;">激活时间</td>
@@ -8449,7 +8468,7 @@
             container.innerHTML = users.slice(0, 10).map((user, index) => `
                 <div class="ranking-item">
                     <div class="ranking-rank">${index + 1}</div>
-                    <div class="ranking-name">${user.username}</div>
+                    <div class="ranking-name">${escapeHtml(user.username || '')}</div>
                     <div class="ranking-value">${user.count} 次</div>
                 </div>
             `).join('');
@@ -8466,7 +8485,7 @@
             container.innerHTML = ips.slice(0, 10).map((ip, index) => `
                 <div class="ranking-item">
                     <div class="ranking-rank">${index + 1}</div>
-                    <div class="ranking-name">${ip.ip}</div>
+                    <div class="ranking-name">${escapeHtml(ip.ip || '')}</div>
                     <div class="ranking-value">${ip.count} 次</div>
                 </div>
             `).join('');
@@ -8486,7 +8505,7 @@
                 <div class="activity-icon ${type}">${icon}</div>
                 <div class="activity-content">
                     <div class="activity-text">${text}</div>
-                    <div class="activity-time">${time}</div>
+                    <div class="activity-time">${escapeHtml(time)}</div>
                 </div>
             `;
             
@@ -8842,17 +8861,18 @@
                 const latencyMeta = formatLbLatency(ex);
                 const latencyErr = ex.latency_probe_error ? ` | ${ex.latency_probe_error}` : '';
                 const latencyTitle = ex.latency_checked_at ? `上次测速: ${ex.latency_checked_at}${latencyErr}` : '暂未开始延迟测速';
+                const exitNameArg = jsArg(ex.name || '');
 
                 return `<div style="background:var(--bg-card);border-radius:10px;padding:14px;border:1px solid ${borderColor};position:relative;overflow:hidden;">
                     <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px;">
                         <div>
                             <div style="font-size:15px;font-weight:bold;color:var(--text-primary);">${serverLabel}</div>
-                            <div style="font-size:11px;color:var(--text-secondary);margin-top:2px;">${ex.name}${ex.proxy ? ' | ' + ex.proxy : ''}</div>
+                            <div style="font-size:11px;color:var(--text-secondary);margin-top:2px;">${escapeHtml(ex.name || '')}${ex.proxy ? ' | ' + escapeHtml(ex.proxy) : ''}</div>
                         </div>
                         <div style="display:flex;align-items:center;gap:6px;">
                             <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${healthColor};"></span>
                             <span style="font-size:12px;color:${healthColor};font-weight:bold;">${healthText}</span>
-                            ${!isDirect ? `<button onclick="lbRemoveExit(${ex.index},'${ex.name}')" style="margin-left:4px;background:none;border:1px solid rgba(255,71,87,0.3);border-radius:4px;color:#ff4757;cursor:pointer;font-size:11px;padding:2px 6px;">删除</button>` : ''}
+                            ${!isDirect ? `<button onclick="lbRemoveExit(${ex.index}, ${exitNameArg})" style="margin-left:4px;background:none;border:1px solid rgba(255,71,87,0.3);border-radius:4px;color:#ff4757;cursor:pointer;font-size:11px;padding:2px 6px;">删除</button>` : ''}
                         </div>
                     </div>
                     <div style="display:flex;gap:6px;margin-bottom:8px;flex-wrap:nowrap;">
@@ -8868,11 +8888,11 @@
                             <div style="font-size:10px;color:var(--text-secondary);">请求</div>
                             <div style="font-size:12px;font-weight:bold;color:var(--accent);">${ex.total_requests}</div>
                         </div>
-                        <div style="background:rgba(0,212,255,0.08);border-radius:6px;padding:6px 8px;flex:1;min-width:0;text-align:center;" title="${latencyTitle}">
+                        <div style="background:rgba(0,212,255,0.08);border-radius:6px;padding:6px 8px;flex:1;min-width:0;text-align:center;" title="${escapeHtml(latencyTitle)}">
                             <div style="font-size:10px;color:var(--text-secondary);">延迟</div>
-                            <div style="font-size:12px;font-weight:bold;color:${latencyMeta.color};">${latencyMeta.text}</div>
+                            <div style="font-size:12px;font-weight:bold;color:${latencyMeta.color};">${escapeHtml(latencyMeta.text)}</div>
                         </div>
-                        <div style="background:rgba(255,165,0,0.08);border-radius:6px;padding:6px 8px;flex:1.2;min-width:0;text-align:center;cursor:pointer;" onclick="lbShowRateLimit(${i},'${ex.name}',${ex.rate_limit})" title="点击调整限速">
+                        <div style="background:rgba(255,165,0,0.08);border-radius:6px;padding:6px 8px;flex:1.2;min-width:0;text-align:center;cursor:pointer;" onclick="lbShowRateLimit(${i}, ${exitNameArg}, ${ex.rate_limit})" title="点击调整限速">
                             <div style="font-size:10px;color:var(--text-secondary);">速率${ex.rate_limit > 0 ? ' ⚡' : ''}</div>
                             <div style="font-size:12px;font-weight:bold;color:${ex.rate_limit > 0 && ex.rpm >= ex.rate_limit * 0.8 ? '#ffa502' : 'var(--accent)'};">${ex.rpm}<span style="font-size:9px;color:var(--text-secondary);">/${ex.rate_limit || '∞'}</span></div>
                         </div>
@@ -9018,7 +9038,7 @@
                     });
                     const data = await res.json();
                     if (data.error) {
-                        resultEl.innerHTML = `<div style="color:#ff4757;padding:10px;">❌ ${data.error}</div>`;
+                        resultEl.innerHTML = `<div style="color:#ff4757;padding:10px;">❌ ${escapeHtml(data.error)}</div>`;
                         btn.disabled = false;
                         btn.textContent = '🔍 重新解析';
                         return;
@@ -9030,7 +9050,7 @@
                     btn.textContent = '🚀 一键应用选中节点';
                     btn.style.background = 'linear-gradient(135deg, #00c9b7, #7ed56f)';
                 } catch (e) {
-                    resultEl.innerHTML = `<div style="color:#ff4757;padding:10px;">请求失败: ${e.message}</div>`;
+                    resultEl.innerHTML = `<div style="color:#ff4757;padding:10px;">请求失败: ${escapeHtml(e.message)}</div>`;
                     btn.disabled = false;
                     btn.textContent = '🔍 重新解析';
                 }
@@ -9042,25 +9062,25 @@
 
         function renderSubResult(data, el) {
             const regionHtml = Object.entries(data.regions || {}).map(([code, info]) =>
-                `<span style="background:var(--bg-secondary);padding:2px 8px;border-radius:10px;font-size:11px;">${info.label} ×${info.count}</span>`
+                `<span style="background:var(--bg-secondary);padding:2px 8px;border-radius:10px;font-size:11px;">${escapeHtml(info.label || code)} ×${Number(info.count || 0)}</span>`
             ).join(' ');
 
             const nodesHtml = (data.nodes || []).map((node, ni) => {
                 const label = node.name || `${node.region_label || ''}节点${ni+1}`;
                 return `<label style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--border);font-size:12px;cursor:pointer;">
-                    <input type="checkbox" class="lb-sub-node" data-index="${ni}" data-server="${node.server}" data-port="${node.port}" data-name="${label}" checked style="accent-color:var(--accent);">
+                    <input type="checkbox" class="lb-sub-node" data-index="${ni}" data-server="${escapeHtml(node.server || '')}" data-port="${Number(node.port || 0)}" data-name="${escapeHtml(label)}" checked style="accent-color:var(--accent);">
                     <span style="flex:1;">
-                        <strong style="font-size:11px;">${label}</strong>
-                        <span style="color:var(--text-secondary);margin-left:6px;font-size:11px;">${(node.type||'').toUpperCase()} | ${node.server}:${node.port}</span>
+                        <strong style="font-size:11px;">${escapeHtml(label)}</strong>
+                        <span style="color:var(--text-secondary);margin-left:6px;font-size:11px;">${escapeHtml((node.type||'').toUpperCase())} | ${escapeHtml(node.server || '')}:${Number(node.port || 0)}</span>
                     </span>
                 </label>`;
             }).join('');
 
             el.innerHTML = `
                 <div style="background:var(--bg-secondary);border-radius:8px;padding:10px;margin-bottom:8px;">
-                    <div style="font-size:13px;margin-bottom:6px;">✅ 格式: <strong style="color:var(--accent);">${data.format}</strong> | 
-                        节点: <strong>${data.total_nodes}</strong> | 
-                        唯一服务器: <strong style="color:var(--accent-green);">${data.unique_servers}</strong></div>
+                    <div style="font-size:13px;margin-bottom:6px;">✅ 格式: <strong style="color:var(--accent);">${escapeHtml(data.format || '-')}</strong> |
+                        节点: <strong>${Number(data.total_nodes || 0)}</strong> |
+                        唯一服务器: <strong style="color:var(--accent-green);">${Number(data.unique_servers || 0)}</strong></div>
                     <div style="display:flex;gap:4px;flex-wrap:wrap;">${regionHtml}</div>
                 </div>
                 <div style="font-size:12px;color:var(--text-secondary);margin-bottom:4px;">勾选要添加的节点（共 ${(data.nodes||[]).length} 个）：</div>
@@ -9100,11 +9120,11 @@
                 const data = await res.json();
                 if (data.success) {
                     const sbIcon = data.singbox_reload ? '✅' : '⚠️';
-                    msgEl.innerHTML = `${sbIcon} 完成! ${data.nodes_count}个节点已应用, sing-box: ${data.message}`;
+                    msgEl.innerHTML = `${sbIcon} 完成! ${Number(data.nodes_count || 0)}个节点已应用, sing-box: ${escapeHtml(data.message || '')}`;
                     showToast(`热重载成功: ${data.nodes_count}个出口已生效`);
                     closeLbSubModal();
                 } else {
-                    msgEl.innerHTML = `<span style="color:#ffa502;">⚠️ ${data.message}</span><br>节点已注册到dispatcher(${data.nodes_count || 0}个), sing-box需手动重载`;
+                    msgEl.innerHTML = `<span style="color:#ffa502;">⚠️ ${escapeHtml(data.message || '')}</span><br>节点已注册到dispatcher(${Number(data.nodes_count || 0)}个), sing-box需手动重载`;
                     showToast(data.message || '部分失败', 'error');
                 }
                 loadLbStatus();
@@ -9236,13 +9256,13 @@
         function lbShowRateLimit(index, name, currentLimit) {
             const content = `
                 <div style="margin-bottom:12px;">
-                    <div style="font-size:13px;color:var(--text-secondary);margin-bottom:8px;">出口 #${index} | ${name}</div>
+                    <div style="font-size:13px;color:var(--text-secondary);margin-bottom:8px;">出口 #${Number(index || 0)} | ${escapeHtml(name || '')}</div>
                     <div style="font-size:12px;color:var(--text-secondary);margin-bottom:12px;">
-                        当前限速: <b style="color:var(--accent);">${currentLimit || '不限速'}</b> ${currentLimit ? 'req/min' : ''}
+                        当前限速: <b style="color:var(--accent);">${escapeHtml(currentLimit || '不限速')}</b> ${currentLimit ? 'req/min' : ''}
                     </div>
                     <div style="display:flex;flex-direction:column;gap:8px;">
                         <label style="font-size:13px;color:var(--text-primary);">设置速率上限 (req/min):</label>
-                        <input id="rateLimitInput" type="number" min="0" step="5" value="${currentLimit || 0}" placeholder="0 = 不限速"
+                        <input id="rateLimitInput" type="number" min="0" step="5" value="${Number(currentLimit || 0)}" placeholder="0 = 不限速"
                             style="background:var(--bg-primary);border:1px solid var(--border);border-radius:6px;padding:8px 12px;color:var(--text-primary);font-size:14px;width:100%;">
                         <div style="font-size:11px;color:var(--text-secondary);">
                             💡 设为 0 表示不限速 | 收到403会自动降速10%<br>
@@ -9250,9 +9270,9 @@
                         </div>
                     </div>
                     <div style="display:flex;gap:8px;margin-top:12px;">
-                        <button onclick="lbSetRate(${index},0)" style="flex:1;padding:6px;border-radius:6px;border:1px solid var(--border);background:var(--bg-secondary);color:var(--text-primary);cursor:pointer;font-size:12px;">🔓 取消限速</button>
-                        <button onclick="lbSetRate(${index},30)" style="flex:1;padding:6px;border-radius:6px;border:1px solid rgba(255,165,0,0.3);background:rgba(255,165,0,0.1);color:#ffa502;cursor:pointer;font-size:12px;">🐢 30/min</button>
-                        <button onclick="lbSetRate(${index},60)" style="flex:1;padding:6px;border-radius:6px;border:1px solid rgba(0,212,255,0.3);background:rgba(0,212,255,0.1);color:var(--accent);cursor:pointer;font-size:12px;">⚡ 60/min</button>
+                        <button onclick="lbSetRate(${Number(index || 0)},0)" style="flex:1;padding:6px;border-radius:6px;border:1px solid var(--border);background:var(--bg-secondary);color:var(--text-primary);cursor:pointer;font-size:12px;">🔓 取消限速</button>
+                        <button onclick="lbSetRate(${Number(index || 0)},30)" style="flex:1;padding:6px;border-radius:6px;border:1px solid rgba(255,165,0,0.3);background:rgba(255,165,0,0.1);color:#ffa502;cursor:pointer;font-size:12px;">🐢 30/min</button>
+                        <button onclick="lbSetRate(${Number(index || 0)},60)" style="flex:1;padding:6px;border-radius:6px;border:1px solid rgba(0,212,255,0.3);background:rgba(0,212,255,0.1);color:var(--accent);cursor:pointer;font-size:12px;">⚡ 60/min</button>
                     </div>
                 </div>
             `;
@@ -9291,8 +9311,8 @@
                 const logsHtml = logs.length === 0
                     ? '<div style="color:var(--text-secondary);text-align:center;padding:20px;">暂无连接错误</div>'
                     : logs.map(l => `<div style="display:flex;gap:8px;padding:4px 0;border-bottom:1px solid var(--border);font-size:12px;font-family:monospace;">
-                            <span style="color:var(--text-secondary);white-space:nowrap;">${l.time}</span>
-                            <span style="color:#ff4757;word-break:break-all;">${l.msg}</span>
+                            <span style="color:var(--text-secondary);white-space:nowrap;">${escapeHtml(l.time || '')}</span>
+                            <span style="color:#ff4757;word-break:break-all;">${escapeHtml(l.msg || '')}</span>
                         </div>`).reverse().join('');
 
                 const eventsHtml = events.length === 0
@@ -9300,9 +9320,9 @@
                     : events.map(e => {
                         const color = e.status_code === 403 ? '#ff4757' : '#ffa502';
                         return `<div style="display:flex;gap:8px;padding:4px 0;border-bottom:1px solid var(--border);font-size:12px;font-family:monospace;align-items:center;">
-                            <span style="color:var(--text-secondary);white-space:nowrap;">${e.ts}</span>
-                            <span style="color:${color};font-weight:bold;white-space:nowrap;">${e.status_code}</span>
-                            <span style="color:var(--text-secondary);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${e.api_path}">${e.api_path}</span>
+                            <span style="color:var(--text-secondary);white-space:nowrap;">${escapeHtml(e.ts || '')}</span>
+                            <span style="color:${color};font-weight:bold;white-space:nowrap;">${Number(e.status_code || 0)}</span>
+                            <span style="color:var(--text-secondary);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escapeHtml(e.api_path || '')}">${escapeHtml(e.api_path || '')}</span>
                         </div>`;
                     }).join('');
 
@@ -9320,7 +9340,7 @@
                     <div id="lbLogTab1" style="max-height:320px;overflow-y:auto;">${logsHtml}</div>
                     <div id="lbLogTab2" style="max-height:320px;overflow-y:auto;display:none;">${eventsHtml}</div>
                 `;
-                showModal(`📋 日志 - ${name}`, content, () => closeModal(), '关闭');
+                showModal(`📋 日志 - ${name || ''}`, content, () => closeModal(), '关闭');
             } catch (e) {
                 showToast('获取日志失败: ' + e.message, 'error');
             }
@@ -10333,15 +10353,15 @@
                 const isExpired = a.status === 'expired' || (a.expire_time && new Date(a.expire_time) < new Date());
                 const planCfg = wlCreditConfigs.find(c => c.plan_type === a.plan_type);
                 const planDisplay = planCfg ? planCfg.plan_name : (a.plan_type || '-');
-                const actionUsername = String(a.username || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
-                const persistButton = a.status !== 'deleted' ? `<button onclick="togglePersistLogin('${actionUsername}', ${!a.persistent_login})" style="padding:4px 14px; font-size:12px; border:${a.persistent_login ? 'none' : '1px solid var(--border)'}; border-radius:12px; cursor:pointer; transition:all 0.2s; background:${a.persistent_login ? 'linear-gradient(135deg,#00c9b7,#7ed56f)' : 'var(--bg-primary)'}; color:${a.persistent_login ? '#0a1a2e' : '#ff5252'}; font-weight:bold;">${a.persistent_login ? '已开启' : '关闭'}</button>` : '-';
-                const actionButtons = a.status !== 'deleted' ? `<button class="btn" onclick="renewWhitelist('${actionUsername}')" style="padding:3px 8px; font-size:11px; margin-right:4px;">续期</button><button class="btn btn-danger" onclick="deleteWhitelist('${actionUsername}')" style="padding:3px 8px; font-size:11px;">删除</button>` : '-';
+                const actionUsername = jsArg(a.username || '');
+                const persistButton = a.status !== 'deleted' ? `<button onclick="togglePersistLogin(${actionUsername}, ${!a.persistent_login})" style="padding:4px 14px; font-size:12px; border:${a.persistent_login ? 'none' : '1px solid var(--border)'}; border-radius:12px; cursor:pointer; transition:all 0.2s; background:${a.persistent_login ? 'linear-gradient(135deg,#00c9b7,#7ed56f)' : 'var(--bg-primary)'}; color:${a.persistent_login ? '#0a1a2e' : '#ff5252'}; font-weight:bold;">${a.persistent_login ? '已开启' : '关闭'}</button>` : '-';
+                const actionButtons = a.status !== 'deleted' ? `<button class="btn" onclick="renewWhitelist(${actionUsername})" style="padding:3px 8px; font-size:11px; margin-right:4px;">续期</button><button class="btn btn-danger" onclick="deleteWhitelist(${actionUsername})" style="padding:3px 8px; font-size:11px;">删除</button>` : '-';
                 return `<tr>
                     <td style="font-weight:bold;">${escapeHtml(a.username || '')}</td>
                     ${renderRealNameCell(a.username, a.nickname, 'whitelist')}
                     <td>${escapeHtml(planDisplay)}</td>
                     <td style="color:${isExpired ? '#ff5252' : '#00ff88'};">${expDate}</td>
-                    <td><span style="color:${statusColors[a.status] || '#888'};">${statusNames[a.status] || a.status}</span></td>
+                    <td><span style="color:${statusColors[a.status] || '#888'};">${escapeHtml(statusNames[a.status] || a.status || '-')}</span></td>
                     <td>${persistButton}</td>
                     <td style="color:var(--text-secondary);">${escapeHtml(a.added_by === 'super_admin' ? '系统总管理' : (a.added_by || '-'))}</td>
                     <td style="color:var(--text-secondary); max-width:100px; overflow:hidden; text-overflow:ellipsis;">${escapeHtml(a.remark || '')}</td>
@@ -10355,9 +10375,9 @@
                     const isExpired = a.status === 'expired' || (a.expire_time && new Date(a.expire_time) < new Date());
                     const planCfg = wlCreditConfigs.find(c => c.plan_type === a.plan_type);
                     const planDisplay = planCfg ? planCfg.plan_name : (a.plan_type || '-');
-                    const actionUsername = String(a.username || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
-                    const persistButton = a.status !== 'deleted' ? `<button class="btn" onclick="togglePersistLogin('${actionUsername}', ${!a.persistent_login})">${a.persistent_login ? '已开启强化登录' : '开启强化登录'}</button>` : '';
-                    const actionButtons = a.status !== 'deleted' ? `<button class="btn" onclick="renewWhitelist('${actionUsername}')">续期</button><button class="btn btn-danger" onclick="deleteWhitelist('${actionUsername}')">删除</button>` : '';
+                    const actionUsername = jsArg(a.username || '');
+                    const persistButton = a.status !== 'deleted' ? `<button class="btn" onclick="togglePersistLogin(${actionUsername}, ${!a.persistent_login})">${a.persistent_login ? '已开启强化登录' : '开启强化登录'}</button>` : '';
+                    const actionButtons = a.status !== 'deleted' ? `<button class="btn" onclick="renewWhitelist(${actionUsername})">续期</button><button class="btn btn-danger" onclick="deleteWhitelist(${actionUsername})">删除</button>` : '';
                     return `<div class="wl-card">
                         <div class="wl-card-head">
                             <div class="wl-card-username">${escapeHtml(a.username || '')}</div>
@@ -10648,20 +10668,23 @@
                     tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; color:var(--text-secondary);">暂无子管理员</td></tr>';
                     return;
                 }
-                tbody.innerHTML = data.map(s => `<tr>
-                    <td class="credits-name-cell" style="font-weight:bold;">${s.name}</td>
-                    <td style="color:var(--accent-yellow); font-weight:bold;">${s.credits}</td>
-                    <td style="color:#00ff88;">${s.active_count}</td>
-                    <td>${s.total_count}</td>
-                    <td><button class="btn" onclick="document.getElementById('topupAdminName').value='${s.name}';document.getElementById('topupAmount').focus();" style="padding:3px 8px; font-size:11px;">充值</button>
-                        <button class="btn" onclick="loadCreditTransactions('${s.name}')" style="padding:3px 8px; font-size:11px;">流水</button></td>
-                </tr>`).join('');
+                tbody.innerHTML = data.map(s => {
+                    const nameArg = jsArg(s.name || '');
+                    return `<tr>
+                    <td class="credits-name-cell" style="font-weight:bold;">${escapeHtml(s.name || '')}</td>
+                    <td style="color:var(--accent-yellow); font-weight:bold;">${Number(s.credits || 0)}</td>
+                    <td style="color:#00ff88;">${Number(s.active_count || 0)}</td>
+                    <td>${Number(s.total_count || 0)}</td>
+                    <td><button class="btn" onclick="document.getElementById('topupAdminName').value=${nameArg};document.getElementById('topupAmount').focus();" style="padding:3px 8px; font-size:11px;">充值</button>
+                        <button class="btn" onclick="loadCreditTransactions(${nameArg})" style="padding:3px 8px; font-size:11px;">流水</button></td>
+                </tr>`;
+                }).join('');
 
                 // 更新流水筛选下拉
                 const select = document.getElementById('txFilterAdmin');
                 const currentVal = select.value;
                 select.innerHTML = '<option value="">全部</option>' + data.map(s =>
-                    `<option value="${s.name}" ${s.name === currentVal ? 'selected' : ''}>${s.name}</option>`).join('');
+                    `<option value="${escapeHtml(s.name || '')}" ${s.name === currentVal ? 'selected' : ''}>${escapeHtml(s.name || '')}</option>`).join('');
             } catch (e) { console.error('加载积分概览失败', e); }
         }
 
@@ -10676,13 +10699,14 @@
                     el.innerHTML = '<div style="color:var(--text-secondary); font-size:13px;">暂无定价配置</div>';
                     return;
                 }
-                el.innerHTML = '<div style="display:flex; flex-wrap:wrap; gap:8px;">' + data.map(c =>
-                    `<div onclick="fillCreditConfig('${c.plan_type}','${c.plan_name}',${c.credits_cost},${c.duration_days})" style="background:var(--bg-secondary); border-radius:8px; padding:8px 12px; display:flex; align-items:center; gap:8px; cursor:pointer; transition:all 0.2s; border:2px solid transparent;" onmouseover="this.style.borderColor='var(--accent)'" onmouseout="if(!this.classList.contains('cfg-selected'))this.style.borderColor='transparent'" class="cfg-badge">
-                        <span style="font-weight:bold; color:var(--accent);">${c.plan_name}</span>
-                        <span style="color:var(--text-secondary); font-size:12px;">${c.credits_cost}积分/${c.duration_days}天</span>
-${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig('${c.plan_type}')" style="background:none; border:none; color:#ff5252; cursor:pointer; font-size:14px;">✕</button>` : ''}
-                    </div>`
-                ).join('') + '</div>';
+                el.innerHTML = '<div style="display:flex; flex-wrap:wrap; gap:8px;">' + data.map(c => {
+                    const planTypeArg = jsArg(c.plan_type || '');
+                    return `<div onclick="fillCreditConfig(${planTypeArg}, ${jsArg(c.plan_name || '')}, ${Number(c.credits_cost || 0)}, ${Number(c.duration_days || 0)})" style="background:var(--bg-secondary); border-radius:8px; padding:8px 12px; display:flex; align-items:center; gap:8px; cursor:pointer; transition:all 0.2s; border:2px solid transparent;" onmouseover="this.style.borderColor='var(--accent)'" onmouseout="if(!this.classList.contains('cfg-selected'))this.style.borderColor='transparent'" class="cfg-badge">
+                        <span style="font-weight:bold; color:var(--accent);">${escapeHtml(c.plan_name || '')}</span>
+                        <span style="color:var(--text-secondary); font-size:12px;">${Number(c.credits_cost || 0)}积分/${Number(c.duration_days || 0)}天</span>
+${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(${planTypeArg})" style="background:none; border:none; color:#ff5252; cursor:pointer; font-size:14px;">✕</button>` : ''}
+                    </div>`;
+                }).join('') + '</div>';
             } catch (e) { console.error('加载定价失败', e); }
         }
 
@@ -10845,39 +10869,41 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                 const importTime = group.import_time ? new Date(group.import_time).toLocaleString('zh-CN', {
                     month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit'
                 }) : '未知';
+                const groupIdArg = jsArg(group.id || '');
+                const groupNotesArg = jsArg(group.notes || '');
 
                 const notesHtml = group.notes ? `
                     <div style="margin-top: 4px; padding: 3px 8px; background: rgba(102,126,234,0.1); border-radius: 4px; font-size: 11px; color: var(--accent);">
-                        📝 ${group.notes}
+                        📝 ${escapeHtml(group.notes)}
                     </div>
                 ` : '';
 
                 return `
                     <div style="background: var(--bg-primary); border-radius: 8px; border: 1px solid var(--border); overflow: hidden;">
-                        <div style="display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; cursor: pointer;" onclick="toggleSubscriptionGroup('${group.id}')">
+                        <div style="display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; cursor: pointer;" onclick="toggleSubscriptionGroup(${groupIdArg})">
                             <div style="flex: 1; display: flex; align-items: center; gap: 8px;">
                                 <span style="font-size: 14px;">${icon}</span>
                                 <div style="flex: 1;">
-                                    <div style="font-size: 13px; font-weight: bold; color: var(--text-primary);">${group.name}</div>
+                                    <div style="font-size: 13px; font-weight: bold; color: var(--text-primary);">${escapeHtml(group.name || '')}</div>
                                     <div style="font-size: 11px; color: var(--text-secondary);">
-                                        ${importTime} | ${group.active_servers}/${group.total_servers} 台启用
+                                        ${escapeHtml(importTime)} | ${Number(group.active_servers || 0)}/${Number(group.total_servers || 0)} 台启用
                                         ${group.source_type === 'url' ? ' | 🔗订阅链接' : group.source_type === 'json' ? ' | 📋JSON' : ' | 📝文本'}
                                     </div>
                                     ${notesHtml}
                                 </div>
                             </div>
                             <div style="display: flex; gap: 6px;" onclick="event.stopPropagation()">
-                                <button class="btn" onclick="editSubscriptionGroupNotes('${group.id}', '${(group.notes || '').replace(/'/g, "\\'")}')"
+                                <button class="btn" onclick="editSubscriptionGroupNotes(${groupIdArg}, ${groupNotesArg})"
                                         style="padding: 4px 8px; font-size: 11px; background: rgba(102,126,234,0.1); color: var(--accent); border: 1px solid rgba(102,126,234,0.3);">
                                     📝 备注
                                 </button>
-                                <button class="btn" onclick="deleteSubscriptionGroup('${group.id}')"
+                                <button class="btn" onclick="deleteSubscriptionGroup(${groupIdArg})"
                                         style="padding: 4px 8px; font-size: 11px; background: rgba(255,71,87,0.1); color: var(--accent-red); border: 1px solid rgba(255,71,87,0.3);">
                                     🗑️ 删除
                                 </button>
                             </div>
                         </div>
-                        <div id="subGroupServers_${group.id}" style="display: ${isExpanded ? 'block' : 'none'}; padding: 0 12px 12px; border-top: 1px solid var(--border);">
+                        <div id="subGroupServers_${escapeHtml(group.id || '')}" style="display: ${isExpanded ? 'block' : 'none'}; padding: 0 12px 12px; border-top: 1px solid var(--border);">
                             <div style="color: var(--text-secondary); font-size: 11px; padding: 8px 0;">服务器列表加载中...</div>
                         </div>
                     </div>
@@ -10933,23 +10959,26 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                     const opacity = enabled ? '1' : '0.6';
                     const disabledTag = enabled ? '' : '<span style="color: #6b7280; font-size: 10px; margin-left: 6px;">❌已禁用</span>';
                     const nodeCountTag = allNodes.length > 1 ? `<span style="color: #9ca3af; font-size: 10px; margin-left: 4px;">(${allNodes.length}个节点)</span>` : '';
+                    const groupIdArg = jsArg(groupId);
+                    const serverArg = jsArg(server);
 
                     return `
                         <div style="display: flex; align-items: center; gap: 8px; padding: 6px 8px; background: ${bgColor}; border-radius: 6px; margin-top: 6px; opacity: ${opacity};">
-                            <input type="checkbox" ${enabled ? 'checked' : ''} onchange="toggleServerByIP('${groupId}', '${server}', this.checked)" style="cursor: pointer; accent-color: var(--accent-green);">
+                            <input type="checkbox" ${enabled ? 'checked' : ''} onchange="toggleServerByIP(${groupIdArg}, ${serverArg}, this.checked)" style="cursor: pointer; accent-color: var(--accent-green);">
                             <div style="flex: 1; font-size: 12px; color: ${textColor};">
-                                <strong>${node.name || node.display_name || `服务器${idx + 1}`}</strong>
+                                <strong>${escapeHtml(node.name || node.display_name || `服务器${idx + 1}`)}</strong>
                                 ${nodeCountTag}${disabledTag}
-                                <span style="color: #6b7280; margin-left: 6px;">${(node.type || 'UNKNOWN').toUpperCase()} | ${node.server}</span>
+                                <span style="color: #6b7280; margin-left: 6px;">${escapeHtml((node.type || 'UNKNOWN').toUpperCase())} | ${escapeHtml(node.server || '')}</span>
                             </div>
                         </div>
                     `;
                 }).join('');
 
+                const groupIdArg = jsArg(groupId);
                 const actionsHtml = `
                     <div style="display: flex; gap: 6px; padding: 8px 0; font-size: 11px;">
-                        <button class="btn" onclick="toggleAllServers('${groupId}', true)" style="padding: 4px 10px; background: rgba(76,175,80,0.1); color: var(--accent-green);">全选</button>
-                        <button class="btn" onclick="toggleAllServers('${groupId}', false)" style="padding: 4px 10px; background: var(--bg-secondary); color: var(--text-secondary);">全不选</button>
+                        <button class="btn" onclick="toggleAllServers(${groupIdArg}, true)" style="padding: 4px 10px; background: rgba(76,175,80,0.1); color: var(--accent-green);">全选</button>
+                        <button class="btn" onclick="toggleAllServers(${groupIdArg}, false)" style="padding: 4px 10px; background: var(--bg-secondary); color: var(--text-secondary);">全不选</button>
                     </div>
                 `;
 
@@ -11004,9 +11033,9 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
 
             showModal('编辑订阅组备注', `
                 <div style="margin-bottom: 12px;">
-                    <label style="display: block; margin-bottom: 8px; color: var(--text-primary); font-weight: bold;">订阅组：${groupName}</label>
+                    <label style="display: block; margin-bottom: 8px; color: var(--text-primary); font-weight: bold;">订阅组：${escapeHtml(groupName)}</label>
                     <label style="display: block; margin-bottom: 4px; color: var(--text-secondary); font-size: 13px;">备注内容</label>
-                    <input type="text" id="editNotesInput" value="${currentNotes.replace(/"/g, '&quot;')}"
+                    <input type="text" id="editNotesInput" value="${escapeHtml(currentNotes)}"
                            placeholder="如：XX机场-月付套餐 | 2026-04-12到期"
                            style="width: 100%; padding: 8px 12px; background: var(--bg-primary); border: 1px solid var(--border); border-radius: 6px; color: var(--text-primary); font-size: 14px; box-sizing: border-box;">
                     <div style="margin-top: 6px; font-size: 11px; color: var(--text-secondary);">💡 方便记录订阅来源、到期时间等信息</div>
