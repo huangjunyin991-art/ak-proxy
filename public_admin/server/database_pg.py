@@ -1570,20 +1570,22 @@ async def record_ip_preban_event(ip_address: str, reason: str, window_seconds: i
             return {'count': count, 'is_banned': False, 'window_seconds': window_seconds}
 
 
-async def load_banned_sets() -> tuple[set, set]:
-    """启动时一次性加载所有活跃封禁记录，返回 (banned_usernames, banned_ips) 内存集合"""
+async def load_banned_sets() -> tuple[set, set, Dict[str, float]]:
+    """启动时一次性加载所有活跃封禁记录"""
     pool = _get_pool()
     async with pool.acquire() as conn:
         rows = await conn.fetch(
-            "SELECT ban_type, ban_value FROM ban_list WHERE is_active = TRUE AND (banned_until IS NULL OR banned_until > NOW())"
+            "SELECT ban_type, ban_value, banned_until FROM ban_list WHERE is_active = TRUE AND (banned_until IS NULL OR banned_until > NOW())"
         )
-    usernames, ips = set(), set()
+    usernames, ips, ip_expiries = set(), set(), {}
     for r in rows:
         if r['ban_type'] == 'username':
             usernames.add(r['ban_value'].lower())
         elif r['ban_type'] == 'ip':
             ips.add(r['ban_value'])
-    return usernames, ips
+            if r['banned_until']:
+                ip_expiries[r['ban_value']] = r['banned_until'].timestamp()
+    return usernames, ips, ip_expiries
 
 
 async def is_banned(username: str = None, ip_address: str = None) -> bool:

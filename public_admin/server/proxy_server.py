@@ -428,9 +428,13 @@ class ProxyStats:
 
         self.banned_ips: set = set()
 
+        self.banned_ip_expiries: dict = {}
+
         self.banned_cache_ready = False
 
         self.pending_indexdata_logins: dict = {}
+
+        self.login_403_ip_accounts: dict = {}
 
 
 
@@ -443,6 +447,10 @@ IP_PREBAN_WINDOW_SECONDS = 60
 IP_PREBAN_AUTO_BAN_THRESHOLD = 5
 
 IP_PREBAN_AUTO_BAN_DAYS = 1
+
+LOGIN_403_DISTINCT_ACCOUNT_THRESHOLD = 3
+
+LOGIN_403_IP_BAN_HOURS = 12
 
 _POINT_HISTORY_PAGE_DELAY = 0.5
 _POINT_HISTORY_PAGE_MAX_RETRIES = 3
@@ -490,6 +498,45 @@ def _login_indexdata_key(client_ip: str, username: str) -> tuple[str, str]:
     return (str(client_ip or "").strip(), str(username or "").strip().lower())
 
 
+def _is_ip_in_memory_ban(client_ip: str) -> bool:
+    if client_ip not in stats.banned_ips:
+        return False
+    expires_at = stats.banned_ip_expiries.get(client_ip)
+    if expires_at and time.time() >= float(expires_at):
+        stats.banned_ips.discard(client_ip)
+        stats.banned_ip_expiries.pop(client_ip, None)
+        return False
+    return True
+
+
+async def _record_login_403_and_maybe_ban_ip(client_ip: str, username: str, reason: str) -> None:
+    normalized_ip = str(client_ip or "").strip()
+    normalized_username = str(username or "").strip().lower()
+    if not normalized_ip or normalized_ip == "unknown" or not normalized_username or normalized_username == "unknown":
+        return
+    if normalized_ip in stats.banned_ips:
+        return
+    accounts = stats.login_403_ip_accounts.setdefault(normalized_ip, set())
+    accounts.add(normalized_username)
+    count = len(accounts)
+    if count < LOGIN_403_DISTINCT_ACCOUNT_THRESHOLD:
+        logger.warning(f"[Login403Guard] IP触发403登录拦截 ip={normalized_ip} account={normalized_username} count={count}/{LOGIN_403_DISTINCT_ACCOUNT_THRESHOLD} reason={reason}")
+        return
+    ban_reason = f"连续登录触发403且涉及{count}个不同账号，自动封禁{LOGIN_403_IP_BAN_HOURS}小时: {reason}"
+    stats.banned_ips.add(normalized_ip)
+    stats.banned_ip_expiries[normalized_ip] = time.time() + LOGIN_403_IP_BAN_HOURS * 3600
+    stats.login_403_ip_accounts.pop(normalized_ip, None)
+    try:
+        await db.ban_ip(normalized_ip, ban_reason, duration_days=LOGIN_403_IP_BAN_HOURS / 24)
+    except Exception as e:
+        logger.warning(f"[Login403Guard] 数据库封禁失败 ip={normalized_ip}: {e}")
+    try:
+        await ws_manager.broadcast({"type": "ip_banned", "data": {"ip": normalized_ip, "reason": ban_reason}})
+    except Exception:
+        pass
+    logger.warning(f"[Login403Guard] 自动封禁IP ip={normalized_ip} accounts={sorted(accounts)} reason={ban_reason}")
+
+
 async def _record_missing_indexdata_followup(client_ip: str, username: str) -> None:
     reason = f"登录成功后未在{LOGIN_INDEXDATA_GRACE_SECONDS}秒内调用public_IndexData: {username}"
     result = await db.record_ip_preban_event(client_ip, reason, window_seconds=IP_PREBAN_WINDOW_SECONDS)
@@ -500,6 +547,7 @@ async def _record_missing_indexdata_followup(client_ip: str, username: str) -> N
     if count >= IP_PREBAN_AUTO_BAN_THRESHOLD:
         ban_reason = f"{IP_PREBAN_WINDOW_SECONDS}秒内连续触发异常{count}次: {reason}"
         stats.banned_ips.add(client_ip)
+        stats.banned_ip_expiries[client_ip] = time.time() + IP_PREBAN_AUTO_BAN_DAYS * 86400
         await db.ban_ip(client_ip, ban_reason, duration_days=IP_PREBAN_AUTO_BAN_DAYS)
         try:
             await ws_manager.broadcast({"type": "ip_banned", "data": {"ip": client_ip, "reason": ban_reason}})
@@ -1419,7 +1467,7 @@ async def proxy_login(request: Request):
 
     if ENABLE_LOCAL_BAN:
 
-        if account.lower() in stats.banned_accounts or client_ip in stats.banned_ips:
+        if account.lower() in stats.banned_accounts or _is_ip_in_memory_ban(client_ip):
 
             logger.warning(f"[Login] 封禁拦截: account={account}, IP={client_ip}")
             try:
@@ -1464,6 +1512,7 @@ async def proxy_login(request: Request):
                     )
                 except Exception as e:
                     logger.warning(f"[Login] 白名单拦截记录失败: {e}")
+                await _record_login_403_and_maybe_ban_ip(client_ip, account, "whitelist_unauthorized")
                 return JSONResponse({"Error": True, "Msg": "未获得访问权限，请联系上属老师获取权限或使用ak2018，ak928登录！"})
 
             if auth_info['expire_time'] < datetime.now():
@@ -1478,9 +1527,11 @@ async def proxy_login(request: Request):
                     )
                 except Exception as e:
                     logger.warning(f"[Login] 白名单过期记录失败: {e}")
+                await _record_login_403_and_maybe_ban_ip(client_ip, account, "whitelist_expired")
                 return JSONResponse({"Error": True, "Msg": "您的访问权限已到期，请联系上属老师续期或使用ak2018，ak928登录！"})
 
             persistent_login = auth_info.get('persistent_login', False)
+            stats.login_403_ip_accounts.pop(client_ip, None)
 
             logger.info(f"[Login] 白名单生效，允许登录: {account}")
 
@@ -2826,6 +2877,7 @@ async def api_ban(request: Request):
     elif ban_type == "ip" and value:
 
         stats.banned_ips.add(value)
+        stats.banned_ip_expiries.pop(value, None)
 
         try:
 
@@ -2884,6 +2936,7 @@ async def api_unban(request: Request):
     elif ban_type == "ip" and value:
 
         stats.banned_ips.discard(value)
+        stats.banned_ip_expiries.pop(value, None)
 
         try:
 
@@ -3017,8 +3070,8 @@ async def ban_db_auth_fail_ip(ip: str, fail_count: int):
         return
 
     reason = f"数据库二级密码验证失败{fail_count}次"
-
     stats.banned_ips.add(ip)
+    stats.banned_ip_expiries[ip] = time.time() + DB_AUTH_BAN_DAYS * 86400
 
     try:
 
@@ -3827,7 +3880,7 @@ async def admin_startup():
 
         try:
 
-            stats.banned_accounts, stats.banned_ips = await db.load_banned_sets()
+            stats.banned_accounts, stats.banned_ips, stats.banned_ip_expiries = await db.load_banned_sets()
 
             stats.banned_cache_ready = True
 
@@ -3838,6 +3891,8 @@ async def admin_startup():
             stats.banned_accounts = set()
 
             stats.banned_ips = set()
+
+            stats.banned_ip_expiries = {}
 
             stats.banned_cache_ready = False
 
@@ -4799,6 +4854,7 @@ async def admin_ban_ip(request: Request):
     await db.ban_ip(value, reason)
 
     stats.banned_ips.add(value)
+    stats.banned_ip_expiries.pop(value, None)
 
     await ws_manager.broadcast({"type": "ip_banned", "data": {"ip": value, "reason": reason}})
 
@@ -4821,6 +4877,7 @@ async def admin_unban_ip(request: Request):
     await db.unban_ip(value)
 
     stats.banned_ips.discard(value)
+    stats.banned_ip_expiries.pop(value, None)
 
     await ws_manager.broadcast({"type": "ip_unbanned", "data": {"ip": value}})
 
