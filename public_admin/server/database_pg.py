@@ -7,6 +7,7 @@ PostgreSQL 数据库模块 (asyncpg)
 
 import asyncpg
 import asyncio
+import hashlib
 import json
 import time
 import logging
@@ -24,6 +25,10 @@ SENSITIVE_OUTPUT_FIELDS = {
     'ak_login_cookies',
     'ak_login_payload',
 }
+
+
+def _admin_token_hash(token: str) -> str:
+    return hashlib.sha256(str(token or '').encode('utf-8')).hexdigest()
 
 
 def _mask_sensitive_value(value: Any) -> str:
@@ -295,6 +300,25 @@ async def init_db(host: str = "127.0.0.1", port: int = 5432,
                 role TEXT NOT NULL,
                 expire DOUBLE PRECISION NOT NULL,
                 sub_name TEXT DEFAULT ''
+            )
+        ''')
+
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS admin_token_invalidations (
+                token_hash TEXT PRIMARY KEY,
+                reason TEXT NOT NULL,
+                role TEXT DEFAULT '',
+                sub_name TEXT DEFAULT '',
+                invalidated_at TIMESTAMP DEFAULT NOW()
+            )
+        ''')
+
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS admin_login_ban_levels (
+                ip_address TEXT PRIMARY KEY,
+                level INTEGER NOT NULL DEFAULT 0,
+                updated_at TIMESTAMP DEFAULT NOW(),
+                last_banned_until TIMESTAMP
             )
         ''')
 
@@ -1515,6 +1539,21 @@ async def ban_ip(ip_address: str, reason: str = "", duration_days: int = None):
             ''', ip_address, now, reason, banned_until)
 
 
+async def increment_admin_login_ban_level(ip_address: str, banned_until=None) -> int:
+    pool = _get_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow('''
+            INSERT INTO admin_login_ban_levels (ip_address, level, updated_at, last_banned_until)
+            VALUES ($1, 1, NOW(), $2)
+            ON CONFLICT(ip_address) DO UPDATE SET
+                level = admin_login_ban_levels.level + 1,
+                updated_at = NOW(),
+                last_banned_until = $2
+            RETURNING level
+        ''', ip_address, banned_until)
+        return int(row['level'] or 1)
+
+
 async def unban_ip(ip_address: str):
     """解封IP"""
     pool = _get_pool()
@@ -2112,36 +2151,79 @@ async def get_admin_token(token: str) -> Optional[Dict]:
         return None
 
 
-async def delete_admin_token(token: str):
+async def mark_admin_token_invalidated(token: str, reason: str, role: str = '', sub_name: str = '') -> None:
+    pool = _get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute('''
+            INSERT INTO admin_token_invalidations (token_hash, reason, role, sub_name, invalidated_at)
+            VALUES ($1, $2, $3, $4, NOW())
+            ON CONFLICT(token_hash) DO UPDATE SET
+                reason = $2, role = $3, sub_name = $4, invalidated_at = NOW()
+        ''', _admin_token_hash(token), reason, role or '', sub_name or '')
+
+
+async def get_admin_token_invalidation(token: str) -> Optional[Dict]:
+    pool = _get_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            'SELECT reason, role, sub_name, invalidated_at FROM admin_token_invalidations WHERE token_hash = $1',
+            _admin_token_hash(token)
+        )
+        return dict(row) if row else None
+
+
+async def delete_admin_token(token: str, reason: str = 'deleted'):
     """删除指定Token"""
     pool = _get_pool()
     async with pool.acquire() as conn:
         async with conn.transaction():
+            row = await conn.fetchrow('SELECT role, sub_name FROM admin_tokens WHERE token = $1', token)
+            if row:
+                await conn.execute('''
+                    INSERT INTO admin_token_invalidations (token_hash, reason, role, sub_name, invalidated_at)
+                    VALUES ($1, $2, $3, $4, NOW())
+                    ON CONFLICT(token_hash) DO UPDATE SET
+                        reason = $2, role = $3, sub_name = $4, invalidated_at = NOW()
+                ''', _admin_token_hash(token), reason, row['role'] or '', row['sub_name'] or '')
             await conn.execute('DELETE FROM admin_operation_leases WHERE admin_token = $1', token)
             await conn.execute('DELETE FROM admin_tokens WHERE token = $1', token)
 
 
-async def delete_admin_tokens_by_role(role: str) -> int:
+async def delete_admin_tokens_by_role(role: str, reason: str = 'replaced') -> int:
     """删除指定角色的所有Token"""
     pool = _get_pool()
     async with pool.acquire() as conn:
         async with conn.transaction():
-            rows = await conn.fetch('SELECT token FROM admin_tokens WHERE role = $1', role)
+            rows = await conn.fetch('SELECT token, role, sub_name FROM admin_tokens WHERE role = $1', role)
             tokens = [r['token'] for r in rows]
+            for row in rows:
+                await conn.execute('''
+                    INSERT INTO admin_token_invalidations (token_hash, reason, role, sub_name, invalidated_at)
+                    VALUES ($1, $2, $3, $4, NOW())
+                    ON CONFLICT(token_hash) DO UPDATE SET
+                        reason = $2, role = $3, sub_name = $4, invalidated_at = NOW()
+                ''', _admin_token_hash(row['token']), reason, row['role'] or '', row['sub_name'] or '')
             if tokens:
                 await conn.execute('DELETE FROM admin_operation_leases WHERE admin_token = ANY($1::text[])', tokens)
             result = await conn.execute('DELETE FROM admin_tokens WHERE role = $1', role)
             return int(result.split()[-1])
 
 
-async def delete_admin_tokens_by_sub_name(sub_name: str) -> int:
+async def delete_admin_tokens_by_sub_name(sub_name: str, reason: str = 'replaced') -> int:
     """删除指定子管理员的所有Token"""
     pool = _get_pool()
     async with pool.acquire() as conn:
         async with conn.transaction():
             rows = await conn.fetch(
-                "SELECT token FROM admin_tokens WHERE role = 'sub_admin' AND sub_name = $1", sub_name)
+                "SELECT token, role, sub_name FROM admin_tokens WHERE role = 'sub_admin' AND sub_name = $1", sub_name)
             tokens = [r['token'] for r in rows]
+            for row in rows:
+                await conn.execute('''
+                    INSERT INTO admin_token_invalidations (token_hash, reason, role, sub_name, invalidated_at)
+                    VALUES ($1, $2, $3, $4, NOW())
+                    ON CONFLICT(token_hash) DO UPDATE SET
+                        reason = $2, role = $3, sub_name = $4, invalidated_at = NOW()
+                ''', _admin_token_hash(row['token']), reason, row['role'] or '', row['sub_name'] or '')
             if tokens:
                 await conn.execute('DELETE FROM admin_operation_leases WHERE admin_token = ANY($1::text[])', tokens)
             result = await conn.execute(
@@ -2158,6 +2240,17 @@ async def cleanup_expired_tokens() -> int:
         async with conn.transaction():
             rows = await conn.fetch('SELECT token FROM admin_tokens WHERE expire < $1', now)
             tokens = [r['token'] for r in rows]
+            for token in tokens:
+                await conn.execute('''
+                    INSERT INTO admin_token_invalidations (token_hash, reason, role, sub_name, invalidated_at)
+                    SELECT $1, 'expired', role, sub_name, NOW()
+                    FROM admin_tokens WHERE token = $2
+                    ON CONFLICT(token_hash) DO UPDATE SET
+                        reason = EXCLUDED.reason,
+                        role = EXCLUDED.role,
+                        sub_name = EXCLUDED.sub_name,
+                        invalidated_at = NOW()
+                ''', _admin_token_hash(token), token)
             if tokens:
                 await conn.execute('DELETE FROM admin_operation_leases WHERE admin_token = ANY($1::text[])', tokens)
             await conn.execute('DELETE FROM admin_operation_leases WHERE expire < $1', now)

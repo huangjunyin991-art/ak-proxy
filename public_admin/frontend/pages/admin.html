@@ -4890,11 +4890,33 @@
             sessionExpiredShown = false;
             logout();
         }
+
+        function getSessionExpiredMessage(data) {
+            const code = String(data?.code || '').toLowerCase();
+            const fallback = data?.message || '您的登录状态已过期，请重新登录';
+            const messageMap = {
+                missing: '未检测到登录凭证，请重新登录',
+                expired: '登录状态已过期，请重新登录',
+                replaced: '账号已在其他位置重新登录，当前会话已失效',
+                kicked: '管理员会话已被总管理员下线，请重新登录',
+                deleted: '登录状态已被清理，请重新登录',
+                invalid: '登录状态无效，请重新登录'
+            };
+            return messageMap[code] || fallback;
+        }
+
+        function handleUnauthorizedResponse(response) {
+            response.clone().json().then(data => {
+                handleKickedOut(getSessionExpiredMessage(data));
+            }).catch(() => {
+                handleKickedOut('您的登录状态已过期，请重新登录');
+            });
+        }
         
         // 检查API响应是否为token失效
         function checkTokenValid(response) {
             if (response.status === 401) {
-                handleKickedOut('您的登录状态已过期，请重新登录');
+                handleUnauthorizedResponse(response);
                 return false;
             }
             return true;

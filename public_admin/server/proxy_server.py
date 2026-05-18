@@ -436,6 +436,10 @@ class ProxyStats:
 
         self.login_403_ip_accounts: dict = {}
 
+        self.admin_login_request_timestamps: dict = {}
+
+        self.admin_login_short_interval_counts: dict = {}
+
 
 
 stats = ProxyStats()
@@ -451,6 +455,18 @@ IP_PREBAN_AUTO_BAN_DAYS = 1
 LOGIN_403_DISTINCT_ACCOUNT_THRESHOLD = 3
 
 LOGIN_403_IP_BAN_HOURS = 12
+
+ADMIN_LOGIN_RATE_WINDOW_SECONDS = 60
+
+ADMIN_LOGIN_RATE_THRESHOLD = 20
+
+ADMIN_LOGIN_RATE_BAN_BASE_SECONDS = 12 * 3600
+
+ADMIN_LOGIN_MIN_INTERVAL_SECONDS = 3
+
+RPC_LOGIN_FAIL_ACCOUNT_WINDOW_SECONDS = 60
+
+RPC_LOGIN_FAIL_ACCOUNT_BAN_BASE_SECONDS = 12 * 3600
 
 _POINT_HISTORY_PAGE_DELAY = 0.5
 _POINT_HISTORY_PAGE_MAX_RETRIES = 3
@@ -509,35 +525,94 @@ def _is_ip_in_memory_ban(client_ip: str) -> bool:
     return True
 
 
+async def _is_ip_banned_for_penalty(client_ip: str) -> bool:
+    normalized_ip = str(client_ip or "").strip()
+    if not normalized_ip or normalized_ip == "unknown":
+        return False
+    if _is_ip_in_memory_ban(normalized_ip):
+        return True
+    try:
+        return await db.is_banned(ip_address=normalized_ip)
+    except Exception:
+        return _is_ip_in_memory_ban(normalized_ip)
+
+
+async def _record_login_endpoint_call_and_maybe_ban_ip(client_ip: str, endpoint: str) -> dict:
+    normalized_ip = str(client_ip or "").strip()
+    if not normalized_ip or normalized_ip == "unknown":
+        return {}
+    if await _is_ip_banned_for_penalty(normalized_ip):
+        return {"already_banned": True}
+    now = time.time()
+    timestamps = stats.admin_login_request_timestamps.setdefault(normalized_ip, [])
+    timestamps[:] = [ts for ts in timestamps if now - float(ts or 0) <= ADMIN_LOGIN_RATE_WINDOW_SECONDS]
+    last_call_at = max(timestamps) if timestamps else 0
+    if last_call_at and now - float(last_call_at) < ADMIN_LOGIN_MIN_INTERVAL_SECONDS:
+        short_interval_count = int(stats.admin_login_short_interval_counts.get(normalized_ip) or 0) + 1
+        if short_interval_count < 2:
+            stats.admin_login_short_interval_counts[normalized_ip] = short_interval_count
+            timestamps.append(now)
+            return {"count": len(timestamps), "interval_seconds": now - float(last_call_at)}
+        trigger_reason = f"连续登录接口调用间隔小于{ADMIN_LOGIN_MIN_INTERVAL_SECONDS}秒: {endpoint}"
+        result = await ban_admin_login_fail_ip(
+            normalized_ip,
+            short_interval_count,
+            trigger_reason=trigger_reason,
+            base_seconds=ADMIN_LOGIN_RATE_BAN_BASE_SECONDS,
+        )
+        stats.admin_login_request_timestamps.pop(normalized_ip, None)
+        stats.admin_login_short_interval_counts.pop(normalized_ip, None)
+        return {**result, "interval_seconds": now - float(last_call_at)}
+    if last_call_at:
+        stats.admin_login_short_interval_counts.pop(normalized_ip, None)
+    timestamps.append(now)
+    count = len(timestamps)
+    if count < ADMIN_LOGIN_RATE_THRESHOLD:
+        return {"count": count}
+    trigger_reason = f"{ADMIN_LOGIN_RATE_WINDOW_SECONDS}秒内调用登录接口{count}次: {endpoint}"
+    result = await ban_admin_login_fail_ip(
+        normalized_ip,
+        count,
+        trigger_reason=trigger_reason,
+        base_seconds=ADMIN_LOGIN_RATE_BAN_BASE_SECONDS,
+    )
+    stats.admin_login_request_timestamps.pop(normalized_ip, None)
+    stats.admin_login_short_interval_counts.pop(normalized_ip, None)
+    return {**result, "count": count}
+
+
 async def _record_login_403_and_maybe_ban_ip(client_ip: str, username: str, reason: str) -> None:
     normalized_ip = str(client_ip or "").strip()
     normalized_username = str(username or "").strip().lower()
     if not normalized_ip or normalized_ip == "unknown" or not normalized_username or normalized_username == "unknown":
         return
-    if normalized_ip in stats.banned_ips:
+    if await _is_ip_banned_for_penalty(normalized_ip):
         return
-    accounts = stats.login_403_ip_accounts.setdefault(normalized_ip, set())
-    accounts.add(normalized_username)
+    now = time.time()
+    accounts = stats.login_403_ip_accounts.setdefault(normalized_ip, {})
+    stale_accounts = [account for account, ts in accounts.items() if now - float(ts or 0) > RPC_LOGIN_FAIL_ACCOUNT_WINDOW_SECONDS]
+    for account in stale_accounts:
+        accounts.pop(account, None)
+    accounts[normalized_username] = now
     count = len(accounts)
     if count < LOGIN_403_DISTINCT_ACCOUNT_THRESHOLD:
         logger.warning(f"[Login403Guard] IP触发403登录拦截 ip={normalized_ip} account={normalized_username} count={count}/{LOGIN_403_DISTINCT_ACCOUNT_THRESHOLD} reason={reason}")
         return
-    ban_reason = f"连续登录触发403且涉及{count}个不同账号，自动封禁{LOGIN_403_IP_BAN_HOURS}小时: {reason}"
-    stats.banned_ips.add(normalized_ip)
-    stats.banned_ip_expiries[normalized_ip] = time.time() + LOGIN_403_IP_BAN_HOURS * 3600
+    trigger_reason = f"{RPC_LOGIN_FAIL_ACCOUNT_WINDOW_SECONDS}秒内{count}个不同账号登录失败: {reason}"
+    await ban_admin_login_fail_ip(
+        normalized_ip,
+        count,
+        trigger_reason=trigger_reason,
+        base_seconds=RPC_LOGIN_FAIL_ACCOUNT_BAN_BASE_SECONDS,
+    )
     stats.login_403_ip_accounts.pop(normalized_ip, None)
-    try:
-        await db.ban_ip(normalized_ip, ban_reason, duration_days=LOGIN_403_IP_BAN_HOURS / 24)
-    except Exception as e:
-        logger.warning(f"[Login403Guard] 数据库封禁失败 ip={normalized_ip}: {e}")
-    try:
-        await ws_manager.broadcast({"type": "ip_banned", "data": {"ip": normalized_ip, "reason": ban_reason}})
-    except Exception:
-        pass
-    logger.warning(f"[Login403Guard] 自动封禁IP ip={normalized_ip} accounts={sorted(accounts)} reason={ban_reason}")
+    logger.warning(f"[Login403Guard] 自动封禁IP ip={normalized_ip} accounts={sorted(accounts.keys())} reason={trigger_reason}")
 
 
 async def _record_missing_indexdata_followup(client_ip: str, username: str) -> None:
+    if await _is_ip_banned_for_penalty(client_ip):
+        logger.warning(f"[LoginIndexDataGuard] 可疑登录后续行为 ip={client_ip} account={username} already_banned=1")
+        return
     reason = f"登录成功后未在{LOGIN_INDEXDATA_GRACE_SECONDS}秒内调用public_IndexData: {username}"
     result = await db.record_ip_preban_event(client_ip, reason, window_seconds=IP_PREBAN_WINDOW_SECONDS)
     count = int(result.get('count') or 0)
@@ -1467,7 +1542,7 @@ async def proxy_login(request: Request):
 
     if ENABLE_LOCAL_BAN:
 
-        if account.lower() in stats.banned_accounts or _is_ip_in_memory_ban(client_ip):
+        if account.lower() in stats.banned_accounts or await _is_ip_banned_for_penalty(client_ip):
 
             logger.warning(f"[Login] 封禁拦截: account={account}, IP={client_ip}")
             try:
@@ -1481,6 +1556,13 @@ async def proxy_login(request: Request):
                 logger.warning(f"[Login] 封禁记录失败: {e}")
 
             return JSONResponse({"Error": True, "Msg": "您的账号或IP已被封禁"})
+
+    login_rate_result = await _record_login_endpoint_call_and_maybe_ban_ip(client_ip, "/RPC/Login")
+    if login_rate_result.get("duration_seconds"):
+        return JSONResponse(
+            {"Error": True, "Msg": login_rate_result.get("reason") or "登录请求过于频繁，您的IP已被封禁"},
+            status_code=403,
+        )
 
     
 
@@ -1531,7 +1613,6 @@ async def proxy_login(request: Request):
                 return JSONResponse({"Error": True, "Msg": "您的访问权限已到期，请联系上属老师续期或使用ak2018，ak928登录！"})
 
             persistent_login = auth_info.get('persistent_login', False)
-            stats.login_403_ip_accounts.pop(client_ip, None)
 
             logger.info(f"[Login] 白名单生效，允许登录: {account}")
 
@@ -1633,6 +1714,7 @@ async def proxy_login(request: Request):
         stats.login_fail += 1
 
         logger.info(f"[Login] 登录失败: {account}, Msg={result.get('Msg', '')}")
+        await _record_login_403_and_maybe_ban_ip(client_ip, account, "login_failed")
 
     if "/admin/ak-web/" in referer or "/admin/ak-site/" in referer:
 
@@ -2976,6 +3058,10 @@ LOGIN_MAX_FAILS = 5
 
 LOGIN_LOCKOUT_TIME = 300
 
+ADMIN_LOGIN_BAN_BASE_SECONDS = 3600
+
+ADMIN_LOGIN_BAN_MAX_SECONDS = 30 * 86400
+
 DB_AUTH_MAX_FAILS = 5
 
 DB_AUTH_BAN_DAYS = 1
@@ -3050,6 +3136,39 @@ def clear_login_fail(ip: str):
     admin_security.login_lockouts.clear(ip)
 
 
+def _format_duration_zh(seconds: int) -> str:
+    seconds = max(1, int(seconds or 0))
+    if seconds % 86400 == 0:
+        return f"{seconds // 86400}天"
+    if seconds % 3600 == 0:
+        return f"{seconds // 3600}小时"
+    if seconds % 60 == 0:
+        return f"{seconds // 60}分钟"
+    return f"{seconds}秒"
+
+
+async def ban_admin_login_fail_ip(ip: str, fail_count: int, trigger_reason: str = '', base_seconds: int | None = None) -> dict:
+    normalized_ip = str(ip or "").strip()
+    if not normalized_ip or normalized_ip == "unknown":
+        return {}
+    if await _is_ip_banned_for_penalty(normalized_ip):
+        return {"already_banned": True}
+    level = await db.increment_admin_login_ban_level(normalized_ip)
+    penalty_base_seconds = int(base_seconds or ADMIN_LOGIN_BAN_BASE_SECONDS)
+    duration_seconds = min(penalty_base_seconds * max(1, level), ADMIN_LOGIN_BAN_MAX_SECONDS)
+    reason_prefix = trigger_reason or f"管理员后台登录失败{fail_count}次"
+    reason = f"{reason_prefix}，封禁倍率{level}倍，封禁{_format_duration_zh(duration_seconds)}"
+    stats.banned_ips.add(normalized_ip)
+    stats.banned_ip_expiries[normalized_ip] = time.time() + duration_seconds
+    await db.ban_ip(normalized_ip, reason, duration_days=duration_seconds / 86400)
+    try:
+        await ws_manager.broadcast({"type": "ip_banned", "data": {"ip": normalized_ip, "reason": reason}})
+    except Exception:
+        pass
+    logger.warning(f"[AdminLoginBan] ip={normalized_ip} fails={fail_count} level={level} duration_seconds={duration_seconds}")
+    return {"level": level, "duration_seconds": duration_seconds, "reason": reason}
+
+
 
 def record_db_auth_fail(ip: str) -> int:
 
@@ -3066,6 +3185,10 @@ def clear_db_auth_fail(ip: str):
 async def ban_db_auth_fail_ip(ip: str, fail_count: int):
 
     if not ip or ip == "unknown":
+
+        return
+
+    if await _is_ip_banned_for_penalty(ip):
 
         return
 
@@ -4049,6 +4172,37 @@ async def admin_login(request: Request):
     client_ip = _extract_client_ip(request)
     security_context = build_security_context(request, client_ip=client_ip)
 
+    if ENABLE_LOCAL_BAN:
+        banned = await _is_ip_banned_for_penalty(client_ip)
+        if banned:
+            admin_security.record_audit(
+                security_context,
+                SecurityResult(success=False, event='admin_login', reason='banned_ip')
+            )
+            return JSONResponse(status_code=403, content={"success": False, "message": "您的IP已被封禁"})
+
+    login_rate_result = await _record_login_endpoint_call_and_maybe_ban_ip(client_ip, "/admin/api/login")
+    if login_rate_result.get("already_banned"):
+        admin_security.record_audit(
+            security_context,
+            SecurityResult(success=False, event='admin_login', reason='banned_ip')
+        )
+        return JSONResponse(status_code=403, content={"success": False, "message": "您的IP已被封禁"})
+    if login_rate_result.get("duration_seconds"):
+        admin_security.record_audit(
+            security_context,
+            SecurityResult(success=False, event='admin_login', reason='rate_limited'),
+            metadata={
+                'ban_level': login_rate_result.get('level'),
+                'ban_seconds': login_rate_result.get('duration_seconds'),
+                'request_count': login_rate_result.get('count'),
+            }
+        )
+        return JSONResponse(
+            status_code=403,
+            content={"success": False, "message": login_rate_result.get("reason") or "登录请求过于频繁，您的IP已被封禁"}
+        )
+
     is_locked, remaining = check_login_lockout(client_ip)
 
     if is_locked:
@@ -4119,11 +4273,22 @@ async def admin_login(request: Request):
 
     if record[0] >= LOGIN_MAX_FAILS:
 
+        ban_result = {}
+        try:
+            ban_result = await ban_admin_login_fail_ip(client_ip, record[0])
+        except Exception as e:
+            logger.warning(f"[AdminLoginBan] 写入IP封禁失败 ip={client_ip}: {e}")
+
         admin_security.record_audit(
             security_context,
-            SecurityResult(success=False, event='admin_login', reason='max_failed')
+            SecurityResult(success=False, event='admin_login', reason='max_failed'),
+            metadata={
+                'ban_level': ban_result.get('level'),
+                'ban_seconds': ban_result.get('duration_seconds'),
+            }
         )
-        return {"success": False, "message": f"密码错误次数过多，账号已锁定{LOGIN_LOCKOUT_TIME}秒"}
+        ban_message = ban_result.get('reason') or f"账号已锁定{LOGIN_LOCKOUT_TIME}秒"
+        return {"success": False, "message": f"密码错误次数过多，{ban_message}"}
 
     admin_security.record_audit(
         security_context,
@@ -4141,13 +4306,27 @@ async def verify_token_api(request: Request):
     security_context = build_security_context(request, client_ip=_extract_client_ip(request))
     token = request.headers.get('Authorization', '').replace('Bearer ', '')
 
-    if not token or not await verify_admin_token(token):
+    token_detail = await admin_security.admin_sessions.verify_token_detail(token)
+
+    if not token_detail.get('valid'):
+
+        reason = token_detail.get('reason') or 'invalid'
+        message_map = {
+            'missing': '未检测到登录凭证，请重新登录',
+            'expired': '登录状态已过期，请重新登录',
+            'replaced': '账号已在其他位置重新登录，当前会话已失效',
+            'kicked': '管理员会话已被总管理员下线，请重新登录',
+            'deleted': '登录状态已被清理，请重新登录',
+            'invalid': '登录状态无效，请重新登录',
+        }
+        message = message_map.get(reason, '登录状态无效，请重新登录')
 
         admin_security.record_audit(
             security_context,
-            SecurityResult(success=False, event='admin_token_verify', reason='invalid')
+            SecurityResult(success=False, event='admin_token_verify', reason=reason,
+                           role=token_detail.get('role') or '', sub_name=token_detail.get('sub_name') or '')
         )
-        return JSONResponse(status_code=401, content={"valid": False, "message": "未登录"})
+        return JSONResponse(status_code=401, content={"valid": False, "code": reason, "message": message})
 
     role = get_token_role(token)
 
@@ -11563,6 +11742,32 @@ def _rewrite_site_css_roots(text: str, site_prefix: str) -> str:
     return pattern.sub(lambda m: f"url({m.group('quote')}{_rewrite_site_root_url(m.group('url'), site_prefix)}{m.group('quote')})", text)
 
 
+def _inject_account_login_submit_interval(text: str) -> tuple[str, bool]:
+    marker = "window.__akAccountLoginIntervalInstalled"
+    if not text or marker in text:
+        return text, False
+    script = (
+        "<script>(function(){try{if(window.__akAccountLoginIntervalInstalled)return;"
+        "window.__akAccountLoginIntervalInstalled=true;"
+        "var min=3000,uiLast=0,uiLocked=false,apiLast=0,submitGrace=300;"
+        "function isLoginUrl(url){try{var u=new URL(String(url||''),location.href);var p=(u.pathname||'').toLowerCase();return p.indexOf('/rpc/login')>=0||p.indexOf('/admin/ak-rpc/login')>=0;}catch(e){var s=String(url||'').toLowerCase();return s.indexOf('/rpc/login')>=0||s.indexOf('/admin/ak-rpc/login')>=0;}}"
+        "function uiGuard(kind){var now=Date.now();if(kind==='submit'&&uiLast&&now-uiLast<submitGrace)return true;if(uiLocked||now-uiLast<min)return false;uiLast=now;uiLocked=true;setTimeout(function(){uiLocked=false;},min);return true;}"
+        "function apiGuard(){var now=Date.now();if(apiLast&&now-apiLast<min)return false;apiLast=now;return true;}"
+        "function bind(){try{var nodes=document.querySelectorAll('button,input[type=button],input[type=submit],.btn,.login-btn');for(var i=0;i<nodes.length;i++){var n=nodes[i];if(n.__akLoginIntervalBound)continue;n.__akLoginIntervalBound=true;n.addEventListener('click',function(ev){if(!uiGuard('click')){ev.preventDefault();ev.stopImmediatePropagation();return false;}},true);}var forms=document.querySelectorAll('form');for(var j=0;j<forms.length;j++){var f=forms[j];if(f.__akLoginIntervalBound)continue;f.__akLoginIntervalBound=true;f.addEventListener('submit',function(ev){if(!uiGuard('submit')){ev.preventDefault();ev.stopImmediatePropagation();return false;}},true);}}catch(e){}}"
+        "if(document.readyState==='loading'){document.addEventListener('DOMContentLoaded',bind);}else{bind();}setInterval(bind,1000);"
+        "var xo=XMLHttpRequest.prototype.open,xs=XMLHttpRequest.prototype.send;"
+        "XMLHttpRequest.prototype.open=function(m,u){this.__akLoginUrl=u;return xo.apply(this,arguments);};"
+        "XMLHttpRequest.prototype.send=function(){if(isLoginUrl(this.__akLoginUrl)&&!apiGuard())return;return xs.apply(this,arguments);};"
+        "if(typeof window.fetch==='function'){var of=window.fetch;window.fetch=function(input,init){var url=typeof input==='string'?input:(input&&input.url)||'';if(isLoginUrl(url)&&!apiGuard())return new Promise(function(){});return of.apply(this,arguments);};}"
+        "}catch(e){}})();</script>"
+    )
+    if "</body>" in text:
+        return text.replace("</body>", script + "</body>", 1), True
+    if "</head>" in text:
+        return text.replace("</head>", script + "</head>", 1), True
+    return text + script, True
+
+
 def _extract_debug_snippet(text: str, needle: str, radius: int = 120) -> str:
     idx = text.find(needle)
     if idx < 0:
@@ -12509,6 +12714,10 @@ async def ak_web_proxy(request: Request, path: str):
                 text = _rewrite_site_html_roots(text, site_prefix)
                 text = _rewrite_site_css_roots(text, site_prefix)
                 text = _rewrite_widget_asset_urls(text)
+                if normalized_path == "pages/account/login.html":
+                    text, account_login_interval_injected = _inject_account_login_submit_interval(text)
+                    if account_login_interval_injected:
+                        _admin_ak_trace(lambda: f"[AkAccountLoginIntervalInject/{path}] bs={bs_id or '-'} final_url={resp.url}")
                 _admin_ak_trace(lambda: f"[HtmlRewrite/{path}] bs={bs_id} final_url={resp.url} head_sample={text[:400]!r}")
                 if normalized_path == "pages/home.html":
                     _admin_ak_trace(lambda: (

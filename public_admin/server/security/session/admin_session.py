@@ -25,12 +25,12 @@ class AdminSessionService:
                                 if d.get('role') == self.sub_admin_role and d.get('sub_name') == sub_name]
             for t in tokens_to_remove:
                 self.tokens.pop(t, None)
-            await self.db.delete_admin_tokens_by_sub_name(sub_name)
+            await self.db.delete_admin_tokens_by_sub_name(sub_name, reason='replaced')
         else:
             tokens_to_remove = [t for t, d in self.tokens.items() if d.get('role') == role]
             for t in tokens_to_remove:
                 self.tokens.pop(t, None)
-            await self.db.delete_admin_tokens_by_role(role)
+            await self.db.delete_admin_tokens_by_role(role, reason='replaced')
 
         token = secrets.token_urlsafe(32)
         expire = time.time() + int(ttl_seconds or self.token_ttl_seconds)
@@ -39,20 +39,44 @@ class AdminSessionService:
         return token
 
     async def verify_token(self, token: str) -> bool:
+        detail = await self.verify_token_detail(token)
+        return bool(detail.get('valid'))
+
+    async def verify_token_detail(self, token: str) -> dict:
         if not token:
-            return False
+            return {'valid': False, 'reason': 'missing'}
         token_data = self.tokens.get(token)
         if not token_data:
             token_data = await self.db.get_admin_token(token)
             if token_data:
                 self.tokens[token] = token_data
         if not token_data:
-            return False
+            invalidation = await self.db.get_admin_token_invalidation(token)
+            if invalidation:
+                return {
+                    'valid': False,
+                    'reason': invalidation.get('reason') or 'invalid',
+                    'role': invalidation.get('role') or '',
+                    'sub_name': invalidation.get('sub_name') or '',
+                    'invalidated_at': invalidation.get('invalidated_at'),
+                }
+            return {'valid': False, 'reason': 'invalid'}
         if time.time() > token_data.get('expire', 0):
             self.tokens.pop(token, None)
-            await self.db.delete_admin_token(token)
-            return False
-        return True
+            await self.db.delete_admin_token(token, reason='expired')
+            return {
+                'valid': False,
+                'reason': 'expired',
+                'role': token_data.get('role') or '',
+                'sub_name': token_data.get('sub_name') or '',
+            }
+        return {
+            'valid': True,
+            'reason': 'ok',
+            'role': token_data.get('role') or '',
+            'sub_name': token_data.get('sub_name') or '',
+            'expire': token_data.get('expire', 0),
+        }
 
     def get_role(self, token: str):
         if not token:
@@ -76,13 +100,13 @@ class AdminSessionService:
                                 if d.get('role') == self.sub_admin_role and d.get('sub_name') == target_name]
             for t in tokens_to_remove:
                 self.tokens.pop(t, None)
-            count = await self.db.delete_admin_tokens_by_sub_name(target_name)
+            count = await self.db.delete_admin_tokens_by_sub_name(target_name, reason='kicked')
             return max(len(tokens_to_remove), count)
 
         tokens_to_remove = [t for t, d in self.tokens.items() if d.get('role') == self.sub_admin_role]
         for t in tokens_to_remove:
             self.tokens.pop(t, None)
-        count = await self.db.delete_admin_tokens_by_role(self.sub_admin_role)
+        count = await self.db.delete_admin_tokens_by_role(self.sub_admin_role, reason='kicked')
         return max(len(tokens_to_remove), count)
 
     async def cleanup_expired(self):
