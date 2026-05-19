@@ -13,6 +13,7 @@ import time
 import logging
 import os
 import re
+import ipaddress
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Any
 
@@ -43,6 +44,16 @@ def _sanitize_output_row(row: Dict[str, Any]) -> Dict[str, Any]:
             sanitized[f'has_{normalized}'] = sanitized.get(key) not in (None, '')
             sanitized[key] = _mask_sensitive_value(sanitized.get(key))
     return sanitized
+
+
+def _is_trackable_ip_address(ip_address: str) -> bool:
+    candidate = str(ip_address or '').strip()
+    if not candidate or candidate == 'unknown' or candidate.lower() == 'localhost':
+        return False
+    try:
+        return not ipaddress.ip_address(candidate).is_loopback
+    except ValueError:
+        return False
 
 
 def _sanitize_output_rows(rows) -> List[Dict[str, Any]]:
@@ -651,6 +662,7 @@ async def record_login(username: str, ip_address: str, user_agent: str = "",
     now = datetime.now().replace(microsecond=0)
     username = username.lower() if username else username
     record_username = username or ''
+    trackable_ip = ip_address if _is_trackable_ip_address(ip_address) else ''
 
     async with pool.acquire() as conn:
         async with conn.transaction():
@@ -670,8 +682,8 @@ async def record_login(username: str, ip_address: str, user_agent: str = "",
                             password = $2,
                             login_count = user_stats.login_count + 1,
                             last_login = $3,
-                            last_ip = $4
-                    ''', username, password, now, ip_address)
+                            last_ip = CASE WHEN $4 <> '' THEN $4 ELSE user_stats.last_ip END
+                    ''', username, password, now, trackable_ip)
                 else:
                     await conn.execute('''
                         INSERT INTO user_stats (username, login_count, first_login, last_login, last_ip)
@@ -679,8 +691,8 @@ async def record_login(username: str, ip_address: str, user_agent: str = "",
                         ON CONFLICT(username) DO UPDATE SET
                             login_count = user_stats.login_count + 1,
                             last_login = $2,
-                            last_ip = $3
-                    ''', username, now, ip_address)
+                            last_ip = CASE WHEN $3 <> '' THEN $3 ELSE user_stats.last_ip END
+                    ''', username, now, trackable_ip)
 
                 await conn.execute('''
                     UPDATE user_stats us
@@ -693,13 +705,14 @@ async def record_login(username: str, ip_address: str, user_agent: str = "",
                 ''', username)
 
             # 更新IP统计（计数器+1）
-            await conn.execute('''
-                INSERT INTO ip_stats (ip_address, request_count, first_seen, last_seen)
-                VALUES ($1, 1, $2, $2)
-                ON CONFLICT(ip_address) DO UPDATE SET
-                    request_count = ip_stats.request_count + 1,
-                    last_seen = $2
-            ''', ip_address, now)
+            if trackable_ip:
+                await conn.execute('''
+                    INSERT INTO ip_stats (ip_address, request_count, first_seen, last_seen)
+                    VALUES ($1, 1, $2, $2)
+                    ON CONFLICT(ip_address) DO UPDATE SET
+                        request_count = ip_stats.request_count + 1,
+                        last_seen = $2
+                ''', trackable_ip, now)
 
 
 async def get_recent_logins(limit: int = 50) -> List[Dict]:
@@ -1694,6 +1707,17 @@ async def _normalize_ban_records(conn):
            OR ip_address LIKE '127.%'
     ''')
     await conn.execute('''
+        UPDATE user_stats
+        SET last_ip = ''
+        WHERE last_ip IN ('127.0.0.1', '::1', 'localhost')
+           OR last_ip LIKE '127.%'
+    ''')
+    await conn.execute('''
+        DELETE FROM ip_stats
+        WHERE ip_address IN ('127.0.0.1', '::1', 'localhost')
+           OR ip_address LIKE '127.%'
+    ''')
+    await conn.execute('''
         DELETE FROM ban_list
         WHERE ban_type = 'ip'
           AND (
@@ -1855,6 +1879,7 @@ async def get_all_ips(limit: int = 100, offset: int = 0) -> List[Dict]:
     """获取所有IP统计"""
     pool = _get_pool()
     async with pool.acquire() as conn:
+        await _normalize_ban_records(conn)
         rows = await conn.fetch('''
             SELECT ip_address, request_count, first_seen, last_seen, is_banned,
                    CASE
