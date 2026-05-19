@@ -1686,9 +1686,37 @@ async def get_ban_list() -> List[Dict]:
     pool = _get_pool()
     async with pool.acquire() as conn:
         rows = await conn.fetch('''
-            SELECT * FROM ban_list
-            WHERE is_active = TRUE AND (banned_until IS NULL OR banned_until > NOW())
-            ORDER BY banned_at DESC
+            WITH active_bans AS (
+                SELECT id, ban_type, ban_value, banned_at, banned_reason, banned_until, is_active
+                FROM ban_list
+                WHERE is_active = TRUE AND (banned_until IS NULL OR banned_until > NOW())
+            ),
+            stat_user_bans AS (
+                SELECT NULL::bigint AS id, 'username'::text AS ban_type, username AS ban_value,
+                       banned_at, banned_reason, NULL::timestamp AS banned_until, TRUE AS is_active
+                FROM user_stats us
+                WHERE us.is_banned = TRUE
+                  AND NOT EXISTS (
+                      SELECT 1 FROM ban_list bl
+                      WHERE bl.ban_type = 'username' AND bl.ban_value = us.username
+                  )
+            ),
+            stat_ip_bans AS (
+                SELECT NULL::bigint AS id, 'ip'::text AS ban_type, ip_address AS ban_value,
+                       banned_at, banned_reason, NULL::timestamp AS banned_until, TRUE AS is_active
+                FROM ip_stats ips
+                WHERE ips.is_banned = TRUE
+                  AND NOT EXISTS (
+                      SELECT 1 FROM ban_list bl
+                      WHERE bl.ban_type = 'ip' AND bl.ban_value = ips.ip_address
+                  )
+            )
+            SELECT * FROM active_bans
+            UNION ALL
+            SELECT * FROM stat_user_bans
+            UNION ALL
+            SELECT * FROM stat_ip_bans
+            ORDER BY banned_at DESC NULLS LAST
         ''')
         return [dict(r) for r in rows]
 
@@ -1704,9 +1732,38 @@ async def get_stats_summary() -> Dict:
         today_logins = await conn.fetchval('''
             SELECT COUNT(*) FROM login_records WHERE login_time::date = CURRENT_DATE
         ''')
-        banned_count = await conn.fetchval(
-            'SELECT COUNT(*) FROM ban_list WHERE is_active = TRUE'
-        )
+        banned_count = await conn.fetchval('''
+            WITH active_bans AS (
+                SELECT ban_type, ban_value
+                FROM ban_list
+                WHERE is_active = TRUE AND (banned_until IS NULL OR banned_until > NOW())
+            ),
+            stat_user_bans AS (
+                SELECT 'username'::text AS ban_type, username AS ban_value
+                FROM user_stats us
+                WHERE us.is_banned = TRUE
+                  AND NOT EXISTS (
+                      SELECT 1 FROM ban_list bl
+                      WHERE bl.ban_type = 'username' AND bl.ban_value = us.username
+                  )
+            ),
+            stat_ip_bans AS (
+                SELECT 'ip'::text AS ban_type, ip_address AS ban_value
+                FROM ip_stats ips
+                WHERE ips.is_banned = TRUE
+                  AND NOT EXISTS (
+                      SELECT 1 FROM ban_list bl
+                      WHERE bl.ban_type = 'ip' AND bl.ban_value = ips.ip_address
+                  )
+            )
+            SELECT COUNT(*) FROM (
+                SELECT * FROM active_bans
+                UNION ALL
+                SELECT * FROM stat_user_bans
+                UNION ALL
+                SELECT * FROM stat_ip_bans
+            ) t
+        ''')
         total_logins = await conn.fetchval('SELECT COUNT(*) FROM login_records')
 
         row = await conn.fetchrow('''
