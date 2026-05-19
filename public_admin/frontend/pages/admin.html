@@ -9018,7 +9018,8 @@
                 // 冻结+告警标记
                 let warnHtml = '';
                 if (ex.frozen) {
-                    warnHtml += `<div style="margin-top:6px;font-size:11px;color:#ff4757;">🧊 403冻结中 (${Math.round(ex.frozen_remaining)}s后解冻)</div>`;
+                    const frozenReason = ex.frozen_reason || '出口临时禁用';
+                    warnHtml += `<div style="margin-top:6px;font-size:11px;color:#ff4757;">🧊 禁用中：${escapeHtml(frozenReason)} (${Math.round(ex.frozen_remaining)}s后恢复)</div>`;
                 }
                 if (ex.warn_403 > 0 || ex.warn_429 > 0) {
                     const parts = [];

@@ -51,7 +51,7 @@ class OutboundExit:
     __slots__ = ('name', 'proxy_url', 'healthy', '_ever_healthy', 'total', 'login_count', 'errors',
                  'warn_403', 'warn_429', 'active', 'exit_ip', 'ip_detecting', '_login_timestamps',
                  '_error_logs', '_req_timestamps', 'rate_limit', '_rate_lock',
-                 '_inflight_logins', '_frozen_until', '_ip_detect_failures',
+                 '_inflight_logins', '_frozen_until', '_frozen_reason', '_connect_failures', '_ip_detect_failures',
                  'ip_detect_checked_at', 'ip_detect_last_error',
                  'latency_ms', 'latency_checked_at', 'latency_probe_failures', 'latency_probe_error', 'latency_probing',
                  '_client', '_client_lock')
@@ -76,6 +76,8 @@ class OutboundExit:
         self._rate_lock = asyncio.Lock()
         self._inflight_logins: int = 0  # 正在飞行中的登录请求数
         self._frozen_until: float = 0    # 403后冻结截止时间戳
+        self._frozen_reason: str = ""
+        self._connect_failures: int = 0
         self._ip_detect_failures: int = 0  # 连续IP检测失败次数（用于剔除死节点）
         self.ip_detect_checked_at: str = ""
         self.ip_detect_last_error: str = ""
@@ -107,7 +109,19 @@ class OutboundExit:
 
     def freeze(self, duration: float = 60.0, reason: str = "出口异常"):
         self._frozen_until = time.time() + duration
+        self._frozen_reason = reason
         logger.warning(f"[Dispatcher] {self.name} {reason}, 冻结{duration}秒")
+
+    def freeze_for_connect_error(self, error: str = ""):
+        self._connect_failures += 1
+        durations = [3600, 10800, 21600, 43200, 86400]
+        duration = durations[min(self._connect_failures - 1, len(durations) - 1)]
+        self.freeze(float(duration), f"连接失败×{self._connect_failures}")
+        logger.warning(f"[Dispatcher] {self.name} 连接失败梯度禁用 level={self._connect_failures} duration={duration}s error={error}")
+
+    def reset_connect_failures(self):
+        self._connect_failures = 0
+        self._frozen_reason = ""
 
     def count_recent_logins(self, window: float = 60.0) -> int:
         """统计最近 window 秒内的登录次数(含飞行中的)"""
@@ -556,13 +570,14 @@ class OutboundDispatcher:
             try:
                 resp = await self._do_request(current_exit, method, url, headers,
                                               content_type, params, raw_body, timeout)
+                current_exit.reset_connect_failures()
                 self._check_alert_status(current_exit, resp.status_code, url, client_ip, account)
                 return resp
             except Exception as e:
                 last_error = e
                 current_exit.record_error(str(e))
                 if not current_exit.is_direct:
-                    current_exit.freeze(60.0, "连接失败")
+                    current_exit.freeze_for_connect_error(str(e))
                 if attempt_index + 1 < len(attempts):
                     next_exit = attempts[attempt_index + 1]
                     logger.warning(f"[Dispatcher] {current_exit.name} 失败({e})，降级至 {next_exit.name} 重试")
@@ -869,6 +884,8 @@ class OutboundDispatcher:
                     "warn_429": ex.warn_429,
                     "frozen": ex.is_frozen,
                     "frozen_remaining": round(ex.frozen_remaining, 1),
+                    "frozen_reason": ex._frozen_reason,
+                    "connect_failures": ex._connect_failures,
                     "recent_errors": ex._error_logs[-5:] if ex._error_logs else [],
                     "rpm": ex.get_current_rpm(),
                     "rate_limit": ex.rate_limit,
