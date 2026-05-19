@@ -103,8 +103,11 @@ class OutboundExit:
 
     def freeze_for_403(self, duration: float = 60.0):
         """收到403后冻结该出口, 不允许发任何请求"""
+        self.freeze(duration, "收到403")
+
+    def freeze(self, duration: float = 60.0, reason: str = "出口异常"):
         self._frozen_until = time.time() + duration
-        logger.warning(f"[Dispatcher] {self.name} 收到403, 冻结{duration}秒")
+        logger.warning(f"[Dispatcher] {self.name} {reason}, 冻结{duration}秒")
 
     def count_recent_logins(self, window: float = 60.0) -> int:
         """统计最近 window 秒内的登录次数(含飞行中的)"""
@@ -417,6 +420,20 @@ class OutboundDispatcher:
             return failed_exit
         return min(candidates, key=lambda e: e.active)
 
+    def _fallback_sequence(self, failed_exit: OutboundExit) -> list[OutboundExit]:
+        direct = self._safe_direct()
+        candidates = [
+            ex for ex in self.exits
+            if ex is not failed_exit
+            and not ex.is_direct
+            and ex.healthy
+            and not ex.is_frozen
+        ]
+        candidates.sort(key=lambda e: e.active)
+        if direct is not failed_exit and not direct.is_frozen:
+            candidates.append(direct)
+        return candidates
+
     def _get_healthy(self) -> list[int]:
         """获取所有健康且未冻结的出口索引（直连永远包含）"""
         return [i for i, ex in enumerate(self.exits) if (ex.healthy or ex.is_direct) and not ex.is_frozen]
@@ -518,56 +535,44 @@ class OutboundDispatcher:
     async def forward(self, exit_obj: OutboundExit, method: str, url: str,
                       headers: dict, content_type: str = "",
                       params: dict = None, raw_body: bytes = None,
-                      timeout: float = 30) -> httpx.Response:
+                      timeout: float = 30, client_ip: str = "", account: str = "") -> httpx.Response:
         """
         通过指定出口转发HTTP请求。
         - 自动跟踪活跃连接数（进入+1，完成-1）
         - 检测403/429等状态码并记录告警日志
         - 隧道出口失败时自动降级直连重试
         """
-        # 限速等待
-        per_second_wait = await self._wait_for_per_second_rate(exit_obj)
-        if per_second_wait > 0.5:
-            logger.debug(f"[RateLimit] {exit_obj.name} 每秒限速等待 {per_second_wait:.1f}s")
-        wait_sec = await exit_obj.wait_for_rate()
-        if wait_sec > 0.5:
-            logger.debug(f"[RateLimit] {exit_obj.name} 等待 {wait_sec:.1f}s")
+        attempts = [exit_obj] + self._fallback_sequence(exit_obj)
+        last_error = None
+        for attempt_index, current_exit in enumerate(attempts):
+            per_second_wait = await self._wait_for_per_second_rate(current_exit)
+            if per_second_wait > 0.5:
+                logger.debug(f"[RateLimit] {current_exit.name} 每秒限速等待 {per_second_wait:.1f}s")
+            wait_sec = await current_exit.wait_for_rate()
+            if wait_sec > 0.5:
+                logger.debug(f"[RateLimit] {current_exit.name} 等待 {wait_sec:.1f}s")
 
-        exit_obj.active += 1
-        try:
-            resp = await self._do_request(exit_obj, method, url, headers,
-                                          content_type, params, raw_body, timeout)
-            # 检查告警状态码
-            self._check_alert_status(exit_obj, resp.status_code, url)
-            return resp
-
-        except Exception as e:
-            exit_obj.record_error()
-
-            # 选另一个健康出口重试（负载均衡降级，而非固定直连）
-            fallback = self._pick_fallback(exit_obj)
-            if fallback is not exit_obj:
-                logger.warning(f"[Dispatcher] {exit_obj.name} 失败({e})，降级至 {fallback.name} 重试")
-                fallback_wait = await self._wait_for_per_second_rate(fallback)
-                if fallback_wait > 0.5:
-                    logger.debug(f"[RateLimit] {fallback.name} 每秒限速等待 {fallback_wait:.1f}s")
-                fallback.active += 1
-                try:
-                    resp = await self._do_request(fallback, method, url, headers,
-                                                  content_type, params, raw_body, timeout)
-                    self._check_alert_status(fallback, resp.status_code, url)
-                    return resp
-                except Exception as e2:
-                    fallback.record_error()
-                    logger.error(f"[Dispatcher] 降级出口 {fallback.name} 也失败: {e2}")
-                    raise
-                finally:
-                    fallback.active -= 1
-            else:
-                logger.error(f"[Dispatcher] 出口 {exit_obj.name} 请求失败，无可用备用: {e}")
-                raise
-        finally:
-            exit_obj.active -= 1
+            current_exit.active += 1
+            try:
+                resp = await self._do_request(current_exit, method, url, headers,
+                                              content_type, params, raw_body, timeout)
+                self._check_alert_status(current_exit, resp.status_code, url, client_ip, account)
+                return resp
+            except Exception as e:
+                last_error = e
+                current_exit.record_error(str(e))
+                if not current_exit.is_direct:
+                    current_exit.freeze(60.0, "连接失败")
+                if attempt_index + 1 < len(attempts):
+                    next_exit = attempts[attempt_index + 1]
+                    logger.warning(f"[Dispatcher] {current_exit.name} 失败({e})，降级至 {next_exit.name} 重试")
+                else:
+                    logger.error(f"[Dispatcher] 出口链路全部失败，最后出口={current_exit.name}: {e}")
+            finally:
+                current_exit.active -= 1
+        if last_error:
+            raise last_error
+        raise RuntimeError("no available outbound exit")
 
     async def _wait_for_per_second_rate(self, exit_obj: OutboundExit) -> float:
         if self.policy_config is None or self.rate_limiter is None:
@@ -596,20 +601,22 @@ class OutboundDispatcher:
             else:
                 return await client.post(url, data=params, headers=headers, timeout=req_timeout)
 
-    def _check_alert_status(self, exit_obj: OutboundExit, status_code: int, url: str):
+    def _check_alert_status(self, exit_obj: OutboundExit, status_code: int, url: str, client_ip: str = "", account: str = ""):
         """检查响应状态码，403/429等记录告警日志"""
         if status_code in ALERT_STATUS_CODES:
             desc = ALERT_STATUS_CODES[status_code]
+            api_path = url.split("/RPC/")[-1] if "/RPC/" in url else url[-50:]
+            rpc_name = api_path.split("?")[0].strip()
+            is_login_rpc = rpc_name.startswith("Login")
             # 更新统计
             if status_code == 403:
                 exit_obj.warn_403 += 1
-                exit_obj.freeze_for_403(60.0)
+                if not is_login_rpc:
+                    exit_obj.freeze_for_403(60.0)
                 exit_obj.auto_throttle_on_403()
             elif status_code == 429:
                 exit_obj.warn_429 += 1
                 exit_obj.auto_throttle_on_403()  # 429也触发限速
-            # 提取API路径用于日志
-            api_path = url.split("/RPC/")[-1] if "/RPC/" in url else url[-50:]
             logger.warning(
                 f"[Dispatcher] ⚠️ {status_code} {desc} | "
                 f"出口={exit_obj.name} | API={api_path} | "
@@ -618,7 +625,7 @@ class OutboundDispatcher:
             # 持久化回调（由 proxy_server 注入，dispatcher 本身不依赖 db）
             if self.alert_callback is not None:
                 self._safe_create_task(
-                    self.alert_callback(exit_obj.name, exit_obj.exit_ip, status_code, api_path),
+                    self.alert_callback(exit_obj.name, exit_obj.exit_ip, status_code, api_path, client_ip, account),
                     f"alert_cb_{exit_obj.name}"
                 )
 

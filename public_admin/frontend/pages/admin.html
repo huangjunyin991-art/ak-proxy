@@ -9034,7 +9034,7 @@
                 const latencyTitle = ex.latency_checked_at ? `上次测速: ${ex.latency_checked_at}${latencyErr}` : '暂未开始延迟测速';
                 const exitNameArg = jsArg(ex.name || '');
 
-                return `<div style="background:var(--bg-card);border-radius:10px;padding:14px;border:1px solid ${borderColor};position:relative;overflow:hidden;">
+                return `<div onclick="lbShowErrorLogs(${i}, ${exitNameArg})" style="background:var(--bg-card);border-radius:10px;padding:14px;border:1px solid ${borderColor};position:relative;overflow:hidden;cursor:pointer;">
                     <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px;">
                         <div>
                             <div style="font-size:15px;font-weight:bold;color:var(--text-primary);">${serverLabel}</div>
@@ -9043,7 +9043,7 @@
                         <div style="display:flex;align-items:center;gap:6px;">
                             <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${healthColor};"></span>
                             <span style="font-size:12px;color:${healthColor};font-weight:bold;">${healthText}</span>
-                            ${!isDirect ? `<button onclick="lbRemoveExit(${ex.index}, ${exitNameArg})" style="margin-left:4px;background:none;border:1px solid rgba(255,71,87,0.3);border-radius:4px;color:#ff4757;cursor:pointer;font-size:11px;padding:2px 6px;">删除</button>` : ''}
+                            ${!isDirect ? `<button onclick="event.stopPropagation();lbRemoveExit(${ex.index}, ${exitNameArg})" style="margin-left:4px;background:none;border:1px solid rgba(255,71,87,0.3);border-radius:4px;color:#ff4757;cursor:pointer;font-size:11px;padding:2px 6px;">删除</button>` : ''}
                         </div>
                     </div>
                     <div style="display:flex;gap:6px;margin-bottom:8px;flex-wrap:nowrap;">
@@ -9063,7 +9063,7 @@
                             <div style="font-size:10px;color:var(--text-secondary);">延迟</div>
                             <div style="font-size:12px;font-weight:bold;color:${latencyMeta.color};">${escapeHtml(latencyMeta.text)}</div>
                         </div>
-                        <div style="background:rgba(255,165,0,0.08);border-radius:6px;padding:6px 8px;flex:1.2;min-width:0;text-align:center;cursor:pointer;" onclick="lbShowRateLimit(${i}, ${exitNameArg}, ${ex.rate_limit})" title="点击调整限速">
+                        <div style="background:rgba(255,165,0,0.08);border-radius:6px;padding:6px 8px;flex:1.2;min-width:0;text-align:center;cursor:pointer;" onclick="event.stopPropagation();lbShowRateLimit(${i}, ${exitNameArg}, ${ex.rate_limit})" title="点击调整限速">
                             <div style="font-size:10px;color:var(--text-secondary);">速率${ex.rate_limit > 0 ? ' ⚡' : ''}</div>
                             <div style="font-size:12px;font-weight:bold;color:${ex.rate_limit > 0 && ex.rpm >= ex.rate_limit * 0.8 ? '#ffa502' : 'var(--accent)'};">${ex.rpm}<span style="font-size:9px;color:var(--text-secondary);">/${ex.rate_limit || '∞'}</span></div>
                         </div>
@@ -9472,7 +9472,7 @@
             try {
                 const [logsRes, eventsRes] = await Promise.all([
                     fetch(`${API_BASE}/api/dispatcher/logs/${index}`),
-                    fetch(`${API_BASE}/api/dispatcher/events?exit_name=${encodeURIComponent(name)}&hours=72&limit=100`)
+                    fetch(`${API_BASE}/api/dispatcher/runtime_events?exit_name=${encodeURIComponent(name)}&status_code=403&limit=200`)
                 ]);
                 const logsData = await logsRes.json();
                 const eventsData = await eventsRes.json();
@@ -9487,13 +9487,20 @@
                         </div>`).reverse().join('');
 
                 const eventsHtml = events.length === 0
-                    ? '<div style="color:var(--text-secondary);text-align:center;padding:20px;">近72小时无风控事件</div>'
+                    ? '<div style="color:var(--text-secondary);text-align:center;padding:20px;">本次启动后暂无上游K937 403明细</div>'
                     : events.map(e => {
-                        const color = e.status_code === 403 ? '#ff4757' : '#ffa502';
-                        return `<div style="display:flex;gap:8px;padding:4px 0;border-bottom:1px solid var(--border);font-size:12px;font-family:monospace;align-items:center;">
-                            <span style="color:var(--text-secondary);white-space:nowrap;">${escapeHtml(e.ts || '')}</span>
-                            <span style="color:${color};font-weight:bold;white-space:nowrap;">${Number(e.status_code || 0)}</span>
-                            <span style="color:var(--text-secondary);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escapeHtml(e.api_path || '')}">${escapeHtml(e.api_path || '')}</span>
+                        return `<div style="padding:8px 0;border-bottom:1px solid var(--border);font-size:12px;font-family:monospace;">
+                            <div style="display:flex;gap:8px;align-items:center;margin-bottom:4px;">
+                                <span style="color:var(--text-secondary);white-space:nowrap;">${escapeHtml(e.ts || '')}</span>
+                                <span style="color:#ff4757;font-weight:bold;white-space:nowrap;">403</span>
+                                <span style="color:var(--accent);white-space:nowrap;" title="API">${escapeHtml(e.api_path || '-')}</span>
+                            </div>
+                            <div style="display:grid;grid-template-columns:72px 1fr;gap:3px 8px;color:var(--text-secondary);">
+                                <span>账号</span><span style="color:var(--text-primary);word-break:break-all;">${escapeHtml(e.account || '-')}</span>
+                                <span>客户端IP</span><span style="color:var(--text-primary);word-break:break-all;">${escapeHtml(e.client_ip || '-')}</span>
+                                <span>出口IP</span><span style="color:var(--text-primary);word-break:break-all;">${escapeHtml(e.exit_ip || '-')}</span>
+                                <span>原因</span><span style="color:#ffa502;word-break:break-all;">${escapeHtml(e.reason || '上游K937返回403')}</span>
+                            </div>
                         </div>`;
                     }).join('');
 
@@ -9505,7 +9512,7 @@
                         </button>
                         <button onclick="this.parentNode.querySelectorAll('button').forEach(b=>b.style.background='var(--bg-secondary)');this.style.background='rgba(255,71,87,0.15)';document.getElementById('lbLogTab1').style.display='none';document.getElementById('lbLogTab2').style.display='block';"
                             style="flex:1;padding:6px;border-radius:6px;border:1px solid var(--border);background:var(--bg-secondary);color:#ff4757;cursor:pointer;font-size:12px;">
-                            ⚠️ 风控事件 (${events.length})
+                            ⚠️ 上游K937 403 (${events.length})
                         </button>
                     </div>
                     <div id="lbLogTab1" style="max-height:320px;overflow-y:auto;">${logsHtml}</div>

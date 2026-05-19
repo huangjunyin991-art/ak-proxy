@@ -75,6 +75,7 @@ FRONTEND_DIR = os.path.join(PUBLIC_ADMIN_DIR, "frontend")
 FRONTEND_HOST_DIR = os.path.join(FRONTEND_DIR, "host")
 FRONTEND_PAGES_DIR = os.path.join(FRONTEND_DIR, "pages")
 PLUGINS_DIR = os.path.join(PUBLIC_ADMIN_DIR, "plugins")
+DISPATCHER_TEMP_EVENT_FILE = os.path.join(PUBLIC_ADMIN_DIR, "dispatcher_runtime_403_events.jsonl")
 
 
 
@@ -1220,6 +1221,77 @@ def parse_request_params(content_type: str, query_params: dict, raw_body: bytes)
     return params
 
 
+def _extract_forward_account(params: dict) -> str:
+    if not isinstance(params, dict):
+        return ""
+    for key in ("account", "Account", "username", "UserName", "user_name", "name"):
+        value = params.get(key)
+        if isinstance(value, (list, tuple)):
+            value = value[0] if value else ""
+        normalized = str(value or "").strip().lower()
+        if normalized:
+            return normalized
+    return ""
+
+
+def _reset_dispatcher_temp_event_file() -> None:
+    try:
+        Path(DISPATCHER_TEMP_EVENT_FILE).write_text("", encoding="utf-8")
+    except Exception as e:
+        logger.warning(f"[DispatcherTempEvent] 清空临时事件文件失败: {e}")
+
+
+def _append_dispatcher_temp_event(event: dict) -> None:
+    try:
+        with Path(DISPATCHER_TEMP_EVENT_FILE).open("a", encoding="utf-8") as f:
+            f.write(json.dumps(event, ensure_ascii=False, separators=(",", ":")) + "\n")
+    except Exception as e:
+        logger.debug(f"[DispatcherTempEvent] 写入临时事件失败: {e}")
+
+
+def _query_dispatcher_temp_events(exit_name: str = "", status_code: int = 0, limit: int = 200) -> list:
+    path = Path(DISPATCHER_TEMP_EVENT_FILE)
+    if not path.exists():
+        return []
+    normalized_exit = str(exit_name or "").strip()
+    rows = []
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except Exception as e:
+        logger.debug(f"[DispatcherTempEvent] 读取临时事件失败: {e}")
+        return []
+    for line in reversed(lines):
+        if not line.strip():
+            continue
+        try:
+            item = json.loads(line)
+        except Exception:
+            continue
+        if normalized_exit and item.get("exit_name") != normalized_exit:
+            continue
+        if status_code and int(item.get("status_code") or 0) != int(status_code):
+            continue
+        rows.append(item)
+        if len(rows) >= max(1, min(int(limit or 200), 1000)):
+            break
+    return rows
+
+
+async def _record_dispatcher_alert_event(exit_name: str, exit_ip: str, status_code: int, api_path: str = "", client_ip: str = "", account: str = "") -> None:
+    await db.insert_exit_event(exit_name, exit_ip, status_code, api_path, client_ip)
+    event = {
+        "ts": datetime.now().strftime("%m-%d %H:%M:%S"),
+        "exit_name": str(exit_name or ""),
+        "exit_ip": str(exit_ip or ""),
+        "client_ip": str(client_ip or ""),
+        "account": str(account or ""),
+        "status_code": int(status_code or 0),
+        "api_path": str(api_path or ""),
+        "reason": "上游K937返回403，通常表示该接口、账号、客户端IP或出口IP触发风控" if int(status_code or 0) == 403 else "上游K937返回限流/服务风控状态",
+    }
+    _append_dispatcher_temp_event(event)
+
+
 def _extract_client_ip(request: Request) -> str:
     candidates = [request.headers.get("cf-connecting-ip", "")]
     forwarded_for = request.headers.get("x-forwarded-for", "")
@@ -1343,6 +1415,8 @@ async def forward_request(method: str, api_path: str, content_type: str,
 
         exit_obj = selected_exit or _select_forward_exit(api_path, is_login=is_login)
 
+    account = _extract_forward_account(params)
+
     logger.debug(f"[Forward] {api_path} -> 出口[{exit_obj.name}]")
 
 
@@ -1357,7 +1431,7 @@ async def forward_request(method: str, api_path: str, content_type: str,
 
                 content_type=content_type, params=params,
 
-                raw_body=raw_body, timeout=REQUEST_TIMEOUT
+                raw_body=raw_body, timeout=REQUEST_TIMEOUT, client_ip=real_ip, account=account
 
             )
 
@@ -1377,7 +1451,7 @@ async def forward_request(method: str, api_path: str, content_type: str,
 
         content_type=content_type, params=params,
 
-        raw_body=raw_body, timeout=REQUEST_TIMEOUT
+        raw_body=raw_body, timeout=REQUEST_TIMEOUT, client_ip=real_ip, account=account
 
     )
 
@@ -2493,7 +2567,7 @@ async def api_dispatcher_start_singbox(request: Request):
 
 
 @app.get("/api/dispatcher/events")
-async def api_dispatcher_events(request: Request, exit_name: str = None, status_code: int = None,
+async def api_dispatcher_events(request: Request, exit_name: str = None, status_code: int = None, client_ip: str = None, account: str = None,
                                  hours: int = 24, limit: int = 200):
     """查询403/429风控事件，支持按出口名/状态码/时间范围过滤"""
     _, error_response = await _require_admin_token(request)
@@ -2502,7 +2576,21 @@ async def api_dispatcher_events(request: Request, exit_name: str = None, status_
 
     try:
         rows = await db.query_exit_events(exit_name=exit_name, status_code=status_code,
-                                          hours=hours, limit=limit)
+                                          client_ip=client_ip, account=account, hours=hours, limit=limit)
+        return {"events": rows, "total": len(rows)}
+    except Exception as e:
+        return {"events": [], "total": 0, "error": str(e)}
+
+
+@app.get("/api/dispatcher/runtime_events")
+async def api_dispatcher_runtime_events(request: Request, exit_name: str = None, status_code: int = 403, limit: int = 200):
+    """查询本次服务启动后的临时上游风控明细，服务重启后自动清空"""
+    _, error_response = await _require_admin_token(request)
+    if error_response is not None:
+        return error_response
+
+    try:
+        rows = _query_dispatcher_temp_events(exit_name=exit_name, status_code=status_code, limit=limit)
         return {"events": rows, "total": len(rows)}
     except Exception as e:
         return {"events": [], "total": 0, "error": str(e)}
@@ -4102,7 +4190,11 @@ async def admin_startup():
 
     await _user_asset_persist_queue.start()
 
+    _reset_dispatcher_temp_event_file()
+
     _restore_dispatcher_exits_from_disk()
+
+    dispatcher.alert_callback = _record_dispatcher_alert_event
 
     await dispatcher.start()
 

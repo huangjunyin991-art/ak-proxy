@@ -529,12 +529,18 @@ async def init_db(host: str = "127.0.0.1", port: int = 5432,
                 id BIGSERIAL PRIMARY KEY,
                 exit_name TEXT NOT NULL,
                 exit_ip   TEXT DEFAULT '',
+                client_ip TEXT DEFAULT '',
+                account TEXT DEFAULT '',
                 status_code INTEGER NOT NULL,
                 api_path TEXT DEFAULT '',
                 ts TIMESTAMP DEFAULT NOW()
             )
         ''')
+        await conn.execute("ALTER TABLE exit_events ADD COLUMN IF NOT EXISTS client_ip TEXT DEFAULT ''")
+        await conn.execute("ALTER TABLE exit_events ADD COLUMN IF NOT EXISTS account TEXT DEFAULT ''")
         await conn.execute('CREATE INDEX IF NOT EXISTS idx_exit_events_name ON exit_events(exit_name)')
+        await conn.execute('CREATE INDEX IF NOT EXISTS idx_exit_events_client_ip ON exit_events(client_ip)')
+        await conn.execute('CREATE INDEX IF NOT EXISTS idx_exit_events_account ON exit_events(account)')
         await conn.execute('CREATE INDEX IF NOT EXISTS idx_exit_events_ts ON exit_events(ts)')
 
         # 通知系统表
@@ -3564,20 +3570,20 @@ async def clear_all_subscription_groups() -> bool:
 
 # ===== 出口风控事件 =====
 
-async def insert_exit_event(exit_name: str, exit_ip: str, status_code: int, api_path: str = "") -> None:
+async def insert_exit_event(exit_name: str, exit_ip: str, status_code: int, api_path: str = "", client_ip: str = "", account: str = "") -> None:
     """异步写入一条403/429事件，失败静默忽略"""
     pool = _get_pool()
     try:
         async with pool.acquire() as conn:
             await conn.execute(
-                'INSERT INTO exit_events (exit_name, exit_ip, status_code, api_path) VALUES ($1,$2,$3,$4)',
-                exit_name, exit_ip or "", status_code, api_path
+                'INSERT INTO exit_events (exit_name, exit_ip, status_code, api_path, client_ip, account) VALUES ($1,$2,$3,$4,$5,$6)',
+                exit_name, exit_ip or "", status_code, api_path, client_ip or "", account or ""
             )
     except Exception as e:
         logger.debug(f"[DB] exit_event写入失败: {e}")
 
 
-async def query_exit_events(exit_name: str = None, status_code: int = None,
+async def query_exit_events(exit_name: str = None, status_code: int = None, client_ip: str = None, account: str = None,
                              hours: int = 24, limit: int = 200) -> List[Dict]:
     """查询出口风控事件，支持按出口名、状态码、时间范围过滤"""
     pool = _get_pool()
@@ -3589,9 +3595,15 @@ async def query_exit_events(exit_name: str = None, status_code: int = None,
     if status_code:
         params.append(status_code)
         conditions.append(f"status_code = ${len(params)}")
+    if client_ip:
+        params.append(client_ip)
+        conditions.append(f"client_ip = ${len(params)}")
+    if account:
+        params.append(account)
+        conditions.append(f"account = ${len(params)}")
     where = " AND ".join(conditions)
     params.append(limit)
-    sql = f"SELECT id,exit_name,exit_ip,status_code,api_path,ts FROM exit_events WHERE {where} ORDER BY ts DESC LIMIT ${len(params)}"
+    sql = f"SELECT id,exit_name,exit_ip,client_ip,account,status_code,api_path,ts FROM exit_events WHERE {where} ORDER BY ts DESC LIMIT ${len(params)}"
     async with pool.acquire() as conn:
         rows = await conn.fetch(sql, *params)
         return [{**dict(r), "ts": r["ts"].strftime("%m-%d %H:%M:%S")} for r in rows]
