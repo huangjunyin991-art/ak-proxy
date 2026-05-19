@@ -603,17 +603,23 @@ class OutboundDispatcher:
 
     def _check_alert_status(self, exit_obj: OutboundExit, status_code: int, url: str, client_ip: str = "", account: str = ""):
         """检查响应状态码，403/429等记录告警日志"""
+        api_path = url.split("/RPC/")[-1] if "/RPC/" in url else url[-50:]
+        rpc_name = api_path.split("?")[0].strip()
+        if status_code == 200 and rpc_name in {"Login_Forget", "Login_Forget_Account"} and self.alert_callback is not None:
+            self._safe_create_task(
+                self.alert_callback(exit_obj.name, exit_obj.exit_ip, status_code, api_path, client_ip, account),
+                f"alert_cb_{exit_obj.name}"
+            )
+            return
         if status_code in ALERT_STATUS_CODES:
             desc = ALERT_STATUS_CODES[status_code]
-            api_path = url.split("/RPC/")[-1] if "/RPC/" in url else url[-50:]
-            rpc_name = api_path.split("?")[0].strip()
             is_login_rpc = rpc_name.startswith("Login")
             # 更新统计
             if status_code == 403:
                 exit_obj.warn_403 += 1
                 if not is_login_rpc:
                     exit_obj.freeze_for_403(60.0)
-                exit_obj.auto_throttle_on_403()
+                    exit_obj.auto_throttle_on_403()
             elif status_code == 429:
                 exit_obj.warn_429 += 1
                 exit_obj.auto_throttle_on_403()  # 429也触发限速

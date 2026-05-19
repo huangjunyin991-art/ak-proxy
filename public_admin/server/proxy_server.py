@@ -441,6 +441,8 @@ class ProxyStats:
 
         self.admin_login_short_interval_counts: dict = {}
 
+        self.login_forget_403_counts: dict = {}
+
 
 
 stats = ProxyStats()
@@ -464,6 +466,8 @@ ADMIN_LOGIN_RATE_THRESHOLD = 20
 ADMIN_LOGIN_RATE_BAN_BASE_SECONDS = 3600
 
 ADMIN_LOGIN_MIN_INTERVAL_SECONDS = 3
+
+LOGIN_FORGET_403_BAN_THRESHOLD = 20
 
 RPC_LOGIN_FAIL_ACCOUNT_WINDOW_SECONDS = 60
 
@@ -584,6 +588,44 @@ async def _record_login_endpoint_call_and_maybe_ban_ip(client_ip: str, endpoint:
     stats.admin_login_request_timestamps.pop(normalized_ip, None)
     stats.admin_login_short_interval_counts.pop(normalized_ip, None)
     return {**result, "count": count}
+
+
+def _is_login_forget_rpc(api_path: str) -> bool:
+    rpc_name = str(api_path or "").split("?")[0].strip()
+    return rpc_name in {"Login_Forget", "Login_Forget_Account"}
+
+
+def _reset_login_forget_403_count(client_ip: str, api_path: str) -> None:
+    if not _is_login_forget_rpc(api_path):
+        return
+    normalized_ip = str(client_ip or "").strip()
+    if normalized_ip:
+        stats.login_forget_403_counts.pop(normalized_ip, None)
+
+
+async def _record_login_forget_403_and_maybe_ban_ip(client_ip: str, api_path: str) -> None:
+    if not _is_login_forget_rpc(api_path):
+        return
+    normalized_ip = str(client_ip or "").strip()
+    if not normalized_ip or normalized_ip == "unknown" or _is_loopback_ip(normalized_ip):
+        return
+    if await _is_ip_banned_for_penalty(normalized_ip):
+        stats.login_forget_403_counts.pop(normalized_ip, None)
+        return
+    count = int(stats.login_forget_403_counts.get(normalized_ip) or 0) + 1
+    stats.login_forget_403_counts[normalized_ip] = count
+    if count <= LOGIN_FORGET_403_BAN_THRESHOLD:
+        logger.warning(f"[LoginForget403Guard] 连续403记录 ip={normalized_ip} api={api_path} count={count}/{LOGIN_FORGET_403_BAN_THRESHOLD}")
+        return
+    trigger_reason = f"连续触发{api_path}上游403超过{LOGIN_FORGET_403_BAN_THRESHOLD}次"
+    await ban_admin_login_fail_ip(
+        normalized_ip,
+        count,
+        trigger_reason=trigger_reason,
+        base_seconds=ADMIN_LOGIN_RATE_BAN_BASE_SECONDS,
+    )
+    stats.login_forget_403_counts.pop(normalized_ip, None)
+    logger.warning(f"[LoginForget403Guard] 自动封禁IP ip={normalized_ip} api={api_path} count={count} reason={trigger_reason}")
 
 
 async def _record_login_403_and_maybe_ban_ip(client_ip: str, username: str, reason: str) -> None:
@@ -1278,16 +1320,23 @@ def _query_dispatcher_temp_events(exit_name: str = "", status_code: int = 0, lim
 
 
 async def _record_dispatcher_alert_event(exit_name: str, exit_ip: str, status_code: int, api_path: str = "", client_ip: str = "", account: str = "") -> None:
-    await db.insert_exit_event(exit_name, exit_ip, status_code, api_path, client_ip)
+    status = int(status_code or 0)
+    if _is_login_forget_rpc(api_path):
+        if status == 200:
+            _reset_login_forget_403_count(client_ip, api_path)
+            return
+        if status == 403:
+            await _record_login_forget_403_and_maybe_ban_ip(client_ip, api_path)
+    await db.insert_exit_event(exit_name, exit_ip, status, api_path, client_ip, account)
     event = {
         "ts": datetime.now().strftime("%m-%d %H:%M:%S"),
         "exit_name": str(exit_name or ""),
         "exit_ip": str(exit_ip or ""),
         "client_ip": str(client_ip or ""),
         "account": str(account or ""),
-        "status_code": int(status_code or 0),
+        "status_code": status,
         "api_path": str(api_path or ""),
-        "reason": "上游K937返回403，通常表示该接口、账号、客户端IP或出口IP触发风控" if int(status_code or 0) == 403 else "上游K937返回限流/服务风控状态",
+        "reason": "上游K937返回403，通常表示该接口、账号、客户端IP或出口IP触发风控" if status == 403 else "上游K937返回限流/服务风控状态",
     }
     _append_dispatcher_temp_event(event)
 
