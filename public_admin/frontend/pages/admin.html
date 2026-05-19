@@ -9043,6 +9043,7 @@
                         <div style="display:flex;align-items:center;gap:6px;">
                             <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${healthColor};"></span>
                             <span style="font-size:12px;color:${healthColor};font-weight:bold;">${healthText}</span>
+                            <button onclick="event.stopPropagation();lbShowErrorLogs(${i}, ${exitNameArg})" style="margin-left:4px;background:rgba(255,71,87,0.12);border:1px solid rgba(255,71,87,0.35);border-radius:4px;color:#ff4757;cursor:pointer;font-size:11px;padding:2px 6px;">403详情</button>
                             ${!isDirect ? `<button onclick="event.stopPropagation();lbRemoveExit(${ex.index}, ${exitNameArg})" style="margin-left:4px;background:none;border:1px solid rgba(255,71,87,0.3);border-radius:4px;color:#ff4757;cursor:pointer;font-size:11px;padding:2px 6px;">删除</button>` : ''}
                         </div>
                     </div>
