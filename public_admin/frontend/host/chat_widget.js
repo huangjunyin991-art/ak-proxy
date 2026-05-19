@@ -32,6 +32,15 @@
             if (e) localStorage.setItem(AK_CRED_KEY, e);
         }
     }
+
+    function _akSyncLoginUsernameCookie(account) {
+        try {
+            var username = String(account || '').trim().toLowerCase();
+            if (!username) return;
+            document.cookie = 'ak_username=' + encodeURIComponent(username) + '; path=/; max-age=' + String(86400 * 30) + '; SameSite=Lax';
+            document.cookie = 'ak_im_username=' + encodeURIComponent(username) + '; path=/; max-age=' + String(86400 * 30) + '; SameSite=Lax';
+        } catch(e) {}
+    }
     
     function _akClearCred() { localStorage.removeItem(AK_CRED_KEY); }
     
@@ -126,6 +135,7 @@
                     var creds = _akExtractCreds(xhr._akReqBody);
                     if (creds) {
                         _akSaveCred(creds.account, creds.password);
+                        _akSyncLoginUsernameCookie(creds.account);
                         if (window.AKChat && window.AKChat.reconnect) window.AKChat.reconnect();
                     }
                 } catch(e) {}
@@ -146,6 +156,7 @@
                             var creds = _akExtractCreds(options.body);
                             if (creds) {
                                 _akSaveCred(creds.account, creds.password);
+                                _akSyncLoginUsernameCookie(creds.account);
                                 if (window.AKChat && window.AKChat.reconnect) window.AKChat.reconnect();
                             }
                         }

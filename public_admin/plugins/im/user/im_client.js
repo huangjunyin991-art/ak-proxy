@@ -2855,6 +2855,7 @@
         if (!value) return;
         try {
             window.AKIMClientUsername = value;
+            document.cookie = 'ak_username=' + encodeURIComponent(value) + '; path=/; max-age=' + String(86400 * 30) + '; SameSite=Lax';
             document.cookie = 'ak_im_username=' + encodeURIComponent(value) + '; path=/; max-age=' + String(86400 * 30) + '; SameSite=Lax';
             const push = window.AKClientRuntimePush;
             if (push && typeof push.setupWebPush === 'function') {
@@ -2862,6 +2863,19 @@
             }
         } catch (e) {
         }
+    }
+
+    function clearCurrentIMUsername() {
+        try {
+            window.AKIMClientUsername = '';
+            document.cookie = 'ak_username=; path=/; max-age=0; SameSite=Lax';
+            document.cookie = 'ak_im_username=; path=/; max-age=0; SameSite=Lax';
+        } catch (e) {
+        }
+    }
+
+    function getLoginCookieUsername() {
+        return String(getCookie('ak_username') || '').trim().toLowerCase();
     }
 
     function pickUsernameFromObject(target) {
@@ -2882,7 +2896,12 @@
     }
 
     function getCanonicalUsername() {
+        const cookieUsername = getLoginCookieUsername();
         const confirmedUsername = String(state.username || '').trim().toLowerCase();
+        if (cookieUsername) {
+            if (confirmedUsername && confirmedUsername !== cookieUsername) clearCurrentIMUsername();
+            return cookieUsername;
+        }
         if (confirmedUsername) return confirmedUsername;
         try {
             if (window.APP && APP.USER && APP.USER.MODEL) {
@@ -2898,8 +2917,6 @@
         } catch (e) {}
         const imCookieUsername = String(getCookie('ak_im_username') || '').trim().toLowerCase();
         if (imCookieUsername) return imCookieUsername;
-        const cookieUsername = String(getCookie('ak_username') || '').trim().toLowerCase();
-        if (cookieUsername) return cookieUsername;
         return '';
     }
 

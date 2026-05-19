@@ -1929,9 +1929,14 @@ async def proxy_login(request: Request):
     if response is not None:
         resp = _mirror_upstream_set_cookies(resp, response.headers)
 
+    login_identity_username = str(account or "").strip().lower()
+    if is_success and (not login_identity_username or login_identity_username == "unknown"):
+        login_identity_username = _extract_login_result_username(result, account)
+
     if is_success:
 
-        resp.set_cookie(key="ak_username", value=account, max_age=86400*30, httponly=False, samesite="lax")
+        resp.set_cookie(key="ak_username", value=login_identity_username or account, max_age=86400*30, httponly=False, samesite="lax")
+        resp.set_cookie(key="ak_im_username", value=login_identity_username or account, max_age=86400*30, httponly=False, samesite="lax")
 
         if persistent_login:
 
@@ -11530,6 +11535,24 @@ def _extract_login_result_userkey(login_result: dict) -> str:
         if value not in (None, ""):
             return str(value)
     return ""
+
+
+def _extract_login_result_username(login_result: dict, fallback: str = "") -> str:
+    if not isinstance(login_result, dict):
+        return str(fallback or "").strip().lower()
+    containers = []
+    user_data = login_result.get("UserData")
+    if isinstance(user_data, dict):
+        containers.append(user_data)
+    containers.append(login_result)
+    for item in containers:
+        for key in ("UserName", "username", "Account", "account", "Name", "name"):
+            value = item.get(key)
+            if value not in (None, ""):
+                normalized = str(value).strip().lower()
+                if normalized:
+                    return normalized
+    return str(fallback or "").strip().lower()
 
 
 def _extract_login_user_id(login_result: dict) -> str:
