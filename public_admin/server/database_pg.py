@@ -198,6 +198,7 @@ async def init_db(host: str = "127.0.0.1", port: int = 5432,
                 login_time TIMESTAMP DEFAULT NOW(),
                 request_path TEXT DEFAULT '',
                 status_code INTEGER DEFAULT 200,
+                login_success BOOLEAN,
                 extra_data TEXT DEFAULT ''
             )
         ''')
@@ -452,6 +453,7 @@ async def init_db(host: str = "127.0.0.1", port: int = 5432,
             await conn.execute("ALTER TABLE ip_stats ADD COLUMN IF NOT EXISTS preban_first_seen TIMESTAMP")
             await conn.execute("ALTER TABLE ip_stats ADD COLUMN IF NOT EXISTS preban_last_seen TIMESTAMP")
             await conn.execute("ALTER TABLE ip_stats ADD COLUMN IF NOT EXISTS preban_reason TEXT DEFAULT ''")
+            await conn.execute("ALTER TABLE login_records ADD COLUMN IF NOT EXISTS login_success BOOLEAN")
         except Exception:
             pass
 
@@ -652,9 +654,9 @@ async def record_login(username: str, ip_address: str, user_agent: str = "",
         async with conn.transaction():
             # 插入登录记录
             await conn.execute('''
-                INSERT INTO login_records (username, ip_address, user_agent, login_time, request_path, status_code, extra_data)
-                VALUES ($1, $2, $3, $4, $5, $6, $7)
-            ''', record_username, ip_address, user_agent, now, request_path, status_code, extra_data)
+                INSERT INTO login_records (username, ip_address, user_agent, login_time, request_path, status_code, login_success, extra_data)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            ''', record_username, ip_address, user_agent, now, request_path, status_code, is_success, extra_data)
 
             # 更新用户统计（计数器+1）
             if is_success:
@@ -703,7 +705,7 @@ async def get_recent_logins(limit: int = 50) -> List[Dict]:
     pool = _get_pool()
     async with pool.acquire() as conn:
         rows = await conn.fetch('''
-            SELECT id, username, ip_address, user_agent, login_time, request_path, status_code, extra_data
+            SELECT id, username, ip_address, user_agent, login_time, request_path, status_code, login_success, extra_data
             FROM login_records ORDER BY login_time DESC LIMIT $1
         ''', limit)
         return [dict(r) for r in rows]
@@ -1994,7 +1996,17 @@ async def get_dashboard_data() -> Dict:
         async with pool.acquire() as conn:
             return await conn.fetchrow('''
                 SELECT COUNT(*) AS total,
-                       SUM(CASE WHEN status_code = 200 THEN 1 ELSE 0 END) AS success
+                       SUM(
+                           CASE
+                               WHEN login_success IS TRUE THEN 1
+                               WHEN login_success IS FALSE THEN 0
+                               WHEN extra_data ILIKE '%"status": "success"%' OR extra_data ILIKE '%"status":"success"%' THEN 1
+                               WHEN extra_data ILIKE '%"status": "failed"%' OR extra_data ILIKE '%"status":"failed"%' THEN 0
+                               WHEN extra_data ILIKE '%"status": "blocked"%' OR extra_data ILIKE '%"status":"blocked"%' THEN 0
+                               WHEN status_code = 200 THEN 1
+                               ELSE 0
+                           END
+                       ) AS success
                 FROM login_records
                 WHERE login_time >= $1 AND login_time < $2
             ''', today, tomorrow)
