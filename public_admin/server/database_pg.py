@@ -246,6 +246,7 @@ async def init_db(host: str = "127.0.0.1", port: int = 5432,
                 banned_at TIMESTAMP DEFAULT NOW(),
                 banned_reason TEXT DEFAULT '',
                 banned_until TIMESTAMP,
+                released_at TIMESTAMP,
                 is_active BOOLEAN DEFAULT TRUE,
                 UNIQUE(ban_type, ban_value)
             )
@@ -454,6 +455,7 @@ async def init_db(host: str = "127.0.0.1", port: int = 5432,
             await conn.execute("ALTER TABLE ip_stats ADD COLUMN IF NOT EXISTS preban_last_seen TIMESTAMP")
             await conn.execute("ALTER TABLE ip_stats ADD COLUMN IF NOT EXISTS preban_reason TEXT DEFAULT ''")
             await conn.execute("ALTER TABLE login_records ADD COLUMN IF NOT EXISTS login_success BOOLEAN")
+            await conn.execute("ALTER TABLE ban_list ADD COLUMN IF NOT EXISTS released_at TIMESTAMP")
         except Exception:
             pass
 
@@ -1523,7 +1525,7 @@ async def ban_user(username: str, reason: str = "", duration_days: int = None):
                 INSERT INTO ban_list (ban_type, ban_value, banned_at, banned_reason, banned_until, is_active)
                 VALUES ('username', $1, $2, $3, $4, TRUE)
                 ON CONFLICT(ban_type, ban_value) DO UPDATE SET
-                    banned_at = $2, banned_reason = $3, banned_until = $4, is_active = TRUE
+                    banned_at = $2, banned_reason = $3, banned_until = $4, released_at = NULL, is_active = TRUE
             ''', username, now, reason, banned_until)
 
 
@@ -1538,7 +1540,7 @@ async def unban_user(username: str):
                 WHERE username = $1
             ''', username)
             await conn.execute('''
-                UPDATE ban_list SET is_active = FALSE
+                UPDATE ban_list SET is_active = FALSE, released_at = NOW()
                 WHERE ban_type = 'username' AND ban_value = $1
             ''', username)
 
@@ -1560,7 +1562,7 @@ async def ban_ip(ip_address: str, reason: str = "", duration_days: int = None):
                 INSERT INTO ban_list (ban_type, ban_value, banned_at, banned_reason, banned_until, is_active)
                 VALUES ('ip', $1, $2, $3, $4, TRUE)
                 ON CONFLICT(ban_type, ban_value) DO UPDATE SET
-                    banned_at = $2, banned_reason = $3, banned_until = $4, is_active = TRUE
+                    banned_at = $2, banned_reason = $3, banned_until = $4, released_at = NULL, is_active = TRUE
             ''', ip_address, now, reason, banned_until)
 
 
@@ -1591,7 +1593,7 @@ async def unban_ip(ip_address: str):
                 WHERE ip_address = $1
             ''', ip_address)
             await conn.execute('''
-                UPDATE ban_list SET is_active = FALSE
+                UPDATE ban_list SET is_active = FALSE, released_at = NOW()
                 WHERE ban_type = 'ip' AND ban_value = $1
             ''', ip_address)
 
@@ -1683,19 +1685,58 @@ async def is_banned(username: str = None, ip_address: str = None) -> bool:
     return False
 
 
+async def _normalize_ban_records(conn):
+    await conn.execute('''
+        UPDATE user_stats us
+        SET is_banned = FALSE, banned_at = NULL, banned_reason = ''
+        FROM ban_list bl
+        WHERE bl.ban_type = 'username'
+          AND bl.ban_value = us.username
+          AND bl.is_active = TRUE
+          AND bl.banned_until IS NOT NULL
+          AND bl.banned_until <= NOW()
+          AND us.is_banned = TRUE
+    ''')
+    await conn.execute('''
+        UPDATE ip_stats ips
+        SET is_banned = FALSE, banned_at = NULL, banned_reason = '',
+            preban_count = 0, preban_first_seen = NULL, preban_last_seen = NULL, preban_reason = ''
+        FROM ban_list bl
+        WHERE bl.ban_type = 'ip'
+          AND bl.ban_value = ips.ip_address
+          AND bl.is_active = TRUE
+          AND bl.banned_until IS NOT NULL
+          AND bl.banned_until <= NOW()
+          AND ips.is_banned = TRUE
+    ''')
+    await conn.execute('''
+        DELETE FROM ban_list
+        WHERE (is_active = FALSE OR (banned_until IS NOT NULL AND banned_until <= NOW()))
+          AND COALESCE(released_at, banned_until, banned_at) < NOW() - INTERVAL '7 days'
+    ''')
+
+
 async def get_ban_list() -> List[Dict]:
     """获取封禁列表"""
     pool = _get_pool()
     async with pool.acquire() as conn:
+        await _normalize_ban_records(conn)
         rows = await conn.fetch('''
-            WITH active_bans AS (
-                SELECT id, ban_type, ban_value, banned_at, banned_reason, banned_until, is_active
+            WITH visible_bans AS (
+                SELECT id, ban_type, ban_value, banned_at, banned_reason, banned_until, is_active,
+                       CASE
+                           WHEN is_active = TRUE AND (banned_until IS NULL OR banned_until > NOW()) THEN 'active'
+                           WHEN is_active = TRUE AND banned_until IS NOT NULL AND banned_until <= NOW() THEN 'expired'
+                           ELSE 'released'
+                       END AS ban_status
                 FROM ban_list
-                WHERE is_active = TRUE AND (banned_until IS NULL OR banned_until > NOW())
+                WHERE (is_active = TRUE AND (banned_until IS NULL OR banned_until > NOW()))
+                   OR COALESCE(released_at, banned_until, banned_at) >= NOW() - INTERVAL '7 days'
             ),
             stat_user_bans AS (
                 SELECT NULL::bigint AS id, 'username'::text AS ban_type, username AS ban_value,
-                       banned_at, banned_reason, NULL::timestamp AS banned_until, TRUE AS is_active
+                       banned_at, banned_reason, NULL::timestamp AS banned_until, TRUE AS is_active,
+                       'active'::text AS ban_status
                 FROM user_stats us
                 WHERE us.is_banned = TRUE
                   AND NOT EXISTS (
@@ -1705,7 +1746,8 @@ async def get_ban_list() -> List[Dict]:
             ),
             stat_ip_bans AS (
                 SELECT NULL::bigint AS id, 'ip'::text AS ban_type, ip_address AS ban_value,
-                       banned_at, banned_reason, NULL::timestamp AS banned_until, TRUE AS is_active
+                       banned_at, banned_reason, NULL::timestamp AS banned_until, TRUE AS is_active,
+                       'active'::text AS ban_status
                 FROM ip_stats ips
                 WHERE ips.is_banned = TRUE
                   AND NOT EXISTS (
@@ -1713,7 +1755,7 @@ async def get_ban_list() -> List[Dict]:
                       WHERE bl.ban_type = 'ip' AND bl.ban_value = ips.ip_address
                   )
             )
-            SELECT * FROM active_bans
+            SELECT * FROM visible_bans
             UNION ALL
             SELECT * FROM stat_user_bans
             UNION ALL
@@ -1729,16 +1771,18 @@ async def get_stats_summary() -> Dict:
     """获取统计摘要"""
     pool = _get_pool()
     async with pool.acquire() as conn:
+        await _normalize_ban_records(conn)
         total_users = await conn.fetchval('SELECT COUNT(*) FROM user_stats')
         total_ips = await conn.fetchval('SELECT COUNT(*) FROM ip_stats')
         today_logins = await conn.fetchval('''
             SELECT COUNT(*) FROM login_records WHERE login_time::date = CURRENT_DATE
         ''')
         banned_count = await conn.fetchval('''
-            WITH active_bans AS (
+            WITH visible_bans AS (
                 SELECT ban_type, ban_value
                 FROM ban_list
-                WHERE is_active = TRUE AND (banned_until IS NULL OR banned_until > NOW())
+                WHERE (is_active = TRUE AND (banned_until IS NULL OR banned_until > NOW()))
+                   OR COALESCE(released_at, banned_until, banned_at) >= NOW() - INTERVAL '7 days'
             ),
             stat_user_bans AS (
                 SELECT 'username'::text AS ban_type, username AS ban_value
@@ -1759,7 +1803,7 @@ async def get_stats_summary() -> Dict:
                   )
             )
             SELECT COUNT(*) FROM (
-                SELECT * FROM active_bans
+                SELECT * FROM visible_bans
                 UNION ALL
                 SELECT * FROM stat_user_bans
                 UNION ALL

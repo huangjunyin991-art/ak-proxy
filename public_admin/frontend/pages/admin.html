@@ -3249,13 +3249,14 @@
                         <tr>
                             <th>类型</th>
                             <th>值</th>
+                            <th>状态</th>
                             <th>封禁时间</th>
                             <th>原因</th>
                             <th>操作</th>
                         </tr>
                     </thead>
                     <tbody id="banlistTable">
-                        <tr><td colspan="5" style="text-align: center; color: var(--text-secondary);">加载中...</td></tr>
+                        <tr><td colspan="6" style="text-align: center; color: var(--text-secondary);">加载中...</td></tr>
                     </tbody>
                 </table>
             </div>
@@ -5909,26 +5910,34 @@
                 // 更新封禁用户集合
                 bannedUsersSet.clear();
                 data.forEach(item => {
-                    if (item.ban_type === 'user' || item.ban_type === 'username') bannedUsersSet.add(item.ban_value.toLowerCase());
+                    if ((item.ban_type === 'user' || item.ban_type === 'username') && item.ban_status === 'active') bannedUsersSet.add(item.ban_value.toLowerCase());
                 });
 
                 if (data.length === 0) {
-                    tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: var(--text-secondary);">暂无封禁</td></tr>';
+                    tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: var(--text-secondary);">暂无封禁</td></tr>';
                     return;
                 }
                 
                 tbody.innerHTML = data.map(item => {
                     const banType = item.ban_type === 'ip' ? 'ip' : 'username';
                     const banValue = item.ban_value || '';
+                    const banStatus = item.ban_status || 'active';
+                    const statusMeta = {
+                        active: { cls: 'danger', text: '封禁中' },
+                        expired: { cls: 'warning', text: '已过期' },
+                        released: { cls: 'success', text: '已解除' }
+                    }[banStatus] || { cls: 'warning', text: banStatus };
+                    const actionHtml = banStatus === 'active'
+                        ? `<button class="btn btn-success" onclick="unban(${jsArg(banType)}, ${jsArg(banValue)})">解封</button>`
+                        : '<span style="color: var(--text-secondary); font-size: 12px;">保留7天</span>';
                     return `
                     <tr>
                         <td><span class="badge ${item.ban_type === 'ip' ? 'warning' : 'danger'}">${item.ban_type === 'ip' ? 'IP' : '用户'}</span></td>
                         <td><strong>${escapeHtml(banValue)}</strong></td>
+                        <td><span class="badge ${statusMeta.cls}">${escapeHtml(statusMeta.text)}</span></td>
                         <td>${fmtTime(item.banned_at)}</td>
                         <td>${escapeHtml(item.banned_reason || '-')}</td>
-                        <td>
-                            <button class="btn btn-success" onclick="unban(${jsArg(banType)}, ${jsArg(banValue)})">解封</button>
-                        </td>
+                        <td>${actionHtml}</td>
                     </tr>
                 `;
                 }).join('');
