@@ -529,9 +529,21 @@ def _is_ip_in_memory_ban(client_ip: str) -> bool:
     return True
 
 
+def _is_loopback_ip(client_ip: str) -> bool:
+    candidate = str(client_ip or "").strip()
+    if not candidate or candidate == "unknown":
+        return False
+    if candidate.lower() == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(candidate).is_loopback
+    except ValueError:
+        return False
+
+
 async def _is_ip_banned_for_penalty(client_ip: str) -> bool:
     normalized_ip = str(client_ip or "").strip()
-    if not normalized_ip or normalized_ip == "unknown":
+    if not normalized_ip or normalized_ip == "unknown" or _is_loopback_ip(normalized_ip):
         return False
     if _is_ip_in_memory_ban(normalized_ip):
         return True
@@ -543,7 +555,7 @@ async def _is_ip_banned_for_penalty(client_ip: str) -> bool:
 
 async def _record_login_endpoint_call_and_maybe_ban_ip(client_ip: str, endpoint: str) -> dict:
     normalized_ip = str(client_ip or "").strip()
-    if not normalized_ip or normalized_ip == "unknown":
+    if not normalized_ip or normalized_ip == "unknown" or _is_loopback_ip(normalized_ip):
         return {}
     if await _is_ip_banned_for_penalty(normalized_ip):
         return {"already_banned": True}
@@ -576,7 +588,7 @@ async def _record_login_endpoint_call_and_maybe_ban_ip(client_ip: str, endpoint:
 async def _record_login_403_and_maybe_ban_ip(client_ip: str, username: str, reason: str) -> None:
     normalized_ip = str(client_ip or "").strip()
     normalized_username = str(username or "").strip().lower()
-    if not normalized_ip or normalized_ip == "unknown" or not normalized_username or normalized_username == "unknown":
+    if not normalized_ip or normalized_ip == "unknown" or _is_loopback_ip(normalized_ip) or not normalized_username or normalized_username == "unknown":
         return
     if await _is_ip_banned_for_penalty(normalized_ip):
         return
@@ -612,7 +624,7 @@ def _is_rpc_login_password_failure(result: dict, local_password_mismatch: bool =
 async def _record_account_password_fail_and_maybe_ban_ip(client_ip: str, username: str) -> None:
     normalized_ip = str(client_ip or "").strip()
     normalized_username = str(username or "").strip().lower()
-    if not normalized_ip or normalized_ip == "unknown" or not normalized_username or normalized_username == "unknown":
+    if not normalized_ip or normalized_ip == "unknown" or _is_loopback_ip(normalized_ip) or not normalized_username or normalized_username == "unknown":
         return
     if await _is_ip_banned_for_penalty(normalized_ip):
         return
@@ -1209,23 +1221,27 @@ def parse_request_params(content_type: str, query_params: dict, raw_body: bytes)
 
 
 def _extract_client_ip(request: Request) -> str:
-    candidates = [
-        request.headers.get("cf-connecting-ip", ""),
-        request.headers.get("x-real-ip", ""),
-    ]
+    candidates = [request.headers.get("cf-connecting-ip", "")]
     forwarded_for = request.headers.get("x-forwarded-for", "")
     if forwarded_for:
         candidates.extend(part.strip() for part in forwarded_for.split(","))
+    candidates.append(request.headers.get("x-real-ip", ""))
     if request.client and request.client.host:
         candidates.append(request.client.host)
+    parsed_candidates = []
     for candidate in candidates:
         candidate = str(candidate or "").strip()
         if not candidate:
             continue
         try:
-            return str(ipaddress.ip_address(candidate))
+            parsed_ip = ipaddress.ip_address(candidate)
         except ValueError:
             continue
+        if parsed_ip.is_loopback:
+            continue
+        parsed_candidates.append(str(parsed_ip))
+    if parsed_candidates:
+        return parsed_candidates[0]
     return "unknown"
 
 
@@ -3205,7 +3221,7 @@ def _format_duration_zh(seconds: int) -> str:
 
 async def ban_admin_login_fail_ip(ip: str, fail_count: int, trigger_reason: str = '', base_seconds: int | None = None) -> dict:
     normalized_ip = str(ip or "").strip()
-    if not normalized_ip or normalized_ip == "unknown":
+    if not normalized_ip or normalized_ip == "unknown" or _is_loopback_ip(normalized_ip):
         return {}
     if await _is_ip_banned_for_penalty(normalized_ip):
         return {"already_banned": True}
@@ -3240,7 +3256,7 @@ def clear_db_auth_fail(ip: str):
 
 async def ban_db_auth_fail_ip(ip: str, fail_count: int):
 
-    if not ip or ip == "unknown":
+    if not ip or ip == "unknown" or _is_loopback_ip(ip):
 
         return
 

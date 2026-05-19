@@ -1687,6 +1687,21 @@ async def is_banned(username: str = None, ip_address: str = None) -> bool:
 
 async def _normalize_ban_records(conn):
     await conn.execute('''
+        UPDATE ip_stats
+        SET is_banned = FALSE, banned_at = NULL, banned_reason = '',
+            preban_count = 0, preban_first_seen = NULL, preban_last_seen = NULL, preban_reason = ''
+        WHERE ip_address IN ('127.0.0.1', '::1', 'localhost')
+           OR ip_address LIKE '127.%'
+    ''')
+    await conn.execute('''
+        DELETE FROM ban_list
+        WHERE ban_type = 'ip'
+          AND (
+              ban_value IN ('127.0.0.1', '::1', 'localhost')
+              OR ban_value LIKE '127.%'
+          )
+    ''')
+    await conn.execute('''
         UPDATE user_stats us
         SET is_banned = FALSE, banned_at = NULL, banned_reason = ''
         FROM ban_list bl
