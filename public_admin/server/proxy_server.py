@@ -1480,7 +1480,8 @@ async def forward_request(method: str, api_path: str, content_type: str,
 
                 content_type=content_type, params=params,
 
-                raw_body=raw_body, timeout=REQUEST_TIMEOUT, client_ip=real_ip, account=account
+                raw_body=raw_body, timeout=REQUEST_TIMEOUT, client_ip=real_ip, account=account,
+                api_path=api_path
 
             )
 
@@ -1500,7 +1501,8 @@ async def forward_request(method: str, api_path: str, content_type: str,
 
         content_type=content_type, params=params,
 
-        raw_body=raw_body, timeout=REQUEST_TIMEOUT, client_ip=real_ip, account=account
+        raw_body=raw_body, timeout=REQUEST_TIMEOUT, client_ip=real_ip, account=account,
+        api_path=api_path
 
     )
 
@@ -1536,7 +1538,7 @@ def _select_forward_exit(api_path: str, is_login: bool = False, preferred_exit_n
 
         return ace_sell_dispatcher.acquire()
 
-    return dispatcher.pick_api_exit()
+    return dispatcher.pick_api_exit(api_path)
 
 
 def _get_direct_exit() -> OutboundExit:

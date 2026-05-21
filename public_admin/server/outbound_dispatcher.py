@@ -281,6 +281,8 @@ class OutboundDispatcher:
     HEALTH_CHECK_TIMEOUT = 6
     DIRECT_FALLBACK_RATE_PER_SECOND = 2
     DIRECT_FALLBACK_RATE_PER_MINUTE = 30
+    DEDICATED_FAST_EXIT_COUNT = 5
+    DEDICATED_FAST_RPC_PATHS = {"public_ace", "public_ep_sellrecords1"}
 
     def __init__(self):
         self.exits: list[OutboundExit] = [
@@ -440,16 +442,18 @@ class OutboundDispatcher:
             return failed_exit
         return min(candidates, key=lambda e: e.active)
 
-    def _fallback_sequence(self, failed_exit: OutboundExit) -> list[OutboundExit]:
+    def _fallback_sequence(self, failed_exit: OutboundExit, api_path: str = "") -> list[OutboundExit]:
         direct = self._safe_direct()
-        candidates = [
-            ex for ex in self.exits
+        candidate_indices = [
+            i for i, ex in enumerate(self.exits)
             if ex is not failed_exit
             and not ex.is_direct
             and ex.healthy
             and not ex.is_frozen
+            and self._exit_has_dispatch_capacity(ex)
         ]
-        candidates = [ex for ex in candidates if self._exit_has_dispatch_capacity(ex)]
+        candidate_indices = self._route_dedicated_fast_pool(candidate_indices, api_path)
+        candidates = [self.exits[i] for i in candidate_indices]
         candidates.sort(key=lambda e: e.active)
         if direct is not failed_exit and not direct.is_frozen and self._exit_has_dispatch_capacity(direct):
             candidates.append(direct)
@@ -516,6 +520,38 @@ class OutboundDispatcher:
         available = [i for i in pool if self.exits[i].count_recent_requests(1.0) < limit]
         return available
 
+    def _normalize_api_path(self, api_path: str) -> str:
+        return str(api_path or "").strip("/").lower()
+
+    def _is_dedicated_fast_rpc(self, api_path: str) -> bool:
+        return self._normalize_api_path(api_path) in self.DEDICATED_FAST_RPC_PATHS
+
+    def _latency_sort_key(self, idx: int):
+        value = getattr(self.exits[idx], "latency_ms", None)
+        try:
+            latency = int(value) if value is not None else None
+        except Exception:
+            latency = None
+        return (1 if latency is None else 0, latency if latency is not None else 10**9, self.exits[idx].active, idx)
+
+    def _get_dedicated_fast_tunnels(self) -> list[int]:
+        candidates = [
+            i for i, ex in enumerate(self.exits)
+            if not ex.is_direct
+            and ex.healthy
+            and not ex.is_frozen
+        ]
+        candidates.sort(key=self._latency_sort_key)
+        return candidates[:self.DEDICATED_FAST_EXIT_COUNT]
+
+    def _route_dedicated_fast_pool(self, pool: list[int], api_path: str = "") -> list[int]:
+        dedicated = set(self._get_dedicated_fast_tunnels())
+        if not dedicated:
+            return pool
+        if self._is_dedicated_fast_rpc(api_path):
+            return [i for i in pool if i in dedicated]
+        return [i for i in pool if i not in dedicated]
+
     # ===== 调度（全部异常安全） =====
 
     def pick_login_exit(self) -> OutboundExit:
@@ -527,7 +563,7 @@ class OutboundDispatcher:
         4. 任何异常降级直连
         """
         try:
-            healthy = self._get_healthy_tunnels()
+            healthy = self._route_dedicated_fast_pool(self._get_healthy_tunnels(), "")
             if not healthy:
                 direct = self._safe_direct()
                 if self._direct_has_fallback_capacity(direct):
@@ -584,14 +620,14 @@ class OutboundDispatcher:
             logger.error(f"[Dispatcher] Login调度异常，降级直连: {e}")
             return self._safe_direct()
 
-    def pick_api_exit(self) -> OutboundExit:
+    def pick_api_exit(self, api_path: str = "") -> OutboundExit:
         """
         为普通API请求选择出口:
         使用 least-connections（最少活跃连接）策略，保证每个IP同时使用人数均匀
         任何异常降级直连
         """
         try:
-            healthy = self._get_healthy_tunnels()
+            healthy = self._route_dedicated_fast_pool(self._get_healthy_tunnels(), api_path)
             if not healthy:
                 direct = self._safe_direct()
                 if self._direct_has_fallback_capacity(direct):
@@ -626,14 +662,15 @@ class OutboundDispatcher:
     async def forward(self, exit_obj: OutboundExit, method: str, url: str,
                       headers: dict, content_type: str = "",
                       params: dict = None, raw_body: bytes = None,
-                      timeout: float = 30, client_ip: str = "", account: str = "") -> httpx.Response:
+                      timeout: float = 30, client_ip: str = "", account: str = "",
+                      api_path: str = "") -> httpx.Response:
         """
         通过指定出口转发HTTP请求。
         - 自动跟踪活跃连接数（进入+1，完成-1）
         - 检测403/429等状态码并记录告警日志
         - 隧道出口失败时自动降级直连重试
         """
-        attempts = [exit_obj] + self._fallback_sequence(exit_obj)
+        attempts = [exit_obj] + self._fallback_sequence(exit_obj, api_path)
         last_error = None
         for attempt_index, current_exit in enumerate(attempts):
             if attempt_index > 0:
