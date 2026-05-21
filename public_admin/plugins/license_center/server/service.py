@@ -1,5 +1,11 @@
+import base64
+import hashlib
+import hmac
 import secrets
 import string
+import struct
+import time
+import urllib.parse
 from datetime import datetime, timedelta
 from typing import Any, Dict, Optional
 
@@ -8,6 +14,10 @@ from .repository import LicenseCenterRepository
 
 PUBLIC_LICENSE_SERVER_URL = 'https://ak2025.vip'
 DEFAULT_PRODUCT_ID = 'ak_admin_panel'
+PASSWORD_HASH_ITERATIONS = 200000
+TOTP_INTERVAL_SECONDS = 30
+TOTP_DIGITS = 6
+LICENSE_CREDENTIALS_ISSUER = 'AK授权中心'
 
 
 class LicenseCenterService:
@@ -44,6 +54,90 @@ class LicenseCenterService:
         if not url.startswith('/'):
             url = f'/{url}'
         return f'{PUBLIC_LICENSE_SERVER_URL}{url}'
+
+    def hash_password(self, password: str) -> str:
+        salt = secrets.token_hex(16)
+        digest = hashlib.pbkdf2_hmac('sha256', str(password or '').encode('utf-8'), salt.encode('ascii'), PASSWORD_HASH_ITERATIONS).hex()
+        return f'pbkdf2_sha256${PASSWORD_HASH_ITERATIONS}${salt}${digest}'
+
+    def verify_password_hash(self, password: str, stored_hash: str) -> bool:
+        value = str(stored_hash or '')
+        parts = value.split('$')
+        if len(parts) != 4 or parts[0] != 'pbkdf2_sha256':
+            return False
+        try:
+            iterations = int(parts[1])
+            salt = parts[2]
+            expected = parts[3]
+            digest = hashlib.pbkdf2_hmac('sha256', str(password or '').encode('utf-8'), salt.encode('ascii'), iterations).hex()
+            return hmac.compare_digest(digest, expected)
+        except Exception:
+            return False
+
+    def generate_google_secret(self) -> str:
+        return base64.b32encode(secrets.token_bytes(20)).decode('ascii').rstrip('=')
+
+    def google_otpauth_uri(self, license_key: str, machine_id: str, secret: str) -> str:
+        label = urllib.parse.quote(f'{LICENSE_CREDENTIALS_ISSUER}:{license_key[-8:]}-{machine_id[-6:]}')
+        issuer = urllib.parse.quote(LICENSE_CREDENTIALS_ISSUER)
+        return f'otpauth://totp/{label}?secret={secret}&issuer={issuer}&digits={TOTP_DIGITS}&period={TOTP_INTERVAL_SECONDS}'
+
+    def verify_totp_code(self, secret: str, code: str) -> bool:
+        normalized = str(code or '').strip()
+        if len(normalized) != TOTP_DIGITS or not normalized.isdigit() or not secret:
+            return False
+        now_step = int(time.time() // TOTP_INTERVAL_SECONDS)
+        for step in (now_step - 1, now_step, now_step + 1):
+            if hmac.compare_digest(self.generate_totp_code(secret, step), normalized):
+                return True
+        return False
+
+    def generate_totp_code(self, secret: str, step: int) -> str:
+        padded = str(secret or '').strip().upper()
+        padded += '=' * ((8 - len(padded) % 8) % 8)
+        key = base64.b32decode(padded, casefold=True)
+        msg = struct.pack('>Q', int(step))
+        digest = hmac.new(key, msg, hashlib.sha1).digest()
+        offset = digest[-1] & 0x0F
+        value = struct.unpack('>I', digest[offset:offset + 4])[0] & 0x7FFFFFFF
+        return str(value % (10 ** TOTP_DIGITS)).zfill(TOTP_DIGITS)
+
+    def format_credentials_status(self, row: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+        has_login = bool(row and row.get('login_password_hash'))
+        has_verify = bool(row and row.get('verify_password_hash'))
+        has_google = bool(row and row.get('google_enabled') and row.get('google_secret'))
+        return {
+            'is_initialized': has_login,
+            'has_password': has_login,
+            'has_login_password': has_login,
+            'has_verify_password': has_verify,
+            'has_google': has_google,
+            'google_enabled': has_google,
+            'has_email': bool(row and row.get('email')),
+            'has_phone': bool(row and row.get('phone')),
+            'email': row.get('email') if row else '',
+            'phone': row.get('phone') if row else '',
+        }
+
+    async def require_license_device(self, data: Dict[str, Any]) -> tuple[Optional[Dict[str, Any]], str, str, Optional[Dict[str, Any]]]:
+        license_key = str(data.get('license_key') or data.get('activation_code') or '').strip().upper()
+        machine_id = str(data.get('machine_id') or '').strip()
+        if not license_key:
+            return None, license_key, machine_id, {'error': True, 'success': False, 'message': '缺少激活码', 'error_code': 'LICENSE_REQUIRED'}
+        if not machine_id:
+            return None, license_key, machine_id, {'error': True, 'success': False, 'message': '缺少机器码', 'error_code': 'MACHINE_ID_REQUIRED'}
+        row = await self.repository.get_license(license_key)
+        if not row:
+            return None, license_key, machine_id, {'error': True, 'success': False, 'message': '激活码不存在', 'error_code': 'LICENSE_NOT_FOUND'}
+        validity_error = self.validate_license_time_and_count(row)
+        if validity_error:
+            return None, license_key, machine_id, validity_error
+        device = await self.repository.get_license_device(license_key, machine_id)
+        if not device:
+            return None, license_key, machine_id, {'error': True, 'success': False, 'message': '机器码未绑定该激活码', 'error_code': 'MACHINE_ID_MISMATCH'}
+        if device.get('status') != 'active':
+            return None, license_key, machine_id, {'error': True, 'success': False, 'message': '客户端已被禁用', 'error_code': 'DEVICE_BLACKLISTED'}
+        return row, license_key, machine_id, None
 
     async def create_license(self, data: Dict[str, Any], operator: str = 'admin') -> Dict[str, Any]:
         product_id = self.normalize_product_id(data.get('product_id'))
@@ -198,6 +292,155 @@ class LicenseCenterService:
         await self.repository.add_verification_log(self._log_payload(data, ip_address, 'consume', 'success', '消耗成功'))
         return {'error': False, 'success': True, 'message': '消耗成功', 'data': self.format_license(row)}
 
+    async def check_credentials_initialized(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        _, license_key, machine_id, error = await self.require_license_device(data)
+        if error:
+            return {'error': False, 'success': True, 'data': self.format_credentials_status(None)}
+        credentials = await self.repository.get_credentials(license_key, machine_id)
+        return {'error': False, 'success': True, 'data': self.format_credentials_status(credentials)}
+
+    async def setup_credentials(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        _, license_key, machine_id, error = await self.require_license_device(data)
+        if error:
+            return error
+        login_password = str(data.get('login_password') or '')
+        verify_password = str(data.get('verify_password') or '')
+        if len(login_password) < 6:
+            return {'error': True, 'success': False, 'message': '登录密码至少需要6位字符'}
+        if verify_password and len(verify_password) < 6:
+            return {'error': True, 'success': False, 'message': '二次验证码至少需要6位字符'}
+        existing = await self.repository.get_credentials(license_key, machine_id)
+        if existing and existing.get('login_password_hash'):
+            return {'error': True, 'success': False, 'message': '安全凭证已初始化，请使用重置功能修改'}
+        google_secret = self.generate_google_secret()
+        credentials = await self.repository.upsert_credentials({
+            'license_key': license_key,
+            'machine_id': machine_id,
+            'login_password_hash': self.hash_password(login_password),
+            'verify_password_hash': self.hash_password(verify_password) if verify_password else '',
+            'google_secret': google_secret,
+            'google_enabled': False,
+            'email': str(data.get('email') or '').strip(),
+            'phone': str(data.get('phone') or '').strip(),
+        })
+        status = self.format_credentials_status(credentials)
+        status['google_secret'] = google_secret
+        status['otpauth_uri'] = self.google_otpauth_uri(license_key, machine_id, google_secret)
+        status['requires_google_confirm'] = True
+        return {'error': False, 'success': True, 'message': '安全凭证保存成功，请绑定 Google Authenticator', 'data': status}
+
+    async def login_credentials(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        _, license_key, machine_id, error = await self.require_license_device(data)
+        if error:
+            return error
+        credentials = await self.repository.get_credentials(license_key, machine_id)
+        if not credentials or not credentials.get('login_password_hash'):
+            return {'error': True, 'success': False, 'message': '尚未设置登录密码'}
+        locked_until = credentials.get('locked_until')
+        if locked_until and locked_until > datetime.now():
+            return {
+                'error': True,
+                'success': False,
+                'message': '密码错误次数过多，账号已临时锁定',
+                'data': {'is_locked': True, 'locked_until': locked_until, 'remaining_attempts': 0}
+            }
+        if not self.verify_password_hash(str(data.get('login_password') or data.get('password') or ''), credentials.get('login_password_hash')):
+            failed_attempts = int(credentials.get('failed_attempts') or 0) + 1
+            fields = {'failed_attempts': failed_attempts}
+            if failed_attempts >= 5:
+                fields['locked_until'] = datetime.now() + timedelta(minutes=15)
+            await self.repository.update_credentials(license_key, machine_id, fields)
+            remaining = max(0, 5 - failed_attempts)
+            return {
+                'error': True,
+                'success': False,
+                'message': '密码错误',
+                'data': {
+                    'failed_attempts': failed_attempts,
+                    'remaining_attempts': remaining,
+                    'is_locked': failed_attempts >= 5,
+                    'locked_reason': '密码错误次数过多' if failed_attempts >= 5 else '',
+                }
+            }
+        credentials = await self.repository.update_credentials(license_key, machine_id, {
+            'login_count': int(credentials.get('login_count') or 0) + 1,
+            'failed_attempts': 0,
+            'locked_until': None,
+            'last_login_at': datetime.now(),
+        })
+        return {'error': False, 'success': True, 'message': '登录成功', 'data': self.format_credentials_status(credentials)}
+
+    async def verify_secondary_password(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        _, license_key, machine_id, error = await self.require_license_device(data)
+        if error:
+            return error
+        credentials = await self.repository.get_credentials(license_key, machine_id)
+        if not credentials or not credentials.get('verify_password_hash'):
+            return {'error': True, 'success': False, 'message': '尚未设置二次验证码'}
+        if not self.verify_password_hash(str(data.get('verify_password') or ''), credentials.get('verify_password_hash')):
+            return {'error': True, 'success': False, 'message': '二次验证码错误'}
+        result = self.format_credentials_status(credentials)
+        result['verified'] = True
+        return {'error': False, 'success': True, 'message': '验证成功', 'data': result}
+
+    async def begin_google_binding(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        _, license_key, machine_id, error = await self.require_license_device(data)
+        if error:
+            return error
+        credentials = await self.repository.get_credentials(license_key, machine_id)
+        if not credentials or not credentials.get('login_password_hash'):
+            return {'error': True, 'success': False, 'message': '请先初始化登录密码'}
+        secret = self.generate_google_secret()
+        credentials = await self.repository.update_credentials(license_key, machine_id, {
+            'google_secret': secret,
+            'google_enabled': False,
+        })
+        result = self.format_credentials_status(credentials)
+        result['google_secret'] = secret
+        result['otpauth_uri'] = self.google_otpauth_uri(license_key, machine_id, secret)
+        return {'error': False, 'success': True, 'message': '请使用 Google Authenticator 扫码绑定', 'data': result}
+
+    async def confirm_google_binding(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        _, license_key, machine_id, error = await self.require_license_device(data)
+        if error:
+            return error
+        credentials = await self.repository.get_credentials(license_key, machine_id)
+        if not credentials or not credentials.get('google_secret'):
+            return {'error': True, 'success': False, 'message': '请先生成 Google Authenticator 绑定密钥'}
+        if not self.verify_totp_code(credentials.get('google_secret'), str(data.get('google_code') or data.get('code') or '')):
+            return {'error': True, 'success': False, 'message': 'Google Authenticator 动态码错误'}
+        credentials = await self.repository.update_credentials(license_key, machine_id, {'google_enabled': True})
+        return {'error': False, 'success': True, 'message': 'Google Authenticator 绑定成功', 'data': self.format_credentials_status(credentials)}
+
+    async def reset_passwords_with_google(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        _, license_key, machine_id, error = await self.require_license_device(data)
+        if error:
+            return error
+        credentials = await self.repository.get_credentials(license_key, machine_id)
+        if not credentials or not credentials.get('login_password_hash'):
+            return {'error': True, 'success': False, 'message': '尚未初始化安全凭证'}
+        if not credentials.get('google_enabled') or not credentials.get('google_secret'):
+            return {'error': True, 'success': False, 'message': '尚未绑定 Google Authenticator'}
+        if not self.verify_totp_code(credentials.get('google_secret'), str(data.get('google_code') or data.get('code') or '')):
+            return {'error': True, 'success': False, 'message': 'Google Authenticator 动态码错误'}
+        login_password = str(data.get('login_password') or '')
+        verify_password = str(data.get('verify_password') or '')
+        fields = {}
+        if login_password:
+            if len(login_password) < 6:
+                return {'error': True, 'success': False, 'message': '登录密码至少需要6位字符'}
+            fields['login_password_hash'] = self.hash_password(login_password)
+        if verify_password:
+            if len(verify_password) < 6:
+                return {'error': True, 'success': False, 'message': '二次验证码至少需要6位字符'}
+            fields['verify_password_hash'] = self.hash_password(verify_password)
+        if not fields:
+            return {'error': True, 'success': False, 'message': '请至少填写一个需要重置的密码'}
+        fields['failed_attempts'] = 0
+        fields['locked_until'] = None
+        credentials = await self.repository.update_credentials(license_key, machine_id, fields)
+        return {'error': False, 'success': True, 'message': '重置成功', 'data': self.format_credentials_status(credentials)}
+
     async def check_update(self, product_id: str, current_version: str, channel: str = 'stable') -> Dict[str, Any]:
         product_id = self.normalize_product_id(product_id)
         release = await self.repository.get_latest_release(product_id, channel or 'stable')
@@ -303,11 +546,29 @@ class LicenseCenterService:
             await self.repository.add_verification_log(self._log_payload(data, ip_address, action, 'failed', result['message']))
             return result
         formatted = self.format_license(row)
+        if machine_id:
+            credentials = await self.repository.get_credentials(license_key, machine_id)
+            formatted.update(self.format_credentials_status(credentials))
         update_result = await self.check_update(product_id, client_version, str(data.get('channel') or 'stable'))
         if not update_result.get('error'):
             formatted['update_available'] = update_result.get('data') or {'has_update': False}
         await self.repository.add_verification_log(self._log_payload(dict(data, license_key=license_key), ip_address, action, 'success', '验证成功'))
-        return {'error': False, 'success': True, 'message': '激活成功' if activate else '验证成功', 'data': formatted}
+        result = {'error': False, 'success': True, 'message': '激活成功' if activate else '验证成功', 'data': formatted}
+        result.update({
+            'valid': formatted.get('valid'),
+            'license_key': formatted.get('license_key'),
+            'billing_mode': formatted.get('billing_mode'),
+            'mode': formatted.get('billing_mode'),
+            'unlimited': formatted.get('billing_mode') == 'unlimited',
+            'expire_date': formatted.get('expiry_date'),
+            'expiry_date': formatted.get('expiry_date'),
+            'remaining_uses': formatted.get('remaining_uses'),
+            'remaining_time': formatted.get('remaining_time'),
+            'has_login_password': formatted.get('has_login_password', False),
+            'has_verify_password': formatted.get('has_verify_password', False),
+            'google_enabled': formatted.get('google_enabled', False),
+        })
+        return result
 
     async def find_blacklist(self, row: Dict[str, Any], machine_id: str, account_name: str, ip_address: str) -> Optional[Dict[str, Any]]:
         checks = [

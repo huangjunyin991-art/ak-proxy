@@ -112,10 +112,30 @@ class LicenseCenterRepository:
                     UNIQUE(product_id, version, channel)
                 )
             ''')
+            await conn.execute('''
+                CREATE TABLE IF NOT EXISTS license_center_credentials (
+                    license_key TEXT NOT NULL REFERENCES license_center_keys(license_key) ON DELETE CASCADE,
+                    machine_id TEXT NOT NULL,
+                    login_password_hash TEXT DEFAULT '',
+                    verify_password_hash TEXT DEFAULT '',
+                    google_secret TEXT DEFAULT '',
+                    google_enabled BOOLEAN DEFAULT FALSE,
+                    email TEXT DEFAULT '',
+                    phone TEXT DEFAULT '',
+                    login_count INTEGER DEFAULT 0,
+                    failed_attempts INTEGER DEFAULT 0,
+                    locked_until TIMESTAMP,
+                    last_login_at TIMESTAMP,
+                    created_at TIMESTAMP DEFAULT NOW(),
+                    updated_at TIMESTAMP DEFAULT NOW(),
+                    PRIMARY KEY(license_key, machine_id)
+                )
+            ''')
             await conn.execute('CREATE INDEX IF NOT EXISTS idx_lc_keys_product_status ON license_center_keys(product_id, status)')
             await conn.execute('CREATE INDEX IF NOT EXISTS idx_lc_devices_machine ON license_center_devices(machine_id)')
             await conn.execute('CREATE INDEX IF NOT EXISTS idx_lc_logs_created ON license_center_verification_logs(created_at DESC)')
             await conn.execute('CREATE INDEX IF NOT EXISTS idx_lc_blacklist_target ON license_center_blacklist(target_type, target_value, active)')
+            await conn.execute('CREATE INDEX IF NOT EXISTS idx_lc_credentials_machine ON license_center_credentials(machine_id)')
             await conn.execute('''
                 INSERT INTO license_center_products(product_id, name, description, current_version)
                 VALUES ($1, $2, $3, $4)
@@ -265,6 +285,69 @@ class LicenseCenterRepository:
                 WHERE license_key = $1 AND machine_id = $2
                 LIMIT 1
             ''', license_key, machine_id)
+            return dict(row) if row else None
+
+    async def get_credentials(self, license_key: str, machine_id: str) -> Optional[Dict[str, Any]]:
+        pool = self._pool()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow('''
+                SELECT * FROM license_center_credentials
+                WHERE license_key = $1 AND machine_id = $2
+                LIMIT 1
+            ''', license_key, machine_id)
+            return dict(row) if row else None
+
+    async def upsert_credentials(self, row: Dict[str, Any]) -> Dict[str, Any]:
+        pool = self._pool()
+        async with pool.acquire() as conn:
+            record = await conn.fetchrow('''
+                INSERT INTO license_center_credentials(
+                    license_key, machine_id, login_password_hash, verify_password_hash,
+                    google_secret, google_enabled, email, phone
+                ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+                ON CONFLICT(license_key, machine_id) DO UPDATE SET
+                    login_password_hash = EXCLUDED.login_password_hash,
+                    verify_password_hash = EXCLUDED.verify_password_hash,
+                    google_secret = EXCLUDED.google_secret,
+                    google_enabled = EXCLUDED.google_enabled,
+                    email = EXCLUDED.email,
+                    phone = EXCLUDED.phone,
+                    updated_at = NOW()
+                RETURNING *
+            ''',
+                row['license_key'],
+                row['machine_id'],
+                row.get('login_password_hash') or '',
+                row.get('verify_password_hash') or '',
+                row.get('google_secret') or '',
+                bool(row.get('google_enabled')),
+                row.get('email') or '',
+                row.get('phone') or '',
+            )
+            return dict(record)
+
+    async def update_credentials(self, license_key: str, machine_id: str, fields: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        allowed = [
+            'login_password_hash', 'verify_password_hash', 'google_secret', 'google_enabled',
+            'email', 'phone', 'login_count', 'failed_attempts', 'locked_until', 'last_login_at'
+        ]
+        assignments = []
+        values = []
+        for key in allowed:
+            if key in fields:
+                values.append(fields[key])
+                assignments.append(f'{key} = ${len(values)}')
+        if not assignments:
+            return await self.get_credentials(license_key, machine_id)
+        values.extend([license_key, machine_id])
+        pool = self._pool()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(f'''
+                UPDATE license_center_credentials
+                SET {', '.join(assignments)}, updated_at = NOW()
+                WHERE license_key = ${len(values) - 1} AND machine_id = ${len(values)}
+                RETURNING *
+            ''', *values)
             return dict(row) if row else None
 
     async def set_device_status(self, device_id: str, status: str) -> Optional[Dict[str, Any]]:

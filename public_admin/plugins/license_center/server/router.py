@@ -57,6 +57,12 @@ def create_license_center_router(
         except Exception:
             return None
 
+    async def read_json_or_error(request: Request):
+        data = await read_json(request)
+        if data is None:
+            return None, JSONResponse(status_code=400, content={'error': True, 'success': False, 'message': '请求体无效'})
+        return data, None
+
     @router.get('/admin/api/license/statistics')
     async def license_statistics(request: Request):
         _, error = await require_license_admin(request)
@@ -242,6 +248,56 @@ def create_license_center_router(
             return JSONResponse(status_code=400, content={'error': True, 'success': False, 'message': '请求体无效'})
         return await service.consume(data, ip_address=client_ip(request))
 
+    @router.get('/api/v1/license/check-initialized')
+    async def client_license_check_initialized(license_key: str = '', machine_id: str = ''):
+        return await service.check_credentials_initialized({'license_key': license_key, 'machine_id': machine_id})
+
+    @router.get('/api/v1/license/credentials')
+    async def client_license_credentials(license_key: str = '', machine_id: str = ''):
+        return await service.check_credentials_initialized({'license_key': license_key, 'machine_id': machine_id})
+
+    @router.post('/api/v1/license/setup-credentials')
+    async def client_license_setup_credentials(request: Request):
+        data, error = await read_json_or_error(request)
+        if error is not None:
+            return error
+        return await service.setup_credentials(data)
+
+    @router.post('/api/v1/license/login')
+    async def client_license_login(request: Request):
+        data, error = await read_json_or_error(request)
+        if error is not None:
+            return error
+        return await service.login_credentials(data)
+
+    @router.post('/api/v1/license/verify-password')
+    async def client_license_verify_password(request: Request):
+        data, error = await read_json_or_error(request)
+        if error is not None:
+            return error
+        return await service.verify_secondary_password(data)
+
+    @router.post('/api/v1/license/reset-password')
+    async def client_license_reset_password(request: Request):
+        data, error = await read_json_or_error(request)
+        if error is not None:
+            return error
+        return await service.reset_passwords_with_google(data)
+
+    @router.post('/api/v1/license/google/begin')
+    async def client_license_google_begin(request: Request):
+        data, error = await read_json_or_error(request)
+        if error is not None:
+            return error
+        return await service.begin_google_binding(data)
+
+    @router.post('/api/v1/license/google/confirm')
+    async def client_license_google_confirm(request: Request):
+        data, error = await read_json_or_error(request)
+        if error is not None:
+            return error
+        return await service.confirm_google_binding(data)
+
     @router.get('/api/v1/check-update')
     async def client_check_update(product_id: str = 'ak_admin_panel', current_version: str = '0.0.0', channel: str = 'stable'):
         return await service.check_update(product_id=product_id, current_version=current_version, channel=channel)
@@ -298,6 +354,59 @@ def create_license_center_router(
         if data is None:
             data = {}
         return await service.verify(data, ip_address=client_ip(request))
+
+    @router.get('/api/license/credentials')
+    async def legacy_license_credentials(license_key: str = '', machine_id: str = ''):
+        return await service.check_credentials_initialized({'license_key': license_key, 'machine_id': machine_id})
+
+    @router.post('/api/license/setup-credentials')
+    async def legacy_license_setup_credentials(request: Request):
+        data, error = await read_json_or_error(request)
+        if error is not None:
+            return error
+        return await service.setup_credentials(data)
+
+    @router.post('/api/license/login')
+    async def legacy_license_login(request: Request):
+        data, error = await read_json_or_error(request)
+        if error is not None:
+            return error
+        return await service.login_credentials(data)
+
+    @router.post('/api/license/verify-operation')
+    async def legacy_license_verify_operation(request: Request):
+        data, error = await read_json_or_error(request)
+        if error is not None:
+            return error
+        return await service.verify_secondary_password(data)
+
+    @router.post('/api/license/verify-password')
+    async def legacy_license_verify_password(request: Request):
+        data, error = await read_json_or_error(request)
+        if error is not None:
+            return error
+        return await service.verify_secondary_password(data)
+
+    @router.post('/api/license/reset-password')
+    async def legacy_license_reset_password(request: Request):
+        data, error = await read_json_or_error(request)
+        if error is not None:
+            return error
+        return await service.reset_passwords_with_google(data)
+
+    @router.post('/api/license/google/begin')
+    async def legacy_license_google_begin(request: Request):
+        data, error = await read_json_or_error(request)
+        if error is not None:
+            return error
+        return await service.begin_google_binding(data)
+
+    @router.post('/api/license/google/confirm')
+    async def legacy_license_google_confirm(request: Request):
+        data, error = await read_json_or_error(request)
+        if error is not None:
+            return error
+        return await service.confirm_google_binding(data)
 
     @router.get('/api/v1/health')
     async def client_health():
