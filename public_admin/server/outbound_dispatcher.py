@@ -239,8 +239,8 @@ class OutboundExit:
                 except Exception:
                     pass
             limits = httpx.Limits(
-                max_connections=30,
-                max_keepalive_connections=10,
+                max_connections=40,
+                max_keepalive_connections=20,
                 keepalive_expiry=120,
             )
             self._client = httpx.AsyncClient(
@@ -248,6 +248,7 @@ class OutboundExit:
                 limits=limits,
                 proxy=self.proxy_url,
                 timeout=httpx.Timeout(30, connect=10),
+                trust_env=False,
                 http2=False,  # SOCKS5 代理不支持 h2
             )
             return self._client
@@ -693,6 +694,8 @@ class OutboundDispatcher:
             return await client.get(url, params=params, headers=headers, timeout=req_timeout)
         else:
             if "application/json" in (content_type or ""):
+                if raw_body:
+                    return await client.post(url, content=raw_body, headers=headers, timeout=req_timeout)
                 return await client.post(url, json=params, headers=headers, timeout=req_timeout)
             elif raw_body:
                 return await client.post(url, content=raw_body, headers=headers, timeout=req_timeout)
