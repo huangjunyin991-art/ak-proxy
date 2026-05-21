@@ -167,17 +167,20 @@ class OutboundExit:
         self.total += 1
         self._req_timestamps.append(time.time())
 
-    def get_current_rpm(self, window: float = 60.0) -> int:
-        """获取最近1分钟的请求速率"""
-        now = time.time()
-        cutoff = now - window
-        self._req_timestamps = [t for t in self._req_timestamps if t > cutoff]
-        return len(self._req_timestamps)
-
     def count_recent_requests(self, window: float = 1.0) -> int:
+        """统计最近 window 秒内请求数"""
         now = time.time()
         cutoff = now - window
+        self._req_timestamps = [t for t in self._req_timestamps if t > now - 60.0]
         return sum(1 for t in self._req_timestamps if t > cutoff)
+
+    def get_current_rpm(self) -> int:
+        return self.count_recent_requests(60.0)
+
+    def has_minute_rate_capacity(self) -> bool:
+        if self.rate_limit <= 0:
+            return True
+        return self.count_recent_requests(60.0) < self.rate_limit
 
     def auto_throttle_on_403(self):
         """收到403时自动限速:
@@ -209,7 +212,7 @@ class OutboundExit:
                 now = time.time()
                 cutoff = now - 60.0
                 self._req_timestamps = [t for t in self._req_timestamps if t > cutoff]
-                if len(self._req_timestamps) < self.rate_limit:
+                if len(self._req_timestamps) <= self.rate_limit:
                     return waited
                 # 计算需要等待的时间
                 oldest = min(self._req_timestamps)
@@ -275,6 +278,8 @@ class OutboundDispatcher:
     MAX_LOGIN_PER_MIN = 10
     HEALTH_CHECK_INTERVAL = 15
     HEALTH_CHECK_TIMEOUT = 6
+    DIRECT_FALLBACK_RATE_PER_SECOND = 2
+    DIRECT_FALLBACK_RATE_PER_MINUTE = 30
 
     def __init__(self):
         self.exits: list[OutboundExit] = [
@@ -443,8 +448,9 @@ class OutboundDispatcher:
             and ex.healthy
             and not ex.is_frozen
         ]
+        candidates = [ex for ex in candidates if self._exit_has_dispatch_capacity(ex)]
         candidates.sort(key=lambda e: e.active)
-        if direct is not failed_exit and not direct.is_frozen:
+        if direct is not failed_exit and not direct.is_frozen and self._exit_has_dispatch_capacity(direct):
             candidates.append(direct)
         return candidates
 
@@ -452,11 +458,43 @@ class OutboundDispatcher:
         """获取所有健康且未冻结的出口索引（直连永远包含）"""
         return [i for i, ex in enumerate(self.exits) if (ex.healthy or ex.is_direct) and not ex.is_frozen]
 
-    def _pick_from_pool(self, pool: list[int]) -> int:
+    def _get_healthy_tunnels(self) -> list[int]:
+        return [
+            i for i, ex in enumerate(self.exits)
+            if not ex.is_direct
+            and ex.healthy
+            and not ex.is_frozen
+            and self._exit_has_dispatch_capacity(ex)
+        ]
+
+    def _exit_has_dispatch_capacity(self, ex: OutboundExit) -> bool:
+        if ex.is_direct:
+            return self._direct_has_fallback_capacity(ex)
+        return ex.has_minute_rate_capacity() and self._exit_below_per_second_limit(ex)
+
+    def _direct_has_fallback_capacity(self, ex: OutboundExit) -> bool:
+        return (
+            not ex.is_frozen
+            and ex.count_recent_requests(1.0) < self.DIRECT_FALLBACK_RATE_PER_SECOND
+            and ex.count_recent_requests(60.0) < self.DIRECT_FALLBACK_RATE_PER_MINUTE
+        )
+
+    def _exit_below_per_second_limit(self, ex: OutboundExit) -> bool:
+        if self.policy_config is None:
+            return True
+        limit = int(self.policy_config.per_exit_rate_per_second or 0)
+        if limit <= 0:
+            return True
+        return ex.count_recent_requests(1.0) < limit
+
+    def _pick_from_pool(self, pool: list[int]) -> Optional[int]:
         if not pool:
-            return 0
+            return None
         self._rr_counter += 1
         pool = self._filter_below_per_second_limit(pool)
+        pool = [i for i in pool if self.exits[i].has_minute_rate_capacity()]
+        if not pool:
+            return None
         if self.policy_config is not None and self.policy_config.latency_strategy_enabled and self.latency_strategy is not None:
             try:
                 best = self.latency_strategy.pick(self.exits, pool, self._rr_counter)
@@ -475,7 +513,7 @@ class OutboundDispatcher:
         if limit <= 0:
             return pool
         available = [i for i in pool if self.exits[i].count_recent_requests(1.0) < limit]
-        return available if available else pool
+        return available
 
     # ===== 调度（全部异常安全） =====
 
@@ -488,10 +526,15 @@ class OutboundDispatcher:
         4. 任何异常降级直连
         """
         try:
-            healthy = self._get_healthy()
+            healthy = self._get_healthy_tunnels()
             if not healthy:
-                logger.warning("[Dispatcher] 所有出口不健康，降级直连")
-                return self._safe_direct()
+                direct = self._safe_direct()
+                if self._direct_has_fallback_capacity(direct):
+                    logger.warning("[Dispatcher] 所有隧道出口不可用，Login降级直连")
+                    direct.reserve_login()
+                    direct.record_request()
+                    return direct
+                raise RuntimeError("all login exits are unavailable or rate limited")
 
             # 找未满的出口
             candidates = []
@@ -505,18 +548,37 @@ class OutboundDispatcher:
                 unrestricted = [i for i in candidates if self.exits[i].rate_limit == 0]
                 pool = unrestricted if unrestricted else candidates
                 best = self._pick_from_pool(pool)
+                if best is None:
+                    direct = self._safe_direct()
+                    if not direct.is_frozen and self._exit_has_dispatch_capacity(direct):
+                        logger.warning("[Dispatcher] Login出口均已达限流，降级直连")
+                        direct.reserve_login()
+                        direct.record_request()
+                        return direct
+                    raise RuntimeError("all login exits are rate limited")
                 ex = self.exits[best]
                 ex.reserve_login()
                 ex.record_request()
                 return ex
 
             # 全满了，选登录最少的
-            best = min(healthy, key=lambda i: self.exits[i].count_recent_logins())
+            best = self._pick_from_pool(healthy)
+            if best is None:
+                direct = self._safe_direct()
+                if not direct.is_frozen and self._exit_has_dispatch_capacity(direct):
+                    logger.warning("[Dispatcher] 所有出口Login配额或限流已满，降级直连")
+                    direct.reserve_login()
+                    direct.record_request()
+                    return direct
+                raise RuntimeError("all login exits are unavailable or rate limited")
             ex = self.exits[best]
             ex.reserve_login()
             ex.record_request()
             logger.warning(f"[Dispatcher] 所有出口Login配额已满，使用最少的: {ex.name}")
             return ex
+        except RuntimeError as e:
+            logger.warning(f"[Dispatcher] Login无可用出口: {e}")
+            raise
         except Exception as e:
             logger.error(f"[Dispatcher] Login调度异常，降级直连: {e}")
             return self._safe_direct()
@@ -528,18 +590,32 @@ class OutboundDispatcher:
         任何异常降级直连
         """
         try:
-            healthy = self._get_healthy()
+            healthy = self._get_healthy_tunnels()
             if not healthy:
-                logger.warning("[Dispatcher] 所有出口不健康，降级直连")
-                return self._safe_direct()
+                direct = self._safe_direct()
+                if self._direct_has_fallback_capacity(direct):
+                    logger.warning("[Dispatcher] 所有隧道出口不可用，降级直连")
+                    direct.record_request()
+                    return direct
+                raise RuntimeError("all api exits are unavailable or rate limited")
 
             # 优先选不限速的出口，再按活跃连接数排序
             unrestricted = [i for i in healthy if self.exits[i].rate_limit == 0]
             pool = unrestricted if unrestricted else healthy
             best = self._pick_from_pool(pool)
+            if best is None:
+                direct = self._safe_direct()
+                if self._direct_has_fallback_capacity(direct):
+                    logger.warning("[Dispatcher] API出口均已达限流，降级直连")
+                    direct.record_request()
+                    return direct
+                raise RuntimeError("all api exits are rate limited")
             ex = self.exits[best]
             ex.record_request()
             return ex
+        except RuntimeError as e:
+            logger.warning(f"[Dispatcher] API无可用出口: {e}")
+            raise
         except Exception as e:
             logger.error(f"[Dispatcher] API调度异常，降级直连: {e}")
             return self._safe_direct()
@@ -559,6 +635,13 @@ class OutboundDispatcher:
         attempts = [exit_obj] + self._fallback_sequence(exit_obj)
         last_error = None
         for attempt_index, current_exit in enumerate(attempts):
+            if attempt_index > 0:
+                if not self._exit_has_dispatch_capacity(current_exit):
+                    last_error = RuntimeError(f"{current_exit.name} rate limited")
+                    if attempt_index + 1 < len(attempts):
+                        continue
+                    break
+                current_exit.record_request()
             per_second_wait = await self._wait_for_per_second_rate(current_exit)
             if per_second_wait > 0.5:
                 logger.debug(f"[RateLimit] {current_exit.name} 每秒限速等待 {per_second_wait:.1f}s")
