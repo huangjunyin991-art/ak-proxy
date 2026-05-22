@@ -4318,10 +4318,12 @@
             }
             const requestInit = withAdminAuthHeaders(init);
             const cachedScope = getCachedLeaseScopeForUrl(requestUrl, requestInit.method || 'GET');
+            let attachedLeaseToken = '';
             if (cachedScope || getOperationLease(OPERATION_GLOBAL_SCOPE)) {
                 const lease = getOperationLease(OPERATION_GLOBAL_SCOPE) || getOperationLease(cachedScope);
                 if (lease) {
                     requestInit.headers['X-Operation-Lease'] = lease.token;
+                    attachedLeaseToken = lease.token;
                 }
             }
             let response = await nativeFetch(input, requestInit);
@@ -4338,7 +4340,12 @@
                 return response;
             }
             let leaseToken = '';
-            const existingLease = getOperationLease(OPERATION_GLOBAL_SCOPE) || getOperationLease(data.scope);
+            let existingLease = getOperationLease(OPERATION_GLOBAL_SCOPE) || getOperationLease(data.scope);
+            if (existingLease && existingLease.token === attachedLeaseToken) {
+                clearOperationLease(OPERATION_GLOBAL_SCOPE);
+                clearOperationLease(data.scope);
+                existingLease = null;
+            }
             if (existingLease) {
                 leaseToken = existingLease.token;
             } else {
@@ -4433,6 +4440,15 @@
             operationLeaseCache[normalizedScope] = {token, expireAt};
             try {
                 sessionStorage.setItem(leaseCacheKey(normalizedScope), JSON.stringify(operationLeaseCache[normalizedScope]));
+            } catch (e) {
+            }
+        }
+
+        function clearOperationLease(scope) {
+            const normalizedScope = String(scope || OPERATION_GLOBAL_SCOPE);
+            delete operationLeaseCache[normalizedScope];
+            try {
+                sessionStorage.removeItem(leaseCacheKey(normalizedScope));
             } catch (e) {
             }
         }
