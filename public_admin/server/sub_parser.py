@@ -319,6 +319,7 @@ def _parse_vless_links(text: str) -> list[dict]:
                         'fp': params.get('fp', 'chrome'),
                         'host': params.get('host', ''),
                         'path': params.get('path', ''),
+                        'insecure': params.get('insecure', ''),
                     },
                 })
             except Exception as e:
@@ -469,6 +470,7 @@ def _parse_json_nodes(text: str) -> list[dict]:
                     'fp': item.get('fp', 'chrome'),
                     'host': item.get('host', ''),
                     'path': item.get('path', ''),
+                    'insecure': item.get('insecure', ''),
                 }
             elif proto in ('hysteria2', 'hy2', 'anytls'):
                 raw = {

@@ -11105,7 +11105,7 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                                 <div style="flex: 1;">
                                     <div style="font-size: 13px; font-weight: bold; color: var(--text-primary);">${escapeHtml(group.name || '')}</div>
                                     <div style="font-size: 11px; color: var(--text-secondary);">
-                                        ${escapeHtml(importTime)} | ${Number(group.active_servers || 0)}/${Number(group.total_servers || 0)} 台启用
+                                        ${escapeHtml(importTime)} | 服务器启用 ${Number(group.active_servers || 0)}/${Number(group.total_servers || 0)}
                                         ${group.source_type === 'url' ? ' | 🔗订阅链接' : group.source_type === 'json' ? ' | 📋JSON' : ' | 📝文本'}
                                     </div>
                                     ${notesHtml}
@@ -11177,7 +11177,7 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                     const bgColor = enabled ? 'var(--bg-secondary)' : 'rgba(107,114,128,0.1)';
                     const opacity = enabled ? '1' : '0.6';
                     const disabledTag = enabled ? '' : '<span style="color: #6b7280; font-size: 10px; margin-left: 6px;">❌已禁用</span>';
-                    const nodeCountTag = allNodes.length > 1 ? `<span style="color: #9ca3af; font-size: 10px; margin-left: 4px;">(${allNodes.length}个节点)</span>` : '';
+                    const nodeCountTag = allNodes.length > 1 ? `<span style="color: #9ca3af; font-size: 10px; margin-left: 4px;">(同服务器${allNodes.length}条节点)</span>` : '';
                     const groupIdArg = jsArg(groupId);
                     const serverArg = jsArg(server);
 

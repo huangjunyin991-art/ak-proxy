@@ -32,6 +32,58 @@ def ensure_dir():
     SINGBOX_DIR.mkdir(parents=True, exist_ok=True)
 
 
+def _truthy(value) -> bool:
+    if isinstance(value, bool):
+        return value
+    return str(value or "").strip().lower() in ("1", "true", "yes", "on")
+
+
+def _normalize_network(raw: dict) -> str:
+    return str(raw.get("network") or raw.get("type") or "").strip().lower()
+
+
+def _build_tls(raw: dict, server: str) -> Optional[dict]:
+    security = str(raw.get("security") or raw.get("tls") or "").strip().lower()
+    if security not in ("tls", "reality") and not _truthy(raw.get("tls")):
+        return None
+    tls = {"enabled": True}
+    server_name = str(raw.get("sni") or raw.get("server_name") or server or "").strip()
+    if server_name:
+        tls["server_name"] = server_name
+    if _truthy(raw.get("insecure")):
+        tls["insecure"] = True
+    fingerprint = str(raw.get("fp") or raw.get("fingerprint") or "").strip()
+    if fingerprint:
+        tls["utls"] = {"enabled": True, "fingerprint": fingerprint}
+    if security == "reality":
+        reality = {
+            "enabled": True,
+            "public_key": str(raw.get("pbk") or raw.get("public_key") or "").strip(),
+            "short_id": str(raw.get("sid") or raw.get("short_id") or "").strip(),
+        }
+        tls["reality"] = {k: v for k, v in reality.items() if v or k == "enabled"}
+    return tls
+
+
+def _build_transport(raw: dict) -> Optional[dict]:
+    network = _normalize_network(raw)
+    if network == "ws":
+        transport = {
+            "type": "ws",
+            "path": str(raw.get("path") or "/"),
+        }
+        host = str(raw.get("host") or "").strip()
+        if host:
+            transport["headers"] = {"Host": host}
+        return transport
+    if network == "grpc":
+        return {
+            "type": "grpc",
+            "service_name": str(raw.get("serviceName") or raw.get("service_name") or raw.get("grpc-service-name") or ""),
+        }
+    return None
+
+
 # ===== 节点持久化 =====
 
 def load_saved_nodes() -> list[dict]:
@@ -131,10 +183,12 @@ def _make_outbound(node: dict, tag: str) -> dict:
             "uuid": raw.get("uuid", ""),
             "flow": raw.get("flow", ""),
         }
-        if raw.get("tls"):
-            ob["tls"] = {"enabled": True}
-            if raw.get("sni"):
-                ob["tls"]["server_name"] = raw["sni"]
+        tls = _build_tls(raw, server)
+        if tls:
+            ob["tls"] = tls
+        transport = _build_transport(raw)
+        if transport:
+            ob["transport"] = transport
         return ob
 
     elif proto in ("trojan",):
@@ -152,31 +206,35 @@ def _make_outbound(node: dict, tag: str) -> dict:
         return ob
 
     elif proto in ("hysteria2", "hy2"):
+        tls = {"enabled": True}
+        if raw.get("sni"):
+            tls["server_name"] = raw["sni"]
+        if _truthy(raw.get("insecure")):
+            tls["insecure"] = True
         ob = {
             "type": "hysteria2",
             "tag": tag,
             "server": server,
             "server_port": int(port),
             "password": raw.get("password", ""),
-            "tls": {"enabled": True},
+            "tls": tls,
         }
-        if raw.get("sni"):
-            ob["tls"]["server_name"] = raw["sni"]
         return ob
 
     elif proto in ("anytls",):
+        tls = {"enabled": True}
+        if raw.get("sni"):
+            tls["server_name"] = raw["sni"]
+        if _truthy(raw.get("insecure")):
+            tls["insecure"] = True
         ob = {
             "type": "anytls",
             "tag": tag,
             "server": server,
             "server_port": int(port),
             "password": raw.get("password", ""),
-            "tls": {"enabled": True},
+            "tls": tls,
         }
-        if raw.get("sni"):
-            ob["tls"]["server_name"] = raw["sni"]
-        if raw.get("insecure"):
-            ob["tls"]["insecure"] = True
         return ob
 
     else:
