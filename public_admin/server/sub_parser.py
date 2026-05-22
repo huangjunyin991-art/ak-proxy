@@ -6,6 +6,7 @@ VPN订阅解析模块
 """
 
 import base64
+import json
 import logging
 import ssl
 import re
@@ -58,8 +59,9 @@ def _try_base64_decode(text: str) -> Optional[str]:
     """尝试base64解码"""
     try:
         # 补齐padding
-        padded = text.strip() + '=' * (4 - len(text.strip()) % 4)
-        decoded = base64.b64decode(padded).decode('utf-8')
+        compact = ''.join(text.strip().split())
+        padded = compact + '=' * ((4 - len(compact) % 4) % 4)
+        decoded = base64.urlsafe_b64decode(padded).decode('utf-8')
         # 简单验证是否是可读文本
         if any(c in decoded for c in ['\n', '://', 'proxies']):
             return decoded
@@ -68,17 +70,87 @@ def _try_base64_decode(text: str) -> Optional[str]:
     return None
 
 
+def _iter_proxy_lines(text: str):
+    for line in text.replace('\r', '\n').split('\n'):
+        line = line.strip()
+        if not line:
+            continue
+        if '://' not in line:
+            continue
+        start = min(
+            (pos for pos in (line.find('anytls://'), line.find('vless://'), line.find('hysteria2://'), line.find('hy2://'), line.find('ss://'), line.find('vmess://')) if pos >= 0),
+            default=-1,
+        )
+        if start >= 0:
+            yield line[start:]
+
+
+def _safe_b64_decode(value: str) -> Optional[str]:
+    try:
+        compact = ''.join(value.strip().split())
+        padded = compact + '=' * ((4 - len(compact) % 4) % 4)
+        return base64.urlsafe_b64decode(padded).decode('utf-8')
+    except Exception:
+        return None
+
+
+def _split_host_port(value: str) -> tuple[str, int]:
+    parsed = urllib.parse.urlsplit('//' + value)
+    if parsed.hostname and parsed.port:
+        return parsed.hostname, parsed.port
+    server, port = value.rsplit(':', 1)
+    return server.strip('[]'), int(port)
+
+
+def _parse_simple_clash_proxies(text: str) -> list[dict]:
+    proxies = []
+    current = None
+    in_proxies = False
+    for raw_line in text.replace('\r', '\n').split('\n'):
+        if not raw_line.strip():
+            continue
+        stripped = raw_line.strip()
+        if re.match(r'^proxies\s*:', stripped):
+            in_proxies = True
+            continue
+        if in_proxies and not raw_line.startswith((' ', '\t', '-')):
+            break
+        if not in_proxies:
+            continue
+        if stripped.startswith('- '):
+            if current:
+                proxies.append(current)
+            current = {}
+            stripped = stripped[2:].strip()
+            if stripped.startswith('{') and stripped.endswith('}'):
+                pairs = re.findall(r'([A-Za-z0-9_-]+)\s*:\s*([^,}]+)', stripped)
+                current.update({k: v.strip().strip('"\'') for k, v in pairs})
+            elif ':' in stripped:
+                key, value = stripped.split(':', 1)
+                current[key.strip()] = value.strip().strip('"\'')
+            continue
+        if current is not None and ':' in stripped:
+            key, value = stripped.split(':', 1)
+            current[key.strip()] = value.strip().strip('"\'')
+    if current:
+        proxies.append(current)
+    return proxies
+
+
 def _parse_clash_yaml(text: str) -> list[dict]:
     """解析Clash YAML格式的订阅"""
     try:
         import yaml
         config = yaml.safe_load(text)
     except Exception:
-        config = {}
+        config = None
 
     if not isinstance(config, dict):
-        return []
-    proxies = config.get('proxies', [])
+        proxies = _parse_simple_clash_proxies(text)
+    else:
+        proxies = config.get('proxies', [])
+        if not proxies:
+            proxies = _parse_simple_clash_proxies(text)
     if not proxies:
         return []
 
@@ -117,8 +189,7 @@ def _parse_clash_yaml(text: str) -> list[dict]:
 def _parse_ss_links(text: str) -> list[dict]:
     """解析SS/SSR链接列表"""
     nodes = []
-    for line in text.strip().split('\n'):
-        line = line.strip()
+    for line in _iter_proxy_lines(text):
         if line.startswith('ss://'):
             try:
                 # ss://base64@server:port#name  or  ss://base64#name
@@ -130,17 +201,26 @@ def _parse_ss_links(text: str) -> list[dict]:
 
                 method, password = 'aes-128-gcm', ''
                 if '@' in rest:
-                    encoded, addr = rest.split('@', 1)
-                    server, port = addr.rsplit(':', 1)
-                    try:
-                        creds = base64.b64decode(encoded + '==').decode()
+                    userinfo, addr = rest.split('@', 1)
+                    if '?' in addr:
+                        addr, query = addr.split('?', 1)
+                    else:
+                        query = ''
+                    server, port = _split_host_port(addr)
+                    decoded_userinfo = _safe_b64_decode(userinfo)
+                    creds = decoded_userinfo if decoded_userinfo and ':' in decoded_userinfo else urllib.parse.unquote(userinfo)
+                    if ':' in creds:
                         method, password = creds.split(':', 1)
-                    except Exception:
-                        pass
                 else:
-                    decoded = base64.b64decode(rest + '==').decode()
+                    if '?' in rest:
+                        rest, query = rest.split('?', 1)
+                    else:
+                        query = ''
+                    decoded = _safe_b64_decode(rest)
+                    if not decoded:
+                        continue
                     creds, addr = decoded.rsplit('@', 1)
-                    server, port = addr.rsplit(':', 1)
+                    server, port = _split_host_port(addr)
                     if ':' in creds:
                         method, password = creds.split(':', 1)
 
@@ -154,14 +234,16 @@ def _parse_ss_links(text: str) -> list[dict]:
                     'port': int(port),
                     'region_code': region_code,
                     'region_label': region_label,
-                    'raw': {'cipher': method, 'password': password},
+                    'raw': {'cipher': method, 'password': password, 'plugin': urllib.parse.parse_qs(query).get('plugin', [''])[0]},
                 })
             except Exception:
                 continue
         elif line.startswith('vmess://'):
             try:
                 encoded = line[8:]
-                data = base64.b64decode(encoded + '==').decode()
+                data = _safe_b64_decode(encoded)
+                if not data:
+                    continue
                 import json
                 info = json.loads(data)
                 name = info.get('ps', info.get('remarks', ''))
@@ -204,31 +286,17 @@ def _parse_ss_links(text: str) -> list[dict]:
 def _parse_vless_links(text: str) -> list[dict]:
     """解析VLESS链接列表"""
     nodes = []
-    for line in text.strip().split('\n'):
-        line = line.strip()
+    for line in _iter_proxy_lines(text):
         if line.startswith('vless://'):
             try:
-                parts = line.replace('vless://', '').split('@')
-                if len(parts) != 2:
+                parsed = urllib.parse.urlsplit(line)
+                uuid = urllib.parse.unquote(parsed.username or '')
+                server = parsed.hostname or ''
+                port = parsed.port
+                if not uuid or not server or not port:
                     continue
-                
-                uuid = parts[0]
-                rest = parts[1]
-                
-                if '?' not in rest:
-                    continue
-                    
-                server_port, params_and_name = rest.split('?', 1)
-                server, port = server_port.rsplit(':', 1)
-                
-                name = ''
-                if '#' in params_and_name:
-                    params_str, name = params_and_name.split('#', 1)
-                    name = urllib.parse.unquote(name)
-                else:
-                    params_str = params_and_name
-                
-                params = dict(urllib.parse.parse_qsl(params_str))
+                name = urllib.parse.unquote(parsed.fragment or '')
+                params = dict(urllib.parse.parse_qsl(parsed.query))
 
                 if any(k in name for k in SKIP_KEYWORDS):
                     continue
@@ -263,29 +331,18 @@ def _parse_vless_links(text: str) -> list[dict]:
 def _parse_hysteria2_links(text: str) -> list[dict]:
     """解析Hysteria2链接列表"""
     nodes = []
-    for line in text.strip().split('\n'):
-        line = line.strip()
-        if line.startswith('hysteria2://'):
+    for line in _iter_proxy_lines(text):
+        if line.startswith(('hysteria2://', 'hy2://')):
             try:
-                parts = line.replace('hysteria2://', '').split('@')
-                if len(parts) != 2:
+                parsed = urllib.parse.urlsplit(line)
+                password = urllib.parse.unquote(parsed.username or '')
+                server = parsed.hostname or ''
+                port = parsed.port
+                if not password or not server or not port:
                     continue
-                
-                password = parts[0]
-                rest = parts[1]
-                
-                if '?' in rest or '/' in rest:
-                    server_port = rest.split('?')[0].split('/')[0]
-                else:
-                    server_port = rest.split('#')[0]
-                    
-                name = ''
-                if '#' in rest:
-                    params_str = rest.split('?')[1] if '?' in rest else ''
-                    name = urllib.parse.unquote(rest.split('#')[1])
-                
-                server, port = server_port.rsplit(':', 1)
-                
+                name = urllib.parse.unquote(parsed.fragment or '')
+                params = dict(urllib.parse.parse_qsl(parsed.query))
+
                 if any(k in name for k in SKIP_KEYWORDS):
                     continue
                 region_code, region_label = detect_region(name)
@@ -298,6 +355,8 @@ def _parse_hysteria2_links(text: str) -> list[dict]:
                     'region_label': region_label,
                     'raw': {
                         'password': password,
+                        'sni': params.get('sni', ''),
+                        'insecure': str(params.get('insecure', '')).lower() in ('1', 'true', 'yes', 'on'),
                     },
                 })
             except Exception as e:
@@ -309,29 +368,17 @@ def _parse_hysteria2_links(text: str) -> list[dict]:
 
 def _parse_anytls_links(text: str) -> list[dict]:
     nodes = []
-    for line in text.strip().split('\n'):
-        line = line.strip()
+    for line in _iter_proxy_lines(text):
         if line.startswith('anytls://'):
             try:
-                parts = line.replace('anytls://', '', 1).split('@', 1)
-                if len(parts) != 2:
+                parsed = urllib.parse.urlsplit(line)
+                password = urllib.parse.unquote(parsed.username or '')
+                server = parsed.hostname or ''
+                port = parsed.port
+                if not password or not server or not port:
                     continue
-
-                password = parts[0]
-                rest = parts[1]
-                name = ''
-                if '#' in rest:
-                    rest, name = rest.split('#', 1)
-                    name = urllib.parse.unquote(name)
-
-                if '?' in rest:
-                    server_port, params_str = rest.split('?', 1)
-                else:
-                    server_port = rest
-                    params_str = ''
-
-                server, port = server_port.rsplit(':', 1)
-                params = dict(urllib.parse.parse_qsl(params_str))
+                name = urllib.parse.unquote(parsed.fragment or '')
+                params = dict(urllib.parse.parse_qsl(parsed.query))
                 insecure = str(params.get('insecure', '')).lower() in ('1', 'true', 'yes', 'on')
 
                 if any(k in name for k in SKIP_KEYWORDS):
@@ -358,6 +405,98 @@ def _parse_anytls_links(text: str) -> list[dict]:
     return nodes
 
 
+def _parse_json_nodes(text: str) -> list[dict]:
+    try:
+        data = json.loads(text)
+    except Exception:
+        return []
+
+    if isinstance(data, dict):
+        items = data.get('nodes', [])
+        if not items and isinstance(data.get('proxies'), list):
+            return _parse_clash_yaml(text)
+    elif isinstance(data, list):
+        items = data
+    else:
+        return []
+
+    if not isinstance(items, list):
+        return []
+
+    raw_links = []
+    for item in items:
+        if isinstance(item, str) and '://' in item:
+            raw_links.append(item)
+        elif isinstance(item, dict) and isinstance(item.get('raw'), str) and '://' in item.get('raw', ''):
+            raw_links.append(item['raw'])
+
+    if raw_links:
+        raw_text = '\n'.join(raw_links)
+        return (
+            _parse_anytls_links(raw_text)
+            + _parse_vless_links(raw_text)
+            + _parse_hysteria2_links(raw_text)
+            + _parse_ss_links(raw_text)
+        )
+
+    nodes = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+
+        name = str(item.get('name') or item.get('tag') or '')
+        if any(k in name for k in SKIP_KEYWORDS):
+            continue
+
+        proto = str(item.get('protocol') or item.get('proxy_protocol') or item.get('type') or '').lower()
+        server = str(item.get('server') or '')
+        port = item.get('port', item.get('server_port', 0))
+        if not proto or not server or not port:
+            continue
+
+        region_code, region_label = detect_region(name)
+        raw = item.get('raw') if isinstance(item.get('raw'), dict) else {}
+        if not raw:
+            if proto == 'vless':
+                raw = {
+                    'uuid': item.get('username') or item.get('uuid') or item.get('id') or '',
+                    'security': item.get('security', 'none'),
+                    'flow': item.get('flow', ''),
+                    'sni': item.get('sni', server),
+                    'network': item.get('network') or item.get('type') or 'tcp',
+                    'pbk': item.get('pbk', ''),
+                    'sid': item.get('sid', ''),
+                    'fp': item.get('fp', 'chrome'),
+                    'host': item.get('host', ''),
+                    'path': item.get('path', ''),
+                }
+            elif proto in ('hysteria2', 'hy2', 'anytls'):
+                raw = {
+                    'type': proto,
+                    'password': item.get('username') or item.get('password') or '',
+                    'sni': item.get('sni', server),
+                    'insecure': str(item.get('insecure', '')).lower() in ('1', 'true', 'yes', 'on'),
+                }
+            elif proto in ('ss', 'shadowsocks'):
+                raw = {
+                    'cipher': item.get('cipher') or item.get('method') or 'aes-128-gcm',
+                    'password': item.get('password', ''),
+                    'plugin': item.get('plugin', ''),
+                }
+
+        nodes.append({
+            'name': name or f'{proto.upper()}-{server}',
+            'type': proto,
+            'server': server,
+            'port': int(port),
+            'region_code': region_code,
+            'region_label': region_label,
+            'raw': raw,
+        })
+
+    return nodes
+
+
 def parse_subscription_text(text: str) -> dict:
     """
     解析订阅内容（自动识别格式）
@@ -374,14 +513,19 @@ def parse_subscription_text(text: str) -> dict:
     """
     text = text.strip()
 
+    nodes = _parse_json_nodes(text)
+    fmt = "json_nodes"
+
     # 尝试base64解码
-    decoded = _try_base64_decode(text)
-    if decoded:
-        text = decoded
+    if not nodes:
+        decoded = _try_base64_decode(text)
+        if decoded:
+            text = decoded
 
     # 尝试Clash YAML
-    nodes = _parse_clash_yaml(text)
-    fmt = "clash_yaml"
+    if not nodes:
+        nodes = _parse_clash_yaml(text)
+        fmt = "clash_yaml"
 
     # 尝试VLESS/Hysteria2/AnyTLS链接
     if not nodes:
