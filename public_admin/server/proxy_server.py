@@ -259,7 +259,7 @@ def _rebuild_dispatcher_exits_from_nodes(nodes: list[dict[str, Any]], base_port:
     return added_exits
 
 
-async def _sync_subscription_nodes_with_active_groups(force_rebuild: bool = False) -> dict[str, Any]:
+async def _sync_subscription_nodes_with_active_groups(force_rebuild: bool = False, reload_singbox: bool = True) -> dict[str, Any]:
     from . import singbox_manager as sbm
 
     groups = await db.get_subscription_groups()
@@ -276,10 +276,11 @@ async def _sync_subscription_nodes_with_active_groups(force_rebuild: bool = Fals
         base_port = _get_dispatcher_saved_base_port()
         sbm.save_nodes(filtered)
         sbm.write_config(_get_enabled_subscription_nodes(filtered), base_port)
-        reload_result = await run_blocking(sbm.reload_service)
+        reload_result = await run_blocking(sbm.reload_service) if reload_singbox else {"success": True, "message": "已跳过sing-box重载"}
         _save_dispatcher_exits_snapshot(filtered, base_port)
         added_exits = _rebuild_dispatcher_exits_from_nodes(filtered, base_port)
-        _SINGBOX_STATUS_CACHE.invalidate()
+        if reload_singbox:
+            _SINGBOX_STATUS_CACHE.invalidate()
         return {
             "changed": changed,
             "nodes_count": len(filtered),
@@ -3116,8 +3117,7 @@ async def api_dispatcher_full(request: Request):
 
     singbox_status = await _get_singbox_service_status_cached()
     try:
-        await _sync_subscription_nodes_with_active_groups()
-        singbox_status = await _get_singbox_service_status_cached()
+        await _sync_subscription_nodes_with_active_groups(reload_singbox=False)
     except Exception as e:
         logger.debug(f"[Dispatcher] 同步订阅组节点失败: {e}")
     status = dispatcher.get_status()
@@ -4350,7 +4350,7 @@ async def admin_startup():
     _reset_dispatcher_temp_event_file()
 
     try:
-        sync_result = await _sync_subscription_nodes_with_active_groups(force_rebuild=True)
+        sync_result = await _sync_subscription_nodes_with_active_groups(force_rebuild=True, reload_singbox=False)
         if sync_result.get("removed_count"):
             logger.info(f"[SubGroup] 启动清理孤儿订阅节点: removed={sync_result.get('removed_count')} exits={sync_result.get('exits_count')}")
     except Exception as e:
