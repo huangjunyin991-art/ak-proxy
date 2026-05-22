@@ -203,6 +203,51 @@ async def _get_singbox_service_status_cached(force_refresh: bool = False) -> dic
     return await _SINGBOX_STATUS_CACHE.get(force_refresh=force_refresh)
 
 
+def _get_enabled_subscription_nodes(nodes: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [item for item in nodes if isinstance(item, dict) and item.get("enabled", True) is not False]
+
+
+def _get_dispatcher_saved_base_port(default: int = 10001) -> int:
+    config_file = os.path.join(PUBLIC_ADMIN_DIR, "dispatcher_exits.json")
+    try:
+        if not os.path.exists(config_file):
+            return default
+        with open(config_file, "r", encoding="utf-8") as f:
+            payload = json.load(f)
+        return max(1, int(payload.get("base_port") or default)) if isinstance(payload, dict) else default
+    except Exception:
+        return default
+
+
+def _save_dispatcher_exits_snapshot(nodes: list[dict[str, Any]], base_port: int) -> None:
+    exits_config = {
+        "nodes": nodes,
+        "base_port": base_port,
+        "timestamp": time.time()
+    }
+    config_file = os.path.join(PUBLIC_ADMIN_DIR, "dispatcher_exits.json")
+    with open(config_file, "w", encoding="utf-8") as f:
+        json.dump(exits_config, f, ensure_ascii=False, indent=2)
+
+
+def _rebuild_dispatcher_exits_from_nodes(nodes: list[dict[str, Any]], base_port: int) -> list[dict[str, Any]]:
+    while len(dispatcher.exits) > 1:
+        dispatcher.exits.pop()
+    added_exits = []
+    for i, node in enumerate(_get_enabled_subscription_nodes(nodes)):
+        port = base_port + i
+        name = node.get("display_name") or node.get("name") or f"node_{i}"
+        idx = dispatcher.add_socks5(str(name), port)
+        added_exits.append({
+            "index": idx,
+            "name": name,
+            "port": port,
+            "group_id": node.get("group_id", ""),
+            "group_name": node.get("group_name", ""),
+        })
+    return added_exits
+
+
 def _restore_dispatcher_exits_from_disk() -> int:
 
     from . import singbox_manager as sbm
@@ -253,21 +298,11 @@ def _restore_dispatcher_exits_from_disk() -> int:
 
             return 0
 
-        while len(dispatcher.exits) > 1:
+        added_exits = _rebuild_dispatcher_exits_from_nodes(nodes_to_restore, base_port)
 
-            dispatcher.exits.pop()
+        logger.info(f"[Dispatcher] 启动恢复 {len(added_exits)} 个隧道出口 (base_port={base_port})")
 
-        for idx, node in enumerate(nodes_to_restore):
-
-            port = base_port + idx
-
-            name = node.get("display_name") or node.get("name") or f"node_{idx}"
-
-            dispatcher.add_socks5(str(name), port)
-
-        logger.info(f"[Dispatcher] 启动恢复 {len(nodes_to_restore)} 个隧道出口 (base_port={base_port})")
-
-        return len(nodes_to_restore)
+        return len(added_exits)
 
     except Exception as e:
 
@@ -455,7 +490,7 @@ IP_PREBAN_AUTO_BAN_THRESHOLD = 5
 
 IP_PREBAN_AUTO_BAN_DAYS = 1
 
-LOGIN_403_DISTINCT_ACCOUNT_THRESHOLD = 3
+LOGIN_403_DISTINCT_ACCOUNT_THRESHOLD = 6
 
 LOGIN_403_IP_BAN_HOURS = 1
 
@@ -2901,73 +2936,69 @@ async def api_dispatcher_apply_sub(request: Request):
 
 
 
-    # 3) 生成 sing-box 配置 + 写盘 + 重载
+    import uuid
+    group_id = str(uuid.uuid4())
+    source_type = "url" if url else ("text" if text else "json")
+    source_url = url or ""
+    requested_group_name = str(data.get("group_name") or "").strip()
+    source_label = urlsplit(url).netloc if url else (parsed.get("format") or source_type)
+    group_name = requested_group_name or f"{source_label or '订阅导入'} {datetime.now().strftime('%m-%d %H:%M')}"
 
-    apply_result = sbm.apply_nodes(nodes_to_add, base_port)
+    for node in nodes_to_add:
+        node["group_id"] = group_id
+        node["group_name"] = group_name
+        node["source_type"] = source_type
+        node["source_url"] = source_url
+        node["enabled"] = True
 
+    saved_nodes = sbm.load_saved_nodes()
+    if not isinstance(saved_nodes, list):
+        saved_nodes = []
+    all_nodes = [item for item in saved_nodes if isinstance(item, dict)] + nodes_to_add
+    enabled_nodes = _get_enabled_subscription_nodes(all_nodes)
 
-
-    # 4) 清除旧的隧道出口 (保留#0直连)，注册新出口到 dispatcher
-
-    while len(dispatcher.exits) > 1:
-
-        dispatcher.exits.pop()
-
-
+    nodes_saved = False
+    try:
+        sbm.save_nodes(all_nodes)
+        nodes_saved = True
+        config_path = sbm.write_config(enabled_nodes, base_port)
+        reload_result = await run_blocking(sbm.reload_service)
+        apply_result = {
+            "success": reload_result["success"],
+            "message": reload_result["message"],
+            "config_path": config_path,
+            "nodes_count": len(enabled_nodes),
+        }
+    except Exception as e:
+        logger.error(f"[SingBox] 订阅分组应用失败: {e}")
+        apply_result = {"success": False, "message": str(e), "config_path": "", "nodes_count": 0}
 
     added_exits = []
+    if nodes_saved:
+        added_exits = _rebuild_dispatcher_exits_from_nodes(all_nodes, base_port)
+        logger.info(f"[Dispatcher] 订阅热重载完成: {len(added_exits)} 个出口已注册")
 
-    for i, node in enumerate(nodes_to_add):
-
-        port = base_port + i
-
-        name = node.get("display_name", node.get("name", f"node_{i}"))
-
-        idx = dispatcher.add_socks5(name, port)
-
-        added_exits.append({"index": idx, "name": name, "port": port})
-
-
-
-    logger.info(f"[Dispatcher] 订阅热重载完成: {len(added_exits)} 个出口已注册")
-
-    
-    # 持久化节点配置，重启自动恢复
-    try:
-        exits_config = {
-            "nodes": nodes_to_add,
-            "base_port": base_port,
-            "timestamp": time.time()
-        }
-        config_file = os.path.join(PUBLIC_ADMIN_DIR, "dispatcher_exits.json")
-        with open(config_file, "w", encoding="utf-8") as f:
-            json.dump(exits_config, f, ensure_ascii=False, indent=2)
-        logger.info(f"[Dispatcher] 节点配置已保存: {config_file}")
-    except Exception as e:
-        logger.warning(f"[Dispatcher] 保存节点配置失败: {e}")
-
-    # 更新数据库中的订阅组记录
-    if apply_result["success"]:
         try:
-            import uuid
-            from datetime import datetime as _dt
-            await db.clear_all_subscription_groups()
-            group_id = str(uuid.uuid4())
-            source_type = "url" if url else ("text" if text else "json")
-            source_url = url or ""
-            group_name = f"订阅导入 {_dt.now().strftime('%m-%d %H:%M')}"
+            _save_dispatcher_exits_snapshot(all_nodes, base_port)
+            logger.info("[Dispatcher] 节点配置已保存")
+        except Exception as e:
+            logger.warning(f"[Dispatcher] 保存节点配置失败: {e}")
+
+    if nodes_saved:
+        try:
+            unique_servers = {node.get("server") for node in nodes_to_add if node.get("server")}
             await db.create_subscription_group(
                 group_id=group_id,
                 name=group_name,
                 source_type=source_type,
                 source_url=source_url,
-                total_servers=len(nodes_to_add),
+                total_servers=len(unique_servers),
                 created_by='admin',
                 notes=''
             )
-            logger.info(f"[SubGroup] 订阅组记录已更新: {len(nodes_to_add)} 台服务器")
+            logger.info(f"[SubGroup] 订阅组记录已新增: {group_name} {len(unique_servers)} 台服务器")
         except Exception as e:
-            logger.warning(f"[SubGroup] 更新订阅组记录失败: {e}")
+            logger.warning(f"[SubGroup] 新增订阅组记录失败: {e}")
 
     return {
 
@@ -2982,6 +3013,10 @@ async def api_dispatcher_apply_sub(request: Request):
         "exits_added": added_exits,
 
         "config_path": apply_result.get("config_path", ""),
+
+        "group_id": group_id,
+
+        "group_name": group_name,
 
     }
 
@@ -3030,7 +3065,21 @@ async def api_dispatcher_full(request: Request):
         return error_response
 
     singbox_status = await _get_singbox_service_status_cached()
-    return {**dispatcher.get_status(), "singbox": singbox_status}
+    status = dispatcher.get_status()
+    try:
+        from . import singbox_manager as sbm
+        enabled_nodes = _get_enabled_subscription_nodes(sbm.load_saved_nodes())
+        for idx, node in enumerate(enabled_nodes, start=1):
+            exits = status.get("exits") if isinstance(status, dict) else None
+            if isinstance(exits, list) and idx < len(exits):
+                exits[idx]["group_id"] = node.get("group_id", "")
+                exits[idx]["group_name"] = node.get("group_name", "")
+                exits[idx]["node_type"] = node.get("type", "")
+                exits[idx]["node_server"] = node.get("server", "")
+                exits[idx]["enabled"] = node.get("enabled", True)
+    except Exception as e:
+        logger.debug(f"[Dispatcher] 合并订阅节点状态失败: {e}")
+    return {**status, "singbox": singbox_status}
 
 
 
@@ -8039,12 +8088,12 @@ async def admin_delete_subscription_group(group_id: str, request: Request):
             filtered = [n for n in nodes if isinstance(n, dict) and n.get('group_id') != group_id]
             if len(filtered) < len(nodes):
                 sbm.save_nodes(filtered)
-                sbm.write_config(filtered)
+                base_port = _get_dispatcher_saved_base_port()
+                sbm.write_config(_get_enabled_subscription_nodes(filtered), base_port)
                 await run_blocking(sbm.reload_service)
+                _save_dispatcher_exits_snapshot(filtered, base_port)
+                _rebuild_dispatcher_exits_from_nodes(filtered, base_port)
                 _SINGBOX_STATUS_CACHE.invalidate()
-            # 从 dispatcher 内存移除所有 SOCKS5 出口（保留直连 #0）
-            for i in range(len(dispatcher.exits) - 1, 0, -1):
-                dispatcher.remove_exit(i)
             return {"success": True, "message": "订阅组已删除"}
         return {"success": False, "message": "删除失败"}
     except Exception as e:
@@ -8074,8 +8123,11 @@ async def admin_toggle_server_by_ip(group_id: str, request: Request):
         unique_servers = set(n.get('server') for n in group_nodes if n.get('server'))
         enabled_servers = set(n.get('server') for n in group_nodes if n.get('enabled', True) and n.get('server'))
         await db.update_subscription_group_servers(group_id, len(unique_servers), len(enabled_servers))
-        sbm.write_config(nodes)
+        base_port = _get_dispatcher_saved_base_port()
+        sbm.write_config(_get_enabled_subscription_nodes(nodes), base_port)
         await run_blocking(sbm.reload_service)
+        _save_dispatcher_exits_snapshot(nodes, base_port)
+        _rebuild_dispatcher_exits_from_nodes(nodes, base_port)
         _SINGBOX_STATUS_CACHE.invalidate()
         return {"success": True, "message": f"已{'启用' if enabled else '禁用'}{server}的{len(matching)}个节点"}
     except Exception as e:
@@ -8104,8 +8156,11 @@ async def admin_toggle_all_servers(group_id: str, request: Request):
         unique_servers = set(n.get('server') for n in group_node_list if n.get('server'))
         active_count = len(unique_servers) if enabled else 0
         await db.update_subscription_group_servers(group_id, len(unique_servers), active_count)
-        sbm.write_config(nodes)
+        base_port = _get_dispatcher_saved_base_port()
+        sbm.write_config(_get_enabled_subscription_nodes(nodes), base_port)
         await run_blocking(sbm.reload_service)
+        _save_dispatcher_exits_snapshot(nodes, base_port)
+        _rebuild_dispatcher_exits_from_nodes(nodes, base_port)
         _SINGBOX_STATUS_CACHE.invalidate()
         return {"success": True, "message": f"已{'启用' if enabled else '禁用'}{len(unique_servers)}个独立IP"}
     except Exception as e:
@@ -8132,8 +8187,11 @@ async def admin_toggle_server(group_id: str, request: Request):
             sbm.save_nodes(nodes)
             active_count = sum(1 for i in group_indices if nodes[i].get('enabled', True))
             await db.update_subscription_group_servers(group_id, len(group_indices), active_count)
-            sbm.write_config(nodes)
+            base_port = _get_dispatcher_saved_base_port()
+            sbm.write_config(_get_enabled_subscription_nodes(nodes), base_port)
             await run_blocking(sbm.reload_service)
+            _save_dispatcher_exits_snapshot(nodes, base_port)
+            _rebuild_dispatcher_exits_from_nodes(nodes, base_port)
             _SINGBOX_STATUS_CACHE.invalidate()
             return {"success": True, "message": f"服务器已{'启用' if enabled else '禁用'}"}
         return {"success": False, "message": "服务器索引无效"}
