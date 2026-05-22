@@ -203,8 +203,19 @@ async def _get_singbox_service_status_cached(force_refresh: bool = False) -> dic
     return await _SINGBOX_STATUS_CACHE.get(force_refresh=force_refresh)
 
 
+def _get_node_group_id(node: dict[str, Any]) -> str:
+    return str(node.get("group_id") or "").strip()
+
+
 def _get_enabled_subscription_nodes(nodes: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    return [item for item in nodes if isinstance(item, dict) and item.get("enabled", True) is not False]
+    return [item for item in nodes if isinstance(item, dict) and _get_node_group_id(item) and item.get("enabled", True) is not False]
+
+
+def _filter_nodes_by_active_groups(nodes: list[dict[str, Any]], active_group_ids: set[str]) -> list[dict[str, Any]]:
+    return [
+        item for item in nodes
+        if isinstance(item, dict) and _get_node_group_id(item) in active_group_ids
+    ]
 
 
 def _get_dispatcher_saved_base_port(default: int = 10001) -> int:
@@ -246,6 +257,43 @@ def _rebuild_dispatcher_exits_from_nodes(nodes: list[dict[str, Any]], base_port:
             "group_name": node.get("group_name", ""),
         })
     return added_exits
+
+
+async def _sync_subscription_nodes_with_active_groups(force_rebuild: bool = False) -> dict[str, Any]:
+    from . import singbox_manager as sbm
+
+    groups = await db.get_subscription_groups()
+    active_group_ids = {str(group.get("id") or "").strip() for group in groups if isinstance(group, dict)}
+    nodes = sbm.load_saved_nodes()
+    if not isinstance(nodes, list):
+        nodes = []
+    node_items = [item for item in nodes if isinstance(item, dict)]
+    filtered = _filter_nodes_by_active_groups(node_items, active_group_ids)
+    changed = len(filtered) != len(node_items)
+    expected_exits = len(_get_enabled_subscription_nodes(filtered))
+    current_exits = max(0, len(dispatcher.exits) - 1)
+    if changed or force_rebuild or current_exits != expected_exits:
+        base_port = _get_dispatcher_saved_base_port()
+        sbm.save_nodes(filtered)
+        sbm.write_config(_get_enabled_subscription_nodes(filtered), base_port)
+        reload_result = await run_blocking(sbm.reload_service)
+        _save_dispatcher_exits_snapshot(filtered, base_port)
+        added_exits = _rebuild_dispatcher_exits_from_nodes(filtered, base_port)
+        _SINGBOX_STATUS_CACHE.invalidate()
+        return {
+            "changed": changed,
+            "nodes_count": len(filtered),
+            "removed_count": len(node_items) - len(filtered),
+            "exits_count": len(added_exits),
+            "reload_result": reload_result,
+        }
+    return {
+        "changed": False,
+        "nodes_count": len(filtered),
+        "removed_count": 0,
+        "exits_count": expected_exits,
+        "reload_result": {"success": True, "message": "无需重建"},
+    }
 
 
 def _restore_dispatcher_exits_from_disk() -> int:
@@ -2954,7 +3002,9 @@ async def api_dispatcher_apply_sub(request: Request):
     saved_nodes = sbm.load_saved_nodes()
     if not isinstance(saved_nodes, list):
         saved_nodes = []
-    all_nodes = [item for item in saved_nodes if isinstance(item, dict)] + nodes_to_add
+    existing_groups = await db.get_subscription_groups()
+    active_group_ids = {str(group.get("id") or "").strip() for group in existing_groups if isinstance(group, dict)}
+    all_nodes = _filter_nodes_by_active_groups(saved_nodes, active_group_ids) + nodes_to_add
     enabled_nodes = _get_enabled_subscription_nodes(all_nodes)
 
     nodes_saved = False
@@ -3065,10 +3115,17 @@ async def api_dispatcher_full(request: Request):
         return error_response
 
     singbox_status = await _get_singbox_service_status_cached()
+    try:
+        await _sync_subscription_nodes_with_active_groups()
+        singbox_status = await _get_singbox_service_status_cached()
+    except Exception as e:
+        logger.debug(f"[Dispatcher] 同步订阅组节点失败: {e}")
     status = dispatcher.get_status()
     try:
         from . import singbox_manager as sbm
-        enabled_nodes = _get_enabled_subscription_nodes(sbm.load_saved_nodes())
+        groups = await db.get_subscription_groups()
+        active_group_ids = {str(group.get("id") or "").strip() for group in groups if isinstance(group, dict)}
+        enabled_nodes = _get_enabled_subscription_nodes(_filter_nodes_by_active_groups(sbm.load_saved_nodes(), active_group_ids))
         for idx, node in enumerate(enabled_nodes, start=1):
             exits = status.get("exits") if isinstance(status, dict) else None
             if isinstance(exits, list) and idx < len(exits):
@@ -4291,6 +4348,13 @@ async def admin_startup():
     await _user_asset_persist_queue.start()
 
     _reset_dispatcher_temp_event_file()
+
+    try:
+        sync_result = await _sync_subscription_nodes_with_active_groups(force_rebuild=True)
+        if sync_result.get("removed_count"):
+            logger.info(f"[SubGroup] 启动清理孤儿订阅节点: removed={sync_result.get('removed_count')} exits={sync_result.get('exits_count')}")
+    except Exception as e:
+        logger.warning(f"[SubGroup] 启动同步订阅节点失败，继续恢复已有出口: {e}")
 
     _restore_dispatcher_exits_from_disk()
 
@@ -8083,18 +8147,9 @@ async def admin_delete_subscription_group(group_id: str, request: Request):
     try:
         ok = await db.delete_subscription_group(group_id)
         if ok:
-            from . import singbox_manager as sbm
-            nodes = sbm.load_saved_nodes()
-            filtered = [n for n in nodes if isinstance(n, dict) and n.get('group_id') != group_id]
-            if len(filtered) < len(nodes):
-                sbm.save_nodes(filtered)
-                base_port = _get_dispatcher_saved_base_port()
-                sbm.write_config(_get_enabled_subscription_nodes(filtered), base_port)
-                await run_blocking(sbm.reload_service)
-                _save_dispatcher_exits_snapshot(filtered, base_port)
-                _rebuild_dispatcher_exits_from_nodes(filtered, base_port)
-                _SINGBOX_STATUS_CACHE.invalidate()
-            return {"success": True, "message": "订阅组已删除"}
+            sync_result = await _sync_subscription_nodes_with_active_groups(force_rebuild=True)
+            removed_count = int(sync_result.get("removed_count") or 0)
+            return {"success": True, "message": f"订阅组已删除，已移除{removed_count}个节点"}
         return {"success": False, "message": "删除失败"}
     except Exception as e:
         logger.error(f"[SubGroup] 删除订阅组失败: {e}")
