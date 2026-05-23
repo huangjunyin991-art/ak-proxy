@@ -374,6 +374,44 @@
         });
     }
 
+    function loadOverview(force) {
+        if (!state.active || state.loadingHeavy || state.loadingLight) return Promise.resolve();
+        state.loadingHeavy = true;
+        state.loadingLight = true;
+        var overviewParams = force ? { range: state.range, force: '1' } : { range: state.range };
+        return Promise.allSettled([
+            api('/overview', overviewParams).then(function(body) {
+                state.data.system = body.system;
+                state.data.health = body.health;
+                state.data.database = body.database;
+                state.data.chat = body.chat;
+                if (Array.isArray(body.partial_errors) && body.partial_errors.length) {
+                    notify(body.partial_errors.map(function(item) { return item.message; }).filter(Boolean).join('；') || '监控概览存在部分加载失败', 'warning');
+                }
+            }),
+            api('/chat/groups', force ? { range: state.range, limit: '100', force: '1' } : { range: state.range, limit: '100' }).then(function(body) { state.data.groups = body.item; }),
+            api('/chat/file-assets', force ? { status: 'active', limit: '50', force: '1' } : { status: 'active', limit: '50' }).then(function(body) { state.data.fileAssets = body.item; })
+        ]).then(function(results) {
+            var overviewFailed = false;
+            results.forEach(function(result, index) {
+                if (result.status === 'rejected') {
+                    if (index === 0) overviewFailed = true;
+                    notify(result.reason && result.reason.message || '监控概览刷新失败', 'error');
+                }
+            });
+            render();
+            if (overviewFailed) {
+                state.loadingHeavy = false;
+                state.loadingLight = false;
+                return Promise.all([loadLight(force), loadHeavy(force)]);
+            }
+            return undefined;
+        }).finally(function() {
+            state.loadingHeavy = false;
+            state.loadingLight = false;
+        });
+    }
+
     function expireFileAsset(storageName, originalName, referencedMessages) {
         if (!storageName) return;
         var message = '确认删除文件“' + originalName + '”并释放存储空间？';
@@ -392,8 +430,7 @@
     function start() {
         state.active = true;
         if (!state.initialized) init();
-        loadLight(false);
-        loadHeavy(false);
+        loadOverview(false);
         stopTimers();
         state.lightTimer = setInterval(function() { loadLight(false); }, 5000);
         state.heavyTimer = setInterval(function() { loadHeavy(false); }, 3600000);
