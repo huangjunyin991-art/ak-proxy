@@ -74,42 +74,31 @@ async def collect_chat_summary(pool, range_name: str = "7d", timeout_seconds: fl
         "message_type_distribution": [],
         "message_trend": [],
     }
-    async with pool.acquire() as conn:
-        required = ["im_conversation", "im_message"]
-        table_exists = await _tables_exist(conn, required + ["im_file_asset"], timeout_seconds)
-        for table_name in required:
-            if not table_exists.get(table_name):
-                return {"available": False, "message": f"缺少 {table_name} 表", "generated_at": data["generated_at"]}
-        has_file_asset = table_exists.get("im_file_asset", False)
-        row = await _fetch_with_timeout(conn.fetchrow('''
-            SELECT COUNT(*) AS conversation_total,
-                   COUNT(*) FILTER (WHERE conversation_type = 'group') AS group_total,
-                   COUNT(*) FILTER (WHERE conversation_type <> 'group') AS direct_total
-            FROM im_conversation
-            WHERE deleted_at IS NULL
-        '''), timeout_seconds)
-        if row:
-            data["conversation_total"] = _safe_int(_row_get(row, "conversation_total"))
-            data["group_total"] = _safe_int(_row_get(row, "group_total"))
-            data["direct_total"] = _safe_int(_row_get(row, "direct_total"))
-        row = await _fetch_with_timeout(conn.fetchrow('''
-            SELECT COUNT(*) AS message_total,
-                   COUNT(*) FILTER (WHERE sent_at >= date_trunc('day', NOW())) AS message_today,
-                   COUNT(*) FILTER (WHERE sent_at >= NOW() - ($1::int * INTERVAL '1 day')) AS message_in_range,
-                   COUNT(*) FILTER (WHERE deleted_at IS NOT NULL OR status = 'recalled') AS deleted_message_total,
-                   COALESCE(SUM(content_size_stored) FILTER (WHERE deleted_at IS NULL AND message_type = 'text'), 0) AS text_storage_bytes,
-                   COALESCE(SUM(octet_length(content_payload)) FILTER (WHERE deleted_at IS NULL), 0) AS stored_payload_bytes,
-                   COALESCE(SUM(content_size_stored) FILTER (WHERE deleted_at IS NULL AND message_type IN ('image', 'file', 'voice')), 0) AS declared_attachment_bytes
-            FROM im_message
-        ''', days), timeout_seconds)
-        if row:
-            data["message_total"] = _safe_int(_row_get(row, "message_total"))
-            data["message_today"] = _safe_int(_row_get(row, "message_today"))
-            data["message_in_range"] = _safe_int(_row_get(row, "message_in_range"))
-            data["deleted_message_total"] = _safe_int(_row_get(row, "deleted_message_total"))
-            data["text_storage_bytes"] = _safe_int(_row_get(row, "text_storage_bytes"))
-            data["stored_payload_bytes"] = _safe_int(_row_get(row, "stored_payload_bytes"))
-            data["declared_attachment_bytes"] = _safe_int(_row_get(row, "declared_attachment_bytes"))
+
+    async def fetch_conversation_summary():
+        async with pool.acquire() as conn:
+            return await _fetch_with_timeout(conn.fetchrow('''
+                SELECT COUNT(*) AS conversation_total,
+                       COUNT(*) FILTER (WHERE conversation_type = 'group') AS group_total,
+                       COUNT(*) FILTER (WHERE conversation_type <> 'group') AS direct_total
+                FROM im_conversation
+                WHERE deleted_at IS NULL
+            '''), timeout_seconds)
+
+    async def fetch_message_summary():
+        async with pool.acquire() as conn:
+            return await _fetch_with_timeout(conn.fetchrow('''
+                SELECT COUNT(*) AS message_total,
+                       COUNT(*) FILTER (WHERE sent_at >= date_trunc('day', NOW())) AS message_today,
+                       COUNT(*) FILTER (WHERE sent_at >= NOW() - ($1::int * INTERVAL '1 day')) AS message_in_range,
+                       COUNT(*) FILTER (WHERE deleted_at IS NOT NULL OR status = 'recalled') AS deleted_message_total,
+                       COALESCE(SUM(content_size_stored) FILTER (WHERE deleted_at IS NULL AND message_type = 'text'), 0) AS text_storage_bytes,
+                       COALESCE(SUM(octet_length(content_payload)) FILTER (WHERE deleted_at IS NULL), 0) AS stored_payload_bytes,
+                       COALESCE(SUM(content_size_stored) FILTER (WHERE deleted_at IS NULL AND message_type IN ('image', 'file', 'voice')), 0) AS declared_attachment_bytes
+                FROM im_message
+            ''', days), timeout_seconds)
+
+    async def fetch_message_type_distribution():
         if has_file_asset:
             type_rows_sql = '''
                 SELECT m.message_type,
@@ -162,43 +151,79 @@ async def collect_chat_summary(pool, range_name: str = "7d", timeout_seconds: fl
                 ORDER BY estimated_storage_bytes DESC, COUNT(*) DESC, message_type ASC
                 LIMIT 20
             '''
-        rows = await _fetch_with_timeout(conn.fetch(type_rows_sql), timeout_seconds)
-        data["message_type_distribution"] = [
-            {
-                "message_type": str(_row_get(row, "message_type") or "unknown"),
-                "count": _safe_int(_row_get(row, "count")),
-                "payload_bytes": _safe_int(_row_get(row, "payload_bytes")),
-                "text_bytes": _safe_int(_row_get(row, "text_bytes")),
-                "attachment_bytes": _safe_int(_row_get(row, "attachment_bytes")),
-                "estimated_storage_bytes": _safe_int(_row_get(row, "estimated_storage_bytes")),
-            }
-            for row in rows
-        ]
-        rows = await _fetch_with_timeout(conn.fetch('''
-            SELECT date_trunc('day', sent_at) AS bucket, COUNT(*) AS count
-            FROM im_message
-            WHERE deleted_at IS NULL
-              AND sent_at >= NOW() - ($1::int * INTERVAL '1 day')
-            GROUP BY bucket
-            ORDER BY bucket ASC
-        ''', days), timeout_seconds)
-        data["message_trend"] = [
-            {"bucket": _row_get(row, "bucket").isoformat() if _row_get(row, "bucket") else "", "count": _safe_int(_row_get(row, "count"))}
-            for row in rows
-        ]
-        if has_file_asset:
-            row = await _fetch_with_timeout(conn.fetchrow('''
+        async with pool.acquire() as conn:
+            return await _fetch_with_timeout(conn.fetch(type_rows_sql), timeout_seconds)
+
+    async def fetch_message_trend():
+        async with pool.acquire() as conn:
+            return await _fetch_with_timeout(conn.fetch('''
+                SELECT date_trunc('day', sent_at) AS bucket, COUNT(*) AS count
+                FROM im_message
+                WHERE deleted_at IS NULL
+                  AND sent_at >= NOW() - ($1::int * INTERVAL '1 day')
+                GROUP BY bucket
+                ORDER BY bucket ASC
+            ''', days), timeout_seconds)
+
+    async def fetch_file_asset_summary():
+        if not has_file_asset:
+            return None
+        async with pool.acquire() as conn:
+            return await _fetch_with_timeout(conn.fetchrow('''
                 SELECT COUNT(*) AS file_asset_total,
                        COUNT(*) FILTER (WHERE deleted_at IS NULL AND status = 'active' AND expires_at > NOW()) AS file_asset_active,
                        COUNT(*) FILTER (WHERE deleted_at IS NOT NULL OR status <> 'active' OR expires_at <= NOW()) AS file_asset_expired,
                        COALESCE(SUM(file_size) FILTER (WHERE deleted_at IS NULL AND status = 'active' AND expires_at > NOW()), 0) AS file_storage_bytes
                 FROM im_file_asset
             '''), timeout_seconds)
-            if row:
-                data["file_asset_total"] = _safe_int(_row_get(row, "file_asset_total"))
-                data["file_asset_active"] = _safe_int(_row_get(row, "file_asset_active"))
-                data["file_asset_expired"] = _safe_int(_row_get(row, "file_asset_expired"))
-                data["file_storage_bytes"] = _safe_int(_row_get(row, "file_storage_bytes"))
+
+    async with pool.acquire() as conn:
+        required = ["im_conversation", "im_message"]
+        table_exists = await _tables_exist(conn, required + ["im_file_asset"], timeout_seconds)
+        for table_name in required:
+            if not table_exists.get(table_name):
+                return {"available": False, "message": f"缺少 {table_name} 表", "generated_at": data["generated_at"]}
+        has_file_asset = table_exists.get("im_file_asset", False)
+
+    conversation_row, message_row, type_rows, trend_rows, file_asset_row = await asyncio.gather(
+        fetch_conversation_summary(),
+        fetch_message_summary(),
+        fetch_message_type_distribution(),
+        fetch_message_trend(),
+        fetch_file_asset_summary(),
+    )
+    if conversation_row:
+        data["conversation_total"] = _safe_int(_row_get(conversation_row, "conversation_total"))
+        data["group_total"] = _safe_int(_row_get(conversation_row, "group_total"))
+        data["direct_total"] = _safe_int(_row_get(conversation_row, "direct_total"))
+    if message_row:
+        data["message_total"] = _safe_int(_row_get(message_row, "message_total"))
+        data["message_today"] = _safe_int(_row_get(message_row, "message_today"))
+        data["message_in_range"] = _safe_int(_row_get(message_row, "message_in_range"))
+        data["deleted_message_total"] = _safe_int(_row_get(message_row, "deleted_message_total"))
+        data["text_storage_bytes"] = _safe_int(_row_get(message_row, "text_storage_bytes"))
+        data["stored_payload_bytes"] = _safe_int(_row_get(message_row, "stored_payload_bytes"))
+        data["declared_attachment_bytes"] = _safe_int(_row_get(message_row, "declared_attachment_bytes"))
+    data["message_type_distribution"] = [
+        {
+            "message_type": str(_row_get(row, "message_type") or "unknown"),
+            "count": _safe_int(_row_get(row, "count")),
+            "payload_bytes": _safe_int(_row_get(row, "payload_bytes")),
+            "text_bytes": _safe_int(_row_get(row, "text_bytes")),
+            "attachment_bytes": _safe_int(_row_get(row, "attachment_bytes")),
+            "estimated_storage_bytes": _safe_int(_row_get(row, "estimated_storage_bytes")),
+        }
+        for row in type_rows
+    ]
+    data["message_trend"] = [
+        {"bucket": _row_get(row, "bucket").isoformat() if _row_get(row, "bucket") else "", "count": _safe_int(_row_get(row, "count"))}
+        for row in trend_rows
+    ]
+    if file_asset_row:
+        data["file_asset_total"] = _safe_int(_row_get(file_asset_row, "file_asset_total"))
+        data["file_asset_active"] = _safe_int(_row_get(file_asset_row, "file_asset_active"))
+        data["file_asset_expired"] = _safe_int(_row_get(file_asset_row, "file_asset_expired"))
+        data["file_storage_bytes"] = _safe_int(_row_get(file_asset_row, "file_storage_bytes"))
     data["estimated_storage_bytes"] = data["stored_payload_bytes"] + data["file_storage_bytes"]
     return data
 
