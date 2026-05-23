@@ -9028,18 +9028,31 @@
             return Number.isFinite(index) ? index : fallbackIndex;
         }
 
+        function getLbExitLatencyNumber(ex) {
+            const value = ex && ex.latency_ms;
+            if (typeof value === 'number') return Number.isFinite(value) && value >= 0 ? value : null;
+            if (typeof value === 'string' && value.trim() !== '') {
+                const latency = Number(value);
+                return Number.isFinite(latency) && latency >= 0 ? latency : null;
+            }
+            return null;
+        }
+
         function getLbExitLatencySortMeta(ex) {
-            const latency = Number(ex && ex.latency_ms);
-            if (Number.isFinite(latency) && latency >= 0) return {rank: 0, latency};
+            if (ex && (ex.latency_probe_failures > 0 || ex.latency_probe_error)) {
+                return {rank: 2, latency: Number.POSITIVE_INFINITY};
+            }
+            const latency = getLbExitLatencyNumber(ex);
+            if (latency !== null) return {rank: 0, latency};
             if (ex && ex.latency_probing) return {rank: 1, latency: Number.POSITIVE_INFINITY};
-            if (ex && (ex.latency_checked_at || ex.latency_probe_failures > 0 || ex.latency_probe_error)) {
+            if (ex && ex.latency_checked_at) {
                 return {rank: 2, latency: Number.POSITIVE_INFINITY};
             }
             return {rank: 1, latency: Number.POSITIVE_INFINITY};
         }
 
         function isLbExitTemporarilyDisabled(ex) {
-            return !!(ex && (ex.frozen || ex.temporarily_disabled || ex.disabled || ex.enabled === false));
+            return !!(ex && (ex.frozen || ex.temporarily_disabled || ex.disabled || ex.enabled === false || ex.healthy === false));
         }
 
         function sortLbExitsForDisplay(exits) {
