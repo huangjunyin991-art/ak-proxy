@@ -9,11 +9,15 @@
         candidates: [],
         candidateSearch: '',
         loading: false,
+        loadingSearch: '',
+        loadingPromise: null,
+        loadSeq: 0,
         savingUsernames: {},
         savingSubAdmins: {},
         showOwnerColumn: true,
         role: '',
-        subAdminToggles: []
+        subAdminToggles: [],
+        renderHtml: ''
     };
     const refs = {};
 
@@ -132,16 +136,23 @@
         };
     }
 
-    function loadAll() {
+    function loadAll(force) {
         if (!hasAdminToken()) {
             state.loading = false;
             state.candidates = [];
             render();
             return Promise.resolve();
         }
+        const search = String(state.candidateSearch || '').trim();
+        if (!force && state.loading && state.loadingSearch === search) {
+            return state.loadingPromise || Promise.resolve();
+        }
+        const seq = ++state.loadSeq;
         state.loading = true;
+        state.loadingSearch = search;
         render();
-        return request('/admin/api/meeting/candidates?limit=300&search=' + encodeURIComponent(state.candidateSearch || ''), { method: 'GET' }).then(function(data) {
+        state.loadingPromise = request('/admin/api/meeting/candidates?limit=300&search=' + encodeURIComponent(search), { method: 'GET' }).then(function(data) {
+            if (seq !== state.loadSeq || search !== state.candidateSearch) return;
             state.candidates = Array.isArray(data.rows) ? data.rows : [];
             state.showOwnerColumn = data.show_owner_column !== false;
             state.role = String(data.role || '');
@@ -149,10 +160,14 @@
             state.loading = false;
             render();
         }).catch(function(error) {
+            if (seq !== state.loadSeq || search !== state.candidateSearch) return;
             state.loading = false;
             toast('会议权限加载失败：' + error.message, 'error');
             render();
+        }).finally(function() {
+            if (seq === state.loadSeq && search === state.candidateSearch) state.loadingPromise = null;
         });
+        return state.loadingPromise;
     }
 
     function toggleSubAdmin(subName, enabled) {
@@ -321,7 +336,7 @@
         const mount = document.getElementById('meetingAdminMount');
         if (!mount) return;
         refs.mount = mount;
-        mount.innerHTML = `
+        const html = `
             <style>
 .meeting-admin-wrap{display:flex;flex-direction:column;gap:16px}.meeting-card{background:linear-gradient(135deg,var(--bg-card),rgba(0,212,255,.04));border:1px solid var(--border);border-radius:16px;padding:16px}.meeting-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:12px;flex-wrap:wrap}.meeting-head-main{display:flex;flex-direction:column;gap:4px}.meeting-title{font-size:18px;font-weight:800;color:var(--text-primary)}.meeting-subtitle,.meeting-muted,.meeting-empty{color:var(--text-secondary);font-size:12px}.meeting-toolbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.meeting-search{height:36px;border-radius:9px;border:1px solid var(--border);background:var(--bg-secondary);color:var(--text-primary);padding:0 10px;min-width:220px;transition:border-color .2s,box-shadow .2s}.meeting-search:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px rgba(0,212,255,.18)}.meeting-small-btn{border:0;border-radius:10px;padding:8px 14px;background:linear-gradient(135deg,var(--accent),#00b8d9);color:#0a1929;font-weight:700;cursor:pointer;font-size:12px;transition:transform .15s,box-shadow .2s}.meeting-small-btn:hover:not(:disabled){transform:translateY(-1px);box-shadow:0 4px 14px rgba(0,212,255,.32)}.meeting-small-btn.danger{background:linear-gradient(135deg,#ff5252,#ef4444);color:#fff}.meeting-small-btn:disabled{opacity:.55;cursor:not-allowed}.meeting-table{width:100%;border-collapse:collapse}.meeting-table th,.meeting-table td{padding:11px 10px;border-bottom:1px solid var(--border);text-align:left;vertical-align:top}.meeting-table label{color:var(--text-primary);font-size:13px;white-space:nowrap}.meeting-mobile-list{display:none}.meeting-badge{display:inline-flex;align-items:center;border-radius:999px;padding:3px 8px;margin-right:6px;font-size:12px;font-weight:700}.meeting-badge.owned{background:rgba(0,212,255,.16);color:#7ee5ff}.meeting-badge.all{background:rgba(168,85,247,.18);color:#e9d5ff}
             </style>
@@ -345,6 +360,9 @@
                     <div class="meeting-table-wrap" data-scroll-hint="right" style="overflow-x:auto"><table class="meeting-table"><thead><tr><th>账号</th>${state.showOwnerColumn ? '<th>归属</th>' : ''}<th>允许发布</th><th>状态</th></tr></thead><tbody>${!hasAdminToken() ? `<tr><td colspan="${state.showOwnerColumn ? 4 : 3}" class="meeting-empty">请先登录后台</td></tr>` : (state.loading ? `<tr><td colspan="${state.showOwnerColumn ? 4 : 3}" class="meeting-empty">加载中...</td></tr>` : renderPermissionRows())}</tbody></table></div>
                 </section>
             </div>`;
+        if (state.renderHtml === html) return;
+        mount.innerHTML = html;
+        state.renderHtml = html;
     }
 
     function bind() {
@@ -354,14 +372,16 @@
         mount.addEventListener('input', function(event) {
             const search = event.target.closest('[data-meeting-search]');
             if (search) {
-                state.candidateSearch = search.value;
+                const nextSearch = String(search.value || '').trim();
+                if (state.candidateSearch === nextSearch) return;
+                state.candidateSearch = nextSearch;
                 clearTimeout(bind.searchTimer);
                 bind.searchTimer = setTimeout(loadAll, 350);
             }
         });
         mount.addEventListener('click', function(event) {
             const refresh = event.target.closest('[data-meeting-refresh]');
-            if (refresh) loadAll();
+            if (refresh) loadAll(true);
         });
         mount.addEventListener('change', function(event) {
             const subToggle = event.target.closest('[data-meeting-sub-toggle]');
