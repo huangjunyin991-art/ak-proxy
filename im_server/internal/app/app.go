@@ -1813,16 +1813,13 @@ func (a *App) handleListMessages(w http.ResponseWriter, r *http.Request, usernam
 			return
 		}
 		item.SentAt = formatIMTimestamp(sentAt)
-		senderIdentity := a.buildUserIdentityItem(r.Context(), item.SenderUsername)
-		item.SenderDisplayName = senderIdentity.DisplayName
-		item.SenderHonorName = senderIdentity.HonorName
-		item.SenderAvatarKind = senderIdentity.AvatarKind
-		item.SenderAvatarStyle = senderIdentity.AvatarStyle
-		item.SenderAvatarSeed = senderIdentity.AvatarSeed
-		item.SenderAvatarURL = senderIdentity.AvatarURL
-		item = a.normalizeOutgoingMessageItem(r.Context(), item)
 		items = append(items, item)
 	}
+	if err := rows.Err(); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
+		return
+	}
+	items = a.enrichMessageSenderIdentities(r.Context(), items)
 	if afterSeqNo <= 0 {
 		for left, right := 0, len(items)-1; left < right; left, right = left+1, right-1 {
 			items[left], items[right] = items[right], items[left]
