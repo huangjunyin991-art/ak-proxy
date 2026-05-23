@@ -108,19 +108,23 @@
         return Number(record.operation_type || 0) === 1 ? '收入' : '支出';
     }
 
-    function renderDetailTable(records, category, page, pageSize) {
-        if (!records || !records.length) return '<div class="ps-empty compact">暂无明细</div>';
-        var total = records.length;
+    function renderDetailTable(item, category, page, pageSize, state) {
+        var detail = state.detailMap && state.detailMap[category] ? state.detailMap[category] : null;
+        var loading = state.detailLoadingMap && state.detailLoadingMap[category];
+        var error = state.detailErrorMap && state.detailErrorMap[category];
+        var records = detail && Array.isArray(detail.records) ? detail.records : (Array.isArray(item.records) ? item.records : []);
+        var remotePaged = !!detail;
+        var total = detail && detail.total != null ? Number(detail.total || 0) : (item.count != null ? Number(item.count || 0) : records.length);
         var size = Math.max(1, parseInt(pageSize, 10) || 50);
-        var totalPages = Math.max(1, Math.ceil(total / size));
-        var current = Math.min(Math.max(1, parseInt(page, 10) || 1), totalPages);
+        var totalPages = detail && detail.total_pages != null ? Math.max(1, Number(detail.total_pages || 1)) : Math.max(1, Math.ceil(total / size));
+        var current = detail && detail.page != null ? Number(detail.page || 1) : Math.min(Math.max(1, parseInt(page, 10) || 1), totalPages);
         var start = (current - 1) * size;
-        var slice = records.slice(start, start + size);
+        var slice = remotePaged ? records : records.slice(start, start + size);
         var nameAttr = html(category || '');
         var firstDisabled = current <= 1;
         var lastDisabled = current >= totalPages;
         var rangeFrom = total === 0 ? 0 : start + 1;
-        var rangeTo = Math.min(start + size, total);
+        var rangeTo = remotePaged ? Math.min(start + records.length, total) : Math.min(start + size, total);
         var pager = '<div class="ps-detail-pager">' +
             '<div class="ps-detail-pager-btns">' +
             '<button class="ps-rt-btn" data-action="detail-page" data-name="' + nameAttr + '" data-target="first"' + (firstDisabled ? ' disabled' : '') + '>首页</button>' +
@@ -130,6 +134,9 @@
             '</div>' +
             '<span class="ps-detail-pager-info">共 ' + number(total) + ' 条，第 ' + number(current) + ' / ' + number(totalPages) + ' 页，当前显示 ' + number(rangeFrom) + '-' + number(rangeTo) + '</span>' +
             '</div>';
+        if (loading) return '<div class="ps-empty compact">正在加载明细...</div>' + pager;
+        if (error && !slice.length) return '<div class="ps-empty compact">' + html(error) + '</div>' + pager;
+        if (!slice.length) return '<div class="ps-empty compact">暂无明细</div>' + pager;
         var body = '<div class="ps-rt-detail-wrap"><table class="ps-detail-table"><thead><tr><th>时间</th><th>方向</th><th>金额</th><th>余额</th><th>类型</th><th>描述</th></tr></thead><tbody>' + slice.map(function(record) {
             var isIncome = Number(record.operation_type || 0) === 1;
             var tone = isIncome ? 'income' : 'expense';
@@ -147,7 +154,7 @@
             var name = item.name || '未分类';
             var expanded = state.expandedCategory === name;
             var page = pageMap[name] || 1;
-            return '<tr class="ps-category-row"><td><button class="ps-rt-btn primary ps-expand-btn" data-action="toggle-category" data-name="' + html(name) + '">' + (expanded ? '收起' : '展开') + '</button>' + html(name) + '</td><td>' + number(item.count) + '</td><td class="income">' + number(item.income) + '</td><td class="expense">' + number(item.expense) + '</td><td class="' + amountTone(item.net).trim() + '">' + number(item.net) + '</td></tr>' + (expanded ? '<tr class="ps-detail-row"><td colspan="5">' + renderDetailTable(item.records || [], name, page, pageSize) + '</td></tr>' : '');
+            return '<tr class="ps-category-row"><td><button class="ps-rt-btn primary ps-expand-btn" data-action="toggle-category" data-name="' + html(name) + '">' + (expanded ? '收起' : '展开') + '</button>' + html(name) + '</td><td>' + number(item.count) + '</td><td class="income">' + number(item.income) + '</td><td class="expense">' + number(item.expense) + '</td><td class="' + amountTone(item.net).trim() + '">' + number(item.net) + '</td></tr>' + (expanded ? '<tr class="ps-detail-row"><td colspan="5">' + renderDetailTable(item, name, page, pageSize, state) + '</td></tr>' : '');
         }).join('');
     }
 

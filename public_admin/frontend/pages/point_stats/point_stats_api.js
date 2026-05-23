@@ -35,6 +35,19 @@
         }).then(parseResponse);
     }
 
+    function getDetail(payload) {
+        var params = new URLSearchParams();
+        if (payload && payload.username) params.set('username', payload.username);
+        if (payload && payload.pointType) params.set('point_type', payload.pointType);
+        if (payload && payload.category) params.set('category', payload.category);
+        params.set('page', String(payload && payload.page ? payload.page : 1));
+        params.set('page_size', String(payload && payload.pageSize ? payload.pageSize : 50));
+        return fetch('/admin/api/point-stats/detail?' + params.toString(), {
+            headers: authHeaders(),
+            credentials: 'same-origin'
+        }).then(parseResponse);
+    }
+
     function searchUsers(query, limit) {
         var params = new URLSearchParams();
         if (query) params.set('search', query);
@@ -78,6 +91,7 @@
 
     window.AKPointStatsApi = {
         getStats: getStats,
+        getDetail: getDetail,
         searchUsers: searchUsers,
         syncRecords: syncRecords,
         syncStatus: syncStatus,

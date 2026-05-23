@@ -67,6 +67,36 @@
         });
     }
 
+    function findCategory(name) {
+        var rows = (store.state.payload && Array.isArray(store.state.payload.categories)) ? store.state.payload.categories : [];
+        for (var i = 0; i < rows.length; i++) {
+            if ((rows[i].name || '未分类') === name) return rows[i];
+        }
+        return null;
+    }
+
+    function loadDetail(name, page) {
+        if (!api || !api.getDetail || !store || !name) return;
+        var username = String(store.state.username || '').trim();
+        if (!username) return;
+        var currentPage = page || (store.state.detailPageMap && store.state.detailPageMap[name]) || 1;
+        store.setDetailLoading(name, true);
+        render();
+        api.getDetail({
+            username: username,
+            pointType: store.state.pointType,
+            category: name,
+            page: currentPage,
+            pageSize: store.state.detailPageSize || 50
+        }).then(function(data) {
+            store.setDetailData(name, data);
+            render();
+        }).catch(function(error) {
+            store.setDetailError(name, error.message || '加载明细失败');
+            render();
+        });
+    }
+
     function stopSyncPoll() {
         if (syncPollTimer) {
             clearInterval(syncPollTimer);
@@ -246,17 +276,20 @@
             store.selectAccount({ username: actionNode.getAttribute('data-username') || '' });
             render();
         } else if (action === 'toggle-category') {
-            store.toggleCategory(actionNode.getAttribute('data-name') || '');
+            var categoryName = actionNode.getAttribute('data-name') || '';
+            store.toggleCategory(categoryName);
             render();
+            if (store.state.expandedCategory === categoryName) {
+                loadDetail(categoryName, store.state.detailPageMap[categoryName] || 1);
+            }
         } else if (action === 'detail-page') {
             if (actionNode.disabled) return;
             var name = actionNode.getAttribute('data-name') || '';
             if (!name) return;
             var target = actionNode.getAttribute('data-target') || 'next';
-            var rows = (store.state.payload && Array.isArray(store.state.payload.categories)) ? store.state.payload.categories : [];
-            var match = null;
-            for (var i = 0; i < rows.length; i++) { if ((rows[i].name || '未分类') === name) { match = rows[i]; break; } }
-            var total = match && Array.isArray(match.records) ? match.records.length : 0;
+            var match = findCategory(name);
+            var detail = store.state.detailMap && store.state.detailMap[name] ? store.state.detailMap[name] : null;
+            var total = detail && detail.total != null ? Number(detail.total || 0) : (match && match.count != null ? Number(match.count || 0) : (match && Array.isArray(match.records) ? match.records.length : 0));
             var pageSize = store.state.detailPageSize || 50;
             var totalPages = Math.max(1, Math.ceil(total / pageSize));
             var current = (store.state.detailPageMap && store.state.detailPageMap[name]) || 1;
@@ -267,6 +300,7 @@
             else if (target === 'last') next = totalPages;
             store.setDetailPage(name, next);
             render();
+            loadDetail(name, next);
         }
     }
 

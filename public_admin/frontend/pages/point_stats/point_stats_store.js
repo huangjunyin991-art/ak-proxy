@@ -19,6 +19,9 @@
             expandedCategory: null,
             detailPageSize: 50,
             detailPageMap: {},
+            detailMap: {},
+            detailLoadingMap: {},
+            detailErrorMap: {},
             quota: {
                 isSuperAdmin: false,
                 limit: 3,
@@ -35,6 +38,9 @@
             state.pointType = type;
             state.expandedCategory = null;
             state.detailPageMap = {};
+            state.detailMap = {};
+            state.detailLoadingMap = {};
+            state.detailErrorMap = {};
         }
 
         function setAccountQuery(value) {
@@ -59,6 +65,9 @@
             state.selectedAccountIndex = -1;
             state.expandedCategory = null;
             state.detailPageMap = {};
+            state.detailMap = {};
+            state.detailLoadingMap = {};
+            state.detailErrorMap = {};
         }
 
         function moveAccountSelection(delta) {
@@ -74,10 +83,18 @@
             state.selectedAccountIndex = -1;
             state.expandedCategory = null;
             state.detailPageMap = {};
+            state.detailMap = {};
+            state.detailLoadingMap = {};
+            state.detailErrorMap = {};
         }
 
         function setPayload(payload) {
             state.payload = payload || null;
+            state.expandedCategory = null;
+            state.detailPageMap = {};
+            state.detailMap = {};
+            state.detailLoadingMap = {};
+            state.detailErrorMap = {};
         }
 
         function setStatus(message, isError) {
@@ -97,6 +114,26 @@
             var p = parseInt(page, 10);
             if (!isFinite(p) || p < 1) p = 1;
             state.detailPageMap[name] = p;
+        }
+
+        function setDetailLoading(name, loading) {
+            if (!name) return;
+            state.detailLoadingMap[name] = !!loading;
+            if (loading) state.detailErrorMap[name] = '';
+        }
+
+        function setDetailError(name, message) {
+            if (!name) return;
+            state.detailErrorMap[name] = message || '';
+            state.detailLoadingMap[name] = false;
+        }
+
+        function setDetailData(name, payload) {
+            if (!name || !payload) return;
+            state.detailMap[name] = payload;
+            state.detailPageMap[name] = payload.page || state.detailPageMap[name] || 1;
+            state.detailLoadingMap[name] = false;
+            state.detailErrorMap[name] = '';
         }
 
         function _cooldownKey(account, pointType) {
@@ -164,6 +201,9 @@
             setStatus: setStatus,
             toggleCategory: toggleCategory,
             setDetailPage: setDetailPage,
+            setDetailLoading: setDetailLoading,
+            setDetailError: setDetailError,
+            setDetailData: setDetailData,
             setQuota: setQuota,
             markCooldown: markCooldown,
             getCooldownRemaining: getCooldownRemaining,

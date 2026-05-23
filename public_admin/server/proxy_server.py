@@ -4761,6 +4761,17 @@ async def admin_point_stats(request: Request, username: str = None, point_type: 
         return JSONResponse(status_code=400, content={"error": True, "message": str(e)})
 
 
+@app.get("/admin/api/point-stats/detail")
+async def admin_point_stats_detail(request: Request, username: str, point_type: str, category: str, page: int = 1, page_size: int = 50):
+    _, error_response = await _require_admin_token(request, 'pointStats')
+    if error_response is not None:
+        return error_response
+    try:
+        return await db.get_point_stats_detail(username=username, point_type=point_type, category=category, page=page, page_size=page_size)
+    except ValueError as e:
+        return JSONResponse(status_code=400, content={"error": True, "message": str(e)})
+
+
 async def _fetch_point_history_page(username: str, point_type: str, page: int, page_size: int, auth_state: dict) -> list:
     point_code = str(point_type or '').strip().upper()
     endpoint = _POINT_HISTORY_RPC_TYPES.get(point_code)

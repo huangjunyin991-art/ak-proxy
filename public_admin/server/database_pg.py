@@ -17,6 +17,8 @@ import ipaddress
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Any
 
+from .performance.point_stats.detail_pagination import build_point_categories, paginate_point_category_records
+
 logger = logging.getLogger("TransparentProxy.DB")
 
 SENSITIVE_OUTPUT_FIELDS = {
@@ -1414,47 +1416,7 @@ async def get_point_stats(username: str = None, point_type: str = None, limit: i
                 WHERE username = $1 AND point_type = $2
                 ORDER BY record_time DESC NULLS LAST, id ASC
             ''', username, code)
-    category_agg: Dict[str, Dict] = {}
-    detail_by_category: Dict[str, List[Dict]] = {}
-    for row in raw_rows:
-        item = dict(row)
-        raw_type = (item.get('type_name') or '').strip()
-        description = (item.get('description') or '').strip()
-        op = int(item.get('operation_type') or 0)
-        amount_value = float(item.get('amount') or 0)
-        abs_amount = abs(amount_value)
-        category = resolve_point_category(code or '', raw_type, description)
-        agg = category_agg.setdefault(category, {
-            'name': category,
-            'count': 0,
-            'income': 0.0,
-            'expense': 0.0,
-            'net': 0.0,
-        })
-        agg['count'] += 1
-        if op == 1:
-            agg['income'] += abs_amount
-            agg['net'] += abs_amount
-        else:
-            agg['expense'] += abs_amount
-            agg['net'] -= abs_amount
-        bucket = detail_by_category.setdefault(category, [])
-        item['time'] = item.get('record_time') or item.get('saved_at')
-        item['direction'] = '收入' if op == 1 else '支出'
-        item['category'] = category
-        item['type_name_cn'] = item.get('type_name_cn') or category
-        item['description_display'] = _format_point_record_description(category, description)
-        bucket.append(item)
-    categories = []
-    for name, agg in sorted(category_agg.items(), key=lambda kv: kv[1]['count'], reverse=True):
-        categories.append({
-            'name': name,
-            'count': agg['count'],
-            'income': round(agg['income'], 2),
-            'expense': round(agg['expense'], 2),
-            'net': round(agg['net'], 2),
-            'records': detail_by_category.get(name, []),
-        })
+    categories = build_point_categories(raw_rows, code or '', resolve_point_category, _format_point_record_description, include_records=False)
     return {
         'summary': [dict(r) for r in summary_rows],
         'recent_records': [dict(r) for r in recent_rows],
@@ -1464,6 +1426,28 @@ async def get_point_stats(username: str = None, point_type: str = None, limit: i
         'username': username,
         'point_type': code,
     }
+
+async def get_point_stats_detail(username: str, point_type: str, category: str, page: int = 1, page_size: int = 50) -> Dict:
+    pool = _get_pool()
+    normalized_username = str(username or '').strip().lower()
+    if not normalized_username:
+        raise ValueError('缺少账号')
+    code = _point_history_type(point_type)
+    category_name = str(category or '').strip()
+    if not category_name:
+        raise ValueError('缺少分类')
+    async with pool.acquire() as conn:
+        rows = await conn.fetch('''
+            SELECT record_time, operation_type, amount, balance,
+                   type_name, type_name_cn, description, saved_at
+            FROM point_history_records
+            WHERE username = $1 AND point_type = $2
+            ORDER BY record_time DESC NULLS LAST, id ASC
+        ''', normalized_username, code)
+    result = paginate_point_category_records(rows, code, category_name, page, page_size, resolve_point_category, _format_point_record_description)
+    result['username'] = normalized_username
+    result['point_type'] = code
+    return result
 
 async def search_point_stat_users(search: str = None, limit: int = 12) -> Dict:
     pool = _get_pool()
