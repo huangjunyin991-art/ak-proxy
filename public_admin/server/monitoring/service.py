@@ -182,17 +182,27 @@ class MonitoringService:
     async def get_overview(self, range_name: str = "7d", force: bool = False) -> dict:
         partial_errors = []
         system = await self.get_system(force=False)
-        health = await self.get_health(force=False)
-        try:
-            database = await self.get_database(force=force)
-        except Exception as exc:
-            database = unavailable("database", str(exc))
-            partial_errors.append(error_item("database", str(exc)))
-        try:
-            chat = await self.get_chat_summary(range_name, force=force)
-        except Exception as exc:
-            chat = unavailable("chat", str(exc))
-            partial_errors.append(error_item("chat", str(exc)))
+        health_result, database_result, chat_result = await asyncio.gather(
+            self.get_health(force=False),
+            self.get_database(force=force),
+            self.get_chat_summary(range_name, force=force),
+            return_exceptions=True,
+        )
+        if isinstance(health_result, Exception):
+            health = unavailable("health", str(health_result))
+            partial_errors.append(error_item("health", str(health_result)))
+        else:
+            health = health_result
+        if isinstance(database_result, Exception):
+            database = unavailable("database", str(database_result))
+            partial_errors.append(error_item("database", str(database_result)))
+        else:
+            database = database_result
+        if isinstance(chat_result, Exception):
+            chat = unavailable("chat", str(chat_result))
+            partial_errors.append(error_item("chat", str(chat_result)))
+        else:
+            chat = chat_result
         return {
             "success": True,
             "generated_at": datetime.now(timezone.utc).isoformat(),
