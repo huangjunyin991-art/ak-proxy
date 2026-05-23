@@ -90,23 +90,100 @@ func (a *App) buildUserIdentityItems(ctx context.Context, usernames []string) ma
 	if len(normalizedUsernames) == 0 {
 		return result
 	}
-	honorNames := a.loadUserHonorNames(ctx, normalizedUsernames)
-	hideHonorSet := a.loadUserHideHonorSet(ctx, normalizedUsernames)
+	records := a.loadUserIdentityRecords(ctx, normalizedUsernames)
 	for _, username := range normalizedUsernames {
-		honorName := strings.TrimSpace(honorNames[username])
-		if _, hidden := hideHonorSet[username]; hidden {
+		record, ok := records[username]
+		if !ok {
+			avatar := a.getUserAvatarDescriptor(ctx, username)
+			record = userIdentityRecord{
+				DisplayName: a.fetchDisplayName(ctx, username),
+				Avatar:      avatar,
+				HonorName:   "",
+				HonorHidden: false,
+			}
+		}
+		honorName := strings.TrimSpace(record.HonorName)
+		if record.HonorHidden {
 			honorName = ""
 		}
-		avatar := a.getUserAvatarDescriptor(ctx, username)
 		result[username] = userIdentityItem{
 			Username:    username,
-			DisplayName: a.fetchDisplayName(ctx, username),
-			AvatarKind:  avatar.Kind,
-			AvatarStyle: avatar.Style,
-			AvatarSeed:  avatar.Seed,
-			AvatarURL:   avatar.URL,
+			DisplayName: record.DisplayName,
+			AvatarKind:  record.Avatar.Kind,
+			AvatarStyle: record.Avatar.Style,
+			AvatarSeed:  record.Avatar.Seed,
+			AvatarURL:   record.Avatar.URL,
 			HonorName:   honorName,
 		}
+	}
+	return result
+}
+
+type userIdentityRecord struct {
+	DisplayName string
+	Avatar      userAvatarDescriptor
+	HonorName   string
+	HonorHidden bool
+}
+
+func (a *App) loadUserIdentityRecords(ctx context.Context, usernames []string) map[string]userIdentityRecord {
+	normalizedUsernames := normalizeUsernames(usernames)
+	result := map[string]userIdentityRecord{}
+	if len(normalizedUsernames) == 0 {
+		return result
+	}
+	rows, err := a.db.Query(ctx, `
+		SELECT input.username,
+		       COALESCE(NULLIF(p.nickname, ''), NULLIF(us.real_name, ''), input.username) AS display_name,
+		       COALESCE(NULLIF(p.avatar_style, ''), $2) AS avatar_style,
+		       COALESCE(p.avatar_seed, '') AS avatar_seed,
+		       COALESCE(p.avatar_url, '') AS avatar_url,
+		       COALESCE(p.hide_honor, FALSE) AS hide_honor,
+		       COALESCE(ua.honor_name, '') AS honor_name
+		FROM unnest($1::text[]) AS input(username)
+		LEFT JOIN im_user_profile p ON p.username = input.username
+		LEFT JOIN user_stats us ON us.username = input.username
+		LEFT JOIN user_assets ua ON ua.username = input.username`, normalizedUsernames, defaultAvatarStyle)
+	if err != nil {
+		log.Printf("load user identity records failed: count=%d err=%v", len(normalizedUsernames), err)
+		return result
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var username string
+		var displayName string
+		var avatarStyle string
+		var avatarSeed string
+		var avatarURL string
+		var hideHonor bool
+		var honorName string
+		if err := rows.Scan(&username, &displayName, &avatarStyle, &avatarSeed, &avatarURL, &hideHonor, &honorName); err != nil {
+			log.Printf("scan user identity records failed: err=%v", err)
+			continue
+		}
+		normalizedUsername := strings.ToLower(strings.TrimSpace(username))
+		if normalizedUsername == "" {
+			continue
+		}
+		profileRecord := userProfileRecord{
+			Username:    normalizedUsername,
+			AvatarStyle: normalizeAvatarStyle(avatarStyle),
+			AvatarSeed:  strings.TrimSpace(avatarSeed),
+			AvatarURL:   strings.TrimSpace(avatarURL),
+		}
+		record := userIdentityRecord{
+			DisplayName: strings.TrimSpace(displayName),
+			Avatar:      buildUserAvatarDescriptorFromRecord(normalizedUsername, profileRecord),
+			HonorName:   strings.TrimSpace(honorName),
+			HonorHidden: hideHonor,
+		}
+		if record.DisplayName == "" {
+			record.DisplayName = normalizedUsername
+		}
+		result[normalizedUsername] = record
+	}
+	if err := rows.Err(); err != nil {
+		log.Printf("iterate user identity records failed: err=%v", err)
 	}
 	return result
 }

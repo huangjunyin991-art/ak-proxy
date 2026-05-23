@@ -1,0 +1,69 @@
+from typing import Any, Awaitable, Callable
+
+from ..cache.ttl_cache import AsyncTTLCache
+from .schemas import LIGHT_EXIT_FIELDS, NODE_META_FIELDS, pick_fields
+
+
+class DispatcherStatusService:
+    def __init__(
+        self,
+        dispatcher: Any,
+        singbox_status_loader: Callable[[], Awaitable[dict[str, Any]]],
+        subscription_groups_loader: Callable[[], Awaitable[list[dict[str, Any]]]],
+        saved_nodes_loader: Callable[[], list[dict[str, Any]]],
+        active_group_filter: Callable[[list[dict[str, Any]], set[str]], list[dict[str, Any]]],
+        enabled_nodes_filter: Callable[[list[dict[str, Any]]], list[dict[str, Any]]],
+        meta_ttl_seconds: float = 30.0,
+    ):
+        self._dispatcher = dispatcher
+        self._singbox_status_loader = singbox_status_loader
+        self._subscription_groups_loader = subscription_groups_loader
+        self._saved_nodes_loader = saved_nodes_loader
+        self._active_group_filter = active_group_filter
+        self._enabled_nodes_filter = enabled_nodes_filter
+        self._meta_cache = AsyncTTLCache(self._load_meta_status, meta_ttl_seconds, meta_ttl_seconds * 4)
+
+    def get_light_status(self) -> dict[str, Any]:
+        status = self._dispatcher.get_status()
+        if not isinstance(status, dict):
+            status = {}
+        exits = status.get("exits") if isinstance(status, dict) else []
+        light_exits = [pick_fields(item, LIGHT_EXIT_FIELDS) for item in exits if isinstance(item, dict)]
+        return {
+            "total_exits": status.get("total_exits", 0),
+            "healthy_exits": status.get("healthy_exits", 0),
+            "total_active": status.get("total_active", 0),
+            "max_login_per_min": status.get("max_login_per_min", 0),
+            "policy": status.get("policy", {}),
+            "exits": light_exits,
+        }
+
+    async def get_meta_status(self, force_refresh: bool = False) -> dict[str, Any]:
+        return await self._meta_cache.get(force_refresh=force_refresh)
+
+    def invalidate_meta(self) -> None:
+        self._meta_cache.invalidate()
+
+    async def _load_meta_status(self) -> dict[str, Any]:
+        singbox_status = await self._singbox_status_loader()
+        groups = await self._subscription_groups_loader()
+        active_group_ids = {str(group.get("id") or "").strip() for group in groups if isinstance(group, dict)}
+        saved_nodes = self._saved_nodes_loader()
+        node_items = [item for item in saved_nodes if isinstance(item, dict)] if isinstance(saved_nodes, list) else []
+        enabled_nodes = self._enabled_nodes_filter(self._active_group_filter(node_items, active_group_ids))
+        node_meta = []
+        for idx, node in enumerate(enabled_nodes, start=1):
+            item = {
+                "index": idx,
+                "group_id": node.get("group_id", ""),
+                "group_name": node.get("group_name", ""),
+                "node_type": node.get("type", ""),
+                "node_server": node.get("server", ""),
+                "enabled": node.get("enabled", True),
+            }
+            node_meta.append(pick_fields(item, NODE_META_FIELDS | {"index"}))
+        return {
+            "singbox": singbox_status,
+            "subscription_groups": groups,
+            "node_meta": node_meta,
+        }

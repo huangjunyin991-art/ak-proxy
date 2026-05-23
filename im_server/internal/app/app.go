@@ -1565,45 +1565,9 @@ func (a *App) handleSessions(w http.ResponseWriter, r *http.Request) {
 		item.AllMutedBy = strings.ToLower(strings.TrimSpace(item.AllMutedBy))
 		item.AllMutedAt = formatOptionalTime(allMutedAt)
 		item.MutedUntil = formatOptionalTime(muteUntil)
-		peerIdentity := a.buildUserIdentityItem(r.Context(), item.PeerUsername)
-		item.PeerDisplayName = peerIdentity.DisplayName
-		item.PeerHonorName = peerIdentity.HonorName
-		if item.ConversationType != "group" {
-			item.AvatarKind = peerIdentity.AvatarKind
-			item.AvatarStyle = peerIdentity.AvatarStyle
-			item.AvatarSeed = peerIdentity.AvatarSeed
-			item.AvatarURL = peerIdentity.AvatarURL
-		} else if strings.TrimSpace(item.AvatarURL) != "" {
-			item.AvatarKind = "custom"
-		}
 		item.IsPinned = item.PinType == "system" || item.PinType == "manual"
 		if pinnedAt != nil {
 			item.PinnedAt = formatIMTimestamp(*pinnedAt)
-		}
-		if item.ConversationType == "group" && strings.TrimSpace(item.ConversationTitle) == "" {
-			item.ConversationTitle = "内部群聊"
-		}
-		if item.ConversationType == "group" {
-			item.PeerDisplayName = item.ConversationTitle
-			item.PeerUsername = ""
-			if strings.EqualFold(item.OwnerUsername, username) {
-				item.MyRole = "owner"
-			} else if a.isConversationAdmin(r.Context(), item.ConversationID, username) {
-				item.MyRole = "admin"
-			} else {
-				item.MyRole = "member"
-			}
-			members, membersErr := a.loadConversationMemberItems(r.Context(), item.ConversationID, conversationMeta{
-				ID:                item.ConversationID,
-				ConversationType:  item.ConversationType,
-				ConversationTitle: item.ConversationTitle,
-				OwnerUsername:     item.OwnerUsername,
-			})
-			if membersErr != nil {
-				log.Printf("load session members preview failed: conversation_id=%d err=%v", item.ConversationID, membersErr)
-			} else {
-				item.MembersPreview = sortSessionMembersForPreview(members)
-			}
 		}
 		if lastMessageAt != nil {
 			item.LastMessageAt = formatIMTimestamp(*lastMessageAt)
@@ -1614,14 +1578,15 @@ func (a *App) handleSessions(w http.ResponseWriter, r *http.Request) {
 				item.CanSend = false
 				item.SendRestriction = "group_mute"
 				item.SendRestrictionHint = "你已被禁言"
-			} else if item.AllMuted && item.MyRole != "owner" && item.MyRole != "admin" {
-				item.CanSend = false
-				item.SendRestriction = "group_mute"
-				item.SendRestrictionHint = "全体禁言中，仅群主和管理员可发言"
 			}
 		}
 		items = append(items, item)
 	}
+	if err := rows.Err(); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
+		return
+	}
+	items = a.enrichSessionItems(r.Context(), username, items)
 	items = a.applySessionSocialRules(r.Context(), username, items)
 	writeJSON(w, http.StatusOK, map[string]any{"items": items})
 }

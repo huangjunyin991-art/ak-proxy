@@ -8792,18 +8792,79 @@
         // ===== 负载均衡管理 =====
         let lbRefreshTimer = null;
         let lbData = null;
+        let lbMetaData = null;
+        let lbLightApiAvailable = true;
         let remoteVoiceRefreshTimer = null;
 
-        async function loadLbStatus() {
+        function mergeLbStatusData(lightData, metaData) {
+            const previousExits = {};
+            ((lbData && Array.isArray(lbData.exits)) ? lbData.exits : []).forEach(ex => {
+                previousExits[Number(ex.index || 0)] = ex;
+            });
+            const nodeMeta = {};
+            ((metaData && Array.isArray(metaData.node_meta)) ? metaData.node_meta : []).forEach(item => {
+                nodeMeta[Number(item.index || 0)] = item;
+            });
+            const exits = ((lightData && Array.isArray(lightData.exits)) ? lightData.exits : []).map(ex => {
+                const index = Number(ex.index || 0);
+                return Object.assign({}, previousExits[index] || {}, ex, nodeMeta[index] || {});
+            });
+            return Object.assign({}, metaData || {}, lightData || {}, {
+                singbox: (metaData && metaData.singbox) || (lbData && lbData.singbox) || null,
+                exits
+            });
+        }
+
+        async function loadLbStatus(options = {forceMeta: true}) {
             if (!shouldRunAdminPanelPoll('settings')) return;
             try {
-                const res = await fetch(`${API_BASE}/api/dispatcher/full`);
-                const data = await res.json();
+                if (!lbLightApiAvailable) {
+                    const res = await fetch(`${API_BASE}/api/dispatcher/full`);
+                    const data = await res.json();
+                    lbData = data;
+                    renderLbStatus(data);
+                    renderSingboxStatus(data.singbox);
+                    return;
+                }
+                const forceMeta = options.forceMeta !== false || !lbMetaData;
+                const metaPromise = forceMeta
+                    ? fetch(`${API_BASE}/api/dispatcher/meta${forceMeta ? '?force_refresh=true' : ''}`).then(res => res.json())
+                    : Promise.resolve(lbMetaData);
+                const lightPromise = fetch(`${API_BASE}/api/dispatcher/light`).then(res => res.json());
+                const [meta, light] = await Promise.all([metaPromise, lightPromise]);
+                lbMetaData = meta || lbMetaData;
+                const data = mergeLbStatusData(light, lbMetaData);
                 lbData = data;
                 renderLbStatus(data);
                 renderSingboxStatus(data.singbox);
             } catch (e) {
-                console.error('加载负载均衡状态失败', e);
+                try {
+                    lbLightApiAvailable = false;
+                    const res = await fetch(`${API_BASE}/api/dispatcher/full`);
+                    const data = await res.json();
+                    lbData = data;
+                    renderLbStatus(data);
+                    renderSingboxStatus(data.singbox);
+                } catch (fallbackError) {
+                    console.error('加载负载均衡状态失败', fallbackError);
+                }
+            }
+        }
+
+        async function refreshLbLightStatus() {
+            if (!shouldRunAdminPanelPoll('settings')) return;
+            if (!lbLightApiAvailable) {
+                loadLbStatus();
+                return;
+            }
+            try {
+                const res = await fetch(`${API_BASE}/api/dispatcher/light`);
+                const light = await res.json();
+                const data = mergeLbStatusData(light, lbMetaData);
+                lbData = data;
+                renderLbStatus(data);
+            } catch (e) {
+                loadLbStatus();
             }
         }
 
@@ -8827,7 +8888,7 @@
             stopLbRefresh();
             if (!shouldRunAdminPanelPoll('settings')) return;
             lbRefreshTimer = setInterval(() => {
-                if (shouldRunAdminPanelPoll('settings')) loadLbStatus();
+                if (shouldRunAdminPanelPoll('settings')) refreshLbLightStatus();
             }, 8000);
         }
 

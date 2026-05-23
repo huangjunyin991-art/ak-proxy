@@ -169,6 +169,9 @@ from plugins.remote_assist.server.types import AssistConsentStatus, AssistRole
 
 from .outbound_dispatcher import dispatcher, ace_sell_dispatcher, OutboundExit
 from .runtime_performance import TimedServiceStatusCache, resolve_worker_policy, run_blocking
+from .performance.cache.admin_stats_cache import AdminStatsCache
+from .performance.db_indexes.admin_index_plan import get_admin_index_plan
+from .performance.dispatcher_status.service import DispatcherStatusService
 from .static_resource_cache import (
     StaticResourceCacheConfig,
     StaticResourcePayload,
@@ -203,6 +206,12 @@ async def _get_singbox_service_status_cached(force_refresh: bool = False) -> dic
     return await _SINGBOX_STATUS_CACHE.get(force_refresh=force_refresh)
 
 
+_ADMIN_STATS_CACHE = AdminStatsCache(
+    stats_loader=db.get_stats_summary,
+    dashboard_loader=db.get_dashboard_data,
+)
+
+
 def _get_node_group_id(node: dict[str, Any]) -> str:
     return str(node.get("group_id") or "").strip()
 
@@ -216,6 +225,22 @@ def _filter_nodes_by_active_groups(nodes: list[dict[str, Any]], active_group_ids
         item for item in nodes
         if isinstance(item, dict) and _get_node_group_id(item) in active_group_ids
     ]
+
+
+def _load_saved_subscription_nodes_for_status() -> list[dict[str, Any]]:
+    from . import singbox_manager as sbm
+    nodes = sbm.load_saved_nodes()
+    return nodes if isinstance(nodes, list) else []
+
+
+_DISPATCHER_STATUS_SERVICE = DispatcherStatusService(
+    dispatcher=dispatcher,
+    singbox_status_loader=_get_singbox_service_status_cached,
+    subscription_groups_loader=db.get_subscription_groups,
+    saved_nodes_loader=_load_saved_subscription_nodes_for_status,
+    active_group_filter=_filter_nodes_by_active_groups,
+    enabled_nodes_filter=_get_enabled_subscription_nodes,
+)
 
 
 def _get_dispatcher_saved_base_port(default: int = 10001) -> int:
@@ -3139,6 +3164,24 @@ async def api_dispatcher_full(request: Request):
     return {**status, "singbox": singbox_status}
 
 
+@app.get("/api/dispatcher/light")
+async def api_dispatcher_light(request: Request):
+    _, error_response = await _require_admin_token(request)
+    if error_response is not None:
+        return error_response
+
+    return _DISPATCHER_STATUS_SERVICE.get_light_status()
+
+
+@app.get("/api/dispatcher/meta")
+async def api_dispatcher_meta(request: Request, force_refresh: bool = False):
+    _, error_response = await _require_admin_token(request)
+    if error_response is not None:
+        return error_response
+
+    return await _DISPATCHER_STATUS_SERVICE.get_meta_status(force_refresh=force_refresh)
+
+
 
 
 
@@ -3170,6 +3213,15 @@ async def api_db_size(request: Request):
 
 
 
+
+
+@app.get("/admin/api/performance/index-plan")
+async def admin_performance_index_plan(request: Request):
+    _, error_response = await _require_admin_token(request, super_admin_only=True)
+    if error_response is not None:
+        return error_response
+
+    return {"items": get_admin_index_plan(), "executable": False}
 
 
 @app.post("/api/db/delete")
@@ -4691,7 +4743,11 @@ async def admin_stats(request: Request):
     if error_response is not None:
         return error_response
 
-    return await db.get_stats_summary()
+    result = await _ADMIN_STATS_CACHE.get_stats_result()
+    data = dict(result.value)
+    if result.stale:
+        data["cache_stale"] = True
+    return data
 
 
 @app.get("/admin/api/point-stats")
@@ -5149,7 +5205,11 @@ async def admin_dashboard(request: Request):
 
     try:
 
-        return await db.get_dashboard_data()
+        result = await _ADMIN_STATS_CACHE.get_dashboard_result()
+        data = dict(result.value)
+        if result.stale:
+            data["cache_stale"] = True
+        return data
 
     except Exception as e:
 
