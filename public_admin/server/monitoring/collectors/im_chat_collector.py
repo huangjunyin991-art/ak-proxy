@@ -381,6 +381,19 @@ async def collect_file_assets(pool, status: str = "active", limit: int = 50, tim
                 )
                 ORDER BY file_size DESC, created_at DESC
                 LIMIT $2
+            ), message_asset_refs AS (
+                SELECT substring(m.content_payload FROM '"storage_name"[[:space:]]*:[[:space:]]*"([^"]+)"') AS storage_name
+                FROM im_message m
+                WHERE m.deleted_at IS NULL
+                  AND m.message_type IN ('image', 'file', 'voice', 'video')
+                  AND m.content_payload LIKE '%"storage_name"%'
+            ), asset_refs AS (
+                SELECT r.storage_name, COUNT(*) AS referenced_messages
+                FROM message_asset_refs r
+                JOIN selected_assets a ON a.storage_name = r.storage_name
+                WHERE r.storage_name IS NOT NULL
+                  AND r.storage_name <> ''
+                GROUP BY r.storage_name
             )
             SELECT a.storage_name,
                    a.original_name,
@@ -393,12 +406,7 @@ async def collect_file_assets(pool, status: str = "active", limit: int = 50, tim
                    a.deleted_at,
                    COALESCE(refs.referenced_messages, 0) AS referenced_messages
             FROM selected_assets a
-            LEFT JOIN LATERAL (
-                SELECT COUNT(*) AS referenced_messages
-                FROM im_message m
-                WHERE m.deleted_at IS NULL
-                  AND m.content_payload LIKE '%' || a.storage_name || '%'
-            ) refs ON TRUE
+            LEFT JOIN asset_refs refs ON refs.storage_name = a.storage_name
             ORDER BY a.file_size DESC, a.created_at DESC
         ''', normalized_status, normalized_limit), timeout_seconds)
     items = []
