@@ -34,6 +34,22 @@ async def _table_exists(conn, table_name: str, timeout_seconds: float) -> bool:
     return bool(value)
 
 
+async def _tables_exist(conn, table_names, timeout_seconds: float) -> dict[str, bool]:
+    names = [str(name or "").strip() for name in table_names if str(name or "").strip()]
+    if not names:
+        return {}
+    rows = await _fetch_with_timeout(conn.fetch('''
+        SELECT name, to_regclass('public.' || name) IS NOT NULL AS exists
+        FROM unnest($1::text[]) AS name
+    ''', names), timeout_seconds)
+    result = {name: False for name in names}
+    for row in rows:
+        name = str(_row_get(row, "name") or "")
+        if name:
+            result[name] = bool(_row_get(row, "exists"))
+    return result
+
+
 async def collect_chat_summary(pool, range_name: str = "7d", timeout_seconds: float = 6.0) -> dict:
     days = normalize_range_days(range_name)
     data = {
@@ -60,10 +76,11 @@ async def collect_chat_summary(pool, range_name: str = "7d", timeout_seconds: fl
     }
     async with pool.acquire() as conn:
         required = ["im_conversation", "im_message"]
+        table_exists = await _tables_exist(conn, required + ["im_file_asset"], timeout_seconds)
         for table_name in required:
-            if not await _table_exists(conn, table_name, timeout_seconds):
+            if not table_exists.get(table_name):
                 return {"available": False, "message": f"缺少 {table_name} 表", "generated_at": data["generated_at"]}
-        has_file_asset = await _table_exists(conn, "im_file_asset", timeout_seconds)
+        has_file_asset = table_exists.get("im_file_asset", False)
         row = await _fetch_with_timeout(conn.fetchrow('''
             SELECT COUNT(*) AS conversation_total,
                    COUNT(*) FILTER (WHERE conversation_type = 'group') AS group_total,
@@ -192,10 +209,11 @@ async def collect_group_statistics(pool, range_name: str = "7d", limit: int = 10
     generated_at = datetime.now(timezone.utc).isoformat()
     async with pool.acquire() as conn:
         required = ["im_conversation", "im_message", "im_conversation_member", "im_conversation_admin"]
+        table_exists = await _tables_exist(conn, required + ["im_file_asset"], timeout_seconds)
         for table_name in required:
-            if not await _table_exists(conn, table_name, timeout_seconds):
+            if not table_exists.get(table_name):
                 return {"available": False, "message": f"缺少 {table_name} 表", "generated_at": generated_at, "items": []}
-        has_file_asset = await _table_exists(conn, "im_file_asset", timeout_seconds)
+        has_file_asset = table_exists.get("im_file_asset", False)
         if has_file_asset:
             group_sql = '''
                 WITH group_base AS (
@@ -347,9 +365,10 @@ async def collect_file_assets(pool, status: str = "active", limit: int = 50, tim
     normalized_limit = min(max(int(limit or 50), 1), 100)
     generated_at = datetime.now(timezone.utc).isoformat()
     async with pool.acquire() as conn:
-        if not await _table_exists(conn, "im_file_asset", timeout_seconds):
+        table_exists = await _tables_exist(conn, ["im_file_asset", "im_message"], timeout_seconds)
+        if not table_exists.get("im_file_asset"):
             return {"available": False, "message": "缺少 im_file_asset 表", "generated_at": generated_at, "items": []}
-        if not await _table_exists(conn, "im_message", timeout_seconds):
+        if not table_exists.get("im_message"):
             return {"available": False, "message": "缺少 im_message 表", "generated_at": generated_at, "items": []}
         rows = await _fetch_with_timeout(conn.fetch('''
             WITH selected_assets AS (
