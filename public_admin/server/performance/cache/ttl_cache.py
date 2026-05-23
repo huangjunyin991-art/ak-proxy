@@ -12,11 +12,19 @@ class CacheResult:
 
 
 class AsyncTTLCache:
-    def __init__(self, loader: Callable[[], Awaitable[Any]], ttl_seconds: float, stale_seconds: Optional[float] = None):
+    def __init__(
+        self,
+        loader: Callable[[], Awaitable[Any]],
+        ttl_seconds: float,
+        stale_seconds: Optional[float] = None,
+        refresh_stale_in_background: bool = False,
+    ):
         self._loader = loader
         self._ttl_seconds = max(0.0, float(ttl_seconds))
         self._stale_seconds = max(self._ttl_seconds, float(stale_seconds if stale_seconds is not None else ttl_seconds * 4))
+        self._refresh_stale_in_background = bool(refresh_stale_in_background)
         self._lock = asyncio.Lock()
+        self._refresh_task: Optional[asyncio.Task] = None
         self._value: Any = None
         self._loaded_at = 0.0
         self._has_value = False
@@ -29,15 +37,42 @@ class AsyncTTLCache:
             return float("inf")
         return max(0.0, now - self._loaded_at)
 
+    def _schedule_background_refresh(self) -> None:
+        if self._refresh_task is not None and not self._refresh_task.done():
+            return
+        self._refresh_task = asyncio.create_task(self._refresh_background())
+
+    async def _refresh_background(self) -> None:
+        try:
+            await self.get_result(force_refresh=True)
+        except Exception:
+            pass
+
     async def get_result(self, force_refresh: bool = False) -> CacheResult:
         now = time.monotonic()
         if not force_refresh and self._has_value and self._age(now) <= self._ttl_seconds:
             return CacheResult(self._value, hit=True)
+        if (
+            not force_refresh
+            and self._refresh_stale_in_background
+            and self._has_value
+            and self._age(now) <= self._stale_seconds
+        ):
+            self._schedule_background_refresh()
+            return CacheResult(self._value, hit=True, stale=True)
 
         async with self._lock:
             now = time.monotonic()
             if not force_refresh and self._has_value and self._age(now) <= self._ttl_seconds:
                 return CacheResult(self._value, hit=True)
+            if (
+                not force_refresh
+                and self._refresh_stale_in_background
+                and self._has_value
+                and self._age(now) <= self._stale_seconds
+            ):
+                self._schedule_background_refresh()
+                return CacheResult(self._value, hit=True, stale=True)
             try:
                 value = await self._loader()
             except Exception:

@@ -11,8 +11,8 @@ class AdminStatsCache:
         stats_ttl_seconds: float = 15.0,
         dashboard_ttl_seconds: float = 30.0,
     ):
-        self._stats_cache = AsyncTTLCache(stats_loader, stats_ttl_seconds, stats_ttl_seconds * 4)
-        self._dashboard_cache = AsyncTTLCache(dashboard_loader, dashboard_ttl_seconds, dashboard_ttl_seconds * 4)
+        self._stats_cache = AsyncTTLCache(stats_loader, stats_ttl_seconds, stats_ttl_seconds * 4, refresh_stale_in_background=True)
+        self._dashboard_cache = AsyncTTLCache(dashboard_loader, dashboard_ttl_seconds, dashboard_ttl_seconds * 4, refresh_stale_in_background=True)
 
     async def get_stats_result(self, force_refresh: bool = False) -> CacheResult:
         return await self._stats_cache.get_result(force_refresh=force_refresh)
