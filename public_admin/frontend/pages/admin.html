@@ -9133,6 +9133,44 @@
             }).map(item => item.ex);
         }
 
+        function getLbExitRenderKey(ex, fallbackIndex) {
+            const exitIndex = getLbExitIndex(ex, fallbackIndex);
+            return [exitIndex, ex && ex.type || '', ex && ex.name || '', ex && ex.proxy || ''].join('|');
+        }
+
+        function getLbRenderHash(value) {
+            const text = String(value || '');
+            let hash = 0;
+            for (let i = 0; i < text.length; i++) {
+                hash = ((hash << 5) - hash + text.charCodeAt(i)) | 0;
+            }
+            return String(hash);
+        }
+
+        function createLbExitCardItem(key, html) {
+            const hash = getLbRenderHash(html);
+            return {
+                key,
+                hash,
+                html: `<div data-lb-exit-key="${escapeHtml(key)}" data-lb-render-hash="${hash}"${html.slice(4)}`
+            };
+        }
+
+        function renderLbExitCards(container, cardItems) {
+            const currentCards = Array.from(container.children).filter(node => node.dataset && node.dataset.lbExitKey);
+            const sameOrder = currentCards.length === cardItems.length && cardItems.every((item, index) => currentCards[index].dataset.lbExitKey === item.key);
+            if (!sameOrder) {
+                container.innerHTML = cardItems.map(item => item.html).join('');
+                return;
+            }
+            cardItems.forEach((item, index) => {
+                const node = currentCards[index];
+                if (node.dataset.lbRenderHash !== item.hash) {
+                    node.outerHTML = item.html;
+                }
+            });
+        }
+
         function renderLbStatus(data) {
             if (!data || data.error) return;
             const policy = data.policy || {};
@@ -9153,7 +9191,7 @@
             }
 
             const displayExits = sortLbExitsForDisplay(data.exits);
-            container.innerHTML = displayExits.map((ex, i) => {
+            const cardItems = displayExits.map((ex, i) => {
                 const isDirect = ex.type === 'direct';
                 const exitIndex = getLbExitIndex(ex, i);
                 const healthColor = ex.healthy ? '#00ff88' : '#ff4757';
@@ -9195,7 +9233,7 @@
                 const exitNameArg = jsArg(ex.name || '');
                 const groupHtml = ex.group_name ? `<div style="display:inline-block;margin-top:5px;padding:2px 6px;border-radius:999px;background:rgba(102,126,234,0.14);color:#8ea2ff;font-size:10px;">📦 ${escapeHtml(ex.group_name)}</div>` : '';
 
-                return `<div onclick="lbShowErrorLogs(${exitIndex}, ${exitNameArg})" style="background:var(--bg-card);border-radius:10px;padding:14px;border:1px solid ${borderColor};position:relative;overflow:hidden;cursor:pointer;">
+                const cardHtml = `<div onclick="lbShowErrorLogs(${exitIndex}, ${exitNameArg})" style="background:var(--bg-card);border-radius:10px;padding:14px;border:1px solid ${borderColor};position:relative;overflow:hidden;cursor:pointer;">
                     <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px;">
                         <div>
                             <div style="font-size:15px;font-weight:bold;color:var(--text-primary);">${serverLabel}</div>
@@ -9243,7 +9281,9 @@
                     </div>
                     ${warnHtml}
                 </div>`;
-            }).join('');
+                return createLbExitCardItem(getLbExitRenderKey(ex, i), cardHtml);
+            });
+            renderLbExitCards(container, cardItems);
         }
 
         async function lbDetectIPs() {
