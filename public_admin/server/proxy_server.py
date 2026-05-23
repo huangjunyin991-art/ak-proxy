@@ -4120,6 +4120,13 @@ class OnlineUserManager:
                            'online_time': user.get('online_time')})
         return online
 
+    def get_online_user_count(self):
+        count = 0
+        for normalized in list(self.users.keys()):
+            if self._refresh_user_summary(normalized):
+                count += 1
+        return count
+
     async def send_payload_to_connection(self, username, websocket_id, payload):
         target = self.get_user_connection(username, websocket_id)
         if target:
@@ -5477,6 +5484,18 @@ async def admin_online_users(request: Request):
         return error_response
 
     return online_manager.get_online_users()
+
+
+
+@app.get("/admin/api/online/count")
+
+async def admin_online_user_count(request: Request):
+
+    _, error_response = await _require_admin_token(request, 'online')
+    if error_response is not None:
+        return error_response
+
+    return {"count": online_manager.get_online_user_count()}
 
 
 

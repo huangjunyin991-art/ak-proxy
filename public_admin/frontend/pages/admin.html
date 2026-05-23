@@ -6094,13 +6094,19 @@
             return Array.isArray(data) ? data : [];
         }
 
+        async function fetchOnlineUserCount() {
+            const res = await fetch(`${API_BASE}/admin/api/online/count`);
+            const data = await res.json();
+            return Math.max(0, Number(data && data.count || 0));
+        }
+
         async function refreshOnlineUserCount() {
             if (!shouldRunAdminGlobalPoll()) return;
             const seq = ++_onlineUserCountSeq;
             try {
-                const users = await fetchOnlineUsers();
+                const count = await fetchOnlineUserCount();
                 if (seq !== _onlineUserCountSeq) return;
-                updateOnlineTabCount(users.length);
+                updateOnlineTabCount(count);
             } catch (e) {
                 if (e.name !== 'AbortError') console.error('刷新在线用户数量失败', e);
             }
