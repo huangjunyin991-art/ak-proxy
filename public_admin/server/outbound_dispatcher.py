@@ -16,6 +16,7 @@ import socket
 import time
 import asyncio
 import logging
+from collections import deque
 from datetime import datetime, timedelta
 from typing import Optional
 
@@ -69,9 +70,9 @@ class OutboundExit:
         self.active = 0         # 当前正在处理的并发请求数
         self.exit_ip = ""       # 检测到的出口IP
         self.ip_detecting = False
-        self._login_timestamps: list[float] = []
+        self._login_timestamps = deque()
         self._error_logs: list[dict] = []  # [{time, msg}] 最多保留50条
-        self._req_timestamps: list[float] = []  # 最近60秒请求时间戳
+        self._req_timestamps = deque()  # 最近60秒请求时间戳
         self.rate_limit: int = 0  # 每分钟最大请求数, 0=不限速
         self._rate_lock = asyncio.Lock()
         self._inflight_logins: int = 0  # 正在飞行中的登录请求数
@@ -123,22 +124,30 @@ class OutboundExit:
         self._connect_failures = 0
         self._frozen_reason = ""
 
+    def _trim_login_timestamps(self, cutoff: float):
+        while self._login_timestamps and self._login_timestamps[0] <= cutoff:
+            self._login_timestamps.popleft()
+
+    def _trim_request_timestamps(self, cutoff: float):
+        while self._req_timestamps and self._req_timestamps[0] <= cutoff:
+            self._req_timestamps.popleft()
+
     def count_recent_logins(self, window: float = 60.0) -> int:
         """统计最近 window 秒内的登录次数(含飞行中的)"""
         now = time.time()
         cutoff = now - window
-        self._login_timestamps = [t for t in self._login_timestamps if t > cutoff]
+        self._trim_login_timestamps(cutoff)
         return len(self._login_timestamps) + self._inflight_logins
 
     def get_login_cooldown_detail(self, max_per_min: int, window: float = 60.0) -> dict:
         """获取登录冷却详情，用于前端进度条"""
         now = time.time()
         cutoff = now - window
-        self._login_timestamps = [t for t in self._login_timestamps if t > cutoff]
+        self._trim_login_timestamps(cutoff)
         used = len(self._login_timestamps) + self._inflight_logins
         # 最早那条记录还有多久过期
         if self._login_timestamps and used >= max_per_min:
-            oldest = min(self._login_timestamps)
+            oldest = self._login_timestamps[0]
             next_available_in = max(0, oldest + window - now)
         else:
             next_available_in = 0
@@ -171,7 +180,9 @@ class OutboundExit:
         """统计最近 window 秒内请求数"""
         now = time.time()
         cutoff = now - window
-        self._req_timestamps = [t for t in self._req_timestamps if t > now - 60.0]
+        self._trim_request_timestamps(now - 60.0)
+        if window >= 60.0:
+            return len(self._req_timestamps)
         return sum(1 for t in self._req_timestamps if t > cutoff)
 
     def get_current_rpm(self) -> int:
@@ -211,11 +222,11 @@ class OutboundExit:
             async with self._rate_lock:
                 now = time.time()
                 cutoff = now - 60.0
-                self._req_timestamps = [t for t in self._req_timestamps if t > cutoff]
+                self._trim_request_timestamps(cutoff)
                 if len(self._req_timestamps) <= self.rate_limit:
                     return waited
                 # 计算需要等待的时间
-                oldest = min(self._req_timestamps)
+                oldest = self._req_timestamps[0]
                 wait_time = oldest + 60.0 - now + 0.05
             
             # 在锁外等待，避免阻塞其他请求
