@@ -5110,10 +5110,18 @@
                 loadBanlist();
                 refreshStats();
             } else if (data.type === 'user_online') {
-                loadOnlineUsers({ force: true });
+                if (currentPanelName === 'online') {
+                    loadOnlineUsers({ force: true });
+                } else {
+                    refreshOnlineUserCount();
+                }
                 addActivityItem('success', '🟢', `<strong>${escapeHtml(data.data?.username || '')}</strong> 上线`, time);
             } else if (data.type === 'user_offline') {
-                loadOnlineUsers({ force: true });
+                if (currentPanelName === 'online') {
+                    loadOnlineUsers({ force: true });
+                } else {
+                    refreshOnlineUserCount();
+                }
                 addActivityItem('info', '⚪', `<strong>${escapeHtml(data.data?.username || '')}</strong> 离线`, time);
             } else if (data.type === 'chat_message') {
                 if (data.data.username === currentChatUser) {
@@ -6068,6 +6076,8 @@
         let _onlineUsersDebounceTimer = null;
         let _onlineUsersAbortCtrl = null;
         let _onlineUsersRefreshTimer = null;
+        let _onlineUserCountRefreshTimer = null;
+        let _onlineUserCountSeq = 0;
         const ONLINE_REFRESH_INTERVAL = 5000;
 
         function updateOnlineTabCount(count) {
@@ -6076,6 +6086,40 @@
             if (countEl && countEl.textContent !== String(value)) countEl.textContent = String(value);
             if (typeof renderMobileTabs === 'function') renderMobileTabs();
             if (typeof syncMobileTabLabel === 'function') syncMobileTabLabel();
+        }
+
+        async function fetchOnlineUsers(signal) {
+            const res = await fetch(`${API_BASE}/admin/api/online`, signal ? { signal } : {});
+            const data = await res.json();
+            return Array.isArray(data) ? data : [];
+        }
+
+        async function refreshOnlineUserCount() {
+            if (!shouldRunAdminGlobalPoll()) return;
+            const seq = ++_onlineUserCountSeq;
+            try {
+                const users = await fetchOnlineUsers();
+                if (seq !== _onlineUserCountSeq) return;
+                updateOnlineTabCount(users.length);
+            } catch (e) {
+                if (e.name !== 'AbortError') console.error('刷新在线用户数量失败', e);
+            }
+        }
+
+        function startOnlineUserCountRefresh() {
+            if (!shouldRunAdminGlobalPoll()) return;
+            refreshOnlineUserCount();
+            if (_onlineUserCountRefreshTimer) return;
+            _onlineUserCountRefreshTimer = setInterval(() => {
+                if (shouldRunAdminGlobalPoll() && currentPanelName !== 'online') refreshOnlineUserCount();
+            }, ONLINE_REFRESH_INTERVAL);
+        }
+
+        function stopOnlineUserCountRefresh() {
+            if (_onlineUserCountRefreshTimer) {
+                clearInterval(_onlineUserCountRefreshTimer);
+                _onlineUserCountRefreshTimer = null;
+            }
         }
 
         function startOnlineUsersAutoRefresh() {
@@ -6116,9 +6160,7 @@
             if (_onlineUsersAbortCtrl) _onlineUsersAbortCtrl.abort();
             _onlineUsersAbortCtrl = new AbortController();
             try {
-                const res = await fetch(`${API_BASE}/admin/api/online`, { signal: _onlineUsersAbortCtrl.signal });
-                const data = await res.json();
-                const users = Array.isArray(data) ? data : [];
+                const users = await fetchOnlineUsers(_onlineUsersAbortCtrl.signal);
                 updateOnlineTabCount(users.length);
                 const tbody = document.getElementById('onlineTable');
                 if (!tbody) return;
@@ -9773,6 +9815,7 @@
         function startAdminGlobalPolling() {
             if (!shouldRunAdminGlobalPoll()) return;
             refreshStats();
+            startOnlineUserCountRefresh();
             verifyToken();
             if (!adminStatsTimer) {
                 adminStatsTimer = setInterval(() => {
@@ -9787,6 +9830,7 @@
         }
 
         function stopAdminGlobalPolling() {
+            stopOnlineUserCountRefresh();
             if (adminStatsTimer) {
                 clearInterval(adminStatsTimer);
                 adminStatsTimer = null;
