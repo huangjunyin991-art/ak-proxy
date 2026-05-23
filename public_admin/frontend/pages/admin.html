@@ -9023,6 +9023,34 @@
             return { text: '未检测', color: 'var(--text-secondary)', title: '暂未开始出口IP检测', badge: '' };
         }
 
+        function getLbExitIndex(ex, fallbackIndex) {
+            const index = Number(ex && ex.index);
+            return Number.isFinite(index) ? index : fallbackIndex;
+        }
+
+        function getLbExitLatencySortValue(ex) {
+            const latency = Number(ex && ex.latency_ms);
+            return Number.isFinite(latency) && latency >= 0 ? latency : Number.POSITIVE_INFINITY;
+        }
+
+        function isLbExitTemporarilyDisabled(ex) {
+            return !!(ex && (ex.frozen || ex.temporarily_disabled || ex.disabled || ex.enabled === false));
+        }
+
+        function sortLbExitsForDisplay(exits) {
+            return exits.map((ex, originalIndex) => ({ex, originalIndex})).sort((a, b) => {
+                const aDirect = a.ex && a.ex.type === 'direct';
+                const bDirect = b.ex && b.ex.type === 'direct';
+                if (aDirect !== bDirect) return aDirect ? -1 : 1;
+                const aDisabled = isLbExitTemporarilyDisabled(a.ex);
+                const bDisabled = isLbExitTemporarilyDisabled(b.ex);
+                if (aDisabled !== bDisabled) return aDisabled ? 1 : -1;
+                const latencyDelta = getLbExitLatencySortValue(a.ex) - getLbExitLatencySortValue(b.ex);
+                if (latencyDelta !== 0) return latencyDelta;
+                return a.originalIndex - b.originalIndex;
+            }).map(item => item.ex);
+        }
+
         function renderLbStatus(data) {
             if (!data || data.error) return;
             const policy = data.policy || {};
@@ -9042,8 +9070,10 @@
                 return;
             }
 
-            container.innerHTML = data.exits.map((ex, i) => {
+            const displayExits = sortLbExitsForDisplay(data.exits);
+            container.innerHTML = displayExits.map((ex, i) => {
                 const isDirect = ex.type === 'direct';
+                const exitIndex = getLbExitIndex(ex, i);
                 const healthColor = ex.healthy ? '#00ff88' : '#ff4757';
                 const healthText = ex.healthy ? '在线' : '离线';
                 const healthBg = ex.healthy ? 'rgba(0,255,136,0.1)' : 'rgba(255,71,87,0.1)';
@@ -9075,7 +9105,7 @@
                     warnHtml += `<div style="margin-top:6px;font-size:11px;">⚠️ ${parts.join(' ')}</div>`;
                 }
 
-                const serverLabel = isDirect ? '直连服务器' : `负载均衡服务器${i}`;
+                const serverLabel = isDirect ? '直连服务器' : `负载均衡服务器${exitIndex}`;
                 const exitIpMeta = formatLbExitIp(ex, healthColor);
                 const latencyMeta = formatLbLatency(ex);
                 const latencyErr = ex.latency_probe_error ? ` | ${ex.latency_probe_error}` : '';
@@ -9083,7 +9113,7 @@
                 const exitNameArg = jsArg(ex.name || '');
                 const groupHtml = ex.group_name ? `<div style="display:inline-block;margin-top:5px;padding:2px 6px;border-radius:999px;background:rgba(102,126,234,0.14);color:#8ea2ff;font-size:10px;">📦 ${escapeHtml(ex.group_name)}</div>` : '';
 
-                return `<div onclick="lbShowErrorLogs(${i}, ${exitNameArg})" style="background:var(--bg-card);border-radius:10px;padding:14px;border:1px solid ${borderColor};position:relative;overflow:hidden;cursor:pointer;">
+                return `<div onclick="lbShowErrorLogs(${exitIndex}, ${exitNameArg})" style="background:var(--bg-card);border-radius:10px;padding:14px;border:1px solid ${borderColor};position:relative;overflow:hidden;cursor:pointer;">
                     <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px;">
                         <div>
                             <div style="font-size:15px;font-weight:bold;color:var(--text-primary);">${serverLabel}</div>
@@ -9093,7 +9123,7 @@
                         <div style="display:flex;align-items:center;gap:6px;">
                             <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${healthColor};"></span>
                             <span style="font-size:12px;color:${healthColor};font-weight:bold;">${healthText}</span>
-                            <button onclick="event.stopPropagation();lbShowErrorLogs(${i}, ${exitNameArg})" style="margin-left:4px;background:rgba(255,71,87,0.12);border:1px solid rgba(255,71,87,0.35);border-radius:4px;color:#ff4757;cursor:pointer;font-size:11px;padding:2px 6px;">403详情</button>
+                            <button onclick="event.stopPropagation();lbShowErrorLogs(${exitIndex}, ${exitNameArg})" style="margin-left:4px;background:rgba(255,71,87,0.12);border:1px solid rgba(255,71,87,0.35);border-radius:4px;color:#ff4757;cursor:pointer;font-size:11px;padding:2px 6px;">403详情</button>
                             ${!isDirect ? `<button onclick="event.stopPropagation();lbRemoveExit(${ex.index}, ${exitNameArg})" style="margin-left:4px;background:none;border:1px solid rgba(255,71,87,0.3);border-radius:4px;color:#ff4757;cursor:pointer;font-size:11px;padding:2px 6px;">删除</button>` : ''}
                         </div>
                     </div>
@@ -9114,7 +9144,7 @@
                             <div style="font-size:10px;color:var(--text-secondary);">延迟</div>
                             <div style="font-size:12px;font-weight:bold;color:${latencyMeta.color};">${escapeHtml(latencyMeta.text)}</div>
                         </div>
-                        <div style="background:rgba(255,165,0,0.08);border-radius:6px;padding:6px 8px;flex:1.2;min-width:0;text-align:center;cursor:pointer;" onclick="event.stopPropagation();lbShowRateLimit(${i}, ${exitNameArg}, ${ex.rate_limit})" title="点击调整限速">
+                        <div style="background:rgba(255,165,0,0.08);border-radius:6px;padding:6px 8px;flex:1.2;min-width:0;text-align:center;cursor:pointer;" onclick="event.stopPropagation();lbShowRateLimit(${exitIndex}, ${exitNameArg}, ${ex.rate_limit})" title="点击调整限速">
                             <div style="font-size:10px;color:var(--text-secondary);">速率${ex.rate_limit > 0 ? ' ⚡' : ''}</div>
                             <div style="font-size:12px;font-weight:bold;color:${ex.rate_limit > 0 && ex.rpm >= ex.rate_limit * 0.8 ? '#ffa502' : 'var(--accent)'};">${ex.rpm}<span style="font-size:9px;color:var(--text-secondary);">/${ex.rate_limit || '∞'}</span></div>
                         </div>
