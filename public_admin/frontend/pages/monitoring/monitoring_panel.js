@@ -125,6 +125,19 @@
         if (type === 'error') console.error('[MonitoringPanel]', message);
     }
 
+    function setHtmlIfChanged(el, html) {
+        var next = String(html == null ? '' : html);
+        if (!el || el._monitoringRenderHtml === next) return;
+        el.innerHTML = next;
+        el._monitoringRenderHtml = next;
+    }
+
+    function setTextIfChanged(el, text) {
+        var next = String(text == null ? '' : text);
+        if (!el || el.textContent === next) return;
+        el.textContent = next;
+    }
+
     function buildShell() {
         var el = mount();
         if (!el) return;
@@ -256,7 +269,7 @@
         var imOk = health.im_server && health.im_server.ok;
         var cards = document.getElementById('monitoringCards');
         if (cards) {
-            cards.innerHTML = renderCard('数据库', dbOk ? '正常' : '异常', health.database && health.database.message || '-') +
+            setHtmlIfChanged(cards, renderCard('数据库', dbOk ? '正常' : '异常', health.database && health.database.message || '-') +
                 renderCard('IM 服务', imOk ? '正常' : '异常', health.im_server && health.im_server.message || '-') +
                 renderCard('CPU', formatPercent(system.cpu_percent), (system.cpu_count || '-') + ' 核') +
                 renderCard('内存', memory.available ? formatPercent(memory.percent) : '-', memorySub + '；' + memoryDetail) +
@@ -264,77 +277,77 @@
                 renderCard('管理后台内存', process.available ? formatBytes(process.rss_bytes) : '-', process.available ? '线程 ' + formatNumber(process.threads) + ' / PID ' + formatNumber(process.pid) : '不可用') +
                 renderCard('IM进程内存', imProcess.available ? formatBytes(imProcess.rss_bytes) : '-', imProcess.available ? 'CPU ' + formatPercent(imProcess.cpu_percent) + ' / 线程 ' + formatNumber(imProcess.threads) + ' / PID ' + formatNumber(imProcess.pid) : '未找到 im-server') +
                 renderCard('后台运行时长', formatDuration(system.process_uptime_seconds), system.platform || '-') +
-                renderCard('数据库大小', formatBytes(database.database_size_bytes), '连接数 ' + formatNumber(database.active_connections));
+                renderCard('数据库大小', formatBytes(database.database_size_bytes), '连接数 ' + formatNumber(database.active_connections)));
         }
         var systemDonuts = document.getElementById('monitoringSystemDonuts');
         if (systemDonuts) {
-            systemDonuts.innerHTML = renderDonut('CPU 使用率', system.cpu_percent, (system.cpu_count || '-') + ' 核', '#00d4ff') +
+            setHtmlIfChanged(systemDonuts, renderDonut('CPU 使用率', system.cpu_percent, (system.cpu_count || '-') + ' 核', '#00d4ff') +
                 renderDonut('内存使用率', memory.available ? memory.percent : NaN, memory.available ? memorySub : '不可用', '#00ff88') +
-                renderDonut('磁盘使用率', disk.available ? disk.percent : NaN, disk.available ? formatBytes(disk.used_bytes) + ' / ' + formatBytes(disk.total_bytes) : '不可用', '#f5cd60');
+                renderDonut('磁盘使用率', disk.available ? disk.percent : NaN, disk.available ? formatBytes(disk.used_bytes) + ' / ' + formatBytes(disk.total_bytes) : '不可用', '#f5cd60'));
         }
         var systemBars = document.getElementById('monitoringSystemBars');
         if (systemBars) {
             var load = system.load_average || {};
             var loadPercent = load.available && system.cpu_count ? Math.min(100, Number(load.load1 || 0) / Number(system.cpu_count || 1) * 100) : 0;
-            systemBars.innerHTML = renderProgress('1分钟负载', loadPercent, load.available ? String(Number(load.load1 || 0).toFixed(2)) : '-') +
+            setHtmlIfChanged(systemBars, renderProgress('1分钟负载', loadPercent, load.available ? String(Number(load.load1 || 0).toFixed(2)) : '-') +
                 renderProgress('5分钟负载', load.available && system.cpu_count ? Math.min(100, Number(load.load5 || 0) / Number(system.cpu_count || 1) * 100) : 0, load.available ? String(Number(load.load5 || 0).toFixed(2)) : '-') +
                 renderProgress('15分钟负载', load.available && system.cpu_count ? Math.min(100, Number(load.load15 || 0) / Number(system.cpu_count || 1) * 100) : 0, load.available ? String(Number(load.load15 || 0).toFixed(2)) : '-') +
                 renderProgress('可用内存', memory.available && memory.total_bytes ? Number(memory.available_bytes || 0) / Number(memory.total_bytes || 1) * 100 : 0, memory.available ? formatBytes(memory.available_bytes) : '-') +
-                renderProgress('文件缓存', memory.available && memory.total_bytes ? Number(memory.cached_bytes || 0) / Number(memory.total_bytes || 1) * 100 : 0, memory.available ? formatBytes(memory.cached_bytes) : '-');
+                renderProgress('文件缓存', memory.available && memory.total_bytes ? Number(memory.cached_bytes || 0) / Number(memory.total_bytes || 1) * 100 : 0, memory.available ? formatBytes(memory.cached_bytes) : '-'));
         }
         var systemMeta = document.getElementById('monitoringSystemMeta');
-        if (systemMeta) systemMeta.textContent = '更新于 ' + formatTime(system.generated_at);
+        if (systemMeta) setTextIfChanged(systemMeta, '更新于 ' + formatTime(system.generated_at));
         var chatCards = document.getElementById('monitoringChatCards');
         if (chatCards) {
-            chatCards.innerHTML = renderCard('会话总数', formatNumber(chat.conversation_total), '群聊 ' + formatNumber(chat.group_total) + ' / 私聊 ' + formatNumber(chat.direct_total)) +
+            setHtmlIfChanged(chatCards, renderCard('会话总数', formatNumber(chat.conversation_total), '群聊 ' + formatNumber(chat.group_total) + ' / 私聊 ' + formatNumber(chat.direct_total)) +
                 renderCard('消息总数', formatNumber(chat.message_total), '今日 ' + formatNumber(chat.message_today)) +
                 renderCard('范围内消息', formatNumber(chat.message_in_range), chat.range || state.range) +
                 renderCard('文件资源', formatBytes(chat.file_storage_bytes), '活跃 ' + formatNumber(chat.file_asset_active) + ' / 历史声明 ' + formatBytes(chat.declared_attachment_bytes)) +
                 renderCard('纯文本内容', formatBytes(chat.text_storage_bytes), '仅 text 消息正文') +
                 renderCard('消息载荷', formatBytes(chat.stored_payload_bytes), '文本与 JSON 元数据') +
-                renderCard('估算总占用', formatBytes(chat.estimated_storage_bytes), '消息载荷 + 文件资源');
+                renderCard('估算总占用', formatBytes(chat.estimated_storage_bytes), '消息载荷 + 文件资源'));
         }
         var typeBars = document.getElementById('monitoringTypeBars');
-        if (typeBars) typeBars.innerHTML = renderMessageTypeStorageBars(chat.message_type_distribution);
+        if (typeBars) setHtmlIfChanged(typeBars, renderMessageTypeStorageBars(chat.message_type_distribution));
         var chatMeta = document.getElementById('monitoringChatMeta');
-        if (chatMeta) chatMeta.textContent = '高成本统计每小时自动刷新，更新于 ' + formatTime(chat.generated_at);
+        if (chatMeta) setTextIfChanged(chatMeta, '高成本统计每小时自动刷新，更新于 ' + formatTime(chat.generated_at));
         var dbBars = document.getElementById('monitoringDbBars');
         if (dbBars) {
-            dbBars.innerHTML = renderRankBars(database.table_sizes, 'table_name', 'total_bytes', formatBytes, 100, function(item, value) {
+            setHtmlIfChanged(dbBars, renderRankBars(database.table_sizes, 'table_name', 'total_bytes', formatBytes, 100, function(item, value) {
                 var rowCount = Number(item.row_count || 0);
                 return formatBytes(value) + ' · ' + formatNumber(rowCount) + ' 行';
-            });
+            }));
         }
         var dbMeta = document.getElementById('monitoringDbMeta');
         if (dbMeta) {
             var tableCount = Array.isArray(database.table_sizes) ? database.table_sizes.length : 0;
             var countText = tableCount > 0 ? '共 ' + tableCount + ' 张表 · ' : '';
             var timeText = database.cache && database.cache.hit ? '缓存 ' + database.cache.age_seconds + ' 秒' : '更新于 ' + formatTime(database.generated_at);
-            dbMeta.textContent = countText + timeText;
+            setTextIfChanged(dbMeta, countText + timeText);
         }
         var fileAssetRows = document.getElementById('monitoringFileAssetRows');
         if (fileAssetRows) {
             var assets = Array.isArray(fileAssets.items) ? fileAssets.items : [];
-            fileAssetRows.innerHTML = assets.length ? assets.map(function(item) {
+            setHtmlIfChanged(fileAssetRows, assets.length ? assets.map(function(item) {
                 var storageName = String(item.storage_name || '');
                 var originalName = String(item.original_name || storageName || '-');
                 var status = String(item.status || '-');
                 var disabled = status.toLowerCase() !== 'active';
                 var button = disabled ? '<span class="monitoring-meta">已失效</span>' : '<button class="monitoring-btn danger" data-monitoring-action="expire-file-asset" data-storage-name="' + escapeHtml(storageName) + '" data-original-name="' + escapeHtml(originalName) + '" data-referenced-messages="' + Number(item.referenced_messages || 0) + '">删除文件</button>';
                 return '<tr><td>' + escapeHtml(originalName) + '</td><td>' + escapeHtml(item.mime_type || '-') + '</td><td>' + formatBytes(item.file_size) + '</td><td>' + escapeHtml(status) + '</td><td>' + formatNumber(item.referenced_messages) + '</td><td>' + escapeHtml(formatTime(item.expires_at)) + '</td><td>' + escapeHtml(formatTime(item.created_at)) + '</td><td>' + escapeHtml(storageName) + '</td><td>' + button + '</td></tr>';
-            }).join('') : '<tr><td colspan="9"><div class="monitoring-empty">暂无 active 文件资源</div></td></tr>';
+            }).join('') : '<tr><td colspan="9"><div class="monitoring-empty">暂无 active 文件资源</div></td></tr>');
         }
         var fileAssetMeta = document.getElementById('monitoringFileAssetMeta');
-        if (fileAssetMeta) fileAssetMeta.textContent = (fileAssets.cache && fileAssets.cache.hit ? '缓存 ' + fileAssets.cache.age_seconds + ' 秒；' : '') + '删除后聊天消息保留，附件显示失效';
+        if (fileAssetMeta) setTextIfChanged(fileAssetMeta, (fileAssets.cache && fileAssets.cache.hit ? '缓存 ' + fileAssets.cache.age_seconds + ' 秒；' : '') + '删除后聊天消息保留，附件显示失效');
         var groupRows = document.getElementById('monitoringGroupRows');
         if (groupRows) {
             var items = Array.isArray(groups.items) ? groups.items : [];
-            groupRows.innerHTML = items.length ? items.map(function(item) {
+            setHtmlIfChanged(groupRows, items.length ? items.map(function(item) {
                 return '<tr><td>' + escapeHtml(item.title || ('群组 ' + item.conversation_id)) + '</td><td>' + escapeHtml(item.owner_username || '-') + '</td><td>' + formatNumber(item.member_count) + '</td><td>' + formatNumber(item.admin_count) + '</td><td>' + formatNumber(item.message_total) + '</td><td>' + formatNumber(item.message_today) + '</td><td>' + formatNumber(item.message_in_range) + '</td><td>' + formatBytes(item.text_storage_bytes) + '</td><td>' + formatBytes(item.payload_storage_bytes) + '</td><td>' + formatBytes(item.file_storage_bytes) + '</td><td>' + formatBytes(item.estimated_storage_bytes) + '</td><td>' + escapeHtml(formatTime(item.last_message_at)) + '</td></tr>';
-            }).join('') : '<tr><td colspan="12"><div class="monitoring-empty">暂无群组统计数据</div></td></tr>';
+            }).join('') : '<tr><td colspan="12"><div class="monitoring-empty">暂无群组统计数据</div></td></tr>');
         }
         var groupMeta = document.getElementById('monitoringGroupMeta');
-        if (groupMeta) groupMeta.textContent = (groups.cache && groups.cache.hit ? '缓存 ' + groups.cache.age_seconds + ' 秒；' : '') + '文件占用为消息载荷估算口径';
+        if (groupMeta) setTextIfChanged(groupMeta, (groups.cache && groups.cache.hit ? '缓存 ' + groups.cache.age_seconds + ' 秒；' : '') + '文件占用为消息载荷估算口径');
         renderAlert();
     }
 
