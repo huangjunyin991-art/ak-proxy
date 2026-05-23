@@ -7,6 +7,7 @@
     var store = storeFactory ? storeFactory.createStore() : null;
     var mounted = false;
     var searchTimer = null;
+    var accountSearchSeq = 0;
     var restoringFocus = false;
     var syncPollTimer = null;
     var syncPollKey = '';
@@ -229,13 +230,25 @@
     function searchAccounts() {
         if (!api || !store) return;
         clearTimeout(searchTimer);
+        var query = String(store.state.accountQuery || '').trim();
+        var seq = ++accountSearchSeq;
+        if (!query) {
+            store.state.accountOptions = [];
+            store.state.accountSearching = false;
+            store.state.selectedAccountIndex = -1;
+            render({ keepAccountFocus: true });
+            return;
+        }
         store.state.accountSearching = true;
         render({ keepAccountFocus: true });
         searchTimer = setTimeout(function() {
-            api.searchUsers(store.state.accountQuery, 12).then(function(data) {
+            if (seq !== accountSearchSeq || query !== String(store.state.accountQuery || '').trim()) return;
+            api.searchUsers(query, 12).then(function(data) {
+                if (seq !== accountSearchSeq || query !== String(store.state.accountQuery || '').trim()) return;
                 store.setAccountOptions(data.rows || []);
                 render({ keepAccountFocus: true });
             }).catch(function(error) {
+                if (seq !== accountSearchSeq || query !== String(store.state.accountQuery || '').trim()) return;
                 store.state.accountSearching = false;
                 store.setStatus(error.message || '账号搜索失败', true);
                 render({ keepAccountFocus: true });

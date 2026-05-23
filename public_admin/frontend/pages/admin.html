@@ -2760,6 +2760,22 @@
             filter: drop-shadow(0 0 4px rgba(0, 212, 255, 0.5));
         }
 
+        .online-tab-count {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-width: 18px;
+            height: 18px;
+            margin-left: 6px;
+            padding: 0 6px;
+            border-radius: 999px;
+            background: rgba(0, 255, 136, 0.16);
+            color: var(--accent-green);
+            font-size: 12px;
+            font-weight: 700;
+            line-height: 1;
+        }
+
         /* ===== 主题化自定义下拉 ===== */
         .theme-select {
             position: relative;
@@ -2963,7 +2979,7 @@
     <!-- 标签页 -->
     <div class="tabs desktop-tabs" id="desktopTabs">
         <div class="tab active" data-panel="dashboard" id="tabDashboard"><svg class="tab-icon" viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg> 流量仪表盘</div>
-        <div class="tab" data-panel="online"><svg class="tab-icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4" fill="rgba(0,255,136,0.3)"/><circle cx="12" cy="12" r="2" fill="#00ff88"/></svg> 在线用户</div>
+        <div class="tab" data-panel="online"><svg class="tab-icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4" fill="rgba(0,255,136,0.3)"/><circle cx="12" cy="12" r="2" fill="#00ff88"/></svg> 在线用户 <span class="online-tab-count" id="onlineTabCount">0</span></div>
         <div class="tab" data-panel="usage"><svg class="tab-icon" viewBox="0 0 24 24"><line x1="12" y1="20" x2="12" y2="10"/><line x1="18" y1="20" x2="18" y2="4"/><line x1="6" y1="20" x2="6" y2="16"/></svg> 账号管理</div>
         <div class="tab" data-panel="users"><svg class="tab-icon" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg> 账号数据</div>
         <div class="tab" data-panel="pointStats"><svg class="tab-icon" viewBox="0 0 24 24"><path d="M3 3v18h18"/><path d="M7 16v-4"/><path d="M12 16V8"/><path d="M17 16v-6"/><path d="M6 20h12"/></svg> 点数统计</div>
@@ -6054,6 +6070,14 @@
         let _onlineUsersRefreshTimer = null;
         const ONLINE_REFRESH_INTERVAL = 5000;
 
+        function updateOnlineTabCount(count) {
+            const value = Math.max(0, Number(count || 0));
+            const countEl = document.getElementById('onlineTabCount');
+            if (countEl && countEl.textContent !== String(value)) countEl.textContent = String(value);
+            if (typeof renderMobileTabs === 'function') renderMobileTabs();
+            if (typeof syncMobileTabLabel === 'function') syncMobileTabLabel();
+        }
+
         function startOnlineUsersAutoRefresh() {
             stopOnlineUsersAutoRefresh();
             if (!shouldRunAdminPanelPoll('online')) return;
@@ -6094,15 +6118,17 @@
             try {
                 const res = await fetch(`${API_BASE}/admin/api/online`, { signal: _onlineUsersAbortCtrl.signal });
                 const data = await res.json();
+                const users = Array.isArray(data) ? data : [];
+                updateOnlineTabCount(users.length);
                 const tbody = document.getElementById('onlineTable');
                 if (!tbody) return;
                 
-                if (data.length === 0) {
+                if (users.length === 0) {
                     tbody.innerHTML = '<tr><td colspan="4" style="text-align: center; color: var(--text-secondary);">暂无在线用户</td></tr>';
                     return;
                 }
                 
-                tbody.innerHTML = data.map(user => {
+                tbody.innerHTML = users.map(user => {
                     const username = user.username || '';
                     const usernameArg = jsArg(username);
                     return `
@@ -14022,7 +14048,7 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
     </script>
     <script>
         (function() {
-            var pointStatsPanelBuildVersion = '20260510-01';
+            var pointStatsPanelBuildVersion = '20260523-01';
             window.AKPointStatsPanelAssetVersion = pointStatsPanelBuildVersion;
             var pointStatsPanelAssets = [
                 'point_stats_api.js',
