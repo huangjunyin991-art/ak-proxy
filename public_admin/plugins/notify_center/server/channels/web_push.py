@@ -78,10 +78,12 @@ class WebPushChannel:
     def _resolve_vapid_private_key(self) -> str:
         key_file = str(getattr(self._config, 'vapid_private_key_file', '') or '').strip()
         if key_file:
-            return key_file
+            with open(key_file, 'r', encoding='utf-8') as handle:
+                return handle.read().strip()
         key = str(self._config.vapid_private_key or '').strip()
         if key and os.path.exists(key):
-            return key
+            with open(key, 'r', encoding='utf-8') as handle:
+                return handle.read().strip()
         if '\\n' in key:
             return key.replace('\\n', '\n')
         return key
