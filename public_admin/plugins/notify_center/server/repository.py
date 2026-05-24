@@ -70,6 +70,22 @@ class NotifyCenterRepository:
                     UNIQUE(event_id, channel, subscription_id)
                 )
             ''')
+            await conn.execute('''
+                ALTER TABLE notify_outbox
+                ALTER COLUMN subscription_id TYPE BIGINT USING (
+                    CASE WHEN subscription_id::text ~ '^-?[0-9]+$' THEN subscription_id::text::BIGINT ELSE 0 END
+                )
+            ''')
+            await conn.execute("ALTER TABLE notify_outbox ALTER COLUMN subscription_id SET DEFAULT 0")
+            await conn.execute("ALTER TABLE notify_outbox ALTER COLUMN subscription_id SET NOT NULL")
+            await conn.execute('''
+                ALTER TABLE notify_outbox
+                ALTER COLUMN conversation_id TYPE BIGINT USING (
+                    CASE WHEN conversation_id::text ~ '^-?[0-9]+$' THEN conversation_id::text::BIGINT ELSE 0 END
+                )
+            ''')
+            await conn.execute("ALTER TABLE notify_outbox ALTER COLUMN conversation_id SET DEFAULT 0")
+            await conn.execute("ALTER TABLE notify_outbox ALTER COLUMN conversation_id SET NOT NULL")
             await conn.execute('CREATE INDEX IF NOT EXISTS idx_notify_push_subscriptions_username ON notify_push_subscriptions(username)')
             await conn.execute('CREATE INDEX IF NOT EXISTS idx_notify_push_subscriptions_enabled ON notify_push_subscriptions(enabled, username)')
             await conn.execute('CREATE UNIQUE INDEX IF NOT EXISTS idx_notify_push_subscriptions_user_endpoint_hash ON notify_push_subscriptions(username, endpoint_hash)')
