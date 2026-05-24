@@ -2,6 +2,7 @@ import asyncio
 import time
 from typing import Optional
 
+from .browser_policy import StaticResourceBrowserPolicy
 from .config import StaticResourceCacheConfig
 from .key_builder import StaticResourceCacheKeyBuilder
 from .models import CachedStaticResource, StaticResourcePayload, StaticResourceRequest
@@ -16,6 +17,7 @@ class StaticResourceCacheService:
         self.policy = policy
         self.key_builder = key_builder
         self.store = store
+        self.browser_policy = StaticResourceBrowserPolicy(config.root_dir)
         self._locks: dict[str, asyncio.Lock] = {}
 
     def can_read(self, request: StaticResourceRequest) -> bool:
@@ -48,12 +50,13 @@ class StaticResourceCacheService:
             cache_key = self.cache_key(request)
             resource = CachedStaticResource(
                 cache_key=cache_key,
+                path=request.path,
                 status_code=int(payload.status_code),
                 headers=dict(payload.headers or {}),
                 content_type=payload.content_type or 'application/octet-stream',
                 body=payload.body or b'',
                 created_at=now,
-                expires_at=now + self.config.ttl_seconds,
+                expires_at=now + self.browser_policy.disk_ttl_seconds(request.path, payload.content_type),
             )
             await self.store.set(cache_key, resource)
             return True
@@ -65,6 +68,23 @@ class StaticResourceCacheService:
             return await self.store.cleanup_expired()
         except Exception:
             return 0
+
+    def get_browser_policy(self) -> dict:
+        return self.browser_policy.to_dict()
+
+    def update_browser_policy(self, values: dict) -> dict:
+        self.browser_policy.update(values or {})
+        return self.browser_policy.to_dict()
+
+    def refresh_upstream_version(self) -> dict:
+        self.browser_policy.refresh_version()
+        removed = self.browser_policy.clear_storage()
+        result = self.browser_policy.to_dict()
+        result['removed_entries'] = removed
+        return result
+
+    def version_url(self, url: str) -> str:
+        return self.browser_policy.version_url(url)
 
 
 def create_static_resource_cache_service(config: StaticResourceCacheConfig) -> StaticResourceCacheService:

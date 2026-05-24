@@ -16,8 +16,10 @@
             database: null,
             chat: null,
             groups: null,
-            fileAssets: null
-        }
+            fileAssets: null,
+            staticCache: null
+        },
+        loadingStaticCache: false
     };
 
     function token() {
@@ -75,6 +77,28 @@
         return minutes + '分钟';
     }
 
+    function secondsToDays(value) {
+        var seconds = Number(value || 0);
+        return Math.max(0, Math.round(seconds / 86400 * 100) / 100);
+    }
+
+    function secondsToHours(value) {
+        var seconds = Number(value || 0);
+        return Math.max(0, Math.round(seconds / 3600 * 100) / 100);
+    }
+
+    function daysToSeconds(value) {
+        return Math.max(60, Math.round(Number(value || 0) * 86400));
+    }
+
+    function daysToSecondsAllowZero(value) {
+        return Math.max(0, Math.round(Number(value || 0) * 86400));
+    }
+
+    function hoursToSeconds(value) {
+        return Math.max(60, Math.round(Number(value || 0) * 3600));
+    }
+
     function api(path, params) {
         var query = new URLSearchParams(params || {});
         var url = '/admin/api/monitoring' + path + (query.toString() ? '?' + query.toString() : '');
@@ -110,7 +134,7 @@
         if (document.querySelector('link[data-monitoring-panel-css="1"]')) return;
         var link = document.createElement('link');
         link.rel = 'stylesheet';
-        link.href = '/admin/api/monitoring-panel.css?v=20260508-01';
+        link.href = '/admin/api/monitoring-panel.css?v=20260524-01';
         link.setAttribute('data-monitoring-panel-css', '1');
         document.head.appendChild(link);
     }
@@ -151,6 +175,23 @@
             '</div>' +
             '</div>' +
             '<div class="monitoring-alert" id="monitoringAlert"></div>' +
+            '<div class="monitoring-section monitoring-cache-section">' +
+            '<div class="monitoring-section-header"><h4>K937 静态资源缓存策略</h4><span class="monitoring-meta" id="monitoringStaticCacheMeta">读取中...</span></div>' +
+            '<div class="monitoring-cache-grid">' +
+            '<label><span>JS 浏览器缓存（小时）</span><input class="monitoring-input" id="staticCacheJsBrowserHours" type="number" min="1" step="1"></label>' +
+            '<label><span>CSS 浏览器缓存（天）</span><input class="monitoring-input" id="staticCacheCssBrowserDays" type="number" min="1" step="1"></label>' +
+            '<label><span>图片/字体浏览器缓存（天）</span><input class="monitoring-input" id="staticCacheMediaBrowserDays" type="number" min="1" step="1"></label>' +
+            '<label><span>JS 服务端缓存（天）</span><input class="monitoring-input" id="staticCacheJsDiskDays" type="number" min="1" step="1"></label>' +
+            '<label><span>CSS 服务端缓存（天）</span><input class="monitoring-input" id="staticCacheCssDiskDays" type="number" min="1" step="1"></label>' +
+            '<label><span>图片/字体服务端缓存（天）</span><input class="monitoring-input" id="staticCacheMediaDiskDays" type="number" min="1" step="1"></label>' +
+            '<label><span>stale-while-revalidate（天）</span><input class="monitoring-input" id="staticCacheStaleDays" type="number" min="0" step="1"></label>' +
+            '</div>' +
+            '<div class="monitoring-cache-actions">' +
+            '<button class="monitoring-btn primary" data-monitoring-action="save-static-cache-policy">保存缓存时间</button>' +
+            '<button class="monitoring-btn danger" data-monitoring-action="refresh-static-cache-upstream">立即启用上游新资源</button>' +
+            '<span class="monitoring-meta">HTML 继续 no-store；点击启用新资源会清空服务端静态缓存并切换全局资源版本。</span>' +
+            '</div>' +
+            '</div>' +
             '<div class="monitoring-grid" id="monitoringCards"></div>' +
             '<div class="monitoring-section"><div class="monitoring-section-header"><h4>服务器负载</h4><span class="monitoring-meta" id="monitoringSystemMeta">-</span></div><div class="monitoring-donuts" id="monitoringSystemDonuts"></div><div class="monitoring-bars" id="monitoringSystemBars"></div></div>' +
             '<div class="monitoring-section"><div class="monitoring-section-header"><h4>聊天统计</h4><span class="monitoring-meta" id="monitoringChatMeta">-</span></div><div class="monitoring-grid" id="monitoringChatCards"></div><div class="monitoring-bars" id="monitoringTypeBars" style="margin-top:14px;"></div></div>' +
@@ -160,11 +201,19 @@
             '</div>';
         el.addEventListener('click', function(event) {
             var target = event.target;
-            if (!target || !target.getAttribute || target.getAttribute('data-monitoring-action') !== 'expire-file-asset') return;
-            var storageName = target.getAttribute('data-storage-name') || '';
-            var originalName = target.getAttribute('data-original-name') || storageName;
-            var referencedMessages = Number(target.getAttribute('data-referenced-messages') || 0);
-            expireFileAsset(storageName, originalName, referencedMessages);
+            var actionNode = target && target.closest ? target.closest('[data-monitoring-action]') : null;
+            if (!actionNode) return;
+            var action = actionNode.getAttribute('data-monitoring-action');
+            if (action === 'expire-file-asset') {
+                var storageName = actionNode.getAttribute('data-storage-name') || '';
+                var originalName = actionNode.getAttribute('data-original-name') || storageName;
+                var referencedMessages = Number(actionNode.getAttribute('data-referenced-messages') || 0);
+                expireFileAsset(storageName, originalName, referencedMessages);
+            } else if (action === 'save-static-cache-policy') {
+                saveStaticCachePolicy();
+            } else if (action === 'refresh-static-cache-upstream') {
+                refreshStaticCacheUpstream();
+            }
         });
         document.getElementById('monitoringRange').addEventListener('change', function() {
             state.range = this.value || '7d';
@@ -349,6 +398,76 @@
         var groupMeta = document.getElementById('monitoringGroupMeta');
         if (groupMeta) setTextIfChanged(groupMeta, (groups.cache && groups.cache.hit ? '缓存 ' + groups.cache.age_seconds + ' 秒；' : '') + '文件占用为消息载荷估算口径');
         renderAlert();
+        renderStaticCachePolicy();
+    }
+
+    function setInputValue(id, value) {
+        var el = document.getElementById(id);
+        if (el && document.activeElement !== el) el.value = value == null ? '' : String(value);
+    }
+
+    function inputNumber(id) {
+        var el = document.getElementById(id);
+        return Number(el && el.value || 0);
+    }
+
+    function renderStaticCachePolicy() {
+        var item = state.data.staticCache || {};
+        setInputValue('staticCacheJsBrowserHours', secondsToHours(item.js_browser_max_age_seconds));
+        setInputValue('staticCacheCssBrowserDays', secondsToDays(item.css_browser_max_age_seconds));
+        setInputValue('staticCacheMediaBrowserDays', secondsToDays(item.media_browser_max_age_seconds));
+        setInputValue('staticCacheJsDiskDays', secondsToDays(item.js_disk_ttl_seconds));
+        setInputValue('staticCacheCssDiskDays', secondsToDays(item.css_disk_ttl_seconds));
+        setInputValue('staticCacheMediaDiskDays', secondsToDays(item.media_disk_ttl_seconds));
+        setInputValue('staticCacheStaleDays', secondsToDays(item.stale_while_revalidate_seconds));
+        var meta = document.getElementById('monitoringStaticCacheMeta');
+        if (meta) {
+            var version = item.version ? '版本 ' + item.version : '版本 -';
+            setTextIfChanged(meta, version + ' · 更新于 ' + formatTime(item.updated_at ? item.updated_at * 1000 : ''));
+        }
+    }
+
+    function loadStaticCachePolicy() {
+        if (!state.active || state.loadingStaticCache) return Promise.resolve();
+        state.loadingStaticCache = true;
+        return api('/static-cache/policy', {}).then(function(body) {
+            state.data.staticCache = body.item || {};
+            renderStaticCachePolicy();
+        }).catch(function(err) {
+            notify(err && err.message || '静态资源缓存策略读取失败', 'error');
+        }).finally(function() {
+            state.loadingStaticCache = false;
+        });
+    }
+
+    function saveStaticCachePolicy() {
+        var payload = {
+            js_browser_max_age_seconds: hoursToSeconds(inputNumber('staticCacheJsBrowserHours')),
+            css_browser_max_age_seconds: daysToSeconds(inputNumber('staticCacheCssBrowserDays')),
+            media_browser_max_age_seconds: daysToSeconds(inputNumber('staticCacheMediaBrowserDays')),
+            js_disk_ttl_seconds: daysToSeconds(inputNumber('staticCacheJsDiskDays')),
+            css_disk_ttl_seconds: daysToSeconds(inputNumber('staticCacheCssDiskDays')),
+            media_disk_ttl_seconds: daysToSeconds(inputNumber('staticCacheMediaDiskDays')),
+            stale_while_revalidate_seconds: daysToSecondsAllowZero(inputNumber('staticCacheStaleDays'))
+        };
+        apiPost('/static-cache/policy', payload).then(function(body) {
+            state.data.staticCache = body.item || {};
+            renderStaticCachePolicy();
+            notify('K937 静态资源缓存时间已保存', 'success');
+        }).catch(function(err) {
+            notify(err && err.message || '缓存时间保存失败', 'error');
+        });
+    }
+
+    function refreshStaticCacheUpstream() {
+        if (!window.confirm('确认立刻启用 K937 上游新资源？\n该操作会清空服务端静态资源缓存，并切换全局资源版本，使用户下次打开页面时请求新静态资源。')) return;
+        apiPost('/static-cache/refresh-upstream', {}).then(function(body) {
+            state.data.staticCache = body.item || {};
+            renderStaticCachePolicy();
+            notify('已切换上游资源版本，清理缓存分片 ' + formatNumber((body.item && body.item.removed_entries) || 0) + ' 个', 'success');
+        }).catch(function(err) {
+            notify(err && err.message || '启用上游新资源失败', 'error');
+        });
     }
 
     function loadLight(force) {
@@ -444,6 +563,7 @@
         state.active = true;
         if (!state.initialized) init();
         loadOverview(false);
+        loadStaticCachePolicy();
         stopTimers();
         state.lightTimer = setInterval(function() { loadLight(false); }, 5000);
         state.heavyTimer = setInterval(function() { loadHeavy(false); }, 3600000);

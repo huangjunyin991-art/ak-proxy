@@ -1,3 +1,4 @@
+from .browser_policy import StaticResourceBrowserPolicy
 from .config import StaticResourceCacheConfig
 from .models import CachedStaticResource, StaticResourcePayload, StaticResourceRequest
 from .response_adapter import StaticResourceResponseAdapter
@@ -5,6 +6,7 @@ from .service import StaticResourceCacheService, create_static_resource_cache_se
 
 __all__ = [
     'CachedStaticResource',
+    'StaticResourceBrowserPolicy',
     'StaticResourceCacheConfig',
     'StaticResourceCacheService',
     'StaticResourcePayload',

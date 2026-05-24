@@ -23,6 +23,7 @@ def create_monitoring_router(
     get_token_role: Callable[[str], str],
     super_admin_role: str,
     im_server_internal_url: str = "",
+    static_cache_service_supplier: Callable[[], object] = None,
 ) -> APIRouter:
     router = APIRouter(prefix="/admin/api/monitoring")
     service = MonitoringService(pool_supplier=pool_supplier, im_server_internal_url=im_server_internal_url)
@@ -34,6 +35,9 @@ def create_monitoring_router(
         if get_token_role(token) != super_admin_role:
             return None, JSONResponse(status_code=403, content={"error": True, "message": "仅系统总管理员可查看监控中心"})
         return token, None
+
+    def static_cache_service():
+        return static_cache_service_supplier() if static_cache_service_supplier else None
 
     @router.get("/overview")
     async def monitoring_overview(request: Request, range: str = "7d", force: str = ""):
@@ -115,6 +119,46 @@ def create_monitoring_router(
             if not result.get("success"):
                 return JSONResponse(status_code=400, content={"error": True, "message": result.get("message") or "文件释放失败"})
             return result
+        except Exception as exc:
+            return JSONResponse(status_code=500, content={"error": True, "message": str(exc)[:300]})
+
+    @router.get("/static-cache/policy")
+    async def monitoring_static_cache_policy(request: Request):
+        _, error_response = await require_super_admin(request)
+        if error_response is not None:
+            return error_response
+        cache_service = static_cache_service()
+        if cache_service is None:
+            return JSONResponse(status_code=503, content={"error": True, "message": "K937 静态资源缓存服务不可用"})
+        try:
+            return {"success": True, "item": cache_service.get_browser_policy()}
+        except Exception as exc:
+            return JSONResponse(status_code=500, content={"error": True, "message": str(exc)[:300]})
+
+    @router.post("/static-cache/policy")
+    async def monitoring_update_static_cache_policy(request: Request):
+        _, error_response = await require_super_admin(request)
+        if error_response is not None:
+            return error_response
+        cache_service = static_cache_service()
+        if cache_service is None:
+            return JSONResponse(status_code=503, content={"error": True, "message": "K937 静态资源缓存服务不可用"})
+        try:
+            payload = await request.json()
+            return {"success": True, "item": cache_service.update_browser_policy(payload or {})}
+        except Exception as exc:
+            return JSONResponse(status_code=500, content={"error": True, "message": str(exc)[:300]})
+
+    @router.post("/static-cache/refresh-upstream")
+    async def monitoring_refresh_static_cache_upstream(request: Request):
+        _, error_response = await require_super_admin(request)
+        if error_response is not None:
+            return error_response
+        cache_service = static_cache_service()
+        if cache_service is None:
+            return JSONResponse(status_code=503, content={"error": True, "message": "K937 静态资源缓存服务不可用"})
+        try:
+            return {"success": True, "item": cache_service.refresh_upstream_version()}
         except Exception as exc:
             return JSONResponse(status_code=500, content={"error": True, "message": str(exc)[:300]})
 

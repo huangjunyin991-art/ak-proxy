@@ -22,6 +22,7 @@ class StaticResourcePayload:
 @dataclass(frozen=True)
 class CachedStaticResource:
     cache_key: str
+    path: str
     status_code: int
     headers: dict[str, str]
     content_type: str

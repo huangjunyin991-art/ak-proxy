@@ -4318,6 +4318,7 @@ if create_monitoring_router is not None:
             get_token_role=get_token_role,
             super_admin_role=ROLE_SUPER_ADMIN,
             im_server_internal_url=IM_SERVER_INTERNAL_URL,
+            static_cache_service_supplier=lambda: globals().get("_AK_WEB_STATIC_CACHE_SERVICE"),
         ))
     except Exception as e:
         logger.warning(f"[Monitoring] 监控中心路由注册失败，已跳过: {e}")
@@ -11492,7 +11493,10 @@ _AK_WEB_STATIC_CACHE_CONFIG = StaticResourceCacheConfig(
     root_dir=Path(PUBLIC_ADMIN_DIR) / "runtime_cache" / "static_resources"
 )
 _AK_WEB_STATIC_CACHE_SERVICE = create_static_resource_cache_service(_AK_WEB_STATIC_CACHE_CONFIG)
-_AK_WEB_STATIC_CACHE_RESPONSE_ADAPTER = StaticResourceResponseAdapter(_AK_WEB_STATIC_CACHE_CONFIG)
+_AK_WEB_STATIC_CACHE_RESPONSE_ADAPTER = StaticResourceResponseAdapter(
+    _AK_WEB_STATIC_CACHE_CONFIG,
+    _AK_WEB_STATIC_CACHE_SERVICE.browser_policy,
+)
 
 
 def _lazy_warning(enabled: bool, message_or_factory):
@@ -12184,12 +12188,12 @@ def _rewrite_site_root_url(url: str, site_prefix: str) -> str:
 
 def _rewrite_site_html_roots(text: str, site_prefix: str) -> str:
     pattern = re.compile(r'(?P<prefix>\b(?:src|href|action|poster)=\s*["\'])(?P<url>/[^"\'>\r\n]*)(?P<suffix>["\'])', re.IGNORECASE)
-    return pattern.sub(lambda m: f"{m.group('prefix')}{_rewrite_site_root_url(m.group('url'), site_prefix)}{m.group('suffix')}", text)
+    return pattern.sub(lambda m: f"{m.group('prefix')}{_AK_WEB_STATIC_CACHE_SERVICE.version_url(_rewrite_site_root_url(m.group('url'), site_prefix))}{m.group('suffix')}", text)
 
 
 def _rewrite_site_css_roots(text: str, site_prefix: str) -> str:
     pattern = re.compile(r'url\((?P<quote>["\']?)(?P<url>/[^)"\']+)(?P=quote)\)', re.IGNORECASE)
-    return pattern.sub(lambda m: f"url({m.group('quote')}{_rewrite_site_root_url(m.group('url'), site_prefix)}{m.group('quote')})", text)
+    return pattern.sub(lambda m: f"url({m.group('quote')}{_AK_WEB_STATIC_CACHE_SERVICE.version_url(_rewrite_site_root_url(m.group('url'), site_prefix))}{m.group('quote')})", text)
 
 
 def _inject_account_login_submit_interval(text: str) -> tuple[str, bool]:
@@ -13059,7 +13063,7 @@ async def ak_web_proxy(request: Request, path: str):
         return response
 
     # 构建目标 URL（去掉代理专用参数 bs）
-    query_parts = [p for p in str(request.url.query).split("&") if p and not p.startswith("bs=")]
+    query_parts = [p for p in str(request.url.query).split("&") if p and not p.startswith("bs=") and not p.startswith("ak_static_v=")]
     target_url = f"{_AK_BASE}/{path}" if path else f"{_AK_BASE}/"
     if query_parts:
         target_url += "?" + "&".join(query_parts)
@@ -13259,7 +13263,12 @@ async def ak_web_proxy(request: Request, path: str):
                     body=content,
                 ),
             )
-            _AK_WEB_STATIC_CACHE_RESPONSE_ADAPTER.mark(response, "MISS" if stored_static else "BYPASS")
+            _AK_WEB_STATIC_CACHE_RESPONSE_ADAPTER.mark(
+                response,
+                "MISS" if stored_static else "BYPASS",
+                static_cache_request.path,
+                content_type or "application/octet-stream",
+            )
         if bs_id and not is_static_asset:
             _set_browse_session_cookie(response, bs_id)
         if static_cache_lock:

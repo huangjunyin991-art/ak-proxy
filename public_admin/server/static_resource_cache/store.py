@@ -43,6 +43,7 @@ class DiskStaticResourceCacheStore:
             body = body_path.read_bytes()
             return CachedStaticResource(
                 cache_key=cache_key,
+                path=str(meta.get('path') or ''),
                 status_code=int(meta.get('status_code') or 200),
                 headers=dict(meta.get('headers') or {}),
                 content_type=str(meta.get('content_type') or 'application/octet-stream'),
@@ -61,6 +62,7 @@ class DiskStaticResourceCacheStore:
         tmp_body = body_path.with_suffix('.body.tmp')
         meta = {
             'cache_key': cache_key,
+            'path': str(resource.path or ''),
             'status_code': int(resource.status_code),
             'headers': dict(resource.headers or {}),
             'content_type': resource.content_type or 'application/octet-stream',
