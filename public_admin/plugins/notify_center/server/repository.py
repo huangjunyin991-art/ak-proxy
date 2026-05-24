@@ -229,7 +229,7 @@ class NotifyCenterRepository:
                       AND recipient_username = $2
                       AND conversation_id = $3
                       AND status IN ('pending', 'retry', 'sending', 'sent')
-                      AND created_at >= NOW() - (($4 || ' seconds')::interval)
+                      AND created_at >= NOW() - ($4 * INTERVAL '1 second')
                 )
             ''', channel, recipient_username, int(conversation_id), int(window_seconds))
         return bool(value)
