@@ -4758,23 +4758,23 @@ async def admin_stats(request: Request):
 
 
 @app.get("/admin/api/point-stats")
-async def admin_point_stats(request: Request, username: str = None, point_type: str = None, limit: int = 50):
+async def admin_point_stats(request: Request, username: str = None, point_type: str = None, limit: int = 50, start_date: str = None, end_date: str = None):
     _, error_response = await _require_admin_token(request, 'pointStats')
     if error_response is not None:
         return error_response
     try:
-        return await db.get_point_stats(username=username, point_type=point_type, limit=limit)
+        return await db.get_point_stats(username=username, point_type=point_type, limit=limit, start_date=start_date, end_date=end_date)
     except ValueError as e:
         return JSONResponse(status_code=400, content={"error": True, "message": str(e)})
 
 
 @app.get("/admin/api/point-stats/detail")
-async def admin_point_stats_detail(request: Request, username: str, point_type: str, category: str, page: int = 1, page_size: int = 50):
+async def admin_point_stats_detail(request: Request, username: str, point_type: str, category: str, page: int = 1, page_size: int = 50, start_date: str = None, end_date: str = None):
     _, error_response = await _require_admin_token(request, 'pointStats')
     if error_response is not None:
         return error_response
     try:
-        return await db.get_point_stats_detail(username=username, point_type=point_type, category=category, page=page, page_size=page_size)
+        return await db.get_point_stats_detail(username=username, point_type=point_type, category=category, page=page, page_size=page_size, start_date=start_date, end_date=end_date)
     except ValueError as e:
         return JSONResponse(status_code=400, content={"error": True, "message": str(e)})
 

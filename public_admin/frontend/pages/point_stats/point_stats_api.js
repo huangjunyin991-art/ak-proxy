@@ -28,6 +28,8 @@
         var params = new URLSearchParams();
         if (payload && payload.username) params.set('username', payload.username);
         if (payload && payload.pointType) params.set('point_type', payload.pointType);
+        if (payload && payload.startDate) params.set('start_date', payload.startDate);
+        if (payload && payload.endDate) params.set('end_date', payload.endDate);
         params.set('limit', String(payload && payload.limit ? payload.limit : 80));
         return fetch('/admin/api/point-stats?' + params.toString(), {
             headers: authHeaders(),
@@ -40,6 +42,8 @@
         if (payload && payload.username) params.set('username', payload.username);
         if (payload && payload.pointType) params.set('point_type', payload.pointType);
         if (payload && payload.category) params.set('category', payload.category);
+        if (payload && payload.startDate) params.set('start_date', payload.startDate);
+        if (payload && payload.endDate) params.set('end_date', payload.endDate);
         params.set('page', String(payload && payload.page ? payload.page : 1));
         params.set('page_size', String(payload && payload.pageSize ? payload.pageSize : 50));
         return fetch('/admin/api/point-stats/detail?' + params.toString(), {

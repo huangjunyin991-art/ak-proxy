@@ -104,6 +104,108 @@
         }).join('');
     }
 
+    function pad2(value) {
+        return String(value).padStart(2, '0');
+    }
+
+    function formatDate(year, month, day) {
+        return year + '-' + pad2(month) + '-' + pad2(day);
+    }
+
+    function daysInMonth(year, month) {
+        return new Date(year, month, 0).getDate();
+    }
+
+    function mondayOffset(year, month) {
+        var day = new Date(year, month - 1, 1).getDay();
+        return day === 0 ? 6 : day - 1;
+    }
+
+    function orderedDateRange(state) {
+        var start = state.dateStart || '';
+        var end = state.dateEnd || start;
+        if (start && end && start > end) {
+            return { start: end, end: start };
+        }
+        return { start: start, end: end };
+    }
+
+    function yearList(state) {
+        var range = state.dataDateRange || {};
+        var minYear = range.start ? Number(String(range.start).slice(0, 4)) : state.calendarYear;
+        var maxYear = range.end ? Number(String(range.end).slice(0, 4)) : state.calendarYear;
+        if (!isFinite(minYear)) minYear = state.calendarYear;
+        if (!isFinite(maxYear)) maxYear = state.calendarYear;
+        if (minYear > maxYear) {
+            var tmp = minYear;
+            minYear = maxYear;
+            maxYear = tmp;
+        }
+        var years = [];
+        for (var year = minYear; year <= maxYear; year++) years.push(year);
+        return years.length ? years : [state.calendarYear];
+    }
+
+    function renderDatePicker(state) {
+        var year = Number(state.calendarYear || new Date().getFullYear());
+        var month = Number(state.calendarMonth || (new Date().getMonth() + 1));
+        var totalDays = daysInMonth(year, month);
+        var offset = mondayOffset(year, month);
+        var range = orderedDateRange(state);
+        var dataRange = state.dataDateRange || {};
+        var hasDataRange = !!(dataRange.start && dataRange.end);
+        var currentMonth = year + '-' + pad2(month);
+        var minMonth = hasDataRange ? String(dataRange.start).slice(0, 7) : '';
+        var maxMonth = hasDataRange ? String(dataRange.end).slice(0, 7) : '';
+        var prevDisabled = minMonth && currentMonth <= minMonth;
+        var nextDisabled = maxMonth && currentMonth >= maxMonth;
+        var rangeText = range.start ? (range.start === range.end ? range.start : range.start + ' 至 ' + range.end) : '全部日期';
+        var dataText = hasDataRange ? dataRange.start + ' 至 ' + dataRange.end : '暂无缓存数据范围';
+        var years = yearList(state);
+        var yearMenu = '<div class="ps-date-year-menu">' + years.map(function(item) {
+            return '<button class="ps-date-year-option' + (item === year ? ' active' : '') + '" data-action="date-year-select" data-year="' + item + '">' + item + '</button>';
+        }).join('') + '</div>';
+        var dows = ['一', '二', '三', '四', '五', '六', '日'];
+        var days = dows.map(function(day) {
+            return '<div class="ps-date-dow">' + day + '</div>';
+        }).join('') + Array.from({ length: 42 }, function(_, index) {
+            var value = index - offset + 1;
+            if (value < 1 || value > totalDays) return '<button class="ps-date-day dim" type="button"></button>';
+            var date = formatDate(year, month, value);
+            var cls = '';
+            if (range.start && (date === range.start || date === range.end)) cls += ' active';
+            if (range.start && date > range.start && date < range.end) cls += ' in-range';
+            if (date === state.datePendingStart) cls += ' pending';
+            if (hasDataRange && (date < dataRange.start || date > dataRange.end)) cls += ' out-data';
+            return '<button class="ps-date-day' + cls + '" type="button" data-action="date-day" data-date="' + date + '">' + value + '</button>';
+        }).join('');
+        return [
+            '<section class="ps-date-picker">',
+            '<div class="ps-date-side">',
+            '<div class="ps-date-current"><small>当前筛选</small><b>' + html(rangeText) + '</b><span>数据库范围：' + html(dataText) + '</span></div>',
+            '<div class="ps-date-quick-grid">',
+            '<button data-action="date-quick" data-range="today">今天</button>',
+            '<button data-action="date-quick" data-range="yesterday">昨天</button>',
+            '<button data-action="date-quick" data-range="7d">近7天</button>',
+            '<button data-action="date-quick" data-range="month">本月</button>',
+            '<button data-action="date-quick" data-range="half-year">近半年</button>',
+            '<button data-action="date-quick" data-range="year">本年</button>',
+            '</div>',
+            '<button class="ps-date-clear" data-action="date-clear">清除日期筛选</button>',
+            '</div>',
+            '<div class="ps-date-calendar">',
+            '<div class="ps-date-head">',
+            '<button class="ps-date-nav" data-action="date-month-nav" data-dir="-1"' + (prevDisabled ? ' disabled' : '') + '>‹</button>',
+            '<div class="ps-date-year' + (state.yearDropdownOpen ? ' open' : '') + '"><button class="ps-date-year-btn" data-action="date-year-toggle">' + year + ' 年</button>' + yearMenu + '</div>',
+            '<strong>' + month + ' 月</strong>',
+            '<button class="ps-date-nav" data-action="date-month-nav" data-dir="1"' + (nextDisabled ? ' disabled' : '') + '>›</button>',
+            '</div>',
+            '<div class="ps-date-days">' + days + '</div>',
+            '</div>',
+            '</section>'
+        ].join('');
+    }
+
     function recordDirection(record) {
         return Number(record.operation_type || 0) === 1 ? '收入' : '支出';
     }
@@ -179,6 +281,7 @@
             '<div class="ps-rt-account-action-row"><div class="ps-account-wrap"><label class="ps-rt-field"><input class="ps-rt-input ps-account-input" data-role="account-input" value="' + html(state.accountQuery) + '" placeholder="请输入账号" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"></label>' + renderOptions(state) + '</div><div class="ps-rt-action-stack"><button class="ps-rt-btn primary" data-action="sync"' + btnAttr + '>' + html(btnLabel) + '</button>' + renderQuotaLine(state) + '</div></div>',
             '<div class="ps-rt-cache-line ' + (state.error ? 'error' : 'info') + '">' + html(state.status) + '</div>',
             '</section>',
+            renderDatePicker(state),
             '<section class="ps-rt-stats">' + renderSummary(state) + '</section>',
             '<section class="ps-rt-view-shell"><section class="ps-rt-controls"><div class="ps-rt-view-tabs">' + renderTabs(state) + '</div></section>',
             '<section class="ps-rt-path-panel"><div class="ps-rt-table-wrap"><table><thead><tr><th>统计类型</th><th>数量</th><th>收入</th><th>支出</th><th>净变化</th></tr></thead><tbody>' + renderCategories(state) + '</tbody></table></div></section></section>',

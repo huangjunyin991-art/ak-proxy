@@ -1,0 +1,1121 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>点数统计日期选择器方案</title>
+    <style>
+        :root {
+            --bg: #04111b;
+            --panel: rgba(4, 24, 34, 0.78);
+            --panel-strong: rgba(6, 18, 31, 0.94);
+            --line: rgba(79, 195, 247, 0.28);
+            --line-strong: rgba(0, 255, 136, 0.42);
+            --text: #eefaff;
+            --muted: #8fb6c9;
+            --blue: #00d4ff;
+            --green: #00ff88;
+            --yellow: #ffd54f;
+            --red: #ff5d7a;
+            --shadow: 0 18px 50px rgba(0, 0, 0, 0.42), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+        }
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            min-height: 100vh;
+            color: var(--text);
+            font-family: "Microsoft YaHei", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            background:
+                radial-gradient(circle at 18% 0%, rgba(0, 212, 255, 0.18), transparent 36%),
+                radial-gradient(circle at 88% 14%, rgba(0, 255, 136, 0.13), transparent 34%),
+                linear-gradient(180deg, #06131f 0%, #030d15 100%);
+        }
+        button { font: inherit; }
+        .page {
+            width: min(1180px, calc(100vw - 36px));
+            margin: 0 auto;
+            padding: 26px 0 44px;
+        }
+        .hero {
+            position: sticky;
+            top: 0;
+            z-index: 20;
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) auto;
+            gap: 18px;
+            align-items: center;
+            margin-bottom: 18px;
+            padding: 18px;
+            border: 1px solid var(--line);
+            border-radius: 20px;
+            background: rgba(3, 16, 27, 0.9);
+            backdrop-filter: blur(18px);
+            box-shadow: var(--shadow);
+        }
+        .hero h1 {
+            margin: 0 0 8px;
+            font-size: 24px;
+            letter-spacing: 0.8px;
+        }
+        .hero p {
+            margin: 0;
+            color: var(--muted);
+            font-size: 13px;
+            line-height: 1.7;
+        }
+        .selected-box {
+            min-width: 288px;
+            padding: 14px 16px;
+            border: 1px solid rgba(0, 255, 136, 0.34);
+            border-radius: 16px;
+            background: linear-gradient(135deg, rgba(0, 255, 136, 0.13), rgba(0, 212, 255, 0.08));
+        }
+        .selected-box span {
+            display: block;
+            color: var(--green);
+            font-size: 12px;
+            font-weight: 900;
+            margin-bottom: 6px;
+        }
+        .selected-box strong {
+            display: block;
+            color: #fff;
+            font-size: 15px;
+        }
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 16px;
+        }
+        .card.featured-card {
+            min-height: 0;
+            margin-bottom: 16px;
+            border-color: rgba(0, 255, 136, 0.4);
+            background: linear-gradient(135deg, rgba(4, 24, 34, 0.9), rgba(2, 13, 22, 0.94));
+        }
+        .featured-layout {
+            display: grid;
+            grid-template-columns: minmax(0, 1.08fr) minmax(320px, 0.92fr);
+            gap: 14px;
+            align-items: stretch;
+        }
+        .hybrid-console,
+        .hybrid-calendar-shell {
+            padding: 14px;
+            border: 1px solid rgba(79, 195, 247, 0.2);
+            border-radius: 18px;
+            background: rgba(3, 12, 22, 0.72);
+        }
+        .hybrid-result {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) auto;
+            gap: 10px;
+            align-items: center;
+            margin-bottom: 12px;
+            padding: 13px;
+            border: 1px solid rgba(0, 255, 136, 0.28);
+            border-radius: 15px;
+            background: linear-gradient(135deg, rgba(0, 255, 136, 0.12), rgba(0, 212, 255, 0.07));
+        }
+        .hybrid-result small,
+        .hybrid-field small {
+            display: block;
+            color: var(--muted);
+            font-size: 10px;
+            font-weight: 800;
+            margin-bottom: 4px;
+        }
+        .hybrid-result strong {
+            display: block;
+            color: #fff;
+            font-size: 16px;
+            letter-spacing: 0.4px;
+        }
+        .hybrid-badge {
+            padding: 8px 10px;
+            border-radius: 999px;
+            color: #00130d;
+            background: var(--green);
+            font-size: 11px;
+            font-weight: 950;
+            white-space: nowrap;
+        }
+        .hybrid-quick {
+            cursor: pointer;
+            border: 1px solid rgba(79, 195, 247, 0.22);
+            border-radius: 13px;
+            color: #dff8ff;
+            background: rgba(5, 14, 24, 0.76);
+            font-size: 12px;
+            font-weight: 900;
+            transition: transform 0.18s ease, border-color 0.18s ease, background 0.18s ease;
+        }
+        .hybrid-quick.active,
+        .hybrid-quick:hover {
+            transform: translateY(-1px);
+            border-color: rgba(0, 255, 136, 0.52);
+            background: rgba(0, 255, 136, 0.12);
+        }
+        .hybrid-quick-grid {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 8px;
+            margin-bottom: 12px;
+        }
+        .hybrid-quick {
+            min-height: 50px;
+            padding: 7px 6px;
+        }
+        .hybrid-quick b {
+            display: block;
+            font-size: 13px;
+        }
+        .hybrid-quick small {
+            display: block;
+            margin-top: 3px;
+            color: var(--muted);
+            font-size: 10px;
+            font-weight: 750;
+        }
+        .hybrid-fields {
+            display: grid;
+            grid-template-columns: 1fr auto 1fr;
+            gap: 8px;
+            align-items: center;
+        }
+        .hybrid-field {
+            padding: 11px 12px;
+            border: 1px solid rgba(79, 195, 247, 0.22);
+            border-radius: 14px;
+            background: rgba(2, 10, 18, 0.76);
+        }
+        .hybrid-field b {
+            color: #fff;
+            font-size: 13px;
+        }
+        .hybrid-calendar-title {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            margin-bottom: 11px;
+        }
+        .hybrid-calendar-heading {
+            position: relative;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .month-nav-btn {
+            width: 30px;
+            height: 30px;
+            cursor: pointer;
+            border: 1px solid rgba(79, 195, 247, 0.24);
+            border-radius: 10px;
+            color: #dff8ff;
+            background: rgba(5, 14, 24, 0.76);
+            font-size: 14px;
+            font-weight: 950;
+        }
+        .month-nav-btn:hover {
+            border-color: rgba(0, 255, 136, 0.52);
+            color: var(--green);
+            background: rgba(0, 255, 136, 0.1);
+        }
+        .hybrid-calendar-title strong {
+            font-size: 15px;
+        }
+        .year-picker {
+            position: relative;
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            width: 106px;
+        }
+        .year-picker-btn {
+            position: relative;
+            z-index: 31;
+            height: 30px;
+            width: 100%;
+            padding: 0 10px;
+            cursor: pointer;
+            border: 1px solid rgba(0, 255, 136, 0.28);
+            border-radius: 10px;
+            color: var(--green);
+            background: rgba(0, 255, 136, 0.08);
+            font-size: 14px;
+            font-weight: 950;
+        }
+        .year-picker.open .year-picker-btn {
+            border-color: rgba(0, 255, 136, 0.42);
+            border-bottom-color: rgba(3, 13, 23, 0.98);
+            border-radius: 10px 10px 0 0;
+            background: rgba(0, 255, 136, 0.12);
+        }
+        .year-picker-menu {
+            position: absolute;
+            top: calc(100% - 1px);
+            left: 0;
+            z-index: 30;
+            display: none;
+            width: 100%;
+            max-height: 260px;
+            overflow-y: auto;
+            padding: 8px 7px;
+            border: 1px solid rgba(0, 255, 136, 0.34);
+            border-radius: 0 0 14px 14px;
+            background: linear-gradient(180deg, rgba(4, 20, 31, 0.99), rgba(2, 10, 18, 0.99));
+            box-shadow: 0 16px 38px rgba(0, 0, 0, 0.42), 0 0 26px rgba(0, 255, 136, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+            scrollbar-width: thin;
+            scrollbar-color: rgba(0, 255, 136, 0.54) rgba(5, 14, 24, 0.72);
+        }
+        .year-picker-menu::-webkit-scrollbar {
+            width: 5px;
+        }
+        .year-picker-menu::-webkit-scrollbar-track {
+            border-radius: 999px;
+            background: rgba(5, 14, 24, 0.72);
+        }
+        .year-picker-menu::-webkit-scrollbar-thumb {
+            border-radius: 999px;
+            background: linear-gradient(180deg, rgba(0, 255, 136, 0.78), rgba(0, 212, 255, 0.58));
+            box-shadow: 0 0 10px rgba(0, 255, 136, 0.18);
+        }
+        .year-picker.open .year-picker-menu {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 7px;
+        }
+        .year-option {
+            height: 34px;
+            cursor: pointer;
+            border: 1px solid rgba(79, 195, 247, 0.2);
+            border-radius: 11px;
+            color: #e9fbff;
+            background: linear-gradient(180deg, rgba(7, 21, 34, 0.9), rgba(3, 13, 23, 0.86));
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+            font-size: 12px;
+            font-weight: 950;
+            letter-spacing: 0.3px;
+            transition: transform 0.16s ease, border-color 0.16s ease, box-shadow 0.16s ease, background 0.16s ease, color 0.16s ease;
+        }
+        .year-option:hover {
+            transform: translateY(-1px);
+            color: var(--green);
+            border-color: rgba(0, 255, 136, 0.46);
+            background: linear-gradient(180deg, rgba(0, 255, 136, 0.12), rgba(0, 212, 255, 0.08));
+            box-shadow: 0 0 14px rgba(0, 255, 136, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+        }
+        .year-option.active {
+            color: #00130d;
+            border-color: rgba(0, 255, 136, 0.68);
+            background: linear-gradient(135deg, #00ff88, #00d4ff);
+            box-shadow: 0 0 18px rgba(0, 255, 136, 0.24), inset 0 1px 0 rgba(255, 255, 255, 0.38);
+        }
+        .month-label {
+            font-size: 15px;
+            font-weight: 950;
+        }
+        .hybrid-calendar-title span {
+            color: var(--muted);
+            font-size: 11px;
+            font-weight: 800;
+        }
+        .hybrid-days {
+            display: grid;
+            grid-template-columns: repeat(7, 1fr);
+            gap: 6px;
+        }
+        .hybrid-dow,
+        .hybrid-day {
+            height: 34px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 11px;
+        }
+        .hybrid-dow {
+            color: var(--muted);
+            font-weight: 900;
+        }
+        .hybrid-day {
+            cursor: pointer;
+            border: 1px solid rgba(79, 195, 247, 0.12);
+            border-radius: 12px;
+            color: #dff8ff;
+            background: rgba(255, 255, 255, 0.026);
+            font-weight: 850;
+        }
+        .hybrid-day.dim {
+            opacity: 0.22;
+            pointer-events: none;
+        }
+        .hybrid-day.in-range {
+            border-color: rgba(0, 212, 255, 0.18);
+            background: rgba(0, 212, 255, 0.14);
+            animation: rangePulse 1.55s ease-in-out infinite;
+        }
+        .hybrid-day.active {
+            color: #00130d;
+            border-color: rgba(0, 255, 136, 0.75);
+            background: var(--green);
+            box-shadow: 0 0 16px rgba(0, 255, 136, 0.24);
+            animation: none;
+        }
+        @keyframes rangePulse {
+            0%, 100% {
+                border-color: rgba(0, 212, 255, 0.18);
+                background: rgba(0, 212, 255, 0.12);
+                box-shadow: inset 0 0 0 rgba(0, 212, 255, 0), 0 0 0 rgba(0, 212, 255, 0);
+            }
+            50% {
+                border-color: rgba(0, 255, 136, 0.42);
+                background: rgba(0, 212, 255, 0.24);
+                box-shadow: inset 0 0 12px rgba(0, 212, 255, 0.16), 0 0 13px rgba(0, 212, 255, 0.16);
+            }
+        }
+        .hybrid-day.today:not(.active) {
+            color: var(--green);
+            border-color: rgba(0, 255, 136, 0.34);
+        }
+        .card {
+            position: relative;
+            overflow: hidden;
+            min-height: 430px;
+            padding: 18px;
+            border: 1px solid var(--line);
+            border-radius: 22px;
+            background: var(--panel);
+            box-shadow: var(--shadow);
+        }
+        .card:before {
+            content: "";
+            position: absolute;
+            inset: 0;
+            pointer-events: none;
+            background: radial-gradient(circle at 14% 0%, rgba(0, 255, 136, 0.12), transparent 34%), radial-gradient(circle at 92% 16%, rgba(0, 212, 255, 0.1), transparent 32%);
+        }
+        .card > * { position: relative; }
+        .card-head {
+            display: flex;
+            justify-content: space-between;
+            gap: 12px;
+            align-items: flex-start;
+            margin-bottom: 16px;
+        }
+        .kicker {
+            color: var(--green);
+            font-size: 11px;
+            font-weight: 900;
+            letter-spacing: 1.2px;
+        }
+        .card h2 {
+            margin: 6px 0 7px;
+            font-size: 18px;
+        }
+        .card p {
+            margin: 0;
+            color: var(--muted);
+            font-size: 12px;
+            line-height: 1.65;
+        }
+        .tag {
+            flex: 0 0 auto;
+            padding: 6px 10px;
+            border: 1px solid rgba(79, 195, 247, 0.25);
+            border-radius: 999px;
+            color: #d7fff0;
+            background: rgba(5, 14, 24, 0.74);
+            font-size: 11px;
+            font-weight: 800;
+        }
+        .choose-btn {
+            width: 100%;
+            height: 38px;
+            margin-top: 16px;
+            cursor: pointer;
+            border: 1px solid rgba(0, 255, 136, 0.48);
+            border-radius: 12px;
+            color: #00130d;
+            background: linear-gradient(135deg, #00ff88, #00d4ff);
+            box-shadow: 0 0 22px rgba(0, 255, 136, 0.16), inset 0 1px 0 rgba(255,255,255,0.35);
+            font-weight: 950;
+        }
+        .mock-toolbar {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) auto;
+            gap: 8px;
+            align-items: center;
+            margin-bottom: 12px;
+            padding: 8px;
+            border: 1px solid rgba(79, 195, 247, 0.2);
+            border-radius: 14px;
+            background: rgba(2, 10, 18, 0.54);
+        }
+        .mock-input {
+            height: 35px;
+            padding: 0 12px;
+            border: 1px solid rgba(79, 195, 247, 0.22);
+            border-radius: 10px;
+            color: #dff8ff;
+            background: rgba(4, 12, 22, 0.88);
+            font-size: 12px;
+            font-weight: 800;
+            display: flex;
+            align-items: center;
+        }
+        .mini-btn {
+            height: 35px;
+            padding: 0 13px;
+            border: 1px solid rgba(0, 255, 136, 0.35);
+            border-radius: 10px;
+            color: var(--green);
+            background: rgba(0, 255, 136, 0.08);
+            cursor: pointer;
+            font-size: 12px;
+            font-weight: 900;
+        }
+        .chips {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 8px;
+        }
+        .chip {
+            min-height: 46px;
+            cursor: pointer;
+            border: 1px solid rgba(79, 195, 247, 0.22);
+            border-radius: 14px;
+            color: #dff8ff;
+            background: rgba(4, 13, 24, 0.78);
+            transition: transform 0.18s ease, border-color 0.18s ease, background 0.18s ease;
+        }
+        .chip b { display: block; font-size: 13px; margin-bottom: 3px; }
+        .chip small { color: var(--muted); font-size: 10px; }
+        .chip.active, .chip:hover {
+            transform: translateY(-2px);
+            border-color: rgba(0, 255, 136, 0.56);
+            background: linear-gradient(135deg, rgba(0, 255, 136, 0.18), rgba(0, 212, 255, 0.09));
+        }
+        .range-panel {
+            margin-top: 12px;
+            padding: 14px;
+            border: 1px solid rgba(0, 212, 255, 0.2);
+            border-radius: 16px;
+            background: rgba(3, 12, 22, 0.74);
+        }
+        .range-row {
+            display: grid;
+            grid-template-columns: 1fr auto 1fr;
+            gap: 8px;
+            align-items: center;
+        }
+        .date-pill {
+            padding: 11px 12px;
+            border: 1px solid rgba(79, 195, 247, 0.24);
+            border-radius: 12px;
+            background: rgba(3, 14, 24, 0.86);
+        }
+        .date-pill small { display: block; color: var(--muted); font-size: 10px; margin-bottom: 4px; }
+        .date-pill b { color: #fff; font-size: 13px; }
+        .arrow { color: var(--green); font-weight: 950; }
+        .spark {
+            height: 6px;
+            margin-top: 14px;
+            border-radius: 999px;
+            background: linear-gradient(90deg, rgba(0,255,136,0.1), var(--green) 28%, var(--blue) 74%, rgba(0,212,255,0.1));
+            box-shadow: 0 0 18px rgba(0, 255, 136, 0.24);
+        }
+        .month-wrap {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 10px;
+        }
+        .month {
+            padding: 12px;
+            border: 1px solid rgba(79, 195, 247, 0.2);
+            border-radius: 16px;
+            background: rgba(3, 12, 22, 0.74);
+        }
+        .month-title {
+            display: flex;
+            justify-content: space-between;
+            color: #dff8ff;
+            font-size: 12px;
+            font-weight: 950;
+            margin-bottom: 10px;
+        }
+        .days {
+            display: grid;
+            grid-template-columns: repeat(7, 1fr);
+            gap: 5px;
+        }
+        .dow, .day {
+            height: 26px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 10px;
+        }
+        .dow { color: var(--muted); font-weight: 800; }
+        .day {
+            cursor: pointer;
+            border: 1px solid transparent;
+            border-radius: 9px;
+            color: #cfeeff;
+            background: rgba(255, 255, 255, 0.025);
+        }
+        .day.dim { opacity: 0.28; }
+        .day.in-range { background: rgba(0, 212, 255, 0.14); }
+        .day.active, .day:hover {
+            border-color: rgba(0, 255, 136, 0.55);
+            color: #00130d;
+            background: var(--green);
+        }
+        .calendar-actions {
+            display: flex;
+            gap: 8px;
+            margin-top: 12px;
+        }
+        .ghost-btn {
+            flex: 1;
+            height: 34px;
+            cursor: pointer;
+            border: 1px solid rgba(79, 195, 247, 0.22);
+            border-radius: 11px;
+            color: #dff8ff;
+            background: rgba(5, 14, 24, 0.72);
+            font-size: 12px;
+            font-weight: 850;
+        }
+        .timeline {
+            padding: 16px 14px;
+            border: 1px solid rgba(79, 195, 247, 0.2);
+            border-radius: 18px;
+            background: rgba(3, 12, 22, 0.74);
+        }
+        .track {
+            position: relative;
+            height: 92px;
+            margin: 6px 0 12px;
+        }
+        .track-line {
+            position: absolute;
+            left: 0;
+            right: 0;
+            top: 42px;
+            height: 6px;
+            border-radius: 999px;
+            background: rgba(79, 195, 247, 0.14);
+        }
+        .track-fill {
+            position: absolute;
+            left: 24%;
+            right: 18%;
+            top: 42px;
+            height: 6px;
+            border-radius: 999px;
+            background: linear-gradient(90deg, var(--green), var(--blue));
+            box-shadow: 0 0 18px rgba(0, 212, 255, 0.26);
+        }
+        .handle {
+            position: absolute;
+            top: 29px;
+            width: 32px;
+            height: 32px;
+            border: 2px solid rgba(255,255,255,0.7);
+            border-radius: 50%;
+            background: radial-gradient(circle, #fff 0 18%, var(--green) 20% 58%, rgba(0,255,136,0.18) 60%);
+            box-shadow: 0 0 20px rgba(0,255,136,0.28);
+        }
+        .handle.left { left: calc(24% - 16px); }
+        .handle.right { right: calc(18% - 16px); background: radial-gradient(circle, #fff 0 18%, var(--blue) 20% 58%, rgba(0,212,255,0.18) 60%); }
+        .tick-row {
+            display: grid;
+            grid-template-columns: repeat(7, 1fr);
+            gap: 6px;
+        }
+        .tick {
+            height: 58px;
+            cursor: pointer;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            border: 1px solid rgba(79, 195, 247, 0.18);
+            border-radius: 13px;
+            background: rgba(5, 14, 24, 0.62);
+        }
+        .tick.active {
+            border-color: rgba(0, 255, 136, 0.48);
+            background: rgba(0, 255, 136, 0.1);
+        }
+        .tick b { font-size: 13px; }
+        .tick small { color: var(--muted); font-size: 10px; margin-top: 4px; }
+        .command-box {
+            padding: 13px;
+            border: 1px solid rgba(79, 195, 247, 0.2);
+            border-radius: 18px;
+            background: rgba(3, 12, 22, 0.74);
+        }
+        .command-input {
+            height: 44px;
+            padding: 0 14px;
+            border: 1px solid rgba(0, 255, 136, 0.28);
+            border-radius: 14px;
+            color: #fff;
+            background: rgba(2, 10, 18, 0.92);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 13px;
+            font-weight: 900;
+        }
+        .cursor {
+            width: 8px;
+            height: 18px;
+            border-radius: 4px;
+            background: var(--green);
+            animation: blink 1s steps(2, start) infinite;
+        }
+        @keyframes blink { 50% { opacity: 0; } }
+        .suggestions {
+            display: grid;
+            gap: 8px;
+            margin-top: 12px;
+        }
+        .suggestion {
+            display: grid;
+            grid-template-columns: auto minmax(0, 1fr) auto;
+            gap: 10px;
+            align-items: center;
+            min-height: 48px;
+            cursor: pointer;
+            border: 1px solid rgba(79, 195, 247, 0.18);
+            border-radius: 14px;
+            color: #dff8ff;
+            background: rgba(5, 14, 24, 0.64);
+            padding: 0 11px;
+            text-align: left;
+        }
+        .suggestion:hover, .suggestion.active {
+            border-color: rgba(0, 255, 136, 0.5);
+            background: rgba(0, 255, 136, 0.1);
+        }
+        .keycap {
+            width: 28px;
+            height: 28px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 9px;
+            color: #00130d;
+            background: var(--green);
+            font-size: 12px;
+            font-weight: 950;
+        }
+        .suggestion b { display: block; font-size: 13px; }
+        .suggestion small { color: var(--muted); font-size: 10px; }
+        .hint {
+            color: var(--blue);
+            font-size: 11px;
+            font-weight: 850;
+        }
+        .bottom-note {
+            margin-top: 16px;
+            padding: 14px 16px;
+            border: 1px solid rgba(255, 213, 79, 0.24);
+            border-radius: 16px;
+            color: #ffeab0;
+            background: rgba(255, 213, 79, 0.06);
+            font-size: 12px;
+            line-height: 1.7;
+        }
+        @media (max-width: 940px) {
+            .hero, .grid, .featured-layout { grid-template-columns: 1fr; }
+            .selected-box { min-width: 0; }
+            .month-wrap { grid-template-columns: 1fr; }
+            .chips { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+            .hybrid-quick-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        }
+    </style>
+</head>
+<body>
+    <main class="page">
+        <section class="hero">
+            <div>
+                <h1>点数统计 · 日期选择器方案</h1>
+                <p>按你的要求，重点方案已经升级为“单点日期 + 日期范围 + 快捷范围”三合一，仍然避开原生日历组件。</p>
+            </div>
+            <div class="selected-box">
+                <span>当前选择</span>
+                <strong id="selectedDesign">尚未选择方案</strong>
+            </div>
+        </section>
+
+        <article class="card featured-card" data-design="最终推荐 · 单点/范围/快捷三合一">
+            <div class="card-head">
+                <div>
+                    <div class="kicker">FINAL RECOMMENDATION</div>
+                    <h2>统一日期筛选器</h2>
+                    <p>点一天就是单日，再点另一天自动变范围；常用账期直接用快捷按钮，不再切换单点/范围模式。</p>
+                </div>
+                <span class="tag">最适合落地</span>
+            </div>
+            <div class="featured-layout">
+                <section class="hybrid-console">
+                    <div class="hybrid-result">
+                        <div>
+                            <small>当前筛选范围</small>
+                            <strong id="hybridResult">2026-05-18 至 2026-05-24</strong>
+                        </div>
+                        <span class="hybrid-badge" id="hybridBadge">近7天</span>
+                    </div>
+                    <div class="hybrid-quick-grid" data-hybrid-quick>
+                        <button class="hybrid-quick" type="button" data-label="今天" data-start="2026-05-24" data-end="2026-05-24"><b>今天</b><small>实时核对</small></button>
+                        <button class="hybrid-quick" type="button" data-label="昨天" data-start="2026-05-23" data-end="2026-05-23"><b>昨天</b><small>完整账期</small></button>
+                        <button class="hybrid-quick active" type="button" data-label="近7天" data-start="2026-05-18" data-end="2026-05-24"><b>近7天</b><small>默认推荐</small></button>
+                        <button class="hybrid-quick" type="button" data-label="本月" data-start="2026-05-01" data-end="2026-05-24"><b>本月</b><small>月度统计</small></button>
+                        <button class="hybrid-quick" type="button" data-label="近半年" data-start="2025-12-01" data-end="2026-05-24"><b>近半年</b><small>长期复盘</small></button>
+                        <button class="hybrid-quick" type="button" data-label="本年" data-start="2026-01-01" data-end="2026-05-24"><b>本年</b><small>年度统计</small></button>
+                    </div>
+                    <div class="hybrid-fields">
+                        <div class="hybrid-field">
+                            <small id="hybridStartLabel">开始日期</small>
+                            <b id="hybridStart">2026-05-18</b>
+                        </div>
+                        <div class="arrow">→</div>
+                        <div class="hybrid-field">
+                            <small id="hybridEndLabel">结束日期</small>
+                            <b id="hybridEnd">2026-05-24</b>
+                        </div>
+                    </div>
+                </section>
+                <section class="hybrid-calendar-shell">
+                    <div class="hybrid-calendar-title">
+                        <div class="hybrid-calendar-heading">
+                            <button class="month-nav-btn" type="button" data-month-nav="prev">‹</button>
+                            <div class="year-picker" id="hybridYearPicker">
+                                <button class="year-picker-btn" type="button" id="hybridYearButton">2026 年</button>
+                                <div class="year-picker-menu" id="hybridYearMenu"></div>
+                            </div>
+                            <strong class="month-label" id="hybridMonthLabel">5 月</strong>
+                            <button class="month-nav-btn" type="button" data-month-nav="next">›</button>
+                        </div>
+                        <span id="hybridHint">点一天为单日，再点另一天为范围</span>
+                    </div>
+                    <div class="hybrid-days" id="hybridDays"></div>
+                </section>
+            </div>
+            <button class="choose-btn" type="button" data-choose>选择最终推荐方案</button>
+        </article>
+
+        <section class="grid">
+            <article class="card" data-design="A · 快捷胶囊 + 自定义范围">
+                <div class="card-head">
+                    <div><div class="kicker">OPTION A</div><h2>快捷胶囊 + 自定义范围</h2><p>最轻松，默认一键选今日、昨日、近7天、本月；需要精确时再展开范围。</p></div>
+                    <span class="tag">推荐落地</span>
+                </div>
+                <div class="mock-toolbar">
+                    <div class="mock-input">2026-05-01 至 2026-05-24</div>
+                    <button class="mini-btn" type="button">应用</button>
+                </div>
+                <div class="chips" data-chip-group>
+                    <button class="chip active" type="button" data-range="今天"><b>今天</b><small>实时统计</small></button>
+                    <button class="chip" type="button" data-range="昨天"><b>昨天</b><small>完整账期</small></button>
+                    <button class="chip" type="button" data-range="近7天"><b>近7天</b><small>常用对账</small></button>
+                    <button class="chip" type="button" data-range="本月"><b>本月</b><small>月度汇总</small></button>
+                </div>
+                <div class="range-panel">
+                    <div class="range-row">
+                        <div class="date-pill"><small>开始日期</small><b>2026-05-01</b></div>
+                        <div class="arrow">→</div>
+                        <div class="date-pill"><small>结束日期</small><b>2026-05-24</b></div>
+                    </div>
+                    <div class="spark"></div>
+                </div>
+                <button class="choose-btn" type="button" data-choose>选择方案 A</button>
+            </article>
+
+            <article class="card" data-design="B · 双月霓虹范围面板">
+                <div class="card-head">
+                    <div><div class="kicker">OPTION B</div><h2>双月霓虹范围面板</h2><p>非原生日历，但保留用户熟悉的月视图；适合需要频繁跨月查账。</p></div>
+                    <span class="tag">最直观</span>
+                </div>
+                <div class="month-wrap">
+                    <div class="month">
+                        <div class="month-title"><span>2026 / 05</span><span>五月</span></div>
+                        <div class="days" data-calendar="left"></div>
+                    </div>
+                    <div class="month">
+                        <div class="month-title"><span>2026 / 06</span><span>六月</span></div>
+                        <div class="days" data-calendar="right"></div>
+                    </div>
+                </div>
+                <div class="calendar-actions">
+                    <button class="ghost-btn" type="button">清除</button>
+                    <button class="ghost-btn" type="button">近30天</button>
+                    <button class="ghost-btn" type="button">确认范围</button>
+                </div>
+                <button class="choose-btn" type="button" data-choose>选择方案 B</button>
+            </article>
+
+            <article class="card" data-design="C · 时间轴滑块选择器">
+                <div class="card-head">
+                    <div><div class="kicker">OPTION C</div><h2>时间轴滑块选择器</h2><p>像拖进度条一样选时间范围，适合移动端和“近几天”高频场景。</p></div>
+                    <span class="tag">交互轻</span>
+                </div>
+                <div class="timeline">
+                    <div class="range-row">
+                        <div class="date-pill"><small>起点</small><b id="tlStart">05-08</b></div>
+                        <div class="arrow">拖动范围</div>
+                        <div class="date-pill"><small>终点</small><b id="tlEnd">05-24</b></div>
+                    </div>
+                    <div class="track">
+                        <div class="track-line"></div>
+                        <div class="track-fill"></div>
+                        <div class="handle left"></div>
+                        <div class="handle right"></div>
+                    </div>
+                    <div class="tick-row" data-ticks>
+                        <button class="tick" type="button" data-value="05-01"><b>01</b><small>周五</small></button>
+                        <button class="tick active" type="button" data-value="05-08"><b>08</b><small>周五</small></button>
+                        <button class="tick active" type="button" data-value="05-12"><b>12</b><small>周二</small></button>
+                        <button class="tick active" type="button" data-value="05-16"><b>16</b><small>周六</small></button>
+                        <button class="tick active" type="button" data-value="05-20"><b>20</b><small>周三</small></button>
+                        <button class="tick active" type="button" data-value="05-24"><b>24</b><small>今天</small></button>
+                        <button class="tick" type="button" data-value="05-31"><b>31</b><small>周日</small></button>
+                    </div>
+                </div>
+                <button class="choose-btn" type="button" data-choose>选择方案 C</button>
+            </article>
+
+            <article class="card" data-design="D · 命令式轻量选择器">
+                <div class="card-head">
+                    <div><div class="kicker">OPTION D</div><h2>命令式轻量选择器</h2><p>不展示传统日历，通过快捷语义选择范围；适合管理员快速筛选。</p></div>
+                    <span class="tag">最快速</span>
+                </div>
+                <div class="command-box">
+                    <div class="command-input"><span>查</span><strong id="commandText">近7天 EP 记录</strong><span class="cursor"></span></div>
+                    <div class="suggestions" data-suggestions>
+                        <button class="suggestion active" type="button" data-command="今天全部点数"><span class="keycap">1</span><span><b>今天全部点数</b><small>适合快速看当日变化</small></span><span class="hint">Enter</span></button>
+                        <button class="suggestion" type="button" data-command="本周 EP/SP 明细"><span class="keycap">2</span><span><b>本周 EP/SP 明细</b><small>常用运营对账范围</small></span><span class="hint">Tab</span></button>
+                        <button class="suggestion" type="button" data-command="上月完整账期"><span class="keycap">3</span><span><b>上月完整账期</b><small>月报导出前筛选</small></span><span class="hint">⌘K</span></button>
+                        <button class="suggestion" type="button" data-command="自定义 05-01 至 05-24"><span class="keycap">4</span><span><b>自定义 05-01 至 05-24</b><small>保留精确范围能力</small></span><span class="hint">选择</span></button>
+                    </div>
+                </div>
+                <button class="choose-btn" type="button" data-choose>选择方案 D</button>
+            </article>
+        </section>
+
+        <section class="bottom-note">
+            我的落地建议：如果优先“轻松 + 好看 + 不打扰现有点数统计流程”，选方案 A；如果用户经常跨月查账，选方案 B；如果移动端使用多，选方案 C；如果管理员熟练度高，方案 D 可以作为高级快捷入口叠加在 A 上。
+        </section>
+    </main>
+
+    <script>
+        const selected = document.getElementById('selectedDesign');
+        document.querySelectorAll('[data-chip-group]').forEach(group => {
+            group.addEventListener('click', event => {
+                const chip = event.target.closest('.chip');
+                if (!chip) return;
+                group.querySelectorAll('.chip').forEach(item => item.classList.remove('active'));
+                chip.classList.add('active');
+                group.closest('.card').querySelector('.mock-input').textContent = chip.dataset.range + ' · 智能范围';
+            });
+        });
+        const dows = ['一', '二', '三', '四', '五', '六', '日'];
+        const hybridState = {
+            start: '2026-05-18',
+            end: '2026-05-24',
+            pendingStart: null,
+            label: '近7天'
+        };
+        const hybridCalendar = {
+            year: 2026,
+            month: 5
+        };
+
+        function pad2(value) {
+            return String(value).padStart(2, '0');
+        }
+
+        function formatDate(year, month, day) {
+            return year + '-' + pad2(month) + '-' + pad2(day);
+        }
+
+        function visibleDate(day) {
+            return formatDate(hybridCalendar.year, hybridCalendar.month, day);
+        }
+
+        function daysInMonth(year, month) {
+            return new Date(year, month, 0).getDate();
+        }
+
+        function mondayStartOffset(year, month) {
+            const jsDay = new Date(year, month - 1, 1).getDay();
+            return jsDay === 0 ? 6 : jsDay - 1;
+        }
+
+        function renderYearMenu() {
+            const menu = document.getElementById('hybridYearMenu');
+            const startYear = hybridCalendar.year - 5;
+            menu.innerHTML = Array.from({ length: 12 }, (_, index) => {
+                const year = startYear + index;
+                return '<button class="year-option' + (year === hybridCalendar.year ? ' active' : '') + '" type="button" data-year="' + year + '">' + year + '</button>';
+            }).join('');
+        }
+
+        function orderedRange() {
+            return hybridState.start <= hybridState.end
+                ? { start: hybridState.start, end: hybridState.end }
+                : { start: hybridState.end, end: hybridState.start };
+        }
+
+        function updateHybridView() {
+            const range = orderedRange();
+            const single = range.start === range.end;
+            document.getElementById('hybridStartLabel').textContent = single ? '选择日期' : '开始日期';
+            document.getElementById('hybridEndLabel').textContent = single ? '同一天' : '结束日期';
+            document.getElementById('hybridStart').textContent = range.start;
+            document.getElementById('hybridEnd').textContent = range.end;
+            document.getElementById('hybridResult').textContent = single ? range.start : range.start + ' 至 ' + range.end;
+            document.getElementById('hybridBadge').textContent = hybridState.label || (single ? '单日' : '自定义范围');
+            document.getElementById('hybridHint').textContent = hybridState.pendingStart ? '已选单日，再点一天变范围' : '点一天为单日，再点另一天为范围';
+            document.querySelectorAll('.hybrid-day').forEach(btn => {
+                const value = btn.dataset.date || '';
+                btn.classList.toggle('active', value === range.start || value === range.end);
+                btn.classList.toggle('in-range', value > range.start && value < range.end);
+                btn.classList.toggle('today', value === '2026-05-24');
+            });
+        }
+
+        function renderHybridCalendar() {
+            const node = document.getElementById('hybridDays');
+            const totalDays = daysInMonth(hybridCalendar.year, hybridCalendar.month);
+            const offset = mondayStartOffset(hybridCalendar.year, hybridCalendar.month);
+            document.getElementById('hybridYearButton').textContent = hybridCalendar.year + ' 年';
+            document.getElementById('hybridMonthLabel').textContent = hybridCalendar.month + ' 月';
+            renderYearMenu();
+            node.innerHTML = dows.map(day => '<div class="hybrid-dow">' + day + '</div>').join('') + Array.from({ length: 42 }, (_, index) => {
+                const value = index - offset + 1;
+                if (value < 1 || value > totalDays) return '<button class="hybrid-day dim" type="button"></button>';
+                return '<button class="hybrid-day" type="button" data-date="' + visibleDate(value) + '">' + value + '</button>';
+            }).join('');
+            updateHybridView();
+        }
+
+        document.getElementById('hybridDays').addEventListener('click', event => {
+            const btn = event.target.closest('.hybrid-day');
+            if (!btn || btn.classList.contains('dim')) return;
+            const value = btn.dataset.date || '';
+            document.querySelectorAll('.hybrid-quick').forEach(item => item.classList.remove('active'));
+            if (!hybridState.pendingStart) {
+                hybridState.start = value;
+                hybridState.end = value;
+                hybridState.pendingStart = value;
+                hybridState.label = '单日';
+            } else if (hybridState.pendingStart === value) {
+                hybridState.start = value;
+                hybridState.end = value;
+                hybridState.pendingStart = value;
+                hybridState.label = '单日';
+            } else {
+                hybridState.start = hybridState.pendingStart <= value ? hybridState.pendingStart : value;
+                hybridState.end = hybridState.pendingStart <= value ? value : hybridState.pendingStart;
+                hybridState.pendingStart = null;
+                hybridState.label = '自定义范围';
+            }
+            updateHybridView();
+        });
+
+        document.getElementById('hybridYearButton').addEventListener('click', event => {
+            event.stopPropagation();
+            document.getElementById('hybridYearPicker').classList.toggle('open');
+        });
+
+        document.getElementById('hybridYearMenu').addEventListener('click', event => {
+            const option = event.target.closest('.year-option');
+            if (!option) return;
+            hybridCalendar.year = Number(option.dataset.year || hybridCalendar.year);
+            document.getElementById('hybridYearPicker').classList.remove('open');
+            renderHybridCalendar();
+        });
+
+        document.addEventListener('click', event => {
+            const picker = document.getElementById('hybridYearPicker');
+            if (!picker.contains(event.target)) picker.classList.remove('open');
+        });
+
+        document.querySelectorAll('[data-month-nav]').forEach(button => {
+            button.addEventListener('click', () => {
+                const direction = button.dataset.monthNav === 'prev' ? -1 : 1;
+                hybridCalendar.month += direction;
+                if (hybridCalendar.month < 1) {
+                    hybridCalendar.year -= 1;
+                    hybridCalendar.month = 12;
+                } else if (hybridCalendar.month > 12) {
+                    hybridCalendar.year += 1;
+                    hybridCalendar.month = 1;
+                }
+                renderHybridCalendar();
+            });
+        });
+
+        document.querySelector('[data-hybrid-quick]').addEventListener('click', event => {
+            const btn = event.target.closest('.hybrid-quick');
+            if (!btn) return;
+            document.querySelectorAll('.hybrid-quick').forEach(item => item.classList.remove('active'));
+            btn.classList.add('active');
+            hybridState.start = btn.dataset.start || visibleDate(24);
+            hybridState.end = btn.dataset.end || hybridState.start;
+            hybridState.pendingStart = null;
+            hybridState.label = btn.dataset.label || '';
+            updateHybridView();
+        });
+
+        renderHybridCalendar();
+
+        function renderCalendar(node, start, days) {
+            node.innerHTML = dows.map(day => '<div class="dow">' + day + '</div>').join('') + Array.from({ length: 35 }, (_, index) => {
+                const value = index - start + 1;
+                const dim = value < 1 || value > days;
+                const day = dim ? '' : value;
+                const inRange = !dim && value >= 8 && value <= 24;
+                const active = value === 8 || value === 24;
+                return '<button class="day ' + (dim ? 'dim ' : '') + (inRange ? 'in-range ' : '') + (active ? 'active' : '') + '" type="button">' + day + '</button>';
+            }).join('');
+        }
+        renderCalendar(document.querySelector('[data-calendar="left"]'), 4, 31);
+        renderCalendar(document.querySelector('[data-calendar="right"]'), 0, 30);
+        document.querySelectorAll('.day').forEach(day => {
+            day.addEventListener('click', () => {
+                if (!day.textContent.trim()) return;
+                day.closest('.days').querySelectorAll('.day').forEach(item => item.classList.remove('active'));
+                day.classList.add('active');
+            });
+        });
+        document.querySelector('[data-ticks]').addEventListener('click', event => {
+            const tick = event.target.closest('.tick');
+            if (!tick) return;
+            tick.classList.toggle('active');
+            const active = Array.from(document.querySelectorAll('.tick.active'));
+            document.getElementById('tlStart').textContent = active[0] ? active[0].dataset.value : '--';
+            document.getElementById('tlEnd').textContent = active[active.length - 1] ? active[active.length - 1].dataset.value : '--';
+        });
+        document.querySelector('[data-suggestions]').addEventListener('click', event => {
+            const item = event.target.closest('.suggestion');
+            if (!item) return;
+            document.querySelectorAll('.suggestion').forEach(node => node.classList.remove('active'));
+            item.classList.add('active');
+            document.getElementById('commandText').textContent = item.dataset.command;
+        });
+        document.querySelectorAll('[data-choose]').forEach(button => {
+            button.addEventListener('click', () => {
+                const card = button.closest('.card');
+                selected.textContent = card.dataset.design;
+                card.animate([{ transform: 'scale(1)' }, { transform: 'scale(1.015)' }, { transform: 'scale(1)' }], { duration: 260, easing: 'ease-out' });
+            });
+        });
+    </script>
+</body>
+</html>

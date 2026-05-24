@@ -22,6 +22,13 @@
             detailMap: {},
             detailLoadingMap: {},
             detailErrorMap: {},
+            dateStart: '',
+            dateEnd: '',
+            datePendingStart: '',
+            dataDateRange: { start: '', end: '' },
+            calendarYear: new Date().getFullYear(),
+            calendarMonth: new Date().getMonth() + 1,
+            yearDropdownOpen: false,
             quota: {
                 isSuperAdmin: false,
                 limit: 3,
@@ -86,6 +93,11 @@
             state.detailMap = {};
             state.detailLoadingMap = {};
             state.detailErrorMap = {};
+            state.dateStart = '';
+            state.dateEnd = '';
+            state.datePendingStart = '';
+            state.dataDateRange = { start: '', end: '' };
+            state.yearDropdownOpen = false;
         }
 
         function setPayload(payload) {
@@ -95,6 +107,59 @@
             state.detailMap = {};
             state.detailLoadingMap = {};
             state.detailErrorMap = {};
+            var range = payload && payload.date_range ? payload.date_range : {};
+            state.dataDateRange = {
+                start: range && range.start ? String(range.start).slice(0, 10) : '',
+                end: range && range.end ? String(range.end).slice(0, 10) : ''
+            };
+            if (!state.dateStart && state.dataDateRange.end) {
+                state.calendarYear = Number(state.dataDateRange.end.slice(0, 4));
+                state.calendarMonth = Number(state.dataDateRange.end.slice(5, 7));
+            }
+        }
+
+        function setDateRange(start, end) {
+            state.dateStart = start || '';
+            state.dateEnd = end || start || '';
+            if (state.dateStart && state.dateEnd && state.dateStart > state.dateEnd) {
+                var tmp = state.dateStart;
+                state.dateStart = state.dateEnd;
+                state.dateEnd = tmp;
+            }
+            state.datePendingStart = '';
+            state.yearDropdownOpen = false;
+            state.expandedCategory = null;
+            state.detailPageMap = {};
+            state.detailMap = {};
+            state.detailLoadingMap = {};
+            state.detailErrorMap = {};
+        }
+
+        function clearDateRange() {
+            setDateRange('', '');
+        }
+
+        function setCalendarMonth(year, month) {
+            var y = Number(year || state.calendarYear);
+            var m = Number(month || state.calendarMonth);
+            while (m < 1) {
+                y -= 1;
+                m += 12;
+            }
+            while (m > 12) {
+                y += 1;
+                m -= 12;
+            }
+            state.calendarYear = y;
+            state.calendarMonth = m;
+        }
+
+        function setYearDropdownOpen(open) {
+            state.yearDropdownOpen = !!open;
+        }
+
+        function setDatePendingStart(value) {
+            state.datePendingStart = value || '';
         }
 
         function setStatus(message, isError) {
@@ -204,6 +269,11 @@
             setDetailLoading: setDetailLoading,
             setDetailError: setDetailError,
             setDetailData: setDetailData,
+            setDateRange: setDateRange,
+            clearDateRange: clearDateRange,
+            setCalendarMonth: setCalendarMonth,
+            setYearDropdownOpen: setYearDropdownOpen,
+            setDatePendingStart: setDatePendingStart,
             setQuota: setQuota,
             markCooldown: markCooldown,
             getCooldownRemaining: getCooldownRemaining,
