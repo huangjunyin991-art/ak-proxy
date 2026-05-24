@@ -388,16 +388,19 @@
             var date = actionNode.getAttribute('data-date') || '';
             if (!date) return;
             if (store.state.datePendingStart && store.state.datePendingStart !== date) {
-                store.setDateRange(store.state.datePendingStart, date);
+                store.setDateRange(store.state.datePendingStart, date, '');
             } else {
-                store.setDateRange(date, date);
+                store.setDateRange(date, date, '');
                 store.setDatePendingStart(date);
             }
             render();
             loadStats();
         } else if (action === 'date-quick') {
-            var range = quickRange(actionNode.getAttribute('data-range') || 'today');
-            store.setDateRange(range.start, range.end);
+            var quickKey = actionNode.getAttribute('data-range') || 'today';
+            var range = quickRange(quickKey);
+            store.setDateRange(range.start, range.end, quickKey);
+            var endDate = parseDate(range.end);
+            if (endDate) store.setCalendarMonth(endDate.getFullYear(), endDate.getMonth() + 1);
             render();
             loadStats();
         } else if (action === 'date-clear') {

@@ -25,6 +25,7 @@
             dateStart: '',
             dateEnd: '',
             datePendingStart: '',
+            dateQuickRange: '',
             dataDateRange: { start: '', end: '' },
             calendarYear: new Date().getFullYear(),
             calendarMonth: new Date().getMonth() + 1,
@@ -96,6 +97,7 @@
             state.dateStart = '';
             state.dateEnd = '';
             state.datePendingStart = '';
+            state.dateQuickRange = '';
             state.dataDateRange = { start: '', end: '' };
             state.yearDropdownOpen = false;
         }
@@ -118,7 +120,7 @@
             }
         }
 
-        function setDateRange(start, end) {
+        function setDateRange(start, end, quickRange) {
             state.dateStart = start || '';
             state.dateEnd = end || start || '';
             if (state.dateStart && state.dateEnd && state.dateStart > state.dateEnd) {
@@ -127,6 +129,7 @@
                 state.dateEnd = tmp;
             }
             state.datePendingStart = '';
+            state.dateQuickRange = quickRange || '';
             state.yearDropdownOpen = false;
             state.expandedCategory = null;
             state.detailPageMap = {};
@@ -160,6 +163,7 @@
 
         function setDatePendingStart(value) {
             state.datePendingStart = value || '';
+            if (state.datePendingStart) state.dateQuickRange = '';
         }
 
         function setStatus(message, isError) {

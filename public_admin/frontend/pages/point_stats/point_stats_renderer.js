@@ -173,23 +173,28 @@
             if (value < 1 || value > totalDays) return '<button class="ps-date-day dim" type="button"></button>';
             var date = formatDate(year, month, value);
             var cls = '';
-            if (range.start && (date === range.start || date === range.end)) cls += ' active';
-            if (range.start && date > range.start && date < range.end) cls += ' in-range';
+            var isActive = !!(range.start && (date === range.start || date === range.end));
+            var isInRange = !!(range.start && date > range.start && date < range.end);
+            if (isActive) cls += ' active';
+            if (isInRange) cls += ' in-range';
             if (date === state.datePendingStart) cls += ' pending';
-            if (hasDataRange && (date < dataRange.start || date > dataRange.end)) cls += ' out-data';
+            if (hasDataRange && (date < dataRange.start || date > dataRange.end) && !isActive && !isInRange) cls += ' out-data';
             return '<button class="ps-date-day' + cls + '" type="button" data-action="date-day" data-date="' + date + '">' + value + '</button>';
         }).join('');
+        function quickButton(key, label) {
+            return '<button class="' + (state.dateQuickRange === key ? 'active' : '') + '" data-action="date-quick" data-range="' + key + '">' + label + '</button>';
+        }
         return [
             '<section class="ps-date-picker">',
             '<div class="ps-date-side">',
             '<div class="ps-date-current"><small>当前筛选</small><b>' + html(rangeText) + '</b><span>数据库范围：' + html(dataText) + '</span></div>',
             '<div class="ps-date-quick-grid">',
-            '<button data-action="date-quick" data-range="today">今天</button>',
-            '<button data-action="date-quick" data-range="yesterday">昨天</button>',
-            '<button data-action="date-quick" data-range="7d">近7天</button>',
-            '<button data-action="date-quick" data-range="month">本月</button>',
-            '<button data-action="date-quick" data-range="half-year">近半年</button>',
-            '<button data-action="date-quick" data-range="year">本年</button>',
+            quickButton('today', '今天'),
+            quickButton('yesterday', '昨天'),
+            quickButton('7d', '近7天'),
+            quickButton('month', '本月'),
+            quickButton('half-year', '近半年'),
+            quickButton('year', '本年'),
             '</div>',
             '<button class="ps-date-clear" data-action="date-clear">清除日期筛选</button>',
             '</div>',

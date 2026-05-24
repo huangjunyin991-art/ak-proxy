@@ -364,6 +364,7 @@
 }
 
 .ps-date-quick-grid button:hover,
+.ps-date-quick-grid button.active,
 .ps-date-clear:hover,
 .ps-date-nav:hover,
 .ps-date-year-btn:hover,
@@ -372,6 +373,13 @@
     border-color: rgba(0, 255, 136, 0.5);
     color: #00ff88;
     background: rgba(0, 255, 136, 0.1);
+}
+
+.ps-date-quick-grid button.active {
+    color: #00130d;
+    border-color: rgba(210, 255, 238, 0.82);
+    background: linear-gradient(135deg, #00ff88, #00d4ff);
+    box-shadow: 0 0 16px rgba(0, 255, 136, 0.22), inset 0 1px 0 rgba(255, 255, 255, 0.42);
 }
 
 .ps-date-head {
@@ -518,6 +526,7 @@
 }
 
 .ps-date-day.in-range {
+    opacity: 1;
     color: #dffff8;
     border-color: rgba(0, 255, 136, 0.42);
     background: linear-gradient(135deg, rgba(0, 255, 136, 0.24), rgba(0, 212, 255, 0.2));
@@ -527,6 +536,7 @@
 }
 
 .ps-date-day.active {
+    opacity: 1;
     color: #00130d;
     border-color: rgba(210, 255, 238, 0.92);
     background: linear-gradient(135deg, #00ff88 0%, #00f2ff 100%);
