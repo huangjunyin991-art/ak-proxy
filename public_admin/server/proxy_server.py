@@ -180,6 +180,13 @@ from .static_resource_cache import (
     create_static_resource_cache_service,
 )
 
+try:
+    from .proxied_site_prefetch import transform_html as transform_proxied_site_prefetch_html
+    _PROXIED_SITE_PREFETCH_IMPORT_ERROR = None
+except Exception as e:
+    transform_proxied_site_prefetch_html = None
+    _PROXIED_SITE_PREFETCH_IMPORT_ERROR = e
+
 if SOCKS5_EXITS:
     dispatcher.configure_from_list(SOCKS5_EXITS)
 
@@ -13168,6 +13175,18 @@ async def ak_web_proxy(request: Request, path: str):
                 text = _rewrite_site_html_roots(text, site_prefix)
                 text = _rewrite_site_css_roots(text, site_prefix)
                 text = _rewrite_widget_asset_urls(text)
+                if transform_proxied_site_prefetch_html is not None:
+                    try:
+                        text, proxied_site_prefetch_injected = transform_proxied_site_prefetch_html(
+                            text,
+                            normalized_path,
+                            site_prefix,
+                            content_type,
+                        )
+                        if proxied_site_prefetch_injected:
+                            _admin_ak_trace(lambda: f"[ProxiedSitePrefetchInject/{path}] bs={bs_id or '-'} final_url={resp.url}")
+                    except Exception as e:
+                        logger.debug(f"[ProxiedSitePrefetchInject/{path}] 预热脚本注入失败，已跳过: {e}")
                 if normalized_path == "pages/account/login.html":
                     text, account_login_interval_injected = _inject_account_login_submit_interval(text)
                     if account_login_interval_injected:
