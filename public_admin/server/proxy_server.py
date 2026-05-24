@@ -5259,13 +5259,14 @@ async def admin_users(request: Request, limit: int = 100, offset: int = 0):
 
 @app.get("/admin/api/ips")
 
-async def admin_ips(request: Request, limit: int = 100, offset: int = 0):
+async def admin_ips(request: Request, limit: int = 100, offset: int = 0,
+                    sort_field: str = None, sort_dir: str = 'desc'):
 
     _, error_response = await _require_admin_token(request, 'ips')
     if error_response is not None:
         return error_response
 
-    return await db.get_all_ips(limit, offset)
+    return await db.get_all_ips(limit, offset, sort_field, sort_dir)
 
 
 

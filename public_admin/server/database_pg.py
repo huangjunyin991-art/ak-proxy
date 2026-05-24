@@ -1922,12 +1922,32 @@ async def get_stats_summary() -> Dict:
 
 # ===== IP 统计 =====
 
-async def get_all_ips(limit: int = 100, offset: int = 0) -> List[Dict]:
+async def get_all_ips(limit: int = 100, offset: int = 0,
+                      sort_field: str = None, sort_dir: str = 'desc') -> List[Dict]:
     """获取所有IP统计"""
+    sort_columns = {
+        'request_count': 'COALESCE(request_count, 0)',
+        'first_seen': 'first_seen',
+        'last_seen': 'last_seen',
+    }
+    sort_column = sort_columns.get(str(sort_field or '').strip())
+    direction = 'ASC' if str(sort_dir or '').lower() == 'asc' else 'DESC'
+    if sort_column:
+        order_by = f'{sort_column} {direction} NULLS LAST, ip_address ASC'
+    else:
+        order_by = '''
+                CASE
+                    WHEN is_banned THEN 2
+                    WHEN preban_last_seen IS NOT NULL AND preban_last_seen >= NOW() - INTERVAL '60 seconds' THEN 3
+                    ELSE 1
+                END DESC,
+                COALESCE(request_count, 0) DESC,
+                last_seen DESC
+        '''
     pool = _get_pool()
     async with pool.acquire() as conn:
         await _normalize_ban_records(conn)
-        rows = await conn.fetch('''
+        rows = await conn.fetch(f'''
             SELECT ip_address, request_count, first_seen, last_seen, is_banned,
                    CASE
                        WHEN is_banned THEN FALSE
@@ -1952,14 +1972,7 @@ async def get_all_ips(limit: int = 100, offset: int = 0) -> List[Dict]:
                        ELSE COALESCE(preban_reason, '')
                    END AS preban_reason
             FROM ip_stats
-            ORDER BY
-                CASE
-                    WHEN is_banned THEN 2
-                    WHEN preban_last_seen IS NOT NULL AND preban_last_seen >= NOW() - INTERVAL '60 seconds' THEN 3
-                    ELSE 1
-                END DESC,
-                COALESCE(request_count, 0) DESC,
-                last_seen DESC
+            ORDER BY {order_by}
             LIMIT $1 OFFSET $2
         ''', limit, offset)
         return [dict(r) for r in rows]

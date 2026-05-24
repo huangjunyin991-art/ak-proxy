@@ -3242,9 +3242,9 @@
                     <thead>
                         <tr>
                             <th>IP地址</th>
-                            <th>登录次数</th>
-                            <th>首次登录</th>
-                            <th>最后登录</th>
+                            <th class="sortable" onclick="sortIpsBy('request_count')" data-field="request_count">登录次数 <span class="sort-icon" id="ip-sort-request_count">⇅</span></th>
+                            <th class="sortable" onclick="sortIpsBy('first_seen')" data-field="first_seen">首次登录 <span class="sort-icon" id="ip-sort-first_seen">⇅</span></th>
+                            <th class="sortable" onclick="sortIpsBy('last_seen')" data-field="last_seen">最后登录 <span class="sort-icon" id="ip-sort-last_seen">⇅</span></th>
                             <th>状态</th>
                             <th>操作</th>
                         </tr>
@@ -5831,6 +5831,52 @@
             };
             return names[field] || field;
         }
+
+        let ipsSortField = null;
+        let ipsSortAsc = false;
+
+        function sortIpsBy(field) {
+            if (ipsSortField === field) {
+                ipsSortAsc = !ipsSortAsc;
+            } else {
+                ipsSortField = field;
+                ipsSortAsc = false;
+            }
+            updateIpSortIcons(field, ipsSortAsc);
+            loadIPs();
+        }
+
+        function updateIpSortIcons(activeField, isAsc) {
+            const fields = ['request_count', 'first_seen', 'last_seen'];
+            fields.forEach(f => {
+                const icon = document.getElementById('ip-sort-' + f);
+                const th = icon?.parentElement;
+                if (icon && th) {
+                    th.classList.remove('asc', 'desc');
+                    if (f === activeField) {
+                        icon.textContent = isAsc ? '↑' : '↓';
+                        th.classList.add(isAsc ? 'asc' : 'desc');
+                    } else {
+                        icon.textContent = '⇅';
+                    }
+                }
+            });
+        }
+
+        function getIpSortFieldName(field) {
+            const names = {
+                'request_count': '登录次数',
+                'first_seen': '首次登录',
+                'last_seen': '最后登录'
+            };
+            return names[field] || field;
+        }
+
+        function getIpSortDescription() {
+            return ipsSortField
+                ? `按${getIpSortFieldName(ipsSortField)}${ipsSortAsc ? '↑' : '↓'}排序`
+                : '按异常状态、次数、最近登录排序';
+        }
         
         // 加载IP列表
         function renderIpStatus(ip) {
@@ -5901,7 +5947,7 @@
                         </div>
                     </div>
                     <div class="ip-card-bottom">
-                        <span style="color:var(--text-secondary);font-size:12px;">按异常状态、次数、最近登录排序</span>
+                        <span style="color:var(--text-secondary);font-size:12px;">${escapeHtml(getIpSortDescription())}</span>
                         ${renderIpActionButton(ip)}
                     </div>
                 </div>
@@ -5910,10 +5956,15 @@
 
         async function loadIPs() {
             try {
-                const res = await fetch(`${API_BASE}/admin/api/ips`);
+                let url = `${API_BASE}/admin/api/ips`;
+                if (ipsSortField) {
+                    url += `?sort_field=${encodeURIComponent(ipsSortField)}&sort_dir=${ipsSortAsc ? 'asc' : 'desc'}`;
+                }
+                const res = await fetch(url);
                 const data = await res.json();
                 const tbody = document.getElementById('ipsTable');
-                const sortedData = sortIpsByPriority(Array.isArray(data) ? data : []);
+                const ipData = Array.isArray(data) ? data : [];
+                const sortedData = ipsSortField ? ipData : sortIpsByPriority(ipData);
                 
                 if (sortedData.length === 0) {
                     tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: var(--text-secondary);">暂无数据</td></tr>';
