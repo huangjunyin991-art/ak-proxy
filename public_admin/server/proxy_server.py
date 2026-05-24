@@ -11180,7 +11180,7 @@ async def recommend_tree_panel_asset(asset_name: str):
     return Response(content="" if media_type == "text/css" else "// not found", media_type=media_type)
 
 
-@app.get("/admin/api/point-stats-panel/{asset_name}")
+@app.get("/admin/api/point-stats-panel/{asset_name:path}")
 async def point_stats_panel_asset(asset_name: str):
     allowed_assets = {
         "point_stats_api.js": "application/javascript",
@@ -11188,11 +11188,20 @@ async def point_stats_panel_asset(asset_name: str):
         "point_stats_renderer.js": "application/javascript",
         "point_stats_panel.js": "application/javascript",
         "point_stats_panel.css": "text/css",
+        "date_picker/date_picker_utils.js": "application/javascript",
+        "date_picker/date_picker_state.js": "application/javascript",
+        "date_picker/date_picker_renderer.js": "application/javascript",
+        "date_picker/date_picker_controller.js": "application/javascript",
+        "date_picker/date_picker_index.js": "application/javascript",
+        "date_picker/date_picker.css": "text/css",
     }
     media_type = allowed_assets.get(asset_name)
     if not media_type:
         return Response(content="// not found", media_type="application/javascript")
-    asset_path = os.path.join(FRONTEND_PAGES_DIR, "point_stats", asset_name)
+    base_dir = os.path.normpath(os.path.join(FRONTEND_PAGES_DIR, "point_stats"))
+    asset_path = os.path.normpath(os.path.join(base_dir, asset_name))
+    if not asset_path.startswith(base_dir + os.sep):
+        return Response(content="// not found", media_type="application/javascript")
     if os.path.exists(asset_path):
         with open(asset_path, "r", encoding="utf-8") as f:
             return Response(content=f.read(), media_type=media_type,

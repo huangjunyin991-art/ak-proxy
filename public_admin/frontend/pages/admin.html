@@ -14098,13 +14098,18 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
     </script>
     <script>
         (function() {
-            var pointStatsPanelBuildVersion = '20260524-03';
+            var pointStatsPanelBuildVersion = '20260524-04';
             window.AKPointStatsPanelAssetVersion = pointStatsPanelBuildVersion;
             var pointStatsPanelAssets = [
-                'point_stats_api.js',
-                'point_stats_store.js',
-                'point_stats_renderer.js',
-                'point_stats_panel.js'
+                { name: 'date_picker/date_picker_utils.js', optional: true },
+                { name: 'date_picker/date_picker_state.js', optional: true },
+                { name: 'date_picker/date_picker_renderer.js', optional: true },
+                { name: 'date_picker/date_picker_controller.js', optional: true },
+                { name: 'date_picker/date_picker_index.js', optional: true },
+                { name: 'point_stats_api.js' },
+                { name: 'point_stats_store.js' },
+                { name: 'point_stats_renderer.js' },
+                { name: 'point_stats_panel.js' }
             ];
 
             function pointStatsMount() {
@@ -14125,7 +14130,7 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
             }
 
             function resetPointStatsPanelGlobals() {
-                ['AKPointStatsApi', 'AKPointStatsStore', 'AKPointStatsRenderer', 'AKPointStatsPanel', 'AKPointStatsPanelLoaded'].forEach(function(name) {
+                ['AKPointDatePickerUtils', 'AKPointDatePickerState', 'AKPointDatePickerRenderer', 'AKPointDatePickerController', 'AKPointDatePicker', 'AKPointStatsApi', 'AKPointStatsStore', 'AKPointStatsRenderer', 'AKPointStatsPanel', 'AKPointStatsPanelLoaded'].forEach(function(name) {
                     try {
                         delete window[name];
                     } catch (e) {
@@ -14149,9 +14154,9 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                 return '/admin/api/point-stats-panel/' + assetName + '?v=' + encodeURIComponent(pointStatsPanelBuildVersion);
             }
 
-            function ensurePointStatsPanelCss(forceRefresh) {
-                var href = buildPointStatsPanelUrl('point_stats_panel.css', forceRefresh);
-                var existing = document.querySelector('link[data-point-stats-panel-css="1"]');
+            function ensurePointStatsPanelCssAsset(assetName, marker, forceRefresh) {
+                var href = buildPointStatsPanelUrl(assetName, forceRefresh);
+                var existing = document.querySelector('link[' + marker + '="1"]');
                 if (existing) {
                     if (existing.getAttribute('href') !== href) {
                         existing.href = href;
@@ -14161,8 +14166,13 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                 var link = document.createElement('link');
                 link.rel = 'stylesheet';
                 link.href = href;
-                link.setAttribute('data-point-stats-panel-css', '1');
+                link.setAttribute(marker, '1');
                 document.head.appendChild(link);
+            }
+
+            function ensurePointStatsPanelCss(forceRefresh) {
+                ensurePointStatsPanelCssAsset('point_stats_panel.css', 'data-point-stats-panel-css', forceRefresh);
+                ensurePointStatsPanelCssAsset('date_picker/date_picker.css', 'data-point-stats-date-picker-css', forceRefresh);
             }
 
             function loadPointStatsPanelAsset(index, forceRefresh, attempt) {
@@ -14185,7 +14195,10 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                     return;
                 }
                 var script = document.createElement('script');
-                script.src = buildPointStatsPanelUrl(pointStatsPanelAssets[index], forceRefresh);
+                var asset = pointStatsPanelAssets[index];
+                var assetName = typeof asset === 'string' ? asset : asset.name;
+                var optional = !!(asset && asset.optional);
+                script.src = buildPointStatsPanelUrl(assetName, forceRefresh);
                 script.async = false;
                 script.defer = false;
                 script.setAttribute('data-point-stats-panel-loader', '1');
@@ -14193,6 +14206,10 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                     loadPointStatsPanelAsset(index + 1, forceRefresh, attempt);
                 };
                 script.onerror = function() {
+                    if (optional) {
+                        loadPointStatsPanelAsset(index + 1, forceRefresh, attempt);
+                        return;
+                    }
                     if (attempt < 2) {
                         resetPointStatsPanelGlobals();
                         removePointStatsPanelScripts();

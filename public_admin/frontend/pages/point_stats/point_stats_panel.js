@@ -4,6 +4,7 @@
     var api = window.AKPointStatsApi;
     var storeFactory = window.AKPointStatsStore;
     var renderer = window.AKPointStatsRenderer;
+    var datePicker = window.AKPointDatePicker;
     var store = storeFactory ? storeFactory.createStore() : null;
     var mounted = false;
     var searchTimer = null;
@@ -12,82 +13,6 @@
     var syncPollTimer = null;
     var syncPollKey = '';
     var SYNC_POLL_INTERVAL_MS = 1500;
-
-    function pad2(value) {
-        return String(value).padStart(2, '0');
-    }
-
-    function formatDate(date) {
-        return date.getFullYear() + '-' + pad2(date.getMonth() + 1) + '-' + pad2(date.getDate());
-    }
-
-    function parseDate(value) {
-        var text = String(value || '').slice(0, 10);
-        var match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(text);
-        if (!match) return null;
-        return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
-    }
-
-    function addDays(date, days) {
-        var next = new Date(date.getFullYear(), date.getMonth(), date.getDate());
-        next.setDate(next.getDate() + Number(days || 0));
-        return next;
-    }
-
-    function addMonths(date, months) {
-        var next = new Date(date.getFullYear(), date.getMonth(), date.getDate());
-        next.setMonth(next.getMonth() + Number(months || 0));
-        return next;
-    }
-
-    function clampRange(start, end) {
-        var min = store && store.state.dataDateRange ? store.state.dataDateRange.start : '';
-        var max = store && store.state.dataDateRange ? store.state.dataDateRange.end : '';
-        var s = start || '';
-        var e = end || s;
-        if (min && s && s < min) s = min;
-        if (max && s && s > max) s = max;
-        if (min && e && e < min) e = min;
-        if (max && e && e > max) e = max;
-        return { start: s, end: e };
-    }
-
-    function quickRange(type) {
-        var max = store.state.dataDateRange && store.state.dataDateRange.end ? parseDate(store.state.dataDateRange.end) : new Date();
-        var end = max || new Date();
-        var start = end;
-        if (type === 'yesterday') {
-            start = addDays(end, -1);
-            end = addDays(end, -1);
-        } else if (type === '7d') {
-            start = addDays(end, -6);
-        } else if (type === 'month') {
-            start = new Date(end.getFullYear(), end.getMonth(), 1);
-        } else if (type === 'half-year') {
-            start = addMonths(end, -6);
-            start.setDate(start.getDate() + 1);
-        } else if (type === 'year') {
-            start = new Date(end.getFullYear(), 0, 1);
-        }
-        return clampRange(formatDate(start), formatDate(end));
-    }
-
-    function clampCalendarMonth(year, month) {
-        var y = Number(year || store.state.calendarYear);
-        var m = Number(month || store.state.calendarMonth);
-        var min = store.state.dataDateRange && store.state.dataDateRange.start ? store.state.dataDateRange.start.slice(0, 7) : '';
-        var max = store.state.dataDateRange && store.state.dataDateRange.end ? store.state.dataDateRange.end.slice(0, 7) : '';
-        var current = y + '-' + pad2(m);
-        if (min && current < min) {
-            y = Number(min.slice(0, 4));
-            m = Number(min.slice(5, 7));
-        }
-        if (max && current > max) {
-            y = Number(max.slice(0, 4));
-            m = Number(max.slice(5, 7));
-        }
-        return { year: y, month: m };
-    }
 
     function mountNode() {
         return document.getElementById('pointStatsPanelMount');
@@ -127,6 +52,7 @@
 
     function loadStats() {
         if (!api || !store) return;
+        var dateParams = datePicker && datePicker.getRequestParams ? datePicker.getRequestParams(store.state.datePicker) : { startDate: '', endDate: '' };
         store.state.loading = true;
         store.setStatus('正在读取点数统计数据...', false);
         render();
@@ -134,8 +60,8 @@
             username: store.state.username,
             pointType: store.state.pointType,
             limit: 80,
-            startDate: store.state.dateStart,
-            endDate: store.state.dateEnd
+            startDate: dateParams.startDate,
+            endDate: dateParams.endDate
         }).then(function(data) {
             store.setPayload(data);
             var active = data && data.active_stats ? data.active_stats : null;
@@ -162,6 +88,7 @@
         if (!api || !api.getDetail || !store || !name) return;
         var username = String(store.state.username || '').trim();
         if (!username) return;
+        var dateParams = datePicker && datePicker.getRequestParams ? datePicker.getRequestParams(store.state.datePicker) : { startDate: '', endDate: '' };
         var currentPage = page || (store.state.detailPageMap && store.state.detailPageMap[name]) || 1;
         store.setDetailLoading(name, true);
         render();
@@ -171,8 +98,8 @@
             category: name,
             page: currentPage,
             pageSize: store.state.detailPageSize || 50,
-            startDate: store.state.dateStart,
-            endDate: store.state.dateEnd
+            startDate: dateParams.startDate,
+            endDate: dateParams.endDate
         }).then(function(data) {
             store.setDetailData(name, data);
             render();
@@ -352,6 +279,14 @@
         var actionNode = target.closest('[data-action]');
         if (!actionNode || !store) return;
         var action = actionNode.getAttribute('data-action');
+        if (action.indexOf('date-') === 0 && datePicker && datePicker.handleAction && store.state.datePicker) {
+            var dateResult = datePicker.handleAction(store.state.datePicker, actionNode);
+            if (dateResult && dateResult.handled) {
+                render();
+                if (dateResult.changed) loadStats();
+                return;
+            }
+        }
         if (action === 'point-type') {
             store.setPointType(actionNode.getAttribute('data-point-type'));
             render();
@@ -372,41 +307,6 @@
         } else if (action === 'rank-account') {
             store.selectAccount({ username: actionNode.getAttribute('data-username') || '' });
             render();
-        } else if (action === 'date-month-nav') {
-            var nextMonth = clampCalendarMonth(store.state.calendarYear, store.state.calendarMonth + Number(actionNode.getAttribute('data-dir') || 0));
-            store.setCalendarMonth(nextMonth.year, nextMonth.month);
-            render();
-        } else if (action === 'date-year-toggle') {
-            store.setYearDropdownOpen(!store.state.yearDropdownOpen);
-            render();
-        } else if (action === 'date-year-select') {
-            var nextYearMonth = clampCalendarMonth(Number(actionNode.getAttribute('data-year') || store.state.calendarYear), store.state.calendarMonth);
-            store.setCalendarMonth(nextYearMonth.year, nextYearMonth.month);
-            store.setYearDropdownOpen(false);
-            render();
-        } else if (action === 'date-day') {
-            var date = actionNode.getAttribute('data-date') || '';
-            if (!date) return;
-            if (store.state.datePendingStart && store.state.datePendingStart !== date) {
-                store.setDateRange(store.state.datePendingStart, date, '');
-            } else {
-                store.setDateRange(date, date, '');
-                store.setDatePendingStart(date);
-            }
-            render();
-            loadStats();
-        } else if (action === 'date-quick') {
-            var quickKey = actionNode.getAttribute('data-range') || 'today';
-            var range = quickRange(quickKey);
-            store.setDateRange(range.start, range.end, quickKey);
-            var endDate = parseDate(range.end);
-            if (endDate) store.setCalendarMonth(endDate.getFullYear(), endDate.getMonth() + 1);
-            render();
-            loadStats();
-        } else if (action === 'date-clear') {
-            store.clearDateRange();
-            render();
-            loadStats();
         } else if (action === 'toggle-category') {
             var categoryName = actionNode.getAttribute('data-name') || '';
             store.toggleCategory(categoryName);
