@@ -46,6 +46,22 @@ class NotifyCenterRepository:
                 )
             ''')
             await conn.execute('''
+                ALTER TABLE notify_events
+                ALTER COLUMN message_id TYPE BIGINT USING (
+                    CASE WHEN message_id::text ~ '^-?[0-9]+$' THEN message_id::text::BIGINT ELSE 0 END
+                )
+            ''')
+            await conn.execute("ALTER TABLE notify_events ALTER COLUMN message_id SET DEFAULT 0")
+            await conn.execute("ALTER TABLE notify_events ALTER COLUMN message_id SET NOT NULL")
+            await conn.execute('''
+                ALTER TABLE notify_events
+                ALTER COLUMN conversation_id TYPE BIGINT USING (
+                    CASE WHEN conversation_id::text ~ '^-?[0-9]+$' THEN conversation_id::text::BIGINT ELSE 0 END
+                )
+            ''')
+            await conn.execute("ALTER TABLE notify_events ALTER COLUMN conversation_id SET DEFAULT 0")
+            await conn.execute("ALTER TABLE notify_events ALTER COLUMN conversation_id SET NOT NULL")
+            await conn.execute('''
                 CREATE TABLE IF NOT EXISTS notify_outbox (
                     id BIGSERIAL PRIMARY KEY,
                     event_id TEXT NOT NULL,
