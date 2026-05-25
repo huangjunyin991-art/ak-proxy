@@ -5326,13 +5326,18 @@
             const parts = [
                 '账号=' + String(item.im_username || state.username || ''),
                 '权限=' + String(item.permission || ''),
+                '安全上下文=' + (item.secure_context ? '是' : '否'),
                 'SW=' + (item.service_worker_ready ? 'ready' : (item.service_worker_supported ? 'not-ready' : 'unsupported')),
                 'Push=' + (item.push_manager_supported ? 'supported' : 'unsupported'),
+                'VAPID长度=' + String(item.vapid_public_key_length || 0),
                 '本机订阅=' + (item.has_subscription ? '有' : '无'),
                 '尝试创建=' + (item.attempted_create ? '是' : '否'),
                 '创建=' + (item.created_subscription ? '成功' : '未创建'),
                 '保存=' + (item.saved ? '成功' : '失败')
             ];
+            if (item.subscribe_error_name || item.subscribe_error_message) {
+                parts.push('订阅错误=' + [item.subscribe_error_name, item.subscribe_error_message].filter(Boolean).join(': '));
+            }
             if (item.last_error) parts.push('原因=' + String(item.last_error));
             state.pushNotificationMessage = '通知诊断：' + parts.join('；');
             render();

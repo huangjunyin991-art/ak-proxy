@@ -2,6 +2,7 @@
     'use strict';
 
     var lastError = '';
+    var lastSubscribeError = null;
 
     function setLastError(message) {
         lastError = String(message || '').trim();
@@ -110,8 +111,12 @@
             return withTimeout(registration.pushManager.subscribe({
                 userVisibleOnly: true,
                 applicationServerKey: urlBase64ToUint8Array(publicKey)
-            }), 10000, '创建通知订阅超时，当前手机浏览器可能不支持 Web Push');
+            }), 10000, '创建通知订阅超时，浏览器 Push Service 没有完成注册');
         }).catch(function(error) {
+            lastSubscribeError = {
+                name: error && error.name ? String(error.name) : '',
+                message: error && error.message ? String(error.message) : ''
+            };
             setLastError(formatSubscribeError(error));
             return null;
         });
@@ -218,12 +223,16 @@
         var result = {
             im_username: getIMUsername(),
             permission: ('Notification' in window) ? Notification.permission : 'unsupported',
+            secure_context: !!window.isSecureContext,
             service_worker_supported: !!navigator.serviceWorker,
             push_manager_supported: !!window.PushManager,
             service_worker_ready: false,
             has_subscription: false,
             attempted_create: false,
             created_subscription: false,
+            vapid_public_key_length: 0,
+            subscribe_error_name: '',
+            subscribe_error_message: '',
             saved: false,
             last_error: ''
         };
@@ -247,10 +256,14 @@
                             result.last_error = lastError || '通知服务尚未配置完成';
                             return null;
                         }
+                        result.vapid_public_key_length = String(publicKey || '').length;
+                        lastSubscribeError = null;
                         return subscribe(registration, publicKey);
                     }).then(function(createdSubscription) {
                         result.created_subscription = !!createdSubscription;
                         result.has_subscription = !!createdSubscription;
+                        result.subscribe_error_name = lastSubscribeError ? lastSubscribeError.name : '';
+                        result.subscribe_error_message = lastSubscribeError ? lastSubscribeError.message : '';
                         if (!createdSubscription) {
                             result.last_error = lastError || '当前浏览器没有本机 Push 订阅，且创建订阅失败';
                             return result;
