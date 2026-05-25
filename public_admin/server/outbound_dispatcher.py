@@ -293,7 +293,7 @@ class OutboundDispatcher:
     DIRECT_FALLBACK_RATE_PER_SECOND = 2
     DIRECT_FALLBACK_RATE_PER_MINUTE = 30
     DEDICATED_FAST_EXIT_COUNT = 5
-    DEDICATED_FAST_RPC_PATHS = {"public_ace", "public_ep_sellrecords1"}
+    DEDICATED_FAST_RPC_PATHS = {"public_ace", "public_ep_sellrecords1", "public_indexdata"}
 
     def __init__(self):
         self.exits: list[OutboundExit] = [
@@ -560,7 +560,12 @@ class OutboundDispatcher:
         if not dedicated:
             return pool
         if self._is_dedicated_fast_rpc(api_path):
-            return [i for i in pool if i in dedicated]
+            primary = [i for i in pool if i in dedicated]
+            if primary:
+                return primary
+            overflow = [i for i in pool if i not in dedicated]
+            overflow.sort(key=self._latency_sort_key)
+            return overflow
         return [i for i in pool if i not in dedicated]
 
     # ===== 调度（全部异常安全） =====
