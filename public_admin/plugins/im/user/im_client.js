@@ -5233,7 +5233,7 @@
             return {
                 title: '消息通知已关闭',
                 meta: '浏览器已阻止通知，请到站点设置中允许',
-                disabled: true,
+                disabled: false,
                 checked: false
             };
         }
