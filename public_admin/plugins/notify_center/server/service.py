@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from .channels.web_push import WebPushChannel
+from .channels.web_push import WebPushChannel, is_invalid_push_endpoint
 from .config import NotifyCenterConfig
 from .formatter import build_notification_body, build_notification_title, build_notification_url, build_recipient_usernames
 from .repository import NotifyCenterRepository
@@ -56,6 +56,8 @@ class NotifyCenterService:
         auth = str(keys.get('auth') or '').strip()
         if not endpoint or not p256dh or not auth:
             raise ValueError('Push subscription 不完整')
+        if is_invalid_push_endpoint(endpoint):
+            raise ValueError('浏览器返回了不可投递的 Push endpoint，请更换网络或关闭浏览器隐私代理后重试')
         item = await self.repository.upsert_subscription(
             username=normalized_username,
             endpoint=endpoint,

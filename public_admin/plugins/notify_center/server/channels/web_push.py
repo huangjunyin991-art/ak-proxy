@@ -5,6 +5,7 @@ import base64
 import json
 import os
 from typing import Any
+from urllib.parse import urlparse
 
 from ..config import NotifyCenterConfig
 from .base import ChannelSendResult
@@ -38,6 +39,8 @@ class WebPushChannel:
         auth = str(subscription.get('auth') or '').strip()
         if not endpoint or not p256dh or not auth:
             return ChannelSendResult(success=False, error='Push subscription 不完整', subscription_expired=True)
+        if is_invalid_push_endpoint(endpoint):
+            return ChannelSendResult(success=False, error='Push endpoint 不可投递', subscription_expired=True)
         subscription_info = {
             'endpoint': endpoint,
             'keys': {
@@ -107,3 +110,8 @@ def _normalize_vapid_private_key(key: str) -> str:
     private_value = private_key.private_numbers().private_value
     raw = private_value.to_bytes(32, 'big')
     return base64.urlsafe_b64encode(raw).rstrip(b'=').decode('ascii')
+
+
+def is_invalid_push_endpoint(endpoint: str) -> bool:
+    host = str(urlparse(str(endpoint or '').strip()).hostname or '').strip().lower()
+    return host == 'permanently-removed.invalid' or host.endswith('.invalid')

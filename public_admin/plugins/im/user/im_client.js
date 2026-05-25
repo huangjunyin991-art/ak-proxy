@@ -5330,6 +5330,7 @@
                 'SW=' + (item.service_worker_ready ? 'ready' : (item.service_worker_supported ? 'not-ready' : 'unsupported')),
                 'Push=' + (item.push_manager_supported ? 'supported' : 'unsupported'),
                 'VAPID长度=' + String(item.vapid_public_key_length || 0),
+                'endpoint=' + String(item.endpoint_host || ''),
                 '本机订阅=' + (item.has_subscription ? '有' : '无'),
                 '尝试创建=' + (item.attempted_create ? '是' : '否'),
                 '创建=' + (item.created_subscription ? '成功' : '未创建'),

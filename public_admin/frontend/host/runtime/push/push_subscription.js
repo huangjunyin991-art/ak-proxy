@@ -58,6 +58,16 @@
         return outputArray;
     }
 
+    function getEndpointHost(subscription) {
+        try {
+            var data = subscription && subscription.toJSON ? subscription.toJSON() : subscription;
+            var endpoint = String(data && data.endpoint || '').trim();
+            return endpoint ? new URL(endpoint).hostname : '';
+        } catch(e) {
+            return '';
+        }
+    }
+
     function fetchVapidPublicKey() {
         return withTimeout(fetch('/api/notify-center/web-push/vapid-public-key', {
             method: 'GET',
@@ -231,6 +241,7 @@
             attempted_create: false,
             created_subscription: false,
             vapid_public_key_length: 0,
+            endpoint_host: '',
             subscribe_error_name: '',
             subscribe_error_message: '',
             saved: false,
@@ -249,6 +260,7 @@
             }
             return withTimeout(registration.pushManager.getSubscription(), 5000, '读取当前通知订阅超时').then(function(subscription) {
                 result.has_subscription = !!subscription;
+                result.endpoint_host = getEndpointHost(subscription);
                 if (!subscription) {
                     result.attempted_create = true;
                     return fetchVapidPublicKey().then(function(publicKey) {
@@ -262,6 +274,7 @@
                     }).then(function(createdSubscription) {
                         result.created_subscription = !!createdSubscription;
                         result.has_subscription = !!createdSubscription;
+                        result.endpoint_host = getEndpointHost(createdSubscription);
                         result.subscribe_error_name = lastSubscribeError ? lastSubscribeError.name : '';
                         result.subscribe_error_message = lastSubscribeError ? lastSubscribeError.message : '';
                         if (!createdSubscription) {
