@@ -62,7 +62,7 @@ class NotifyCenterConfig:
             show_message_preview=_env_bool('NOTIFY_CENTER_SHOW_MESSAGE_PREVIEW', False),
             web_push_ttl_seconds=_env_int('WEB_PUSH_TTL_SECONDS', 86400, 60, 2592000),
             web_push_timeout_seconds=_env_int('WEB_PUSH_TIMEOUT_SECONDS', 8, 1, 60),
-            ntfy_default_server_url=str(os.environ.get('NOTIFY_CENTER_NTFY_DEFAULT_SERVER_URL') or 'https://ak2025.vip/ntfy').strip().rstrip('/') or 'https://ak2025.vip/ntfy',
+            ntfy_default_server_url=str(os.environ.get('NOTIFY_CENTER_NTFY_DEFAULT_SERVER_URL') or 'https://ntfy.ak2025.vip').strip().rstrip('/') or 'https://ntfy.ak2025.vip',
         )
 
     def is_web_push_ready(self) -> bool:
