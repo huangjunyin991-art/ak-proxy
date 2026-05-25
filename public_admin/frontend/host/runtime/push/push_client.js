@@ -62,10 +62,12 @@
                     return saved;
                 });
             }
-            lastError = result === 'denied' ? '浏览器已阻止通知，请到站点设置中允许通知权限' : '未允许浏览器通知权限';
+            lastError = result === 'denied' ? '浏览器已阻止通知，请到站点设置中允许通知权限，权限申请结果=denied' : '未允许浏览器通知权限，权限申请结果=' + String(result || 'default');
             return false;
         }).catch(function(error) {
+            var requestResult = getLastPermissionRequestResult();
             lastError = error && error.message ? error.message : '开启消息通知失败，请稍后重试';
+            if (requestResult.result) lastError += '，权限申请结果=' + requestResult.result;
             return false;
         });
     }
@@ -88,7 +90,14 @@
         if (!subscription || typeof subscription.diagnoseSubscription !== 'function') {
             return Promise.resolve({last_error: '消息通知诊断模块暂不可用'});
         }
-        return subscription.diagnoseSubscription();
+        return subscription.diagnoseSubscription().then(function(result) {
+            var item = result && typeof result === 'object' ? result : {};
+            var requestResult = getLastPermissionRequestResult();
+            item.permission_request_result = requestResult.result || '';
+            item.permission_request_error = requestResult.error || '';
+            item.permission_request_completed = !!requestResult.completed;
+            return item;
+        });
     }
 
     function getPermissionStatus() {
@@ -96,6 +105,14 @@
         if (!permission || !permission.isSupported || !permission.isSupported()) return 'unsupported';
         if (!permission.getPermission) return 'default';
         return permission.getPermission();
+    }
+
+    function getLastPermissionRequestResult() {
+        var permission = window.AKClientRuntimePushPermission;
+        if (!permission || typeof permission.getLastRequestResult !== 'function') {
+            return {result: '', error: '', completed: false};
+        }
+        return permission.getLastRequestResult();
     }
 
     function withTimeout(promise, timeoutMs, message) {
@@ -138,6 +155,7 @@
     window.AKClientRuntimePush.disableServerBinding = disableServerBinding;
     window.AKClientRuntimePush.diagnose = diagnose;
     window.AKClientRuntimePush.getPermissionStatus = getPermissionStatus;
+    window.AKClientRuntimePush.getLastPermissionRequestResult = getLastPermissionRequestResult;
     window.AKClientRuntimePush.isSubscriptionEnabled = isSubscriptionEnabled;
     window.AKClientRuntimePush.getLastError = getLastError;
 })();

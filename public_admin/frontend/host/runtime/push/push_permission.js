@@ -1,6 +1,12 @@
 (function() {
     'use strict';
 
+    var lastRequestResult = {
+        result: '',
+        error: '',
+        completed: false
+    };
+
     function isIosDevice() {
         var ua = navigator.userAgent || '';
         return /iPad|iPhone|iPod/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
@@ -29,28 +35,48 @@
     }
 
     function requestPermission() {
-        if (!isSupported()) return Promise.resolve('unsupported');
-        if (Notification.permission === 'granted') return Promise.resolve('granted');
+        if (!isSupported()) {
+            lastRequestResult = {result: 'unsupported', error: getSupportError(), completed: true};
+            return Promise.resolve('unsupported');
+        }
+        if (Notification.permission === 'granted') {
+            lastRequestResult = {result: 'granted', error: '', completed: true};
+            return Promise.resolve('granted');
+        }
+        lastRequestResult = {result: 'pending', error: '', completed: false};
         return new Promise(function(resolve) {
             var settled = false;
             function finish(result) {
                 if (settled) return;
                 settled = true;
-                resolve(result || Notification.permission || 'default');
+                var value = result || Notification.permission || 'default';
+                lastRequestResult = {result: value, error: '', completed: true};
+                resolve(value);
             }
             try {
                 var result = Notification.requestPermission(finish);
                 if (result && typeof result.then === 'function') {
                     result.then(finish).catch(function() {
-                        finish(Notification.permission || 'default');
+                        var value = Notification.permission || 'default';
+                        lastRequestResult = {result: value, error: 'requestPermission rejected', completed: true};
+                        finish(value);
                     });
                 } else if (result) {
                     finish(result);
                 }
             } catch(e) {
+                lastRequestResult = {result: Notification.permission || 'default', error: e && e.message ? String(e.message) : 'requestPermission failed', completed: true};
                 finish(Notification.permission || 'default');
             }
         });
+    }
+
+    function getLastRequestResult() {
+        return {
+            result: lastRequestResult.result || '',
+            error: lastRequestResult.error || '',
+            completed: !!lastRequestResult.completed
+        };
     }
 
     window.AKClientRuntimePushPermission = window.AKClientRuntimePushPermission || {};
@@ -58,4 +84,5 @@
     window.AKClientRuntimePushPermission.getSupportError = getSupportError;
     window.AKClientRuntimePushPermission.getPermission = getPermission;
     window.AKClientRuntimePushPermission.requestPermission = requestPermission;
+    window.AKClientRuntimePushPermission.getLastRequestResult = getLastRequestResult;
 })();

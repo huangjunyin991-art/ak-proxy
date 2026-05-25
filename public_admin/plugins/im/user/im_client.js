@@ -5321,6 +5321,7 @@
             const parts = [
                 '账号=' + String(item.im_username || state.username || ''),
                 '权限=' + String(item.permission || ''),
+                '权限申请结果=' + String(item.permission_request_result || ''),
                 '安全上下文=' + (item.secure_context ? '是' : '否'),
                 'SW=' + (item.service_worker_ready ? 'ready' : (item.service_worker_supported ? 'not-ready' : 'unsupported')),
                 'Push=' + (item.push_manager_supported ? 'supported' : 'unsupported'),
@@ -5334,6 +5335,7 @@
             if (item.subscribe_error_name || item.subscribe_error_message) {
                 parts.push('订阅错误=' + [item.subscribe_error_name, item.subscribe_error_message].filter(Boolean).join(': '));
             }
+            if (item.permission_request_error) parts.push('权限申请错误=' + String(item.permission_request_error));
             if (item.last_error) parts.push('原因=' + String(item.last_error));
             state.pushNotificationMessage = '通知诊断：' + parts.join('；');
             render();
