@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from typing import Awaitable, Callable
 
 from fastapi import APIRouter, Request
@@ -96,6 +97,8 @@ def create_notify_center_router(
         except Exception:
             return JSONResponse(status_code=400, content={'success': False, 'message': '请求体无效'})
         result = await service.handle_im_message_event(payload if isinstance(payload, dict) else {})
+        if int(result.get('queued') or 0) > 0:
+            _schedule_outbox_flush(service)
         return {'success': True, 'data': result}
 
     @router.post('/admin/api/notify-center/outbox/flush')
@@ -108,6 +111,18 @@ def create_notify_center_router(
         return {'success': True, 'data': result}
 
     return router
+
+
+def _schedule_outbox_flush(service: NotifyCenterService) -> None:
+    task = asyncio.create_task(service.flush_outbox_once())
+    task.add_done_callback(_consume_task_exception)
+
+
+def _consume_task_exception(task: asyncio.Task) -> None:
+    try:
+        task.result()
+    except Exception:
+        pass
 
 
 def _resolve_username(request: Request, cookie_name: str, payload: dict | None = None) -> str:
