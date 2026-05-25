@@ -3,6 +3,8 @@ from __future__ import annotations
 import asyncio
 import json
 from typing import Any
+from urllib.parse import quote
+from urllib.parse import urlencode
 from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 
@@ -32,26 +34,24 @@ class NtfyClient:
             return ChannelSendResult(success=False, error=str(exc))
 
     def _send_sync(self, server_url: str, topic: str, payload: dict[str, str]) -> ChannelSendResult:
-        url = server_url
-        request_body = {
-            'topic': topic,
+        query = {
             'title': payload.get('title') or '你有一条新消息',
-            'message': payload.get('message') or '点击查看',
             'priority': payload.get('priority') or 'default',
         }
         click_url = payload.get('click_url') or ''
         tags = payload.get('tags') or ''
         if click_url:
-            request_body['click'] = click_url
+            query['click'] = click_url
         if tags:
-            request_body['tags'] = [item.strip() for item in tags.split(',') if item.strip()]
+            query['tags'] = tags
+        url = f'{server_url}/{quote(topic, safe="")}?{urlencode(query)}'
         headers = {
-            'Content-Type': 'application/json; charset=utf-8',
+            'Content-Type': 'text/plain; charset=utf-8',
             'Accept': 'application/json',
         }
         request = Request(
             url,
-            data=json.dumps(request_body, ensure_ascii=False).encode('utf-8'),
+            data=(payload.get('message') or '点击查看').encode('utf-8'),
             headers=headers,
             method='POST',
         )
@@ -73,7 +73,7 @@ class NtfyClient:
 def normalize_server_url(value: str) -> str:
     text = str(value or '').strip().rstrip('/')
     if not text:
-        return 'https://ak2025.vip'
+        return 'https://ak2025.vip/ntfy'
     parsed = urlparse(text)
     if parsed.scheme not in {'http', 'https'} or not parsed.netloc:
         raise ValueError('ntfy 服务地址必须是 HTTP/HTTPS URL')

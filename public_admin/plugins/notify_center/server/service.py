@@ -26,7 +26,7 @@ except Exception:
 
     def normalize_ntfy_server_url(value: str) -> str:
         text = str(value or '').strip().rstrip('/')
-        return text or 'https://ak2025.vip'
+        return text or 'https://ak2025.vip/ntfy'
 
 
 class NotifyCenterService:
@@ -405,7 +405,7 @@ def _public_pushdeer_binding(binding: dict[str, Any], *, username: str) -> dict[
 def _public_ntfy_binding(binding: dict[str, Any], *, username: str, default_server_url: str) -> dict[str, Any]:
     item = binding if isinstance(binding, dict) else {}
     topic = str(item.get('topic') or '')
-    server_url = str(item.get('server_url') or default_server_url or 'https://ak2025.vip')
+    server_url = str(item.get('server_url') or default_server_url or 'https://ak2025.vip/ntfy')
     return {
         'username': username,
         'bound': bool(item.get('id') and topic),

@@ -284,7 +284,7 @@
              const ntfyBinding = state.ntfyBinding && typeof state.ntfyBinding === 'object' ? state.ntfyBinding : {};
              const ntfyBound = !!ntfyBinding.bound;
              const ntfyBusy = !!state.ntfyLoading || !!state.ntfySaving || !!state.ntfyTesting || !!state.ntfyDeleting;
-             const ntfyServerUrl = String(state.ntfyDraftServerUrl || ntfyBinding.server_url || 'https://ak2025.vip');
+             const ntfyServerUrl = String(state.ntfyDraftServerUrl || ntfyBinding.server_url || 'https://ak2025.vip/ntfy');
              const ntfyTopic = String(ntfyBinding.topic || '');
              const ntfyStatus = state.ntfyLoading ? '正在读取订阅状态...' : (ntfyBound ? '已生成订阅 topic' : '未启用');
              const ntfyMeta = (typeof this.ctx.isMobileBrowser === 'function' && this.ctx.isMobileBrowser())
