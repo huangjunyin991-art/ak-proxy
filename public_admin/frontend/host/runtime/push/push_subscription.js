@@ -3,6 +3,8 @@
 
     var lastError = '';
     var lastSubscribeError = null;
+    var lastInvalidEndpointHost = '';
+    var lastInvalidEndpointCleared = false;
 
     function setLastError(message) {
         lastError = String(message || '').trim();
@@ -68,6 +70,24 @@
         }
     }
 
+    function isInvalidEndpointHost(host) {
+        var value = String(host || '').trim().toLowerCase();
+        return value === 'permanently-removed.invalid' || /\.invalid$/.test(value);
+    }
+
+    function isInvalidSubscription(subscription) {
+        return isInvalidEndpointHost(getEndpointHost(subscription));
+    }
+
+    function unsubscribeLocalSubscription(subscription) {
+        if (!subscription || typeof subscription.unsubscribe !== 'function') return Promise.resolve(false);
+        return withTimeout(subscription.unsubscribe(), 5000, '清理不可投递通知订阅超时').then(function(result) {
+            return !!result;
+        }).catch(function() {
+            return false;
+        });
+    }
+
     function fetchVapidPublicKey() {
         return withTimeout(fetch('/api/notify-center/web-push/vapid-public-key', {
             method: 'GET',
@@ -116,12 +136,29 @@
             if (!lastError) setLastError('通知服务尚未配置完成');
             return Promise.resolve(null);
         }
+        lastInvalidEndpointHost = '';
+        lastInvalidEndpointCleared = false;
         return withTimeout(registration.pushManager.getSubscription(), 5000, '读取当前通知订阅超时').then(function(existing) {
+            if (!isInvalidSubscription(existing)) return existing;
+            lastInvalidEndpointHost = getEndpointHost(existing);
+            return unsubscribeLocalSubscription(existing).then(function(cleared) {
+                lastInvalidEndpointCleared = !!cleared;
+                return null;
+            });
+        }).then(function(existing) {
             if (existing) return existing;
             return withTimeout(registration.pushManager.subscribe({
                 userVisibleOnly: true,
                 applicationServerKey: urlBase64ToUint8Array(publicKey)
             }), 10000, '创建通知订阅超时，浏览器 Push Service 没有完成注册');
+        }).then(function(subscription) {
+            if (!isInvalidSubscription(subscription)) return subscription;
+            lastInvalidEndpointHost = getEndpointHost(subscription);
+            return unsubscribeLocalSubscription(subscription).then(function(cleared) {
+                lastInvalidEndpointCleared = !!cleared;
+                setLastError('浏览器返回了不可投递的 Push endpoint，请更换网络或关闭浏览器隐私代理后重试');
+                return null;
+            });
         }).catch(function(error) {
             lastSubscribeError = {
                 name: error && error.name ? String(error.name) : '',
@@ -238,6 +275,9 @@
             push_manager_supported: !!window.PushManager,
             service_worker_ready: false,
             has_subscription: false,
+            invalid_endpoint: false,
+            invalid_endpoint_host: '',
+            invalid_endpoint_cleared: false,
             attempted_create: false,
             created_subscription: false,
             vapid_public_key_length: 0,
@@ -261,6 +301,18 @@
             return withTimeout(registration.pushManager.getSubscription(), 5000, '读取当前通知订阅超时').then(function(subscription) {
                 result.has_subscription = !!subscription;
                 result.endpoint_host = getEndpointHost(subscription);
+                result.invalid_endpoint = isInvalidSubscription(subscription);
+                if (result.invalid_endpoint) {
+                    result.invalid_endpoint_host = result.endpoint_host;
+                    return unsubscribeLocalSubscription(subscription).then(function(cleared) {
+                        result.invalid_endpoint_cleared = !!cleared;
+                        result.has_subscription = false;
+                        result.endpoint_host = '';
+                        return null;
+                    });
+                }
+                return subscription;
+            }).then(function(subscription) {
                 if (!subscription) {
                     if (result.permission === 'denied') {
                         result.last_error = '浏览器已拒绝本站通知权限，请在站点设置中允许通知后重试';
@@ -279,6 +331,9 @@
                         result.created_subscription = !!createdSubscription;
                         result.has_subscription = !!createdSubscription;
                         result.endpoint_host = getEndpointHost(createdSubscription);
+                        result.invalid_endpoint = result.invalid_endpoint || isInvalidSubscription(createdSubscription) || !!lastInvalidEndpointHost;
+                        result.invalid_endpoint_host = result.invalid_endpoint_host || lastInvalidEndpointHost;
+                        result.invalid_endpoint_cleared = result.invalid_endpoint_cleared || lastInvalidEndpointCleared;
                         result.subscribe_error_name = lastSubscribeError ? lastSubscribeError.name : '';
                         result.subscribe_error_message = lastSubscribeError ? lastSubscribeError.message : '';
                         if (!createdSubscription) {

@@ -5327,6 +5327,8 @@
                 'Push=' + (item.push_manager_supported ? 'supported' : 'unsupported'),
                 'VAPID长度=' + String(item.vapid_public_key_length || 0),
                 'endpoint=' + String(item.endpoint_host || ''),
+                '无效endpoint=' + (item.invalid_endpoint ? String(item.invalid_endpoint_host || '是') : '否'),
+                '无效endpoint清理=' + (item.invalid_endpoint_cleared ? '成功' : '否'),
                 '本机订阅=' + (item.has_subscription ? '有' : '无'),
                 '尝试创建=' + (item.attempted_create ? '是' : '否'),
                 '创建=' + (item.created_subscription ? '成功' : '未创建'),
