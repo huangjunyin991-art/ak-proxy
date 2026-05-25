@@ -115,6 +115,11 @@ class NotifyCenterRepository:
         metadata_json = json.dumps(metadata or {}, ensure_ascii=False)
         endpoint_hash = _build_endpoint_hash(endpoint)
         async with pool.acquire() as conn:
+            await conn.execute('''
+                UPDATE notify_push_subscriptions
+                SET enabled = FALSE, disabled_at = NOW(), updated_at = NOW()
+                WHERE endpoint_hash = $1 AND username <> $2 AND enabled = TRUE
+            ''', endpoint_hash, username)
             row = await conn.fetchrow('''
                 INSERT INTO notify_push_subscriptions
                     (username, endpoint, endpoint_hash, p256dh, auth, user_agent, platform, enabled, metadata_json, created_at, updated_at, last_seen_at, disabled_at)
