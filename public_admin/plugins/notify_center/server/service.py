@@ -322,12 +322,14 @@ class NotifyCenterService:
 def _public_pushdeer_binding(binding: dict[str, Any], *, username: str) -> dict[str, Any]:
     item = binding if isinstance(binding, dict) else {}
     server_url = str(item.get('server_url') or 'https://api2.pushdeer.com')
+    pushkey = str(item.get('pushkey') or '')
     return {
         'username': username,
         'bound': bool(item.get('id')),
         'enabled': bool(item.get('enabled')) if item else False,
         'server_url': server_url,
         'app_binding_account': username,
+        'app_pushkey': pushkey,
         'app_server_url': server_url,
         'last_sent_at': str(item.get('last_sent_at') or ''),
         'last_error': str(item.get('last_error') or ''),

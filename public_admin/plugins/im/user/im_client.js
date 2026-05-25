@@ -1292,6 +1292,7 @@
             buildDisplayNameWithHonorMarkup: buildDisplayNameWithHonorMarkup,
             formatUserDisplayText: formatUserDisplayText,
             escapeHtml: escapeHtml,
+            copyText: copyText,
             countProfileAvatarFavorites: countProfileAvatarFavorites,
             refreshProfileAvatar: refreshProfileAvatar,
             uploadProfileAvatar: uploadProfileAvatar,
@@ -3158,6 +3159,33 @@
         return String(value || '').replace(/[&<>"']/g, function(char) {
             return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char] || char;
         });
+    }
+
+    function copyText(value) {
+        const text = String(value || '');
+        if (!text) return Promise.resolve(false);
+        if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+            return navigator.clipboard.writeText(text).then(function() {
+                return true;
+            }).catch(function() {
+                return false;
+            });
+        }
+        const textarea = document.createElement('textarea');
+        textarea.value = text;
+        textarea.setAttribute('readonly', 'readonly');
+        textarea.style.position = 'fixed';
+        textarea.style.left = '-9999px';
+        document.body.appendChild(textarea);
+        textarea.select();
+        let copied = false;
+        try {
+            copied = document.execCommand('copy');
+        } catch (error) {
+            copied = false;
+        }
+        document.body.removeChild(textarea);
+        return Promise.resolve(!!copied);
     }
 
     function formatFileSize(bytes) {

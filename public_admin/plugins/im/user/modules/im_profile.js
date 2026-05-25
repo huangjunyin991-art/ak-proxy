@@ -285,6 +285,7 @@
              const pushdeerBound = !!pushdeerBinding.bound;
              const pushdeerBusy = !!state.pushdeerLoading || !!state.pushdeerTesting;
              const pushdeerServerUrl = String(state.pushdeerDraftServerUrl || pushdeerBinding.server_url || 'https://api2.pushdeer.com');
+             const pushdeerAppPushkey = String(pushdeerBinding.app_pushkey || '');
              const pushdeerStatus = state.pushdeerLoading ? '正在读取绑定状态...' : (pushdeerBound ? '已完成系统默认绑定' : '暂未完成系统默认绑定');
              const pushdeerMeta = (typeof this.ctx.isMobileBrowser === 'function' && this.ctx.isMobileBrowser())
                  ? '移动端浏览器只使用 PushDeer 接收离线通知。'
@@ -333,16 +334,18 @@
                  (state.pushdeerMessage ? '<div class="ak-im-profile-note">' + this.ctx.escapeHtml(state.pushdeerMessage) + '</div>' : '') +
                  '<div class="ak-im-profile-form">' +
                      '<div class="ak-im-profile-form-group">' +
-                         '<label class="ak-im-profile-form-label">App 绑定账号</label>' +
-                         '<div class="ak-im-profile-subtitle">@' + this.ctx.escapeHtml(username || 'unknown') + '</div>' +
+                         '<label class="ak-im-profile-form-label">App PushKey</label>' +
+                         '<div class="ak-im-profile-subtitle">' + this.ctx.escapeHtml(pushdeerAppPushkey || '正在生成，请刷新状态') + '</div>' +
+                         '<button class="ak-im-profile-primary-btn" type="button" data-im-profile-pushdeer-copy="pushkey"' + (!pushdeerAppPushkey ? ' disabled' : '') + '>复制 PushKey</button>' +
                      '</div>' +
                      '<div class="ak-im-profile-form-group">' +
                          '<label class="ak-im-profile-form-label">PushDeer 服务地址</label>' +
                          '<div class="ak-im-profile-subtitle">' + this.ctx.escapeHtml(pushdeerServerUrl) + '</div>' +
+                         '<button class="ak-im-profile-primary-btn" type="button" data-im-profile-pushdeer-copy="server">复制服务地址</button>' +
                      '</div>' +
                      '<div class="ak-im-profile-form-group">' +
                          '<label class="ak-im-profile-form-label">App 操作提示</label>' +
-                         '<div class="ak-im-profile-subtitle">' + this.ctx.escapeHtml(pushdeerBound ? '当前账号已可通过 PushDeer App 接收移动端通知。' : '请在 PushDeer App 中使用当前账号完成默认绑定，完成后回到这里刷新状态。') + '</div>' +
+                         '<div class="ak-im-profile-subtitle">' + this.ctx.escapeHtml(pushdeerBound ? '在 PushDeer App 中填入上方 PushKey 和服务地址后，即可接收移动端通知。' : '请刷新状态生成 App PushKey，再到 PushDeer App 中完成配置。') + '</div>' +
                      '</div>' +
                  '</div>' +
                  '<div class="ak-im-profile-action-row">' +
@@ -404,6 +407,17 @@
                      }
                  });
              }
+             Array.prototype.slice.call(container.querySelectorAll('[data-im-profile-pushdeer-copy]')).forEach(function(button) {
+                 button.addEventListener('click', function() {
+                     const copyType = button.getAttribute('data-im-profile-pushdeer-copy') || '';
+                     const copyValue = copyType === 'server' ? pushdeerServerUrl : pushdeerAppPushkey;
+                     if (typeof self.ctx.copyText !== 'function') return;
+                     self.ctx.copyText(copyValue).then(function(copied) {
+                         state.pushdeerMessage = copied ? (copyType === 'server' ? 'PushDeer 服务地址已复制' : 'App PushKey 已复制') : '复制失败，请手动长按复制';
+                         self.renderProfileSettingsView(container, displayName, honorName, username, nickname, genderLabel, profile);
+                     });
+                 });
+             });
          }
      };
 
