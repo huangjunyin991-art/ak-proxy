@@ -11314,6 +11314,17 @@ def _build_notify_center_sw_content(base_content: str = "") -> str:
     return content if content else push_content
 
 
+def _build_pwa_icon_svg(size: int, maskable: bool = False) -> str:
+    safe_size = 512 if int(size or 0) == 512 else 192
+    radius = 96 if maskable else 42
+    font_size = 172 if safe_size == 512 else 64
+    return f'''<svg xmlns="http://www.w3.org/2000/svg" width="{safe_size}" height="{safe_size}" viewBox="0 0 {safe_size} {safe_size}">
+<rect width="{safe_size}" height="{safe_size}" rx="{radius}" fill="#0a0e1a"/>
+<circle cx="{safe_size / 2:.0f}" cy="{safe_size / 2:.0f}" r="{safe_size * 0.32:.0f}" fill="#10b981"/>
+<text x="50%" y="54%" text-anchor="middle" dominant-baseline="middle" font-family="Arial, Helvetica, sans-serif" font-size="{font_size}" font-weight="700" fill="#ffffff">AK</text>
+</svg>'''
+
+
 
 @app.get("/sw.js")
 
@@ -11393,13 +11404,13 @@ async def pwa_manifest_api():
 
             data['icons'] = [
 
-                {'src': '/admin/api/pwa-icon/192', 'sizes': '192x192', 'type': 'image/png', 'purpose': 'any'},
+                {'src': '/admin/api/pwa-icon/192', 'sizes': '192x192', 'type': 'image/svg+xml', 'purpose': 'any'},
 
-                {'src': '/admin/api/pwa-icon/512', 'sizes': '512x512', 'type': 'image/png', 'purpose': 'any'},
+                {'src': '/admin/api/pwa-icon/512', 'sizes': '512x512', 'type': 'image/svg+xml', 'purpose': 'any'},
 
-                {'src': '/admin/api/pwa-icon-maskable/192', 'sizes': '192x192', 'type': 'image/png', 'purpose': 'maskable'},
+                {'src': '/admin/api/pwa-icon-maskable/192', 'sizes': '192x192', 'type': 'image/svg+xml', 'purpose': 'maskable'},
 
-                {'src': '/admin/api/pwa-icon-maskable/512', 'sizes': '512x512', 'type': 'image/png', 'purpose': 'maskable'},
+                {'src': '/admin/api/pwa-icon-maskable/512', 'sizes': '512x512', 'type': 'image/svg+xml', 'purpose': 'maskable'},
 
             ]
 
@@ -11426,8 +11437,11 @@ async def pwa_icon_api(size: int):
         with open(path, "rb") as f:
 
             return Response(content=f.read(), media_type="image/png")
-
-    return Response(status_code=404)
+    return Response(
+        content=_build_pwa_icon_svg(size),
+        media_type="image/svg+xml",
+        headers={"Cache-Control": "public, max-age=3600"},
+    )
 
 
 
@@ -11448,8 +11462,11 @@ async def pwa_icon_maskable_api(size: int):
         with open(path, "rb") as f:
 
             return Response(content=f.read(), media_type="image/png")
-
-    return Response(status_code=404)
+    return Response(
+        content=_build_pwa_icon_svg(size, maskable=True),
+        media_type="image/svg+xml",
+        headers={"Cache-Control": "public, max-age=3600"},
+    )
 
 
 
@@ -11484,8 +11501,11 @@ async def pwa_icon(size: int):
         with open(path, "rb") as f:
 
             return Response(content=f.read(), media_type="image/png")
-
-    return Response(status_code=404)
+    return Response(
+        content=_build_pwa_icon_svg(size),
+        media_type="image/svg+xml",
+        headers={"Cache-Control": "public, max-age=3600"},
+    )
 
 
 

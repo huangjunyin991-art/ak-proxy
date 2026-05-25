@@ -11,25 +11,25 @@
     {
       "src": "/admin/api/pwa-icon/192",
       "sizes": "192x192",
-      "type": "image/png",
+      "type": "image/svg+xml",
       "purpose": "any"
     },
     {
       "src": "/admin/api/pwa-icon/512",
       "sizes": "512x512",
-      "type": "image/png",
+      "type": "image/svg+xml",
       "purpose": "any"
     },
     {
       "src": "/admin/api/pwa-icon-maskable/192",
       "sizes": "192x192",
-      "type": "image/png",
+      "type": "image/svg+xml",
       "purpose": "maskable"
     },
     {
       "src": "/admin/api/pwa-icon-maskable/512",
       "sizes": "512x512",
-      "type": "image/png",
+      "type": "image/svg+xml",
       "purpose": "maskable"
     }
   ]
