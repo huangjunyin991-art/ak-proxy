@@ -272,19 +272,21 @@
         return fetchServerDiagnostics().then(function(data) {
             var recent = data && data.recent_outbox && data.recent_outbox.length ? data.recent_outbox[0] : {};
             var latestSubscription = data && data.subscriptions && data.subscriptions.length ? data.subscriptions[0] : {};
-            var pushdeerBinding = data && data.pushdeer_binding && typeof data.pushdeer_binding === 'object' ? data.pushdeer_binding : {};
+            var ntfyBinding = data && data.ntfy_binding && typeof data.ntfy_binding === 'object' ? data.ntfy_binding : {};
             result.server_enabled = !!(data && data.enabled);
             result.server_web_push_ready = !!(data && data.web_push_ready);
-            result.server_pushdeer_ready = !!(data && data.pushdeer_ready);
+            result.server_ntfy_ready = !!(data && data.ntfy_ready);
             result.server_active_subscription_count = Number(data && data.active_subscription_count || 0);
             result.server_subscription_count = data && data.subscriptions && data.subscriptions.length ? data.subscriptions.length : 0;
             result.server_latest_subscription_id = Number(latestSubscription.id || 0);
             result.server_latest_subscription_hash = String(latestSubscription.endpoint_hash || '');
             result.server_latest_subscription_enabled = !!latestSubscription.enabled;
-            result.server_pushdeer_bound = !!pushdeerBinding.bound;
-            result.server_pushdeer_enabled = !!pushdeerBinding.enabled;
-            result.server_pushdeer_last_sent_at = String(pushdeerBinding.last_sent_at || '');
-            result.server_pushdeer_last_error = String(pushdeerBinding.last_error || '');
+            result.server_ntfy_bound = !!ntfyBinding.bound;
+            result.server_ntfy_enabled = !!ntfyBinding.enabled;
+            result.server_ntfy_topic = String(ntfyBinding.topic || '');
+            result.server_ntfy_server_url = String(ntfyBinding.server_url || '');
+            result.server_ntfy_last_sent_at = String(ntfyBinding.last_sent_at || '');
+            result.server_ntfy_last_error = String(ntfyBinding.last_error || '');
             result.server_recent_outbox_status = String(recent.status || '');
             result.server_recent_outbox_channel = String(recent.channel || '');
             result.server_recent_outbox_attempt_count = Number(recent.attempt_count || 0);
@@ -384,7 +386,7 @@
             last_error: ''
         };
         if (diagnoseOptions.serverOnly) {
-            result.last_error = '移动端使用 PushDeer，不创建 Web Push 订阅';
+            result.last_error = '移动端使用 ntfy，不创建 Web Push 订阅';
             return appendServerDiagnostics(result);
         }
         if (!navigator.serviceWorker) {

@@ -198,14 +198,13 @@
         profileSettingsSaving: false,
         profileSettingsError: '',
         pushNotificationMessage: '',
-        pushdeerBinding: null,
-        pushdeerLoading: false,
-        pushdeerSaving: false,
-        pushdeerTesting: false,
-        pushdeerDeleting: false,
-        pushdeerMessage: '',
-        pushdeerDraftKey: '',
-        pushdeerDraftServerUrl: 'https://api2.pushdeer.com',
+        ntfyBinding: null,
+        ntfyLoading: false,
+        ntfySaving: false,
+        ntfyTesting: false,
+        ntfyDeleting: false,
+        ntfyMessage: '',
+        ntfyDraftServerUrl: 'https://ntfy.ak2025.vip',
         profileAvatarHistory: [],
         profileAvatarHistoryLoaded: false,
         profileAvatarHistoryLoading: false,
@@ -1307,10 +1306,10 @@
             requestPushNotificationPermission: requestPushNotificationPermission,
             disablePushNotification: disablePushNotification,
             diagnosePushNotification: diagnosePushNotification,
-            loadPushDeerBinding: loadPushDeerBinding,
-            savePushDeerBinding: savePushDeerBinding,
-            deletePushDeerBinding: deletePushDeerBinding,
-            testPushDeerBinding: testPushDeerBinding,
+            loadNtfyBinding: loadNtfyBinding,
+            saveNtfyBinding: saveNtfyBinding,
+            deleteNtfyBinding: deleteNtfyBinding,
+            testNtfyBinding: testNtfyBinding,
             isMobileBrowser: isMobileBrowser
         });
     }
@@ -4220,8 +4219,8 @@
             if (nextView === 'profile_avatar' && !state.profileAvatarHistoryLoaded && !state.profileAvatarHistoryLoading) {
                 loadProfileAvatarHistory();
             }
-            if (nextView === 'profile_settings' && !state.pushdeerLoading && !state.pushdeerBinding) {
-                loadPushDeerBinding();
+            if (nextView === 'profile_settings' && !state.ntfyLoading && !state.ntfyBinding) {
+                loadNtfyBinding();
             }
             if (nextView === 'profile_blacklist') {
                 state.blacklistError = '';
@@ -5233,119 +5232,109 @@
         });
     }
 
-    function applyPushDeerBinding(data) {
+    function applyNtfyBinding(data) {
         const item = data && typeof data === 'object' ? data : {};
-        state.pushdeerBinding = item;
-        state.pushdeerDraftKey = '';
-        state.pushdeerDraftServerUrl = String(item.server_url || 'https://api2.pushdeer.com').trim() || 'https://api2.pushdeer.com';
+        state.ntfyBinding = item;
+        state.ntfyDraftServerUrl = String(item.server_url || 'https://ntfy.ak2025.vip').trim() || 'https://ntfy.ak2025.vip';
         return item;
     }
 
-    function loadPushDeerBinding() {
-        if (!state.allowed || state.pushdeerLoading) return Promise.resolve(state.pushdeerBinding);
-        state.pushdeerLoading = true;
-        state.pushdeerMessage = '';
+    function loadNtfyBinding() {
+        if (!state.allowed || state.ntfyLoading) return Promise.resolve(state.ntfyBinding);
+        state.ntfyLoading = true;
+        state.ntfyMessage = '';
         render();
         const username = String(state.username || getCanonicalUsername() || '').trim().toLowerCase();
-        const url = `${API_ROOT}/api/notify-center/pushdeer/binding` + (username ? ('?im_username=' + encodeURIComponent(username)) : '');
+        const url = `${API_ROOT}/api/notify-center/ntfy/binding` + (username ? ('?im_username=' + encodeURIComponent(username)) : '');
         return request(url, {
             method: 'GET'
         }).then(function(response) {
-            state.pushdeerLoading = false;
-            applyPushDeerBinding(response && response.data ? response.data : {});
+            state.ntfyLoading = false;
+            applyNtfyBinding(response && response.data ? response.data : {});
             render();
-            return state.pushdeerBinding;
+            return state.ntfyBinding;
         }).catch(function(error) {
-            state.pushdeerLoading = false;
-            state.pushdeerMessage = error && error.message ? error.message : '读取 PushDeer 绑定失败';
+            state.ntfyLoading = false;
+            state.ntfyMessage = error && error.message ? error.message : '读取 ntfy 绑定失败';
             render();
             return null;
         });
     }
 
-    function savePushDeerBinding(pushkey, serverUrl) {
-        if (!state.allowed || state.pushdeerSaving) return Promise.resolve(null);
-        const normalizedPushkey = String(pushkey || '').trim();
-        const normalizedServerUrl = String(serverUrl || state.pushdeerDraftServerUrl || 'https://api2.pushdeer.com').trim() || 'https://api2.pushdeer.com';
-        const hasExistingBinding = !!(state.pushdeerBinding && state.pushdeerBinding.bound);
-        if (!normalizedPushkey && !hasExistingBinding) {
-            state.pushdeerMessage = '请输入 PushDeer PushKey';
-            render();
-            return Promise.resolve(null);
-        }
-        state.pushdeerSaving = true;
-        state.pushdeerMessage = '正在保存 PushDeer 绑定...';
+    function saveNtfyBinding(serverUrl) {
+        if (!state.allowed || state.ntfySaving) return Promise.resolve(null);
+        const normalizedServerUrl = String(serverUrl || state.ntfyDraftServerUrl || 'https://ntfy.ak2025.vip').trim() || 'https://ntfy.ak2025.vip';
+        state.ntfySaving = true;
+        state.ntfyMessage = '正在保存 ntfy 配置...';
         render();
-        return request(`${API_ROOT}/api/notify-center/pushdeer/binding`, {
+        return request(`${API_ROOT}/api/notify-center/ntfy/binding`, {
             method: 'POST',
             body: JSON.stringify({
                 im_username: state.username || getCanonicalUsername(),
-                pushkey: normalizedPushkey,
                 server_url: normalizedServerUrl,
                 enabled: true
             })
         }).then(function(response) {
-            state.pushdeerSaving = false;
-            applyPushDeerBinding(response && response.data ? response.data : {});
-            state.pushdeerMessage = 'PushDeer 绑定已保存';
+            state.ntfySaving = false;
+            applyNtfyBinding(response && response.data ? response.data : {});
+            state.ntfyMessage = 'ntfy 配置已保存';
             render();
-            return state.pushdeerBinding;
+            return state.ntfyBinding;
         }).catch(function(error) {
-            state.pushdeerSaving = false;
-            state.pushdeerMessage = error && error.message ? error.message : '保存 PushDeer 绑定失败';
+            state.ntfySaving = false;
+            state.ntfyMessage = error && error.message ? error.message : '保存 ntfy 配置失败';
             render();
             return null;
         });
     }
 
-    function deletePushDeerBinding() {
-        if (!state.allowed || state.pushdeerDeleting) return Promise.resolve(false);
-        state.pushdeerDeleting = true;
-        state.pushdeerMessage = '正在解绑 PushDeer...';
+    function deleteNtfyBinding() {
+        if (!state.allowed || state.ntfyDeleting) return Promise.resolve(false);
+        state.ntfyDeleting = true;
+        state.ntfyMessage = '正在关闭 ntfy 通知...';
         render();
-        return request(`${API_ROOT}/api/notify-center/pushdeer/binding`, {
+        return request(`${API_ROOT}/api/notify-center/ntfy/binding`, {
             method: 'DELETE',
             body: JSON.stringify({
                 im_username: state.username || getCanonicalUsername()
             })
         }).then(function() {
-            state.pushdeerDeleting = false;
-            state.pushdeerBinding = { username: state.username || getCanonicalUsername(), bound: false, enabled: false, server_url: 'https://api2.pushdeer.com' };
-            state.pushdeerDraftKey = '';
-            state.pushdeerDraftServerUrl = 'https://api2.pushdeer.com';
-            state.pushdeerMessage = 'PushDeer 已解绑';
+            state.ntfyDeleting = false;
+            state.ntfyBinding = { username: state.username || getCanonicalUsername(), bound: false, enabled: false, server_url: 'https://ntfy.ak2025.vip', topic: '' };
+            state.ntfyDraftServerUrl = 'https://ntfy.ak2025.vip';
+            state.ntfyMessage = 'ntfy 通知已关闭';
             render();
             return true;
         }).catch(function(error) {
-            state.pushdeerDeleting = false;
-            state.pushdeerMessage = error && error.message ? error.message : '解绑 PushDeer 失败';
+            state.ntfyDeleting = false;
+            state.ntfyMessage = error && error.message ? error.message : '关闭 ntfy 通知失败';
             render();
             return false;
         });
     }
 
-    function testPushDeerBinding() {
-        if (!state.allowed || state.pushdeerTesting) return Promise.resolve(false);
-        state.pushdeerTesting = true;
-        state.pushdeerMessage = '正在发送 PushDeer 测试通知...';
+    function testNtfyBinding() {
+        if (!state.allowed || state.ntfyTesting) return Promise.resolve(false);
+        state.ntfyTesting = true;
+        state.ntfyMessage = '正在发送 ntfy 测试通知...';
         render();
-        return request(`${API_ROOT}/api/notify-center/pushdeer/test`, {
+        return request(`${API_ROOT}/api/notify-center/ntfy/test`, {
             method: 'POST',
             body: JSON.stringify({
                 im_username: state.username || getCanonicalUsername()
             })
         }).then(function(response) {
-            state.pushdeerTesting = false;
+            state.ntfyTesting = false;
             const data = response && response.data ? response.data : {};
-            const resultMessage = data.sent ? 'PushDeer 测试通知已发送' : ('PushDeer 测试失败：' + String(data.error || '未知错误'));
-            return loadPushDeerBinding().then(function() {
-                state.pushdeerMessage = resultMessage;
+            const resultMessage = data.sent ? 'ntfy 测试通知已发送' : ('ntfy 测试失败：' + String(data.error || '未知错误'));
+            return loadNtfyBinding().then(function() {
+                state.ntfyMessage = resultMessage;
                 render();
                 return !!data.sent;
             });
         }).catch(function(error) {
-            state.pushdeerTesting = false;
-            state.pushdeerMessage = error && error.message ? error.message : 'PushDeer 测试发送失败';
+            state.ntfyTesting = false;
+            state.ntfyMessage = error && error.message ? error.message : 'ntfy 测试发送失败';
             render();
             return false;
         });
@@ -5354,8 +5343,8 @@
     function getPushNotificationStatus() {
         if (isMobileBrowser()) {
             return {
-                title: '移动端使用 PushDeer',
-                meta: '移动端浏览器不使用 Web Push，请查看下方 PushDeer App 绑定信息',
+                title: '移动端使用 ntfy',
+                meta: '移动端浏览器不使用 Web Push，请查看下方 ntfy App 订阅信息',
                 disabled: true,
                 checked: false
             };
@@ -5405,7 +5394,7 @@
     function requestPushNotificationPermission() {
         if (!state.allowed) return Promise.resolve(false);
         if (isMobileBrowser()) {
-            state.pushNotificationMessage = '移动端浏览器请使用 PushDeer 通知，不再开启 Web Push';
+            state.pushNotificationMessage = '移动端浏览器请使用 ntfy 通知，不再开启 Web Push';
             render();
             return Promise.resolve(false);
         }
@@ -5495,8 +5484,8 @@
                 '保存=' + (item.saved ? '成功' : '失败'),
                 '后端通知=' + (item.server_enabled ? '开启' : '关闭'),
                 '后端WebPush=' + (item.server_web_push_ready ? 'ready' : 'not-ready'),
-                '后端PushDeer=' + (item.server_pushdeer_ready ? 'ready' : 'not-ready'),
-                'PushDeer绑定=' + (item.server_pushdeer_bound ? (item.server_pushdeer_enabled ? '开启' : '关闭') : '无'),
+                '后端ntfy=' + (item.server_ntfy_ready ? 'ready' : 'not-ready'),
+                'ntfy绑定=' + (item.server_ntfy_bound ? (item.server_ntfy_enabled ? '开启' : '关闭') : '无'),
                 '后端订阅数=' + String(item.server_active_subscription_count || 0),
                 '后端最新订阅=' + String(item.server_latest_subscription_id || 0),
                 '最近outbox=' + String(item.server_recent_outbox_channel || '') + '/' + String(item.server_recent_outbox_status || ''),
@@ -5510,8 +5499,10 @@
             if (item.permission_request_error) parts.push('权限申请错误=' + String(item.permission_request_error));
             if (item.service_worker_last_show_notification_error) parts.push('SW展示错误=' + String(item.service_worker_last_show_notification_error));
             if (item.service_worker_diagnostics_error) parts.push('SW诊断错误=' + String(item.service_worker_diagnostics_error));
-            if (item.server_pushdeer_last_sent_at) parts.push('PushDeer最近发送=' + String(item.server_pushdeer_last_sent_at));
-            if (item.server_pushdeer_last_error) parts.push('PushDeer错误=' + String(item.server_pushdeer_last_error));
+            if (item.server_ntfy_topic) parts.push('ntfyTopic=' + String(item.server_ntfy_topic));
+            if (item.server_ntfy_server_url) parts.push('ntfy服务=' + String(item.server_ntfy_server_url));
+            if (item.server_ntfy_last_sent_at) parts.push('ntfy最近发送=' + String(item.server_ntfy_last_sent_at));
+            if (item.server_ntfy_last_error) parts.push('ntfy错误=' + String(item.server_ntfy_last_error));
             if (item.server_recent_outbox_error) parts.push('outbox错误=' + String(item.server_recent_outbox_error));
             if (item.server_diagnostics_error) parts.push('后端诊断错误=' + String(item.server_diagnostics_error));
             if (item.last_error) parts.push('原因=' + String(item.last_error));
@@ -5755,14 +5746,13 @@
         state.profileSaveError = '';
         state.profileSettingsSaving = false;
         state.profileSettingsError = '';
-        state.pushdeerBinding = null;
-        state.pushdeerLoading = false;
-        state.pushdeerSaving = false;
-        state.pushdeerTesting = false;
-        state.pushdeerDeleting = false;
-        state.pushdeerMessage = '';
-        state.pushdeerDraftKey = '';
-        state.pushdeerDraftServerUrl = 'https://api2.pushdeer.com';
+        state.ntfyBinding = null;
+        state.ntfyLoading = false;
+        state.ntfySaving = false;
+        state.ntfyTesting = false;
+        state.ntfyDeleting = false;
+        state.ntfyMessage = '';
+        state.ntfyDraftServerUrl = 'https://ntfy.ak2025.vip';
         state.profileAvatarHistory = [];
         state.profileAvatarHistoryLoaded = false;
         state.profileAvatarHistoryLoading = false;
@@ -5844,14 +5834,13 @@
             state.profileSaveError = '';
             state.profileSettingsSaving = false;
             state.profileSettingsError = '';
-            state.pushdeerBinding = null;
-            state.pushdeerLoading = false;
-            state.pushdeerSaving = false;
-            state.pushdeerTesting = false;
-            state.pushdeerDeleting = false;
-            state.pushdeerMessage = '';
-            state.pushdeerDraftKey = '';
-            state.pushdeerDraftServerUrl = 'https://api2.pushdeer.com';
+            state.ntfyBinding = null;
+            state.ntfyLoading = false;
+            state.ntfySaving = false;
+            state.ntfyTesting = false;
+            state.ntfyDeleting = false;
+            state.ntfyMessage = '';
+            state.ntfyDraftServerUrl = 'https://ntfy.ak2025.vip';
             state.profileAvatarHistory = [];
             state.profileAvatarHistoryLoaded = false;
             state.profileAvatarHistoryLoading = false;
