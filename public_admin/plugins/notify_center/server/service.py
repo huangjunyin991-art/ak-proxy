@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 from typing import Any
 
 from .channels.web_push import WebPushChannel, is_invalid_push_endpoint
@@ -50,7 +51,9 @@ class NotifyCenterService:
         normalized_username = normalize_username(username)
         if not normalized_username:
             raise ValueError('未识别当前用户')
+        await self._ensure_default_pushdeer_binding(normalized_username)
         data = await self.repository.get_user_push_diagnostics(normalized_username)
+        data['pushdeer_binding'] = _public_pushdeer_binding(data.get('pushdeer_binding') or {}, username=normalized_username)
         return {
             'username': normalized_username,
             'enabled': self.config.enabled,
@@ -63,8 +66,19 @@ class NotifyCenterService:
         normalized_username = normalize_username(username)
         if not normalized_username:
             raise ValueError('未识别当前用户')
-        binding = await self.repository.get_pushdeer_binding(normalized_username)
+        binding = await self._ensure_default_pushdeer_binding(normalized_username)
         return _public_pushdeer_binding(binding, username=normalized_username)
+
+    async def _ensure_default_pushdeer_binding(self, username: str) -> dict[str, Any]:
+        binding = await self.repository.get_pushdeer_binding(username)
+        if binding:
+            return binding
+        return await self.repository.upsert_pushdeer_binding(
+            username=username,
+            pushkey=_build_default_pushdeer_key(username, self.config),
+            server_url=normalize_server_url(''),
+            enabled=True,
+        )
 
     async def upsert_pushdeer_binding(self, *, username: str, pushkey: str, server_url: str, enabled: bool) -> dict[str, Any]:
         normalized_username = normalize_username(username)
@@ -307,16 +321,24 @@ class NotifyCenterService:
 
 def _public_pushdeer_binding(binding: dict[str, Any], *, username: str) -> dict[str, Any]:
     item = binding if isinstance(binding, dict) else {}
+    server_url = str(item.get('server_url') or 'https://api2.pushdeer.com')
     return {
         'username': username,
-        'bound': bool(item.get('id') and item.get('pushkey_mask')),
+        'bound': bool(item.get('id')),
         'enabled': bool(item.get('enabled')) if item else False,
-        'pushkey_mask': str(item.get('pushkey_mask') or ''),
-        'server_url': str(item.get('server_url') or 'https://api2.pushdeer.com'),
+        'server_url': server_url,
+        'app_binding_account': username,
+        'app_server_url': server_url,
         'last_sent_at': str(item.get('last_sent_at') or ''),
         'last_error': str(item.get('last_error') or ''),
         'updated_at': str(item.get('updated_at') or ''),
     }
+
+
+def _build_default_pushdeer_key(username: str, config: NotifyCenterConfig) -> str:
+    seed = str(config.internal_secret or config.public_base_url or 'notify-center').strip()
+    digest = hashlib.sha256(f'{seed}:{username}'.encode('utf-8')).hexdigest()
+    return f'ak_{username}_{digest[:24]}'
 
 
 def _is_mobile_web_push_subscription(subscription: dict[str, Any]) -> bool:

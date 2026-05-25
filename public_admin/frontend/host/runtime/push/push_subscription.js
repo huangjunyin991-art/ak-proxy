@@ -281,9 +281,8 @@
             result.server_latest_subscription_id = Number(latestSubscription.id || 0);
             result.server_latest_subscription_hash = String(latestSubscription.endpoint_hash || '');
             result.server_latest_subscription_enabled = !!latestSubscription.enabled;
-            result.server_pushdeer_bound = !!pushdeerBinding.id || !!pushdeerBinding.pushkey_mask;
+            result.server_pushdeer_bound = !!pushdeerBinding.bound;
             result.server_pushdeer_enabled = !!pushdeerBinding.enabled;
-            result.server_pushdeer_key_mask = String(pushdeerBinding.pushkey_mask || '');
             result.server_pushdeer_last_sent_at = String(pushdeerBinding.last_sent_at || '');
             result.server_pushdeer_last_error = String(pushdeerBinding.last_error || '');
             result.server_recent_outbox_status = String(recent.status || '');
