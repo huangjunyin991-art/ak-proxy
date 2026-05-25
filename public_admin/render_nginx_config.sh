@@ -5,6 +5,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TEMPLATE_PATH="${NGINX_CONF_SRC:-$SCRIPT_DIR/config/nginx.conf}"
 OUTPUT_PATH="${NGINX_CONF_DST:-/etc/nginx/sites-enabled/nginx.conf}"
 ADMIN_DOMAIN="${ADMIN_DOMAIN:-}"
+NTFY_DOMAIN="${NTFY_DOMAIN:-}"
 
 if [ -z "$ADMIN_DOMAIN" ] && [ $# -ge 1 ]; then
     ADMIN_DOMAIN="$1"
@@ -19,7 +20,11 @@ if [ -z "$ADMIN_DOMAIN" ]; then
     exit 1
 fi
 
-if echo "$ADMIN_DOMAIN" | grep -Eq '^[a-zA-Z0-9.-]+$'; then
+if [ -z "$NTFY_DOMAIN" ]; then
+    NTFY_DOMAIN="ntfy.$ADMIN_DOMAIN"
+fi
+
+if echo "$ADMIN_DOMAIN" | grep -Eq '^[a-zA-Z0-9.-]+$' && echo "$NTFY_DOMAIN" | grep -Eq '^[a-zA-Z0-9.-]+$'; then
     true
 else
     echo "[ERROR] 域名格式无效，只允许字母、数字、点和短横线"
@@ -32,7 +37,7 @@ if [ ! -f "$TEMPLATE_PATH" ]; then
 fi
 
 RENDERED_CONF="$(mktemp)"
-sed -e "s|<ADMIN_DOMAIN>|${ADMIN_DOMAIN}|g" "$TEMPLATE_PATH" > "$RENDERED_CONF"
+sed -e "s|<ADMIN_DOMAIN>|${ADMIN_DOMAIN}|g" -e "s|<NTFY_DOMAIN>|${NTFY_DOMAIN}|g" "$TEMPLATE_PATH" > "$RENDERED_CONF"
 
 if [ "${NGINX_RENDER_ONLY:-0}" = "1" ]; then
     cat "$RENDERED_CONF"

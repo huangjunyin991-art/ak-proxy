@@ -14,6 +14,7 @@ NGINX_CONF_DST="${NGINX_CONF_DST:-/etc/nginx/sites-enabled/nginx.conf}"
 NGINX_RENDER_SCRIPT="${NGINX_RENDER_SCRIPT:-$APP_DIR/render_nginx_config.sh}"
 LOG_FILE="$APP_DIR/proxy.log"
 ADMIN_DOMAIN=""
+NTFY_DOMAIN_VALUE="${NTFY_DOMAIN:-}"
 ADMIN_PASSWORD_VALUE=""
 DB_SECONDARY_PASSWORD_VALUE=""
 AK_PROXY_DB_PASSWORD_VALUE=""
@@ -29,6 +30,7 @@ usage() {
   bash public_admin/manage_ak_proxy.sh --domain <域名> [选项]
 
 选项:
+  --ntfy-domain <域名>
   --admin-password <值>
   --secondary-password <值>
   --db-password <值>
@@ -47,6 +49,10 @@ while [ $# -gt 0 ]; do
     case "$1" in
         --domain)
             ADMIN_DOMAIN="${2:-}"
+            shift 2
+            ;;
+        --ntfy-domain)
+            NTFY_DOMAIN_VALUE="${2:-}"
             shift 2
             ;;
         --admin-password)
@@ -201,7 +207,7 @@ render_nginx() {
         echo "[ERROR] Nginx 渲染脚本不存在: $NGINX_RENDER_SCRIPT"
         exit 1
     fi
-    ADMIN_DOMAIN="$ADMIN_DOMAIN" NGINX_CONF_SRC="$NGINX_CONF_SRC" NGINX_CONF_DST="$NGINX_CONF_DST" bash "$NGINX_RENDER_SCRIPT"
+    NTFY_DOMAIN="$NTFY_DOMAIN_VALUE" ADMIN_DOMAIN="$ADMIN_DOMAIN" NGINX_CONF_SRC="$NGINX_CONF_SRC" NGINX_CONF_DST="$NGINX_CONF_DST" bash "$NGINX_RENDER_SCRIPT"
     sudo nginx -t
     sudo nginx -s reload
     echo "[OK] Nginx 已渲染并重载"
