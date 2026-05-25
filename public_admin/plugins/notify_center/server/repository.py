@@ -191,7 +191,18 @@ class NotifyCenterRepository:
             rows = await conn.fetch('''
                 SELECT *
                 FROM notify_push_subscriptions
-                WHERE enabled = TRUE AND disabled_at IS NULL AND username = ANY($1::text[])
+                WHERE enabled = TRUE
+                  AND disabled_at IS NULL
+                  AND username = ANY($1::text[])
+                  AND id = (
+                      SELECT latest.id
+                      FROM notify_push_subscriptions latest
+                      WHERE latest.endpoint_hash = notify_push_subscriptions.endpoint_hash
+                        AND latest.enabled = TRUE
+                        AND latest.disabled_at IS NULL
+                      ORDER BY latest.last_seen_at DESC NULLS LAST, latest.updated_at DESC, latest.id DESC
+                      LIMIT 1
+                  )
                 ORDER BY username ASC, id ASC
             ''', normalized)
         result: dict[str, list[dict[str, Any]]] = {}
@@ -286,6 +297,15 @@ class NotifyCenterRepository:
                       AND o.attempt_count < o.max_attempts
                       AND s.enabled = TRUE
                       AND s.disabled_at IS NULL
+                      AND s.id = (
+                          SELECT latest.id
+                          FROM notify_push_subscriptions latest
+                          WHERE latest.endpoint_hash = s.endpoint_hash
+                            AND latest.enabled = TRUE
+                            AND latest.disabled_at IS NULL
+                          ORDER BY latest.last_seen_at DESC NULLS LAST, latest.updated_at DESC, latest.id DESC
+                          LIMIT 1
+                      )
                     ORDER BY o.next_retry_at ASC, o.id ASC
                     LIMIT $1
                     FOR UPDATE OF o SKIP LOCKED
