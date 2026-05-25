@@ -5267,11 +5267,6 @@
             render();
             return Promise.resolve(false);
         }
-        if (status === 'denied') {
-            state.pushNotificationMessage = '浏览器已阻止通知，请到站点设置中允许通知权限';
-            render();
-            return Promise.resolve(false);
-        }
         state.pushNotificationMessage = '正在开启消息通知...';
         render();
         return push.requestAndRegister().then(function(result) {

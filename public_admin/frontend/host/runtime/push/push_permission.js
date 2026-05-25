@@ -31,8 +31,26 @@
     function requestPermission() {
         if (!isSupported()) return Promise.resolve('unsupported');
         if (Notification.permission === 'granted') return Promise.resolve('granted');
-        if (Notification.permission === 'denied') return Promise.resolve('denied');
-        return Notification.requestPermission();
+        return new Promise(function(resolve) {
+            var settled = false;
+            function finish(result) {
+                if (settled) return;
+                settled = true;
+                resolve(result || Notification.permission || 'default');
+            }
+            try {
+                var result = Notification.requestPermission(finish);
+                if (result && typeof result.then === 'function') {
+                    result.then(finish).catch(function() {
+                        finish(Notification.permission || 'default');
+                    });
+                } else if (result) {
+                    finish(result);
+                }
+            } catch(e) {
+                finish(Notification.permission || 'default');
+            }
+        });
     }
 
     window.AKClientRuntimePushPermission = window.AKClientRuntimePushPermission || {};
