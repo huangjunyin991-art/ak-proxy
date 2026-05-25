@@ -283,10 +283,9 @@
                  : { title: '消息通知不可用', meta: '当前环境不支持消息通知', disabled: true, checked: false };
              const pushdeerBinding = state.pushdeerBinding && typeof state.pushdeerBinding === 'object' ? state.pushdeerBinding : {};
              const pushdeerBound = !!pushdeerBinding.bound;
-             const pushdeerBusy = !!state.pushdeerLoading || !!state.pushdeerTesting;
+             const pushdeerBusy = !!state.pushdeerLoading || !!state.pushdeerSaving || !!state.pushdeerTesting || !!state.pushdeerDeleting;
              const pushdeerServerUrl = String(state.pushdeerDraftServerUrl || pushdeerBinding.server_url || 'https://api2.pushdeer.com');
-             const pushdeerAppPushkey = String(pushdeerBinding.app_pushkey || '');
-             const pushdeerStatus = state.pushdeerLoading ? '正在读取绑定状态...' : (pushdeerBound ? '已完成系统默认绑定' : '暂未完成系统默认绑定');
+             const pushdeerStatus = state.pushdeerLoading ? '正在读取绑定状态...' : (pushdeerBound ? ('已绑定：' + String(pushdeerBinding.pushkey_mask || '已绑定')) : '未绑定');
              const pushdeerMeta = (typeof this.ctx.isMobileBrowser === 'function' && this.ctx.isMobileBrowser())
                  ? '移动端浏览器只使用 PushDeer 接收离线通知。'
                  : 'PC 端继续使用 Web Push，PushDeer 可作为移动端通知路径。';
@@ -334,23 +333,22 @@
                  (state.pushdeerMessage ? '<div class="ak-im-profile-note">' + this.ctx.escapeHtml(state.pushdeerMessage) + '</div>' : '') +
                  '<div class="ak-im-profile-form">' +
                      '<div class="ak-im-profile-form-group">' +
-                         '<label class="ak-im-profile-form-label">App PushKey</label>' +
-                         '<div class="ak-im-profile-subtitle">' + this.ctx.escapeHtml(pushdeerAppPushkey || '正在生成，请刷新状态') + '</div>' +
-                         '<button class="ak-im-profile-primary-btn" type="button" data-im-profile-pushdeer-copy="pushkey"' + (!pushdeerAppPushkey ? ' disabled' : '') + '>复制 PushKey</button>' +
+                         '<label class="ak-im-profile-form-label" for="ak-im-profile-pushdeer-key">PushDeer PushKey</label>' +
+                         '<input class="ak-im-profile-form-input" id="ak-im-profile-pushdeer-key" data-im-profile-pushdeer-key type="text" autocomplete="off" spellcheck="false" value="' + this.ctx.escapeHtml(state.pushdeerDraftKey || '') + '" placeholder="' + this.ctx.escapeHtml(pushdeerBound ? '输入新的官方 PushKey 后更新' : '请输入官方 PushDeer App 生成的 PushKey') + '"' + (pushdeerBusy ? ' disabled' : '') + ' />' +
                      '</div>' +
                      '<div class="ak-im-profile-form-group">' +
-                         '<label class="ak-im-profile-form-label">PushDeer 服务地址</label>' +
-                         '<div class="ak-im-profile-subtitle">' + this.ctx.escapeHtml(pushdeerServerUrl) + '</div>' +
-                         '<button class="ak-im-profile-primary-btn" type="button" data-im-profile-pushdeer-copy="server">复制服务地址</button>' +
+                         '<label class="ak-im-profile-form-label" for="ak-im-profile-pushdeer-server">PushDeer 服务地址</label>' +
+                         '<input class="ak-im-profile-form-input" id="ak-im-profile-pushdeer-server" data-im-profile-pushdeer-server type="text" autocomplete="off" spellcheck="false" value="' + this.ctx.escapeHtml(pushdeerServerUrl) + '"' + (pushdeerBusy ? ' disabled' : '') + ' />' +
                      '</div>' +
                      '<div class="ak-im-profile-form-group">' +
                          '<label class="ak-im-profile-form-label">App 操作提示</label>' +
-                         '<div class="ak-im-profile-subtitle">' + this.ctx.escapeHtml(pushdeerBound ? '在 PushDeer App 中填入上方 PushKey 和服务地址后，即可接收移动端通知。' : '请刷新状态生成 App PushKey，再到 PushDeer App 中完成配置。') + '</div>' +
+                         '<div class="ak-im-profile-subtitle">' + this.ctx.escapeHtml('请先在官方 PushDeer App 中生成 PushKey，再复制到这里保存。') + '</div>' +
                      '</div>' +
                  '</div>' +
                  '<div class="ak-im-profile-action-row">' +
-                    '<button class="ak-im-profile-primary-btn" type="button" data-im-profile-pushdeer-refresh="1"' + (pushdeerBusy ? ' disabled' : '') + '>刷新状态</button>' +
+                    '<button class="ak-im-profile-primary-btn" type="button" data-im-profile-pushdeer-save="1"' + (pushdeerBusy ? ' disabled' : '') + '>' + this.ctx.escapeHtml(state.pushdeerSaving ? '保存中...' : (pushdeerBound ? '更新绑定' : '保存绑定')) + '</button>' +
                     '<button class="ak-im-profile-primary-btn" type="button" data-im-profile-pushdeer-test="1"' + (pushdeerBusy || !pushdeerBound ? ' disabled' : '') + '>' + this.ctx.escapeHtml(state.pushdeerTesting ? '测试中...' : '测试发送') + '</button>' +
+                    '<button class="ak-im-profile-primary-btn" type="button" data-im-profile-pushdeer-delete="1"' + (pushdeerBusy || !pushdeerBound ? ' disabled' : '') + '>' + this.ctx.escapeHtml(state.pushdeerDeleting ? '解绑中...' : '解绑') + '</button>' +
                 '</div>' +
             '</div>' +
              '<div class="ak-im-profile-panel">' +
@@ -391,11 +389,31 @@
                      }
                  });
              }
-             const pushdeerRefreshButton = container.querySelector('[data-im-profile-pushdeer-refresh]');
-             if (pushdeerRefreshButton) {
-                 pushdeerRefreshButton.addEventListener('click', function() {
-                     if (typeof self.ctx.loadPushDeerBinding === 'function') {
-                         self.ctx.loadPushDeerBinding();
+             const pushdeerKeyInput = container.querySelector('[data-im-profile-pushdeer-key]');
+             const pushdeerServerInput = container.querySelector('[data-im-profile-pushdeer-server]');
+             if (pushdeerKeyInput) {
+                 pushdeerKeyInput.addEventListener('input', function() {
+                     state.pushdeerDraftKey = pushdeerKeyInput.value || '';
+                 });
+             }
+             if (pushdeerServerInput) {
+                 pushdeerServerInput.addEventListener('input', function() {
+                     state.pushdeerDraftServerUrl = pushdeerServerInput.value || '';
+                 });
+             }
+             const pushdeerSaveButton = container.querySelector('[data-im-profile-pushdeer-save]');
+             if (pushdeerSaveButton) {
+                 pushdeerSaveButton.addEventListener('click', function() {
+                     if (typeof self.ctx.savePushDeerBinding === 'function') {
+                         self.ctx.savePushDeerBinding(pushdeerKeyInput ? pushdeerKeyInput.value : '', pushdeerServerInput ? pushdeerServerInput.value : '');
+                     }
+                 });
+             }
+             const pushdeerDeleteButton = container.querySelector('[data-im-profile-pushdeer-delete]');
+             if (pushdeerDeleteButton) {
+                 pushdeerDeleteButton.addEventListener('click', function() {
+                     if (typeof self.ctx.deletePushDeerBinding === 'function') {
+                         self.ctx.deletePushDeerBinding();
                      }
                  });
              }
@@ -407,17 +425,6 @@
                      }
                  });
              }
-             Array.prototype.slice.call(container.querySelectorAll('[data-im-profile-pushdeer-copy]')).forEach(function(button) {
-                 button.addEventListener('click', function() {
-                     const copyType = button.getAttribute('data-im-profile-pushdeer-copy') || '';
-                     const copyValue = copyType === 'server' ? pushdeerServerUrl : pushdeerAppPushkey;
-                     if (typeof self.ctx.copyText !== 'function') return;
-                     self.ctx.copyText(copyValue).then(function(copied) {
-                         state.pushdeerMessage = copied ? (copyType === 'server' ? 'PushDeer 服务地址已复制' : 'App PushKey 已复制') : '复制失败，请手动长按复制';
-                         self.renderProfileSettingsView(container, displayName, honorName, username, nickname, genderLabel, profile);
-                     });
-                 });
-             });
          }
      };
 

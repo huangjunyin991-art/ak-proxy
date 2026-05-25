@@ -200,8 +200,11 @@
         pushNotificationMessage: '',
         pushdeerBinding: null,
         pushdeerLoading: false,
+        pushdeerSaving: false,
         pushdeerTesting: false,
+        pushdeerDeleting: false,
         pushdeerMessage: '',
+        pushdeerDraftKey: '',
         pushdeerDraftServerUrl: 'https://api2.pushdeer.com',
         profileAvatarHistory: [],
         profileAvatarHistoryLoaded: false,
@@ -1292,7 +1295,6 @@
             buildDisplayNameWithHonorMarkup: buildDisplayNameWithHonorMarkup,
             formatUserDisplayText: formatUserDisplayText,
             escapeHtml: escapeHtml,
-            copyText: copyText,
             countProfileAvatarFavorites: countProfileAvatarFavorites,
             refreshProfileAvatar: refreshProfileAvatar,
             uploadProfileAvatar: uploadProfileAvatar,
@@ -1306,6 +1308,8 @@
             disablePushNotification: disablePushNotification,
             diagnosePushNotification: diagnosePushNotification,
             loadPushDeerBinding: loadPushDeerBinding,
+            savePushDeerBinding: savePushDeerBinding,
+            deletePushDeerBinding: deletePushDeerBinding,
             testPushDeerBinding: testPushDeerBinding,
             isMobileBrowser: isMobileBrowser
         });
@@ -3159,33 +3163,6 @@
         return String(value || '').replace(/[&<>"']/g, function(char) {
             return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char] || char;
         });
-    }
-
-    function copyText(value) {
-        const text = String(value || '');
-        if (!text) return Promise.resolve(false);
-        if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
-            return navigator.clipboard.writeText(text).then(function() {
-                return true;
-            }).catch(function() {
-                return false;
-            });
-        }
-        const textarea = document.createElement('textarea');
-        textarea.value = text;
-        textarea.setAttribute('readonly', 'readonly');
-        textarea.style.position = 'fixed';
-        textarea.style.left = '-9999px';
-        document.body.appendChild(textarea);
-        textarea.select();
-        let copied = false;
-        try {
-            copied = document.execCommand('copy');
-        } catch (error) {
-            copied = false;
-        }
-        document.body.removeChild(textarea);
-        return Promise.resolve(!!copied);
     }
 
     function formatFileSize(bytes) {
@@ -5259,6 +5236,7 @@
     function applyPushDeerBinding(data) {
         const item = data && typeof data === 'object' ? data : {};
         state.pushdeerBinding = item;
+        state.pushdeerDraftKey = '';
         state.pushdeerDraftServerUrl = String(item.server_url || 'https://api2.pushdeer.com').trim() || 'https://api2.pushdeer.com';
         return item;
     }
@@ -5282,6 +5260,67 @@
             state.pushdeerMessage = error && error.message ? error.message : '读取 PushDeer 绑定失败';
             render();
             return null;
+        });
+    }
+
+    function savePushDeerBinding(pushkey, serverUrl) {
+        if (!state.allowed || state.pushdeerSaving) return Promise.resolve(null);
+        const normalizedPushkey = String(pushkey || '').trim();
+        const normalizedServerUrl = String(serverUrl || state.pushdeerDraftServerUrl || 'https://api2.pushdeer.com').trim() || 'https://api2.pushdeer.com';
+        const hasExistingBinding = !!(state.pushdeerBinding && state.pushdeerBinding.bound);
+        if (!normalizedPushkey && !hasExistingBinding) {
+            state.pushdeerMessage = '请输入 PushDeer PushKey';
+            render();
+            return Promise.resolve(null);
+        }
+        state.pushdeerSaving = true;
+        state.pushdeerMessage = '正在保存 PushDeer 绑定...';
+        render();
+        return request(`${API_ROOT}/api/notify-center/pushdeer/binding`, {
+            method: 'POST',
+            body: JSON.stringify({
+                im_username: state.username || getCanonicalUsername(),
+                pushkey: normalizedPushkey,
+                server_url: normalizedServerUrl,
+                enabled: true
+            })
+        }).then(function(response) {
+            state.pushdeerSaving = false;
+            applyPushDeerBinding(response && response.data ? response.data : {});
+            state.pushdeerMessage = 'PushDeer 绑定已保存';
+            render();
+            return state.pushdeerBinding;
+        }).catch(function(error) {
+            state.pushdeerSaving = false;
+            state.pushdeerMessage = error && error.message ? error.message : '保存 PushDeer 绑定失败';
+            render();
+            return null;
+        });
+    }
+
+    function deletePushDeerBinding() {
+        if (!state.allowed || state.pushdeerDeleting) return Promise.resolve(false);
+        state.pushdeerDeleting = true;
+        state.pushdeerMessage = '正在解绑 PushDeer...';
+        render();
+        return request(`${API_ROOT}/api/notify-center/pushdeer/binding`, {
+            method: 'DELETE',
+            body: JSON.stringify({
+                im_username: state.username || getCanonicalUsername()
+            })
+        }).then(function() {
+            state.pushdeerDeleting = false;
+            state.pushdeerBinding = { username: state.username || getCanonicalUsername(), bound: false, enabled: false, server_url: 'https://api2.pushdeer.com' };
+            state.pushdeerDraftKey = '';
+            state.pushdeerDraftServerUrl = 'https://api2.pushdeer.com';
+            state.pushdeerMessage = 'PushDeer 已解绑';
+            render();
+            return true;
+        }).catch(function(error) {
+            state.pushdeerDeleting = false;
+            state.pushdeerMessage = error && error.message ? error.message : '解绑 PushDeer 失败';
+            render();
+            return false;
         });
     }
 
@@ -5718,8 +5757,11 @@
         state.profileSettingsError = '';
         state.pushdeerBinding = null;
         state.pushdeerLoading = false;
+        state.pushdeerSaving = false;
         state.pushdeerTesting = false;
+        state.pushdeerDeleting = false;
         state.pushdeerMessage = '';
+        state.pushdeerDraftKey = '';
         state.pushdeerDraftServerUrl = 'https://api2.pushdeer.com';
         state.profileAvatarHistory = [];
         state.profileAvatarHistoryLoaded = false;
@@ -5804,8 +5846,11 @@
             state.profileSettingsError = '';
             state.pushdeerBinding = null;
             state.pushdeerLoading = false;
+            state.pushdeerSaving = false;
             state.pushdeerTesting = false;
+            state.pushdeerDeleting = false;
             state.pushdeerMessage = '';
+            state.pushdeerDraftKey = '';
             state.pushdeerDraftServerUrl = 'https://api2.pushdeer.com';
             state.profileAvatarHistory = [];
             state.profileAvatarHistoryLoaded = false;
