@@ -215,6 +215,41 @@
         });
     }
 
+    function fetchServerDiagnostics() {
+        return withTimeout(fetch('/api/notify-center/web-push/diagnostics', {
+            method: 'GET',
+            credentials: 'same-origin',
+            cache: 'no-store'
+        }), 8000, '读取后端通知诊断超时').then(function(resp) {
+            if (!resp || !resp.ok) return {diagnostics_error: '读取后端通知诊断失败 HTTP ' + String(resp && resp.status || '')};
+            return resp.json();
+        }).then(function(data) {
+            return data && data.data && typeof data.data === 'object' ? data.data : {};
+        }).catch(function(error) {
+            return {diagnostics_error: error && error.message ? String(error.message) : '读取后端通知诊断失败'};
+        });
+    }
+
+    function appendServerDiagnostics(result) {
+        return fetchServerDiagnostics().then(function(data) {
+            var recent = data && data.recent_outbox && data.recent_outbox.length ? data.recent_outbox[0] : {};
+            result.server_enabled = !!(data && data.enabled);
+            result.server_web_push_ready = !!(data && data.web_push_ready);
+            result.server_active_subscription_count = Number(data && data.active_subscription_count || 0);
+            result.server_subscription_count = data && data.subscriptions && data.subscriptions.length ? data.subscriptions.length : 0;
+            result.server_recent_outbox_status = String(recent.status || '');
+            result.server_recent_outbox_attempt_count = Number(recent.attempt_count || 0);
+            result.server_recent_outbox_max_attempts = Number(recent.max_attempts || 0);
+            result.server_recent_outbox_subscription_id = Number(recent.subscription_id || 0);
+            result.server_recent_outbox_provider_record_id = String(recent.provider_record_id || '');
+            result.server_recent_outbox_error = String(recent.last_error || '');
+            result.server_recent_outbox_created_at = String(recent.created_at || '');
+            result.server_recent_outbox_sent_at = String(recent.sent_at || '');
+            result.server_diagnostics_error = String(data && data.diagnostics_error || '');
+            return result;
+        });
+    }
+
     function deleteSubscription(subscription, imUsernameOverride) {
         if (!subscription) return Promise.resolve(true);
         var data = subscription.toJSON ? subscription.toJSON() : subscription;
@@ -289,7 +324,7 @@
         };
         if (!navigator.serviceWorker) {
             result.last_error = '当前浏览器不支持 Service Worker';
-            return Promise.resolve(result);
+            return appendServerDiagnostics(result);
         }
         return getRegistration().then(function(registration) {
             result.service_worker_ready = !!registration;
@@ -356,7 +391,7 @@
         }).catch(function(error) {
             result.last_error = error && error.message ? error.message : '诊断消息通知失败';
             return result;
-        });
+        }).then(appendServerDiagnostics);
     }
 
     function unregisterSubscription() {

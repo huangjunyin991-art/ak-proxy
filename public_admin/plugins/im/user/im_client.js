@@ -5332,12 +5332,21 @@
                 '本机订阅=' + (item.has_subscription ? '有' : '无'),
                 '尝试创建=' + (item.attempted_create ? '是' : '否'),
                 '创建=' + (item.created_subscription ? '成功' : '未创建'),
-                '保存=' + (item.saved ? '成功' : '失败')
+                '保存=' + (item.saved ? '成功' : '失败'),
+                '后端通知=' + (item.server_enabled ? '开启' : '关闭'),
+                '后端WebPush=' + (item.server_web_push_ready ? 'ready' : 'not-ready'),
+                '后端订阅数=' + String(item.server_active_subscription_count || 0),
+                '最近outbox=' + String(item.server_recent_outbox_status || ''),
+                'outbox尝试=' + String(item.server_recent_outbox_attempt_count || 0) + '/' + String(item.server_recent_outbox_max_attempts || 0),
+                'outbox订阅=' + String(item.server_recent_outbox_subscription_id || 0),
+                'outbox返回=' + String(item.server_recent_outbox_provider_record_id || '')
             ];
             if (item.subscribe_error_name || item.subscribe_error_message) {
                 parts.push('订阅错误=' + [item.subscribe_error_name, item.subscribe_error_message].filter(Boolean).join(': '));
             }
             if (item.permission_request_error) parts.push('权限申请错误=' + String(item.permission_request_error));
+            if (item.server_recent_outbox_error) parts.push('outbox错误=' + String(item.server_recent_outbox_error));
+            if (item.server_diagnostics_error) parts.push('后端诊断错误=' + String(item.server_diagnostics_error));
             if (item.last_error) parts.push('原因=' + String(item.last_error));
             state.pushNotificationMessage = '通知诊断：' + parts.join('；');
             render();
