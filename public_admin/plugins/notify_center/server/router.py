@@ -63,6 +63,71 @@ def create_notify_center_router(
             return JSONResponse(status_code=400, content={'success': False, 'message': str(exc)})
         return {'success': True, 'data': data}
 
+    @router.get('/api/notify-center/pushdeer/binding')
+    async def get_pushdeer_binding(request: Request):
+        username = _resolve_username(request, service.config.cookie_name)
+        if not username:
+            return JSONResponse(status_code=401, content={'success': False, 'message': '未识别当前用户'})
+        try:
+            data = await service.get_pushdeer_binding(username)
+        except ValueError as exc:
+            return JSONResponse(status_code=400, content={'success': False, 'message': str(exc)})
+        return {'success': True, 'data': data}
+
+    @router.post('/api/notify-center/pushdeer/binding')
+    async def upsert_pushdeer_binding(request: Request):
+        try:
+            payload = await request.json()
+        except Exception:
+            return JSONResponse(status_code=400, content={'success': False, 'message': '请求体无效'})
+        username = _resolve_username(request, service.config.cookie_name, payload)
+        if not username:
+            return JSONResponse(status_code=401, content={'success': False, 'message': '未识别当前用户'})
+        try:
+            data = await service.upsert_pushdeer_binding(
+                username=username,
+                pushkey=str(payload.get('pushkey') or '') if isinstance(payload, dict) else '',
+                server_url=str(payload.get('server_url') or '') if isinstance(payload, dict) else '',
+                enabled=bool(payload.get('enabled', True)) if isinstance(payload, dict) else True,
+            )
+        except ValueError as exc:
+            return JSONResponse(status_code=400, content={'success': False, 'message': str(exc)})
+        except Exception as exc:
+            return JSONResponse(status_code=500, content={'success': False, 'message': f'保存 PushDeer 绑定失败: {exc}'})
+        return {'success': True, 'data': data}
+
+    @router.delete('/api/notify-center/pushdeer/binding')
+    async def delete_pushdeer_binding(request: Request):
+        try:
+            payload = await request.json()
+        except Exception:
+            payload = {}
+        username = _resolve_username(request, service.config.cookie_name, payload)
+        if not username:
+            return JSONResponse(status_code=401, content={'success': False, 'message': '未识别当前用户'})
+        try:
+            data = await service.delete_pushdeer_binding(username=username)
+        except ValueError as exc:
+            return JSONResponse(status_code=400, content={'success': False, 'message': str(exc)})
+        return {'success': True, 'data': data}
+
+    @router.post('/api/notify-center/pushdeer/test')
+    async def test_pushdeer_binding(request: Request):
+        try:
+            payload = await request.json()
+        except Exception:
+            payload = {}
+        username = _resolve_username(request, service.config.cookie_name, payload)
+        if not username:
+            return JSONResponse(status_code=401, content={'success': False, 'message': '未识别当前用户'})
+        try:
+            data = await service.test_pushdeer_binding(username=username)
+        except ValueError as exc:
+            return JSONResponse(status_code=400, content={'success': False, 'message': str(exc)})
+        except Exception as exc:
+            return JSONResponse(status_code=500, content={'success': False, 'message': f'测试 PushDeer 失败: {exc}'})
+        return {'success': True, 'data': data}
+
     @router.delete('/api/notify-center/web-push/subscriptions')
     async def delete_web_push_subscription(request: Request):
         try:

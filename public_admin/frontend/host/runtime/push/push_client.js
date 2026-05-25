@@ -85,12 +85,12 @@
         return subscription.disableServerSubscription(username);
     }
 
-    function diagnose() {
+    function diagnose(options) {
         var subscription = window.AKClientRuntimePushSubscription;
         if (!subscription || typeof subscription.diagnoseSubscription !== 'function') {
             return Promise.resolve({last_error: '消息通知诊断模块暂不可用'});
         }
-        return subscription.diagnoseSubscription().then(function(result) {
+        return subscription.diagnoseSubscription(options).then(function(result) {
             var item = result && typeof result === 'object' ? result : {};
             var requestResult = getLastPermissionRequestResult();
             item.permission_request_result = requestResult.result || '';

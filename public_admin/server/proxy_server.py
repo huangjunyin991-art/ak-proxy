@@ -415,6 +415,11 @@ except Exception as e:
     _NOTIFY_CENTER_IMPORT_ERROR = e
 
 try:
+    from plugins.notify_center.server.channels.pushdeer import PushDeerChannel
+except Exception:
+    PushDeerChannel = None
+
+try:
     from plugins.license_center.server import (
         LicenseCenterRepository,
         LicenseCenterService,
@@ -4246,10 +4251,17 @@ if (
         _notify_center_config = NotifyCenterConfig.from_env()
         _notify_center_repository = NotifyCenterRepository(db._get_pool)
         _notify_center_web_push_channel = WebPushChannel(_notify_center_config)
+        _notify_center_pushdeer_channel = None
+        if PushDeerChannel is not None:
+            try:
+                _notify_center_pushdeer_channel = PushDeerChannel(timeout_seconds=_notify_center_config.web_push_timeout_seconds)
+            except Exception as e:
+                logger.warning(f"[NotifyCenter] PushDeer 通道初始化失败，已禁用 PushDeer: {e}")
         notify_center_service = NotifyCenterService(
             config=_notify_center_config,
             repository=_notify_center_repository,
             web_push_channel=_notify_center_web_push_channel,
+            pushdeer_channel=_notify_center_pushdeer_channel,
         )
         notify_center_worker = NotifyCenterOutboxWorker(service=notify_center_service, logger=logger)
     except Exception as e:

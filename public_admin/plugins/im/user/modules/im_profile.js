@@ -281,6 +281,14 @@
              const pushStatus = typeof this.ctx.getPushNotificationStatus === 'function'
                  ? this.ctx.getPushNotificationStatus()
                  : { title: '消息通知不可用', meta: '当前环境不支持消息通知', disabled: true, checked: false };
+             const pushdeerBinding = state.pushdeerBinding && typeof state.pushdeerBinding === 'object' ? state.pushdeerBinding : {};
+             const pushdeerBound = !!pushdeerBinding.bound;
+             const pushdeerBusy = !!state.pushdeerLoading || !!state.pushdeerSaving || !!state.pushdeerTesting || !!state.pushdeerDeleting;
+             const pushdeerServerUrl = String(state.pushdeerDraftServerUrl || pushdeerBinding.server_url || 'https://api2.pushdeer.com');
+             const pushdeerStatus = state.pushdeerLoading ? '正在读取绑定状态...' : (pushdeerBound ? ('已绑定：' + String(pushdeerBinding.pushkey_mask || '已绑定')) : '未绑定');
+             const pushdeerMeta = (typeof this.ctx.isMobileBrowser === 'function' && this.ctx.isMobileBrowser())
+                 ? '移动端浏览器只使用 PushDeer 接收离线通知。'
+                 : 'PC 端继续使用 Web Push，PushDeer 可作为移动端通知路径。';
              container.innerHTML = (state.profileSettingsError ? '<div class="ak-im-profile-error">' + this.ctx.escapeHtml(state.profileSettingsError) + '</div>' : '') +
              (state.pushNotificationMessage ? '<div class="ak-im-profile-note">' + this.ctx.escapeHtml(state.pushNotificationMessage) + '</div>' : '') +
              '<div class="ak-im-profile-panel">' +
@@ -318,6 +326,28 @@
                 '</div>' +
             '</div>' +
              '<div class="ak-im-profile-panel">' +
+                 '<div class="ak-im-profile-entry-label">PushDeer 通知</div>' +
+                 '<div class="ak-im-profile-subtitle">当前账号：@' + this.ctx.escapeHtml(username || 'unknown') + '</div>' +
+                 '<div class="ak-im-profile-subtitle">绑定码状态：' + this.ctx.escapeHtml(pushdeerStatus) + '</div>' +
+                 '<div class="ak-im-profile-subtitle">' + this.ctx.escapeHtml(pushdeerMeta) + '</div>' +
+                 (state.pushdeerMessage ? '<div class="ak-im-profile-note">' + this.ctx.escapeHtml(state.pushdeerMessage) + '</div>' : '') +
+                 '<div class="ak-im-profile-form">' +
+                     '<div class="ak-im-profile-form-group">' +
+                         '<label class="ak-im-profile-form-label" for="ak-im-profile-pushdeer-key">PushDeer 绑定码</label>' +
+                         '<input class="ak-im-profile-form-input" id="ak-im-profile-pushdeer-key" data-im-profile-pushdeer-key type="text" autocomplete="off" spellcheck="false" value="' + this.ctx.escapeHtml(state.pushdeerDraftKey || '') + '" placeholder="' + this.ctx.escapeHtml(pushdeerBound ? '输入新的 PushDeer pushkey 后更新' : '请输入 PushDeer pushkey') + '"' + (pushdeerBusy ? ' disabled' : '') + ' />' +
+                     '</div>' +
+                     '<div class="ak-im-profile-form-group">' +
+                         '<label class="ak-im-profile-form-label" for="ak-im-profile-pushdeer-server">PushDeer 服务地址</label>' +
+                         '<input class="ak-im-profile-form-input" id="ak-im-profile-pushdeer-server" data-im-profile-pushdeer-server type="text" autocomplete="off" spellcheck="false" value="' + this.ctx.escapeHtml(pushdeerServerUrl) + '"' + (pushdeerBusy ? ' disabled' : '') + ' />' +
+                     '</div>' +
+                 '</div>' +
+                 '<div class="ak-im-profile-action-row">' +
+                    '<button class="ak-im-profile-primary-btn" type="button" data-im-profile-pushdeer-save="1"' + (pushdeerBusy ? ' disabled' : '') + '>' + this.ctx.escapeHtml(state.pushdeerSaving ? '保存中...' : (pushdeerBound ? '更新绑定' : '保存绑定')) + '</button>' +
+                    '<button class="ak-im-profile-primary-btn" type="button" data-im-profile-pushdeer-test="1"' + (pushdeerBusy || !pushdeerBound ? ' disabled' : '') + '>' + this.ctx.escapeHtml(state.pushdeerTesting ? '测试中...' : '测试发送') + '</button>' +
+                    '<button class="ak-im-profile-primary-btn" type="button" data-im-profile-pushdeer-delete="1"' + (pushdeerBusy || !pushdeerBound ? ' disabled' : '') + '>' + this.ctx.escapeHtml(state.pushdeerDeleting ? '解绑中...' : '解绑') + '</button>' +
+                '</div>' +
+            '</div>' +
+             '<div class="ak-im-profile-panel">' +
                  '<div class="ak-im-profile-entry-label">当前资料</div>' +
                  '<div class="ak-im-profile-subtitle">昵称：' + this.ctx.escapeHtml(nickname || displayName || '未设置') + '</div>' +
                  '<div class="ak-im-profile-subtitle">等级：' + this.ctx.escapeHtml(honorName || '未设置') + '</div>' +
@@ -352,6 +382,42 @@
                  diagnosePushButton.addEventListener('click', function() {
                      if (typeof self.ctx.diagnosePushNotification === 'function') {
                          self.ctx.diagnosePushNotification();
+                     }
+                 });
+             }
+             const pushdeerKeyInput = container.querySelector('[data-im-profile-pushdeer-key]');
+             const pushdeerServerInput = container.querySelector('[data-im-profile-pushdeer-server]');
+             if (pushdeerKeyInput) {
+                 pushdeerKeyInput.addEventListener('input', function() {
+                     state.pushdeerDraftKey = pushdeerKeyInput.value || '';
+                 });
+             }
+             if (pushdeerServerInput) {
+                 pushdeerServerInput.addEventListener('input', function() {
+                     state.pushdeerDraftServerUrl = pushdeerServerInput.value || '';
+                 });
+             }
+             const pushdeerSaveButton = container.querySelector('[data-im-profile-pushdeer-save]');
+             if (pushdeerSaveButton) {
+                 pushdeerSaveButton.addEventListener('click', function() {
+                     if (typeof self.ctx.savePushDeerBinding === 'function') {
+                         self.ctx.savePushDeerBinding(pushdeerKeyInput ? pushdeerKeyInput.value : '', pushdeerServerInput ? pushdeerServerInput.value : '');
+                     }
+                 });
+             }
+             const pushdeerDeleteButton = container.querySelector('[data-im-profile-pushdeer-delete]');
+             if (pushdeerDeleteButton) {
+                 pushdeerDeleteButton.addEventListener('click', function() {
+                     if (typeof self.ctx.deletePushDeerBinding === 'function') {
+                         self.ctx.deletePushDeerBinding();
+                     }
+                 });
+             }
+             const pushdeerTestButton = container.querySelector('[data-im-profile-pushdeer-test]');
+             if (pushdeerTestButton) {
+                 pushdeerTestButton.addEventListener('click', function() {
+                     if (typeof self.ctx.testPushDeerBinding === 'function') {
+                         self.ctx.testPushDeerBinding();
                      }
                  });
              }

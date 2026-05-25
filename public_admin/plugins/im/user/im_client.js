@@ -198,6 +198,14 @@
         profileSettingsSaving: false,
         profileSettingsError: '',
         pushNotificationMessage: '',
+        pushdeerBinding: null,
+        pushdeerLoading: false,
+        pushdeerSaving: false,
+        pushdeerTesting: false,
+        pushdeerDeleting: false,
+        pushdeerMessage: '',
+        pushdeerDraftKey: '',
+        pushdeerDraftServerUrl: 'https://api2.pushdeer.com',
         profileAvatarHistory: [],
         profileAvatarHistoryLoaded: false,
         profileAvatarHistoryLoading: false,
@@ -1298,7 +1306,12 @@
             getPushNotificationStatus: getPushNotificationStatus,
             requestPushNotificationPermission: requestPushNotificationPermission,
             disablePushNotification: disablePushNotification,
-            diagnosePushNotification: diagnosePushNotification
+            diagnosePushNotification: diagnosePushNotification,
+            loadPushDeerBinding: loadPushDeerBinding,
+            savePushDeerBinding: savePushDeerBinding,
+            deletePushDeerBinding: deletePushDeerBinding,
+            testPushDeerBinding: testPushDeerBinding,
+            isMobileBrowser: isMobileBrowser
         });
     }
 
@@ -2941,6 +2954,13 @@
         return headers;
     }
 
+    function isMobileBrowser() {
+        const ua = String(navigator.userAgent || '').toLowerCase();
+        const platform = String(navigator.platform || '').toLowerCase();
+        const touchPoints = Number(navigator.maxTouchPoints || 0);
+        return /android|iphone|ipad|ipod|mobile|harmonyos/.test(ua) || ((platform === 'macintel' || platform === 'mac') && touchPoints > 1);
+    }
+
     function buildWsUrl() {
         const baseUrl = `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/im/ws`;
         try {
@@ -4200,6 +4220,9 @@
             if (nextView === 'profile_avatar' && !state.profileAvatarHistoryLoaded && !state.profileAvatarHistoryLoading) {
                 loadProfileAvatarHistory();
             }
+            if (nextView === 'profile_settings' && !state.pushdeerLoading && !state.pushdeerBinding) {
+                loadPushDeerBinding();
+            }
             if (nextView === 'profile_blacklist') {
                 state.blacklistError = '';
                 const socialModule = getSocialModule();
@@ -5210,7 +5233,133 @@
         });
     }
 
+    function applyPushDeerBinding(data) {
+        const item = data && typeof data === 'object' ? data : {};
+        state.pushdeerBinding = item;
+        state.pushdeerDraftKey = '';
+        state.pushdeerDraftServerUrl = String(item.server_url || 'https://api2.pushdeer.com').trim() || 'https://api2.pushdeer.com';
+        return item;
+    }
+
+    function loadPushDeerBinding() {
+        if (!state.allowed || state.pushdeerLoading) return Promise.resolve(state.pushdeerBinding);
+        state.pushdeerLoading = true;
+        state.pushdeerMessage = '';
+        render();
+        const username = String(state.username || getCanonicalUsername() || '').trim().toLowerCase();
+        const url = `${API_ROOT}/api/notify-center/pushdeer/binding` + (username ? ('?im_username=' + encodeURIComponent(username)) : '');
+        return request(url, {
+            method: 'GET'
+        }).then(function(response) {
+            state.pushdeerLoading = false;
+            applyPushDeerBinding(response && response.data ? response.data : {});
+            render();
+            return state.pushdeerBinding;
+        }).catch(function(error) {
+            state.pushdeerLoading = false;
+            state.pushdeerMessage = error && error.message ? error.message : '读取 PushDeer 绑定失败';
+            render();
+            return null;
+        });
+    }
+
+    function savePushDeerBinding(pushkey, serverUrl) {
+        if (!state.allowed || state.pushdeerSaving) return Promise.resolve(null);
+        const normalizedPushkey = String(pushkey || '').trim();
+        const normalizedServerUrl = String(serverUrl || state.pushdeerDraftServerUrl || 'https://api2.pushdeer.com').trim() || 'https://api2.pushdeer.com';
+        const hasExistingBinding = !!(state.pushdeerBinding && state.pushdeerBinding.bound);
+        if (!normalizedPushkey && !hasExistingBinding) {
+            state.pushdeerMessage = '请输入 PushDeer 绑定码';
+            render();
+            return Promise.resolve(null);
+        }
+        state.pushdeerSaving = true;
+        state.pushdeerMessage = '正在保存 PushDeer 绑定...';
+        render();
+        return request(`${API_ROOT}/api/notify-center/pushdeer/binding`, {
+            method: 'POST',
+            body: JSON.stringify({
+                im_username: state.username || getCanonicalUsername(),
+                pushkey: normalizedPushkey,
+                server_url: normalizedServerUrl,
+                enabled: true
+            })
+        }).then(function(response) {
+            state.pushdeerSaving = false;
+            applyPushDeerBinding(response && response.data ? response.data : {});
+            state.pushdeerMessage = 'PushDeer 绑定已保存';
+            render();
+            return state.pushdeerBinding;
+        }).catch(function(error) {
+            state.pushdeerSaving = false;
+            state.pushdeerMessage = error && error.message ? error.message : '保存 PushDeer 绑定失败';
+            render();
+            return null;
+        });
+    }
+
+    function deletePushDeerBinding() {
+        if (!state.allowed || state.pushdeerDeleting) return Promise.resolve(false);
+        state.pushdeerDeleting = true;
+        state.pushdeerMessage = '正在解绑 PushDeer...';
+        render();
+        return request(`${API_ROOT}/api/notify-center/pushdeer/binding`, {
+            method: 'DELETE',
+            body: JSON.stringify({
+                im_username: state.username || getCanonicalUsername()
+            })
+        }).then(function() {
+            state.pushdeerDeleting = false;
+            state.pushdeerBinding = { username: state.username || getCanonicalUsername(), bound: false, enabled: false, server_url: 'https://api2.pushdeer.com' };
+            state.pushdeerDraftKey = '';
+            state.pushdeerDraftServerUrl = 'https://api2.pushdeer.com';
+            state.pushdeerMessage = 'PushDeer 已解绑';
+            render();
+            return true;
+        }).catch(function(error) {
+            state.pushdeerDeleting = false;
+            state.pushdeerMessage = error && error.message ? error.message : '解绑 PushDeer 失败';
+            render();
+            return false;
+        });
+    }
+
+    function testPushDeerBinding() {
+        if (!state.allowed || state.pushdeerTesting) return Promise.resolve(false);
+        state.pushdeerTesting = true;
+        state.pushdeerMessage = '正在发送 PushDeer 测试通知...';
+        render();
+        return request(`${API_ROOT}/api/notify-center/pushdeer/test`, {
+            method: 'POST',
+            body: JSON.stringify({
+                im_username: state.username || getCanonicalUsername()
+            })
+        }).then(function(response) {
+            state.pushdeerTesting = false;
+            const data = response && response.data ? response.data : {};
+            const resultMessage = data.sent ? 'PushDeer 测试通知已发送' : ('PushDeer 测试失败：' + String(data.error || '未知错误'));
+            return loadPushDeerBinding().then(function() {
+                state.pushdeerMessage = resultMessage;
+                render();
+                return !!data.sent;
+            });
+        }).catch(function(error) {
+            state.pushdeerTesting = false;
+            state.pushdeerMessage = error && error.message ? error.message : 'PushDeer 测试发送失败';
+            render();
+            return false;
+        });
+    }
+
     function getPushNotificationStatus() {
+        if (isMobileBrowser()) {
+            return {
+                title: '移动端使用 PushDeer',
+                meta: '移动端浏览器不使用 Web Push，请在下方绑定 PushDeer 绑定码',
+                disabled: true,
+                checked: false
+            };
+        }
         const push = window.AKClientRuntimePush;
         const status = push && typeof push.getPermissionStatus === 'function' ? push.getPermissionStatus() : 'unsupported';
         if (status === 'granted') {
@@ -5255,6 +5404,11 @@
 
     function requestPushNotificationPermission() {
         if (!state.allowed) return Promise.resolve(false);
+        if (isMobileBrowser()) {
+            state.pushNotificationMessage = '移动端浏览器请使用 PushDeer 通知，不再开启 Web Push';
+            render();
+            return Promise.resolve(false);
+        }
         const push = window.AKClientRuntimePush;
         if (!push || typeof push.requestAndRegister !== 'function') {
             state.pushNotificationMessage = '消息通知模块暂不可用，请刷新页面后重试';
@@ -5316,7 +5470,7 @@
         }
         state.pushNotificationMessage = '正在诊断消息通知...';
         render();
-        return push.diagnose().then(function(result) {
+        return push.diagnose(isMobileBrowser() ? { serverOnly: true } : undefined).then(function(result) {
             const item = result && typeof result === 'object' ? result : {};
             const parts = [
                 '账号=' + String(item.im_username || state.username || ''),
@@ -5341,9 +5495,12 @@
                 '保存=' + (item.saved ? '成功' : '失败'),
                 '后端通知=' + (item.server_enabled ? '开启' : '关闭'),
                 '后端WebPush=' + (item.server_web_push_ready ? 'ready' : 'not-ready'),
+                '后端PushDeer=' + (item.server_pushdeer_ready ? 'ready' : 'not-ready'),
+                'PushDeer绑定=' + (item.server_pushdeer_bound ? (item.server_pushdeer_enabled ? '开启' : '关闭') : '无'),
+                'PushDeer码=' + String(item.server_pushdeer_key_mask || ''),
                 '后端订阅数=' + String(item.server_active_subscription_count || 0),
                 '后端最新订阅=' + String(item.server_latest_subscription_id || 0),
-                '最近outbox=' + String(item.server_recent_outbox_status || ''),
+                '最近outbox=' + String(item.server_recent_outbox_channel || '') + '/' + String(item.server_recent_outbox_status || ''),
                 'outbox尝试=' + String(item.server_recent_outbox_attempt_count || 0) + '/' + String(item.server_recent_outbox_max_attempts || 0),
                 'outbox订阅=' + String(item.server_recent_outbox_subscription_id || 0),
                 'outbox返回=' + String(item.server_recent_outbox_provider_record_id || '')
@@ -5354,6 +5511,8 @@
             if (item.permission_request_error) parts.push('权限申请错误=' + String(item.permission_request_error));
             if (item.service_worker_last_show_notification_error) parts.push('SW展示错误=' + String(item.service_worker_last_show_notification_error));
             if (item.service_worker_diagnostics_error) parts.push('SW诊断错误=' + String(item.service_worker_diagnostics_error));
+            if (item.server_pushdeer_last_sent_at) parts.push('PushDeer最近发送=' + String(item.server_pushdeer_last_sent_at));
+            if (item.server_pushdeer_last_error) parts.push('PushDeer错误=' + String(item.server_pushdeer_last_error));
             if (item.server_recent_outbox_error) parts.push('outbox错误=' + String(item.server_recent_outbox_error));
             if (item.server_diagnostics_error) parts.push('后端诊断错误=' + String(item.server_diagnostics_error));
             if (item.last_error) parts.push('原因=' + String(item.last_error));
@@ -5597,6 +5756,14 @@
         state.profileSaveError = '';
         state.profileSettingsSaving = false;
         state.profileSettingsError = '';
+        state.pushdeerBinding = null;
+        state.pushdeerLoading = false;
+        state.pushdeerSaving = false;
+        state.pushdeerTesting = false;
+        state.pushdeerDeleting = false;
+        state.pushdeerMessage = '';
+        state.pushdeerDraftKey = '';
+        state.pushdeerDraftServerUrl = 'https://api2.pushdeer.com';
         state.profileAvatarHistory = [];
         state.profileAvatarHistoryLoaded = false;
         state.profileAvatarHistoryLoading = false;
@@ -5678,6 +5845,14 @@
             state.profileSaveError = '';
             state.profileSettingsSaving = false;
             state.profileSettingsError = '';
+            state.pushdeerBinding = null;
+            state.pushdeerLoading = false;
+            state.pushdeerSaving = false;
+            state.pushdeerTesting = false;
+            state.pushdeerDeleting = false;
+            state.pushdeerMessage = '';
+            state.pushdeerDraftKey = '';
+            state.pushdeerDraftServerUrl = 'https://api2.pushdeer.com';
             state.profileAvatarHistory = [];
             state.profileAvatarHistoryLoaded = false;
             state.profileAvatarHistoryLoading = false;
