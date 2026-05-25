@@ -105,6 +105,24 @@ class NotifyCenterRepository:
             await conn.execute('CREATE INDEX IF NOT EXISTS idx_notify_push_subscriptions_username ON notify_push_subscriptions(username)')
             await conn.execute('CREATE INDEX IF NOT EXISTS idx_notify_push_subscriptions_enabled ON notify_push_subscriptions(enabled, username)')
             await conn.execute('CREATE UNIQUE INDEX IF NOT EXISTS idx_notify_push_subscriptions_user_endpoint_hash ON notify_push_subscriptions(username, endpoint_hash)')
+            await conn.execute('''
+                UPDATE notify_push_subscriptions target
+                SET enabled = FALSE, disabled_at = NOW(), updated_at = NOW()
+                WHERE target.enabled = TRUE
+                  AND target.id NOT IN (
+                      SELECT DISTINCT ON (endpoint_hash) id
+                      FROM notify_push_subscriptions
+                      WHERE enabled = TRUE
+                      ORDER BY endpoint_hash, updated_at DESC, id DESC
+                  )
+                  AND EXISTS (
+                      SELECT 1
+                      FROM notify_push_subscriptions other
+                      WHERE other.endpoint_hash = target.endpoint_hash
+                        AND other.enabled = TRUE
+                        AND other.id <> target.id
+                  )
+            ''')
             await conn.execute('CREATE INDEX IF NOT EXISTS idx_notify_outbox_status_retry ON notify_outbox(status, next_retry_at, id)')
             await conn.execute('CREATE INDEX IF NOT EXISTS idx_notify_outbox_recipient ON notify_outbox(recipient_username, created_at DESC)')
             await conn.execute('CREATE INDEX IF NOT EXISTS idx_notify_outbox_dedupe ON notify_outbox(channel, recipient_username, conversation_id, created_at DESC)')
