@@ -137,11 +137,11 @@
         var name = error && error.name ? String(error.name) : '';
         var raw = (name ? name + ': ' : '') + message;
         var normalized = raw.toLowerCase();
-        if (normalized.indexOf('push service error') >= 0 || normalized.indexOf('registration failed') >= 0) {
-            return '移动端浏览器推送服务注册失败，请确认不是微信/QQ等内置浏览器；iPhone 请添加到主屏幕后从桌面图标打开；Android 请优先使用 Chrome/Edge。原始错误：' + raw;
-        }
         if (normalized.indexOf('notallowed') >= 0 || normalized.indexOf('permission') >= 0) {
             return '浏览器拒绝创建通知订阅，请在站点设置中允许通知权限后重试。原始错误：' + raw;
+        }
+        if (normalized.indexOf('push service error') >= 0 || normalized.indexOf('registration failed') >= 0) {
+            return '浏览器 Push Service 注册失败。请检查系统通知权限、后台活动权限、推送服务网络可达性后重试。原始错误：' + raw;
         }
         if (normalized.indexOf('notsupported') >= 0 || normalized.indexOf('not supported') >= 0) {
             return '当前移动浏览器不支持创建 Web Push 订阅，请更换支持 Web Push 的浏览器。原始错误：' + raw;
@@ -262,6 +262,10 @@
                 result.has_subscription = !!subscription;
                 result.endpoint_host = getEndpointHost(subscription);
                 if (!subscription) {
+                    if (result.permission === 'denied') {
+                        result.last_error = '浏览器已拒绝本站通知权限，请在站点设置中允许通知后重试';
+                        return result;
+                    }
                     result.attempted_create = true;
                     return fetchVapidPublicKey().then(function(publicKey) {
                         if (!publicKey) {
