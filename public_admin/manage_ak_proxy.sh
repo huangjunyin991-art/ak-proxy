@@ -12,6 +12,9 @@ ENV_FILE="${AK_PROXY_ENV_FILE:-$ENV_DIR/ak-proxy.env}"
 NGINX_CONF_SRC="${NGINX_CONF_SRC:-$APP_DIR/config/nginx.conf}"
 NGINX_CONF_DST="${NGINX_CONF_DST:-/etc/nginx/sites-enabled/nginx.conf}"
 NGINX_RENDER_SCRIPT="${NGINX_RENDER_SCRIPT:-$APP_DIR/render_nginx_config.sh}"
+NTFY_CONF_SRC="${NTFY_CONF_SRC:-$APP_DIR/config/ntfy_server.yml}"
+NTFY_CONF_DST="${NTFY_CONF_DST:-/etc/ntfy/server.yml}"
+NTFY_RENDER_SCRIPT="${NTFY_RENDER_SCRIPT:-$APP_DIR/render_ntfy_config.sh}"
 LOG_FILE="$APP_DIR/proxy.log"
 ADMIN_DOMAIN=""
 NTFY_DOMAIN_VALUE="${NTFY_DOMAIN:-}"
@@ -213,6 +216,20 @@ render_nginx() {
     echo "[OK] Nginx 已渲染并重载"
 }
 
+render_ntfy() {
+    if [ ! -f "$NTFY_RENDER_SCRIPT" ]; then
+        echo "[ERROR] ntfy 渲染脚本不存在: $NTFY_RENDER_SCRIPT"
+        exit 1
+    fi
+    NTFY_DOMAIN="$NTFY_DOMAIN_VALUE" ADMIN_DOMAIN="$ADMIN_DOMAIN" NTFY_CONF_SRC="$NTFY_CONF_SRC" NTFY_CONF_DST="$NTFY_CONF_DST" bash "$NTFY_RENDER_SCRIPT"
+    if systemctl list-unit-files --type=service 2>/dev/null | grep -q '^ntfy.service'; then
+        sudo systemctl restart ntfy
+        echo "[OK] ntfy 配置已渲染并重启"
+    else
+        echo "[OK] ntfy 配置已渲染"
+    fi
+}
+
 restart_service() {
     sudo systemctl restart "$SERVICE_NAME"
     sudo systemctl status "$SERVICE_NAME" --no-pager | head -12
@@ -231,6 +248,7 @@ fi
 
 if [ "$SKIP_NGINX" -eq 0 ]; then
     render_nginx
+    render_ntfy
 fi
 
 if [ "$SKIP_RESTART" -eq 0 ]; then

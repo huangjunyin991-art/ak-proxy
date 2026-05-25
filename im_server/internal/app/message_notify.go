@@ -42,7 +42,7 @@ func NewMessageNotifyPublisher(cfg config.Config) *MessageNotifyPublisher {
 		webhookURL: webhookURL,
 		secret:     secret,
 		client:     &http.Client{Timeout: time.Duration(timeoutMS) * time.Millisecond},
-		queue:      make(chan []byte, 128),
+		queue:      make(chan []byte, 1024),
 		done:       make(chan struct{}),
 	}
 	if publisher.enabled {
@@ -63,13 +63,15 @@ func (p *MessageNotifyPublisher) Publish(ctx context.Context, payload map[string
 		return
 	}
 	p.mu.Lock()
-	defer p.mu.Unlock()
-	if p.closed {
+	closed := p.closed
+	p.mu.Unlock()
+	if closed {
 		return
 	}
 	select {
 	case p.queue <- body:
-	default:
+	case <-p.done:
+	case <-time.After(500 * time.Millisecond):
 		log.Printf("im notify center queue full, dropped")
 	}
 }
@@ -101,21 +103,40 @@ func (p *MessageNotifyPublisher) run() {
 	for {
 		select {
 		case body := <-p.queue:
-			p.post(body)
+			p.postWithRetry(body)
 		case <-p.done:
 			return
 		}
 	}
 }
 
-func (p *MessageNotifyPublisher) post(body []byte) {
+func (p *MessageNotifyPublisher) postWithRetry(body []byte) {
+	delays := []time.Duration{0, 500 * time.Millisecond, 2 * time.Second}
+	for index, delay := range delays {
+		if delay > 0 {
+			select {
+			case <-time.After(delay):
+			case <-p.done:
+				return
+			}
+		}
+		if p.post(body) {
+			return
+		}
+		if index == len(delays)-1 {
+			log.Printf("im notify center post abandoned after retries")
+		}
+	}
+}
+
+func (p *MessageNotifyPublisher) post(body []byte) bool {
 	timestamp := fmt.Sprintf("%d", time.Now().Unix())
 	nonce := fmt.Sprintf("%d", time.Now().UnixNano())
 	signature := p.sign(timestamp, nonce, body)
 	req, err := http.NewRequest(http.MethodPost, p.webhookURL, bytes.NewReader(body))
 	if err != nil {
 		log.Printf("im notify center request build failed: %v", err)
-		return
+		return false
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Notify-Timestamp", timestamp)
@@ -124,12 +145,14 @@ func (p *MessageNotifyPublisher) post(body []byte) {
 	resp, err := p.client.Do(req)
 	if err != nil {
 		log.Printf("im notify center post failed: %v", err)
-		return
+		return false
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		log.Printf("im notify center post status=%d", resp.StatusCode)
+		return false
 	}
+	return true
 }
 
 func (p *MessageNotifyPublisher) sign(timestamp string, nonce string, body []byte) string {

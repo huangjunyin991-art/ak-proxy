@@ -276,17 +276,6 @@ class NotifyCenterService:
                     if created:
                         queued += 1
             ntfy_binding = ntfy_bindings.get(username) or {}
-            ntfy_deduped = False
-            if ntfy_binding:
-                ntfy_deduped = await self.repository.recent_outbox_exists(
-                    channel='ntfy',
-                    recipient_username=username,
-                    conversation_id=conversation_id,
-                    window_seconds=self.config.dedupe_window_seconds,
-                )
-            if ntfy_deduped:
-                skipped_by_dedupe += 1
-                continue
             if ntfy_binding:
                 created = await self.repository.enqueue_outbox(
                     event_id=event_id,

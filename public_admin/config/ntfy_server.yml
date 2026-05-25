@@ -1,0 +1,6 @@
+base-url: "https://<NTFY_DOMAIN>"
+listen-http: "127.0.0.1:2586"
+cache-file: "/var/cache/ntfy/cache.db"
+cache-duration: "12h"
+attachment-cache-dir: "/var/lib/ntfy/attachments"
+behind-proxy: true

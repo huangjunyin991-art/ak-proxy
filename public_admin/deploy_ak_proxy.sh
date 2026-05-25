@@ -14,6 +14,9 @@ ENV_FILE="${AK_PROXY_ENV_FILE:-$ENV_DIR/ak-proxy.env}"
 NGINX_CONF_SRC="${NGINX_CONF_SRC:-$REPO_DIR/public_admin/config/nginx.conf}"
 NGINX_CONF_DST="${NGINX_CONF_DST:-/etc/nginx/sites-enabled/nginx.conf}"
 NGINX_RENDER_SCRIPT="${NGINX_RENDER_SCRIPT:-$REPO_DIR/public_admin/render_nginx_config.sh}"
+NTFY_CONF_SRC="${NTFY_CONF_SRC:-$REPO_DIR/public_admin/config/ntfy_server.yml}"
+NTFY_CONF_DST="${NTFY_CONF_DST:-/etc/ntfy/server.yml}"
+NTFY_RENDER_SCRIPT="${NTFY_RENDER_SCRIPT:-$REPO_DIR/public_admin/render_ntfy_config.sh}"
 LEGACY_NGINX_CONF="${LEGACY_NGINX_CONF:-}"
 SERVICE_NAME="${AK_PROXY_SERVICE_NAME:-ak-proxy}"
 SERVICE_USER="${AK_PROXY_SERVICE_USER:?请设置 AK_PROXY_SERVICE_USER}"
@@ -85,6 +88,14 @@ if [ ! -f "$NGINX_RENDER_SCRIPT" ]; then
     echo "[ERROR] nginx 渲染脚本不存在: $NGINX_RENDER_SCRIPT"
     exit 1
 fi
+if [ ! -f "$NTFY_CONF_SRC" ]; then
+    echo "[ERROR] ntfy 配置文件不存在: $NTFY_CONF_SRC"
+    exit 1
+fi
+if [ ! -f "$NTFY_RENDER_SCRIPT" ]; then
+    echo "[ERROR] ntfy 渲染脚本不存在: $NTFY_RENDER_SCRIPT"
+    exit 1
+fi
 if [ -n "$LEGACY_NGINX_CONF" ] && [ -f "$LEGACY_NGINX_CONF" ] && [ "$LEGACY_NGINX_CONF" != "$NGINX_CONF_DST" ]; then
     LEGACY_MIGRATION_BACKUP="${LEGACY_NGINX_CONF}.migrated_$(date +%Y%m%d_%H%M%S)"
     sudo cp "$LEGACY_NGINX_CONF" "$LEGACY_MIGRATION_BACKUP"
@@ -92,9 +103,15 @@ if [ -n "$LEGACY_NGINX_CONF" ] && [ -f "$LEGACY_NGINX_CONF" ] && [ "$LEGACY_NGIN
 fi
 NTFY_DOMAIN="${NTFY_DOMAIN:-}" ADMIN_DOMAIN="$ADMIN_DOMAIN" NGINX_CONF_SRC="$NGINX_CONF_SRC" NGINX_CONF_DST="$NGINX_CONF_DST" bash "$NGINX_RENDER_SCRIPT"
 echo "[OK] nginx 配置已复制到 $NGINX_CONF_DST"
+NTFY_DOMAIN="${NTFY_DOMAIN:-}" ADMIN_DOMAIN="$ADMIN_DOMAIN" NTFY_CONF_SRC="$NTFY_CONF_SRC" NTFY_CONF_DST="$NTFY_CONF_DST" bash "$NTFY_RENDER_SCRIPT"
+echo "[OK] ntfy 配置已复制到 $NTFY_CONF_DST"
 if [ -n "$LEGACY_NGINX_CONF" ] && [ -f "$LEGACY_NGINX_CONF" ] && [ "$LEGACY_NGINX_CONF" != "$NGINX_CONF_DST" ]; then
     sudo rm -f "$LEGACY_NGINX_CONF"
     echo "[OK] 已移除旧 nginx 配置: $LEGACY_NGINX_CONF"
+fi
+if systemctl list-unit-files --type=service 2>/dev/null | grep -q '^ntfy.service'; then
+    sudo systemctl restart ntfy
+    echo "[OK] ntfy 已重启并加载新配置"
 fi
 
 # ===== [5/7] 清理 nginx 冲突的 backup 文件 =====
