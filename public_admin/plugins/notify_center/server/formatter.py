@@ -24,9 +24,9 @@ def build_notification_body(event: dict[str, Any], *, show_preview: bool = False
 
 def build_notification_url(event: dict[str, Any], public_base_url: str = '') -> str:
     conversation_id = int(event.get('conversation_id') or 0)
-    path = '/?ak_im_open=1'
+    path = '/pages/home.html?first=true&ak_im_open=1'
     if conversation_id > 0:
-        path = f'/?ak_im_open=1&conversation_id={conversation_id}'
+        path = f'/pages/home.html?first=true&ak_im_open=1&conversation_id={conversation_id}'
     base = str(public_base_url or '').strip().rstrip('/')
     return f'{base}{path}' if base else path
 
