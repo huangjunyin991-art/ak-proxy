@@ -1,12 +1,20 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import os
 from typing import Any
 
 from ..config import NotifyCenterConfig
 from .base import ChannelSendResult
+
+try:
+    from cryptography.hazmat.primitives import serialization
+    _CRYPTOGRAPHY_IMPORT_ERROR = None
+except Exception as e:
+    serialization = None
+    _CRYPTOGRAPHY_IMPORT_ERROR = e
 
 try:
     from pywebpush import webpush
@@ -79,11 +87,23 @@ class WebPushChannel:
         key_file = str(getattr(self._config, 'vapid_private_key_file', '') or '').strip()
         if key_file:
             with open(key_file, 'r', encoding='utf-8') as handle:
-                return handle.read().strip()
+                return _normalize_vapid_private_key(handle.read().strip())
         key = str(self._config.vapid_private_key or '').strip()
         if key and os.path.exists(key):
             with open(key, 'r', encoding='utf-8') as handle:
-                return handle.read().strip()
+                return _normalize_vapid_private_key(handle.read().strip())
         if '\\n' in key:
-            return key.replace('\\n', '\n')
-        return key
+            return _normalize_vapid_private_key(key.replace('\\n', '\n'))
+        return _normalize_vapid_private_key(key)
+
+
+def _normalize_vapid_private_key(key: str) -> str:
+    value = str(key or '').strip()
+    if 'BEGIN' not in value:
+        return value
+    if serialization is None:
+        raise RuntimeError(f'cryptography 不可用: {_CRYPTOGRAPHY_IMPORT_ERROR}')
+    private_key = serialization.load_pem_private_key(value.encode('utf-8'), password=None)
+    private_value = private_key.private_numbers().private_value
+    raw = private_value.to_bytes(32, 'big')
+    return base64.urlsafe_b64encode(raw).rstrip(b'=').decode('ascii')
