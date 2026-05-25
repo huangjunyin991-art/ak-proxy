@@ -138,6 +138,20 @@
         };
     }
 
+    function fetchServiceWorkerDiagnostics(registration) {
+        var worker = registration && registration.active;
+        if (!worker || !window.MessageChannel) return Promise.resolve({});
+        return withTimeout(new Promise(function(resolve) {
+            var channel = new MessageChannel();
+            channel.port1.onmessage = function(event) {
+                resolve(event && event.data && typeof event.data === 'object' ? event.data : {});
+            };
+            worker.postMessage({type: 'AK_NOTIFY_SW_DIAGNOSTICS'}, [channel.port2]);
+        }), 3000, '读取 Service Worker 通知状态超时').catch(function(error) {
+            return {diagnostics_error: error && error.message ? String(error.message) : '读取 Service Worker 通知状态失败'};
+        });
+    }
+
     function subscribe(registration, publicKey) {
         if (!registration) {
             if (!lastError) setLastError('Service Worker 未就绪，请刷新页面后重试');
@@ -326,6 +340,14 @@
             service_worker_ready: false,
             service_worker_script_url: '',
             service_worker_state: '',
+            service_worker_notify_version: '',
+            service_worker_last_push_at: '',
+            service_worker_last_push_title: '',
+            service_worker_last_show_notification_called: false,
+            service_worker_last_show_notification_ok: false,
+            service_worker_last_show_notification_at: '',
+            service_worker_last_show_notification_error: '',
+            service_worker_diagnostics_error: '',
             has_subscription: false,
             invalid_endpoint: false,
             invalid_endpoint_host: '',
@@ -353,7 +375,17 @@
                 result.last_error = lastError || 'Service Worker 或 PushManager 未就绪';
                 return result;
             }
-            return withTimeout(registration.pushManager.getSubscription(), 5000, '读取当前通知订阅超时').then(function(subscription) {
+            return fetchServiceWorkerDiagnostics(registration).then(function(swState) {
+                result.service_worker_notify_version = String(swState.version || '');
+                result.service_worker_last_push_at = String(swState.last_push_at || '');
+                result.service_worker_last_push_title = String(swState.last_push_title || '');
+                result.service_worker_last_show_notification_called = !!swState.last_show_notification_called;
+                result.service_worker_last_show_notification_ok = !!swState.last_show_notification_ok;
+                result.service_worker_last_show_notification_at = String(swState.last_show_notification_at || '');
+                result.service_worker_last_show_notification_error = String(swState.last_show_notification_error || '');
+                result.service_worker_diagnostics_error = String(swState.diagnostics_error || '');
+                return withTimeout(registration.pushManager.getSubscription(), 5000, '读取当前通知订阅超时');
+            }).then(function(subscription) {
                 result.has_subscription = !!subscription;
                 result.endpoint_host = getEndpointHost(subscription);
                 result.invalid_endpoint = isInvalidSubscription(subscription);

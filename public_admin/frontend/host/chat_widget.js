@@ -481,7 +481,7 @@
         // theme-color不设置，保持浏览器默认样式
         // 注册Service Worker（用API路径绕过CDN对.js文件的拦截）
         if ('serviceWorker' in navigator) {
-            var swVersion = '20260525-01';
+            var swVersion = '20260525-02';
             navigator.serviceWorker.register('/admin/api/pwa-sw?ak_sw_v=' + swVersion, {scope: '/'}).then(function(registration) {
                 if (registration && typeof registration.update === 'function') registration.update().catch(function(){});
             }).catch(function(){});

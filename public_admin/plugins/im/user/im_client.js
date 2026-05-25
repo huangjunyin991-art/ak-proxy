@@ -5326,6 +5326,9 @@
                 'SW=' + (item.service_worker_ready ? 'ready' : (item.service_worker_supported ? 'not-ready' : 'unsupported')),
                 'SW状态=' + String(item.service_worker_state || ''),
                 'SW脚本=' + String(item.service_worker_script_url || ''),
+                'SW通知版本=' + String(item.service_worker_notify_version || ''),
+                'SW收到Push=' + String(item.service_worker_last_push_at || ''),
+                'SW展示通知=' + (item.service_worker_last_show_notification_called ? (item.service_worker_last_show_notification_ok ? '成功' : '失败') : '未调用'),
                 'Push=' + (item.push_manager_supported ? 'supported' : 'unsupported'),
                 'VAPID长度=' + String(item.vapid_public_key_length || 0),
                 'endpoint=' + String(item.endpoint_host || ''),
@@ -5347,6 +5350,8 @@
                 parts.push('订阅错误=' + [item.subscribe_error_name, item.subscribe_error_message].filter(Boolean).join(': '));
             }
             if (item.permission_request_error) parts.push('权限申请错误=' + String(item.permission_request_error));
+            if (item.service_worker_last_show_notification_error) parts.push('SW展示错误=' + String(item.service_worker_last_show_notification_error));
+            if (item.service_worker_diagnostics_error) parts.push('SW诊断错误=' + String(item.service_worker_diagnostics_error));
             if (item.server_recent_outbox_error) parts.push('outbox错误=' + String(item.server_recent_outbox_error));
             if (item.server_diagnostics_error) parts.push('后端诊断错误=' + String(item.server_diagnostics_error));
             if (item.last_error) parts.push('原因=' + String(item.last_error));
