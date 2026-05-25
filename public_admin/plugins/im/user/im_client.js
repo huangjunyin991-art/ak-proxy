@@ -201,7 +201,6 @@
         ntfyBinding: null,
         ntfyLoading: false,
         ntfySaving: false,
-        ntfyTesting: false,
         ntfyDeleting: false,
         ntfyMessage: '',
         ntfyDraftServerUrl: 'https://ntfy.ak2025.vip',
@@ -1305,11 +1304,6 @@
             getPushNotificationStatus: getPushNotificationStatus,
             requestPushNotificationPermission: requestPushNotificationPermission,
             disablePushNotification: disablePushNotification,
-            diagnosePushNotification: diagnosePushNotification,
-            loadNtfyBinding: loadNtfyBinding,
-            saveNtfyBinding: saveNtfyBinding,
-            deleteNtfyBinding: deleteNtfyBinding,
-            testNtfyBinding: testNtfyBinding,
             isMobileBrowser: isMobileBrowser
         });
     }
@@ -5265,7 +5259,7 @@
         if (!state.allowed || state.ntfySaving) return Promise.resolve(null);
         const normalizedServerUrl = String(serverUrl || state.ntfyDraftServerUrl || 'https://ntfy.ak2025.vip').trim() || 'https://ntfy.ak2025.vip';
         state.ntfySaving = true;
-        state.ntfyMessage = '正在保存 ntfy 配置...';
+        state.ntfyMessage = '正在开启消息提醒...';
         render();
         return request(`${API_ROOT}/api/notify-center/ntfy/binding`, {
             method: 'POST',
@@ -5277,12 +5271,12 @@
         }).then(function(response) {
             state.ntfySaving = false;
             applyNtfyBinding(response && response.data ? response.data : {});
-            state.ntfyMessage = 'ntfy 配置已保存';
+            state.ntfyMessage = '消息提醒已开启';
             render();
             return state.ntfyBinding;
         }).catch(function(error) {
             state.ntfySaving = false;
-            state.ntfyMessage = error && error.message ? error.message : '保存 ntfy 配置失败';
+            state.ntfyMessage = error && error.message ? error.message : '开启消息提醒失败';
             render();
             return null;
         });
@@ -5291,7 +5285,7 @@
     function deleteNtfyBinding() {
         if (!state.allowed || state.ntfyDeleting) return Promise.resolve(false);
         state.ntfyDeleting = true;
-        state.ntfyMessage = '正在关闭 ntfy 通知...';
+        state.ntfyMessage = '正在关闭消息提醒...';
         render();
         return request(`${API_ROOT}/api/notify-center/ntfy/binding`, {
             method: 'DELETE',
@@ -5302,39 +5296,12 @@
             state.ntfyDeleting = false;
             state.ntfyBinding = { username: state.username || getCanonicalUsername(), bound: false, enabled: false, server_url: 'https://ntfy.ak2025.vip', topic: '' };
             state.ntfyDraftServerUrl = 'https://ntfy.ak2025.vip';
-            state.ntfyMessage = 'ntfy 通知已关闭';
+            state.ntfyMessage = '消息提醒已关闭';
             render();
             return true;
         }).catch(function(error) {
             state.ntfyDeleting = false;
-            state.ntfyMessage = error && error.message ? error.message : '关闭 ntfy 通知失败';
-            render();
-            return false;
-        });
-    }
-
-    function testNtfyBinding() {
-        if (!state.allowed || state.ntfyTesting) return Promise.resolve(false);
-        state.ntfyTesting = true;
-        state.ntfyMessage = '正在发送 ntfy 测试通知...';
-        render();
-        return request(`${API_ROOT}/api/notify-center/ntfy/test`, {
-            method: 'POST',
-            body: JSON.stringify({
-                im_username: state.username || getCanonicalUsername()
-            })
-        }).then(function(response) {
-            state.ntfyTesting = false;
-            const data = response && response.data ? response.data : {};
-            const resultMessage = data.sent ? 'ntfy 测试通知已发送' : ('ntfy 测试失败：' + String(data.error || '未知错误'));
-            return loadNtfyBinding().then(function() {
-                state.ntfyMessage = resultMessage;
-                render();
-                return !!data.sent;
-            });
-        }).catch(function(error) {
-            state.ntfyTesting = false;
-            state.ntfyMessage = error && error.message ? error.message : 'ntfy 测试发送失败';
+            state.ntfyMessage = error && error.message ? error.message : '关闭消息提醒失败';
             render();
             return false;
         });
@@ -5342,11 +5309,15 @@
 
     function getPushNotificationStatus() {
         if (isMobileBrowser()) {
+            const item = state.ntfyBinding && typeof state.ntfyBinding === 'object' ? state.ntfyBinding : {};
+            const topic = String(item.topic || '');
+            const enabled = !!(item.bound && item.enabled);
+            const busy = !!state.ntfyLoading || !!state.ntfySaving || !!state.ntfyDeleting;
             return {
-                title: '移动端使用 ntfy',
-                meta: '移动端浏览器不使用 Web Push，请查看下方 ntfy App 订阅信息',
-                disabled: true,
-                checked: false
+                title: enabled ? '消息通知已开启' : '开启消息通知',
+                meta: state.ntfyLoading ? '正在读取消息提醒状态...' : (enabled ? ('移动端通过 ntfy App 接收提醒' + (topic ? '，Topic：' + topic : '')) : '打开后生成 ntfy 订阅 Topic，并在 ntfy App 中添加订阅'),
+                disabled: busy,
+                checked: enabled
             };
         }
         const push = window.AKClientRuntimePush;
@@ -5394,9 +5365,8 @@
     function requestPushNotificationPermission() {
         if (!state.allowed) return Promise.resolve(false);
         if (isMobileBrowser()) {
-            state.pushNotificationMessage = '移动端浏览器请使用 ntfy 通知，不再开启 Web Push';
-            render();
-            return Promise.resolve(false);
+            state.pushNotificationMessage = '';
+            return saveNtfyBinding();
         }
         const push = window.AKClientRuntimePush;
         if (!push || typeof push.requestAndRegister !== 'function') {
@@ -5431,6 +5401,10 @@
     }
 
     function disablePushNotification() {
+        if (isMobileBrowser()) {
+            state.pushNotificationMessage = '';
+            return deleteNtfyBinding();
+        }
         const push = window.AKClientRuntimePush;
         if (!push || typeof push.unregister !== 'function') {
             state.pushNotificationMessage = '消息通知模块暂不可用，请刷新页面后重试';
@@ -5447,72 +5421,6 @@
             state.pushNotificationMessage = '关闭消息通知失败，请稍后重试';
             render();
             return false;
-        });
-    }
-
-    function diagnosePushNotification() {
-        const push = window.AKClientRuntimePush;
-        if (!push || typeof push.diagnose !== 'function') {
-            state.pushNotificationMessage = '消息通知诊断模块暂不可用，请刷新页面后重试';
-            render();
-            return Promise.resolve(null);
-        }
-        state.pushNotificationMessage = '正在诊断消息通知...';
-        render();
-        return push.diagnose(isMobileBrowser() ? { serverOnly: true } : undefined).then(function(result) {
-            const item = result && typeof result === 'object' ? result : {};
-            const parts = [
-                '账号=' + String(item.im_username || state.username || ''),
-                '权限=' + String(item.permission || ''),
-                '权限申请结果=' + String(item.permission_request_result || ''),
-                '安全上下文=' + (item.secure_context ? '是' : '否'),
-                'SW=' + (item.service_worker_ready ? 'ready' : (item.service_worker_supported ? 'not-ready' : 'unsupported')),
-                'SW状态=' + String(item.service_worker_state || ''),
-                'SW脚本=' + String(item.service_worker_script_url || ''),
-                'SW通知版本=' + String(item.service_worker_notify_version || ''),
-                'SW收到Push=' + String(item.service_worker_last_push_at || ''),
-                'SW展示通知=' + (item.service_worker_last_show_notification_called ? (item.service_worker_last_show_notification_ok ? '成功' : '失败') : '未调用'),
-                'Push=' + (item.push_manager_supported ? 'supported' : 'unsupported'),
-                'VAPID长度=' + String(item.vapid_public_key_length || 0),
-                'endpoint=' + String(item.endpoint_host || ''),
-                '无效endpoint=' + (item.invalid_endpoint ? String(item.invalid_endpoint_host || '是') : '否'),
-                '无效endpoint清理=' + (item.invalid_endpoint_cleared ? '成功' : '否'),
-                '本机订阅=' + (item.has_subscription ? '有' : '无'),
-                '尝试创建=' + (item.attempted_create ? '是' : '否'),
-                '创建=' + (item.created_subscription ? '成功' : '未创建'),
-                '保存订阅ID=' + String(item.saved_subscription_id || 0),
-                '保存=' + (item.saved ? '成功' : '失败'),
-                '后端通知=' + (item.server_enabled ? '开启' : '关闭'),
-                '后端WebPush=' + (item.server_web_push_ready ? 'ready' : 'not-ready'),
-                '后端ntfy=' + (item.server_ntfy_ready ? 'ready' : 'not-ready'),
-                'ntfy绑定=' + (item.server_ntfy_bound ? (item.server_ntfy_enabled ? '开启' : '关闭') : '无'),
-                '后端订阅数=' + String(item.server_active_subscription_count || 0),
-                '后端最新订阅=' + String(item.server_latest_subscription_id || 0),
-                '最近outbox=' + String(item.server_recent_outbox_channel || '') + '/' + String(item.server_recent_outbox_status || ''),
-                'outbox尝试=' + String(item.server_recent_outbox_attempt_count || 0) + '/' + String(item.server_recent_outbox_max_attempts || 0),
-                'outbox订阅=' + String(item.server_recent_outbox_subscription_id || 0),
-                'outbox返回=' + String(item.server_recent_outbox_provider_record_id || '')
-            ];
-            if (item.subscribe_error_name || item.subscribe_error_message) {
-                parts.push('订阅错误=' + [item.subscribe_error_name, item.subscribe_error_message].filter(Boolean).join(': '));
-            }
-            if (item.permission_request_error) parts.push('权限申请错误=' + String(item.permission_request_error));
-            if (item.service_worker_last_show_notification_error) parts.push('SW展示错误=' + String(item.service_worker_last_show_notification_error));
-            if (item.service_worker_diagnostics_error) parts.push('SW诊断错误=' + String(item.service_worker_diagnostics_error));
-            if (item.server_ntfy_topic) parts.push('ntfyTopic=' + String(item.server_ntfy_topic));
-            if (item.server_ntfy_server_url) parts.push('ntfy服务=' + String(item.server_ntfy_server_url));
-            if (item.server_ntfy_last_sent_at) parts.push('ntfy最近发送=' + String(item.server_ntfy_last_sent_at));
-            if (item.server_ntfy_last_error) parts.push('ntfy错误=' + String(item.server_ntfy_last_error));
-            if (item.server_recent_outbox_error) parts.push('outbox错误=' + String(item.server_recent_outbox_error));
-            if (item.server_diagnostics_error) parts.push('后端诊断错误=' + String(item.server_diagnostics_error));
-            if (item.last_error) parts.push('原因=' + String(item.last_error));
-            state.pushNotificationMessage = '通知诊断：' + parts.join('；');
-            render();
-            return item;
-        }).catch(function(error) {
-            state.pushNotificationMessage = error && error.message ? error.message : '诊断消息通知失败';
-            render();
-            return null;
         });
     }
 
@@ -5749,7 +5657,6 @@
         state.ntfyBinding = null;
         state.ntfyLoading = false;
         state.ntfySaving = false;
-        state.ntfyTesting = false;
         state.ntfyDeleting = false;
         state.ntfyMessage = '';
         state.ntfyDraftServerUrl = 'https://ntfy.ak2025.vip';
@@ -5837,7 +5744,6 @@
             state.ntfyBinding = null;
             state.ntfyLoading = false;
             state.ntfySaving = false;
-            state.ntfyTesting = false;
             state.ntfyDeleting = false;
             state.ntfyMessage = '';
             state.ntfyDraftServerUrl = 'https://ntfy.ak2025.vip';
