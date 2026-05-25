@@ -204,7 +204,7 @@
         ntfyTesting: false,
         ntfyDeleting: false,
         ntfyMessage: '',
-        ntfyDraftServerUrl: 'https://ntfy.ak2025.vip',
+        ntfyDraftServerUrl: 'https://ak2025.vip',
         profileAvatarHistory: [],
         profileAvatarHistoryLoaded: false,
         profileAvatarHistoryLoading: false,
@@ -5235,7 +5235,7 @@
     function applyNtfyBinding(data) {
         const item = data && typeof data === 'object' ? data : {};
         state.ntfyBinding = item;
-        state.ntfyDraftServerUrl = String(item.server_url || 'https://ntfy.ak2025.vip').trim() || 'https://ntfy.ak2025.vip';
+        state.ntfyDraftServerUrl = String(item.server_url || 'https://ak2025.vip').trim() || 'https://ak2025.vip';
         return item;
     }
 
@@ -5263,7 +5263,7 @@
 
     function saveNtfyBinding(serverUrl) {
         if (!state.allowed || state.ntfySaving) return Promise.resolve(null);
-        const normalizedServerUrl = String(serverUrl || state.ntfyDraftServerUrl || 'https://ntfy.ak2025.vip').trim() || 'https://ntfy.ak2025.vip';
+        const normalizedServerUrl = String(serverUrl || state.ntfyDraftServerUrl || 'https://ak2025.vip').trim() || 'https://ak2025.vip';
         state.ntfySaving = true;
         state.ntfyMessage = '正在保存 ntfy 配置...';
         render();
@@ -5300,8 +5300,8 @@
             })
         }).then(function() {
             state.ntfyDeleting = false;
-            state.ntfyBinding = { username: state.username || getCanonicalUsername(), bound: false, enabled: false, server_url: 'https://ntfy.ak2025.vip', topic: '' };
-            state.ntfyDraftServerUrl = 'https://ntfy.ak2025.vip';
+            state.ntfyBinding = { username: state.username || getCanonicalUsername(), bound: false, enabled: false, server_url: 'https://ak2025.vip', topic: '' };
+            state.ntfyDraftServerUrl = 'https://ak2025.vip';
             state.ntfyMessage = 'ntfy 通知已关闭';
             render();
             return true;
@@ -5752,7 +5752,7 @@
         state.ntfyTesting = false;
         state.ntfyDeleting = false;
         state.ntfyMessage = '';
-        state.ntfyDraftServerUrl = 'https://ntfy.ak2025.vip';
+        state.ntfyDraftServerUrl = 'https://ak2025.vip';
         state.profileAvatarHistory = [];
         state.profileAvatarHistoryLoaded = false;
         state.profileAvatarHistoryLoading = false;
@@ -5840,7 +5840,7 @@
             state.ntfyTesting = false;
             state.ntfyDeleting = false;
             state.ntfyMessage = '';
-            state.ntfyDraftServerUrl = 'https://ntfy.ak2025.vip';
+            state.ntfyDraftServerUrl = 'https://ak2025.vip';
             state.profileAvatarHistory = [];
             state.profileAvatarHistoryLoaded = false;
             state.profileAvatarHistoryLoading = false;

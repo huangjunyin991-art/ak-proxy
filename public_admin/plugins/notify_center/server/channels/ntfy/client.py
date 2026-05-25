@@ -73,7 +73,7 @@ class NtfyClient:
 def normalize_server_url(value: str) -> str:
     text = str(value or '').strip().rstrip('/')
     if not text:
-        return 'https://ntfy.ak2025.vip'
+        return 'https://ak2025.vip'
     parsed = urlparse(text)
     if parsed.scheme not in {'http', 'https'} or not parsed.netloc:
         raise ValueError('ntfy 服务地址必须是 HTTP/HTTPS URL')
