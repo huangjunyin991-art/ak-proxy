@@ -5,6 +5,7 @@
     var lastSubscribeError = null;
     var lastInvalidEndpointHost = '';
     var lastInvalidEndpointCleared = false;
+    var lastSavedSubscriptionId = 0;
 
     function setLastError(message) {
         lastError = String(message || '').trim();
@@ -231,7 +232,15 @@
                 platform: navigator.platform || ''
             })
         }), 8000, '保存通知订阅超时，请检查网络后重试').then(function(resp) {
-            if (resp && resp.ok) return true;
+            if (resp && resp.ok) {
+                return resp.json().catch(function() {
+                    return null;
+                }).then(function(data) {
+                    var body = data && data.data ? data.data : {};
+                    lastSavedSubscriptionId = Number(body.subscription_id || 0);
+                    return true;
+                });
+            }
             var statusText = resp ? String(resp.status || '') : '';
             return (resp ? resp.json().catch(function() { return null; }) : Promise.resolve(null)).then(function(data) {
                 var message = data && data.message ? String(data.message) : '';
@@ -262,10 +271,14 @@
     function appendServerDiagnostics(result) {
         return fetchServerDiagnostics().then(function(data) {
             var recent = data && data.recent_outbox && data.recent_outbox.length ? data.recent_outbox[0] : {};
+            var latestSubscription = data && data.subscriptions && data.subscriptions.length ? data.subscriptions[0] : {};
             result.server_enabled = !!(data && data.enabled);
             result.server_web_push_ready = !!(data && data.web_push_ready);
             result.server_active_subscription_count = Number(data && data.active_subscription_count || 0);
             result.server_subscription_count = data && data.subscriptions && data.subscriptions.length ? data.subscriptions.length : 0;
+            result.server_latest_subscription_id = Number(latestSubscription.id || 0);
+            result.server_latest_subscription_hash = String(latestSubscription.endpoint_hash || '');
+            result.server_latest_subscription_enabled = !!latestSubscription.enabled;
             result.server_recent_outbox_status = String(recent.status || '');
             result.server_recent_outbox_attempt_count = Number(recent.attempt_count || 0);
             result.server_recent_outbox_max_attempts = Number(recent.max_attempts || 0);
@@ -358,6 +371,7 @@
             endpoint_host: '',
             subscribe_error_name: '',
             subscribe_error_message: '',
+            saved_subscription_id: 0,
             saved: false,
             last_error: ''
         };
@@ -429,6 +443,7 @@
                         }
                         return saveSubscription(createdSubscription).then(function(saved) {
                             result.saved = !!saved;
+                            result.saved_subscription_id = lastSavedSubscriptionId;
                             result.last_error = lastError || '';
                             return result;
                         });
@@ -436,6 +451,7 @@
                 }
                 return saveSubscription(subscription).then(function(saved) {
                     result.saved = !!saved;
+                    result.saved_subscription_id = lastSavedSubscriptionId;
                     result.last_error = lastError || '';
                     return result;
                 });
