@@ -12,7 +12,7 @@ def build_ntfy_payload(notification: dict[str, Any]) -> dict[str, str]:
         'title': title,
         'message': message,
         'click_url': url,
-        'priority': 'default',
+        'priority': 'high',
         'tags': 'speech_balloon',
     }
 
