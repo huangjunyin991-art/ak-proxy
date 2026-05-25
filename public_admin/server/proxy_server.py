@@ -11308,6 +11308,7 @@ def _build_notify_center_sw_content(base_content: str = "") -> str:
 async def pwa_sw():
 
     path = os.path.join(PUBLIC_ADMIN_DIR, "sw.js")
+    headers = {"Service-Worker-Allowed": "/", "Cache-Control": "no-store, max-age=0", "Pragma": "no-cache"}
 
     if os.path.exists(path):
 
@@ -11315,7 +11316,7 @@ async def pwa_sw():
 
             return Response(content=_build_notify_center_sw_content(f.read()), media_type="application/javascript",
 
-                          headers={"Service-Worker-Allowed": "/"})
+                          headers=headers)
 
     return Response(
 
@@ -11336,6 +11337,7 @@ async def pwa_sw_api():
     """通过API路径提供SW（绕过CDN对.js文件的拦截）"""
 
     path = os.path.join(PUBLIC_ADMIN_DIR, "sw.js")
+    headers = {"Service-Worker-Allowed": "/", "Cache-Control": "no-store, max-age=0", "Pragma": "no-cache"}
 
     if os.path.exists(path):
 
@@ -11343,7 +11345,7 @@ async def pwa_sw_api():
 
             return Response(content=_build_notify_center_sw_content(f.read()), media_type="application/javascript",
 
-                          headers={"Service-Worker-Allowed": "/"})
+                          headers=headers)
 
     return Response(
 

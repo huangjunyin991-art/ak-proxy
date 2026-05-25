@@ -117,10 +117,25 @@
             setLastError('当前浏览器不支持 Service Worker');
             return Promise.resolve(null);
         }
-        return withTimeout(navigator.serviceWorker.ready, 8000, 'Service Worker 未就绪，请刷新页面后重试').catch(function(error) {
+        return withTimeout(navigator.serviceWorker.ready, 8000, 'Service Worker 未就绪，请刷新页面后重试').then(function(registration) {
+            if (!registration || typeof registration.update !== 'function') return registration;
+            return registration.update().then(function() {
+                return registration;
+            }).catch(function() {
+                return registration;
+            });
+        }).catch(function(error) {
             setLastError(error && error.message ? error.message : 'Service Worker 未就绪，请刷新页面后重试');
             return null;
         });
+    }
+
+    function getServiceWorkerInfo(registration) {
+        var worker = registration && (registration.active || registration.waiting || registration.installing);
+        return {
+            script_url: worker && worker.scriptURL ? String(worker.scriptURL || '') : '',
+            state: worker && worker.state ? String(worker.state || '') : ''
+        };
     }
 
     function subscribe(registration, publicKey) {
@@ -309,6 +324,8 @@
             service_worker_supported: !!navigator.serviceWorker,
             push_manager_supported: !!window.PushManager,
             service_worker_ready: false,
+            service_worker_script_url: '',
+            service_worker_state: '',
             has_subscription: false,
             invalid_endpoint: false,
             invalid_endpoint_host: '',
@@ -328,6 +345,9 @@
         }
         return getRegistration().then(function(registration) {
             result.service_worker_ready = !!registration;
+            var serviceWorkerInfo = getServiceWorkerInfo(registration);
+            result.service_worker_script_url = serviceWorkerInfo.script_url;
+            result.service_worker_state = serviceWorkerInfo.state;
             result.push_manager_supported = !!(registration && registration.pushManager);
             if (!registration || !registration.pushManager) {
                 result.last_error = lastError || 'Service Worker 或 PushManager 未就绪';

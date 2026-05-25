@@ -5324,6 +5324,8 @@
                 '权限申请结果=' + String(item.permission_request_result || ''),
                 '安全上下文=' + (item.secure_context ? '是' : '否'),
                 'SW=' + (item.service_worker_ready ? 'ready' : (item.service_worker_supported ? 'not-ready' : 'unsupported')),
+                'SW状态=' + String(item.service_worker_state || ''),
+                'SW脚本=' + String(item.service_worker_script_url || ''),
                 'Push=' + (item.push_manager_supported ? 'supported' : 'unsupported'),
                 'VAPID长度=' + String(item.vapid_public_key_length || 0),
                 'endpoint=' + String(item.endpoint_host || ''),

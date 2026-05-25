@@ -40,8 +40,11 @@
         // theme-color不设置，保持浏览器默认样式
         // 注册Service Worker（用API路径绕过CDN对.js文件的拦截）
         if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.register('/sw.js', {scope: '/'}).catch(function() {
-                return navigator.serviceWorker.register('/admin/api/pwa-sw', {scope: '/'});
+            var swVersion = '20260525-01';
+            navigator.serviceWorker.register('/sw.js?ak_sw_v=' + swVersion, {scope: '/'}).catch(function() {
+                return navigator.serviceWorker.register('/admin/api/pwa-sw?ak_sw_v=' + swVersion, {scope: '/'});
+            }).then(function(registration) {
+                if (registration && typeof registration.update === 'function') registration.update().catch(function(){});
             }).catch(function(){});
         }
         // 如果已经是standalone模式（已安装），不显示安装提示
