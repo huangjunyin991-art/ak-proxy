@@ -163,12 +163,12 @@
         });
     }
 
-    function deleteSubscription(subscription) {
+    function deleteSubscription(subscription, imUsernameOverride) {
         if (!subscription) return Promise.resolve(true);
         var data = subscription.toJSON ? subscription.toJSON() : subscription;
         var endpoint = String(data && data.endpoint || '').trim();
         if (!endpoint) return Promise.resolve(true);
-        var imUsername = getIMUsername();
+        var imUsername = String(imUsernameOverride || getIMUsername() || '').trim().toLowerCase();
         return fetch('/api/notify-center/web-push/subscriptions', {
             method: 'DELETE',
             credentials: 'same-origin',
@@ -179,6 +179,19 @@
             body: JSON.stringify({endpoint: endpoint, im_username: imUsername})
         }).then(function(resp) {
             return !!(resp && resp.ok);
+        }).catch(function() {
+            return false;
+        });
+    }
+
+    function disableServerSubscription(imUsernameOverride) {
+        var imUsername = String(imUsernameOverride || getIMUsername() || '').trim().toLowerCase();
+        return getRegistration().then(function(registration) {
+            if (!registration || !registration.pushManager) return true;
+            return registration.pushManager.getSubscription();
+        }).then(function(subscription) {
+            if (!subscription) return true;
+            return deleteSubscription(subscription, imUsername);
         }).catch(function() {
             return false;
         });
@@ -282,6 +295,7 @@
     window.AKClientRuntimePushSubscription = window.AKClientRuntimePushSubscription || {};
     window.AKClientRuntimePushSubscription.registerSubscription = registerSubscription;
     window.AKClientRuntimePushSubscription.unregisterSubscription = unregisterSubscription;
+    window.AKClientRuntimePushSubscription.disableServerSubscription = disableServerSubscription;
     window.AKClientRuntimePushSubscription.diagnoseSubscription = diagnoseSubscription;
     window.AKClientRuntimePushSubscription.getLastError = getLastError;
 })();

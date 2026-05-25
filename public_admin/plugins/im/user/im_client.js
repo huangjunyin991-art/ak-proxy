@@ -2867,6 +2867,11 @@
 
     function clearCurrentIMUsername() {
         try {
+            const previousUsername = String(window.AKIMClientUsername || getCookie('ak_im_username') || getCookie('ak_username') || '').trim().toLowerCase();
+            const push = window.AKClientRuntimePush;
+            if (previousUsername && push && typeof push.disableServerBinding === 'function') {
+                push.disableServerBinding(previousUsername);
+            }
             window.AKIMClientUsername = '';
             document.cookie = 'ak_username=; path=/; max-age=0; SameSite=Lax';
             document.cookie = 'ak_im_username=; path=/; max-age=0; SameSite=Lax';

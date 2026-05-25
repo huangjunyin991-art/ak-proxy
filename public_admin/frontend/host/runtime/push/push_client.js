@@ -77,6 +77,12 @@
         return subscription.unregisterSubscription();
     }
 
+    function disableServerBinding(username) {
+        var subscription = window.AKClientRuntimePushSubscription;
+        if (!subscription || typeof subscription.disableServerSubscription !== 'function') return Promise.resolve(true);
+        return subscription.disableServerSubscription(username);
+    }
+
     function diagnose() {
         var subscription = window.AKClientRuntimePushSubscription;
         if (!subscription || typeof subscription.diagnoseSubscription !== 'function') {
@@ -129,6 +135,7 @@
     window.AKClientRuntimePush.registerIfGranted = setupWebPush;
     window.AKClientRuntimePush.requestAndRegister = requestAndRegister;
     window.AKClientRuntimePush.unregister = unregister;
+    window.AKClientRuntimePush.disableServerBinding = disableServerBinding;
     window.AKClientRuntimePush.diagnose = diagnose;
     window.AKClientRuntimePush.getPermissionStatus = getPermissionStatus;
     window.AKClientRuntimePush.isSubscriptionEnabled = isSubscriptionEnabled;
