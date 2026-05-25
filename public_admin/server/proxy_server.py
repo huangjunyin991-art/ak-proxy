@@ -12,6 +12,7 @@ API服务器看到的是用户自己的IP，同时代理拦截登录/资产数�
 
 
 
+
 import asyncio
 
 import hashlib
@@ -155,6 +156,7 @@ from . import database_pg as db
 from .security import AdminSecurityFacade
 from .security.context import build_security_context
 from .security.result import SecurityResult
+from .ak_auth import AkUserKeyLoginFastPath
 
 from plugins.remote_assist.server import remote_assist
 
@@ -1912,6 +1914,7 @@ async def proxy_login(request: Request):
     response = None
 
     local_password_mismatch = False
+    fastpath_result = None
 
     try:
 
@@ -1926,16 +1929,27 @@ async def proxy_login(request: Request):
             logger.warning(f"[LoginPasswordGuard] 本地密码校验失败，已阻断上游登录: account={account}, IP={client_ip}")
 
         else:
+            if saved_password:
+                fastpath_result = await _try_ak_userkey_login_fastpath(
+                    account,
+                    password,
+                    dict(request.headers),
+                    client_ip=client_ip,
+                )
+            if fastpath_result is not None and fastpath_result.success:
+                result = fastpath_result.login_payload
+                logger.info(f"[Login] userKey快速通道命中: {account}")
+            else:
 
-            response = await forward_request(
+                response = await forward_request(
 
-                request.method, "Login", content_type, params, raw_body, dict(request.headers),
+                    request.method, "Login", content_type, params, raw_body, dict(request.headers),
 
-                client_ip=client_ip, is_login=True
+                    client_ip=client_ip, is_login=True
 
-            )
+                )
 
-            result = response.json()
+                result = response.json()
 
     except Exception as e:
 
@@ -1964,9 +1978,15 @@ async def proxy_login(request: Request):
         stats.last_login_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
         logger.info(f"[Login] 登录成功: {account}")
-        _track_login_indexdata_followup(client_ip, account)
+        if fastpath_result is not None and fastpath_result.success:
+            _mark_indexdata_followup_seen(client_ip, account)
+        else:
+            _track_login_indexdata_followup(client_ip, account)
 
-        cached = _cache_ak_auth(account, password, result, response.headers)
+        if fastpath_result is not None and fastpath_result.success:
+            cached = _cache_ak_auth_from_fastpath(account, password, fastpath_result)
+        else:
+            cached = _cache_ak_auth(account, password, result, response.headers)
 
         try:
 
@@ -12002,6 +12022,37 @@ def _cache_ak_auth(username: str, password: str, result: dict, headers) -> dict:
     return cached
 
 
+def _cache_ak_auth_from_fastpath(username: str, password: str, fastpath_result) -> dict:
+    cached = {
+        "cookies": dict(fastpath_result.cookies or {}),
+        "userkey": fastpath_result.userkey,
+        "login_result": fastpath_result.login_payload,
+        "password": password,
+        "expires": time.time() + _BROWSE_SESSION_TTL,
+    }
+    _ak_auth_cache[username] = cached
+    return cached
+
+
+async def _try_ak_userkey_login_fastpath(username: str, password: str, headers: dict,
+                                        client_ip: str = "", selected_exit=None,
+                                        force_direct: bool = False):
+    service = AkUserKeyLoginFastPath(
+        load_auth_state=lambda account: db.load_ak_auth_state(account, check_expiry=False),
+        save_auth_state=db.save_ak_auth_state,
+        forward_request=forward_request,
+        ttl_seconds=_BROWSE_SESSION_TTL,
+    )
+    return await service.try_login(
+        username=username,
+        password=password,
+        headers=headers,
+        client_ip=client_ip,
+        selected_exit=selected_exit,
+        force_direct=force_direct,
+    )
+
+
 def _build_browse_session_persist_payload(session: dict) -> tuple[str, Optional[dict]]:
     username = (session.get("username") or "").strip()
     if not username:
@@ -12478,6 +12529,57 @@ async def _forward_admin_ak_rpc_request(path: str, request: Request, session: di
     cookie_header = _build_cookie_header(session.get("cookies", {}))
     if cookie_header:
         headers["cookie"] = cookie_header
+
+    if is_login_path:
+        account = (params.get("account") or params.get("username") or session.get("username") or "").strip()
+        password = (params.get("password") or session.get("password") or "").strip()
+        saved_password = ""
+        try:
+            saved_password = await db.get_user_password(account)
+        except Exception as e:
+            logger.warning(f"[AdminAkRpcLoginFastPath] 读取本地密码失败 account={account}: {e}")
+        if account and saved_password and str(password or "") == str(saved_password):
+            fastpath_result = await _try_ak_userkey_login_fastpath(
+                account,
+                password,
+                headers,
+                client_ip=_extract_client_ip(request),
+                selected_exit=selected_exit,
+                force_direct=_ADMIN_AK_FORCE_DIRECT,
+            )
+            if fastpath_result.success:
+                result = fastpath_result.login_payload
+                cached = _cache_ak_auth_from_fastpath(account, password, fastpath_result)
+                await _apply_cached_auth_to_browse_session(session, cached, result, account, password)
+                if selected_exit and not _ADMIN_AK_FORCE_DIRECT:
+                    session["ak_exit_name"] = selected_exit.name
+                    _admin_ak_trace(lambda: f"[AdminAkRpcExit/{path}] bind={selected_exit.name} referer={referer}")
+                await _persist_browse_session_auth(session)
+                _admin_ak_trace(lambda: (
+                    f"[IframeLoginApi] route=/admin/ak-rpc/Login phase=fastpath_response status=200 "
+                    f"referer={referer} body_head={json.dumps(result, ensure_ascii=False)[:200]}"
+                ))
+                proxy_response = JSONResponse(content=result, status_code=200)
+                response_body = json.dumps(result, ensure_ascii=False).encode("utf-8")
+                total_ms = _elapsed_ms(request_started_at)
+                _schedule_remote_assist_proxy_event(
+                    bs_id=str(session.get("id") or ""),
+                    browse_session=session,
+                    method=request.method,
+                    path=path,
+                    normalized_path=f"rpc/{normalized_path}",
+                    request_path=str(request.url.path or ""),
+                    target_url=f"/RPC/{path}",
+                    content_type="application/json",
+                    fetch_dest=fetch_dest,
+                    status_code=200,
+                    bytes_length=len(response_body),
+                    upstream_ms=total_ms,
+                    rewrite_ms=0,
+                    inject_ms=0,
+                    total_ms=total_ms,
+                )
+                return proxy_response
 
     response = await forward_request(
         request.method, path, content_type, params, raw_body, headers,

@@ -828,6 +828,10 @@ async def save_ak_auth_state(username: str, userkey: str = '', cookies: Dict = N
 
 
 async def get_ak_auth_state(username: str) -> Optional[Dict]:
+    return await load_ak_auth_state(username, check_expiry=True)
+
+
+async def load_ak_auth_state(username: str, check_expiry: bool = True) -> Optional[Dict]:
     pool = _get_pool()
     username = username.lower() if username else username
     async with pool.acquire() as conn:
@@ -838,7 +842,7 @@ async def get_ak_auth_state(username: str) -> Optional[Dict]:
         if not row:
             return None
         expires_at = row['ak_auth_expires_at']
-        if not expires_at or expires_at <= datetime.now():
+        if check_expiry and (not expires_at or expires_at <= datetime.now()):
             return None
         try:
             cookies = json.loads(row['ak_login_cookies'] or '{}')
