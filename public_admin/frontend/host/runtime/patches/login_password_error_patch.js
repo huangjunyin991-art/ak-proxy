@@ -52,8 +52,8 @@
             '<div style="width:100%;max-width:none;background:#fff;border-radius:2px;box-shadow:0 8px 28px rgba(0,0,0,.28);font-family:Arial,Helvetica,sans-serif;color:#333;text-align:center;overflow:hidden;">' +
                 '<div style="padding:20px 18px 8px;font-size:13px;font-weight:700;color:#111;">AK</div>' +
                 '<div style="padding:6px 20px 8px;font-size:12px;color:#8a8a8a;line-height:1.8;">' + escapeHtml(message) + '</div>' +
-                '<div style="padding:0 20px 12px;font-size:12px;color:#555;line-height:1.8;word-break:break-all;">当前输入的密码为：<span style="color:#d93025;font-weight:700;">' + escapeHtml(password) + '</span>，请确认后重试！</div>' +
-                '<button type="button" id="ak-login-password-error-ok" disabled style="width:100%;height:48px;border:0;background:#fff;color:#9aa0a6;font-size:13px;cursor:not-allowed;border-top:1px solid rgba(0,0,0,.06);">确认(' + PASSWORD_ERROR_COUNTDOWN_SECONDS + 's)</button>' +
+                '<div style="padding:0 20px 12px;font-size:12px;color:#555;line-height:1.8;word-break:break-all;">當前輸入的密碼為：<span style="color:#d93025;font-weight:700;">' + escapeHtml(password) + '</span>，請確認後重試！</div>' +
+                '<button type="button" id="ak-login-password-error-ok" disabled style="width:100%;height:48px;border:0;background:#fff;color:#9aa0a6;font-size:13px;cursor:not-allowed;border-top:1px solid rgba(0,0,0,.06);">確認(' + PASSWORD_ERROR_COUNTDOWN_SECONDS + 's)</button>' +
             '</div>';
         document.body.appendChild(overlay);
         var button = document.getElementById('ak-login-password-error-ok');
@@ -65,12 +65,12 @@
                 return;
             }
             if (remaining > 0) {
-                button.textContent = '确认(' + remaining + 's)';
+                button.textContent = '確認(' + remaining + 's)';
                 return;
             }
             clearInterval(timer);
             button.disabled = false;
-            button.textContent = '确认';
+            button.textContent = '確認';
             button.style.color = '#1677ff';
             button.style.cursor = 'pointer';
             button.onclick = function() {
