@@ -12,8 +12,11 @@
         policy: null,
         runtime: null,
         available: true,
-        message: ''
+        message: '',
+        rendered: false,
+        runtimeHtml: ''
     };
+    var STYLE_ID = 'akActiveDefensePanelStyle';
 
     function token() {
         return sessionStorage.getItem('admin_token') || '';
@@ -93,6 +96,11 @@
         if (el) el.checked = !!value;
     }
 
+    function setText(id, value) {
+        var el = document.getElementById(id);
+        if (el) el.textContent = value == null ? '' : String(value);
+    }
+
     function switchCard(id, title, desc) {
         return '<label class="ad-toggle-card">' +
             '<input id="' + id + '" type="checkbox">' +
@@ -126,7 +134,7 @@
     }
 
     function renderStyles() {
-        return '<style>' + [
+        return [
             '#activeDefensePanelMount{display:block}',
             '.ad-page{display:flex;flex-direction:column;gap:18px}',
             '.ad-hero{position:relative;overflow:hidden;border:1px solid rgba(0,212,255,.22);border-radius:22px;background:radial-gradient(circle at 0 0,rgba(0,255,204,.18),transparent 34%),linear-gradient(135deg,rgba(4,18,32,.96),rgba(5,31,45,.92));padding:20px;box-shadow:0 18px 55px rgba(0,0,0,.22)}',
@@ -175,7 +183,15 @@
             '.ad-unavailable{margin-top:14px;border:1px solid rgba(255,71,87,.25);border-radius:14px;background:rgba(255,71,87,.1);color:#ff8a96;padding:12px;font-size:13px}',
             '@media(max-width:1180px){.ad-section{grid-column:span 12}.ad-policy-fields.three{grid-template-columns:repeat(2,minmax(0,1fr))}}',
             '@media(max-width:760px){.ad-hero{padding:16px}.ad-title{font-size:20px}.ad-metrics,.ad-control-grid,.ad-control-grid.three,.ad-policy-fields,.ad-policy-fields.three{grid-template-columns:1fr}.ad-last-ban{align-items:flex-start;flex-direction:column}.ad-last-ban p{text-align:left}.ad-footer{position:relative}.ad-footer-actions{width:100%}.ad-footer-actions .ad-btn{flex:1}}'
-        ].join('') + '</style>';
+        ].join('');
+    }
+
+    function ensureStyles() {
+        if (document.getElementById(STYLE_ID)) return;
+        var style = document.createElement('style');
+        style.id = STYLE_ID;
+        style.textContent = renderStyles();
+        (document.head || document.documentElement).appendChild(style);
     }
 
     function policyGroup(title, desc, controls, columns) {
@@ -186,24 +202,56 @@
         return '<section class="ad-section' + (wide ? ' wide' : '') + '"><div class="ad-section-head"><div><div class="ad-section-title">' + escapeHtml(title) + '</div><div class="ad-section-copy">' + escapeHtml(copy) + '</div></div><div class="ad-section-index">' + escapeHtml(index) + '</div></div>' + body + '</section>';
     }
 
+    function renderShell() {
+        return '<div class="ad-page">' +
+            '<section class="ad-hero"><div class="ad-hero-main"><div><div class="ad-title">主动防御策略中心</div><div class="ad-desc">集中管理登录短间隔、密码错误、登录 403、忘记密码 API 403、HTTP 403/429 连续异常和自动封禁处罚。这里是策略入口，监控中心只保留观测职责。</div></div><div class="ad-actions-top"><div class="ad-status-pill" id="adStatusPill"><span class="ad-dot"></span><span id="adStatusText"></span></div><button class="ad-btn secondary" id="adRefreshBtn">刷新</button></div></div><div class="ad-unavailable" id="adUnavailableMessage" style="display:none"></div><div id="adRuntimeBlock"></div></section>' +
+            '<div class="ad-section-grid">' +
+                section('全局处罚规则', '控制主动防御总开关、本机豁免和自动封禁时长。', '01', '<div class="ad-policy-stack">' + policyGroup('总开关与豁免', '这些开关决定主动防御是否参与判定，以及是否跳过本机调试流量。', switchCard('adEnabled', '启用主动防御', '关闭后所有主动防御自动封禁策略暂停') + switchCard('adIgnoreLoopback', '忽略本机 IP', '避免本机调试和健康检查被误封') + switchCard('adProgressiveBan', '启用梯度封禁', '同一 IP 多次触发时逐级增加处罚'), 3) + policyGroup('封禁时长', '所有自动封禁策略共用这组处罚时长。', numberField('adBanBaseSeconds', '基础封禁时长（秒）', '默认 3600 秒') + numberField('adBanMaxSeconds', '最大封禁时长（秒）', '默认 30 天'), 2) + '</div>', true) +
+                section('登录防护策略', '处理登录接口短间隔请求和密码错误累计封禁。', '02', '<div class="ad-policy-stack">' + policyGroup('登录接口短间隔', '同一 IP 高频请求登录接口时，先阻断本次请求，再按阈值自动封禁。', switchCard('adLoginShortEnabled', '启用登录短间隔防护', '请求登录接口过快时先阻断，连续命中后封禁') + switchCard('adLoginShortBlockEnabled', '短间隔先阻断', '开启后未达封禁阈值时返回 429') + numberField('adLoginMinInterval', '最小登录间隔（秒）', '默认 5 秒') + numberField('adLoginShortThreshold', '短间隔封禁阈值（次）', '默认 3 次'), 2) + policyGroup('密码错误累计封禁', '同一 IP 对同一账号连续密码错误达到阈值后自动封禁。', switchCard('adPasswordFailureEnabled', '启用密码错误累计封禁', '同一 IP 对同一账号连续密码错误达到阈值后封禁') + numberField('adPasswordWindowHours', '密码错误统计窗口（小时）', '默认 24 小时，成功登录后重新累计') + numberField('adPasswordThreshold', '密码错误封禁阈值（次）', '默认 15 次'), 2) + '</div>', false) +
+                section('403 / 429 异常策略', '处理登录 403、忘记密码 API 403 和接口响应异常。', '03', '<div class="ad-policy-stack">' + policyGroup('登录 403 多账号失败', '同一 IP 在窗口内触发多个账号登录 403 时自动封禁。', switchCard('adLogin403Enabled', '启用登录 403 防护', '登录 403 和同 IP 多账号 403 统一封禁') + numberField('adLogin403Window', '登录 403 统计窗口（秒）', '默认 60 秒') + numberField('adLogin403DistinctThreshold', '同 IP 多账号 403 阈值（个）', '默认 6 个账号'), 2) + policyGroup('忘记密码 API 403', '忘记密码相关 API 连续触发上游 403 时自动封禁。', numberField('adLoginForget403Threshold', '忘记密码 API 403 连续阈值（次）', '默认 20 次'), 2) + policyGroup('响应异常防护', '同一 IP 连续触发指定 HTTP 状态码达到阈值后自动封禁。', switchCard('adResponseEnabled', '启用响应异常防护', '同一 IP 连续触发 HTTP 403/429 达阈值后封禁') + numberField('adResponseWindow', '响应异常保护窗口（秒）', '默认 60 秒') + numberField('adResponseThreshold', '响应异常连续阈值（次）', '默认 10 次') + textField('adResponseCodes', '监听状态码', '逗号分隔，默认 403,429') + switchCard('adResponseResetClean', '非异常响应重置计数', '开启后连续性更严格') + switchCard('adResponseApiOnly', '仅统计 API 路径', '关闭则统计全站响应') + switchCard('adResponseExcludeStatic', '排除静态资源', '避免 CSS/JS/图片 404 或 403 误判'), 2) + '</div>', false) +
+            '</div>' +
+            '<section class="ad-footer"><div class="ad-footer-copy"><strong>保存后立即应用到运行策略</strong><span>清空运行计数不会解除已经封禁的 IP。</span></div><div class="ad-footer-actions"><button class="ad-btn" id="adSaveBtn">保存配置</button><button class="ad-btn danger" id="adClearBtn">清空运行计数</button></div></section>' +
+        '</div>';
+    }
+
+    function updateDynamicView() {
+        var disabled = state.saving || state.loading;
+        var policy = state.policy || {};
+        var enabled = policy.enabled !== false;
+        var statusPill = document.getElementById('adStatusPill');
+        var unavailable = document.getElementById('adUnavailableMessage');
+        var runtimeBlock = document.getElementById('adRuntimeBlock');
+        var refreshBtn = document.getElementById('adRefreshBtn');
+        var saveBtn = document.getElementById('adSaveBtn');
+        var clearBtn = document.getElementById('adClearBtn');
+        if (statusPill) statusPill.className = 'ad-status-pill' + (enabled ? '' : ' off');
+        setText('adStatusText', enabled ? '策略运行中' : '策略已停用');
+        if (unavailable) {
+            unavailable.style.display = state.available === false ? '' : 'none';
+            unavailable.textContent = state.message || '主动防御模块不可用';
+        }
+        if (runtimeBlock) {
+            var runtimeHtml = renderRuntime();
+            if (state.runtimeHtml !== runtimeHtml) {
+                state.runtimeHtml = runtimeHtml;
+                runtimeBlock.innerHTML = runtimeHtml;
+            }
+        }
+        if (refreshBtn) refreshBtn.disabled = disabled;
+        if (saveBtn) saveBtn.disabled = disabled;
+        if (clearBtn) clearBtn.disabled = !!state.clearing;
+    }
+
     function render() {
         var root = mount();
         if (!root) return;
-        var disabled = state.saving || state.loading ? ' disabled' : '';
-        var policy = state.policy || {};
-        var enabled = policy.enabled !== false;
-        root.innerHTML = renderStyles() +
-            '<div class="ad-page">' +
-                '<section class="ad-hero"><div class="ad-hero-main"><div><div class="ad-title">主动防御策略中心</div><div class="ad-desc">集中管理登录短间隔、密码错误、登录 403、忘记密码 API 403、HTTP 403/429 连续异常和自动封禁处罚。这里是策略入口，监控中心只保留观测职责。</div></div><div class="ad-actions-top"><div class="ad-status-pill' + (enabled ? '' : ' off') + '"><span class="ad-dot"></span>' + (enabled ? '策略运行中' : '策略已停用') + '</div><button class="ad-btn secondary" id="adRefreshBtn"' + disabled + '>刷新</button></div></div>' +
-                (state.available === false ? '<div class="ad-unavailable">' + escapeHtml(state.message || '主动防御模块不可用') + '</div>' : '') + renderRuntime() + '</section>' +
-                '<div class="ad-section-grid">' +
-                    section('全局处罚规则', '控制主动防御总开关、本机豁免和自动封禁时长。', '01', '<div class="ad-policy-stack">' + policyGroup('总开关与豁免', '这些开关决定主动防御是否参与判定，以及是否跳过本机调试流量。', switchCard('adEnabled', '启用主动防御', '关闭后所有主动防御自动封禁策略暂停') + switchCard('adIgnoreLoopback', '忽略本机 IP', '避免本机调试和健康检查被误封') + switchCard('adProgressiveBan', '启用梯度封禁', '同一 IP 多次触发时逐级增加处罚'), 3) + policyGroup('封禁时长', '所有自动封禁策略共用这组处罚时长。', numberField('adBanBaseSeconds', '基础封禁时长（秒）', '默认 3600 秒') + numberField('adBanMaxSeconds', '最大封禁时长（秒）', '默认 30 天'), 2) + '</div>', true) +
-                    section('登录防护策略', '处理登录接口短间隔请求和密码错误累计封禁。', '02', '<div class="ad-policy-stack">' + policyGroup('登录接口短间隔', '同一 IP 高频请求登录接口时，先阻断本次请求，再按阈值自动封禁。', switchCard('adLoginShortEnabled', '启用登录短间隔防护', '请求登录接口过快时先阻断，连续命中后封禁') + switchCard('adLoginShortBlockEnabled', '短间隔先阻断', '开启后未达封禁阈值时返回 429') + numberField('adLoginMinInterval', '最小登录间隔（秒）', '默认 5 秒') + numberField('adLoginShortThreshold', '短间隔封禁阈值（次）', '默认 3 次'), 2) + policyGroup('密码错误累计封禁', '同一 IP 对同一账号连续密码错误达到阈值后自动封禁。', switchCard('adPasswordFailureEnabled', '启用密码错误累计封禁', '同一 IP 对同一账号连续密码错误达到阈值后封禁') + numberField('adPasswordWindowHours', '密码错误统计窗口（小时）', '默认 24 小时，成功登录后重新累计') + numberField('adPasswordThreshold', '密码错误封禁阈值（次）', '默认 15 次'), 2) + '</div>', false) +
-                    section('403 / 429 异常策略', '处理登录 403、忘记密码 API 403 和接口响应异常。', '03', '<div class="ad-policy-stack">' + policyGroup('登录 403 多账号失败', '同一 IP 在窗口内触发多个账号登录 403 时自动封禁。', switchCard('adLogin403Enabled', '启用登录 403 防护', '登录 403 和同 IP 多账号 403 统一封禁') + numberField('adLogin403Window', '登录 403 统计窗口（秒）', '默认 60 秒') + numberField('adLogin403DistinctThreshold', '同 IP 多账号 403 阈值（个）', '默认 6 个账号'), 2) + policyGroup('忘记密码 API 403', '忘记密码相关 API 连续触发上游 403 时自动封禁。', numberField('adLoginForget403Threshold', '忘记密码 API 403 连续阈值（次）', '默认 20 次'), 2) + policyGroup('响应异常防护', '同一 IP 连续触发指定 HTTP 状态码达到阈值后自动封禁。', switchCard('adResponseEnabled', '启用响应异常防护', '同一 IP 连续触发 HTTP 403/429 达阈值后封禁') + numberField('adResponseWindow', '响应异常保护窗口（秒）', '默认 60 秒') + numberField('adResponseThreshold', '响应异常连续阈值（次）', '默认 10 次') + textField('adResponseCodes', '监听状态码', '逗号分隔，默认 403,429') + switchCard('adResponseResetClean', '非异常响应重置计数', '开启后连续性更严格') + switchCard('adResponseApiOnly', '仅统计 API 路径', '关闭则统计全站响应') + switchCard('adResponseExcludeStatic', '排除静态资源', '避免 CSS/JS/图片 404 或 403 误判'), 2) + '</div>', false) +
-                '</div>' +
-                '<section class="ad-footer"><div class="ad-footer-copy"><strong>保存后立即应用到运行策略</strong><span>清空运行计数不会解除已经封禁的 IP。</span></div><div class="ad-footer-actions"><button class="ad-btn" id="adSaveBtn"' + disabled + '>保存配置</button><button class="ad-btn danger" id="adClearBtn"' + (state.clearing ? ' disabled' : '') + '>清空运行计数</button></div></section>' +
-            '</div>';
-        bindEvents();
+        ensureStyles();
+        if (!state.rendered || !root.querySelector('.ad-page')) {
+            root.innerHTML = renderShell();
+            state.rendered = true;
+            bindEvents();
+        }
+        updateDynamicView();
         fillPolicy();
     }
 
@@ -272,7 +320,7 @@
     }
 
     function load(force) {
-        if (state.loading && !force) return;
+        if (state.loading) return;
         state.loading = true;
         render();
         api('/policy').then(function(body) {
