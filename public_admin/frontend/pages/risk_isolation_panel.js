@@ -18,6 +18,7 @@
         rows: []
     };
     var STYLE_ID = 'akRiskIsolationPanelStyle';
+    var dropdownDocumentHandlerBound = false;
 
     function token() {
         return sessionStorage.getItem('admin_token') || '';
@@ -93,7 +94,7 @@
         if (document.getElementById(STYLE_ID)) return;
         var style = document.createElement('style');
         style.id = STYLE_ID;
-        style.textContent = '#riskIsolationPanelMount{display:block}.ri-wrap{display:flex;flex-direction:column;gap:16px}.ri-card{border:1px solid var(--border);border-radius:16px;background:linear-gradient(135deg,var(--bg-card),rgba(255,71,87,.05));padding:16px}.ri-head{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;flex-wrap:wrap}.ri-title{color:var(--accent);font-size:18px;font-weight:800}.ri-desc{color:var(--text-secondary);font-size:12px;margin-top:4px;line-height:1.5}.ri-stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px}.ri-stat{border:1px solid rgba(255,255,255,.08);border-radius:14px;background:rgba(255,255,255,.035);padding:14px}.ri-stat-label{font-size:12px;color:var(--text-secondary)}.ri-stat-value{font-size:24px;font-weight:800;color:var(--accent);margin-top:5px}.ri-toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.ri-input,.ri-select{min-height:38px;border:1px solid var(--border);border-radius:10px;padding:8px 10px;color:var(--text-primary);background:var(--bg-primary);font-size:13px;outline:none}.ri-input:focus,.ri-select:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(0,212,255,.12)}.ri-btn{border:0;border-radius:10px;padding:9px 14px;background:linear-gradient(135deg,#00d4ff,#667eea);color:#fff;font-weight:700;cursor:pointer}.ri-btn.secondary{background:var(--bg-secondary);color:var(--text-primary);border:1px solid var(--border)}.ri-btn.danger{background:linear-gradient(135deg,#ff4757,#ff6b81)}.ri-btn.success{background:linear-gradient(135deg,#00c851,#00ff88);color:#051018}.ri-btn:disabled{opacity:.55;cursor:not-allowed}.ri-table-wrap{overflow-x:auto}.ri-table{width:100%;border-collapse:collapse;min-width:920px}.ri-table th,.ri-table td{padding:10px 12px;border-bottom:1px solid var(--border);text-align:left;font-size:13px}.ri-table th{color:var(--accent);font-weight:800;background:rgba(0,212,255,.04)}.ri-muted{color:var(--text-secondary)}.ri-pill{display:inline-flex;align-items:center;border-radius:999px;padding:3px 8px;font-size:12px;font-weight:700}.ri-pill.on{background:rgba(255,71,87,.16);color:#ff6b81}.ri-pill.off{background:rgba(0,255,136,.12);color:#00ff88}.ri-empty{text-align:center;color:var(--text-secondary);padding:28px 0}.ri-cards{display:none}.ri-user-card{border:1px solid var(--border);border-radius:14px;background:rgba(255,255,255,.035);padding:14px;display:flex;flex-direction:column;gap:10px}.ri-user-head{display:flex;justify-content:space-between;gap:10px}.ri-user-name{font-weight:800;color:var(--text-primary)}.ri-user-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.ri-user-label{font-size:11px;color:var(--text-secondary)}.ri-user-value{font-size:13px;color:var(--text-primary);word-break:break-all}@media(max-width:760px){.ri-table-wrap{display:none}.ri-cards{display:grid;gap:12px}.ri-toolbar{align-items:stretch}.ri-input,.ri-select,.ri-btn{width:100%}.ri-user-grid{grid-template-columns:1fr}}';
+        style.textContent = '#riskIsolationPanelMount{display:block}.ri-wrap{display:flex;flex-direction:column;gap:16px}.ri-card{border:1px solid var(--border);border-radius:16px;background:linear-gradient(135deg,var(--bg-card),rgba(255,71,87,.05));padding:16px}.ri-head{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;flex-wrap:wrap}.ri-title{color:var(--accent);font-size:18px;font-weight:800}.ri-desc{color:var(--text-secondary);font-size:12px;margin-top:4px;line-height:1.5}.ri-stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px}.ri-stat{border:1px solid rgba(255,255,255,.08);border-radius:14px;background:rgba(255,255,255,.035);padding:14px}.ri-stat-label{font-size:12px;color:var(--text-secondary)}.ri-stat-value{font-size:24px;font-weight:800;color:var(--accent);margin-top:5px}.ri-toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.ri-input{min-height:38px;border:1px solid var(--border);border-radius:10px;padding:8px 10px;color:var(--text-primary);background:var(--bg-primary);font-size:13px;outline:none}.ri-input:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(0,212,255,.12)}.ri-scope-dropdown{position:relative;min-width:198px;z-index:20}.ri-scope-trigger{width:100%;min-height:40px;border:1px solid rgba(255,221,87,.82);border-radius:18px;padding:8px 14px 8px 18px;color:#fff;background:linear-gradient(180deg,rgba(6,18,34,.98),rgba(9,24,44,.98));font-size:18px;font-weight:800;line-height:1.2;display:flex;align-items:center;justify-content:space-between;gap:14px;cursor:pointer;outline:none;box-shadow:0 0 0 2px rgba(255,221,87,.08),0 10px 24px rgba(0,0,0,.28)}.ri-scope-trigger:focus{border-color:#ffdf5d;box-shadow:0 0 0 3px rgba(255,221,87,.18),0 10px 24px rgba(0,0,0,.28)}.ri-scope-caret{font-size:20px;line-height:1;transition:transform .16s ease}.ri-scope-menu{position:absolute;left:0;right:0;top:calc(100% - 1px);display:none;overflow:hidden;border:1px solid rgba(255,221,87,.82);border-top:0;border-radius:0 0 14px 14px;background:linear-gradient(180deg,rgba(9,24,44,.99),#242c39);box-shadow:0 16px 34px rgba(0,0,0,.42),0 0 0 2px rgba(255,221,87,.08);z-index:30}.ri-scope-dropdown.open .ri-scope-trigger{border-bottom-color:transparent;border-bottom-left-radius:0;border-bottom-right-radius:0;box-shadow:0 0 0 2px rgba(255,221,87,.08)}.ri-scope-dropdown.open .ri-scope-caret{transform:rotate(180deg)}.ri-scope-dropdown.open .ri-scope-menu{display:block}.ri-scope-option{width:100%;border:0;border-top:1px solid rgba(255,255,255,.05);background:transparent;color:#fff;padding:9px 20px;text-align:left;font-size:18px;font-weight:800;line-height:1.25;display:flex;align-items:center;justify-content:space-between;gap:12px;cursor:pointer}.ri-scope-option:first-child{border-top:0}.ri-scope-option:hover,.ri-scope-option.active{background:#2d6cdf}.ri-scope-count{font-size:16px;color:#fff;font-weight:800;white-space:nowrap}.ri-btn{border:0;border-radius:10px;padding:9px 14px;background:linear-gradient(135deg,#00d4ff,#667eea);color:#fff;font-weight:700;cursor:pointer}.ri-btn.secondary{background:var(--bg-secondary);color:var(--text-primary);border:1px solid var(--border)}.ri-btn.danger{background:linear-gradient(135deg,#ff4757,#ff6b81)}.ri-btn.success{background:linear-gradient(135deg,#00c851,#00ff88);color:#051018}.ri-btn:disabled,.ri-scope-trigger:disabled{opacity:.55;cursor:not-allowed}.ri-table-wrap{overflow-x:auto}.ri-table{width:100%;border-collapse:collapse;min-width:920px}.ri-table th,.ri-table td{padding:10px 12px;border-bottom:1px solid var(--border);text-align:left;font-size:13px}.ri-table th{color:var(--accent);font-weight:800;background:rgba(0,212,255,.04)}.ri-muted{color:var(--text-secondary)}.ri-pill{display:inline-flex;align-items:center;border-radius:999px;padding:3px 8px;font-size:12px;font-weight:700}.ri-pill.on{background:rgba(255,71,87,.16);color:#ff6b81}.ri-pill.off{background:rgba(0,255,136,.12);color:#00ff88}.ri-empty{text-align:center;color:var(--text-secondary);padding:28px 0}.ri-cards{display:none}.ri-user-card{border:1px solid var(--border);border-radius:14px;background:rgba(255,255,255,.035);padding:14px;display:flex;flex-direction:column;gap:10px}.ri-user-head{display:flex;justify-content:space-between;gap:10px}.ri-user-name{font-weight:800;color:var(--text-primary)}.ri-user-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.ri-user-label{font-size:11px;color:var(--text-secondary)}.ri-user-value{font-size:13px;color:var(--text-primary);word-break:break-all}@media(max-width:760px){.ri-table-wrap{display:none}.ri-cards{display:grid;gap:12px}.ri-toolbar{align-items:stretch}.ri-input,.ri-scope-dropdown,.ri-btn{width:100%}.ri-user-grid{grid-template-columns:1fr}}';
         document.head.appendChild(style);
     }
 
@@ -104,7 +105,7 @@
         root.innerHTML = '<div class="ri-wrap">' +
             '<section class="ri-card"><div class="ri-head"><div><div class="ri-title">风险隔离</div><div class="ri-desc">隔离白名单玩家后，该玩家调用 /RPC/Login 将直接得到 404；子管理员仅能管理自己名下白名单玩家。</div></div><button class="ri-btn secondary" id="riRefreshBtn">刷新</button></div></section>' +
             '<section class="ri-stats"><div class="ri-stat"><div class="ri-stat-label">当前范围玩家</div><div class="ri-stat-value" id="riTotal">-</div></div><div class="ri-stat"><div class="ri-stat-label">已隔离玩家</div><div class="ri-stat-value" id="riIsolatedTotal">-</div></div><div class="ri-stat"><div class="ri-stat-label">当前范围</div><div class="ri-stat-value" id="riScopeLabel" style="font-size:16px;line-height:1.5;">-</div></div></section>' +
-            '<section class="ri-card"><div class="ri-toolbar"><select class="ri-select" id="riSubAdminSelect" style="display:none;"></select><input class="ri-input" id="riSearch" placeholder="搜索账号/姓名"><button class="ri-btn secondary" id="riSearchBtn">搜索</button><button class="ri-btn danger" id="riIsolateAllBtn">一键隔离当前范围</button></div></section>' +
+            '<section class="ri-card"><div class="ri-toolbar"><div class="ri-scope-dropdown" id="riSubAdminDropdown" style="display:none;"><button type="button" class="ri-scope-trigger" id="riSubAdminTrigger"><span id="riSubAdminTriggerText">全部白名单</span><span class="ri-scope-caret">⌄</span></button><div class="ri-scope-menu" id="riSubAdminMenu"></div></div><input class="ri-input" id="riSearch" placeholder="搜索账号/姓名"><button class="ri-btn secondary" id="riSearchBtn">搜索</button><button class="ri-btn danger" id="riIsolateAllBtn">一键隔离当前范围</button></div></section>' +
             '<section class="ri-card"><div class="ri-table-wrap"><table class="ri-table"><thead><tr><th>账号</th><th>姓名</th><th>添加人</th><th>到期时间</th><th>隔离状态</th><th>隔离人</th><th>隔离时间</th><th>操作</th></tr></thead><tbody id="riTableBody"><tr><td colspan="8" class="ri-empty">加载中...</td></tr></tbody></table></div><div class="ri-cards" id="riCardList"></div></section>' +
         '</div>';
         bindEvents();
@@ -114,13 +115,36 @@
         var refreshBtn = document.getElementById('riRefreshBtn');
         var searchBtn = document.getElementById('riSearchBtn');
         var searchInput = document.getElementById('riSearch');
-        var subSelect = document.getElementById('riSubAdminSelect');
+        var subDropdown = document.getElementById('riSubAdminDropdown');
+        var subTrigger = document.getElementById('riSubAdminTrigger');
         var isolateAllBtn = document.getElementById('riIsolateAllBtn');
         if (refreshBtn) refreshBtn.onclick = function() { loadAccounts(); };
         if (searchBtn) searchBtn.onclick = function() { state.search = searchInput ? searchInput.value.trim() : ''; loadAccounts(); };
         if (searchInput) searchInput.onkeyup = function(event) { if (event.key === 'Enter') { state.search = searchInput.value.trim(); loadAccounts(); } };
-        if (subSelect) subSelect.onchange = function() { state.selectedSubAdmin = subSelect.value; loadAccounts(); };
+        if (subTrigger && subDropdown) subTrigger.onclick = function(event) {
+            event.stopPropagation();
+            if (state.loading) return;
+            subDropdown.classList.toggle('open');
+        };
+        if (subDropdown) subDropdown.onclick = function(event) {
+            var option = event.target.closest('[data-ri-sub-admin]');
+            if (!option) return;
+            event.stopPropagation();
+            state.selectedSubAdmin = option.getAttribute('data-ri-sub-admin') || '';
+            subDropdown.classList.remove('open');
+            renderSubAdmins();
+            loadAccounts();
+        };
+        if (!dropdownDocumentHandlerBound) {
+            document.addEventListener('click', closeSubAdminDropdown);
+            dropdownDocumentHandlerBound = true;
+        }
         if (isolateAllBtn) isolateAllBtn.onclick = isolateAll;
+    }
+
+    function closeSubAdminDropdown() {
+        var dropdown = document.getElementById('riSubAdminDropdown');
+        if (dropdown) dropdown.classList.remove('open');
     }
 
     function updateHeader() {
@@ -133,18 +157,26 @@
     }
 
     function renderSubAdmins() {
-        var select = document.getElementById('riSubAdminSelect');
-        if (!select) return;
+        var dropdown = document.getElementById('riSubAdminDropdown');
+        var triggerText = document.getElementById('riSubAdminTriggerText');
+        var menu = document.getElementById('riSubAdminMenu');
+        if (!dropdown || !triggerText || !menu) return;
         if (!isSuperAdmin()) {
-            select.style.display = 'none';
+            dropdown.style.display = 'none';
             return;
         }
-        select.style.display = '';
-        select.innerHTML = '<option value="">全部白名单</option>' + state.subAdmins.map(function(item) {
-            var label = item.name + '（' + (item.isolated_count || 0) + '/' + (item.active_count || 0) + '）';
-            return '<option value="' + escapeHtml(item.name) + '">' + escapeHtml(label) + '</option>';
+        dropdown.style.display = '';
+        var selectedName = state.selectedSubAdmin || '';
+        var selectedItem = (state.subAdmins || []).filter(function(item) {
+            return item.name === selectedName;
+        })[0];
+        triggerText.textContent = selectedItem ? selectedItem.name : '全部白名单';
+        menu.innerHTML = '<button type="button" class="ri-scope-option' + (!selectedName ? ' active' : '') + '" data-ri-sub-admin=""><span>全部白名单</span></button>' + (state.subAdmins || []).map(function(item) {
+            var name = String(item.name || '');
+            var active = name === selectedName ? ' active' : '';
+            var count = (item.isolated_count || 0) + '/' + (item.active_count || 0);
+            return '<button type="button" class="ri-scope-option' + active + '" data-ri-sub-admin="' + escapeHtml(name) + '"><span>' + escapeHtml(name) + '</span><span class="ri-scope-count">(' + escapeHtml(count) + ')</span></button>';
         }).join('');
-        select.value = state.selectedSubAdmin || '';
     }
 
     function renderRows() {
@@ -181,7 +213,8 @@
 
     function setBusy(busy) {
         state.loading = !!busy;
-        ['riRefreshBtn', 'riSearchBtn', 'riIsolateAllBtn', 'riSubAdminSelect', 'riSearch'].forEach(function(id) {
+        if (busy) closeSubAdminDropdown();
+        ['riRefreshBtn', 'riSearchBtn', 'riIsolateAllBtn', 'riSubAdminTrigger', 'riSearch'].forEach(function(id) {
             var el = document.getElementById(id);
             if (el) el.disabled = !!busy;
         });
