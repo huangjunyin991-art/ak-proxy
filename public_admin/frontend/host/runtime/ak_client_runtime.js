@@ -146,6 +146,9 @@
             if (patches && typeof patches.installRecommendFriendFirstCardBackPatch === 'function') {
                 patches.installRecommendFriendFirstCardBackPatch();
             }
+            if (patches && typeof patches.installLoginPasswordErrorPatch === 'function') {
+                patches.installLoginPasswordErrorPatch();
+            }
         } catch(e) {
         }
     }
