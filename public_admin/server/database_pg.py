@@ -2187,9 +2187,9 @@ async def get_dashboard_data() -> Dict:
     async def q_top_users():
         async with pool.acquire() as conn:
             return await conn.fetch('''
-                SELECT username, COUNT(*) AS count FROM login_records
+                SELECT username, COUNT(*) AS count, MAX(login_time) AS last_login FROM login_records
                 WHERE login_time >= $1 AND login_time < $2
-                GROUP BY username ORDER BY count DESC LIMIT 10
+                GROUP BY username ORDER BY count DESC, last_login DESC LIMIT 10
             ''', today, tomorrow)
 
     async def q_top_ips():

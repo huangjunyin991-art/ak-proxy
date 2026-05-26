@@ -737,6 +737,28 @@
             text-overflow: ellipsis;
             white-space: nowrap;
         }
+
+        .ranking-user {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .ranking-user-name {
+            font-size: 14px;
+            color: var(--text-primary);
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .ranking-user-meta {
+            margin-top: 3px;
+            font-size: 11px;
+            color: var(--text-secondary);
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
         
         .ranking-value {
             font-size: 14px;
@@ -8820,7 +8842,10 @@
             container.innerHTML = users.slice(0, 10).map((user, index) => `
                 <div class="ranking-item">
                     <div class="ranking-rank">${index + 1}</div>
-                    <div class="ranking-name">${escapeHtml(user.username || '')}</div>
+                    <div class="ranking-user">
+                        <div class="ranking-user-name">${escapeHtml(user.username || '')}</div>
+                        <div class="ranking-user-meta">最近登录：${escapeHtml(fmtTime(user.last_login))}</div>
+                    </div>
                     <div class="ranking-value">${user.count} 次</div>
                 </div>
             `).join('');
