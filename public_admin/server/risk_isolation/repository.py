@@ -56,7 +56,7 @@ class RiskIsolationRepository:
             params.append(added_by)
             idx += 1
         if search:
-            conditions.append(f"(aa.username ILIKE ${idx} OR COALESCE(aa.nickname, '') ILIKE ${idx})")
+            conditions.append(f"(aa.username ILIKE ${idx} OR COALESCE(aa.nickname, '') ILIKE ${idx} OR aa.added_by ILIKE ${idx})")
             params.append(f"%{search}%")
             idx += 1
         where = f" WHERE {' AND '.join(conditions)}"
@@ -139,15 +139,22 @@ class RiskIsolationRepository:
             ''', *params)
         return [normalize_username(row['username']) for row in rows]
 
-    async def usernames_by_added_by(self, added_by: str) -> list[str]:
+    async def usernames_by_added_by(self, added_by: str | None = None) -> list[str]:
         await self.ensure_ready()
         pool = self.db._get_pool()
         async with pool.acquire() as conn:
-            rows = await conn.fetch('''
-                SELECT username
-                FROM authorized_accounts
-                WHERE added_by = $1 AND status = 'active'
-            ''', added_by)
+            if added_by:
+                rows = await conn.fetch('''
+                    SELECT username
+                    FROM authorized_accounts
+                    WHERE added_by = $1 AND status = 'active'
+                ''', added_by)
+            else:
+                rows = await conn.fetch('''
+                    SELECT username
+                    FROM authorized_accounts
+                    WHERE status = 'active'
+                ''')
         return [normalize_username(row['username']) for row in rows]
 
     async def isolate_usernames(self, usernames: list[str], operator: str,
@@ -205,6 +212,34 @@ class RiskIsolationRepository:
                     WHERE username = ANY($1::text[]) AND is_active = TRUE
                     RETURNING username
                 ''', normalized)
+        released = [normalize_username(row['username']) for row in rows]
+        return {'updated': len(released), 'usernames': released}
+
+    async def release_scope(self, added_by: str | None = None) -> dict[str, Any]:
+        await self.ensure_ready()
+        pool = self.db._get_pool()
+        async with pool.acquire() as conn:
+            if added_by:
+                rows = await conn.fetch('''
+                    UPDATE risk_isolations ri
+                    SET is_active = FALSE, updated_at = NOW(), released_at = NOW()
+                    FROM authorized_accounts aa
+                    WHERE ri.username = aa.username
+                      AND aa.added_by = $1
+                      AND aa.status = 'active'
+                      AND ri.is_active = TRUE
+                    RETURNING ri.username
+                ''', added_by)
+            else:
+                rows = await conn.fetch('''
+                    UPDATE risk_isolations ri
+                    SET is_active = FALSE, updated_at = NOW(), released_at = NOW()
+                    FROM authorized_accounts aa
+                    WHERE ri.username = aa.username
+                      AND aa.status = 'active'
+                      AND ri.is_active = TRUE
+                    RETURNING ri.username
+                ''')
         released = [normalize_username(row['username']) for row in rows]
         return {'updated': len(released), 'usernames': released}
 

@@ -49,6 +49,7 @@ class OperationScopeResolver:
             ('POST', '/admin/api/risk-isolation/isolate'): 'account_ops',
             ('POST', '/admin/api/risk-isolation/isolate_scope'): 'account_ops',
             ('POST', '/admin/api/risk-isolation/release'): 'account_ops',
+            ('POST', '/admin/api/risk-isolation/release_scope'): 'account_ops',
             ('POST', '/admin/api/sub_admin/set'): 'account_ops',
             ('POST', '/admin/api/sub_admin/bind_account'): 'account_ops',
             ('POST', '/admin/api/sub_admin/update_permissions'): 'account_ops',

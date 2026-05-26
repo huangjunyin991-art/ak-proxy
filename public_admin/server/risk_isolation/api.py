@@ -80,7 +80,7 @@ def create_risk_isolation_router(service: RiskIsolationService,
         except Exception:
             return JSONResponse(status_code=400, content={'success': False, 'message': '请求无效'})
         scope = service.resolve_scope(role, sub_name=sub_name, requested_sub_admin=str(data.get('sub_admin') or ''))
-        if scope.added_by in ('', '__deny__'):
+        if scope.added_by == '__deny__':
             return JSONResponse(status_code=400, content={'success': False, 'message': '请选择要隔离的子管理员范围'})
         operator = sub_name if role == service.sub_admin_role and sub_name else 'super_admin'
         result = await service.isolate_scope(
@@ -106,5 +106,18 @@ def create_risk_isolation_router(service: RiskIsolationService,
         scope = service.resolve_scope(role, sub_name=sub_name, requested_sub_admin=str(data.get('sub_admin') or ''))
         result = await service.release_usernames(scope, usernames)
         return {'success': True, 'message': f"已解除 {result.get('updated', 0)} 个玩家", **result}
+
+    @router.post('/release_scope')
+    async def release_scope(request: Request):
+        _, role, sub_name, error_response = await resolve_context(request)
+        if error_response is not None:
+            return error_response
+        try:
+            data = await request.json()
+        except Exception:
+            return JSONResponse(status_code=400, content={'success': False, 'message': '请求无效'})
+        scope = service.resolve_scope(role, sub_name=sub_name, requested_sub_admin=str(data.get('sub_admin') or ''))
+        result = await service.release_scope(scope)
+        return {'success': True, 'message': f"已恢复当前范围 {result.get('updated', 0)} 个玩家", **result}
 
     return router

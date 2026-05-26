@@ -85,9 +85,9 @@ class RiskIsolationService:
 
     async def isolate_scope(self, scope: RiskIsolationScope, operator: str,
                             operator_role: str, reason: str = '') -> dict[str, Any]:
-        if scope.added_by in ('', '__deny__'):
+        if scope.added_by == '__deny__':
             return {'updated': 0, 'usernames': []}
-        usernames = await self.repository.usernames_by_added_by(scope.added_by)
+        usernames = await self.repository.usernames_by_added_by(scope.added_by or None)
         return await self.repository.isolate_usernames(
             usernames,
             operator=operator,
@@ -100,6 +100,13 @@ class RiskIsolationService:
             return {'updated': 0, 'usernames': []}
         return await self.repository.release_usernames(
             [normalize_username(username) for username in usernames or []],
+            added_by=scope.added_by or None,
+        )
+
+    async def release_scope(self, scope: RiskIsolationScope) -> dict[str, Any]:
+        if scope.added_by == '__deny__':
+            return {'updated': 0, 'usernames': []}
+        return await self.repository.release_scope(
             added_by=scope.added_by or None,
         )
 
