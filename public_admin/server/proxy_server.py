@@ -442,6 +442,14 @@ except Exception as e:
     _MONITORING_IMPORT_ERROR = e
 
 try:
+    from .login_protection import LoginProtectionPolicy, LoginProtectionService
+    _LOGIN_PROTECTION_IMPORT_ERROR = None
+except Exception as e:
+    LoginProtectionPolicy = None
+    LoginProtectionService = None
+    _LOGIN_PROTECTION_IMPORT_ERROR = e
+
+try:
     from .recommend_tree import create_recommend_tree_router
     _RECOMMEND_TREE_IMPORT_ERROR = None
 except Exception as e:
@@ -588,7 +596,11 @@ ADMIN_LOGIN_RATE_THRESHOLD = 20
 
 ADMIN_LOGIN_RATE_BAN_BASE_SECONDS = 3600
 
-ADMIN_LOGIN_MIN_INTERVAL_SECONDS = 3
+ADMIN_LOGIN_MIN_INTERVAL_SECONDS = 5
+
+ADMIN_LOGIN_SHORT_INTERVAL_BAN_THRESHOLD = 3
+
+LOGIN_PROTECTION_CONFIG_KEY = "login_protection_policy"
 
 LOGIN_FORGET_403_BAN_THRESHOLD = 20
 
@@ -681,12 +693,110 @@ async def _is_ip_banned_for_penalty(client_ip: str) -> bool:
         return _is_ip_in_memory_ban(normalized_ip)
 
 
+def _default_login_protection_policy_payload() -> dict:
+    return {
+        "enabled": True,
+        "min_interval_seconds": ADMIN_LOGIN_MIN_INTERVAL_SECONDS,
+        "window_seconds": ADMIN_LOGIN_RATE_WINDOW_SECONDS,
+        "max_requests_per_window": ADMIN_LOGIN_RATE_THRESHOLD,
+        "short_interval_block_enabled": True,
+        "short_interval_ban_threshold": ADMIN_LOGIN_SHORT_INTERVAL_BAN_THRESHOLD,
+        "ban_base_seconds": ADMIN_LOGIN_RATE_BAN_BASE_SECONDS,
+        "ignore_loopback": True,
+    }
+
+
+login_protection_service = (
+    LoginProtectionService(LoginProtectionPolicy.from_mapping(_default_login_protection_policy_payload()))
+    if LoginProtectionService is not None and LoginProtectionPolicy is not None else None
+)
+
+
+async def _get_login_protection_policy_payload() -> dict:
+    payload = _default_login_protection_policy_payload()
+    try:
+        saved = await db.system_config.get(LOGIN_PROTECTION_CONFIG_KEY, payload)
+        if isinstance(saved, dict):
+            payload.update(saved)
+    except Exception as e:
+        logger.warning(f"[LoginProtection] 读取策略配置失败，使用默认值: {e}")
+    if LoginProtectionPolicy is None:
+        return payload
+    return LoginProtectionPolicy.from_mapping(payload).to_dict()
+
+
+async def _set_login_protection_policy_payload(payload: dict) -> dict:
+    if LoginProtectionPolicy is None:
+        raise RuntimeError("登录防护模块不可用")
+    policy = LoginProtectionPolicy.from_mapping(payload or {})
+    saved = policy.to_dict()
+    ok = await db.system_config.set(LOGIN_PROTECTION_CONFIG_KEY, saved, "登录接口防护策略")
+    if not ok:
+        raise RuntimeError("保存登录防护策略失败")
+    if login_protection_service is not None:
+        login_protection_service.update_policy(policy)
+    return saved
+
+
+async def _refresh_login_protection_policy() -> None:
+    if login_protection_service is None or LoginProtectionPolicy is None:
+        return
+    payload = await _get_login_protection_policy_payload()
+    login_protection_service.update_policy(LoginProtectionPolicy.from_mapping(payload))
+
+
+async def _ban_login_protection_ip(ip: str, count: int, trigger_reason: str, base_seconds: int) -> dict:
+    return await ban_admin_login_fail_ip(
+        ip,
+        count,
+        trigger_reason=trigger_reason,
+        base_seconds=base_seconds,
+    )
+
+
+async def _login_protection_snapshot() -> dict:
+    payload = await _get_login_protection_policy_payload()
+    if login_protection_service is None:
+        return {
+            "policy": payload,
+            "runtime": {},
+            "available": False,
+            "message": str(_LOGIN_PROTECTION_IMPORT_ERROR or "登录防护模块不可用"),
+        }
+    await _refresh_login_protection_policy()
+    snapshot = login_protection_service.snapshot()
+    snapshot["available"] = True
+    return snapshot
+
+
 async def _record_login_endpoint_call_and_maybe_ban_ip(client_ip: str, endpoint: str) -> dict:
     normalized_ip = str(client_ip or "").strip()
     if not normalized_ip or normalized_ip == "unknown" or _is_loopback_ip(normalized_ip):
         return {}
     if await _is_ip_banned_for_penalty(normalized_ip):
         return {"already_banned": True}
+    if login_protection_service is not None:
+        try:
+            await _refresh_login_protection_policy()
+            decision = await login_protection_service.check_and_record(
+                normalized_ip,
+                endpoint,
+                is_loopback=_is_loopback_ip,
+                is_banned=_is_ip_banned_for_penalty,
+                ban_ip=_ban_login_protection_ip,
+            )
+            result = decision.to_dict()
+            if not decision.allowed and decision.code == "already_banned":
+                result["already_banned"] = True
+            if not decision.allowed and decision.code == "blocked_short_interval":
+                result["blocked"] = True
+            if decision.code == "blocked_short_interval":
+                logger.warning(f"[LoginRateGuard] 登录接口短间隔阻断 ip={normalized_ip} endpoint={endpoint} interval={decision.interval_seconds:.3f}s count={decision.short_interval_count}")
+            elif decision.code in {"banned_short_interval", "banned_window_rate"}:
+                logger.warning(f"[LoginRateGuard] 自动封禁IP ip={normalized_ip} endpoint={endpoint} code={decision.code} reason={decision.reason or decision.message}")
+            return result
+        except Exception as e:
+            logger.warning(f"[LoginProtection] 策略模块检查失败，降级到内置频控: {e}")
     now = time.time()
     timestamps = stats.admin_login_request_timestamps.setdefault(normalized_ip, [])
     timestamps[:] = [ts for ts in timestamps if now - float(ts or 0) <= ADMIN_LOGIN_RATE_WINDOW_SECONDS]
@@ -695,8 +805,25 @@ async def _record_login_endpoint_call_and_maybe_ban_ip(client_ip: str, endpoint:
         short_interval_count = int(stats.admin_login_short_interval_counts.get(normalized_ip) or 0) + 1
         stats.admin_login_short_interval_counts[normalized_ip] = short_interval_count
         logger.warning(f"[LoginRateGuard] 登录接口短间隔记录 ip={normalized_ip} endpoint={endpoint} interval={now - float(last_call_at):.3f}s count={short_interval_count}")
-    if last_call_at:
-        stats.admin_login_short_interval_counts.pop(normalized_ip, None)
+        if short_interval_count >= ADMIN_LOGIN_SHORT_INTERVAL_BAN_THRESHOLD:
+            trigger_reason = f"连续{short_interval_count}次低于{ADMIN_LOGIN_MIN_INTERVAL_SECONDS}秒调用登录接口: {endpoint}"
+            result = await ban_admin_login_fail_ip(
+                normalized_ip,
+                short_interval_count,
+                trigger_reason=trigger_reason,
+                base_seconds=ADMIN_LOGIN_RATE_BAN_BASE_SECONDS,
+            )
+            stats.admin_login_request_timestamps.pop(normalized_ip, None)
+            stats.admin_login_short_interval_counts.pop(normalized_ip, None)
+            return {**result, "count": len(timestamps), "short_interval_count": short_interval_count}
+        return {
+            "blocked": True,
+            "code": "blocked_short_interval",
+            "message": f"登录请求过于频繁，请{max(1, int(ADMIN_LOGIN_MIN_INTERVAL_SECONDS - (now - float(last_call_at))))}秒后重试",
+            "count": len(timestamps),
+            "short_interval_count": short_interval_count,
+        }
+    stats.admin_login_short_interval_counts.pop(normalized_ip, None)
     timestamps.append(now)
     count = len(timestamps)
     if count < ADMIN_LOGIN_RATE_THRESHOLD:
@@ -1847,6 +1974,16 @@ async def proxy_login(request: Request):
             return JSONResponse({"Error": True, "Msg": "您的账号或IP已被封禁"})
 
     login_rate_result = await _record_login_endpoint_call_and_maybe_ban_ip(client_ip, "/RPC/Login")
+    if login_rate_result.get("already_banned"):
+        return JSONResponse(
+            {"Error": True, "Msg": "您的账号或IP已被封禁"},
+            status_code=403,
+        )
+    if login_rate_result.get("blocked"):
+        return JSONResponse(
+            {"Error": True, "Msg": login_rate_result.get("message") or "登录请求过于频繁，请稍后再试"},
+            status_code=429,
+        )
     if login_rate_result.get("duration_seconds"):
         return JSONResponse(
             {"Error": True, "Msg": login_rate_result.get("reason") or "登录请求过于频繁，您的IP已被封禁"},
@@ -4358,6 +4495,8 @@ if create_monitoring_router is not None:
             super_admin_role=ROLE_SUPER_ADMIN,
             im_server_internal_url=IM_SERVER_INTERNAL_URL,
             static_cache_service_supplier=lambda: globals().get("_AK_WEB_STATIC_CACHE_SERVICE"),
+            login_protection_snapshot_supplier=_login_protection_snapshot,
+            login_protection_policy_updater=_set_login_protection_policy_payload,
         ))
     except Exception as e:
         logger.warning(f"[Monitoring] 监控中心路由注册失败，已跳过: {e}")
@@ -4620,6 +4759,20 @@ async def admin_login(request: Request):
             SecurityResult(success=False, event='admin_login', reason='banned_ip')
         )
         return JSONResponse(status_code=403, content={"success": False, "message": "您的IP已被封禁"})
+    if login_rate_result.get("blocked"):
+        admin_security.record_audit(
+            security_context,
+            SecurityResult(success=False, event='admin_login', reason='rate_blocked'),
+            metadata={
+                'request_count': login_rate_result.get('count'),
+                'short_interval_count': login_rate_result.get('short_interval_count'),
+                'interval_seconds': login_rate_result.get('interval_seconds'),
+            }
+        )
+        return JSONResponse(
+            status_code=429,
+            content={"success": False, "message": login_rate_result.get("message") or "登录请求过于频繁，请稍后再试"}
+        )
     if login_rate_result.get("duration_seconds"):
         admin_security.record_audit(
             security_context,

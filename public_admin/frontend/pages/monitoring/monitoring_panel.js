@@ -17,9 +17,11 @@
             chat: null,
             groups: null,
             fileAssets: null,
-            staticCache: null
+            staticCache: null,
+            loginProtection: null
         },
-        loadingStaticCache: false
+        loadingStaticCache: false,
+        loadingLoginProtection: false
     };
 
     function token() {
@@ -192,6 +194,23 @@
             '<span class="monitoring-meta">HTML 继续 no-store；点击启用新资源会清空服务端静态缓存并切换全局资源版本。</span>' +
             '</div>' +
             '</div>' +
+            '<div class="monitoring-section monitoring-cache-section">' +
+            '<div class="monitoring-section-header"><h4>登录防护策略</h4><span class="monitoring-meta" id="monitoringLoginProtectionMeta">读取中...</span></div>' +
+            '<div class="monitoring-cache-grid">' +
+            '<label><span>启用登录防护</span><input class="monitoring-input" id="loginProtectionEnabled" type="checkbox"></label>' +
+            '<label><span>最小登录间隔（秒）</span><input class="monitoring-input" id="loginProtectionMinInterval" type="number" min="1" step="1"></label>' +
+            '<label><span>统计窗口（秒）</span><input class="monitoring-input" id="loginProtectionWindowSeconds" type="number" min="5" step="1"></label>' +
+            '<label><span>窗口最大请求数</span><input class="monitoring-input" id="loginProtectionMaxRequests" type="number" min="1" step="1"></label>' +
+            '<label><span>启用短间隔阻断</span><input class="monitoring-input" id="loginProtectionShortBlockEnabled" type="checkbox"></label>' +
+            '<label><span>短间隔封禁阈值</span><input class="monitoring-input" id="loginProtectionShortBanThreshold" type="number" min="1" step="1"></label>' +
+            '<label><span>基础封禁时长（秒）</span><input class="monitoring-input" id="loginProtectionBanBaseSeconds" type="number" min="60" step="1"></label>' +
+            '<label><span>忽略本机 IP</span><input class="monitoring-input" id="loginProtectionIgnoreLoopback" type="checkbox"></label>' +
+            '</div>' +
+            '<div class="monitoring-cache-actions">' +
+            '<button class="monitoring-btn primary" data-monitoring-action="save-login-protection-policy">保存登录防护策略</button>' +
+            '<span class="monitoring-meta">短间隔请求会直接阻断本次登录；连续命中阈值后按现有梯度处罚封禁 IP。</span>' +
+            '</div>' +
+            '</div>' +
             '<div class="monitoring-grid" id="monitoringCards"></div>' +
             '<div class="monitoring-section"><div class="monitoring-section-header"><h4>服务器负载</h4><span class="monitoring-meta" id="monitoringSystemMeta">-</span></div><div class="monitoring-donuts" id="monitoringSystemDonuts"></div><div class="monitoring-bars" id="monitoringSystemBars"></div></div>' +
             '<div class="monitoring-section"><div class="monitoring-section-header"><h4>聊天统计</h4><span class="monitoring-meta" id="monitoringChatMeta">-</span></div><div class="monitoring-grid" id="monitoringChatCards"></div><div class="monitoring-bars" id="monitoringTypeBars" style="margin-top:14px;"></div></div>' +
@@ -213,6 +232,8 @@
                 saveStaticCachePolicy();
             } else if (action === 'refresh-static-cache-upstream') {
                 refreshStaticCacheUpstream();
+            } else if (action === 'save-login-protection-policy') {
+                saveLoginProtectionPolicy();
             }
         });
         document.getElementById('monitoringRange').addEventListener('change', function() {
@@ -399,6 +420,7 @@
         if (groupMeta) setTextIfChanged(groupMeta, (groups.cache && groups.cache.hit ? '缓存 ' + groups.cache.age_seconds + ' 秒；' : '') + '文件占用为消息载荷估算口径');
         renderAlert();
         renderStaticCachePolicy();
+        renderLoginProtectionPolicy();
     }
 
     function setInputValue(id, value) {
@@ -409,6 +431,16 @@
     function inputNumber(id) {
         var el = document.getElementById(id);
         return Number(el && el.value || 0);
+    }
+
+    function setInputChecked(id, checked) {
+        var el = document.getElementById(id);
+        if (el && document.activeElement !== el) el.checked = !!checked;
+    }
+
+    function inputChecked(id) {
+        var el = document.getElementById(id);
+        return !!(el && el.checked);
     }
 
     function renderStaticCachePolicy() {
@@ -467,6 +499,60 @@
             notify('已切换上游资源版本，清理缓存分片 ' + formatNumber((body.item && body.item.removed_entries) || 0) + ' 个', 'success');
         }).catch(function(err) {
             notify(err && err.message || '启用上游新资源失败', 'error');
+        });
+    }
+
+    function renderLoginProtectionPolicy() {
+        var item = state.data.loginProtection || {};
+        var policy = item.policy || item || {};
+        var runtime = item.runtime || {};
+        setInputChecked('loginProtectionEnabled', policy.enabled !== false);
+        setInputValue('loginProtectionMinInterval', policy.min_interval_seconds);
+        setInputValue('loginProtectionWindowSeconds', policy.window_seconds);
+        setInputValue('loginProtectionMaxRequests', policy.max_requests_per_window);
+        setInputChecked('loginProtectionShortBlockEnabled', policy.short_interval_block_enabled !== false);
+        setInputValue('loginProtectionShortBanThreshold', policy.short_interval_ban_threshold);
+        setInputValue('loginProtectionBanBaseSeconds', policy.ban_base_seconds);
+        setInputChecked('loginProtectionIgnoreLoopback', policy.ignore_loopback !== false);
+        var meta = document.getElementById('monitoringLoginProtectionMeta');
+        if (meta) {
+            var available = item.available === false ? '模块不可用' : '已启用';
+            var tracked = runtime.tracked_ips == null ? '-' : formatNumber(runtime.tracked_ips);
+            var shortIps = runtime.short_interval_ips == null ? '-' : formatNumber(runtime.short_interval_ips);
+            setTextIfChanged(meta, available + ' · 跟踪 IP ' + tracked + ' · 短间隔 IP ' + shortIps);
+        }
+    }
+
+    function loadLoginProtectionPolicy() {
+        if (!state.active || state.loadingLoginProtection) return Promise.resolve();
+        state.loadingLoginProtection = true;
+        return api('/login-protection/policy', {}).then(function(body) {
+            state.data.loginProtection = body.item || {};
+            renderLoginProtectionPolicy();
+        }).catch(function(err) {
+            notify(err && err.message || '登录防护策略读取失败', 'error');
+        }).finally(function() {
+            state.loadingLoginProtection = false;
+        });
+    }
+
+    function saveLoginProtectionPolicy() {
+        var payload = {
+            enabled: inputChecked('loginProtectionEnabled'),
+            min_interval_seconds: inputNumber('loginProtectionMinInterval'),
+            window_seconds: inputNumber('loginProtectionWindowSeconds'),
+            max_requests_per_window: inputNumber('loginProtectionMaxRequests'),
+            short_interval_block_enabled: inputChecked('loginProtectionShortBlockEnabled'),
+            short_interval_ban_threshold: inputNumber('loginProtectionShortBanThreshold'),
+            ban_base_seconds: inputNumber('loginProtectionBanBaseSeconds'),
+            ignore_loopback: inputChecked('loginProtectionIgnoreLoopback')
+        };
+        apiPost('/login-protection/policy', payload).then(function(body) {
+            state.data.loginProtection = { policy: body.item || {}, runtime: {}, available: true };
+            renderLoginProtectionPolicy();
+            notify('登录防护策略已保存', 'success');
+        }).catch(function(err) {
+            notify(err && err.message || '登录防护策略保存失败', 'error');
         });
     }
 
@@ -564,6 +650,7 @@
         if (!state.initialized) init();
         loadOverview(false);
         loadStaticCachePolicy();
+        loadLoginProtectionPolicy();
         stopTimers();
         state.lightTimer = setInterval(function() { loadLight(false); }, 5000);
         state.heavyTimer = setInterval(function() { loadHeavy(false); }, 3600000);
