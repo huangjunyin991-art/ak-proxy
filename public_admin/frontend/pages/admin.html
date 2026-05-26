@@ -3164,6 +3164,7 @@
         <div class="tab" data-panel="ips"><svg class="tab-icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></svg> IP管理</div>
         <div class="tab" data-panel="banlist"><svg class="tab-icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="m4.9 4.9 14.2 14.2"/></svg> 封禁列表 <span class="online-tab-count banlist-tab-count" id="banlistTabCount">0</span></div>
         <div class="tab" data-panel="whitelist"><svg class="tab-icon" viewBox="0 0 24 24"><rect width="8" height="4" x="8" y="2" rx="1" ry="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="m9 14 2 2 4-4"/></svg> 白名单</div>
+        <div class="tab" data-panel="riskIsolation"><svg class="tab-icon" viewBox="0 0 24 24"><path d="M12 2 4 5v6c0 5 3.4 9.7 8 11 4.6-1.3 8-6 8-11V5l-8-3z"/><path d="M9 9l6 6"/><path d="m15 9-6 6"/></svg> 风险隔离</div>
         <div class="tab" data-panel="contacts"><svg class="tab-icon" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3"/><path d="M3 20a6 6 0 0 1 12 0"/><path d="M16 8h5"/><path d="M16 12h5"/><path d="M16 16h5"/></svg> 通讯管理</div>
         <div class="tab" data-panel="credits"><svg class="tab-icon" viewBox="0 0 24 24"><circle cx="8" cy="8" r="6"/><path d="M18.09 10.37A6 6 0 1 1 10.34 18"/><path d="M7 6h1v4"/><path d="m16.71 13.88.7.71-2.82 2.82"/></svg> 积分</div>
         <div class="tab" data-panel="license"><svg class="tab-icon" viewBox="0 0 24 24"><path d="M2.586 17.414A2 2 0 0 0 2 18.828V21a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h1a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h.172a2 2 0 0 0 1.414-.586l.814-.814a6.5 6.5 0 1 0-4-4z"/><circle cx="16.5" cy="7.5" r=".5" fill="currentColor"/></svg> 激活码</div>
@@ -3710,6 +3711,10 @@
                 <div id="wlCardList" class="wl-card-list"></div>
                 <div id="wlPagination" style="display: flex; justify-content: center; gap: 8px; margin-top: 12px;"></div>
             </div>
+        </div>
+
+        <div class="panel" id="riskIsolation">
+            <div id="riskIsolationPanelMount"></div>
         </div>
 
         <div class="panel" id="contacts">
@@ -5124,7 +5129,7 @@
             
             // 子管理员：根据权限显示/隐藏
             const perms = JSON.parse(sessionStorage.getItem('admin_permissions') || '{}');
-            const allTabs = ['dashboard', 'online', 'usage', 'users', 'pointStats', 'recommendTree', 'ips', 'banlist', 'whitelist', 'contacts', 'credits', 'license', 'database', 'activeDefense', 'monitoring', 'meetings', 'settings'];
+            const allTabs = ['dashboard', 'online', 'usage', 'users', 'pointStats', 'recommendTree', 'ips', 'banlist', 'whitelist', 'riskIsolation', 'contacts', 'credits', 'license', 'database', 'activeDefense', 'monitoring', 'meetings', 'settings'];
             
             allTabs.forEach(tabName => {
                 const tab = document.querySelector(`.tab[data-panel="${tabName}"]`);
@@ -5133,7 +5138,7 @@
                 if (tabName === 'settings' || tabName === 'monitoring' || tabName === 'activeDefense') {
                     tab.style.display = 'none';
                     tab.dataset.allowed = '0';
-                } else if (tabName === 'whitelist' || tabName === 'contacts' || tabName === 'credits' || tabName === 'meetings') {
+                } else if (tabName === 'whitelist' || tabName === 'riskIsolation' || tabName === 'contacts' || tabName === 'credits' || tabName === 'meetings') {
                     // 白名单和积分对所有管理员可见
                     tab.style.display = '';
                     tab.dataset.allowed = '1';
@@ -7658,6 +7663,9 @@
                 if (tab.dataset.panel === 'ips') loadIPs();
                 if (tab.dataset.panel === 'banlist') loadBanlist();
                 if (tab.dataset.panel === 'whitelist') loadWhitelist();
+                if (tab.dataset.panel === 'riskIsolation' && window.AKRiskIsolationPanel) {
+                    window.AKRiskIsolationPanel.start();
+                }
                 if (tab.dataset.panel === 'contacts') {
                     loadImContactsGroups(false);
                     loadImEmojiAssets();
@@ -14399,6 +14407,85 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
             resetActiveDefensePanelGlobals();
             removeActiveDefensePanelScripts();
             loadActiveDefensePanelScript(false, 1);
+        })();
+    </script>
+    <script>
+        (function() {
+            var riskIsolationPanelBuildVersion = '20260526-01';
+
+            function reportRiskIsolationPanelLoadFailure(message) {
+                try {
+                    if (typeof showToast === 'function') {
+                        showToast(message, 'error');
+                    }
+                } catch (e) {}
+                console.error('[RiskIsolationPanelLoader]', message);
+            }
+
+            function resetRiskIsolationPanelGlobals() {
+                try {
+                    delete window.AKRiskIsolationPanel;
+                } catch (e) {
+                    window.AKRiskIsolationPanel = undefined;
+                }
+                try {
+                    delete window.AKRiskIsolationPanelLoaded;
+                } catch (e) {
+                    window.AKRiskIsolationPanelLoaded = undefined;
+                }
+            }
+
+            function removeRiskIsolationPanelScripts() {
+                Array.prototype.slice.call(document.querySelectorAll('script[data-risk-isolation-panel-loader="1"]')).forEach(function(node) {
+                    if (node && node.parentNode) {
+                        node.parentNode.removeChild(node);
+                    }
+                });
+            }
+
+            function buildRiskIsolationPanelUrl(forceRefresh) {
+                if (forceRefresh) {
+                    return '/admin/api/risk-isolation-panel.js?t=' + Date.now();
+                }
+                return '/admin/api/risk-isolation-panel.js?v=' + encodeURIComponent(riskIsolationPanelBuildVersion);
+            }
+
+            function loadRiskIsolationPanelScript(forceRefresh, attempt) {
+                var script = document.createElement('script');
+                script.src = buildRiskIsolationPanelUrl(forceRefresh);
+                script.async = false;
+                script.defer = false;
+                script.setAttribute('data-risk-isolation-panel-loader', '1');
+                script.onload = function() {
+                    if (window.AKRiskIsolationPanel) {
+                        if (document.querySelector('.tab.active[data-panel="riskIsolation"]')) {
+                            window.AKRiskIsolationPanel.start();
+                        }
+                        return;
+                    }
+                    if (attempt < 2) {
+                        resetRiskIsolationPanelGlobals();
+                        removeRiskIsolationPanelScripts();
+                        loadRiskIsolationPanelScript(true, attempt + 1);
+                        return;
+                    }
+                    reportRiskIsolationPanelLoadFailure('风险隔离面板脚本加载失败，请强制刷新后重试');
+                };
+                script.onerror = function() {
+                    if (attempt < 2) {
+                        resetRiskIsolationPanelGlobals();
+                        removeRiskIsolationPanelScripts();
+                        loadRiskIsolationPanelScript(true, attempt + 1);
+                        return;
+                    }
+                    reportRiskIsolationPanelLoadFailure('风险隔离面板脚本请求失败，请强制刷新后重试');
+                };
+                (document.body || document.head || document.documentElement).appendChild(script);
+            }
+
+            resetRiskIsolationPanelGlobals();
+            removeRiskIsolationPanelScripts();
+            loadRiskIsolationPanelScript(false, 1);
         })();
     </script>
     <script>

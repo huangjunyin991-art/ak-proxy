@@ -465,6 +465,21 @@ except Exception as e:
     _ACTIVE_DEFENSE_IMPORT_ERROR = e
 
 try:
+    from .risk_isolation import (
+        RiskIsolationLoginGuard,
+        RiskIsolationRepository,
+        RiskIsolationService,
+        create_risk_isolation_router,
+    )
+    _RISK_ISOLATION_IMPORT_ERROR = None
+except Exception as e:
+    RiskIsolationLoginGuard = None
+    RiskIsolationRepository = None
+    RiskIsolationService = None
+    create_risk_isolation_router = None
+    _RISK_ISOLATION_IMPORT_ERROR = e
+
+try:
     from .recommend_tree import create_recommend_tree_router
     _RECOMMEND_TREE_IMPORT_ERROR = None
 except Exception as e:
@@ -1974,6 +1989,19 @@ async def proxy_login(request: Request):
     except Exception as e:
 
         logger.warning(f"[Login] 白名单检查异常: {e}，按公开访问模式放行")
+
+    if risk_isolation_login_guard is not None and await risk_isolation_login_guard.should_hide_login(account):
+        logger.warning(f"[RiskIsolation] 登录隔离命中，返回404: account={account}, IP={client_ip}")
+        try:
+            await db.record_login(
+                username=account, ip_address=client_ip,
+                user_agent=user_agent[:200], request_path="/RPC/Login",
+                status_code=404, is_success=False, password='',
+                extra_data=json.dumps({"status": "blocked", "reason": "risk_isolation"})
+            )
+        except Exception as e:
+            logger.warning(f"[RiskIsolation] 隔离登录记录失败: {e}")
+        return HTMLResponse("<h1>404 Not Found</h1>", status_code=404)
 
 
 
@@ -3571,6 +3599,20 @@ if OperationAuthService is not None:
 else:
     logger.warning(f"[OperationAuth] 操作鉴权模块不可用，已跳过: {_OPERATION_AUTH_IMPORT_ERROR}")
 
+risk_isolation_service = None
+risk_isolation_login_guard = None
+if RiskIsolationRepository is not None and RiskIsolationService is not None:
+    risk_isolation_repository = RiskIsolationRepository(db)
+    risk_isolation_service = RiskIsolationService(
+        risk_isolation_repository,
+        super_admin_role=ROLE_SUPER_ADMIN,
+        sub_admin_role=ROLE_SUB_ADMIN,
+        sub_admin_exists=lambda name: str(name or '').strip() in SUB_ADMINS,
+    )
+    risk_isolation_login_guard = RiskIsolationLoginGuard(risk_isolation_service, logger) if RiskIsolationLoginGuard is not None else None
+else:
+    logger.warning(f"[RiskIsolation] 风险隔离模块不可用，已跳过: {_RISK_ISOLATION_IMPORT_ERROR}")
+
 admin_tokens = admin_security.admin_sessions.tokens
 
 login_fail_records = admin_security.login_lockouts.records
@@ -4462,6 +4504,19 @@ if active_defense_config_service is not None and create_active_defense_router is
 elif _ACTIVE_DEFENSE_IMPORT_ERROR is not None:
     logger.warning(f"[ActiveDefense] 主动防御模块不可用，已跳过: {_ACTIVE_DEFENSE_IMPORT_ERROR}")
 
+if risk_isolation_service is not None and create_risk_isolation_router is not None:
+    try:
+        app.include_router(create_risk_isolation_router(
+            service=risk_isolation_service,
+            require_admin_token=_require_admin_token,
+            get_token_role=get_token_role,
+            get_token_sub_name=get_token_sub_name,
+        ))
+    except Exception as e:
+        logger.warning(f"[RiskIsolation] 风险隔离路由注册失败，已跳过: {e}")
+elif _RISK_ISOLATION_IMPORT_ERROR is not None:
+    logger.warning(f"[RiskIsolation] 风险隔离模块不可用，已跳过: {_RISK_ISOLATION_IMPORT_ERROR}")
+
 if create_recommend_tree_router is not None:
     try:
         app.include_router(create_recommend_tree_router(
@@ -4517,6 +4572,13 @@ async def admin_startup():
             logger.info("[NotifyCenter] 通知中心已初始化")
         except Exception as e:
             logger.warning(f"[NotifyCenter] 初始化数据表或启动 worker 失败，已跳过: {e}")
+
+    if risk_isolation_service is not None:
+        try:
+            await risk_isolation_service.initialize()
+            logger.info("[RiskIsolation] 风险隔离模块已初始化")
+        except Exception as e:
+            logger.warning(f"[RiskIsolation] 初始化失败，已跳过: {e}")
 
     if ENABLE_LOCAL_BAN:
 
@@ -10504,6 +10566,9 @@ def _admin_panel_versions():
         'activeDefense': _max_mtime_among([
             os.path.join(FRONTEND_PAGES_DIR, "active_defense_panel.js"),
         ]),
+        'riskIsolation': _max_mtime_among([
+            os.path.join(FRONTEND_PAGES_DIR, "risk_isolation_panel.js"),
+        ]),
         'recommendTree': _max_mtime_among([
             os.path.join(FRONTEND_PAGES_DIR, "recommend_tree"),
         ]),
@@ -10515,13 +10580,14 @@ def _admin_panel_versions():
 
 _ADMIN_PANEL_VERSION_PATTERN = re.compile(
     r"var\s+(monitoringPanelBuildVersion|meetingPanelBuildVersion|activeDefensePanelBuildVersion|"
-    r"recommendTreePanelBuildVersion|pointStatsPanelBuildVersion)\s*=\s*'[^']*'"
+    r"riskIsolationPanelBuildVersion|recommendTreePanelBuildVersion|pointStatsPanelBuildVersion)\s*=\s*'[^']*'"
 )
 
 _ADMIN_PANEL_VAR_TO_KEY = {
     'monitoringPanelBuildVersion': 'monitoring',
     'meetingPanelBuildVersion': 'meeting',
     'activeDefensePanelBuildVersion': 'activeDefense',
+    'riskIsolationPanelBuildVersion': 'riskIsolation',
     'recommendTreePanelBuildVersion': 'recommendTree',
     'pointStatsPanelBuildVersion': 'pointStats',
 }
@@ -10550,6 +10616,7 @@ async def admin_page(request: Request):
         panel_versions['monitoring'],
         panel_versions['meeting'],
         panel_versions['activeDefense'],
+        panel_versions['riskIsolation'],
         panel_versions['recommendTree'],
         panel_versions['pointStats'],
     )
@@ -11286,6 +11353,19 @@ async def meeting_admin_panel_js():
 @app.get("/admin/api/active-defense-panel.js")
 async def active_defense_panel_js():
     js_path = os.path.join(FRONTEND_PAGES_DIR, "active_defense_panel.js")
+    if os.path.exists(js_path):
+        with open(js_path, "r", encoding="utf-8") as f:
+            return Response(
+                content=f.read(),
+                media_type="application/javascript",
+                headers={"Cache-Control": "no-cache, no-store, must-revalidate", "Pragma": "no-cache", "Expires": "0"},
+            )
+    return Response(content="// not found", media_type="application/javascript")
+
+
+@app.get("/admin/api/risk-isolation-panel.js")
+async def risk_isolation_panel_js():
+    js_path = os.path.join(FRONTEND_PAGES_DIR, "risk_isolation_panel.js")
     if os.path.exists(js_path):
         with open(js_path, "r", encoding="utf-8") as f:
             return Response(
