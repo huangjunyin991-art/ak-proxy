@@ -952,9 +952,9 @@
             top: 0;
             right: 0;
             bottom: 0;
-            width: 72px;
+            width: 88px;
             pointer-events: none;
-            background: linear-gradient(90deg, rgba(10, 22, 40, 0), var(--bg-secondary) 72%);
+            background: linear-gradient(90deg, rgba(10, 22, 40, 0), rgba(10, 22, 40, 0.86) 62%, var(--bg-secondary));
             opacity: 0;
             transition: opacity 0.2s;
         }
@@ -995,23 +995,29 @@
 
         .desktop-tabs-scroll-next {
             position: absolute;
-            top: 50%;
-            right: 10px;
+            top: 0;
+            right: 0;
+            bottom: 0;
             z-index: 2;
-            transform: translateY(-50%);
             display: none;
             align-items: center;
             justify-content: center;
-            width: 34px;
-            height: 34px;
-            border: 1px solid rgba(0, 212, 255, 0.35);
-            border-radius: 999px;
-            background: rgba(0, 212, 255, 0.12);
-            color: var(--accent);
+            width: 52px;
+            border: none;
+            border-left: 1px solid rgba(0, 212, 255, 0.12);
+            border-radius: 0;
+            background: linear-gradient(90deg, rgba(10, 22, 40, 0), rgba(10, 22, 40, 0.92));
+            color: rgba(224, 247, 255, 0.82);
             cursor: pointer;
-            font-size: 24px;
+            font-size: 28px;
             line-height: 1;
-            box-shadow: 0 0 18px rgba(0, 212, 255, 0.16);
+            box-shadow: none;
+            transition: color 0.18s ease, background 0.18s ease;
+        }
+
+        .desktop-tabs-scroll-next:hover {
+            color: var(--accent);
+            background: linear-gradient(90deg, rgba(10, 22, 40, 0.06), rgba(10, 22, 40, 0.96));
         }
 
         .desktop-tabs-shell.has-overflow .desktop-tabs-scroll-next {
@@ -1588,6 +1594,10 @@
         }
 
         .mobile-shell-title-main {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            min-width: 0;
             color: var(--text-primary);
             font-size: 14px;
             font-weight: 600;
@@ -1902,6 +1912,9 @@
 
         .mobile-tab-item {
             width: 100%;
+            display: flex;
+            align-items: center;
+            gap: 10px;
             border: 1px solid var(--border);
             background: var(--bg-primary);
             color: var(--text-primary);
@@ -2873,6 +2886,30 @@
             font-size: 12px;
             font-weight: 700;
             line-height: 1;
+            box-shadow: 0 0 14px rgba(0, 255, 136, 0.18);
+        }
+
+        .banlist-tab-count {
+            background: rgba(255, 71, 87, 0.16);
+            color: var(--accent-red);
+            box-shadow: 0 0 14px rgba(255, 71, 87, 0.2);
+        }
+
+        .mobile-tab-label {
+            flex: 1 1 auto;
+            min-width: 0;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .mobile-tab-count {
+            margin-left: auto;
+            flex: 0 0 auto;
+        }
+
+        .mobile-shell-title-main .mobile-tab-count {
+            margin-left: 2px;
         }
 
         /* ===== 主题化自定义下拉 ===== */
@@ -3085,7 +3122,7 @@
         <div class="tab" data-panel="pointStats"><svg class="tab-icon" viewBox="0 0 24 24"><path d="M3 3v18h18"/><path d="M7 16v-4"/><path d="M12 16V8"/><path d="M17 16v-6"/><path d="M6 20h12"/></svg> 点数统计</div>
         <div class="tab" data-panel="recommendTree"><svg class="tab-icon" viewBox="0 0 24 24"><path d="M12 3v4"/><path d="M6 11h12"/><path d="M6 11v4"/><path d="M18 11v4"/><circle cx="12" cy="7" r="2"/><circle cx="6" cy="17" r="2"/><circle cx="18" cy="17" r="2"/></svg> 组织架构</div>
         <div class="tab" data-panel="ips"><svg class="tab-icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></svg> IP管理</div>
-        <div class="tab" data-panel="banlist"><svg class="tab-icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="m4.9 4.9 14.2 14.2"/></svg> 封禁列表 <span class="online-tab-count" id="banlistTabCount">0</span></div>
+        <div class="tab" data-panel="banlist"><svg class="tab-icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="m4.9 4.9 14.2 14.2"/></svg> 封禁列表 <span class="online-tab-count banlist-tab-count" id="banlistTabCount">0</span></div>
         <div class="tab" data-panel="whitelist"><svg class="tab-icon" viewBox="0 0 24 24"><rect width="8" height="4" x="8" y="2" rx="1" ry="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="m9 14 2 2 4-4"/></svg> 白名单</div>
         <div class="tab" data-panel="contacts"><svg class="tab-icon" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3"/><path d="M3 20a6 6 0 0 1 12 0"/><path d="M16 8h5"/><path d="M16 12h5"/><path d="M16 16h5"/></svg> 通讯管理</div>
         <div class="tab" data-panel="credits"><svg class="tab-icon" viewBox="0 0 24 24"><circle cx="8" cy="8" r="6"/><path d="M18.09 10.37A6 6 0 1 1 10.34 18"/><path d="M7 6h1v4"/><path d="m16.71 13.88.7.71-2.82 2.82"/></svg> 积分</div>
@@ -6259,7 +6296,7 @@
             const value = Math.max(0, Number(count || 0));
             const countEl = document.getElementById('onlineTabCount');
             if (countEl && countEl.textContent !== String(value)) countEl.textContent = String(value);
-            if (typeof renderMobileTabs === 'function') renderMobileTabs();
+            if (typeof renderMobileTabList === 'function') renderMobileTabList();
             if (typeof syncMobileTabLabel === 'function') syncMobileTabLabel();
         }
 
@@ -7392,7 +7429,17 @@
         function syncMobileTabLabel() {
             const title = document.getElementById('mobileCurrentTab');
             const activeTab = document.querySelector('.tab.active');
-            if (title) title.textContent = activeTab ? activeTab.textContent.trim() : '功能导航';
+            if (title) title.innerHTML = activeTab ? buildMobileTabContent(activeTab) : '功能导航';
+        }
+
+        function buildMobileTabContent(tab) {
+            const count = tab.querySelector('.online-tab-count');
+            const clone = tab.cloneNode(true);
+            clone.querySelectorAll('.online-tab-count').forEach(el => el.remove());
+            const label = clone.textContent.trim();
+            const countClass = count && count.classList.contains('banlist-tab-count') ? ' banlist-tab-count' : '';
+            const countMarkup = count ? `<span class="online-tab-count${countClass} mobile-tab-count">${escapeHtml(count.textContent.trim())}</span>` : '';
+            return `<span class="mobile-tab-label">${escapeHtml(label)}</span>${countMarkup}`;
         }
 
         function syncDesktopTabsOverflow() {
@@ -7446,7 +7493,9 @@
             const list = document.getElementById('mobileTabList');
             if (!list) return;
             const tabs = getVisibleTabs();
-            list.innerHTML = tabs.map(tab => `<button type="button" class="mobile-tab-item${tab.classList.contains('active') ? ' active' : ''}" data-panel="${tab.dataset.panel}">${tab.textContent.trim()}</button>`).join('');
+            list.innerHTML = tabs.map(tab => {
+                return `<button type="button" class="mobile-tab-item${tab.classList.contains('active') ? ' active' : ''}" data-panel="${escapeHtml(tab.dataset.panel)}">${buildMobileTabContent(tab)}</button>`;
+            }).join('');
             list.querySelectorAll('.mobile-tab-item').forEach(item => {
                 item.addEventListener('click', () => {
                     const targetTab = document.querySelector(`.tab[data-panel="${item.dataset.panel}"]`);
