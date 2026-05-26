@@ -182,6 +182,85 @@
     font-size: 12px;
 }
 
+.monitoring-switch-card {
+    position: relative;
+    display: grid !important;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: center;
+    gap: 12px !important;
+    min-height: 58px;
+    padding: 10px 12px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 14px;
+    background: rgba(255, 255, 255, 0.035);
+    cursor: pointer;
+    transition: border-color 0.2s ease, background 0.2s ease;
+}
+
+.monitoring-switch-card:hover {
+    border-color: rgba(0, 212, 255, 0.38);
+    background: rgba(0, 212, 255, 0.06);
+}
+
+.monitoring-switch-card input {
+    position: absolute;
+    opacity: 0;
+    pointer-events: none;
+}
+
+.monitoring-switch-control {
+    position: relative;
+    width: 46px;
+    height: 26px;
+    border-radius: 999px;
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    background: rgba(255, 255, 255, 0.1);
+    box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.12);
+    transition: background 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.monitoring-switch-control::after {
+    content: '';
+    position: absolute;
+    top: 3px;
+    left: 3px;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: #d8e5ec;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.28);
+    transition: transform 0.2s ease, background 0.2s ease;
+}
+
+.monitoring-switch-card input:checked + .monitoring-switch-control {
+    border-color: rgba(0, 255, 136, 0.65);
+    background: linear-gradient(135deg, #00d4ff, #00ff88);
+    box-shadow: 0 0 16px rgba(0, 255, 136, 0.18);
+}
+
+.monitoring-switch-card input:checked + .monitoring-switch-control::after {
+    transform: translateX(20px);
+    background: #fff;
+}
+
+.monitoring-switch-copy {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+}
+
+.monitoring-switch-copy strong {
+    color: var(--text-primary);
+    font-size: 13px;
+    line-height: 1.2;
+}
+
+.monitoring-switch-copy small {
+    color: var(--text-secondary);
+    font-size: 11px;
+    line-height: 1.35;
+}
 .monitoring-input {
     width: 100%;
     min-height: 38px;

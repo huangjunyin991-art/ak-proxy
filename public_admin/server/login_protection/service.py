@@ -44,7 +44,7 @@ class LoginProtectionService:
             return LoginProtectionDecision(allowed=False, code="already_banned", message="您的IP已被封禁")
 
         now = time.time()
-        timestamps = self._store.get_recent_timestamps(normalized_ip, policy.window_seconds)
+        timestamps = self._store.get_recent_timestamps(normalized_ip, max(60, policy.min_interval_seconds))
         last_call_at = max(timestamps) if timestamps else 0
         interval_seconds = now - float(last_call_at) if last_call_at else 0.0
 
@@ -75,18 +75,4 @@ class LoginProtectionService:
             )
 
         count = self._store.record_allowed(normalized_ip, now)
-        if count < policy.max_requests_per_window:
-            return LoginProtectionDecision(allowed=True, code="ok", count=count)
-
-        reason = f"{policy.window_seconds}秒内调用登录接口{count}次: {endpoint}"
-        ban_result = await ban_ip(normalized_ip, count, reason, policy.ban_base_seconds)
-        self._store.clear(normalized_ip)
-        return LoginProtectionDecision(
-            allowed=False,
-            code="banned_window_rate",
-            message=ban_result.get("reason") or "登录请求过于频繁，您的IP已被封禁",
-            count=count,
-            duration_seconds=int(ban_result.get("duration_seconds") or 0),
-            level=int(ban_result.get("level") or 0),
-            reason=ban_result.get("reason") or reason,
-        )
+        return LoginProtectionDecision(allowed=True, code="ok", count=count)

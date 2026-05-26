@@ -789,12 +789,21 @@ async def count_recent_login_password_failures(username: str, ip_address: str, h
     cutoff = datetime.now() - timedelta(hours=hours)
     async with pool.acquire() as conn:
         count = await conn.fetchval('''
+            WITH last_success AS (
+                SELECT MAX(login_time) AS login_time
+                FROM login_records
+                WHERE username = $1
+                  AND ip_address = $2
+                  AND request_path = '/RPC/Login'
+                  AND login_success IS TRUE
+            )
             SELECT COUNT(*)
             FROM login_records
             WHERE username = $1
               AND ip_address = $2
               AND request_path = '/RPC/Login'
               AND status_code = 401
+              AND login_time > COALESCE((SELECT login_time FROM last_success), $3)
               AND login_time >= $3
               AND (
                     extra_data ILIKE '%賬戶或密碼不正確%'

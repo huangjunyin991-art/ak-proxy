@@ -610,7 +610,7 @@ RPC_LOGIN_FAIL_ACCOUNT_BAN_BASE_SECONDS = 3600
 
 RPC_LOGIN_ACCOUNT_PASSWORD_FAIL_WINDOW_HOURS = 24
 
-RPC_LOGIN_ACCOUNT_PASSWORD_FAIL_THRESHOLD = 20
+RPC_LOGIN_ACCOUNT_PASSWORD_FAIL_THRESHOLD = 15
 
 _POINT_HISTORY_PAGE_DELAY = 0.5
 _POINT_HISTORY_PAGE_MAX_RETRIES = 3
@@ -697,10 +697,10 @@ def _default_login_protection_policy_payload() -> dict:
     return {
         "enabled": True,
         "min_interval_seconds": ADMIN_LOGIN_MIN_INTERVAL_SECONDS,
-        "window_seconds": ADMIN_LOGIN_RATE_WINDOW_SECONDS,
-        "max_requests_per_window": ADMIN_LOGIN_RATE_THRESHOLD,
         "short_interval_block_enabled": True,
         "short_interval_ban_threshold": ADMIN_LOGIN_SHORT_INTERVAL_BAN_THRESHOLD,
+        "password_failure_window_hours": RPC_LOGIN_ACCOUNT_PASSWORD_FAIL_WINDOW_HOURS,
+        "password_failure_ban_threshold": RPC_LOGIN_ACCOUNT_PASSWORD_FAIL_THRESHOLD,
         "ban_base_seconds": ADMIN_LOGIN_RATE_BAN_BASE_SECONDS,
         "ignore_loopback": True,
     }
@@ -792,7 +792,7 @@ async def _record_login_endpoint_call_and_maybe_ban_ip(client_ip: str, endpoint:
                 result["blocked"] = True
             if decision.code == "blocked_short_interval":
                 logger.warning(f"[LoginRateGuard] 登录接口短间隔阻断 ip={normalized_ip} endpoint={endpoint} interval={decision.interval_seconds:.3f}s count={decision.short_interval_count}")
-            elif decision.code in {"banned_short_interval", "banned_window_rate"}:
+            elif decision.code == "banned_short_interval":
                 logger.warning(f"[LoginRateGuard] 自动封禁IP ip={normalized_ip} endpoint={endpoint} code={decision.code} reason={decision.reason or decision.message}")
             return result
         except Exception as e:
@@ -921,20 +921,26 @@ async def _record_account_password_fail_and_maybe_ban_ip(client_ip: str, usernam
         return
     if await _is_ip_banned_for_penalty(normalized_ip):
         return
+    policy = await _get_login_protection_policy_payload()
+    if not bool(policy.get("enabled", True)):
+        return
+    window_hours = int(policy.get("password_failure_window_hours") or RPC_LOGIN_ACCOUNT_PASSWORD_FAIL_WINDOW_HOURS)
+    threshold = int(policy.get("password_failure_ban_threshold") or RPC_LOGIN_ACCOUNT_PASSWORD_FAIL_THRESHOLD)
+    ban_base_seconds = int(policy.get("ban_base_seconds") or RPC_LOGIN_FAIL_ACCOUNT_BAN_BASE_SECONDS)
     count = await db.count_recent_login_password_failures(
         normalized_username,
         normalized_ip,
-        hours=RPC_LOGIN_ACCOUNT_PASSWORD_FAIL_WINDOW_HOURS,
+        hours=window_hours,
     )
-    if count <= RPC_LOGIN_ACCOUNT_PASSWORD_FAIL_THRESHOLD:
-        logger.warning(f"[LoginPasswordFailGuard] IP账号密码错误计数 ip={normalized_ip} account={normalized_username} count={count}/{RPC_LOGIN_ACCOUNT_PASSWORD_FAIL_THRESHOLD}")
+    if count < threshold:
+        logger.warning(f"[LoginPasswordFailGuard] IP账号密码错误计数 ip={normalized_ip} account={normalized_username} count={count}/{threshold}")
         return
-    trigger_reason = f"{RPC_LOGIN_ACCOUNT_PASSWORD_FAIL_WINDOW_HOURS}小时内同一IP对账号{normalized_username}密码错误{count}次"
+    trigger_reason = f"{window_hours}小时内同一IP对账号{normalized_username}连续密码错误{count}次"
     await ban_admin_login_fail_ip(
         normalized_ip,
         count,
         trigger_reason=trigger_reason,
-        base_seconds=RPC_LOGIN_FAIL_ACCOUNT_BAN_BASE_SECONDS,
+        base_seconds=ban_base_seconds,
     )
     logger.warning(f"[LoginPasswordFailGuard] 自动封禁IP ip={normalized_ip} account={normalized_username} count={count} reason={trigger_reason}")
 

@@ -197,18 +197,18 @@
             '<div class="monitoring-section monitoring-cache-section">' +
             '<div class="monitoring-section-header"><h4>登录防护策略</h4><span class="monitoring-meta" id="monitoringLoginProtectionMeta">读取中...</span></div>' +
             '<div class="monitoring-cache-grid">' +
-            '<label><span>启用登录防护</span><input class="monitoring-input" id="loginProtectionEnabled" type="checkbox"></label>' +
+            '<label class="monitoring-switch-card"><input id="loginProtectionEnabled" type="checkbox"><span class="monitoring-switch-control"></span><span class="monitoring-switch-copy"><strong>启用登录防护</strong><small>统一控制短间隔阻断和密码错误累计封禁</small></span></label>' +
             '<label><span>最小登录间隔（秒）</span><input class="monitoring-input" id="loginProtectionMinInterval" type="number" min="1" step="1"></label>' +
-            '<label><span>统计窗口（秒）</span><input class="monitoring-input" id="loginProtectionWindowSeconds" type="number" min="5" step="1"></label>' +
-            '<label><span>窗口最大请求数</span><input class="monitoring-input" id="loginProtectionMaxRequests" type="number" min="1" step="1"></label>' +
-            '<label><span>启用短间隔阻断</span><input class="monitoring-input" id="loginProtectionShortBlockEnabled" type="checkbox"></label>' +
+            '<label class="monitoring-switch-card"><input id="loginProtectionShortBlockEnabled" type="checkbox"><span class="monitoring-switch-control"></span><span class="monitoring-switch-copy"><strong>启用短间隔阻断</strong><small>5 秒内重复请求直接阻断本次登录</small></span></label>' +
             '<label><span>短间隔封禁阈值</span><input class="monitoring-input" id="loginProtectionShortBanThreshold" type="number" min="1" step="1"></label>' +
+            '<label><span>密码错误统计窗口（小时）</span><input class="monitoring-input" id="loginProtectionPasswordFailureWindowHours" type="number" min="1" step="1"></label>' +
+            '<label><span>密码错误封禁阈值（次）</span><input class="monitoring-input" id="loginProtectionPasswordFailureBanThreshold" type="number" min="1" step="1"></label>' +
             '<label><span>基础封禁时长（秒）</span><input class="monitoring-input" id="loginProtectionBanBaseSeconds" type="number" min="60" step="1"></label>' +
-            '<label><span>忽略本机 IP</span><input class="monitoring-input" id="loginProtectionIgnoreLoopback" type="checkbox"></label>' +
+            '<label class="monitoring-switch-card"><input id="loginProtectionIgnoreLoopback" type="checkbox"><span class="monitoring-switch-control"></span><span class="monitoring-switch-copy"><strong>忽略本机 IP</strong><small>本机调试不触发登录防护</small></span></label>' +
             '</div>' +
             '<div class="monitoring-cache-actions">' +
             '<button class="monitoring-btn primary" data-monitoring-action="save-login-protection-policy">保存登录防护策略</button>' +
-            '<span class="monitoring-meta">短间隔请求会直接阻断本次登录；连续命中阈值后按现有梯度处罚封禁 IP。</span>' +
+            '<span class="monitoring-meta">短间隔请求会直接阻断本次登录；密码错误累计达到阈值后按现有梯度处罚封禁 IP，成功登录后重新累计。</span>' +
             '</div>' +
             '</div>' +
             '<div class="monitoring-grid" id="monitoringCards"></div>' +
@@ -508,15 +508,15 @@
         var runtime = item.runtime || {};
         setInputChecked('loginProtectionEnabled', policy.enabled !== false);
         setInputValue('loginProtectionMinInterval', policy.min_interval_seconds);
-        setInputValue('loginProtectionWindowSeconds', policy.window_seconds);
-        setInputValue('loginProtectionMaxRequests', policy.max_requests_per_window);
         setInputChecked('loginProtectionShortBlockEnabled', policy.short_interval_block_enabled !== false);
         setInputValue('loginProtectionShortBanThreshold', policy.short_interval_ban_threshold);
+        setInputValue('loginProtectionPasswordFailureWindowHours', policy.password_failure_window_hours);
+        setInputValue('loginProtectionPasswordFailureBanThreshold', policy.password_failure_ban_threshold);
         setInputValue('loginProtectionBanBaseSeconds', policy.ban_base_seconds);
         setInputChecked('loginProtectionIgnoreLoopback', policy.ignore_loopback !== false);
         var meta = document.getElementById('monitoringLoginProtectionMeta');
         if (meta) {
-            var available = item.available === false ? '模块不可用' : '已启用';
+            var available = item.available === false ? '模块不可用' : (policy.enabled === false ? '已停用' : '已启用');
             var tracked = runtime.tracked_ips == null ? '-' : formatNumber(runtime.tracked_ips);
             var shortIps = runtime.short_interval_ips == null ? '-' : formatNumber(runtime.short_interval_ips);
             setTextIfChanged(meta, available + ' · 跟踪 IP ' + tracked + ' · 短间隔 IP ' + shortIps);
@@ -540,10 +540,10 @@
         var payload = {
             enabled: inputChecked('loginProtectionEnabled'),
             min_interval_seconds: inputNumber('loginProtectionMinInterval'),
-            window_seconds: inputNumber('loginProtectionWindowSeconds'),
-            max_requests_per_window: inputNumber('loginProtectionMaxRequests'),
             short_interval_block_enabled: inputChecked('loginProtectionShortBlockEnabled'),
             short_interval_ban_threshold: inputNumber('loginProtectionShortBanThreshold'),
+            password_failure_window_hours: inputNumber('loginProtectionPasswordFailureWindowHours'),
+            password_failure_ban_threshold: inputNumber('loginProtectionPasswordFailureBanThreshold'),
             ban_base_seconds: inputNumber('loginProtectionBanBaseSeconds'),
             ignore_loopback: inputChecked('loginProtectionIgnoreLoopback')
         };
