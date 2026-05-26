@@ -597,8 +597,6 @@ ADMIN_LOGIN_MIN_INTERVAL_SECONDS = 5
 
 ADMIN_LOGIN_SHORT_INTERVAL_BAN_THRESHOLD = 3
 
-LOGIN_PROTECTION_CONFIG_KEY = "login_protection_policy"
-
 RPC_LOGIN_ACCOUNT_PASSWORD_FAIL_WINDOW_HOURS = 24
 
 RPC_LOGIN_ACCOUNT_PASSWORD_FAIL_THRESHOLD = 15
@@ -721,43 +719,10 @@ active_defense_config_service = (
 )
 
 
-async def _get_login_protection_policy_payload() -> dict:
-    payload = _default_login_protection_policy_payload()
-    try:
-        saved = await db.system_config.get(LOGIN_PROTECTION_CONFIG_KEY, payload)
-        if isinstance(saved, dict):
-            payload.update(saved)
-    except Exception as e:
-        logger.warning(f"[LoginProtection] 读取策略配置失败，使用默认值: {e}")
-    if LoginProtectionPolicy is None:
-        return payload
-    return LoginProtectionPolicy.from_mapping(payload).to_dict()
-
-
-async def _set_login_protection_policy_payload(payload: dict) -> dict:
-    if LoginProtectionPolicy is None:
-        raise RuntimeError("登录防护模块不可用")
-    policy = LoginProtectionPolicy.from_mapping(payload or {})
-    saved = policy.to_dict()
-    ok = await db.system_config.set(LOGIN_PROTECTION_CONFIG_KEY, saved, "登录接口防护策略")
-    if not ok:
-        raise RuntimeError("保存登录防护策略失败")
-    if login_protection_service is not None:
-        login_protection_service.update_policy(policy)
-    return saved
-
-
 async def _refresh_active_defense_policy() -> None:
     if active_defense_config_service is None:
         return
     await active_defense_config_service.refresh_policy()
-
-
-async def _refresh_login_protection_policy() -> None:
-    if login_protection_service is None or LoginProtectionPolicy is None:
-        return
-    payload = await _get_login_protection_policy_payload()
-    login_protection_service.update_policy(LoginProtectionPolicy.from_mapping(payload))
 
 
 async def _ban_active_defense_ip(ip: str, count: int, trigger_reason: str, base_seconds: int, max_seconds: int, progressive: bool) -> dict:
@@ -769,30 +734,6 @@ async def _ban_active_defense_ip(ip: str, count: int, trigger_reason: str, base_
         max_seconds=max_seconds,
         progressive=progressive,
     )
-
-
-async def _ban_login_protection_ip(ip: str, count: int, trigger_reason: str, base_seconds: int) -> dict:
-    return await ban_admin_login_fail_ip(
-        ip,
-        count,
-        trigger_reason=trigger_reason,
-        base_seconds=base_seconds,
-    )
-
-
-async def _login_protection_snapshot() -> dict:
-    payload = await _get_login_protection_policy_payload()
-    if login_protection_service is None:
-        return {
-            "policy": payload,
-            "runtime": {},
-            "available": False,
-            "message": str(_LOGIN_PROTECTION_IMPORT_ERROR or "登录防护模块不可用"),
-        }
-    await _refresh_login_protection_policy()
-    snapshot = login_protection_service.snapshot()
-    snapshot["available"] = True
-    return snapshot
 
 
 async def _record_login_endpoint_call_and_maybe_ban_ip(client_ip: str, endpoint: str) -> dict:
@@ -4502,8 +4443,6 @@ if create_monitoring_router is not None:
             super_admin_role=ROLE_SUPER_ADMIN,
             im_server_internal_url=IM_SERVER_INTERNAL_URL,
             static_cache_service_supplier=lambda: globals().get("_AK_WEB_STATIC_CACHE_SERVICE"),
-            login_protection_snapshot_supplier=_login_protection_snapshot,
-            login_protection_policy_updater=_set_login_protection_policy_payload,
         ))
     except Exception as e:
         logger.warning(f"[Monitoring] 监控中心路由注册失败，已跳过: {e}")

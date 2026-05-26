@@ -23,6 +23,7 @@ class ActiveDefenseService:
         self._store.clear_all()
 
     def snapshot(self) -> dict:
+        self._prune_runtime(force=True)
         return {
             "policy": self._policy.to_dict(),
             "runtime": self._store.snapshot(),
@@ -46,6 +47,7 @@ class ActiveDefenseService:
         if await is_banned(normalized_ip):
             return ActiveDefenseDecision(allowed=False, code="already_banned", message="您的IP已被封禁", event_type="login_short_interval", ip=normalized_ip)
 
+        self._prune_runtime()
         now = time.time()
         timestamps = self._store.get_recent_login_timestamps(normalized_ip, max(60, policy.login_min_interval_seconds))
         last_call_at = max(timestamps) if timestamps else 0
@@ -95,6 +97,7 @@ class ActiveDefenseService:
         if await is_banned(normalized_ip):
             self._store.reset_login_forget_403(normalized_ip)
             return ActiveDefenseDecision(allowed=False, code="already_banned", event_type="login_forget_403", ip=normalized_ip)
+        self._prune_runtime()
         count = self._store.record_login_forget_403(normalized_ip)
         if count < policy.login_forget_403_threshold:
             return ActiveDefenseDecision(allowed=True, code="recorded", event_type="login_forget_403", ip=normalized_ip, count=count, threshold=policy.login_forget_403_threshold)
@@ -127,6 +130,7 @@ class ActiveDefenseService:
             return ActiveDefenseDecision(allowed=True, code="disabled", event_type="login_403_distinct_account", ip=normalized_ip)
         if await is_banned(normalized_ip):
             return ActiveDefenseDecision(allowed=False, code="already_banned", event_type="login_403_distinct_account", ip=normalized_ip)
+        self._prune_runtime()
         count = self._store.record_login_403_account(normalized_ip, normalized_username, policy.login_403_window_seconds)
         if count < policy.login_403_distinct_account_threshold:
             return ActiveDefenseDecision(allowed=True, code="recorded", event_type="login_403_distinct_account", ip=normalized_ip, count=count, threshold=policy.login_403_distinct_account_threshold)
@@ -187,6 +191,7 @@ class ActiveDefenseService:
         if await is_banned(normalized_ip):
             self._store.reset_response_anomaly(normalized_ip)
             return ActiveDefenseDecision(allowed=False, code="already_banned", event_type="response_anomaly", ip=normalized_ip, status_code=status)
+        self._prune_runtime()
         count = self._store.record_response_anomaly(normalized_ip, status, policy.response_anomaly_window_seconds)
         if count < policy.response_anomaly_threshold:
             return ActiveDefenseDecision(allowed=True, code="recorded", event_type="response_anomaly", ip=normalized_ip, count=count, threshold=policy.response_anomaly_threshold, status_code=status)
@@ -231,3 +236,14 @@ class ActiveDefenseService:
         static_prefixes = ("/static/", "/assets/", "/favicon", "/admin/api/monitoring-panel.css")
         static_suffixes = (".js", ".css", ".png", ".jpg", ".jpeg", ".gif", ".svg", ".ico", ".webp", ".woff", ".woff2", ".ttf", ".map")
         return lowered.startswith(static_prefixes) or lowered.endswith(static_suffixes)
+
+    def _prune_runtime(self, force: bool = False) -> None:
+        policy = self._policy
+        self._store.maybe_prune_expired(
+            login_request_window_seconds=max(60, policy.login_min_interval_seconds),
+            login_short_interval_window_seconds=max(60, policy.login_min_interval_seconds),
+            login_forget_403_window_seconds=policy.login_403_window_seconds,
+            login_403_window_seconds=policy.login_403_window_seconds,
+            response_anomaly_window_seconds=policy.response_anomaly_window_seconds,
+            force=force,
+        )

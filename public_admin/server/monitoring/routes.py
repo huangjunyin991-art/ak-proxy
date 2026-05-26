@@ -24,8 +24,6 @@ def create_monitoring_router(
     super_admin_role: str,
     im_server_internal_url: str = "",
     static_cache_service_supplier: Callable[[], object] = None,
-    login_protection_snapshot_supplier: Callable[[], object] = None,
-    login_protection_policy_updater: Callable[[dict], object] = None,
 ) -> APIRouter:
     router = APIRouter(prefix="/admin/api/monitoring")
     service = MonitoringService(pool_supplier=pool_supplier, im_server_internal_url=im_server_internal_url)
@@ -40,22 +38,6 @@ def create_monitoring_router(
 
     def static_cache_service():
         return static_cache_service_supplier() if static_cache_service_supplier else None
-
-    async def login_protection_snapshot():
-        if login_protection_snapshot_supplier is None:
-            return None
-        result = login_protection_snapshot_supplier()
-        if hasattr(result, "__await__"):
-            result = await result
-        return result
-
-    async def update_login_protection_policy(payload: dict):
-        if login_protection_policy_updater is None:
-            return None
-        result = login_protection_policy_updater(payload)
-        if hasattr(result, "__await__"):
-            result = await result
-        return result
 
     @router.get("/overview")
     async def monitoring_overview(request: Request, range: str = "7d", force: str = ""):
@@ -177,32 +159,6 @@ def create_monitoring_router(
             return JSONResponse(status_code=503, content={"error": True, "message": "K937 静态资源缓存服务不可用"})
         try:
             return {"success": True, "item": cache_service.refresh_upstream_version()}
-        except Exception as exc:
-            return JSONResponse(status_code=500, content={"error": True, "message": str(exc)[:300]})
-
-    @router.get("/login-protection/policy")
-    async def monitoring_login_protection_policy(request: Request):
-        _, error_response = await require_super_admin(request)
-        if error_response is not None:
-            return error_response
-        if login_protection_snapshot_supplier is None:
-            return JSONResponse(status_code=503, content={"error": True, "message": "登录防护策略服务不可用"})
-        try:
-            return {"success": True, "item": await login_protection_snapshot()}
-        except Exception as exc:
-            return JSONResponse(status_code=500, content={"error": True, "message": str(exc)[:300]})
-
-    @router.post("/login-protection/policy")
-    async def monitoring_update_login_protection_policy(request: Request):
-        _, error_response = await require_super_admin(request)
-        if error_response is not None:
-            return error_response
-        if login_protection_policy_updater is None:
-            return JSONResponse(status_code=503, content={"error": True, "message": "登录防护策略服务不可用"})
-        try:
-            payload = await request.json()
-            item = await update_login_protection_policy(payload or {})
-            return {"success": True, "item": item}
         except Exception as exc:
             return JSONResponse(status_code=500, content={"error": True, "message": str(exc)[:300]})
 

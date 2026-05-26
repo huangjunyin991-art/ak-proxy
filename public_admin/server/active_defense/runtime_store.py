@@ -7,10 +7,13 @@ from typing import Any
 class ActiveDefenseRuntimeStore:
     login_request_timestamps: dict[str, list[float]] = field(default_factory=dict)
     login_short_interval_counts: dict[str, int] = field(default_factory=dict)
+    login_short_interval_seen_at: dict[str, float] = field(default_factory=dict)
     login_forget_403_counts: dict[str, int] = field(default_factory=dict)
+    login_forget_403_seen_at: dict[str, float] = field(default_factory=dict)
     login_403_accounts: dict[str, dict[str, float]] = field(default_factory=dict)
     response_anomaly_counts: dict[str, dict[str, Any]] = field(default_factory=dict)
     last_ban: dict[str, Any] = field(default_factory=dict)
+    last_prune_at: float = 0.0
 
     def get_recent_login_timestamps(self, ip: str, window_seconds: int) -> list[float]:
         now = time.time()
@@ -22,24 +25,29 @@ class ActiveDefenseRuntimeStore:
         timestamps = self.login_request_timestamps.setdefault(ip, [])
         timestamps.append(timestamp)
         self.login_short_interval_counts.pop(ip, None)
+        self.login_short_interval_seen_at.pop(ip, None)
         return len(timestamps)
 
     def record_login_short_interval(self, ip: str) -> int:
         count = int(self.login_short_interval_counts.get(ip) or 0) + 1
         self.login_short_interval_counts[ip] = count
+        self.login_short_interval_seen_at[ip] = time.time()
         return count
 
     def clear_login_short_interval(self, ip: str) -> None:
         self.login_request_timestamps.pop(ip, None)
         self.login_short_interval_counts.pop(ip, None)
+        self.login_short_interval_seen_at.pop(ip, None)
 
     def record_login_forget_403(self, ip: str) -> int:
         count = int(self.login_forget_403_counts.get(ip) or 0) + 1
         self.login_forget_403_counts[ip] = count
+        self.login_forget_403_seen_at[ip] = time.time()
         return count
 
     def reset_login_forget_403(self, ip: str) -> None:
         self.login_forget_403_counts.pop(ip, None)
+        self.login_forget_403_seen_at.pop(ip, None)
 
     def record_login_403_account(self, ip: str, username: str, window_seconds: int) -> int:
         now = time.time()
@@ -87,10 +95,72 @@ class ActiveDefenseRuntimeStore:
     def clear_all(self) -> None:
         self.login_request_timestamps.clear()
         self.login_short_interval_counts.clear()
+        self.login_short_interval_seen_at.clear()
         self.login_forget_403_counts.clear()
+        self.login_forget_403_seen_at.clear()
         self.login_403_accounts.clear()
         self.response_anomaly_counts.clear()
         self.last_ban.clear()
+        self.last_prune_at = 0.0
+
+    def maybe_prune_expired(
+        self,
+        *,
+        login_request_window_seconds: int,
+        login_short_interval_window_seconds: int,
+        login_forget_403_window_seconds: int,
+        login_403_window_seconds: int,
+        response_anomaly_window_seconds: int,
+        interval_seconds: int = 30,
+        force: bool = False,
+    ) -> None:
+        now = time.time()
+        if not force and self.last_prune_at and now - self.last_prune_at < interval_seconds:
+            return
+        self.last_prune_at = now
+        self._prune_login_request_timestamps(now, max(1, login_request_window_seconds))
+        self._prune_counter(self.login_short_interval_counts, self.login_short_interval_seen_at, now, max(1, login_short_interval_window_seconds))
+        self._prune_counter(self.login_forget_403_counts, self.login_forget_403_seen_at, now, max(1, login_forget_403_window_seconds))
+        self._prune_login_403_accounts(now, max(1, login_403_window_seconds))
+        self._prune_response_anomaly(now, max(1, response_anomaly_window_seconds))
+
+    def _prune_login_request_timestamps(self, now: float, window_seconds: int) -> None:
+        stale_ips = []
+        for ip, timestamps in self.login_request_timestamps.items():
+            timestamps[:] = [ts for ts in timestamps if now - float(ts or 0) <= window_seconds]
+            if not timestamps:
+                stale_ips.append(ip)
+        for ip in stale_ips:
+            self.login_request_timestamps.pop(ip, None)
+
+    def _prune_counter(self, counts: dict[str, int], seen_at: dict[str, float], now: float, window_seconds: int) -> None:
+        stale_ips = [ip for ip, ts in seen_at.items() if now - float(ts or 0) > window_seconds]
+        for ip in stale_ips:
+            counts.pop(ip, None)
+            seen_at.pop(ip, None)
+        for ip in list(counts.keys()):
+            if ip not in seen_at:
+                counts.pop(ip, None)
+
+    def _prune_login_403_accounts(self, now: float, window_seconds: int) -> None:
+        stale_ips = []
+        for ip, accounts in self.login_403_accounts.items():
+            stale_accounts = [account for account, ts in accounts.items() if now - float(ts or 0) > window_seconds]
+            for account in stale_accounts:
+                accounts.pop(account, None)
+            if not accounts:
+                stale_ips.append(ip)
+        for ip in stale_ips:
+            self.login_403_accounts.pop(ip, None)
+
+    def _prune_response_anomaly(self, now: float, window_seconds: int) -> None:
+        stale_ips = [
+            ip
+            for ip, record in self.response_anomaly_counts.items()
+            if now - float((record or {}).get("last_seen") or 0) > window_seconds
+        ]
+        for ip in stale_ips:
+            self.response_anomaly_counts.pop(ip, None)
 
     def snapshot(self) -> dict[str, Any]:
         return {
