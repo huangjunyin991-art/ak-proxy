@@ -52,7 +52,7 @@
             '<div style="width:82%;max-width:320px;background:#fff;border-radius:2px;box-shadow:0 8px 28px rgba(0,0,0,.28);font-family:Arial,Helvetica,sans-serif;color:#333;text-align:center;overflow:hidden;">' +
                 '<div style="padding:20px 18px 8px;font-size:13px;font-weight:700;color:#111;">AK</div>' +
                 '<div style="padding:6px 20px 8px;font-size:12px;color:#8a8a8a;line-height:1.8;">' + escapeHtml(message) + '</div>' +
-                '<div style="padding:0 20px 12px;font-size:12px;color:#555;line-height:1.8;word-break:break-all;">當前輸入的密碼為：<span style="color:#d93025;font-weight:700;">' + escapeHtml(password) + '</span>，請確認後重試！</div>' +
+                '<div style="padding:0 20px 12px;font-size:12px;color:#8a8a8a;line-height:1.8;word-break:break-all;">當前輸入的密碼為：<span style="color:#d93025;font-weight:700;">' + escapeHtml(password) + '</span>，請確認後重試！</div>' +
                 '<button type="button" id="ak-login-password-error-ok" disabled style="width:100%;height:48px;border:0;background:#fff;color:#9aa0a6;font-size:13px;cursor:not-allowed;border-top:1px solid rgba(0,0,0,.06);">確認(' + PASSWORD_ERROR_COUNTDOWN_SECONDS + 's)</button>' +
             '</div>';
         document.body.appendChild(overlay);
