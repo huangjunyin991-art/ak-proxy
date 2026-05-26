@@ -2,6 +2,8 @@
     'use strict';
 
     var PASSWORD_ERROR_COUNTDOWN_SECONDS = 5;
+    var LOGIN_SUBMIT_BLOCK_MS = PASSWORD_ERROR_COUNTDOWN_SECONDS * 1000;
+    var lastLoginSubmitAt = 0;
 
     function isLoginPage() {
         try {
@@ -39,6 +41,47 @@
 
     function closeDialog(overlay) {
         if (overlay && overlay.parentNode) overlay.parentNode.removeChild(overlay);
+    }
+
+    function getLoginSubmitBlockRemainingMs() {
+        var elapsed = Date.now() - lastLoginSubmitAt;
+        return Math.max(0, LOGIN_SUBMIT_BLOCK_MS - elapsed);
+    }
+
+    function showLoginSubmitBlockedMessage(remainingMs) {
+        var seconds = Math.max(1, Math.ceil(remainingMs / 1000));
+        try {
+            if (window.APP && APP.GLOBAL && typeof APP.GLOBAL.toastMsg === 'function') {
+                APP.GLOBAL.toastMsg('請等待' + seconds + '秒後再重試');
+            }
+        } catch(e) {}
+    }
+
+    function installLoginSubmitThrottlePatch() {
+        if (!isLoginPage() || window.__AKLoginSubmitThrottlePatchInstalled) return;
+        window.__AKLoginSubmitThrottlePatchInstalled = true;
+        var attempts = 0;
+        var timer = setInterval(function() {
+            attempts += 1;
+            var vm = window._vue;
+            if (!vm || typeof vm.doLoginAjax !== 'function') {
+                if (attempts >= 100) clearInterval(timer);
+                return;
+            }
+            clearInterval(timer);
+            if (vm.__akLoginSubmitThrottlePatched) return;
+            vm.__akLoginSubmitThrottlePatched = true;
+            var originalDoLoginAjax = vm.doLoginAjax;
+            vm.doLoginAjax = function() {
+                var remainingMs = getLoginSubmitBlockRemainingMs();
+                if (remainingMs > 0) {
+                    showLoginSubmitBlockedMessage(remainingMs);
+                    return;
+                }
+                lastLoginSubmitAt = Date.now();
+                return originalDoLoginAjax.apply(this, arguments);
+            };
+        }, 100);
     }
 
     function showPasswordErrorDialog(message) {
@@ -82,6 +125,7 @@
     function installLoginPasswordErrorPatch() {
         if (!isLoginPage() || window.__AKLoginPasswordErrorPatchInstalled) return;
         window.__AKLoginPasswordErrorPatchInstalled = true;
+        installLoginSubmitThrottlePatch();
         var attempts = 0;
         var timer = setInterval(function() {
             attempts += 1;
