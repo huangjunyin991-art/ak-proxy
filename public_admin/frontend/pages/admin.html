@@ -940,19 +940,87 @@
         }
         
         /* 标签页 */
-        .tabs {
-            display: flex;
-            padding: 0 30px;
+        .desktop-tabs-shell {
+            position: relative;
             border-bottom: 1px solid var(--border);
             background: var(--bg-secondary);
         }
+
+        .desktop-tabs-shell::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            right: 0;
+            bottom: 0;
+            width: 72px;
+            pointer-events: none;
+            background: linear-gradient(90deg, rgba(10, 22, 40, 0), var(--bg-secondary) 72%);
+            opacity: 0;
+            transition: opacity 0.2s;
+        }
+
+        .desktop-tabs-shell.has-overflow::after {
+            opacity: 1;
+        }
+
+        .tabs {
+            display: flex;
+            padding: 0 30px;
+            background: var(--bg-secondary);
+            overflow-x: auto;
+            overflow-y: hidden;
+            flex-wrap: nowrap;
+            scrollbar-width: none;
+            -ms-overflow-style: none;
+        }
+
+        .tabs::-webkit-scrollbar {
+            display: none;
+        }
         
         .tab {
-            padding: 15px 25px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            flex: 0 0 auto;
+            padding: 15px 18px;
             cursor: pointer;
             color: var(--text-secondary);
             border-bottom: 3px solid transparent;
             transition: all 0.2s;
+            white-space: nowrap;
+            line-height: 1;
+        }
+
+        .desktop-tabs-scroll-next {
+            position: absolute;
+            top: 50%;
+            right: 10px;
+            z-index: 2;
+            transform: translateY(-50%);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            width: 34px;
+            height: 34px;
+            border: 1px solid rgba(0, 212, 255, 0.35);
+            border-radius: 999px;
+            background: rgba(0, 212, 255, 0.12);
+            color: var(--accent);
+            cursor: pointer;
+            font-size: 24px;
+            line-height: 1;
+            box-shadow: 0 0 18px rgba(0, 212, 255, 0.16);
+        }
+
+        .desktop-tabs-shell.has-overflow .desktop-tabs-scroll-next {
+            display: inline-flex;
+        }
+
+        .desktop-tabs-shell.at-end::after,
+        .desktop-tabs-shell.at-end .desktop-tabs-scroll-next {
+            display: none;
         }
         
         .tab:hover {
@@ -1792,6 +1860,7 @@
             left: 0;
             width: min(84vw, 320px);
             height: 100vh;
+            height: 100dvh;
             background: var(--bg-card);
             border-right: 1px solid var(--border);
             box-shadow: 4px 0 24px rgba(0, 0, 0, 0.35);
@@ -1800,6 +1869,7 @@
             z-index: 1104;
             display: flex;
             flex-direction: column;
+            min-height: 0;
         }
 
         .mobile-tab-drawer.open {
@@ -1824,7 +1894,10 @@
             gap: 8px;
             padding: 12px;
             overflow-y: auto;
-            flex: 1;
+            flex: 1 1 auto;
+            min-height: 0;
+            -webkit-overflow-scrolling: touch;
+            overscroll-behavior: contain;
         }
 
         .mobile-tab-item {
@@ -2116,6 +2189,10 @@
             }
 
             .desktop-tabs {
+                display: none;
+            }
+
+            .desktop-tabs-shell {
                 display: none;
             }
 
@@ -2999,6 +3076,7 @@
     </div>
     
     <!-- 标签页 -->
+    <div class="desktop-tabs-shell" id="desktopTabsShell">
     <div class="tabs desktop-tabs" id="desktopTabs">
         <div class="tab active" data-panel="dashboard" id="tabDashboard"><svg class="tab-icon" viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg> 流量仪表盘</div>
         <div class="tab" data-panel="online"><svg class="tab-icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4" fill="rgba(0,255,136,0.3)"/><circle cx="12" cy="12" r="2" fill="#00ff88"/></svg> 在线用户 <span class="online-tab-count" id="onlineTabCount">0</span></div>
@@ -3017,6 +3095,8 @@
         <div class="tab" data-panel="monitoring"><svg class="tab-icon" viewBox="0 0 24 24"><path d="M3 3v18h18"/><path d="m7 15 4-4 3 3 5-7"/><path d="M7 19v-4"/><path d="M11 19v-8"/><path d="M15 19v-5"/><path d="M19 19V7"/></svg> 监控中心</div>
         <div class="tab" data-panel="meetings"><svg class="tab-icon" viewBox="0 0 24 24"><path d="M15 10.5V7a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2v-3.5l5 4v-11l-5 4Z"/></svg> 会议</div>
         <div class="tab" data-panel="settings"><svg class="tab-icon" viewBox="0 0 24 24"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg> 设置</div>
+    </div>
+    <button type="button" class="desktop-tabs-scroll-next" id="desktopTabsScrollNext" aria-label="查看更多标签">›</button>
     </div>
     
     <!-- 内容区 -->
@@ -4958,6 +5038,10 @@
                     t.dataset.allowed = '1';
                 });
                 renderMobileTabList();
+                requestAnimationFrame(() => {
+                    syncDesktopTabsOverflow();
+                    scrollActiveDesktopTabIntoView();
+                });
                 return;
             }
             
@@ -4990,6 +5074,10 @@
                 if (firstVisible) firstVisible.click();
             }
             renderMobileTabList();
+            requestAnimationFrame(() => {
+                syncDesktopTabsOverflow();
+                scrollActiveDesktopTabIntoView();
+            });
         }
         
         function logout() {
@@ -7307,6 +7395,41 @@
             if (title) title.textContent = activeTab ? activeTab.textContent.trim() : '功能导航';
         }
 
+        function syncDesktopTabsOverflow() {
+            const shell = document.getElementById('desktopTabsShell');
+            const tabs = document.getElementById('desktopTabs');
+            if (!shell || !tabs) return;
+            const hasOverflow = tabs.scrollWidth > tabs.clientWidth + 2;
+            const atEnd = tabs.scrollLeft + tabs.clientWidth >= tabs.scrollWidth - 2;
+            shell.classList.toggle('has-overflow', hasOverflow);
+            shell.classList.toggle('at-end', !hasOverflow || atEnd);
+        }
+
+        function scrollActiveDesktopTabIntoView() {
+            const tabs = document.getElementById('desktopTabs');
+            const activeTab = tabs ? tabs.querySelector('.tab.active') : null;
+            if (!tabs || !activeTab) return;
+            activeTab.scrollIntoView({block: 'nearest', inline: 'nearest'});
+            requestAnimationFrame(syncDesktopTabsOverflow);
+        }
+
+        function bindDesktopTabsScroller() {
+            const tabs = document.getElementById('desktopTabs');
+            const nextButton = document.getElementById('desktopTabsScrollNext');
+            if (!tabs || !nextButton || tabs.dataset.scrollBound === '1') return;
+            tabs.dataset.scrollBound = '1';
+            tabs.addEventListener('scroll', syncDesktopTabsOverflow, {passive: true});
+            tabs.addEventListener('wheel', (event) => {
+                if (Math.abs(event.deltaY) <= Math.abs(event.deltaX)) return;
+                event.preventDefault();
+                tabs.scrollBy({left: event.deltaY, behavior: 'auto'});
+            }, {passive: false});
+            nextButton.addEventListener('click', () => {
+                tabs.scrollBy({left: Math.max(180, Math.floor(tabs.clientWidth * 0.65)), behavior: 'smooth'});
+            });
+            requestAnimationFrame(syncDesktopTabsOverflow);
+        }
+
         function syncAkBrowserViewport() {
             const panel = document.getElementById('akBrowserPanel');
             const overlay = document.getElementById('akBrowserOverlay');
@@ -7339,6 +7462,7 @@
             const shellBar = document.getElementById('mobileShellBar');
             const navToggle = document.getElementById('mobileNavToggle');
             const refreshButton = document.getElementById('mobilePanelRefresh');
+            bindDesktopTabsScroller();
             document.body.classList.toggle('mobile-layout', media.matches);
             if (shellBar) shellBar.style.display = media.matches ? 'flex' : '';
             if (navToggle) navToggle.style.display = media.matches ? 'inline-flex' : '';
@@ -7355,6 +7479,7 @@
             }
             renderMobileTabList();
             syncMobileTabLabel();
+            syncDesktopTabsOverflow();
             syncAkBrowserViewport();
             if (typeof window.syncRemoteAssistViewport === 'function') {
                 window.syncRemoteAssistViewport();
@@ -7399,6 +7524,7 @@
                     window.dispatchEvent(new CustomEvent('ak-admin-panel-changed', { detail: { panel: currentPanelName } }));
                 } catch (e) {
                 }
+                scrollActiveDesktopTabIntoView();
                 
                 // 加载对应数据
                 if (tab.dataset.panel === 'dashboard') {
