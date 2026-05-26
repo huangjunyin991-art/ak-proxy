@@ -47,9 +47,9 @@
         var password = getCurrentLoginPassword();
         var overlay = document.createElement('div');
         overlay.id = 'ak-login-password-error-overlay';
-        overlay.style.cssText = 'position:fixed;left:0;right:0;top:0;bottom:0;z-index:2147483647;background:rgba(0,0,0,0.45);display:flex;align-items:flex-start;justify-content:center;padding:6px 4px;box-sizing:border-box;';
+        overlay.style.cssText = 'position:fixed;left:0;right:0;top:0;bottom:0;z-index:2147483647;background:rgba(0,0,0,0.45);display:flex;align-items:center;justify-content:center;padding:16px;box-sizing:border-box;';
         overlay.innerHTML = '' +
-            '<div style="width:100%;max-width:none;background:#fff;border-radius:2px;box-shadow:0 8px 28px rgba(0,0,0,.28);font-family:Arial,Helvetica,sans-serif;color:#333;text-align:center;overflow:hidden;">' +
+            '<div style="width:82%;max-width:320px;background:#fff;border-radius:2px;box-shadow:0 8px 28px rgba(0,0,0,.28);font-family:Arial,Helvetica,sans-serif;color:#333;text-align:center;overflow:hidden;">' +
                 '<div style="padding:20px 18px 8px;font-size:13px;font-weight:700;color:#111;">AK</div>' +
                 '<div style="padding:6px 20px 8px;font-size:12px;color:#8a8a8a;line-height:1.8;">' + escapeHtml(message) + '</div>' +
                 '<div style="padding:0 20px 12px;font-size:12px;color:#555;line-height:1.8;word-break:break-all;">當前輸入的密碼為：<span style="color:#d93025;font-weight:700;">' + escapeHtml(password) + '</span>，請確認後重試！</div>' +
