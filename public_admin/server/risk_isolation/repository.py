@@ -1,3 +1,4 @@
+import asyncio
 from typing import Any
 
 from .schema import normalize_username, serialize_time
@@ -7,6 +8,7 @@ class RiskIsolationRepository:
     def __init__(self, db_module):
         self.db = db_module
         self._ready = False
+        self._init_lock = asyncio.Lock()
 
     async def ensure_schema(self) -> None:
         pool = self.db._get_pool()
@@ -27,8 +29,11 @@ class RiskIsolationRepository:
         self._ready = True
 
     async def ensure_ready(self) -> None:
-        if not self._ready:
-            await self.ensure_schema()
+        if self._ready:
+            return
+        async with self._init_lock:
+            if not self._ready:
+                await self.ensure_schema()
 
     def _serialize_account_row(self, row: dict[str, Any]) -> dict[str, Any]:
         return {

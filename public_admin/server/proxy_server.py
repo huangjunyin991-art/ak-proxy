@@ -4574,11 +4574,13 @@ async def admin_startup():
             logger.warning(f"[NotifyCenter] 初始化数据表或启动 worker 失败，已跳过: {e}")
 
     if risk_isolation_service is not None:
-        try:
-            await risk_isolation_service.initialize()
-            logger.info("[RiskIsolation] 风险隔离模块已初始化")
-        except Exception as e:
-            logger.warning(f"[RiskIsolation] 初始化失败，已跳过: {e}")
+        async def _initialize_risk_isolation():
+            try:
+                await risk_isolation_service.initialize()
+                logger.info("[RiskIsolation] 风险隔离模块已初始化")
+            except Exception as e:
+                logger.warning(f"[RiskIsolation] 初始化失败，已跳过: {e}")
+        asyncio.create_task(_initialize_risk_isolation())
 
     if ENABLE_LOCAL_BAN:
 
@@ -10532,6 +10534,7 @@ async def chat_websocket(websocket: WebSocket):
 # --- 管理后台页面 ---
 
 _ADMIN_HTML_CACHE = {"key": None, "content": "", "etag": ""}
+_ADMIN_PANEL_VERSIONS_CACHE = {"expires_at": 0.0, "versions": None}
 
 
 def _max_mtime_among(paths):
@@ -10555,7 +10558,11 @@ def _max_mtime_among(paths):
 
 def _admin_panel_versions():
     """根据各 panel 资源目录 max(mtime) 计算 admin 内联 buildVersion 占位符的真实值。"""
-    return {
+    now = time.time()
+    cached_versions = _ADMIN_PANEL_VERSIONS_CACHE.get("versions")
+    if cached_versions is not None and now < float(_ADMIN_PANEL_VERSIONS_CACHE.get("expires_at") or 0.0):
+        return cached_versions
+    versions = {
         'monitoring': _max_mtime_among([
             os.path.join(FRONTEND_PAGES_DIR, "monitoring", "monitoring_panel.js"),
             os.path.join(FRONTEND_PAGES_DIR, "monitoring", "monitoring_panel.css"),
@@ -10576,6 +10583,9 @@ def _admin_panel_versions():
             os.path.join(FRONTEND_PAGES_DIR, "point_stats"),
         ]),
     }
+    _ADMIN_PANEL_VERSIONS_CACHE["versions"] = versions
+    _ADMIN_PANEL_VERSIONS_CACHE["expires_at"] = now + 30.0
+    return versions
 
 
 _ADMIN_PANEL_VERSION_PATTERN = re.compile(

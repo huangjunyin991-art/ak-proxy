@@ -32,6 +32,7 @@ def create_risk_isolation_router(service: RiskIsolationService,
         return {
             'success': True,
             'available': True,
+            'ready': service.initialized,
             'role': role,
             'sub_name': sub_name,
             'sub_admins': await service.list_sub_admin_scopes(role),

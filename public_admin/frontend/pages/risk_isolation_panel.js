@@ -14,6 +14,7 @@
         selectedSubAdmin: '',
         dropdownQuery: '',
         selectedInitial: '',
+        ready: false,
         search: '',
         total: 0,
         isolatedTotal: 0,
@@ -22,6 +23,7 @@
     var STYLE_ID = 'akRiskIsolationPanelStyle';
     var dropdownDocumentHandlerBound = false;
     var searchTimer = null;
+    var readyRetryTimer = null;
 
     function token() {
         return sessionStorage.getItem('admin_token') || '';
@@ -296,12 +298,41 @@
         return api('/status').then(function(data) {
             state.role = data.role || sessionStorage.getItem('admin_role') || '';
             state.subName = data.sub_name || sessionStorage.getItem('admin_role_name') || '';
+            state.ready = data.ready !== false;
             state.subAdmins = data.sub_admins || [];
             renderSubAdmins();
         });
     }
 
+    function renderInitializing() {
+        updateHeader();
+        var tbody = document.getElementById('riTableBody');
+        var cardList = document.getElementById('riCardList');
+        if (tbody) tbody.innerHTML = '<tr><td colspan="8" class="ri-empty">风险隔离模块初始化中，请稍候...</td></tr>';
+        if (cardList) cardList.innerHTML = '<div class="ri-user-card ri-muted">风险隔离模块初始化中，请稍候...</div>';
+    }
+
+    function waitUntilReady() {
+        if (readyRetryTimer) clearTimeout(readyRetryTimer);
+        renderInitializing();
+        readyRetryTimer = setTimeout(function() {
+            loadStatus().then(function() {
+                if (state.ready) {
+                    loadAccounts();
+                } else {
+                    waitUntilReady();
+                }
+            }).catch(function(err) {
+                notify(err.message || '风险隔离模块初始化状态检查失败', 'error');
+            });
+        }, 1200);
+    }
+
     function loadAccounts() {
+        if (!state.ready) {
+            waitUntilReady();
+            return Promise.resolve();
+        }
         setBusy(true);
         var params = new URLSearchParams({ limit: '200', offset: '0' });
         if (state.search) params.append('search', state.search);
@@ -378,7 +409,13 @@
         buildShell();
         if (!state.loaded) {
             state.loaded = true;
-            loadStatus().then(loadAccounts).catch(function(err) {
+            loadStatus().then(function() {
+                if (state.ready) {
+                    return loadAccounts();
+                }
+                waitUntilReady();
+                return null;
+            }).catch(function(err) {
                 notify(err.message || '风险隔离模块不可用', 'error');
             });
             return;

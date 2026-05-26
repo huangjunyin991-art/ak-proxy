@@ -12,9 +12,11 @@ class RiskIsolationService:
         self.super_admin_role = super_admin_role
         self.sub_admin_role = sub_admin_role
         self.sub_admin_exists = sub_admin_exists
+        self.initialized = False
 
     async def initialize(self) -> None:
         await self.repository.ensure_schema()
+        self.initialized = True
 
     def resolve_scope(self, role: str, sub_name: str = '', requested_sub_admin: str = '') -> RiskIsolationScope:
         normalized_role = str(role or '').strip()
@@ -46,6 +48,8 @@ class RiskIsolationService:
         )
 
     async def list_sub_admin_scopes(self, role: str) -> list[dict[str, Any]]:
+        if not self.initialized:
+            return []
         if role != self.super_admin_role:
             return []
         return await self.repository.list_sub_admin_scopes()
@@ -111,4 +115,6 @@ class RiskIsolationService:
         )
 
     async def should_hide_login(self, username: str) -> bool:
+        if not self.initialized:
+            return False
         return await self.repository.is_isolated(username)
