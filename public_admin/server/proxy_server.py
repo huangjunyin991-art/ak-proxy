@@ -450,6 +450,21 @@ except Exception as e:
     _LOGIN_PROTECTION_IMPORT_ERROR = e
 
 try:
+    from .active_defense import (
+        ActiveDefenseConfigService,
+        ActiveDefensePolicy,
+        ActiveDefenseService,
+        create_active_defense_router,
+    )
+    _ACTIVE_DEFENSE_IMPORT_ERROR = None
+except Exception as e:
+    ActiveDefenseConfigService = None
+    ActiveDefensePolicy = None
+    ActiveDefenseService = None
+    create_active_defense_router = None
+    _ACTIVE_DEFENSE_IMPORT_ERROR = e
+
+try:
     from .recommend_tree import create_recommend_tree_router
     _RECOMMEND_TREE_IMPORT_ERROR = None
 except Exception as e:
@@ -566,16 +581,6 @@ class ProxyStats:
 
         self.pending_indexdata_logins: dict = {}
 
-        self.login_403_ip_accounts: dict = {}
-
-        self.admin_login_request_timestamps: dict = {}
-
-        self.admin_login_short_interval_counts: dict = {}
-
-        self.login_forget_403_counts: dict = {}
-
-
-
 stats = ProxyStats()
 
 LOGIN_INDEXDATA_GRACE_SECONDS = 5
@@ -586,14 +591,6 @@ IP_PREBAN_AUTO_BAN_THRESHOLD = 5
 
 IP_PREBAN_AUTO_BAN_DAYS = 1
 
-LOGIN_403_DISTINCT_ACCOUNT_THRESHOLD = 6
-
-LOGIN_403_IP_BAN_HOURS = 1
-
-ADMIN_LOGIN_RATE_WINDOW_SECONDS = 60
-
-ADMIN_LOGIN_RATE_THRESHOLD = 20
-
 ADMIN_LOGIN_RATE_BAN_BASE_SECONDS = 3600
 
 ADMIN_LOGIN_MIN_INTERVAL_SECONDS = 5
@@ -601,12 +598,6 @@ ADMIN_LOGIN_MIN_INTERVAL_SECONDS = 5
 ADMIN_LOGIN_SHORT_INTERVAL_BAN_THRESHOLD = 3
 
 LOGIN_PROTECTION_CONFIG_KEY = "login_protection_policy"
-
-LOGIN_FORGET_403_BAN_THRESHOLD = 20
-
-RPC_LOGIN_FAIL_ACCOUNT_WINDOW_SECONDS = 60
-
-RPC_LOGIN_FAIL_ACCOUNT_BAN_BASE_SECONDS = 3600
 
 RPC_LOGIN_ACCOUNT_PASSWORD_FAIL_WINDOW_HOURS = 24
 
@@ -712,6 +703,24 @@ login_protection_service = (
 )
 
 
+active_defense_service = (
+    ActiveDefenseService(ActiveDefensePolicy())
+    if ActiveDefenseService is not None and ActiveDefensePolicy is not None else None
+)
+
+
+active_defense_config_service = (
+    ActiveDefenseConfigService(
+        db.system_config,
+        active_defense_service,
+        login_protection_service=login_protection_service,
+        login_protection_policy_cls=LoginProtectionPolicy,
+        logger=logger,
+    )
+    if ActiveDefenseConfigService is not None else None
+)
+
+
 async def _get_login_protection_policy_payload() -> dict:
     payload = _default_login_protection_policy_payload()
     try:
@@ -738,11 +747,28 @@ async def _set_login_protection_policy_payload(payload: dict) -> dict:
     return saved
 
 
+async def _refresh_active_defense_policy() -> None:
+    if active_defense_config_service is None:
+        return
+    await active_defense_config_service.refresh_policy()
+
+
 async def _refresh_login_protection_policy() -> None:
     if login_protection_service is None or LoginProtectionPolicy is None:
         return
     payload = await _get_login_protection_policy_payload()
     login_protection_service.update_policy(LoginProtectionPolicy.from_mapping(payload))
+
+
+async def _ban_active_defense_ip(ip: str, count: int, trigger_reason: str, base_seconds: int, max_seconds: int, progressive: bool) -> dict:
+    return await ban_ip_with_policy(
+        ip,
+        count,
+        trigger_reason=trigger_reason,
+        base_seconds=base_seconds,
+        max_seconds=max_seconds,
+        progressive=progressive,
+    )
 
 
 async def _ban_login_protection_ip(ip: str, count: int, trigger_reason: str, base_seconds: int) -> dict:
@@ -775,15 +801,15 @@ async def _record_login_endpoint_call_and_maybe_ban_ip(client_ip: str, endpoint:
         return {}
     if await _is_ip_banned_for_penalty(normalized_ip):
         return {"already_banned": True}
-    if login_protection_service is not None:
+    if active_defense_service is not None:
         try:
-            await _refresh_login_protection_policy()
-            decision = await login_protection_service.check_and_record(
+            await _refresh_active_defense_policy()
+            decision = await active_defense_service.check_login_request(
                 normalized_ip,
                 endpoint,
                 is_loopback=_is_loopback_ip,
                 is_banned=_is_ip_banned_for_penalty,
-                ban_ip=_ban_login_protection_ip,
+                ban_ip=_ban_active_defense_ip,
             )
             result = decision.to_dict()
             if not decision.allowed and decision.code == "already_banned":
@@ -791,53 +817,13 @@ async def _record_login_endpoint_call_and_maybe_ban_ip(client_ip: str, endpoint:
             if not decision.allowed and decision.code == "blocked_short_interval":
                 result["blocked"] = True
             if decision.code == "blocked_short_interval":
-                logger.warning(f"[LoginRateGuard] 登录接口短间隔阻断 ip={normalized_ip} endpoint={endpoint} interval={decision.interval_seconds:.3f}s count={decision.short_interval_count}")
-            elif decision.code == "banned_short_interval":
+                logger.warning(f"[ActiveDefense] 登录短间隔阻断 ip={normalized_ip} endpoint={endpoint} count={decision.count}")
+            elif decision.code == "login_short_interval_banned":
                 logger.warning(f"[LoginRateGuard] 自动封禁IP ip={normalized_ip} endpoint={endpoint} code={decision.code} reason={decision.reason or decision.message}")
             return result
         except Exception as e:
-            logger.warning(f"[LoginProtection] 策略模块检查失败，降级到内置频控: {e}")
-    now = time.time()
-    timestamps = stats.admin_login_request_timestamps.setdefault(normalized_ip, [])
-    timestamps[:] = [ts for ts in timestamps if now - float(ts or 0) <= ADMIN_LOGIN_RATE_WINDOW_SECONDS]
-    last_call_at = max(timestamps) if timestamps else 0
-    if last_call_at and now - float(last_call_at) < ADMIN_LOGIN_MIN_INTERVAL_SECONDS:
-        short_interval_count = int(stats.admin_login_short_interval_counts.get(normalized_ip) or 0) + 1
-        stats.admin_login_short_interval_counts[normalized_ip] = short_interval_count
-        logger.warning(f"[LoginRateGuard] 登录接口短间隔记录 ip={normalized_ip} endpoint={endpoint} interval={now - float(last_call_at):.3f}s count={short_interval_count}")
-        if short_interval_count >= ADMIN_LOGIN_SHORT_INTERVAL_BAN_THRESHOLD:
-            trigger_reason = f"连续{short_interval_count}次低于{ADMIN_LOGIN_MIN_INTERVAL_SECONDS}秒调用登录接口: {endpoint}"
-            result = await ban_admin_login_fail_ip(
-                normalized_ip,
-                short_interval_count,
-                trigger_reason=trigger_reason,
-                base_seconds=ADMIN_LOGIN_RATE_BAN_BASE_SECONDS,
-            )
-            stats.admin_login_request_timestamps.pop(normalized_ip, None)
-            stats.admin_login_short_interval_counts.pop(normalized_ip, None)
-            return {**result, "count": len(timestamps), "short_interval_count": short_interval_count}
-        return {
-            "blocked": True,
-            "code": "blocked_short_interval",
-            "message": f"登录请求过于频繁，请{max(1, int(ADMIN_LOGIN_MIN_INTERVAL_SECONDS - (now - float(last_call_at))))}秒后重试",
-            "count": len(timestamps),
-            "short_interval_count": short_interval_count,
-        }
-    stats.admin_login_short_interval_counts.pop(normalized_ip, None)
-    timestamps.append(now)
-    count = len(timestamps)
-    if count < ADMIN_LOGIN_RATE_THRESHOLD:
-        return {"count": count}
-    trigger_reason = f"{ADMIN_LOGIN_RATE_WINDOW_SECONDS}秒内调用登录接口{count}次: {endpoint}"
-    result = await ban_admin_login_fail_ip(
-        normalized_ip,
-        count,
-        trigger_reason=trigger_reason,
-        base_seconds=ADMIN_LOGIN_RATE_BAN_BASE_SECONDS,
-    )
-    stats.admin_login_request_timestamps.pop(normalized_ip, None)
-    stats.admin_login_short_interval_counts.pop(normalized_ip, None)
-    return {**result, "count": count}
+            logger.warning(f"[ActiveDefense] 登录短间隔策略检查失败，跳过主动防御: {e}")
+    return {}
 
 
 def _is_login_forget_rpc(api_path: str) -> bool:
@@ -849,61 +835,45 @@ def _reset_login_forget_403_count(client_ip: str, api_path: str) -> None:
     if not _is_login_forget_rpc(api_path):
         return
     normalized_ip = str(client_ip or "").strip()
-    if normalized_ip:
-        stats.login_forget_403_counts.pop(normalized_ip, None)
+    if normalized_ip and active_defense_service is not None:
+        active_defense_service.reset_login_forget_403(normalized_ip)
 
 
 async def _record_login_forget_403_and_maybe_ban_ip(client_ip: str, api_path: str) -> None:
     if not _is_login_forget_rpc(api_path):
         return
-    normalized_ip = str(client_ip or "").strip()
-    if not normalized_ip or normalized_ip == "unknown" or _is_loopback_ip(normalized_ip):
+    if active_defense_service is None:
         return
-    if await _is_ip_banned_for_penalty(normalized_ip):
-        stats.login_forget_403_counts.pop(normalized_ip, None)
-        return
-    count = int(stats.login_forget_403_counts.get(normalized_ip) or 0) + 1
-    stats.login_forget_403_counts[normalized_ip] = count
-    if count <= LOGIN_FORGET_403_BAN_THRESHOLD:
-        logger.warning(f"[LoginForget403Guard] 连续403记录 ip={normalized_ip} api={api_path} count={count}/{LOGIN_FORGET_403_BAN_THRESHOLD}")
-        return
-    trigger_reason = f"连续触发{api_path}上游403超过{LOGIN_FORGET_403_BAN_THRESHOLD}次"
-    await ban_admin_login_fail_ip(
-        normalized_ip,
-        count,
-        trigger_reason=trigger_reason,
-        base_seconds=ADMIN_LOGIN_RATE_BAN_BASE_SECONDS,
+    await _refresh_active_defense_policy()
+    decision = await active_defense_service.record_login_forget_403(
+        client_ip,
+        api_path,
+        is_loopback=_is_loopback_ip,
+        is_banned=_is_ip_banned_for_penalty,
+        ban_ip=_ban_active_defense_ip,
     )
-    stats.login_forget_403_counts.pop(normalized_ip, None)
-    logger.warning(f"[LoginForget403Guard] 自动封禁IP ip={normalized_ip} api={api_path} count={count} reason={trigger_reason}")
+    if decision.code == "recorded":
+        logger.warning(f"[LoginForget403Guard] 连续403记录 ip={decision.ip} api={api_path} count={decision.count}/{decision.threshold}")
+    elif decision.code == "login_forget_403_banned":
+        logger.warning(f"[LoginForget403Guard] 自动封禁IP ip={decision.ip} api={api_path} count={decision.count} reason={decision.reason}")
 
 
 async def _record_login_403_and_maybe_ban_ip(client_ip: str, username: str, reason: str) -> None:
-    normalized_ip = str(client_ip or "").strip()
-    normalized_username = str(username or "").strip().lower()
-    if not normalized_ip or normalized_ip == "unknown" or _is_loopback_ip(normalized_ip) or not normalized_username or normalized_username == "unknown":
+    if active_defense_service is None:
         return
-    if await _is_ip_banned_for_penalty(normalized_ip):
-        return
-    now = time.time()
-    accounts = stats.login_403_ip_accounts.setdefault(normalized_ip, {})
-    stale_accounts = [account for account, ts in accounts.items() if now - float(ts or 0) > RPC_LOGIN_FAIL_ACCOUNT_WINDOW_SECONDS]
-    for account in stale_accounts:
-        accounts.pop(account, None)
-    accounts[normalized_username] = now
-    count = len(accounts)
-    if count < LOGIN_403_DISTINCT_ACCOUNT_THRESHOLD:
-        logger.warning(f"[Login403Guard] IP触发403登录拦截 ip={normalized_ip} account={normalized_username} count={count}/{LOGIN_403_DISTINCT_ACCOUNT_THRESHOLD} reason={reason}")
-        return
-    trigger_reason = f"{RPC_LOGIN_FAIL_ACCOUNT_WINDOW_SECONDS}秒内{count}个不同账号登录失败: {reason}"
-    await ban_admin_login_fail_ip(
-        normalized_ip,
-        count,
-        trigger_reason=trigger_reason,
-        base_seconds=RPC_LOGIN_FAIL_ACCOUNT_BAN_BASE_SECONDS,
+    await _refresh_active_defense_policy()
+    decision = await active_defense_service.record_login_403_account(
+        client_ip,
+        username,
+        reason,
+        is_loopback=_is_loopback_ip,
+        is_banned=_is_ip_banned_for_penalty,
+        ban_ip=_ban_active_defense_ip,
     )
-    stats.login_403_ip_accounts.pop(normalized_ip, None)
-    logger.warning(f"[Login403Guard] 自动封禁IP ip={normalized_ip} accounts={sorted(accounts.keys())} reason={trigger_reason}")
+    if decision.code == "recorded":
+        logger.warning(f"[Login403Guard] IP触发403登录拦截 ip={decision.ip} account={username} count={decision.count}/{decision.threshold} reason={reason}")
+    elif decision.code == "login_403_distinct_account_banned":
+        logger.warning(f"[Login403Guard] 自动封禁IP ip={decision.ip} account={username} count={decision.count} reason={decision.reason}")
 
 
 def _is_rpc_login_password_failure(result: dict, local_password_mismatch: bool = False) -> bool:
@@ -915,34 +885,21 @@ def _is_rpc_login_password_failure(result: dict, local_password_mismatch: bool =
 
 
 async def _record_account_password_fail_and_maybe_ban_ip(client_ip: str, username: str) -> None:
-    normalized_ip = str(client_ip or "").strip()
-    normalized_username = str(username or "").strip().lower()
-    if not normalized_ip or normalized_ip == "unknown" or _is_loopback_ip(normalized_ip) or not normalized_username or normalized_username == "unknown":
+    if active_defense_service is None:
         return
-    if await _is_ip_banned_for_penalty(normalized_ip):
-        return
-    policy = await _get_login_protection_policy_payload()
-    if not bool(policy.get("enabled", True)):
-        return
-    window_hours = int(policy.get("password_failure_window_hours") or RPC_LOGIN_ACCOUNT_PASSWORD_FAIL_WINDOW_HOURS)
-    threshold = int(policy.get("password_failure_ban_threshold") or RPC_LOGIN_ACCOUNT_PASSWORD_FAIL_THRESHOLD)
-    ban_base_seconds = int(policy.get("ban_base_seconds") or RPC_LOGIN_FAIL_ACCOUNT_BAN_BASE_SECONDS)
-    count = await db.count_recent_login_password_failures(
-        normalized_username,
-        normalized_ip,
-        hours=window_hours,
+    await _refresh_active_defense_policy()
+    decision = await active_defense_service.record_password_failure(
+        client_ip,
+        username,
+        db.count_recent_login_password_failures,
+        is_loopback=_is_loopback_ip,
+        is_banned=_is_ip_banned_for_penalty,
+        ban_ip=_ban_active_defense_ip,
     )
-    if count < threshold:
-        logger.warning(f"[LoginPasswordFailGuard] IP账号密码错误计数 ip={normalized_ip} account={normalized_username} count={count}/{threshold}")
-        return
-    trigger_reason = f"{window_hours}小时内同一IP对账号{normalized_username}连续密码错误{count}次"
-    await ban_admin_login_fail_ip(
-        normalized_ip,
-        count,
-        trigger_reason=trigger_reason,
-        base_seconds=ban_base_seconds,
-    )
-    logger.warning(f"[LoginPasswordFailGuard] 自动封禁IP ip={normalized_ip} account={normalized_username} count={count} reason={trigger_reason}")
+    if decision.code == "recorded":
+        logger.warning(f"[LoginPasswordFailGuard] IP账号密码错误计数 ip={decision.ip} account={username} count={decision.count}/{decision.threshold}")
+    elif decision.code == "password_failure_banned":
+        logger.warning(f"[LoginPasswordFailGuard] 自动封禁IP ip={decision.ip} account={username} count={decision.count} reason={decision.reason}")
 
 
 async def _record_missing_indexdata_followup(client_ip: str, username: str) -> None:
@@ -1620,6 +1577,31 @@ def _extract_client_ip(request: Request) -> str:
     if parsed_candidates:
         return parsed_candidates[0]
     return "unknown"
+
+
+@app.middleware("http")
+async def active_defense_response_status_middleware(request: Request, call_next):
+    response = await call_next(request)
+    if active_defense_service is None:
+        return response
+    try:
+        await _refresh_active_defense_policy()
+        decision = await active_defense_service.record_response_status(
+            _extract_client_ip(request),
+            request.url.path,
+            request.method,
+            int(getattr(response, "status_code", 0) or 0),
+            is_loopback=_is_loopback_ip,
+            is_banned=_is_ip_banned_for_penalty,
+            ban_ip=_ban_active_defense_ip,
+        )
+        if decision.code == "recorded":
+            logger.warning(f"[ActiveDefense] 响应异常记录 ip={decision.ip} status={decision.status_code} count={decision.count}/{decision.threshold} path={request.url.path}")
+        elif decision.code == "response_anomaly_banned":
+            logger.warning(f"[ActiveDefense] 响应异常自动封禁IP ip={decision.ip} status={decision.status_code} count={decision.count} reason={decision.reason}")
+    except Exception as e:
+        logger.warning(f"[ActiveDefense] 响应异常策略检查失败，已跳过: {e}")
+    return response
 
 
 
@@ -3696,16 +3678,24 @@ def _format_duration_zh(seconds: int) -> str:
     return f"{seconds}秒"
 
 
-async def ban_admin_login_fail_ip(ip: str, fail_count: int, trigger_reason: str = '', base_seconds: int | None = None) -> dict:
+async def ban_ip_with_policy(
+    ip: str,
+    fail_count: int,
+    trigger_reason: str = '',
+    base_seconds: int | None = None,
+    max_seconds: int | None = None,
+    progressive: bool = True,
+) -> dict:
     normalized_ip = str(ip or "").strip()
     if not normalized_ip or normalized_ip == "unknown" or _is_loopback_ip(normalized_ip):
         return {}
     if await _is_ip_banned_for_penalty(normalized_ip):
         return {"already_banned": True}
-    level = await db.increment_admin_login_ban_level(normalized_ip)
+    level = await db.increment_admin_login_ban_level(normalized_ip) if progressive else 1
     penalty_base_seconds = int(base_seconds or ADMIN_LOGIN_BAN_BASE_SECONDS)
-    duration_seconds = min(penalty_base_seconds * max(1, level), ADMIN_LOGIN_BAN_MAX_SECONDS)
-    reason_prefix = trigger_reason or f"管理员后台登录失败{fail_count}次"
+    penalty_max_seconds = int(max_seconds or ADMIN_LOGIN_BAN_MAX_SECONDS)
+    duration_seconds = min(penalty_base_seconds * max(1, level), penalty_max_seconds)
+    reason_prefix = trigger_reason or f"自动防御触发{fail_count}次"
     reason = f"{reason_prefix}，封禁倍率{level}倍，封禁{_format_duration_zh(duration_seconds)}"
     stats.banned_ips.add(normalized_ip)
     stats.banned_ip_expiries[normalized_ip] = time.time() + duration_seconds
@@ -3716,6 +3706,17 @@ async def ban_admin_login_fail_ip(ip: str, fail_count: int, trigger_reason: str 
         pass
     logger.warning(f"[AdminLoginBan] ip={normalized_ip} fails={fail_count} level={level} duration_seconds={duration_seconds}")
     return {"level": level, "duration_seconds": duration_seconds, "reason": reason}
+
+
+async def ban_admin_login_fail_ip(ip: str, fail_count: int, trigger_reason: str = '', base_seconds: int | None = None) -> dict:
+    return await ban_ip_with_policy(
+        ip,
+        fail_count,
+        trigger_reason=trigger_reason or f"管理员后台登录失败{fail_count}次",
+        base_seconds=base_seconds,
+        max_seconds=ADMIN_LOGIN_BAN_MAX_SECONDS,
+        progressive=True,
+    )
 
 
 
@@ -4508,6 +4509,19 @@ if create_monitoring_router is not None:
         logger.warning(f"[Monitoring] 监控中心路由注册失败，已跳过: {e}")
 elif _MONITORING_IMPORT_ERROR is not None:
     logger.warning(f"[Monitoring] 监控中心模块不可用，已跳过: {_MONITORING_IMPORT_ERROR}")
+
+if active_defense_config_service is not None and create_active_defense_router is not None:
+    try:
+        app.include_router(create_active_defense_router(
+            config_service=active_defense_config_service,
+            verify_admin_token=verify_admin_token,
+            get_token_role=get_token_role,
+            super_admin_role=ROLE_SUPER_ADMIN,
+        ))
+    except Exception as e:
+        logger.warning(f"[ActiveDefense] 主动防御路由注册失败，已跳过: {e}")
+elif _ACTIVE_DEFENSE_IMPORT_ERROR is not None:
+    logger.warning(f"[ActiveDefense] 主动防御模块不可用，已跳过: {_ACTIVE_DEFENSE_IMPORT_ERROR}")
 
 if create_recommend_tree_router is not None:
     try:
@@ -10548,6 +10562,9 @@ def _admin_panel_versions():
         'meeting': _max_mtime_among([
             os.path.join(FRONTEND_PAGES_DIR, "meeting_admin_panel.js"),
         ]),
+        'activeDefense': _max_mtime_among([
+            os.path.join(FRONTEND_PAGES_DIR, "active_defense_panel.js"),
+        ]),
         'recommendTree': _max_mtime_among([
             os.path.join(FRONTEND_PAGES_DIR, "recommend_tree"),
         ]),
@@ -10558,13 +10575,14 @@ def _admin_panel_versions():
 
 
 _ADMIN_PANEL_VERSION_PATTERN = re.compile(
-    r"var\s+(monitoringPanelBuildVersion|meetingPanelBuildVersion|"
+    r"var\s+(monitoringPanelBuildVersion|meetingPanelBuildVersion|activeDefensePanelBuildVersion|"
     r"recommendTreePanelBuildVersion|pointStatsPanelBuildVersion)\s*=\s*'[^']*'"
 )
 
 _ADMIN_PANEL_VAR_TO_KEY = {
     'monitoringPanelBuildVersion': 'monitoring',
     'meetingPanelBuildVersion': 'meeting',
+    'activeDefensePanelBuildVersion': 'activeDefense',
     'recommendTreePanelBuildVersion': 'recommendTree',
     'pointStatsPanelBuildVersion': 'pointStats',
 }
@@ -10592,6 +10610,7 @@ async def admin_page(request: Request):
         html_mtime,
         panel_versions['monitoring'],
         panel_versions['meeting'],
+        panel_versions['activeDefense'],
         panel_versions['recommendTree'],
         panel_versions['pointStats'],
     )
@@ -11322,6 +11341,19 @@ async def meeting_admin_panel_js():
 
                                      "Pragma": "no-cache", "Expires": "0"})
 
+    return Response(content="// not found", media_type="application/javascript")
+
+
+@app.get("/admin/api/active-defense-panel.js")
+async def active_defense_panel_js():
+    js_path = os.path.join(FRONTEND_PAGES_DIR, "active_defense_panel.js")
+    if os.path.exists(js_path):
+        with open(js_path, "r", encoding="utf-8") as f:
+            return Response(
+                content=f.read(),
+                media_type="application/javascript",
+                headers={"Cache-Control": "no-cache, no-store, must-revalidate", "Pragma": "no-cache", "Expires": "0"},
+            )
     return Response(content="// not found", media_type="application/javascript")
 
 
