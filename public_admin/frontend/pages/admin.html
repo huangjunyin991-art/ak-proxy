@@ -951,21 +951,36 @@
             background: var(--bg-secondary);
         }
 
+        .desktop-tabs-shell::before,
         .desktop-tabs-shell::after {
             content: '';
             position: absolute;
             top: 0;
-            right: 0;
             bottom: 0;
             width: 88px;
             pointer-events: none;
-            background: linear-gradient(90deg, rgba(10, 22, 40, 0), rgba(10, 22, 40, 0.86) 62%, var(--bg-secondary));
             opacity: 0;
             transition: opacity 0.2s;
         }
 
+        .desktop-tabs-shell::before {
+            left: 0;
+            background: linear-gradient(270deg, rgba(10, 22, 40, 0), rgba(10, 22, 40, 0.86) 62%, var(--bg-secondary));
+        }
+
+        .desktop-tabs-shell::after {
+            right: 0;
+            background: linear-gradient(90deg, rgba(10, 22, 40, 0), rgba(10, 22, 40, 0.86) 62%, var(--bg-secondary));
+        }
+
+        .desktop-tabs-shell.has-overflow::before,
         .desktop-tabs-shell.has-overflow::after {
             opacity: 1;
+        }
+
+        .desktop-tabs-shell.at-start::before,
+        .desktop-tabs-shell.at-end::after {
+            opacity: 0;
         }
 
         .tabs {
@@ -998,10 +1013,10 @@
             line-height: 1;
         }
 
+        .desktop-tabs-scroll-prev,
         .desktop-tabs-scroll-next {
             position: absolute;
             top: 0;
-            right: 0;
             bottom: 0;
             z-index: 2;
             display: none;
@@ -1020,16 +1035,35 @@
             transition: color 0.18s ease, background 0.18s ease;
         }
 
+        .desktop-tabs-scroll-prev {
+            left: 0;
+            border-left: none;
+            border-right: 1px solid rgba(0, 212, 255, 0.12);
+            background: linear-gradient(270deg, rgba(10, 22, 40, 0), rgba(10, 22, 40, 0.92));
+        }
+
+        .desktop-tabs-scroll-next {
+            right: 0;
+            border-left: 1px solid rgba(0, 212, 255, 0.12);
+            background: linear-gradient(90deg, rgba(10, 22, 40, 0), rgba(10, 22, 40, 0.92));
+        }
+
+        .desktop-tabs-scroll-prev:hover {
+            color: var(--accent);
+            background: linear-gradient(270deg, rgba(10, 22, 40, 0.06), rgba(10, 22, 40, 0.96));
+        }
+
         .desktop-tabs-scroll-next:hover {
             color: var(--accent);
             background: linear-gradient(90deg, rgba(10, 22, 40, 0.06), rgba(10, 22, 40, 0.96));
         }
 
+        .desktop-tabs-shell.has-overflow .desktop-tabs-scroll-prev,
         .desktop-tabs-shell.has-overflow .desktop-tabs-scroll-next {
             display: inline-flex;
         }
 
-        .desktop-tabs-shell.at-end::after,
+        .desktop-tabs-shell.at-start .desktop-tabs-scroll-prev,
         .desktop-tabs-shell.at-end .desktop-tabs-scroll-next {
             display: none;
         }
@@ -3119,6 +3153,7 @@
     
     <!-- 标签页 -->
     <div class="desktop-tabs-shell" id="desktopTabsShell">
+    <button type="button" class="desktop-tabs-scroll-prev" id="desktopTabsScrollPrev" aria-label="查看左侧标签">‹</button>
     <div class="tabs desktop-tabs" id="desktopTabs">
         <div class="tab active" data-panel="dashboard" id="tabDashboard"><svg class="tab-icon" viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg> 流量仪表盘</div>
         <div class="tab" data-panel="online"><svg class="tab-icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4" fill="rgba(0,255,136,0.3)"/><circle cx="12" cy="12" r="2" fill="#00ff88"/></svg> 在线用户 <span class="online-tab-count" id="onlineTabCount">0</span></div>
@@ -7452,8 +7487,10 @@
             const tabs = document.getElementById('desktopTabs');
             if (!shell || !tabs) return;
             const hasOverflow = tabs.scrollWidth > tabs.clientWidth + 2;
+            const atStart = tabs.scrollLeft <= 2;
             const atEnd = tabs.scrollLeft + tabs.clientWidth >= tabs.scrollWidth - 2;
             shell.classList.toggle('has-overflow', hasOverflow);
+            shell.classList.toggle('at-start', !hasOverflow || atStart);
             shell.classList.toggle('at-end', !hasOverflow || atEnd);
         }
 
@@ -7461,14 +7498,23 @@
             const tabs = document.getElementById('desktopTabs');
             const activeTab = tabs ? tabs.querySelector('.tab.active') : null;
             if (!tabs || !activeTab) return;
-            activeTab.scrollIntoView({block: 'nearest', inline: 'nearest'});
+            const tabLeft = activeTab.offsetLeft;
+            const tabRight = tabLeft + activeTab.offsetWidth;
+            const viewLeft = tabs.scrollLeft;
+            const viewRight = viewLeft + tabs.clientWidth;
+            if (tabLeft < viewLeft) {
+                tabs.scrollLeft = tabLeft;
+            } else if (tabRight > viewRight) {
+                tabs.scrollLeft = tabRight - tabs.clientWidth;
+            }
             requestAnimationFrame(syncDesktopTabsOverflow);
         }
 
         function bindDesktopTabsScroller() {
             const tabs = document.getElementById('desktopTabs');
+            const prevButton = document.getElementById('desktopTabsScrollPrev');
             const nextButton = document.getElementById('desktopTabsScrollNext');
-            if (!tabs || !nextButton || tabs.dataset.scrollBound === '1') return;
+            if (!tabs || !prevButton || !nextButton || tabs.dataset.scrollBound === '1') return;
             tabs.dataset.scrollBound = '1';
             tabs.addEventListener('scroll', syncDesktopTabsOverflow, {passive: true});
             tabs.addEventListener('wheel', (event) => {
@@ -7476,6 +7522,9 @@
                 event.preventDefault();
                 tabs.scrollBy({left: event.deltaY, behavior: 'auto'});
             }, {passive: false});
+            prevButton.addEventListener('click', () => {
+                tabs.scrollBy({left: -Math.max(180, Math.floor(tabs.clientWidth * 0.65)), behavior: 'smooth'});
+            });
             nextButton.addEventListener('click', () => {
                 tabs.scrollBy({left: Math.max(180, Math.floor(tabs.clientWidth * 0.65)), behavior: 'smooth'});
             });
