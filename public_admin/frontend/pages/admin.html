@@ -150,15 +150,16 @@
         /* 统计卡片 */
         .stats-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 20px;
-            padding: 20px 30px;
+            grid-template-columns: repeat(10, minmax(0, 1fr));
+            gap: 6px;
+            padding: 14px 12px;
         }
         
         .stat-card {
             background: var(--bg-card);
             border-radius: 12px;
-            padding: 20px;
+            min-width: 0;
+            padding: 11px 8px;
             border: 1px solid var(--border);
             transition: transform 0.2s, box-shadow 0.2s;
         }
@@ -170,14 +171,18 @@
         
         .stat-card .label {
             color: var(--text-secondary);
-            font-size: 14px;
-            margin-bottom: 8px;
+            font-size: clamp(10px, 0.68vw, 13px);
+            margin-bottom: 7px;
+            white-space: nowrap;
         }
         
         .stat-card .value {
-            font-size: 32px;
+            font-size: clamp(13px, 1.18vw, 28px);
             font-weight: bold;
             color: var(--accent);
+            line-height: 1.08;
+            letter-spacing: -0.35px;
+            white-space: nowrap;
         }
         
         .stat-card.green .value { color: var(--accent-green); }
