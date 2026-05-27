@@ -330,8 +330,13 @@
                     </div>
                 </div>
                 <div class="meeting-mobile-list">${cards}</div>
-                <div class="meeting-table-wrap" data-scroll-hint="right" style="overflow-x:auto"><table class="meeting-table"><thead><tr><th>子管理员</th><th>允许发布</th><th>状态</th></tr></thead><tbody>${rows}</tbody></table></div>
+                <div class="meeting-table-wrap" data-ak-sticky-table data-ak-sticky-table-min-width="620" data-ak-sticky-first-column-min="120" data-ak-sticky-first-column-max="180" style="overflow-x:auto"><table class="meeting-table"><thead><tr><th>子管理员</th><th>允许发布</th><th>状态</th></tr></thead><tbody>${rows}</tbody></table></div>
             </section>`;
+    }
+
+    function refreshStickyTables() {
+        if (!refs.mount || !window.AKStickyTable || typeof window.AKStickyTable.enhanceAll !== 'function') return;
+        window.AKStickyTable.enhanceAll(refs.mount);
     }
 
     function render() {
@@ -362,12 +367,13 @@
                         </div>
                     </div>
                     ${!hasAdminToken() ? '<div class="meeting-mobile-list"><div class="meeting-empty">请先登录后台</div></div>' : (state.loading ? '<div class="meeting-mobile-list"><div class="meeting-empty">加载中...</div></div>' : '<div class="meeting-mobile-list">' + renderPermissionCards() + '</div>')}
-                    <div class="meeting-table-wrap" data-scroll-hint="right" style="overflow-x:auto"><table class="meeting-table"><thead><tr><th>账号</th>${state.showOwnerColumn ? '<th>归属</th>' : ''}<th>允许发布</th><th>状态</th></tr></thead><tbody>${!hasAdminToken() ? `<tr><td colspan="${state.showOwnerColumn ? 4 : 3}" class="meeting-empty">请先登录后台</td></tr>` : (state.loading ? `<tr><td colspan="${state.showOwnerColumn ? 4 : 3}" class="meeting-empty">加载中...</td></tr>` : renderPermissionRows())}</tbody></table></div>
+                    <div class="meeting-table-wrap" data-ak-sticky-table data-ak-sticky-table-min-width="${state.showOwnerColumn ? 860 : 720}" data-ak-sticky-first-column-min="120" data-ak-sticky-first-column-max="180" style="overflow-x:auto"><table class="meeting-table"><thead><tr><th>账号</th>${state.showOwnerColumn ? '<th>归属</th>' : ''}<th>允许发布</th><th>状态</th></tr></thead><tbody>${!hasAdminToken() ? `<tr><td colspan="${state.showOwnerColumn ? 4 : 3}" class="meeting-empty">请先登录后台</td></tr>` : (state.loading ? `<tr><td colspan="${state.showOwnerColumn ? 4 : 3}" class="meeting-empty">加载中...</td></tr>` : renderPermissionRows())}</tbody></table></div>
                 </section>
             </div>`;
         if (state.renderHtml === html) return;
         mount.innerHTML = html;
         state.renderHtml = html;
+        requestAnimationFrame(refreshStickyTables);
     }
 
     function bind() {
