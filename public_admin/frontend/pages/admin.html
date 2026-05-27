@@ -1707,6 +1707,32 @@
             margin-left: auto;
         }
 
+        .license-toolbar-actions {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            align-items: stretch;
+            flex: 1 1 auto;
+        }
+
+        .license-toolbar-main,
+        .license-toolbar-filters {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .license-toolbar-main #licenseSearch {
+            flex: 1 1 260px;
+            min-width: 220px;
+        }
+
+        .license-toolbar-main .btn,
+        .license-toolbar-filters select {
+            min-height: 38px;
+        }
+
         .usage-table-layout {
             width: auto;
             min-width: 0;
@@ -2850,11 +2876,11 @@
                 min-width: 650px;
             }
             
-            /* 激活码管理顶部工具栏：移动端整齐 2 列 grid 布局 */
+            /* 激活码管理顶部工具栏 */
             #license .license-toolbar {
                 flex-direction: column;
                 align-items: stretch !important;
-                gap: 14px !important;
+                gap: 12px !important;
                 margin-bottom: 16px !important;
             }
             #license .license-toolbar h3 {
@@ -2862,18 +2888,25 @@
                 line-height: 1.2;
             }
             #license .license-toolbar-actions {
-                display: grid !important;
-                grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
                 gap: 8px !important;
                 width: 100%;
             }
-            /* 移动端：搜索独占一行，其余筛选和操作按钮两列排布 */
-            #license .license-toolbar-actions > #licenseSearch {
-                grid-column: 1 / -1;
+            #license .license-toolbar-main {
+                display: grid;
+                grid-template-columns: minmax(0, 1fr) auto auto;
+                gap: 8px;
             }
-            #license .license-toolbar-actions > #licenseSearch,
-            #license .license-toolbar-actions > select,
-            #license .license-toolbar-actions > button {
+            #license .license-toolbar-main > #licenseSearch {
+                min-width: 0;
+            }
+            #license .license-toolbar-filters {
+                display: grid;
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+                gap: 8px;
+            }
+            #license .license-toolbar-main > #licenseSearch,
+            #license .license-toolbar-filters > select,
+            #license .license-toolbar-main > button {
                 width: 100% !important;
                 box-sizing: border-box;
                 min-height: 44px;
@@ -2881,8 +2914,9 @@
                 font-size: 13px !important;
                 border-radius: 12px !important;
             }
-            #license .license-toolbar-actions > button {
+            #license .license-toolbar-main > button {
                 font-weight: 800;
+                white-space: nowrap;
             }
             #license .license-tabs {
                 display: grid !important;
@@ -2896,106 +2930,6 @@
                 padding: 10px 6px !important;
                 font-size: 12px !important;
                 white-space: nowrap;
-            }
-            #licPanelList .license-table-wrap {
-                max-height: none !important;
-                min-height: 0;
-                overflow: visible !important;
-                border: none;
-                background: transparent;
-                box-shadow: none;
-            }
-            #licPanelList .license-table-wrap table {
-                width: 100%;
-                min-width: 0 !important;
-                border-collapse: separate;
-                border-spacing: 0 10px;
-            }
-            #licPanelList .license-table-wrap thead {
-                display: none;
-            }
-            #licPanelList .license-table-wrap tbody,
-            #licPanelList .license-table-wrap tr,
-            #licPanelList .license-table-wrap td {
-                display: block;
-            }
-            #licPanelList .license-table-wrap tr {
-                border: 1px solid rgba(0, 212, 255, 0.18);
-                border-radius: 16px;
-                background: linear-gradient(180deg, rgba(10, 33, 49, 0.94), rgba(4, 18, 30, 0.96));
-                padding: 12px;
-                margin-bottom: 12px;
-                box-shadow: 0 12px 30px rgba(0, 0, 0, 0.16);
-            }
-            #licPanelList .license-table-wrap td {
-                display: flex;
-                justify-content: space-between;
-                align-items: flex-start;
-                gap: 12px;
-                border: none !important;
-                padding: 7px 0 !important;
-                color: var(--text-primary);
-                font-size: 12px;
-                line-height: 1.45;
-                white-space: normal;
-                word-break: break-word;
-            }
-            #licPanelList .license-table-wrap td::before {
-                min-width: 64px;
-                color: var(--text-secondary);
-                font-size: 11px;
-                font-weight: 800;
-                flex: 0 0 auto;
-            }
-            #licPanelList .license-table-wrap td:nth-child(1) {
-                display: block;
-                padding-top: 0 !important;
-            }
-            #licPanelList .license-table-wrap td:nth-child(1)::before {
-                content: '激活码';
-                display: block;
-                margin-bottom: 6px;
-            }
-            #licPanelList .license-table-wrap td:nth-child(1) span {
-                display: block;
-                width: 100%;
-                box-sizing: border-box;
-                padding: 9px 10px;
-                border: 1px solid rgba(0, 212, 255, 0.18);
-                border-radius: 12px;
-                background: rgba(0, 212, 255, 0.06);
-                color: var(--accent);
-                overflow-wrap: anywhere;
-            }
-            #licPanelList .license-table-wrap td:nth-child(2)::before { content: '产品'; }
-            #licPanelList .license-table-wrap td:nth-child(3)::before { content: '计费'; }
-            #licPanelList .license-table-wrap td:nth-child(4)::before { content: '剩余'; }
-            #licPanelList .license-table-wrap td:nth-child(5)::before { content: '状态'; }
-            #licPanelList .license-table-wrap td:nth-child(6)::before { content: '创建'; }
-            #licPanelList .license-table-wrap td:nth-child(7) {
-                justify-content: flex-start;
-                flex-wrap: wrap;
-                border-top: 1px solid rgba(255, 255, 255, 0.08) !important;
-                margin-top: 5px;
-                padding-top: 12px !important;
-            }
-            #licPanelList .license-table-wrap td:nth-child(7)::before {
-                content: '操作';
-                flex-basis: 100%;
-            }
-            #licPanelList .license-table-wrap td:nth-child(7) .btn-small {
-                flex: 1 1 0;
-                min-height: 34px;
-                margin: 0;
-                border-radius: 10px !important;
-            }
-            #licPanelList .license-table-wrap td[colspan] {
-                display: block;
-                text-align: center !important;
-                padding: 20px 12px !important;
-            }
-            #licPanelList .license-table-wrap td[colspan]::before {
-                display: none;
             }
             
             /* 聊天区域适配 */
@@ -3587,36 +3521,38 @@
         <div class="panel" id="license">
             <div class="license-toolbar" style="margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 15px;">
                 <h3 style="margin: 0; color: var(--accent);"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-2px"><path d="M2.586 17.414A2 2 0 0 0 2 18.828V21a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h1a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h.172a2 2 0 0 0 1.414-.586l.814-.814a6.5 6.5 0 1 0-4-4z"/><circle cx="16.5" cy="7.5" r=".5" fill="currentColor"/></svg> 激活码管理</h3>
-                <div class="license-toolbar-actions" style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
-                    <input type="text" id="licenseSearch" placeholder="搜索激活码..." 
-                           style="padding: 8px 15px; background: var(--bg-card); border: 1px solid var(--border); 
-                                  border-radius: 8px; color: var(--text-primary); width: 180px;"
-                           onkeypress="if(event.keyCode===13)searchLicenses()">
-                    <select id="licBillingFilter" onchange="applyLicenseFilters()" 
-                            style="padding: 8px 12px; background: var(--bg-card); border: 1px solid var(--border); 
-                                   border-radius: 8px; color: var(--text-primary); font-size: 13px;">
-                        <option value="">全部计费</option>
-                        <option value="per_use">按次数</option>
-                        <option value="time_based">按时间</option>
-                        <option value="unlimited">无限制</option>
-                    </select>
-                    <select id="licStatusFilter" onchange="applyLicenseFilters()" 
-                            style="padding: 8px 12px; background: var(--bg-card); border: 1px solid var(--border); 
-                                   border-radius: 8px; color: var(--text-primary); font-size: 13px;">
-                        <option value="">全部状态</option>
-                        <option value="active">已激活</option>
-                        <option value="inactive">未激活</option>
-                        <option value="expired">已过期</option>
-                        <option value="revoked">已撤销</option>
-                    </select>
-                    <button onclick="searchLicenses()" class="btn btn-primary" style="padding: 8px 15px;">搜索</button>
-                    <button onclick="clearLicenseFilters()" class="btn-page" style="padding: 8px 15px;">清除</button>
-                    <button onclick="showCreateLicenseModal()" class="btn btn-primary" style="padding: 8px 15px; background: linear-gradient(135deg, #00ff88, #00cc6a);">
-                        ➕ 创建激活码
-                    </button>
-                    <button onclick="showPublishReleaseModal()" class="btn btn-primary" style="padding: 8px 15px;">
-                        🚀 发布更新
-                    </button>
+                <div class="license-toolbar-actions">
+                    <div class="license-toolbar-main">
+                        <input type="text" id="licenseSearch" placeholder="搜索激活码..."
+                               style="padding: 8px 15px; background: var(--bg-card); border: 1px solid var(--border);
+                                      border-radius: 8px; color: var(--text-primary);"
+                               oninput="searchLicenses()">
+                        <button onclick="showCreateLicenseModal()" class="btn btn-primary" style="padding: 8px 15px; background: linear-gradient(135deg, #00ff88, #00cc6a);">
+                            创建激活码
+                        </button>
+                        <button onclick="showPublishReleaseModal()" class="btn btn-primary" style="padding: 8px 15px;">
+                            发布更新
+                        </button>
+                    </div>
+                    <div class="license-toolbar-filters">
+                        <select id="licBillingFilter" onchange="applyLicenseFilters()"
+                                style="padding: 8px 12px; background: var(--bg-card); border: 1px solid var(--border);
+                                       border-radius: 8px; color: var(--text-primary); font-size: 13px;">
+                            <option value="">全部计费</option>
+                            <option value="per_use">按次数</option>
+                            <option value="time_based">按时间</option>
+                            <option value="unlimited">无限制</option>
+                        </select>
+                        <select id="licStatusFilter" onchange="applyLicenseFilters()"
+                                style="padding: 8px 12px; background: var(--bg-card); border: 1px solid var(--border);
+                                       border-radius: 8px; color: var(--text-primary); font-size: 13px;">
+                            <option value="">全部状态</option>
+                            <option value="active">已激活</option>
+                            <option value="inactive">未激活</option>
+                            <option value="expired">已过期</option>
+                            <option value="revoked">已撤销</option>
+                        </select>
+                    </div>
                 </div>
             </div>
             
@@ -4435,7 +4371,7 @@
     <!-- 创建激活码弹窗 -->
     <div id="createLicenseModal" class="modal">
         <div class="modal-content" style="max-width: 500px;">
-            <h3 style="flex-shrink: 0;">➕ 创建激活码</h3>
+            <h3 style="flex-shrink: 0;">创建激活码</h3>
             
             <div style="flex: 1; overflow-y: auto; margin-bottom: 20px;">
                 <div style="margin-bottom: 15px;">
@@ -4507,7 +4443,7 @@
 
     <div class="modal" id="publishReleaseModal">
         <div class="modal-content" style="max-width: 560px;">
-            <h3 style="flex-shrink: 0;">🚀 发布更新</h3>
+            <h3 style="flex-shrink: 0;">发布更新</h3>
             <div style="flex: 1; overflow-y: auto; margin-bottom: 20px;">
                 <div style="margin-bottom: 15px;">
                     <label style="display: block; margin-bottom: 8px; color: var(--text-secondary); font-size: 14px;">产品</label>
@@ -8734,19 +8670,6 @@
         function applyLicenseFilters() {
             licenseBillingFilter = document.getElementById('licBillingFilter').value;
             licenseStatusFilter = document.getElementById('licStatusFilter').value;
-            renderLicenseTable();
-        }
-        
-        // 清除所有筛选
-        function clearLicenseFilters() {
-            document.getElementById('licenseSearch').value = '';
-            document.getElementById('licBillingFilter').value = '';
-            document.getElementById('licStatusFilter').value = '';
-            licenseSearchTerm = '';
-            licenseBillingFilter = '';
-            licenseStatusFilter = '';
-            licenseSortDir = 0;
-            document.getElementById('licSortIcon').textContent = '⇅';
             renderLicenseTable();
         }
         
