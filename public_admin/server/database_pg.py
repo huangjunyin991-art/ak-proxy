@@ -3014,7 +3014,7 @@ async def get_authorized_accounts(added_by: str = None, status: str = None,
             params.append(status)
             idx += 1
         if search:
-            conditions.append(f"username ILIKE ${idx}")
+            conditions.append(f"(username ILIKE ${idx} OR nickname ILIKE ${idx} OR added_by ILIKE ${idx})")
             params.append(f"%{search}%")
             idx += 1
 

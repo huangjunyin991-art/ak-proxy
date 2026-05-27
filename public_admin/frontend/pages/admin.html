@@ -2679,7 +2679,7 @@
             #whitelist .wl-toolbar {
                 width: 100%;
                 display: grid !important;
-                grid-template-columns: minmax(0, 1fr) auto auto;
+                grid-template-columns: auto minmax(0, 1fr) auto;
                 align-items: stretch !important;
             }
 
@@ -3908,8 +3908,11 @@
                 </div>
                 <div class="wl-section-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; flex-wrap: wrap; gap: 10px;">
                     <h3 style="color: var(--accent); margin: 0;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-2px"><rect width="8" height="4" x="8" y="2" rx="1" ry="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="m9 14 2 2 4-4"/></svg> 授权白名单</h3>
-                    <div class="wl-toolbar" style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                    <div class="wl-toolbar" style="display: flex; align-items: center; gap: 8px; flex-wrap: nowrap;">
                         <span id="wlBalanceInfo" style="font-size: 13px; color: var(--accent-yellow);"></span>
+                        <button class="btn btn-success" onclick="showAddWhitelistModal()" style="padding: 6px 14px; font-size: 13px;">➕ 授权</button>
+                        <input type="text" id="wlSearch" placeholder="搜索账号 / 姓名 / 添加人" oninput="scheduleWhitelistSearch()" oncompositionstart="wlSearchComposing=true" oncompositionend="wlSearchComposing=false; scheduleWhitelistSearch()"
+                               style="padding: 6px 12px; background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 6px; color: var(--text-primary); font-size: 13px; width: 200px;">
                         <div class="theme-select" id="wlFilterWrap" data-current="all">
                             <button type="button" class="theme-select-trigger" onclick="toggleWlFilterMenu(event)">
                                 <span id="wlFilterLabel">全部</span>
@@ -3924,10 +3927,6 @@
                             </div>
                             <input type="hidden" id="wlFilter" value="all">
                         </div>
-                        <input type="text" id="wlSearch" placeholder="搜索账号..." onkeyup="if(event.key==='Enter')loadWhitelist()"
-                               style="padding: 6px 12px; background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 6px; color: var(--text-primary); font-size: 13px; width: 160px;">
-                        <button class="btn" onclick="loadWhitelist()" style="padding: 6px 14px; font-size: 13px;">搜索</button>
-                        <button class="btn btn-success" onclick="showAddWhitelistModal()" style="padding: 6px 14px; font-size: 13px;">➕ 授权</button>
                     </div>
                 </div>
                 <!-- 即将到期提醒 -->
@@ -10626,6 +10625,8 @@
         let wlGlobalEnabled = false;
         let wlAllRows = [];
         let wlExpiringList = [];
+        let wlSearchTimer = null;
+        let wlSearchComposing = false;
         const WL_EXPIRING_DAYS = 7;
 
         function syncWhitelistGlobalControlVisibility() {
@@ -11495,6 +11496,12 @@
 
         function applyWhitelistFilter() {
             renderWhitelistRows();
+        }
+
+        function scheduleWhitelistSearch() {
+            if (wlSearchComposing) return;
+            if (wlSearchTimer) clearTimeout(wlSearchTimer);
+            wlSearchTimer = setTimeout(() => loadWhitelist(0), 260);
         }
 
         function toggleWlFilterMenu(event) {
