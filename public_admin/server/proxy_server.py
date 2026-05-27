@@ -75,6 +75,7 @@ PUBLIC_ADMIN_DIR = os.path.dirname(SERVER_DIR)
 FRONTEND_DIR = os.path.join(PUBLIC_ADMIN_DIR, "frontend")
 FRONTEND_HOST_DIR = os.path.join(FRONTEND_DIR, "host")
 FRONTEND_PAGES_DIR = os.path.join(FRONTEND_DIR, "pages")
+FRONTEND_SHARED_DIR = os.path.join(FRONTEND_DIR, "shared")
 PLUGINS_DIR = os.path.join(PUBLIC_ADMIN_DIR, "plugins")
 DISPATCHER_TEMP_EVENT_FILE = os.path.join(PUBLIC_ADMIN_DIR, "dispatcher_runtime_403_events.jsonl")
 
@@ -11425,6 +11426,27 @@ async def admin_theme_css():
                             headers={"Cache-Control": "no-cache, no-store, must-revalidate",
                                      "Pragma": "no-cache", "Expires": "0"})
     return Response(content="", media_type="text/css")
+
+
+@app.get("/admin/api/shared/{asset_path:path}")
+async def admin_shared_asset(asset_path: str):
+    allowed_assets = {
+        "sticky_table/sticky_table.css": "text/css",
+        "sticky_table/sticky_table.js": "application/javascript",
+    }
+    media_type = allowed_assets.get(asset_path)
+    if not media_type:
+        return Response(content="// not found", media_type="application/javascript")
+    base_dir = os.path.normpath(FRONTEND_SHARED_DIR)
+    file_path = os.path.normpath(os.path.join(base_dir, asset_path))
+    if not file_path.startswith(base_dir + os.sep):
+        return Response(content="// not found", media_type="application/javascript")
+    if os.path.exists(file_path):
+        with open(file_path, "r", encoding="utf-8") as f:
+            return Response(content=f.read(), media_type=media_type,
+                            headers={"Cache-Control": "no-cache, no-store, must-revalidate",
+                                     "Pragma": "no-cache", "Expires": "0"})
+    return Response(content="" if media_type == "text/css" else "// not found", media_type=media_type)
 
 
 @app.get("/admin/api/recommend-tree-panel/{asset_name}")

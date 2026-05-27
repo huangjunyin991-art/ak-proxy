@@ -2529,11 +2529,11 @@
             }
 
             #whitelist .wl-table-wrap {
-                display: none;
+                display: block;
             }
 
             #wlCardList {
-                display: grid;
+                display: none;
                 gap: 10px;
             }
 
@@ -2543,11 +2543,11 @@
             }
 
             #ips .ip-table-wrap {
-                display: none;
+                display: block;
             }
 
             #ipsCardList {
-                display: grid;
+                display: none;
                 gap: 10px;
             }
 
@@ -3029,6 +3029,8 @@
         }
     </style>
     <link rel="stylesheet" href="/admin/api/admin-theme.css?v=20260508-01">
+    <link rel="stylesheet" href="/admin/api/shared/sticky_table/sticky_table.css?v=2026052701">
+    <script src="/admin/api/shared/sticky_table/sticky_table.js?v=2026052701" defer></script>
 </head>
 <body>
     <!-- 横屏提示 -->
@@ -3266,7 +3268,7 @@
         <div class="panel" id="online">
             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; height: calc(100vh - 350px);">
                 <!-- 在线用户列表 -->
-                <div class="table-container" style="overflow: auto;">
+                <div class="table-container" data-ak-sticky-table data-ak-sticky-table-min-width="680" style="overflow: auto;">
                     <table>
                         <thead>
                             <tr>
@@ -3321,7 +3323,7 @@
             <div class="panel-sticky-summary">
                 <span id="usageSearchCount" class="usage-toolbar-count"></span>
             </div>
-            <div class="table-container" style="overflow-x: auto;">
+            <div class="table-container" data-ak-sticky-table data-ak-sticky-table-min-width="720" style="overflow-x: auto;">
                 <table class="usage-table-layout">
                     <thead>
                         <tr>
@@ -3370,7 +3372,7 @@
             <div class="panel-sticky-summary">
                 <span id="usersSearchCount" class="usage-toolbar-count"></span>
             </div>
-            <div class="table-container" id="usersTableContainer" style="overflow-x: auto;">
+            <div class="table-container" id="usersTableContainer" data-ak-sticky-table data-ak-sticky-table-min-width="1480" data-ak-sticky-first-column-min="96" data-ak-sticky-first-column-max="180" style="overflow-x: auto;">
                 <table style="min-width: 1480px;">
                     <thead>
                         <tr>
@@ -3418,7 +3420,7 @@
         
         <!-- IP管理 -->
         <div class="panel" id="ips">
-            <div class="table-container ip-table-wrap">
+            <div class="table-container ip-table-wrap" data-ak-sticky-table data-ak-sticky-table-min-width="920">
                 <table>
                     <thead>
                         <tr>
@@ -3440,7 +3442,7 @@
         
         <!-- 封禁列表 -->
         <div class="panel" id="banlist">
-            <div class="table-container">
+            <div class="table-container" data-ak-sticky-table data-ak-sticky-table-min-width="820">
                 <table>
                     <thead>
                         <tr>
@@ -3537,7 +3539,7 @@
             
             <!-- 激活码列表 -->
             <div id="licPanelList">
-                <div class="table-container license-table-wrap" style="overflow: auto; max-height: max(300px, calc(100vh - 500px));">
+                <div class="table-container license-table-wrap" data-ak-sticky-table data-ak-sticky-table-min-width="900" style="overflow: auto; max-height: max(300px, calc(100vh - 500px));">
                     <table>
                         <thead>
                             <tr>
@@ -3562,7 +3564,7 @@
             
             <!-- 创建记录 -->
             <div id="licPanelCreate" style="display: none;">
-                <div class="table-container license-table-wrap" style="overflow: auto; max-height: max(300px, calc(100vh - 500px));">
+                <div class="table-container license-table-wrap" data-ak-sticky-table data-ak-sticky-table-min-width="860" style="overflow: auto; max-height: max(300px, calc(100vh - 500px));">
                     <table>
                         <thead>
                             <tr>
@@ -3584,7 +3586,7 @@
             
             <!-- 使用记录 -->
             <div id="licPanelUsage" style="display: none;">
-                <div class="table-container license-table-wrap" style="overflow: auto; max-height: max(300px, calc(100vh - 500px));">
+                <div class="table-container license-table-wrap" data-ak-sticky-table data-ak-sticky-table-min-width="760" style="overflow: auto; max-height: max(300px, calc(100vh - 500px));">
                     <table>
                         <thead>
                             <tr>
@@ -3634,7 +3636,7 @@
                     <button class="btn" onclick="lockDatabase()" style="padding: 10px 20px; background: var(--bg-secondary); color: #ff5252; border: 1px solid #ff5252;">🔒 锁定</button>
                 </div>
                 
-                <div class="table-container" style="overflow: auto; max-height: max(300px, calc(100vh - 400px));">
+                <div class="table-container" data-ak-sticky-table data-ak-sticky-table-min-width="920" style="overflow: auto; max-height: max(300px, calc(100vh - 400px));">
                     <table id="dbTable" style="min-width: 100%;">
                         <thead id="dbTableHead">
                             <tr><th>请先选择一个表</th></tr>
@@ -3700,7 +3702,7 @@
                             style="padding: 6px 14px; font-size: 13px; flex-shrink: 0;">🔄 一键续期</button>
                 </div>
                 <!-- 白名单表格 -->
-                <div class="wl-table-wrap" data-scroll-hint="right" style="overflow-x: auto;">
+                <div class="wl-table-wrap" data-ak-sticky-table data-ak-sticky-table-min-width="1120" style="overflow-x: auto;">
                     <table class="wl-table">
                         <thead><tr>
                             <th>账号</th><th>姓名</th><th>计费方式</th><th>到期时间</th><th>状态</th><th>强化登录</th><th>添加人</th><th>备注</th><th>操作</th>
@@ -3835,7 +3837,7 @@
                 <div id="creditsOverviewSection">
                     <div style="background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px; padding: 15px; margin-bottom: 15px;">
                         <h4 style="color: var(--accent-yellow); margin-bottom: 12px;">子管理员积分概览</h4>
-                        <div id="creditsOverviewTable" class="credits-table-wrap" data-scroll-hint="right">
+                        <div id="creditsOverviewTable" class="credits-table-wrap" data-ak-sticky-table data-ak-sticky-table-min-width="620">
                             <table class="credits-overview-table"><thead><tr><th>名称</th><th>余额</th><th>活跃账号</th><th>总账号</th><th>操作</th></tr></thead>
                             <tbody id="creditsOverviewBody"><tr><td colspan="5" style="text-align:center; color:var(--text-secondary);">加载中...</td></tr></tbody></table>
                         </div>
@@ -3882,7 +3884,7 @@
                             <option value="">全部</option>
                         </select>
                     </div>
-                    <div class="credits-table-wrap" data-scroll-hint="right">
+                    <div class="credits-table-wrap" data-ak-sticky-table data-ak-sticky-table-min-width="980">
                         <table class="credits-transactions-table"><thead><tr><th>时间</th><th>管理员</th><th>类型</th><th>金额</th><th>余额</th><th>说明</th><th>操作人</th></tr></thead>
                         <tbody id="txTableBody"><tr><td colspan="7" style="text-align:center; color:var(--text-secondary);">加载中...</td></tr></tbody></table>
                     </div>
@@ -11943,7 +11945,7 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
             updateStickyGlow();
         })();
         (function() {
-            const targetSelector = '.table-container, [data-scroll-hint="right"]';
+            const targetSelector = '.table-container:not([data-ak-sticky-table]), [data-scroll-hint="right"]:not([data-ak-sticky-table])';
             const SCROLL_EDGE_THRESHOLD = 8;
 
             function isVisible(container) {
@@ -12029,6 +12031,9 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
             }
 
             window.syncHorizontalScrollHints = function() {
+                if (window.AKStickyTable && typeof window.AKStickyTable.enhanceAll === 'function') {
+                    window.AKStickyTable.enhanceAll(document);
+                }
                 document.querySelectorAll(targetSelector).forEach(container => {
                     bindScrollHint(container);
                     if (typeof container.__syncHorizontalHint === 'function') {
