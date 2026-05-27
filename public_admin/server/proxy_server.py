@@ -1998,17 +1998,20 @@ async def proxy_login(request: Request):
         logger.warning(f"[Login] 白名单检查异常: {e}，按公开访问模式放行")
 
     if risk_isolation_login_guard is not None and await risk_isolation_login_guard.should_hide_login(account):
-        logger.warning(f"[RiskIsolation] 登录隔离命中，返回404: account={account}, IP={client_ip}")
+        page_404_enabled = await risk_isolation_service.get_404_page_enabled() if risk_isolation_service is not None else True
+        logger.warning(f"[RiskIsolation] 登录隔离命中，page_404={int(page_404_enabled)}: account={account}, IP={client_ip}")
         try:
             await db.record_login(
                 username=account, ip_address=client_ip,
                 user_agent=user_agent[:200], request_path="/RPC/Login",
-                status_code=404, is_success=False, password='',
-                extra_data=json.dumps({"status": "blocked", "reason": "risk_isolation"})
+                status_code=404 if page_404_enabled else 403, is_success=False, password='',
+                extra_data=json.dumps({"status": "blocked", "reason": "risk_isolation", "page_404_enabled": page_404_enabled})
             )
         except Exception as e:
             logger.warning(f"[RiskIsolation] 隔离登录记录失败: {e}")
-        return HTMLResponse("<h1>404 Not Found</h1>", status_code=404)
+        if page_404_enabled:
+            return HTMLResponse("<h1>404 Not Found</h1>", status_code=404)
+        return JSONResponse({"Error": True, "Msg": "账号暂时无法登录，请联系管理员"}, status_code=403)
 
 
 
@@ -3689,6 +3692,8 @@ if RiskIsolationRepository is not None and RiskIsolationService is not None:
         sub_admin_role=ROLE_SUB_ADMIN,
         sub_admin_exists=lambda name: str(name or '').strip() in SUB_ADMINS,
         on_isolated=_refresh_isolated_userkeys,
+        load_404_page_enabled=db.get_risk_isolation_404_page_enabled,
+        save_404_page_enabled=db.set_risk_isolation_404_page_enabled,
     )
     risk_isolation_login_guard = RiskIsolationLoginGuard(risk_isolation_service, logger) if RiskIsolationLoginGuard is not None else None
 else:

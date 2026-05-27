@@ -36,7 +36,23 @@ def create_risk_isolation_router(service: RiskIsolationService,
             'role': role,
             'sub_name': sub_name,
             'sub_admins': await service.list_sub_admin_scopes(role),
+            'page_404_enabled': await service.get_404_page_enabled(),
         }
+
+    @router.post('/page_404')
+    async def page_404(request: Request):
+        _, _, _, error_response = await resolve_context(request)
+        if error_response is not None:
+            return error_response
+        try:
+            data = await request.json()
+        except Exception:
+            return JSONResponse(status_code=400, content={'success': False, 'message': '请求无效'})
+        enabled = bool(data.get('enabled'))
+        saved = await service.set_404_page_enabled(enabled)
+        if not saved:
+            return JSONResponse(status_code=500, content={'success': False, 'message': '保存失败'})
+        return {'success': True, 'enabled': enabled}
 
     @router.get('/accounts')
     async def accounts(request: Request, sub_admin: str = '', search: str = '', limit: int = 200, offset: int = 0):

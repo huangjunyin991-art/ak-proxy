@@ -3786,6 +3786,18 @@ async def set_whitelist_global_status(enabled: bool) -> bool:
     )
 
 
+async def get_risk_isolation_404_page_enabled() -> bool:
+    return bool(await system_config.get('risk_isolation_404_page_enabled', True))
+
+
+async def set_risk_isolation_404_page_enabled(enabled: bool) -> bool:
+    return await system_config.set(
+        'risk_isolation_404_page_enabled',
+        bool(enabled),
+        '风险隔离：开启后被隔离用户登录时跳转404页面，关闭后返回普通登录失败'
+    )
+
+
 # ===== 点数统计配额：5 分钟冷却 + 每日 3 账号限额 =====
 
 POINT_STATS_COOLDOWN_SECONDS = 300

@@ -8,12 +8,16 @@ class RiskIsolationService:
     def __init__(self, repository: RiskIsolationRepository,
                  super_admin_role: str, sub_admin_role: str,
                  sub_admin_exists: Callable[[str], bool],
-                 on_isolated: Callable[[list[str]], Awaitable[dict[str, Any]]] | None = None):
+                 on_isolated: Callable[[list[str]], Awaitable[dict[str, Any]]] | None = None,
+                 load_404_page_enabled: Callable[[], Awaitable[bool]] | None = None,
+                 save_404_page_enabled: Callable[[bool], Awaitable[bool]] | None = None):
         self.repository = repository
         self.super_admin_role = super_admin_role
         self.sub_admin_role = sub_admin_role
         self.sub_admin_exists = sub_admin_exists
         self.on_isolated = on_isolated
+        self.load_404_page_enabled = load_404_page_enabled
+        self.save_404_page_enabled = save_404_page_enabled
         self.initialized = False
 
     async def initialize(self) -> None:
@@ -55,6 +59,16 @@ class RiskIsolationService:
         if role != self.super_admin_role:
             return []
         return await self.repository.list_sub_admin_scopes()
+
+    async def get_404_page_enabled(self) -> bool:
+        if self.load_404_page_enabled is None:
+            return True
+        return bool(await self.load_404_page_enabled())
+
+    async def set_404_page_enabled(self, enabled: bool) -> bool:
+        if self.save_404_page_enabled is None:
+            return False
+        return bool(await self.save_404_page_enabled(bool(enabled)))
 
     async def list_accounts(self, scope: RiskIsolationScope, search: str = '',
                             limit: int = 200, offset: int = 0) -> dict[str, Any]:
