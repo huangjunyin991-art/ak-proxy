@@ -139,6 +139,19 @@
         hint.classList.toggle('is-visible', direction === 'right' ? container.scrollLeft < maxScrollLeft - EDGE_THRESHOLD : container.scrollLeft > EDGE_THRESHOLD);
     }
 
+    function syncScrollUi(container, table) {
+        updateScrollState(container, table);
+        syncHint(container, table);
+    }
+
+    function scheduleScrollSync(container, table) {
+        if (container.__akStickyTableScrollFrame) return;
+        container.__akStickyTableScrollFrame = window.requestAnimationFrame(function() {
+            container.__akStickyTableScrollFrame = 0;
+            syncScrollUi(container, tableOf(container) || table);
+        });
+    }
+
     function refresh(container) {
         if (!container) return;
         var table = tableOf(container);
@@ -146,8 +159,7 @@
         if (!table) return;
         if (options.minWidth > 0) table.style.minWidth = options.minWidth + 'px';
         measureFirstColumn(container, table, options);
-        updateScrollState(container, table);
-        syncHint(container, table);
+        syncScrollUi(container, table);
     }
 
     function enhance(container, options) {
@@ -165,7 +177,7 @@
         if (container.__akStickyTableScrollBound !== '1') {
             container.__akStickyTableScrollBound = '1';
             container.addEventListener('scroll', function() {
-                refresh(container);
+                scheduleScrollSync(container, table);
             }, { passive: true });
         }
         if (!container.__akStickyTableResizeObserver && 'ResizeObserver' in window) {
