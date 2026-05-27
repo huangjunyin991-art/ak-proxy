@@ -35,8 +35,19 @@ def create_risk_isolation_router(service: RiskIsolationService,
             'ready': service.initialized,
             'role': role,
             'sub_name': sub_name,
-            'sub_admins': await service.list_sub_admin_scopes(role),
             'page_404_enabled': await service.get_404_page_enabled(),
+        }
+
+    @router.get('/sub_admin_scopes')
+    async def sub_admin_scopes(request: Request):
+        _, role, _, error_response = await resolve_context(request)
+        if error_response is not None:
+            return error_response
+        if role != service.super_admin_role:
+            return JSONResponse(status_code=403, content={'success': False, 'message': '无权访问'})
+        return {
+            'success': True,
+            'rows': await service.list_sub_admin_scopes(role),
         }
 
     @router.post('/page_404')

@@ -291,7 +291,9 @@
         var menu = document.getElementById('riSubAdminMenu');
         if (!dropdown || !triggerText || !menu) return;
         if (!isSuperAdmin()) {
-            dropdown.style.display = 'none';
+            dropdown.style.display = '';
+            triggerText.textContent = '全体白名单';
+            menu.innerHTML = '<div class="ri-scope-body"><div class="ri-scope-list"><button type="button" class="ri-scope-option active" data-ri-sub-admin=""><span class="ri-scope-name">全体白名单</span><span class="ri-scope-count">(' + escapeHtml(String(state.isolatedTotal || 0)) + '/' + escapeHtml(String(state.total || 0)) + ')</span></button></div></div>';
             return;
         }
         dropdown.style.display = '';
@@ -421,8 +423,19 @@
             state.subName = data.sub_name || sessionStorage.getItem('admin_role_name') || '';
             state.ready = data.ready !== false;
             state.page404Enabled = data.page_404_enabled !== false;
-            state.subAdmins = data.sub_admins || [];
+            if (!isSuperAdmin()) {
+                state.subAdmins = [];
+                state.selectedSubAdmin = '';
+            }
             syncPage404Switch();
+            renderSubAdmins();
+            if (isSuperAdmin()) return loadSubAdminScopes();
+        });
+    }
+
+    function loadSubAdminScopes() {
+        return api('/sub_admin_scopes').then(function(data) {
+            state.subAdmins = data.rows || [];
             renderSubAdmins();
         });
     }
