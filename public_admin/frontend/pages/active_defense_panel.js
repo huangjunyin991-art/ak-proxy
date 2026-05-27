@@ -151,7 +151,7 @@
             '.ad-btn.secondary{background:rgba(255,255,255,.06);color:var(--text-primary);border:1px solid rgba(255,255,255,.12);box-shadow:none}',
             '.ad-btn.danger{background:rgba(255,71,87,.12);color:#ff6b7a;border:1px solid rgba(255,71,87,.25);box-shadow:none}',
             '.ad-btn:disabled{opacity:.55;cursor:not-allowed}',
-            '.ad-metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-top:18px}',
+            '.ad-metrics{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-top:18px}',
             '.ad-metric{border:1px solid rgba(255,255,255,.08);border-radius:16px;background:rgba(255,255,255,.045);padding:14px;min-width:0}',
             '.ad-metric strong{display:block;color:var(--accent);font-size:24px;line-height:1;font-weight:900}',
             '.ad-metric span{display:block;margin-top:8px;color:var(--text-secondary);font-size:12px}',
@@ -182,7 +182,7 @@
             '.ad-footer-copy strong{display:block;color:var(--text-primary);font-size:13px}.ad-footer-copy span{display:block;color:var(--text-secondary);font-size:12px;margin-top:3px}.ad-footer-actions{display:flex;gap:10px;align-items:center;flex-wrap:wrap}',
             '.ad-unavailable{margin-top:14px;border:1px solid rgba(255,71,87,.25);border-radius:14px;background:rgba(255,71,87,.1);color:#ff8a96;padding:12px;font-size:13px}',
             '@media(max-width:1180px){.ad-section{grid-column:span 12}.ad-policy-fields.three{grid-template-columns:repeat(2,minmax(0,1fr))}}',
-            '@media(max-width:760px){.ad-hero{padding:16px}.ad-title{font-size:20px}.ad-metrics,.ad-control-grid,.ad-control-grid.three,.ad-policy-fields,.ad-policy-fields.three{grid-template-columns:1fr}.ad-last-ban{align-items:flex-start;flex-direction:column}.ad-last-ban p{text-align:left}.ad-footer{position:relative}.ad-footer-actions{width:100%}.ad-footer-actions .ad-btn{flex:1}}'
+            '@media(max-width:760px){.ad-hero{padding:16px}.ad-title{font-size:20px}.ad-control-grid,.ad-control-grid.three,.ad-policy-fields,.ad-policy-fields.three{grid-template-columns:1fr}.ad-last-ban{align-items:flex-start;flex-direction:column}.ad-last-ban p{text-align:left}.ad-footer{position:relative}.ad-footer-actions{width:100%}.ad-footer-actions .ad-btn{flex:1}}'
         ].join('');
     }
 
