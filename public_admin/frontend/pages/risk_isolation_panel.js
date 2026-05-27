@@ -128,11 +128,12 @@
             '.ri-scope-search{padding:8px;border-bottom:1px solid rgba(255,255,255,.08)}.ri-scope-search input{width:100%;box-sizing:border-box;min-height:32px;border:1px solid rgba(57,126,255,.38);border-radius:10px;background:rgba(0,0,0,.18);color:#fff;padding:0 10px;font-size:12px;font-weight:800;outline:none}.ri-scope-search input::placeholder{color:rgba(170,200,235,.7)}',
             '.ri-scope-alpha{display:grid;grid-template-columns:repeat(9,1fr);gap:2px;padding:6px 8px;border-bottom:1px solid rgba(255,255,255,.06);background:rgba(0,0,0,.1)}.ri-alpha-item{min-height:18px;border:0;border-radius:6px;background:transparent;color:rgba(220,235,255,.76);font-size:10px;font-weight:900;line-height:18px;cursor:pointer}.ri-alpha-item:hover,.ri-alpha-item.active{background:rgba(45,108,223,.78);color:#fff}',
             '.ri-scope-body{display:block;max-height:240px}.ri-scope-list{max-height:240px;overflow:auto;padding:4px;background:rgba(4,14,28,.72)}.ri-scope-option{display:flex;align-items:center;justify-content:space-between;width:100%;min-height:38px;border:1px solid rgba(57,126,255,.18);border-radius:10px;background:rgba(6,18,34,.78);color:#f4f8ff;padding:0 10px 0 12px;margin:0 0 4px 0;font-size:14px;font-weight:800;cursor:pointer;text-align:left;opacity:1;visibility:visible}.ri-scope-option:hover,.ri-scope-option.active{border-color:rgba(45,108,223,.48);background:rgba(45,108,223,.24);color:#fff}.ri-scope-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#fff;font-weight:850;opacity:1}.ri-scope-count{font-size:12px;font-weight:800;color:rgba(214,232,255,.82);opacity:1}.ri-scope-empty{padding:22px 16px;color:rgba(220,235,255,.68);font-weight:800;text-align:center}',
+            '.ri-modal{position:fixed;inset:0;display:none;align-items:center;justify-content:center;padding:18px;background:rgba(1,8,18,.74);backdrop-filter:blur(12px);z-index:9999}.ri-modal.open{display:flex}.ri-modal-card{width:min(520px,100%);border:1px solid rgba(39,216,255,.3);border-radius:20px;background:linear-gradient(145deg,rgba(8,20,38,.98),rgba(5,14,28,.98));box-shadow:0 26px 70px rgba(0,0,0,.58),0 0 0 1px rgba(255,255,255,.05);overflow:hidden}.ri-modal-head{padding:18px 20px;border-bottom:1px solid rgba(255,255,255,.08);display:flex;align-items:flex-start;justify-content:space-between;gap:14px}.ri-modal-title{font-size:18px;font-weight:900;color:#fff}.ri-modal-desc{margin-top:6px;color:rgba(208,226,247,.72);font-size:13px;line-height:1.55}.ri-modal-close{width:34px;height:34px;border:1px solid rgba(255,255,255,.1);border-radius:12px;background:rgba(255,255,255,.05);color:rgba(230,242,255,.86);font-size:20px;line-height:1;cursor:pointer}.ri-modal-body{padding:18px 20px 8px}.ri-modal-label{display:block;color:rgba(230,242,255,.86);font-size:13px;font-weight:900;margin-bottom:8px}.ri-modal-input{width:100%;min-height:92px;box-sizing:border-box;border:1px solid rgba(57,126,255,.4);border-radius:14px;background:linear-gradient(180deg,rgba(5,15,30,.98),rgba(8,20,38,.98));color:#fff;padding:12px 14px;font-size:14px;font-weight:800;line-height:1.55;resize:vertical;outline:none}.ri-modal-input::placeholder{color:rgba(170,200,235,.62)}.ri-modal-input:focus{border-color:#27d8ff;box-shadow:0 0 0 3px rgba(0,212,255,.13)}.ri-modal-foot{padding:16px 20px 20px;display:flex;justify-content:flex-end;gap:10px}.ri-modal-btn{border:1px solid transparent;border-radius:13px;min-width:92px;min-height:42px;padding:0 18px;color:#fff;font-size:14px;font-weight:900;cursor:pointer}.ri-modal-btn.cancel{background:rgba(255,255,255,.06);border-color:rgba(255,255,255,.12);color:rgba(230,242,255,.82)}.ri-modal-btn.confirm{background:linear-gradient(135deg,#00d4ff,#00b8d4);box-shadow:0 12px 24px rgba(0,212,255,.2)}.ri-modal-input-wrap.hidden{display:none}',
             '.ri-btn{border:1px solid transparent;border-radius:12px;min-height:42px;padding:0 14px;font-size:14px;font-weight:900;letter-spacing:.01em;white-space:nowrap;cursor:pointer;color:#fff}.ri-btn:disabled{opacity:.55;cursor:not-allowed}.ri-btn.secondary{background:rgba(255,255,255,.06);border-color:rgba(255,255,255,.12)}.ri-btn.cyan{background:linear-gradient(135deg,#00d4ff,#00b8d4);box-shadow:0 10px 22px rgba(0,212,255,.18)}.ri-btn.danger{background:linear-gradient(135deg,#ff4757,#c44569);box-shadow:0 10px 22px rgba(255,71,87,.18)}.ri-btn.success{background:linear-gradient(135deg,#00b894,#00cec9);box-shadow:0 10px 22px rgba(0,184,148,.18)}',
             '.ri-table-wrap{overflow:auto;-webkit-overflow-scrolling:touch;overscroll-behavior-x:contain;overscroll-behavior-y:auto;border:1px solid var(--border);border-radius:14px;background:rgba(255,255,255,.02);position:relative}.ri-table{width:max-content;min-width:980px;border-collapse:separate;border-spacing:0}.ri-table th,.ri-table td{border-bottom:1px solid rgba(255,255,255,.07);padding:8px 10px;text-align:left;white-space:nowrap}.ri-table th{position:sticky;top:0;z-index:20;color:var(--accent);background:var(--bg-secondary);font-size:11px}.ri-table td{font-size:12px;line-height:1.25;color:var(--text-primary);background:var(--bg-card)}.ri-table th:first-child,.ri-table td:first-child{position:sticky;left:0;width:120px;min-width:120px;max-width:120px;z-index:12;background:var(--bg-card)}.ri-table th:first-child{z-index:30;background:var(--bg-secondary)}.ri-table tr:last-child td{border-bottom:0}.ri-table .ri-btn{min-height:34px;border-radius:10px;padding:0 12px;font-size:12px}',
             '.ri-empty{text-align:center;color:var(--text-secondary);padding:28px!important}.ri-pill{display:inline-flex;border-radius:999px;padding:2px 7px;font-size:11px;font-weight:800}.ri-pill.on{color:#ffb8bf;background:rgba(255,71,87,.14);border:1px solid rgba(255,71,87,.3)}.ri-pill.off{color:#55efc4;background:rgba(0,184,148,.13);border:1px solid rgba(0,184,148,.28)}.ri-cards{display:none!important;gap:10px}.ri-user-card{border:1px solid var(--border);border-radius:14px;background:rgba(255,255,255,.035);padding:12px}.ri-user-card.ri-muted{color:var(--text-secondary);text-align:center}.ri-user-head{display:flex;justify-content:space-between;gap:8px;align-items:center}.ri-user-name{font-weight:900;color:#fff}.ri-user-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:10px 0}.ri-user-label{color:var(--text-secondary);font-size:11px}.ri-user-value{color:var(--text-primary);font-size:12px;word-break:break-all}',
             '@media(max-width:760px){.ri-card{padding:12px}.ri-stats{grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}.ri-stat{padding:10px 8px}.ri-stat-label{font-size:11px;white-space:nowrap}.ri-stat-value{font-size:18px}.ri-toolbar{align-items:flex-start}.ri-toolbar>.ri-scope-dropdown{flex:0 1 260px}.ri-toolbar>.ri-input{flex:1 1 220px;max-width:none}.ri-scope-dropdown{width:260px;min-width:0}.ri-scope-menu{width:min(320px,calc(100vw - 32px));max-width:none}.ri-table{min-width:980px}}',
-            '@media(max-width:560px){.ri-stats{gap:6px}.ri-stat{padding:9px 6px;border-radius:12px}.ri-stat-label{font-size:10px}.ri-stat-value{font-size:16px;margin-top:4px}.ri-toolbar{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:8px;align-items:center}.ri-toolbar>.ri-scope-dropdown{grid-column:1 / -1;flex:none;width:100%;max-width:none}.ri-toolbar>.ri-input{grid-column:1;flex:none;width:100%;max-width:none;min-width:0}.ri-toolbar>.ri-btn{grid-column:auto;flex:none;padding:0 10px;font-size:12px}.ri-scope-dropdown{width:100%;max-width:none}.ri-scope-menu{width:100%;min-width:100%}}'
+            '@media(max-width:560px){.ri-stats{gap:6px}.ri-stat{padding:9px 6px;border-radius:12px}.ri-stat-label{font-size:10px}.ri-stat-value{font-size:16px;margin-top:4px}.ri-toolbar{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:8px;align-items:center}.ri-toolbar>.ri-scope-dropdown{grid-column:1 / -1;flex:none;width:100%;max-width:none}.ri-toolbar>.ri-input{grid-column:1;flex:none;width:100%;max-width:none;min-width:0}.ri-toolbar>.ri-btn{grid-column:auto;flex:none;padding:0 10px;font-size:12px}.ri-scope-dropdown{width:100%;max-width:none}.ri-scope-menu{width:100%;min-width:100%}.ri-modal{padding:12px}.ri-modal-head,.ri-modal-body,.ri-modal-foot{padding-left:16px;padding-right:16px}.ri-modal-foot{display:grid;grid-template-columns:1fr 1fr}.ri-modal-btn{width:100%;min-width:0}}'
         ].join('');
         document.head.appendChild(style);
     }
@@ -156,6 +157,7 @@
             '<section class="ri-stats"><div class="ri-stat"><div class="ri-stat-label">当前范围玩家</div><div class="ri-stat-value" id="riTotal">-</div></div><div class="ri-stat"><div class="ri-stat-label">已隔离玩家</div><div class="ri-stat-value" id="riIsolatedTotal">-</div></div><div class="ri-stat"><div class="ri-stat-label">当前范围</div><div class="ri-stat-value" id="riScopeLabel" style="font-size:16px;line-height:1.5;">-</div></div></section>' +
             '<section class="ri-card"><div class="ri-toolbar"><div class="ri-scope-dropdown" id="riSubAdminDropdown" style="display:none;"><button type="button" class="ri-scope-trigger" id="riSubAdminTrigger"><span id="riSubAdminTriggerText">全部白名单</span><span class="ri-scope-caret">⌄</span></button><div class="ri-scope-menu" id="riSubAdminMenu"></div></div><input class="ri-input" id="riSearch" placeholder="模糊搜索账号 / 姓名 / 添加人"><button class="ri-btn cyan" id="riIsolateAllBtn">一键隔离当前范围</button><button class="ri-btn cyan" id="riReleaseScopeBtn">一键恢复当前范围</button></div></section>' +
             '<section class="ri-card"><div class="ri-table-wrap" data-ak-sticky-table data-ak-sticky-table-min-width="980" data-ak-sticky-first-column-min="120" data-ak-sticky-first-column-max="180"><table class="ri-table"><thead><tr><th>账号</th><th>姓名</th><th>添加人</th><th>到期时间</th><th>隔离状态</th><th>隔离人</th><th>隔离时间</th><th>操作</th></tr></thead><tbody id="riTableBody"><tr><td colspan="8" class="ri-empty">加载中...</td></tr></tbody></table></div><div class="ri-cards" id="riCardList"></div></section>' +
+            '<div class="ri-modal" id="riActionModal"><div class="ri-modal-card"><div class="ri-modal-head"><div><div class="ri-modal-title" id="riModalTitle">风险隔离确认</div><div class="ri-modal-desc" id="riModalDesc"></div></div><button type="button" class="ri-modal-close" id="riModalClose">×</button></div><div class="ri-modal-body"><div class="ri-modal-input-wrap" id="riModalInputWrap"><label class="ri-modal-label" for="riModalReason">隔离原因（可选）</label><textarea class="ri-modal-input" id="riModalReason" rows="3" placeholder="填写原因，便于后续审计追踪"></textarea></div></div><div class="ri-modal-foot"><button type="button" class="ri-modal-btn cancel" id="riModalCancel">取消</button><button type="button" class="ri-modal-btn confirm" id="riModalConfirm">确定</button></div></div></div>' +
         '</div>';
         bindEvents();
         requestAnimationFrame(refreshStickyTable);
@@ -425,58 +427,132 @@
         });
     }
 
+    function showRiskIsolationModal(config) {
+        return new Promise(function(resolve) {
+            var modal = document.getElementById('riActionModal');
+            var title = document.getElementById('riModalTitle');
+            var desc = document.getElementById('riModalDesc');
+            var inputWrap = document.getElementById('riModalInputWrap');
+            var reasonInput = document.getElementById('riModalReason');
+            var closeBtn = document.getElementById('riModalClose');
+            var cancelBtn = document.getElementById('riModalCancel');
+            var confirmBtn = document.getElementById('riModalConfirm');
+            if (!modal || !title || !desc || !inputWrap || !reasonInput || !closeBtn || !cancelBtn || !confirmBtn) {
+                resolve({ confirmed: false, reason: '' });
+                return;
+            }
+            title.textContent = config.title || '风险隔离确认';
+            desc.textContent = config.desc || '';
+            confirmBtn.textContent = config.confirmText || '确定';
+            cancelBtn.textContent = config.cancelText || '取消';
+            reasonInput.value = '';
+            inputWrap.classList.toggle('hidden', config.reason !== true);
+            modal.classList.add('open');
+            function cleanup() {
+                modal.classList.remove('open');
+                closeBtn.onclick = null;
+                cancelBtn.onclick = null;
+                confirmBtn.onclick = null;
+                modal.onclick = null;
+                document.removeEventListener('keydown', onKeyDown);
+            }
+            function finish(confirmed) {
+                var reason = reasonInput.value.trim();
+                cleanup();
+                resolve({ confirmed: confirmed, reason: reason });
+            }
+            function onKeyDown(event) {
+                if (event.key === 'Escape') finish(false);
+            }
+            closeBtn.onclick = function() { finish(false); };
+            cancelBtn.onclick = function() { finish(false); };
+            confirmBtn.onclick = function() { finish(true); };
+            modal.onclick = function(event) {
+                if (event.target === modal) finish(false);
+            };
+            document.addEventListener('keydown', onKeyDown);
+            if (config.reason === true) setTimeout(function() { reasonInput.focus(); }, 0);
+            else setTimeout(function() { confirmBtn.focus(); }, 0);
+        });
+    }
+
     function isolateUser(username) {
-        var reason = window.prompt('隔离原因（可选）', '') || '';
-        setBusy(true);
-        return apiPost('/isolate', Object.assign(scopePayload(), { usernames: [username], reason: reason })).then(function(data) {
-            notify(data.message || '已隔离');
-            return loadStatus().then(loadAccounts);
-        }).catch(function(err) {
-            notify(err.message || '隔离失败', 'error');
-        }).finally(function() {
-            setBusy(false);
+        return showRiskIsolationModal({
+            title: '隔离玩家',
+            desc: '确认隔离玩家 [' + username + '] 吗？隔离后该玩家调用 /RPC/Login 将直接得到 404。',
+            confirmText: '确认隔离',
+            reason: true
+        }).then(function(result) {
+            if (!result.confirmed) return;
+            setBusy(true);
+            return apiPost('/isolate', Object.assign(scopePayload(), { usernames: [username], reason: result.reason })).then(function(data) {
+                notify(data.message || '已隔离');
+                return loadStatus().then(loadAccounts);
+            }).catch(function(err) {
+                notify(err.message || '隔离失败', 'error');
+            }).finally(function() {
+                setBusy(false);
+            });
         });
     }
 
     function releaseUser(username) {
-        if (!window.confirm('确定解除该玩家的风险隔离吗？')) return;
-        setBusy(true);
-        return apiPost('/release', Object.assign(scopePayload(), { usernames: [username] })).then(function(data) {
-            notify(data.message || '已解除');
-            return loadStatus().then(loadAccounts);
-        }).catch(function(err) {
-            notify(err.message || '解除失败', 'error');
-        }).finally(function() {
-            setBusy(false);
+        return showRiskIsolationModal({
+            title: '解除风险隔离',
+            desc: '确认解除玩家 [' + username + '] 的风险隔离吗？',
+            confirmText: '确认解除'
+        }).then(function(result) {
+            if (!result.confirmed) return;
+            setBusy(true);
+            return apiPost('/release', Object.assign(scopePayload(), { usernames: [username] })).then(function(data) {
+                notify(data.message || '已解除');
+                return loadStatus().then(loadAccounts);
+            }).catch(function(err) {
+                notify(err.message || '解除失败', 'error');
+            }).finally(function() {
+                setBusy(false);
+            });
         });
     }
 
     function isolateAll() {
         var label = isSuperAdmin() ? (state.selectedSubAdmin || '全部白名单') : (state.subName || '当前子管理员');
-        if (!window.confirm('确定隔离 [' + label + '] 当前范围内全部白名单玩家吗？')) return;
-        var reason = window.prompt('隔离原因（可选）', '') || '';
-        setBusy(true);
-        return apiPost('/isolate_scope', Object.assign(scopePayload(), { reason: reason })).then(function(data) {
-            notify(data.message || '已批量隔离');
-            return loadStatus().then(loadAccounts);
-        }).catch(function(err) {
-            notify(err.message || '批量隔离失败', 'error');
-        }).finally(function() {
-            setBusy(false);
+        return showRiskIsolationModal({
+            title: '批量隔离当前范围',
+            desc: '确认隔离 [' + label + '] 当前范围内全部白名单玩家吗？',
+            confirmText: '确认隔离',
+            reason: true
+        }).then(function(result) {
+            if (!result.confirmed) return;
+            setBusy(true);
+            return apiPost('/isolate_scope', Object.assign(scopePayload(), { reason: result.reason })).then(function(data) {
+                notify(data.message || '已批量隔离');
+                return loadStatus().then(loadAccounts);
+            }).catch(function(err) {
+                notify(err.message || '批量隔离失败', 'error');
+            }).finally(function() {
+                setBusy(false);
+            });
         });
     }
 
     function releaseScope() {
         var label = isSuperAdmin() ? (state.selectedSubAdmin || '全部白名单') : (state.subName || '当前子管理员');
-        if (!window.confirm('确定恢复 [' + label + '] 当前范围内全部已隔离玩家吗？')) return;
-        setBusy(true);
-        return apiPost('/release_scope', scopePayload()).then(function(data) {
-            notify(data.message || '已恢复当前范围');
-            return loadStatus().then(loadAccounts);
-        }).catch(function(err) {
-            notify(err.message || '恢复当前范围失败', 'error');
-        }).finally(function() {
-            setBusy(false);
+        return showRiskIsolationModal({
+            title: '批量恢复当前范围',
+            desc: '确认恢复 [' + label + '] 当前范围内全部已隔离玩家吗？',
+            confirmText: '确认恢复'
+        }).then(function(result) {
+            if (!result.confirmed) return;
+            setBusy(true);
+            return apiPost('/release_scope', scopePayload()).then(function(data) {
+                notify(data.message || '已恢复当前范围');
+                return loadStatus().then(loadAccounts);
+            }).catch(function(err) {
+                notify(err.message || '恢复当前范围失败', 'error');
+            }).finally(function() {
+                setBusy(false);
+            });
         });
     }
 
