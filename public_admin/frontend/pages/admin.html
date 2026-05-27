@@ -4612,6 +4612,79 @@
             return isAdminPageActive() && currentPanelName === panelName;
         }
 
+        window.AdminPanelLazyLoaders = window.AdminPanelLazyLoaders || {};
+        const ADMIN_LAZY_PANEL_GLOBALS = {
+            pointStats: 'AKPointStatsPanel',
+            recommendTree: 'AKRecommendTreePanel',
+            riskIsolation: 'AKRiskIsolationPanel',
+            activeDefense: 'AKActiveDefensePanel',
+            monitoring: 'AKMonitoringPanel',
+            meetings: 'AKMeetingAdminPanel'
+        };
+        const adminLazyPanelLoadState = {};
+
+        function getLazyPanelModule(panelName) {
+            const globalName = ADMIN_LAZY_PANEL_GLOBALS[panelName];
+            return globalName ? window[globalName] : null;
+        }
+
+        function startLazyPanelModule(panelName) {
+            const module = getLazyPanelModule(panelName);
+            if (!module) return false;
+            adminLazyPanelLoadState[panelName] = 'loaded';
+            if (panelName === 'meetings') {
+                if (typeof module.reload === 'function') {
+                    module.reload();
+                    return true;
+                }
+                if (typeof module.init === 'function') {
+                    module.init();
+                    return true;
+                }
+                return false;
+            }
+            if (typeof module.start === 'function') {
+                module.start();
+                return true;
+            }
+            if (typeof module.init === 'function') {
+                module.init();
+                return true;
+            }
+            return false;
+        }
+
+        function waitForLazyPanelModule(panelName, attempt) {
+            if (currentPanelName !== panelName) {
+                adminLazyPanelLoadState[panelName] = 'registered';
+                return;
+            }
+            if (startLazyPanelModule(panelName)) return;
+            if (attempt >= 50) {
+                adminLazyPanelLoadState[panelName] = 'registered';
+                return;
+            }
+            setTimeout(() => waitForLazyPanelModule(panelName, attempt + 1), 100);
+        }
+
+        function ensureLazyPanelModule(panelName, retryAfterRegistration) {
+            if (startLazyPanelModule(panelName)) return true;
+            if (adminLazyPanelLoadState[panelName] === 'loading') return true;
+            const loader = window.AdminPanelLazyLoaders && window.AdminPanelLazyLoaders[panelName];
+            if (typeof loader === 'function') {
+                adminLazyPanelLoadState[panelName] = 'loading';
+                loader();
+                waitForLazyPanelModule(panelName, 0);
+                return true;
+            }
+            if (!retryAfterRegistration) {
+                setTimeout(() => {
+                    if (currentPanelName === panelName) ensureLazyPanelModule(panelName, true);
+                }, 0);
+            }
+            return false;
+        }
+
         function resolveUrlPath(url) {
             try {
                 return new URL(url, window.location.origin).pathname;
@@ -5339,25 +5412,30 @@
             if (data.type === 'new_login') {
                 addActivityItem('success', '🆕', `<strong>${escapeHtml(data.data.username || '')}</strong> 登录`, time);
                 refreshStats();
-                // 如果有资产数据，也刷新用户列表
-                if (data.data.assets) {
+                if (data.data.assets && currentPanelName === 'users') {
                     loadUsers();
                 }
             } else if (data.type === 'asset_update') {
                 addAssetLogItem(data.data);
-                loadUsers();
+                if (currentPanelName === 'users') loadUsers();
                 refreshStats();
                 addActivityItem('info', '💰', `<strong>${escapeHtml(data.data.username || '')}</strong> 资产已更新`, time);
             } else if (data.type === 'user_banned' || data.type === 'user_unbanned') {
-                loadBanlist().then(() => loadUsers());
+                if (currentPanelName === 'banlist') {
+                    loadBanlist();
+                } else if (currentPanelName === 'users') {
+                    loadBanlist().then(() => loadUsers());
+                } else if (currentPanelName === 'usage') {
+                    loadUsage(usageCurrentPage);
+                }
                 refreshStats();
                 const action = data.type === 'user_banned' ? '已封禁' : '已解封';
                 addActivityItem(data.type === 'user_banned' ? 'failed' : 'success', 
                     data.type === 'user_banned' ? '🚫' : '✅', 
                     `用户 <strong>${escapeHtml(data.data?.value || '')}</strong> ${action}`, time);
             } else if (data.type === 'ip_banned' || data.type === 'ip_unbanned') {
-                loadIPs();
-                loadBanlist();
+                if (currentPanelName === 'ips') loadIPs();
+                if (currentPanelName === 'banlist') loadBanlist();
                 refreshStats();
             } else if (data.type === 'user_online') {
                 if (currentPanelName === 'online') {
@@ -7692,18 +7770,12 @@
             } else {
                 if (window.hideUsersFloatScroll) hideUsersFloatScroll();
             }
-            if (panelName === 'pointStats' && window.AKPointStatsPanel) {
-                window.AKPointStatsPanel.start();
-            }
-            if (panelName === 'recommendTree' && window.AKRecommendTreePanel) {
-                window.AKRecommendTreePanel.start();
-            }
+            if (panelName === 'pointStats') ensureLazyPanelModule('pointStats');
+            if (panelName === 'recommendTree') ensureLazyPanelModule('recommendTree');
             if (panelName === 'ips') loadIPs();
             if (panelName === 'banlist') loadBanlist();
             if (panelName === 'whitelist') loadWhitelist();
-            if (panelName === 'riskIsolation' && window.AKRiskIsolationPanel) {
-                window.AKRiskIsolationPanel.start();
-            }
+            if (panelName === 'riskIsolation') ensureLazyPanelModule('riskIsolation');
             if (panelName === 'contacts') {
                 loadImContactsGroups(false);
                 loadImEmojiAssets();
@@ -7720,9 +7792,9 @@
                     if (authed) loadDbTables();
                 });
             }
-            if (panelName === 'activeDefense' && window.AKActiveDefensePanel) {
-                window.AKActiveDefensePanel.start();
-            }
+            if (panelName === 'activeDefense') ensureLazyPanelModule('activeDefense');
+            if (panelName === 'monitoring') ensureLazyPanelModule('monitoring');
+            if (panelName === 'meetings') ensureLazyPanelModule('meetings');
             if (panelName === 'settings') {
                 loadSubAdminStatus();
                 startSubAdminStatusRefresh();
@@ -7795,9 +7867,8 @@
         // 刷新所有数据
         async function refreshAll() {
             refreshStats();
-            await loadBanlist();
-            loadUsers();
-            loadIPs();
+            refreshOnlineUserCount();
+            loadPanelData(currentPanelName);
         }
         
         // ===== 数据库管理功能 =====
@@ -14315,9 +14386,17 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                 (document.body || document.head || document.documentElement).appendChild(script);
             }
 
-            resetMonitoringPanelGlobals();
-            removeMonitoringPanelScripts();
-            loadMonitoringPanelScript(false, 1);
+            window.AdminPanelLazyLoaders = window.AdminPanelLazyLoaders || {};
+            window.AdminPanelLazyLoaders.monitoring = function() {
+                if (window.AKMonitoringPanel) {
+                    if (typeof window.AKMonitoringPanel.start === 'function') window.AKMonitoringPanel.start();
+                    return;
+                }
+                resetMonitoringPanelGlobals();
+                removeMonitoringPanelScripts();
+                loadMonitoringPanelScript(false, 1);
+            };
+            if (currentPanelName === 'monitoring') ensureLazyPanelModule('monitoring');
         })();
     </script>
     <script>
@@ -14391,9 +14470,18 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                 (document.body || document.head || document.documentElement).appendChild(script);
             }
 
-            resetMeetingPanelGlobals();
-            removeMeetingPanelScripts();
-            loadMeetingPanelScript(false, 1);
+            window.AdminPanelLazyLoaders = window.AdminPanelLazyLoaders || {};
+            window.AdminPanelLazyLoaders.meetings = function() {
+                if (window.AKMeetingAdminPanel) {
+                    if (typeof window.AKMeetingAdminPanel.reload === 'function') window.AKMeetingAdminPanel.reload();
+                    else if (typeof window.AKMeetingAdminPanel.init === 'function') window.AKMeetingAdminPanel.init();
+                    return;
+                }
+                resetMeetingPanelGlobals();
+                removeMeetingPanelScripts();
+                loadMeetingPanelScript(false, 1);
+            };
+            if (currentPanelName === 'meetings') ensureLazyPanelModule('meetings');
         })();
     </script>
     <script>
@@ -14470,9 +14558,17 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                 (document.body || document.head || document.documentElement).appendChild(script);
             }
 
-            resetActiveDefensePanelGlobals();
-            removeActiveDefensePanelScripts();
-            loadActiveDefensePanelScript(false, 1);
+            window.AdminPanelLazyLoaders = window.AdminPanelLazyLoaders || {};
+            window.AdminPanelLazyLoaders.activeDefense = function() {
+                if (window.AKActiveDefensePanel) {
+                    if (typeof window.AKActiveDefensePanel.start === 'function') window.AKActiveDefensePanel.start();
+                    return;
+                }
+                resetActiveDefensePanelGlobals();
+                removeActiveDefensePanelScripts();
+                loadActiveDefensePanelScript(false, 1);
+            };
+            if (currentPanelName === 'activeDefense') ensureLazyPanelModule('activeDefense');
         })();
     </script>
     <script>
@@ -14549,9 +14645,17 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                 (document.body || document.head || document.documentElement).appendChild(script);
             }
 
-            resetRiskIsolationPanelGlobals();
-            removeRiskIsolationPanelScripts();
-            loadRiskIsolationPanelScript(false, 1);
+            window.AdminPanelLazyLoaders = window.AdminPanelLazyLoaders || {};
+            window.AdminPanelLazyLoaders.riskIsolation = function() {
+                if (window.AKRiskIsolationPanel) {
+                    if (typeof window.AKRiskIsolationPanel.start === 'function') window.AKRiskIsolationPanel.start();
+                    return;
+                }
+                resetRiskIsolationPanelGlobals();
+                removeRiskIsolationPanelScripts();
+                loadRiskIsolationPanelScript(false, 1);
+            };
+            if (currentPanelName === 'riskIsolation') ensureLazyPanelModule('riskIsolation');
         })();
     </script>
     <script>
@@ -14644,10 +14748,18 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                 (document.body || document.head || document.documentElement).appendChild(script);
             }
 
-            resetRecommendTreePanelGlobals();
-            removeRecommendTreePanelScripts();
-            ensureRecommendTreePanelCss(false);
-            loadRecommendTreePanelAsset(0, false, 1);
+            window.AdminPanelLazyLoaders = window.AdminPanelLazyLoaders || {};
+            window.AdminPanelLazyLoaders.recommendTree = function() {
+                if (window.AKRecommendTreePanel) {
+                    if (typeof window.AKRecommendTreePanel.start === 'function') window.AKRecommendTreePanel.start();
+                    return;
+                }
+                resetRecommendTreePanelGlobals();
+                removeRecommendTreePanelScripts();
+                ensureRecommendTreePanelCss(false);
+                loadRecommendTreePanelAsset(0, false, 1);
+            };
+            if (currentPanelName === 'recommendTree') ensureLazyPanelModule('recommendTree');
         })();
     </script>
     <script>
@@ -14776,10 +14888,18 @@ ${isSuperAdmin() ? `<button onclick="event.stopPropagation();deleteCreditConfig(
                 (document.body || document.head || document.documentElement).appendChild(script);
             }
 
-            resetPointStatsPanelGlobals();
-            removePointStatsPanelScripts();
-            ensurePointStatsPanelCss(false);
-            loadPointStatsPanelAsset(0, false, 1);
+            window.AdminPanelLazyLoaders = window.AdminPanelLazyLoaders || {};
+            window.AdminPanelLazyLoaders.pointStats = function() {
+                if (window.AKPointStatsPanel) {
+                    if (typeof window.AKPointStatsPanel.start === 'function') window.AKPointStatsPanel.start();
+                    return;
+                }
+                resetPointStatsPanelGlobals();
+                removePointStatsPanelScripts();
+                ensurePointStatsPanelCss(false);
+                loadPointStatsPanelAsset(0, false, 1);
+            };
+            if (currentPanelName === 'pointStats') ensureLazyPanelModule('pointStats');
         })();
     </script>
 </body>
