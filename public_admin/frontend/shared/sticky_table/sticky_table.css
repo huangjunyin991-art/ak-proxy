@@ -2,7 +2,8 @@
     position: relative;
     overflow: auto;
     -webkit-overflow-scrolling: touch;
-    overscroll-behavior: contain;
+    overscroll-behavior-x: contain;
+    overscroll-behavior-y: auto;
     scrollbar-width: thin;
     --ak-sticky-table-header-top: 0px;
     --ak-sticky-table-first-col-width: 112px;

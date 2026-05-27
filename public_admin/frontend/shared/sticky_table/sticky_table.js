@@ -169,7 +169,10 @@
             var deltaX = event.deltaX || 0;
             var deltaY = event.deltaY || 0;
             if (!deltaY && !deltaX) return;
-            var nextLeft = container.scrollLeft + (Math.abs(deltaX) > Math.abs(deltaY) ? deltaX : deltaY);
+            var horizontalDelta = event.shiftKey ? (deltaX || deltaY) : deltaX;
+            if (!event.shiftKey && Math.abs(horizontalDelta) <= Math.abs(deltaY)) return;
+            if (!horizontalDelta) return;
+            var nextLeft = container.scrollLeft + horizontalDelta;
             nextLeft = Math.max(0, Math.min(maxScrollLeft, nextLeft));
             if (nextLeft === container.scrollLeft) return;
             event.preventDefault();
