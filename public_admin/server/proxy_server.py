@@ -2011,7 +2011,7 @@ async def proxy_login(request: Request):
             logger.warning(f"[RiskIsolation] 隔离登录记录失败: {e}")
         if page_404_enabled:
             return HTMLResponse("<h1>404 Not Found</h1>", status_code=404)
-        return JSONResponse({"Error": True, "Msg": "账号暂时无法登录，请联系管理员"}, status_code=403)
+        return JSONResponse({"Error": True}, status_code=403)
 
 
 
