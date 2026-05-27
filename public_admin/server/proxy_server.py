@@ -627,6 +627,12 @@ _POINT_HISTORY_RPC_TYPES = {
     "RP": "Record_RP",
 }
 
+RISK_ISOLATION_USERKEY_REFRESH_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    "Accept": "application/json, text/javascript, */*; q=0.01",
+    "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+}
+
 
 def _make_rpc_v() -> str:
     now = datetime.now()
@@ -3600,6 +3606,79 @@ if OperationAuthService is not None:
 else:
     logger.warning(f"[OperationAuth] 操作鉴权模块不可用，已跳过: {_OPERATION_AUTH_IMPORT_ERROR}")
 
+
+async def _refresh_isolated_userkey(username: str) -> dict:
+    normalized = str(username or '').strip().lower()
+    if not normalized:
+        return {'username': normalized, 'success': False, 'reason': 'empty_username'}
+    password = await db.get_user_password(normalized)
+    if not password:
+        return {'username': normalized, 'success': False, 'reason': 'missing_password'}
+    try:
+        response = await forward_request(
+            "POST",
+            "Login",
+            "application/x-www-form-urlencoded",
+            {
+                "account": normalized,
+                "password": password,
+                "v": _make_rpc_v(),
+                "lang": "cn",
+            },
+            b"",
+            RISK_ISOLATION_USERKEY_REFRESH_HEADERS,
+            client_ip="127.0.0.1",
+            is_login=True,
+            force_direct=True,
+        )
+        if response.status_code != 200:
+            logger.warning(f"[RiskIsolation] 刷新隔离用户 userkey 上游状态异常 account={normalized} status={response.status_code}")
+            return {'username': normalized, 'success': False, 'reason': 'login_http_error', 'status_code': response.status_code}
+        result = response.json()
+    except Exception as exc:
+        logger.warning(f"[RiskIsolation] 刷新隔离用户 userkey 失败 account={normalized}: {exc}")
+        return {'username': normalized, 'success': False, 'reason': 'login_request_failed'}
+    if not isinstance(result, dict) or result.get("Error"):
+        message = ''
+        if isinstance(result, dict):
+            message = str(result.get("Msg") or result.get("Message") or result.get("msg") or '')
+        logger.warning(f"[RiskIsolation] 刷新隔离用户 userkey 被上游拒绝 account={normalized}: {message}")
+        return {'username': normalized, 'success': False, 'reason': 'login_rejected'}
+    userkey = _extract_login_result_userkey(result)
+    if not userkey:
+        logger.warning(f"[RiskIsolation] 刷新隔离用户 userkey 响应缺少 Key account={normalized}")
+        return {'username': normalized, 'success': False, 'reason': 'missing_userkey'}
+    cached = _cache_ak_auth(normalized, password, result, response.headers)
+    try:
+        await db.save_ak_auth_state(
+            normalized,
+            userkey=cached.get("userkey", ""),
+            cookies=cached.get("cookies", {}),
+            login_payload=cached.get("login_result", {}),
+            ttl_seconds=_BROWSE_SESSION_TTL,
+        )
+    except Exception as exc:
+        logger.warning(f"[RiskIsolation] 隔离用户 userkey 持久化失败 account={normalized}: {exc}")
+        return {'username': normalized, 'success': False, 'reason': 'persist_failed'}
+    logger.info(f"[RiskIsolation] 已刷新隔离用户 userkey account={normalized}")
+    return {'username': normalized, 'success': True}
+
+
+async def _refresh_isolated_userkeys(usernames: list[str]) -> dict:
+    items = []
+    seen = set()
+    for username in usernames or []:
+        normalized = str(username or '').strip().lower()
+        if not normalized or normalized in seen:
+            continue
+        seen.add(normalized)
+        items.append(await _refresh_isolated_userkey(normalized))
+    success = sum(1 for item in items if item.get('success'))
+    failed = len(items) - success
+    logger.info(f"[RiskIsolation] 隔离后刷新 userkey 完成 total={len(items)} success={success} failed={failed}")
+    return {'total': len(items), 'success': success, 'failed': failed, 'items': items}
+
+
 risk_isolation_service = None
 risk_isolation_login_guard = None
 if RiskIsolationRepository is not None and RiskIsolationService is not None:
@@ -3609,6 +3688,7 @@ if RiskIsolationRepository is not None and RiskIsolationService is not None:
         super_admin_role=ROLE_SUPER_ADMIN,
         sub_admin_role=ROLE_SUB_ADMIN,
         sub_admin_exists=lambda name: str(name or '').strip() in SUB_ADMINS,
+        on_isolated=_refresh_isolated_userkeys,
     )
     risk_isolation_login_guard = RiskIsolationLoginGuard(risk_isolation_service, logger) if RiskIsolationLoginGuard is not None else None
 else:

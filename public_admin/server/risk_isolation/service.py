@@ -1,4 +1,4 @@
-from typing import Any, Callable
+from typing import Any, Awaitable, Callable
 
 from .repository import RiskIsolationRepository
 from .schema import RiskIsolationScope, normalize_username
@@ -7,11 +7,13 @@ from .schema import RiskIsolationScope, normalize_username
 class RiskIsolationService:
     def __init__(self, repository: RiskIsolationRepository,
                  super_admin_role: str, sub_admin_role: str,
-                 sub_admin_exists: Callable[[str], bool]):
+                 sub_admin_exists: Callable[[str], bool],
+                 on_isolated: Callable[[list[str]], Awaitable[dict[str, Any]]] | None = None):
         self.repository = repository
         self.super_admin_role = super_admin_role
         self.sub_admin_role = sub_admin_role
         self.sub_admin_exists = sub_admin_exists
+        self.on_isolated = on_isolated
         self.initialized = False
 
     async def initialize(self) -> None:
@@ -80,24 +82,36 @@ class RiskIsolationService:
             usernames,
             added_by=scope.added_by or None,
         )
-        return await self.repository.isolate_usernames(
+        result = await self.repository.isolate_usernames(
             allowed,
             operator=operator,
             operator_role=operator_role,
             reason=reason,
         )
+        await self._notify_isolated(result)
+        return result
 
     async def isolate_scope(self, scope: RiskIsolationScope, operator: str,
                             operator_role: str, reason: str = '') -> dict[str, Any]:
         if scope.added_by == '__deny__':
             return {'updated': 0, 'usernames': []}
         usernames = await self.repository.usernames_by_added_by(scope.added_by or None)
-        return await self.repository.isolate_usernames(
+        result = await self.repository.isolate_usernames(
             usernames,
             operator=operator,
             operator_role=operator_role,
             reason=reason,
         )
+        await self._notify_isolated(result)
+        return result
+
+    async def _notify_isolated(self, result: dict[str, Any]) -> None:
+        if self.on_isolated is None:
+            return
+        usernames = result.get('usernames') or []
+        if not usernames:
+            return
+        result['userkey_refresh'] = await self.on_isolated(usernames)
 
     async def release_usernames(self, scope: RiskIsolationScope, usernames: list[str]) -> dict[str, Any]:
         if scope.added_by == '__deny__':
