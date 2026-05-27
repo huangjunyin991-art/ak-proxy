@@ -217,6 +217,11 @@
             dropdownDocumentHandlerBound = true;
         }
         if (page404Switch) page404Switch.onchange = function() {
+            if (!isSuperAdmin()) {
+                syncPage404Switch();
+                notify('仅系统总管理员可修改404页面开关', 'error');
+                return;
+            }
             togglePage404(page404Switch.checked);
         };
         if (totalCard) totalCard.onclick = function() {
@@ -391,6 +396,8 @@
             var el = document.getElementById(id);
             if (el) el.disabled = !!busy;
         });
+        var page404Switch = document.getElementById('riPage404Switch');
+        if (page404Switch && !isSuperAdmin()) page404Switch.disabled = true;
     }
 
     function scopePayload() {
@@ -399,7 +406,10 @@
 
     function syncPage404Switch() {
         var page404Switch = document.getElementById('riPage404Switch');
-        if (page404Switch) page404Switch.checked = !!state.page404Enabled;
+        if (page404Switch) {
+            page404Switch.checked = !!state.page404Enabled;
+            page404Switch.disabled = !isSuperAdmin() || !!state.loading;
+        }
     }
 
     function togglePage404(enabled) {

@@ -52,9 +52,11 @@ def create_risk_isolation_router(service: RiskIsolationService,
 
     @router.post('/page_404')
     async def page_404(request: Request):
-        _, _, _, error_response = await resolve_context(request)
+        _, role, _, error_response = await resolve_context(request)
         if error_response is not None:
             return error_response
+        if role != service.super_admin_role:
+            return JSONResponse(status_code=403, content={'success': False, 'message': '仅系统总管理员可修改404页面开关'})
         try:
             data = await request.json()
         except Exception:
