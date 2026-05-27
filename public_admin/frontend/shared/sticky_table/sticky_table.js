@@ -9,7 +9,8 @@
         firstColumnPadding: 28,
         minWidth: 0,
         compact: true,
-        scrollHint: true
+        scrollHint: true,
+        wheelScroll: true
     };
     var EDGE_THRESHOLD = 8;
 
@@ -28,7 +29,8 @@
             firstColumnPadding: toNumber(data.akStickyFirstColumnPadding, DEFAULTS.firstColumnPadding),
             minWidth: toNumber(data.akStickyTableMinWidth, DEFAULTS.minWidth),
             compact: data.akStickyDensity !== 'normal',
-            scrollHint: data.akStickyScrollHint !== '0'
+            scrollHint: data.akStickyScrollHint !== '0',
+            wheelScroll: data.akStickyWheel !== '0'
         };
     }
 
@@ -82,9 +84,14 @@
 
     function updateScrollState(container, table) {
         if (!container || !table) return;
-        var maxScrollLeft = Math.max(0, table.scrollWidth - container.clientWidth);
+        var maxScrollLeft = maxScrollLeftOf(container, table);
         container.classList.toggle('ak-sticky-table-can-scroll-x', maxScrollLeft > 12);
         container.classList.toggle('ak-sticky-table-scrolled-x', container.scrollLeft > EDGE_THRESHOLD && maxScrollLeft > 12);
+    }
+
+    function maxScrollLeftOf(container, table) {
+        if (!container || !table) return 0;
+        return Math.max(0, Math.max(container.scrollWidth, table.scrollWidth) - container.clientWidth);
     }
 
     function createHint() {
@@ -112,7 +119,7 @@
         hint.addEventListener('click', function(event) {
             event.preventDefault();
             event.stopPropagation();
-            var maxScrollLeft = Math.max(0, table.scrollWidth - container.clientWidth);
+            var maxScrollLeft = maxScrollLeftOf(container, table);
             var direction = hint.dataset.direction || 'right';
             container.scrollTo({ left: direction === 'left' ? 0 : maxScrollLeft, behavior: 'auto' });
             refresh(container);
@@ -122,7 +129,7 @@
     function syncHint(container, table) {
         var hint = container.__akStickyTableHint;
         if (!hint || !table) return;
-        var maxScrollLeft = Math.max(0, table.scrollWidth - container.clientWidth);
+        var maxScrollLeft = maxScrollLeftOf(container, table);
         if (maxScrollLeft <= 12 || !container.getClientRects().length) {
             hint.classList.remove('is-visible');
             return;
@@ -152,6 +159,25 @@
         });
     }
 
+    function bindWheelScroll(container, table, options) {
+        if (!options.wheelScroll || container.__akStickyTableWheelBound === '1') return;
+        container.__akStickyTableWheelBound = '1';
+        container.addEventListener('wheel', function(event) {
+            var currentTable = tableOf(container) || table;
+            var maxScrollLeft = maxScrollLeftOf(container, currentTable);
+            if (maxScrollLeft <= 12) return;
+            var deltaX = event.deltaX || 0;
+            var deltaY = event.deltaY || 0;
+            if (!deltaY && !deltaX) return;
+            var nextLeft = container.scrollLeft + (Math.abs(deltaX) > Math.abs(deltaY) ? deltaX : deltaY);
+            nextLeft = Math.max(0, Math.min(maxScrollLeft, nextLeft));
+            if (nextLeft === container.scrollLeft) return;
+            event.preventDefault();
+            container.scrollLeft = nextLeft;
+            scheduleScrollSync(container, currentTable);
+        }, { passive: false });
+    }
+
     function refresh(container) {
         if (!container) return;
         var table = tableOf(container);
@@ -174,6 +200,7 @@
         container.dataset.akStickyHeader = merged.stickyHeader ? '1' : '0';
         table.classList.add('ak-sticky-table');
         bindHint(container, table, merged);
+        bindWheelScroll(container, table, merged);
         if (container.__akStickyTableScrollBound !== '1') {
             container.__akStickyTableScrollBound = '1';
             container.addEventListener('scroll', function() {
