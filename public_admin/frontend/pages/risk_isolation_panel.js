@@ -8,6 +8,7 @@
         loading: false,
         saving: false,
         loaded: false,
+        loadStarted: false,
         role: '',
         subName: '',
         subAdmins: [],
@@ -355,10 +356,11 @@
             }).catch(function(err) {
                 notify(err.message || '风险隔离模块初始化状态检查失败', 'error');
             });
-        }, 1200);
+        }, 500);
     }
 
     function loadAccounts() {
+        state.loadStarted = true;
         if (!state.ready) {
             waitUntilReady();
             return Promise.resolve();
@@ -371,6 +373,7 @@
             state.total = data.total || 0;
             state.isolatedTotal = data.isolated_total || 0;
             state.rows = data.rows || [];
+            state.loaded = true;
             renderSubAdmins();
             renderRows();
         }).catch(function(err) {
@@ -437,15 +440,11 @@
 
     function start() {
         buildShell();
-        if (!state.loaded) {
-            state.loaded = true;
+        if (!state.loadStarted || !state.loaded) {
             loadStatus().then(function() {
-                if (state.ready) {
-                    return loadAccounts();
-                }
-                waitUntilReady();
-                return null;
+                return loadAccounts();
             }).catch(function(err) {
+                state.loadStarted = false;
                 notify(err.message || '风险隔离模块不可用', 'error');
             });
             return;

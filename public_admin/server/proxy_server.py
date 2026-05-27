@@ -10557,32 +10557,40 @@ def _max_mtime_among(paths):
 
 
 def _admin_panel_versions():
-    """根据各 panel 资源目录 max(mtime) 计算 admin 内联 buildVersion 占位符的真实值。"""
+    """读取单文件 panel 版本清单；清单模块不可用时返回稳定兜底版本。"""
     now = time.time()
     cached_versions = _ADMIN_PANEL_VERSIONS_CACHE.get("versions")
     if cached_versions is not None and now < float(_ADMIN_PANEL_VERSIONS_CACHE.get("expires_at") or 0.0):
         return cached_versions
-    versions = {
-        'monitoring': _max_mtime_among([
-            os.path.join(FRONTEND_PAGES_DIR, "monitoring", "monitoring_panel.js"),
-            os.path.join(FRONTEND_PAGES_DIR, "monitoring", "monitoring_panel.css"),
-        ]),
-        'meeting': _max_mtime_among([
-            os.path.join(FRONTEND_PAGES_DIR, "meeting_admin_panel.js"),
-        ]),
-        'activeDefense': _max_mtime_among([
-            os.path.join(FRONTEND_PAGES_DIR, "active_defense_panel.js"),
-        ]),
-        'riskIsolation': _max_mtime_among([
-            os.path.join(FRONTEND_PAGES_DIR, "risk_isolation_panel.js"),
-        ]),
-        'recommendTree': _max_mtime_among([
-            os.path.join(FRONTEND_PAGES_DIR, "recommend_tree"),
-        ]),
-        'pointStats': _max_mtime_among([
-            os.path.join(FRONTEND_PAGES_DIR, "point_stats"),
-        ]),
-    }
+    resolver = None
+    try:
+        from .admin_panel_versions import get_admin_panel_versions as resolver
+    except Exception:
+        try:
+            from admin_panel_versions import get_admin_panel_versions as resolver
+        except Exception:
+            resolver = None
+    if resolver is None:
+        versions = {
+            'monitoring': 0.0,
+            'meeting': 0.0,
+            'activeDefense': 0.0,
+            'riskIsolation': 0.0,
+            'recommendTree': 0.0,
+            'pointStats': 0.0,
+        }
+    else:
+        try:
+            versions = resolver(FRONTEND_PAGES_DIR)
+        except Exception:
+            versions = {
+                'monitoring': 0.0,
+                'meeting': 0.0,
+                'activeDefense': 0.0,
+                'riskIsolation': 0.0,
+                'recommendTree': 0.0,
+                'pointStats': 0.0,
+            }
     _ADMIN_PANEL_VERSIONS_CACHE["versions"] = versions
     _ADMIN_PANEL_VERSIONS_CACHE["expires_at"] = now + 30.0
     return versions
