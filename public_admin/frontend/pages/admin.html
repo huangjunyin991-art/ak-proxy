@@ -1709,27 +1709,56 @@
 
         .license-toolbar-actions {
             display: flex;
-            flex-direction: column;
-            gap: 10px;
-            align-items: stretch;
-            flex: 1 1 auto;
-        }
-
-        .license-toolbar-main,
-        .license-toolbar-filters {
-            display: flex;
-            gap: 10px;
+            gap: 8px;
             align-items: center;
-            flex-wrap: wrap;
+            justify-content: flex-end;
+            flex: 1 1 auto;
+            min-width: 0;
+            flex-wrap: nowrap;
+            margin-left: auto;
         }
 
-        .license-toolbar-main #licenseSearch {
-            flex: 1 1 260px;
-            min-width: 220px;
+        #license .license-toolbar {
+            flex-wrap: nowrap !important;
         }
 
-        .license-toolbar-main .btn,
-        .license-toolbar-filters select {
+        .license-toolbar h3 {
+            flex: 0 0 auto;
+        }
+
+        .license-toolbar-actions #licenseSearch {
+            width: 220px;
+            min-width: 180px;
+            max-width: 240px;
+        }
+
+        .license-toolbar-actions select {
+            width: 124px;
+            appearance: none;
+            -webkit-appearance: none;
+            color-scheme: dark;
+            background-color: var(--bg-card) !important;
+            background-image: linear-gradient(45deg, transparent 50%, var(--text-primary) 50%), linear-gradient(135deg, var(--text-primary) 50%, transparent 50%) !important;
+            background-position: calc(100% - 16px) 50%, calc(100% - 11px) 50% !important;
+            background-size: 5px 5px, 5px 5px !important;
+            background-repeat: no-repeat !important;
+            box-shadow: 0 0 0 1px rgba(0, 212, 255, 0.06), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+        }
+
+        .license-toolbar-actions select option {
+            background: #101826;
+            color: var(--text-primary);
+        }
+
+        .license-toolbar-actions select:focus,
+        .license-toolbar-actions #licenseSearch:focus {
+            outline: none;
+            border-color: var(--accent) !important;
+            box-shadow: 0 0 0 2px rgba(0, 212, 255, 0.18);
+        }
+
+        .license-toolbar-actions .btn,
+        .license-toolbar-actions select {
             min-height: 38px;
         }
 
@@ -2878,8 +2907,8 @@
             
             /* 激活码管理顶部工具栏 */
             #license .license-toolbar {
-                flex-direction: column;
-                align-items: stretch !important;
+                flex-direction: row;
+                align-items: center !important;
                 gap: 12px !important;
                 margin-bottom: 16px !important;
             }
@@ -2889,32 +2918,24 @@
             }
             #license .license-toolbar-actions {
                 gap: 8px !important;
-                width: 100%;
-            }
-            #license .license-toolbar-main {
-                display: grid;
-                grid-template-columns: minmax(0, 1fr) auto auto;
-                gap: 8px;
-            }
-            #license .license-toolbar-main > #licenseSearch {
                 min-width: 0;
             }
-            #license .license-toolbar-filters {
-                display: grid;
-                grid-template-columns: repeat(2, minmax(0, 1fr));
-                gap: 8px;
-            }
-            #license .license-toolbar-main > #licenseSearch,
-            #license .license-toolbar-filters > select,
-            #license .license-toolbar-main > button {
-                width: 100% !important;
+            #license .license-toolbar-actions > #licenseSearch,
+            #license .license-toolbar-actions > select,
+            #license .license-toolbar-actions > button {
                 box-sizing: border-box;
-                min-height: 44px;
-                padding: 10px 12px !important;
+                min-height: 38px;
                 font-size: 13px !important;
-                border-radius: 12px !important;
             }
-            #license .license-toolbar-main > button {
+            #license .license-toolbar-actions > #licenseSearch {
+                width: 180px !important;
+                min-width: 150px;
+                max-width: 200px;
+            }
+            #license .license-toolbar-actions > select {
+                padding-right: 32px !important;
+            }
+            #license .license-toolbar-actions > button {
                 font-weight: 800;
                 white-space: nowrap;
             }
@@ -2936,6 +2957,34 @@
             #chatMessages {
                 height: 200px !important;
                 flex: none !important;
+            }
+        }
+
+        @media screen and (max-width: 768px) {
+            #license .license-toolbar {
+                flex-direction: column;
+                align-items: stretch !important;
+            }
+            #license .license-toolbar-actions {
+                display: grid;
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+                width: 100%;
+                margin-left: 0;
+            }
+            #license .license-toolbar-actions > #licenseSearch {
+                width: 100% !important;
+                max-width: none;
+                grid-column: 1 / -1;
+            }
+            #license .license-toolbar-actions > select,
+            #license .license-toolbar-actions > button {
+                width: 100% !important;
+                min-height: 44px;
+                padding: 10px 12px !important;
+                border-radius: 12px !important;
+            }
+            #license .license-toolbar-actions > select {
+                padding-right: 32px !important;
             }
         }
         
@@ -3522,37 +3571,33 @@
             <div class="license-toolbar" style="margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 15px;">
                 <h3 style="margin: 0; color: var(--accent);"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-2px"><path d="M2.586 17.414A2 2 0 0 0 2 18.828V21a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h1a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h.172a2 2 0 0 0 1.414-.586l.814-.814a6.5 6.5 0 1 0-4-4z"/><circle cx="16.5" cy="7.5" r=".5" fill="currentColor"/></svg> 激活码管理</h3>
                 <div class="license-toolbar-actions">
-                    <div class="license-toolbar-main">
-                        <input type="text" id="licenseSearch" placeholder="搜索激活码..."
-                               style="padding: 8px 15px; background: var(--bg-card); border: 1px solid var(--border);
-                                      border-radius: 8px; color: var(--text-primary);"
-                               oninput="searchLicenses()">
-                        <button onclick="showCreateLicenseModal()" class="btn btn-primary" style="padding: 8px 15px; background: linear-gradient(135deg, #00ff88, #00cc6a);">
-                            创建激活码
-                        </button>
-                        <button onclick="showPublishReleaseModal()" class="btn btn-primary" style="padding: 8px 15px;">
-                            发布更新
-                        </button>
-                    </div>
-                    <div class="license-toolbar-filters">
-                        <select id="licBillingFilter" onchange="applyLicenseFilters()"
-                                style="padding: 8px 12px; background: var(--bg-card); border: 1px solid var(--border);
-                                       border-radius: 8px; color: var(--text-primary); font-size: 13px;">
-                            <option value="">全部计费</option>
-                            <option value="per_use">按次数</option>
-                            <option value="time_based">按时间</option>
-                            <option value="unlimited">无限制</option>
-                        </select>
-                        <select id="licStatusFilter" onchange="applyLicenseFilters()"
-                                style="padding: 8px 12px; background: var(--bg-card); border: 1px solid var(--border);
-                                       border-radius: 8px; color: var(--text-primary); font-size: 13px;">
-                            <option value="">全部状态</option>
-                            <option value="active">已激活</option>
-                            <option value="inactive">未激活</option>
-                            <option value="expired">已过期</option>
-                            <option value="revoked">已撤销</option>
-                        </select>
-                    </div>
+                    <input type="text" id="licenseSearch" placeholder="搜索激活码..."
+                           style="padding: 8px 15px; background: var(--bg-card); border: 1px solid var(--border);
+                                  border-radius: 8px; color: var(--text-primary);"
+                           oninput="searchLicenses()">
+                    <select id="licBillingFilter" onchange="applyLicenseFilters()"
+                            style="padding: 8px 32px 8px 12px; background: var(--bg-card); border: 1px solid var(--border);
+                                   border-radius: 8px; color: var(--text-primary); font-size: 13px;">
+                        <option value="">全部计费</option>
+                        <option value="per_use">按次数</option>
+                        <option value="time_based">按时间</option>
+                        <option value="unlimited">无限制</option>
+                    </select>
+                    <select id="licStatusFilter" onchange="applyLicenseFilters()"
+                            style="padding: 8px 32px 8px 12px; background: var(--bg-card); border: 1px solid var(--border);
+                                   border-radius: 8px; color: var(--text-primary); font-size: 13px;">
+                        <option value="">全部状态</option>
+                        <option value="active">已激活</option>
+                        <option value="inactive">未激活</option>
+                        <option value="expired">已过期</option>
+                        <option value="revoked">已撤销</option>
+                    </select>
+                    <button onclick="showCreateLicenseModal()" class="btn btn-primary" style="padding: 8px 15px; background: linear-gradient(135deg, #00ff88, #00cc6a);">
+                        创建激活码
+                    </button>
+                    <button onclick="showPublishReleaseModal()" class="btn btn-primary" style="padding: 8px 15px;">
+                        发布更新
+                    </button>
                 </div>
             </div>
             
