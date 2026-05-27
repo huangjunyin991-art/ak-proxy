@@ -4506,6 +4506,7 @@
         let isLoggedIn = false;
         let currentUserRole = null;  // 当前用户权限
         let currentPanelName = 'dashboard';
+        const ADMIN_ACTIVE_PANEL_STORAGE_KEY = 'ak_admin_active_panel';
         let currentChatUser = null;
         let chatRefreshTimer = null;
         let ppRefreshTimer = null;
@@ -5105,13 +5106,63 @@
             document.getElementById('mainContent').classList.add('visible');
             // 根据权限动态显示/隐藏标签页
             applyPermissions();
+            restoreActivePanel();
             // 初始化应用
             initApp();
+            loadPanelData(currentPanelName);
+            dispatchActivePanelChanged(currentPanelName);
             renderMobileTabList();
             syncResponsiveShell();
             restoreViewMode();
             lockAdminPortraitOrientation();
             window.dispatchEvent(new CustomEvent('ak-admin-auth-ready'));
+        }
+
+        function getStoredActivePanel() {
+            try {
+                return localStorage.getItem(ADMIN_ACTIVE_PANEL_STORAGE_KEY) || '';
+            } catch (e) {
+                return '';
+            }
+        }
+
+        function storeActivePanel(panelName) {
+            try {
+                if (panelName) localStorage.setItem(ADMIN_ACTIVE_PANEL_STORAGE_KEY, panelName);
+            } catch (e) {
+            }
+        }
+
+        function getFirstAllowedTab() {
+            return document.querySelector('.tab[data-allowed="1"]') || document.querySelector('.tab:not([style*="display: none"])') || document.querySelector('.tab');
+        }
+
+        function setActivePanelState(panelName) {
+            const tab = document.querySelector(`.tab[data-panel="${panelName}"]`);
+            const panel = panelName ? document.getElementById(panelName) : null;
+            if (!tab || !panel || tab.dataset.allowed === '0') return false;
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+            tab.classList.add('active');
+            panel.classList.add('active');
+            currentPanelName = panelName;
+            return true;
+        }
+
+        function dispatchActivePanelChanged(panelName) {
+            try {
+                window.dispatchEvent(new CustomEvent('ak-admin-panel-changed', { detail: { panel: panelName } }));
+            } catch (e) {
+            }
+        }
+
+        function restoreActivePanel() {
+            const storedPanel = getStoredActivePanel();
+            if (storedPanel && setActivePanelState(storedPanel)) return;
+            const activeTab = document.querySelector('.tab.active');
+            if (activeTab && activeTab.dataset.allowed !== '0' && setActivePanelState(activeTab.dataset.panel)) return;
+            const firstAllowed = getFirstAllowedTab();
+            if (firstAllowed) setActivePanelState(firstAllowed.dataset.panel);
         }
         
         function applyPermissions() {
@@ -5155,7 +5206,7 @@
             const activeTab = document.querySelector('.tab.active');
             if (activeTab && activeTab.style.display === 'none') {
                 const firstVisible = document.querySelector('.tab:not([style*="display: none"])');
-                if (firstVisible) firstVisible.click();
+                if (firstVisible) setActivePanelState(firstVisible.dataset.panel);
             }
             renderMobileTabList();
             requestAnimationFrame(() => {
@@ -7621,6 +7672,68 @@
         window.addEventListener('resize', syncMobileTableStickyOffsets);
         requestAnimationFrame(syncMobileTableStickyOffsets);
 
+        function loadPanelData(panelName) {
+            if (panelName === 'dashboard') {
+                startDashboard();
+            } else {
+                stopDashboard();
+            }
+            if (panelName === 'online') {
+                loadOnlineUsers();
+                startOnlineUsersAutoRefresh();
+            } else {
+                stopOnlineUsersAutoRefresh();
+            }
+            if (panelName === 'usage') loadUsage();
+            if (panelName === 'users') {
+                scheduleUsersSearchInputSync();
+                loadBanlist().then(() => loadUsers());
+                if (window.showUsersFloatScroll) showUsersFloatScroll();
+            } else {
+                if (window.hideUsersFloatScroll) hideUsersFloatScroll();
+            }
+            if (panelName === 'pointStats' && window.AKPointStatsPanel) {
+                window.AKPointStatsPanel.start();
+            }
+            if (panelName === 'recommendTree' && window.AKRecommendTreePanel) {
+                window.AKRecommendTreePanel.start();
+            }
+            if (panelName === 'ips') loadIPs();
+            if (panelName === 'banlist') loadBanlist();
+            if (panelName === 'whitelist') loadWhitelist();
+            if (panelName === 'riskIsolation' && window.AKRiskIsolationPanel) {
+                window.AKRiskIsolationPanel.start();
+            }
+            if (panelName === 'contacts') {
+                loadImContactsGroups(false);
+                loadImEmojiAssets();
+                loadImFileAssetConfig();
+                loadImImageUploadConfig();
+            }
+            if (panelName === 'credits') loadCreditsPage();
+            if (panelName === 'license') {
+                loadLicenseStats();
+                loadLicenses(0);
+            }
+            if (panelName === 'database') {
+                checkDbAuth().then(authed => {
+                    if (authed) loadDbTables();
+                });
+            }
+            if (panelName === 'activeDefense' && window.AKActiveDefensePanel) {
+                window.AKActiveDefensePanel.start();
+            }
+            if (panelName === 'settings') {
+                loadSubAdminStatus();
+                startSubAdminStatusRefresh();
+                loadSubscriptionGroups();
+            } else {
+                stopSubAdminStatusRefresh();
+                stopLbRefresh();
+                stopRemoteVoiceRefresh();
+            }
+        }
+
         // 标签页切换
         document.querySelectorAll('.tab').forEach(tab => {
             tab.addEventListener('click', () => {
@@ -7630,75 +7743,12 @@
                 tab.classList.add('active');
                 document.getElementById(tab.dataset.panel).classList.add('active');
                 currentPanelName = tab.dataset.panel;
-                try {
-                    window.dispatchEvent(new CustomEvent('ak-admin-panel-changed', { detail: { panel: currentPanelName } }));
-                } catch (e) {
-                }
+                storeActivePanel(currentPanelName);
+                dispatchActivePanelChanged(currentPanelName);
                 scrollActiveDesktopTabIntoView();
                 
                 // 加载对应数据
-                if (tab.dataset.panel === 'dashboard') {
-                    startDashboard();
-                } else {
-                    stopDashboard();
-                }
-                if (tab.dataset.panel === 'online') {
-                    loadOnlineUsers();
-                    startOnlineUsersAutoRefresh();
-                } else {
-                    stopOnlineUsersAutoRefresh();
-                }
-                if (tab.dataset.panel === 'usage') loadUsage();
-                if (tab.dataset.panel === 'users') {
-                    scheduleUsersSearchInputSync();
-                    loadBanlist().then(() => loadUsers());
-                    if (window.showUsersFloatScroll) showUsersFloatScroll();
-                } else {
-                    if (window.hideUsersFloatScroll) hideUsersFloatScroll();
-                }
-                if (tab.dataset.panel === 'pointStats' && window.AKPointStatsPanel) {
-                    window.AKPointStatsPanel.start();
-                }
-                if (tab.dataset.panel === 'recommendTree' && window.AKRecommendTreePanel) {
-                    window.AKRecommendTreePanel.start();
-                }
-                if (tab.dataset.panel === 'ips') loadIPs();
-                if (tab.dataset.panel === 'banlist') loadBanlist();
-                if (tab.dataset.panel === 'whitelist') loadWhitelist();
-                if (tab.dataset.panel === 'riskIsolation' && window.AKRiskIsolationPanel) {
-                    window.AKRiskIsolationPanel.start();
-                }
-                if (tab.dataset.panel === 'contacts') {
-                    loadImContactsGroups(false);
-                    loadImEmojiAssets();
-                    loadImFileAssetConfig();
-                    loadImImageUploadConfig();
-                }
-                if (tab.dataset.panel === 'credits') loadCreditsPage();
-                if (tab.dataset.panel === 'license') {
-                    loadLicenseStats();
-                    loadLicenses(0);
-                }
-                if (tab.dataset.panel === 'database') {
-                    checkDbAuth().then(authed => {
-                        if (authed) loadDbTables();
-                    });
-                }
-                if (tab.dataset.panel === 'activeDefense' && window.AKActiveDefensePanel) {
-                    window.AKActiveDefensePanel.start();
-                }
-                if (tab.dataset.panel === 'settings') {
-                    // 加载子管理员状态（仅系统总管理可见）
-                    loadSubAdminStatus();
-                    // 启动定时刷新（每10秒刷新一次）
-                    startSubAdminStatusRefresh();
-                    loadSubscriptionGroups();
-                } else {
-                    // 离开设置页面时停止刷新
-                    stopSubAdminStatusRefresh();
-                    stopLbRefresh();
-                    stopRemoteVoiceRefresh();
-                }
+                loadPanelData(tab.dataset.panel);
                 renderMobileTabList();
                 syncResponsiveShell();
                 requestAnimationFrame(() => {
