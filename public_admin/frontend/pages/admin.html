@@ -3655,7 +3655,7 @@
         <!-- 白名单管理 -->
         <div class="panel" id="whitelist">
             <div>
-                <div id="wlGlobalSwitch" style="background: var(--bg-card); border: 1px solid var(--border); border-radius: 16px; padding: 20px 24px; margin-bottom: 20px; display: flex; align-items: center; gap: 20px; flex-wrap: wrap;">
+                <div id="wlGlobalSwitch" style="background: var(--bg-card); border: 1px solid var(--border); border-radius: 16px; padding: 20px 24px; margin-bottom: 20px; display: none; align-items: center; gap: 20px; flex-wrap: wrap;">
                     <div style="width: 48px; height: 48px; border-radius: 14px; display: flex; align-items: center; justify-content: center; flex-shrink: 0;" id="wlGlobalIcon">
                         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
                     </div>
@@ -10292,7 +10292,14 @@
         let wlExpiringList = [];
         const WL_EXPIRING_DAYS = 7;
 
+        function syncWhitelistGlobalControlVisibility() {
+            const panel = document.getElementById('wlGlobalSwitch');
+            if (panel) panel.style.display = isSuperAdmin() ? 'flex' : 'none';
+        }
+
         async function loadWhitelistGlobalStatus() {
+            syncWhitelistGlobalControlVisibility();
+            if (!isSuperAdmin()) return;
             try {
                 const res = await fetch(`${API_BASE}/admin/api/whitelist/global_status`, {headers: getHeaders()});
                 const data = await res.json();
@@ -10336,6 +10343,10 @@
         }
 
         async function toggleWhitelistGlobal() {
+            if (!isSuperAdmin()) {
+                showToast('仅系统总管理员可操作白名单生效控制', 'error');
+                return;
+            }
             const newStatus = !wlGlobalEnabled;
             const warning = newStatus
                 ? '取消白名单生效后，所有人都可以登录AK服务器。\n\n确定继续吗？'

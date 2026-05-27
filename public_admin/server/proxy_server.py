@@ -7398,7 +7398,7 @@ async def admin_meeting_revoke_permission(request: Request):
 @app.get("/admin/api/whitelist/global_status")
 async def admin_whitelist_global_status(request: Request):
     """获取全体白名单开关状态"""
-    _, error_response = await _require_admin_token(request)
+    _, error_response = await _require_admin_token(request, super_admin_only=True)
     if error_response is not None:
         return error_response
     try:
