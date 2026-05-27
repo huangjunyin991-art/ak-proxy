@@ -1732,6 +1732,114 @@
             max-width: 240px;
         }
 
+        .license-filter-dropdown {
+            position: relative;
+            width: 124px;
+            flex: 0 0 124px;
+            z-index: 70;
+        }
+
+        .license-filter-trigger {
+            width: 100%;
+            min-height: 38px;
+            border: 1px solid rgba(57, 126, 255, 0.42);
+            border-radius: 12px;
+            padding: 0 12px 0 14px;
+            color: #fff;
+            background: linear-gradient(180deg, rgba(5, 15, 30, 0.98), rgba(8, 20, 38, 0.98));
+            font-size: 13px;
+            font-weight: 800;
+            line-height: 1.2;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            cursor: pointer;
+            outline: none;
+            box-shadow: 0 6px 16px rgba(0, 0, 0, 0.2);
+        }
+
+        .license-filter-trigger:focus,
+        .license-filter-dropdown.open .license-filter-trigger {
+            border-color: #27d8ff;
+            box-shadow: 0 0 0 3px rgba(0, 212, 255, 0.12), 0 8px 22px rgba(0, 0, 0, 0.24);
+        }
+
+        .license-filter-label {
+            min-width: 0;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .license-filter-caret {
+            width: 8px;
+            height: 8px;
+            border-right: 2px solid currentColor;
+            border-bottom: 2px solid currentColor;
+            transform: rotate(45deg);
+            margin-right: 2px;
+            opacity: 0.9;
+            flex: 0 0 auto;
+            transition: transform 0.16s ease;
+        }
+
+        .license-filter-dropdown.open .license-filter-caret {
+            transform: rotate(225deg);
+            margin-top: 5px;
+        }
+
+        .license-filter-menu {
+            position: absolute;
+            left: 0;
+            top: calc(100% - 1px);
+            display: none;
+            width: 100%;
+            min-width: 150px;
+            overflow: hidden;
+            border: 1px solid rgba(57, 126, 255, 0.5);
+            border-top: 0;
+            border-radius: 0 0 14px 14px;
+            background: linear-gradient(180deg, #06162b, #172234);
+            box-shadow: 0 18px 38px rgba(0, 0, 0, 0.48), 0 0 0 2px rgba(39, 216, 255, 0.06);
+            z-index: 120;
+            padding: 4px;
+        }
+
+        .license-filter-dropdown.open .license-filter-menu {
+            display: block;
+        }
+
+        .license-filter-option {
+            width: 100%;
+            min-height: 34px;
+            border: 1px solid rgba(57, 126, 255, 0.18);
+            border-radius: 10px;
+            background: rgba(6, 18, 34, 0.78);
+            color: #f4f8ff;
+            padding: 0 10px;
+            margin: 0 0 4px 0;
+            font-size: 13px;
+            font-weight: 800;
+            cursor: pointer;
+            text-align: left;
+        }
+
+        .license-filter-option:last-child {
+            margin-bottom: 0;
+        }
+
+        .license-filter-option:hover,
+        .license-filter-option.active {
+            border-color: rgba(45, 108, 223, 0.48);
+            background: rgba(45, 108, 223, 0.24);
+            color: #fff;
+        }
+
+        .license-native-filter {
+            display: none !important;
+        }
+
         .license-toolbar-actions select {
             width: 124px;
             appearance: none;
@@ -1758,7 +1866,8 @@
         }
 
         .license-toolbar-actions .btn,
-        .license-toolbar-actions select {
+        .license-toolbar-actions select,
+        .license-filter-trigger {
             min-height: 38px;
         }
 
@@ -2921,7 +3030,7 @@
                 min-width: 0;
             }
             #license .license-toolbar-actions > #licenseSearch,
-            #license .license-toolbar-actions > select,
+            #license .license-filter-dropdown,
             #license .license-toolbar-actions > button {
                 box-sizing: border-box;
                 min-height: 38px;
@@ -2932,8 +3041,9 @@
                 min-width: 150px;
                 max-width: 200px;
             }
-            #license .license-toolbar-actions > select {
-                padding-right: 32px !important;
+            #license .license-filter-dropdown {
+                width: 120px;
+                flex-basis: 120px;
             }
             #license .license-toolbar-actions > button {
                 font-weight: 800;
@@ -2976,15 +3086,17 @@
                 max-width: none;
                 grid-column: 1 / -1;
             }
-            #license .license-toolbar-actions > select,
+            #license .license-filter-dropdown,
             #license .license-toolbar-actions > button {
                 width: 100% !important;
                 min-height: 44px;
-                padding: 10px 12px !important;
                 border-radius: 12px !important;
             }
-            #license .license-toolbar-actions > select {
-                padding-right: 32px !important;
+            #license .license-filter-dropdown {
+                flex-basis: auto;
+            }
+            #license .license-filter-trigger {
+                min-height: 44px;
             }
         }
         
@@ -3575,23 +3687,44 @@
                            style="padding: 8px 15px; background: var(--bg-card); border: 1px solid var(--border);
                                   border-radius: 8px; color: var(--text-primary);"
                            oninput="searchLicenses()">
-                    <select id="licBillingFilter" onchange="applyLicenseFilters()"
-                            style="padding: 8px 32px 8px 12px; background: var(--bg-card); border: 1px solid var(--border);
-                                   border-radius: 8px; color: var(--text-primary); font-size: 13px;">
+                    <select id="licBillingFilter" class="license-native-filter" onchange="applyLicenseFilters()">
                         <option value="">全部计费</option>
                         <option value="per_use">按次数</option>
                         <option value="time_based">按时间</option>
                         <option value="unlimited">无限制</option>
                     </select>
-                    <select id="licStatusFilter" onchange="applyLicenseFilters()"
-                            style="padding: 8px 32px 8px 12px; background: var(--bg-card); border: 1px solid var(--border);
-                                   border-radius: 8px; color: var(--text-primary); font-size: 13px;">
+                    <div class="license-filter-dropdown" id="licBillingDropdown">
+                        <button type="button" class="license-filter-trigger" onclick="toggleLicenseFilterDropdown('licBillingDropdown', event)">
+                            <span class="license-filter-label" id="licBillingFilterLabel">全部计费</span>
+                            <span class="license-filter-caret"></span>
+                        </button>
+                        <div class="license-filter-menu">
+                            <button type="button" class="license-filter-option active" data-filter="licBillingFilter" data-value="" onclick="selectLicenseFilterOption(this, event)">全部计费</button>
+                            <button type="button" class="license-filter-option" data-filter="licBillingFilter" data-value="per_use" onclick="selectLicenseFilterOption(this, event)">按次数</button>
+                            <button type="button" class="license-filter-option" data-filter="licBillingFilter" data-value="time_based" onclick="selectLicenseFilterOption(this, event)">按时间</button>
+                            <button type="button" class="license-filter-option" data-filter="licBillingFilter" data-value="unlimited" onclick="selectLicenseFilterOption(this, event)">无限制</button>
+                        </div>
+                    </div>
+                    <select id="licStatusFilter" class="license-native-filter" onchange="applyLicenseFilters()">
                         <option value="">全部状态</option>
                         <option value="active">已激活</option>
                         <option value="inactive">未激活</option>
                         <option value="expired">已过期</option>
                         <option value="revoked">已撤销</option>
                     </select>
+                    <div class="license-filter-dropdown" id="licStatusDropdown">
+                        <button type="button" class="license-filter-trigger" onclick="toggleLicenseFilterDropdown('licStatusDropdown', event)">
+                            <span class="license-filter-label" id="licStatusFilterLabel">全部状态</span>
+                            <span class="license-filter-caret"></span>
+                        </button>
+                        <div class="license-filter-menu">
+                            <button type="button" class="license-filter-option active" data-filter="licStatusFilter" data-value="" onclick="selectLicenseFilterOption(this, event)">全部状态</button>
+                            <button type="button" class="license-filter-option" data-filter="licStatusFilter" data-value="active" onclick="selectLicenseFilterOption(this, event)">已激活</button>
+                            <button type="button" class="license-filter-option" data-filter="licStatusFilter" data-value="inactive" onclick="selectLicenseFilterOption(this, event)">未激活</button>
+                            <button type="button" class="license-filter-option" data-filter="licStatusFilter" data-value="expired" onclick="selectLicenseFilterOption(this, event)">已过期</button>
+                            <button type="button" class="license-filter-option" data-filter="licStatusFilter" data-value="revoked" onclick="selectLicenseFilterOption(this, event)">已撤销</button>
+                        </div>
+                    </div>
                     <button onclick="showCreateLicenseModal()" class="btn btn-primary" style="padding: 8px 15px; background: linear-gradient(135deg, #00ff88, #00cc6a);">
                         创建激活码
                     </button>
@@ -8710,11 +8843,53 @@
             licenseStatusFilter = document.getElementById('licStatusFilter').value;
             renderLicenseTable();
         }
+
+        function closeLicenseFilterDropdowns(exceptId) {
+            document.querySelectorAll('#license .license-filter-dropdown.open').forEach(dropdown => {
+                if (!exceptId || dropdown.id !== exceptId) dropdown.classList.remove('open');
+            });
+        }
+
+        function toggleLicenseFilterDropdown(dropdownId, event) {
+            if (event) event.stopPropagation();
+            const dropdown = document.getElementById(dropdownId);
+            if (!dropdown) return;
+            const isOpen = dropdown.classList.contains('open');
+            closeLicenseFilterDropdowns(dropdownId);
+            dropdown.classList.toggle('open', !isOpen);
+        }
+
+        function syncLicenseFilterDropdown(filterId) {
+            const select = document.getElementById(filterId);
+            const label = document.getElementById(`${filterId}Label`);
+            if (!select || !label) return;
+            const selectedOption = select.options[select.selectedIndex];
+            label.textContent = selectedOption ? selectedOption.textContent : '';
+            document.querySelectorAll(`#license .license-filter-option[data-filter="${filterId}"]`).forEach(option => {
+                option.classList.toggle('active', option.dataset.value === select.value);
+            });
+        }
+
+        function selectLicenseFilterOption(button, event) {
+            if (event) event.stopPropagation();
+            const filterId = button.dataset.filter;
+            const select = document.getElementById(filterId);
+            if (!select) return;
+            select.value = button.dataset.value || '';
+            syncLicenseFilterDropdown(filterId);
+            const dropdown = button.closest('.license-filter-dropdown');
+            if (dropdown) dropdown.classList.remove('open');
+            applyLicenseFilters();
+        }
+
+        document.addEventListener('click', () => closeLicenseFilterDropdowns());
         
         // 应用筛选（下拉框变化时触发）
         function applyLicenseFilters() {
             licenseBillingFilter = document.getElementById('licBillingFilter').value;
             licenseStatusFilter = document.getElementById('licStatusFilter').value;
+            syncLicenseFilterDropdown('licBillingFilter');
+            syncLicenseFilterDropdown('licStatusFilter');
             renderLicenseTable();
         }
         

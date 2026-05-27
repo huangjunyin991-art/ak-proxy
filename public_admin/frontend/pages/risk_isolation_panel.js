@@ -128,7 +128,7 @@
             '.ri-scope-search{padding:8px;border-bottom:1px solid rgba(255,255,255,.08)}.ri-scope-search input{width:100%;box-sizing:border-box;min-height:32px;border:1px solid rgba(57,126,255,.38);border-radius:10px;background:rgba(0,0,0,.18);color:#fff;padding:0 10px;font-size:12px;font-weight:800;outline:none}.ri-scope-search input::placeholder{color:rgba(170,200,235,.7)}',
             '.ri-scope-alpha{display:grid;grid-template-columns:repeat(9,1fr);gap:2px;padding:6px 8px;border-bottom:1px solid rgba(255,255,255,.06);background:rgba(0,0,0,.1)}.ri-alpha-item{min-height:18px;border:0;border-radius:6px;background:transparent;color:rgba(220,235,255,.76);font-size:10px;font-weight:900;line-height:18px;cursor:pointer}.ri-alpha-item:hover,.ri-alpha-item.active{background:rgba(45,108,223,.78);color:#fff}',
             '.ri-scope-body{display:block;max-height:240px}.ri-scope-list{max-height:240px;overflow:auto;padding:4px;background:rgba(4,14,28,.72)}.ri-scope-option{display:flex;align-items:center;justify-content:space-between;width:100%;min-height:38px;border:1px solid rgba(57,126,255,.18);border-radius:10px;background:rgba(6,18,34,.78);color:#f4f8ff;padding:0 10px 0 12px;margin:0 0 4px 0;font-size:14px;font-weight:800;cursor:pointer;text-align:left;opacity:1;visibility:visible}.ri-scope-option:hover,.ri-scope-option.active{border-color:rgba(45,108,223,.48);background:rgba(45,108,223,.24);color:#fff}.ri-scope-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#fff;font-weight:850;opacity:1}.ri-scope-count{font-size:12px;font-weight:800;color:rgba(214,232,255,.82);opacity:1}.ri-scope-empty{padding:22px 16px;color:rgba(220,235,255,.68);font-weight:800;text-align:center}',
-            '.ri-btn{border:1px solid transparent;border-radius:12px;min-height:42px;padding:0 14px;font-size:14px;font-weight:900;letter-spacing:.01em;white-space:nowrap;cursor:pointer;color:#fff}.ri-btn:disabled{opacity:.55;cursor:not-allowed}.ri-btn.secondary{background:rgba(255,255,255,.06);border-color:rgba(255,255,255,.12)}.ri-btn.danger{background:linear-gradient(135deg,#ff4757,#c44569);box-shadow:0 10px 22px rgba(255,71,87,.18)}.ri-btn.success{background:linear-gradient(135deg,#00b894,#00cec9);box-shadow:0 10px 22px rgba(0,184,148,.18)}',
+            '.ri-btn{border:1px solid transparent;border-radius:12px;min-height:42px;padding:0 14px;font-size:14px;font-weight:900;letter-spacing:.01em;white-space:nowrap;cursor:pointer;color:#fff}.ri-btn:disabled{opacity:.55;cursor:not-allowed}.ri-btn.secondary{background:rgba(255,255,255,.06);border-color:rgba(255,255,255,.12)}.ri-btn.cyan{background:linear-gradient(135deg,#00d4ff,#00b8d4);box-shadow:0 10px 22px rgba(0,212,255,.18)}.ri-btn.danger{background:linear-gradient(135deg,#ff4757,#c44569);box-shadow:0 10px 22px rgba(255,71,87,.18)}.ri-btn.success{background:linear-gradient(135deg,#00b894,#00cec9);box-shadow:0 10px 22px rgba(0,184,148,.18)}',
             '.ri-table-wrap{overflow:auto;-webkit-overflow-scrolling:touch;overscroll-behavior-x:contain;overscroll-behavior-y:auto;border:1px solid var(--border);border-radius:14px;background:rgba(255,255,255,.02);position:relative}.ri-table{width:max-content;min-width:980px;border-collapse:separate;border-spacing:0}.ri-table th,.ri-table td{border-bottom:1px solid rgba(255,255,255,.07);padding:8px 10px;text-align:left;white-space:nowrap}.ri-table th{position:sticky;top:0;z-index:20;color:var(--accent);background:var(--bg-secondary);font-size:11px}.ri-table td{font-size:12px;line-height:1.25;color:var(--text-primary);background:var(--bg-card)}.ri-table th:first-child,.ri-table td:first-child{position:sticky;left:0;width:120px;min-width:120px;max-width:120px;z-index:12;background:var(--bg-card)}.ri-table th:first-child{z-index:30;background:var(--bg-secondary)}.ri-table tr:last-child td{border-bottom:0}.ri-table .ri-btn{min-height:34px;border-radius:10px;padding:0 12px;font-size:12px}',
             '.ri-empty{text-align:center;color:var(--text-secondary);padding:28px!important}.ri-pill{display:inline-flex;border-radius:999px;padding:2px 7px;font-size:11px;font-weight:800}.ri-pill.on{color:#ffb8bf;background:rgba(255,71,87,.14);border:1px solid rgba(255,71,87,.3)}.ri-pill.off{color:#55efc4;background:rgba(0,184,148,.13);border:1px solid rgba(0,184,148,.28)}.ri-cards{display:none!important;gap:10px}.ri-user-card{border:1px solid var(--border);border-radius:14px;background:rgba(255,255,255,.035);padding:12px}.ri-user-card.ri-muted{color:var(--text-secondary);text-align:center}.ri-user-head{display:flex;justify-content:space-between;gap:8px;align-items:center}.ri-user-name{font-weight:900;color:#fff}.ri-user-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:10px 0}.ri-user-label{color:var(--text-secondary);font-size:11px}.ri-user-value{color:var(--text-primary);font-size:12px;word-break:break-all}',
             '@media(max-width:760px){.ri-card{padding:12px}.ri-stats{grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}.ri-stat{padding:10px 8px}.ri-stat-label{font-size:11px;white-space:nowrap}.ri-stat-value{font-size:18px}.ri-toolbar{align-items:flex-start}.ri-toolbar>.ri-scope-dropdown{flex:0 1 260px}.ri-toolbar>.ri-input{flex:1 1 220px;max-width:none}.ri-scope-dropdown{width:260px;min-width:0}.ri-scope-menu{width:min(320px,calc(100vw - 32px));max-width:none}.ri-table{min-width:980px}}',
@@ -154,7 +154,7 @@
         root.innerHTML = '<div class="ri-wrap">' +
             '<section class="ri-card"><div class="ri-head"><div><div class="ri-title">风险隔离</div><div class="ri-desc">隔离白名单玩家后，该玩家调用 /RPC/Login 将直接得到 404；子管理员仅能管理自己名下白名单玩家。</div></div><button class="ri-btn secondary" id="riRefreshBtn">刷新</button></div></section>' +
             '<section class="ri-stats"><div class="ri-stat"><div class="ri-stat-label">当前范围玩家</div><div class="ri-stat-value" id="riTotal">-</div></div><div class="ri-stat"><div class="ri-stat-label">已隔离玩家</div><div class="ri-stat-value" id="riIsolatedTotal">-</div></div><div class="ri-stat"><div class="ri-stat-label">当前范围</div><div class="ri-stat-value" id="riScopeLabel" style="font-size:16px;line-height:1.5;">-</div></div></section>' +
-            '<section class="ri-card"><div class="ri-toolbar"><div class="ri-scope-dropdown" id="riSubAdminDropdown" style="display:none;"><button type="button" class="ri-scope-trigger" id="riSubAdminTrigger"><span id="riSubAdminTriggerText">全部白名单</span><span class="ri-scope-caret">⌄</span></button><div class="ri-scope-menu" id="riSubAdminMenu"></div></div><input class="ri-input" id="riSearch" placeholder="模糊搜索账号 / 姓名 / 添加人"><button class="ri-btn danger" id="riIsolateAllBtn">一键隔离当前范围</button><button class="ri-btn success" id="riReleaseScopeBtn">一键恢复当前范围</button></div></section>' +
+            '<section class="ri-card"><div class="ri-toolbar"><div class="ri-scope-dropdown" id="riSubAdminDropdown" style="display:none;"><button type="button" class="ri-scope-trigger" id="riSubAdminTrigger"><span id="riSubAdminTriggerText">全部白名单</span><span class="ri-scope-caret">⌄</span></button><div class="ri-scope-menu" id="riSubAdminMenu"></div></div><input class="ri-input" id="riSearch" placeholder="模糊搜索账号 / 姓名 / 添加人"><button class="ri-btn cyan" id="riIsolateAllBtn">一键隔离当前范围</button><button class="ri-btn cyan" id="riReleaseScopeBtn">一键恢复当前范围</button></div></section>' +
             '<section class="ri-card"><div class="ri-table-wrap" data-ak-sticky-table data-ak-sticky-table-min-width="980" data-ak-sticky-first-column-min="120" data-ak-sticky-first-column-max="180"><table class="ri-table"><thead><tr><th>账号</th><th>姓名</th><th>添加人</th><th>到期时间</th><th>隔离状态</th><th>隔离人</th><th>隔离时间</th><th>操作</th></tr></thead><tbody id="riTableBody"><tr><td colspan="8" class="ri-empty">加载中...</td></tr></tbody></table></div><div class="ri-cards" id="riCardList"></div></section>' +
         '</div>';
         bindEvents();
@@ -162,6 +162,7 @@
     }
 
     function bindEvents() {
+        var root = mount();
         var refreshBtn = document.getElementById('riRefreshBtn');
         var searchInput = document.getElementById('riSearch');
         var subDropdown = document.getElementById('riSubAdminDropdown');
@@ -211,6 +212,18 @@
         }
         if (isolateAllBtn) isolateAllBtn.onclick = isolateAll;
         if (releaseScopeBtn) releaseScopeBtn.onclick = releaseScope;
+        if (root && root.dataset.riskIsolationActionsBound !== '1') {
+            root.addEventListener('click', function(event) {
+                var button = event.target.closest('[data-ri-action]');
+                if (!button || !root.contains(button)) return;
+                var username = button.getAttribute('data-ri-username') || '';
+                var action = button.getAttribute('data-ri-action') || '';
+                if (!username) return;
+                if (action === 'isolate') isolateUser(username);
+                if (action === 'release') releaseUser(username);
+            });
+            root.dataset.riskIsolationActionsBound = '1';
+        }
     }
 
     function refreshStickyTable() {
@@ -317,17 +330,19 @@
         }
         if (tbody) {
             tbody.innerHTML = rows.map(function(row) {
+                var usernameAttr = escapeHtml(row.username);
                 var action = row.isolated
-                    ? '<button class="ri-btn success" onclick="window.AKRiskIsolationPanel.releaseUser(' + jsArg(row.username) + ')">解除</button>'
-                    : '<button class="ri-btn danger" onclick="window.AKRiskIsolationPanel.isolateUser(' + jsArg(row.username) + ')">隔离</button>';
+                    ? '<button class="ri-btn success" data-ri-action="release" data-ri-username="' + usernameAttr + '">解除</button>'
+                    : '<button class="ri-btn danger" data-ri-action="isolate" data-ri-username="' + usernameAttr + '">隔离</button>';
                 return '<tr><td style="font-weight:800;">' + escapeHtml(row.username) + '</td><td>' + escapeHtml(row.nickname || '-') + '</td><td>' + escapeHtml(row.added_by === 'super_admin' ? '系统总管理' : (row.added_by || '-')) + '</td><td>' + escapeHtml(fmtTime(row.expire_time)) + '</td><td>' + statusPill(row.isolated) + '</td><td>' + escapeHtml(row.isolated_by || '-') + '</td><td>' + escapeHtml(fmtTime(row.isolated_at)) + '</td><td>' + action + '</td></tr>';
             }).join('');
         }
         if (cardList) {
             cardList.innerHTML = rows.map(function(row) {
+                var usernameAttr = escapeHtml(row.username);
                 var action = row.isolated
-                    ? '<button class="ri-btn success" onclick="window.AKRiskIsolationPanel.releaseUser(' + jsArg(row.username) + ')">解除隔离</button>'
-                    : '<button class="ri-btn danger" onclick="window.AKRiskIsolationPanel.isolateUser(' + jsArg(row.username) + ')">隔离玩家</button>';
+                    ? '<button class="ri-btn success" data-ri-action="release" data-ri-username="' + usernameAttr + '">解除隔离</button>'
+                    : '<button class="ri-btn danger" data-ri-action="isolate" data-ri-username="' + usernameAttr + '">隔离玩家</button>';
                 return '<div class="ri-user-card"><div class="ri-user-head"><div class="ri-user-name">' + escapeHtml(row.username) + '</div>' + statusPill(row.isolated) + '</div><div class="ri-user-grid"><div><div class="ri-user-label">姓名</div><div class="ri-user-value">' + escapeHtml(row.nickname || '-') + '</div></div><div><div class="ri-user-label">添加人</div><div class="ri-user-value">' + escapeHtml(row.added_by === 'super_admin' ? '系统总管理' : (row.added_by || '-')) + '</div></div><div><div class="ri-user-label">到期时间</div><div class="ri-user-value">' + escapeHtml(fmtTime(row.expire_time)) + '</div></div><div><div class="ri-user-label">隔离人</div><div class="ri-user-value">' + escapeHtml(row.isolated_by || '-') + '</div></div></div>' + action + '</div>';
             }).join('');
         }
