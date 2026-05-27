@@ -330,7 +330,7 @@
                     </div>
                 </div>
                 <div class="meeting-mobile-list">${cards}</div>
-                <div class="meeting-table-wrap" data-ak-sticky-table data-ak-sticky-table-min-width="620" data-ak-sticky-first-column-min="120" data-ak-sticky-first-column-max="180" style="overflow-x:auto"><table class="meeting-table"><thead><tr><th>子管理员</th><th>允许发布</th><th>状态</th></tr></thead><tbody>${rows}</tbody></table></div>
+                <div class="meeting-table-wrap" data-ak-sticky-table data-ak-sticky-table-min-width="760" data-ak-sticky-first-column-min="220" data-ak-sticky-first-column-max="280" style="overflow-x:auto"><table class="meeting-table"><thead><tr><th>子管理员</th><th>允许发布</th><th>状态</th></tr></thead><tbody>${rows}</tbody></table></div>
             </section>`;
     }
 
@@ -352,6 +352,7 @@
             </style>
             <style>
 .meeting-grid-cell.meeting-grid-toggle{min-width:72px;padding:10px 12px;border-radius:12px;background:rgba(255,255,255,.035);border-color:rgba(255,255,255,.08);box-shadow:none}.meeting-mobile-card.is-on .meeting-grid-cell.meeting-grid-toggle{background:rgba(0,212,255,.06);border-color:rgba(0,212,255,.24);box-shadow:none}.meeting-grid-toggle input{position:absolute;opacity:0;pointer-events:none}.meeting-switch-control{position:relative;display:block;width:46px;height:26px;border-radius:999px;border:1px solid rgba(255,255,255,.16);background:rgba(255,255,255,.1);box-shadow:inset 0 0 0 1px rgba(0,0,0,.12);transition:background .2s ease,border-color .2s ease,box-shadow .2s ease}.meeting-switch-control::after{content:'';position:absolute;top:3px;left:3px;width:18px;height:18px;border-radius:50%;background:#d8e5ec;box-shadow:0 2px 6px rgba(0,0,0,.28);transition:transform .2s ease,background .2s ease}.meeting-grid-toggle input:checked+.meeting-switch-control{border-color:rgba(0,255,136,.65);background:linear-gradient(135deg,#00d4ff,#00ff88);box-shadow:0 0 16px rgba(0,255,136,.18)}.meeting-grid-toggle input:checked+.meeting-switch-control::after{transform:translateX(20px);background:#fff}.meeting-grid-toggle input:disabled+.meeting-switch-control{opacity:.62}
+.meeting-subadmin-cell strong,.meeting-bound-text{display:block}.meeting-bound-text{margin-top:3px;color:var(--text-secondary);font-size:12px;font-weight:500;white-space:nowrap}
             </style>
             <div class="meeting-admin-wrap">
                 ${renderSubAdminToggles()}
