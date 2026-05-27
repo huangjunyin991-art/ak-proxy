@@ -77,7 +77,7 @@
     gap: 1px;
     padding: 4px 6px;
     border: none;
-    color: rgba(245, 205, 96, 0.78);
+    color: #f5cd60;
     font-size: 18px;
     font-weight: 700;
     letter-spacing: -2px;
@@ -90,11 +90,11 @@
 }
 
 .ak-sticky-table-hint.is-right {
-    background: linear-gradient(90deg, rgba(245, 205, 96, 0) 0%, rgba(245, 205, 96, 0.04) 45%, rgba(245, 205, 96, 0.18) 100%);
+    background: linear-gradient(90deg, rgba(245, 205, 96, 0) 0%, rgba(245, 205, 96, 0.08) 45%, rgba(245, 205, 96, 0.28) 100%);
 }
 
 .ak-sticky-table-hint.is-left {
-    background: linear-gradient(90deg, rgba(245, 205, 96, 0.18) 0%, rgba(245, 205, 96, 0.04) 55%, rgba(245, 205, 96, 0) 100%);
+    background: linear-gradient(90deg, rgba(245, 205, 96, 0.28) 0%, rgba(245, 205, 96, 0.08) 55%, rgba(245, 205, 96, 0) 100%);
 }
 
 .ak-sticky-table-hint.is-visible {
@@ -114,6 +114,8 @@
 
 .ak-sticky-table-hint span {
     display: inline-block;
+    color: #f5cd60;
+    text-shadow: 0 0 6px rgba(245, 205, 96, 0.82), 0 1px 2px rgba(0, 0, 0, 0.55);
 }
 
 .ak-sticky-table-hint span:nth-child(2) {
