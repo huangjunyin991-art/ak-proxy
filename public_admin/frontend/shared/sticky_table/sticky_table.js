@@ -106,6 +106,8 @@
     function setHintDirection(hint, direction) {
         var isLeft = direction === 'left';
         hint.dataset.direction = isLeft ? 'left' : 'right';
+        hint.classList.toggle('is-left', isLeft);
+        hint.classList.toggle('is-right', !isLeft);
         hint.innerHTML = isLeft ? '<span>&lt;</span><span>&lt;</span><span>&lt;</span>' : '<span>&gt;</span><span>&gt;</span><span>&gt;</span>';
         hint.setAttribute('aria-label', isLeft ? '滚动到最左侧' : '滚动到最右侧');
     }
