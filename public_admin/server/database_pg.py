@@ -2904,6 +2904,67 @@ async def add_authorized_account(username: str, password: str, added_by: str,
         return {'id': row['id'], 'expire_time': str(row['expire_time']), 'username': username, 'real_name': nickname}
 
 
+async def add_authorized_account_atomic(username: str, password: str, added_by: str,
+                                        plan_type: str, credits_cost: int,
+                                        duration_days: int, remark: str = '',
+                                        nickname: str = '', charge_admin: bool = False,
+                                        plan_name: str = '') -> Dict:
+    pool = _get_pool()
+    normalized_username = username.lower().strip() if username else ''
+    normalized_added_by = str(added_by or '').strip()
+    if not normalized_username:
+        raise ValueError("账号不能为空")
+    if not normalized_added_by:
+        raise ValueError("添加人不能为空")
+    now = datetime.now()
+    expire_time = now + timedelta(days=duration_days)
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            await conn.execute('SELECT pg_advisory_xact_lock(884447, hashtext($1))', normalized_username)
+            existing = await conn.fetchrow('''
+                SELECT username, added_by, status, expire_time
+                FROM authorized_accounts
+                WHERE username = $1
+                FOR UPDATE
+            ''', normalized_username)
+            previous_added_by = str(existing['added_by'] or '').strip() if existing else ''
+            if existing and existing['status'] == 'active' and existing['expire_time'] and existing['expire_time'] > now:
+                owner = previous_added_by or 'unknown'
+                raise ValueError(f"账号[{normalized_username}]已由[{owner}]授权，请勿重复添加")
+            if charge_admin and credits_cost > 0:
+                current = await conn.fetchval('SELECT credits FROM sub_admins WHERE name = $1 FOR UPDATE', normalized_added_by)
+                if (current or 0) < credits_cost:
+                    raise ValueError(f"积分不足: 当前{current or 0}, 需要{credits_cost}")
+                await conn.execute(
+                    'UPDATE sub_admins SET credits = credits - $1 WHERE name = $2',
+                    credits_cost, normalized_added_by)
+                new_balance = (current or 0) - credits_cost
+                await conn.execute('''
+                    INSERT INTO credit_transactions
+                        (admin_name, type, amount, balance_after, description, related_username, operator)
+                    VALUES ($1, 'deduct', $2, $3, $4, $5, $6)
+                ''', normalized_added_by, -credits_cost, new_balance,
+                    f"授权账号[{normalized_username}] {plan_name or plan_type}",
+                    normalized_username, normalized_added_by)
+            row = await conn.fetchrow('''
+                INSERT INTO authorized_accounts
+                    (username, password, added_by, plan_type, credits_cost, start_time, expire_time, status, remark, nickname)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, 'active', $8, $9)
+                ON CONFLICT(username) DO UPDATE SET
+                    password=$2, added_by=$3, plan_type=$4, credits_cost=$5,
+                    start_time=$6, expire_time=$7, status='active', remark=$8, nickname=$9, updated_at=NOW()
+                RETURNING id, expire_time
+            ''', normalized_username, password, normalized_added_by, plan_type, credits_cost, now, expire_time, remark, nickname)
+            await _upsert_user_stats_identity(conn, normalized_username, real_name=nickname)
+        return {
+            'id': row['id'],
+            'expire_time': str(row['expire_time']),
+            'username': normalized_username,
+            'real_name': nickname,
+            'previous_added_by': previous_added_by,
+        }
+
+
 async def renew_authorized_account(username: str, plan_type: str, credits_cost: int,
                                     duration_days: int) -> Optional[Dict]:
     """续期授权账号（从当前过期时间或现在起延长）"""

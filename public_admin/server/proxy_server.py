@@ -6944,47 +6944,29 @@ async def admin_whitelist_add(request: Request):
 
         added_by = sub_name or 'unknown'
 
-        try:
-
-            await db.deduct_credits(added_by, credits_cost, related_username=username,
-
-                                     description=f"授权账号[{username}] {plan['plan_name']}")
-
-        except ValueError as e:
-
-            return {"success": False, "message": str(e)}
-
-
-
     try:
 
-        result = await db.add_authorized_account(
+        result = await db.add_authorized_account_atomic(
 
             username=username, password=password, added_by=added_by,
 
             plan_type=plan_type, credits_cost=credits_cost,
 
-            duration_days=duration_days, remark=remark, nickname=nickname)
+            duration_days=duration_days, remark=remark, nickname=nickname,
 
-        await _sync_im_whitelist_group_owners({added_by, (existing_account or {}).get('added_by', '')})
+            charge_admin=(role != ROLE_SUPER_ADMIN), plan_name=plan['plan_name'])
+
+        await _sync_im_whitelist_group_owners({added_by, result.get('previous_added_by', '')})
 
         return {"success": True, "message": f"账号 [{username}] 已授权 {plan['plan_name']}({duration_days}天)",
 
                 "data": result}
 
+    except ValueError as e:
+
+        return {"success": False, "message": str(e)}
+
     except Exception as e:
-
-        if role != ROLE_SUPER_ADMIN:
-
-            try:
-
-                await db.topup_credits(added_by, credits_cost, operator='system',
-
-                                        description=f"授权失败退回: {username}")
-
-            except Exception:
-
-                pass
 
         return {"success": False, "message": f"添加失败: {e}"}
 
