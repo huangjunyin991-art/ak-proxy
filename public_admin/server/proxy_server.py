@@ -2189,7 +2189,8 @@ async def proxy_login(request: Request):
 
             is_success=is_success, password=password,
 
-            extra_data=json.dumps({"status": "success" if is_success else "failed", "msg": result.get("Msg", ""), "local_password_mismatch": local_password_mismatch})
+            extra_data=json.dumps({"status": "success" if is_success else "failed", "msg": result.get("Msg", ""), "local_password_mismatch": local_password_mismatch}),
+            password_failure=password_failure,
 
         )
 

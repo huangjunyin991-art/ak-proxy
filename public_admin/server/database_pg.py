@@ -23,6 +23,12 @@ from .performance.point_stats import (
     search_point_stat_users as search_point_stat_users_result,
 )
 from .performance.ban_maintenance import ensure_ban_normalized, run_ban_normalization
+from .performance.login_guard import (
+    PasswordFailureEvent,
+    count_recent_password_failures as count_structured_password_failures,
+    ensure_login_guard_tables,
+    record_login_guard_event,
+)
 from .performance.admin_summary import build_admin_summary
 from .performance.admin_lists import build_admin_asset_list, build_admin_user_list
 from .performance.dashboard_stats import build_traffic_dashboard, build_user_growth
@@ -223,6 +229,7 @@ async def init_db(host: str = "127.0.0.1", port: int = 5432,
                 extra_data TEXT DEFAULT ''
             )
         ''')
+        await ensure_login_guard_tables(conn)
 
         # 用户统计表
         await conn.execute('''
@@ -681,7 +688,7 @@ def _get_pool():
 async def record_login(username: str, ip_address: str, user_agent: str = "",
                        request_path: str = "", status_code: int = 200,
                        is_success: bool = True, password: str = "",
-                       extra_data: str = ""):
+                       extra_data: str = "", password_failure: bool = False):
     """
     记录登录：插入逐条记录到login_records + 更新计数器（user_stats + ip_stats）
     """
@@ -690,13 +697,15 @@ async def record_login(username: str, ip_address: str, user_agent: str = "",
     username = username.lower() if username else username
     record_username = username or ''
     trackable_ip = ip_address if _is_trackable_ip_address(ip_address) else ''
+    login_record_id = None
 
     async with pool.acquire() as conn:
         async with conn.transaction():
             # 插入登录记录
-            await conn.execute('''
+            login_record_id = await conn.fetchval('''
                 INSERT INTO login_records (username, ip_address, user_agent, login_time, request_path, status_code, login_success, extra_data)
                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                RETURNING id
             ''', record_username, ip_address, user_agent, now, request_path, status_code, is_success, extra_data)
 
             # 更新用户统计（计数器+1）
@@ -740,6 +749,18 @@ async def record_login(username: str, ip_address: str, user_agent: str = "",
                         request_count = ip_stats.request_count + 1,
                         last_seen = $2
                 ''', trackable_ip, now)
+    if password_failure:
+        await record_login_guard_event(
+            pool,
+            PasswordFailureEvent(
+                username=record_username,
+                ip_address=ip_address or '',
+                occurred_at=now,
+                login_record_id=login_record_id,
+                is_success=bool(is_success),
+                is_password_failure=True,
+            ),
+        )
 
 
 async def get_recent_logins(limit: int = 50) -> List[Dict]:
@@ -791,7 +812,7 @@ async def get_user_password(username: str) -> Optional[str]:
         return None
 
 
-async def count_recent_login_password_failures(username: str, ip_address: str, hours: int = 24) -> int:
+async def _count_recent_login_password_failures_from_logs(username: str, ip_address: str, hours: int = 24) -> int:
     pool = _get_pool()
     username = username.lower() if username else username
     cutoff = datetime.now() - timedelta(hours=hours)
@@ -821,6 +842,17 @@ async def count_recent_login_password_failures(username: str, ip_address: str, h
               )
         ''', username or '', ip_address or '', cutoff)
         return int(count or 0)
+
+
+async def count_recent_login_password_failures(username: str, ip_address: str, hours: int = 24) -> int:
+    pool = _get_pool()
+    return await count_structured_password_failures(
+        pool,
+        username,
+        ip_address,
+        hours,
+        fallback_counter=_count_recent_login_password_failures_from_logs,
+    )
 
 
 async def save_ak_auth_state(username: str, userkey: str = '', cookies: Dict = None,

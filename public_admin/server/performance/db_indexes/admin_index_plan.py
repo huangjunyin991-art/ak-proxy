@@ -31,6 +31,21 @@ ADMIN_INDEX_PLAN = [
         purpose="authentication failure and ban-related lookups",
     ),
     AdminIndexDefinition(
+        name="idx_login_password_failure_events_lookup",
+        sql="CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_login_password_failure_events_lookup ON login_password_failure_events(username, ip_address, occurred_at DESC);",
+        purpose="structured password failure counting without scanning login_records extra_data",
+    ),
+    AdminIndexDefinition(
+        name="idx_login_password_failure_events_occurred_at",
+        sql="CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_login_password_failure_events_occurred_at ON login_password_failure_events(occurred_at DESC);",
+        purpose="structured password failure event retention cleanup",
+    ),
+    AdminIndexDefinition(
+        name="idx_login_password_failure_events_record_id",
+        sql="CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS idx_login_password_failure_events_record_id ON login_password_failure_events(login_record_id) WHERE login_record_id IS NOT NULL;",
+        purpose="deduplicate structured password failure events backfilled from login_records",
+    ),
+    AdminIndexDefinition(
         name="idx_user_stats_last_login",
         sql="CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_user_stats_last_login ON user_stats(last_login DESC NULLS LAST);",
         purpose="admin user list ordering by recent activity",
