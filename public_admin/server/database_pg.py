@@ -17,7 +17,12 @@ import ipaddress
 from datetime import datetime, timedelta, date
 from typing import Dict, List, Optional, Any
 
-from .performance.point_stats.detail_pagination import build_point_categories, paginate_point_category_records
+from .performance.point_stats.detail_pagination import (
+    build_point_categories,
+    build_point_record_item,
+    normalize_point_detail_page,
+    paginate_point_category_records,
+)
 
 logger = logging.getLogger("TransparentProxy.DB")
 
@@ -1609,6 +1614,51 @@ async def get_point_stats_detail(username: str, point_type: str, category: str, 
     _append_point_date_filters(filters, args, start, end)
     where_clause = f"WHERE {' AND '.join(filters)}"
     async with pool.acquire() as conn:
+        unresolved_count = await conn.fetchval(f'''
+            SELECT COUNT(*)
+            FROM point_history_records
+            {where_clause}
+              AND COALESCE(resolved_category, '') = ''
+        ''', *args)
+        if int(unresolved_count or 0) == 0:
+            current, size = normalize_point_detail_page(page, page_size)
+            category_filters = list(filters)
+            category_args = list(args)
+            category_args.append(category_name)
+            category_filters.append(f"resolved_category = ${len(category_args)}")
+            category_where_clause = f"WHERE {' AND '.join(category_filters)}"
+            total = int(await conn.fetchval(f'''
+                SELECT COUNT(*)
+                FROM point_history_records
+                {category_where_clause}
+            ''', *category_args) or 0)
+            total_pages = max(1, (total + size - 1) // size)
+            if current > total_pages:
+                current = total_pages
+            offset = (current - 1) * size
+            rows = await conn.fetch(f'''
+                SELECT record_time, operation_type, amount, balance,
+                       type_name, type_name_cn, description, saved_at
+                FROM point_history_records
+                {category_where_clause}
+                ORDER BY record_time DESC NULLS LAST, id ASC
+                LIMIT ${len(category_args) + 1} OFFSET ${len(category_args) + 2}
+            ''', *category_args, size, offset)
+            records = [
+                build_point_record_item(dict(row), code, resolve_point_category, _format_point_record_description)[1]
+                for row in rows
+            ]
+            return {
+                'category': category_name,
+                'page': current,
+                'page_size': size,
+                'total': total,
+                'total_pages': total_pages,
+                'records': records,
+                'username': normalized_username,
+                'point_type': code,
+                'selected_range': {'start': start, 'end': end},
+            }
         rows = await conn.fetch(f'''
             SELECT record_time, operation_type, amount, balance,
                    type_name, type_name_cn, description, saved_at
