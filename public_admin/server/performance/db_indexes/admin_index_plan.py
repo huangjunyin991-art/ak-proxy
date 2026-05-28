@@ -46,9 +46,19 @@ ADMIN_INDEX_PLAN = [
         purpose="admin user list authorization status join",
     ),
     AdminIndexDefinition(
+        name="idx_authorized_accounts_status_added_by_created",
+        sql="CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_authorized_accounts_status_added_by_created ON authorized_accounts(status, added_by, created_at DESC);",
+        purpose="risk isolation account list filtering by scope and ordering by account creation time",
+    ),
+    AdminIndexDefinition(
         name="idx_ban_list_active_username_value",
         sql="CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_ban_list_active_username_value ON ban_list(ban_value) WHERE ban_type = 'username' AND is_active = TRUE;",
         purpose="admin asset list active username ban lookup",
+    ),
+    AdminIndexDefinition(
+        name="idx_risk_isolations_active_username",
+        sql="CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_risk_isolations_active_username ON risk_isolations(is_active, username);",
+        purpose="risk isolation account list active isolation join",
     ),
     AdminIndexDefinition(
         name="idx_user_stats_first_login",

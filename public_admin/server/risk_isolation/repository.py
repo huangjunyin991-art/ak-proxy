@@ -65,6 +65,21 @@ class RiskIsolationRepository:
             'updated_at': serialize_time(row.get('updated_at')),
         }
 
+    def _build_account_list_result(self, rows) -> dict[str, Any]:
+        if not rows:
+            return {'total': 0, 'isolated_total': 0, 'rows': []}
+        first = dict(rows[0])
+        result_rows = []
+        for row in rows:
+            item = dict(row)
+            if item.get('username') is not None:
+                result_rows.append(self._serialize_account_row(item))
+        return {
+            'total': int(first.get('total') or 0),
+            'isolated_total': int(first.get('isolated_total') or 0),
+            'rows': result_rows,
+        }
+
     async def list_accounts(self, added_by: str | None = None, search: str | None = None,
                             limit: int = 200, offset: int = 0) -> dict[str, Any]:
         await self.ensure_ready()
@@ -84,34 +99,38 @@ class RiskIsolationRepository:
         page_offset = max(0, int(offset or 0))
         pool = self.db._get_pool()
         async with pool.acquire() as conn:
-            total = await conn.fetchval(f"SELECT COUNT(*) FROM authorized_accounts aa{where}", *params)
-            isolated_total = await conn.fetchval(f'''
-                SELECT COUNT(*)
-                FROM authorized_accounts aa
-                JOIN risk_isolations ri ON ri.username = aa.username AND ri.is_active = TRUE
-                {where}
-            ''', *params)
             page_params = list(params)
             page_params.extend([page_limit, page_offset])
             rows = await conn.fetch(f'''
-                SELECT aa.username, aa.nickname, aa.added_by, aa.status, aa.expire_time,
-                       COALESCE(ri.is_active, FALSE) AS is_active,
-                       COALESCE(ri.isolated_by, '') AS isolated_by,
-                       COALESCE(ri.isolated_by_role, '') AS isolated_by_role,
-                       COALESCE(ri.reason, '') AS reason,
-                       ri.created_at AS isolated_at,
-                       ri.updated_at
-                FROM authorized_accounts aa
-                LEFT JOIN risk_isolations ri ON ri.username = aa.username AND ri.is_active = TRUE
-                {where}
-                ORDER BY COALESCE(ri.is_active, FALSE) DESC, aa.created_at DESC
-                LIMIT ${idx} OFFSET ${idx + 1}
+                WITH filtered AS (
+                    SELECT aa.username, aa.nickname, aa.added_by, aa.status, aa.expire_time,
+                           aa.created_at AS account_created_at,
+                           COALESCE(ri.is_active, FALSE) AS is_active,
+                           COALESCE(ri.isolated_by, '') AS isolated_by,
+                           COALESCE(ri.isolated_by_role, '') AS isolated_by_role,
+                           COALESCE(ri.reason, '') AS reason,
+                           ri.created_at AS isolated_at,
+                           ri.updated_at
+                    FROM authorized_accounts aa
+                    LEFT JOIN risk_isolations ri ON ri.username = aa.username AND ri.is_active = TRUE
+                    {where}
+                ),
+                counts AS (
+                    SELECT COUNT(*) AS total, COUNT(*) FILTER (WHERE is_active IS TRUE) AS isolated_total
+                    FROM filtered
+                ),
+                page_rows AS (
+                    SELECT *
+                    FROM filtered
+                    ORDER BY is_active DESC, account_created_at DESC
+                    LIMIT ${idx} OFFSET ${idx + 1}
+                )
+                SELECT counts.total, counts.isolated_total, page_rows.*
+                FROM counts
+                LEFT JOIN page_rows ON TRUE
+                ORDER BY page_rows.is_active DESC, page_rows.account_created_at DESC
             ''', *page_params)
-        return {
-            'total': int(total or 0),
-            'isolated_total': int(isolated_total or 0),
-            'rows': [self._serialize_account_row(dict(row)) for row in rows],
-        }
+        return self._build_account_list_result(rows)
 
     async def list_sub_admin_scopes(self) -> list[dict[str, Any]]:
         await self.ensure_ready()
