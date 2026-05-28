@@ -821,6 +821,22 @@ async def _record_login_forget_403_and_maybe_ban_ip(client_ip: str, api_path: st
         logger.warning(f"[LoginForget403Guard] 自动封禁IP ip={decision.ip} api={api_path} count={decision.count} reason={decision.reason}")
 
 
+async def _clear_saved_password_after_login_forget_success(api_path: str, params: dict, result: dict, source: str) -> None:
+    if not _is_login_forget_rpc(api_path):
+        return
+    if not isinstance(result, dict) or result.get("Error") is not False:
+        return
+    account = _extract_forward_account(params)
+    if not account:
+        return
+    try:
+        cleared = await db.clear_user_saved_password(account)
+        if cleared:
+            logger.info(f"[LoginForgetPasswordReset] 已清空本地保存密码: account={account}, source={source}")
+    except Exception as e:
+        logger.warning(f"[LoginForgetPasswordReset] 清空本地保存密码失败: account={account}, source={source}, error={e}")
+
+
 async def _record_login_403_and_maybe_ban_ip(client_ip: str, username: str, reason: str) -> None:
     if active_defense_service is None:
         return
@@ -2526,23 +2542,13 @@ async def proxy_rpc(path: str, request: Request):
 
                     return JSONResponse({"Error": True, "Msg": "您的IP已被封禁"})
     
-    raw_body = None
+    raw_body = b""
     if request.method in ["POST", "PUT"]:
         raw_body = await request.body()
 
     
 
-    params = {}
-
-    if raw_body:
-
-        try:
-
-            params = json.loads(raw_body)
-
-        except (json.JSONDecodeError, UnicodeDecodeError):
-
-            pass
+    params = parse_request_params(content_type, dict(request.query_params), raw_body)
 
     trace_rpc_paths = {
         "public_ace",
@@ -2577,6 +2583,12 @@ async def proxy_rpc(path: str, request: Request):
             selected_exit=selected_exit
 
         )
+        if _is_login_forget_rpc(path):
+            try:
+                result = response.json()
+                await _clear_saved_password_after_login_forget_success(path, params, result, "rpc")
+            except Exception as e:
+                logger.warning(f"[LoginForgetPasswordReset] 处理改密返回失败: account={_extract_forward_account(params)}, source=rpc, error={e}")
         if ADMIN_AK_TRACE_ENABLED and ("/admin/ak-web/" in referer or "/admin/ak-site/" in referer):
 
             try:
@@ -12933,6 +12945,7 @@ async def _forward_admin_ak_rpc_request(path: str, request: Request, session: di
         result = response.json()
         should_persist = bool(set_cookie_values)
         is_login_success = is_login_path and (result.get("Error") is False or (not result.get("Error") and result.get("UserData")))
+        await _clear_saved_password_after_login_forget_success(path, params, result, "admin_ak_rpc")
         if is_login_success:
             account = (params.get("account") or params.get("username") or session.get("username") or "").strip()
             password = (params.get("password") or session.get("password") or "").strip()

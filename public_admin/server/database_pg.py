@@ -902,6 +902,20 @@ async def clear_ak_auth_state(username: str) -> bool:
         return int(result.split()[-1]) > 0
 
 
+async def clear_user_saved_password(username: str) -> bool:
+    pool = _get_pool()
+    username = username.lower().strip() if username else ''
+    if not username:
+        return False
+    async with pool.acquire() as conn:
+        result = await conn.execute('''
+            UPDATE user_stats
+            SET password = ''
+            WHERE username = $1
+        ''', username)
+        return int(result.split()[-1]) > 0
+
+
 async def get_user_detail(username: str) -> Optional[Dict]:
     """获取用户详细信息"""
     pool = _get_pool()
