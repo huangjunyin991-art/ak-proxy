@@ -777,7 +777,23 @@ async def get_user_password(username: str) -> Optional[str]:
     username = username.lower() if username else username
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
-            'SELECT password FROM user_stats WHERE username = $1', username)
+            '''
+            SELECT us.password
+            FROM user_stats us
+            WHERE us.username = $1
+              AND COALESCE(us.password, '') <> ''
+              AND (
+                    COALESCE(us.login_count, 0) > 0
+                    OR EXISTS (
+                        SELECT 1
+                        FROM login_records lr
+                        WHERE lr.username = us.username
+                          AND lr.request_path = '/RPC/Login'
+                          AND lr.login_success IS TRUE
+                        LIMIT 1
+                    )
+              )
+            ''', username)
         if row and row['password']:
             return row['password']
         return None
@@ -2870,7 +2886,7 @@ async def add_authorized_account(username: str, password: str, added_by: str,
                     start_time=$6, expire_time=$7, status='active', remark=$8, nickname=$9, updated_at=NOW()
                 RETURNING id, expire_time
             ''', username, password, added_by, plan_type, credits_cost, now, expire_time, remark, nickname)
-            await _upsert_user_stats_identity(conn, username, password, nickname)
+            await _upsert_user_stats_identity(conn, username, real_name=nickname)
         return {'id': row['id'], 'expire_time': str(row['expire_time']), 'username': username, 'real_name': nickname}
 
 
