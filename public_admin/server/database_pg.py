@@ -29,6 +29,7 @@ from .performance.login_guard import (
     ensure_login_guard_tables,
     record_login_guard_event,
 )
+from .performance.notification_history import build_notification_campaign_page
 from .performance.admin_summary import build_admin_summary
 from .performance.admin_lists import build_admin_asset_list, build_admin_user_list
 from .performance.dashboard_stats import build_traffic_dashboard, build_user_growth
@@ -656,6 +657,8 @@ async def init_db(host: str = "127.0.0.1", port: int = 5432,
         await conn.execute('CREATE INDEX IF NOT EXISTS idx_notification_campaigns_created_by ON notification_campaigns(created_by)')
         await conn.execute('CREATE INDEX IF NOT EXISTS idx_notification_deliveries_username ON notification_deliveries(username)')
         await conn.execute('CREATE INDEX IF NOT EXISTS idx_notification_deliveries_campaign_id ON notification_deliveries(campaign_id)')
+        await conn.execute('CREATE INDEX IF NOT EXISTS idx_notification_campaigns_created_by_id ON notification_campaigns(created_by, id DESC)')
+        await conn.execute('CREATE INDEX IF NOT EXISTS idx_notification_deliveries_campaign_read ON notification_deliveries(campaign_id, read_at)')
         await conn.execute('CREATE INDEX IF NOT EXISTS idx_meeting_publish_permissions_scope_owner ON meeting_publish_permissions(scope_owner)')
         await conn.execute('CREATE INDEX IF NOT EXISTS idx_meeting_publish_permissions_granted_by ON meeting_publish_permissions(granted_by)')
         await conn.execute('CREATE INDEX IF NOT EXISTS idx_notification_deliveries_unread ON notification_deliveries(username, read_at)')
@@ -3141,8 +3144,8 @@ async def mark_all_notifications_read(username: str) -> List[int]:
     return [int(row['campaign_id']) for row in rows]
 
 
-async def get_notification_campaigns(limit: int = 20, offset: int = 0,
-                                    created_by: str = None) -> Dict:
+async def _get_notification_campaigns_from_join(limit: int = 20, offset: int = 0,
+                                                created_by: str = None) -> Dict:
     pool = _get_pool()
     params: List[Any] = []
     where = ''
@@ -3167,7 +3170,20 @@ async def get_notification_campaigns(limit: int = 20, offset: int = 0,
             ORDER BY c.id DESC
             LIMIT ${limit_idx} OFFSET ${offset_idx}
         ''', *params)
-    return {'total': int(total or 0), 'rows': [_serialize_notification_campaign(dict(row)) for row in rows]}
+    return {'total': int(total or 0), 'rows': [dict(row) for row in rows]}
+
+
+async def get_notification_campaigns(limit: int = 20, offset: int = 0,
+                                    created_by: str = None) -> Dict:
+    pool = _get_pool()
+    result = await build_notification_campaign_page(
+        pool,
+        limit=limit,
+        offset=offset,
+        created_by=created_by,
+        fallback=_get_notification_campaigns_from_join,
+    )
+    return {'total': int(result.get('total') or 0), 'rows': [_serialize_notification_campaign(dict(row)) for row in result.get('rows') or []]}
 
 
 async def get_notification_campaign_detail(campaign_id: int, created_by: str = None) -> Optional[Dict]:

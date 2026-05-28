@@ -46,6 +46,16 @@ ADMIN_INDEX_PLAN = [
         purpose="deduplicate structured password failure events backfilled from login_records",
     ),
     AdminIndexDefinition(
+        name="idx_notification_campaigns_created_by_id",
+        sql="CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_notification_campaigns_created_by_id ON notification_campaigns(created_by, id DESC);",
+        purpose="notification history page selection for scoped sub-admin queries",
+    ),
+    AdminIndexDefinition(
+        name="idx_notification_deliveries_campaign_read",
+        sql="CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_notification_deliveries_campaign_read ON notification_deliveries(campaign_id, read_at);",
+        purpose="notification history read/unread aggregation for current page campaigns",
+    ),
+    AdminIndexDefinition(
         name="idx_user_stats_last_login",
         sql="CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_user_stats_last_login ON user_stats(last_login DESC NULLS LAST);",
         purpose="admin user list ordering by recent activity",
