@@ -3271,6 +3271,51 @@
             color: var(--accent);
             font-weight: 600;
         }
+        .operation-auth-duration-select {
+            display: block;
+            width: 100%;
+            font-size: 15px;
+        }
+        .operation-auth-duration-select .theme-select-trigger {
+            width: 100%;
+            min-width: 0;
+            height: 44px;
+            padding: 0 16px;
+            background: var(--bg-primary);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            box-sizing: border-box;
+        }
+        .operation-auth-duration-select.open .theme-select-trigger {
+            border-color: rgba(255, 215, 0, 0.78);
+            border-bottom-color: rgba(255, 215, 0, 0.35);
+            border-radius: 10px 10px 0 0;
+            box-shadow: 0 0 0 2px rgba(255, 215, 0, 0.14);
+        }
+        .operation-auth-duration-select .theme-select-menu {
+            top: calc(100% - 1px);
+            width: 100%;
+            min-width: 0;
+            max-height: 230px;
+            overflow-y: auto;
+            padding: 6px;
+            background: #101826;
+            border-color: rgba(255, 215, 0, 0.55);
+            border-top-color: rgba(255, 215, 0, 0.18);
+            border-radius: 0 0 10px 10px;
+            box-sizing: border-box;
+        }
+        .operation-auth-duration-select .theme-select-item {
+            width: 100%;
+            box-sizing: border-box;
+            padding: 9px 12px;
+            border-radius: 7px;
+            font-size: 15px;
+        }
+        .operation-auth-duration-select .theme-select-item.active {
+            background: linear-gradient(135deg, rgba(45, 108, 223, 0.9), rgba(27, 98, 210, 0.92));
+            color: #fff;
+        }
     </style>
     <link rel="stylesheet" href="/admin/api/admin-theme.css?v=20260508-01">
     <link rel="stylesheet" href="/admin/api/shared/sticky_table/sticky_table.css?v=2026052701">
@@ -5047,9 +5092,16 @@
                         <div style="padding:20px 26px;">
                             <input id="operationAuthCode" type="text" inputmode="numeric" maxlength="6" placeholder="输入 6 位验证码" style="width:100%;padding:14px 16px;background:var(--bg-primary);border:1px solid var(--border);border-radius:10px;color:var(--text-primary);font-size:18px;text-align:center;letter-spacing:4px;margin-bottom:14px;">
                             <label style="display:block;margin-bottom:6px;color:var(--text-secondary);font-size:13px;">租约有效期</label>
-                            <select id="operationAuthDuration" style="width:100%;padding:12px;background:var(--bg-primary);border:1px solid var(--border);border-radius:10px;color:var(--text-primary);">
-                                ${renderLeaseDurationOptions(defaultSeconds, maxSeconds)}
-                            </select>
+                            <div class="theme-select operation-auth-duration-select" id="operationAuthDurationWrap">
+                                <button type="button" class="theme-select-trigger" id="operationAuthDurationTrigger">
+                                    <span id="operationAuthDurationLabel">${escapeHtml(getLeaseDurationLabel(defaultSeconds))}</span>
+                                    <svg class="theme-select-arrow" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 4l4 4 4-4"/></svg>
+                                </button>
+                                <div class="theme-select-menu" role="listbox">
+                                    ${renderLeaseDurationOptions(defaultSeconds, maxSeconds)}
+                                </div>
+                                <input type="hidden" id="operationAuthDuration" value="${defaultSeconds}">
+                            </div>
                             <div id="operationAuthError" style="display:none;margin-top:12px;color:var(--accent-red);font-size:13px;"></div>
                         </div>
                         <div style="display:flex;gap:10px;padding:16px 26px 24px;border-top:1px solid var(--border);">
@@ -5061,10 +5113,21 @@
                 document.body.appendChild(modal);
                 const input = document.getElementById('operationAuthCode');
                 const errorEl = document.getElementById('operationAuthError');
+                const durationWrap = document.getElementById('operationAuthDurationWrap');
                 const close = (value) => {
                     modal.remove();
                     resolve(value);
                 };
+                document.getElementById('operationAuthDurationTrigger').onclick = (event) => {
+                    event.stopPropagation();
+                    durationWrap.classList.toggle('open');
+                };
+                durationWrap.querySelectorAll('.theme-select-item').forEach(item => {
+                    item.onclick = (event) => {
+                        event.stopPropagation();
+                        selectOperationAuthDuration(item.dataset.value, item.dataset.label);
+                    };
+                });
                 document.getElementById('operationAuthCancel').onclick = () => close('');
                 document.getElementById('operationAuthSubmit').onclick = async () => {
                     const code = input.value.trim();
@@ -5109,7 +5172,36 @@
                 [7200, '2 小时'],
                 [10800, '3 小时']
             ].filter(([seconds]) => seconds <= maxSeconds);
-            return options.map(([seconds, label]) => `<option value="${seconds}" ${seconds === defaultSeconds ? 'selected' : ''}>${label}</option>`).join('');
+            return options.map(([seconds, label]) => `
+                <div class="theme-select-item ${seconds === defaultSeconds ? 'active' : ''}" data-value="${seconds}" data-label="${escapeHtml(label)}" role="option" aria-selected="${seconds === defaultSeconds ? 'true' : 'false'}">${escapeHtml(label)}</div>
+            `).join('');
+        }
+
+        function getLeaseDurationLabel(seconds) {
+            const labels = {
+                300: '5 分钟',
+                900: '15 分钟',
+                1800: '30 分钟',
+                3600: '1 小时',
+                7200: '2 小时',
+                10800: '3 小时'
+            };
+            return labels[Number(seconds)] || `${Math.round(Number(seconds || 0) / 60)} 分钟`;
+        }
+
+        function selectOperationAuthDuration(value, label) {
+            const wrap = document.getElementById('operationAuthDurationWrap');
+            const hidden = document.getElementById('operationAuthDuration');
+            const labelEl = document.getElementById('operationAuthDurationLabel');
+            if (!wrap || !hidden) return;
+            hidden.value = value;
+            if (labelEl) labelEl.textContent = label || getLeaseDurationLabel(value);
+            wrap.querySelectorAll('.theme-select-item').forEach(item => {
+                const active = item.dataset.value === String(value);
+                item.classList.toggle('active', active);
+                item.setAttribute('aria-selected', active ? 'true' : 'false');
+            });
+            wrap.classList.remove('open');
         }
 
         function escapeHtml(value) {
