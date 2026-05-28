@@ -14,7 +14,7 @@ import logging
 import os
 import re
 import ipaddress
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 from typing import Dict, List, Optional, Any
 
 from .performance.point_stats.detail_pagination import build_point_categories, paginate_point_category_records
@@ -294,6 +294,8 @@ async def init_db(host: str = "127.0.0.1", port: int = 5432,
                 point_type TEXT NOT NULL,
                 record_key TEXT NOT NULL,
                 record_time TEXT DEFAULT '',
+                record_date DATE,
+                resolved_category TEXT DEFAULT '',
                 operation_type INTEGER DEFAULT 0,
                 amount DOUBLE PRECISION DEFAULT 0,
                 balance DOUBLE PRECISION,
@@ -307,6 +309,13 @@ async def init_db(host: str = "127.0.0.1", port: int = 5432,
         ''')
         await conn.execute('CREATE INDEX IF NOT EXISTS idx_point_history_records_user_type_time ON point_history_records(username, point_type, saved_at DESC)')
         await conn.execute('CREATE INDEX IF NOT EXISTS idx_point_history_records_type_time ON point_history_records(point_type, saved_at DESC)')
+        await conn.execute('''
+            CREATE TABLE IF NOT EXISTS point_history_user_summary (
+                username TEXT PRIMARY KEY,
+                record_count BIGINT NOT NULL DEFAULT 0,
+                latest_saved_at TIMESTAMP
+            )
+        ''')
 
         # 管理员Token持久化表
         await conn.execute('''
@@ -466,6 +475,8 @@ async def init_db(host: str = "127.0.0.1", port: int = 5432,
             await conn.execute("ALTER TABLE ip_stats ADD COLUMN IF NOT EXISTS preban_last_seen TIMESTAMP")
             await conn.execute("ALTER TABLE ip_stats ADD COLUMN IF NOT EXISTS preban_reason TEXT DEFAULT ''")
             await conn.execute("ALTER TABLE login_records ADD COLUMN IF NOT EXISTS login_success BOOLEAN")
+            await conn.execute("ALTER TABLE point_history_records ADD COLUMN IF NOT EXISTS record_date DATE")
+            await conn.execute("ALTER TABLE point_history_records ADD COLUMN IF NOT EXISTS resolved_category TEXT DEFAULT ''")
             await conn.execute("ALTER TABLE ban_list ADD COLUMN IF NOT EXISTS released_at TIMESTAMP")
             await conn.execute("ALTER TABLE authorized_accounts DROP COLUMN IF EXISTS persistent_login")
             await conn.execute("ALTER TABLE authorized_accounts DROP COLUMN IF EXISTS remark")
@@ -1140,7 +1151,36 @@ def _point_text(value) -> str:
 
 def _normalize_point_date(value) -> Optional[str]:
     text = str(value or '').strip()
-    return text[:10] if re.match(r'^\d{4}-\d{2}-\d{2}$', text[:10]) else None
+    candidate = text[:10]
+    if not re.match(r'^\d{4}-\d{2}-\d{2}$', candidate):
+        return None
+    try:
+        return date.fromisoformat(candidate).isoformat()
+    except ValueError:
+        return None
+
+
+def _point_record_date(value) -> Optional[date]:
+    normalized = _normalize_point_date(value)
+    return date.fromisoformat(normalized) if normalized else None
+
+
+def _point_record_date_text_expr() -> str:
+    return "COALESCE(record_date::text, NULLIF(substring(record_time FROM '^\\d{4}-\\d{2}-\\d{2}'), ''))"
+
+
+def _append_point_date_filters(filters: List[str], args: List[Any], start: Optional[str], end: Optional[str]):
+    text_date_expr = "NULLIF(substring(record_time FROM '^\\d{4}-\\d{2}-\\d{2}'), '')"
+    if start:
+        args.extend([date.fromisoformat(start), start])
+        date_index = len(args) - 1
+        text_index = len(args)
+        filters.append(f"(record_date >= ${date_index} OR (record_date IS NULL AND {text_date_expr} >= ${text_index}))")
+    if end:
+        args.extend([date.fromisoformat(end), end])
+        date_index = len(args) - 1
+        text_index = len(args)
+        filters.append(f"(record_date <= ${date_index} OR (record_date IS NULL AND {text_date_expr} <= ${text_index}))")
 
 
 _POINT_TYPE_NAME_MAPS = {
@@ -1267,6 +1307,53 @@ def _point_record_key(record: Dict, index: int) -> str:
 def build_point_history_record_key(record: Dict, index: int) -> str:
     return _point_record_key(record, index)
 
+
+def _normalize_point_history_record(username: str, code: str, record: Dict, index: int, saved_at: datetime):
+    if not isinstance(record, dict):
+        return None
+    record_time = _point_text(record.get('time') or record.get('CreateTime') or record.get('Time') or record.get('RecordTime'))
+    type_name = _point_text(record.get('type_name') or record.get('TypeName'))
+    description = _point_text(record.get('description') or record.get('Des'))
+    return (
+        username,
+        code,
+        _point_record_key(record, index),
+        record_time,
+        _point_record_date(record_time),
+        resolve_point_category(code, type_name, description),
+        _point_int(record.get('operation_type') if 'operation_type' in record else record.get('OperationType')),
+        _point_float(record.get('amount') if 'amount' in record else record.get('Amount'), 0),
+        _point_float(record.get('balance') if 'balance' in record else record.get('SurplusTotalAmount'), None),
+        type_name,
+        _point_text(record.get('type_name_cn') or record.get('category')),
+        description,
+        json.dumps(record, ensure_ascii=False),
+        saved_at,
+    )
+
+
+async def _refresh_point_history_user_summary(conn, username: str):
+    normalized_username = str(username or '').strip().lower()
+    if not normalized_username:
+        return
+    row = await conn.fetchrow('''
+        SELECT COUNT(*) AS record_count, MAX(saved_at) AS latest_saved_at
+        FROM point_history_records
+        WHERE username = $1
+    ''', normalized_username)
+    record_count = int(row['record_count'] or 0) if row else 0
+    if record_count <= 0:
+        await conn.execute('DELETE FROM point_history_user_summary WHERE username = $1', normalized_username)
+        return
+    await conn.execute('''
+        INSERT INTO point_history_user_summary (username, record_count, latest_saved_at)
+        VALUES ($1, $2, $3)
+        ON CONFLICT(username) DO UPDATE SET
+            record_count = EXCLUDED.record_count,
+            latest_saved_at = EXCLUDED.latest_saved_at
+    ''', normalized_username, record_count, row['latest_saved_at'])
+
+
 async def get_point_history_record_keys(username: str, point_type: str) -> set:
     pool = _get_pool()
     username = username.lower() if username else username
@@ -1292,7 +1379,22 @@ async def clear_point_history_records(username: str = None, point_type: str = No
         filters.append(f'point_type = ${len(args)}')
     where_clause = f"WHERE {' AND '.join(filters)}" if filters else ''
     async with pool.acquire() as conn:
-        result = await conn.execute(f'DELETE FROM point_history_records {where_clause}', *args)
+        async with conn.transaction():
+            affected_users = []
+            if username:
+                affected_users = [username]
+            elif where_clause:
+                affected_users = [
+                    str(row['username'])
+                    for row in await conn.fetch(f'SELECT DISTINCT username FROM point_history_records {where_clause}', *args)
+                    if row['username']
+                ]
+            result = await conn.execute(f'DELETE FROM point_history_records {where_clause}', *args)
+            if not where_clause:
+                await conn.execute('DELETE FROM point_history_user_summary')
+            else:
+                for affected_username in affected_users:
+                    await _refresh_point_history_user_summary(conn, affected_username)
     return int(result.split()[-1])
 
 async def replace_point_history_records(username: str, point_type: str, records: List[Dict]) -> int:
@@ -1302,22 +1404,9 @@ async def replace_point_history_records(username: str, point_type: str, records:
     saved_at = datetime.now().replace(microsecond=0)
     normalized = []
     for index, record in enumerate(records or []):
-        if not isinstance(record, dict):
-            continue
-        normalized.append((
-            username,
-            code,
-            _point_record_key(record, index),
-            _point_text(record.get('time') or record.get('CreateTime') or record.get('Time') or record.get('RecordTime')),
-            _point_int(record.get('operation_type') if 'operation_type' in record else record.get('OperationType')),
-            _point_float(record.get('amount') if 'amount' in record else record.get('Amount'), 0),
-            _point_float(record.get('balance') if 'balance' in record else record.get('SurplusTotalAmount'), None),
-            _point_text(record.get('type_name') or record.get('TypeName')),
-            _point_text(record.get('type_name_cn') or record.get('category')),
-            _point_text(record.get('description') or record.get('Des')),
-            json.dumps(record, ensure_ascii=False),
-            saved_at,
-        ))
+        item = _normalize_point_history_record(username, code, record, index, saved_at)
+        if item is not None:
+            normalized.append(item)
     async with pool.acquire() as conn:
         async with conn.transaction():
             await conn.execute(
@@ -1325,15 +1414,18 @@ async def replace_point_history_records(username: str, point_type: str, records:
                 username, code
             )
             if not normalized:
+                await _refresh_point_history_user_summary(conn, username)
                 return 0
             await conn.executemany('''
                 INSERT INTO point_history_records (
-                    username, point_type, record_key, record_time, operation_type,
+                    username, point_type, record_key, record_time, record_date, resolved_category, operation_type,
                     amount, balance, type_name, type_name_cn, description, raw_data, saved_at
                 )
-                VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb,$12)
+                VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::jsonb,$14)
                 ON CONFLICT(username, point_type, record_key) DO UPDATE SET
                     record_time = EXCLUDED.record_time,
+                    record_date = EXCLUDED.record_date,
+                    resolved_category = EXCLUDED.resolved_category,
                     operation_type = EXCLUDED.operation_type,
                     amount = EXCLUDED.amount,
                     balance = EXCLUDED.balance,
@@ -1343,6 +1435,7 @@ async def replace_point_history_records(username: str, point_type: str, records:
                     raw_data = EXCLUDED.raw_data,
                     saved_at = EXCLUDED.saved_at
             ''', normalized)
+            await _refresh_point_history_user_summary(conn, username)
             return len(normalized)
 
 async def save_point_history_records(username: str, point_type: str, records: List[Dict]) -> int:
@@ -1352,42 +1445,33 @@ async def save_point_history_records(username: str, point_type: str, records: Li
     saved_at = datetime.now().replace(microsecond=0)
     normalized = []
     for index, record in enumerate(records or []):
-        if not isinstance(record, dict):
-            continue
-        normalized.append((
-            username,
-            code,
-            _point_record_key(record, index),
-            _point_text(record.get('time') or record.get('CreateTime') or record.get('Time') or record.get('RecordTime')),
-            _point_int(record.get('operation_type') if 'operation_type' in record else record.get('OperationType')),
-            _point_float(record.get('amount') if 'amount' in record else record.get('Amount'), 0),
-            _point_float(record.get('balance') if 'balance' in record else record.get('SurplusTotalAmount'), None),
-            _point_text(record.get('type_name') or record.get('TypeName')),
-            _point_text(record.get('type_name_cn') or record.get('category')),
-            _point_text(record.get('description') or record.get('Des')),
-            json.dumps(record, ensure_ascii=False),
-            saved_at,
-        ))
+        item = _normalize_point_history_record(username, code, record, index, saved_at)
+        if item is not None:
+            normalized.append(item)
     if not normalized:
         return 0
     async with pool.acquire() as conn:
-        await conn.executemany('''
-            INSERT INTO point_history_records (
-                username, point_type, record_key, record_time, operation_type,
-                amount, balance, type_name, type_name_cn, description, raw_data, saved_at
-            )
-            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb,$12)
-            ON CONFLICT(username, point_type, record_key) DO UPDATE SET
-                record_time = EXCLUDED.record_time,
-                operation_type = EXCLUDED.operation_type,
-                amount = EXCLUDED.amount,
-                balance = EXCLUDED.balance,
-                type_name = EXCLUDED.type_name,
-                type_name_cn = EXCLUDED.type_name_cn,
-                description = EXCLUDED.description,
-                raw_data = EXCLUDED.raw_data,
-                saved_at = EXCLUDED.saved_at
-        ''', normalized)
+        async with conn.transaction():
+            await conn.executemany('''
+                INSERT INTO point_history_records (
+                    username, point_type, record_key, record_time, record_date, resolved_category, operation_type,
+                    amount, balance, type_name, type_name_cn, description, raw_data, saved_at
+                )
+                VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::jsonb,$14)
+                ON CONFLICT(username, point_type, record_key) DO UPDATE SET
+                    record_time = EXCLUDED.record_time,
+                    record_date = EXCLUDED.record_date,
+                    resolved_category = EXCLUDED.resolved_category,
+                    operation_type = EXCLUDED.operation_type,
+                    amount = EXCLUDED.amount,
+                    balance = EXCLUDED.balance,
+                    type_name = EXCLUDED.type_name,
+                    type_name_cn = EXCLUDED.type_name_cn,
+                    description = EXCLUDED.description,
+                    raw_data = EXCLUDED.raw_data,
+                    saved_at = EXCLUDED.saved_at
+            ''', normalized)
+            await _refresh_point_history_user_summary(conn, username)
     return len(normalized)
 
 async def get_point_stats(username: str = None, point_type: str = None, limit: int = 50, start_date: str = None, end_date: str = None) -> Dict:
@@ -1407,15 +1491,10 @@ async def get_point_stats(username: str = None, point_type: str = None, limit: i
     if code:
         base_args.append(code)
         base_filters.append(f'point_type = ${len(base_args)}')
-    date_expr = "NULLIF(substring(record_time FROM '^\\d{4}-\\d{2}-\\d{2}'), '')"
+    date_expr = _point_record_date_text_expr()
     query_filters = list(base_filters)
     query_args = list(base_args)
-    if start:
-        query_args.append(start)
-        query_filters.append(f"{date_expr} >= ${len(query_args)}")
-    if end:
-        query_args.append(end)
-        query_filters.append(f"{date_expr} <= ${len(query_args)}")
+    _append_point_date_filters(query_filters, query_args, start, end)
     range_where_clause = f"WHERE {' AND '.join(base_filters)}" if base_filters else ''
     where_clause = f"WHERE {' AND '.join(query_filters)}" if query_filters else ''
     async with pool.acquire() as conn:
@@ -1527,13 +1606,7 @@ async def get_point_stats_detail(username: str, point_type: str, category: str, 
         start, end = end, start
     filters = ['username = $1', 'point_type = $2']
     args = [normalized_username, code]
-    date_expr = "NULLIF(substring(record_time FROM '^\\d{4}-\\d{2}-\\d{2}'), '')"
-    if start:
-        args.append(start)
-        filters.append(f"{date_expr} >= ${len(args)}")
-    if end:
-        args.append(end)
-        filters.append(f"{date_expr} <= ${len(args)}")
+    _append_point_date_filters(filters, args, start, end)
     where_clause = f"WHERE {' AND '.join(filters)}"
     async with pool.acquire() as conn:
         rows = await conn.fetch(f'''
@@ -1561,23 +1634,28 @@ async def search_point_stat_users(search: str = None, limit: int = 12) -> Dict:
                     UNION
                     SELECT username FROM user_stats
                     UNION
-                    SELECT username FROM point_history_records
+                    SELECT username FROM point_history_user_summary
+                    UNION
+                    SELECT username FROM (
+                        SELECT username
+                        FROM point_history_records
+                        WHERE username ILIKE $1
+                        GROUP BY username
+                        ORDER BY MAX(saved_at) DESC
+                        LIMIT $2
+                    ) history_matches
                 )
                 SELECT ap.username,
                        COALESCE(NULLIF(us.real_name, ''), '') AS real_name,
                        COALESCE(NULLIF(ua.honor_name, ''), 'M0') AS honor_name,
                        ua.updated_at,
-                       COALESCE(ph.record_count, 0) AS point_record_count
+                       COALESCE(phs.record_count, 0) AS point_record_count
                 FROM account_pool ap
                 LEFT JOIN user_assets ua ON ua.username = ap.username
                 LEFT JOIN user_stats us ON us.username = ap.username
-                LEFT JOIN (
-                    SELECT username, COUNT(*) AS record_count
-                    FROM point_history_records
-                    GROUP BY username
-                ) ph ON ph.username = ap.username
+                LEFT JOIN point_history_user_summary phs ON phs.username = ap.username
                 WHERE ap.username ILIKE $1 OR COALESCE(NULLIF(us.real_name, ''), '') ILIKE $1
-                ORDER BY point_record_count DESC, ua.updated_at DESC NULLS LAST
+                ORDER BY point_record_count DESC, phs.latest_saved_at DESC NULLS LAST, ua.updated_at DESC NULLS LAST
                 LIMIT $2
             ''', f'%{keyword}%', limit)
         else:
@@ -1587,22 +1665,18 @@ async def search_point_stat_users(search: str = None, limit: int = 12) -> Dict:
                     UNION
                     SELECT username FROM user_stats
                     UNION
-                    SELECT username FROM point_history_records
+                    SELECT username FROM point_history_user_summary
                 )
                 SELECT ap.username,
                        COALESCE(NULLIF(us.real_name, ''), '') AS real_name,
                        COALESCE(NULLIF(ua.honor_name, ''), 'M0') AS honor_name,
                        ua.updated_at,
-                       COALESCE(ph.record_count, 0) AS point_record_count
+                       COALESCE(phs.record_count, 0) AS point_record_count
                 FROM account_pool ap
                 LEFT JOIN user_assets ua ON ua.username = ap.username
                 LEFT JOIN user_stats us ON us.username = ap.username
-                LEFT JOIN (
-                    SELECT username, COUNT(*) AS record_count
-                    FROM point_history_records
-                    GROUP BY username
-                ) ph ON ph.username = ap.username
-                ORDER BY point_record_count DESC, ua.updated_at DESC NULLS LAST
+                LEFT JOIN point_history_user_summary phs ON phs.username = ap.username
+                ORDER BY point_record_count DESC, phs.latest_saved_at DESC NULLS LAST, ua.updated_at DESC NULLS LAST
                 LIMIT $1
             ''', limit)
     return {'rows': [dict(r) for r in rows]}

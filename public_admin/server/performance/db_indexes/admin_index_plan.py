@@ -40,6 +40,26 @@ ADMIN_INDEX_PLAN = [
         sql="CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_ip_stats_priority ON ip_stats(is_banned, request_count DESC, last_seen DESC);",
         purpose="admin IP list filtering and ordering",
     ),
+    AdminIndexDefinition(
+        name="idx_point_history_user_type_date",
+        sql="CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_point_history_user_type_date ON point_history_records(username, point_type, record_date DESC, id ASC);",
+        purpose="point statistics account/type date range filtering and ordering",
+    ),
+    AdminIndexDefinition(
+        name="idx_point_history_type_date",
+        sql="CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_point_history_type_date ON point_history_records(point_type, record_date DESC, id ASC);",
+        purpose="point statistics type-level date range aggregation",
+    ),
+    AdminIndexDefinition(
+        name="idx_point_history_user_type_category_date",
+        sql="CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_point_history_user_type_category_date ON point_history_records(username, point_type, resolved_category, record_date DESC, id ASC);",
+        purpose="point statistics category detail pagination",
+    ),
+    AdminIndexDefinition(
+        name="idx_point_history_summary_count",
+        sql="CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_point_history_summary_count ON point_history_user_summary(record_count DESC, latest_saved_at DESC);",
+        purpose="point statistics user search ordering without scanning history records",
+    ),
 ]
 
 
