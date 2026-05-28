@@ -23,6 +23,7 @@ from .performance.point_stats.detail_pagination import (
     normalize_point_detail_page,
     paginate_point_category_records,
 )
+from .performance.admin_summary import build_admin_summary
 from .performance.admin_lists import build_admin_asset_list, build_admin_user_list
 from .performance.dashboard_stats import build_traffic_dashboard, build_user_growth
 
@@ -1962,75 +1963,12 @@ async def get_ban_list() -> List[Dict]:
 async def get_stats_summary() -> Dict:
     """获取统计摘要"""
     pool = _get_pool()
-    today = datetime.now().date()
-    tomorrow = today + timedelta(days=1)
-    async with pool.acquire() as conn:
-        await _normalize_ban_records(conn)
-        total_users = await conn.fetchval('SELECT COUNT(*) FROM user_stats')
-        total_ips = await conn.fetchval('SELECT COUNT(*) FROM ip_stats')
-        today_logins = await conn.fetchval('''
-            SELECT COUNT(*) FROM login_records WHERE login_time >= $1 AND login_time < $2
-        ''', today, tomorrow)
-        banned_count = await conn.fetchval('''
-            WITH visible_bans AS (
-                SELECT ban_type, ban_value
-                FROM ban_list
-                WHERE (is_active = TRUE AND (banned_until IS NULL OR banned_until > NOW()))
-                   OR COALESCE(released_at, banned_until, banned_at) >= NOW() - INTERVAL '7 days'
-            ),
-            stat_user_bans AS (
-                SELECT 'username'::text AS ban_type, username AS ban_value
-                FROM user_stats us
-                WHERE us.is_banned = TRUE
-                  AND NOT EXISTS (
-                      SELECT 1 FROM ban_list bl
-                      WHERE bl.ban_type = 'username' AND bl.ban_value = us.username
-                  )
-            ),
-            stat_ip_bans AS (
-                SELECT 'ip'::text AS ban_type, ip_address AS ban_value
-                FROM ip_stats ips
-                WHERE ips.is_banned = TRUE
-                  AND NOT EXISTS (
-                      SELECT 1 FROM ban_list bl
-                      WHERE bl.ban_type = 'ip' AND bl.ban_value = ips.ip_address
-                  )
-            )
-            SELECT COUNT(*) FROM (
-                SELECT * FROM visible_bans
-                UNION ALL
-                SELECT * FROM stat_user_bans
-                UNION ALL
-                SELECT * FROM stat_ip_bans
-            ) t
-        ''')
-        total_logins = await conn.fetchval('SELECT COUNT(*) FROM login_records')
-
-        row = await conn.fetchrow('''
-            SELECT
-                SUM(COALESCE(ace_count, 0) + COALESCE(total_ace, 0)) as total_ace,
-                SUM(ep) as total_ep, SUM(sp) as total_sp,
-                SUM(rp) as total_rp, SUM(tp) as total_tp
-            FROM user_assets
-        ''')
-        summary = {
-            'total_users': total_users or 0,
-            'total_ips': total_ips or 0,
-            'today_logins': today_logins or 0,
-            'banned_count': banned_count or 0,
-            'total_logins': total_logins or 0,
-            'total_ace': float(row['total_ace'] or 0),
-            'total_ep': float(row['total_ep'] or 0),
-            'total_sp': float(row['total_sp'] or 0),
-            'total_rp': float(row['total_rp'] or 0),
-            'total_tp': float(row['total_tp'] or 0),
-        }
-    try:
-        summary['user_growth'] = await build_user_growth(pool)
-    except Exception as e:
-        logger.warning(f"[DashboardStats] 用户增长数据加载失败: {e}")
-        summary['user_growth'] = []
-    return summary
+    return await build_admin_summary(
+        pool,
+        normalize_bans=_normalize_ban_records,
+        user_growth_loader=lambda: build_user_growth(pool),
+        on_user_growth_error=lambda exc: logger.warning(f"[DashboardStats] 用户增长数据加载失败: {exc}"),
+    )
 
 
 # ===== IP 统计 =====

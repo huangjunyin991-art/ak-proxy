@@ -56,6 +56,21 @@ ADMIN_INDEX_PLAN = [
         purpose="admin asset list active username ban lookup",
     ),
     AdminIndexDefinition(
+        name="idx_ban_list_visibility_timestamps",
+        sql="CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_ban_list_visibility_timestamps ON ban_list(is_active, banned_until, (COALESCE(released_at, banned_until, banned_at)) DESC);",
+        purpose="admin stats and ban list active or recently changed visibility checks",
+    ),
+    AdminIndexDefinition(
+        name="idx_user_stats_banned_username",
+        sql="CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_user_stats_banned_username ON user_stats(username) WHERE is_banned = TRUE;",
+        purpose="admin stats fallback banned user count from user_stats",
+    ),
+    AdminIndexDefinition(
+        name="idx_ip_stats_banned_ip",
+        sql="CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_ip_stats_banned_ip ON ip_stats(ip_address) WHERE is_banned = TRUE;",
+        purpose="admin stats fallback banned IP count from ip_stats",
+    ),
+    AdminIndexDefinition(
         name="idx_risk_isolations_active_username",
         sql="CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_risk_isolations_active_username ON risk_isolations(is_active, username);",
         purpose="risk isolation account list active isolation join",
