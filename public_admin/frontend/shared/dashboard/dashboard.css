@@ -67,7 +67,7 @@
 .user-growth-bar {
     flex: 1;
     min-width: 4px;
-    min-height: 3px;
+    min-height: 0;
     border-radius: 4px 4px 0 0;
     background: linear-gradient(to top, #00d4ff, #667eea);
     position: relative;

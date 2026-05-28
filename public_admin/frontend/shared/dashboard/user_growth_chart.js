@@ -60,9 +60,9 @@
         const first = data[0];
         const last = data[data.length - 1];
         const periodIncrease = data.reduce((sum, item) => sum + item.increase, 0);
-        const maxTotal = Math.max(...data.map(item => item.total), 1);
+        const maxIncrease = Math.max(...data.map(item => item.increase), 0);
         const bars = data.map((item, index) => {
-            const height = Math.max((item.total / maxTotal) * 100, 3);
+            const height = item.increase > 0 && maxIncrease > 0 ? Math.max((item.increase / maxIncrease) * 100, 4) : 0;
             const label = index % 5 === 0 || index === data.length - 1 ? item.date.slice(5) : '';
             return {
                 bar: `<div class="user-growth-bar" style="height:${height}%;" data-tooltip="${escapeHtml(item.date)} 总数 ${formatNumber(item.total)}，新增 ${formatNumber(item.increase)}"></div>`,
