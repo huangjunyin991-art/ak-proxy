@@ -29,7 +29,6 @@ class OperationScopeResolver:
             ('POST', '/api/dispatcher/apply_sub'): 'dispatcher_ops',
             ('POST', '/api/dispatcher/reload_singbox'): 'dispatcher_ops',
             ('POST', '/admin/api/db/sql'): 'db_write_ops',
-            ('POST', '/admin/api/performance/index-plan/apply'): 'db_write_ops',
             ('POST', '/admin/api/license/create'): 'account_ops',
             ('POST', '/admin/api/license/revoke'): 'account_ops',
             ('POST', '/admin/api/license/edit'): 'account_ops',
