@@ -31,6 +31,7 @@
         accessScopeUsernames: null,
         meetingResolvedPayload: null,
         historyDetail: null,
+        historyDetailRecipientLoading: { unread: false, read: false },
         sourceRefreshTimer: null
     };
 
@@ -839,6 +840,52 @@
         `;
     }
 
+    function getHistoryRecipientPage(detail, status) {
+        const pages = detail && detail.recipient_pages && typeof detail.recipient_pages === 'object' ? detail.recipient_pages : {};
+        const page = pages && pages[status] && typeof pages[status] === 'object' ? pages[status] : null;
+        if (page) return page;
+        const recipients = Array.isArray(detail && detail.recipients) ? detail.recipients : [];
+        const rows = recipients.filter(function(row) {
+            return status === 'read' ? !!row.read : !row.read;
+        });
+        return {
+            status: status,
+            total: rows.length,
+            limit: rows.length || 100,
+            offset: 0,
+            next_offset: rows.length,
+            has_more: false,
+            rows: rows
+        };
+    }
+
+    function renderRecipientPanel(detail, status, title, emptyText) {
+        const page = getHistoryRecipientPage(detail, status);
+        const rows = Array.isArray(page.rows) ? page.rows : [];
+        const total = Number(page.total || rows.length || 0);
+        const loading = !!(state.historyDetailRecipientLoading && state.historyDetailRecipientLoading[status]);
+        const loadedText = total > rows.length ? `${rows.length}/${total}` : String(rows.length);
+        return `
+            <section class="ak-notify-detail-panel">
+                <div class="ak-notify-detail-panel-head">
+                    <span>${escapeHtml(title)}</span>
+                    <span>${escapeHtml(loadedText)}</span>
+                </div>
+                ${renderRecipientRows(rows, emptyText)}
+                ${page.has_more ? `<button type="button" class="ak-notify-mini-btn" data-recipient-load-status="${escapeHtml(status)}" ${loading ? 'disabled' : ''}>${loading ? '加载中...' : '加载更多'}</button>` : ''}
+            </section>
+        `;
+    }
+
+    function bindHistoryRecipientLoadButtons() {
+        if (!refs.historyDetailBody) return;
+        refs.historyDetailBody.querySelectorAll('[data-recipient-load-status]').forEach(function(button) {
+            button.addEventListener('click', function() {
+                loadMoreHistoryRecipients(button.dataset.recipientLoadStatus || 'unread');
+            });
+        });
+    }
+
     function renderHistoryDetail() {
         if (!refs.historyDetailModal || !refs.historyDetailBody || !refs.historyDetailTitle || !refs.historyDetailMeta) return;
         refs.historyDetailModal.classList.toggle('visible', !!state.historyDetailOpen);
@@ -866,8 +913,8 @@
         const typeLabel = type === 'meeting' ? '会议通知' : '一般通知';
         const createdBy = String(detail.created_by || '').trim() || '-';
         const recipients = Array.isArray(detail.recipients) ? detail.recipients : [];
-        const readRecipients = recipients.filter(function(row) { return !!row.read; });
-        const unreadRecipients = recipients.filter(function(row) { return !row.read; });
+        const readPage = getHistoryRecipientPage(detail, 'read');
+        const unreadPage = getHistoryRecipientPage(detail, 'unread');
         const displayContent = buildNotificationDisplayContent(detail);
         refs.historyDetailTitle.textContent = String(detail.title || (type === 'meeting' ? '会议通知' : '系统通知'));
         refs.historyDetailMeta.textContent = `${typeLabel} · ${formatTime(detail.published_at || detail.created_at)} · 创建者 ${createdBy}`;
@@ -876,33 +923,64 @@
                 ${displayContent ? `<div class="ak-notify-detail-content">${escapeHtml(displayContent)}</div>` : '<div class="ak-notify-empty">该通知无正文内容</div>'}
                 <div class="ak-notify-detail-meta">
                     <span>目标 ${Number(detail.target_count || recipients.length || 0)} 人</span>
-                    <span>已读 ${Number(detail.read_count || readRecipients.length || 0)}</span>
-                    <span>未读 ${Number(detail.unread_count || unreadRecipients.length || 0)}</span>
+                    <span>已读 ${Number(detail.read_count || readPage.total || 0)}</span>
+                    <span>未读 ${Number(detail.unread_count || unreadPage.total || 0)}</span>
                     <span>创建者 ${escapeHtml(createdBy)}</span>
                 </div>
             </div>
             <div class="ak-notify-detail-grid">
-                <section class="ak-notify-detail-panel">
-                    <div class="ak-notify-detail-panel-head">
-                        <span>未读账号</span>
-                        <span>${unreadRecipients.length}</span>
-                    </div>
-                    ${renderRecipientRows(unreadRecipients, '暂无未读账号')}
-                </section>
-                <section class="ak-notify-detail-panel">
-                    <div class="ak-notify-detail-panel-head">
-                        <span>已读账号</span>
-                        <span>${readRecipients.length}</span>
-                    </div>
-                    ${renderRecipientRows(readRecipients, '暂无已读账号')}
-                </section>
+                ${renderRecipientPanel(detail, 'unread', '未读账号', '暂无未读账号')}
+                ${renderRecipientPanel(detail, 'read', '已读账号', '暂无已读账号')}
             </div>
         `;
+        bindHistoryRecipientLoadButtons();
     }
 
     function closeHistoryDetail() {
         state.historyDetailOpen = false;
         renderHistoryDetail();
+    }
+
+    async function loadMoreHistoryRecipients(status) {
+        const normalizedStatus = String(status || 'unread').trim().toLowerCase() === 'read' ? 'read' : 'unread';
+        const detail = state.historyDetail && typeof state.historyDetail === 'object' ? state.historyDetail : null;
+        const campaignId = Number(detail && detail.id || state.activeHistoryId || 0);
+        if (!detail || !campaignId) return;
+        const page = getHistoryRecipientPage(detail, normalizedStatus);
+        if (!page.has_more || state.historyDetailRecipientLoading[normalizedStatus]) return;
+        state.historyDetailRecipientLoading[normalizedStatus] = true;
+        renderHistoryDetail();
+        try {
+            const limit = Number(page.limit || 100) || 100;
+            const offset = Number(page.next_offset || 0) || 0;
+            const res = await fetch(`${API_ROOT}/admin/api/notifications/history/${campaignId}/recipients?status=${encodeURIComponent(normalizedStatus)}&limit=${encodeURIComponent(limit)}&offset=${encodeURIComponent(offset)}`, {
+                headers: getHeadersSafe()
+            });
+            if (!checkResponseSafe(res)) return;
+            const data = await res.json();
+            if (!res.ok || !data.success) {
+                throw new Error(data.message || '收件账号加载失败');
+            }
+            const nextPage = data.data && typeof data.data === 'object' ? data.data : null;
+            if (!nextPage) return;
+            const currentPages = detail.recipient_pages && typeof detail.recipient_pages === 'object' ? detail.recipient_pages : {};
+            const currentPage = getHistoryRecipientPage(detail, normalizedStatus);
+            const currentRows = Array.isArray(currentPage.rows) ? currentPage.rows : [];
+            const nextRows = Array.isArray(nextPage.rows) ? nextPage.rows : [];
+            detail.recipient_pages = Object.assign({}, currentPages, {
+                [normalizedStatus]: Object.assign({}, nextPage, {
+                    rows: currentRows.concat(nextRows)
+                })
+            });
+            detail.recipients = []
+                .concat((detail.recipient_pages.unread && detail.recipient_pages.unread.rows) || [])
+                .concat((detail.recipient_pages.read && detail.recipient_pages.read.rows) || []);
+        } catch (e) {
+            showToastSafe(String((e && e.message) || e || '收件账号加载失败'), 'error');
+        } finally {
+            state.historyDetailRecipientLoading[normalizedStatus] = false;
+            renderHistoryDetail();
+        }
     }
 
     async function openHistoryDetail(campaignId) {
@@ -913,9 +991,10 @@
         state.historyDetailBusy = true;
         state.historyDetailError = '';
         state.historyDetail = null;
+        state.historyDetailRecipientLoading = { unread: false, read: false };
         renderHistoryDetail();
         try {
-            const res = await fetch(`${API_ROOT}/admin/api/notifications/history/${normalizedId}`, {
+            const res = await fetch(`${API_ROOT}/admin/api/notifications/history/${normalizedId}?recipient_limit=100`, {
                 headers: getHeadersSafe()
             });
             if (!checkResponseSafe(res)) return;

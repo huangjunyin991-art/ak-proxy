@@ -56,6 +56,11 @@ ADMIN_INDEX_PLAN = [
         purpose="notification history read/unread aggregation for current page campaigns",
     ),
     AdminIndexDefinition(
+        name="idx_notification_deliveries_campaign_read_username",
+        sql="CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_notification_deliveries_campaign_read_username ON notification_deliveries(campaign_id, read_at, username);",
+        purpose="notification detail recipient pagination by read status and username ordering",
+    ),
+    AdminIndexDefinition(
         name="idx_user_stats_last_login",
         sql="CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_user_stats_last_login ON user_stats(last_login DESC NULLS LAST);",
         purpose="admin user list ordering by recent activity",

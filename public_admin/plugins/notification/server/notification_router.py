@@ -46,13 +46,39 @@ def create_notification_router(
         return data
 
     @router.get('/admin/api/notifications/history/{campaign_id}')
-    async def notification_history_detail(request: Request, campaign_id: int):
+    async def notification_history_detail(request: Request, campaign_id: int, recipient_limit: int = 0):
         token = request.headers.get('Authorization', '').replace('Bearer ', '')
         if not token or not await verify_admin_token(token):
             return JSONResponse(status_code=401, content={'error': True, 'message': '未授权'})
         role = str(get_token_role(token) or '').strip()
         sub_name = str(get_token_sub_name(token) or '').strip()
-        data = await service.get_campaign_detail(campaign_id=max(0, int(campaign_id or 0)), role=role, sub_name=sub_name)
+        data = await service.get_campaign_detail(
+            campaign_id=max(0, int(campaign_id or 0)),
+            role=role,
+            sub_name=sub_name,
+            recipient_limit=max(0, min(int(recipient_limit or 0), 500)),
+        )
+        if not data:
+            return JSONResponse(status_code=404, content={'error': True, 'message': '通知历史不存在或无权查看'})
+        return {'success': True, 'data': data}
+
+    @router.get('/admin/api/notifications/history/{campaign_id}/recipients')
+    async def notification_history_recipients(request: Request, campaign_id: int,
+                                              status: str = 'unread', limit: int = 100,
+                                              offset: int = 0):
+        token = request.headers.get('Authorization', '').replace('Bearer ', '')
+        if not token or not await verify_admin_token(token):
+            return JSONResponse(status_code=401, content={'error': True, 'message': '未授权'})
+        role = str(get_token_role(token) or '').strip()
+        sub_name = str(get_token_sub_name(token) or '').strip()
+        data = await service.get_campaign_recipients(
+            campaign_id=max(0, int(campaign_id or 0)),
+            role=role,
+            sub_name=sub_name,
+            status=status,
+            limit=max(1, min(int(limit or 100), 500)),
+            offset=max(0, int(offset or 0)),
+        )
         if not data:
             return JSONResponse(status_code=404, content={'error': True, 'message': '通知历史不存在或无权查看'})
         return {'success': True, 'data': data}

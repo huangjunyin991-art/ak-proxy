@@ -166,9 +166,21 @@ class NotificationService:
         created_by = sub_name if role == 'sub_admin' and sub_name else None
         return await db.get_notification_campaigns(limit=limit, offset=offset, created_by=created_by)
 
-    async def get_campaign_detail(self, *, campaign_id: int, role: str, sub_name: str) -> dict[str, Any] | None:
+    async def get_campaign_detail(self, *, campaign_id: int, role: str, sub_name: str,
+                                  recipient_limit: int = 0) -> dict[str, Any] | None:
         created_by = sub_name if role == 'sub_admin' and sub_name else None
-        return await db.get_notification_campaign_detail(campaign_id=campaign_id, created_by=created_by)
+        return await db.get_notification_campaign_detail(campaign_id=campaign_id, created_by=created_by, recipient_limit=recipient_limit)
+
+    async def get_campaign_recipients(self, *, campaign_id: int, role: str, sub_name: str,
+                                      status: str, limit: int, offset: int) -> dict[str, Any] | None:
+        created_by = sub_name if role == 'sub_admin' and sub_name else None
+        return await db.get_notification_campaign_recipients(
+            campaign_id=campaign_id,
+            created_by=created_by,
+            status=status,
+            limit=limit,
+            offset=offset,
+        )
 
     async def get_campaign_notification_item(self, campaign_id: int) -> dict[str, Any] | None:
         if not campaign_id:

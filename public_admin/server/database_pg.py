@@ -659,6 +659,7 @@ async def init_db(host: str = "127.0.0.1", port: int = 5432,
         await conn.execute('CREATE INDEX IF NOT EXISTS idx_notification_deliveries_campaign_id ON notification_deliveries(campaign_id)')
         await conn.execute('CREATE INDEX IF NOT EXISTS idx_notification_campaigns_created_by_id ON notification_campaigns(created_by, id DESC)')
         await conn.execute('CREATE INDEX IF NOT EXISTS idx_notification_deliveries_campaign_read ON notification_deliveries(campaign_id, read_at)')
+        await conn.execute('CREATE INDEX IF NOT EXISTS idx_notification_deliveries_campaign_read_username ON notification_deliveries(campaign_id, read_at, username)')
         await conn.execute('CREATE INDEX IF NOT EXISTS idx_meeting_publish_permissions_scope_owner ON meeting_publish_permissions(scope_owner)')
         await conn.execute('CREATE INDEX IF NOT EXISTS idx_meeting_publish_permissions_granted_by ON meeting_publish_permissions(granted_by)')
         await conn.execute('CREATE INDEX IF NOT EXISTS idx_notification_deliveries_unread ON notification_deliveries(username, read_at)')
@@ -3033,6 +3034,54 @@ def _serialize_notification_delivery(row: Dict[str, Any]) -> Dict:
     }
 
 
+async def _fetch_notification_recipient_page(conn, campaign_id: int, status: str = 'unread',
+                                             limit: int = 100, offset: int = 0) -> Dict:
+    normalized_status = str(status or 'unread').strip().lower()
+    if normalized_status not in {'unread', 'read', 'all'}:
+        normalized_status = 'unread'
+    limit = max(1, min(int(limit or 100), 500))
+    offset = max(0, int(offset or 0))
+    where = 'WHERE campaign_id = $1'
+    if normalized_status == 'unread':
+        where += ' AND read_at IS NULL'
+    elif normalized_status == 'read':
+        where += ' AND read_at IS NOT NULL'
+    total = await conn.fetchval(f'''
+        SELECT COUNT(*)
+        FROM notification_deliveries
+        {where}
+    ''', int(campaign_id))
+    rows = await conn.fetch(f'''
+        SELECT username, delivery_status, delivered_at, read_at, last_push_at, created_at
+        FROM notification_deliveries
+        {where}
+        ORDER BY CASE WHEN read_at IS NULL THEN 0 ELSE 1 END, username ASC
+        LIMIT $2 OFFSET $3
+    ''', int(campaign_id), limit, offset)
+    items = [_serialize_notification_delivery(dict(item)) for item in rows]
+    next_offset = offset + len(items)
+    total_count = int(total or 0)
+    return {
+        'status': normalized_status,
+        'total': total_count,
+        'limit': limit,
+        'offset': offset,
+        'next_offset': next_offset,
+        'has_more': next_offset < total_count,
+        'rows': items,
+    }
+
+
+async def _fetch_all_notification_recipients(conn, campaign_id: int) -> List[Dict]:
+    rows = await conn.fetch('''
+        SELECT username, delivery_status, delivered_at, read_at, last_push_at, created_at
+        FROM notification_deliveries
+        WHERE campaign_id = $1
+        ORDER BY CASE WHEN read_at IS NULL THEN 0 ELSE 1 END, username ASC
+    ''', int(campaign_id))
+    return [_serialize_notification_delivery(dict(item)) for item in rows]
+
+
 def _serialize_notification_item(row: Dict[str, Any]) -> Dict:
     return {
         'id': int(row.get('id') or 0),
@@ -3186,7 +3235,8 @@ async def get_notification_campaigns(limit: int = 20, offset: int = 0,
     return {'total': int(result.get('total') or 0), 'rows': [_serialize_notification_campaign(dict(row)) for row in result.get('rows') or []]}
 
 
-async def get_notification_campaign_detail(campaign_id: int, created_by: str = None) -> Optional[Dict]:
+async def get_notification_campaign_detail(campaign_id: int, created_by: str = None,
+                                           recipient_limit: int = 0) -> Optional[Dict]:
     pool = _get_pool()
     if not int(campaign_id or 0):
         return None
@@ -3199,25 +3249,69 @@ async def get_notification_campaign_detail(campaign_id: int, created_by: str = N
         row = await conn.fetchrow(f'''
             SELECT c.id, c.notification_type, c.title, c.content, c.payload_json,
                    c.audience_mode, c.audience_snapshot_json, c.created_by,
-                   c.target_count, c.created_at, c.published_at,
-                   COALESCE(SUM(CASE WHEN d.id IS NOT NULL AND d.read_at IS NOT NULL THEN 1 ELSE 0 END), 0) AS read_count,
-                   COALESCE(SUM(CASE WHEN d.id IS NOT NULL AND d.read_at IS NULL THEN 1 ELSE 0 END), 0) AS unread_count
+                   c.target_count, c.created_at, c.published_at
             FROM notification_campaigns c
-            LEFT JOIN notification_deliveries d ON d.campaign_id = c.id
             {where}
-            GROUP BY c.id
         ''', *params)
         if not row:
             return None
-        delivery_rows = await conn.fetch('''
-            SELECT username, delivery_status, delivered_at, read_at, last_push_at, created_at
-            FROM notification_deliveries
-            WHERE campaign_id = $1
-            ORDER BY CASE WHEN read_at IS NULL THEN 0 ELSE 1 END, username ASC
-        ''', int(campaign_id))
+        if int(recipient_limit or 0) > 0:
+            unread_page = await _fetch_notification_recipient_page(conn, int(campaign_id), status='unread', limit=recipient_limit, offset=0)
+            read_page = await _fetch_notification_recipient_page(conn, int(campaign_id), status='read', limit=recipient_limit, offset=0)
+        else:
+            recipients = await _fetch_all_notification_recipients(conn, int(campaign_id))
+            unread_rows = [item for item in recipients if not item.get('read')]
+            read_rows = [item for item in recipients if item.get('read')]
+            unread_page = {
+                'status': 'unread',
+                'total': len(unread_rows),
+                'limit': len(unread_rows) or 100,
+                'offset': 0,
+                'next_offset': len(unread_rows),
+                'has_more': False,
+                'rows': unread_rows,
+            }
+            read_page = {
+                'status': 'read',
+                'total': len(read_rows),
+                'limit': len(read_rows) or 100,
+                'offset': 0,
+                'next_offset': len(read_rows),
+                'has_more': False,
+                'rows': read_rows,
+            }
     data = _serialize_notification_campaign(dict(row))
-    data['recipients'] = [_serialize_notification_delivery(dict(item)) for item in delivery_rows]
+    data['read_count'] = int(read_page.get('total') or 0)
+    data['unread_count'] = int(unread_page.get('total') or 0)
+    data['recipient_pages'] = {
+        'unread': unread_page,
+        'read': read_page,
+    }
+    data['recipients'] = list(unread_page.get('rows') or []) + list(read_page.get('rows') or [])
     return data
+
+
+async def get_notification_campaign_recipients(campaign_id: int, created_by: str = None,
+                                               status: str = 'unread', limit: int = 100,
+                                               offset: int = 0) -> Optional[Dict]:
+    pool = _get_pool()
+    normalized_campaign_id = int(campaign_id or 0)
+    if not normalized_campaign_id:
+        return None
+    params: List[Any] = [normalized_campaign_id]
+    where = 'WHERE id = $1'
+    if created_by:
+        params.append(created_by)
+        where += ' AND created_by = $2'
+    async with pool.acquire() as conn:
+        exists = await conn.fetchval(f'''
+            SELECT 1
+            FROM notification_campaigns
+            {where}
+        ''', *params)
+        if not exists:
+            return None
+        return await _fetch_notification_recipient_page(conn, normalized_campaign_id, status=status, limit=limit, offset=offset)
 
 
 # ===== 积分配置 =====
