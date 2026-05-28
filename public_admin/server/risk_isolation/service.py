@@ -9,6 +9,7 @@ class RiskIsolationService:
                  super_admin_role: str, sub_admin_role: str,
                  sub_admin_exists: Callable[[str], bool],
                  on_isolated: Callable[[list[str]], Awaitable[dict[str, Any]]] | None = None,
+                 on_released: Callable[[list[str]], Awaitable[dict[str, Any]]] | None = None,
                  load_404_page_enabled: Callable[[], Awaitable[bool]] | None = None,
                  save_404_page_enabled: Callable[[bool], Awaitable[bool]] | None = None):
         self.repository = repository
@@ -16,6 +17,7 @@ class RiskIsolationService:
         self.sub_admin_role = sub_admin_role
         self.sub_admin_exists = sub_admin_exists
         self.on_isolated = on_isolated
+        self.on_released = on_released
         self.load_404_page_enabled = load_404_page_enabled
         self.save_404_page_enabled = save_404_page_enabled
         self.initialized = False
@@ -125,22 +127,42 @@ class RiskIsolationService:
         usernames = result.get('usernames') or []
         if not usernames:
             return
-        result['userkey_refresh'] = await self.on_isolated(usernames)
+        sync_result = await self.on_isolated(usernames)
+        result['userkey_filter_sync'] = {
+            'updated': int(sync_result.get('updated') or 0) if isinstance(sync_result, dict) else 0,
+            'usernames': sync_result.get('usernames') or [] if isinstance(sync_result, dict) else [],
+        }
 
     async def release_usernames(self, scope: RiskIsolationScope, usernames: list[str]) -> dict[str, Any]:
         if scope.added_by == '__deny__':
             return {'updated': 0, 'usernames': []}
-        return await self.repository.release_usernames(
+        result = await self.repository.release_usernames(
             [normalize_username(username) for username in usernames or []],
             added_by=scope.added_by or None,
         )
+        await self._notify_released(result)
+        return result
 
     async def release_scope(self, scope: RiskIsolationScope) -> dict[str, Any]:
         if scope.added_by == '__deny__':
             return {'updated': 0, 'usernames': []}
-        return await self.repository.release_scope(
+        result = await self.repository.release_scope(
             added_by=scope.added_by or None,
         )
+        await self._notify_released(result)
+        return result
+
+    async def _notify_released(self, result: dict[str, Any]) -> None:
+        if self.on_released is None:
+            return
+        usernames = result.get('usernames') or []
+        if not usernames:
+            return
+        release_result = await self.on_released(usernames)
+        result['userkey_release'] = {
+            'updated': int(release_result.get('updated') or 0) if isinstance(release_result, dict) else 0,
+            'usernames': release_result.get('usernames') or [] if isinstance(release_result, dict) else [],
+        }
 
     async def should_hide_login(self, username: str) -> bool:
         if not self.initialized:

@@ -470,6 +470,7 @@ try:
         RiskIsolationLoginGuard,
         RiskIsolationRepository,
         RiskIsolationService,
+        RiskIsolationUserKeyFilter,
         create_risk_isolation_router,
     )
     _RISK_ISOLATION_IMPORT_ERROR = None
@@ -477,6 +478,7 @@ except Exception as e:
     RiskIsolationLoginGuard = None
     RiskIsolationRepository = None
     RiskIsolationService = None
+    RiskIsolationUserKeyFilter = None
     create_risk_isolation_router = None
     _RISK_ISOLATION_IMPORT_ERROR = e
 
@@ -626,13 +628,6 @@ _POINT_HISTORY_RPC_TYPES = {
     "TP": "Record_TP",
     "RP": "Record_RP",
 }
-
-RISK_ISOLATION_USERKEY_REFRESH_HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-    "Accept": "application/json, text/javascript, */*; q=0.01",
-    "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
-}
-
 
 def _make_rpc_v() -> str:
     now = datetime.now()
@@ -819,6 +814,21 @@ async def _record_login_forget_403_and_maybe_ban_ip(client_ip: str, api_path: st
         logger.warning(f"[LoginForget403Guard] 连续403记录 ip={decision.ip} api={api_path} count={decision.count}/{decision.threshold}")
     elif decision.code == "login_forget_403_banned":
         logger.warning(f"[LoginForget403Guard] 自动封禁IP ip={decision.ip} api={api_path} count={decision.count} reason={decision.reason}")
+
+
+def _build_risk_isolation_userkey_response(path: str, params: dict, source: str):
+    if risk_isolation_userkey_filter is None:
+        return None
+    if path.strip("/").lower() == "login":
+        return None
+    match = risk_isolation_userkey_filter.match_params(params)
+    if not match:
+        return None
+    logger.warning(
+        f"[RiskIsolationUserKeyFilter] 命中隔离key source={source} path={path} "
+        f"account={match.get('username') or '-'} key_tail={str(match.get('userkey') or '')[-4:] or '-'}"
+    )
+    return JSONResponse({"Error": True, "IsLogin": False})
 
 
 async def _clear_saved_password_after_login_forget_success(api_path: str, params: dict, result: dict, source: str) -> None:
@@ -2361,6 +2371,9 @@ async def proxy_index_data(request: Request):
     raw_body = await request.body() if request.method == "POST" else b""
 
     params = parse_request_params(content_type, dict(request.query_params), raw_body)
+    risk_isolation_response = _build_risk_isolation_userkey_response("public_IndexData", params, "index_data")
+    if risk_isolation_response is not None:
+        return risk_isolation_response
 
     
 
@@ -2549,6 +2562,9 @@ async def proxy_rpc(path: str, request: Request):
     
 
     params = parse_request_params(content_type, dict(request.query_params), raw_body)
+    risk_isolation_response = _build_risk_isolation_userkey_response(path, params, "rpc")
+    if risk_isolation_response is not None:
+        return risk_isolation_response
 
     trace_rpc_paths = {
         "public_ace",
@@ -3622,88 +3638,20 @@ else:
     logger.warning(f"[OperationAuth] 操作鉴权模块不可用，已跳过: {_OPERATION_AUTH_IMPORT_ERROR}")
 
 
-async def _refresh_isolated_userkey(username: str) -> dict:
-    normalized = str(username or '').strip().lower()
-    if not normalized:
-        return {'username': normalized, 'success': False, 'reason': 'empty_username'}
-    password = await db.get_user_password(normalized)
-    if not password:
-        return {'username': normalized, 'success': False, 'reason': 'missing_password'}
-    try:
-        response = await forward_request(
-            "POST",
-            "Login",
-            "application/x-www-form-urlencoded",
-            {
-                "account": normalized,
-                "password": password,
-                "v": _make_rpc_v(),
-                "lang": "cn",
-            },
-            b"",
-            RISK_ISOLATION_USERKEY_REFRESH_HEADERS,
-            client_ip="127.0.0.1",
-            is_login=True,
-            force_direct=True,
-        )
-        if response.status_code != 200:
-            logger.warning(f"[RiskIsolation] 刷新隔离用户 userkey 上游状态异常 account={normalized} status={response.status_code}")
-            return {'username': normalized, 'success': False, 'reason': 'login_http_error', 'status_code': response.status_code}
-        result = response.json()
-    except Exception as exc:
-        logger.warning(f"[RiskIsolation] 刷新隔离用户 userkey 失败 account={normalized}: {exc}")
-        return {'username': normalized, 'success': False, 'reason': 'login_request_failed'}
-    if not isinstance(result, dict) or result.get("Error"):
-        message = ''
-        if isinstance(result, dict):
-            message = str(result.get("Msg") or result.get("Message") or result.get("msg") or '')
-        logger.warning(f"[RiskIsolation] 刷新隔离用户 userkey 被上游拒绝 account={normalized}: {message}")
-        return {'username': normalized, 'success': False, 'reason': 'login_rejected'}
-    userkey = _extract_login_result_userkey(result)
-    if not userkey:
-        logger.warning(f"[RiskIsolation] 刷新隔离用户 userkey 响应缺少 Key account={normalized}")
-        return {'username': normalized, 'success': False, 'reason': 'missing_userkey'}
-    cached = _cache_ak_auth(normalized, password, result, response.headers)
-    try:
-        await db.save_ak_auth_state(
-            normalized,
-            userkey=cached.get("userkey", ""),
-            cookies=cached.get("cookies", {}),
-            login_payload=cached.get("login_result", {}),
-            ttl_seconds=_BROWSE_SESSION_TTL,
-        )
-    except Exception as exc:
-        logger.warning(f"[RiskIsolation] 隔离用户 userkey 持久化失败 account={normalized}: {exc}")
-        return {'username': normalized, 'success': False, 'reason': 'persist_failed'}
-    logger.info(f"[RiskIsolation] 已刷新隔离用户 userkey account={normalized}")
-    return {'username': normalized, 'success': True}
-
-
-async def _refresh_isolated_userkeys(usernames: list[str]) -> dict:
-    items = []
-    seen = set()
-    for username in usernames or []:
-        normalized = str(username or '').strip().lower()
-        if not normalized or normalized in seen:
-            continue
-        seen.add(normalized)
-        items.append(await _refresh_isolated_userkey(normalized))
-    success = sum(1 for item in items if item.get('success'))
-    failed = len(items) - success
-    logger.info(f"[RiskIsolation] 隔离后刷新 userkey 完成 total={len(items)} success={success} failed={failed}")
-    return {'total': len(items), 'success': success, 'failed': failed, 'items': items}
-
-
 risk_isolation_service = None
 risk_isolation_login_guard = None
+risk_isolation_userkey_filter = None
 if RiskIsolationRepository is not None and RiskIsolationService is not None:
     risk_isolation_repository = RiskIsolationRepository(db)
+    if RiskIsolationUserKeyFilter is not None:
+        risk_isolation_userkey_filter = RiskIsolationUserKeyFilter(risk_isolation_repository, logger)
     risk_isolation_service = RiskIsolationService(
         risk_isolation_repository,
         super_admin_role=ROLE_SUPER_ADMIN,
         sub_admin_role=ROLE_SUB_ADMIN,
         sub_admin_exists=lambda name: str(name or '').strip() in SUB_ADMINS,
-        on_isolated=_refresh_isolated_userkeys,
+        on_isolated=risk_isolation_userkey_filter.on_accounts_isolated if risk_isolation_userkey_filter is not None else None,
+        on_released=risk_isolation_userkey_filter.on_accounts_released if risk_isolation_userkey_filter is not None else None,
         load_404_page_enabled=db.get_risk_isolation_404_page_enabled,
         save_404_page_enabled=db.set_risk_isolation_404_page_enabled,
     )
@@ -4675,6 +4623,8 @@ async def admin_startup():
         async def _initialize_risk_isolation():
             try:
                 await risk_isolation_service.initialize()
+                if risk_isolation_userkey_filter is not None:
+                    await risk_isolation_userkey_filter.initialize()
                 logger.info("[RiskIsolation] 风险隔离模块已初始化")
             except Exception as e:
                 logger.warning(f"[RiskIsolation] 初始化失败，已跳过: {e}")
@@ -12797,6 +12747,9 @@ async def _forward_admin_ak_rpc_request(path: str, request: Request, session: di
     query_params = {k: v for k, v in dict(request.query_params).items() if k != "bs"}
     params = parse_request_params(content_type, query_params, raw_body)
     is_login_path = path.strip("/").lower() == "login"
+    risk_isolation_response = _build_risk_isolation_userkey_response(path, params, "admin_ak_rpc")
+    if risk_isolation_response is not None:
+        return risk_isolation_response
     normalized_path = path.strip("/").lower()
     protected_paths = {
         "public_ep_sellrecords1",
@@ -12861,6 +12814,9 @@ async def _forward_admin_ak_rpc_request(path: str, request: Request, session: di
             f"[AdminAkRpcAuth/{path}] replaced={int(auth_replaced)} key={str(params.get('key') or '')[:8]} "
             f"userId={str(params.get('UserID') or params.get('userid') or '')} referer={referer}"
         ))
+        risk_isolation_response = _build_risk_isolation_userkey_response(path, params, "admin_ak_rpc_session")
+        if risk_isolation_response is not None:
+            return risk_isolation_response
     if trace_params_before is not None:
         _admin_ak_trace(lambda: (
             f"[AdminAkRpcParams/{path}] phase=forward referer={referer} "

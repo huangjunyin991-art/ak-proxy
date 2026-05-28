@@ -1,4 +1,5 @@
 import asyncio
+import json
 from typing import Any
 
 from .schema import normalize_username, serialize_time
@@ -26,6 +27,20 @@ class RiskIsolationRepository:
                 )
             ''')
             await conn.execute('CREATE INDEX IF NOT EXISTS idx_risk_isolations_active ON risk_isolations(is_active)')
+            await conn.execute('''
+                CREATE TABLE IF NOT EXISTS risk_isolation_userkeys (
+                    userkey TEXT PRIMARY KEY,
+                    username TEXT NOT NULL DEFAULT '',
+                    user_id TEXT NOT NULL DEFAULT '',
+                    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+                    source TEXT NOT NULL DEFAULT '',
+                    created_at TIMESTAMP DEFAULT NOW(),
+                    updated_at TIMESTAMP DEFAULT NOW(),
+                    released_at TIMESTAMP
+                )
+            ''')
+            await conn.execute('CREATE INDEX IF NOT EXISTS idx_risk_isolation_userkeys_active ON risk_isolation_userkeys(is_active)')
+            await conn.execute('CREATE INDEX IF NOT EXISTS idx_risk_isolation_userkeys_username ON risk_isolation_userkeys(username)')
         self._ready = True
 
     async def ensure_ready(self) -> None:
@@ -247,6 +262,114 @@ class RiskIsolationRepository:
                 ''')
         released = [normalize_username(row['username']) for row in rows]
         return {'updated': len(released), 'usernames': released}
+
+    async def list_active_userkeys(self) -> list[dict[str, Any]]:
+        await self.ensure_ready()
+        pool = self.db._get_pool()
+        async with pool.acquire() as conn:
+            rows = await conn.fetch('''
+                SELECT userkey, username, user_id
+                FROM risk_isolation_userkeys
+                WHERE is_active = TRUE
+                  AND COALESCE(userkey, '') <> ''
+            ''')
+        return [
+            {
+                'userkey': str(row['userkey'] or '').strip(),
+                'username': normalize_username(row['username']),
+                'user_id': str(row['user_id'] or '').strip(),
+            }
+            for row in rows
+            if str(row['userkey'] or '').strip()
+        ]
+
+    async def list_active_isolated_usernames(self) -> list[str]:
+        await self.ensure_ready()
+        pool = self.db._get_pool()
+        async with pool.acquire() as conn:
+            rows = await conn.fetch('''
+                SELECT username
+                FROM risk_isolations
+                WHERE is_active = TRUE
+            ''')
+        return [normalize_username(row['username']) for row in rows if normalize_username(row['username'])]
+
+    async def sync_userkeys_from_local_auth(self, usernames: list[str], source: str = 'local_auth_state') -> dict[str, Any]:
+        await self.ensure_ready()
+        normalized = []
+        for username in usernames or []:
+            value = normalize_username(username)
+            if value and value not in normalized:
+                normalized.append(value)
+        if not normalized:
+            return {'updated': 0, 'usernames': [], 'keys': []}
+        pool = self.db._get_pool()
+        async with pool.acquire() as conn:
+            rows = await conn.fetch('''
+                SELECT username, ak_userkey, ak_login_payload
+                FROM user_stats
+                WHERE username = ANY($1::text[])
+                  AND COALESCE(ak_userkey, '') <> ''
+            ''', normalized)
+            items = []
+            for row in rows:
+                username = normalize_username(row['username'])
+                userkey = str(row['ak_userkey'] or '').strip()
+                if not username or not userkey:
+                    continue
+                user_id = ''
+                payload = row['ak_login_payload']
+                if payload:
+                    try:
+                        data = json.loads(payload) if isinstance(payload, str) else {}
+                        user_data = data.get('UserData') if isinstance(data, dict) else {}
+                        if isinstance(user_data, dict):
+                            user_id = str(user_data.get('Id') or user_data.get('ID') or user_data.get('UserID') or '').strip()
+                    except Exception:
+                        user_id = ''
+                items.append((userkey, username, user_id, str(source or '').strip()))
+            if items:
+                await conn.executemany('''
+                    INSERT INTO risk_isolation_userkeys (userkey, username, user_id, is_active, source, created_at, updated_at, released_at)
+                    VALUES ($1, $2, $3, TRUE, $4, NOW(), NOW(), NULL)
+                    ON CONFLICT(userkey) DO UPDATE SET
+                        username = $2,
+                        user_id = $3,
+                        is_active = TRUE,
+                        source = $4,
+                        updated_at = NOW(),
+                        released_at = NULL
+                ''', items)
+        return {
+            'updated': len(items),
+            'usernames': [item[1] for item in items],
+            'keys': [{'userkey': item[0], 'username': item[1], 'user_id': item[2]} for item in items],
+        }
+
+    async def release_userkeys_by_usernames(self, usernames: list[str]) -> dict[str, Any]:
+        await self.ensure_ready()
+        normalized = []
+        for username in usernames or []:
+            value = normalize_username(username)
+            if value and value not in normalized:
+                normalized.append(value)
+        if not normalized:
+            return {'updated': 0, 'usernames': []}
+        pool = self.db._get_pool()
+        async with pool.acquire() as conn:
+            rows = await conn.fetch('''
+                UPDATE risk_isolation_userkeys
+                SET is_active = FALSE, updated_at = NOW(), released_at = NOW()
+                WHERE username = ANY($1::text[])
+                  AND is_active = TRUE
+                RETURNING username
+            ''', normalized)
+        released = []
+        for row in rows:
+            username = normalize_username(row['username'])
+            if username and username not in released:
+                released.append(username)
+        return {'updated': len(rows), 'usernames': released}
 
     async def is_isolated(self, username: str) -> bool:
         await self.ensure_ready()
