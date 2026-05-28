@@ -188,6 +188,33 @@
         .stat-card.green .value { color: var(--accent-green); }
         .stat-card.red .value { color: var(--accent-red); }
         .stat-card.yellow .value { color: var(--accent-yellow); }
+
+        #licenseStatsGrid {
+            display: grid !important;
+            grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+            gap: 10px !important;
+        }
+
+        #licenseStatsGrid .stat-mini {
+            min-width: 0;
+            padding: 12px 10px !important;
+        }
+
+        #licenseStatsGrid .stat-mini > div:first-child,
+        #licenseStatsGrid .stat-mini > div:last-child {
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        #licenseStatsGrid .stat-mini > div:first-child {
+            font-size: clamp(10px, 1.1vw, 12px) !important;
+        }
+
+        #licenseStatsGrid .stat-mini > div:last-child {
+            font-size: clamp(16px, 2.1vw, 24px) !important;
+            line-height: 1.12;
+        }
         
         /* 流光边框效果 */
         .glow-border {
