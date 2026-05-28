@@ -22,6 +22,7 @@ from .performance.point_stats import (
     build_point_stats_detail as build_point_stats_detail_result,
     search_point_stat_users as search_point_stat_users_result,
 )
+from .performance.ban_maintenance import ensure_ban_normalized, run_ban_normalization
 from .performance.admin_summary import build_admin_summary
 from .performance.admin_lists import build_admin_asset_list, build_admin_user_list
 from .performance.dashboard_stats import build_traffic_dashboard, build_user_growth
@@ -1632,67 +1633,14 @@ async def is_banned(username: str = None, ip_address: str = None) -> bool:
 
 
 async def _normalize_ban_records(conn):
-    await conn.execute('''
-        UPDATE ip_stats
-        SET is_banned = FALSE, banned_at = NULL, banned_reason = '',
-            preban_count = 0, preban_first_seen = NULL, preban_last_seen = NULL, preban_reason = ''
-        WHERE ip_address IN ('127.0.0.1', '::1', 'localhost')
-           OR ip_address LIKE '127.%'
-    ''')
-    await conn.execute('''
-        UPDATE user_stats
-        SET last_ip = ''
-        WHERE last_ip IN ('127.0.0.1', '::1', 'localhost')
-           OR last_ip LIKE '127.%'
-    ''')
-    await conn.execute('''
-        DELETE FROM ip_stats
-        WHERE ip_address IN ('127.0.0.1', '::1', 'localhost')
-           OR ip_address LIKE '127.%'
-    ''')
-    await conn.execute('''
-        DELETE FROM ban_list
-        WHERE ban_type = 'ip'
-          AND (
-              ban_value IN ('127.0.0.1', '::1', 'localhost')
-              OR ban_value LIKE '127.%'
-          )
-    ''')
-    await conn.execute('''
-        UPDATE user_stats us
-        SET is_banned = FALSE, banned_at = NULL, banned_reason = ''
-        FROM ban_list bl
-        WHERE bl.ban_type = 'username'
-          AND bl.ban_value = us.username
-          AND bl.is_active = TRUE
-          AND bl.banned_until IS NOT NULL
-          AND bl.banned_until <= NOW()
-          AND us.is_banned = TRUE
-    ''')
-    await conn.execute('''
-        UPDATE ip_stats ips
-        SET is_banned = FALSE, banned_at = NULL, banned_reason = '',
-            preban_count = 0, preban_first_seen = NULL, preban_last_seen = NULL, preban_reason = ''
-        FROM ban_list bl
-        WHERE bl.ban_type = 'ip'
-          AND bl.ban_value = ips.ip_address
-          AND bl.is_active = TRUE
-          AND bl.banned_until IS NOT NULL
-          AND bl.banned_until <= NOW()
-          AND ips.is_banned = TRUE
-    ''')
-    await conn.execute('''
-        DELETE FROM ban_list
-        WHERE (is_active = FALSE OR (banned_until IS NOT NULL AND banned_until <= NOW()))
-          AND COALESCE(released_at, banned_until, banned_at) < NOW() - INTERVAL '7 days'
-    ''')
+    await run_ban_normalization(conn)
 
 
 async def get_ban_list() -> List[Dict]:
     """获取封禁列表"""
     pool = _get_pool()
+    await ensure_ban_normalized(pool)
     async with pool.acquire() as conn:
-        await _normalize_ban_records(conn)
         rows = await conn.fetch('''
             WITH visible_bans AS (
                 SELECT id, ban_type, ban_value, banned_at, banned_reason, banned_until, is_active,
@@ -1742,9 +1690,9 @@ async def get_ban_list() -> List[Dict]:
 async def get_stats_summary() -> Dict:
     """获取统计摘要"""
     pool = _get_pool()
+    await ensure_ban_normalized(pool)
     return await build_admin_summary(
         pool,
-        normalize_bans=_normalize_ban_records,
         user_growth_loader=lambda: build_user_growth(pool),
         on_user_growth_error=lambda exc: logger.warning(f"[DashboardStats] 用户增长数据加载失败: {exc}"),
     )
@@ -1775,8 +1723,8 @@ async def get_all_ips(limit: int = 100, offset: int = 0,
                 last_seen DESC
         '''
     pool = _get_pool()
+    await ensure_ban_normalized(pool)
     async with pool.acquire() as conn:
-        await _normalize_ban_records(conn)
         rows = await conn.fetch(f'''
             SELECT ip_address, request_count, first_seen, last_seen, is_banned,
                    CASE
