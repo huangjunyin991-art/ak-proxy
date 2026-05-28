@@ -23,6 +23,7 @@ from .performance.point_stats.detail_pagination import (
     normalize_point_detail_page,
     paginate_point_category_records,
 )
+from .performance.dashboard_stats import build_traffic_dashboard, build_user_growth
 
 logger = logging.getLogger("TransparentProxy.DB")
 
@@ -2023,13 +2024,15 @@ async def get_ban_list() -> List[Dict]:
 async def get_stats_summary() -> Dict:
     """获取统计摘要"""
     pool = _get_pool()
+    today = datetime.now().date()
+    tomorrow = today + timedelta(days=1)
     async with pool.acquire() as conn:
         await _normalize_ban_records(conn)
         total_users = await conn.fetchval('SELECT COUNT(*) FROM user_stats')
         total_ips = await conn.fetchval('SELECT COUNT(*) FROM ip_stats')
         today_logins = await conn.fetchval('''
-            SELECT COUNT(*) FROM login_records WHERE login_time::date = CURRENT_DATE
-        ''')
+            SELECT COUNT(*) FROM login_records WHERE login_time >= $1 AND login_time < $2
+        ''', today, tomorrow)
         banned_count = await conn.fetchval('''
             WITH visible_bans AS (
                 SELECT ban_type, ban_value
@@ -2072,8 +2075,7 @@ async def get_stats_summary() -> Dict:
                 SUM(rp) as total_rp, SUM(tp) as total_tp
             FROM user_assets
         ''')
-
-        return {
+        summary = {
             'total_users': total_users or 0,
             'total_ips': total_ips or 0,
             'today_logins': today_logins or 0,
@@ -2085,6 +2087,12 @@ async def get_stats_summary() -> Dict:
             'total_rp': float(row['total_rp'] or 0),
             'total_tp': float(row['total_tp'] or 0),
         }
+    try:
+        summary['user_growth'] = await build_user_growth(pool)
+    except Exception as e:
+        logger.warning(f"[DashboardStats] 用户增长数据加载失败: {e}")
+        summary['user_growth'] = []
+    return summary
 
 
 # ===== IP 统计 =====
@@ -2298,91 +2306,8 @@ async def get_all_users_with_assets(limit: int = 100, offset: int = 0) -> List[D
 
 
 async def get_dashboard_data() -> Dict:
-    """获取仪表盘数据"""
     pool = _get_pool()
-    today = datetime.now().date()
-    tomorrow = today + timedelta(days=1)
-
-    async def q_total_success():
-        async with pool.acquire() as conn:
-            return await conn.fetchrow('''
-                SELECT COUNT(*) AS total,
-                       SUM(
-                           CASE
-                               WHEN login_success IS TRUE THEN 1
-                               WHEN login_success IS FALSE THEN 0
-                               WHEN extra_data ILIKE '%"status": "success"%' OR extra_data ILIKE '%"status":"success"%' THEN 1
-                               WHEN extra_data ILIKE '%"status": "failed"%' OR extra_data ILIKE '%"status":"failed"%' THEN 0
-                               WHEN extra_data ILIKE '%"status": "blocked"%' OR extra_data ILIKE '%"status":"blocked"%' THEN 0
-                               WHEN status_code = 200 THEN 1
-                               ELSE 0
-                           END
-                       ) AS success
-                FROM login_records
-                WHERE login_time >= $1 AND login_time < $2
-            ''', today, tomorrow)
-
-    async def q_active_users():
-        async with pool.acquire() as conn:
-            return await conn.fetchval('''
-                SELECT COUNT(DISTINCT username) FROM login_records
-                WHERE login_time >= $1 AND login_time < $2
-            ''', today, tomorrow)
-
-    async def q_peak_rpm():
-        async with pool.acquire() as conn:
-            return await conn.fetchrow('''
-                SELECT COUNT(*) AS count FROM login_records
-                WHERE login_time >= $1 AND login_time < $2
-                GROUP BY date_trunc('minute', login_time)
-                ORDER BY count DESC LIMIT 1
-            ''', today, tomorrow)
-
-    async def q_hourly():
-        async with pool.acquire() as conn:
-            return await conn.fetch('''
-                SELECT EXTRACT(HOUR FROM login_time)::int AS hour, COUNT(*) AS count
-                FROM login_records
-                WHERE login_time >= $1 AND login_time < $2
-                GROUP BY hour ORDER BY hour
-            ''', today, tomorrow)
-
-    async def q_top_users():
-        async with pool.acquire() as conn:
-            return await conn.fetch('''
-                SELECT username, COUNT(*) AS count, MAX(login_time) AS last_login FROM login_records
-                WHERE login_time >= $1 AND login_time < $2
-                GROUP BY username ORDER BY count DESC, last_login DESC LIMIT 10
-            ''', today, tomorrow)
-
-    async def q_top_ips():
-        async with pool.acquire() as conn:
-            return await conn.fetch('''
-                SELECT ip_address AS ip, COUNT(*) AS count FROM login_records
-                WHERE login_time >= $1 AND login_time < $2
-                GROUP BY ip_address ORDER BY count DESC LIMIT 10
-            ''', today, tomorrow)
-
-    total_row, active_users, peak_row, hourly_rows, top_users, top_ips = await asyncio.gather(
-        q_total_success(), q_active_users(), q_peak_rpm(),
-        q_hourly(), q_top_users(), q_top_ips(),
-    )
-
-    total = (total_row['total'] if total_row else 0) or 0
-    success = (total_row['success'] if total_row else 0) or 0
-    success_rate = (success / total) * 100 if total > 0 else 0
-    peak_rpm = peak_row['count'] if peak_row else 0
-    hourly_data = [{'hour': r['hour'], 'count': r['count']} for r in hourly_rows]
-
-    return {
-        'today_requests': total,
-        'success_rate': round(success_rate, 1),
-        'active_users': active_users or 0,
-        'peak_rpm': peak_rpm,
-        'hourly_data': hourly_data,
-        'top_users': [dict(r) for r in top_users],
-        'top_ips': [dict(r) for r in top_ips]
-    }
+    return await build_traffic_dashboard(pool)
 
 
 # ===== 数据库管理（通用表操作） =====

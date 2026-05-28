@@ -1,0 +1,130 @@
+.stat-card[data-user-growth-trigger] {
+    cursor: pointer;
+    position: relative;
+}
+
+.stat-card[data-user-growth-trigger]::after {
+    content: '点击查看增长趋势';
+    position: absolute;
+    right: 14px;
+    bottom: 10px;
+    color: var(--text-secondary);
+    font-size: 11px;
+    opacity: 0;
+    transition: opacity 0.2s;
+}
+
+.stat-card[data-user-growth-trigger]:hover::after {
+    opacity: 1;
+}
+
+.user-growth-modal-content {
+    width: min(760px, calc(100vw - 32px));
+    max-width: 760px;
+    border: 1px solid rgba(0, 212, 255, 0.32);
+}
+
+.user-growth-summary {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 12px;
+    margin-bottom: 18px;
+}
+
+.user-growth-summary-item {
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 10px;
+    padding: 12px;
+}
+
+.user-growth-summary-label {
+    color: var(--text-secondary);
+    font-size: 12px;
+    margin-bottom: 6px;
+}
+
+.user-growth-summary-value {
+    color: var(--accent);
+    font-size: 22px;
+    font-weight: 800;
+}
+
+.user-growth-chart-shell {
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 12px;
+    padding: 18px 12px 10px;
+}
+
+.user-growth-chart {
+    display: flex;
+    align-items: flex-end;
+    gap: 4px;
+    height: 220px;
+}
+
+.user-growth-bar {
+    flex: 1;
+    min-width: 4px;
+    min-height: 3px;
+    border-radius: 4px 4px 0 0;
+    background: linear-gradient(to top, #00d4ff, #667eea);
+    position: relative;
+}
+
+.user-growth-bar:hover {
+    background: linear-gradient(to top, #00ff88, #00d4ff);
+}
+
+.user-growth-bar::after {
+    content: attr(data-tooltip);
+    position: absolute;
+    bottom: calc(100% + 8px);
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text-primary);
+    padding: 6px 8px;
+    font-size: 11px;
+    white-space: nowrap;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s;
+    z-index: 2;
+}
+
+.user-growth-bar:hover::after {
+    opacity: 1;
+}
+
+.user-growth-labels {
+    display: flex;
+    gap: 4px;
+    padding-top: 10px;
+}
+
+.user-growth-label {
+    flex: 1;
+    text-align: center;
+    color: var(--text-secondary);
+    font-size: 10px;
+}
+
+.user-growth-empty {
+    padding: 40px 0;
+    color: var(--text-secondary);
+    text-align: center;
+}
+
+@media (max-width: 640px) {
+    .user-growth-summary {
+        grid-template-columns: 1fr;
+    }
+
+    .user-growth-chart {
+        height: 160px;
+    }
+}

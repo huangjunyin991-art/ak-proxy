@@ -11437,6 +11437,9 @@ async def admin_shared_asset(asset_path: str):
     allowed_assets = {
         "sticky_table/sticky_table.css": "text/css",
         "sticky_table/sticky_table.js": "application/javascript",
+        "dashboard/dashboard.css": "text/css",
+        "dashboard/user_growth_chart.js": "application/javascript",
+        "dashboard/traffic_dashboard.js": "application/javascript",
     }
     media_type = allowed_assets.get(asset_path)
     if not media_type:

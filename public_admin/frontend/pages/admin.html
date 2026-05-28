@@ -3319,7 +3319,10 @@
     </style>
     <link rel="stylesheet" href="/admin/api/admin-theme.css?v=20260508-01">
     <link rel="stylesheet" href="/admin/api/shared/sticky_table/sticky_table.css?v=2026052701">
+    <link rel="stylesheet" href="/admin/api/shared/dashboard/dashboard.css?v=2026052801">
     <script src="/admin/api/shared/sticky_table/sticky_table.js?v=2026052701" defer></script>
+    <script src="/admin/api/shared/dashboard/user_growth_chart.js?v=2026052801" defer></script>
+    <script src="/admin/api/shared/dashboard/traffic_dashboard.js?v=2026052801" defer></script>
 </head>
 <body>
     <!-- 横屏提示 -->
@@ -3400,7 +3403,7 @@
     
     <!-- 统计卡片 -->
     <div class="stats-grid" id="statsGrid">
-        <div class="stat-card">
+        <div class="stat-card" data-user-growth-trigger="1">
             <div class="label">总用户数</div>
             <div class="value" id="statUsers">-</div>
         </div>
@@ -6120,6 +6123,7 @@
                 document.getElementById('statTotalSP').textContent = formatNumber(data.total_sp);
                 document.getElementById('statTotalRP').textContent = formatNumber(data.total_rp);
                 document.getElementById('statTotalTP').textContent = formatNumber(data.total_tp);
+                window.dispatchEvent(new CustomEvent('admin:stats-refreshed', { detail: data }));
             } catch (e) {
                 console.error('加载统计失败', e);
             }
@@ -9619,6 +9623,10 @@
         
         // 加载仪表盘数据
         async function loadDashboard() {
+            if (window.AdminTrafficDashboard && typeof window.AdminTrafficDashboard.loadDashboard === 'function') {
+                return window.AdminTrafficDashboard.loadDashboard();
+            }
+
             if (!shouldRunAdminPanelPoll('dashboard')) return;
             try {
                 const res = await fetch(`${API_BASE}/admin/api/dashboard`);

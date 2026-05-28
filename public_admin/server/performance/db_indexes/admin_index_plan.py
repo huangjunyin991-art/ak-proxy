@@ -36,6 +36,11 @@ ADMIN_INDEX_PLAN = [
         purpose="admin user list ordering by recent activity",
     ),
     AdminIndexDefinition(
+        name="idx_user_stats_first_login",
+        sql="CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_user_stats_first_login ON user_stats(first_login DESC NULLS LAST);",
+        purpose="dashboard user growth trend by first login time",
+    ),
+    AdminIndexDefinition(
         name="idx_ip_stats_priority",
         sql="CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_ip_stats_priority ON ip_stats(is_banned, request_count DESC, last_seen DESC);",
         purpose="admin IP list filtering and ordering",
