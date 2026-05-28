@@ -1971,8 +1971,6 @@ async def proxy_login(request: Request):
 
     # 白名单检查
 
-    persistent_login = False
-
     try:
 
         whitelist_open_to_all = await db.get_whitelist_global_status()
@@ -2014,8 +2012,6 @@ async def proxy_login(request: Request):
                     logger.warning(f"[Login] 白名单过期记录失败: {e}")
                 await _record_login_403_and_maybe_ban_ip(client_ip, account, "whitelist_expired")
                 return JSONResponse({"Error": True, "Msg": "您的访问权限已到期，请联系上属老师续期或使用ak2018，ak928登录！"})
-
-            persistent_login = auth_info.get('persistent_login', False)
 
             logger.info(f"[Login] 白名单生效，允许登录: {account}")
 
@@ -2333,14 +2329,6 @@ async def proxy_login(request: Request):
 
         resp.set_cookie(key="ak_username", value=login_identity_username or account, max_age=86400*30, httponly=False, samesite="lax")
         resp.set_cookie(key="ak_im_username", value=login_identity_username or account, max_age=86400*30, httponly=False, samesite="lax")
-
-        if persistent_login:
-
-            resp.set_cookie(key="ak_persist", value="1", max_age=86400*30, httponly=False, samesite="lax")
-
-        else:
-
-            resp.delete_cookie(key="ak_persist")
 
     return resp
 
@@ -6908,17 +6896,11 @@ async def admin_whitelist_add(request: Request):
 
     plan_type = data.get('plan_type', 'monthly')
 
-    remark = data.get('remark', '')
-
     nickname = data.get('nickname', '').strip()
 
     if not username:
 
         return {"success": False, "message": "账号不能为空"}
-
-    existing_account = await db.get_authorized_account(username)
-
-
 
     configs = await db.get_credit_config()
 
@@ -6952,7 +6934,7 @@ async def admin_whitelist_add(request: Request):
 
             plan_type=plan_type, credits_cost=credits_cost,
 
-            duration_days=duration_days, remark=remark, nickname=nickname,
+            duration_days=duration_days, nickname=nickname,
 
             charge_admin=(role != ROLE_SUPER_ADMIN), plan_name=plan['plan_name'])
 
@@ -7150,41 +7132,6 @@ async def admin_whitelist_expiring(request: Request, days: int = 7):
 
     return await db.get_expiring_accounts(days=days, added_by=added_by)
 
-
-
-@app.post("/admin/api/whitelist/toggle_persist")
-
-async def admin_whitelist_toggle_persist(request: Request):
-
-    _, error_response = await _require_admin_token(request)
-    if error_response is not None:
-        return error_response
-
-    data = await request.json()
-
-    username = data.get('username', '').strip()
-
-    enabled = bool(data.get('enabled', False))
-
-    if not username:
-
-        return {"success": False, "message": "账号不能为空"}
-
-    try:
-
-        ok = await db.toggle_persistent_login(username, enabled)
-
-        if ok:
-
-            return {"success": True, "message": f"账号 [{username}] 强化登录已{'开启' if enabled else '关闭'}"}
-
-        return {"success": False, "message": f"账号 [{username}] 不存在或状态异常"}
-
-    except Exception as e:
-
-        logger.error(f"[Whitelist] toggle_persist 失败: {e}")
-
-        return {"success": False, "message": f"操作失败: {str(e)}"}
 
 
 async def _resolve_meeting_admin_context(request: Request):

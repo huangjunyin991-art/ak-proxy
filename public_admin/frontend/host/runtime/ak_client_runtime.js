@@ -41,7 +41,7 @@
             var auth = getAuthModule();
             if (auth && typeof auth.hasPersistCookie === 'function') return auth.hasPersistCookie();
         } catch(e) {}
-        return document.cookie.indexOf('ak_persist=1') !== -1;
+        return false;
     }
 
     function installRuntimeContext() {
@@ -154,6 +154,7 @@
     }
     
     function bootPWAFeature() {
+        return;
         try {
             var pwa = window.AKClientRuntimePWA;
             if (pwa && typeof pwa.setupPWA === 'function') {

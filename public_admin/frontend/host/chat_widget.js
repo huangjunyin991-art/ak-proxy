@@ -93,7 +93,7 @@
     }
     
     function _akHasPersistCookie() {
-        return document.cookie.indexOf('ak_persist=1') !== -1;
+        return false;
     }
     
     function _akExtractCreds(body) {
@@ -454,6 +454,7 @@
     
     // ===== PWA支持：注入manifest + 注册Service Worker + 安装提示 =====
     function setupPWA() {
+        return;
         function injectManifestLinkIfValid() {
             if (document.querySelector('link[rel="manifest"]')) return;
             if (!window.fetch) return;

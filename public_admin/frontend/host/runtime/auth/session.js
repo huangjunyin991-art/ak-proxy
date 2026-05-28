@@ -76,7 +76,7 @@
     }
 
     function hasPersistCookie() {
-        return document.cookie.indexOf('ak_persist=1') !== -1;
+        return false;
     }
 
     function installRuntimeContext() {

@@ -399,9 +399,7 @@ async def init_db(host: str = "127.0.0.1", port: int = 5432,
                 start_time TIMESTAMP NOT NULL DEFAULT NOW(),
                 expire_time TIMESTAMP NOT NULL,
                 status TEXT NOT NULL DEFAULT 'active',
-                remark TEXT DEFAULT '',
                 nickname TEXT DEFAULT '',
-                persistent_login BOOLEAN DEFAULT FALSE,
                 created_at TIMESTAMP DEFAULT NOW(),
                 updated_at TIMESTAMP DEFAULT NOW()
             )
@@ -469,6 +467,8 @@ async def init_db(host: str = "127.0.0.1", port: int = 5432,
             await conn.execute("ALTER TABLE ip_stats ADD COLUMN IF NOT EXISTS preban_reason TEXT DEFAULT ''")
             await conn.execute("ALTER TABLE login_records ADD COLUMN IF NOT EXISTS login_success BOOLEAN")
             await conn.execute("ALTER TABLE ban_list ADD COLUMN IF NOT EXISTS released_at TIMESTAMP")
+            await conn.execute("ALTER TABLE authorized_accounts DROP COLUMN IF EXISTS persistent_login")
+            await conn.execute("ALTER TABLE authorized_accounts DROP COLUMN IF EXISTS remark")
         except Exception:
             pass
 
@@ -2872,17 +2872,16 @@ async def check_authorized(username: str) -> Optional[Dict]:
     pool = _get_pool()
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
-            "SELECT id, expire_time, status, persistent_login FROM authorized_accounts WHERE username = $1 AND status = 'active'",
+            "SELECT id, expire_time, status FROM authorized_accounts WHERE username = $1 AND status = 'active'",
             username)
         if not row:
             return None
-        return {'id': row['id'], 'expire_time': row['expire_time'], 'status': row['status'],
-                'persistent_login': row.get('persistent_login', False)}
+        return {'id': row['id'], 'expire_time': row['expire_time'], 'status': row['status']}
 
 
 async def add_authorized_account(username: str, password: str, added_by: str,
                                   plan_type: str, credits_cost: int,
-                                  duration_days: int, remark: str = '',
+                                  duration_days: int,
                                   nickname: str = '') -> Dict:
     """添加授权账号"""
     pool = _get_pool()
@@ -2893,20 +2892,20 @@ async def add_authorized_account(username: str, password: str, added_by: str,
         async with conn.transaction():
             row = await conn.fetchrow('''
                 INSERT INTO authorized_accounts
-                    (username, password, added_by, plan_type, credits_cost, start_time, expire_time, status, remark, nickname)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, 'active', $8, $9)
+                    (username, password, added_by, plan_type, credits_cost, start_time, expire_time, status, nickname)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, 'active', $8)
                 ON CONFLICT(username) DO UPDATE SET
                     password=$2, added_by=$3, plan_type=$4, credits_cost=$5,
-                    start_time=$6, expire_time=$7, status='active', remark=$8, nickname=$9, updated_at=NOW()
+                    start_time=$6, expire_time=$7, status='active', nickname=$8, updated_at=NOW()
                 RETURNING id, expire_time
-            ''', username, password, added_by, plan_type, credits_cost, now, expire_time, remark, nickname)
+            ''', username, password, added_by, plan_type, credits_cost, now, expire_time, nickname)
             await _upsert_user_stats_identity(conn, username, real_name=nickname)
         return {'id': row['id'], 'expire_time': str(row['expire_time']), 'username': username, 'real_name': nickname}
 
 
 async def add_authorized_account_atomic(username: str, password: str, added_by: str,
                                         plan_type: str, credits_cost: int,
-                                        duration_days: int, remark: str = '',
+                                        duration_days: int,
                                         nickname: str = '', charge_admin: bool = False,
                                         plan_name: str = '') -> Dict:
     pool = _get_pool()
@@ -2948,13 +2947,13 @@ async def add_authorized_account_atomic(username: str, password: str, added_by: 
                     normalized_username, normalized_added_by)
             row = await conn.fetchrow('''
                 INSERT INTO authorized_accounts
-                    (username, password, added_by, plan_type, credits_cost, start_time, expire_time, status, remark, nickname)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, 'active', $8, $9)
+                    (username, password, added_by, plan_type, credits_cost, start_time, expire_time, status, nickname)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, 'active', $8)
                 ON CONFLICT(username) DO UPDATE SET
                     password=$2, added_by=$3, plan_type=$4, credits_cost=$5,
-                    start_time=$6, expire_time=$7, status='active', remark=$8, nickname=$9, updated_at=NOW()
+                    start_time=$6, expire_time=$7, status='active', nickname=$8, updated_at=NOW()
                 RETURNING id, expire_time
-            ''', normalized_username, password, normalized_added_by, plan_type, credits_cost, now, expire_time, remark, nickname)
+            ''', normalized_username, password, normalized_added_by, plan_type, credits_cost, now, expire_time, nickname)
             await _upsert_user_stats_identity(conn, normalized_username, real_name=nickname)
         return {
             'id': row['id'],
@@ -3050,8 +3049,8 @@ async def ensure_sub_admin_bound_account_authorized(sub_name: str, bound_usernam
         async with conn.transaction():
             row = await conn.fetchrow('''
                 INSERT INTO authorized_accounts
-                    (username, password, added_by, plan_type, credits_cost, start_time, expire_time, status, remark, nickname)
-                VALUES ($1, '', $2, 'sub_admin_bound', 0, $3, $4, 'active', '子管理员绑定账号自动授权', '')
+                    (username, password, added_by, plan_type, credits_cost, start_time, expire_time, status, nickname)
+                VALUES ($1, '', $2, 'sub_admin_bound', 0, $3, $4, 'active', '')
                 ON CONFLICT(username) DO UPDATE SET
                     added_by=$2,
                     plan_type=CASE
@@ -3060,10 +3059,6 @@ async def ensure_sub_admin_bound_account_authorized(sub_name: str, bound_usernam
                     END,
                     expire_time=GREATEST(authorized_accounts.expire_time, $4),
                     status='active',
-                    remark=CASE
-                        WHEN COALESCE(authorized_accounts.remark, '') = '' THEN '子管理员绑定账号自动授权'
-                        ELSE authorized_accounts.remark
-                    END,
                     updated_at=NOW()
                 RETURNING id, username, added_by, status, expire_time
             ''', normalized_username, normalized_sub_name, now, expire_time)
@@ -3075,16 +3070,6 @@ async def ensure_sub_admin_bound_account_authorized(sub_name: str, bound_usernam
             'status': row['status'],
             'expire_time': str(row['expire_time'])
         }
-
-
-async def toggle_persistent_login(username: str, enabled: bool) -> bool:
-    """切换账号的强化登录开关"""
-    pool = _get_pool()
-    async with pool.acquire() as conn:
-        result = await conn.execute(
-            "UPDATE authorized_accounts SET persistent_login=$1, updated_at=NOW() WHERE username=$2 AND status='active'",
-            enabled, username)
-        return int(result.split()[-1]) > 0
 
 
 async def get_authorized_accounts(added_by: str = None, status: str = None,

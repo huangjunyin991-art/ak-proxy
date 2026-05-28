@@ -44,7 +44,6 @@ class OperationScopeResolver:
             ('POST', '/admin/api/whitelist/add'): 'account_ops',
             ('POST', '/admin/api/whitelist/renew'): 'account_ops',
             ('POST', '/admin/api/whitelist/delete'): 'account_ops',
-            ('POST', '/admin/api/whitelist/toggle_persist'): 'account_ops',
             ('POST', '/admin/api/whitelist/set_global'): 'account_ops',
             ('POST', '/admin/api/risk-isolation/isolate'): 'account_ops',
             ('POST', '/admin/api/risk-isolation/isolate_scope'): 'account_ops',
