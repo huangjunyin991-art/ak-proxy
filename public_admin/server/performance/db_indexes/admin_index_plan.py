@@ -105,6 +105,16 @@ ADMIN_INDEX_PLAN = [
         sql="CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_point_history_summary_count ON point_history_user_summary(record_count DESC, latest_saved_at DESC);",
         purpose="point statistics user search ordering without scanning history records",
     ),
+    AdminIndexDefinition(
+        name="idx_point_history_user_type_record_time",
+        sql="CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_point_history_user_type_record_time ON point_history_records(username, point_type, record_time DESC NULLS LAST, id ASC);",
+        purpose="point statistics recent records and current balance ordering for selected account/type",
+    ),
+    AdminIndexDefinition(
+        name="idx_point_history_user_type_category_record_time",
+        sql="CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_point_history_user_type_category_record_time ON point_history_records(username, point_type, resolved_category, record_time DESC NULLS LAST, id ASC);",
+        purpose="point statistics category detail pagination ordered by record time",
+    ),
 ]
 
 

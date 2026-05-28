@@ -17,11 +17,10 @@ import ipaddress
 from datetime import datetime, timedelta, date
 from typing import Dict, List, Optional, Any
 
-from .performance.point_stats.detail_pagination import (
-    build_point_categories,
-    build_point_record_item,
-    normalize_point_detail_page,
-    paginate_point_category_records,
+from .performance.point_stats import (
+    build_point_stats as build_point_stats_result,
+    build_point_stats_detail as build_point_stats_detail_result,
+    search_point_stat_users as search_point_stat_users_result,
 )
 from .performance.admin_summary import build_admin_summary
 from .performance.admin_lists import build_admin_asset_list, build_admin_user_list
@@ -1421,255 +1420,35 @@ async def save_point_history_records(username: str, point_type: str, records: Li
 
 async def get_point_stats(username: str = None, point_type: str = None, limit: int = 50, start_date: str = None, end_date: str = None) -> Dict:
     pool = _get_pool()
-    limit = max(1, min(int(limit or 50), 200))
-    username = username.lower() if username else None
-    code = _point_history_type(point_type) if point_type else None
-    start = _normalize_point_date(start_date)
-    end = _normalize_point_date(end_date)
-    if start and end and start > end:
-        start, end = end, start
-    base_filters = []
-    base_args = []
-    if username:
-        base_args.append(username)
-        base_filters.append(f'username = ${len(base_args)}')
-    if code:
-        base_args.append(code)
-        base_filters.append(f'point_type = ${len(base_args)}')
-    date_expr = _point_record_date_text_expr()
-    query_filters = list(base_filters)
-    query_args = list(base_args)
-    _append_point_date_filters(query_filters, query_args, start, end)
-    range_where_clause = f"WHERE {' AND '.join(base_filters)}" if base_filters else ''
-    where_clause = f"WHERE {' AND '.join(query_filters)}" if query_filters else ''
-    async with pool.acquire() as conn:
-        range_row = await conn.fetchrow(f'''
-            SELECT MIN({date_expr}) AS start_date,
-                   MAX({date_expr}) AS end_date
-            FROM point_history_records
-            {range_where_clause}
-        ''', *base_args)
-        summary_rows = await conn.fetch(f'''
-            SELECT point_type,
-                   COUNT(*) AS total_records,
-                   SUM(CASE WHEN operation_type = 1 THEN ABS(amount) ELSE 0 END) AS total_income,
-                   SUM(CASE WHEN operation_type <> 1 THEN ABS(amount) ELSE 0 END) AS total_expense,
-                   SUM(CASE WHEN operation_type = 1 THEN ABS(amount) ELSE -ABS(amount) END) AS net_change,
-                   COUNT(DISTINCT username) AS account_count,
-                   MAX(saved_at) AS latest_saved_at
-            FROM point_history_records
-            {where_clause}
-            GROUP BY point_type
-            ORDER BY point_type
-        ''', *query_args)
-        recent_rows = await conn.fetch(f'''
-            SELECT username, point_type, record_time, operation_type, amount, balance,
-                   type_name, type_name_cn, description, saved_at
-            FROM point_history_records
-            {where_clause}
-            ORDER BY record_time DESC NULLS LAST, id ASC
-            LIMIT ${len(query_args) + 1}
-        ''', *query_args, limit)
-        leaderboard_rows = await conn.fetch(f'''
-            SELECT username, point_type, COUNT(*) AS total_records,
-                   SUM(CASE WHEN operation_type = 1 THEN ABS(amount) ELSE 0 END) AS total_income,
-                   SUM(CASE WHEN operation_type <> 1 THEN ABS(amount) ELSE 0 END) AS total_expense,
-                   SUM(CASE WHEN operation_type = 1 THEN ABS(amount) ELSE -ABS(amount) END) AS net_change,
-                   MAX(saved_at) AS latest_saved_at
-            FROM point_history_records
-            {where_clause}
-            GROUP BY username, point_type
-            ORDER BY net_change DESC NULLS LAST
-            LIMIT ${len(query_args) + 1}
-        ''', *query_args, limit)
-        active_stats = None
-        raw_rows = []
-        if username and code:
-            active_stats_row = await conn.fetchrow(f'''
-                SELECT COUNT(*) AS total_records,
-                       SUM(CASE WHEN operation_type = 1 THEN ABS(amount) ELSE 0 END) AS total_income,
-                       SUM(CASE WHEN operation_type <> 1 THEN ABS(amount) ELSE 0 END) AS total_expense,
-                       SUM(CASE WHEN operation_type = 1 THEN ABS(amount) ELSE -ABS(amount) END) AS net_change,
-                       MAX(saved_at) AS latest_saved_at
-                FROM point_history_records
-                {where_clause}
-            ''', *query_args)
-            balance_filters = list(query_filters)
-            balance_args = list(query_args)
-            balance_filters.append('balance IS NOT NULL')
-            balance_where_clause = f"WHERE {' AND '.join(balance_filters)}"
-            balance_row = await conn.fetchrow(f'''
-                SELECT balance
-                FROM point_history_records
-                {balance_where_clause}
-                ORDER BY record_time DESC NULLS LAST, id ASC
-                LIMIT 1
-            ''', *balance_args)
-            active_stats = dict(active_stats_row) if active_stats_row else None
-            if active_stats is not None:
-                active_stats['current_balance'] = balance_row['balance'] if balance_row else None
-            raw_rows = await conn.fetch(f'''
-                SELECT record_time, operation_type, amount, balance,
-                       type_name, type_name_cn, description, saved_at
-                FROM point_history_records
-                {where_clause}
-                ORDER BY record_time DESC NULLS LAST, id ASC
-            ''', *query_args)
-    categories = build_point_categories(raw_rows, code or '', resolve_point_category, _format_point_record_description, include_records=False)
-    range_start = range_row['start_date'] if range_row else None
-    range_end = range_row['end_date'] if range_row else None
-    return {
-        'summary': [dict(r) for r in summary_rows],
-        'recent_records': [dict(r) for r in recent_rows],
-        'leaderboard': [dict(r) for r in leaderboard_rows],
-        'active_stats': active_stats,
-        'categories': categories,
-        'username': username,
-        'point_type': code,
-        'date_range': {
-            'start': range_start,
-            'end': range_end,
-        },
-        'selected_range': {
-            'start': start,
-            'end': end,
-        },
-    }
+    return await build_point_stats_result(
+        pool,
+        username=username,
+        point_type=point_type,
+        limit=limit,
+        start_date=start_date,
+        end_date=end_date,
+        resolve_category=resolve_point_category,
+        format_description=_format_point_record_description,
+    )
 
 async def get_point_stats_detail(username: str, point_type: str, category: str, page: int = 1, page_size: int = 50, start_date: str = None, end_date: str = None) -> Dict:
     pool = _get_pool()
-    normalized_username = str(username or '').strip().lower()
-    if not normalized_username:
-        raise ValueError('缺少账号')
-    code = _point_history_type(point_type)
-    category_name = str(category or '').strip()
-    if not category_name:
-        raise ValueError('缺少分类')
-    start = _normalize_point_date(start_date)
-    end = _normalize_point_date(end_date)
-    if start and end and start > end:
-        start, end = end, start
-    filters = ['username = $1', 'point_type = $2']
-    args = [normalized_username, code]
-    _append_point_date_filters(filters, args, start, end)
-    where_clause = f"WHERE {' AND '.join(filters)}"
-    async with pool.acquire() as conn:
-        unresolved_count = await conn.fetchval(f'''
-            SELECT COUNT(*)
-            FROM point_history_records
-            {where_clause}
-              AND COALESCE(resolved_category, '') = ''
-        ''', *args)
-        if int(unresolved_count or 0) == 0:
-            current, size = normalize_point_detail_page(page, page_size)
-            category_filters = list(filters)
-            category_args = list(args)
-            category_args.append(category_name)
-            category_filters.append(f"resolved_category = ${len(category_args)}")
-            category_where_clause = f"WHERE {' AND '.join(category_filters)}"
-            total = int(await conn.fetchval(f'''
-                SELECT COUNT(*)
-                FROM point_history_records
-                {category_where_clause}
-            ''', *category_args) or 0)
-            total_pages = max(1, (total + size - 1) // size)
-            if current > total_pages:
-                current = total_pages
-            offset = (current - 1) * size
-            rows = await conn.fetch(f'''
-                SELECT record_time, operation_type, amount, balance,
-                       type_name, type_name_cn, description, saved_at
-                FROM point_history_records
-                {category_where_clause}
-                ORDER BY record_time DESC NULLS LAST, id ASC
-                LIMIT ${len(category_args) + 1} OFFSET ${len(category_args) + 2}
-            ''', *category_args, size, offset)
-            records = [
-                build_point_record_item(dict(row), code, resolve_point_category, _format_point_record_description)[1]
-                for row in rows
-            ]
-            return {
-                'category': category_name,
-                'page': current,
-                'page_size': size,
-                'total': total,
-                'total_pages': total_pages,
-                'records': records,
-                'username': normalized_username,
-                'point_type': code,
-                'selected_range': {'start': start, 'end': end},
-            }
-        rows = await conn.fetch(f'''
-            SELECT record_time, operation_type, amount, balance,
-                   type_name, type_name_cn, description, saved_at
-            FROM point_history_records
-            {where_clause}
-            ORDER BY record_time DESC NULLS LAST, id ASC
-        ''', *args)
-    result = paginate_point_category_records(rows, code, category_name, page, page_size, resolve_point_category, _format_point_record_description)
-    result['username'] = normalized_username
-    result['point_type'] = code
-    result['selected_range'] = {'start': start, 'end': end}
-    return result
+    return await build_point_stats_detail_result(
+        pool,
+        username=username,
+        point_type=point_type,
+        category=category,
+        page=page,
+        page_size=page_size,
+        start_date=start_date,
+        end_date=end_date,
+        resolve_category=resolve_point_category,
+        format_description=_format_point_record_description,
+    )
 
 async def search_point_stat_users(search: str = None, limit: int = 12) -> Dict:
     pool = _get_pool()
-    limit = max(1, min(int(limit or 12), 30))
-    keyword = str(search or '').strip()
-    async with pool.acquire() as conn:
-        if keyword:
-            rows = await conn.fetch('''
-                WITH account_pool AS (
-                    SELECT username FROM user_assets
-                    UNION
-                    SELECT username FROM user_stats
-                    UNION
-                    SELECT username FROM point_history_user_summary
-                    UNION
-                    SELECT username FROM (
-                        SELECT username
-                        FROM point_history_records
-                        WHERE username ILIKE $1
-                        GROUP BY username
-                        ORDER BY MAX(saved_at) DESC
-                        LIMIT $2
-                    ) history_matches
-                )
-                SELECT ap.username,
-                       COALESCE(NULLIF(us.real_name, ''), '') AS real_name,
-                       COALESCE(NULLIF(ua.honor_name, ''), 'M0') AS honor_name,
-                       ua.updated_at,
-                       COALESCE(phs.record_count, 0) AS point_record_count
-                FROM account_pool ap
-                LEFT JOIN user_assets ua ON ua.username = ap.username
-                LEFT JOIN user_stats us ON us.username = ap.username
-                LEFT JOIN point_history_user_summary phs ON phs.username = ap.username
-                WHERE ap.username ILIKE $1 OR COALESCE(NULLIF(us.real_name, ''), '') ILIKE $1
-                ORDER BY point_record_count DESC, phs.latest_saved_at DESC NULLS LAST, ua.updated_at DESC NULLS LAST
-                LIMIT $2
-            ''', f'%{keyword}%', limit)
-        else:
-            rows = await conn.fetch('''
-                WITH account_pool AS (
-                    SELECT username FROM user_assets
-                    UNION
-                    SELECT username FROM user_stats
-                    UNION
-                    SELECT username FROM point_history_user_summary
-                )
-                SELECT ap.username,
-                       COALESCE(NULLIF(us.real_name, ''), '') AS real_name,
-                       COALESCE(NULLIF(ua.honor_name, ''), 'M0') AS honor_name,
-                       ua.updated_at,
-                       COALESCE(phs.record_count, 0) AS point_record_count
-                FROM account_pool ap
-                LEFT JOIN user_assets ua ON ua.username = ap.username
-                LEFT JOIN user_stats us ON us.username = ap.username
-                LEFT JOIN point_history_user_summary phs ON phs.username = ap.username
-                ORDER BY point_record_count DESC, phs.latest_saved_at DESC NULLS LAST, ua.updated_at DESC NULLS LAST
-                LIMIT $1
-            ''', limit)
-    return {'rows': [dict(r) for r in rows]}
+    return await search_point_stat_users_result(pool, search=search, limit=limit)
 
 
 # ===== 封禁管理 =====
