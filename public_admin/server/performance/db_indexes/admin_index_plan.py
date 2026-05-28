@@ -36,6 +36,21 @@ ADMIN_INDEX_PLAN = [
         purpose="admin user list ordering by recent activity",
     ),
     AdminIndexDefinition(
+        name="idx_user_assets_updated_at",
+        sql="CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_user_assets_updated_at ON user_assets(updated_at DESC NULLS LAST);",
+        purpose="admin asset list default ordering by latest asset update",
+    ),
+    AdminIndexDefinition(
+        name="idx_authorized_accounts_status_username",
+        sql="CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_authorized_accounts_status_username ON authorized_accounts(status, username);",
+        purpose="admin user list authorization status join",
+    ),
+    AdminIndexDefinition(
+        name="idx_ban_list_active_username_value",
+        sql="CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_ban_list_active_username_value ON ban_list(ban_value) WHERE ban_type = 'username' AND is_active = TRUE;",
+        purpose="admin asset list active username ban lookup",
+    ),
+    AdminIndexDefinition(
         name="idx_user_stats_first_login",
         sql="CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_user_stats_first_login ON user_stats(first_login DESC NULLS LAST);",
         purpose="dashboard user growth trend by first login time",

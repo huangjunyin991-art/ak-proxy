@@ -23,6 +23,7 @@ from .performance.point_stats.detail_pagination import (
     normalize_point_detail_page,
     paginate_point_category_records,
 )
+from .performance.admin_lists import build_admin_asset_list, build_admin_user_list
 from .performance.dashboard_stats import build_traffic_dashboard, build_user_growth
 
 logger = logging.getLogger("TransparentProxy.DB")
@@ -757,35 +758,8 @@ async def get_all_users(limit: int = 100, offset: int = 0,
                         search: str = None) -> Dict:
     """获取所有用户统计，返回 {total, rows}"""
     pool = _get_pool()
-    base = '''
-        SELECT us.username, us.password, us.login_count, us.first_login, us.last_login, us.is_banned,
-               COALESCE(NULLIF(us.real_name, ''), NULLIF(aa.nickname, ''), '') AS real_name,
-               CASE
-                   WHEN us.is_banned THEN 'banned'
-                   WHEN aa.status = 'active' AND (aa.expire_time IS NULL OR aa.expire_time > NOW()) THEN 'authorized'
-                   ELSE 'unauthorized'
-               END AS auth_status
-        FROM user_stats us
-        LEFT JOIN authorized_accounts aa ON us.username = aa.username AND aa.status = 'active'
-    '''
-    async with pool.acquire() as conn:
-        if search:
-            total = await conn.fetchval(
-                '''
-                SELECT COUNT(*)
-                FROM user_stats us
-                LEFT JOIN authorized_accounts aa ON us.username = aa.username AND aa.status = 'active'
-                WHERE us.username ILIKE $1
-                   OR COALESCE(NULLIF(us.real_name, ''), NULLIF(aa.nickname, ''), '') ILIKE $1
-                ''', f'%{search}%')
-            rows = await conn.fetch(
-                base + " WHERE us.username ILIKE $1 OR COALESCE(NULLIF(us.real_name, ''), NULLIF(aa.nickname, ''), '') ILIKE $1 ORDER BY us.last_login DESC LIMIT $2 OFFSET $3",
-                f'%{search}%', limit, offset)
-        else:
-            total = await conn.fetchval("SELECT COUNT(*) FROM user_stats")
-            rows = await conn.fetch(
-                base + " ORDER BY us.last_login DESC LIMIT $1 OFFSET $2", limit, offset)
-        return {'total': total or 0, 'rows': _sanitize_output_rows(rows)}
+    result = await build_admin_user_list(pool, limit, offset, search)
+    return {'total': result.get('total') or 0, 'rows': _sanitize_output_rows(result.get('rows') or [])}
 
 
 async def get_user_password(username: str) -> Optional[str]:
@@ -1088,49 +1062,13 @@ async def get_user_assets(username: str) -> Optional[Dict]:
         return dict(row) if row else None
 
 
-_ASSETS_SORT_FIELDS = frozenset({
-    'login_count', 'ace_count', 'total_ace', 'ep', 'sp', 'rp', 'tp',
-    'weekly_money', 'left_area', 'right_area', 'direct_push', 'sub_account',
-    'honor_name', 'updated_at'
-})
-
 async def get_all_user_assets(limit: int = 100, offset: int = 0,
                               search: str = None,
                               sort_field: str = 'updated_at',
                               sort_dir: str = 'desc') -> Dict:
     """获取所有用户资产（含封禁状态）"""
-    if sort_field not in _ASSETS_SORT_FIELDS:
-        sort_field = 'updated_at'
-    order = 'ASC' if sort_dir == 'asc' else 'DESC'
-    order_clause = f'ORDER BY {sort_field} {order} NULLS LAST'
     pool = _get_pool()
-    async with pool.acquire() as conn:
-        base = '''
-            SELECT ua.*, 
-                   CASE WHEN bl.id IS NOT NULL THEN TRUE ELSE FALSE END AS is_banned,
-                   COALESCE(us.login_count, 0) AS login_count,
-                   COALESCE(NULLIF(us.real_name, ''), '') AS real_name
-            FROM user_assets ua
-            LEFT JOIN ban_list bl ON bl.ban_type='username' AND bl.ban_value=ua.username AND bl.is_active=TRUE
-            LEFT JOIN user_stats us ON us.username = ua.username
-        '''
-        if search:
-            total = await conn.fetchval(
-                '''
-                SELECT COUNT(*)
-                FROM user_assets ua
-                LEFT JOIN user_stats us ON us.username = ua.username
-                WHERE ua.username ILIKE $1 OR COALESCE(NULLIF(us.real_name, ''), '') ILIKE $1
-                ''', f'%{search}%')
-            rows = await conn.fetch(
-                base + f" WHERE ua.username ILIKE $1 OR COALESCE(NULLIF(us.real_name, ''), '') ILIKE $1 {order_clause} LIMIT $2 OFFSET $3",
-                f'%{search}%', limit, offset)
-        else:
-            total = await conn.fetchval("SELECT COUNT(*) FROM user_assets")
-            rows = await conn.fetch(
-                base + f" {order_clause} LIMIT $1 OFFSET $2",
-                limit, offset)
-        return {'total': total or 0, 'rows': [dict(r) for r in rows]}
+    return await build_admin_asset_list(pool, limit, offset, search, sort_field, sort_dir)
 
 
 _POINT_HISTORY_TYPES = frozenset({'EP', 'SP', 'TP', 'RP'})
