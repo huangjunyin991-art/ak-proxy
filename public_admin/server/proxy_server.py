@@ -173,7 +173,7 @@ from plugins.remote_assist.server.types import AssistConsentStatus, AssistRole
 from .outbound_dispatcher import dispatcher, ace_sell_dispatcher, OutboundExit
 from .runtime_performance import TimedServiceStatusCache, resolve_worker_policy, run_blocking
 from .performance.cache.admin_stats_cache import AdminStatsCache
-from .performance.db_indexes.service import create_admin_index, get_admin_index_status
+from .performance.db_indexes.admin_index_plan import get_admin_index_plan
 from .performance.dispatcher_status.service import DispatcherStatusService
 from .static_resource_cache import (
     StaticResourceCacheConfig,
@@ -3373,35 +3373,7 @@ async def admin_performance_index_plan(request: Request):
     if error_response is not None:
         return error_response
 
-    try:
-        return {"items": await get_admin_index_status(db._get_pool()), "executable": True}
-    except Exception as e:
-        return JSONResponse(status_code=500, content={"error": True, "message": f"查询索引状态失败: {e}"})
-
-
-@app.post("/admin/api/performance/index-plan/apply")
-async def admin_performance_index_plan_apply(request: Request):
-    _, error_response = await _require_admin_token(request, super_admin_only=True)
-    if error_response is not None:
-        return error_response
-
-    try:
-        data = await request.json()
-    except Exception:
-        return JSONResponse(status_code=400, content={"error": True, "message": "请求无效"})
-
-    name = str(data.get("name") or "").strip()
-    if not name:
-        return JSONResponse(status_code=400, content={"error": True, "message": "缺少索引名称"})
-
-    try:
-        result = await create_admin_index(db._get_pool(), name)
-        return {"success": True, "data": result}
-    except ValueError as e:
-        return JSONResponse(status_code=400, content={"error": True, "message": str(e)})
-    except Exception as e:
-        logger.warning(f"[DBIndex] 执行性能索引失败: {e}")
-        return JSONResponse(status_code=500, content={"error": True, "message": f"执行索引失败: {e}"})
+    return {"items": get_admin_index_plan(), "executable": False}
 
 
 @app.post("/api/db/delete")

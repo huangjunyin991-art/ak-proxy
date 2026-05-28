@@ -3935,18 +3935,6 @@
             
             <!-- 数据库操作界面（验证后显示） -->
             <div id="dbContent" style="display: none;">
-                <div id="dbIndexPlanSection" style="background: var(--bg-card); border: 1px solid var(--border); border-radius: 14px; padding: 16px; margin-bottom: 18px;">
-                    <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 12px;">
-                        <div>
-                            <div style="font-size: 15px; font-weight: 700; color: var(--accent);">性能索引优化</div>
-                            <div style="font-size: 12px; color: var(--text-secondary); margin-top: 4px;">用于优化登录记录、仪表盘、用户/IP列表等高频查询；索引只会在手动点击后执行。</div>
-                        </div>
-                        <button class="btn btn-primary" onclick="loadDbIndexPlan()" style="padding: 8px 16px; font-size: 13px;">刷新索引状态</button>
-                    </div>
-                    <div id="dbIndexPlanList" style="display: grid; gap: 10px;">
-                        <div style="color: var(--text-secondary); font-size: 13px;">加载中...</div>
-                    </div>
-                </div>
                 <div style="display: flex; gap: 15px; margin-bottom: 20px; align-items: center; flex-wrap: wrap;">
                     <select id="dbTableSelect" onchange="loadTableData()" style="padding: 10px 15px; background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; color: var(--text-primary); font-size: 14px; min-width: 200px;">
                         <option value="">选择表...</option>
@@ -8316,11 +8304,6 @@
         function showDbContent() {
             document.getElementById('dbAuthOverlay').style.display = 'none';
             document.getElementById('dbContent').style.display = 'block';
-            const indexSection = document.getElementById('dbIndexPlanSection');
-            if (indexSection) {
-                indexSection.style.display = isSuperAdmin() ? 'block' : 'none';
-                if (isSuperAdmin()) loadDbIndexPlan();
-            }
         }
         
         // 锁定数据库（清除Token）
@@ -8365,80 +8348,7 @@
             return false;
         }
 
-        function dbIndexStatusLabel(status) {
-            const labels = {ready: '已就绪', missing: '未创建', building: '构建中', invalid: '无效'};
-            return labels[status] || status || '未知';
-        }
 
-        function dbIndexStatusColor(status) {
-            const colors = {ready: 'var(--accent-green)', missing: 'var(--accent-yellow)', building: 'var(--accent)', invalid: 'var(--accent-red)'};
-            return colors[status] || 'var(--text-secondary)';
-        }
-
-        async function loadDbIndexPlan() {
-            const box = document.getElementById('dbIndexPlanList');
-            if (!box || !isSuperAdmin()) return;
-            box.innerHTML = '<div style="color: var(--text-secondary); font-size: 13px;">加载中...</div>';
-            try {
-                const res = await fetch(`${API_BASE}/admin/api/performance/index-plan`);
-                const data = await res.json();
-                if (!res.ok || data.error) {
-                    box.innerHTML = `<div style="color: var(--accent-red); font-size: 13px;">${escapeHtml(data.message || '加载索引状态失败')}</div>`;
-                    return;
-                }
-                renderDbIndexPlan(data.items || []);
-            } catch (e) {
-                box.innerHTML = `<div style="color: var(--accent-red); font-size: 13px;">加载索引状态失败: ${escapeHtml(e.message)}</div>`;
-            }
-        }
-
-        function renderDbIndexPlan(items) {
-            const box = document.getElementById('dbIndexPlanList');
-            if (!box) return;
-            if (!items.length) {
-                box.innerHTML = '<div style="color: var(--text-secondary); font-size: 13px;">暂无索引计划</div>';
-                return;
-            }
-            box.innerHTML = items.map(item => {
-                const status = item.status || 'missing';
-                const color = dbIndexStatusColor(status);
-                const canApply = status === 'missing';
-                return `
-                    <div style="background: var(--bg-primary); border: 1px solid var(--border); border-radius: 10px; padding: 12px; display: grid; gap: 8px;">
-                        <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
-                            <strong style="color: var(--text-primary); font-family: monospace;">${escapeHtml(item.name || '')}</strong>
-                            <span style="font-size: 12px; color: ${color}; border: 1px solid ${color}; border-radius: 999px; padding: 2px 8px;">${escapeHtml(dbIndexStatusLabel(status))}</span>
-                            <button class="btn btn-primary" onclick="applyDbIndexPlan(${jsArg(item.name || '')})" ${canApply ? '' : 'disabled'} style="margin-left: auto; padding: 6px 12px; font-size: 12px; opacity: ${canApply ? '1' : '0.55'};">执行</button>
-                        </div>
-                        <div style="font-size: 12px; color: var(--text-secondary); line-height: 1.6;">${escapeHtml(item.purpose || '')}</div>
-                        <div style="font-size: 11px; color: var(--text-secondary); font-family: monospace; word-break: break-all;">${escapeHtml(item.sql || '')}</div>
-                    </div>
-                `;
-            }).join('');
-        }
-
-        async function applyDbIndexPlan(name) {
-            if (!name || !isSuperAdmin()) return;
-            const confirmed = await showConfirm('执行性能索引', `即将执行索引计划：${name}\n\n该操作会使用 PostgreSQL CONCURRENTLY 方式创建索引，大表可能耗时较久，但不会由服务启动自动触发。`, '执行');
-            if (!confirmed) return;
-            try {
-                const res = await fetch(`${API_BASE}/admin/api/performance/index-plan/apply`, {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({name})
-                });
-                const data = await res.json();
-                if (!res.ok || data.error || data.success === false) {
-                    showToast(data.message || '执行索引失败', 'error');
-                    return;
-                }
-                showToast('索引任务执行完成');
-                await loadDbIndexPlan();
-            } catch (e) {
-                showToast('执行索引失败: ' + e.message, 'error');
-            }
-        }
-        
         // 加载表列表
         async function loadDbTables() {
             try {
