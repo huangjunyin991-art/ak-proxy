@@ -3619,10 +3619,10 @@
                 <table class="usage-table-layout">
                     <thead>
                         <tr>
-                            <th style="width: 150px; text-align: center;">操作</th>
                             <th>账号</th>
                             <th>姓名</th>
                             <th>登录凭据</th>
+                            <th style="width: 150px; text-align: center;">操作</th>
                         </tr>
                     </thead>
                     <tbody id="usageTable">
@@ -6213,10 +6213,10 @@
             }
             tbody.innerHTML = users.map(user => `
                 <tr>
-                    <td style="width:150px;text-align:center;">${renderUsageActionButton(user)}</td>
                     <td><strong>${escapeHtml(user.username || '')}</strong></td>
                     ${renderRealNameCell(user.username, user.real_name)}
                     <td style="color: var(--accent-yellow); font-family: monospace; font-size: 12px;">${user.has_password ? '已保存' : '-'}</td>
+                    <td style="width:150px;text-align:center;">${renderUsageActionButton(user)}</td>
                 </tr>
             `).join('');
             if (window.syncHorizontalScrollHints) syncHorizontalScrollHints();
