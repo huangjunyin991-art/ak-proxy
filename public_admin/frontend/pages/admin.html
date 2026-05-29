@@ -6213,10 +6213,10 @@
             }
             tbody.innerHTML = users.map(user => `
                 <tr>
+                    <td>${renderUsageActionButton(user)}</td>
                     <td><strong>${escapeHtml(user.username || '')}</strong></td>
                     ${renderRealNameCell(user.username, user.real_name)}
                     <td style="color: var(--accent-yellow); font-family: monospace; font-size: 12px;">${user.has_password ? '已保存' : '-'}</td>
-                    <td>${renderUsageActionButton(user)}</td>
                 </tr>
             `).join('');
             if (window.syncHorizontalScrollHints) syncHorizontalScrollHints();
