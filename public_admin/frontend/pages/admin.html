@@ -2492,16 +2492,36 @@
 
             .usage-table-layout th,
             .usage-table-layout td {
-                padding: 6px 4px;
+                padding: 5px 4px;
                 font-size: 11px;
-                line-height: 1.1;
+                line-height: 1.08;
                 white-space: nowrap;
+            }
+
+            .usage-table-layout th:nth-child(1),
+            .usage-table-layout td:nth-child(1) {
+                width: 120px;
+                max-width: 140px;
+            }
+
+            .usage-table-layout th:nth-child(2),
+            .usage-table-layout td:nth-child(2) {
+                width: 70px;
+                max-width: 80px;
+                text-align: left;
+            }
+
+            .usage-table-layout th:nth-child(3),
+            .usage-table-layout td:nth-child(3) {
+                width: 86px;
+                max-width: 96px;
+                text-align: left;
             }
 
             .usage-table-layout th:last-child,
             .usage-table-layout td:last-child {
-                width: 110px !important;
-                max-width: 110px;
+                width: 100px !important;
+                max-width: 100px;
                 text-align: center;
             }
 
