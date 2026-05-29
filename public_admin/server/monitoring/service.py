@@ -10,6 +10,7 @@ from .collectors.health_collector import collect_health_snapshot
 from .collectors.im_chat_collector import collect_chat_summary, collect_file_assets, collect_group_statistics
 from .collectors.postgres_collector import collect_database_snapshot
 from .collectors.system_collector import collect_system_snapshot
+from .guard import GuardError, validate_limit, validate_range
 from .schemas import error_item, unavailable
 
 
@@ -117,7 +118,7 @@ class MonitoringService:
         return await self._cached(cache_key, self.heavy_ttl_seconds, collector, force=force)
 
     async def get_chat_summary(self, range_name: str = "7d", force: bool = False) -> dict:
-        normalized_range = self._normalize_range(range_name)
+        normalized_range = validate_range(range_name)
         system_snapshot = await self.get_system(force=False)
         cache_key = f"chat_summary:{normalized_range}"
         delayed = await self._heavy_guard(cache_key, system_snapshot)
@@ -128,8 +129,8 @@ class MonitoringService:
         return await self._cached(cache_key, self.heavy_ttl_seconds, collector, force=force)
 
     async def get_chat_groups(self, range_name: str = "7d", limit: int = 100, force: bool = False) -> dict:
-        normalized_range = self._normalize_range(range_name)
-        normalized_limit = min(max(int(limit or 100), 1), 200)
+        normalized_range = validate_range(range_name)
+        normalized_limit = validate_limit("groups", limit)
         system_snapshot = await self.get_system(force=False)
         cache_key = f"chat_groups:{normalized_range}:{normalized_limit}"
         delayed = await self._heavy_guard(cache_key, system_snapshot)
@@ -143,7 +144,7 @@ class MonitoringService:
         normalized_status = str(status or "active").strip().lower()
         if normalized_status not in ("active", "expired", "missing", "all"):
             normalized_status = "active"
-        normalized_limit = min(max(int(limit or 50), 1), 100)
+        normalized_limit = validate_limit("file_assets", limit)
         system_snapshot = await self.get_system(force=False)
         cache_key = f"file_assets:{normalized_status}:{normalized_limit}"
         delayed = await self._heavy_guard(cache_key, system_snapshot)

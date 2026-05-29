@@ -3958,6 +3958,21 @@
                     <span id="dbRowCount" style="color: var(--text-secondary); font-size: 14px; margin-left: auto;"></span>
                 </div>
                 <div id="dbInfoBar" style="color: var(--accent, #00e5ff); font-size: 12px; margin-bottom: 10px;"></div>
+                <div style="margin-bottom: 12px; background: var(--bg-card); border: 1px solid var(--border); border-radius: 10px; padding: 12px; display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px;">
+                    <div style="display: flex; flex-direction: column; gap: 6px;">
+                        <div style="color: var(--text-secondary); font-size: 12px;">页面大小（10~200，前端可调）</div>
+                        <div style="display: flex; gap: 8px; align-items: center;">
+                            <input id="dbPageSizeInput" type="number" min="10" max="200" value="50" style="width: 100px; padding: 8px 10px; background: var(--bg-primary); border: 1px solid var(--border); border-radius: 6px; color: var(--text-primary);">
+                            <button class="btn" onclick="applyDbPageSize()" style="padding: 8px 12px;">应用</button>
+                        </div>
+                    </div>
+                    <div style="color: var(--text-secondary); font-size: 12px; line-height: 1.6;">
+                        <div><strong style="color: var(--text-primary);">大表规则</strong>：行数≥20万或体积≥2GB 视为大表；大表必须带筛选；LIMIT ≤ 200；OFFSET ≤ 10000；无筛选会被拒绝。</div>
+                    </div>
+                    <div style="color: var(--text-secondary); font-size: 12px; line-height: 1.6;">
+                        <div><strong style="color: var(--text-primary);">监控窗口</strong>：默认 7d，可选 24h/7d/30d；列表 limit ≤ 100。</div>
+                    </div>
+                </div>
                 
                 <div class="table-container" data-ak-sticky-table data-ak-sticky-table-min-width="920" style="overflow: auto; max-height: max(300px, calc(100vh - 400px));">
                     <table id="dbTable" style="min-width: 100%;">
@@ -8474,6 +8489,17 @@
         
         function dbGoPage(page) {
             dbCurrentPage = page;
+            loadTableData();
+        }
+
+        function applyDbPageSize() {
+            const val = parseInt(document.getElementById('dbPageSizeInput').value, 10);
+            if (isNaN(val) || val < 10 || val > 200) {
+                showAlert('分页大小需在 10~200 之间', 'warning');
+                return;
+            }
+            dbPageSize = val;
+            dbCurrentPage = 0;
             loadTableData();
         }
         
