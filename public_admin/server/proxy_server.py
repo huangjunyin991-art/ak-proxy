@@ -154,6 +154,7 @@ except NameError:
 # 数据库模块
 
 from . import database_pg as db
+from .db_guard import GuardError
 from .security import AdminSecurityFacade
 from .security.context import build_security_context
 from .security.result import SecurityResult
@@ -6420,7 +6421,9 @@ async def admin_db_query(table_name: str, request: Request,
 
                          limit: int = 100, offset: int = 0,
 
-                         order_by: str = None, order_desc: bool = True):
+                         order_by: str = None, order_desc: bool = True,
+
+                         filter_col: str = None, filter_op: str = '=', filter_val: str = None):
 
     _, error_response = await _require_admin_token(request, 'database')
     if error_response is not None:
@@ -6428,7 +6431,22 @@ async def admin_db_query(table_name: str, request: Request,
 
     check_db_auth(request)
 
-    return await db.query_table(table_name, limit, offset, order_by, order_desc)
+    try:
+
+        return await db.query_table(
+            table_name,
+            limit,
+            offset,
+            order_by,
+            order_desc,
+            filter_col,
+            filter_op,
+            filter_val,
+        )
+
+    except GuardError as e:
+
+        raise HTTPException(status_code=400, detail=e.message)
 
 
 
@@ -6539,6 +6557,10 @@ async def admin_db_sql(request: Request):
         result = await db.execute_sql(sql)
 
         return {"success": True, "result": result}
+
+    except GuardError as e:
+
+        raise HTTPException(status_code=400, detail=e.message)
 
     except Exception as e:
 

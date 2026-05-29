@@ -3935,7 +3935,7 @@
             
             <!-- 数据库操作界面（验证后显示） -->
             <div id="dbContent" style="display: none;">
-                <div style="display: flex; gap: 15px; margin-bottom: 20px; align-items: center; flex-wrap: wrap;">
+                <div style="display: flex; gap: 15px; margin-bottom: 10px; align-items: center; flex-wrap: wrap;">
                     <select id="dbTableSelect" onchange="loadTableData()" style="padding: 10px 15px; background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; color: var(--text-primary); font-size: 14px; min-width: 200px;">
                         <option value="">选择表...</option>
                     </select>
@@ -3943,9 +3943,21 @@
                     <button class="btn btn-primary" onclick="showAddRowModal()" style="padding: 10px 20px;">➕ 新增</button>
                     <button class="btn btn-danger" onclick="showSqlModal()" style="padding: 10px 20px;">执行SQL</button>
                     <button id="dbBatchDeleteBtn" class="btn btn-danger" onclick="batchDeleteDbRows()" style="padding: 10px 20px; display:none;">批量删除 (<span id="dbSelectedCount">0</span>)</button>
-                    <span id="dbRowCount" style="color: var(--text-secondary); font-size: 14px; margin-left: auto;"></span>
                     <button class="btn" onclick="lockDatabase()" style="padding: 10px 20px; background: var(--bg-secondary); color: #ff5252; border: 1px solid #ff5252;">🔒 锁定</button>
                 </div>
+                <div style="display: flex; gap: 10px; margin-bottom: 10px; align-items: center; flex-wrap: wrap;">
+                    <label style="color: var(--text-secondary); font-size: 12px;">筛选字段</label>
+                    <select id="dbFilterCol" style="padding: 6px 10px; background: var(--bg-card); border: 1px solid var(--border); border-radius: 6px; color: var(--text-primary); min-width: 140px;"></select>
+                    <select id="dbFilterOp" style="padding: 6px 10px; background: var(--bg-card); border: 1px solid var(--border); border-radius: 6px; color: var(--text-primary);">
+                        <option value="=">等于</option>
+                        <option value="ilike">包含</option>
+                    </select>
+                    <input id="dbFilterVal" type="text" placeholder="输入筛选值" style="padding: 8px 12px; background: var(--bg-primary); border: 1px solid var(--border); border-radius: 6px; color: var(--text-primary); min-width: 200px;">
+                    <button class="btn" onclick="applyDbFilter()" style="padding: 8px 14px;">应用筛选</button>
+                    <button class="btn" onclick="clearDbFilter()" style="padding: 8px 14px;">清除筛选</button>
+                    <span id="dbRowCount" style="color: var(--text-secondary); font-size: 14px; margin-left: auto;"></span>
+                </div>
+                <div id="dbInfoBar" style="color: var(--accent, #00e5ff); font-size: 12px; margin-bottom: 10px;"></div>
                 
                 <div class="table-container" data-ak-sticky-table data-ak-sticky-table-min-width="920" style="overflow: auto; max-height: max(300px, calc(100vh - 400px));">
                     <table id="dbTable" style="min-width: 100%;">
@@ -8236,6 +8248,7 @@
         let dbSchema = [];
         let dbPkColumn = 'id';
         let dbAuthToken = null;  // 数据库操作Token
+        let dbFilter = { col: '', op: '=', val: '' };
         
         // 获取数据库请求头（包含Token）
         function getDbHeaders() {
@@ -8385,10 +8398,24 @@
                 dbPkColumn = pkCol ? pkCol.name : dbSchema[0]?.name || 'id';
                 
                 // 获取数据
-                const dataRes = await fetch(`${API_BASE}/admin/api/db/query/${table}?limit=${dbPageSize}&offset=${dbCurrentPage * dbPageSize}`, {
+                const params = new URLSearchParams({
+                    limit: dbPageSize,
+                    offset: dbCurrentPage * dbPageSize,
+                });
+                if (dbFilter.col && dbFilter.val) {
+                    params.append('filter_col', dbFilter.col);
+                    params.append('filter_op', dbFilter.op || '=');
+                    params.append('filter_val', dbFilter.val);
+                }
+                const dataRes = await fetch(`${API_BASE}/admin/api/db/query/${table}?${params.toString()}`, {
                     headers: getDbHeaders()
                 });
                 if (handleDbError(dataRes)) return;
+                if (!dataRes.ok) {
+                    const err = await dataRes.json().catch(() => ({}));
+                    showAlert(err.detail || '查询失败，请调整筛选条件', 'error');
+                    return;
+                }
                 const data = await dataRes.json();
                 
                 // 渲染表头
@@ -8422,6 +8449,11 @@
                 
                 // 显示行数
                 document.getElementById('dbRowCount').textContent = `共 ${data.total} 条记录`;
+                const infoBar = document.getElementById('dbInfoBar');
+                const info = [];
+                if (data.limit_capped) info.push('已截断至 200 行');
+                if (dbFilter.col && dbFilter.val) info.push(`筛选: ${dbFilter.col} ${dbFilter.op} ${dbFilter.val}`);
+                infoBar.textContent = info.join(' | ');
                 
                 // 渲染分页
                 const totalPages = Math.ceil(data.total / dbPageSize);

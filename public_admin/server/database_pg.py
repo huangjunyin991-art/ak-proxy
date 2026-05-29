@@ -13,9 +13,12 @@ import time
 import logging
 import os
 import re
+from functools import lru_cache
 import ipaddress
 from datetime import datetime, timedelta, date
 from typing import Dict, List, Optional, Any
+
+from .db_guard import BigTableGuard, GuardError
 
 from .performance.point_stats import (
     build_point_stats as build_point_stats_result,
@@ -82,6 +85,7 @@ _pool: Optional[asyncpg.Pool] = None
 _pool_config: Dict = {}  # 保存连接参数，用于重建池
 _expand_lock = asyncio.Lock()  # 扩容锁，防止并发扩容
 _POOL_STATE_FILE = os.path.join(os.path.dirname(__file__), ".pool_size")  # 持久化文件
+_TABLE_COLUMNS_CACHE: Dict[str, List[str]] = {}
 
 
 def _load_persisted_max_size(default: int) -> int:
@@ -685,6 +689,39 @@ def _get_pool():
     if _pool is None:
         raise RuntimeError("数据库未初始化，请先调用 init_db()")
     return _pool
+
+
+@lru_cache(maxsize=1)
+def get_big_table_guard():
+    return BigTableGuard(pool_supplier=_get_pool)
+
+
+async def _get_table_columns(table_name: str, conn=None) -> List[str]:
+    cached = _TABLE_COLUMNS_CACHE.get(table_name)
+    if cached:
+        return cached
+
+    async def _fetch_columns(active_conn):
+        rows = await active_conn.fetch(
+            '''
+            SELECT column_name
+            FROM information_schema.columns
+            WHERE table_schema = 'public' AND table_name = $1
+            ORDER BY ordinal_position
+            ''',
+            table_name,
+        )
+        return [r['column_name'] for r in rows]
+
+    if conn is None:
+        pool = _get_pool()
+        async with pool.acquire() as active:
+            columns = await _fetch_columns(active)
+    else:
+        columns = await _fetch_columns(conn)
+
+    _TABLE_COLUMNS_CACHE[table_name] = columns
+    return columns
 
 
 # ===== 登录记录 =====
@@ -1983,18 +2020,58 @@ async def get_table_schema(table_name: str) -> List[Dict]:
 
 
 async def query_table(table_name: str, limit: int = 100, offset: int = 0,
-                      order_by: str = None, order_desc: bool = True) -> Dict:
-    """查询表数据"""
+                      order_by: str = None, order_desc: bool = True,
+                      filter_col: str = None, filter_op: str = '=', filter_val: Any = None) -> Dict:
+    """查询表数据（带大表保护与单条件筛选）"""
     pool = _get_pool()
     async with pool.acquire() as conn:
-        total = await conn.fetchval(f'SELECT COUNT(*) FROM {table_name}')
-        sql = f'SELECT * FROM {table_name}'
-        if order_by:
+        columns = await _get_table_columns(table_name, conn)
+
+        # 构建过滤条件（仅允许已存在字段，运算符白名单）
+        has_filter = bool(filter_col) and filter_col in columns and filter_val is not None
+        allowed_ops = {'=', 'ilike'}
+        op = filter_op.lower() if filter_op else '='
+        if op not in allowed_ops:
+            op = '='
+
+        guard = get_big_table_guard()
+        decision = await guard.validate_table_query(
+            table_name=table_name,
+            limit=limit,
+            offset=offset,
+            has_filter=has_filter,
+        )
+
+        normalized_limit = decision.limit if decision.limit is not None else limit
+        sql_params = []
+
+        where_clause = ''
+        if has_filter:
+            where_clause = f" WHERE {filter_col} {op.upper()} $1"
+            sql_params.append(filter_val if op != 'ilike' else f"%{filter_val}%")
+        elif not decision.count_allowed:
+            # 大表无筛选时拒绝
+            raise GuardError("require_where_on_big_table", f"大表 {table_name} 查询需要 WHERE 条件以避免全表扫描")
+
+        order_clause = ''
+        if order_by and order_by in columns:
             direction = 'DESC' if order_desc else 'ASC'
-            sql += f' ORDER BY {order_by} {direction}'
-        sql += f' LIMIT {limit} OFFSET {offset}'
-        rows = await conn.fetch(sql)
-        return {'total': total, 'rows': _sanitize_output_rows(rows)}
+            order_clause = f' ORDER BY {order_by} {direction}'
+
+        total_sql = f'SELECT COUNT(*) FROM {table_name}{where_clause}'
+        total = await conn.fetchval(total_sql, *sql_params)
+
+        data_sql = f'SELECT * FROM {table_name}{where_clause}{order_clause} LIMIT {normalized_limit} OFFSET {offset}'
+        rows = await conn.fetch(data_sql, *sql_params)
+
+        return {
+            'total': total,
+            'rows': _sanitize_output_rows(rows),
+            'limit_capped': decision.limit_capped,
+            'table_info': decision.table_info or {},
+            'filter_applied': has_filter,
+            'filter_op': op,
+        }
 
 
 async def insert_row(table_name: str, data: dict) -> int:
@@ -2085,14 +2162,16 @@ async def delete_row(table_name: str, pk_column: str, pk_value) -> int:
 
 
 async def execute_sql(sql: str):
-    """执行自定义SQL"""
+    """执行自定义SQL（带大表保护）"""
+    guard = get_big_table_guard()
+    await guard.validate_sql(sql)
+
     pool = _get_pool()
     async with pool.acquire() as conn:
         if sql.strip().upper().startswith('SELECT'):
             raise ValueError("自定义SQL暂不支持SELECT查询")
-        else:
-            result = await conn.execute(sql)
-            return {'affected_rows': int(result.split()[-1]) if result else 0}
+        result = await conn.execute(sql)
+        return {'affected_rows': int(result.split()[-1]) if result else 0}
 
 
 # ===== 管理员Token持久化 =====
