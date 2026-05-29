@@ -2442,30 +2442,34 @@
             .usage-toolbar {
                 display: flex;
                 flex-direction: column;
-                gap: 6px;
-                margin-bottom: 10px;
+                gap: 4px;
+                margin-bottom: 8px;
                 padding: 0 4px;
+                align-items: stretch;
             }
 
             .usage-toolbar-controls {
                 display: flex;
-                flex-wrap: wrap;
-                gap: 6px;
+                flex-wrap: nowrap;
+                gap: 4px;
                 align-items: stretch;
+                overflow-x: auto;
+                -webkit-overflow-scrolling: touch;
             }
 
             .usage-toolbar-input {
-                flex: 1 1 150px;
+                flex: 1 1 auto;
                 max-width: 100%;
-                min-width: 0;
-                padding: 8px 12px;
+                min-width: 140px;
+                padding: 7px 10px;
             }
 
             .usage-toolbar .btn,
             .usage-toolbar .btn-page {
                 flex: 0 0 auto;
-                padding: 6px 12px !important;
-                min-height: 32px;
+                padding: 6px 10px !important;
+                min-height: 30px;
+                min-width: 64px;
                 font-size: 12px;
             }
 
@@ -2478,6 +2482,7 @@
 
             .table-container[data-ak-sticky-table] {
                 padding: 0 2px;
+                margin-top: 0;
             }
 
             .usage-table-layout {
@@ -2489,14 +2494,14 @@
             .usage-table-layout td {
                 padding: 6px 4px;
                 font-size: 11px;
-                line-height: 1.15;
+                line-height: 1.1;
                 white-space: nowrap;
             }
 
             .usage-table-layout th:last-child,
             .usage-table-layout td:last-child {
-                width: 120px !important;
-                max-width: 120px;
+                width: 110px !important;
+                max-width: 110px;
                 text-align: center;
             }
 
@@ -2506,7 +2511,7 @@
             }
 
             .usage-table-layout .btn {
-                min-height: 28px;
+                min-height: 26px;
                 padding: 0 6px !important;
                 font-size: 10px !important;
                 white-space: nowrap;
@@ -2522,18 +2527,18 @@
             }
 
             #usage {
-                padding-bottom: 156px;
+                padding-bottom: 138px;
             }
 
             #usage .table-container {
-                margin-bottom: 28px;
+                margin-bottom: 18px;
             }
 
             #usagePagination {
                 position: fixed;
                 left: 12px;
                 right: 12px;
-                bottom: calc(env(safe-area-inset-bottom, 0px) + 18px);
+                bottom: calc(env(safe-area-inset-bottom, 0px) + 14px);
                 z-index: 1001;
                 margin-top: 0 !important;
                 padding: 0 !important;
