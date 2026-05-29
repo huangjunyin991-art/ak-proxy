@@ -8772,7 +8772,7 @@
                     <h3 style="padding: 20px 25px 15px; margin: 0; color: var(--accent); border-bottom: 1px solid var(--border); flex-shrink: 0;">${escapeHtml(title)}</h3>
                     <div style="padding: 15px 25px; overflow-y: auto; flex: 1;">${content}</div>
                     <div style="display: flex; gap: 10px; padding: 15px 25px 20px; border-top: 1px solid var(--border); flex-shrink: 0;">
-                        <button class="btn" onclick="closeModal()" style="flex:1; padding: 12px 0; background: var(--accent-red); color: white; font-size: 15px; border-radius: 8px;">取消</button>
+                        <button class="btn" id="modalCancelBtn" onclick="closeModal()" style="flex:1; padding: 12px 0; background: var(--accent-red); color: white; font-size: 15px; border-radius: 8px;">取消</button>
                         <button class="btn btn-primary" id="modalConfirmBtn" style="flex:1; padding: 12px 0; font-size: 15px; border-radius: 8px;">${escapeHtml(confirmText)}</button>
                     </div>
                 </div>
@@ -11992,7 +11992,8 @@
         }
 
         async function deleteWhitelist(username) {
-            if (!confirm(`确定删除账号 [${username}] 的授权？\n注意：积分不退还！`)) return;
+            const ok = await showConfirm('⚠️ 删除授权', `确定删除账号 [${username}] 的授权？\n注意：积分不退还！`, '确认删除');
+            if (!ok) return;
             try {
                 const res = await fetch(`${API_BASE}/admin/api/whitelist/delete`, {
                     method: 'POST', headers: {...getHeaders(), 'Content-Type': 'application/json'},
