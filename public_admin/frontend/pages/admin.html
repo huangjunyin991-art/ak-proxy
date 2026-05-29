@@ -2387,7 +2387,7 @@
 
             .panel.active .table-container,
             .panel.active .license-table-wrap {
-                max-height: calc(100dvh - var(--ak-mobile-shell-height, 56px) - var(--ak-mobile-panel-summary-height, 0px) - 132px);
+                max-height: calc(100dvh - var(--ak-mobile-shell-height, 56px) - var(--ak-mobile-panel-summary-height, 0px) - 118px);
                 overflow: auto;
                 -webkit-overflow-scrolling: touch;
                 overscroll-behavior: contain;
@@ -2442,49 +2442,73 @@
             .usage-toolbar {
                 display: flex;
                 flex-direction: column;
-                gap: 8px;
+                gap: 6px;
+                margin-bottom: 10px;
+                padding: 0 4px;
             }
 
             .usage-toolbar-controls {
                 display: flex;
                 flex-wrap: wrap;
-                gap: 8px;
+                gap: 6px;
                 align-items: stretch;
             }
 
             .usage-toolbar-input {
-                flex: 0 0 148px;
-                max-width: 148px;
+                flex: 1 1 150px;
+                max-width: 100%;
                 min-width: 0;
+                padding: 8px 12px;
             }
 
             .usage-toolbar .btn,
             .usage-toolbar .btn-page {
                 flex: 0 0 auto;
-                padding: 0 12px !important;
-                min-height: 40px;
+                padding: 6px 12px !important;
+                min-height: 32px;
+                font-size: 12px;
             }
 
             .usage-toolbar-count {
                 display: block;
                 font-size: 12px;
+                margin-top: 2px;
+                padding: 0 4px;
+            }
+
+            .table-container[data-ak-sticky-table] {
+                padding: 0 2px;
+            }
+
+            .usage-table-layout {
+                width: 100%;
+                table-layout: fixed;
             }
 
             .usage-table-layout th,
             .usage-table-layout td {
-                padding: 10px 6px;
-                font-size: 12px;
+                padding: 6px 4px;
+                font-size: 11px;
+                line-height: 1.15;
+                white-space: nowrap;
+            }
+
+            .usage-table-layout th:last-child,
+            .usage-table-layout td:last-child {
+                width: 120px !important;
+                max-width: 120px;
+                text-align: center;
             }
 
             .usage-table-layout .badge {
-                padding: 4px 6px;
-                font-size: 11px;
+                padding: 3px 5px;
+                font-size: 10px;
             }
 
             .usage-table-layout .btn {
-                min-height: 34px;
-                padding: 0 8px !important;
-                font-size: 11px !important;
+                min-height: 28px;
+                padding: 0 6px !important;
+                font-size: 10px !important;
                 white-space: nowrap;
             }
 
