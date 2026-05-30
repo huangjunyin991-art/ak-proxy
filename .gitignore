@@ -1,6 +1,7 @@
 *
 
 !.gitignore
+!AGENTS.md
 !public_admin/
 !public_admin/**
 !im_server/
