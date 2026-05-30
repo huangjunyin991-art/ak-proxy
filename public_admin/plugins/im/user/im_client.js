@@ -1404,6 +1404,13 @@
             onBackClick: showSessionsView,
             onChatMenuClick: openActiveGroupMenu,
             onChatTitleClick: openActiveGroupSettings,
+            onChatTitleDebugClick: function() {
+                try {
+                    if (typeof window.__AKIMShowDebugModal === 'function') {
+                        window.__AKIMShowDebugModal();
+                    }
+                } catch (e) {}
+            },
             onComposeBackClick: closeComposeView,
             onComposeCloseClick: closeComposeView,
             onNewSessionClick: startDirectSession,
@@ -3037,57 +3044,305 @@
         });
     }
 
-    function requestFormData(url, formData, options) {
-        const requestOptions = Object.assign({
-            credentials: 'same-origin',
-            method: 'POST'
-        }, options || {});
-        const headers = Object.assign(buildAuthHeaders(), requestOptions.headers || {});
-        const method = String(requestOptions.method || 'POST').trim().toUpperCase() || 'POST';
-        const onUploadProgress = typeof requestOptions.onUploadProgress === 'function' ? requestOptions.onUploadProgress : null;
-        return new Promise(function(resolve, reject) {
-            const xhr = new XMLHttpRequest();
-            xhr.open(method, url, true);
-            xhr.withCredentials = requestOptions.credentials === 'include' || requestOptions.credentials === 'same-origin';
-            Object.keys(headers).forEach(function(key) {
-                const headerValue = headers[key];
-                if (headerValue == null || headerValue === '') return;
-                xhr.setRequestHeader(key, headerValue);
+    function __AKIMPickLocalStorageKeyCandidates() {
+        try {
+            const keys = [];
+            try {
+                if (window.APP && APP.CONFIG && APP.CONFIG.SYSTEM_KEYS && APP.CONFIG.SYSTEM_KEYS.USER_MODEL_KEY) {
+                    keys.push(String(APP.CONFIG.SYSTEM_KEYS.USER_MODEL_KEY));
+                }
+            } catch (e) {}
+            keys.push('AK_user_model');
+            keys.push('ak_user_model');
+            return keys.filter(Boolean);
+        } catch (e) {
+            return ['AK_user_model'];
+        }
+    }
+
+    function __AKIMReadLocalStorageAny(keys) {
+        const list = Array.isArray(keys) ? keys : [keys];
+        for (let i = 0; i < list.length; i++) {
+            const key = String(list[i] || '').trim();
+            if (!key) continue;
+            try {
+                const raw = localStorage.getItem(key);
+                if (raw != null && raw !== '') return { key: key, raw: raw };
+            } catch (e) {}
+        }
+        return { key: '', raw: '' };
+    }
+
+    function __AKIMMaskSecret(value, options) {
+        const text = String(value == null ? '' : value);
+        const keepStart = Math.max(0, Number(options && options.keepStart || 0) || 0);
+        const keepEnd = Math.max(0, Number(options && options.keepEnd || 0) || 0);
+        if (!text) return '';
+        if (text.length <= keepStart + keepEnd + 2) return text;
+        return text.slice(0, keepStart) + '***' + text.slice(text.length - keepEnd);
+    }
+
+    function __AKIMParseCookieMap() {
+        const out = {};
+        try {
+            const raw = String(document.cookie || '');
+            raw.split(';').forEach(function(part) {
+                const idx = part.indexOf('=');
+                const k = String(idx >= 0 ? part.slice(0, idx) : part).trim();
+                const v = String(idx >= 0 ? part.slice(idx + 1) : '').trim();
+                if (!k) return;
+                try {
+                    out[k] = decodeURIComponent(v);
+                } catch (e) {
+                    out[k] = v;
+                }
             });
-            if (xhr.upload && onUploadProgress) {
-                xhr.upload.onprogress = function(event) {
-                    onUploadProgress({
-                        loaded: Number(event && event.loaded || 0) || 0,
-                        total: Number(event && event.total || 0) || 0,
-                        lengthComputable: !!(event && event.lengthComputable),
-                        percent: event && event.lengthComputable && Number(event.total || 0) > 0
-                            ? Math.max(0, Math.min(100, Math.round((Number(event.loaded || 0) / Number(event.total || 1)) * 100)))
-                            : 0
-                    });
+        } catch (e) {}
+        return out;
+    }
+
+    function __AKIMSafeJsonParse(raw) {
+        try {
+            if (!raw) return null;
+            return JSON.parse(String(raw));
+        } catch (e) {
+            return null;
+        }
+    }
+
+    function __AKIMBuildDebugSnapshot() {
+        const now = Date.now();
+        const cookies = __AKIMParseCookieMap();
+        const userModelStorage = __AKIMReadLocalStorageAny(__AKIMPickLocalStorageKeyCandidates());
+        const parsedUserModel = __AKIMSafeJsonParse(userModelStorage.raw);
+        let userModelSummary = null;
+        if (parsedUserModel && typeof parsedUserModel === 'object') {
+            userModelSummary = {
+                UserName: parsedUserModel.UserName || parsedUserModel.username || '',
+                Id: parsedUserModel.Id || parsedUserModel.id || '',
+                KeyMasked: __AKIMMaskSecret(parsedUserModel.Key || parsedUserModel.key || '', { keepEnd: 4 })
+            };
+        }
+
+        let appUserModelSummary = null;
+        try {
+            if (window.APP && APP.USER && APP.USER.MODEL) {
+                const m = APP.USER.MODEL;
+                appUserModelSummary = {
+                    UserName: m.UserName || m.username || '',
+                    Id: m.Id || m.id || '',
+                    KeyMasked: __AKIMMaskSecret(m.Key || m.key || '', { keepEnd: 4 })
                 };
             }
-            xhr.onerror = function() {
-                reject(new Error('network_error'));
-            };
-            xhr.onload = function() {
-                let data = null;
-                const rawText = String(xhr.responseText || '').trim();
-                if (rawText) {
-                    try {
-                        data = JSON.parse(rawText);
-                    } catch (e) {
-                        data = null;
-                    }
-                }
-                if (xhr.status < 200 || xhr.status >= 300) {
-                    reject(new Error((data && data.message) || 'request_failed'));
-                    return;
-                }
-                resolve(data || {});
-            };
-            xhr.send(formData);
+        } catch (e) {}
+
+        let windowUserModelSummary = null;
+        try {
+            if (window.USER_MODEL && typeof window.USER_MODEL === 'object') {
+                const m = window.USER_MODEL;
+                windowUserModelSummary = {
+                    UserName: m.UserName || m.username || '',
+                    Id: m.Id || m.id || '',
+                    KeyMasked: __AKIMMaskSecret(m.Key || m.key || '', { keepEnd: 4 })
+                };
+            }
+        } catch (e) {}
+
+        const usernameCookie = String((cookies.ak_username || '')).trim();
+        const imUsernameCookie = String((cookies.ak_im_username || '')).trim();
+        let syncKeyItem = null;
+        try {
+            const syncKey = usernameCookie ? ('ak_im_sync_key_' + usernameCookie.toLowerCase()) : '';
+            if (syncKey) {
+                const v = localStorage.getItem(syncKey);
+                syncKeyItem = {
+                    key: syncKey,
+                    valueMasked: __AKIMMaskSecret(v || '', { keepEnd: 4 })
+                };
+            }
+        } catch (e) {}
+
+        return {
+            ts: now,
+            iso: new Date(now).toISOString(),
+            url: String(location.href || ''),
+            ua: String(navigator.userAgent || ''),
+            cookies: {
+                ak_username: usernameCookie,
+                ak_im_username: imUsernameCookie
+            },
+            localStorage: {
+                userModelKey: userModelStorage.key,
+                userModelRawLen: userModelStorage.raw ? userModelStorage.raw.length : 0,
+                userModelSummary: userModelSummary,
+                imSyncKey: syncKeyItem
+            },
+            runtime: {
+                AKIMClientUsername: String(window.AKIMClientUsername || ''),
+                appUserModelSummary: appUserModelSummary,
+                windowUserModelSummary: windowUserModelSummary,
+                hasSyncFunc: typeof window.__AKChatSyncUserModel === 'function'
+            }
+        };
+    }
+
+    function __AKIMCopyText(text) {
+        const content = String(text == null ? '' : text);
+        if (!content) return Promise.resolve(false);
+        try {
+            if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+                return navigator.clipboard.writeText(content).then(function() { return true; }).catch(function() { return false; });
+            }
+        } catch (e) {}
+        return new Promise(function(resolve) {
+            try {
+                const ta = document.createElement('textarea');
+                ta.value = content;
+                ta.setAttribute('readonly', 'readonly');
+                ta.style.position = 'fixed';
+                ta.style.left = '-9999px';
+                ta.style.top = '0';
+                document.body.appendChild(ta);
+                ta.select();
+                const ok = document.execCommand && document.execCommand('copy');
+                ta.remove();
+                resolve(!!ok);
+            } catch (e2) {
+                resolve(false);
+            }
         });
     }
+
+    function __AKIMEnsureDebugModalStyles() {
+        if (document.getElementById('ak-im-debug-modal-style')) return;
+        const style = document.createElement('style');
+        style.id = 'ak-im-debug-modal-style';
+        style.textContent = `
+            .ak-im-debug-mask{position:fixed;inset:0;background:rgba(15,23,42,.55);backdrop-filter:blur(6px);z-index:2147483647;display:flex;align-items:flex-start;justify-content:center;padding:28px 14px;box-sizing:border-box}
+            .ak-im-debug-modal{width:min(920px,100%);background:#ffffff;border-radius:18px;box-shadow:0 26px 70px rgba(0,0,0,.35);overflow:hidden;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif}
+            .ak-im-debug-head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 14px;border-bottom:1px solid rgba(15,23,42,.08)}
+            .ak-im-debug-title{font-size:14px;font-weight:700;color:#111827;line-height:1.2}
+            .ak-im-debug-close{width:34px;height:34px;border:none;border-radius:10px;background:rgba(15,23,42,.06);cursor:pointer;color:#111827;font-size:18px;line-height:1}
+            .ak-im-debug-body{padding:12px 14px;max-height:min(70vh,680px);overflow:auto}
+            .ak-im-debug-pre{margin:0;font-family:ui-monospace,SFMono-Regular,Consolas,'Liberation Mono',Menlo,monospace;font-size:12px;line-height:1.55;white-space:pre-wrap;word-break:break-word;background:#0b1020;color:#e5e7eb;border-radius:14px;padding:12px}
+            .ak-im-debug-actions{display:flex;flex-wrap:wrap;gap:8px;padding:12px 14px;border-top:1px solid rgba(15,23,42,.08);background:#f8fafc}
+            .ak-im-debug-btn{height:34px;border:none;border-radius:12px;padding:0 12px;background:#111827;color:#ffffff;font-size:12px;font-weight:700;cursor:pointer}
+            .ak-im-debug-btn.secondary{background:#e5e7eb;color:#111827}
+            .ak-im-debug-hint{font-size:12px;color:#6b7280;line-height:1.5;padding:0 14px 12px}
+        `;
+        document.head.appendChild(style);
+    }
+
+    function __AKIMShowDebugModal() {
+        try {
+            __AKIMEnsureDebugModalStyles();
+            const existing = document.getElementById('ak-im-debug-mask');
+            if (existing && existing.parentNode) existing.parentNode.removeChild(existing);
+
+            const snapshot = __AKIMBuildDebugSnapshot();
+            const text = JSON.stringify(snapshot, null, 2);
+
+            const mask = document.createElement('div');
+            mask.id = 'ak-im-debug-mask';
+            mask.className = 'ak-im-debug-mask';
+
+            const modal = document.createElement('div');
+            modal.className = 'ak-im-debug-modal';
+
+            const head = document.createElement('div');
+            head.className = 'ak-im-debug-head';
+            const title = document.createElement('div');
+            title.className = 'ak-im-debug-title';
+            title.textContent = 'IM 调试信息';
+            const close = document.createElement('button');
+            close.className = 'ak-im-debug-close';
+            close.type = 'button';
+            close.textContent = '×';
+            head.appendChild(title);
+            head.appendChild(close);
+
+            const body = document.createElement('div');
+            body.className = 'ak-im-debug-body';
+            const pre = document.createElement('pre');
+            pre.className = 'ak-im-debug-pre';
+            pre.textContent = text;
+            body.appendChild(pre);
+
+            const actions = document.createElement('div');
+            actions.className = 'ak-im-debug-actions';
+            const copyBtn = document.createElement('button');
+            copyBtn.className = 'ak-im-debug-btn';
+            copyBtn.type = 'button';
+            copyBtn.textContent = '复制全部';
+
+            const syncBtn = document.createElement('button');
+            syncBtn.className = 'ak-im-debug-btn secondary';
+            syncBtn.type = 'button';
+            syncBtn.textContent = '手动触发同步';
+            syncBtn.disabled = typeof window.__AKChatSyncUserModel !== 'function';
+
+            actions.appendChild(copyBtn);
+            actions.appendChild(syncBtn);
+
+            const hint = document.createElement('div');
+            hint.className = 'ak-im-debug-hint';
+            hint.textContent = '双击聊天标题打开。Key 等敏感字段已打码。';
+
+            modal.appendChild(head);
+            modal.appendChild(body);
+            modal.appendChild(actions);
+            modal.appendChild(hint);
+            mask.appendChild(modal);
+            document.body.appendChild(mask);
+
+            const dispose = function() {
+                try { mask.remove(); } catch (e) {}
+                try { document.removeEventListener('keydown', onKeyDown, true); } catch (e) {}
+            };
+            const onKeyDown = function(ev) {
+                if (ev && (ev.key === 'Escape' || ev.key === 'Esc')) {
+                    if (ev.preventDefault) ev.preventDefault();
+                    dispose();
+                }
+            };
+
+            mask.addEventListener('click', function(ev) {
+                if (ev && ev.target === mask) dispose();
+            });
+            close.addEventListener('click', function() { dispose(); });
+            document.addEventListener('keydown', onKeyDown, true);
+
+            copyBtn.addEventListener('click', function() {
+                __AKIMCopyText(text).then(function(ok) {
+                    copyBtn.textContent = ok ? '已复制' : '复制失败';
+                    setTimeout(function() { copyBtn.textContent = '复制全部'; }, 900);
+                });
+            });
+
+            syncBtn.addEventListener('click', function() {
+                if (typeof window.__AKChatSyncUserModel !== 'function') return;
+                syncBtn.disabled = true;
+                syncBtn.textContent = '同步中...';
+                try {
+                    window.__AKChatSyncUserModel(function(result) {
+                        try {
+                            const nextSnapshot = __AKIMBuildDebugSnapshot();
+                            nextSnapshot.syncResult = result;
+                            const nextText = JSON.stringify(nextSnapshot, null, 2);
+                            pre.textContent = nextText;
+                        } catch (e) {}
+                        syncBtn.disabled = false;
+                        syncBtn.textContent = '手动触发同步';
+                    });
+                } catch (e) {
+                    syncBtn.disabled = false;
+                    syncBtn.textContent = '手动触发同步';
+                }
+            });
+        } catch (e) {}
+    }
+
+    window.__AKIMShowDebugModal = __AKIMShowDebugModal;
 
     function ensureRoot() {
         if (root && !root.isConnected) {

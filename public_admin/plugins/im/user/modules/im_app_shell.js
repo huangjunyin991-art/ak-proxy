@@ -1081,6 +1081,11 @@
                     node.addEventListener('click', handler);
                 }
             };
+            const bindDblClick = function(node, handler) {
+                if (node && typeof handler === 'function') {
+                    node.addEventListener('dblclick', handler);
+                }
+            };
             this.eventsBound = true;
             bindClick(elements.launcherEl, function() {
                 if (typeof ctx.onLauncherClick === 'function') ctx.onLauncherClick();
@@ -1096,6 +1101,21 @@
             });
             bindClick(elements.chatTitleBtnEl, function() {
                 if (typeof ctx.onChatTitleClick === 'function') ctx.onChatTitleClick();
+            });
+            bindDblClick(elements.chatTitleBtnEl, function(event) {
+                if (event && typeof event.preventDefault === 'function') event.preventDefault();
+                if (event && typeof event.stopPropagation === 'function') event.stopPropagation();
+                try {
+                    if (ctx && typeof ctx.onChatTitleDebugClick === 'function') {
+                        ctx.onChatTitleDebugClick();
+                        return;
+                    }
+                } catch (e) {}
+                try {
+                    if (typeof window.__AKIMShowDebugModal === 'function') {
+                        window.__AKIMShowDebugModal();
+                    }
+                } catch (e) {}
             });
             bindClick(elements.composeBackBtnEl, function() {
                 if (typeof ctx.onComposeBackClick === 'function') ctx.onComposeBackClick();
