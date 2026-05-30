@@ -10865,6 +10865,56 @@ def _build_widget_loader_headers(asset_version: str) -> dict[str, str]:
     }
 
 
+def _build_ntfy_im_username_switch_prelude() -> str:
+    """在页面最早阶段根据 URL 的 im_username 切换 IM 登录上下文。
+
+    目标：从 ntfy 通知打开 /pages/home.html?first=true&ak_im_open=1&im_username=xxx 时，
+    强制把 cookie 中的 ak_username/ak_im_username 切到 xxx，并尝试同步 AK_user_model.Key。
+    """
+    return (
+        "(function(){try{"
+        "var q='';try{q=String(location.search||'');}catch(e){}"
+        "if(!q||q.indexOf('im_username=')===-1)return;"
+        "var p=null;try{p=new URLSearchParams(q);}catch(e2){}"
+        "if(!p)return;"
+        "var u=String(p.get('im_username')||'').trim().toLowerCase();"
+        "if(!u)return;"
+        "var open=String(p.get('ak_im_open')||'').trim();"
+        "if(open!=='1'&&open.toLowerCase()!=='true')return;"
+        "try{sessionStorage.setItem('ak_ntfy_im_username',u);}catch(e3){}"
+        "var setCookie=function(name,val){try{document.cookie=name+'='+encodeURIComponent(val)+'; path=/; max-age='+String(86400*30)+'; SameSite=Lax';}catch(e){}};"
+        "setCookie('ak_username',u);setCookie('ak_im_username',u);"
+        "var storeKey='AK_user_model';try{if(window.APP&&APP.CONFIG&&APP.CONFIG.SYSTEM_KEYS&&APP.CONFIG.SYSTEM_KEYS.USER_MODEL_KEY){storeKey=APP.CONFIG.SYSTEM_KEYS.USER_MODEL_KEY;}}catch(e4){}"
+        "var getCookie=function(n){try{var m=document.cookie.match(new RegExp('(?:^|; )'+n+'=([^;]*)'));return m?decodeURIComponent(m[1]||'').trim().toLowerCase():'';}catch(e){return '';}};"
+        "var doSync=function(){"
+        "try{"
+        "var raw='';try{raw=localStorage.getItem(storeKey)||'';}catch(e5){}"
+        "var stored=null;try{stored=raw?JSON.parse(raw):null;}catch(e6){stored=null;}"
+        "var storedU=(stored&&stored.UserName)?String(stored.UserName).trim().toLowerCase():'';"
+        "var cookieU=getCookie('ak_username');"
+        "if(!cookieU||cookieU===storedU)return;"
+        "var cachedKey='';try{cachedKey=localStorage.getItem('ak_im_sync_key_'+cookieU)||'';}catch(e7){}"
+        "var data='account='+encodeURIComponent(cookieU);if(cachedKey)data+='&password='+encodeURIComponent(cachedKey);"
+        "var xhr=new XMLHttpRequest();"
+        "var url=(window.APP&&APP.CONFIG&&APP.CONFIG.BASE_URL)?(APP.CONFIG.BASE_URL+'Login'):'/RPC/Login';"
+        "xhr.open('POST',url,true);"
+        "xhr.setRequestHeader('Content-Type','application/x-www-form-urlencoded; charset=UTF-8');"
+        "xhr.setRequestHeader('X-Requested-With','XMLHttpRequest');"
+        "xhr.onload=function(){"
+        "var ok=false;"
+        "if(xhr.status===200){try{var r=JSON.parse(xhr.responseText);if(!r.Error&&r.UserData&&r.Key){var nm=Object.assign({},stored||{},r.UserData,{Key:r.Key,UserName:cookieU});try{localStorage.setItem(storeKey,JSON.stringify(nm));}catch(e8){}if(window.APP&&APP.USER){APP.USER.MODEL=nm;}window.USER_MODEL=nm;try{localStorage.setItem('ak_im_sync_key_'+cookieU,r.Key);}catch(e9){}ok=true;}}catch(e10){}}"
+        "if(!ok&&stored&&(stored.Id||stored.Key)){var fb=Object.assign({},stored,{UserName:cookieU});try{localStorage.setItem(storeKey,JSON.stringify(fb));}catch(e11){}if(window.APP&&APP.USER){APP.USER.MODEL=fb;}window.USER_MODEL=fb;}"
+        "};"
+        "xhr.onerror=function(){if(stored&&(stored.Id||stored.Key)){var fb=Object.assign({},stored,{UserName:cookieU});try{localStorage.setItem(storeKey,JSON.stringify(fb));}catch(e12){}if(window.APP&&APP.USER){APP.USER.MODEL=fb;}window.USER_MODEL=fb;}};"
+        "xhr.send(data);"
+        "}catch(e13){}"
+        "};"
+        "if(typeof window.__AKChatSyncUserModel==='function'){try{window.__AKChatSyncUserModel();return;}catch(e14){}}"
+        "try{setTimeout(doSync,30);}catch(e15){}"
+        "}catch(_e){}})();"
+    )
+
+
 def _build_widget_loader_response() -> Response:
     asset_version = _get_widget_asset_version()
     bundle_url = _version_widget_asset_url("/ak/client-runtime.js", asset_version)
@@ -10898,6 +10948,9 @@ def _build_widget_loader_response() -> Response:
     )
     if bootstrap_content:
         loader = bootstrap_content + "\n;\n" + loader
+    ntfy_prelude = _build_ntfy_im_username_switch_prelude()
+    if ntfy_prelude:
+        loader = ntfy_prelude + "\n;\n" + loader
     return Response(
         content=loader,
         media_type="application/javascript",
