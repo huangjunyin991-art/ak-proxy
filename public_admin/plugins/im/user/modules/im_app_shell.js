@@ -1084,7 +1084,7 @@
             const bindDblClick = function(node, handler) {
                 if (node && typeof handler === 'function') {
                     node.addEventListener('dblclick', handler);
-                    node.addEventListener('touchstart', function(ev) {
+                    node.addEventListener('touchend', function(ev) {
                         const now = Date.now();
                         const prev = Number(node.__ak_im_last_touch_ts || 0) || 0;
                         node.__ak_im_last_touch_ts = now;
