@@ -91,6 +91,78 @@
             window.USER_MODEL = model;
         } catch(e) {}
     }
+
+    // 同步 APP.USER.MODEL 到 ak_username cookie 对应的账号
+    // 供 home.js 等游戏页面在加载时调用，确保游戏 API 使用正确的账号
+    window.__AKChatSyncUserModel = function(callback) {
+        try {
+            var storedModel = null;
+            var storeKey = 'AK_user_model';
+            try {
+                if (window.APP && APP.CONFIG && APP.CONFIG.SYSTEM_KEYS && APP.CONFIG.SYSTEM_KEYS.USER_MODEL_KEY) {
+                    storeKey = APP.CONFIG.SYSTEM_KEYS.USER_MODEL_KEY;
+                }
+                var raw = localStorage.getItem(storeKey);
+                if (raw) storedModel = JSON.parse(raw);
+            } catch(e) {}
+            var storedUsername = (storedModel && storedModel.UserName) ? String(storedModel.UserName).trim().toLowerCase() : '';
+            var cookieUsername = '';
+            try {
+                var m = document.cookie.match(/(?:^|; )ak_username=([^;]*)/);
+                if (m) cookieUsername = decodeURIComponent(m[1] || '').trim().toLowerCase();
+            } catch(e) {}
+            if (!cookieUsername || cookieUsername === storedUsername) {
+                if (callback) callback({synced: false, reason: storedUsername === cookieUsername ? 'same_user' : 'no_cookie'});
+                return;
+            }
+            var cachedKey = '';
+            try { cachedKey = localStorage.getItem('ak_im_sync_key_' + cookieUsername) || ''; } catch(e) {}
+            var _doLogin = function(key) {
+                var data = 'account=' + encodeURIComponent(cookieUsername);
+                if (key) data += '&password=' + encodeURIComponent(key);
+                var xhr = new XMLHttpRequest();
+                xhr.open('POST', (window.APP && APP.CONFIG && APP.CONFIG.BASE_URL) ? (APP.CONFIG.BASE_URL + 'Login') : '/RPC/Login', true);
+                xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded; charset=UTF-8');
+                xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
+                xhr.onload = function() {
+                    var success = false;
+                    if (xhr.status === 200) {
+                        try {
+                            var result = JSON.parse(xhr.responseText);
+                            if (!result.Error && result.UserData && result.Key) {
+                                var newModel = Object.assign({}, storedModel || {}, result.UserData, {Key: result.Key, UserName: cookieUsername});
+                                try { localStorage.setItem(storeKey, JSON.stringify(newModel)); } catch(e) {}
+                                if (window.APP && APP.USER) { APP.USER.MODEL = newModel; }
+                                window.USER_MODEL = newModel;
+                                try { localStorage.setItem('ak_im_sync_key_' + cookieUsername, result.Key); } catch(e) {}
+                                success = true;
+                            }
+                        } catch(e) {}
+                    }
+                    if (!success && storedModel && (storedModel.Id || storedModel.Key)) {
+                        var fallback = Object.assign({}, storedModel, {UserName: cookieUsername});
+                        try { localStorage.setItem(storeKey, JSON.stringify(fallback)); } catch(e) {}
+                        if (window.APP && APP.USER) { APP.USER.MODEL = fallback; }
+                        window.USER_MODEL = fallback;
+                    }
+                    if (callback) callback({synced: true, reason: success ? 'login_ok' : 'fallback'});
+                };
+                xhr.onerror = function() {
+                    if (!success && storedModel && (storedModel.Id || storedModel.Key)) {
+                        var fallback = Object.assign({}, storedModel, {UserName: cookieUsername});
+                        try { localStorage.setItem(storeKey, JSON.stringify(fallback)); } catch(e) {}
+                        if (window.APP && APP.USER) { APP.USER.MODEL = fallback; }
+                        window.USER_MODEL = fallback;
+                    }
+                    if (callback) callback({synced: true, reason: 'error_fallback'});
+                };
+                xhr.send(data);
+            };
+            _doLogin(cachedKey);
+        } catch(e) {
+            if (callback) callback({synced: false, reason: 'exception'});
+        }
+    };
     
     function _akHasPersistCookie() {
         return false;
@@ -133,9 +205,13 @@
                     if (!_akHasPersistCookie()) return;
                     _akStoreUserModel(result);
                     var creds = _akExtractCreds(xhr._akReqBody);
+                    var loginKey = _akExtractUserKey(result);
                     if (creds) {
                         _akSaveCred(creds.account, creds.password);
                         _akSyncLoginUsernameCookie(creds.account);
+                        if (loginKey) {
+                            try { localStorage.setItem('ak_im_sync_key_' + String(creds.account).trim().toLowerCase(), loginKey); } catch(e) {}
+                        }
                         if (window.AKChat && window.AKChat.reconnect) window.AKChat.reconnect();
                     }
                 } catch(e) {}
@@ -154,9 +230,13 @@
                             if (!_akHasPersistCookie()) return;
                             _akStoreUserModel(data);
                             var creds = _akExtractCreds(options.body);
+                            var loginKey = _akExtractUserKey(data);
                             if (creds) {
                                 _akSaveCred(creds.account, creds.password);
                                 _akSyncLoginUsernameCookie(creds.account);
+                                if (loginKey) {
+                                    try { localStorage.setItem('ak_im_sync_key_' + String(creds.account).trim().toLowerCase(), loginKey); } catch(e) {}
+                                }
                                 if (window.AKChat && window.AKChat.reconnect) window.AKChat.reconnect();
                             }
                         }
