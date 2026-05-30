@@ -244,7 +244,7 @@ class NotifyCenterService:
         ntfy_bindings = await self.repository.get_active_ntfy_bindings(recipients)
         title = build_notification_title(event)
         body = build_notification_body(event, show_preview=self.config.show_message_preview)
-        url = build_notification_url(event, self.config.public_base_url)
+        url = build_notification_url({**event, 'recipient_username': username}, self.config.public_base_url)
         conversation_id = int(event.get('conversation_id') or 0)
         queued = 0
         skipped_by_dedupe = 0
