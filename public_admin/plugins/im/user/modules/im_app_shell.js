@@ -1084,6 +1084,18 @@
             const bindDblClick = function(node, handler) {
                 if (node && typeof handler === 'function') {
                     node.addEventListener('dblclick', handler);
+                    node.addEventListener('touchstart', function(ev) {
+                        const now = Date.now();
+                        const prev = Number(node.__ak_im_last_touch_ts || 0) || 0;
+                        node.__ak_im_last_touch_ts = now;
+                        if (prev && (now - prev) <= 320) {
+                            try {
+                                if (ev && typeof ev.preventDefault === 'function') ev.preventDefault();
+                                if (ev && typeof ev.stopPropagation === 'function') ev.stopPropagation();
+                            } catch (e) {}
+                            try { handler(ev); } catch (e2) {}
+                        }
+                    }, { passive: false });
                 }
             };
             this.eventsBound = true;
