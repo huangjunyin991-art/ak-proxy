@@ -3044,6 +3044,58 @@
         });
     }
 
+    function requestFormData(url, formData, options) {
+        const requestOptions = Object.assign({
+            credentials: 'same-origin',
+            method: 'POST'
+        }, options || {});
+        const headers = Object.assign(buildAuthHeaders(), requestOptions.headers || {});
+        const method = String(requestOptions.method || 'POST').trim().toUpperCase() || 'POST';
+        const onUploadProgress = typeof requestOptions.onUploadProgress === 'function' ? requestOptions.onUploadProgress : null;
+        return new Promise(function(resolve, reject) {
+            const xhr = new XMLHttpRequest();
+            xhr.open(method, url, true);
+            xhr.withCredentials = requestOptions.credentials === 'include' || requestOptions.credentials === 'same-origin';
+            Object.keys(headers).forEach(function(key) {
+                const headerValue = headers[key];
+                if (headerValue == null || headerValue === '') return;
+                xhr.setRequestHeader(key, headerValue);
+            });
+            if (xhr.upload && onUploadProgress) {
+                xhr.upload.onprogress = function(event) {
+                    onUploadProgress({
+                        loaded: Number(event && event.loaded || 0) || 0,
+                        total: Number(event && event.total || 0) || 0,
+                        lengthComputable: !!(event && event.lengthComputable),
+                        percent: event && event.lengthComputable && Number(event.total || 0) > 0
+                            ? Math.max(0, Math.min(100, Math.round((Number(event.loaded || 0) / Number(event.total || 1)) * 100)))
+                            : 0
+                    });
+                };
+            }
+            xhr.onerror = function() {
+                reject(new Error('network_error'));
+            };
+            xhr.onload = function() {
+                let data = null;
+                const rawText = String(xhr.responseText || '').trim();
+                if (rawText) {
+                    try {
+                        data = JSON.parse(rawText);
+                    } catch (e) {
+                        data = null;
+                    }
+                }
+                if (xhr.status < 200 || xhr.status >= 300) {
+                    reject(new Error((data && data.message) || 'request_failed'));
+                    return;
+                }
+                resolve(data || {});
+            };
+            xhr.send(formData);
+        });
+    }
+
     function __AKIMPickLocalStorageKeyCandidates() {
         try {
             const keys = [];
