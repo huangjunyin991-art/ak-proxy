@@ -984,6 +984,7 @@
                 messageNavigationEl: root ? root.querySelector('.ak-im-message-navigation') : null,
                 mentionPanelEl: root ? root.querySelector('.ak-im-mention-panel') : null,
                 chatTitleBtnEl: root ? root.querySelector('.ak-im-chat-title-btn') : null,
+                chatTitleTapEl: root ? (root.querySelector('.ak-im-chat-title-btn') || root.querySelector('.ak-im-chat-title') || root.querySelector('.ak-im-topbar-title-wrap')) : null,
                 settingsPanelEl: root ? root.querySelector('.ak-im-group-info-screen') : null,
                 settingsPanelBodyEl: root ? root.querySelector('.ak-im-group-info-page') : null,
                 chatMenuBtnEl: root ? root.querySelector('.ak-im-chat-menu') : null,
@@ -1114,7 +1115,7 @@
             bindClick(elements.chatTitleBtnEl, function() {
                 if (typeof ctx.onChatTitleClick === 'function') ctx.onChatTitleClick();
             });
-            bindDblClick(elements.chatTitleBtnEl, function(event) {
+            bindDblClick(elements.chatTitleTapEl || elements.chatTitleBtnEl, function(event) {
                 if (event && typeof event.preventDefault === 'function') event.preventDefault();
                 if (event && typeof event.stopPropagation === 'function') event.stopPropagation();
                 try {
