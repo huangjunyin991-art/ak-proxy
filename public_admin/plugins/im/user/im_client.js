@@ -3294,6 +3294,10 @@
             const snapshot = __AKIMBuildDebugSnapshot();
             const text = JSON.stringify(snapshot, null, 2);
 
+            try {
+                console.log('[AKIM][debug] show modal', snapshot);
+            } catch (e0) {}
+
             const mask = document.createElement('div');
             mask.id = 'ak-im-debug-mask';
             mask.className = 'ak-im-debug-mask';
