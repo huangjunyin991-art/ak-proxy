@@ -12785,7 +12785,9 @@ async def admin_ak_auth_switch_by_ticket(request: Request):
         return JSONResponse({"success": False, "message": "缺少用户名"}, status_code=400)
 
     # 解析并校验浏览会话（一次性凭证）
-    bs_id, session, bs_source = _resolve_browse_session(request, preferred_username=wanted)
+    # ntfy 打开链接时通常没有携带 bs 参数，且 session.username 可能不是 wanted；
+    # 因此这里不强制 preferred_username 匹配，只要当前浏览会话已校验即可。
+    bs_id, session, bs_source = _resolve_browse_session(request)
     if not session or not session.get("auth_ticket_validated"):
         logger.warning(f"[AkAuthSwitchByTicket] invalid_ticket wanted={wanted} bs={bs_id} source={bs_source}")
         return JSONResponse({"success": False, "message": "无效或未验证的凭证，请重新打开通知链接"}, status_code=401)
