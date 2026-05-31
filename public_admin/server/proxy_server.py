@@ -467,6 +467,23 @@ except Exception as e:
     _ACTIVE_DEFENSE_IMPORT_ERROR = e
 
 try:
+    from .rate_ban import (
+        RateBanService,
+        RateBanPolicy,
+        RateBanConfigService,
+        RateBanMiddleware,
+        create_rate_ban_router,
+    )
+    _RATE_BAN_IMPORT_ERROR = None
+except Exception as e:
+    RateBanService = None
+    RateBanPolicy = None
+    RateBanConfigService = None
+    RateBanMiddleware = None
+    create_rate_ban_router = None
+    _RATE_BAN_IMPORT_ERROR = e
+
+try:
     from .risk_isolation import (
         RiskIsolationLoginGuard,
         RiskIsolationRepository,
@@ -654,6 +671,11 @@ app.add_middleware(
 )
 
 
+if RateBanMiddleware is not None:
+    app.add_middleware(RateBanMiddleware)
+
+
+
 
 # ===== 工具函数 =====
 
@@ -741,6 +763,22 @@ async def _refresh_active_defense_policy() -> None:
     if active_defense_config_service is None:
         return
     await active_defense_config_service.refresh_policy()
+
+
+rate_ban_service = (
+    RateBanService(RateBanPolicy())
+    if RateBanService is not None and RateBanPolicy is not None else None
+)
+
+
+rate_ban_config_service = (
+    RateBanConfigService(
+        db.system_config,
+        rate_ban_service,
+        logger=logger,
+    )
+    if RateBanConfigService is not None else None
+)
 
 
 async def _ban_active_defense_ip(ip: str, count: int, trigger_reason: str, base_seconds: int, max_seconds: int, progressive: bool) -> dict:
@@ -2114,6 +2152,7 @@ async def proxy_login(request: Request):
             cached = _cache_ak_auth_from_fastpath(account, password, fastpath_result)
         else:
             cached = _cache_ak_auth(account, password, result, response.headers)
+        cached["auth_ticket_validated"] = True
 
         try:
 
@@ -4540,6 +4579,19 @@ if active_defense_config_service is not None and create_active_defense_router is
 elif _ACTIVE_DEFENSE_IMPORT_ERROR is not None:
     logger.warning(f"[ActiveDefense] 主动防御模块不可用，已跳过: {_ACTIVE_DEFENSE_IMPORT_ERROR}")
 
+if rate_ban_config_service is not None and create_rate_ban_router is not None:
+    try:
+        app.include_router(create_rate_ban_router(
+            config_service=rate_ban_config_service,
+            verify_admin_token=verify_admin_token,
+            get_token_role=get_token_role,
+            super_admin_role=ROLE_SUPER_ADMIN,
+        ))
+    except Exception as e:
+        logger.warning(f"[RateBan] 限速封禁路由注册失败，已跳过: {e}")
+elif _RATE_BAN_IMPORT_ERROR is not None:
+    logger.warning(f"[RateBan] 限速封禁模块不可用，已跳过: {_RATE_BAN_IMPORT_ERROR}")
+
 if risk_isolation_service is not None and create_risk_isolation_router is not None:
     try:
         app.include_router(create_risk_isolation_router(
@@ -4945,17 +4997,11 @@ async def admin_login(request: Request):
 
 
 
-@app.get("/admin/api/verify_token")
-
 async def verify_token_api(request: Request):
-
     security_context = build_security_context(request, client_ip=_extract_client_ip(request))
     token = request.headers.get('Authorization', '').replace('Bearer ', '')
-
     token_detail = await admin_security.admin_sessions.verify_token_detail(token)
-
     if not token_detail.get('valid'):
-
         reason = token_detail.get('reason') or 'invalid'
         message_map = {
             'missing': '未检测到登录凭证，请重新登录',
@@ -4966,28 +5012,19 @@ async def verify_token_api(request: Request):
             'invalid': '登录状态无效，请重新登录',
         }
         message = message_map.get(reason, '登录状态无效，请重新登录')
-
         admin_security.record_audit(
             security_context,
             SecurityResult(success=False, event='admin_token_verify', reason=reason,
                            role=token_detail.get('role') or '', sub_name=token_detail.get('sub_name') or '')
         )
         return JSONResponse(status_code=401, content={"valid": False, "code": reason, "message": message})
-
     role = get_token_role(token)
-
     sub_name = get_token_sub_name(token)
-
     if role == ROLE_SUPER_ADMIN:
-
         role_name, permissions = "系统总管理", {}
-
     else:
-
         role_name = f"子管理员({sub_name})" if sub_name else "子管理员"
-
         permissions = get_sub_admin_permissions(sub_name) if sub_name else {}
-
     admin_security.record_audit(
         security_context,
         SecurityResult(success=True, event='admin_token_verify', reason='ok', role=role, sub_name=sub_name or '')
@@ -10598,7 +10635,7 @@ def _admin_panel_versions():
 
 _ADMIN_PANEL_VERSION_PATTERN = re.compile(
     r"var\s+(monitoringPanelBuildVersion|meetingPanelBuildVersion|activeDefensePanelBuildVersion|"
-    r"riskIsolationPanelBuildVersion|recommendTreePanelBuildVersion|pointStatsPanelBuildVersion)\s*=\s*'[^']*'"
+    r"riskIsolationPanelBuildVersion|recommendTreePanelBuildVersion|pointStatsPanelBuildVersion|rateBanPanelBuildVersion)\s*=\s*'[^']*'"
 )
 
 _ADMIN_PANEL_VAR_TO_KEY = {
@@ -10608,6 +10645,7 @@ _ADMIN_PANEL_VAR_TO_KEY = {
     'riskIsolationPanelBuildVersion': 'riskIsolation',
     'recommendTreePanelBuildVersion': 'recommendTree',
     'pointStatsPanelBuildVersion': 'pointStats',
+    'rateBanPanelBuildVersion': 'rateBan',
 }
 
 
@@ -11436,6 +11474,19 @@ async def active_defense_panel_js():
     return Response(content="// not found", media_type="application/javascript")
 
 
+@app.get("/admin/api/rate-ban-panel.js")
+async def rate_ban_panel_js():
+    js_path = os.path.join(FRONTEND_PAGES_DIR, "rate_ban_panel.js")
+    if os.path.exists(js_path):
+        with open(js_path, "r", encoding="utf-8") as f:
+            return Response(
+                content=f.read(),
+                media_type="application/javascript",
+                headers={"Cache-Control": "no-cache, no-store, must-revalidate", "Pragma": "no-cache", "Expires": "0"},
+            )
+    return Response(content="// not found", media_type="application/javascript")
+
+
 @app.get("/admin/api/risk-isolation-panel.js")
 async def risk_isolation_panel_js():
     js_path = os.path.join(FRONTEND_PAGES_DIR, "risk_isolation_panel.js")
@@ -12051,6 +12102,7 @@ class BrowseSessionPersistQueue:
             "login_result": cached.get("login_result", {}),
             "password": cached.get("password", ""),
             "expires": cached.get("expires", time.time() + _BROWSE_SESSION_TTL),
+            "auth_ticket_validated": cached.get("auth_ticket_validated", False),
         }
         self._event.set()
 
@@ -12370,6 +12422,7 @@ def _build_browse_session_persist_payload(session: dict) -> tuple[str, Optional[
         "login_result": session.get("login_result", {}),
         "password": session.get("password", ""),
         "expires": time.time() + _BROWSE_SESSION_TTL,
+        "auth_ticket_validated": session.get("auth_ticket_validated", False),
     }
     return username, cached
 
@@ -12384,6 +12437,7 @@ async def _apply_cached_auth_to_browse_session(session: dict, cached: dict, resu
     session["login_result"] = result
     if cached.get("userkey"):
         session["userkey"] = cached.get("userkey", "")
+    session["auth_ticket_validated"] = True
     await _persist_browse_session_auth(session)
 
 
@@ -12527,11 +12581,11 @@ def _resolve_browse_session(request: Request, preferred_username: str = "", sour
     if wanted:
         for bs_id, bs_source in candidates:
             session = _get_browse_session(bs_id)
-            if session and (session.get("username") or "").strip().lower() == wanted:
+            if session and (session.get("username") or "").strip().lower() == wanted and session.get("auth_ticket_validated"):
                 return bs_id, session, bs_source
     for bs_id, bs_source in candidates:
         session = _get_browse_session(bs_id)
-        if session:
+        if session and session.get("auth_ticket_validated"):
             return bs_id, session, bs_source
     bs_id, bs_source = candidates[0] if candidates else ("", "none")
     return bs_id, session, bs_source
@@ -12863,6 +12917,7 @@ async def _forward_admin_ak_rpc_request(path: str, request: Request, session: di
             if fastpath_result.success:
                 result = fastpath_result.login_payload
                 cached = _cache_ak_auth_from_fastpath(account, password, fastpath_result)
+                cached["auth_ticket_validated"] = True
                 await _apply_cached_auth_to_browse_session(session, cached, result, account, password)
                 if selected_exit and not _ADMIN_AK_FORCE_DIRECT:
                     session["ak_exit_name"] = selected_exit.name
@@ -12916,6 +12971,7 @@ async def _forward_admin_ak_rpc_request(path: str, request: Request, session: di
             account = (params.get("account") or params.get("username") or session.get("username") or "").strip()
             password = (params.get("password") or session.get("password") or "").strip()
             cached = _cache_ak_auth(account, password, result, response.headers)
+            cached["auth_ticket_validated"] = True
             await _apply_cached_auth_to_browse_session(session, cached, result, account, password)
             if selected_exit and not _ADMIN_AK_FORCE_DIRECT:
                 session["ak_exit_name"] = selected_exit.name
@@ -13001,7 +13057,10 @@ async def admin_ak_rpc(path: str, request: Request):
         _admin_ak_trace(lambda: f"[IframeLoginApi] route=/admin/ak-rpc/Login phase=request bs={bs_id} source={bs_source} cookie_bs={cookie_bs} referer={referer}")
     if not session:
         logger.warning(f"[AdminAkRpc/{path}] no_session bs={bs_id} source={bs_source} cookie_bs={cookie_bs} dest={fetch_dest} accept={accept} referer={referer}")
-        return JSONResponse({"Error": True, "IsLogin": False, "Msg": "用戶未登錄"})
+        return JSONResponse({"Error": True, "IsLogin": False, "Msg": "用戶未登錄"}, status_code=401)
+    if not session.get("auth_ticket_validated") and path.strip("/").lower() != "login":
+        logger.warning(f"[AdminAkRpc/{path}] invalid_ticket bs={bs_id} source={bs_source} cookie_bs={cookie_bs} dest={fetch_dest} accept={accept} referer={referer}")
+        return JSONResponse({"Error": True, "IsLogin": False, "Msg": "用戶未登錄"}, status_code=401)
 
     try:
         return await _forward_admin_ak_rpc_request(path, request, session, referer, fetch_dest, accept)
@@ -13020,6 +13079,7 @@ def _create_browse_session(username: str, password: str, extra: Optional[dict] =
         "userkey": "",
         "login_result": {},
         "expires": time.time() + _BROWSE_SESSION_TTL,
+        "auth_ticket_validated": True,
     }
     if extra:
         session.update(dict(extra))
@@ -13480,31 +13540,37 @@ async def ak_web_proxy(request: Request, path: str):
     if not session:
         logger.warning(f"[AkWebProxy/{path}] no_session bs={bs_id} source={bs_source} cookie_bs={cookie_bs} dest={fetch_dest} accept={accept} referer={referer}")
         return JSONResponse({"Error": True, "IsLogin": False, "Msg": "用戶未登錄"}, status_code=401)
-    cookies = {}
-    selected_exit = None
-    force_direct_ak_web = _should_force_direct_ak_web(site_prefix)
-    pinned_exit_name = str(session.get("ak_exit_name") or "").strip() if session else ""
-    if session:
-        cookies = session["cookies"]
-    if force_direct_ak_web:
-        selected_exit = _get_direct_exit()
-        if session:
-            session.pop("ak_exit_name", None)
-        _admin_ak_trace(lambda: (
-            f"[AkWebExit/{path}] force_direct=1 preferred={pinned_exit_name or '-'} using={selected_exit.name} "
-            f"bs={bs_id} referer={referer}"
-        ))
+    if session and not session.get("auth_ticket_validated") and "pages/account/login" not in path:
+        login_url = _make_browse_login_url(bs_id, site_prefix)
+        logger.warning(f"[AkWebLoginGate/{path}] invalid_or_unvalidated_ticket bs={bs_id} source={bs_source} cookie_bs={cookie_bs} referer={referer} redirect={login_url}")
+        response = _apply_no_store_headers(Response(status_code=307, headers={"location": login_url}))
+        if bs_id:
+            _set_browse_session_cookie(response, bs_id)
+        return response
     else:
-        selected_exit = _select_forward_exit(path or "web", preferred_exit_name=pinned_exit_name)
+        pinned_exit_name = str(session.get("ak_exit_name") or "").strip() if session else ""
         if session:
-            if pinned_exit_name:
-                _admin_ak_trace(lambda: (
-                    f"[AkWebExit/{path}] pinned=1 preferred={pinned_exit_name} using={selected_exit.name} "
-                    f"bs={bs_id} referer={referer}"
-                ))
-            else:
-                session["ak_exit_name"] = selected_exit.name
-                _admin_ak_trace(lambda: f"[AkWebExit/{path}] bind={selected_exit.name} bs={bs_id} referer={referer}")
+            cookies = session["cookies"]
+        force_direct_ak_web = _should_force_direct_ak_web(site_prefix)
+        if force_direct_ak_web:
+            selected_exit = _get_direct_exit()
+            if session:
+                session.pop("ak_exit_name", None)
+            _admin_ak_trace(lambda: (
+                f"[AkWebExit/{path}] force_direct=1 preferred={pinned_exit_name or '-'} using={selected_exit.name} "
+                f"bs={bs_id} referer={referer}"
+            ))
+        else:
+            selected_exit = _select_forward_exit(path or "web", preferred_exit_name=pinned_exit_name)
+            if session:
+                if pinned_exit_name:
+                    _admin_ak_trace(lambda: (
+                        f"[AkWebExit/{path}] pinned=1 preferred={pinned_exit_name} using={selected_exit.name} "
+                        f"bs={bs_id} referer={referer}"
+                    ))
+                else:
+                    session["ak_exit_name"] = selected_exit.name
+                    _admin_ak_trace(lambda: f"[AkWebExit/{path}] bind={selected_exit.name} bs={bs_id} referer={referer}")
 
     normalized_path = path.lstrip("/").lower()
     requested_bs = (request.query_params.get("bs") or "").strip()
@@ -13579,6 +13645,12 @@ async def ak_web_proxy(request: Request, path: str):
         if "/pages/account/login.html" in final_url_str and "/pages/account/login.html" not in target_url:
             history_chain = " -> ".join(str(item.url) for item in resp.history) if resp.history else ""
             logger.warning(f"[AkWebLoginBounce/{path}] bs={bs_id} source={bs_source} cookie_bs={cookie_bs} referer={referer} target={target_url} final_url={final_url_str} history={history_chain}")
+            if session is not None and not session.get("auth_ticket_validated"):
+                login_url = _make_browse_login_url(bs_id, site_prefix)
+                response = _apply_no_store_headers(Response(status_code=307, headers={"location": login_url}))
+                if bs_id:
+                    _set_browse_session_cookie(response, bs_id)
+                return response
 
         # 同步响应中的 Set-Cookie 到缓存 session，保持 session 刷新
         if session and bs_id and not static_cache_request:
