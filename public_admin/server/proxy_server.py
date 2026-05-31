@@ -83,7 +83,7 @@ DISPATCHER_TEMP_EVENT_FILE = os.path.join(PUBLIC_ADMIN_DIR, "dispatcher_runtime_
 
 # 加载配置
 
-sys.path.insert(0, PUBLIC_ADMIN_DIR)
+sys.path.insert(0, os.path.dirname(PUBLIC_ADMIN_DIR))
 
 try:
 
