@@ -10941,19 +10941,13 @@ def _build_ntfy_im_username_switch_prelude() -> str:
         "var cachedKey='';try{cachedKey=localStorage.getItem('ak_im_sync_key_'+cookieU)||'';}catch(e7){}"
         "var data='account='+encodeURIComponent(cookieU);if(cachedKey)data+='&password='+encodeURIComponent(cachedKey);"
         "var xhr=new XMLHttpRequest();"
-        "var url=(window.APP&&APP.CONFIG&&APP.CONFIG.BASE_URL)?(APP.CONFIG.BASE_URL+'Login'):'/RPC/Login';"
-        "try{var __d=window.__AK_NTFY_SWITCH_DEBUG__||{};__d.step='xhr-prep';__d.loginUrl=url;__d.cachedKeyMasked=cachedKey?('***'+String(cachedKey).slice(-4)):'(empty)';window.__AK_NTFY_SWITCH_DEBUG__=__d;}catch(__d3){}"
+        "var url='/admin/api/ak_auth/switch_by_ticket?username='+encodeURIComponent(cookieU);"
+        "try{var __d=window.__AK_NTFY_SWITCH_DEBUG__||{};__d.step='api-prep';__d.apiUrl=url;window.__AK_NTFY_SWITCH_DEBUG__=__d;}catch(__d3){}"
         "xhr.open('POST',url,true);"
-        "xhr.setRequestHeader('Content-Type','application/x-www-form-urlencoded; charset=UTF-8');"
-        "xhr.setRequestHeader('X-Requested-With','XMLHttpRequest');"
-        "xhr.onload=function(){"
-        "try{var __d=window.__AK_NTFY_SWITCH_DEBUG__||{};__d.step='xhr-onload';__d.status=xhr.status||0;window.__AK_NTFY_SWITCH_DEBUG__=__d;}catch(__d4){}"
-        "var ok=false;"
-        "if(xhr.status===200){try{var r=JSON.parse(xhr.responseText);try{var __d=window.__AK_NTFY_SWITCH_DEBUG__||{};__d.step='xhr-200';__d.rErr=!!(r&&r.Error);__d.rKeyMasked=(r&&r.Key)?('***'+String(r.Key).slice(-4)):'(empty)';window.__AK_NTFY_SWITCH_DEBUG__=__d;}catch(__d5){}if(!r.Error&&r.UserData&&r.Key){var nm=Object.assign({},stored||{},r.UserData,{Key:r.Key,UserName:cookieU});try{localStorage.setItem(storeKey,JSON.stringify(nm));}catch(e8){}if(window.APP&&APP.USER){APP.USER.MODEL=nm;}window.USER_MODEL=nm;try{localStorage.setItem('ak_im_sync_key_'+cookieU,r.Key);}catch(e9){}try{localStorage.setItem('userkey',r.Key);localStorage.setItem('UserKey',r.Key);}catch(e9b){}try{window.userkey=r.Key;}catch(e9c){}try{var __d=window.__AK_NTFY_SWITCH_DEBUG__||{};__d.step='synced';__d.userkeyMasked=r.Key?('***'+String(r.Key).slice(-4)):'(empty)';window.__AK_NTFY_SWITCH_DEBUG__=__d;}catch(__d6){}ok=true;}}catch(e10){}}"
-        "if(!ok&&stored&&(stored.Id||stored.Key)){var fb=Object.assign({},stored,{UserName:cookieU});try{localStorage.setItem(storeKey,JSON.stringify(fb));}catch(e11){}if(window.APP&&APP.USER){APP.USER.MODEL=fb;}window.USER_MODEL=fb;var k=stored.Key||stored.key||'';if(k){try{localStorage.setItem('userkey',k);localStorage.setItem('UserKey',k);}catch(e11b){}try{window.userkey=k;}catch(e11c){}}}"
-        "};"
-        "xhr.onerror=function(){try{var __d=window.__AK_NTFY_SWITCH_DEBUG__||{};__d.step='xhr-error';window.__AK_NTFY_SWITCH_DEBUG__=__d;}catch(__d7){}if(stored&&(stored.Id||stored.Key)){var fb=Object.assign({},stored,{UserName:cookieU});try{localStorage.setItem(storeKey,JSON.stringify(fb));}catch(e12){}if(window.APP&&APP.USER){APP.USER.MODEL=fb;}window.USER_MODEL=fb;}var k=stored.Key||stored.key||'';if(k){try{localStorage.setItem('userkey',k);localStorage.setItem('UserKey',k);}catch(e12b){}try{window.userkey=k;}catch(e12c){}try{var __d=window.__AK_NTFY_SWITCH_DEBUG__||{};__d.step='fallback-key';__d.userkeyMasked=('***'+String(k).slice(-4));window.__AK_NTFY_SWITCH_DEBUG__=__d;}catch(__d8){}}};"
-        "xhr.send(data);"
+        "xhr.setRequestHeader('Content-Type','application/json; charset=UTF-8');"
+        "xhr.onload=function(){try{var __d=window.__AK_NTFY_SWITCH_DEBUG__||{};__d.step='api-onload';__d.status=xhr.status||0;window.__AK_NTFY_SWITCH_DEBUG__=__d;}catch(__d4){}var ok=false;if(xhr.status===200){try{var r=JSON.parse(xhr.responseText||'{}');try{var __d=window.__AK_NTFY_SWITCH_DEBUG__||{};__d.step='api-200';__d.rOk=!!(r&&r.success);__d.rKeyMasked=(r&&r.userkeyMasked)?String(r.userkeyMasked):((r&&r.userkey)?('***'+String(r.userkey).slice(-4)):'(empty)');__d.cookieNames=r&&r.cookieNames?String(r.cookieNames):'';window.__AK_NTFY_SWITCH_DEBUG__=__d;}catch(__d5){}if(r&&r.success&&r.userkey){var uk=String(r.userkey||'');var nm=Object.assign({},stored||{},{UserName:cookieU,Key:uk});try{localStorage.setItem(storeKey,JSON.stringify(nm));}catch(e8){}try{localStorage.setItem('userkey',uk);localStorage.setItem('UserKey',uk);}catch(e9b){}try{window.userkey=uk;}catch(e9c){}if(window.APP&&APP.USER){try{APP.USER.MODEL=nm;}catch(_e){} }window.USER_MODEL=nm;try{var __d=window.__AK_NTFY_SWITCH_DEBUG__||{};__d.step='applied-userkey';__d.userkeyMasked=('***'+uk.slice(-4));window.__AK_NTFY_SWITCH_DEBUG__=__d;}catch(__d6){}ok=true;}}catch(e10){}}if(!ok){try{var __d=window.__AK_NTFY_SWITCH_DEBUG__||{};__d.step='api-failed';__d.bodyHead=String(xhr.responseText||'').slice(0,200);window.__AK_NTFY_SWITCH_DEBUG__=__d;}catch(__d7){}}};"
+        "xhr.onerror=function(){try{var __d=window.__AK_NTFY_SWITCH_DEBUG__||{};__d.step='api-error';window.__AK_NTFY_SWITCH_DEBUG__=__d;}catch(__d8){}};"
+        "xhr.send('{}');"
         "}catch(e13){}"
         "};"
         "if(typeof window.__AKChatSyncUserModel==='function'){try{window.__AKChatSyncUserModel();return;}catch(e14){}}"
@@ -12769,6 +12763,72 @@ async def admin_clear_ak_auth(request: Request):
     except Exception as e:
         return JSONResponse({"success": False, "message": f"清理失败: {str(e)}"})
     return JSONResponse({"success": True})
+
+
+@app.post("/admin/api/ak_auth/switch_by_ticket")
+async def admin_ak_auth_switch_by_ticket(request: Request):
+    """根据一次性浏览会话凭证（bs）切换指定账号的 userkey。
+
+    该接口供前端 loader 在 ntfy 打开页面时调用：
+    - 要求当前浏览会话已通过 auth_ticket 校验
+    - 从服务端持久化登录态中读取目标账号 userkey/cookies/login_result
+    """
+
+    wanted = (request.query_params.get("username") or "").strip().lower()
+    if not wanted:
+        try:
+            data = await request.json()
+        except Exception:
+            data = {}
+        wanted = (data.get("username") or "").strip().lower()
+    if not wanted:
+        return JSONResponse({"success": False, "message": "缺少用户名"}, status_code=400)
+
+    # 解析并校验浏览会话（一次性凭证）
+    bs_id, session, bs_source = _resolve_browse_session(request, preferred_username=wanted)
+    if not session or not session.get("auth_ticket_validated"):
+        logger.warning(f"[AkAuthSwitchByTicket] invalid_ticket wanted={wanted} bs={bs_id} source={bs_source}")
+        return JSONResponse({"success": False, "message": "无效或未验证的凭证，请重新打开通知链接"}, status_code=401)
+
+    # 读取目标账号的持久化登录态（允许过期，用于前端尝试恢复上下文；是否可用由前端/后端再判断）
+    try:
+        persisted = await db.load_ak_auth_state(wanted, check_expiry=False)
+    except Exception as e:
+        logger.warning(f"[AkAuthSwitchByTicket] load_auth_state_failed {wanted}: {e}")
+        persisted = None
+
+    if not persisted:
+        return JSONResponse({"success": False, "message": "该账号没有可用登录态，请先让该账号登录一次"}, status_code=404)
+
+    userkey = str(persisted.get("userkey") or "")
+    cookies = persisted.get("cookies") or {}
+    login_result = persisted.get("login_result") or {}
+
+    if not userkey:
+        return JSONResponse({"success": False, "message": "该账号没有可用 userkey，请先让该账号登录一次"}, status_code=404)
+
+    # 绑定当前浏览会话到目标账号（用于后续 /admin/ak-rpc 注入）
+    try:
+        session["username"] = wanted
+        session["userkey"] = userkey
+        if isinstance(cookies, dict) and cookies:
+            session.setdefault("cookies", {})
+            session["cookies"].update(dict(cookies))
+        if isinstance(login_result, dict) and login_result:
+            session["login_result"] = dict(login_result)
+        session["auth_ticket_validated"] = True
+        await _persist_browse_session_auth(session)
+    except Exception as e:
+        logger.warning(f"[AkAuthSwitchByTicket] persist_session_failed wanted={wanted} bs={bs_id}: {e}")
+
+    masked = ("***" + userkey[-4:]) if len(userkey) >= 4 else ("***" + userkey)
+    return JSONResponse({
+        "success": True,
+        "username": wanted,
+        "userkey": userkey,
+        "userkeyMasked": masked,
+        "cookieNames": _summarize_cookie_names(cookies if isinstance(cookies, dict) else {}),
+    })
 
 
 @app.get("/admin/api/ak_test")
