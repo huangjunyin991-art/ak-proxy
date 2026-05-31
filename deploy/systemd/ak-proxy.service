@@ -12,7 +12,7 @@ WorkingDirectory=/home/ubuntu/ak-proxy
 EnvironmentFile=-/etc/ak-proxy.env
 
 # venv + run entrypoint
-ExecStart=/home/ubuntu/ak-proxy/venv/bin/python /home/ubuntu/ak-proxy/public_admin/server/proxy_server.py
+ExecStart=/home/ubuntu/ak-proxy/venv/bin/python -m public_admin.server.proxy_server
 Restart=always
 RestartSec=2
 
