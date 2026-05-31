@@ -12830,12 +12830,9 @@ async def admin_ak_auth_switch_by_token(request: Request):
     except Exception:
         conversation_id = 0
 
-    secret = ''
-    try:
-        if notify_center_service is not None and getattr(notify_center_service, 'config', None) is not None:
-            secret = str(getattr(notify_center_service.config, 'internal_secret', '') or '').strip()
-    except Exception:
-        secret = ''
+    secret = str(os.environ.get('NOTIFY_CENTER_INTERNAL_SECRET') or os.environ.get('IM_NOTIFY_CENTER_WEBHOOK_SECRET') or '').strip()
+    if not secret:
+        return JSONResponse({"success": False, "message": "server missing internal secret"}, status_code=500)
 
     if not _verify_im_switch_token(secret, wanted, ts, nonce, sig, conversation_id=conversation_id, max_age_seconds=180):
         return JSONResponse({"success": False, "message": "token 无效或已过期"}, status_code=401)
