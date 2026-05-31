@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Awaitable, Callable
 
-from server import database_pg as db
+from public_admin.server import database_pg as db
 from .notification_providers import NotificationProviderError, normalize_notification_payload
 
 
