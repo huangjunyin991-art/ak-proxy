@@ -6,6 +6,8 @@
 !public_admin/**
 !im_server/
 !im_server/**
+!deploy/
+!deploy/**
 
 **/__pycache__/
 **/*.pyc

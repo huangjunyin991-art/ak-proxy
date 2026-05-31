@@ -1,0 +1,23 @@
+[Unit]
+Description=AK Proxy Server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/ubuntu/ak-proxy
+
+# Load environment variables from file (optional).
+# Put NOTIFY_CENTER_INTERNAL_SECRET in /etc/ak-proxy.env
+EnvironmentFile=-/etc/ak-proxy.env
+
+# venv + run entrypoint
+ExecStart=/home/ubuntu/ak-proxy/venv/bin/python /home/ubuntu/ak-proxy/public_admin/server/proxy_server.py
+Restart=always
+RestartSec=2
+
+# Hardening (keep minimal to avoid breaking existing behavior)
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target
