@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import os
 import time
 from typing import Any
 
@@ -19,6 +20,16 @@ def verify_signature(secret: str, timestamp: str, nonce: str, signature: str, bo
     normalized_secret = str(secret or '').strip()
     if not normalized_secret:
         return False
+    secrets = [normalized_secret]
+
+    # Support secret rotation: accept previous secrets as well.
+    # Comma-separated list: NOTIFY_CENTER_INTERNAL_SECRETS_PREVIOUS="old1,old2"
+    previous = str(os.environ.get('NOTIFY_CENTER_INTERNAL_SECRETS_PREVIOUS') or '').strip()
+    if previous:
+        for item in previous.split(','):
+            item = str(item or '').strip()
+            if item and item not in secrets:
+                secrets.append(item)
     try:
         ts = int(str(timestamp or '').strip())
     except Exception:
@@ -27,8 +38,12 @@ def verify_signature(secret: str, timestamp: str, nonce: str, signature: str, bo
         return False
     if not str(nonce or '').strip() or not str(signature or '').strip():
         return False
-    expected = build_signature(normalized_secret, str(ts), str(nonce), body)
-    return hmac.compare_digest(expected, str(signature or '').strip().lower())
+    received = str(signature or '').strip().lower()
+    for candidate_secret in secrets:
+        expected = build_signature(candidate_secret, str(ts), str(nonce), body)
+        if hmac.compare_digest(expected, received):
+            return True
+    return False
 
 
 def normalize_username(value: Any) -> str:
