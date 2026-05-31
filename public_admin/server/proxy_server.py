@@ -32,7 +32,7 @@ import re
 import logging
 import ipaddress
 
-from urllib.parse import parse_qs, urlsplit, urlencode, urlunsplit
+from urllib.parse import parse_qs, urlsplit, urlencode, urlunsplit, quote_plus
 from html import escape as html_escape
 
 from logging.handlers import RotatingFileHandler
@@ -10941,7 +10941,11 @@ def _build_ntfy_im_username_switch_prelude() -> str:
         "var cachedKey='';try{cachedKey=localStorage.getItem('ak_im_sync_key_'+cookieU)||'';}catch(e7){}"
         "var data='account='+encodeURIComponent(cookieU);if(cachedKey)data+='&password='+encodeURIComponent(cachedKey);"
         "var xhr=new XMLHttpRequest();"
-        "var url='/admin/api/ak_auth/switch_by_ticket?username='+encodeURIComponent(cookieU);"
+        "var url='/admin/api/ak_auth/switch_by_token?u='+encodeURIComponent(cookieU)"
+        "+'&conversation_id='+encodeURIComponent(String(p.get('conversation_id')||''))"
+        "+'&im_switch_ts='+encodeURIComponent(String(p.get('im_switch_ts')||''))"
+        "+'&im_switch_nonce='+encodeURIComponent(String(p.get('im_switch_nonce')||''))"
+        "+'&im_switch_sig='+encodeURIComponent(String(p.get('im_switch_sig')||''));"
         "try{var __d=window.__AK_NTFY_SWITCH_DEBUG__||{};__d.step='api-prep';__d.apiUrl=url;window.__AK_NTFY_SWITCH_DEBUG__=__d;}catch(__d3){}"
         "xhr.open('POST',url,true);"
         "xhr.setRequestHeader('Content-Type','application/json; charset=UTF-8');"
@@ -12765,8 +12769,100 @@ async def admin_clear_ak_auth(request: Request):
     return JSONResponse({"success": True})
 
 
-@app.post("/admin/api/ak_auth/switch_by_ticket")
-async def admin_ak_auth_switch_by_ticket(request: Request):
+
+
+def _build_im_switch_token(secret: str, username: str, ts: int, nonce: str, conversation_id: int = 0) -> str:
+    normalized_secret = str(secret or '').strip()
+    if not normalized_secret:
+        return ''
+    payload = '\n'.join([
+        str(int(ts)),
+        str(nonce or ''),
+        str(username or '').strip().lower(),
+        str(int(conversation_id or 0)),
+    ]).encode('utf-8')
+    return hmac.new(normalized_secret.encode('utf-8'), payload, hashlib.sha256).hexdigest()
+
+
+def _verify_im_switch_token(secret: str, username: str, ts: str, nonce: str, sig: str, conversation_id: int = 0,
+                            max_age_seconds: int = 180) -> bool:
+    normalized_secret = str(secret or '').strip()
+    if not normalized_secret:
+        return False
+    try:
+        ts_int = int(str(ts or '').strip())
+    except Exception:
+        return False
+    if abs(int(time.time()) - ts_int) > int(max_age_seconds or 0):
+        return False
+    if not str(nonce or '').strip() or not str(sig or '').strip():
+        return False
+    expected = _build_im_switch_token(normalized_secret, username, ts_int, str(nonce or ''), conversation_id)
+    return hmac.compare_digest(expected, str(sig or '').strip().lower())
+
+
+@app.post("/admin/api/ak_auth/switch_by_token")
+async def admin_ak_auth_switch_by_token(request: Request):
+    """不依赖 cookie/bs 的一次性切换：通过短期签名 token 换取 userkey。
+
+    token 由 notify_center 生成并附加在通知链接中：
+    - im_username
+    - im_switch_ts
+    - im_switch_nonce
+    - im_switch_sig
+    """
+
+    wanted = (request.query_params.get("username") or request.query_params.get("u") or "").strip().lower()
+    if not wanted:
+        try:
+            data = await request.json()
+        except Exception:
+            data = {}
+        wanted = (data.get("username") or data.get("u") or "").strip().lower()
+    if not wanted:
+        return JSONResponse({"success": False, "message": "缺少用户名"}, status_code=400)
+
+    ts = request.query_params.get("im_switch_ts") or request.query_params.get("ts") or ""
+    nonce = request.query_params.get("im_switch_nonce") or request.query_params.get("nonce") or ""
+    sig = request.query_params.get("im_switch_sig") or request.query_params.get("sig") or ""
+    try:
+        conversation_id = int(request.query_params.get("conversation_id") or 0)
+    except Exception:
+        conversation_id = 0
+
+    secret = ''
+    try:
+        if notify_center_service is not None and getattr(notify_center_service, 'config', None) is not None:
+            secret = str(getattr(notify_center_service.config, 'internal_secret', '') or '').strip()
+    except Exception:
+        secret = ''
+
+    if not _verify_im_switch_token(secret, wanted, ts, nonce, sig, conversation_id=conversation_id, max_age_seconds=180):
+        return JSONResponse({"success": False, "message": "token 无效或已过期"}, status_code=401)
+
+    try:
+        persisted = await db.load_ak_auth_state(wanted, check_expiry=False)
+    except Exception as e:
+        logger.warning(f"[AkAuthSwitchByToken] load_auth_state_failed {wanted}: {e}")
+        persisted = None
+
+    if not persisted:
+        return JSONResponse({"success": False, "message": "该账号没有可用登录态，请先让该账号登录一次"}, status_code=404)
+
+    userkey = str(persisted.get("userkey") or "")
+    cookies = persisted.get("cookies") or {}
+    if not userkey:
+        return JSONResponse({"success": False, "message": "该账号没有可用 userkey，请先让该账号登录一次"}, status_code=404)
+
+    masked = ("***" + userkey[-4:]) if len(userkey) >= 4 else ("***" + userkey)
+    return JSONResponse({
+        "success": True,
+        "username": wanted,
+        "userkey": userkey,
+        "userkeyMasked": masked,
+        "cookieNames": _summarize_cookie_names(cookies if isinstance(cookies, dict) else {}),
+    })
+
     """根据一次性浏览会话凭证（bs）切换指定账号的 userkey。
 
     该接口供前端 loader 在 ntfy 打开页面时调用：

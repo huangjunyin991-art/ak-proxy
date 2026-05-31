@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+import hashlib
+import hmac
+import time
 from typing import Any
+from urllib.parse import quote_plus
 
 from .security import normalize_text, normalize_username
 
@@ -22,7 +26,21 @@ def build_notification_body(event: dict[str, Any], *, show_preview: bool = False
     return '点击查看'
 
 
-def build_notification_url(event: dict[str, Any], public_base_url: str = '') -> str:
+def _build_im_switch_token(secret: str, username: str, ts: int, nonce: str, conversation_id: int = 0) -> str:
+    """短期一次性 token：HMAC_SHA256(ts\nnonce\nusername\nconversation_id)."""
+    normalized_secret = str(secret or '').strip()
+    if not normalized_secret:
+        return ''
+    payload = '\n'.join([
+        str(int(ts)),
+        str(nonce or ''),
+        str(username or '').strip().lower(),
+        str(int(conversation_id or 0)),
+    ]).encode('utf-8')
+    return hmac.new(normalized_secret.encode('utf-8'), payload, hashlib.sha256).hexdigest()
+
+
+def build_notification_url(event: dict[str, Any], public_base_url: str = '', *, internal_secret: str = '') -> str:
     conversation_id = int(event.get('conversation_id') or 0)
     recipient = normalize_username(event.get('recipient_username') or event.get('im_username') or event.get('username'))
     path = '/pages/home.html?first=true&ak_im_open=1'
@@ -31,6 +49,16 @@ def build_notification_url(event: dict[str, Any], public_base_url: str = '') -> 
     if recipient:
         separator = '&' if '?' in path else '?'
         path = f'{path}{separator}im_username={recipient}'
+
+    # 一次性 token（不依赖 cookie/bs），用于打开通知时切换 userkey。
+    secret = str(internal_secret or '').strip()
+    if secret and recipient:
+        ts = int(time.time())
+        nonce = str(event.get('nonce') or '') or str(int(time.time() * 1000))
+        token = _build_im_switch_token(secret, recipient, ts, nonce, conversation_id)
+        if token:
+            path = f"{path}&im_switch_ts={ts}&im_switch_nonce={quote_plus(nonce)}&im_switch_sig={token}"
+
     base = str(public_base_url or '').strip().rstrip('/')
     return f'{base}{path}' if base else path
 

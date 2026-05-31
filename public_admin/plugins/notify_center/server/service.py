@@ -248,7 +248,7 @@ class NotifyCenterService:
         queued = 0
         skipped_by_dedupe = 0
         for username in recipients:
-            url = build_notification_url({**event, 'recipient_username': username}, self.config.public_base_url)
+            url = build_notification_url({**event, 'recipient_username': username}, self.config.public_base_url, internal_secret=self.config.internal_secret)
             user_subscriptions = [item for item in (subscriptions.get(username) or []) if not _is_mobile_web_push_subscription(item)]
             web_push_deduped = False
             if user_subscriptions:
