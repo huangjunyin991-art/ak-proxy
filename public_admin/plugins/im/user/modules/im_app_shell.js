@@ -233,6 +233,14 @@
                 #ak-im-root .ak-im-profile-form-group{display:flex;flex-direction:column}
                 #ak-im-root .ak-im-profile-form-label{font-size:13px;color:#6b7280;line-height:1.5}
                 #ak-im-root .ak-im-profile-form-input,#ak-im-root .ak-im-profile-form-select{margin-top:8px;width:100%;height:46px;border:none;border-radius:12px;background:#f3f4f6;padding:0 14px;font-size:15px;color:#111827;outline:none;box-sizing:border-box}
+                #ak-im-root .ak-im-profile-copy-field{margin-top:8px;display:flex;align-items:center;gap:10px}
+                #ak-im-root .ak-im-profile-copy-field .ak-im-profile-form-input{margin-top:0;flex:1;min-width:0;padding-right:12px}
+                #ak-im-root .ak-im-profile-copy-icon{flex:0 0 auto;width:38px;height:38px;border:none;border-radius:12px;background:#111827;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;box-shadow:0 6px 16px rgba(15,23,42,.12)}
+                #ak-im-root .ak-im-profile-copy-icon:active{transform:translateY(1px)}
+                #ak-im-root .ak-im-profile-copy-icon:disabled{opacity:.45;cursor:not-allowed;box-shadow:none}
+                #ak-im-root .ak-im-profile-copy-icon svg{display:block}
+                #ak-im-root .ak-im-profile-copyable{cursor:pointer}
+                #ak-im-root .ak-im-profile-copyable::selection{background:rgba(7,193,96,.18)}
                 #ak-im-root .ak-im-profile-form-input:focus,#ak-im-root .ak-im-profile-form-select:focus{background:#ffffff;box-shadow:0 0 0 2px rgba(7,193,96,.14) inset}
                 #ak-im-root .ak-im-profile-form-help{margin-top:6px;font-size:12px;color:#9ca3af;line-height:1.6}
                 #ak-im-root .ak-im-profile-placeholder{padding:28px 14px;color:#6b7280;font-size:13px;line-height:1.7;text-align:center}

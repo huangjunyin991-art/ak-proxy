@@ -290,11 +290,27 @@
                      '<div class="ak-im-profile-form">' +
                          '<div class="ak-im-profile-form-group">' +
                              '<label class="ak-im-profile-form-label" for="ak-im-profile-ntfy-topic">ntfy Topic</label>' +
-                             '<input class="ak-im-profile-form-input" id="ak-im-profile-ntfy-topic" type="text" readonly value="' + this.ctx.escapeHtml(ntfyTopic || '开启后自动生成') + '" />' +
+                             '<div class="ak-im-profile-copy-field">' +
+                                 '<input class="ak-im-profile-form-input ak-im-profile-copyable" id="ak-im-profile-ntfy-topic" type="text" readonly data-ak-copy="ntfy-topic" value="' + this.ctx.escapeHtml(ntfyTopic || '开启后自动生成') + '" />' +
+                                 '<button class="ak-im-profile-copy-icon" type="button" aria-label="复制 ntfy Topic" data-ak-copy-btn="ntfy-topic">' +
+                                     '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">' +
+                                         '<path d="M8 8V6.8C8 5.805 8.805 5 9.8 5H17.2C18.195 5 19 5.805 19 6.8V14.2C19 15.195 18.195 16 17.2 16H16" stroke="#fff" stroke-width="2" stroke-linecap="round"/>' +
+                                         '<path d="M6.8 8H14.2C15.195 8 16 8.805 16 9.8V17.2C16 18.195 15.195 19 14.2 19H6.8C5.805 19 5 18.195 5 17.2V9.8C5 8.805 5.805 8 6.8 8Z" stroke="#fff" stroke-width="2"/>' +
+                                     '</svg>' +
+                                 '</button>' +
+                             '</div>' +
                          '</div>' +
                          '<div class="ak-im-profile-form-group">' +
                              '<label class="ak-im-profile-form-label" for="ak-im-profile-ntfy-server">ntfy 服务地址</label>' +
-                             '<input class="ak-im-profile-form-input" id="ak-im-profile-ntfy-server" type="text" readonly value="' + this.ctx.escapeHtml(ntfyServerUrl) + '" />' +
+                             '<div class="ak-im-profile-copy-field">' +
+                                 '<input class="ak-im-profile-form-input ak-im-profile-copyable" id="ak-im-profile-ntfy-server" type="text" readonly data-ak-copy="ntfy-server" value="' + this.ctx.escapeHtml(ntfyServerUrl) + '" />' +
+                                 '<button class="ak-im-profile-copy-icon" type="button" aria-label="复制 ntfy 服务地址" data-ak-copy-btn="ntfy-server">' +
+                                     '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">' +
+                                         '<path d="M8 8V6.8C8 5.805 8.805 5 9.8 5H17.2C18.195 5 19 5.805 19 6.8V14.2C19 15.195 18.195 16 17.2 16H16" stroke="#fff" stroke-width="2" stroke-linecap="round"/>' +
+                                         '<path d="M6.8 8H14.2C15.195 8 16 8.805 16 9.8V17.2C16 18.195 15.195 19 14.2 19H6.8C5.805 19 5 18.195 5 17.2V9.8C5 8.805 5.805 8 6.8 8Z" stroke="#fff" stroke-width="2"/>' +
+                                     '</svg>' +
+                                 '</button>' +
+                             '</div>' +
                          '</div>' +
                      '</div>')
                  : '';
@@ -361,6 +377,39 @@
                          self.ctx.requestPushNotificationPermission();
                      }
                  });
+             }
+
+             const copyWithHint = typeof this.ctx.copyWithHint === 'function' ? this.ctx.copyWithHint : null;
+             const ntfyTopicInput = container.querySelector('#ak-im-profile-ntfy-topic');
+             const ntfyTopicBtn = container.querySelector('[data-ak-copy-btn="ntfy-topic"]');
+             const bindCopyTopic = function() {
+                 if (!copyWithHint || !ntfyTopicInput) return;
+                 copyWithHint(ntfyTopicInput.value, {
+                     label: 'ntfy Topic',
+                     emptyHint: 'Topic 尚未生成，请先开启消息提醒后再复制。'
+                 });
+             };
+             if (ntfyTopicInput && copyWithHint) {
+                 ntfyTopicInput.addEventListener('click', bindCopyTopic);
+             }
+             if (ntfyTopicBtn && copyWithHint) {
+                 ntfyTopicBtn.addEventListener('click', function(ev) { try { ev.preventDefault(); ev.stopPropagation(); } catch (e) {} bindCopyTopic(); });
+             }
+
+             const ntfyServerInput = container.querySelector('#ak-im-profile-ntfy-server');
+             const ntfyServerBtn = container.querySelector('[data-ak-copy-btn="ntfy-server"]');
+             const bindCopyServer = function() {
+                 if (!copyWithHint || !ntfyServerInput) return;
+                 copyWithHint(ntfyServerInput.value, {
+                     label: 'ntfy 服务地址',
+                     emptyHint: ''
+                 });
+             };
+             if (ntfyServerInput && copyWithHint) {
+                 ntfyServerInput.addEventListener('click', bindCopyServer);
+             }
+             if (ntfyServerBtn && copyWithHint) {
+                 ntfyServerBtn.addEventListener('click', function(ev) { try { ev.preventDefault(); ev.stopPropagation(); } catch (e) {} bindCopyServer(); });
              }
          }
      };

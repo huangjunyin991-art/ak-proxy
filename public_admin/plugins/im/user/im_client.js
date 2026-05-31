@@ -1304,7 +1304,8 @@
             getPushNotificationStatus: getPushNotificationStatus,
             requestPushNotificationPermission: requestPushNotificationPermission,
             disablePushNotification: disablePushNotification,
-            isMobileBrowser: isMobileBrowser
+            isMobileBrowser: isMobileBrowser,
+            copyWithHint: __AKIMCopyWithHint
         });
     }
 
@@ -3268,6 +3269,28 @@
         });
     }
 
+    function __AKIMCopyWithHint(text, options) {
+        const opts = options && typeof options === 'object' ? options : {};
+        const label = String(opts.label || '内容').trim() || '内容';
+        const emptyHint = String(opts.emptyHint || '').trim();
+        const content = String(text == null ? '' : text).trim();
+        if (!content || content === '开启后自动生成') {
+            if (emptyHint) {
+                openDialog({ title: '提示', message: emptyHint, confirmText: '知道了', showCancel: false });
+            }
+            return Promise.resolve(false);
+        }
+        return __AKIMCopyText(content).then(function(ok) {
+            openDialog({
+                title: ok ? '已复制' : '复制失败',
+                message: ok ? (label + '已复制到剪贴板') : ('无法复制' + label + '，请手动长按选择复制'),
+                confirmText: '知道了',
+                showCancel: false
+            });
+            return ok;
+        });
+    }
+
     function __AKIMEnsureDebugModalStyles() {
         if (document.getElementById('ak-im-debug-modal-style')) return;
         const style = document.createElement('style');
@@ -4527,7 +4550,7 @@
             if (nextView === 'profile_avatar' && !state.profileAvatarHistoryLoaded && !state.profileAvatarHistoryLoading) {
                 loadProfileAvatarHistory();
             }
-            if (nextView === 'profile_settings' && !state.ntfyLoading && !state.ntfyBinding) {
+            if (nextView === 'profile_settings' && !state.ntfyLoading) {
                 loadNtfyBinding();
             }
             if (nextView === 'profile_blacklist') {
@@ -5629,7 +5652,7 @@
             const busy = !!state.ntfyLoading || !!state.ntfySaving || !!state.ntfyDeleting;
             return {
                 title: enabled ? '消息通知已开启' : '开启消息通知',
-                meta: state.ntfyLoading ? '正在读取消息提醒状态...' : (enabled ? ('移动端通过 ntfy App 接收提醒' + (topic ? '，Topic：' + topic : '')) : '打开后生成 ntfy 订阅 Topic，并在 ntfy App 中添加订阅'),
+                meta: state.ntfyLoading ? '正在读取消息提醒状态...' : (enabled ? (topic ? ('Topic：' + topic) : '消息提醒已开启') : '打开后生成 ntfy 订阅 Topic，并在 ntfy App 中添加订阅'),
                 disabled: busy,
                 checked: enabled
             };
