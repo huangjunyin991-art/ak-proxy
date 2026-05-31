@@ -4996,7 +4996,7 @@ async def admin_login(request: Request):
     return {"success": False, "message": f"{login_failure_message}，剩余{LOGIN_MAX_FAILS - record[0]}次尝试机会"}
 
 
-
+@app.get("/admin/api/verify_token")
 async def verify_token_api(request: Request):
     security_context = build_security_context(request, client_ip=_extract_client_ip(request))
     token = request.headers.get('Authorization', '').replace('Bearer ', '')
