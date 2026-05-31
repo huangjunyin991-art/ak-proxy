@@ -3233,7 +3233,10 @@
                 AKIMClientUsername: String(window.AKIMClientUsername || ''),
                 appUserModelSummary: appUserModelSummary,
                 windowUserModelSummary: windowUserModelSummary,
-                hasSyncFunc: typeof window.__AKChatSyncUserModel === 'function'
+                hasSyncFunc: typeof window.__AKChatSyncUserModel === 'function',
+                ntfySwitch: (function(){
+                    try { return window.__AK_NTFY_SWITCH_DEBUG__ || null; } catch (e) { return null; }
+                })()
             }
         };
     }
