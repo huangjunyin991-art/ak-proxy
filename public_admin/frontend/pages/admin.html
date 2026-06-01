@@ -4992,12 +4992,7 @@
 
         function isAdminPageActive() {
             const main = document.getElementById('mainContent');
-            const active = !!isLoggedIn && document.visibilityState === 'visible' && document.hasFocus() && !!main && main.classList.contains('visible');
-            console.log('[isAdminPageActive]', {
-                isLoggedIn, visibility: document.visibilityState, hasFocus: document.hasFocus(),
-                mainExists: !!main, mainHasVisible: !!main && main.classList.contains('visible'), result: active
-            });
-            return active;
+            return !!isLoggedIn && document.visibilityState === 'visible' && document.hasFocus() && !!main && main.classList.contains('visible');
         }
 
         function shouldRunAdminGlobalPoll() {
@@ -6183,16 +6178,14 @@
 
         // 加载统计
         async function refreshStats() {
-            if (!shouldRunAdminGlobalPoll()) return;
             try {
                 const res = await fetch(`${API_BASE}/admin/api/stats`, { headers: getHeaders() });
-                console.log('[refreshStats] status:', res.status, 'url:', `${API_BASE}/admin/api/stats`);
                 const data = await res.json();
-                console.log('[refreshStats] data:', JSON.stringify(data));
                 if (data.error) {
                     console.warn('获取统计数据失败:', data.message);
                     return;
                 }
+                if (!shouldRunAdminGlobalPoll()) return;
                 document.getElementById('statUsers').textContent = data.total_users;
                 document.getElementById('statToday').textContent = data.today_logins;
                 document.getElementById('statLogins').textContent = data.total_logins;
