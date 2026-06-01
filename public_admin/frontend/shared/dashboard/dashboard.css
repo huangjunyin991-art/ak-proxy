@@ -102,10 +102,10 @@
 
 .ug-chart-inner {
     position: relative;
+    display: grid;
+    grid-template-rows: 1fr auto;
     height: 240px;
-    display: flex;
-    align-items: flex-end;
-    gap: 3px;
+    gap: 0;
 }
 
 .ug-svg-overlay {
@@ -116,11 +116,16 @@
     pointer-events: none;
 }
 
-/* 柱状图 */
+/* 柱状图（独立一行，不含 label） */
+.ug-bars-row {
+    display: flex;
+    align-items: flex-end;
+    gap: 3px;
+}
+
 .ug-bar-col {
     flex: 1;
     min-width: 3px;
-    height: 100%;
     display: flex;
     flex-direction: column;
     justify-content: flex-end;
@@ -139,70 +144,29 @@
     background: linear-gradient(to top, #00ff88cc, #00d4ffcc);
 }
 
-/* 标签 */
+/* 日期标签（独立一行，不影响柱子） */
+.ug-labels-row {
+    display: flex;
+    gap: 3px;
+    padding-top: 6px;
+}
+.ug-labels-row .ug-bar-col {
+    flex: 1;
+    min-width: 3px;
+}
+
 .ug-label {
     font-size: 9px;
     color: var(--text-secondary);
     text-align: center;
-    padding-top: 5px;
-    line-height: 1;
     width: 100%;
-    overflow: hidden;
-    text-overflow: clip;
-    white-space: nowrap;
-}
-
-/* Tooltip */
-.ug-tooltip {
-    position: absolute;
-    bottom: calc(100% + 10px);
-    left: 50%;
-    transform: translateX(-50%);
-    background: var(--bg-secondary);
-    border: 1px solid rgba(0, 212, 255, 0.35);
-    border-radius: 8px;
-    color: var(--text-primary);
-    padding: 7px 10px;
-    font-size: 12px;
-    white-space: nowrap;
-    z-index: 200;
-    pointer-events: none;
-    display: none;
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
-}
-.ug-tooltip::before {
-    content: '';
-    position: absolute;
-    bottom: -6px;
-    left: 50%;
-    transform: translateX(-50%);
-    border: 6px solid transparent;
-    border-top-color: rgba(0, 212, 255, 0.35);
-}
-.ug-tooltip::after {
-    content: '';
-    position: absolute;
-    bottom: -5px;
-    left: 50%;
-    transform: translateX(-50%);
-    border: 5px solid transparent;
-    border-top-color: var(--bg-secondary);
-}
-.ug-tooltip.visible {
-    display: block;
-    animation: ugFadeIn 0.15s ease;
-}
-
-@keyframes ugFadeIn {
-    from { opacity: 0; transform: translateX(-50%) translateY(4px); }
-    to   { opacity: 1; transform: translateX(-50%) translateY(0); }
 }
 
 /* 十字准星 */
 .ug-crosshair {
     position: absolute;
     top: 0;
-    bottom: 24px;
+    bottom: 26px;
     display: flex;
     flex-direction: column;
     align-items: center;

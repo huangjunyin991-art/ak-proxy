@@ -27,11 +27,11 @@
             <div class="modal-content user-growth-modal-content">
                 <h3 class="ug-modal-title">
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
-                    ????????
+                    用户数量增长趋势
                 </h3>
                 <div id="userGrowthContent"></div>
                 <div class="modal-buttons" style="display:flex;justify-content:center;margin-top:18px;">
-                    <button class="btn" id="userGrowthCloseBtn" style="min-width:140px;background:var(--accent);color:white;">??</button>
+                    <button class="btn" id="userGrowthCloseBtn" style="min-width:140px;background:var(--accent);color:white;">关闭</button>
                 </div>
             </div>
         `;
@@ -57,7 +57,7 @@
         if (!content) return;
         const data = normalizeRows(rows);
         if (!data.length) {
-            content.innerHTML = '<div class="ug-empty">??????</div>';
+            content.innerHTML = '<div class="ug-empty">暂无增长数据</div>';
             return;
         }
 
@@ -76,18 +76,16 @@
             const barH = maxIncrease > 0 && item.increase > 0
                 ? Math.max((item.increase / maxIncrease) * 100, 4)
                 : 0;
-            // ??? Y ??????????
             const lineY = 100 - barH;
-            const label = (i % 2 === 0 || i === data.length - 1) ? item.date.slice(5) : '';
-            return { item, barH, lineY, label, index: i };
+            const showLabel = i % 2 === 0 || i === data.length - 1;
+            const label = showLabel ? item.date.slice(5) : '';
+            return { item, barH, lineY, label };
         });
 
-        const svgW = 100;
-        const step = svgW / (points.length - 1 || 1);
+        const step = 100 / (points.length - 1 || 1);
         const linePath = points.map((p, i) =>
             `${i === 0 ? 'M' : 'L'}${i * step},${p.lineY}`
         ).join(' ');
-
         const fillPath = `${linePath} L${(points.length - 1) * step},100 L0,100 Z`;
 
         const gridLines = [25, 50, 75].map(v =>
@@ -95,8 +93,13 @@
         ).join('');
 
         const barsHtml = points.map(p =>
-            `<div class="ug-bar-col" style="flex:1;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;gap:0;position:relative;min-width:0;">
-                <div class="ug-bar" style="height:${p.barH}%;" data-tip="${escapeHtml(p.item.date)} ?? ${formatNumber(p.item.total)}??? ${formatNumber(p.item.increase)}"></div>
+            `<div class="ug-bar-col" style="flex:1;min-width:0;">
+                <div class="ug-bar" style="height:${p.barH}%;"></div>
+            </div>`
+        ).join('');
+
+        const labelsHtml = points.map(p =>
+            `<div class="ug-bar-col" style="flex:1;min-width:0;">
                 <div class="ug-label">${escapeHtml(p.label)}</div>
             </div>`
         ).join('');
@@ -108,7 +111,7 @@
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#00d4ff" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
                     </div>
                     <div class="ug-stat-body">
-                        <div class="ug-stat-label">??????</div>
+                        <div class="ug-stat-label">当前总用户数</div>
                         <div class="ug-stat-value accent">${formatNumber(last.total)}</div>
                     </div>
                 </div>
@@ -117,7 +120,7 @@
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#00ff88" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><polyline points="19 12 12 5 5 12"/></svg>
                     </div>
                     <div class="ug-stat-body">
-                        <div class="ug-stat-label">?${data.length}???</div>
+                        <div class="ug-stat-label">近${data.length}天新增</div>
                         <div class="ug-stat-value green">+${formatNumber(periodIncrease)}</div>
                     </div>
                 </div>
@@ -126,7 +129,7 @@
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="${trendUp ? '#00ff88' : '#ff4757'}" stroke-width="2">${trendUp ? '<line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/>' : '<line x1="12" y1="5" x2="12" y2="19"/><polyline points="19 12 12 19 5 12"/>'}</svg>
                     </div>
                     <div class="ug-stat-body">
-                        <div class="ug-stat-label">????</div>
+                        <div class="ug-stat-label">周期增长</div>
                         <div class="ug-stat-value" style="color:${trendUp ? '#00ff88' : '#ff4757'}">${trendUp ? '+' : ''}${formatNumber(trendDelta)} (${trendUp ? '+' : ''}${trendPercent}%)</div>
                     </div>
                 </div>
@@ -138,14 +141,15 @@
                         ${gridLines}
                         <defs>
                             <linearGradient id="ugLineGrad" x1="0" y1="0" x2="0" y2="1">
-                                <stop offset="0%" stop-color="#00d4ff" stop-opacity="0.35"/>
+                                <stop offset="0%" stop-color="#00d4ff" stop-opacity="0.25"/>
                                 <stop offset="100%" stop-color="#00d4ff" stop-opacity="0.02"/>
                             </linearGradient>
                         </defs>
                         <path d="${fillPath}" fill="url(#ugLineGrad)" stroke="none"/>
-                        <path d="${linePath}" fill="none" stroke="#00d4ff" stroke-width="0.6" stroke-linejoin="round" stroke-linecap="round"/>
+                        <path d="${linePath}" fill="none" stroke="#00d4ff" stroke-width="0.35" stroke-linejoin="round" stroke-linecap="round"/>
                     </svg>
-                    ${barsHtml}
+                    <div class="ug-bars-row">${barsHtml}</div>
+                    <div class="ug-labels-row">${labelsHtml}</div>
                     <div class="ug-crosshair" id="ugCrosshair" style="display:none;">
                         <div class="ug-crosshair-line"></div>
                         <div class="ug-crosshair-dot"></div>
@@ -180,15 +184,15 @@
         const cols = shell.querySelectorAll('.ug-bar-col');
         cols.forEach(col => {
             const bar = col.querySelector('.ug-bar');
-            const tip = bar ? bar.dataset.tip : '';
+            if (!bar) return;
             col.addEventListener('mouseenter', () => {
                 const rect = col.getBoundingClientRect();
                 const shellRect = shell.getBoundingClientRect();
                 crosshair.style.left = (rect.left + rect.width / 2 - shellRect.left) + 'px';
                 crosshair.style.display = 'flex';
-                if (valueEl && tip) {
-                    valueEl.textContent = tip;
-                    valueEl.style.display = 'block';
+                if (valueEl) {
+                    valueEl.textContent = bar.dataset.tip || '';
+                    valueEl.style.display = bar.dataset.tip ? 'block' : 'none';
                 }
             });
             col.addEventListener('mouseleave', () => {
