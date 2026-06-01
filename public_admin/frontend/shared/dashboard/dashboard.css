@@ -1,13 +1,8 @@
-/* ========== 用户增长趋势图 ========== */
 .stat-card[data-user-growth-trigger] {
     cursor: pointer;
     position: relative;
-    transition: box-shadow 0.2s, transform 0.15s;
 }
-.stat-card[data-user-growth-trigger]:hover {
-    box-shadow: 0 0 16px rgba(0, 212, 255, 0.25);
-    transform: translateY(-1px);
-}
+
 .stat-card[data-user-growth-trigger]::after {
     content: '点击查看增长趋势';
     position: absolute;
@@ -18,178 +13,118 @@
     opacity: 0;
     transition: opacity 0.2s;
 }
-.stat-card[data-user-growth-trigger]:hover::after { opacity: 1; }
 
-/* 模态框 */
+.stat-card[data-user-growth-trigger]:hover::after {
+    opacity: 1;
+}
+
 .user-growth-modal-content {
-    width: min(860px, calc(100vw - 32px));
-    max-width: 860px;
-    border: 1px solid rgba(0, 212, 255, 0.28);
-    background: var(--bg-secondary);
+    width: min(760px, calc(100vw - 32px));
+    max-width: 760px;
+    border: 1px solid rgba(0, 212, 255, 0.32);
 }
 
-.ug-modal-title {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    color: var(--accent);
-    font-size: 17px;
-    font-weight: 600;
-    border-bottom: 1px solid rgba(0, 212, 255, 0.18);
-    padding-bottom: 14px;
-    margin-bottom: 20px;
-}
-
-/* 顶部统计 */
-.ug-summary {
+.user-growth-summary {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 12px;
-    margin-bottom: 16px;
+    margin-bottom: 18px;
 }
 
-.ug-stat-card {
-    display: flex;
-    align-items: center;
-    gap: 12px;
+.user-growth-summary-item {
     background: rgba(255, 255, 255, 0.04);
     border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 12px;
-    padding: 14px 16px;
-}
-.ug-stat-icon {
-    width: 40px;
-    height: 40px;
     border-radius: 10px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    flex-shrink: 0;
+    padding: 12px;
 }
-.ug-stat-body { min-width: 0; }
-.ug-stat-label {
+
+.user-growth-summary-label {
     color: var(--text-secondary);
     font-size: 12px;
-    margin-bottom: 4px;
+    margin-bottom: 6px;
 }
-.ug-stat-value { font-size: 20px; font-weight: 800; line-height: 1.2; }
-.ug-stat-value.accent { color: var(--accent); }
-.ug-stat-value.green  { color: #00ff88; }
 
-/* 时间段切换 */
-.ug-period-tabs {
-    display: flex;
-    gap: 6px;
-    margin-bottom: 14px;
-}
-.ug-period-btn {
-    padding: 5px 16px;
-    border-radius: 20px;
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    background: transparent;
-    color: var(--text-secondary);
-    font-size: 13px;
-    cursor: pointer;
-    transition: all 0.2s;
-}
-.ug-period-btn:hover { border-color: rgba(0, 212, 255, 0.4); color: var(--accent); }
-.ug-period-btn.active {
-    background: rgba(0, 212, 255, 0.15);
-    border-color: rgba(0, 212, 255, 0.5);
+.user-growth-summary-value {
     color: var(--accent);
+    font-size: 22px;
+    font-weight: 800;
 }
 
-/* 图表区 */
-.ug-chart-shell {
-    background: rgba(255, 255, 255, 0.025);
+.user-growth-chart-shell {
+    background: rgba(255, 255, 255, 0.03);
     border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 14px;
-    padding: 16px 12px 10px;
+    border-radius: 12px;
+    padding: 18px 12px 10px;
 }
 
-/* 图表主体（SVG + 柱状图叠加） */
-.ug-chart-area {
-    position: relative;
+.user-growth-chart {
+    display: flex;
+    align-items: flex-end;
+    gap: 4px;
     height: 220px;
 }
 
-.ug-svg {
-    position: absolute;
-    inset: 0;
-    width: 100%;
-    height: 100%;
-    overflow: visible;
-}
-
-.ug-bars {
-    position: absolute;
-    left: 0;
-    right: 0;
-    top: 0;
-    bottom: 22px;
-    display: flex;
-    align-items: flex-end;
-    gap: 2px;
-}
-
-.ug-col {
+.user-growth-bar {
     flex: 1;
-    min-width: 0;
-    height: 100%;
-    display: flex;
-    flex-direction: column;
-    justify-content: flex-end;
-    align-items: center;
+    min-width: 4px;
+    min-height: 3px;
+    border-radius: 4px 4px 0 0;
+    background: linear-gradient(to top, #00d4ff, #667eea);
     position: relative;
 }
 
-.ug-bar {
-    width: 100%;
-    border-radius: 2px 2px 0 0;
-    background: linear-gradient(to top, rgba(0, 212, 255, 0.55), rgba(102, 126, 234, 0.55));
-    transition: background 0.2s;
-}
-.ug-bar:hover { background: linear-gradient(to top, #00ff88cc, #00d4ffcc); }
-
-.ug-label {
-    font-size: 9px;
-    color: var(--text-secondary);
-    text-align: center;
-    padding-top: 4px;
-    width: 100%;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+.user-growth-bar:hover {
+    background: linear-gradient(to top, #00ff88, #00d4ff);
 }
 
-.ug-tooltip {
+.user-growth-bar::after {
+    content: attr(data-tooltip);
     position: absolute;
-    bottom: calc(100% + 10px);
+    bottom: calc(100% + 8px);
     left: 50%;
     transform: translateX(-50%);
     background: var(--bg-secondary);
-    border: 1px solid rgba(0, 212, 255, 0.35);
-    border-radius: 8px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
     color: var(--text-primary);
-    padding: 7px 10px;
-    font-size: 12px;
+    padding: 6px 8px;
+    font-size: 11px;
     white-space: nowrap;
-    z-index: 200;
+    opacity: 0;
     pointer-events: none;
-    display: none;
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+    transition: opacity 0.2s;
+    z-index: 2;
 }
-.ug-tooltip.visible { display: block; }
 
-/* 空状态 */
-.ug-empty {
-    padding: 60px 0;
+.user-growth-bar:hover::after {
+    opacity: 1;
+}
+
+.user-growth-labels {
+    display: flex;
+    gap: 4px;
+    padding-top: 10px;
+}
+
+.user-growth-label {
+    flex: 1;
+    text-align: center;
+    color: var(--text-secondary);
+    font-size: 10px;
+}
+
+.user-growth-empty {
+    padding: 40px 0;
     color: var(--text-secondary);
     text-align: center;
-    font-size: 14px;
 }
 
 @media (max-width: 640px) {
-    .ug-summary { grid-template-columns: 1fr; }
-    .ug-chart-area { height: 160px; }
+    .user-growth-summary {
+        grid-template-columns: 1fr;
+    }
+
+    .user-growth-chart {
+        height: 160px;
+    }
 }
