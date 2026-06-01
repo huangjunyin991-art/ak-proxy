@@ -158,6 +158,7 @@
     const state = {
         allowed: false,
         loading: false,
+        bootstrapLoading: false,
         ready: false,
         username: '',
         displayName: '',
@@ -662,6 +663,19 @@
 
     function openShellPanel() {
         state.open = true;
+        try {
+            if (!state.ready && !state.bootstrapLoading) {
+                state.bootstrapLoading = true;
+                if (window.AKIMClientState && window.AKIMClientState.bootstrap) {
+                    window.AKIMClientState.bootstrap.open_triggered_at = Date.now();
+                }
+                loadBootstrapWhenIdentityReady(0).catch(function() {
+                    return null;
+                }).finally(function() {
+                    state.bootstrapLoading = false;
+                });
+            }
+        } catch (e) {}
         if (state.view !== 'compose' && !state.activeConversationId) {
             state.view = 'sessions';
             state.homeTab = 'chats';
@@ -3049,16 +3063,46 @@
     }
 
     function request(url, options) {
+        const requestId = String(Math.random()).slice(2);
+        const startedAt = Date.now();
+        try {
+            if (window.AKIMClientState && window.AKIMClientState.bootstrap && window.AKIMClientState.bootstrap.request) {
+                window.AKIMClientState.bootstrap.request.last = {
+                    id: requestId,
+                    url: String(url || ''),
+                    started_at: startedAt
+                };
+            }
+        } catch (e) {}
         return fetch(url, Object.assign({
             credentials: 'same-origin',
             headers: buildRequestHeaders()
         }, options || {})).then(function(resp) {
-            return resp.json().then(function(data) {
-                if (!resp.ok) {
-                    throw new Error((data && data.message) || 'request_failed');
+            return resp.text().then(function(text) {
+                let data = null;
+                const rawText = String(text || '').trim();
+                if (rawText) {
+                    try { data = JSON.parse(rawText); } catch (e) { data = null; }
                 }
-                return data;
+                if (!resp.ok) {
+                    const message = (data && data.message) ? String(data.message) : ('request_failed_' + String(resp.status));
+                    throw new Error(message);
+                }
+                return data || {};
             });
+        }).catch(function(err) {
+            try {
+                if (window.AKIMClientState && window.AKIMClientState.bootstrap && window.AKIMClientState.bootstrap.request) {
+                    window.AKIMClientState.bootstrap.request.last_error = {
+                        id: requestId,
+                        url: String(url || ''),
+                        message: String(err && err.message || err || ''),
+                        at: Date.now(),
+                        cost_ms: Date.now() - startedAt
+                    };
+                }
+            } catch (e) {}
+            throw err;
         });
     }
 
