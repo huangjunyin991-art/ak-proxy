@@ -1,6 +1,6 @@
 #!/bin/bash
 # AK-Proxy 一键完整部署脚本
-# 覆盖范围：ak-proxy systemd服务 + nginx配置 + 所有权限设置
+# 覆盖范围：ak-proxy systemd服务 + 环境变量自动生成 + nginx配置 + 所有权限设置
 # 使用方式：chmod +x deploy_ak_proxy.sh && ./deploy_ak_proxy.sh
 
 set -e
@@ -11,6 +11,7 @@ LOG_FILE="$APP_DIR/proxy.log"
 VENV_BIN="${VENV_BIN:-$REPO_DIR/venv/bin}"
 ENV_DIR="${AK_PROXY_ENV_DIR:-/etc/ak-proxy}"
 ENV_FILE="${AK_PROXY_ENV_FILE:-$ENV_DIR/ak-proxy.env}"
+ENSURE_ENV_SCRIPT="$APP_DIR/deploy/env/ensure_env.sh"
 NGINX_CONF_SRC="${NGINX_CONF_SRC:-$REPO_DIR/public_admin/config/nginx.conf}"
 NGINX_CONF_DST="${NGINX_CONF_DST:-/etc/nginx/sites-enabled/nginx.conf}"
 NGINX_RENDER_SCRIPT="${NGINX_RENDER_SCRIPT:-$REPO_DIR/public_admin/render_nginx_config.sh}"
@@ -32,8 +33,8 @@ if [ "$EUID" -eq 0 ]; then
     exit 1
 fi
 
-# ===== [1/7] 创建 systemd 服务文件 =====
-echo -e "\n[1/7] 创建 systemd 服务文件..."
+# ===== [1/8] 创建 systemd 服务文件 =====
+echo -e "\n[1/8] 创建 systemd 服务文件..."
 sudo tee /etc/systemd/system/${SERVICE_NAME}.service > /dev/null <<EOF
 [Unit]
 Description=AK Proxy Server
@@ -57,14 +58,22 @@ WantedBy=multi-user.target
 EOF
 echo "[OK] systemd 服务文件创建成功（崩溃自动重启已启用）"
 
-# ===== [2/7] 初始化日志文件权限 =====
-echo -e "\n[2/7] 初始化日志文件权限..."
+# ===== [2/8] 初始化日志文件权限 =====
+echo -e "\n[2/8] 初始化日志文件权限..."
 sudo touch "$LOG_FILE"
 sudo chown "${SERVICE_USER}:${SERVICE_USER}" "$LOG_FILE"
 echo "[OK] 日志文件权限已设置: $LOG_FILE"
 
-# ===== [3/7] 启动 ak-proxy 服务 =====
-echo -e "\n[3/7] 启动 ak-proxy 服务..."
+# ===== [3/8] 自动生成缺失的环境变量 =====
+echo -e "\n[3/8] 自动生成缺失的环境变量..."
+if [ -f "$ENSURE_ENV_SCRIPT" ]; then
+    bash "$ENSURE_ENV_SCRIPT" --env-file "$ENV_FILE"
+else
+    echo "[WARN] ensure_env.sh not found, skipping auto env generation"
+fi
+
+# ===== [4/8] 启动 ak-proxy 服务 =====
+echo -e "\n[4/8] 启动 ak-proxy 服务..."
 sudo systemctl daemon-reload
 sudo systemctl enable "$SERVICE_NAME"
 sudo systemctl restart "$SERVICE_NAME"
@@ -78,8 +87,8 @@ else
     exit 1
 fi
 
-# ===== [4/7] 部署 nginx 配置 =====
-echo -e "\n[4/7] 部署 nginx 配置..."
+# ===== [5/8] 部署 nginx 配置 =====
+echo -e "\n[5/8] 部署 nginx 配置..."
 if [ ! -f "$NGINX_CONF_SRC" ]; then
     echo "[ERROR] nginx 配置文件不存在: $NGINX_CONF_SRC"
     exit 1
@@ -114,8 +123,8 @@ if systemctl list-unit-files --type=service 2>/dev/null | grep -q '^ntfy.service
     echo "[OK] ntfy 已重启并加载新配置"
 fi
 
-# ===== [5/7] 清理 nginx 冲突的 backup 文件 =====
-echo -e "\n[5/7] 清理 nginx sites-enabled 中的旧 backup 文件..."
+# ===== [6/8] 清理 nginx 冲突的 backup 文件 =====
+echo -e "\n[6/8] 清理 nginx sites-enabled 中的旧 backup 文件..."
 BACKUP_COUNT=$(sudo find /etc/nginx/sites-enabled/ -name "*.backup*" -o -name "*.bak" -o -name "*backup*" 2>/dev/null | wc -l)
 if [ "$BACKUP_COUNT" -gt 0 ]; then
     sudo find /etc/nginx/sites-enabled/ -name "*.backup*" -o -name "*.bak" -o -name "*backup*" \
@@ -125,8 +134,8 @@ else
     echo "[OK] 无冲突 backup 文件"
 fi
 
-# ===== [6/7] 验证并重载 nginx =====
-echo -e "\n[6/7] 验证并重载 nginx..."
+# ===== [7/8] 验证并重载 nginx =====
+echo -e "\n[7/8] 验证并重载 nginx..."
 if sudo nginx -t 2>&1 | grep -q "syntax is ok"; then
     sudo nginx -s reload
     echo "[OK] nginx 配置验证通过，已重载"
@@ -136,8 +145,8 @@ else
     exit 1
 fi
 
-# ===== [7/7] 完整验证 =====
-echo -e "\n[7/7] 验证部署结果..."
+# ===== [8/8] 完整验证 =====
+echo -e "\n[8/8] 验证部署结果..."
 
 echo -e "\n--- ak-proxy 状态 ---"
 sudo systemctl status "$SERVICE_NAME" --no-pager | head -8

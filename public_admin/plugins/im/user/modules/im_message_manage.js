@@ -669,7 +669,7 @@
                     progressMarkup +
                 '</div>' : '';
                 const timeMinuteKey = self.ctx.getTimeMinuteKey(item.sent_at);
-                const timeDividerMarkup = timeMinuteKey && timeMinuteKey !== lastTimeMinuteKey ? '<div class="ak-im-time-divider">' + self.ctx.escapeHtml(self.ctx.formatTime(item.sent_at)) + '</div>' : '';
+                const timeDividerMarkup = timeMinuteKey && timeMinuteKey !== lastTimeMinuteKey ? '<div class="ak-im-time-divider">' + self.ctx.escapeHtml(self.ctx.formatTimeWithDate(item.sent_at)) + '</div>' : '';
                 if (timeMinuteKey) lastTimeMinuteKey = timeMinuteKey;
                 wrapper.innerHTML = timeDividerMarkup +
                     '<div class="ak-im-message-row ' + (isSelf ? 'ak-self' : 'ak-peer') + '">' +
