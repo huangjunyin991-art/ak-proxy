@@ -6326,19 +6326,6 @@
         window.addEventListener('popstate', handleIMHistoryPop);
         render();
         loadBootstrapWhenIdentityReady(0);
-
-        try {
-            const key = 'ak_im_debug_auto_shown';
-            const shown = sessionStorage && sessionStorage.getItem ? sessionStorage.getItem(key) : '';
-            if (!shown) {
-                if (sessionStorage && sessionStorage.setItem) sessionStorage.setItem(key, '1');
-                if (typeof window.__AKIMShowDebugModal === 'function') {
-                    setTimeout(function() {
-                        try { window.__AKIMShowDebugModal(); } catch (e) {}
-                    }, 60);
-                }
-            }
-        } catch (e) {}
     }
 
     if (document.readyState === 'loading') {
