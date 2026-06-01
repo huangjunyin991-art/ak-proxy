@@ -40,12 +40,12 @@
     margin-bottom: 20px;
 }
 
-/* 顶部统计卡片 */
+/* 顶部统计 */
 .ug-summary {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 12px;
-    margin-bottom: 20px;
+    margin-bottom: 16px;
 }
 
 .ug-stat-card {
@@ -56,10 +56,7 @@
     border: 1px solid rgba(255, 255, 255, 0.08);
     border-radius: 12px;
     padding: 14px 16px;
-    transition: border-color 0.2s;
 }
-.ug-stat-card:hover { border-color: rgba(0, 212, 255, 0.25); }
-
 .ug-stat-icon {
     width: 40px;
     height: 40px;
@@ -69,22 +66,38 @@
     justify-content: center;
     flex-shrink: 0;
 }
-
 .ug-stat-body { min-width: 0; }
-
 .ug-stat-label {
     color: var(--text-secondary);
     font-size: 12px;
     margin-bottom: 4px;
 }
-
-.ug-stat-value {
-    font-size: 20px;
-    font-weight: 800;
-    line-height: 1.2;
-}
+.ug-stat-value { font-size: 20px; font-weight: 800; line-height: 1.2; }
 .ug-stat-value.accent { color: var(--accent); }
 .ug-stat-value.green  { color: #00ff88; }
+
+/* 时间段切换 */
+.ug-period-tabs {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 14px;
+}
+.ug-period-btn {
+    padding: 5px 16px;
+    border-radius: 20px;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: transparent;
+    color: var(--text-secondary);
+    font-size: 13px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+.ug-period-btn:hover { border-color: rgba(0, 212, 255, 0.4); color: var(--accent); }
+.ug-period-btn.active {
+    background: rgba(0, 212, 255, 0.15);
+    border-color: rgba(0, 212, 255, 0.5);
+    color: var(--accent);
+}
 
 /* 图表区 */
 .ug-chart-shell {
@@ -94,37 +107,32 @@
     padding: 16px 12px 10px;
 }
 
-.ug-chart-inner {
+/* 图表主体（SVG + 柱状图叠加） */
+.ug-chart-area {
     position: relative;
-    height: 240px;
+    height: 220px;
 }
 
-/* SVG 折线叠加层 */
-.ug-svg-overlay {
+.ug-svg {
     position: absolute;
     inset: 0;
     width: 100%;
     height: 100%;
-    pointer-events: none;
     overflow: visible;
 }
-.ug-svg-overlay path, .ug-svg-overlay circle {
-    pointer-events: all;
-}
 
-/* 柱状图行 */
-.ug-bars-row {
+.ug-bars {
     position: absolute;
-    left: 12px;
-    right: 12px;
-    bottom: 28px;
+    left: 0;
+    right: 0;
     top: 0;
+    bottom: 22px;
     display: flex;
     align-items: flex-end;
-    gap: 3px;
+    gap: 2px;
 }
 
-.ug-bar-col {
+.ug-col {
     flex: 1;
     min-width: 0;
     height: 100%;
@@ -136,101 +144,21 @@
 
 .ug-bar {
     width: 100%;
-    border-radius: 3px 3px 0 0;
-    background: linear-gradient(to top, rgba(0, 212, 255, 0.6), rgba(102, 126, 234, 0.6));
-    position: relative;
-    cursor: default;
+    border-radius: 2px 2px 0 0;
+    background: linear-gradient(to top, rgba(0, 212, 255, 0.55), rgba(102, 126, 234, 0.55));
     transition: background 0.2s;
 }
-.ug-bar:hover {
-    background: linear-gradient(to top, #00ff88cc, #00d4ffcc);
-}
+.ug-bar:hover { background: linear-gradient(to top, #00ff88cc, #00d4ffcc); }
 
-/* 折线数据点 */
-.ug-line-dot {
-    fill: #00d4ff;
-    stroke: var(--bg-secondary);
-    stroke-width: 0.5;
-    cursor: default;
-}
-.ug-line-dot:hover { fill: #00ff88; }
-
-/* 标签 */
 .ug-label {
-    width: 100%;
     font-size: 9px;
     color: var(--text-secondary);
     text-align: center;
     padding-top: 4px;
+    width: 100%;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-}
-
-/* Tooltip */
-.ug-tooltip {
-    position: absolute;
-    bottom: calc(100% + 10px);
-    left: 50%;
-    transform: translateX(-50%);
-    background: var(--bg-secondary);
-    border: 1px solid rgba(0, 212, 255, 0.35);
-    border-radius: 8px;
-    color: var(--text-primary);
-    padding: 7px 10px;
-    font-size: 12px;
-    white-space: nowrap;
-    z-index: 200;
-    pointer-events: none;
-    display: none;
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
-}
-.ug-tooltip.visible {
-    display: block;
-    animation: ugFadeIn 0.15s ease;
-}
-
-@keyframes ugFadeIn {
-    from { opacity: 0; transform: translateX(-50%) translateY(4px); }
-    to   { opacity: 1; transform: translateX(-50%) translateY(0); }
-}
-
-/* 十字准星 */
-.ug-crosshair {
-    position: absolute;
-    top: 0;
-    bottom: 28px;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    pointer-events: none;
-    z-index: 10;
-}
-.ug-crosshair-line {
-    width: 1px;
-    flex: 1;
-    background: rgba(0, 212, 255, 0.4);
-}
-.ug-crosshair-dot {
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background: #00d4ff;
-    box-shadow: 0 0 6px #00d4ff;
-    margin-bottom: 4px;
-}
-.ug-crosshair-value {
-    position: absolute;
-    bottom: calc(100% + 6px);
-    transform: translateX(-50%);
-    background: rgba(0, 0, 0, 0.75);
-    border: 1px solid rgba(0, 212, 255, 0.4);
-    border-radius: 6px;
-    padding: 4px 8px;
-    font-size: 11px;
-    color: var(--text-primary);
-    white-space: nowrap;
-    display: none;
 }
 
 /* 空状态 */
@@ -243,5 +171,5 @@
 
 @media (max-width: 640px) {
     .ug-summary { grid-template-columns: 1fr; }
-    .ug-chart-inner { height: 180px; }
+    .ug-chart-area { height: 160px; }
 }

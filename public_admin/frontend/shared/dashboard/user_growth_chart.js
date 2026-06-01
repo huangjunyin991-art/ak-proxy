@@ -1,7 +1,7 @@
 (function () {
     'use strict';
 
-    const state = { stats: null, bound: false };
+    const state = { stats: null, bound: false, period: 'daily' };
 
     function formatNumber(value) {
         const num = Number(value || 0);
@@ -16,7 +16,12 @@
 
     function ensureModal() {
         let modal = document.getElementById('userGrowthModal');
-        if (modal) return modal;
+        if (modal) {
+            modal.querySelectorAll('.ug-period-btn').forEach(btn => {
+                btn.addEventListener('click', () => onPeriodChange(btn.dataset.period));
+            });
+            return modal;
+        }
         modal = document.createElement('div');
         modal.className = 'modal';
         modal.id = 'userGrowthModal';
@@ -47,73 +52,133 @@
         })).filter(item => item.date) : [];
     }
 
-    function render(rows) {
-        const content = document.getElementById('userGrowthContent');
-        if (!content) return;
-        const data = normalizeRows(rows);
-        if (!data.length) {
-            content.innerHTML = '<div class="ug-empty">暂无增长数据</div>';
-            return;
-        }
+    function getPeriodLabel(period) {
+        return { daily: '日', weekly: '周', monthly: '月' }[period] || '日';
+    }
 
-        const first = data[0];
-        const last = data[data.length - 1];
-        const periodIncrease = data.reduce((s, d) => s + d.increase, 0);
-        const maxIncrease = Math.max(...data.map(d => d.increase), 1);
-        const minIncrease = Math.min(...data.map(d => d.increase), 0);
-        const rangeInc = Math.max(maxIncrease - minIncrease, 1);
+    function aggregateWeekly(data) {
+        const map = {};
+        data.forEach(d => {
+            const dt = new Date(d.date);
+            const year = dt.getFullYear();
+            const week = getWeekNumber(dt);
+            const key = `${year}-W${week}`;
+            if (!map[key]) {
+                map[key] = { increase: 0, total: 0, label: `${year}-W${week}`, count: 0 };
+            }
+            map[key].increase += d.increase;
+            map[key].total = d.total;
+            map[key].count++;
+        });
+        return Object.values(map).sort((a, b) => a.label.localeCompare(b.label));
+    }
 
-        const trendDelta = data.length > 1 ? last.total - data[0].total : 0;
-        const trendUp = trendDelta >= 0;
-        const trendPercent = data.length > 1 && data[0].total > 0
-            ? ((trendDelta / data[0].total) * 100).toFixed(1) : '0';
+    function aggregateMonthly(data) {
+        const map = {};
+        data.forEach(d => {
+            const key = d.date.slice(0, 7); // YYYY-MM
+            if (!map[key]) {
+                map[key] = { increase: 0, total: 0, label: key };
+            }
+            map[key].increase += d.increase;
+            map[key].total = d.total;
+        });
+        return Object.values(map).sort((a, b) => a.label.localeCompare(b.label));
+    }
 
+    function getWeekNumber(d) {
+        const date = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+        date.setUTCDate(date.getUTCDate() + 4 - (date.getUTCDay() || 7));
+        const yearStart = new Date(Date.UTC(date.getUTCFullYear(), 0, 1));
+        return Math.ceil((((date - yearStart) / 86400000) + 1) / 7);
+    }
+
+    function buildChart(data) {
         const n = data.length;
+        if (n === 0) return '';
+
+        const maxInc = Math.max(...data.map(d => d.increase), 1);
+        const minInc = Math.min(...data.map(d => d.increase), 0);
+        const rangeInc = Math.max(maxInc - minInc, 1);
+
         const step = 100 / (n - 1 || 1);
 
-        // 折线图：使用 increase 数据，放大显示（只用底部 60% 区域，避免贴底）
-        const lineBottom = 90; // 折线 Y 上限
-        const lineTop = 40;    // 折线 Y 下限
+        // 折线（仅新增加强显示，用底部 25%~85% 区域）
+        const lineBottom = 85;
+        const lineTop = 25;
         const lineRange = lineBottom - lineTop;
-        const linePoints = data.map((d, i) => {
-            const norm = (d.increase - minIncrease) / rangeInc;
+        const linePts = data.map((d, i) => {
+            const norm = (d.increase - minInc) / rangeInc;
             const y = lineBottom - norm * lineRange;
             return { x: i * step, y };
         });
-        const linePath = linePoints.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x},${p.y}`).join(' ');
+
+        const linePath = linePts.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x},${p.y}`).join(' ');
         const fillPath = `${linePath} L${(n - 1) * step},${lineBottom} L0,${lineBottom} Z`;
 
-        // 网格 Y 轴刻度（3条水平线 + 标签）
-        const gridYs = [lineBottom, (lineBottom + lineTop) / 2, lineTop];
-        const gridLabels = [
-            formatNumber(minIncrease + rangeInc),
-            formatNumber(minIncrease + rangeInc * 0.5),
-            formatNumber(minIncrease),
-        ];
-
-        // 柱状图
+        // 柱子
         const barsHtml = data.map((d, i) => {
-            const h = d.increase > 0 ? Math.max((d.increase / maxIncrease) * 100, 2) : 0;
-            const label = (i % 5 === 0 || i === n - 1) ? d.date.slice(5) : '';
-            const tooltip = `${escapeHtml(d.date)} 总数 ${formatNumber(d.total)}，新增 ${formatNumber(d.increase)}`;
-            return `<div class="ug-bar-col" data-idx="${i}">
-                <div class="ug-bar" style="height:${h}%;" data-tooltip="${tooltip}"></div>
+            const h = d.increase > 0 ? Math.max((d.increase / maxInc) * 100, 3) : 0;
+            const label = getLabel(d, i, n);
+            return `<div class="ug-col" data-idx="${i}" title="${escapeHtml(label)}">
+                <div class="ug-bar" style="height:${h}%;"></div>
                 <div class="ug-label">${escapeHtml(label)}</div>
             </div>`;
         }).join('');
 
-        // 折线上的数据点（小圆点）
-        const dotsHtml = linePoints.map((p, i) => {
-            const d = data[i];
-            const tooltip = `${escapeHtml(d.date)} 总数 ${formatNumber(d.total)}，新增 ${formatNumber(d.increase)}`;
-            return `<circle class="ug-line-dot" cx="${p.x}" cy="${p.y}" r="1.2" data-tooltip="${tooltip}" data-idx="${i}"/>`;
-        }).join('');
+        return `
+            <div class="ug-chart-area">
+                <svg class="ug-svg" viewBox="0 0 100 100" preserveAspectRatio="none">
+                    <defs>
+                        <linearGradient id="ugFill" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="0%" stop-color="#00d4ff" stop-opacity="0.25"/>
+                            <stop offset="100%" stop-color="#00d4ff" stop-opacity="0.02"/>
+                        </linearGradient>
+                    </defs>
+                    <path d="${fillPath}" fill="url(#ugFill)" stroke="none"/>
+                    <path d="${linePath}" fill="none" stroke="#00d4ff" stroke-width="0.7" stroke-linejoin="round" stroke-linecap="round"/>
+                </svg>
+                <div class="ug-bars">${barsHtml}</div>
+            </div>`;
+    }
+
+    function getLabel(d, i, n) {
+        if (state.period === 'daily') return d.date.slice(5);
+        if (state.period === 'weekly') return d.label;
+        if (state.period === 'monthly') return d.label.slice(5);
+        return d.date.slice(5);
+    }
+
+    function renderPeriodButtons() {
+        const existing = document.querySelector('.ug-period-tabs');
+        if (existing) {
+            existing.querySelectorAll('.ug-period-btn').forEach(btn => {
+                btn.classList.toggle('active', btn.dataset.period === state.period);
+            });
+        }
+    }
+
+    function renderFull(data) {
+        const content = document.getElementById('userGrowthContent');
+        if (!content) return;
+
+        const last = data[data.length - 1];
+        const first = data[0];
+        const periodInc = data.reduce((s, d) => s + d.increase, 0);
+        const trendDelta = data.length > 1 ? last.total - first.total : 0;
+        const trendUp = trendDelta >= 0;
+        const trendPct = data.length > 1 && first.total > 0
+            ? ((trendDelta / first.total) * 100).toFixed(1) : '0';
+
+        const periodTabs = ['daily', 'weekly', 'monthly'].map(p =>
+            `<button class="ug-period-btn${p === state.period ? ' active' : ''}" data-period="${p}">${getPeriodLabel(p)}</button>`
+        ).join('');
 
         content.innerHTML = `
             <div class="ug-summary">
                 <div class="ug-stat-card">
                     <div class="ug-stat-icon" style="background:linear-gradient(135deg,#00d4ff22,#00d4ff44);">
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#00d4ff" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#00d4ff" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>
                     </div>
                     <div class="ug-stat-body">
                         <div class="ug-stat-label">当前总用户数</div>
@@ -125,8 +190,8 @@
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#00ff88" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><polyline points="19 12 12 5 5 12"/></svg>
                     </div>
                     <div class="ug-stat-body">
-                        <div class="ug-stat-label">近${data.length}天新增</div>
-                        <div class="ug-stat-value green">+${formatNumber(periodIncrease)}</div>
+                        <div class="ug-stat-label">本期新增</div>
+                        <div class="ug-stat-value green">+${formatNumber(periodInc)}</div>
                     </div>
                 </div>
                 <div class="ug-stat-card">
@@ -134,97 +199,52 @@
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="${trendUp ? '#00ff88' : '#ff4757'}" stroke-width="2">${trendUp ? '<line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/>' : '<line x1="12" y1="5" x2="12" y2="19"/><polyline points="19 12 12 19 5 12"/>'}</svg>
                     </div>
                     <div class="ug-stat-body">
-                        <div class="ug-stat-label">周期增长</div>
-                        <div class="ug-stat-value" style="color:${trendUp ? '#00ff88' : '#ff4757'}">${trendUp ? '+' : ''}${formatNumber(trendDelta)} (${trendUp ? '+' : ''}${trendPercent}%)</div>
+                        <div class="ug-stat-label">累计增长</div>
+                        <div class="ug-stat-value" style="color:${trendUp ? '#00ff88' : '#ff4757'}">${trendUp ? '+' : ''}${formatNumber(trendDelta)} (${trendUp ? '+' : ''}${trendPct}%)</div>
                     </div>
                 </div>
             </div>
-
-            <div class="ug-chart-shell">
-                <div class="ug-chart-inner">
-                    <svg class="ug-svg-overlay" viewBox="0 0 100 100" preserveAspectRatio="none">
-                        <defs>
-                            <linearGradient id="ugLineGrad" x1="0" y1="0" x2="0" y2="1">
-                                <stop offset="0%" stop-color="#00d4ff" stop-opacity="0.3"/>
-                                <stop offset="100%" stop-color="#00d4ff" stop-opacity="0.02"/>
-                            </linearGradient>
-                        </defs>
-                        <path d="${fillPath}" fill="url(#ugLineGrad)" stroke="none"/>
-                        <path d="${linePath}" fill="none" stroke="#00d4ff" stroke-width="0.7" stroke-linejoin="round" stroke-linecap="round"/>
-                        ${dotsHtml}
-                    </svg>
-                    <div class="ug-bars-row">${barsHtml}</div>
-                    <div class="ug-crosshair" id="ugCrosshair" style="display:none;">
-                        <div class="ug-crosshair-line"></div>
-                        <div class="ug-crosshair-dot"></div>
-                        <div class="ug-crosshair-value" id="ugCrosshairValue"></div>
-                    </div>
-                </div>
+            <div class="ug-period-tabs">${periodTabs}</div>
+            <div class="ug-chart-shell" id="ugChartShell">
+                ${buildChart(data)}
             </div>
         `;
 
-        bindCrosshair();
-        animateBars();
-        bindBarTooltips();
-    }
-
-    function animateBars() {
-        const bars = document.querySelectorAll('.ug-bar');
-        bars.forEach((bar, i) => {
-            const target = bar.style.height;
-            bar.style.height = '0';
-            bar.style.transition = 'none';
-            setTimeout(() => {
-                bar.style.transition = `height 0.5s cubic-bezier(0.34,1.56,0.64,1) ${i * 10}ms`;
-                bar.style.height = target;
-            }, 30);
+        document.querySelectorAll('.ug-period-btn').forEach(btn => {
+            btn.addEventListener('click', () => onPeriodChange(btn.dataset.period));
         });
     }
 
-    function bindCrosshair() {
-        const shell = document.querySelector('.ug-chart-inner');
-        const crosshair = document.getElementById('ugCrosshair');
-        const valueEl = document.getElementById('ugCrosshairValue');
-        if (!shell || !crosshair) return;
-        const cols = shell.querySelectorAll('.ug-bar-col');
-        cols.forEach(col => {
-            const bar = col.querySelector('.ug-bar');
-            const tooltip = bar ? bar.dataset.tooltip : '';
-            col.addEventListener('mouseenter', () => {
-                const rect = col.getBoundingClientRect();
-                const shellRect = shell.getBoundingClientRect();
-                crosshair.style.left = (rect.left + rect.width / 2 - shellRect.left) + 'px';
-                crosshair.style.display = 'flex';
-                if (valueEl && tooltip) {
-                    valueEl.textContent = tooltip;
-                    valueEl.style.display = 'block';
-                }
-            });
-            col.addEventListener('mouseleave', () => {
-                crosshair.style.display = 'none';
-                if (valueEl) valueEl.style.display = 'none';
-            });
-        });
+    function onPeriodChange(period) {
+        state.period = period;
+        renderPeriodButtons();
+        const data = normalizeRows(state.stats && state.stats.user_growth);
+        if (!data.length) return;
+
+        let chartData = data;
+        if (period === 'weekly') chartData = aggregateWeekly(data);
+        if (period === 'monthly') chartData = aggregateMonthly(data);
+
+        const shell = document.getElementById('ugChartShell');
+        if (shell) shell.innerHTML = buildChart(chartData);
     }
 
-    function bindBarTooltips() {
-        const chart = document.querySelector('.ug-chart-inner');
-        if (!chart) return;
-        chart.querySelectorAll('.ug-bar, .ug-line-dot').forEach(el => {
-            const text = el.dataset.tooltip;
-            if (!text) return;
-            const tip = document.createElement('div');
-            tip.className = 'ug-tooltip';
-            tip.textContent = text;
-            el.appendChild(tip);
-            el.addEventListener('mouseenter', () => tip.classList.add('visible'));
-            el.addEventListener('mouseleave', () => tip.classList.remove('visible'));
-        });
+    function render() {
+        const data = normalizeRows(state.stats && state.stats.user_growth);
+        if (!data.length) {
+            const content = document.getElementById('userGrowthContent');
+            if (content) content.innerHTML = '<div class="ug-empty">暂无增长数据</div>';
+            return;
+        }
+        let chartData = data;
+        if (state.period === 'weekly') chartData = aggregateWeekly(data);
+        if (state.period === 'monthly') chartData = aggregateMonthly(data);
+        renderFull(chartData);
     }
 
     function open() {
         const modal = ensureModal();
-        render(state.stats && state.stats.user_growth);
+        render();
         modal.classList.add('active');
         modal.style.display = 'flex';
     }
@@ -244,7 +264,13 @@
         trigger.addEventListener('click', open);
     }
 
-    function updateStats(stats) { state.stats = stats || null; }
+    function updateStats(stats) {
+        state.stats = stats || null;
+        const modal = document.getElementById('userGrowthModal');
+        if (modal && modal.style.display !== 'none') {
+            render();
+        }
+    }
 
     window.addEventListener('admin:stats-refreshed', event => updateStats(event.detail || null));
     document.addEventListener('DOMContentLoaded', bindTrigger);
