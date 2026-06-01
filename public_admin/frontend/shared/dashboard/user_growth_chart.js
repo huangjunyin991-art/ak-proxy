@@ -64,8 +64,9 @@
         const bars = data.map((item, index) => {
             const height = item.increase > 0 && maxIncrease > 0 ? Math.max((item.increase / maxIncrease) * 100, 4) : 0;
             const label = index % 5 === 0 || index === data.length - 1 ? item.date.slice(5) : '';
+            const tooltip = `${escapeHtml(item.date)} 总数 ${formatNumber(item.total)}，新增 ${formatNumber(item.increase)}`;
             return {
-                bar: `<div class="user-growth-bar" style="height:${height}%;" data-tooltip="${escapeHtml(item.date)} 总数 ${formatNumber(item.total)}，新增 ${formatNumber(item.increase)}"></div>`,
+                bar: `<div class="user-growth-bar" style="height:${height}%;" data-tooltip="${tooltip}"></div>`,
                 label: `<div class="user-growth-label">${escapeHtml(label)}</div>`,
             };
         });
@@ -89,6 +90,22 @@
                 <div class="user-growth-labels">${bars.map(item => item.label).join('')}</div>
             </div>
         `;
+        bindBarTooltips();
+    }
+
+    function bindBarTooltips() {
+        const chart = document.querySelector('.user-growth-chart');
+        if (!chart) return;
+        chart.querySelectorAll('.user-growth-bar').forEach(bar => {
+            const tooltipText = bar.dataset.tooltip;
+            if (!tooltipText) return;
+            const tooltip = document.createElement('div');
+            tooltip.className = 'user-growth-tooltip';
+            tooltip.textContent = tooltipText;
+            bar.appendChild(tooltip);
+            bar.addEventListener('mouseenter', () => tooltip.classList.add('visible'));
+            bar.addEventListener('mouseleave', () => tooltip.classList.remove('visible'));
+        });
     }
 
     function open() {
