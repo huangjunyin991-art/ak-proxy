@@ -2873,31 +2873,9 @@
 
     function sanitizeDuplicateIdentityCookies() {
         try {
-            const raw = String(document.cookie || '');
-            if (!raw) return;
-            const parts = raw.split(';').map(function(s) { return String(s || '').trim(); }).filter(Boolean);
-            const out = {};
-            for (let i = 0; i < parts.length; i++) {
-                const seg = parts[i];
-                const eq = seg.indexOf('=');
-                if (eq <= 0) continue;
-                const name = seg.slice(0, eq).trim();
-                if (name !== 'ak_username' && name !== 'ak_im_username') continue;
-                const value = seg.slice(eq + 1);
-                if (!out[name]) out[name] = [];
-                out[name].push(value);
-            }
-            const hasDup = (out.ak_username && out.ak_username.length > 1) || (out.ak_im_username && out.ak_im_username.length > 1);
-            if (!hasDup) return;
             const runtimeUsername = getActiveRuntimeUsername();
-            if (runtimeUsername) {
-                setCurrentIMUsername(runtimeUsername);
-                return;
-            }
-            const cookieUsername = getLoginCookieUsername();
-            const imCookieUsername = String(getCookie('ak_im_username') || '').trim().toLowerCase();
-            const resolved = cookieUsername || imCookieUsername;
-            if (resolved) setCurrentIMUsername(resolved);
+            if (!runtimeUsername) return;
+            setCurrentIMUsername(runtimeUsername);
         } catch (e) {}
     }
 
