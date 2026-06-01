@@ -103,10 +103,14 @@
             `<line x1="0" y1="${v}" x2="100" y2="${v}" stroke="rgba(255,255,255,0.05)" stroke-width="0.3"/>`
         ).join('');
 
+        // 标签行（独立于柱状图之外）
+        const labelsHtml = points.map(p =>
+            `<div class="ug-label" style="flex:1;min-width:0;">${escapeHtml(p.label)}</div>`
+        ).join('');
+
         const barsHtml = points.map(p =>
-            `<div class="ug-bar-col" style="flex:1;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;gap:0;position:relative;min-width:0;">
+            `<div class="ug-bar-col" style="flex:1;min-width:0;">
                 <div class="ug-bar" style="height:${p.barH}%;" data-tooltip="${escapeHtml(p.item.date)} 总数 ${formatNumber(p.item.total)}，新增 ${formatNumber(p.item.increase)}"></div>
-                <div class="ug-label">${escapeHtml(p.label)}</div>
             </div>`
         ).join('');
 
@@ -161,12 +165,11 @@
                         <div class="ug-crosshair-value" id="ugCrosshairValue"></div>
                     </div>
                 </div>
+                <div class="ug-labels-row">${labelsHtml}</div>
             </div>
         `;
 
-        bindBarTooltips();
         bindCrosshair();
-        animateBars();
     }
 
     function animateBars() {

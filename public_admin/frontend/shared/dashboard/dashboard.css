@@ -97,12 +97,14 @@
     background: rgba(255, 255, 255, 0.025);
     border: 1px solid rgba(255, 255, 255, 0.08);
     border-radius: 14px;
-    padding: 16px 12px 12px;
+    padding: 16px 12px 8px;
+    display: flex;
+    flex-direction: column;
 }
 
 .ug-chart-inner {
     position: relative;
-    height: 240px;
+    height: 220px;
     display: flex;
     align-items: flex-end;
     gap: 3px;
@@ -124,7 +126,6 @@
     display: flex;
     flex-direction: column;
     justify-content: flex-end;
-    align-items: center;
 }
 
 .ug-bar {
@@ -139,16 +140,22 @@
     background: linear-gradient(to top, #00ff88cc, #00d4ffcc);
 }
 
-/* 标签 */
+/* 标签行 - 独立于柱状图区域 */
+.ug-labels-row {
+    display: flex;
+    gap: 3px;
+    padding-top: 6px;
+    overflow: hidden;
+}
+
 .ug-label {
+    flex: 1;
+    min-width: 0;
     font-size: 9px;
     color: var(--text-secondary);
     text-align: center;
-    padding-top: 5px;
-    line-height: 1;
-    width: 100%;
     overflow: hidden;
-    text-overflow: clip;
+    text-overflow: ellipsis;
     white-space: nowrap;
 }
 
