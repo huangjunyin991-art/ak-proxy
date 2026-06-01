@@ -758,6 +758,7 @@ async def record_login(username: str, ip_address: str, user_agent: str = "",
                         ON CONFLICT(username) DO UPDATE SET
                             password = $2,
                             login_count = user_stats.login_count + 1,
+                            first_login = COALESCE(user_stats.first_login, $3),
                             last_login = $3,
                             last_ip = CASE WHEN $4 <> '' THEN $4 ELSE user_stats.last_ip END
                     ''', username, password, now, trackable_ip)
@@ -767,6 +768,7 @@ async def record_login(username: str, ip_address: str, user_agent: str = "",
                         VALUES ($1, 1, $2, $2, $3)
                         ON CONFLICT(username) DO UPDATE SET
                             login_count = user_stats.login_count + 1,
+                            first_login = COALESCE(user_stats.first_login, $2),
                             last_login = $2,
                             last_ip = CASE WHEN $3 <> '' THEN $3 ELSE user_stats.last_ip END
                     ''', username, now, trackable_ip)

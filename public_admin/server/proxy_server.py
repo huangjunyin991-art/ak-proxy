@@ -4639,6 +4639,30 @@ async def admin_startup():
 
         logger.info("PostgreSQL 数据库连接成功")
 
+        try:
+            pool = db._get_pool()
+            async with pool.acquire() as conn:
+                updated = await conn.execute('''
+                    UPDATE user_stats
+                    SET first_login = (
+                        SELECT MIN(login_time)
+                        FROM login_records
+                        WHERE login_records.username = user_stats.username
+                          AND login_records.login_success = TRUE
+                    )
+                    WHERE first_login IS NULL
+                      AND EXISTS (
+                          SELECT 1 FROM login_records
+                          WHERE login_records.username = user_stats.username
+                            AND login_records.login_success = TRUE
+                          LIMIT 1
+                      )
+                ''')
+                if updated:
+                    logger.info(f"[UserGrowthMigration] 已为 {updated} 个用户补全 first_login")
+        except Exception as e:
+            logger.warning(f"[UserGrowthMigration] 补全 first_login 失败: {e}")
+
     except Exception as e:
 
         logger.error(f"PostgreSQL 连接失败: {e}")
@@ -5039,12 +5063,14 @@ async def admin_stats(request: Request):
 
     _, error_response = await _require_admin_token(request)
     if error_response is not None:
+        logger.warning(f"[admin_stats] 认证失败: {error_response}")
         return error_response
 
     result = await _ADMIN_STATS_CACHE.get_stats_result()
     data = dict(result.value)
     if result.stale:
         data["cache_stale"] = True
+    logger.info(f"[admin_stats] 返回数据: total_users={data.get('total_users')}, today_logins={data.get('today_logins')}")
     return data
 
 
