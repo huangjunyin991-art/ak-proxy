@@ -149,6 +149,20 @@
     };
     const lazyModuleLoadPromises = {};
     const lazyModuleInitState = {};
+
+    window.__AKIM_DIAG__ = window.__AKIM_DIAG__ || {
+        created_at: Date.now(),
+        bootstrap: {
+            init_called_at: 0,
+            open_triggered_at: 0,
+            last_error: '',
+            request: {
+                last: null,
+                last_error: null
+            }
+        }
+    };
+
     const initialOpenRequest = getInitialOpenRequest();
     let initialOpenRequestConsumed = false;
     let imHistoryGuardActive = false;
@@ -666,6 +680,9 @@
         try {
             if (!state.ready && !state.bootstrapLoading) {
                 state.bootstrapLoading = true;
+                if (window.__AKIM_DIAG__ && window.__AKIM_DIAG__.bootstrap) {
+                    window.__AKIM_DIAG__.bootstrap.open_triggered_at = Date.now();
+                }
                 if (window.AKIMClientState && window.AKIMClientState.bootstrap) {
                     window.AKIMClientState.bootstrap.open_triggered_at = Date.now();
                 }
@@ -3066,6 +3083,13 @@
         const requestId = String(Math.random()).slice(2);
         const startedAt = Date.now();
         try {
+            if (window.__AKIM_DIAG__ && window.__AKIM_DIAG__.bootstrap && window.__AKIM_DIAG__.bootstrap.request) {
+                window.__AKIM_DIAG__.bootstrap.request.last = {
+                    id: requestId,
+                    url: String(url || ''),
+                    started_at: startedAt
+                };
+            }
             if (window.AKIMClientState && window.AKIMClientState.bootstrap && window.AKIMClientState.bootstrap.request) {
                 window.AKIMClientState.bootstrap.request.last = {
                     id: requestId,
@@ -3092,6 +3116,16 @@
             });
         }).catch(function(err) {
             try {
+                if (window.__AKIM_DIAG__ && window.__AKIM_DIAG__.bootstrap && window.__AKIM_DIAG__.bootstrap.request) {
+                    window.__AKIM_DIAG__.bootstrap.request.last_error = {
+                        id: requestId,
+                        url: String(url || ''),
+                        message: String(err && err.message || err || ''),
+                        at: Date.now(),
+                        cost_ms: Date.now() - startedAt
+                    };
+                    window.__AKIM_DIAG__.bootstrap.last_error = String(err && err.message || err || '');
+                }
                 if (window.AKIMClientState && window.AKIMClientState.bootstrap && window.AKIMClientState.bootstrap.request) {
                     window.AKIMClientState.bootstrap.request.last_error = {
                         id: requestId,
@@ -6388,6 +6422,11 @@
     }
 
     function init() {
+        try {
+            if (window.__AKIM_DIAG__ && window.__AKIM_DIAG__.bootstrap) {
+                window.__AKIM_DIAG__.bootstrap.init_called_at = Date.now();
+            }
+        } catch (e) {}
         sanitizeDuplicateIdentityCookies();
         initAppShellModule();
         ensureRoot();
