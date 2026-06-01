@@ -1,20 +1,17 @@
 (function () {
     'use strict';
 
-    const state = {
-        stats: null,
-        bound: false,
-    };
+    const state = { stats: null, bound: false };
 
     function formatNumber(value) {
         const num = Number(value || 0);
-        if (window.formatNumber) return window.formatNumber(num);
-        return num.toLocaleString('zh-CN');
+        return window.formatNumber ? window.formatNumber(num) : num.toLocaleString('zh-CN');
     }
 
     function escapeHtml(value) {
         if (window.escapeHtml) return window.escapeHtml(value);
-        return String(value ?? '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+        return String(value ?? '').replace(/[&<>"']/g,
+            ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
     }
 
     function ensureModal() {
@@ -36,9 +33,7 @@
             </div>
         `;
         document.body.appendChild(modal);
-        modal.addEventListener('click', event => {
-            if (event.target === modal) close();
-        });
+        modal.addEventListener('click', event => { if (event.target === modal) close(); });
         const closeBtn = modal.querySelector('#userGrowthCloseBtn');
         if (closeBtn) closeBtn.addEventListener('click', close);
         return modal;
@@ -63,56 +58,56 @@
 
         const first = data[0];
         const last = data[data.length - 1];
-        const periodIncrease = data.reduce((sum, item) => sum + item.increase, 0);
-        const maxIncrease = Math.max(...data.map(item => item.increase), 0);
-        const minTotal = Math.min(...data.map(item => item.total));
-        const maxTotal = Math.max(...data.map(item => item.total));
-        const rangeTotal = maxTotal - minTotal || 1;
+        const periodIncrease = data.reduce((s, d) => s + d.increase, 0);
+        const maxIncrease = Math.max(...data.map(d => d.increase), 1);
+        const minIncrease = Math.min(...data.map(d => d.increase), 0);
+        const rangeInc = Math.max(maxIncrease - minIncrease, 1);
 
-        // 趋势箭头
         const trendDelta = data.length > 1 ? last.total - data[0].total : 0;
         const trendUp = trendDelta >= 0;
         const trendPercent = data.length > 1 && data[0].total > 0
-            ? ((trendDelta / data[0].total) * 100).toFixed(1)
-            : '0';
+            ? ((trendDelta / data[0].total) * 100).toFixed(1) : '0';
 
-        // 构建数据点
-        const points = data.map((item, i) => {
-            const barH = maxIncrease > 0 && item.increase > 0
-                ? Math.max((item.increase / maxIncrease) * 100, 4)
-                : 0;
-            const lineY = 100 - ((item.total - minTotal) / rangeTotal * 100);
-            const label = (i % 5 === 0 || i === data.length - 1) ? item.date.slice(5) : '';
-            const isFirst = i === 0;
-            const isLast = i === data.length - 1;
-            return { item, barH, lineY, label, isFirst, isLast, index: i };
+        const n = data.length;
+        const step = 100 / (n - 1 || 1);
+
+        // 折线图：使用 increase 数据，放大显示（只用底部 60% 区域，避免贴底）
+        const lineBottom = 90; // 折线 Y 上限
+        const lineTop = 40;    // 折线 Y 下限
+        const lineRange = lineBottom - lineTop;
+        const linePoints = data.map((d, i) => {
+            const norm = (d.increase - minIncrease) / rangeInc;
+            const y = lineBottom - norm * lineRange;
+            return { x: i * step, y };
         });
+        const linePath = linePoints.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x},${p.y}`).join(' ');
+        const fillPath = `${linePath} L${(n - 1) * step},${lineBottom} L0,${lineBottom} Z`;
 
-        // 构建 SVG 路径
-        const svgW = 100; // viewBox 百分比单位
-        const step = svgW / (points.length - 1 || 1);
-        const linePath = points.map((p, i) =>
-            `${i === 0 ? 'M' : 'L'}${i * step},${p.lineY}`
-        ).join(' ');
+        // 网格 Y 轴刻度（3条水平线 + 标签）
+        const gridYs = [lineBottom, (lineBottom + lineTop) / 2, lineTop];
+        const gridLabels = [
+            formatNumber(minIncrease + rangeInc),
+            formatNumber(minIncrease + rangeInc * 0.5),
+            formatNumber(minIncrease),
+        ];
 
-        // 填充路径（闭合到底部）
-        const fillPath = `${linePath} L${(points.length - 1) * step},100 L0,100 Z`;
+        // 柱状图
+        const barsHtml = data.map((d, i) => {
+            const h = d.increase > 0 ? Math.max((d.increase / maxIncrease) * 100, 2) : 0;
+            const label = (i % 5 === 0 || i === n - 1) ? d.date.slice(5) : '';
+            const tooltip = `${escapeHtml(d.date)} 总数 ${formatNumber(d.total)}，新增 ${formatNumber(d.increase)}`;
+            return `<div class="ug-bar-col" data-idx="${i}">
+                <div class="ug-bar" style="height:${h}%;" data-tooltip="${tooltip}"></div>
+                <div class="ug-label">${escapeHtml(label)}</div>
+            </div>`;
+        }).join('');
 
-        // 背景网格
-        const gridLines = [25, 50, 75].map(v =>
-            `<line x1="0" y1="${v}" x2="100" y2="${v}" stroke="rgba(255,255,255,0.05)" stroke-width="0.3"/>`
-        ).join('');
-
-        // 标签行（独立于柱状图之外）
-        const labelsHtml = points.map(p =>
-            `<div class="ug-label" style="flex:1;min-width:0;">${escapeHtml(p.label)}</div>`
-        ).join('');
-
-        const barsHtml = points.map(p =>
-            `<div class="ug-bar-col" style="flex:1;min-width:0;">
-                <div class="ug-bar" style="height:${p.barH}%;" data-tooltip="${escapeHtml(p.item.date)} 总数 ${formatNumber(p.item.total)}，新增 ${formatNumber(p.item.increase)}"></div>
-            </div>`
-        ).join('');
+        // 折线上的数据点（小圆点）
+        const dotsHtml = linePoints.map((p, i) => {
+            const d = data[i];
+            const tooltip = `${escapeHtml(d.date)} 总数 ${formatNumber(d.total)}，新增 ${formatNumber(d.increase)}`;
+            return `<circle class="ug-line-dot" cx="${p.x}" cy="${p.y}" r="1.2" data-tooltip="${tooltip}" data-idx="${i}"/>`;
+        }).join('');
 
         content.innerHTML = `
             <div class="ug-summary">
@@ -148,28 +143,29 @@
             <div class="ug-chart-shell">
                 <div class="ug-chart-inner">
                     <svg class="ug-svg-overlay" viewBox="0 0 100 100" preserveAspectRatio="none">
-                        ${gridLines}
                         <defs>
                             <linearGradient id="ugLineGrad" x1="0" y1="0" x2="0" y2="1">
-                                <stop offset="0%" stop-color="#00d4ff" stop-opacity="0.35"/>
+                                <stop offset="0%" stop-color="#00d4ff" stop-opacity="0.3"/>
                                 <stop offset="100%" stop-color="#00d4ff" stop-opacity="0.02"/>
                             </linearGradient>
                         </defs>
                         <path d="${fillPath}" fill="url(#ugLineGrad)" stroke="none"/>
-                        <path d="${linePath}" fill="none" stroke="#00d4ff" stroke-width="0.6" stroke-linejoin="round" stroke-linecap="round"/>
+                        <path d="${linePath}" fill="none" stroke="#00d4ff" stroke-width="0.7" stroke-linejoin="round" stroke-linecap="round"/>
+                        ${dotsHtml}
                     </svg>
-                    ${barsHtml}
+                    <div class="ug-bars-row">${barsHtml}</div>
                     <div class="ug-crosshair" id="ugCrosshair" style="display:none;">
                         <div class="ug-crosshair-line"></div>
                         <div class="ug-crosshair-dot"></div>
                         <div class="ug-crosshair-value" id="ugCrosshairValue"></div>
                     </div>
                 </div>
-                <div class="ug-labels-row">${labelsHtml}</div>
             </div>
         `;
 
         bindCrosshair();
+        animateBars();
+        bindBarTooltips();
     }
 
     function animateBars() {
@@ -179,9 +175,9 @@
             bar.style.height = '0';
             bar.style.transition = 'none';
             setTimeout(() => {
-                bar.style.transition = `height 0.6s cubic-bezier(0.34,1.56,0.64,1) ${i * 15}ms`;
+                bar.style.transition = `height 0.5s cubic-bezier(0.34,1.56,0.64,1) ${i * 10}ms`;
                 bar.style.height = target;
-            }, 50);
+            }, 30);
         });
     }
 
@@ -191,14 +187,13 @@
         const valueEl = document.getElementById('ugCrosshairValue');
         if (!shell || !crosshair) return;
         const cols = shell.querySelectorAll('.ug-bar-col');
-        cols.forEach((col, i) => {
+        cols.forEach(col => {
             const bar = col.querySelector('.ug-bar');
             const tooltip = bar ? bar.dataset.tooltip : '';
             col.addEventListener('mouseenter', () => {
                 const rect = col.getBoundingClientRect();
                 const shellRect = shell.getBoundingClientRect();
-                const cx = rect.left + rect.width / 2 - shellRect.left;
-                crosshair.style.left = cx + 'px';
+                crosshair.style.left = (rect.left + rect.width / 2 - shellRect.left) + 'px';
                 crosshair.style.display = 'flex';
                 if (valueEl && tooltip) {
                     valueEl.textContent = tooltip;
@@ -215,15 +210,15 @@
     function bindBarTooltips() {
         const chart = document.querySelector('.ug-chart-inner');
         if (!chart) return;
-        chart.querySelectorAll('.ug-bar').forEach(bar => {
-            const tooltipText = bar.dataset.tooltip;
-            if (!tooltipText) return;
-            const tooltip = document.createElement('div');
-            tooltip.className = 'ug-tooltip';
-            tooltip.textContent = tooltipText;
-            bar.appendChild(tooltip);
-            bar.addEventListener('mouseenter', () => tooltip.classList.add('visible'));
-            bar.addEventListener('mouseleave', () => tooltip.classList.remove('visible'));
+        chart.querySelectorAll('.ug-bar, .ug-line-dot').forEach(el => {
+            const text = el.dataset.tooltip;
+            if (!text) return;
+            const tip = document.createElement('div');
+            tip.className = 'ug-tooltip';
+            tip.textContent = text;
+            el.appendChild(tip);
+            el.addEventListener('mouseenter', () => tip.classList.add('visible'));
+            el.addEventListener('mouseleave', () => tip.classList.remove('visible'));
         });
     }
 
@@ -249,18 +244,11 @@
         trigger.addEventListener('click', open);
     }
 
-    function updateStats(stats) {
-        state.stats = stats || null;
-    }
+    function updateStats(stats) { state.stats = stats || null; }
 
     window.addEventListener('admin:stats-refreshed', event => updateStats(event.detail || null));
     document.addEventListener('DOMContentLoaded', bindTrigger);
     bindTrigger();
 
-    window.AdminUserGrowthChart = {
-        bind: bindTrigger,
-        updateStats,
-        open,
-        close,
-    };
+    window.AdminUserGrowthChart = { bind: bindTrigger, updateStats, open, close };
 })();

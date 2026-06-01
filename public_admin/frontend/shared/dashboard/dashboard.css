@@ -18,9 +18,7 @@
     opacity: 0;
     transition: opacity 0.2s;
 }
-.stat-card[data-user-growth-trigger]:hover::after {
-    opacity: 1;
-}
+.stat-card[data-user-growth-trigger]:hover::after { opacity: 1; }
 
 /* 模态框 */
 .user-growth-modal-content {
@@ -60,9 +58,7 @@
     padding: 14px 16px;
     transition: border-color 0.2s;
 }
-.ug-stat-card:hover {
-    border-color: rgba(0, 212, 255, 0.25);
-}
+.ug-stat-card:hover { border-color: rgba(0, 212, 255, 0.25); }
 
 .ug-stat-icon {
     width: 40px;
@@ -74,9 +70,7 @@
     flex-shrink: 0;
 }
 
-.ug-stat-body {
-    min-width: 0;
-}
+.ug-stat-body { min-width: 0; }
 
 .ug-stat-label {
     color: var(--text-secondary);
@@ -97,63 +91,77 @@
     background: rgba(255, 255, 255, 0.025);
     border: 1px solid rgba(255, 255, 255, 0.08);
     border-radius: 14px;
-    padding: 16px 12px 8px;
-    display: flex;
-    flex-direction: column;
+    padding: 16px 12px 10px;
 }
 
 .ug-chart-inner {
     position: relative;
-    height: 220px;
-    display: flex;
-    align-items: flex-end;
-    gap: 3px;
+    height: 240px;
 }
 
+/* SVG 折线叠加层 */
 .ug-svg-overlay {
     position: absolute;
     inset: 0;
     width: 100%;
     height: 100%;
     pointer-events: none;
+    overflow: visible;
+}
+.ug-svg-overlay path, .ug-svg-overlay circle {
+    pointer-events: all;
 }
 
-/* 柱状图 */
+/* 柱状图行 */
+.ug-bars-row {
+    position: absolute;
+    left: 12px;
+    right: 12px;
+    bottom: 28px;
+    top: 0;
+    display: flex;
+    align-items: flex-end;
+    gap: 3px;
+}
+
 .ug-bar-col {
     flex: 1;
-    min-width: 3px;
+    min-width: 0;
     height: 100%;
     display: flex;
     flex-direction: column;
     justify-content: flex-end;
+    align-items: center;
 }
 
 .ug-bar {
     width: 100%;
-    border-radius: 4px 4px 0 0;
-    background: linear-gradient(to top, rgba(0, 212, 255, 0.7), rgba(102, 126, 234, 0.7));
+    border-radius: 3px 3px 0 0;
+    background: linear-gradient(to top, rgba(0, 212, 255, 0.6), rgba(102, 126, 234, 0.6));
     position: relative;
-    transition: background 0.2s;
     cursor: default;
+    transition: background 0.2s;
 }
 .ug-bar:hover {
     background: linear-gradient(to top, #00ff88cc, #00d4ffcc);
 }
 
-/* 标签行 - 独立于柱状图区域 */
-.ug-labels-row {
-    display: flex;
-    gap: 3px;
-    padding-top: 6px;
-    overflow: hidden;
+/* 折线数据点 */
+.ug-line-dot {
+    fill: #00d4ff;
+    stroke: var(--bg-secondary);
+    stroke-width: 0.5;
+    cursor: default;
 }
+.ug-line-dot:hover { fill: #00ff88; }
 
+/* 标签 */
 .ug-label {
-    flex: 1;
-    min-width: 0;
+    width: 100%;
     font-size: 9px;
     color: var(--text-secondary);
     text-align: center;
+    padding-top: 4px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -177,24 +185,6 @@
     display: none;
     box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
 }
-.ug-tooltip::before {
-    content: '';
-    position: absolute;
-    bottom: -6px;
-    left: 50%;
-    transform: translateX(-50%);
-    border: 6px solid transparent;
-    border-top-color: rgba(0, 212, 255, 0.35);
-}
-.ug-tooltip::after {
-    content: '';
-    position: absolute;
-    bottom: -5px;
-    left: 50%;
-    transform: translateX(-50%);
-    border: 5px solid transparent;
-    border-top-color: var(--bg-secondary);
-}
 .ug-tooltip.visible {
     display: block;
     animation: ugFadeIn 0.15s ease;
@@ -209,20 +199,18 @@
 .ug-crosshair {
     position: absolute;
     top: 0;
-    bottom: 24px;
+    bottom: 28px;
     display: flex;
     flex-direction: column;
     align-items: center;
     pointer-events: none;
     z-index: 10;
 }
-
 .ug-crosshair-line {
     width: 1px;
     flex: 1;
     background: rgba(0, 212, 255, 0.4);
 }
-
 .ug-crosshair-dot {
     width: 6px;
     height: 6px;
@@ -231,7 +219,6 @@
     box-shadow: 0 0 6px #00d4ff;
     margin-bottom: 4px;
 }
-
 .ug-crosshair-value {
     position: absolute;
     bottom: calc(100% + 6px);
