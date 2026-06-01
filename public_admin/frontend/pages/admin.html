@@ -6180,8 +6180,12 @@
         async function refreshStats() {
             if (!shouldRunAdminGlobalPoll()) return;
             try {
-                const res = await fetch(`${API_BASE}/admin/api/stats`);
+                const res = await fetch(`${API_BASE}/admin/api/stats`, { headers: getHeaders() });
                 const data = await res.json();
+                if (data.error) {
+                    console.warn('获取统计数据失败:', data.message);
+                    return;
+                }
                 document.getElementById('statUsers').textContent = data.total_users;
                 document.getElementById('statToday').textContent = data.today_logins;
                 document.getElementById('statLogins').textContent = data.total_logins;
@@ -6224,7 +6228,7 @@
             try {
                 let url = `${API_BASE}/admin/api/usage?limit=${pageSize}&offset=${offset}`;
                 if (usageSearchKeyword) url += `&search=${encodeURIComponent(usageSearchKeyword)}`;
-                const res = await fetch(url);
+                const res = await fetch(url, { headers: getHeaders() });
                 const data = await res.json();
                 usageTotalCount = data.total || 0;
                 usageTotalPages = Math.ceil(usageTotalCount / pageSize) || 1;
@@ -6408,8 +6412,8 @@
                 
                 // 并行获取用户数据和封禁列表
                 const [res, banRes] = await Promise.all([
-                    fetch(url),
-                    fetch(`${API_BASE}/admin/api/banlist`)
+                    fetch(url, { headers: getHeaders() }),
+                    fetch(`${API_BASE}/admin/api/banlist`, { headers: getHeaders() })
                 ]);
                 const data = await res.json();
                 const banData = await banRes.json();
@@ -6737,7 +6741,7 @@
                 if (ipsSortField) {
                     url += `?sort_field=${encodeURIComponent(ipsSortField)}&sort_dir=${ipsSortAsc ? 'asc' : 'desc'}`;
                 }
-                const res = await fetch(url);
+                const res = await fetch(url, { headers: getHeaders() });
                 const data = await res.json();
                 const tbody = document.getElementById('ipsTable');
                 const ipData = Array.isArray(data) ? data : [];
@@ -6771,7 +6775,7 @@
         // 加载封禁列表
         async function loadBanlist() {
             try {
-                const res = await fetch(`${API_BASE}/admin/api/banlist`);
+                const res = await fetch(`${API_BASE}/admin/api/banlist`, { headers: getHeaders() });
                 const data = await res.json();
                 const tbody = document.getElementById('banlistTable');
                 
@@ -6917,13 +6921,13 @@
         }
 
         async function fetchOnlineUsers(signal) {
-            const res = await fetch(`${API_BASE}/admin/api/online`, signal ? { signal } : {});
+            const res = await fetch(`${API_BASE}/admin/api/online`, { headers: getHeaders(), ...(signal ? { signal } : {}) });
             const data = await res.json();
             return Array.isArray(data) ? data : [];
         }
 
         async function fetchOnlineUserCount() {
-            const res = await fetch(`${API_BASE}/admin/api/online/count`);
+            const res = await fetch(`${API_BASE}/admin/api/online/count`, { headers: getHeaders() });
             const data = await res.json();
             return Math.max(0, Number(data && data.count || 0));
         }
@@ -7031,7 +7035,7 @@
         async function kickUser(username) {
             if (!confirm(`确认将 ${username} 从在线列表移除？`)) return;
             const res = await fetch(`${API_BASE}/admin/api/kick`, {
-                method: 'POST', headers: {'Content-Type': 'application/json'},
+                method: 'POST', headers: { ...getHeaders(), 'Content-Type': 'application/json' },
                 body: JSON.stringify({ username })
             });
             const data = await res.json();
@@ -7044,7 +7048,7 @@
             if (!shouldRunAdminPanelPoll('online')) return;
             
             try {
-                const res = await fetch(`${API_BASE}/admin/api/chat/history/${currentChatUser}`);
+                const res = await fetch(`${API_BASE}/admin/api/chat/history/${currentChatUser}`, { headers: getHeaders() });
                 const messages = await res.json();
                 
                 // 重新渲染聊天记录
@@ -7125,7 +7129,7 @@
             try {
                 const res = await fetch(`${API_BASE}/admin/api/chat/send`, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: { ...getHeaders(), 'Content-Type': 'application/json' },
                     body: JSON.stringify({ username: currentChatUser, content: content })
                 });
                 
@@ -7162,7 +7166,7 @@
             try {
                 const response = await fetch('/admin/api/chat/broadcast', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: { ...getHeaders(), 'Content-Type': 'application/json' },
                     body: JSON.stringify({ content })
                 });
                 
@@ -7197,7 +7201,7 @@
             try {
                 const res = await fetch(`${API_BASE}/admin/api/ban/${banType}`, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: { ...getHeaders(), 'Content-Type': 'application/json' },
                     body: JSON.stringify({ value: banValue, reason: reason })
                 });
                 if (res.ok) {
@@ -7239,7 +7243,7 @@
                 const apiType = unbanType === 'username' ? 'user' : unbanType;
                 const res = await fetch(`${API_BASE}/admin/api/unban/${apiType}`, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: { ...getHeaders(), 'Content-Type': 'application/json' },
                     body: JSON.stringify({ value: unbanValue })
                 });
                 if (res.ok) {
@@ -7403,7 +7407,7 @@
             try {
                 const resp = await fetch('/admin/api/sub_admin/bind_account', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: { ...getHeaders(), 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         admin_password: superPassword,
                         secondary_password: secondaryPassword,
@@ -7460,7 +7464,7 @@
             try {
                 const res = await fetch(`${API_BASE}/admin/api/sub_admin/update_permissions`, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: { ...getHeaders(), 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         admin_password: superPassword,
                         sub_name: subName,
@@ -7528,7 +7532,7 @@
             startRemoteVoiceRefresh();
             
             try {
-                const res = await fetch(`${API_BASE}/admin/api/sub_admin`);
+                const res = await fetch(`${API_BASE}/admin/api/sub_admin`, { headers: getHeaders() });
                 const data = await res.json();
                 
                 const listDiv = document.getElementById('subAdminList');
@@ -7660,7 +7664,7 @@
             try {
                 const res = await fetch(`${API_BASE}/admin/api/sub_admin/set`, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: { ...getHeaders(), 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         admin_password: superPassword,
                         secondary_password: secondaryPassword,
@@ -7713,7 +7717,7 @@
             try {
                 const res = await fetch(`${API_BASE}/admin/api/sub_admin/bind_account`, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: { ...getHeaders(), 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         admin_password: superPassword,
                         secondary_password: secondaryPassword,
@@ -7766,7 +7770,7 @@
             try {
                 const res = await fetch(`${API_BASE}/admin/api/sub_admin/kick`, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: { ...getHeaders(), 'Content-Type': 'application/json' },
                     body: JSON.stringify({ admin_password: superPassword, sub_name: name })
                 });
                 const data = await res.json();
@@ -7794,7 +7798,7 @@
             try {
                 const res = await fetch(`${API_BASE}/admin/api/sub_admin/kick`, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: { ...getHeaders(), 'Content-Type': 'application/json' },
                     body: JSON.stringify({ admin_password: superPassword, sub_name: '' })
                 });
                 const data = await res.json();
@@ -7824,7 +7828,7 @@
             try {
                 const res = await fetch(`${API_BASE}/admin/api/sub_admin/delete`, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: { ...getHeaders(), 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         admin_password: superPassword,
                         secondary_password: secondaryPassword,
@@ -8358,7 +8362,7 @@
             try {
                 const res = await fetch(`${API_BASE}/admin/api/db/auth`, {
                     method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
+                    headers: { ...getHeaders(), 'Content-Type': 'application/json' },
                     body: JSON.stringify({ password: password })
                 });
                 
@@ -9653,7 +9657,7 @@
 
             if (!shouldRunAdminPanelPoll('dashboard')) return;
             try {
-                const res = await fetch(`${API_BASE}/admin/api/dashboard`);
+                const res = await fetch(`${API_BASE}/admin/api/dashboard`, { headers: getHeaders() });
                 const data = await res.json();
                 
                 // 更新实时指标
@@ -10861,6 +10865,27 @@
             return { 'Authorization': `Bearer ${sessionStorage.getItem('admin_token') || ''}` };
         }
 
+        async function apiFetch(url, options = {}) {
+            const headers = { ...getHeaders() };
+            if (options.headers) {
+                if (options.headers instanceof Headers) {
+                    options.headers.forEach((v, k) => { headers[k] = v; });
+                } else {
+                    Object.assign(headers, options.headers);
+                }
+            }
+            const res = await fetch(url, { ...options, headers });
+            const data = await res.json();
+            if (data && data.error) {
+                if (data.message === '未授权') {
+                    logout();
+                    showToast('登录已失效，请重新登录', 'error');
+                }
+                throw new Error(data.message || '请求失败');
+            }
+            return data;
+        }
+
         // ===== 白名单管理 =====
         let wlPage = 0;
         let wlCreditConfigs = [];
@@ -11678,7 +11703,7 @@
                     fetch(`${API_BASE}/admin/api/whitelist?${params}`, {headers: getHeaders()}),
                     fetch(`${API_BASE}/admin/api/credits/balance`, {headers: getHeaders()}),
                     fetch(`${API_BASE}/admin/api/whitelist/expiring?days=7`, {headers: getHeaders()}),
-                    fetch(`${API_BASE}/admin/api/credits/config`)
+                    fetch(`${API_BASE}/admin/api/credits/config`, { headers: getHeaders() })
                 ]);
                 const data = await res.json();
                 const balData = await balRes.json();
@@ -12109,7 +12134,7 @@
 
         async function loadCreditConfig() {
             try {
-                const res = await fetch(`${API_BASE}/admin/api/credits/config`);
+                const res = await fetch(`${API_BASE}/admin/api/credits/config`, { headers: getHeaders() });
                 const data = await res.json();
                 if (!Array.isArray(data)) return;
                 wlCreditConfigs = data;
