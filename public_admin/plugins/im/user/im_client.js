@@ -2943,19 +2943,15 @@
 
     function getCanonicalUsername() {
         const runtimeUsername = getActiveRuntimeUsername();
-        const confirmedUsername = String(state.username || '').trim().toLowerCase();
         if (runtimeUsername) {
+            const confirmedUsername = String(state.username || '').trim().toLowerCase();
             if (confirmedUsername && confirmedUsername !== runtimeUsername) {
                 try { window.AKIMClientUsername = ''; } catch (e) {}
                 state.username = '';
             }
-            const cookieUsername = getLoginCookieUsername();
-            const imCookieUsername = String(getCookie('ak_im_username') || '').trim().toLowerCase();
-            if (cookieUsername !== runtimeUsername || imCookieUsername !== runtimeUsername) {
-                setCurrentIMUsername(runtimeUsername);
-            }
             return runtimeUsername;
         }
+        const confirmedUsername = String(state.username || '').trim().toLowerCase();
         if (confirmedUsername) return confirmedUsername;
         return '';
     }
@@ -2971,7 +2967,7 @@
 
     function buildAuthHeaders() {
         const headers = {};
-        const username = getCanonicalUsername();
+        const username = getActiveRuntimeUsername() || getCanonicalUsername();
         if (username) headers['X-AK-Username'] = username;
         return headers;
     }
