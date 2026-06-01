@@ -2864,11 +2864,50 @@
         }
     }
 
+    function deleteCookieEverywhere(name) {
+        const key = String(name || '').trim();
+        if (!key) return;
+        try { document.cookie = key + '=; path=/; max-age=0; SameSite=Lax'; } catch (e) {}
+        try { document.cookie = key + '=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Lax'; } catch (e) {}
+    }
+
+    function sanitizeDuplicateIdentityCookies() {
+        try {
+            const raw = String(document.cookie || '');
+            if (!raw) return;
+            const parts = raw.split(';').map(function(s) { return String(s || '').trim(); }).filter(Boolean);
+            const out = {};
+            for (let i = 0; i < parts.length; i++) {
+                const seg = parts[i];
+                const eq = seg.indexOf('=');
+                if (eq <= 0) continue;
+                const name = seg.slice(0, eq).trim();
+                if (name !== 'ak_username' && name !== 'ak_im_username') continue;
+                const value = seg.slice(eq + 1);
+                if (!out[name]) out[name] = [];
+                out[name].push(value);
+            }
+            const hasDup = (out.ak_username && out.ak_username.length > 1) || (out.ak_im_username && out.ak_im_username.length > 1);
+            if (!hasDup) return;
+            const runtimeUsername = getActiveRuntimeUsername();
+            if (runtimeUsername) {
+                setCurrentIMUsername(runtimeUsername);
+                return;
+            }
+            const cookieUsername = getLoginCookieUsername();
+            const imCookieUsername = String(getCookie('ak_im_username') || '').trim().toLowerCase();
+            const resolved = cookieUsername || imCookieUsername;
+            if (resolved) setCurrentIMUsername(resolved);
+        } catch (e) {}
+    }
+
     function setCurrentIMUsername(username) {
         const value = String(username || '').trim().toLowerCase();
         if (!value) return;
         try {
             window.AKIMClientUsername = value;
+            deleteCookieEverywhere('ak_username');
+            deleteCookieEverywhere('ak_im_username');
             document.cookie = 'ak_username=' + encodeURIComponent(value) + '; path=/; max-age=' + String(86400 * 30) + '; SameSite=Lax';
             document.cookie = 'ak_im_username=' + encodeURIComponent(value) + '; path=/; max-age=' + String(86400 * 30) + '; SameSite=Lax';
             const push = window.AKClientRuntimePush;
@@ -6331,6 +6370,7 @@
     }
 
     function init() {
+        sanitizeDuplicateIdentityCookies();
         initAppShellModule();
         ensureRoot();
         bindComposerOutsideDismissEvents();
