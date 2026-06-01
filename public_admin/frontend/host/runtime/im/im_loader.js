@@ -43,14 +43,27 @@
         } catch(e) {}
     }
 
+    function ensureIMUsernameCookie() {
+        try {
+            var auth = window.AKClientRuntimeAuth;
+            if (auth && typeof auth.ensureIMUsernameCookieFromUserModel === 'function') {
+                return auth.ensureIMUsernameCookieFromUserModel();
+            }
+        } catch(e) {}
+        return false;
+    }
+
     function ensureIMPlugin() {
         try {
+            ensureIMUsernameCookie();
             if (isLoginPage()) {
                 syncIMPluginVisibility();
                 return;
             }
             if (window.AKIMClientLoaded) return;
             if (document.querySelector('script[data-ak-im-plugin-entry="1"]')) return;
+            setTimeout(ensureIMUsernameCookie, 300);
+            setTimeout(ensureIMUsernameCookie, 1200);
             var script = document.createElement('script');
             script.src = getVersionedAssetUrl(window.location.origin + '/chat/plugins/im/user/im_entry.js');
             script.async = true;

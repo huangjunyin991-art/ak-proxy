@@ -53,6 +53,79 @@
         return '';
     }
 
+    function syncLoginUsernameCookie(account) {
+        try {
+            var username = String(account || '').trim().toLowerCase();
+            if (!username) return false;
+            var maxAge = String(86400 * 30);
+            document.cookie = 'ak_username=' + encodeURIComponent(username) + '; path=/; max-age=' + maxAge + '; SameSite=Lax';
+            document.cookie = 'ak_im_username=' + encodeURIComponent(username) + '; path=/; max-age=' + maxAge + '; SameSite=Lax';
+            return true;
+        } catch(e) {}
+        return false;
+    }
+
+    function readCookie(name) {
+        try {
+            var match = document.cookie.match(new RegExp('(?:^|; )' + name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '=([^;]*)'));
+            return match ? decodeURIComponent(match[1] || '').trim() : '';
+        } catch(e) {}
+        return '';
+    }
+
+    function pickUsernameFromObject(data) {
+        try {
+            if (!data || typeof data !== 'object') return '';
+            var keys = ['UserName', 'Username', 'userName', 'username', 'Account', 'account', 'LoginName', 'loginName'];
+            for (var i = 0; i < keys.length; i++) {
+                if (data[keys[i]] != null && data[keys[i]] !== '') return String(data[keys[i]]).trim();
+            }
+        } catch(e) {}
+        return '';
+    }
+
+    function getUserModelStoreKeys() {
+        var keys = ['AK_user_model'];
+        try {
+            if (window.APP && APP.CONFIG && APP.CONFIG.SYSTEM_KEYS && APP.CONFIG.SYSTEM_KEYS.USER_MODEL_KEY) {
+                var storeKey = String(APP.CONFIG.SYSTEM_KEYS.USER_MODEL_KEY || '').trim();
+                if (storeKey && keys.indexOf(storeKey) === -1) keys.push(storeKey);
+            }
+        } catch(e) {}
+        return keys;
+    }
+
+    function readStoredUsername() {
+        try {
+            var appUsername = '';
+            try { appUsername = pickUsernameFromObject(window.APP && APP.USER && APP.USER.MODEL); } catch(e) {}
+            if (appUsername) return appUsername;
+            var globalUsername = pickUsernameFromObject(window.USER_MODEL);
+            if (globalUsername) return globalUsername;
+            var keys = getUserModelStoreKeys();
+            for (var i = 0; i < keys.length; i++) {
+                try {
+                    var raw = localStorage.getItem(keys[i]);
+                    if (!raw) continue;
+                    var model = JSON.parse(raw);
+                    var username = pickUsernameFromObject(model);
+                    if (username) return username;
+                } catch(e2) {}
+            }
+        } catch(e3) {}
+        return '';
+    }
+
+    function ensureIMUsernameCookieFromUserModel() {
+        try {
+            if (readCookie('ak_username') && readCookie('ak_im_username')) return false;
+            var username = readStoredUsername();
+            if (!username) return false;
+            return syncLoginUsernameCookie(username);
+        } catch(e) {}
+        return false;
+    }
+
     function storeUserModel(result) {
         try {
             if (!result || typeof result !== 'object') return;
@@ -68,6 +141,7 @@
                 }
             } catch(e) {}
             localStorage.setItem(storeKey, JSON.stringify(model));
+            syncLoginUsernameCookie(pickUsernameFromObject(model));
             if (window.APP && APP.USER) {
                 APP.USER.MODEL = model;
             }
@@ -126,9 +200,10 @@
                     if (url.indexOf('/Login') === -1) return;
                     var result = JSON.parse(xhr.responseText);
                     if (result.Error !== false && (result.Error || !result.UserData)) return;
-                    if (!hasPersistCookie()) return;
-                    storeUserModel(result);
                     var creds = extractCredentials(xhr._akReqBody);
+                    if (creds) syncLoginUsernameCookie(creds.account);
+                    storeUserModel(result);
+                    if (!hasPersistCookie()) return;
                     if (creds) {
                         saveCredentials(creds.account, creds.password);
                         reconnectChatAfterCredentialSave();
@@ -146,9 +221,10 @@
                 result.then(function(resp) {
                     resp.clone().json().then(function(data) {
                         if (data.Error === false || (!data.Error && data.UserData)) {
-                            if (!hasPersistCookie()) return;
-                            storeUserModel(data);
                             var creds = extractCredentials(options.body);
+                            if (creds) syncLoginUsernameCookie(creds.account);
+                            storeUserModel(data);
+                            if (!hasPersistCookie()) return;
                             if (creds) {
                                 saveCredentials(creds.account, creds.password);
                                 reconnectChatAfterCredentialSave();
@@ -242,6 +318,8 @@
     window.AKClientRuntimeAuth.clearCredentials = clearCredentials;
     window.AKClientRuntimeAuth.hasPersistCookie = hasPersistCookie;
     window.AKClientRuntimeAuth.installRuntimeContext = installRuntimeContext;
+    window.AKClientRuntimeAuth.syncLoginUsernameCookie = syncLoginUsernameCookie;
+    window.AKClientRuntimeAuth.ensureIMUsernameCookieFromUserModel = ensureIMUsernameCookieFromUserModel;
     window.AKClientRuntimeAuth.setupLoginCapture = setupLoginCapture;
     window.AKClientRuntimeAuth.autoLogin = autoLogin;
 })();
