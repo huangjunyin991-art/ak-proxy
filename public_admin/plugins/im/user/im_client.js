@@ -2914,28 +2914,32 @@
         return '';
     }
 
-    function getCanonicalUsername() {
-        const cookieUsername = getLoginCookieUsername();
-        const confirmedUsername = String(state.username || '').trim().toLowerCase();
-        if (cookieUsername) {
-            if (confirmedUsername && confirmedUsername !== cookieUsername) clearCurrentIMUsername();
-            return cookieUsername;
-        }
-        if (confirmedUsername) return confirmedUsername;
+    function getActiveRuntimeUsername() {
         try {
             if (window.APP && APP.USER && APP.USER.MODEL) {
                 const value = pickUsernameFromObject(APP.USER.MODEL);
                 if (value) return value;
             }
         } catch (e) {}
-        try {
-            if (window.USER_MODEL) {
-                const value = pickUsernameFromObject(window.USER_MODEL);
-                if (value) return value;
+        return '';
+    }
+
+    function getCanonicalUsername() {
+        const runtimeUsername = getActiveRuntimeUsername();
+        const confirmedUsername = String(state.username || '').trim().toLowerCase();
+        if (runtimeUsername) {
+            if (confirmedUsername && confirmedUsername !== runtimeUsername) {
+                try { window.AKIMClientUsername = ''; } catch (e) {}
+                state.username = '';
             }
-        } catch (e) {}
-        const imCookieUsername = String(getCookie('ak_im_username') || '').trim().toLowerCase();
-        if (imCookieUsername) return imCookieUsername;
+            const cookieUsername = getLoginCookieUsername();
+            const imCookieUsername = String(getCookie('ak_im_username') || '').trim().toLowerCase();
+            if (cookieUsername !== runtimeUsername || imCookieUsername !== runtimeUsername) {
+                setCurrentIMUsername(runtimeUsername);
+            }
+            return runtimeUsername;
+        }
+        if (confirmedUsername) return confirmedUsername;
         return '';
     }
 
@@ -6137,11 +6141,18 @@
     function loadBootstrap(retryCount) {
         const currentRetryCount = Number(retryCount || 0);
         const bootstrapUsername = getCanonicalUsername();
-        const cachedBootstrap = currentRetryCount === 0 ? readBootstrapCache(bootstrapUsername) : null;
+        const activeRuntimeUsername = getActiveRuntimeUsername();
+        const cachedBootstrap = currentRetryCount === 0 && activeRuntimeUsername ? readBootstrapCache(bootstrapUsername) : null;
         if (cachedBootstrap) return applyBootstrapData(cachedBootstrap);
         return request(buildBootstrapUrl()).then(function(data) {
+            const latestRuntimeUsername = getActiveRuntimeUsername();
+            if (latestRuntimeUsername && bootstrapUsername && latestRuntimeUsername !== bootstrapUsername) {
+                return loadBootstrap(0);
+            }
             const responseUsername = String((data && data.username) || bootstrapUsername || '').trim().toLowerCase();
-            writeBootstrapCache(responseUsername, data);
+            if (activeRuntimeUsername && responseUsername === activeRuntimeUsername) {
+                writeBootstrapCache(responseUsername, data);
+            }
             return applyBootstrapData(data);
         }).catch(function() {
             const retryDelay = BOOTSTRAP_REQUEST_RETRY_DELAYS[currentRetryCount];
