@@ -1,15 +1,15 @@
-/* ========== ??????? ========== */
+/* ========== 用户增长趋势图 ========== */
 .stat-card[data-user-growth-trigger] {
     cursor: pointer;
     position: relative;
     transition: box-shadow 0.2s, transform 0.15s;
 }
 .stat-card[data-user-growth-trigger]:hover {
-    box-shadow: 0 0 16px rgba(0, 212, 255, 0.2);
+    box-shadow: 0 0 16px rgba(0, 212, 255, 0.25);
     transform: translateY(-1px);
 }
 .stat-card[data-user-growth-trigger]::after {
-    content: '????????';
+    content: '点击查看增长趋势';
     position: absolute;
     right: 14px;
     bottom: 10px;
@@ -22,112 +22,138 @@
     opacity: 1;
 }
 
-/* ??? */
+/* 模态框 */
 .user-growth-modal-content {
-    width: min(760px, calc(100vw - 32px));
-    max-width: 760px;
+    width: min(860px, calc(100vw - 32px));
+    max-width: 860px;
     border: 1px solid rgba(0, 212, 255, 0.28);
     background: var(--bg-secondary);
 }
 
-.ug-title {
+.ug-modal-title {
     display: flex;
     align-items: center;
     gap: 10px;
     color: var(--accent);
-    font-size: 16px;
+    font-size: 17px;
     font-weight: 600;
     border-bottom: 1px solid rgba(0, 212, 255, 0.18);
-    padding-bottom: 12px;
-    margin-bottom: 16px;
+    padding-bottom: 14px;
+    margin-bottom: 20px;
 }
 
-/* ???? */
+/* 顶部统计卡片 */
 .ug-summary {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 12px;
-    margin-bottom: 18px;
+    margin-bottom: 20px;
 }
 
-.ug-stat {
+.ug-stat-card {
     display: flex;
     align-items: center;
     gap: 12px;
     background: rgba(255, 255, 255, 0.04);
     border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 10px;
-    padding: 12px;
+    border-radius: 12px;
+    padding: 14px 16px;
+    transition: border-color 0.2s;
 }
+.ug-stat-card:hover {
+    border-color: rgba(0, 212, 255, 0.25);
+}
+
 .ug-stat-icon {
-    width: 36px;
-    height: 36px;
-    border-radius: 9px;
-    background: rgba(0, 212, 255, 0.1);
+    width: 40px;
+    height: 40px;
+    border-radius: 10px;
     display: flex;
     align-items: center;
     justify-content: center;
     flex-shrink: 0;
 }
+
+.ug-stat-body {
+    min-width: 0;
+}
+
 .ug-stat-label {
     color: var(--text-secondary);
     font-size: 12px;
     margin-bottom: 4px;
 }
+
 .ug-stat-value {
-    color: var(--accent);
     font-size: 20px;
     font-weight: 800;
     line-height: 1.2;
 }
+.ug-stat-value.accent { color: var(--accent); }
+.ug-stat-value.green  { color: #00ff88; }
 
-/* ??? */
+/* 图表区 */
 .ug-chart-shell {
     background: rgba(255, 255, 255, 0.025);
     border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 12px;
-    padding: 16px 12px 10px;
+    border-radius: 14px;
+    padding: 16px 12px 12px;
 }
 
-.ug-chart {
+.ug-chart-inner {
+    position: relative;
+    height: 240px;
     display: flex;
     align-items: flex-end;
-    gap: 4px;
-    height: 220px;
+    gap: 3px;
+}
+
+.ug-svg-overlay {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+}
+
+/* 柱状图 */
+.ug-bar-col {
+    flex: 1;
+    min-width: 3px;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    align-items: center;
 }
 
 .ug-bar {
-    flex: 1;
-    min-width: 4px;
-    min-height: 3px;
+    width: 100%;
     border-radius: 4px 4px 0 0;
-    background: linear-gradient(to top, #00d4ff, #667eea);
+    background: linear-gradient(to top, rgba(0, 212, 255, 0.7), rgba(102, 126, 234, 0.7));
     position: relative;
     transition: background 0.2s;
+    cursor: default;
 }
 .ug-bar:hover {
-    background: linear-gradient(to top, #00ff88, #00d4ff);
+    background: linear-gradient(to top, #00ff88cc, #00d4ffcc);
 }
 
-/* ??? */
-.ug-labels {
-    display: flex;
-    gap: 4px;
-    padding-top: 10px;
-}
+/* 标签 */
 .ug-label {
-    flex: 1;
-    min-width: 4px;
-    text-align: center;
+    font-size: 9px;
     color: var(--text-secondary);
-    font-size: 10px;
+    text-align: center;
+    padding-top: 5px;
+    line-height: 1;
+    width: 100%;
     overflow: hidden;
-    text-overflow: ellipsis;
+    text-overflow: clip;
     white-space: nowrap;
 }
 
-/* Tooltip?DOM ???????? */
-.ug-tip {
+/* Tooltip */
+.ug-tooltip {
     position: absolute;
     bottom: calc(100% + 10px);
     left: 50%;
@@ -138,49 +164,90 @@
     color: var(--text-primary);
     padding: 7px 10px;
     font-size: 12px;
-    white-space: normal;
-    word-break: break-all;
-    max-width: 200px;
+    white-space: nowrap;
     z-index: 200;
     pointer-events: none;
     display: none;
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
 }
-.ug-tip::before {
-    content: '';
-    position: absolute;
-    bottom: -7px;
-    left: 50%;
-    transform: translateX(-50%);
-    border: 7px solid transparent;
-    border-top-color: rgba(0, 212, 255, 0.35);
-}
-.ug-tip::after {
+.ug-tooltip::before {
     content: '';
     position: absolute;
     bottom: -6px;
     left: 50%;
     transform: translateX(-50%);
     border: 6px solid transparent;
+    border-top-color: rgba(0, 212, 255, 0.35);
+}
+.ug-tooltip::after {
+    content: '';
+    position: absolute;
+    bottom: -5px;
+    left: 50%;
+    transform: translateX(-50%);
+    border: 5px solid transparent;
     border-top-color: var(--bg-secondary);
 }
-.ug-tip.show {
+.ug-tooltip.visible {
     display: block;
-    animation: ugIn 0.15s ease;
+    animation: ugFadeIn 0.15s ease;
 }
-@keyframes ugIn {
+
+@keyframes ugFadeIn {
     from { opacity: 0; transform: translateX(-50%) translateY(4px); }
     to   { opacity: 1; transform: translateX(-50%) translateY(0); }
 }
 
-/* ??? */
+/* 十字准星 */
+.ug-crosshair {
+    position: absolute;
+    top: 0;
+    bottom: 24px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    pointer-events: none;
+    z-index: 10;
+}
+
+.ug-crosshair-line {
+    width: 1px;
+    flex: 1;
+    background: rgba(0, 212, 255, 0.4);
+}
+
+.ug-crosshair-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: #00d4ff;
+    box-shadow: 0 0 6px #00d4ff;
+    margin-bottom: 4px;
+}
+
+.ug-crosshair-value {
+    position: absolute;
+    bottom: calc(100% + 6px);
+    transform: translateX(-50%);
+    background: rgba(0, 0, 0, 0.75);
+    border: 1px solid rgba(0, 212, 255, 0.4);
+    border-radius: 6px;
+    padding: 4px 8px;
+    font-size: 11px;
+    color: var(--text-primary);
+    white-space: nowrap;
+    display: none;
+}
+
+/* 空状态 */
 .ug-empty {
-    padding: 40px 0;
+    padding: 60px 0;
     color: var(--text-secondary);
     text-align: center;
+    font-size: 14px;
 }
 
 @media (max-width: 640px) {
     .ug-summary { grid-template-columns: 1fr; }
-    .ug-chart { height: 160px; }
+    .ug-chart-inner { height: 180px; }
 }

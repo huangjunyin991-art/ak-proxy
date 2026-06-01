@@ -25,13 +25,13 @@
         modal.id = 'userGrowthModal';
         modal.innerHTML = `
             <div class="modal-content user-growth-modal-content">
-                <h3 class="ug-title">
+                <h3 class="ug-modal-title">
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
                     ????????
                 </h3>
                 <div id="userGrowthContent"></div>
-                <div class="modal-buttons" style="display: flex; justify-content: center; margin-top: 18px;">
-                    <button class="btn" id="userGrowthCloseBtn" style="min-width: 140px; background: var(--accent); color: white;">??</button>
+                <div class="modal-buttons" style="display:flex;justify-content:center;margin-top:18px;">
+                    <button class="btn" id="userGrowthCloseBtn" style="min-width:140px;background:var(--accent);color:white;">??</button>
                 </div>
             </div>
         `;
@@ -60,69 +60,141 @@
             content.innerHTML = '<div class="ug-empty">??????</div>';
             return;
         }
+
         const first = data[0];
         const last = data[data.length - 1];
         const periodIncrease = data.reduce((sum, item) => sum + item.increase, 0);
-        const maxTotal = Math.max(...data.map(item => item.total), 1);
-        const bars = data.map((item, index) => {
-            const height = Math.max((item.total / maxTotal) * 100, 3);
-            const label = index % 5 === 0 || index === data.length - 1 ? item.date.slice(5) : '';
-            const tooltip = `${escapeHtml(item.date)} ?? ${formatNumber(item.total)}??? ${formatNumber(item.increase)}`;
-            return {
-                bar: `<div class="ug-bar" style="height:${height}%;" data-tip="${tooltip}"></div>`,
-                label: `<div class="ug-label">${escapeHtml(label)}</div>`,
-            };
+        const maxIncrease = Math.max(...data.map(item => item.increase), 0);
+
+        const trendDelta = data.length > 1 ? last.total - data[0].total : 0;
+        const trendUp = trendDelta >= 0;
+        const trendPercent = data.length > 1 && data[0].total > 0
+            ? ((trendDelta / data[0].total) * 100).toFixed(1)
+            : '0';
+
+        const points = data.map((item, i) => {
+            const barH = maxIncrease > 0 && item.increase > 0
+                ? Math.max((item.increase / maxIncrease) * 100, 4)
+                : 0;
+            // ??? Y ??????????
+            const lineY = 100 - barH;
+            const label = (i % 2 === 0 || i === data.length - 1) ? item.date.slice(5) : '';
+            return { item, barH, lineY, label, index: i };
         });
+
+        const svgW = 100;
+        const step = svgW / (points.length - 1 || 1);
+        const linePath = points.map((p, i) =>
+            `${i === 0 ? 'M' : 'L'}${i * step},${p.lineY}`
+        ).join(' ');
+
+        const fillPath = `${linePath} L${(points.length - 1) * step},100 L0,100 Z`;
+
+        const gridLines = [25, 50, 75].map(v =>
+            `<line x1="0" y1="${v}" x2="100" y2="${v}" stroke="rgba(255,255,255,0.05)" stroke-width="0.3"/>`
+        ).join('');
+
+        const barsHtml = points.map(p =>
+            `<div class="ug-bar-col" style="flex:1;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;gap:0;position:relative;min-width:0;">
+                <div class="ug-bar" style="height:${p.barH}%;" data-tip="${escapeHtml(p.item.date)} ?? ${formatNumber(p.item.total)}??? ${formatNumber(p.item.increase)}"></div>
+                <div class="ug-label">${escapeHtml(p.label)}</div>
+            </div>`
+        ).join('');
+
         content.innerHTML = `
             <div class="ug-summary">
-                <div class="ug-stat">
-                    <div class="ug-stat-icon">
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#00d4ff" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>
+                <div class="ug-stat-card">
+                    <div class="ug-stat-icon" style="background:linear-gradient(135deg,#00d4ff22,#00d4ff44);">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#00d4ff" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
                     </div>
-                    <div>
+                    <div class="ug-stat-body">
                         <div class="ug-stat-label">??????</div>
-                        <div class="ug-stat-value">${formatNumber(last.total)}</div>
+                        <div class="ug-stat-value accent">${formatNumber(last.total)}</div>
                     </div>
                 </div>
-                <div class="ug-stat">
-                    <div class="ug-stat-icon" style="background:rgba(0,255,136,0.12);">
+                <div class="ug-stat-card">
+                    <div class="ug-stat-icon" style="background:linear-gradient(135deg,#00ff8822,#00ff8844);">
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#00ff88" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><polyline points="19 12 12 5 5 12"/></svg>
                     </div>
-                    <div>
+                    <div class="ug-stat-body">
                         <div class="ug-stat-label">?${data.length}???</div>
-                        <div class="ug-stat-value" style="color:#00ff88;">+${formatNumber(periodIncrease)}</div>
+                        <div class="ug-stat-value green">+${formatNumber(periodIncrease)}</div>
                     </div>
                 </div>
-                <div class="ug-stat">
-                    <div class="ug-stat-icon" style="background:rgba(255,255,255,0.06);">
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#a0a0a0" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                <div class="ug-stat-card">
+                    <div class="ug-stat-icon" style="background:linear-gradient(135deg,${trendUp ? '#00ff8822' : '#ff475722'},${trendUp ? '#00ff8844' : '#ff475744'});">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="${trendUp ? '#00ff88' : '#ff4757'}" stroke-width="2">${trendUp ? '<line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/>' : '<line x1="12" y1="5" x2="12" y2="19"/><polyline points="19 12 12 19 5 12"/>'}</svg>
                     </div>
-                    <div>
+                    <div class="ug-stat-body">
                         <div class="ug-stat-label">????</div>
-                        <div class="ug-stat-value" style="font-size:16px;color:var(--text-secondary);">${escapeHtml(first.date.slice(5))} - ${escapeHtml(last.date.slice(5))}</div>
+                        <div class="ug-stat-value" style="color:${trendUp ? '#00ff88' : '#ff4757'}">${trendUp ? '+' : ''}${formatNumber(trendDelta)} (${trendUp ? '+' : ''}${trendPercent}%)</div>
                     </div>
                 </div>
             </div>
+
             <div class="ug-chart-shell">
-                <div class="ug-chart">${bars.map(item => item.bar).join('')}</div>
-                <div class="ug-labels">${bars.map(item => item.label).join('')}</div>
+                <div class="ug-chart-inner">
+                    <svg class="ug-svg-overlay" viewBox="0 0 100 100" preserveAspectRatio="none">
+                        ${gridLines}
+                        <defs>
+                            <linearGradient id="ugLineGrad" x1="0" y1="0" x2="0" y2="1">
+                                <stop offset="0%" stop-color="#00d4ff" stop-opacity="0.35"/>
+                                <stop offset="100%" stop-color="#00d4ff" stop-opacity="0.02"/>
+                            </linearGradient>
+                        </defs>
+                        <path d="${fillPath}" fill="url(#ugLineGrad)" stroke="none"/>
+                        <path d="${linePath}" fill="none" stroke="#00d4ff" stroke-width="0.6" stroke-linejoin="round" stroke-linecap="round"/>
+                    </svg>
+                    ${barsHtml}
+                    <div class="ug-crosshair" id="ugCrosshair" style="display:none;">
+                        <div class="ug-crosshair-line"></div>
+                        <div class="ug-crosshair-dot"></div>
+                        <div class="ug-crosshair-value" id="ugCrosshairValue"></div>
+                    </div>
+                </div>
             </div>
         `;
-        bindTips();
+
+        bindCrosshair();
+        animateBars();
     }
 
-    function bindTips() {
-        const chart = document.querySelector('.ug-chart');
-        if (!chart) return;
-        chart.querySelectorAll('.ug-bar').forEach(bar => {
-            const text = bar.dataset.tip;
-            if (!text) return;
-            const tip = document.createElement('div');
-            tip.className = 'ug-tip';
-            tip.textContent = text;
-            bar.appendChild(tip);
-            bar.addEventListener('mouseenter', () => tip.classList.add('show'));
-            bar.addEventListener('mouseleave', () => tip.classList.remove('show'));
+    function animateBars() {
+        const bars = document.querySelectorAll('.ug-bar');
+        bars.forEach((bar, i) => {
+            const target = bar.style.height;
+            bar.style.height = '0';
+            bar.style.transition = 'none';
+            setTimeout(() => {
+                bar.style.transition = `height 0.6s cubic-bezier(0.34,1.56,0.64,1) ${i * 15}ms`;
+                bar.style.height = target;
+            }, 50);
+        });
+    }
+
+    function bindCrosshair() {
+        const shell = document.querySelector('.ug-chart-inner');
+        const crosshair = document.getElementById('ugCrosshair');
+        const valueEl = document.getElementById('ugCrosshairValue');
+        if (!shell || !crosshair) return;
+        const cols = shell.querySelectorAll('.ug-bar-col');
+        cols.forEach(col => {
+            const bar = col.querySelector('.ug-bar');
+            const tip = bar ? bar.dataset.tip : '';
+            col.addEventListener('mouseenter', () => {
+                const rect = col.getBoundingClientRect();
+                const shellRect = shell.getBoundingClientRect();
+                crosshair.style.left = (rect.left + rect.width / 2 - shellRect.left) + 'px';
+                crosshair.style.display = 'flex';
+                if (valueEl && tip) {
+                    valueEl.textContent = tip;
+                    valueEl.style.display = 'block';
+                }
+            });
+            col.addEventListener('mouseleave', () => {
+                crosshair.style.display = 'none';
+                if (valueEl) valueEl.style.display = 'none';
+            });
         });
     }
 
