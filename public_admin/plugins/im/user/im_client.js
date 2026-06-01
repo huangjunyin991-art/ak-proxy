@@ -2955,6 +2955,9 @@
             target.username,
             target.Account,
             target.account,
+            target.MemberNo,
+            target.memberNo,
+            target.member_no,
             target.Name,
             target.name
         ];
