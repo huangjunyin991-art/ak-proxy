@@ -34,7 +34,7 @@ def create_notify_center_router(
             payload = await request.json()
         except Exception:
             return JSONResponse(status_code=400, content={'success': False, 'message': '请求体无效'})
-        username = _resolve_username(request, service.config.cookie_name, payload)
+        username = _resolve_current_username(request, service.config.cookie_name)
         if not username:
             return JSONResponse(status_code=401, content={'success': False, 'message': '未识别当前用户'})
         subscription = payload.get('subscription') if isinstance(payload, dict) and isinstance(payload.get('subscription'), dict) else {}
@@ -54,7 +54,7 @@ def create_notify_center_router(
 
     @router.get('/api/notify-center/web-push/diagnostics')
     async def web_push_diagnostics(request: Request):
-        username = _resolve_username(request, service.config.cookie_name)
+        username = _resolve_current_username(request, service.config.cookie_name)
         if not username:
             return JSONResponse(status_code=401, content={'success': False, 'message': '未识别当前用户'})
         try:
@@ -65,7 +65,7 @@ def create_notify_center_router(
 
     @router.get('/api/notify-center/ntfy/binding')
     async def get_ntfy_binding(request: Request):
-        username = _resolve_username(request, service.config.cookie_name)
+        username = _resolve_current_username(request, service.config.cookie_name)
         if not username:
             return JSONResponse(status_code=401, content={'success': False, 'message': '未识别当前用户'})
         try:
@@ -80,7 +80,7 @@ def create_notify_center_router(
             payload = await request.json()
         except Exception:
             return JSONResponse(status_code=400, content={'success': False, 'message': '请求体无效'})
-        username = _resolve_username(request, service.config.cookie_name, payload)
+        username = _resolve_current_username(request, service.config.cookie_name)
         if not username:
             return JSONResponse(status_code=401, content={'success': False, 'message': '未识别当前用户'})
         try:
@@ -101,7 +101,7 @@ def create_notify_center_router(
             payload = await request.json()
         except Exception:
             payload = {}
-        username = _resolve_username(request, service.config.cookie_name, payload)
+        username = _resolve_current_username(request, service.config.cookie_name)
         if not username:
             return JSONResponse(status_code=401, content={'success': False, 'message': '未识别当前用户'})
         try:
@@ -116,9 +116,85 @@ def create_notify_center_router(
             payload = await request.json()
         except Exception:
             payload = {}
-        username = _resolve_username(request, service.config.cookie_name, payload)
+        username = _resolve_current_username(request, service.config.cookie_name)
         if not username:
             return JSONResponse(status_code=401, content={'success': False, 'message': '未识别当前用户'})
+        try:
+            data = await service.test_ntfy_binding(username=username)
+        except ValueError as exc:
+            return JSONResponse(status_code=400, content={'success': False, 'message': str(exc)})
+        except Exception as exc:
+            return JSONResponse(status_code=500, content={'success': False, 'message': f'测试 ntfy 失败: {exc}'})
+        return {'success': True, 'data': data}
+
+    @router.get('/admin/api/notify-center/ntfy/binding')
+    async def admin_get_ntfy_binding(request: Request):
+        token = request.headers.get('Authorization', '').replace('Bearer ', '')
+        if verify_admin_token is None or not token or not await verify_admin_token(token):
+            return JSONResponse(status_code=401, content={'success': False, 'message': '未授权'})
+        username = normalize_username(request.query_params.get('im_username'))
+        if not username:
+            return JSONResponse(status_code=400, content={'success': False, 'message': '缺少 im_username'})
+        try:
+            data = await service.get_ntfy_binding(username)
+        except ValueError as exc:
+            return JSONResponse(status_code=400, content={'success': False, 'message': str(exc)})
+        return {'success': True, 'data': data}
+
+    @router.post('/admin/api/notify-center/ntfy/binding')
+    async def admin_upsert_ntfy_binding(request: Request):
+        token = request.headers.get('Authorization', '').replace('Bearer ', '')
+        if verify_admin_token is None or not token or not await verify_admin_token(token):
+            return JSONResponse(status_code=401, content={'success': False, 'message': '未授权'})
+        try:
+            payload = await request.json()
+        except Exception:
+            return JSONResponse(status_code=400, content={'success': False, 'message': '请求体无效'})
+        username = normalize_username(payload.get('im_username') if isinstance(payload, dict) else '')
+        if not username:
+            return JSONResponse(status_code=400, content={'success': False, 'message': '缺少 im_username'})
+        try:
+            data = await service.upsert_ntfy_binding(
+                username=username,
+                server_url=str(payload.get('server_url') or '') if isinstance(payload, dict) else '',
+                enabled=bool(payload.get('enabled', True)) if isinstance(payload, dict) else True,
+            )
+        except ValueError as exc:
+            return JSONResponse(status_code=400, content={'success': False, 'message': str(exc)})
+        except Exception as exc:
+            return JSONResponse(status_code=500, content={'success': False, 'message': f'保存 ntfy 绑定失败: {exc}'})
+        return {'success': True, 'data': data}
+
+    @router.delete('/admin/api/notify-center/ntfy/binding')
+    async def admin_delete_ntfy_binding(request: Request):
+        token = request.headers.get('Authorization', '').replace('Bearer ', '')
+        if verify_admin_token is None or not token or not await verify_admin_token(token):
+            return JSONResponse(status_code=401, content={'success': False, 'message': '未授权'})
+        try:
+            payload = await request.json()
+        except Exception:
+            payload = {}
+        username = normalize_username(payload.get('im_username') if isinstance(payload, dict) else '')
+        if not username:
+            return JSONResponse(status_code=400, content={'success': False, 'message': '缺少 im_username'})
+        try:
+            data = await service.delete_ntfy_binding(username=username)
+        except ValueError as exc:
+            return JSONResponse(status_code=400, content={'success': False, 'message': str(exc)})
+        return {'success': True, 'data': data}
+
+    @router.post('/admin/api/notify-center/ntfy/test')
+    async def admin_test_ntfy_binding(request: Request):
+        token = request.headers.get('Authorization', '').replace('Bearer ', '')
+        if verify_admin_token is None or not token or not await verify_admin_token(token):
+            return JSONResponse(status_code=401, content={'success': False, 'message': '未授权'})
+        try:
+            payload = await request.json()
+        except Exception:
+            payload = {}
+        username = normalize_username(payload.get('im_username') if isinstance(payload, dict) else '')
+        if not username:
+            return JSONResponse(status_code=400, content={'success': False, 'message': '缺少 im_username'})
         try:
             data = await service.test_ntfy_binding(username=username)
         except ValueError as exc:
@@ -133,7 +209,7 @@ def create_notify_center_router(
             payload = await request.json()
         except Exception:
             payload = {}
-        username = _resolve_username(request, service.config.cookie_name, payload)
+        username = _resolve_current_username(request, service.config.cookie_name)
         if not username:
             return JSONResponse(status_code=401, content={'success': False, 'message': '未识别当前用户'})
         endpoint = str(payload.get('endpoint') or '').strip() if isinstance(payload, dict) else ''
@@ -187,6 +263,14 @@ def _consume_task_exception(task: asyncio.Task) -> None:
         task.result()
     except Exception:
         pass
+
+
+def _resolve_current_username(request: Request, cookie_name: str) -> str:
+    return (
+        normalize_username(request.headers.get('X-AK-IM-Username'))
+        or normalize_username(request.cookies.get('ak_im_username'))
+        or normalize_username(request.cookies.get(cookie_name or 'ak_username'))
+    )
 
 
 def _resolve_username(request: Request, cookie_name: str, payload: dict | None = None) -> str:
