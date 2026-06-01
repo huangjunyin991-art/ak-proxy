@@ -4992,7 +4992,12 @@
 
         function isAdminPageActive() {
             const main = document.getElementById('mainContent');
-            return !!isLoggedIn && document.visibilityState === 'visible' && document.hasFocus() && !!main && main.classList.contains('visible');
+            const active = !!isLoggedIn && document.visibilityState === 'visible' && document.hasFocus() && !!main && main.classList.contains('visible');
+            console.log('[isAdminPageActive]', {
+                isLoggedIn, visibility: document.visibilityState, hasFocus: document.hasFocus(),
+                mainExists: !!main, mainHasVisible: !!main && main.classList.contains('visible'), result: active
+            });
+            return active;
         }
 
         function shouldRunAdminGlobalPoll() {
