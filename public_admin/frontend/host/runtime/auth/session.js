@@ -84,44 +84,23 @@
         return '';
     }
 
-    function getUserModelStoreKeys() {
-        var keys = ['AK_user_model'];
+    function readActiveUsernameFromAppModel() {
         try {
-            if (window.APP && APP.CONFIG && APP.CONFIG.SYSTEM_KEYS && APP.CONFIG.SYSTEM_KEYS.USER_MODEL_KEY) {
-                var storeKey = String(APP.CONFIG.SYSTEM_KEYS.USER_MODEL_KEY || '').trim();
-                if (storeKey && keys.indexOf(storeKey) === -1) keys.push(storeKey);
-            }
+            return pickUsernameFromObject(window.APP && APP.USER && APP.USER.MODEL);
         } catch(e) {}
-        return keys;
-    }
-
-    function readStoredUsername() {
-        try {
-            var appUsername = '';
-            try { appUsername = pickUsernameFromObject(window.APP && APP.USER && APP.USER.MODEL); } catch(e) {}
-            if (appUsername) return appUsername;
-            var globalUsername = pickUsernameFromObject(window.USER_MODEL);
-            if (globalUsername) return globalUsername;
-            var keys = getUserModelStoreKeys();
-            for (var i = 0; i < keys.length; i++) {
-                try {
-                    var raw = localStorage.getItem(keys[i]);
-                    if (!raw) continue;
-                    var model = JSON.parse(raw);
-                    var username = pickUsernameFromObject(model);
-                    if (username) return username;
-                } catch(e2) {}
-            }
-        } catch(e3) {}
         return '';
     }
 
     function ensureIMUsernameCookieFromUserModel() {
         try {
-            if (readCookie('ak_username') && readCookie('ak_im_username')) return false;
-            var username = readStoredUsername();
+            var username = readActiveUsernameFromAppModel();
             if (!username) return false;
-            return syncLoginUsernameCookie(username);
+            var normalized = String(username || '').trim().toLowerCase();
+            if (!normalized) return false;
+            var akUsername = readCookie('ak_username').toLowerCase();
+            var imUsername = readCookie('ak_im_username').toLowerCase();
+            if (akUsername === normalized && imUsername === normalized) return false;
+            return syncLoginUsernameCookie(normalized);
         } catch(e) {}
         return false;
     }
