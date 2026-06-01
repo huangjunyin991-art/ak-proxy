@@ -3012,11 +3012,15 @@
         return /android|iphone|ipad|ipod|mobile|harmonyos/.test(ua) || ((platform === 'macintel' || platform === 'mac') && touchPoints > 1);
     }
 
+    function getBootstrapUsername() {
+        return getActiveRuntimeUsername() || getCanonicalUsername();
+    }
+
     function buildWsUrl() {
         const baseUrl = `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/im/ws`;
         try {
             const finalUrl = new URL(baseUrl);
-            const username = getCanonicalUsername();
+            const username = getBootstrapUsername();
             if (username) finalUrl.searchParams.set('username', username);
             return finalUrl.toString();
         } catch (e) {
@@ -3028,7 +3032,7 @@
         const url = `${HTTP_ROOT}/bootstrap`;
         try {
             const finalUrl = new URL(url);
-            const username = getCanonicalUsername();
+            const username = getBootstrapUsername();
             if (username) finalUrl.searchParams.set('username', username);
             return finalUrl.toString();
         } catch (e) {
@@ -6233,7 +6237,7 @@
 
     function loadBootstrap(retryCount) {
         const currentRetryCount = Number(retryCount || 0);
-        const bootstrapUsername = getCanonicalUsername();
+        const bootstrapUsername = getBootstrapUsername();
         const activeRuntimeUsername = getActiveRuntimeUsername();
         const cachedBootstrap = currentRetryCount === 0 && activeRuntimeUsername ? readBootstrapCache(bootstrapUsername) : null;
         if (cachedBootstrap) return applyBootstrapData(cachedBootstrap);
@@ -6260,7 +6264,17 @@
 
     function loadBootstrapWhenIdentityReady(attempt) {
         const currentAttempt = Number(attempt || 0);
-        if (getCanonicalUsername()) {
+        const bootstrapUsername = getBootstrapUsername();
+        if (bootstrapUsername) {
+            try {
+                if (window.__AKIM_DIAG__ && window.__AKIM_DIAG__.bootstrap) {
+                    window.__AKIM_DIAG__.bootstrap.identity = {
+                        runtime: getActiveRuntimeUsername(),
+                        canonical: getCanonicalUsername(),
+                        bootstrap: bootstrapUsername
+                    };
+                }
+            } catch (e) {}
             return loadBootstrap(0);
         }
         const retryDelay = BOOTSTRAP_IDENTITY_RETRY_DELAYS[currentAttempt];
