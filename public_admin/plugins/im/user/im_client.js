@@ -155,6 +155,7 @@
         bootstrap: {
             init_called_at: 0,
             open_triggered_at: 0,
+            open_triggered: false,
             last_error: '',
             request: {
                 last: null,
@@ -682,6 +683,7 @@
                 state.bootstrapLoading = true;
                 if (window.__AKIM_DIAG__ && window.__AKIM_DIAG__.bootstrap) {
                     window.__AKIM_DIAG__.bootstrap.open_triggered_at = Date.now();
+                    window.__AKIM_DIAG__.bootstrap.open_triggered = true;
                 }
                 if (window.AKIMClientState && window.AKIMClientState.bootstrap) {
                     window.AKIMClientState.bootstrap.open_triggered_at = Date.now();
@@ -6443,7 +6445,14 @@
     }
 
     window.AKIMClient = {
-        open: openShellPanel,
+        open: function() {
+            try {
+                if (window.__AKIM_DIAG__ && window.__AKIM_DIAG__.bootstrap) {
+                    window.__AKIM_DIAG__.bootstrap.open_proxy_called_at = Date.now();
+                }
+            } catch (e) {}
+            return openShellPanel();
+        },
         close: function() {
             showSessionsView({ closePanel: true });
         },
