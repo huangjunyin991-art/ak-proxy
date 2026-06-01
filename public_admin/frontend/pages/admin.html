@@ -6183,7 +6183,7 @@
                 const res = await fetch(`${API_BASE}/admin/api/stats`, { headers: getHeaders() });
                 console.log('[refreshStats] status:', res.status, 'url:', `${API_BASE}/admin/api/stats`);
                 const data = await res.json();
-                console.log('[refreshStats] data:', data);
+                console.log('[refreshStats] data:', JSON.stringify(data));
                 if (data.error) {
                     console.warn('获取统计数据失败:', data.message);
                     return;
