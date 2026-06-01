@@ -1,7 +1,13 @@
 (function() {
     'use strict';
 
-    if (window.AKIMClientLoaded) return;
+    if (window.AKIMClientLoaded) {
+        try {
+            window.__AKIM_DIAG__ = window.__AKIM_DIAG__ || { created_at: Date.now(), bootstrap: { request: {} } };
+            window.__AKIM_DIAG__.takeover_skipped_at = Date.now();
+            window.__AKIM_DIAG__.takeover_skipped_reason = 'entry_loadedflag_true';
+        } catch (e) {}
+    }
     if (window.AKIMUserPluginEntryLoaded) return;
     window.AKIMUserPluginEntryLoaded = true;
 

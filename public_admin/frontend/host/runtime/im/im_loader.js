@@ -60,7 +60,10 @@
                 syncIMPluginVisibility();
                 return;
             }
-            if (window.AKIMClientLoaded) return;
+            if (window.AKIMClientLoaded && window.AKIMClient && typeof window.AKIMClient.open === 'function') {
+                syncIMPluginVisibility();
+                return;
+            }
             if (document.querySelector('script[data-ak-im-plugin-entry="1"]')) return;
             setTimeout(ensureIMUsernameCookie, 300);
             setTimeout(ensureIMUsernameCookie, 1200);

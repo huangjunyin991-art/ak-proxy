@@ -2,7 +2,8 @@
     'use strict';
 
     if (window.self !== window.top) return;
-    if (window.AKIMClientLoaded) return;
+
+    const alreadyLoaded = !!window.AKIMClientLoaded;
     window.AKIMClientLoaded = true;
 
     const API_ROOT = window.location.origin;
@@ -6452,10 +6453,18 @@
         loadBootstrapWhenIdentityReady(0);
     }
 
-    if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', init);
+    if (!alreadyLoaded) {
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', init);
+        } else {
+            init();
+        }
     } else {
-        init();
+        try {
+            window.__AKIM_DIAG__ = window.__AKIM_DIAG__ || { created_at: Date.now(), bootstrap: { request: {} } };
+            window.__AKIM_DIAG__.takeover_at = Date.now();
+            window.__AKIM_DIAG__.takeover_reason = 'im_client_loadedflag_true';
+        } catch (e) {}
     }
 
     window.AKIMClient = {
