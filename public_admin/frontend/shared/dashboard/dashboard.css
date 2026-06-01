@@ -140,6 +140,7 @@
     flex-direction: column;
     justify-content: flex-end;
     align-items: center;
+    position: relative;
 }
 
 .ug-bar {
@@ -160,6 +161,25 @@
     text-overflow: ellipsis;
     white-space: nowrap;
 }
+
+.ug-tooltip {
+    position: absolute;
+    bottom: calc(100% + 10px);
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--bg-secondary);
+    border: 1px solid rgba(0, 212, 255, 0.35);
+    border-radius: 8px;
+    color: var(--text-primary);
+    padding: 7px 10px;
+    font-size: 12px;
+    white-space: nowrap;
+    z-index: 200;
+    pointer-events: none;
+    display: none;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+}
+.ug-tooltip.visible { display: block; }
 
 /* 空状态 */
 .ug-empty {

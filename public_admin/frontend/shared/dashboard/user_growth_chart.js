@@ -119,8 +119,10 @@
         // 柱子
         const barsHtml = data.map((d, i) => {
             const h = d.increase > 0 ? Math.max((d.increase / maxInc) * 100, 3) : 0;
-            const label = getLabel(d, i, n);
-            return `<div class="ug-col" data-idx="${i}" title="${escapeHtml(label)}">
+            const showLabel = i % 2 === 0 || i === n - 1;
+            const label = showLabel ? getLabel(d, i, n) : '';
+            const tooltip = `${escapeHtml(label || d.label || d.date)} 总数 ${formatNumber(d.total)}，新增 ${formatNumber(d.increase)}`;
+            return `<div class="ug-col" data-tooltip="${tooltip}">
                 <div class="ug-bar" style="height:${h}%;"></div>
                 <div class="ug-label">${escapeHtml(label)}</div>
             </div>`;
@@ -140,6 +142,21 @@
                 </svg>
                 <div class="ug-bars">${barsHtml}</div>
             </div>`;
+    }
+
+    function bindTooltips() {
+        const chart = document.querySelector('.ug-chart-area');
+        if (!chart) return;
+        chart.querySelectorAll('.ug-col').forEach(col => {
+            const text = col.dataset.tooltip;
+            if (!text) return;
+            const tip = document.createElement('div');
+            tip.className = 'ug-tooltip';
+            tip.textContent = text;
+            col.appendChild(tip);
+            col.addEventListener('mouseenter', () => tip.classList.add('visible'));
+            col.addEventListener('mouseleave', () => tip.classList.remove('visible'));
+        });
     }
 
     function getLabel(d, i, n) {
@@ -213,6 +230,7 @@
         document.querySelectorAll('.ug-period-btn').forEach(btn => {
             btn.addEventListener('click', () => onPeriodChange(btn.dataset.period));
         });
+        bindTooltips();
     }
 
     function onPeriodChange(period) {
@@ -227,6 +245,7 @@
 
         const shell = document.getElementById('ugChartShell');
         if (shell) shell.innerHTML = buildChart(chartData);
+        bindTooltips();
     }
 
     function render() {
