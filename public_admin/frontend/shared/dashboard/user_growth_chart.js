@@ -94,7 +94,7 @@
 
         const barsHtml = points.map(p =>
             `<div class="ug-bar-col" style="flex:1;min-width:0;">
-                <div class="ug-bar" style="height:${p.barH}%;"></div>
+                <div class="ug-bar" style="height:${p.barH}%;" data-tip="${escapeHtml(p.item.date)} 总数 ${formatNumber(p.item.total)}，新增 ${formatNumber(p.item.increase)}"></div>
             </div>`
         ).join('');
 
