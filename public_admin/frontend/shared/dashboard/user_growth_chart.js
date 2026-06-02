@@ -13,9 +13,12 @@
         return num.toLocaleString('zh-CN');
     }
 
-    function escapeHtml(value) {
-        if (window.escapeHtml) return window.escapeHtml(value);
-        return String(value ?? '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+    function normalizeRows(rows) {
+        return Array.isArray(rows) ? rows.map(item => ({
+            date: String(item.date || ''),
+            increase: Number(item.increase || 0),
+            total: Number(item.total || 0),
+        })).filter(item => item.date) : [];
     }
 
     function ensureModal() {
@@ -45,14 +48,6 @@
         return modal;
     }
 
-    function normalizeRows(rows) {
-        return Array.isArray(rows) ? rows.map(item => ({
-            date: String(item.date || ''),
-            increase: Number(item.increase || 0),
-            total: Number(item.total || 0),
-        })).filter(item => item.date) : [];
-    }
-
     function destroyChart() {
         if (state.chart) {
             state.chart.destroy();
@@ -60,29 +55,136 @@
         }
     }
 
-    function render(rows) {
-        const content = document.getElementById('userGrowthContent');
-        if (!content) return;
+    function drawChart(labels, increases, maxIncrease) {
+        const canvas = document.getElementById('userGrowthChart');
+        if (!canvas) return;
+        const ctx = canvas.getContext('2d');
+
+        const shellH = (canvas.parentElement && canvas.parentElement.offsetHeight) || 280;
+        const gradient = ctx.createLinearGradient(0, 0, 0, shellH);
+        gradient.addColorStop(0, 'rgba(0, 212, 255, 0.25)');
+        gradient.addColorStop(1, 'rgba(0, 212, 255, 0.02)');
+
+        state.chart = new window.Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: labels,
+                datasets: [
+                    {
+                        type: 'bar',
+                        label: '新增',
+                        data: increases,
+                        backgroundColor: 'rgba(0, 212, 255, 0.7)',
+                        borderColor: 'rgba(0, 212, 255, 1)',
+                        borderWidth: 1,
+                        borderRadius: 4,
+                        borderSkipped: false,
+                        yAxisID: 'y',
+                    },
+                    {
+                        type: 'line',
+                        label: '趋势',
+                        data: increases,
+                        borderColor: '#00d4ff',
+                        backgroundColor: gradient,
+                        fill: true,
+                        tension: 0.4,
+                        pointRadius: 3,
+                        pointBackgroundColor: '#00d4ff',
+                        pointBorderColor: '#0a1a2f',
+                        pointBorderWidth: 1.5,
+                        pointHoverRadius: 5,
+                        borderWidth: 2,
+                        yAxisID: 'y',
+                    },
+                ],
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                animation: {
+                    duration: 800,
+                    easing: 'easeOutQuart',
+                },
+                interaction: {
+                    mode: 'index',
+                    intersect: false,
+                },
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        backgroundColor: 'rgba(10, 20, 40, 0.95)',
+                        borderColor: 'rgba(0, 212, 255, 0.4)',
+                        borderWidth: 1,
+                        titleColor: '#00d4ff',
+                        bodyColor: '#e0e8f0',
+                        titleFont: { size: 12, weight: 'bold' },
+                        bodyFont: { size: 12 },
+                        padding: 10,
+                        callbacks: {
+                            title: function (items) {
+                                const idx = items[0].dataIndex;
+                                const rows = normalizeRows(state.stats && state.stats.user_growth || []);
+                                return rows[idx] ? rows[idx].date : items[0].label;
+                            },
+                            label: function (ctx) {
+                                const idx = ctx.dataIndex;
+                                const rows = normalizeRows(state.stats && state.stats.user_growth || []);
+                                if (rows[idx]) {
+                                    return [
+                                        '新增: +' + formatNumber(rows[idx].increase),
+                                        '总数: ' + formatNumber(rows[idx].total),
+                                    ];
+                                }
+                                return ctx.dataset.label + ': ' + formatNumber(ctx.raw);
+                            },
+                        },
+                    },
+                },
+                scales: {
+                    x: {
+                        grid: { color: 'rgba(255,255,255,0.05)', drawTicks: false },
+                        ticks: { color: 'rgba(255,255,255,0.5)', font: { size: 10 }, maxRotation: 0 },
+                        border: { display: false },
+                    },
+                    y: {
+                        beginAtZero: true,
+                        max: Math.ceil(maxIncrease * 1.15) || 10,
+                        grid: { color: 'rgba(255,255,255,0.05)', drawTicks: false },
+                        ticks: {
+                            color: 'rgba(255,255,255,0.5)',
+                            font: { size: 10 },
+                            callback: function (value) { return formatNumber(value); },
+                        },
+                        border: { display: false },
+                    },
+                },
+            },
+        });
+    }
+
+    function open() {
+        const modal = ensureModal();
+        const rows = state.stats && state.stats.user_growth;
         const data = normalizeRows(rows);
+        const content = document.getElementById('userGrowthContent');
+
         if (!data.length) {
-            content.innerHTML = '<div class="ug-empty">暂无增长数据</div>';
+            if (content) content.innerHTML = '<div class="ug-empty">暂无增长数据</div>';
+            modal.classList.add('active');
+            modal.style.display = 'flex';
             return;
         }
 
-        const first = data[0];
         const last = data[data.length - 1];
         const periodIncrease = data.reduce((sum, item) => sum + item.increase, 0);
-
         const trendDelta = data.length > 1 ? last.total - data[0].total : 0;
         const trendUp = trendDelta >= 0;
         const trendPercent = data.length > 1 && data[0].total > 0
             ? ((trendDelta / data[0].total) * 100).toFixed(1)
             : '0';
 
-        const labels = data.map((item, i) => {
-            const show = i % 2 === 0 || i === data.length - 1;
-            return show ? item.date.slice(5) : '';
-        });
+        const labels = data.map((item, i) => (i % 2 === 0 || i === data.length - 1) ? item.date.slice(5) : '');
         const increases = data.map(item => item.increase);
         const maxIncrease = Math.max(...increases, 1);
 
@@ -130,133 +232,13 @@
             </div>
         `;
 
-        destroyChart();
-        drawChart(labels, increases, maxIncrease);
-    }
-
-    function waitForChart(callback, attempts = 0) {
-        if (window.Chart) {
-            callback();
-        } else if (attempts < 50) {
-            setTimeout(() => waitForChart(callback, attempts + 1), 100);
-        }
-    }
-
-    function drawChart(labels, increases, maxIncrease) {
-        const canvas = document.getElementById('userGrowthChart');
-        if (!canvas) return;
-
-        waitForChart(function () {
-            const ctx = canvas.getContext('2d');
-
-            const gradient = ctx.createLinearGradient(0, 0, 0, canvas.parentElement.offsetHeight || 300);
-            gradient.addColorStop(0, 'rgba(0, 212, 255, 0.25)');
-            gradient.addColorStop(1, 'rgba(0, 212, 255, 0.02)');
-
-            state.chart = new window.Chart(ctx, {
-                type: 'bar',
-                data: {
-                    labels: labels,
-                    datasets: [
-                        {
-                            type: 'bar',
-                            label: '新增',
-                            data: increases,
-                            backgroundColor: 'rgba(0, 212, 255, 0.7)',
-                            borderColor: 'rgba(0, 212, 255, 1)',
-                            borderWidth: 1,
-                            borderRadius: 4,
-                            borderSkipped: false,
-                            yAxisID: 'y',
-                        },
-                        {
-                            type: 'line',
-                            label: '趋势',
-                            data: increases,
-                            borderColor: '#00d4ff',
-                            backgroundColor: gradient,
-                            fill: true,
-                            tension: 0.4,
-                            pointRadius: 3,
-                            pointBackgroundColor: '#00d4ff',
-                            pointBorderColor: '#0a1a2f',
-                            pointBorderWidth: 1.5,
-                            pointHoverRadius: 5,
-                            borderWidth: 2,
-                            yAxisID: 'y',
-                        },
-                    ],
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    animation: {
-                        duration: 800,
-                        easing: 'easeOutQuart',
-                    },
-                    interaction: {
-                        mode: 'index',
-                        intersect: false,
-                    },
-                    plugins: {
-                        legend: { display: false },
-                        tooltip: {
-                            backgroundColor: 'rgba(10, 20, 40, 0.95)',
-                            borderColor: 'rgba(0, 212, 255, 0.4)',
-                            borderWidth: 1,
-                            titleColor: '#00d4ff',
-                            bodyColor: '#e0e8f0',
-                            titleFont: { size: 12, weight: 'bold' },
-                            bodyFont: { size: 12 },
-                            padding: 10,
-                            callbacks: {
-                                title: function (items) {
-                                    const idx = items[0].dataIndex;
-                                    const rows = normalizeRows(state.stats && state.stats.user_growth || []);
-                                    return rows[idx] ? rows[idx].date : items[0].label;
-                                },
-                                label: function (ctx) {
-                                    const idx = ctx.dataIndex;
-                                    const rows = normalizeRows(state.stats && state.stats.user_growth || []);
-                                    if (rows[idx]) {
-                                        return [
-                                            '新增: +' + formatNumber(rows[idx].increase),
-                                            '总数: ' + formatNumber(rows[idx].total),
-                                        ];
-                                    }
-                                    return ctx.dataset.label + ': ' + formatNumber(ctx.raw);
-                                },
-                            },
-                        },
-                    },
-                    scales: {
-                        x: {
-                            grid: { color: 'rgba(255,255,255,0.05)', drawTicks: false },
-                            ticks: { color: 'rgba(255,255,255,0.5)', font: { size: 10 }, maxRotation: 0 },
-                            border: { display: false },
-                        },
-                        y: {
-                            beginAtZero: true,
-                            max: Math.ceil(maxIncrease * 1.15) || 10,
-                            grid: { color: 'rgba(255,255,255,0.05)', drawTicks: false },
-                            ticks: {
-                                color: 'rgba(255,255,255,0.5)',
-                                font: { size: 10 },
-                                callback: function (value) { return formatNumber(value); },
-                            },
-                            border: { display: false },
-                        },
-                    },
-                },
-            });
-        });
-    }
-
-    function open() {
-        const modal = ensureModal();
-        render(state.stats && state.stats.user_growth);
         modal.classList.add('active');
         modal.style.display = 'flex';
+
+        requestAnimationFrame(function () {
+            destroyChart();
+            drawChart(labels, increases, maxIncrease);
+        });
     }
 
     function close() {
