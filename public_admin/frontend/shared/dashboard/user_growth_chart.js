@@ -170,32 +170,37 @@
 
         bindCrosshair();
         animateBars();
-        repositionLine();
     }
 
     function repositionLine() {
         const shell = document.getElementById('ugChartInner');
         const barsRow = shell && shell.querySelector('.ug-bars-row');
         const svgLine = shell && shell.querySelector('.ug-line-path');
-        if (!barsRow || !svgLine || !shell) return;
+        const svgEl = shell && shell.querySelector('.ug-svg-overlay');
+        if (!barsRow || !svgLine || !svgEl) return;
 
         const shellRect = shell.getBoundingClientRect();
+        const svgRect = svgEl.getBoundingClientRect();
+        const barsRowRect = barsRow.getBoundingClientRect();
+
         const cols = barsRow.querySelectorAll(':scope > .ug-bar-col');
         if (!cols.length) return;
 
+        const svgH = svgRect.height;
+        const barsTopOffset = barsRowRect.top - svgRect.top;
+        const svgW = svgRect.width;
+
         const xs = Array.from(cols).map(col => {
             const r = col.getBoundingClientRect();
-            return (r.left + r.width / 2 - shellRect.left) / shellRect.width * 100;
+            return ((r.left + r.width / 2 - svgRect.left) / svgW) * 100;
         });
 
         const bars = barsRow.querySelectorAll('.ug-bar');
-        const chartInnerRect = barsRow.getBoundingClientRect();
         const ys = Array.from(bars).map(bar => {
             const r = bar.getBoundingClientRect();
-            const barBottom = r.bottom - chartInnerRect.top;
-            const chartH = chartInnerRect.height;
-            if (chartH === 0) return 100;
-            return 100 - (barBottom / chartH) * 100;
+            const barBottom = r.bottom - svgRect.top;
+            if (svgH === 0) return 100;
+            return 100 - (barBottom / svgH) * 100;
         });
 
         const n = Math.min(xs.length, ys.length);
@@ -206,7 +211,7 @@
         svgLine.setAttribute('d', d);
 
         const fillD = d + ' L' + xs[n - 1].toFixed(3) + ',100 L0,100 Z';
-        const fillPath = svgLine.parentElement.querySelector('.ug-fill-path');
+        const fillPath = svgEl.querySelector('.ug-fill-path');
         if (fillPath) fillPath.setAttribute('d', fillD);
     }
 
