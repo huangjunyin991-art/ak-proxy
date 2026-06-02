@@ -4,6 +4,7 @@
     const state = {
         stats: null,
         bound: false,
+        chart: null,
     };
 
     function formatNumber(value) {
@@ -52,6 +53,13 @@
         })).filter(item => item.date) : [];
     }
 
+    function destroyChart() {
+        if (state.chart) {
+            state.chart.destroy();
+            state.chart = null;
+        }
+    }
+
     function render(rows) {
         const content = document.getElementById('userGrowthContent');
         if (!content) return;
@@ -64,7 +72,6 @@
         const first = data[0];
         const last = data[data.length - 1];
         const periodIncrease = data.reduce((sum, item) => sum + item.increase, 0);
-        const maxIncrease = Math.max(...data.map(item => item.increase), 0);
 
         const trendDelta = data.length > 1 ? last.total - data[0].total : 0;
         const trendUp = trendDelta >= 0;
@@ -72,31 +79,12 @@
             ? ((trendDelta / data[0].total) * 100).toFixed(1)
             : '0';
 
-        const points = data.map((item, i) => {
-            const barH = maxIncrease > 0 && item.increase > 0
-                ? Math.max((item.increase / maxIncrease) * 100, 4)
-                : 0;
-            const lineY = 100 - barH;
-            const showLabel = i % 2 === 0 || i === data.length - 1;
-            const label = showLabel ? item.date.slice(5) : '';
-            return { item, barH, lineY, label };
+        const labels = data.map((item, i) => {
+            const show = i % 2 === 0 || i === data.length - 1;
+            return show ? item.date.slice(5) : '';
         });
-
-        const gridLines = [25, 50, 75].map(v =>
-            `<line x1="0" y1="${v}" x2="100" y2="${v}" stroke="rgba(255,255,255,0.05)" stroke-width="0.3"/>`
-        ).join('');
-
-        const barsHtml = points.map(p =>
-            `<div class="ug-bar-col" style="flex:1;min-width:0;">
-                <div class="ug-bar" style="height:${p.barH}%;" data-tip="${escapeHtml(p.item.date)} 总数 ${formatNumber(p.item.total)}，新增 ${formatNumber(p.item.increase)}"></div>
-            </div>`
-        ).join('');
-
-        const labelsHtml = points.map(p =>
-            `<div class="ug-bar-col" style="flex:1;min-width:0;">
-                <div class="ug-label">${escapeHtml(p.label)}</div>
-            </div>`
-        ).join('');
+        const increases = data.map(item => item.increase);
+        const maxIncrease = Math.max(...increases, 1);
 
         content.innerHTML = `
             <div class="ug-summary">
@@ -137,131 +125,138 @@
                     </div>
                 </div>
             </div>
-
-            <div class="ug-chart-shell">
-                <div class="ug-chart-inner" id="ugChartInner">
-                    <svg class="ug-svg-overlay" viewBox="0 0 100 100" preserveAspectRatio="none">
-                        ${gridLines}
-                        <defs>
-                            <linearGradient id="ugLineGrad" x1="0" y1="0" x2="0" y2="1">
-                                <stop offset="0%" stop-color="#00d4ff" stop-opacity="0.25"/>
-                                <stop offset="100%" stop-color="#00d4ff" stop-opacity="0.02"/>
-                            </linearGradient>
-                        </defs>
-                        <path class="ug-fill-path" d="" fill="url(#ugLineGrad)" stroke="none"/>
-                        <path class="ug-line-path" d="" fill="none" stroke="#00d4ff" stroke-width="0.35" stroke-linejoin="round" stroke-linecap="round"/>
-                    </svg>
-                    <div class="ug-bars-row">${barsHtml}</div>
-                    <div class="ug-labels-row">${labelsHtml}</div>
-                    <div class="ug-crosshair" id="ugCrosshair" style="display:none;">
-                        <div class="ug-crosshair-line"></div>
-                        <div class="ug-crosshair-dot"></div>
-                        <div class="ug-crosshair-value" id="ugCrosshairValue"></div>
-                    </div>
-                </div>
+            <div class="ug-chart-shell" style="position:relative;">
+                <canvas id="userGrowthChart"></canvas>
             </div>
         `;
 
-        bindCrosshair();
-        animateBars();
+        destroyChart();
+        drawChart(labels, increases, maxIncrease);
     }
 
-    function repositionLine() {
-        const shell = document.getElementById('ugChartInner');
-        const barsRow = shell && shell.querySelector('.ug-bars-row');
-        const svgLine = shell && shell.querySelector('.ug-line-path');
-        const svgEl = shell && shell.querySelector('.ug-svg-overlay');
-        if (!barsRow || !svgLine || !svgEl) return;
+    function drawChart(labels, increases, maxIncrease) {
+        const canvas = document.getElementById('userGrowthChart');
+        if (!canvas) return;
 
-        const shellRect = shell.getBoundingClientRect();
-        const svgRect = svgEl.getBoundingClientRect();
-        const barsRowRect = barsRow.getBoundingClientRect();
+        const ctx = canvas.getContext('2d');
 
-        const cols = barsRow.querySelectorAll(':scope > .ug-bar-col');
-        if (!cols.length) return;
+        const gradient = ctx.createLinearGradient(0, 0, 0, canvas.parentElement.offsetHeight || 300);
+        gradient.addColorStop(0, 'rgba(0, 212, 255, 0.25)');
+        gradient.addColorStop(1, 'rgba(0, 212, 255, 0.02)');
 
-        const svgH = svgRect.height;
-        const barsTopOffset = barsRowRect.top - svgRect.top;
-        const svgW = svgRect.width;
-
-        const xs = Array.from(cols).map(col => {
-            const r = col.getBoundingClientRect();
-            return ((r.left + r.width / 2 - svgRect.left) / svgW) * 100;
-        });
-
-        const bars = barsRow.querySelectorAll('.ug-bar');
-        const ys = Array.from(bars).map(bar => {
-            const r = bar.getBoundingClientRect();
-            const barBottom = r.bottom - svgRect.top;
-            if (svgH === 0) return 100;
-            return 100 - (barBottom / svgH) * 100;
-        });
-
-        const n = Math.min(xs.length, ys.length);
-        let d = '';
-        for (let i = 0; i < n; i++) {
-            d += (i === 0 ? 'M' : 'L') + xs[i].toFixed(3) + ',' + ys[i].toFixed(3) + ' ';
-        }
-        svgLine.setAttribute('d', d);
-
-        const fillD = d + ' L' + xs[n - 1].toFixed(3) + ',100 L0,100 Z';
-        const fillPath = svgEl.querySelector('.ug-fill-path');
-        if (fillPath) fillPath.setAttribute('d', fillD);
-    }
-
-    function animateBars() {
-        const bars = document.querySelectorAll('.ug-bar');
-        bars.forEach((bar, i) => {
-            const target = bar.style.height;
-            bar.style.height = '0';
-            bar.style.transition = 'none';
-            setTimeout(() => {
-                bar.style.transition = `height 0.6s cubic-bezier(0.34,1.56,0.64,1) ${i * 15}ms`;
-                bar.style.height = target;
-            }, 50);
-        });
-        // repositionLine needs bars to be laid out; last bar finishes at ~1.1s
-        setTimeout(repositionLine, 1200);
-    }
-
-    function bindCrosshair() {
-        const shell = document.getElementById('ugChartInner');
-        const crosshair = document.getElementById('ugCrosshair');
-        const valueEl = document.getElementById('ugCrosshairValue');
-        if (!shell || !crosshair) {
-            console.warn('[UG] shell or crosshair not found');
-            return;
-        }
-
-        const labelsRow = shell.querySelector('.ug-labels-row');
-        if (labelsRow) {
-            const labelH = labelsRow.offsetHeight;
-            crosshair.style.bottom = labelH + 'px';
-        }
-
-        const cols = shell.querySelectorAll('.ug-bars-row > .ug-bar-col');
-        console.log('[UG] cols bound:', cols.length);
-
-        cols.forEach(col => {
-            const bar = col.querySelector('.ug-bar');
-            if (!bar) return;
-
-            col.addEventListener('mouseenter', () => {
-                const tip = bar.dataset.tip || '';
-                console.log('[UG] hover:', tip);
-                const rect = col.getBoundingClientRect();
-                const shellRect = shell.getBoundingClientRect();
-                crosshair.style.left = (rect.left + rect.width / 2 - shellRect.left) + 'px';
-                crosshair.style.display = 'flex';
-                if (valueEl) {
-                    valueEl.textContent = tip;
-                    valueEl.style.display = tip ? 'block' : 'none';
-                }
-            });
-            col.addEventListener('mouseleave', () => {
-                crosshair.style.display = 'none';
-                if (valueEl) valueEl.style.display = 'none';
-            });
+        state.chart = new window.Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: labels,
+                datasets: [
+                    {
+                        type: 'bar',
+                        label: '新增',
+                        data: increases,
+                        backgroundColor: 'rgba(0, 212, 255, 0.7)',
+                        borderColor: 'rgba(0, 212, 255, 1)',
+                        borderWidth: 1,
+                        borderRadius: 4,
+                        borderSkipped: false,
+                        yAxisID: 'y',
+                    },
+                    {
+                        type: 'line',
+                        label: '趋势',
+                        data: increases,
+                        borderColor: '#00d4ff',
+                        backgroundColor: gradient,
+                        fill: true,
+                        tension: 0.4,
+                        pointRadius: 3,
+                        pointBackgroundColor: '#00d4ff',
+                        pointBorderColor: '#0a1a2f',
+                        pointBorderWidth: 1.5,
+                        pointHoverRadius: 5,
+                        borderWidth: 2,
+                        yAxisID: 'y',
+                    },
+                ],
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                animation: {
+                    duration: 800,
+                    easing: 'easeOutQuart',
+                },
+                interaction: {
+                    mode: 'index',
+                    intersect: false,
+                },
+                plugins: {
+                    legend: {
+                        display: false,
+                    },
+                    tooltip: {
+                        backgroundColor: 'rgba(10, 20, 40, 0.95)',
+                        borderColor: 'rgba(0, 212, 255, 0.4)',
+                        borderWidth: 1,
+                        titleColor: '#00d4ff',
+                        bodyColor: '#e0e8f0',
+                        titleFont: { size: 12, weight: 'bold' },
+                        bodyFont: { size: 12 },
+                        padding: 10,
+                        callbacks: {
+                            title: function (items) {
+                                const idx = items[0].dataIndex;
+                                const rows = normalizeRows(state.stats && state.stats.user_growth || []);
+                                return rows[idx] ? rows[idx].date : items[0].label;
+                            },
+                            label: function (ctx) {
+                                const idx = ctx.dataIndex;
+                                const rows = normalizeRows(state.stats && state.stats.user_growth || []);
+                                if (rows[idx]) {
+                                    return [
+                                        '新增: +' + formatNumber(rows[idx].increase),
+                                        '总数: ' + formatNumber(rows[idx].total),
+                                    ];
+                                }
+                                return ctx.dataset.label + ': ' + formatNumber(ctx.raw);
+                            },
+                        },
+                    },
+                },
+                scales: {
+                    x: {
+                        grid: {
+                            color: 'rgba(255,255,255,0.05)',
+                            drawTicks: false,
+                        },
+                        ticks: {
+                            color: 'rgba(255,255,255,0.5)',
+                            font: { size: 10 },
+                            maxRotation: 0,
+                        },
+                        border: {
+                            display: false,
+                        },
+                    },
+                    y: {
+                        beginAtZero: true,
+                        max: Math.ceil(maxIncrease * 1.15) || 10,
+                        grid: {
+                            color: 'rgba(255,255,255,0.05)',
+                            drawTicks: false,
+                        },
+                        ticks: {
+                            color: 'rgba(255,255,255,0.5)',
+                            font: { size: 10 },
+                            callback: function (value) {
+                                return formatNumber(value);
+                            },
+                        },
+                        border: {
+                            display: false,
+                        },
+                    },
+                },
+            },
         });
     }
 

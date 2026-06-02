@@ -11567,6 +11567,7 @@ async def admin_theme_css():
 @app.get("/admin/api/shared/{asset_path:path}")
 async def admin_shared_asset(asset_path: str):
     allowed_assets = {
+        "lib/chart.umd.min.js": "application/javascript",
         "sticky_table/sticky_table.css": "text/css",
         "sticky_table/sticky_table.js": "application/javascript",
         "dashboard/dashboard.css": "text/css",

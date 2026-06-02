@@ -98,111 +98,12 @@
     border: 1px solid rgba(255, 255, 255, 0.08);
     border-radius: 14px;
     padding: 16px 12px 12px;
+    height: 280px;
 }
-
-.ug-chart-inner {
-    position: relative;
-    display: grid;
-    grid-template-rows: 1fr auto;
-    height: 240px;
-    gap: 0;
-}
-
-.ug-svg-overlay {
-    position: absolute;
-    inset: 0;
-    width: 100%;
-    height: 100%;
-    pointer-events: none;
-}
-
-/* 柱状图（独立一行，不含 label） */
-.ug-bars-row {
-    display: flex;
-    align-items: flex-end;
-    gap: 3px;
-    height: 100%;
-}
-
-.ug-bar-col {
-    flex: 1;
-    min-width: 3px;
-    height: 100%;
-    display: flex;
-    flex-direction: column;
-    justify-content: flex-end;
-    align-items: center;
-}
-
-.ug-bar {
-    width: 100%;
-    border-radius: 4px 4px 0 0;
-    background: linear-gradient(to top, rgba(0, 212, 255, 0.7), rgba(102, 126, 234, 0.7));
-    position: relative;
-    transition: background 0.2s;
-    cursor: default;
-}
-.ug-bar:hover {
-    background: linear-gradient(to top, #00ff88cc, #00d4ffcc);
-}
-
-/* 日期标签（独立一行，不影响柱子） */
-.ug-labels-row {
-    display: flex;
-    gap: 3px;
-    padding-top: 6px;
-}
-.ug-labels-row .ug-bar-col {
-    flex: 1;
-    min-width: 3px;
-}
-
-.ug-label {
-    font-size: 9px;
-    color: var(--text-secondary);
-    text-align: center;
-    width: 100%;
-}
-
-/* 十字准星 */
-.ug-crosshair {
-    position: absolute;
-    top: 0;
-    bottom: 26px;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    pointer-events: none;
-    z-index: 10;
-}
-
-.ug-crosshair-line {
-    width: 1px;
-    flex: 1;
-    background: rgba(0, 212, 255, 0.4);
-}
-
-.ug-crosshair-dot {
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background: #00d4ff;
-    box-shadow: 0 0 6px #00d4ff;
-    margin-bottom: 4px;
-}
-
-.ug-crosshair-value {
-    position: absolute;
-    bottom: calc(100% + 6px);
-    transform: translateX(-50%);
-    background: rgba(0, 0, 0, 0.8);
-    border: 1px solid rgba(0, 212, 255, 0.5);
-    border-radius: 6px;
-    padding: 5px 9px;
-    font-size: 11px;
-    color: var(--text-primary);
-    white-space: nowrap;
-    display: none;
+.ug-chart-shell canvas {
+    display: block;
+    width: 100% !important;
+    height: 100% !important;
 }
 
 /* 空状态 */
