@@ -163,11 +163,24 @@
         });
     }
 
+    function initChart(labels, increases, maxIncrease) {
+        if (typeof window.Chart !== 'function') {
+            if (initChart._pollCount < 30) {
+                initChart._pollCount = (initChart._pollCount || 0) + 1;
+                setTimeout(function () { initChart(labels, increases, maxIncrease); }, 100);
+            }
+            return;
+        }
+        initChart._pollCount = 0;
+        destroyChart();
+        drawChart(labels, increases, maxIncrease);
+    }
+
     function open() {
-        const modal = ensureModal();
-        const rows = state.stats && state.stats.user_growth;
-        const data = normalizeRows(rows);
-        const content = document.getElementById('userGrowthContent');
+        var modal = ensureModal();
+        var rows = state.stats && state.stats.user_growth;
+        var data = normalizeRows(rows);
+        var content = document.getElementById('userGrowthContent');
 
         if (!data.length) {
             if (content) content.innerHTML = '<div class="ug-empty">暂无增长数据</div>';
@@ -176,69 +189,47 @@
             return;
         }
 
-        const last = data[data.length - 1];
-        const periodIncrease = data.reduce((sum, item) => sum + item.increase, 0);
-        const trendDelta = data.length > 1 ? last.total - data[0].total : 0;
-        const trendUp = trendDelta >= 0;
-        const trendPercent = data.length > 1 && data[0].total > 0
+        var last = data[data.length - 1];
+        var periodIncrease = data.reduce(function (s, i) { return s + i.increase; }, 0);
+        var trendDelta = data.length > 1 ? last.total - data[0].total : 0;
+        var trendUp = trendDelta >= 0;
+        var trendPercent = data.length > 1 && data[0].total > 0
             ? ((trendDelta / data[0].total) * 100).toFixed(1)
             : '0';
 
-        const labels = data.map((item, i) => (i % 2 === 0 || i === data.length - 1) ? item.date.slice(5) : '');
-        const increases = data.map(item => item.increase);
-        const maxIncrease = Math.max(...increases, 1);
+        var lbls = data.map(function (item, i) { return (i % 2 === 0 || i === data.length - 1) ? item.date.slice(5) : ''; });
+        var vals = data.map(function (item) { return item.increase; });
+        var maxVal = Math.max.apply(null, vals.concat([1]));
 
-        content.innerHTML = `
-            <div class="ug-summary">
-                <div class="ug-stat-card">
-                    <div class="ug-stat-icon" style="background:linear-gradient(135deg,#00d4ff22,#00d4ff44);">
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#00d4ff" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
-                    </div>
-                    <div class="ug-stat-body">
-                        <div class="ug-stat-label">当前总用户数</div>
-                        <div class="ug-stat-value accent">${formatNumber(last.total)}</div>
-                    </div>
-                </div>
-                <div class="ug-stat-card">
-                    <div class="ug-stat-icon" style="background:linear-gradient(135deg,#ffd70022,#ffd70044);">
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#ffd700" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
-                    </div>
-                    <div class="ug-stat-body">
-                        <div class="ug-stat-label">当天新增</div>
-                        <div class="ug-stat-value" style="color:#ffd700">+${formatNumber(last.increase)}</div>
-                    </div>
-                </div>
-                <div class="ug-stat-card">
-                    <div class="ug-stat-icon" style="background:linear-gradient(135deg,#00ff8822,#00ff8844);">
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#00ff88" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><polyline points="19 12 12 5 5 12"/></svg>
-                    </div>
-                    <div class="ug-stat-body">
-                        <div class="ug-stat-label">近${data.length}天新增</div>
-                        <div class="ug-stat-value green">+${formatNumber(periodIncrease)}</div>
-                    </div>
-                </div>
-                <div class="ug-stat-card">
-                    <div class="ug-stat-icon" style="background:linear-gradient(135deg,${trendUp ? '#00ff8822' : '#ff475722'},${trendUp ? '#00ff8844' : '#ff475744'});">
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="${trendUp ? '#00ff88' : '#ff4757'}" stroke-width="2">${trendUp ? '<line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/>' : '<line x1="12" y1="5" x2="12" y2="19"/><polyline points="19 12 12 19 5 12"/>'}</svg>
-                    </div>
-                    <div class="ug-stat-body">
-                        <div class="ug-stat-label">周期增长</div>
-                        <div class="ug-stat-value" style="color:${trendUp ? '#00ff88' : '#ff4757'}">${trendUp ? '+' : ''}${formatNumber(trendDelta)} (${trendUp ? '+' : ''}${trendPercent}%)</div>
-                    </div>
-                </div>
-            </div>
-            <div class="ug-chart-shell" style="position:relative;">
-                <canvas id="userGrowthChart"></canvas>
-            </div>
-        `;
+        content.innerHTML = [
+            '<div class="ug-summary">',
+            '<div class="ug-stat-card">',
+            '<div class="ug-stat-icon" style="background:linear-gradient(135deg,#00d4ff22,#00d4ff44);">',
+            '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#00d4ff" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>',
+            '</div><div class="ug-stat-body"><div class="ug-stat-label">当前总用户数</div>',
+            '<div class="ug-stat-value accent">' + formatNumber(last.total) + '</div></div></div>',
+            '<div class="ug-stat-card">',
+            '<div class="ug-stat-icon" style="background:linear-gradient(135deg,#ffd70022,#ffd70044);">',
+            '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#ffd700" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>',
+            '</div><div class="ug-stat-body"><div class="ug-stat-label">当天新增</div>',
+            '<div class="ug-stat-value" style="color:#ffd700">+' + formatNumber(last.increase) + '</div></div></div>',
+            '<div class="ug-stat-card">',
+            '<div class="ug-stat-icon" style="background:linear-gradient(135deg,#00ff8822,#00ff8844);">',
+            '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#00ff88" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><polyline points="19 12 12 5 5 12"/></svg>',
+            '</div><div class="ug-stat-body"><div class="ug-stat-label">近' + data.length + '天新增</div>',
+            '<div class="ug-stat-value green">+' + formatNumber(periodIncrease) + '</div></div></div>',
+            '<div class="ug-stat-card">',
+            '<div class="ug-stat-icon" style="background:linear-gradient(135deg,' + (trendUp ? '#00ff8822,#00ff8844' : '#ff475722,#ff475744') + ');">',
+            '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="' + (trendUp ? '#00ff88' : '#ff4757') + '" stroke-width="2">' + (trendUp ? '<line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/>' : '<line x1="12" y1="5" x2="12" y2="19"/><polyline points="19 12 12 19 5 12"/>') + '</svg>',
+            '</div><div class="ug-stat-body"><div class="ug-stat-label">周期增长</div>',
+            '<div class="ug-stat-value" style="color:' + (trendUp ? '#00ff88' : '#ff4757') + '">' + (trendUp ? '+' : '') + formatNumber(trendDelta) + ' (' + (trendUp ? '+' : '') + trendPercent + '%)</div></div></div>',
+            '</div>',
+            '<div class="ug-chart-shell" style="position:relative;"><canvas id="userGrowthChart"></canvas></div>',
+        ].join('');
 
         modal.classList.add('active');
         modal.style.display = 'flex';
-
-        requestAnimationFrame(function () {
-            destroyChart();
-            drawChart(labels, increases, maxIncrease);
-        });
+        requestAnimationFrame(function () { initChart(lbls, vals, maxVal); });
     }
 
     function close() {
