@@ -124,8 +124,6 @@
                         pointHoverRadius: 5,
                         borderWidth: 2,
                         yAxisID: 'y',
-                        // 不显示 line 的 tooltip，避免与 bar tooltip 重复
-                        tooltip: { enabled: false },
                     },
                 ],
             },
@@ -151,6 +149,10 @@
                         titleFont: { size: 12, weight: 'bold' },
                         bodyFont: { size: 12 },
                         padding: 10,
+                        filter: function (item) {
+                            // 只显示 bar（新增）dataset 的 tooltip，隐藏 line（趋势）dataset
+                            return item.dataset.type === 'bar';
+                        },
                         callbacks: {
                             title: function (items) {
                                 const idx = items[0].dataIndex;
