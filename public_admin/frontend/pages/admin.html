@@ -3370,7 +3370,13 @@
     <link rel="stylesheet" href="/admin/api/shared/sticky_table/sticky_table.css?v=2026052701">
     <link rel="stylesheet" href="/admin/api/shared/dashboard/dashboard.css?v=2025060201">
     <script src="/admin/api/shared/sticky_table/sticky_table.js?v=2026052701" defer></script>
+    <script>
+        console.log('[ChartCheck] window.Chart before:', typeof window.Chart, window.Chart);
+    </script>
     <script src="/admin/api/shared/lib/chart.umd.min.js?v=2025060201" defer></script>
+    <script>
+        console.log('[ChartCheck] window.Chart after:', typeof window.Chart, window.Chart);
+    </script>
     <script src="/admin/api/shared/dashboard/user_growth_chart.js?v=2025060201" defer></script>
     <script src="/admin/api/shared/dashboard/traffic_dashboard.js?v=2026052801" defer></script>
 </head>
