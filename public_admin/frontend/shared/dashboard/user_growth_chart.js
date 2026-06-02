@@ -5,6 +5,7 @@
         stats: null,
         bound: false,
         chart: null,
+        chartLoading: false,
     };
 
     function formatNumber(value) {
@@ -55,6 +56,33 @@
         }
     }
 
+    function showChartOverlay(type, message) {
+        const shell = document.querySelector('.ug-chart-shell');
+        if (!shell) return;
+        removeChartOverlay();
+        const overlay = document.createElement('div');
+        overlay.className = 'ug-chart-overlay ug-chart-overlay--' + type;
+        overlay.innerHTML = '<span>' + message + '</span>';
+        shell.style.position = 'relative';
+        shell.appendChild(overlay);
+    }
+
+    function showChartLoading() {
+        state.chartLoading = true;
+        showChartOverlay('loading', '正在加载图表...');
+    }
+
+    function showChartError(msg) {
+        state.chartLoading = false;
+        showChartOverlay('error', msg || '图表加载失败');
+    }
+
+    function removeChartOverlay() {
+        state.chartLoading = false;
+        const overlay = document.querySelector('.ug-chart-overlay');
+        if (overlay) overlay.remove();
+    }
+
     function drawChart(labels, increases, maxIncrease) {
         const canvas = document.getElementById('userGrowthChart');
         if (!canvas) return;
@@ -96,6 +124,8 @@
                         pointHoverRadius: 5,
                         borderWidth: 2,
                         yAxisID: 'y',
+                        // 不显示 line 的 tooltip，避免与 bar tooltip 重复
+                        tooltip: { enabled: false },
                     },
                 ],
             },
@@ -168,12 +198,15 @@
             if (initChart._pollCount < 30) {
                 initChart._pollCount = (initChart._pollCount || 0) + 1;
                 setTimeout(function () { initChart(labels, increases, maxIncrease); }, 100);
+            } else {
+                showChartError('图表库加载超时，请强制刷新页面后重试');
             }
             return;
         }
         initChart._pollCount = 0;
         destroyChart();
         drawChart(labels, increases, maxIncrease);
+        removeChartOverlay();
     }
 
     function open() {
@@ -229,6 +262,7 @@
 
         modal.classList.add('active');
         modal.style.display = 'flex';
+        showChartLoading();
         requestAnimationFrame(function () { initChart(lbls, vals, maxVal); });
     }
 
