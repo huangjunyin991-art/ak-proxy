@@ -9668,133 +9668,27 @@
             if (window.AdminTrafficDashboard && typeof window.AdminTrafficDashboard.loadDashboard === 'function') {
                 return window.AdminTrafficDashboard.loadDashboard();
             }
-
-            if (!shouldRunAdminPanelPoll('dashboard')) return;
-            try {
-                const res = await fetch(`${API_BASE}/admin/api/dashboard`, { headers: getHeaders() });
-                const data = await res.json();
-                
-                // 更新实时指标
-                document.getElementById('dashTodayRequests').textContent = formatNumber(data.today_requests || 0);
-                document.getElementById('dashSuccessRate').textContent = (data.success_rate || 0).toFixed(1) + '%';
-                document.getElementById('dashActiveUsers').textContent = data.active_users || 0;
-                document.getElementById('dashPeakRPM').textContent = data.peak_rpm || 0;
-                
-                // 更新24小时趋势图
-                renderHourlyChart(data.hourly_data || []);
-                
-                // 更新排行榜
-                renderTopUsers(data.top_users || []);
-                renderTopIps(data.top_ips || []);
-                
-                // 更新时间
-                document.getElementById('chartUpdateTime').textContent = '更新于 ' + new Date().toLocaleTimeString('zh-CN', {hour: '2-digit', minute: '2-digit'});
-            } catch (e) {
-                console.error('加载仪表盘失败', e);
-            }
-        }
-        
-        // 渲染24小时柱状图
-        function renderHourlyChart(data) {
-            const container = document.getElementById('hourlyChart');
-            const labelsContainer = document.getElementById('chartLabels');
-            
-            // 确保有24个数据点
-            const hourlyData = new Array(24).fill(0);
-            data.forEach(item => {
-                if (item.hour >= 0 && item.hour < 24) {
-                    hourlyData[item.hour] = item.count || 0;
-                }
-            });
-            
-            const maxValue = Math.max(...hourlyData, 1);
-            const currentHour = new Date().getHours();
-            
-            // 生成柱状图
-            container.innerHTML = hourlyData.map((value, hour) => {
-                const height = (value / maxValue) * 100;
-                const isCurrent = hour === currentHour;
-                return `<div class="chart-bar" style="height: ${Math.max(height, 3)}%; ${isCurrent ? 'background: linear-gradient(to top, #00ff88, #00d4ff);' : ''}" data-value="${value} 次" title="${hour}:00 - ${value}次"></div>`;
-            }).join('');
-            
-            // 生成时间标签（每3小时显示一次）
-            labelsContainer.innerHTML = hourlyData.map((_, hour) => {
-                return `<div class="chart-label">${hour % 3 === 0 ? hour + ':00' : ''}</div>`;
-            }).join('');
-        }
-        
-        // 渲染Top用户
-        function renderTopUsers(users) {
-            const container = document.getElementById('topUsersList');
-            if (!users || users.length === 0) {
-                container.innerHTML = '<div class="ranking-empty">暂无数据</div>';
-                return;
-            }
-            
-            container.innerHTML = users.slice(0, 10).map((user, index) => `
-                <div class="ranking-item">
-                    <div class="ranking-rank">${index + 1}</div>
-                    <div class="ranking-user">
-                        <div class="ranking-user-name">${escapeHtml(user.username || '')}</div>
-                        <div class="ranking-user-meta">最近登录：${escapeHtml(fmtTime(user.last_login))}</div>
-                    </div>
-                    <div class="ranking-value">${user.count} 次</div>
-                </div>
-            `).join('');
-        }
-        
-        // 渲染Top IP
-        function renderTopIps(ips) {
-            const container = document.getElementById('topIpsList');
-            if (!ips || ips.length === 0) {
-                container.innerHTML = '<div class="ranking-empty">暂无数据</div>';
-                return;
-            }
-            
-            container.innerHTML = ips.slice(0, 10).map((ip, index) => `
-                <div class="ranking-item">
-                    <div class="ranking-rank">${index + 1}</div>
-                    <div class="ranking-name">${escapeHtml(ip.ip || '')}</div>
-                    <div class="ranking-value">${ip.count} 次</div>
-                </div>
-            `).join('');
-        }
-        
-        // 添加活动记录
-        function addActivityItem(type, icon, text, time) {
-            const container = document.getElementById('activityStream');
-            
-            // 清除空状态
-            const empty = container.querySelector('.activity-empty');
-            if (empty) empty.remove();
-            
-            const item = document.createElement('div');
-            item.className = 'activity-item';
-            item.innerHTML = `
-                <div class="activity-icon ${type}">${icon}</div>
-                <div class="activity-content">
-                    <div class="activity-text">${text}</div>
-                    <div class="activity-time">${escapeHtml(time)}</div>
-                </div>
-            `;
-            
-            // 插入到最前面
-            container.insertBefore(item, container.firstChild);
-            
-            // 最多保留15条
-            while (container.children.length > 15) {
-                container.removeChild(container.lastChild);
-            }
+            console.warn('AdminTrafficDashboard 未就绪，已跳过内联兜底实现。');
         }
         
         // 启动仪表盘
         function startDashboard() {
             if (!shouldRunAdminPanelPoll('dashboard')) return;
-            loadDashboard();
+            if (window.AdminTrafficDashboard && typeof window.AdminTrafficDashboard.loadDashboard === 'function') {
+                window.AdminTrafficDashboard.loadDashboard();
+            } else {
+                loadDashboard();
+            }
             // 每30秒刷新一次
             if (dashboardTimer) clearInterval(dashboardTimer);
             dashboardTimer = setInterval(() => {
-                if (shouldRunAdminPanelPoll('dashboard')) loadDashboard();
+                if (shouldRunAdminPanelPoll('dashboard')) {
+                    if (window.AdminTrafficDashboard && typeof window.AdminTrafficDashboard.loadDashboard === 'function') {
+                        window.AdminTrafficDashboard.loadDashboard();
+                    } else {
+                        loadDashboard();
+                    }
+                }
             }, 30000);
         }
         
