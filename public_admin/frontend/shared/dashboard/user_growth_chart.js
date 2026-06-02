@@ -154,8 +154,8 @@
                                 <stop offset="100%" stop-color="#00d4ff" stop-opacity="0.02"/>
                             </linearGradient>
                         </defs>
-                        <path d="${fillPath}" fill="url(#ugLineGrad)" stroke="none"/>
-                        <path d="${linePath}" fill="none" stroke="#00d4ff" stroke-width="0.35" stroke-linejoin="round" stroke-linecap="round"/>
+                        <path class="ug-fill-path" d="${fillPath}" fill="url(#ugLineGrad)" stroke="none"/>
+                        <path class="ug-line-path" d="${linePath}" fill="none" stroke="#00d4ff" stroke-width="0.35" stroke-linejoin="round" stroke-linecap="round"/>
                     </svg>
                     <div class="ug-bars-row">${barsHtml}</div>
                     <div class="ug-labels-row">${labelsHtml}</div>
@@ -170,6 +170,44 @@
 
         bindCrosshair();
         animateBars();
+        repositionLine();
+    }
+
+    function repositionLine() {
+        const shell = document.getElementById('ugChartInner');
+        const barsRow = shell && shell.querySelector('.ug-bars-row');
+        const svgLine = shell && shell.querySelector('.ug-line-path');
+        if (!barsRow || !svgLine || !shell) return;
+
+        const shellRect = shell.getBoundingClientRect();
+        const cols = barsRow.querySelectorAll(':scope > .ug-bar-col');
+        if (!cols.length) return;
+
+        const xs = Array.from(cols).map(col => {
+            const r = col.getBoundingClientRect();
+            return (r.left + r.width / 2 - shellRect.left) / shellRect.width * 100;
+        });
+
+        const bars = barsRow.querySelectorAll('.ug-bar');
+        const chartInnerRect = barsRow.getBoundingClientRect();
+        const ys = Array.from(bars).map(bar => {
+            const r = bar.getBoundingClientRect();
+            const barBottom = r.bottom - chartInnerRect.top;
+            const chartH = chartInnerRect.height;
+            if (chartH === 0) return 100;
+            return 100 - (barBottom / chartH) * 100;
+        });
+
+        const n = Math.min(xs.length, ys.length);
+        let d = '';
+        for (let i = 0; i < n; i++) {
+            d += (i === 0 ? 'M' : 'L') + xs[i].toFixed(3) + ',' + ys[i].toFixed(3) + ' ';
+        }
+        svgLine.setAttribute('d', d);
+
+        const fillD = d + ' L' + xs[n - 1].toFixed(3) + ',100 L0,100 Z';
+        const fillPath = svgLine.parentElement.querySelector('.ug-fill-path');
+        if (fillPath) fillPath.setAttribute('d', fillD);
     }
 
     function animateBars() {
@@ -183,6 +221,8 @@
                 bar.style.height = target;
             }, 50);
         });
+        // repositionLine needs bars to be laid out; last bar finishes at ~1.1s
+        setTimeout(repositionLine, 1200);
     }
 
     function bindCrosshair() {
