@@ -82,12 +82,6 @@
             return { item, barH, lineY, label };
         });
 
-        const step = 100 / (points.length - 1 || 1);
-        const linePath = points.map((p, i) =>
-            `${i === 0 ? 'M' : 'L'}${i * step},${p.lineY}`
-        ).join(' ');
-        const fillPath = `${linePath} L${(points.length - 1) * step},100 L0,100 Z`;
-
         const gridLines = [25, 50, 75].map(v =>
             `<line x1="0" y1="${v}" x2="100" y2="${v}" stroke="rgba(255,255,255,0.05)" stroke-width="0.3"/>`
         ).join('');
@@ -154,8 +148,8 @@
                                 <stop offset="100%" stop-color="#00d4ff" stop-opacity="0.02"/>
                             </linearGradient>
                         </defs>
-                        <path class="ug-fill-path" d="${fillPath}" fill="url(#ugLineGrad)" stroke="none"/>
-                        <path class="ug-line-path" d="${linePath}" fill="none" stroke="#00d4ff" stroke-width="0.35" stroke-linejoin="round" stroke-linecap="round"/>
+                        <path class="ug-fill-path" d="" fill="url(#ugLineGrad)" stroke="none"/>
+                        <path class="ug-line-path" d="" fill="none" stroke="#00d4ff" stroke-width="0.35" stroke-linejoin="round" stroke-linecap="round"/>
                     </svg>
                     <div class="ug-bars-row">${barsHtml}</div>
                     <div class="ug-labels-row">${labelsHtml}</div>
