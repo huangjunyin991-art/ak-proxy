@@ -116,6 +116,15 @@
                     </div>
                 </div>
                 <div class="ug-stat-card">
+                    <div class="ug-stat-icon" style="background:linear-gradient(135deg,#ffd70022,#ffd70044);">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#ffd700" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                    </div>
+                    <div class="ug-stat-body">
+                        <div class="ug-stat-label">当天新增</div>
+                        <div class="ug-stat-value" style="color:#ffd700">+${formatNumber(last.increase)}</div>
+                    </div>
+                </div>
+                <div class="ug-stat-card">
                     <div class="ug-stat-icon" style="background:linear-gradient(135deg,#00ff8822,#00ff8844);">
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#00ff88" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><polyline points="19 12 12 5 5 12"/></svg>
                     </div>
@@ -136,7 +145,7 @@
             </div>
 
             <div class="ug-chart-shell">
-                <div class="ug-chart-inner">
+                <div class="ug-chart-inner" id="ugChartInner">
                     <svg class="ug-svg-overlay" viewBox="0 0 100 100" preserveAspectRatio="none">
                         ${gridLines}
                         <defs>
@@ -177,22 +186,37 @@
     }
 
     function bindCrosshair() {
-        const shell = document.querySelector('.ug-chart-inner');
+        const shell = document.getElementById('ugChartInner');
         const crosshair = document.getElementById('ugCrosshair');
         const valueEl = document.getElementById('ugCrosshairValue');
-        if (!shell || !crosshair) return;
-        const cols = shell.querySelectorAll('.ug-bar-col');
+        if (!shell || !crosshair) {
+            console.warn('[UG] shell or crosshair not found');
+            return;
+        }
+
+        const labelsRow = shell.querySelector('.ug-labels-row');
+        if (labelsRow) {
+            const labelH = labelsRow.offsetHeight;
+            crosshair.style.bottom = labelH + 'px';
+        }
+
+        const cols = shell.querySelectorAll('.ug-bars-row > .ug-bar-col');
+        console.log('[UG] cols bound:', cols.length);
+
         cols.forEach(col => {
             const bar = col.querySelector('.ug-bar');
             if (!bar) return;
+
             col.addEventListener('mouseenter', () => {
+                const tip = bar.dataset.tip || '';
+                console.log('[UG] hover:', tip);
                 const rect = col.getBoundingClientRect();
                 const shellRect = shell.getBoundingClientRect();
                 crosshair.style.left = (rect.left + rect.width / 2 - shellRect.left) + 'px';
                 crosshair.style.display = 'flex';
                 if (valueEl) {
-                    valueEl.textContent = bar.dataset.tip || '';
-                    valueEl.style.display = bar.dataset.tip ? 'block' : 'none';
+                    valueEl.textContent = tip;
+                    valueEl.style.display = tip ? 'block' : 'none';
                 }
             });
             col.addEventListener('mouseleave', () => {
