@@ -316,6 +316,13 @@
             this.end('hangup', {});
         },
 
+        close() {
+            clearTimeout(this.timers.autoEnd);
+            this.mode = CALL_MODES.idle;
+            this.currentCallId = '';
+            this.render();
+        },
+
         end(reason, payload) {
             void reason;
             payload = payload || {};

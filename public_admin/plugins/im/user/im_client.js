@@ -2369,6 +2369,7 @@
         if (moduleKey === 'uploadProgress') return getUploadProgressModule();
         if (moduleKey === 'location') return getLocationModule();
         if (moduleKey === 'voiceHold') return getVoiceHoldModule();
+        if (moduleKey === 'callManage') return getCallManageModule();
 	    if (moduleKey === 'social') return getSocialModule();
         if (moduleKey === 'hiddenGroups') return getHiddenGroupsModule();
         if (moduleKey === 'navigation') return getMessageNavigationModule();
@@ -2398,6 +2399,7 @@
         else if (moduleKey === 'uploadProgress') initUploadProgressModule();
         else if (moduleKey === 'location') initLocationModule();
         else if (moduleKey === 'voiceHold') initVoiceHoldModule();
+        else if (moduleKey === 'callManage') initCallManageModule();
 	    else if (moduleKey === 'social') initSocialModule();
         else if (moduleKey === 'hiddenGroups') initHiddenGroupsModule();
         else if (moduleKey === 'navigation') initMessageNavigationModule();
@@ -2485,6 +2487,7 @@
         return Promise.all([
             ensureOptionalLazyModule('groupAdmins'),
             ensureOptionalLazyModule('voiceHold'),
+            ensureOptionalLazyModule('callManage'),
             ensureOptionalLazyModule('emoji'),
             ensureOptionalLazyModule('image'),
             ensureOptionalLazyModule('uploadProgress'),
