@@ -1444,7 +1444,32 @@
             },
             onBackClick: showSessionsView,
             onChatMenuClick: openActiveGroupMenu,
-            onChatTitleClick: openActiveGroupSettings,
+            onChatCallActionClick: function(action) {
+                const normalizedAction = String(action || '').toLowerCase();
+                if (normalizedAction === 'audio') {
+                    const callManageModule = getCallManageModule();
+                    const activeSession = getActiveSession();
+                    if (!callManageModule || typeof callManageModule.openOutgoing !== 'function' || !activeSession) return;
+                    callManageModule.openOutgoing({
+                        kind: 'audio',
+                        conversationId: Number(activeSession.conversation_id || 0),
+                        peerName: getSessionDisplayName(activeSession),
+                        title: getSessionDisplayName(activeSession)
+                    });
+                    return;
+                }
+                if (normalizedAction === 'video') {
+                    const callManageModule = getCallManageModule();
+                    const activeSession = getActiveSession();
+                    if (!callManageModule || typeof callManageModule.openOutgoing !== 'function' || !activeSession) return;
+                    callManageModule.openOutgoing({
+                        kind: 'video',
+                        conversationId: Number(activeSession.conversation_id || 0),
+                        peerName: getSessionDisplayName(activeSession),
+                        title: getSessionDisplayName(activeSession)
+                    });
+                }
+            },
             onChatCallAudioClick: function() {
                 const callManageModule = getCallManageModule();
                 const activeSession = getActiveSession();
