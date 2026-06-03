@@ -4206,6 +4206,25 @@
     }
 
 
+	function openDialog(options) {
+	    const overlayModule = getOverlayModule();
+	    if (overlayModule && typeof overlayModule.openDialog === 'function') {
+	        overlayModule.openDialog(options);
+	        return;
+	    }
+	    state.dialogOpen = true;
+	    state.dialogTitle = String(options && options.title || '提示');
+	    state.dialogMessage = String(options && options.message || '');
+	    state.dialogConfirmText = String(options && options.confirmText || '确定');
+	    state.dialogCancelText = String(options && options.cancelText || '取消');
+	    state.dialogDanger = !!(options && options.danger);
+	    state.dialogShowCancel = options && Object.prototype.hasOwnProperty.call(options, 'showCancel') ? !!options.showCancel : true;
+	    state.dialogAction = String(options && options.action || '');
+	    state.dialogSubmitting = false;
+	    state.dialogPayload = options && options.payload ? options.payload : null;
+	    renderDialog();
+	}
+
 	function closeDialog(options) {
 	    const overlayModule = getOverlayModule();
 	    if (overlayModule && typeof overlayModule.closeDialog === 'function') {
