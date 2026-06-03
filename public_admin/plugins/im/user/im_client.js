@@ -2488,6 +2488,7 @@
             ensureOptionalLazyModule('groupAdmins'),
             ensureOptionalLazyModule('voiceHold'),
             ensureOptionalLazyModule('callManage'),
+            ensureOptionalLazyModule('plus'),
             ensureOptionalLazyModule('emoji'),
             ensureOptionalLazyModule('image'),
             ensureOptionalLazyModule('uploadProgress'),
@@ -2781,15 +2782,16 @@
             return;
         }
         if (actionLabelMap[actionKey]) {
-            const plusEntryModule = getPlusEntryModule();
-            if (!plusEntryModule || typeof plusEntryModule.handleAction !== 'function') {
-                render();
-                window.alert(actionLabelMap[actionKey] + '模块暂不可用');
-                return;
-            }
             state.plusPanelOpen = false;
             render();
-            plusEntryModule.handleAction(actionKey);
+            ensureLazyModule('plus').then(function(plusEntryModule) {
+                if (!plusEntryModule || typeof plusEntryModule.handleAction !== 'function') {
+                    throw new Error(actionLabelMap[actionKey] + '模块暂不可用');
+                }
+                plusEntryModule.handleAction(actionKey);
+            }).catch(function(error) {
+                window.alert(error && error.message ? error.message : (actionLabelMap[actionKey] + '模块暂不可用'));
+            });
             return;
         }
     }
