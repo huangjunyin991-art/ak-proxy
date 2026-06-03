@@ -41,13 +41,6 @@
                 #ak-im-root.ak-view-meeting-publish .ak-im-meeting-publish-screen{display:flex}
                 #ak-im-root.ak-view-meeting-join .ak-im-meeting-join-screen{display:flex}
                 #ak-im-root.ak-view-external-page .ak-im-external-page-screen{display:flex}
-                #ak-im-root .ak-im-chat-call-actions{display:inline-flex;align-items:center;gap:6px;flex:0 0 auto}
-                #ak-im-root .ak-im-chat-call-btn{width:30px;height:30px;border:none;border-radius:999px;background:rgba(7,193,96,.12);color:#07c160;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;padding:0}
-                #ak-im-root .ak-im-chat-call-btn svg{width:16px;height:16px;stroke:currentColor;fill:none}
-                #ak-im-root .ak-im-chat-call-btn.is-video{background:rgba(37,99,235,.12);color:#2563eb}
-                #ak-im-root .ak-im-chat-call-btn:disabled{opacity:.42;cursor:not-allowed}
-                #ak-im-root .ak-im-chat-call-btn.is-unavailable,
-                #ak-im-root .ak-im-chat-call-btn[aria-disabled="true"]{opacity:.42;cursor:pointer;filter:saturate(.55)}
                 #ak-im-root .ak-im-topbar{height:calc(56px + env(safe-area-inset-top, 0px));padding:calc(env(safe-area-inset-top, 0px) + 8px) 12px 8px;display:grid;grid-template-columns:52px 1fr 52px;align-items:center;background:#ededed;border-bottom:1px solid rgba(15,23,42,.06);box-sizing:border-box}
                 #ak-im-root .ak-im-session-screen .ak-im-topbar{grid-template-columns:80px minmax(0,1fr) 80px;column-gap:8px}
                 #ak-im-root .ak-im-topbar-title,#ak-im-root .ak-im-topbar-title-wrap{text-align:center;min-width:0}
@@ -779,14 +772,6 @@
                             <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M15 18L9 12L15 6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
                         </button>
                         <button class="ak-im-topbar-title-wrap ak-im-chat-title-btn" type="button" aria-label="聊天标题" disabled><div class="ak-im-chat-title">内部聊天</div><div class="ak-im-chat-subtitle">选择一个会话开始单聊</div></button>
-                        <div class="ak-im-chat-call-actions">
-                            <button class="ak-im-chat-call-btn" type="button" data-im-call-action="audio" aria-label="发起语音通话" disabled>
-                                <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6.5 5.5c2.7 0 4.9 2.2 4.9 4.9v1.2c0 .8.6 1.4 1.4 1.4h.8c1.3 0 2.4 1.1 2.4 2.4v1.3c0 1.1-.9 2-2 2h-1.8c-4.8 0-8.7-3.9-8.7-8.7V7.5c0-1.1.9-2 2-2z" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
-                            </button>
-                            <button class="ak-im-chat-call-btn is-video" type="button" data-im-call-action="video" aria-label="发起视频通话" disabled>
-                                <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M14 8.5v7l-5.5-3.5V8.5L14 8.5z" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M4.5 7.5h9.4c1.1 0 2 .9 2 2v5c0 1.1-.9 2-2 2H4.5c-1.1 0-2-.9-2-2v-5c0-1.1.9-2 2-2z" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
-                            </button>
-                        </div>
                         <button class="ak-im-nav-btn ak-im-chat-menu is-hidden" type="button" aria-label="群聊更多功能" disabled><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="6" cy="12" r="1.7" fill="currentColor"></circle><circle cx="12" cy="12" r="1.7" fill="currentColor"></circle><circle cx="18" cy="12" r="1.7" fill="currentColor"></circle></svg></button>
                     </div>
                     <div class="ak-im-message-list"></div>
@@ -1140,13 +1125,6 @@
             });
             bindClick(elements.chatTitleBtnEl, function() {
                 if (typeof ctx.onChatTitleClick === 'function') ctx.onChatTitleClick();
-            });
-            Array.prototype.forEach.call(elements.callActionBtns || [], function(button) {
-                bindClick(button, function() {
-                    if (typeof ctx.onChatCallActionClick === 'function') {
-                        ctx.onChatCallActionClick(button.getAttribute('data-im-call-action'));
-                    }
-                });
             });
             bindDblClick(elements.chatTitleTapEl || elements.chatTitleBtnEl, function(event) {
                 if (event && typeof event.preventDefault === 'function') event.preventDefault();

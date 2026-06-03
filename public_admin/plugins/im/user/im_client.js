@@ -1444,15 +1444,6 @@
             },
             onBackClick: showSessionsView,
             onChatMenuClick: openActiveGroupMenu,
-            onChatCallActionClick: function(action) {
-                openCallByAction(action);
-            },
-            onChatCallAudioClick: function() {
-                openCallByAction('audio');
-            },
-            onChatCallVideoClick: function() {
-                openCallByAction('video');
-            },
             onComposeBackClick: closeComposeView,
             onComposeCloseClick: closeComposeView,
             onNewSessionClick: startDirectSession,
@@ -5374,18 +5365,6 @@
         if (chatMenuBtnEl) {
             chatMenuBtnEl.disabled = !canOpenGroupInfo;
             chatMenuBtnEl.classList.toggle('is-hidden', !canOpenGroupInfo);
-        }
-        if (callActionBtns && callActionBtns.length) {
-            Array.prototype.forEach.call(callActionBtns, function(button) {
-                const action = String(button.getAttribute('data-im-call-action') || '').toLowerCase();
-                const unavailableReason = getCallActionUnavailableReason(action, activeSession);
-                const shouldEnable = !unavailableReason;
-                button.disabled = false;
-                button.classList.toggle('is-clickable', shouldEnable);
-                button.classList.toggle('is-unavailable', !shouldEnable);
-                button.setAttribute('aria-disabled', shouldEnable ? 'false' : 'true');
-                button.title = shouldEnable ? ('发起' + getCallActionLabel(action)) : unavailableReason;
-            });
         }
         if (!messageList) return;
         messageList.innerHTML = '';
