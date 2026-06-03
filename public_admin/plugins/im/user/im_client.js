@@ -1445,30 +1445,7 @@
             onBackClick: showSessionsView,
             onChatMenuClick: openActiveGroupMenu,
             onChatCallActionClick: function(action) {
-                const normalizedAction = String(action || '').toLowerCase();
-                if (normalizedAction === 'audio') {
-                    const callManageModule = getCallManageModule();
-                    const activeSession = getActiveSession();
-                    if (!callManageModule || typeof callManageModule.openOutgoing !== 'function' || !activeSession) return;
-                    callManageModule.openOutgoing({
-                        kind: 'audio',
-                        conversationId: Number(activeSession.conversation_id || 0),
-                        peerName: getSessionDisplayName(activeSession),
-                        title: getSessionDisplayName(activeSession)
-                    });
-                    return;
-                }
-                if (normalizedAction === 'video') {
-                    const callManageModule = getCallManageModule();
-                    const activeSession = getActiveSession();
-                    if (!callManageModule || typeof callManageModule.openOutgoing !== 'function' || !activeSession) return;
-                    callManageModule.openOutgoing({
-                        kind: 'video',
-                        conversationId: Number(activeSession.conversation_id || 0),
-                        peerName: getSessionDisplayName(activeSession),
-                        title: getSessionDisplayName(activeSession)
-                    });
-                }
+                openCallByAction(action);
             },
             onChatCallAudioClick: function() {
                 const callManageModule = getCallManageModule();
@@ -4121,34 +4098,85 @@
 	    memberActionBodyEl.innerHTML = isOpen && config ? '<div class="ak-im-member-action-empty">成员操作模块暂不可用，请刷新后重试</div>' : '';
 	}
 
-	    function openDialog(options) {
-	    const overlayModule = getOverlayModule();
-	    if (overlayModule && typeof overlayModule.openDialog === 'function') {
-	        overlayModule.openDialog(options);
-	        return;
-	    }
-	    state.dialogOpen = true;
-	    state.dialogTitle = String(options && options.title || '提示');
-	    state.dialogMessage = String(options && options.message || '');
-	    state.dialogConfirmText = String(options && options.confirmText || '确定');
-	    state.dialogCancelText = String(options && options.cancelText || '取消');
-	    state.dialogDanger = !!(options && options.danger);
-	    state.dialogShowCancel = options && Object.prototype.hasOwnProperty.call(options, 'showCancel') ? !!options.showCancel : true;
-	    state.dialogAction = String(options && options.action || '');
-	    state.dialogSubmitting = false;
-	    state.dialogPayload = options && options.payload ? options.payload : null;
-	    const dialogText = [state.dialogTitle, state.dialogMessage].filter(Boolean).join('\n\n') || '请确认当前操作';
-	    if (!state.dialogShowCancel) {
-	        window.alert(dialogText);
-	        submitDialogAction();
-	        return;
-	    }
-	    if (window.confirm(dialogText)) {
-	        submitDialogAction();
-	        return;
-	    }
-	    closeDialog({ force: true });
-	}
+    function openCallDebugDialog(reason, detail) {
+        const lines = [];
+        lines.push('通话未能发起：' + String(reason || '未知原因'));
+        if (detail) lines.push('');
+        if (detail && typeof detail === 'object') {
+            Object.keys(detail).forEach(function(key) {
+                const value = detail[key];
+                lines.push(key + '：' + (value === null || typeof value === 'undefined' ? '' : String(value)));
+            });
+        } else if (detail) {
+            lines.push(String(detail));
+        }
+        openDialog({
+            title: '通话调试信息',
+            message: lines.join('\n'),
+            confirmText: '知道了',
+            showCancel: false
+        });
+    }
+
+    function openCallByAction(action) {
+        const normalizedAction = String(action || '').toLowerCase();
+        const activeSession = getActiveSession();
+        const callManageModule = getCallManageModule();
+        if (!callManageModule) {
+            openCallDebugDialog('通话模块未加载', {
+                action: normalizedAction || action,
+                activeConversationId: state.activeConversationId || 0
+            });
+            return;
+        }
+        if (typeof callManageModule.openOutgoing !== 'function') {
+            openCallDebugDialog('通话模块不支持发起通话', {
+                action: normalizedAction || action,
+                activeConversationId: state.activeConversationId || 0
+            });
+            return;
+        }
+        if (!activeSession) {
+            openCallDebugDialog('当前没有活动会话', {
+                action: normalizedAction || action,
+                activeConversationId: state.activeConversationId || 0,
+                view: state.view || ''
+            });
+            return;
+        }
+        if (isGroupSession(activeSession)) {
+            openCallDebugDialog('当前会话是群聊，不能发起单聊通话', {
+                action: normalizedAction || action,
+                conversationId: Number(activeSession.conversation_id || 0),
+                conversationType: activeSession.conversation_type || ''
+            });
+            return;
+        }
+        const peerUsername = String(activeSession.peer_username || '').trim();
+        if (!peerUsername) {
+            openCallDebugDialog('当前会话缺少对端用户名', {
+                action: normalizedAction || action,
+                conversationId: Number(activeSession.conversation_id || 0),
+                conversationType: activeSession.conversation_type || '',
+                displayName: getSessionDisplayName(activeSession)
+            });
+            return;
+        }
+        if (normalizedAction !== 'audio' && normalizedAction !== 'video') {
+            openCallDebugDialog('未知的通话类型', {
+                action: action,
+                normalizedAction: normalizedAction
+            });
+            return;
+        }
+        callManageModule.openOutgoing({
+            kind: normalizedAction,
+            conversationId: Number(activeSession.conversation_id || 0),
+            peerName: getSessionDisplayName(activeSession),
+            title: getSessionDisplayName(activeSession)
+        });
+    }
+
 
 	function closeDialog(options) {
 	    const overlayModule = getOverlayModule();
