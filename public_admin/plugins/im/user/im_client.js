@@ -4112,6 +4112,40 @@
         });
     }
 
+    function getCallActionLabel(action) {
+        const normalizedAction = String(action || '').toLowerCase();
+        return normalizedAction === 'video' ? '视频通话' : '语音通话';
+    }
+
+    function getCallActionUnavailableReason(action, activeSession) {
+        const normalizedAction = String(action || '').toLowerCase();
+        if (normalizedAction !== 'audio' && normalizedAction !== 'video') {
+            return '当前通话类型暂不支持，请稍后重试。';
+        }
+        if (state.view !== 'chat') {
+            return '请先进入一个单聊会话，再发起' + getCallActionLabel(normalizedAction) + '。';
+        }
+        if (!activeSession) {
+            return '请先打开一个单聊会话，再发起' + getCallActionLabel(normalizedAction) + '。';
+        }
+        if (isGroupSession(activeSession)) {
+            return '群聊暂不支持' + getCallActionLabel(normalizedAction) + '。';
+        }
+        if (!String(activeSession.peer_username || '').trim()) {
+            return '当前会话缺少对端账号信息，暂时无法发起' + getCallActionLabel(normalizedAction) + '，请刷新后重试。';
+        }
+        return '';
+    }
+
+    function openCallUnavailableDialog(action, message) {
+        openDialog({
+            title: '暂时无法发起' + getCallActionLabel(action),
+            message: String(message || '当前会话暂不支持通话。'),
+            confirmText: '知道了',
+            showCancel: false
+        });
+    }
+
     function scheduleCallLaunchProbe(action, activeSession, peerUsername) {
         const expectedAction = String(action || '').toLowerCase();
         window.setTimeout(function() {
@@ -4140,33 +4174,6 @@
         const normalizedAction = String(action || '').toLowerCase();
         const activeSession = getActiveSession();
         const sessionManageModule = getSessionManageModule();
-        if (!activeSession) {
-            openCallDebugDialog('当前没有活动会话', {
-                action: normalizedAction || action,
-                activeConversationId: state.activeConversationId || 0,
-                view: state.view || ''
-            });
-            return;
-        }
-        if (isGroupSession(activeSession)) {
-            openCallDebugDialog('当前会话是群聊，不能发起单聊通话', {
-                action: normalizedAction || action,
-                conversationId: Number(activeSession.conversation_id || 0),
-                conversationType: activeSession.conversation_type || ''
-            });
-            return;
-        }
-        const peerUsername = String(activeSession.peer_username || '').trim();
-        const displayName = sessionManageModule && typeof sessionManageModule.getSessionDisplayName === 'function' ? sessionManageModule.getSessionDisplayName(activeSession) : '联系人';
-        if (!peerUsername) {
-            openCallDebugDialog('当前会话缺少对端用户名', {
-                action: normalizedAction || action,
-                conversationId: Number(activeSession.conversation_id || 0),
-                conversationType: activeSession.conversation_type || '',
-                displayName: displayName
-            });
-            return;
-        }
         if (normalizedAction !== 'audio' && normalizedAction !== 'video') {
             openCallDebugDialog('未知的通话类型', {
                 action: action,
@@ -4174,6 +4181,13 @@
             });
             return;
         }
+        const unavailableReason = getCallActionUnavailableReason(normalizedAction, activeSession);
+        if (unavailableReason) {
+            openCallUnavailableDialog(normalizedAction, unavailableReason);
+            return;
+        }
+        const peerUsername = String(activeSession.peer_username || '').trim();
+        const displayName = sessionManageModule && typeof sessionManageModule.getSessionDisplayName === 'function' ? sessionManageModule.getSessionDisplayName(activeSession) : '联系人';
         ensureLazyModule('callManage').then(function(callManageModule) {
             if (!callManageModule || typeof callManageModule.openOutgoing !== 'function') {
                 openCallDebugDialog('通话模块未加载', {
@@ -5364,11 +5378,13 @@
         if (callActionBtns && callActionBtns.length) {
             Array.prototype.forEach.call(callActionBtns, function(button) {
                 const action = String(button.getAttribute('data-im-call-action') || '').toLowerCase();
-                const shouldEnable = !!activeSession && !isGroupSession(activeSession) && String(activeSession.peer_username || '').trim() && state.view === 'chat' && (action === 'audio' || action === 'video');
-                button.disabled = !shouldEnable;
+                const unavailableReason = getCallActionUnavailableReason(action, activeSession);
+                const shouldEnable = !unavailableReason;
+                button.disabled = false;
                 button.classList.toggle('is-clickable', shouldEnable);
+                button.classList.toggle('is-unavailable', !shouldEnable);
                 button.setAttribute('aria-disabled', shouldEnable ? 'false' : 'true');
-                button.title = shouldEnable ? (action === 'audio' ? '发起语音通话' : '发起视频通话') : '当前会话暂不支持通话';
+                button.title = shouldEnable ? ('发起' + getCallActionLabel(action)) : unavailableReason;
             });
         }
         if (!messageList) return;

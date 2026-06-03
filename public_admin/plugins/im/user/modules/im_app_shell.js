@@ -46,6 +46,8 @@
                 #ak-im-root .ak-im-chat-call-btn svg{width:16px;height:16px;stroke:currentColor;fill:none}
                 #ak-im-root .ak-im-chat-call-btn.is-video{background:rgba(37,99,235,.12);color:#2563eb}
                 #ak-im-root .ak-im-chat-call-btn:disabled{opacity:.42;cursor:not-allowed}
+                #ak-im-root .ak-im-chat-call-btn.is-unavailable,
+                #ak-im-root .ak-im-chat-call-btn[aria-disabled="true"]{opacity:.42;cursor:pointer;filter:saturate(.55)}
                 #ak-im-root .ak-im-topbar{height:calc(56px + env(safe-area-inset-top, 0px));padding:calc(env(safe-area-inset-top, 0px) + 8px) 12px 8px;display:grid;grid-template-columns:52px 1fr 52px;align-items:center;background:#ededed;border-bottom:1px solid rgba(15,23,42,.06);box-sizing:border-box}
                 #ak-im-root .ak-im-session-screen .ak-im-topbar{grid-template-columns:80px minmax(0,1fr) 80px;column-gap:8px}
                 #ak-im-root .ak-im-topbar-title,#ak-im-root .ak-im-topbar-title-wrap{text-align:center;min-width:0}
