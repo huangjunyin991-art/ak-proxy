@@ -478,10 +478,10 @@
                 #ak-im-root .ak-im-emoji-sheet{height:0;overflow:hidden;background:#f7f7f7;transition:height .22s ease;border-top:1px solid transparent}
                 #ak-im-root .ak-im-emoji-sheet.is-open{height:min(320px,44vh);border-top-color:rgba(15,23,42,.06)}
                 #ak-im-root .ak-im-plus-sheet{height:0;overflow:hidden;background:#f7f7f7;transition:height .22s ease;border-top:1px solid transparent}
-                #ak-im-root .ak-im-plus-sheet.is-open{height:min(244px,34vh);border-top-color:rgba(15,23,42,.06)}
-                #ak-im-root .ak-im-plus-sheet-panel{height:100%;background:#f7f7f7;padding:18px 18px calc(18px + env(safe-area-inset-bottom, 0px));box-sizing:border-box}
-                #ak-im-root .ak-im-plus-grid{height:100%;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px 20px;align-content:start;justify-items:center}
-                #ak-im-root .ak-im-plus-item{width:100%;max-width:132px;border:none;background:transparent;padding:0;display:flex;flex-direction:column;align-items:center;gap:10px;cursor:pointer;color:#111827}
+                #ak-im-root .ak-im-plus-sheet.is-open{height:min(360px,48vh);border-top-color:rgba(15,23,42,.06)}
+                #ak-im-root .ak-im-plus-sheet-panel{height:100%;background:#f7f7f7;padding:18px 18px calc(18px + env(safe-area-inset-bottom, 0px));box-sizing:border-box;overflow:auto;-webkit-overflow-scrolling:touch}
+                #ak-im-root .ak-im-plus-grid{min-height:100%;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px 12px;align-content:start;justify-items:center}
+                #ak-im-root .ak-im-plus-item{width:100%;max-width:none;border:none;background:transparent;padding:0;display:flex;flex-direction:column;align-items:center;gap:10px;cursor:pointer;color:#111827}
                 #ak-im-root .ak-im-plus-item:disabled{opacity:.45;cursor:default}
                 #ak-im-root .ak-im-plus-item:active .ak-im-plus-item-icon{transform:scale(.96)}
                 #ak-im-root .ak-im-plus-item-icon{width:58px;height:58px;border-radius:18px;background:#ffffff;box-shadow:0 1px 2px rgba(15,23,42,.06);display:flex;align-items:center;justify-content:center;transition:transform .16s ease}
