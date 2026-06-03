@@ -915,16 +915,6 @@
                     </div>
                     <div class="ak-im-meeting-join-page"></div>
                 </div>
-                <div class="ak-im-screen ak-im-call-screen">
-                    <div class="ak-im-topbar">
-                        <button class="ak-im-nav-btn ak-im-call-close-btn" type="button" aria-label="关闭通话">关闭</button>
-                        <div class="ak-im-topbar-title">通话</div>
-                        <div class="ak-im-call-topbar-actions"></div>
-                    </div>
-                    <div class="ak-im-session-page" style="padding:16px 12px;">
-                        <div class="ak-im-call-state-view" style="background:#ffffff;border-radius:18px;padding:16px;min-height:160px;"></div>
-                    </div>
-                </div>
                 <div class="ak-im-screen ak-im-external-page-screen">
                     <div class="ak-im-topbar">
                         <button class="ak-im-nav-btn ak-im-external-page-back" type="button" aria-label="返回上一页">

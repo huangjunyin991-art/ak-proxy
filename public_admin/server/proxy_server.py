@@ -10860,13 +10860,13 @@ def _get_widget_dynamic_version_seed() -> str:
 
 
 def _get_widget_asset_version() -> str:
-    latest_mtime = 0
+    latest_mtime_ns = 0
     for asset_path in _iter_widget_asset_paths():
         try:
-            latest_mtime = max(latest_mtime, int(os.path.getmtime(asset_path)))
+            latest_mtime_ns = max(latest_mtime_ns, int(os.stat(asset_path).st_mtime_ns))
         except OSError:
             continue
-    static_version = str(latest_mtime or 1)
+    static_version = str(latest_mtime_ns or 1)
     dynamic_hash = hashlib.sha1(_get_widget_dynamic_version_seed().encode("utf-8")).hexdigest()[:10]
     return f"{static_version}-{dynamic_hash}"
 
@@ -14090,4 +14090,3 @@ def main():
 if __name__ == "__main__":
 
     main()
-
