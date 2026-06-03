@@ -83,7 +83,7 @@
                         <style>
                             .ak-im-call-panel{position:fixed;inset:0;z-index:99999;display:flex;align-items:center;justify-content:center;padding:18px;background:rgba(7,10,20,.78);backdrop-filter:blur(14px);}
                             .ak-im-call-backdrop{position:absolute;inset:0;}
-                            .ak-im-call-card{position:relative;z-index:1;width:min(100%,960px);height:min(100%,900px);max-height:100%;display:flex;flex-direction:column;background:linear-gradient(180deg,#0b1220 0%,#111827 42%,#020617 100%);color:#fff;overflow:hidden;border-radius:28px;box-shadow:0 32px 90px rgba(0,0,0,.45);}
+                            .ak-im-call-card{position:relative;z-index:1;width:min(100%,420px);height:min(100%,760px);max-height:100%;display:flex;flex-direction:column;background:linear-gradient(180deg,#0b1220 0%,#111827 42%,#020617 100%);color:#fff;overflow:hidden;border-radius:28px;box-shadow:0 32px 90px rgba(0,0,0,.45);}
                             .ak-im-call-topbar{display:flex;align-items:center;justify-content:space-between;padding:16px 16px 10px;gap:12px;background:rgba(255,255,255,.03);}
                             .ak-im-call-topbar-inner{flex:1;display:flex;align-items:center;gap:12px;min-width:0;justify-content:center;}
                             .ak-im-call-spacer{width:36px;height:36px;flex:0 0 36px;}
