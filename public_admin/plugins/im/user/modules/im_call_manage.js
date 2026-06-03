@@ -60,6 +60,13 @@
             return '';
         },
 
+        reportLaunchError(reason, detail) {
+            if (!this.ctx || typeof this.ctx.reportLaunchError !== 'function') return;
+            try {
+                this.ctx.reportLaunchError(reason, detail || {});
+            } catch (e) {}
+        },
+
         getWsBase() {
             const apiBase = this.getApiBase();
             if (!apiBase) return '';
@@ -198,7 +205,16 @@
         ensureSocket() {
             if (this.socket || this.socketReady) return;
             const wsBase = this.getWsBase();
-            if (!wsBase) return;
+            if (!wsBase) {
+                if (this.mode === CALL_MODES.outgoing && !this.currentCallId) {
+                    this.end('failed', { reason: 'socket_unavailable' });
+                    this.reportLaunchError('通话服务地址不可用', {
+                        apiBase: this.getApiBase(),
+                        origin: window.location.origin
+                    });
+                }
+                return;
+            }
             try {
                 const socket = new WebSocket(wsBase.replace(/\/$/, '') + '/im/ws');
                 this.socket = socket;
@@ -220,6 +236,13 @@
             } catch (e) {
                 this.socket = null;
                 this.socketReady = false;
+                if (this.mode === CALL_MODES.outgoing && !this.currentCallId) {
+                    this.end('failed', { reason: 'socket_unavailable' });
+                    this.reportLaunchError('通话连接初始化失败', {
+                        message: e && e.message ? e.message : String(e || ''),
+                        wsBase: wsBase
+                    });
+                }
             }
         },
 

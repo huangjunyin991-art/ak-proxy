@@ -1503,10 +1503,16 @@
         const sessionManageModule = getSessionManageModule();
         callManageModule.init({
             state: state,
+            getApiBase: function() {
+                return HTTP_ROOT;
+            },
             getRoot: function() {
                 return root;
             },
             getShellState: getShellRenderState,
+            reportLaunchError: function(reason, detail) {
+                openCallDebugDialog(reason, detail);
+            },
             openCall: function(kind, payload) {
                 if (typeof callManageModule.openOutgoing !== 'function') return;
                 const activeSession = getActiveSession();
@@ -2744,41 +2750,9 @@
             location: '位置'
         };
         if (actionKey === 'call-audio') {
-            const callManageModule = getCallManageModule();
-            const sessionManageModule = getSessionManageModule();
-            const activeSession = getActiveSession();
-            if (!callManageModule || typeof callManageModule.openOutgoing !== 'function') {
-                render();
-                window.alert('语音通话模块暂不可用');
-                return;
-            }
-            if (!activeSession) {
-                render();
-                window.alert('当前没有可发起语音通话的会话');
-                return;
-            }
-            if (isGroupSession(activeSession)) {
-                render();
-                window.alert('群聊不支持语音通话');
-                return;
-            }
-            const peerUsername = String(activeSession.peer_username || '').trim();
-            if (!peerUsername) {
-                render();
-                window.alert('当前会话缺少对端用户名，无法发起语音通话');
-                return;
-            }
-            const activeSessionName = sessionManageModule && typeof sessionManageModule.getSessionDisplayName === 'function' ? sessionManageModule.getSessionDisplayName(activeSession) : '联系人';
-            callManageModule.openOutgoing({
-                kind: 'audio',
-                conversationId: Number(activeSession.conversation_id || 0),
-                peerUsername: peerUsername,
-                peerName: activeSessionName,
-                title: activeSessionName,
-                pageId: String(state.pageId || ''),
-                wsId: String(state.wsId || '')
-            });
+            state.plusPanelOpen = false;
             render();
+            openCallByAction('audio');
             return;
         }
         if (actionLabelMap[actionKey]) {
