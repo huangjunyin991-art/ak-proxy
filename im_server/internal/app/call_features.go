@@ -54,8 +54,33 @@ func (a *App) deleteCallSession(callID string) {
 	a.callSessionsMu.Unlock()
 }
 
+func (a *App) broadcastCallSessionEvent(session *imCallSession, eventType string, exclude *callHubConn, extra map[string]any) {
+	if a == nil || session == nil || a.callHub == nil {
+		return
+	}
+	if strings.TrimSpace(eventType) == "" {
+		eventType = "im.call.updated"
+	}
+	payload := session.toMap()
+	for k, v := range extra {
+		payload[k] = v
+	}
+	message := map[string]any{
+		"type":    eventType,
+		"payload": payload,
+	}
+	roles := map[string]struct{}{}
+	if strings.TrimSpace(session.CallerUsername) != "" {
+		roles["caller"] = struct{}{}
+	}
+	if strings.TrimSpace(session.CalleeUsername) != "" {
+		roles["callee"] = struct{}{}
+	}
+	a.callHub.publish(session.CallID, message, roles, exclude)
+}
+
 func (a *App) broadcastCallSession(session *imCallSession, includeRoles map[string]struct{}) {
-	if a == nil || a.callHub == nil || session == nil {
+	if a == nil || session == nil || a.callHub == nil {
 		return
 	}
 	payload := map[string]any{
