@@ -41,6 +41,30 @@
                 #ak-im-root.ak-view-meeting-publish .ak-im-meeting-publish-screen{display:flex}
                 #ak-im-root.ak-view-meeting-join .ak-im-meeting-join-screen{display:flex}
                 #ak-im-root.ak-view-external-page .ak-im-external-page-screen{display:flex}
+                #ak-im-root .ak-im-call-panel{display:none;position:absolute;inset:0;align-items:center;justify-content:center;pointer-events:none;opacity:0;transition:opacity .15s ease;z-index:20}
+                #ak-im-root .ak-im-call-panel[aria-hidden="false"]{display:flex;pointer-events:auto;opacity:1}
+                #ak-im-root .ak-im-call-backdrop{position:absolute;inset:0;background:rgba(15,23,42,.58)}
+                #ak-im-root .ak-im-call-card{position:relative;width:min(92vw,420px);border-radius:22px;background:#ffffff;box-shadow:0 24px 80px rgba(15,23,42,.32);padding:16px;display:flex;flex-direction:column;gap:12px}
+                #ak-im-root .ak-im-call-header{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
+                #ak-im-root .ak-im-call-title{font-size:18px;font-weight:700;color:#111827;line-height:1.35}
+                #ak-im-root .ak-im-call-subtitle{margin-top:4px;font-size:12px;color:#6b7280;line-height:1.45}
+                #ak-im-root .ak-im-call-close{width:34px;height:34px;border:none;border-radius:999px;background:#f3f4f6;color:#374151;font-size:20px;line-height:1;cursor:pointer}
+                #ak-im-root .ak-im-call-stage{position:relative;min-height:200px;border-radius:18px;background:#0f172a;overflow:hidden}
+                #ak-im-root .ak-im-call-remote,#ak-im-root .ak-im-call-local{display:block;width:100%;height:100%;object-fit:cover;background:#0f172a}
+                #ak-im-root .ak-im-call-local{position:absolute;right:12px;bottom:12px;width:110px;height:146px;border-radius:14px;box-shadow:0 10px 24px rgba(15,23,42,.3);border:1px solid rgba(255,255,255,.16)}
+                #ak-im-root .ak-im-call-audio{display:none}
+                #ak-im-root .ak-im-call-state{font-size:14px;color:#334155;line-height:1.6;min-height:24px}
+                #ak-im-root .ak-im-call-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+                #ak-im-root .ak-im-call-actions button{height:40px;border:none;border-radius:12px;font-size:14px;font-weight:700;cursor:pointer}
+                #ak-im-root .ak-im-call-accept,#ak-im-root .ak-im-call-hangup{background:#07c160;color:#ffffff}
+                #ak-im-root .ak-im-call-reject{background:#fee2e2;color:#dc2626}
+                #ak-im-root .ak-im-call-mute,#ak-im-root .ak-im-call-camera{background:#eef2ff;color:#1d4ed8}
+                #ak-im-root .ak-im-call-actions button:disabled{opacity:.45;cursor:not-allowed}
+                #ak-im-root .ak-im-chat-call-actions{display:inline-flex;align-items:center;gap:6px;flex:0 0 auto}
+                #ak-im-root .ak-im-chat-call-btn{width:30px;height:30px;border:none;border-radius:999px;background:rgba(7,193,96,.12);color:#07c160;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;padding:0}
+                #ak-im-root .ak-im-chat-call-btn svg{width:16px;height:16px;stroke:currentColor;fill:none}
+                #ak-im-root .ak-im-chat-call-btn.is-video{background:rgba(37,99,235,.12);color:#2563eb}
+                #ak-im-root .ak-im-chat-call-btn:disabled{opacity:.42;cursor:not-allowed}
                 #ak-im-root .ak-im-topbar{height:calc(56px + env(safe-area-inset-top, 0px));padding:calc(env(safe-area-inset-top, 0px) + 8px) 12px 8px;display:grid;grid-template-columns:52px 1fr 52px;align-items:center;background:#ededed;border-bottom:1px solid rgba(15,23,42,.06);box-sizing:border-box}
                 #ak-im-root .ak-im-session-screen .ak-im-topbar{grid-template-columns:80px minmax(0,1fr) 80px;column-gap:8px}
                 #ak-im-root .ak-im-topbar-title,#ak-im-root .ak-im-topbar-title-wrap{text-align:center;min-width:0}
@@ -769,6 +793,14 @@
                             <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M15 18L9 12L15 6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
                         </button>
                         <button class="ak-im-topbar-title-wrap ak-im-chat-title-btn" type="button" aria-label="聊天标题" disabled><div class="ak-im-chat-title">内部聊天</div><div class="ak-im-chat-subtitle">选择一个会话开始单聊</div></button>
+                        <div class="ak-im-chat-call-actions">
+                            <button class="ak-im-chat-call-btn" type="button" data-im-call-action="audio" aria-label="发起语音通话" disabled>
+                                <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6.5 5.5c2.7 0 4.9 2.2 4.9 4.9v1.2c0 .8.6 1.4 1.4 1.4h.8c1.3 0 2.4 1.1 2.4 2.4v1.3c0 1.1-.9 2-2 2h-1.8c-4.8 0-8.7-3.9-8.7-8.7V7.5c0-1.1.9-2 2-2z" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                            </button>
+                            <button class="ak-im-chat-call-btn is-video" type="button" data-im-call-action="video" aria-label="发起视频通话" disabled>
+                                <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M14 8.5v7l-5.5-3.5V8.5L14 8.5z" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M4.5 7.5h9.4c1.1 0 2 .9 2 2v5c0 1.1-.9 2-2 2H4.5c-1.1 0-2-.9-2-2v-5c0-1.1.9-2 2-2z" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                            </button>
+                        </div>
                         <button class="ak-im-nav-btn ak-im-chat-menu is-hidden" type="button" aria-label="群聊更多功能" disabled><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="6" cy="12" r="1.7" fill="currentColor"></circle><circle cx="12" cy="12" r="1.7" fill="currentColor"></circle><circle cx="18" cy="12" r="1.7" fill="currentColor"></circle></svg></button>
                     </div>
                     <div class="ak-im-message-list"></div>
@@ -898,6 +930,16 @@
                         <div class="ak-im-group-info-side" aria-hidden="true"></div>
                     </div>
                     <div class="ak-im-meeting-join-page"></div>
+                </div>
+                <div class="ak-im-screen ak-im-call-screen">
+                    <div class="ak-im-topbar">
+                        <button class="ak-im-nav-btn ak-im-call-close-btn" type="button" aria-label="关闭通话">关闭</button>
+                        <div class="ak-im-topbar-title">通话</div>
+                        <div class="ak-im-call-topbar-actions"></div>
+                    </div>
+                    <div class="ak-im-session-page" style="padding:16px 12px;">
+                        <div class="ak-im-call-state-view" style="background:#ffffff;border-radius:18px;padding:16px;min-height:160px;"></div>
+                    </div>
                 </div>
                 <div class="ak-im-screen ak-im-external-page-screen">
                     <div class="ak-im-topbar">
@@ -1122,6 +1164,13 @@
             });
             bindClick(elements.chatTitleBtnEl, function() {
                 if (typeof ctx.onChatTitleClick === 'function') ctx.onChatTitleClick();
+            });
+            Array.prototype.forEach.call(elements.callActionBtns || [], function(button) {
+                bindClick(button, function() {
+                    if (typeof ctx.onChatCallActionClick === 'function') {
+                        ctx.onChatCallActionClick(button.getAttribute('data-im-call-action'));
+                    }
+                });
             });
             bindDblClick(elements.chatTitleTapEl || elements.chatTitleBtnEl, function(event) {
                 if (event && typeof event.preventDefault === 'function') event.preventDefault();

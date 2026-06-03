@@ -49,6 +49,9 @@ type App struct {
 	sessionVisibility *sessionvisibility.Service
 	mediaTasks        *taskstore.Store
 	hub               *Hub
+	callHub           *callHub
+	callSessions      map[string]*imCallSession
+	callSessionsMu    sync.RWMutex
 	messageNotifier   *MessageNotifyPublisher
 	server            *http.Server
 	upgrader          websocket.Upgrader
@@ -257,7 +260,8 @@ func New(cfg config.Config) (*App, error) {
 	app := &App{
 		cfg:            cfg,
 		db:             pool,
-		hub:            &Hub{conns: map[string]map[*HubConn]struct{}{}},
+		callHub:         newCallHub(),
+		callSessions:    map[string]*imCallSession{},
 		messageNotifier: NewMessageNotifyPublisher(cfg),
 		fileVideoLocks: map[string]*sync.Mutex{},
 		upgrader: websocket.Upgrader{
@@ -349,13 +353,15 @@ func New(cfg config.Config) (*App, error) {
 	mux.HandleFunc("/im/api/messages/voice", app.handleSendVoiceMessage)
 	mux.HandleFunc("/im/api/messages/read_progress", app.handleMessageReadProgress)
 	mux.HandleFunc("/im/api/messages/recall", app.handleRecallMessage)
-	mux.HandleFunc("/im/api/meetings", app.handleMeetings)
-	mux.HandleFunc("/im/api/meetings/join", app.handleMeetingJoin)
-	mux.HandleFunc("/im/api/meetings/join-bridge.js", app.handleMeetingJoinBridgeScript)
-	mux.HandleFunc("/im/api/meetings/join_bridge_script", app.handleMeetingJoinBridgeScript)
-	mux.HandleFunc("/im/api/meetings/preview", app.handleMeetingPreview)
-	mux.HandleFunc("/im/api/meetings/read", app.handleMeetingRead)
-	mux.HandleFunc("/im/api/meetings/delete", app.handleMeetingDelete)
+	mux.HandleFunc("/im/api/call", app.handleCallRoutes)
+	mux.HandleFunc("/im/api/call/start", app.handleCallRoutes)
+	mux.HandleFunc("/im/api/call/state", app.handleCallRoutes)
+	mux.HandleFunc("/im/api/call/accept", app.handleCallRoutes)
+	mux.HandleFunc("/im/api/call/reject", app.handleCallRoutes)
+	mux.HandleFunc("/im/api/call/hangup", app.handleCallRoutes)
+	mux.HandleFunc("/im/api/call/ws", app.handleCallHub)
+	mux.HandleFunc("/im/api/call/hub", app.handleCallHub)
+
 	mux.HandleFunc("/im/internal/meetings/publish", app.handleInternalMeetingPublish)
 	mux.HandleFunc("/im/internal/whitelist_groups/sync", app.handleInternalWhitelistGroupSync)
 	mux.HandleFunc("/im/internal/group_profile", app.handleInternalGroupProfile)
@@ -2365,7 +2371,10 @@ func (a *App) handleWS(w http.ResponseWriter, r *http.Request) {
 		if err := client.conn.ReadJSON(&env); err != nil {
 			return
 		}
-		switch env.Type {
+			if a.handleCallSignal(username, client, env, r) {
+				continue
+			}
+			switch env.Type {
 		case "im.presence.ping":
 			_ = client.WriteJSON(map[string]any{"type": "im.presence.pong", "payload": map[string]any{"ts": time.Now().Unix()}})
 		case "im.message.send":

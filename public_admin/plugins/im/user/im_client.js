@@ -93,7 +93,13 @@
             src: `${API_ROOT}/chat/plugins/im/user/modules/im_voice_hold_manage.js`,
             errorMessage: '语音模块加载失败'
 	    },
-	    social: {
+        callManage: {
+            selector: 'script[data-ak-im-user-plugin-call-manage="1"]',
+            datasetKey: 'akImUserPluginCallManage',
+            src: `${API_ROOT}/chat/plugins/im/user/modules/im_call_manage.js`,
+            errorMessage: '通话模块加载失败'
+        },
+        social: {
 	        selector: 'script[data-ak-im-user-plugin-social-manage="1"]',
 	        datasetKey: 'akImUserPluginSocialManage',
 	        src: `${API_ROOT}/chat/plugins/im/user/modules/social/im_social_manage.js`,
@@ -1439,7 +1445,28 @@
             onBackClick: showSessionsView,
             onChatMenuClick: openActiveGroupMenu,
             onChatTitleClick: openActiveGroupSettings,
-            onChatTitleDebugClick: function() {
+            onChatCallAudioClick: function() {
+                const callManageModule = getCallManageModule();
+                const activeSession = getActiveSession();
+                if (!callManageModule || typeof callManageModule.openOutgoing !== 'function' || !activeSession) return;
+                callManageModule.openOutgoing({
+                    kind: 'audio',
+                    conversationId: Number(activeSession.conversation_id || 0),
+                    peerName: getSessionDisplayName(activeSession),
+                    title: getSessionDisplayName(activeSession)
+                });
+            },
+            onChatCallVideoClick: function() {
+                const callManageModule = getCallManageModule();
+                const activeSession = getActiveSession();
+                if (!callManageModule || typeof callManageModule.openOutgoing !== 'function' || !activeSession) return;
+                callManageModule.openOutgoing({
+                    kind: 'video',
+                    conversationId: Number(activeSession.conversation_id || 0),
+                    peerName: getSessionDisplayName(activeSession),
+                    title: getSessionDisplayName(activeSession)
+                });
+            },
                 try {
                     if (typeof window.__AKIMShowDebugModal === 'function') {
                         window.__AKIMShowDebugModal();
@@ -1479,6 +1506,35 @@
             onMeetingPublishBackClick: closeMeetingPublishPage,
             onMeetingJoinBackClick: closeMeetingJoinPage,
             onExternalPageBackClick: closeExternalPage
+        });
+    }
+
+    function getCallManageModule() {
+        const modules = window.AKIMUserModules;
+        if (!modules || typeof modules !== 'object') return null;
+        const callManageModule = modules.callManage;
+        if (!callManageModule || typeof callManageModule.init !== 'function') return null;
+        return callManageModule;
+    }
+
+    function initCallManageModule() {
+        const callManageModule = getCallManageModule();
+        if (!callManageModule) return;
+        callManageModule.init({
+            state: state,
+            getRoot: function() {
+                return root;
+            },
+            getShellState: getShellRenderState,
+            openCall: function(kind, payload) {
+                if (typeof callManageModule.openOutgoing !== 'function') return;
+                callManageModule.openOutgoing(Object.assign({
+                    kind: kind,
+                    title: activeSession ? getSessionDisplayName(activeSession) : '联系人',
+                    peerName: activeSession ? getSessionDisplayName(activeSession) : '联系人',
+                    conversationId: state.activeConversationId || 0
+                }, payload || {}));
+            }
         });
     }
 
