@@ -41,25 +41,6 @@
                 #ak-im-root.ak-view-meeting-publish .ak-im-meeting-publish-screen{display:flex}
                 #ak-im-root.ak-view-meeting-join .ak-im-meeting-join-screen{display:flex}
                 #ak-im-root.ak-view-external-page .ak-im-external-page-screen{display:flex}
-                #ak-im-root .ak-im-call-panel{display:none;position:absolute;inset:0;align-items:center;justify-content:center;pointer-events:none;opacity:0;transition:opacity .15s ease;z-index:20}
-                #ak-im-root .ak-im-call-panel[aria-hidden="false"]{display:flex;pointer-events:auto;opacity:1}
-                #ak-im-root .ak-im-call-backdrop{position:absolute;inset:0;background:rgba(15,23,42,.58)}
-                #ak-im-root .ak-im-call-card{position:relative;width:min(92vw,420px);border-radius:22px;background:#ffffff;box-shadow:0 24px 80px rgba(15,23,42,.32);padding:16px;display:flex;flex-direction:column;gap:12px}
-                #ak-im-root .ak-im-call-header{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
-                #ak-im-root .ak-im-call-title{font-size:18px;font-weight:700;color:#111827;line-height:1.35}
-                #ak-im-root .ak-im-call-subtitle{margin-top:4px;font-size:12px;color:#6b7280;line-height:1.45}
-                #ak-im-root .ak-im-call-close{width:34px;height:34px;border:none;border-radius:999px;background:#f3f4f6;color:#374151;font-size:20px;line-height:1;cursor:pointer}
-                #ak-im-root .ak-im-call-stage{position:relative;min-height:200px;border-radius:18px;background:#0f172a;overflow:hidden}
-                #ak-im-root .ak-im-call-remote,#ak-im-root .ak-im-call-local{display:block;width:100%;height:100%;object-fit:cover;background:#0f172a}
-                #ak-im-root .ak-im-call-local{position:absolute;right:12px;bottom:12px;width:110px;height:146px;border-radius:14px;box-shadow:0 10px 24px rgba(15,23,42,.3);border:1px solid rgba(255,255,255,.16)}
-                #ak-im-root .ak-im-call-audio{display:none}
-                #ak-im-root .ak-im-call-state{font-size:14px;color:#334155;line-height:1.6;min-height:24px}
-                #ak-im-root .ak-im-call-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
-                #ak-im-root .ak-im-call-actions button{height:40px;border:none;border-radius:12px;font-size:14px;font-weight:700;cursor:pointer}
-                #ak-im-root .ak-im-call-accept,#ak-im-root .ak-im-call-hangup{background:#07c160;color:#ffffff}
-                #ak-im-root .ak-im-call-reject{background:#fee2e2;color:#dc2626}
-                #ak-im-root .ak-im-call-mute,#ak-im-root .ak-im-call-camera{background:#eef2ff;color:#1d4ed8}
-                #ak-im-root .ak-im-call-actions button:disabled{opacity:.45;cursor:not-allowed}
                 #ak-im-root .ak-im-chat-call-actions{display:inline-flex;align-items:center;gap:6px;flex:0 0 auto}
                 #ak-im-root .ak-im-chat-call-btn{width:30px;height:30px;border:none;border-radius:999px;background:rgba(7,193,96,.12);color:#07c160;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;padding:0}
                 #ak-im-root .ak-im-chat-call-btn svg{width:16px;height:16px;stroke:currentColor;fill:none}
