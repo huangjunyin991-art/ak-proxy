@@ -96,6 +96,7 @@
                             .ak-im-call-stage-placeholder{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;text-align:center;color:rgba(255,255,255,.8);}
                             .ak-im-call-stage-icon{width:92px;height:92px;border-radius:46px;display:flex;align-items:center;justify-content:center;font-size:38px;background:rgba(255,255,255,.09);box-shadow:inset 0 0 0 1px rgba(255,255,255,.1);}
                             .ak-im-call-stage-text{font-size:15px;letter-spacing:.02em;}
+                            @keyframes akImCallPulse{0%{transform:scale(1);box-shadow:inset 0 0 0 1px rgba(255,255,255,.1),0 0 0 0 rgba(56,189,248,.28);}50%{transform:scale(1.06);box-shadow:inset 0 0 0 1px rgba(255,255,255,.16),0 0 0 18px rgba(56,189,248,0);}100%{transform:scale(1);box-shadow:inset 0 0 0 1px rgba(255,255,255,.1),0 0 0 0 rgba(56,189,248,0);}}
                             .ak-im-call-remote{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;border-radius:0;display:block;background:#020617;}
                             .ak-im-call-local{position:absolute;right:18px;bottom:18px;width:120px;height:160px;object-fit:cover;border-radius:16px;border:1px solid rgba(255,255,255,.22);box-shadow:0 12px 30px rgba(0,0,0,.35);background:#0b1220;}
                             .ak-im-call-audio{display:none;}
@@ -283,21 +284,28 @@
             const reasonKey = String(this.lastFailReason || '').trim();
             const reasonText = reasonKey && CALL_FAIL_REASON_TEXT[reasonKey] ? CALL_FAIL_REASON_TEXT[reasonKey] : '';
             const statusText = this.mode === CALL_MODES.failed && reasonText ? reasonText : (CALL_STATUS_TEXT[this.mode] || '');
+            const isIncoming = this.mode === CALL_MODES.incoming;
+            const isActive = this.mode === CALL_MODES.active;
+            const isPending = this.mode === CALL_MODES.outgoing || this.mode === CALL_MODES.incoming;
             refs.panel.setAttribute('aria-hidden', visible ? 'false' : 'true');
             refs.panel.style.display = visible ? 'flex' : 'none';
+            refs.panel.dataset.mode = this.mode;
             if (refs.title) refs.title.textContent = this.currentPeerName || '通话';
             if (refs.subtitle) refs.subtitle.textContent = statusText;
             if (refs.state) refs.state.textContent = statusText;
-            if (refs.accept) refs.accept.style.display = this.mode === CALL_MODES.incoming ? 'inline-flex' : 'none';
-            if (refs.reject) refs.reject.style.display = this.mode === CALL_MODES.incoming ? 'inline-flex' : 'none';
+            if (refs.accept) refs.accept.style.display = isIncoming ? 'inline-flex' : 'none';
+            if (refs.reject) refs.reject.style.display = isIncoming ? 'inline-flex' : 'none';
             if (refs.hangup) refs.hangup.style.display = this.mode === CALL_MODES.active || this.mode === CALL_MODES.outgoing ? 'inline-flex' : 'none';
-            if (refs.mute) refs.mute.style.display = this.mode === CALL_MODES.active ? 'inline-flex' : 'none';
-            if (refs.camera) refs.camera.style.display = this.mode === CALL_MODES.active ? 'inline-flex' : 'none';
-            if (refs.remoteVideo) refs.remoteVideo.style.display = this.mode === CALL_MODES.active ? 'block' : 'none';
-            if (refs.localVideo) refs.localVideo.style.display = this.mode === CALL_MODES.active ? 'block' : 'none';
+            if (refs.mute) refs.mute.style.display = isActive ? 'inline-flex' : 'none';
+            if (refs.camera) refs.camera.style.display = isActive ? 'inline-flex' : 'none';
+            if (refs.remoteVideo) refs.remoteVideo.style.display = isActive ? 'block' : 'none';
+            if (refs.localVideo) refs.localVideo.style.display = isActive ? 'block' : 'none';
             const placeholder = refs.panel.querySelector('.ak-im-call-stage-placeholder');
-            if (placeholder) placeholder.style.display = this.mode === CALL_MODES.active ? 'none' : 'flex';
-            if (refs.panel) refs.panel.dataset.mode = this.mode;
+            if (placeholder) placeholder.style.display = isActive ? 'none' : 'flex';
+            const avatar = refs.panel.querySelector('.ak-im-call-avatar');
+            if (avatar) avatar.style.transform = isPending ? 'scale(1.06)' : 'scale(1)';
+            const stageIcon = refs.panel.querySelector('.ak-im-call-stage-icon');
+            if (stageIcon) stageIcon.style.animation = isPending ? 'akImCallPulse 1.8s ease-in-out infinite' : 'none';
         },
 
         openOutgoing(payload) {
