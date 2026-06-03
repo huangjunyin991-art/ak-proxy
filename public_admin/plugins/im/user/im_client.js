@@ -1466,13 +1466,6 @@
                     peerName: getSessionDisplayName(activeSession),
                     title: getSessionDisplayName(activeSession)
                 });
-            },
-                try {
-                    if (typeof window.__AKIMShowDebugModal === 'function') {
-                        window.__AKIMShowDebugModal();
-                    }
-                } catch (e) {}
-            },
             onComposeBackClick: closeComposeView,
             onComposeCloseClick: closeComposeView,
             onNewSessionClick: startDirectSession,
