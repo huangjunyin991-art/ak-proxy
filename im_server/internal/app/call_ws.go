@@ -22,10 +22,11 @@ type callSignalPayload struct {
 	PageID         string `json:"page_id,omitempty"`
 	CallKind       string `json:"call_kind,omitempty"`
 	Muted          bool   `json:"muted,omitempty"`
+	SDP            any    `json:"sdp,omitempty"`
+	Candidate      any    `json:"candidate,omitempty"`
 }
 
 func (a *App) handleCallSignal(username string, client *HubConn, env wsEnvelope, r *http.Request) bool {
-	_ = r
 	var payload callSignalPayload
 	if len(env.Payload) > 0 {
 		_ = json.Unmarshal(env.Payload, &payload)
@@ -47,16 +48,17 @@ func (a *App) handleCallSignal(username string, client *HubConn, env wsEnvelope,
 			sendError(err.Error())
 			return true
 		}
-		session.Status = IMCallStatusRinging
-		session.RingingAt = time.Now()
-		session.touch()
-		a.broadcastCallSessionEvent(session, "im.call.started", nil, nil)
-		a.broadcastCallSessionEvent(session, "im.call.ringing", nil, nil)
+		a.sendCallEventToUsername(session.CallerUsername, "im.call.started", session.toMap())
+		a.sendCallEventToUsername(session.CalleeUsername, "im.call.ringing", session.toMap())
 		return true
 	case "im.call.accept":
 		session := a.getCallSession(payload.CallID)
 		if session == nil {
 			sendError("call not found")
+			return true
+		}
+		if a.callUserRole(session, username) != "callee" {
+			sendError("forbidden")
 			return true
 		}
 		session.Status = IMCallStatusActive
@@ -67,6 +69,8 @@ func (a *App) handleCallSignal(username string, client *HubConn, env wsEnvelope,
 		if session.ConnectedAt.IsZero() {
 			session.ConnectedAt = now
 		}
+		session.CalleeWSID = strings.TrimSpace(payload.WSID)
+		session.CalleePageID = strings.TrimSpace(payload.PageID)
 		session.touch()
 		a.broadcastCallSessionEvent(session, "im.call.accepted", nil, nil)
 		a.broadcastCallSessionEvent(session, "im.call.connected", nil, nil)
@@ -74,6 +78,10 @@ func (a *App) handleCallSignal(username string, client *HubConn, env wsEnvelope,
 	case "im.call.reject":
 		session := a.getCallSession(payload.CallID)
 		if session == nil {
+			return true
+		}
+		if a.callUserRole(session, username) == "" {
+			sendError("forbidden")
 			return true
 		}
 		session.Status = IMCallStatusFailed
@@ -87,6 +95,10 @@ func (a *App) handleCallSignal(username string, client *HubConn, env wsEnvelope,
 		if session == nil {
 			return true
 		}
+		if a.callUserRole(session, username) == "" {
+			sendError("forbidden")
+			return true
+		}
 		session.Status = IMCallStatusEnded
 		session.EndedAt = time.Now()
 		session.touch()
@@ -98,13 +110,53 @@ func (a *App) handleCallSignal(username string, client *HubConn, env wsEnvelope,
 		if session == nil {
 			return true
 		}
+		role := a.callUserRole(session, username)
+		if role == "" {
+			sendError("forbidden")
+			return true
+		}
 		if strings.EqualFold(username, session.CallerUsername) {
 			session.CallerMuted = payload.Muted
 		} else if strings.EqualFold(username, session.CalleeUsername) {
 			session.CalleeMuted = payload.Muted
 		}
 		session.touch()
-		a.broadcastCallSessionEvent(session, "im.call.updated", nil, nil)
+		a.broadcastCallSessionEvent(session, "im.call.updated", nil, map[string]any{"muted_by": role})
+		return true
+	case "im.call.offer", "im.call.answer", "im.call.ice":
+		session := a.getCallSession(payload.CallID)
+		if session == nil {
+			sendError("call not found")
+			return true
+		}
+		role := a.callUserRole(session, username)
+		if role == "" {
+			sendError("forbidden")
+			return true
+		}
+		peerUsername := callPeerUsername(session, username)
+		if peerUsername == "" {
+			sendError("peer not found")
+			return true
+		}
+		forward := map[string]any{
+			"call_id":          session.CallID,
+			"conversation_id":  session.ConversationID,
+			"caller_username":  session.CallerUsername,
+			"callee_username":  session.CalleeUsername,
+			"call_kind":        session.CallKind,
+			"from_username":    normalizeCallUsername(username),
+			"from_role":        role,
+			"to_username":      peerUsername,
+			"status":           string(session.Status),
+		}
+		if payload.SDP != nil {
+			forward["sdp"] = payload.SDP
+		}
+		if payload.Candidate != nil {
+			forward["candidate"] = payload.Candidate
+		}
+		a.sendCallEventToUsername(peerUsername, env.Type, forward)
 		return true
 	}
 	return false

@@ -260,6 +260,7 @@ func New(cfg config.Config) (*App, error) {
 	app := &App{
 		cfg:            cfg,
 		db:             pool,
+		hub:            &Hub{conns: map[string]map[*HubConn]struct{}{}},
 		callHub:         newCallHub(),
 		callSessions:    map[string]*imCallSession{},
 		messageNotifier: NewMessageNotifyPublisher(cfg),

@@ -3,7 +3,7 @@ package app
 import "time"
 
 const imCallTimeoutSeconds = 30
-const imCallActiveTimeoutSeconds = 45
+const imCallActiveTimeoutSeconds = 2 * 60 * 60
 
 type IMCallStatus string
 

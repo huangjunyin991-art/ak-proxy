@@ -26,6 +26,14 @@ type imCallActionRequest struct {
 	Muted  bool   `json:"muted,omitempty"`
 }
 
+func normalizeCallID(value string) string {
+	return strings.TrimSpace(value)
+}
+
+func normalizeCallUsername(value string) string {
+	return strings.ToLower(strings.TrimSpace(value))
+}
+
 func (a *App) upsertCallSession(session *imCallSession) {
 	if a == nil || session == nil {
 		return
@@ -40,7 +48,7 @@ func (a *App) getCallSession(callID string) *imCallSession {
 		return nil
 	}
 	a.callSessionsMu.RLock()
-	session := a.callSessions[strings.TrimSpace(callID)]
+	session := a.callSessions[normalizeCallID(callID)]
 	a.callSessionsMu.RUnlock()
 	return session
 }
@@ -50,14 +58,15 @@ func (a *App) deleteCallSession(callID string) {
 		return
 	}
 	a.callSessionsMu.Lock()
-	delete(a.callSessions, strings.TrimSpace(callID))
+	delete(a.callSessions, normalizeCallID(callID))
 	a.callSessionsMu.Unlock()
 }
 
 func (a *App) broadcastCallSessionEvent(session *imCallSession, eventType string, exclude *callHubConn, extra map[string]any) {
-	if a == nil || session == nil || a.callHub == nil {
+	if a == nil || session == nil {
 		return
 	}
+	_ = exclude
 	if strings.TrimSpace(eventType) == "" {
 		eventType = "im.call.updated"
 	}
@@ -69,25 +78,19 @@ func (a *App) broadcastCallSessionEvent(session *imCallSession, eventType string
 		"type":    eventType,
 		"payload": payload,
 	}
-	roles := map[string]struct{}{}
-	if strings.TrimSpace(session.CallerUsername) != "" {
-		roles["caller"] = struct{}{}
-	}
-	if strings.TrimSpace(session.CalleeUsername) != "" {
-		roles["callee"] = struct{}{}
-	}
-	a.callHub.publish(session.CallID, message, roles, exclude)
+	a.broadcastUsernames(callParticipantSet(session), message)
 }
 
 func (a *App) broadcastCallSession(session *imCallSession, includeRoles map[string]struct{}) {
-	if a == nil || session == nil || a.callHub == nil {
+	if a == nil || session == nil {
 		return
 	}
+	_ = includeRoles
 	payload := map[string]any{
 		"type": "im.call.session_state",
 		"payload": session.toMap(),
 	}
-	a.callHub.publish(session.CallID, payload, includeRoles, nil)
+	a.broadcastUsernames(callParticipantSet(session), payload)
 }
 
 func (a *App) loadCallSessionState(callID string) map[string]any {
@@ -102,12 +105,13 @@ func (a *App) createCallSession(ctx context.Context, req imCallRequest) (*imCall
 	if a == nil {
 		return nil, errors.New("app unavailable")
 	}
+	a.maybePruneCalls()
 	conversationID := req.ConversationID
 	if conversationID <= 0 {
 		return nil, errors.New("invalid conversation_id")
 	}
-	caller := strings.ToLower(strings.TrimSpace(req.CallerUsername))
-	callee := strings.ToLower(strings.TrimSpace(req.CalleeUsername))
+	caller := normalizeCallUsername(req.CallerUsername)
+	callee := normalizeCallUsername(req.CalleeUsername)
 	if caller == "" || callee == "" {
 		return nil, errors.New("missing caller_username or callee_username")
 	}
@@ -117,12 +121,21 @@ func (a *App) createCallSession(ctx context.Context, req imCallRequest) (*imCall
 	if !a.ensureConversationMember(ctx, fmt.Sprint(conversationID), caller) {
 		return nil, errors.New("forbidden")
 	}
-	existing := a.findActiveCallByConversation(conversationID)
-	if existing != nil {
-		existing.Status = IMCallStatusBusy
-		existing.touch()
-		a.broadcastCallSession(existing, nil)
-		return existing, nil
+	if !a.ensureConversationMember(ctx, fmt.Sprint(conversationID), callee) {
+		return nil, errors.New("callee not in conversation")
+	}
+	meta, err := a.loadConversationMeta(ctx, conversationID)
+	if err != nil {
+		return nil, err
+	}
+	if meta.ConversationType != "direct" {
+		return nil, errors.New("call only supports direct conversations")
+	}
+	if existing := a.findActiveCallByConversation(conversationID); existing != nil {
+		return nil, errors.New("busy")
+	}
+	if existing := a.findActiveCallByUser(caller, callee); existing != nil {
+		return nil, errors.New("busy")
 	}
 	session := &imCallSession{
 		CallID:         newCallID(),
@@ -134,9 +147,10 @@ func (a *App) createCallSession(ctx context.Context, req imCallRequest) (*imCall
 		CreatedAt:      time.Now(),
 		UpdatedAt:      time.Now(),
 		RingingAt:      time.Now(),
+		CallerWSID:     strings.TrimSpace(req.WSID),
+		CallerPageID:   strings.TrimSpace(req.PageID),
 	}
 	a.upsertCallSession(session)
-	a.broadcastCallSession(session, map[string]struct{}{caller: {}, callee: {}})
 	return session, nil
 }
 
@@ -158,11 +172,97 @@ func (a *App) findActiveCallByConversation(conversationID int64) *imCallSession 
 		if session == nil || session.ConversationID != conversationID {
 			continue
 		}
-		if session.Status == IMCallStatusRinging || session.Status == IMCallStatusDialing || session.Status == IMCallStatusActive {
+		if callSessionAlive(session) {
 			return session
 		}
 	}
 	return nil
+}
+
+func (a *App) findActiveCallByUser(usernames ...string) *imCallSession {
+	if a == nil || len(usernames) == 0 {
+		return nil
+	}
+	userSet := map[string]struct{}{}
+	for _, username := range usernames {
+		normalizedUsername := normalizeCallUsername(username)
+		if normalizedUsername != "" {
+			userSet[normalizedUsername] = struct{}{}
+		}
+	}
+	if len(userSet) == 0 {
+		return nil
+	}
+	a.callSessionsMu.RLock()
+	defer a.callSessionsMu.RUnlock()
+	for _, session := range a.callSessions {
+		if session == nil || !callSessionAlive(session) {
+			continue
+		}
+		if _, ok := userSet[normalizeCallUsername(session.CallerUsername)]; ok {
+			return session
+		}
+		if _, ok := userSet[normalizeCallUsername(session.CalleeUsername)]; ok {
+			return session
+		}
+	}
+	return nil
+}
+
+func callParticipantSet(session *imCallSession) map[string]struct{} {
+	result := map[string]struct{}{}
+	if session == nil {
+		return result
+	}
+	if caller := normalizeCallUsername(session.CallerUsername); caller != "" {
+		result[caller] = struct{}{}
+	}
+	if callee := normalizeCallUsername(session.CalleeUsername); callee != "" {
+		result[callee] = struct{}{}
+	}
+	return result
+}
+
+func (a *App) callUserRole(session *imCallSession, username string) string {
+	normalizedUsername := normalizeCallUsername(username)
+	if session == nil || normalizedUsername == "" {
+		return ""
+	}
+	if strings.EqualFold(session.CallerUsername, normalizedUsername) {
+		return "caller"
+	}
+	if strings.EqualFold(session.CalleeUsername, normalizedUsername) {
+		return "callee"
+	}
+	return ""
+}
+
+func callPeerUsername(session *imCallSession, username string) string {
+	normalizedUsername := normalizeCallUsername(username)
+	if session == nil || normalizedUsername == "" {
+		return ""
+	}
+	if strings.EqualFold(session.CallerUsername, normalizedUsername) {
+		return normalizeCallUsername(session.CalleeUsername)
+	}
+	if strings.EqualFold(session.CalleeUsername, normalizedUsername) {
+		return normalizeCallUsername(session.CallerUsername)
+	}
+	return ""
+}
+
+func (a *App) sendCallEventToUsername(username string, eventType string, payload map[string]any) {
+	normalizedUsername := normalizeCallUsername(username)
+	if a == nil || normalizedUsername == "" {
+		return
+	}
+	if strings.TrimSpace(eventType) == "" {
+		eventType = "im.call.updated"
+	}
+	a.hub.send(normalizedUsername, map[string]any{
+		"type":    eventType,
+		"payload": payload,
+	})
 }
 
 func (a *App) handleCallStart(w http.ResponseWriter, r *http.Request) {
@@ -218,23 +318,19 @@ func (a *App) handleCallAction(w http.ResponseWriter, r *http.Request, action st
 		writeJSON(w, http.StatusNotFound, map[string]any{"error": true, "message": "call not found"})
 		return
 	}
-	role := strings.ToLower(strings.TrimSpace(req.Role))
-	if role == "" {
-		if strings.EqualFold(session.CallerUsername, username) {
-			role = "caller"
-		} else if strings.EqualFold(session.CalleeUsername, username) {
-			role = "callee"
-		}
-	}
+	role := a.callUserRole(session, username)
 	if role == "" {
 		writeJSON(w, http.StatusForbidden, map[string]any{"error": true, "message": "forbidden"})
 		return
 	}
 	switch action {
 	case "accept":
+		if role != "callee" {
+			writeJSON(w, http.StatusForbidden, map[string]any{"error": true, "message": "forbidden"})
+			return
+		}
 		session.Status = IMCallStatusActive
 		now := time.Now()
-		session.AcceptedAt = session.AcceptedAt
 		if session.AcceptedAt.IsZero() {
 			session.AcceptedAt = now
 		}
@@ -248,18 +344,35 @@ func (a *App) handleCallAction(w http.ResponseWriter, r *http.Request, action st
 		session.Status = IMCallStatusEnded
 		session.EndedAt = time.Now()
 	case "mute":
-		session.CallerMuted = req.Muted
+		if role == "caller" {
+			session.CallerMuted = req.Muted
+		} else {
+			session.CalleeMuted = req.Muted
+		}
 	case "unmute":
-		session.CalleeMuted = req.Muted
+		if role == "caller" {
+			session.CallerMuted = req.Muted
+		} else {
+			session.CalleeMuted = req.Muted
+		}
 	default:
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": true, "message": "unsupported action"})
 		return
 	}
 	session.touch()
-	if session.Status == IMCallStatusEnded || session.Status == IMCallStatusFailed || session.Status == IMCallStatusBusy || session.Status == IMCallStatusTimeout {
+	switch action {
+	case "accept":
+		a.broadcastCallSessionEvent(session, "im.call.accepted", nil, nil)
+		a.broadcastCallSessionEvent(session, "im.call.connected", nil, nil)
+	case "reject":
+		a.broadcastCallSessionEvent(session, "im.call.failed", nil, nil)
 		defer a.deleteCallSession(session.CallID)
+	case "hangup":
+		a.broadcastCallSessionEvent(session, "im.call.ended", nil, nil)
+		defer a.deleteCallSession(session.CallID)
+	case "mute", "unmute":
+		a.broadcastCallSessionEvent(session, "im.call.updated", nil, map[string]any{"muted_by": role})
 	}
-	a.broadcastCallSession(session, map[string]struct{}{session.CallerUsername: {}, session.CalleeUsername: {}})
 	writeJSON(w, http.StatusOK, map[string]any{"success": true, "session": session.toMap()})
 }
 
