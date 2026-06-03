@@ -81,22 +81,25 @@
                 wrapper.innerHTML = `
                     <div class="ak-im-call-panel" aria-hidden="true" style="display:none;">
                         <style>
-                            .ak-im-call-panel{position:fixed;inset:0;z-index:99999;display:flex;align-items:stretch;justify-content:stretch;background:rgba(7,10,20,.78);backdrop-filter:blur(14px);}
+                            .ak-im-call-panel{position:fixed;inset:0;z-index:99999;display:flex;align-items:center;justify-content:center;padding:18px;background:rgba(7,10,20,.78);backdrop-filter:blur(14px);}
                             .ak-im-call-backdrop{position:absolute;inset:0;}
-                            .ak-im-call-card{position:relative;z-index:1;width:100%;height:100%;display:flex;flex-direction:column;background:linear-gradient(180deg,#0b1220 0%,#111827 42%,#020617 100%);color:#fff;overflow:hidden;}
+                            .ak-im-call-card{position:relative;z-index:1;width:min(100%,960px);height:min(100%,900px);max-height:100%;display:flex;flex-direction:column;background:linear-gradient(180deg,#0b1220 0%,#111827 42%,#020617 100%);color:#fff;overflow:hidden;border-radius:28px;box-shadow:0 32px 90px rgba(0,0,0,.45);}
                             .ak-im-call-topbar{display:flex;align-items:center;justify-content:space-between;padding:16px 16px 10px;gap:12px;background:rgba(255,255,255,.03);}
                             .ak-im-call-topbar-inner{flex:1;display:flex;align-items:center;gap:12px;min-width:0;justify-content:center;}
                             .ak-im-call-spacer{width:36px;height:36px;flex:0 0 36px;}
-                            .ak-im-call-avatar{width:44px;height:44px;border-radius:22px;background:linear-gradient(135deg,#38bdf8 0%,#8b5cf6 100%);box-shadow:0 8px 24px rgba(59,130,246,.28);flex:0 0 auto;}
-                            .ak-im-call-topbar-text{min-width:0;text-align:left;}
+                            .ak-im-call-avatar{width:52px;height:52px;border-radius:26px;background:linear-gradient(135deg,#34d399 0%,#10b981 100%);box-shadow:0 12px 28px rgba(16,185,129,.28);flex:0 0 auto;transition:transform .18s ease;}
+                            .ak-im-call-topbar-text{min-width:0;text-align:center;}
                             .ak-im-call-title{font-size:18px;font-weight:700;line-height:1.2;}
                             .ak-im-call-subtitle{margin-top:6px;font-size:13px;color:rgba(255,255,255,.72);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:min(60vw,360px);}
                             .ak-im-call-close{width:36px;height:36px;border:none;border-radius:18px;background:rgba(255,255,255,.12);color:#fff;font-size:24px;line-height:36px;cursor:pointer;flex:0 0 auto;}
-                            .ak-im-call-stage{position:relative;flex:1;display:flex;align-items:center;justify-content:center;padding:18px 18px 12px;background:radial-gradient(circle at top,#1e293b 0%,#0f172a 52%,#020617 100%);}
-                            .ak-im-call-stage-placeholder{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;text-align:center;color:rgba(255,255,255,.8);}
+                            .ak-im-call-stage{position:relative;flex:1;display:flex;align-items:center;justify-content:center;padding:18px 18px 12px;background:radial-gradient(circle at top,#1e293b 0%,#0f172a 52%,#020617 100%);overflow:hidden;}
+                            .ak-im-call-stage-placeholder{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;text-align:center;color:rgba(255,255,255,.8);position:relative;z-index:1;}
                             .ak-im-call-stage-icon{width:92px;height:92px;border-radius:46px;display:flex;align-items:center;justify-content:center;font-size:38px;background:rgba(255,255,255,.09);box-shadow:inset 0 0 0 1px rgba(255,255,255,.1);}
                             .ak-im-call-stage-text{font-size:15px;letter-spacing:.02em;}
-                            @keyframes akImCallPulse{0%{transform:scale(1);box-shadow:inset 0 0 0 1px rgba(255,255,255,.1),0 0 0 0 rgba(56,189,248,.28);}50%{transform:scale(1.06);box-shadow:inset 0 0 0 1px rgba(255,255,255,.16),0 0 0 18px rgba(56,189,248,0);}100%{transform:scale(1);box-shadow:inset 0 0 0 1px rgba(255,255,255,.1),0 0 0 0 rgba(56,189,248,0);}}
+                            .ak-im-call-stage-pulse{position:absolute;inset:auto;top:50%;left:50%;width:220px;height:220px;border-radius:50%;transform:translate(-50%,-50%);background:radial-gradient(circle, rgba(56,189,248,.18) 0%, rgba(56,189,248,0) 70%);opacity:0;pointer-events:none;}
+                            @keyframes akImCallPulse{0%{transform:translate(-50%,-50%) scale(.82);opacity:.2}50%{transform:translate(-50%,-50%) scale(1.05);opacity:.55}100%{transform:translate(-50%,-50%) scale(1.18);opacity:0}}
+                            .ak-im-call-remote{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;border-radius:0;display:block;background:#020617;}
+                            .ak-im-call-local{position:absolute;right:18px;bottom:18px;width:120px;height:160px;object-fit:cover;border-radius:16px;border:1px solid rgba(255,255,255,.22);box-shadow:0 12px 30px rgba(0,0,0,.35);background:#0b1220;}
                             .ak-im-call-remote{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;border-radius:0;display:block;background:#020617;}
                             .ak-im-call-local{position:absolute;right:18px;bottom:18px;width:120px;height:160px;object-fit:cover;border-radius:16px;border:1px solid rgba(255,255,255,.22);box-shadow:0 12px 30px rgba(0,0,0,.35);background:#0b1220;}
                             .ak-im-call-audio{display:none;}
@@ -107,7 +110,7 @@
                             .ak-im-call-accept{background:#22c55e;color:#fff;}
                             .ak-im-call-hangup{background:#f97316;color:#fff;}
                             .ak-im-call-mute,.ak-im-call-camera{background:rgba(255,255,255,.1);color:#fff;}
-                            @media (max-width: 768px){.ak-im-call-stage{padding:14px 14px 10px}.ak-im-call-local{width:92px;height:122px;right:12px;bottom:12px}.ak-im-call-actions{gap:10px;padding-left:12px;padding-right:12px}.ak-im-call-actions button{min-width:84px}.ak-im-call-title{font-size:17px}.ak-im-call-avatar{width:40px;height:40px}.ak-im-call-stage-icon{width:84px;height:84px;font-size:34px}}
+                            @media (max-width: 768px){.ak-im-call-panel{padding:0}.ak-im-call-card{width:100%;height:100%;border-radius:0;box-shadow:none}.ak-im-call-stage{padding:14px 14px 10px}.ak-im-call-local{width:92px;height:122px;right:12px;bottom:12px}.ak-im-call-actions{gap:10px;padding-left:12px;padding-right:12px}.ak-im-call-actions button{min-width:84px}.ak-im-call-title{font-size:17px}.ak-im-call-avatar{width:40px;height:40px}.ak-im-call-stage-icon{width:84px;height:84px;font-size:34px}}
                         </style>
                         <div class="ak-im-call-backdrop"></div>
                         <div class="ak-im-call-card" role="dialog" aria-modal="true" aria-label="通话面板">
@@ -123,6 +126,7 @@
                                 <div class="ak-im-call-spacer" aria-hidden="true"></div>
                             </div>
                             <div class="ak-im-call-stage">
+                                <div class="ak-im-call-stage-pulse"></div>
                                 <div class="ak-im-call-stage-placeholder">
                                     <div class="ak-im-call-stage-icon">☎</div>
                                     <div class="ak-im-call-stage-text">等待通话连接</div>
@@ -302,6 +306,9 @@
             if (refs.localVideo) refs.localVideo.style.display = isActive ? 'block' : 'none';
             const placeholder = refs.panel.querySelector('.ak-im-call-stage-placeholder');
             if (placeholder) placeholder.style.display = isActive ? 'none' : 'flex';
+            const pulse = refs.panel.querySelector('.ak-im-call-stage-pulse');
+            if (pulse) pulse.style.animation = isPending ? 'akImCallPulse 1.8s ease-in-out infinite' : 'none';
+            if (pulse) pulse.style.display = isPending ? 'block' : 'none';
             const avatar = refs.panel.querySelector('.ak-im-call-avatar');
             if (avatar) avatar.style.transform = isPending ? 'scale(1.06)' : 'scale(1)';
             const stageIcon = refs.panel.querySelector('.ak-im-call-stage-icon');
