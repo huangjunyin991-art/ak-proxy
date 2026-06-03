@@ -2739,6 +2739,7 @@
             location: '位置'
         };
         if (actionKey === 'call-audio') {
+            const callManageModule = getCallManageModule();
             const sessionManageModule = getSessionManageModule();
             const activeSession = getActiveSession();
             if (!callManageModule || typeof callManageModule.openOutgoing !== 'function') {
