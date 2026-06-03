@@ -4112,6 +4112,30 @@
         });
     }
 
+    function scheduleCallLaunchProbe(action, activeSession, peerUsername) {
+        const expectedAction = String(action || '').toLowerCase();
+        window.setTimeout(function() {
+            const callManageModule = getCallManageModule();
+            const callOverlayVisible = !!document.querySelector('.ak-im-call-overlay[aria-hidden="false"]');
+            const dialogVisible = !!state.dialogOpen;
+            const callMode = String(callManageModule && callManageModule.mode || '').toLowerCase();
+            if (callOverlayVisible || dialogVisible) return;
+            if (callMode === 'outgoing' || callMode === 'incoming' || callMode === 'active' || callMode === 'failed' || callMode === 'ended') return;
+            openCallDebugDialog('点击后没有进入通话状态', {
+                action: expectedAction,
+                activeConversationId: Number(state.activeConversationId || 0),
+                conversationId: Number(activeSession && activeSession.conversation_id || 0),
+                conversationType: String(activeSession && activeSession.conversation_type || ''),
+                peerUsername: String(peerUsername || ''),
+                stateView: String(state.view || ''),
+                dialogOpen: state.dialogOpen ? '1' : '0',
+                callOverlayVisible: callOverlayVisible ? '1' : '0',
+                callModuleLoaded: callManageModule ? '1' : '0',
+                callMode: callMode || 'idle'
+            });
+        }, 600);
+    }
+
     function openCallByAction(action) {
         const normalizedAction = String(action || '').toLowerCase();
         const activeSession = getActiveSession();
@@ -4167,6 +4191,7 @@
                 pageId: String(state.pageId || ''),
                 wsId: String(state.wsId || '')
             });
+            scheduleCallLaunchProbe(normalizedAction, activeSession, peerUsername);
         }).catch(function(error) {
             openCallDebugDialog('通话模块加载失败', {
                 action: normalizedAction || action,
