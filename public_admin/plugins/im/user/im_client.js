@@ -2780,6 +2780,18 @@
             render();
             return;
         }
+        if (actionLabelMap[actionKey]) {
+            const plusEntryModule = getPlusEntryModule();
+            if (!plusEntryModule || typeof plusEntryModule.handleAction !== 'function') {
+                render();
+                window.alert(actionLabelMap[actionKey] + '模块暂不可用');
+                return;
+            }
+            state.plusPanelOpen = false;
+            render();
+            plusEntryModule.handleAction(actionKey);
+            return;
+        }
     }
 
     function sendCustomEmoji(emojiAssetId, emojiCode) {
