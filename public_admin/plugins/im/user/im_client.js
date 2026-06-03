@@ -2739,9 +2739,15 @@
         if (actionKey === 'call-audio') {
             const callManageModule = getCallManageModule();
             const activeSession = getActiveSession();
-            if (!callManageModule || typeof callManageModule.openOutgoing !== 'function' || !activeSession) {
+            const activeSessionName = getSessionDisplayName(activeSession);
+            if (!callManageModule || typeof callManageModule.openOutgoing !== 'function') {
                 render();
-                window.alert('当前会话暂不可发起语音通话');
+                window.alert('语音通话模块暂不可用');
+                return;
+            }
+            if (!activeSession) {
+                render();
+                window.alert('当前没有可发起语音通话的会话');
                 return;
             }
             if (isGroupSession(activeSession)) {
@@ -2749,11 +2755,20 @@
                 window.alert('群聊不支持语音通话');
                 return;
             }
+            const peerUsername = String(activeSession.peer_username || '').trim();
+            if (!peerUsername) {
+                render();
+                window.alert('当前会话缺少对端用户名，无法发起语音通话');
+                return;
+            }
             callManageModule.openOutgoing({
                 kind: 'audio',
                 conversationId: Number(activeSession.conversation_id || 0),
-                peerName: getSessionDisplayName(activeSession),
-                title: getSessionDisplayName(activeSession)
+                peerUsername: peerUsername,
+                peerName: activeSessionName,
+                title: activeSessionName,
+                pageId: String(state.pageId || ''),
+                wsId: String(state.wsId || '')
             });
             render();
             return;

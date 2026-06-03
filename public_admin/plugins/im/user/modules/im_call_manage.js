@@ -19,6 +19,11 @@
         failed: '通话失败'
     };
 
+    const CALL_FAIL_REASON_TEXT = {
+        socket_timeout: '通话请求未得到服务器响应',
+        socket_unavailable: '通话服务暂不可用'
+    };
+
     const callModule = {
         ctx: null,
         mode: CALL_MODES.idle,
@@ -239,11 +244,13 @@
             const refs = this.refs;
             if (!refs.panel) return;
             const visible = this.mode !== CALL_MODES.idle;
+            const reasonKey = String(this.lastFailReason || '').trim();
+            const reasonText = reasonKey && CALL_FAIL_REASON_TEXT[reasonKey] ? CALL_FAIL_REASON_TEXT[reasonKey] : '';
             refs.panel.setAttribute('aria-hidden', visible ? 'false' : 'true');
             refs.panel.style.display = visible ? 'flex' : 'none';
             if (refs.title) refs.title.textContent = this.currentPeerName || '通话';
-            if (refs.subtitle) refs.subtitle.textContent = CALL_STATUS_TEXT[this.mode] || '';
-            if (refs.state) refs.state.textContent = CALL_STATUS_TEXT[this.mode] || '';
+            if (refs.subtitle) refs.subtitle.textContent = this.mode === CALL_MODES.failed && reasonText ? reasonText : (CALL_STATUS_TEXT[this.mode] || '');
+            if (refs.state) refs.state.textContent = this.mode === CALL_MODES.failed && reasonText ? reasonText : (CALL_STATUS_TEXT[this.mode] || '');
             if (refs.accept) refs.accept.style.display = this.mode === CALL_MODES.incoming ? 'inline-flex' : 'none';
             if (refs.reject) refs.reject.style.display = this.mode === CALL_MODES.incoming ? 'inline-flex' : 'none';
             if (refs.hangup) refs.hangup.style.display = this.mode === CALL_MODES.active || this.mode === CALL_MODES.outgoing ? 'inline-flex' : 'none';
@@ -255,6 +262,20 @@
             payload = payload || {};
             this.setState(CALL_MODES.outgoing, payload);
             this.ensureSocket();
+            clearTimeout(this.timers.autoEnd);
+            const self = this;
+            this.timers.autoEnd = window.setTimeout(function() {
+                if (self.mode === CALL_MODES.outgoing && !self.currentCallId) {
+                    self.end('failed', {
+                        call_id: '',
+                        conversation_id: self.currentConversationId,
+                        peer_name: self.currentPeerName,
+                        call_kind: self.currentKind,
+                        reason: 'socket_timeout',
+                        message: '通话请求未得到服务器响应'
+                    });
+                }
+            }, 8000);
             this.send('im.call.start', {
                 conversation_id: Number(payload.conversationId || payload.conversation_id || 0),
                 callee_username: String(payload.peerUsername || payload.peer_username || ''),
