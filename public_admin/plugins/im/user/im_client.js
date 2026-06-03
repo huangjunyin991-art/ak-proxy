@@ -2744,25 +2744,29 @@
     function handlePlusPanelAction(action) {
         const actionKey = String(action || '').trim().toLowerCase();
         const actionLabelMap = {
+            'call-audio': '语音通话',
             camera: '拍照',
             album: '相册',
             file: '文件',
             location: '位置'
         };
-        const actionLabel = actionLabelMap[actionKey] || '更多功能';
-        closePlusPanel({ silent: true });
-        ensureLazyModule('plus').then(function(plusEntryModule) {
-            if (plusEntryModule && typeof plusEntryModule.handleAction === 'function') {
-                plusEntryModule.handleAction(actionKey);
+        if (actionKey === 'call-audio') {
+            const callManageModule = getCallManageModule();
+            const activeSession = getActiveSession();
+            if (!callManageModule || typeof callManageModule.openOutgoing !== 'function' || !activeSession) {
                 render();
+                window.alert('请先选择一个会话，再发起语音通话');
                 return;
             }
+            callManageModule.openOutgoing({
+                kind: 'audio',
+                conversationId: Number(activeSession.conversation_id || 0),
+                peerName: getSessionDisplayName(activeSession),
+                title: getSessionDisplayName(activeSession)
+            });
             render();
-            window.alert(actionLabel + '入口已预留，暂未接入真实功能');
-        }).catch(function(error) {
-            render();
-            window.alert(error && error.message ? error.message : (actionLabel + '模块暂不可用'));
-        });
+            return;
+        }
     }
 
     function sendCustomEmoji(emojiAssetId, emojiCode) {
@@ -5070,7 +5074,8 @@
             if (composerVoiceBtnEl) {
                 composerVoiceBtnEl.disabled = !hasConversation || isVoiceSending;
                 composerVoiceBtnEl.classList.toggle('is-active', showVoiceMode);
-                composerVoiceBtnEl.setAttribute('aria-label', showVoiceMode ? '切换到键盘输入' : '切换到按住说话');
+                composerVoiceBtnEl.setAttribute('aria-label', showVoiceMode ? '切换到键盘输入' : '切换到语音输入');
+                composerVoiceBtnEl.title = showVoiceMode ? '切换到键盘输入' : '切换到语音输入';
             }
             if (composerEmojiBtnEl) {
                 composerEmojiBtnEl.disabled = !canOpenEmoji;
