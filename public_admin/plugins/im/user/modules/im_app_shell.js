@@ -1175,17 +1175,6 @@
             bindDblClick(elements.chatTitleTapEl || elements.chatTitleBtnEl, function(event) {
                 if (event && typeof event.preventDefault === 'function') event.preventDefault();
                 if (event && typeof event.stopPropagation === 'function') event.stopPropagation();
-                try {
-                    if (ctx && typeof ctx.onChatTitleDebugClick === 'function') {
-                        ctx.onChatTitleDebugClick();
-                        return;
-                    }
-                } catch (e) {}
-                try {
-                    if (typeof window.__AKIMShowDebugModal === 'function') {
-                        window.__AKIMShowDebugModal();
-                    }
-                } catch (e) {}
             });
             bindClick(elements.composeBackBtnEl, function() {
                 if (typeof ctx.onComposeBackClick === 'function') ctx.onComposeBackClick();

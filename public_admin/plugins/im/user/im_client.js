@@ -1466,6 +1466,7 @@
                     peerName: getSessionDisplayName(activeSession),
                     title: getSessionDisplayName(activeSession)
                 });
+            },
             onComposeBackClick: closeComposeView,
             onComposeCloseClick: closeComposeView,
             onNewSessionClick: startDirectSession,
@@ -3445,141 +3446,6 @@
             return ok;
         });
     }
-
-    function __AKIMEnsureDebugModalStyles() {
-        if (document.getElementById('ak-im-debug-modal-style')) return;
-        const style = document.createElement('style');
-        style.id = 'ak-im-debug-modal-style';
-        style.textContent = `
-            .ak-im-debug-mask{position:fixed;inset:0;background:rgba(15,23,42,.55);backdrop-filter:blur(6px);z-index:2147483647;display:flex;align-items:flex-start;justify-content:center;padding:28px 14px;box-sizing:border-box}
-            .ak-im-debug-modal{width:min(920px,100%);background:#ffffff;border-radius:18px;box-shadow:0 26px 70px rgba(0,0,0,.35);overflow:hidden;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif}
-            .ak-im-debug-head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 14px;border-bottom:1px solid rgba(15,23,42,.08)}
-            .ak-im-debug-title{font-size:14px;font-weight:700;color:#111827;line-height:1.2}
-            .ak-im-debug-close{width:34px;height:34px;border:none;border-radius:10px;background:rgba(15,23,42,.06);cursor:pointer;color:#111827;font-size:18px;line-height:1}
-            .ak-im-debug-body{padding:12px 14px;max-height:min(70vh,680px);overflow:auto}
-            .ak-im-debug-pre{margin:0;font-family:ui-monospace,SFMono-Regular,Consolas,'Liberation Mono',Menlo,monospace;font-size:12px;line-height:1.55;white-space:pre-wrap;word-break:break-word;background:#0b1020;color:#e5e7eb;border-radius:14px;padding:12px}
-            .ak-im-debug-actions{display:flex;flex-wrap:wrap;gap:8px;padding:12px 14px;border-top:1px solid rgba(15,23,42,.08);background:#f8fafc}
-            .ak-im-debug-btn{height:34px;border:none;border-radius:12px;padding:0 12px;background:#111827;color:#ffffff;font-size:12px;font-weight:700;cursor:pointer}
-            .ak-im-debug-btn.secondary{background:#e5e7eb;color:#111827}
-            .ak-im-debug-hint{font-size:12px;color:#6b7280;line-height:1.5;padding:0 14px 12px}
-        `;
-        document.head.appendChild(style);
-    }
-
-    function __AKIMShowDebugModal() {
-        try {
-            __AKIMEnsureDebugModalStyles();
-            const existing = document.getElementById('ak-im-debug-mask');
-            if (existing && existing.parentNode) existing.parentNode.removeChild(existing);
-
-            const snapshot = __AKIMBuildDebugSnapshot();
-            const text = JSON.stringify(snapshot, null, 2);
-
-            try {
-                console.log('[AKIM][debug] show modal', snapshot);
-            } catch (e0) {}
-
-            const mask = document.createElement('div');
-            mask.id = 'ak-im-debug-mask';
-            mask.className = 'ak-im-debug-mask';
-
-            const modal = document.createElement('div');
-            modal.className = 'ak-im-debug-modal';
-
-            const head = document.createElement('div');
-            head.className = 'ak-im-debug-head';
-            const title = document.createElement('div');
-            title.className = 'ak-im-debug-title';
-            title.textContent = 'IM 调试信息';
-            const close = document.createElement('button');
-            close.className = 'ak-im-debug-close';
-            close.type = 'button';
-            close.textContent = '×';
-            head.appendChild(title);
-            head.appendChild(close);
-
-            const body = document.createElement('div');
-            body.className = 'ak-im-debug-body';
-            const pre = document.createElement('pre');
-            pre.className = 'ak-im-debug-pre';
-            pre.textContent = text;
-            body.appendChild(pre);
-
-            const actions = document.createElement('div');
-            actions.className = 'ak-im-debug-actions';
-            const copyBtn = document.createElement('button');
-            copyBtn.className = 'ak-im-debug-btn';
-            copyBtn.type = 'button';
-            copyBtn.textContent = '复制全部';
-
-            const syncBtn = document.createElement('button');
-            syncBtn.className = 'ak-im-debug-btn secondary';
-            syncBtn.type = 'button';
-            syncBtn.textContent = '手动触发同步';
-            syncBtn.disabled = typeof window.__AKChatSyncUserModel !== 'function';
-
-            actions.appendChild(copyBtn);
-            actions.appendChild(syncBtn);
-
-            const hint = document.createElement('div');
-            hint.className = 'ak-im-debug-hint';
-            hint.textContent = '双击聊天标题打开。Key 等敏感字段已打码。';
-
-            modal.appendChild(head);
-            modal.appendChild(body);
-            modal.appendChild(actions);
-            modal.appendChild(hint);
-            mask.appendChild(modal);
-            document.body.appendChild(mask);
-
-            const dispose = function() {
-                try { mask.remove(); } catch (e) {}
-                try { document.removeEventListener('keydown', onKeyDown, true); } catch (e) {}
-            };
-            const onKeyDown = function(ev) {
-                if (ev && (ev.key === 'Escape' || ev.key === 'Esc')) {
-                    if (ev.preventDefault) ev.preventDefault();
-                    dispose();
-                }
-            };
-
-            mask.addEventListener('click', function(ev) {
-                if (ev && ev.target === mask) dispose();
-            });
-            close.addEventListener('click', function() { dispose(); });
-            document.addEventListener('keydown', onKeyDown, true);
-
-            copyBtn.addEventListener('click', function() {
-                __AKIMCopyText(text).then(function(ok) {
-                    copyBtn.textContent = ok ? '已复制' : '复制失败';
-                    setTimeout(function() { copyBtn.textContent = '复制全部'; }, 900);
-                });
-            });
-
-            syncBtn.addEventListener('click', function() {
-                if (typeof window.__AKChatSyncUserModel !== 'function') return;
-                syncBtn.disabled = true;
-                syncBtn.textContent = '同步中...';
-                try {
-                    window.__AKChatSyncUserModel(function(result) {
-                        try {
-                            const nextSnapshot = __AKIMBuildDebugSnapshot();
-                            nextSnapshot.syncResult = result;
-                            const nextText = JSON.stringify(nextSnapshot, null, 2);
-                            pre.textContent = nextText;
-                        } catch (e) {}
-                        syncBtn.disabled = false;
-                        syncBtn.textContent = '手动触发同步';
-                    });
-                } catch (e) {
-                    syncBtn.disabled = false;
-                    syncBtn.textContent = '手动触发同步';
-                }
-            });
-        } catch (e) {}
-    }
-
-    window.__AKIMShowDebugModal = __AKIMShowDebugModal;
 
     function ensureRoot() {
         if (root && !root.isConnected) {
