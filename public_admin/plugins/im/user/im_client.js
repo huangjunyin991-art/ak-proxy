@@ -1509,6 +1509,7 @@
             getShellState: getShellRenderState,
             openCall: function(kind, payload) {
                 if (typeof callManageModule.openOutgoing !== 'function') return;
+                const activeSession = getActiveSession();
                 const displayName = activeSession && sessionManageModule && typeof sessionManageModule.getSessionDisplayName === 'function' ? sessionManageModule.getSessionDisplayName(activeSession) : '联系人';
                 callManageModule.openOutgoing(Object.assign({
                     kind: kind,
@@ -4123,22 +4124,7 @@
     function openCallByAction(action) {
         const normalizedAction = String(action || '').toLowerCase();
         const activeSession = getActiveSession();
-        const callManageModule = getCallManageModule();
         const sessionManageModule = getSessionManageModule();
-        if (!callManageModule) {
-            openCallDebugDialog('通话模块未加载', {
-                action: normalizedAction || action,
-                activeConversationId: state.activeConversationId || 0
-            });
-            return;
-        }
-        if (typeof callManageModule.openOutgoing !== 'function') {
-            openCallDebugDialog('通话模块不支持发起通话', {
-                action: normalizedAction || action,
-                activeConversationId: state.activeConversationId || 0
-            });
-            return;
-        }
         if (!activeSession) {
             openCallDebugDialog('当前没有活动会话', {
                 action: normalizedAction || action,
@@ -4173,11 +4159,28 @@
             });
             return;
         }
-        callManageModule.openOutgoing({
-            kind: normalizedAction,
-            conversationId: Number(activeSession.conversation_id || 0),
-            peerName: displayName,
-            title: displayName
+        ensureLazyModule('callManage').then(function(callManageModule) {
+            if (!callManageModule || typeof callManageModule.openOutgoing !== 'function') {
+                openCallDebugDialog('通话模块未加载', {
+                    action: normalizedAction || action,
+                    activeConversationId: state.activeConversationId || 0
+                });
+                return;
+            }
+            callManageModule.openOutgoing({
+                kind: normalizedAction,
+                conversationId: Number(activeSession.conversation_id || 0),
+                peerName: displayName,
+                title: displayName,
+                peerUsername: peerUsername,
+                pageId: String(state.pageId || ''),
+                wsId: String(state.wsId || '')
+            });
+        }).catch(function(error) {
+            openCallDebugDialog('通话模块加载失败', {
+                action: normalizedAction || action,
+                message: error && error.message ? error.message : String(error || '')
+            });
         });
     }
 
