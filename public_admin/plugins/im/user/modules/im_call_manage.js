@@ -80,6 +80,27 @@
                 const wrapper = document.createElement('div');
                 wrapper.innerHTML = `
                     <div class="ak-im-call-panel" aria-hidden="true" style="display:none;">
+                        <style>
+                            .ak-im-call-panel{position:fixed;inset:0;z-index:99999;display:flex;align-items:stretch;justify-content:stretch;background:rgba(15,23,42,.72);backdrop-filter:blur(10px);}
+                            .ak-im-call-backdrop{position:absolute;inset:0;}
+                            .ak-im-call-card{position:relative;z-index:1;width:100%;height:100%;display:flex;flex-direction:column;background:linear-gradient(180deg,#0f172a 0%,#111827 100%);color:#fff;overflow:hidden;}
+                            .ak-im-call-header{display:flex;align-items:flex-start;justify-content:space-between;padding:16px 18px 12px;gap:12px;background:rgba(255,255,255,.04);}
+                            .ak-im-call-title{font-size:18px;font-weight:600;line-height:1.2;}
+                            .ak-im-call-subtitle{margin-top:6px;font-size:13px;color:rgba(255,255,255,.72);}
+                            .ak-im-call-close{width:36px;height:36px;border:none;border-radius:18px;background:rgba(255,255,255,.1);color:#fff;font-size:24px;line-height:36px;cursor:pointer;}
+                            .ak-im-call-stage{position:relative;flex:1;display:flex;align-items:center;justify-content:center;padding:18px;background:radial-gradient(circle at top,#1e293b 0%,#0f172a 55%,#020617 100%);}
+                            .ak-im-call-remote{width:100%;height:100%;object-fit:cover;border-radius:0;display:block;background:#020617;}
+                            .ak-im-call-local{position:absolute;right:18px;bottom:18px;width:120px;height:160px;object-fit:cover;border-radius:16px;border:1px solid rgba(255,255,255,.2);box-shadow:0 12px 30px rgba(0,0,0,.35);background:#0b1220;}
+                            .ak-im-call-audio{display:none;}
+                            .ak-im-call-state{padding:14px 18px 0;font-size:15px;font-weight:500;text-align:center;color:#e2e8f0;}
+                            .ak-im-call-actions{display:flex;gap:12px;justify-content:center;align-items:center;padding:20px 18px calc(20px + env(safe-area-inset-bottom));flex-wrap:wrap;background:rgba(2,6,23,.92);}
+                            .ak-im-call-actions button{min-width:92px;height:44px;padding:0 18px;border:none;border-radius:22px;font-size:14px;font-weight:600;cursor:pointer;}
+                            .ak-im-call-reject{background:#ef4444;color:#fff;}
+                            .ak-im-call-accept{background:#22c55e;color:#fff;}
+                            .ak-im-call-hangup{background:#f97316;color:#fff;}
+                            .ak-im-call-mute,.ak-im-call-camera{background:rgba(255,255,255,.1);color:#fff;}
+                            @media (max-width: 768px){.ak-im-call-local{width:88px;height:118px;right:12px;bottom:12px}.ak-im-call-actions{gap:10px}.ak-im-call-actions button{min-width:84px}}
+                        </style>
                         <div class="ak-im-call-backdrop"></div>
                         <div class="ak-im-call-card" role="dialog" aria-modal="true" aria-label="通话面板">
                             <div class="ak-im-call-header">
