@@ -1448,26 +1448,10 @@
                 openCallByAction(action);
             },
             onChatCallAudioClick: function() {
-                const callManageModule = getCallManageModule();
-                const activeSession = getActiveSession();
-                if (!callManageModule || typeof callManageModule.openOutgoing !== 'function' || !activeSession) return;
-                callManageModule.openOutgoing({
-                    kind: 'audio',
-                    conversationId: Number(activeSession.conversation_id || 0),
-                    peerName: getSessionDisplayName(activeSession),
-                    title: getSessionDisplayName(activeSession)
-                });
+                openCallByAction('audio');
             },
             onChatCallVideoClick: function() {
-                const callManageModule = getCallManageModule();
-                const activeSession = getActiveSession();
-                if (!callManageModule || typeof callManageModule.openOutgoing !== 'function' || !activeSession) return;
-                callManageModule.openOutgoing({
-                    kind: 'video',
-                    conversationId: Number(activeSession.conversation_id || 0),
-                    peerName: getSessionDisplayName(activeSession),
-                    title: getSessionDisplayName(activeSession)
-                });
+                openCallByAction('video');
             },
             onComposeBackClick: closeComposeView,
             onComposeCloseClick: closeComposeView,
