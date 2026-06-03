@@ -5270,21 +5270,31 @@
 	    const canOpenGroupInfo = !!activeSession && isGroupSession(activeSession);
 	    if (headerTitle) headerTitle.textContent = activeSession ? activeSessionDisplayName : '内部聊天';
 	    if (headerSubtitle) headerSubtitle.textContent = activeSession ? subtitleText : '';
-	    if (chatTitleBtnEl) {
-	        chatTitleBtnEl.disabled = !canOpenGroupInfo;
-	        chatTitleBtnEl.classList.toggle('is-clickable', canOpenGroupInfo);
-	        chatTitleBtnEl.setAttribute('aria-label', canOpenGroupInfo ? '打开群信息' : '聊天标题');
+        if (chatTitleBtnEl) {
+            chatTitleBtnEl.disabled = !canOpenGroupInfo;
+            chatTitleBtnEl.classList.toggle('is-clickable', canOpenGroupInfo);
+            chatTitleBtnEl.setAttribute('aria-label', canOpenGroupInfo ? '打开群信息' : '聊天标题');
             const groupAdminsModule = getGroupAdminsModule();
             if (canOpenGroupInfo && groupAdminsModule && typeof groupAdminsModule.bindGroupAvatarLongPress === 'function') {
                 groupAdminsModule.bindGroupAvatarLongPress(chatTitleBtnEl, Number(activeSession && activeSession.conversation_id || 0));
             } else if (groupAdminsModule && typeof groupAdminsModule.unbindPress === 'function') {
                 groupAdminsModule.unbindPress(chatTitleBtnEl);
             }
-	    }
-	    if (chatMenuBtnEl) {
-	        chatMenuBtnEl.disabled = !canOpenGroupInfo;
-	        chatMenuBtnEl.classList.toggle('is-hidden', !canOpenGroupInfo);
-	    }
+        }
+        if (chatMenuBtnEl) {
+            chatMenuBtnEl.disabled = !canOpenGroupInfo;
+            chatMenuBtnEl.classList.toggle('is-hidden', !canOpenGroupInfo);
+        }
+        if (callActionBtns && callActionBtns.length) {
+            Array.prototype.forEach.call(callActionBtns, function(button) {
+                const action = String(button.getAttribute('data-im-call-action') || '').toLowerCase();
+                const shouldEnable = !!activeSession && !isGroupSession(activeSession) && String(activeSession.peer_username || '').trim() && state.view === 'chat' && (action === 'audio' || action === 'video');
+                button.disabled = !shouldEnable;
+                button.classList.toggle('is-clickable', shouldEnable);
+                button.setAttribute('aria-disabled', shouldEnable ? 'false' : 'true');
+                button.title = shouldEnable ? (action === 'audio' ? '发起语音通话' : '发起视频通话') : '当前会话暂不支持通话';
+            });
+        }
         if (!messageList) return;
         messageList.innerHTML = '';
         const empty = document.createElement('div');
