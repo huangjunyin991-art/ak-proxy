@@ -1500,6 +1500,7 @@
     function initCallManageModule() {
         const callManageModule = getCallManageModule();
         if (!callManageModule) return;
+        const sessionManageModule = getSessionManageModule();
         callManageModule.init({
             state: state,
             getRoot: function() {
@@ -1508,10 +1509,11 @@
             getShellState: getShellRenderState,
             openCall: function(kind, payload) {
                 if (typeof callManageModule.openOutgoing !== 'function') return;
+                const displayName = activeSession && sessionManageModule && typeof sessionManageModule.getSessionDisplayName === 'function' ? sessionManageModule.getSessionDisplayName(activeSession) : '联系人';
                 callManageModule.openOutgoing(Object.assign({
                     kind: kind,
-                    title: activeSession ? getSessionDisplayName(activeSession) : '联系人',
-                    peerName: activeSession ? getSessionDisplayName(activeSession) : '联系人',
+                    title: displayName,
+                    peerName: displayName,
                     conversationId: state.activeConversationId || 0
                 }, payload || {}));
             }
@@ -2737,9 +2739,8 @@
             location: '位置'
         };
         if (actionKey === 'call-audio') {
-            const callManageModule = getCallManageModule();
+            const sessionManageModule = getSessionManageModule();
             const activeSession = getActiveSession();
-            const activeSessionName = getSessionDisplayName(activeSession);
             if (!callManageModule || typeof callManageModule.openOutgoing !== 'function') {
                 render();
                 window.alert('语音通话模块暂不可用');
@@ -2761,6 +2762,7 @@
                 window.alert('当前会话缺少对端用户名，无法发起语音通话');
                 return;
             }
+            const activeSessionName = sessionManageModule && typeof sessionManageModule.getSessionDisplayName === 'function' ? sessionManageModule.getSessionDisplayName(activeSession) : '联系人';
             callManageModule.openOutgoing({
                 kind: 'audio',
                 conversationId: Number(activeSession.conversation_id || 0),
@@ -4121,6 +4123,7 @@
         const normalizedAction = String(action || '').toLowerCase();
         const activeSession = getActiveSession();
         const callManageModule = getCallManageModule();
+        const sessionManageModule = getSessionManageModule();
         if (!callManageModule) {
             openCallDebugDialog('通话模块未加载', {
                 action: normalizedAction || action,
@@ -4152,12 +4155,13 @@
             return;
         }
         const peerUsername = String(activeSession.peer_username || '').trim();
+        const displayName = sessionManageModule && typeof sessionManageModule.getSessionDisplayName === 'function' ? sessionManageModule.getSessionDisplayName(activeSession) : '联系人';
         if (!peerUsername) {
             openCallDebugDialog('当前会话缺少对端用户名', {
                 action: normalizedAction || action,
                 conversationId: Number(activeSession.conversation_id || 0),
                 conversationType: activeSession.conversation_type || '',
-                displayName: getSessionDisplayName(activeSession)
+                displayName: displayName
             });
             return;
         }
@@ -4171,8 +4175,8 @@
         callManageModule.openOutgoing({
             kind: normalizedAction,
             conversationId: Number(activeSession.conversation_id || 0),
-            peerName: getSessionDisplayName(activeSession),
-            title: getSessionDisplayName(activeSession)
+            peerName: displayName,
+            title: displayName
         });
     }
 
