@@ -2610,8 +2610,8 @@
             plusSheetEl.setAttribute('inert', '');
             return;
         }
-        plusSheetEl.setAttribute('aria-hidden', 'false');
         plusSheetEl.removeAttribute('inert');
+        plusSheetEl.setAttribute('aria-hidden', 'false');
     }
 
     function shouldKeepMessageListAtBottomAfterComposerPanelChange() {
@@ -2755,7 +2755,12 @@
             const activeSession = getActiveSession();
             if (!callManageModule || typeof callManageModule.openOutgoing !== 'function' || !activeSession) {
                 render();
-                window.alert('请先选择一个会话，再发起语音通话');
+                window.alert('当前会话暂不可发起语音通话');
+                return;
+            }
+            if (isGroupSession(activeSession)) {
+                render();
+                window.alert('群聊不支持语音通话');
                 return;
             }
             callManageModule.openOutgoing({
