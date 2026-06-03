@@ -4419,12 +4419,18 @@
         if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return;
         
         try {
-            ws = new WebSocket(WS_URL + '?username=' + encodeURIComponent(username));
+            const currentWs = new WebSocket(WS_URL + '?username=' + encodeURIComponent(username));
+            ws = currentWs;
             
-            ws.onopen = function() {
+            currentWs.onopen = function() {
+                if (ws !== currentWs) return;
                 if (!isPresenceForeground() || presenceSuspended) {
                     presenceSuspended = true;
-                    ws.close();
+                    try {
+                        if (currentWs.readyState === WebSocket.OPEN || currentWs.readyState === WebSocket.CONNECTING) {
+                            currentWs.close();
+                        }
+                    } catch (e) {}
                     return;
                 }
                 sendPresence('online');
@@ -4437,7 +4443,8 @@
                 resumeAssistConnection('chat_ws_open');
             };
             
-            ws.onmessage = function(e) {
+            currentWs.onmessage = function(e) {
+                if (ws !== currentWs) return;
                 try {
                     const data = JSON.parse(e.data);
                     emitChatBridgeEvent('ak-chat-ws-message', data);
@@ -4491,7 +4498,8 @@
                 }
             };
             
-            ws.onclose = function(event) {
+            currentWs.onclose = function(event) {
+                if (ws !== currentWs) return;
                 closeAssistRequestDialog(true);
                 closeVoiceRequestDialog(true);
                 if (!hasForegroundProtectedRealtimeSession()) {
@@ -4506,10 +4514,11 @@
                 scheduleReconnect('ws_onclose');
             };
             
-            ws.onerror = function(err) {
+            currentWs.onerror = function(err) {
+                if (ws !== currentWs) return;
                 logChatWsDebug('ws_error', {
                     type: String((err && err.type) || ''),
-                    wsState: getChatWsReadyStateLabel(ws)
+                    wsState: getChatWsReadyStateLabel(currentWs)
                 });
                 console.error('[AKChat] WebSocket 错误:', err);
             };
