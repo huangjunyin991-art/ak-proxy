@@ -11445,6 +11445,24 @@ async def im_user_plugin_call_manage_module_js(request: Request):
     return _build_widget_script_response(request, js_path)
 
 
+@app.get("/chat/plugins/im/user/modules/call/im_call_signaling.js")
+
+async def im_user_plugin_call_signaling_module_js(request: Request):
+
+    js_path = os.path.join(PLUGINS_DIR, "im", "user", "modules", "call", "im_call_signaling.js")
+
+    return _build_widget_script_response(request, js_path)
+
+
+@app.get("/chat/plugins/im/user/modules/call/im_call_webrtc.js")
+
+async def im_user_plugin_call_webrtc_module_js(request: Request):
+
+    js_path = os.path.join(PLUGINS_DIR, "im", "user", "modules", "call", "im_call_webrtc.js")
+
+    return _build_widget_script_response(request, js_path)
+
+
 @app.get("/chat/plugins/im/user/modules/im_meeting_manage.js")
 
 async def im_user_plugin_meeting_manage_module_js(request: Request):
