@@ -69,7 +69,6 @@
             this.ctx = ctx || {};
             this.ensureStyle();
             this.ensureShell();
-            this.ensureSubmodules();
             this.render();
             return this;
         },
@@ -114,15 +113,7 @@
             }) + '="1"]';
             const existingScript = document.querySelector(selector);
             if (existingScript) {
-                return new Promise(function(resolve, reject) {
-                    existingScript.addEventListener('load', function() {
-                        const loaded = (global.AKIMUserModules || {})[config.key];
-                        loaded ? resolve(loaded) : reject(new Error('通话子模块加载失败'));
-                    }, { once: true });
-                    existingScript.addEventListener('error', function() {
-                        reject(new Error('通话子模块加载失败'));
-                    }, { once: true });
-                });
+                if (existingScript.parentNode) existingScript.parentNode.removeChild(existingScript);
             }
             const url = new URL(config.src, this.getAssetBase());
             const script = document.createElement('script');
@@ -154,7 +145,6 @@
                 return { signaling: self.signaling, webRTC: self.webRTC };
             }).catch(function(error) {
                 self.submodulePromise = null;
-                self.fail('unsupported', error && error.message ? error.message : '通话模块不可用');
                 throw error;
             });
             return this.submodulePromise;
@@ -334,6 +324,8 @@
 
         openOutgoing(payload) {
             payload = payload || {};
+            this.ensureStyle();
+            this.ensureShell();
             this.cleanupMedia();
             this.role = 'caller';
             this.muted = false;
@@ -355,7 +347,7 @@
                     }
                 }, 10000);
             }).catch(function(error) {
-                self.fail('unsupported', error && error.message ? error.message : '');
+                self.fail('unsupported', error && error.message ? error.message : '通话模块不可用');
             });
         },
 
@@ -428,7 +420,6 @@
         },
 
         fail(reason, message) {
-            if (message) this.reportLaunchError(message, { reason: reason || '' });
             this.lastFailReason = trim(reason || 'socket_error');
             this.end('failed', { reason: this.lastFailReason });
         },
