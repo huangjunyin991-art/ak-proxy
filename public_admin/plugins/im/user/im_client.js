@@ -4142,7 +4142,7 @@
         const styleEl = document.createElement('style');
         styleEl.id = 'ak-im-call-launch-fallback-style';
         styleEl.textContent = [
-            '.ak-im-call-overlay{position:fixed;inset:0;z-index:2147483646;display:none;align-items:center;justify-content:center;padding:20px;background:rgba(4,10,18,.72);backdrop-filter:blur(12px)}',
+            '.ak-im-call-overlay{position:fixed;inset:0;z-index:2147483652;display:none;align-items:center;justify-content:center;padding:20px;background:rgba(4,10,18,.72);backdrop-filter:blur(12px)}',
             '.ak-im-call-overlay[aria-hidden="false"]{display:flex}',
             '.ak-im-call-overlay-backdrop{position:absolute;inset:0}',
             '.ak-im-call-overlay-card{position:relative;z-index:1;width:min(calc(100vw - 32px),420px);min-height:520px;max-height:min(calc(100vh - 32px),720px);display:flex;flex-direction:column;overflow:hidden;border-radius:24px;background:linear-gradient(180deg,#07111c 0%,#10251f 48%,#040b12 100%);color:#fff;box-shadow:0 32px 90px rgba(0,0,0,.42)}',
