@@ -1501,6 +1501,8 @@
                 return root;
             },
             getShellState: getShellRenderState,
+            ensureSharedSocket: ensureWebSocket,
+            sendSocketEnvelope: sendSocketEnvelope,
             reportLaunchError: function(reason, detail) {
                 openCallDebugDialog(reason, detail);
             },
@@ -1946,6 +1948,10 @@
             openReadProgressPanel: openReadProgressPanel,
             createWebSocket: function() {
                 return new WebSocket(buildWsUrl());
+            },
+            getCallManage: getCallManageModule,
+            ensureCallManageModule: function() {
+                return ensureLazyModule('callManage');
             },
             getActiveSession: getActiveSession,
             isGroupSession: isGroupSession,
@@ -6600,6 +6606,20 @@
         const messageManageModule = getMessageManageModule();
         if (messageManageModule && typeof messageManageModule.ensureWebSocket === 'function') {
             messageManageModule.ensureWebSocket();
+        }
+    }
+
+    function sendSocketEnvelope(type, payload) {
+        const normalizedType = String(type || '').trim();
+        if (!normalizedType || !state.ws || state.ws.readyState !== WebSocket.OPEN) return false;
+        try {
+            state.ws.send(JSON.stringify({
+                type: normalizedType,
+                payload: payload && typeof payload === 'object' ? payload : {}
+            }));
+            return true;
+        } catch (e) {
+            return false;
         }
     }
 

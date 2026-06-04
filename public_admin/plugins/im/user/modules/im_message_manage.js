@@ -80,6 +80,29 @@
             return this.ctx && typeof this.ctx.getMessageSync === 'function' ? this.ctx.getMessageSync() : null;
         },
 
+        getCallManage() {
+            return this.ctx && typeof this.ctx.getCallManage === 'function' ? this.ctx.getCallManage() : null;
+        },
+
+        routeCallSocketPayload(data) {
+            const callManage = this.getCallManage();
+            if (callManage && typeof callManage.handleSocketPayload === 'function') {
+                try {
+                    return !!callManage.handleSocketPayload(data);
+                } catch (e) {
+                    return false;
+                }
+            }
+            if (this.ctx && typeof this.ctx.ensureCallManageModule === 'function') {
+                this.ctx.ensureCallManageModule().then(function(moduleInstance) {
+                    if (!moduleInstance || typeof moduleInstance.handleSocketPayload !== 'function') return;
+                    try { moduleInstance.handleSocketPayload(data); } catch (e) {}
+                }).catch(function() {});
+                return true;
+            }
+            return false;
+        },
+
         forceScrollToBottom(durationMs) {
             const messageNavigation = this.getMessageNavigation();
             if (messageNavigation && typeof messageNavigation.forceScrollToBottom === 'function') {
@@ -1247,6 +1270,9 @@
         handleSocketPayload(data) {
             const state = this.getState();
             if (!state || !data || typeof data !== 'object') return;
+            if (typeof data.type === 'string' && data.type.indexOf('im.call.') === 0) {
+                if (this.routeCallSocketPayload(data)) return;
+            }
             if (data.type === 'im.message.error') {
                 const payload = data.payload || null;
                 const restrictedConversationId = Number(payload && payload.conversation_id || 0);

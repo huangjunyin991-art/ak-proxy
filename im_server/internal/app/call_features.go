@@ -26,6 +26,38 @@ type imCallActionRequest struct {
 	Muted  bool   `json:"muted,omitempty"`
 }
 
+func (a *App) buildCallEventPayload(session *imCallSession, viewerUsername string, extra map[string]any) map[string]any {
+	payload := session.toMap()
+	viewer := normalizeCallUsername(viewerUsername)
+	if viewer != "" {
+		payload["viewer_role"] = a.callUserRole(session, viewer)
+	}
+	peerUsername := callPeerUsername(session, viewer)
+	if peerUsername != "" {
+		payload["peer_username"] = peerUsername
+		payload["peer_name"] = peerUsername
+		payload["peer_display_name"] = peerUsername
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		identity := a.buildUserIdentityItem(ctx, peerUsername)
+		cancel()
+		displayName := strings.TrimSpace(identity.DisplayName)
+		if displayName == "" {
+			displayName = peerUsername
+		}
+		payload["peer_name"] = displayName
+		payload["peer_display_name"] = displayName
+		payload["peer_honor_name"] = strings.TrimSpace(identity.HonorName)
+		payload["peer_avatar_kind"] = strings.TrimSpace(identity.AvatarKind)
+		payload["peer_avatar_style"] = strings.TrimSpace(identity.AvatarStyle)
+		payload["peer_avatar_seed"] = strings.TrimSpace(identity.AvatarSeed)
+		payload["peer_avatar_url"] = strings.TrimSpace(identity.AvatarURL)
+	}
+	for key, value := range extra {
+		payload[key] = value
+	}
+	return payload
+}
+
 func normalizeCallID(value string) string {
 	return strings.TrimSpace(value)
 }
@@ -70,15 +102,10 @@ func (a *App) broadcastCallSessionEvent(session *imCallSession, eventType string
 	if strings.TrimSpace(eventType) == "" {
 		eventType = "im.call.updated"
 	}
-	payload := session.toMap()
-	for k, v := range extra {
-		payload[k] = v
+	for participantUsername := range callParticipantSet(session) {
+		payload := a.buildCallEventPayload(session, participantUsername, extra)
+		a.sendCallEventToUsername(participantUsername, eventType, payload)
 	}
-	message := map[string]any{
-		"type":    eventType,
-		"payload": payload,
-	}
-	a.broadcastUsernames(callParticipantSet(session), message)
 }
 
 func (a *App) broadcastCallSession(session *imCallSession, includeRoles map[string]struct{}) {
@@ -151,7 +178,28 @@ func (a *App) createCallSession(ctx context.Context, req imCallRequest) (*imCall
 		CallerPageID:   strings.TrimSpace(req.PageID),
 	}
 	a.upsertCallSession(session)
+	go a.watchCallInvitationTimeout(session.CallID)
 	return session, nil
+}
+
+func (a *App) watchCallInvitationTimeout(callID string) {
+	timer := time.NewTimer(imCallTimeoutSeconds * time.Second)
+	defer timer.Stop()
+	<-timer.C
+	session := a.getCallSession(callID)
+	if session == nil {
+		return
+	}
+	if session.Status != IMCallStatusDialing && session.Status != IMCallStatusRinging {
+		return
+	}
+	session.Status = IMCallStatusTimeout
+	session.EndedAt = time.Now()
+	session.touch()
+	a.broadcastCallSessionEvent(session, "im.call.failed", nil, map[string]any{
+		"reason": "timeout",
+	})
+	a.deleteCallSession(session.CallID)
 }
 
 func normalizeCallKind(value string) string {
