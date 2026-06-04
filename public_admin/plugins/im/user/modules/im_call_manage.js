@@ -29,21 +29,279 @@
         socket_unavailable: '通话服务暂不可用',
         unsupported: '当前浏览器不支持实时语音通话'
     };
-    const SUBMODULES = [
-        {
-            key: 'callSignaling',
-            datasetKey: 'akImUserPluginCallSignaling',
-            src: '/chat/plugins/im/user/modules/call/im_call_signaling.js'
-        },
-        {
-            key: 'callWebRTC',
-            datasetKey: 'akImUserPluginCallWebRTC',
-            src: '/chat/plugins/im/user/modules/call/im_call_webrtc.js'
-        }
-    ];
-
     function trim(value) {
         return String(value || '').trim();
+    }
+
+    function ensureModuleRegistry() {
+        global.AKIMUserModules = global.AKIMUserModules || {};
+        return global.AKIMUserModules;
+    }
+
+    function createBuiltInSignalingModule() {
+        return {
+            socket: null,
+            socketReady: false,
+            outboundQueue: [],
+            options: {},
+
+            init(options) {
+                this.options = options || {};
+                this.ensureSocket();
+                return this;
+            },
+
+            getWsURL() {
+                if (this.options && typeof this.options.getWsURL === 'function') {
+                    return String(this.options.getWsURL() || '');
+                }
+                return '';
+            },
+
+            ensureSocket() {
+                if (this.socket && (this.socket.readyState === 0 || this.socket.readyState === 1)) return;
+                const wsURL = this.getWsURL();
+                if (!wsURL) {
+                    this.emitError('socket_unavailable', '通话服务地址不可用');
+                    return;
+                }
+                try {
+                    const socket = new WebSocket(wsURL);
+                    this.socket = socket;
+                    const self = this;
+                    socket.addEventListener('open', function() {
+                        self.socketReady = true;
+                        self.flushQueue();
+                    });
+                    socket.addEventListener('message', function(event) {
+                        self.handleMessage(event.data);
+                    });
+                    socket.addEventListener('close', function() {
+                        self.socketReady = false;
+                        if (self.socket === socket) self.socket = null;
+                    });
+                    socket.addEventListener('error', function() {
+                        self.socketReady = false;
+                        self.emitError('socket_error', '通话信令连接失败');
+                    });
+                } catch (error) {
+                    this.socket = null;
+                    this.socketReady = false;
+                    this.emitError('socket_error', error && error.message ? error.message : '通话信令初始化失败');
+                }
+            },
+
+            handleMessage(raw) {
+                let data = null;
+                try {
+                    data = typeof raw === 'string' ? JSON.parse(raw) : raw;
+                } catch (e) {
+                    return;
+                }
+                if (!data || typeof data !== 'object' || typeof data.type !== 'string') return;
+                if (!data.type.startsWith('im.call.')) return;
+                if (this.options && typeof this.options.onEvent === 'function') {
+                    this.options.onEvent(data.type, data.payload && typeof data.payload === 'object' ? data.payload : {});
+                }
+            },
+
+            send(type, payload) {
+                const message = { type: String(type || ''), payload: payload || {} };
+                if (!message.type) return;
+                if (!this.socket || !this.socketReady || this.socket.readyState !== 1) {
+                    this.outboundQueue.push(message);
+                    this.ensureSocket();
+                    return;
+                }
+                try {
+                    this.socket.send(JSON.stringify(message));
+                } catch (e) {
+                    this.outboundQueue.push(message);
+                    this.socketReady = false;
+                    this.ensureSocket();
+                }
+            },
+
+            flushQueue() {
+                if (!this.socket || !this.socketReady || this.socket.readyState !== 1) return;
+                while (this.outboundQueue.length > 0) {
+                    const message = this.outboundQueue.shift();
+                    try {
+                        this.socket.send(JSON.stringify(message));
+                    } catch (e) {
+                        this.outboundQueue.unshift(message);
+                        break;
+                    }
+                }
+            },
+
+            emitError(reason, message) {
+                if (this.options && typeof this.options.onError === 'function') {
+                    this.options.onError(reason, message);
+                }
+            },
+
+            destroy() {
+                this.outboundQueue = [];
+                this.socketReady = false;
+                if (this.socket) {
+                    try { this.socket.close(); } catch (e) {}
+                }
+                this.socket = null;
+            }
+        };
+    }
+
+    function createBuiltInWebRTCModule() {
+        return {
+            pc: null,
+            localStream: null,
+            remoteStream: null,
+            pendingCandidates: [],
+            options: {},
+            role: '',
+
+            init(options) {
+                this.options = options || {};
+                return this;
+            },
+
+            isSupported() {
+                return !!(global.navigator && global.navigator.mediaDevices && typeof global.navigator.mediaDevices.getUserMedia === 'function' && global.RTCPeerConnection);
+            },
+
+            async startLocal(kind) {
+                if (!this.isSupported()) throw new Error('当前浏览器不支持实时语音通话');
+                if (this.localStream) return this.localStream;
+                const constraints = {
+                    audio: {
+                        echoCancellation: true,
+                        noiseSuppression: true,
+                        autoGainControl: true
+                    },
+                    video: String(kind || 'audio').toLowerCase() === 'video'
+                };
+                this.localStream = await global.navigator.mediaDevices.getUserMedia(constraints);
+                this.emitLocalStream();
+                return this.localStream;
+            },
+
+            async createPeer(role, kind) {
+                this.role = String(role || '').toLowerCase();
+                if (!this.localStream) await this.startLocal(kind);
+                if (this.pc) return this.pc;
+                const pc = new global.RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
+                this.pc = pc;
+                this.remoteStream = new global.MediaStream();
+                const self = this;
+                this.localStream.getTracks().forEach(function(track) {
+                    pc.addTrack(track, self.localStream);
+                });
+                pc.addEventListener('icecandidate', function(event) {
+                    if (!event.candidate) return;
+                    self.emitSignal('ice', { candidate: event.candidate.toJSON ? event.candidate.toJSON() : event.candidate });
+                });
+                pc.addEventListener('track', function(event) {
+                    event.streams.forEach(function(stream) {
+                        stream.getTracks().forEach(function(track) {
+                            self.remoteStream.addTrack(track);
+                        });
+                    });
+                    self.emitRemoteStream();
+                });
+                pc.addEventListener('connectionstatechange', function() {
+                    self.emitState(pc.connectionState || '');
+                });
+                return pc;
+            },
+
+            async createOffer(kind) {
+                const pc = await this.createPeer('caller', kind);
+                const offer = await pc.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: String(kind || 'audio').toLowerCase() === 'video' });
+                await pc.setLocalDescription(offer);
+                this.emitSignal('offer', { sdp: pc.localDescription });
+            },
+
+            async acceptOffer(sdp, kind) {
+                const pc = await this.createPeer('callee', kind);
+                await pc.setRemoteDescription(new global.RTCSessionDescription(sdp));
+                await this.flushIceCandidates();
+                const answer = await pc.createAnswer();
+                await pc.setLocalDescription(answer);
+                this.emitSignal('answer', { sdp: pc.localDescription });
+            },
+
+            async acceptAnswer(sdp) {
+                if (!this.pc) return;
+                await this.pc.setRemoteDescription(new global.RTCSessionDescription(sdp));
+                await this.flushIceCandidates();
+            },
+
+            async addIceCandidate(candidate) {
+                if (!this.pc || !candidate) return;
+                if (!this.pc.remoteDescription) {
+                    this.pendingCandidates.push(candidate);
+                    return;
+                }
+                await this.pc.addIceCandidate(new global.RTCIceCandidate(candidate));
+            },
+
+            async flushIceCandidates() {
+                if (!this.pc || !this.pc.remoteDescription) return;
+                const items = this.pendingCandidates.splice(0);
+                for (let index = 0; index < items.length; index += 1) {
+                    await this.pc.addIceCandidate(new global.RTCIceCandidate(items[index]));
+                }
+            },
+
+            setMuted(muted) {
+                if (!this.localStream) return false;
+                this.localStream.getAudioTracks().forEach(function(track) {
+                    track.enabled = !muted;
+                });
+                return true;
+            },
+
+            emitSignal(type, payload) {
+                if (this.options && typeof this.options.onSignal === 'function') {
+                    this.options.onSignal(type, payload || {});
+                }
+            },
+
+            emitLocalStream() {
+                if (this.options && typeof this.options.onLocalStream === 'function') {
+                    this.options.onLocalStream(this.localStream);
+                }
+            },
+
+            emitRemoteStream() {
+                if (this.options && typeof this.options.onRemoteStream === 'function') {
+                    this.options.onRemoteStream(this.remoteStream);
+                }
+            },
+
+            emitState(state) {
+                if (this.options && typeof this.options.onState === 'function') {
+                    this.options.onState(state);
+                }
+            },
+
+            close() {
+                if (this.pc) {
+                    try { this.pc.close(); } catch (e) {}
+                }
+                this.pc = null;
+                if (this.localStream) {
+                    this.localStream.getTracks().forEach(function(track) {
+                        try { track.stop(); } catch (e) {}
+                    });
+                }
+                this.localStream = null;
+                this.remoteStream = null;
+                this.pendingCandidates = [];
+                this.role = '';
+            }
+        };
     }
 
     const callModule = {
@@ -105,41 +363,23 @@
             try { this.ctx.reportLaunchError(reason, detail || {}); } catch (e) {}
         },
 
-        loadScriptOnce(config) {
-            const modules = global.AKIMUserModules || {};
-            if (modules[config.key]) return Promise.resolve(modules[config.key]);
-            const selector = 'script[data-' + config.datasetKey.replace(/[A-Z]/g, function(ch) {
-                return '-' + ch.toLowerCase();
-            }) + '="1"]';
-            const existingScript = document.querySelector(selector);
-            if (existingScript) {
-                if (existingScript.parentNode) existingScript.parentNode.removeChild(existingScript);
-            }
-            const url = new URL(config.src, this.getAssetBase());
-            const script = document.createElement('script');
-            script.src = url.toString();
-            script.async = true;
-            script.dataset[config.datasetKey] = '1';
-            return new Promise(function(resolve, reject) {
-                script.onload = function() {
-                    const loaded = (global.AKIMUserModules || {})[config.key];
-                    loaded ? resolve(loaded) : reject(new Error('通话子模块加载失败'));
-                };
-                script.onerror = function() {
-                    reject(new Error('通话子模块加载失败'));
-                };
-                (document.head || document.documentElement || document.body).appendChild(script);
-            });
+        ensureBuiltInModules() {
+            const modules = ensureModuleRegistry();
+            if (!modules.callSignaling) modules.callSignaling = createBuiltInSignalingModule();
+            if (!modules.callWebRTC) modules.callWebRTC = createBuiltInWebRTCModule();
+            return {
+                signaling: modules.callSignaling,
+                webRTC: modules.callWebRTC
+            };
         },
 
         ensureSubmodules() {
             if (this.submodulePromise) return this.submodulePromise;
             const self = this;
-            this.submodulePromise = Promise.all(SUBMODULES.map(function(config) {
-                return self.loadScriptOnce(config);
-            })).then(function(items) {
-                self.signaling = items[0];
-                self.webRTC = items[1];
+            this.submodulePromise = Promise.resolve().then(function() {
+                const modules = self.ensureBuiltInModules();
+                self.signaling = modules.signaling;
+                self.webRTC = modules.webRTC;
                 self.initSignaling();
                 self.initWebRTC();
                 return { signaling: self.signaling, webRTC: self.webRTC };
