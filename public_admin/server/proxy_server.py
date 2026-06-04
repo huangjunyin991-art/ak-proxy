@@ -10847,6 +10847,9 @@ def _iter_widget_asset_paths() -> list[str]:
         os.path.join(PLUGINS_DIR, "im", "user", "modules", "im_group_title.js"),
         os.path.join(PLUGINS_DIR, "im", "user", "modules", "im_message_manage.js"),
         os.path.join(PLUGINS_DIR, "im", "user", "modules", "im_session_manage.js"),
+        os.path.join(PLUGINS_DIR, "im", "user", "modules", "im_call_manage.js"),
+        os.path.join(PLUGINS_DIR, "im", "user", "modules", "call", "im_call_signaling.js"),
+        os.path.join(PLUGINS_DIR, "im", "user", "modules", "call", "im_call_webrtc.js"),
         os.path.join(PLUGINS_DIR, "im", "user", "modules", "im_meeting_manage.js"),
     ]
 
