@@ -91,14 +91,30 @@
         ].join('');
     }
 
-    function buildCallViewModel(mode, reason, hasCallId, peerName, muted, meta) {
-        const displayName = trim(peerName) || '联系人';
-        const normalizedReason = normalizeReasonCode(reason);
-        const endReason = trim(meta && meta.endReason).toLowerCase();
-        const actorRole = trim(meta && meta.actorRole).toLowerCase();
-        const role = trim(meta && meta.role).toLowerCase();
-        const wasEverConnected = !!(meta && meta.wasEverConnected);
-        if (mode === CALL_MODES.outgoing && !hasCallId) {
+    function buildHeaderStatusText(view) {
+        const badge = trim(view && view.badge);
+        const subtitle = trim(view && view.subtitle);
+        if (badge && subtitle) return badge + ' · ' + subtitle;
+        return badge || subtitle || '';
+    }
+
+    function padDurationUnit(value) {
+        return String(Math.max(0, Number(value) || 0)).padStart(2, '0');
+    }
+
+    function formatCallDuration(totalSeconds) {
+        const safeSeconds = Math.max(0, Math.floor(Number(totalSeconds) || 0));
+        const hours = Math.floor(safeSeconds / 3600);
+        const minutes = Math.floor((safeSeconds % 3600) / 60);
+        const seconds = safeSeconds % 60;
+        if (hours > 0) {
+            return [hours, minutes, seconds].map(padDurationUnit).join(':');
+        }
+        return [minutes, seconds].map(padDurationUnit).join(':');
+    }
+
+    function buildOutgoingPhaseView(hasCallId) {
+        if (!hasCallId) {
             return {
                 badge: '正在发起',
                 subtitle: '等待服务器确认本次通话',
@@ -110,17 +126,96 @@
                 pending: true
             };
         }
-        if (mode === CALL_MODES.outgoing) {
+        return {
+            badge: '等待接听',
+            subtitle: '对方已经收到语音通话邀请',
+            headline: '等待对方接听',
+            detailTitle: '通话邀请已送达',
+            detailBody: '当前会话已建立成功，正在等待对方决定是否接听。',
+            footer: '30 秒内无人接听会自动结束。',
+            icon: 'phone',
+            pending: true
+        };
+    }
+
+    function buildConnectingPhaseView(displayName, role, phase) {
+        const normalizedRole = trim(role).toLowerCase();
+        const normalizedPhase = trim(phase).toLowerCase();
+        if (normalizedPhase === 'accepting') {
             return {
-                badge: '等待接听',
-                subtitle: '对方已经收到语音通话邀请',
-                headline: '等待 ' + displayName + ' 接听',
-                detailTitle: '通话邀请已送达',
-                detailBody: '对方接听后会立即进入语音连接阶段。',
-                footer: '30 秒内无人接听会自动结束。',
-                icon: 'phone',
+                badge: '正在连接',
+                subtitle: '正在请求麦克风权限',
+                headline: '正在准备接听 ' + displayName,
+                detailTitle: '需要先启用你的麦克风',
+                detailBody: '只有拿到浏览器麦克风权限后，才能继续建立语音通话。',
+                footer: '如果权限被拦截，本次通话会直接失败。',
+                icon: 'waiting',
                 pending: true
             };
+        }
+        if (normalizedPhase === 'accepted') {
+            return {
+                badge: '正在连接',
+                subtitle: normalizedRole === 'caller' ? '对方已接听，正在准备你的麦克风' : '双方已确认接听，正在进入连接阶段',
+                headline: normalizedRole === 'caller' ? displayName + ' 已接听，正在接通' : '正在建立语音通道',
+                detailTitle: '通话已进入接通前最后阶段',
+                detailBody: normalizedRole === 'caller'
+                    ? '下一步会启用你的麦克风，并开始交换语音连接信息。'
+                    : '双方已经确认继续通话，马上开始建立音频通道。',
+                footer: '如果这里停留过久，多半是浏览器权限或本地设备问题。',
+                icon: 'waiting',
+                pending: true
+            };
+        }
+        if (normalizedPhase === 'preparing_local') {
+            return {
+                badge: '正在连接',
+                subtitle: normalizedRole === 'caller' ? '正在启用你的麦克风' : '正在准备本地麦克风',
+                headline: '正在准备语音设备',
+                detailTitle: '浏览器正在初始化音频输入',
+                detailBody: '麦克风准备完成后，会继续交换语音连接信息。',
+                footer: '如浏览器弹出权限提示，请允许使用麦克风。',
+                icon: 'waiting',
+                pending: true
+            };
+        }
+        if (normalizedPhase === 'negotiating') {
+            return {
+                badge: '正在连接',
+                subtitle: '正在交换语音连接信息',
+                headline: '正在建立语音通道',
+                detailTitle: '本地与对方正在完成协商',
+                detailBody: '通常几秒内就会接通；如果卡住，多半是网络或浏览器实时通信链路问题。',
+                footer: '你可以随时取消本次通话。',
+                icon: 'waiting',
+                pending: true
+            };
+        }
+        return {
+            badge: '正在连接',
+            subtitle: '双方已进入语音连接阶段',
+            headline: '正在建立语音通道',
+            detailTitle: '正在准备音频流',
+            detailBody: '通常几秒内就会接通；如果卡住，多半是网络或麦克风权限问题。',
+            footer: '你可以随时取消本次通话。',
+            icon: 'waiting',
+            pending: true
+        };
+    }
+
+    function buildCallViewModel(mode, reason, hasCallId, peerName, muted, meta) {
+        const displayName = trim(peerName) || '联系人';
+        const normalizedReason = normalizeReasonCode(reason);
+        const endReason = trim(meta && meta.endReason).toLowerCase();
+        const actorRole = trim(meta && meta.actorRole).toLowerCase();
+        const role = trim(meta && meta.role).toLowerCase();
+        const wasEverConnected = !!(meta && meta.wasEverConnected);
+        const connectionPhase = trim(meta && meta.connectionPhase).toLowerCase();
+        const durationText = trim(meta && meta.durationText);
+        if (mode === CALL_MODES.outgoing) {
+            const outgoingView = buildOutgoingPhaseView(hasCallId);
+            if (hasCallId) outgoingView.headline = '等待 ' + displayName + ' 接听';
+            return outgoingView;
         }
         if (mode === CALL_MODES.incoming) {
             return {
@@ -135,25 +230,16 @@
             };
         }
         if (mode === CALL_MODES.connecting) {
-            return {
-                badge: '正在连接',
-                subtitle: '双方已进入语音连接阶段',
-                headline: '正在建立语音通道',
-                detailTitle: '正在准备音频流',
-                detailBody: '通常几秒内就会接通；如果卡住，多半是网络或麦克风权限问题。',
-                footer: '你可以随时取消本次通话。',
-                icon: 'waiting',
-                pending: true
-            };
+            return buildConnectingPhaseView(displayName, role, connectionPhase);
         }
         if (mode === CALL_MODES.active) {
             return {
                 badge: '语音通话中',
-                subtitle: '连接已经建立',
+                subtitle: durationText ? '已通话 ' + durationText : '连接已经建立',
                 headline: '正在和 ' + displayName + ' 通话',
                 detailTitle: muted ? '你的麦克风已静音' : '你的麦克风正在工作',
-                detailBody: muted ? '点击“取消静音”即可恢复说话。' : '你可以随时静音自己的麦克风，或直接结束通话。',
-                footer: '当前语音连接稳定后会持续保持在线。',
+                detailBody: muted ? '点击“取消静音”即可恢复说话。' : '当前语音连接已接通，双方现在可以正常说话。',
+                footer: muted ? '当前你处于静音状态，对方暂时听不到你的声音。' : '你可以随时静音自己的麦克风，或直接结束通话。',
                 icon: 'active',
                 pending: false
             };
@@ -188,7 +274,7 @@
                     badge: '通话已结束',
                     subtitle: wasEverConnected ? '对方结束了本次通话' : '通话请求已经结束',
                     headline: wasEverConnected ? '对方已挂断' : '通话已结束',
-                    detailTitle: wasEverConnected ? '语音连接已经断开' : '本次呼叫没有继续保持',
+                    detailTitle: wasEverConnected && durationText ? '本次通话时长 ' + durationText : (wasEverConnected ? '语音连接已经断开' : '本次呼叫没有继续保持'),
                     detailBody: wasEverConnected ? '如果还需要继续沟通，可以重新发起语音通话。' : '如需继续沟通，可以重新发起通话。',
                     footer: '窗口将自动关闭。',
                     icon: 'ended',
@@ -199,7 +285,7 @@
                 badge: '通话已结束',
                 subtitle: '本次语音通话已经结束',
                 headline: '通话已结束',
-                detailTitle: '语音连接已关闭',
+                detailTitle: durationText ? '本次通话时长 ' + durationText : '语音连接已关闭',
                 detailBody: '如果还需要继续沟通，可以重新发起语音通话。',
                 footer: '窗口将自动关闭。',
                 icon: 'ended',
@@ -207,6 +293,18 @@
             };
         }
         if (mode === CALL_MODES.failed) {
+            if (normalizedReason === 'peer_connection_failed' && durationText) {
+                return {
+                    badge: '连接中断',
+                    subtitle: '语音连接在通话过程中断开',
+                    headline: '本次通话中途断开',
+                    detailTitle: '已通话 ' + durationText + ' 后连接中断',
+                    detailBody: '这通常是网络波动或浏览器实时通信链路断开导致的。',
+                    footer: '窗口将自动关闭。',
+                    icon: 'warning',
+                    pending: false
+                };
+            }
             if (normalizedReason === 'busy') {
                 return {
                     badge: '对方忙线',
@@ -704,13 +802,17 @@
         role: '',
         muted: false,
         offerSent: false,
-        timers: { autoEnd: 0, launch: 0 },
+        timers: { autoEnd: 0, launch: 0, duration: 0 },
         refs: {},
         lastFailReason: '',
         lastEndReason: '',
         lastEndActor: '',
         lastEndActorRole: '',
         everConnectedAt: 0,
+        activeStartedAt: 0,
+        liveDurationText: '',
+        lastDurationText: '',
+        connectionPhase: '',
         localTermination: { action: '', role: '', callId: '', at: 0, wasEverConnected: false },
         flowVersion: 0,
         bound: false,
@@ -963,13 +1065,15 @@
 
         clearTimer(name) {
             if (!this.timers || !this.timers[name]) return;
-            global.clearTimeout(this.timers[name]);
+            if (name === 'duration') global.clearInterval(this.timers[name]);
+            else global.clearTimeout(this.timers[name]);
             this.timers[name] = 0;
         },
 
         clearAllTimers() {
             this.clearTimer('autoEnd');
             this.clearTimer('launch');
+            this.clearTimer('duration');
         },
 
         clearResultState() {
@@ -977,6 +1081,7 @@
             this.lastEndReason = '';
             this.lastEndActor = '';
             this.lastEndActorRole = '';
+            this.lastDurationText = '';
         },
 
         bumpFlowVersion() {
@@ -1053,13 +1158,74 @@
             if (!this.everConnectedAt) this.everConnectedAt = Date.now();
         },
 
+        setConnectionPhase(phase, options) {
+            options = options || {};
+            const normalizedPhase = trim(phase).toLowerCase();
+            if (this.connectionPhase === normalizedPhase) return;
+            this.connectionPhase = normalizedPhase;
+            if (options.render !== false) this.render();
+        },
+
+        updateLiveDurationText() {
+            if (!this.activeStartedAt) {
+                this.liveDurationText = '';
+                return '';
+            }
+            const nextText = formatCallDuration((Date.now() - this.activeStartedAt) / 1000);
+            const changed = this.liveDurationText !== nextText;
+            this.liveDurationText = nextText;
+            if (changed && this.mode === CALL_MODES.active) this.render();
+            return nextText;
+        },
+
+        startDurationTicker() {
+            if (!this.activeStartedAt) this.activeStartedAt = Date.now();
+            this.lastDurationText = '';
+            this.updateLiveDurationText();
+            if (this.timers.duration) return;
+            const self = this;
+            this.timers.duration = global.setInterval(function() {
+                self.updateLiveDurationText();
+            }, 1000);
+        },
+
+        stopDurationTicker(options) {
+            options = options || {};
+            this.clearTimer('duration');
+            if (!options.preserveActiveStartedAt) this.activeStartedAt = 0;
+            if (!options.preserveLiveDurationText) this.liveDurationText = '';
+        },
+
+        captureDurationSnapshot() {
+            const snapshot = this.activeStartedAt
+                ? formatCallDuration((Date.now() - this.activeStartedAt) / 1000)
+                : trim(this.liveDurationText || this.lastDurationText);
+            this.lastDurationText = snapshot || '';
+            this.stopDurationTicker();
+            return this.lastDurationText;
+        },
+
+        clearLiveSessionState() {
+            this.stopDurationTicker();
+            this.lastDurationText = '';
+            this.setConnectionPhase('', { render: false });
+        },
+
+        markActive() {
+            this.markConnected();
+            this.setConnectionPhase('', { render: false });
+            this.startDurationTicker();
+        },
+
         buildRenderMeta() {
             return {
                 endReason: this.lastEndReason,
                 actor: this.lastEndActor,
                 actorRole: this.lastEndActorRole,
                 role: this.role,
-                wasEverConnected: this.wasEverConnected()
+                wasEverConnected: this.wasEverConnected(),
+                connectionPhase: this.connectionPhase,
+                durationText: trim(this.liveDurationText || this.lastDurationText)
             };
         },
 
@@ -1118,10 +1284,12 @@
             const visible = this.mode !== CALL_MODES.idle;
             const view = buildCallViewModel(this.mode, this.lastFailReason, !!this.currentCallId, this.currentPeerName, this.muted, this.buildRenderMeta());
             const actionLayout = buildCallActionLayout(this.mode, this.muted);
+            const headerStatus = buildHeaderStatusText(view);
             refs.panel.setAttribute('aria-hidden', visible ? 'false' : 'true');
             refs.panel.dataset.mode = this.mode;
             refs.title.textContent = this.currentPeerName || '语音通话';
-            refs.subtitle.textContent = view.badge || '';
+            refs.subtitle.textContent = headerStatus;
+            refs.subtitle.style.display = headerStatus ? 'block' : 'none';
             refs.state.textContent = view.footer || '';
             refs.state.style.display = view.footer ? 'block' : 'none';
             refs.placeholder.style.display = 'flex';
@@ -1157,6 +1325,7 @@
             this.cleanupMedia();
             this.clearLocalTermination();
             this.clearResultState();
+            this.clearLiveSessionState();
             this.role = 'caller';
             this.muted = false;
             this.offerSent = false;
@@ -1166,6 +1335,7 @@
             this.currentPeerName = '';
             this.currentPeerUsername = '';
             this.currentKind = trim(payload.kind || payload.call_kind || this.currentKind || 'audio') || 'audio';
+            this.setConnectionPhase('launching', { render: false });
             this.setState(CALL_MODES.outgoing, payload);
             const self = this;
             this.ensureSubmodules().then(function() {
@@ -1196,6 +1366,7 @@
             this.cleanupMedia();
             this.clearLocalTermination();
             this.clearResultState();
+            this.clearLiveSessionState();
             this.role = 'callee';
             this.muted = false;
             this.offerSent = false;
@@ -1213,11 +1384,13 @@
             const flowVersion = this.flowVersion;
             this.clearTimer('autoEnd');
             this.clearResultState();
+            this.setConnectionPhase('accepting', { render: false });
             this.setState(CALL_MODES.connecting, {});
             try {
                 if (!this.webRTC || !this.webRTC.isSupported()) throw new Error('unsupported');
                 await this.webRTC.startLocal('audio');
                 if (!this.isFlowCurrent(flowVersion) || this.mode !== CALL_MODES.connecting || !this.currentCallId) return;
+                this.setConnectionPhase('accepted');
                 this.signaling.send('im.call.accept', {
                     call_id: this.currentCallId,
                     ws_id: trim(this.ctx && this.ctx.state && this.ctx.state.wsId),
@@ -1277,6 +1450,7 @@
             this.offerSent = false;
             this.everConnectedAt = 0;
             this.clearResultState();
+            this.clearLiveSessionState();
             if (!options.preserveLocalTermination) this.clearLocalTermination();
             this.render();
         },
@@ -1284,6 +1458,7 @@
         end(reason, payload, options) {
             payload = payload || {};
             options = options || {};
+            this.captureDurationSnapshot();
             this.clearAllTimers();
             this.cleanupMedia();
             const nextMode = reason === 'failed' ? CALL_MODES.failed : CALL_MODES.ended;
@@ -1325,12 +1500,14 @@
             const flowVersion = this.flowVersion;
             this.offerSent = true;
             try {
+                this.setConnectionPhase('preparing_local', { render: false });
                 this.setState(CALL_MODES.connecting, {});
                 await this.webRTC.startLocal('audio');
                 if (!this.isFlowCurrent(flowVersion) || this.mode === CALL_MODES.idle || !this.currentCallId) {
                     this.offerSent = false;
                     return;
                 }
+                this.setConnectionPhase('negotiating');
                 await this.webRTC.createOffer('audio');
             } catch (error) {
                 this.offerSent = false;
@@ -1361,6 +1538,7 @@
             }
             if (type === 'im.call.accepted' || type === 'im.call.connected') {
                 this.markConnected();
+                this.setConnectionPhase(this.role === 'caller' ? 'accepted' : 'negotiating', { render: false });
                 this.setState(CALL_MODES.connecting, payload);
                 if (this.role === 'caller') await this.startCallerPeer();
                 return;
@@ -1368,6 +1546,7 @@
             if (type === 'im.call.offer') {
                 if (!this.webRTC || !payload.sdp) return;
                 this.markConnected();
+                this.setConnectionPhase('negotiating', { render: false });
                 this.setState(CALL_MODES.connecting, payload);
                 try {
                     await this.webRTC.acceptOffer(payload.sdp, 'audio');
@@ -1379,7 +1558,7 @@
             if (type === 'im.call.answer') {
                 if (this.webRTC && payload.sdp) {
                     await this.webRTC.acceptAnswer(payload.sdp);
-                    this.markConnected();
+                    this.markActive();
                     this.setState(CALL_MODES.active, payload);
                 }
                 return;
@@ -1440,14 +1619,14 @@
                 const playResult = audio.play();
                 if (playResult && typeof playResult.catch === 'function') playResult.catch(function() {});
             } catch (e) {}
-            this.markConnected();
+            this.markActive();
             this.setState(CALL_MODES.active, {});
         },
 
         handlePeerState(state) {
             const normalizedState = trim(state).toLowerCase();
             if (normalizedState === 'connected') {
-                this.markConnected();
+                this.markActive();
                 this.setState(CALL_MODES.active, {});
             }
             if (normalizedState === 'failed' || normalizedState === 'disconnected') {
@@ -1473,6 +1652,7 @@
             this.bumpFlowVersion();
             this.clearAllTimers();
             this.cleanupMedia();
+            this.clearLiveSessionState();
             this.clearLocalTermination();
             if (this.signaling && typeof this.signaling.destroy === 'function') this.signaling.destroy();
             this.signaling = null;
