@@ -10848,8 +10848,11 @@ def _iter_widget_asset_paths() -> list[str]:
         os.path.join(PLUGINS_DIR, "im", "user", "modules", "im_message_manage.js"),
         os.path.join(PLUGINS_DIR, "im", "user", "modules", "im_session_manage.js"),
         os.path.join(PLUGINS_DIR, "im", "user", "modules", "im_call_manage.js"),
+        os.path.join(PLUGINS_DIR, "im", "user", "modules", "call", "im_call_session.js"),
+        os.path.join(PLUGINS_DIR, "im", "user", "modules", "call", "im_call_timeline.js"),
         os.path.join(PLUGINS_DIR, "im", "user", "modules", "call", "im_call_signaling.js"),
         os.path.join(PLUGINS_DIR, "im", "user", "modules", "call", "im_call_webrtc.js"),
+        os.path.join(PLUGINS_DIR, "im", "user", "modules", "call_message", "im_call_message_manage.js"),
         os.path.join(PLUGINS_DIR, "im", "user", "modules", "im_meeting_manage.js"),
     ]
 
@@ -11457,11 +11460,38 @@ async def im_user_plugin_call_signaling_module_js(request: Request):
     return _build_widget_script_response(request, js_path)
 
 
+@app.get("/chat/plugins/im/user/modules/call/im_call_session.js")
+
+async def im_user_plugin_call_session_module_js(request: Request):
+
+    js_path = os.path.join(PLUGINS_DIR, "im", "user", "modules", "call", "im_call_session.js")
+
+    return _build_widget_script_response(request, js_path)
+
+
+@app.get("/chat/plugins/im/user/modules/call/im_call_timeline.js")
+
+async def im_user_plugin_call_timeline_module_js(request: Request):
+
+    js_path = os.path.join(PLUGINS_DIR, "im", "user", "modules", "call", "im_call_timeline.js")
+
+    return _build_widget_script_response(request, js_path)
+
+
 @app.get("/chat/plugins/im/user/modules/call/im_call_webrtc.js")
 
 async def im_user_plugin_call_webrtc_module_js(request: Request):
 
     js_path = os.path.join(PLUGINS_DIR, "im", "user", "modules", "call", "im_call_webrtc.js")
+
+    return _build_widget_script_response(request, js_path)
+
+
+@app.get("/chat/plugins/im/user/modules/call_message/im_call_message_manage.js")
+
+async def im_user_plugin_call_message_manage_module_js(request: Request):
+
+    js_path = os.path.join(PLUGINS_DIR, "im", "user", "modules", "call_message", "im_call_message_manage.js")
 
     return _build_widget_script_response(request, js_path)
 

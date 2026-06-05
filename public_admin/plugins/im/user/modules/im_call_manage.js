@@ -815,6 +815,7 @@
         connectionPhase: '',
         localTermination: { action: '', role: '', callId: '', at: 0, wasEverConnected: false },
         flowVersion: 0,
+        openedAt: 0,
         bound: false,
         submodulePromise: null,
         signaling: null,
@@ -946,6 +947,181 @@
                 onLocalStream: function(stream) { self.attachLocalStream(stream); },
                 onRemoteStream: function(stream) { self.attachRemoteStream(stream); },
                 onState: function(state) { self.handlePeerState(state); }
+            });
+        },
+
+        getCallSessionModule() {
+            if (!this.ctx || typeof this.ctx.getCallSessionModule !== 'function') return null;
+            try {
+                return this.ctx.getCallSessionModule() || null;
+            } catch (e) {
+                return null;
+            }
+        },
+
+        getCallTimelineModule() {
+            if (!this.ctx || typeof this.ctx.getCallTimelineModule !== 'function') return null;
+            try {
+                return this.ctx.getCallTimelineModule() || null;
+            } catch (e) {
+                return null;
+            }
+        },
+
+        ensureCallSessionModule() {
+            if (this.getCallSessionModule()) return Promise.resolve(this.getCallSessionModule());
+            if (!this.ctx || typeof this.ctx.ensureCallSessionModule !== 'function') {
+                return Promise.resolve(null);
+            }
+            const self = this;
+            return Promise.resolve(this.ctx.ensureCallSessionModule()).then(function() {
+                return self.getCallSessionModule();
+            }).catch(function() {
+                return self.getCallSessionModule();
+            });
+        },
+
+        ensureCallTimelineModule() {
+            if (this.getCallTimelineModule()) return Promise.resolve(this.getCallTimelineModule());
+            if (!this.ctx || typeof this.ctx.ensureCallTimelineModule !== 'function') {
+                return Promise.resolve(null);
+            }
+            const self = this;
+            return Promise.resolve(this.ctx.ensureCallTimelineModule()).then(function() {
+                return self.getCallTimelineModule();
+            }).catch(function() {
+                return self.getCallTimelineModule();
+            });
+        },
+
+        ensureCallLifecycleModules() {
+            const self = this;
+            return Promise.all([
+                this.ensureCallSessionModule(),
+                this.ensureCallTimelineModule()
+            ]).then(function() {
+                return {
+                    callSession: self.getCallSessionModule(),
+                    callTimeline: self.getCallTimelineModule()
+                };
+            }).catch(function() {
+                return {
+                    callSession: self.getCallSessionModule(),
+                    callTimeline: self.getCallTimelineModule()
+                };
+            });
+        },
+
+        parseDurationTextToSeconds(value) {
+            const normalized = trim(value);
+            if (!normalized) return 0;
+            const units = normalized.split(':');
+            if (units.length !== 2 && units.length !== 3) return 0;
+            const numbers = units.map(function(item) {
+                return Math.max(0, Number(item || 0) || 0);
+            });
+            if (numbers.length === 2) {
+                return (numbers[0] * 60) + numbers[1];
+            }
+            return (numbers[0] * 3600) + (numbers[1] * 60) + numbers[2];
+        },
+
+        buildCallSessionSnapshot(extra) {
+            const nextExtra = extra && typeof extra === 'object' ? extra : {};
+            const now = Date.now();
+            const durationText = trim(Object.prototype.hasOwnProperty.call(nextExtra, 'durationText')
+                ? nextExtra.durationText
+                : (this.activeStartedAt
+                    ? formatCallDuration((now - this.activeStartedAt) / 1000)
+                    : trim(this.liveDurationText || this.lastDurationText)));
+            let durationSeconds = 0;
+            if (Object.prototype.hasOwnProperty.call(nextExtra, 'durationSeconds')) {
+                durationSeconds = Math.max(0, Math.floor(Number(nextExtra.durationSeconds || 0) || 0));
+            } else if (this.activeStartedAt) {
+                durationSeconds = Math.max(0, Math.floor((now - this.activeStartedAt) / 1000));
+            } else {
+                durationSeconds = this.parseDurationTextToSeconds(durationText);
+            }
+            const localTerminationSource = Object.prototype.hasOwnProperty.call(nextExtra, 'localTermination')
+                ? nextExtra.localTermination
+                : this.localTermination;
+            const localTermination = {
+                action: trim(localTerminationSource && localTerminationSource.action).toLowerCase(),
+                role: trim(localTerminationSource && localTerminationSource.role).toLowerCase(),
+                callId: trim(localTerminationSource && (localTerminationSource.callId || localTerminationSource.call_id)),
+                at: Math.max(0, Number(localTerminationSource && localTerminationSource.at || 0) || 0),
+                wasEverConnected: !!(localTerminationSource && localTerminationSource.wasEverConnected)
+            };
+            return {
+                callId: trim(nextExtra.callId || nextExtra.call_id || this.currentCallId),
+                conversationId: Math.max(0, Number(nextExtra.conversationId || nextExtra.conversation_id || this.currentConversationId || 0) || 0),
+                peerName: trim(nextExtra.peerName || nextExtra.peer_name || this.currentPeerName),
+                peerUsername: trim(nextExtra.peerUsername || nextExtra.peer_username || this.currentPeerUsername),
+                kind: trim(nextExtra.kind || nextExtra.call_kind || this.currentKind || 'audio').toLowerCase() || 'audio',
+                mode: trim(nextExtra.mode || this.mode || CALL_MODES.idle).toLowerCase(),
+                role: trim(nextExtra.role || this.role).toLowerCase(),
+                connectionPhase: trim(nextExtra.connectionPhase || nextExtra.connection_phase || this.connectionPhase).toLowerCase(),
+                wasEverConnected: Object.prototype.hasOwnProperty.call(nextExtra, 'wasEverConnected')
+                    ? !!nextExtra.wasEverConnected
+                    : this.wasEverConnected(),
+                connectedAt: Math.max(0, Number(nextExtra.connectedAt || nextExtra.connected_at || this.everConnectedAt || 0) || 0),
+                activeAt: Math.max(0, Number(nextExtra.activeAt || nextExtra.active_at || this.activeStartedAt || 0) || 0),
+                durationText: durationText,
+                durationSeconds: durationSeconds,
+                failReason: normalizeReasonCode(nextExtra.failReason || nextExtra.fail_reason || this.lastFailReason),
+                endReason: normalizeReasonCode(nextExtra.endReason || nextExtra.end_reason || this.lastEndReason),
+                endActor: trim(nextExtra.endActor || nextExtra.actor || this.lastEndActor),
+                endActorRole: trim(nextExtra.endActorRole || nextExtra.actor_role || this.lastEndActorRole).toLowerCase(),
+                localTermination: localTermination,
+                openedAt: Math.max(0, Number(nextExtra.openedAt || nextExtra.opened_at || this.openedAt || 0) || 0),
+                endedAt: Math.max(0, Number(nextExtra.endedAt || nextExtra.ended_at || 0) || 0)
+            };
+        },
+
+        recordCallSession(eventName, extra) {
+            const snapshot = this.buildCallSessionSnapshot(extra);
+            const callSessionModule = this.getCallSessionModule();
+            if (callSessionModule && typeof callSessionModule.record === 'function') {
+                try {
+                    return callSessionModule.record(eventName, snapshot) || snapshot;
+                } catch (e) {}
+            }
+            const self = this;
+            this.ensureCallSessionModule().then(function(moduleInstance) {
+                if (!moduleInstance || typeof moduleInstance.record !== 'function') return;
+                try { moduleInstance.record(eventName, snapshot); } catch (e) {}
+            }).catch(function() {
+                return self.getCallSessionModule();
+            });
+            return snapshot;
+        },
+
+        emitCallTimeline(trigger, extra) {
+            const normalizedTrigger = trim(trigger).toLowerCase();
+            if (!normalizedTrigger) return Promise.resolve(null);
+            const snapshot = this.recordCallSession('terminal_' + normalizedTrigger, extra);
+            const callTimelineModule = this.getCallTimelineModule();
+            if (callTimelineModule && typeof callTimelineModule.handleTerminalSnapshot === 'function') {
+                try {
+                    return Promise.resolve(callTimelineModule.handleTerminalSnapshot(normalizedTrigger, snapshot)).catch(function() {
+                        return null;
+                    });
+                } catch (e) {
+                    return Promise.resolve(null);
+                }
+            }
+            const self = this;
+            return this.ensureCallTimelineModule().then(function(moduleInstance) {
+                if (!moduleInstance || typeof moduleInstance.handleTerminalSnapshot !== 'function') return null;
+                return Promise.resolve(moduleInstance.handleTerminalSnapshot(normalizedTrigger, snapshot)).catch(function() {
+                    return null;
+                });
+            }).catch(function() {
+                const fallbackModule = self.getCallTimelineModule();
+                if (!fallbackModule || typeof fallbackModule.handleTerminalSnapshot !== 'function') return null;
+                return Promise.resolve(fallbackModule.handleTerminalSnapshot(normalizedTrigger, snapshot)).catch(function() {
+                    return null;
+                });
             });
         },
 
@@ -1155,7 +1331,13 @@
         },
 
         markConnected() {
+            const wasConnected = this.everConnectedAt > 0;
             if (!this.everConnectedAt) this.everConnectedAt = Date.now();
+            if (!wasConnected) {
+                this.recordCallSession('mark_connected', {
+                    connectedAt: this.everConnectedAt
+                });
+            }
         },
 
         setConnectionPhase(phase, options) {
@@ -1215,6 +1397,11 @@
             this.markConnected();
             this.setConnectionPhase('', { render: false });
             this.startDurationTicker();
+            this.recordCallSession('mark_active', {
+                mode: CALL_MODES.active,
+                activeAt: this.activeStartedAt,
+                durationText: trim(this.liveDurationText || this.lastDurationText)
+            });
         },
 
         buildRenderMeta() {
@@ -1330,6 +1517,7 @@
             this.muted = false;
             this.offerSent = false;
             this.everConnectedAt = 0;
+            this.openedAt = Date.now();
             this.currentCallId = '';
             this.currentConversationId = 0;
             this.currentPeerName = '';
@@ -1337,6 +1525,11 @@
             this.currentKind = trim(payload.kind || payload.call_kind || this.currentKind || 'audio') || 'audio';
             this.setConnectionPhase('launching', { render: false });
             this.setState(CALL_MODES.outgoing, payload);
+            this.ensureCallLifecycleModules();
+            this.recordCallSession('open_outgoing', {
+                openedAt: this.openedAt,
+                mode: CALL_MODES.outgoing
+            });
             const self = this;
             this.ensureSubmodules().then(function() {
                 if (!self.isFlowCurrent(flowVersion) || self.mode !== CALL_MODES.outgoing) return;
@@ -1371,12 +1564,18 @@
             this.muted = false;
             this.offerSent = false;
             this.everConnectedAt = 0;
+            this.openedAt = Date.now();
             this.currentCallId = '';
             this.currentConversationId = 0;
             this.currentPeerName = '';
             this.currentPeerUsername = '';
             this.currentKind = trim(payload.call_kind || payload.kind || this.currentKind || 'audio') || 'audio';
             this.setState(CALL_MODES.incoming, payload);
+            this.ensureCallLifecycleModules();
+            this.recordCallSession('open_incoming', {
+                openedAt: this.openedAt,
+                mode: CALL_MODES.incoming
+            });
         },
 
         async accept() {
@@ -1386,11 +1585,19 @@
             this.clearResultState();
             this.setConnectionPhase('accepting', { render: false });
             this.setState(CALL_MODES.connecting, {});
+            this.recordCallSession('accept_requested', {
+                mode: CALL_MODES.connecting,
+                connectionPhase: 'accepting'
+            });
             try {
                 if (!this.webRTC || !this.webRTC.isSupported()) throw new Error('unsupported');
                 await this.webRTC.startLocal('audio');
                 if (!this.isFlowCurrent(flowVersion) || this.mode !== CALL_MODES.connecting || !this.currentCallId) return;
                 this.setConnectionPhase('accepted');
+                this.recordCallSession('accept_ready', {
+                    mode: CALL_MODES.connecting,
+                    connectionPhase: 'accepted'
+                });
                 this.signaling.send('im.call.accept', {
                     call_id: this.currentCallId,
                     ws_id: trim(this.ctx && this.ctx.state && this.ctx.state.wsId),
@@ -1407,6 +1614,11 @@
                 return;
             }
             this.rememberLocalTermination('reject');
+            this.emitCallTimeline('local_reject', {
+                mode: CALL_MODES.ended,
+                endReason: 'rejected',
+                localTermination: this.localTermination
+            });
             if (this.currentCallId && this.signaling) {
                 this.signaling.send('im.call.reject', { call_id: this.currentCallId });
             }
@@ -1414,8 +1626,14 @@
         },
 
         hangup() {
-            const action = this.wasEverConnected() || this.mode === CALL_MODES.active ? 'hangup' : 'cancel';
+            const hasEstablishedCall = this.activeStartedAt > 0 || this.mode === CALL_MODES.active;
+            const action = hasEstablishedCall ? 'hangup' : 'cancel';
             this.rememberLocalTermination(action);
+            this.emitCallTimeline(action === 'hangup' ? 'local_hangup' : 'local_cancel', {
+                mode: hasEstablishedCall ? CALL_MODES.ended : this.mode,
+                endReason: 'hangup',
+                localTermination: this.localTermination
+            });
             if (this.currentCallId && this.signaling) {
                 this.signaling.send('im.call.hangup', { call_id: this.currentCallId });
             }
@@ -1449,6 +1667,7 @@
             this.muted = false;
             this.offerSent = false;
             this.everConnectedAt = 0;
+            if (!options.preserveLocalTermination) this.openedAt = 0;
             this.clearResultState();
             this.clearLiveSessionState();
             if (!options.preserveLocalTermination) this.clearLocalTermination();
@@ -1470,6 +1689,14 @@
                 this.lastEndActorRole = trim(options.actorRole || payload.actor_role || this.lastEndActorRole).toLowerCase();
             }
             this.setState(nextMode, payload);
+            this.recordCallSession(nextMode === CALL_MODES.failed ? 'end_failed' : 'end_ended', {
+                mode: nextMode,
+                failReason: this.lastFailReason,
+                endReason: this.lastEndReason,
+                endActor: this.lastEndActor,
+                endActorRole: this.lastEndActorRole,
+                endedAt: Date.now()
+            });
             if (options.instantClose) {
                 this.reset({ preserveLocalTermination: !!options.preserveLocalTermination });
                 return;
@@ -1492,6 +1719,11 @@
             payload.reason = normalizedReason;
             if (trim(message)) payload.message = trim(message);
             this.end('failed', payload, { reason: normalizedReason });
+            this.emitCallTimeline('failed', {
+                mode: CALL_MODES.failed,
+                failReason: normalizedReason,
+                endedAt: Date.now()
+            });
         },
 
         async startCallerPeer() {
@@ -1502,12 +1734,20 @@
             try {
                 this.setConnectionPhase('preparing_local', { render: false });
                 this.setState(CALL_MODES.connecting, {});
+                this.recordCallSession('caller_preparing_local', {
+                    mode: CALL_MODES.connecting,
+                    connectionPhase: 'preparing_local'
+                });
                 await this.webRTC.startLocal('audio');
                 if (!this.isFlowCurrent(flowVersion) || this.mode === CALL_MODES.idle || !this.currentCallId) {
                     this.offerSent = false;
                     return;
                 }
                 this.setConnectionPhase('negotiating');
+                this.recordCallSession('caller_negotiating', {
+                    mode: CALL_MODES.connecting,
+                    connectionPhase: 'negotiating'
+                });
                 await this.webRTC.createOffer('audio');
             } catch (error) {
                 this.offerSent = false;
@@ -1524,6 +1764,9 @@
                 this.clearTimer('launch');
                 this.role = 'caller';
                 this.setState(CALL_MODES.outgoing, payload);
+                this.recordCallSession('signal_started', {
+                    mode: CALL_MODES.outgoing
+                });
                 if (this.shouldAbortFreshOutgoingCall()) {
                     this.rememberLocalTermination('cancel', payload);
                     this.sendHangupSignal(payload.call_id);
@@ -1540,6 +1783,10 @@
                 this.markConnected();
                 this.setConnectionPhase(this.role === 'caller' ? 'accepted' : 'negotiating', { render: false });
                 this.setState(CALL_MODES.connecting, payload);
+                this.recordCallSession(type === 'im.call.accepted' ? 'signal_accepted' : 'signal_connected', {
+                    mode: CALL_MODES.connecting,
+                    connectionPhase: this.role === 'caller' ? 'accepted' : 'negotiating'
+                });
                 if (this.role === 'caller') await this.startCallerPeer();
                 return;
             }
@@ -1548,6 +1795,10 @@
                 this.markConnected();
                 this.setConnectionPhase('negotiating', { render: false });
                 this.setState(CALL_MODES.connecting, payload);
+                this.recordCallSession('signal_offer', {
+                    mode: CALL_MODES.connecting,
+                    connectionPhase: 'negotiating'
+                });
                 try {
                     await this.webRTC.acceptOffer(payload.sdp, 'audio');
                 } catch (error) {
@@ -1560,6 +1811,9 @@
                     await this.webRTC.acceptAnswer(payload.sdp);
                     this.markActive();
                     this.setState(CALL_MODES.active, payload);
+                    this.recordCallSession('signal_answer', {
+                        mode: CALL_MODES.active
+                    });
                 }
                 return;
             }
@@ -1569,6 +1823,9 @@
             }
             if (type === 'im.call.updated') {
                 this.setState(this.mode, payload);
+                this.recordCallSession('signal_updated', {
+                    mode: this.mode
+                });
                 return;
             }
             if (type === 'im.call.failed' || type === 'im.call.error') {
@@ -1654,6 +1911,7 @@
             this.cleanupMedia();
             this.clearLiveSessionState();
             this.clearLocalTermination();
+            this.openedAt = 0;
             if (this.signaling && typeof this.signaling.destroy === 'function') this.signaling.destroy();
             this.signaling = null;
             this.webRTC = null;

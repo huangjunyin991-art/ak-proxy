@@ -99,6 +99,24 @@
             src: `${API_ROOT}/chat/plugins/im/user/modules/im_call_manage.js`,
             errorMessage: '通话模块加载失败'
         },
+        callSession: {
+            selector: 'script[data-ak-im-user-plugin-call-session="1"]',
+            datasetKey: 'akImUserPluginCallSession',
+            src: `${API_ROOT}/chat/plugins/im/user/modules/call/im_call_session.js`,
+            errorMessage: '通话会话模块加载失败'
+        },
+        callTimeline: {
+            selector: 'script[data-ak-im-user-plugin-call-timeline="1"]',
+            datasetKey: 'akImUserPluginCallTimeline',
+            src: `${API_ROOT}/chat/plugins/im/user/modules/call/im_call_timeline.js`,
+            errorMessage: '通话结果模块加载失败'
+        },
+        callMessage: {
+            selector: 'script[data-ak-im-user-plugin-call-message-manage="1"]',
+            datasetKey: 'akImUserPluginCallMessageManage',
+            src: `${API_ROOT}/chat/plugins/im/user/modules/call_message/im_call_message_manage.js`,
+            errorMessage: '通话消息模块加载失败'
+        },
         social: {
 	        selector: 'script[data-ak-im-user-plugin-social-manage="1"]',
 	        datasetKey: 'akImUserPluginSocialManage',
@@ -1488,6 +1506,65 @@
         return callManageModule;
     }
 
+    function getCallSessionModule() {
+        const modules = window.AKIMUserModules;
+        if (!modules || typeof modules !== 'object') return null;
+        const callSessionModule = modules.callSession;
+        if (!callSessionModule || typeof callSessionModule.init !== 'function') return null;
+        return callSessionModule;
+    }
+
+    function initCallSessionModule() {
+        const callSessionModule = getCallSessionModule();
+        if (!callSessionModule) return;
+        callSessionModule.init({
+            getNow: function() {
+                return Date.now();
+            }
+        });
+    }
+
+    function getCallTimelineModule() {
+        const modules = window.AKIMUserModules;
+        if (!modules || typeof modules !== 'object') return null;
+        const callTimelineModule = modules.callTimeline;
+        if (!callTimelineModule || typeof callTimelineModule.init !== 'function') return null;
+        return callTimelineModule;
+    }
+
+    function initCallTimelineModule() {
+        const callTimelineModule = getCallTimelineModule();
+        if (!callTimelineModule) return;
+        callTimelineModule.init({
+            getNow: function() {
+                return Date.now();
+            },
+            sendMessagePayload: function(payload, options) {
+                const messageManageModule = getMessageManageModule();
+                if (!messageManageModule || typeof messageManageModule.sendMessagePayload !== 'function') {
+                    return Promise.resolve(null);
+                }
+                return messageManageModule.sendMessagePayload(payload, options);
+            }
+        });
+    }
+
+    function getCallMessageManageModule() {
+        const modules = window.AKIMUserModules;
+        if (!modules || typeof modules !== 'object') return null;
+        const callMessageManageModule = modules.callMessageManage;
+        if (!callMessageManageModule || typeof callMessageManageModule.init !== 'function') return null;
+        return callMessageManageModule;
+    }
+
+    function initCallMessageManageModule() {
+        const callMessageManageModule = getCallMessageManageModule();
+        if (!callMessageManageModule) return;
+        callMessageManageModule.init({
+            escapeHtml: escapeHtml
+        });
+    }
+
     function initCallManageModule() {
         const callManageModule = getCallManageModule();
         if (!callManageModule) return;
@@ -1503,6 +1580,14 @@
             getShellState: getShellRenderState,
             ensureSharedSocket: ensureWebSocket,
             sendSocketEnvelope: sendSocketEnvelope,
+            getCallSessionModule: getCallSessionModule,
+            getCallTimelineModule: getCallTimelineModule,
+            ensureCallSessionModule: function() {
+                return ensureLazyModule('callSession');
+            },
+            ensureCallTimelineModule: function() {
+                return ensureLazyModule('callTimeline');
+            },
             reportLaunchError: function(reason, detail) {
                 openCallDebugDialog(reason, detail);
             },
@@ -2373,6 +2458,9 @@
         if (moduleKey === 'location') return getLocationModule();
         if (moduleKey === 'voiceHold') return getVoiceHoldModule();
         if (moduleKey === 'callManage') return getCallManageModule();
+        if (moduleKey === 'callSession') return getCallSessionModule();
+        if (moduleKey === 'callTimeline') return getCallTimelineModule();
+        if (moduleKey === 'callMessage') return getCallMessageManageModule();
 	    if (moduleKey === 'social') return getSocialModule();
         if (moduleKey === 'hiddenGroups') return getHiddenGroupsModule();
         if (moduleKey === 'navigation') return getMessageNavigationModule();
@@ -2403,6 +2491,9 @@
         else if (moduleKey === 'location') initLocationModule();
         else if (moduleKey === 'voiceHold') initVoiceHoldModule();
         else if (moduleKey === 'callManage') initCallManageModule();
+        else if (moduleKey === 'callSession') initCallSessionModule();
+        else if (moduleKey === 'callTimeline') initCallTimelineModule();
+        else if (moduleKey === 'callMessage') initCallMessageManageModule();
 	    else if (moduleKey === 'social') initSocialModule();
         else if (moduleKey === 'hiddenGroups') initHiddenGroupsModule();
         else if (moduleKey === 'navigation') initMessageNavigationModule();
@@ -2491,6 +2582,9 @@
             ensureOptionalLazyModule('groupAdmins'),
             ensureOptionalLazyModule('voiceHold'),
             ensureOptionalLazyModule('callManage'),
+            ensureOptionalLazyModule('callSession'),
+            ensureOptionalLazyModule('callTimeline'),
+            ensureOptionalLazyModule('callMessage'),
             ensureOptionalLazyModule('plus'),
             ensureOptionalLazyModule('emoji'),
             ensureOptionalLazyModule('image'),
@@ -2511,6 +2605,11 @@
     }
 
     function buildMessageBubbleMarkup(item) {
+        const callMessageModule = getCallMessageManageModule();
+        if (callMessageModule && typeof callMessageModule.buildMessageBubbleMarkup === 'function') {
+            const callMessageMarkup = callMessageModule.buildMessageBubbleMarkup(item);
+            if (callMessageMarkup) return callMessageMarkup;
+        }
         const voiceHoldModule = getVoiceHoldModule();
         if (voiceHoldModule && typeof voiceHoldModule.buildMessageBubbleMarkup === 'function') {
             const voiceMarkup = voiceHoldModule.buildMessageBubbleMarkup(item);
@@ -2545,6 +2644,11 @@
     }
 
     function getMessageBubbleClassName(item) {
+        const callMessageModule = getCallMessageManageModule();
+        if (callMessageModule && typeof callMessageModule.getMessageBubbleClassName === 'function') {
+            const callMessageClassName = callMessageModule.getMessageBubbleClassName(item);
+            if (callMessageClassName) return callMessageClassName;
+        }
         const voiceHoldModule = getVoiceHoldModule();
         if (voiceHoldModule && typeof voiceHoldModule.getMessageBubbleClassName === 'function') {
             const voiceClassName = voiceHoldModule.getMessageBubbleClassName(item);

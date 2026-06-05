@@ -163,10 +163,29 @@
             return null;
         },
 
+        getSessionByConversationId(conversationId) {
+            const state = this.getState();
+            const targetConversationId = Number(conversationId || 0);
+            if (!state || !targetConversationId) return null;
+            const sessions = Array.isArray(state.sessions) ? state.sessions : [];
+            for (let index = 0; index < sessions.length; index += 1) {
+                const session = sessions[index];
+                if (Number(session && session.conversation_id || 0) === targetConversationId) return session;
+            }
+            return null;
+        },
+
+        getSendRestrictionMessage(conversationId) {
+            const targetConversationId = Number(conversationId || 0);
+            const targetSession = targetConversationId > 0
+                ? this.getSessionByConversationId(targetConversationId)
+                : this.getActiveSession();
+            if (!targetSession || targetSession.can_send !== false) return '';
+            return String(targetSession.send_restriction_hint || '').trim() || '当前会话暂不可发送消息';
+        },
+
         getActiveSendRestrictionMessage() {
-            const activeSession = this.getActiveSession();
-            if (!activeSession || activeSession.can_send !== false) return '';
-            return String(activeSession.send_restriction_hint || '').trim() || '当前会话暂不可发送消息';
+            return this.getSendRestrictionMessage(0);
         },
 
         markConversationRestricted(conversationId, restriction, message) {
@@ -761,19 +780,24 @@
 
         sendMessagePayload(payload, options) {
             const state = this.getState();
-            if (!state || !state.allowed || !state.activeConversationId || !this.ctx || typeof this.ctx.request !== 'function') {
+            const explicitConversationId = Number(payload && (payload.conversation_id || payload.conversationId) || 0);
+            const targetConversationId = explicitConversationId > 0
+                ? explicitConversationId
+                : Number(state && state.activeConversationId || 0);
+            if (!state || !state.allowed || !targetConversationId || !this.ctx || typeof this.ctx.request !== 'function') {
                 return Promise.resolve(null);
             }
-            const restrictedMessage = this.getActiveSendRestrictionMessage();
+            const restrictedMessage = this.getSendRestrictionMessage(targetConversationId);
             if (restrictedMessage) {
                 return Promise.reject(new Error(restrictedMessage));
             }
             const requestPayload = Object.assign({
-                conversation_id: state.activeConversationId
+                conversation_id: targetConversationId
             }, payload || {});
             const self = this;
             const messageType = String(requestPayload.message_type || '').trim().toLowerCase() || 'text';
-            const tempId = messageType === 'text' ? this.createTempId('text') : '';
+            const activeConversationId = Number(state.activeConversationId || 0);
+            const tempId = messageType === 'text' && activeConversationId === targetConversationId ? this.createTempId('text') : '';
             if (tempId) {
                 requestPayload.client_temp_id = tempId;
                 if (this.insertLocalMessage(this.createTextTempMessage(requestPayload, tempId))) {
@@ -809,16 +833,18 @@
                 body: JSON.stringify(requestPayload)
             }).then(function(data) {
                 const item = data && data.item ? data.item : null;
-                const activeConversationId = Number(state.activeConversationId || 0);
                 if (tempId && item && self.replaceLocalMessage(tempId, item)) {
                     self.renderMessages();
                     self.forceScrollToBottom(1800);
-                } else if (item && self.upsertActiveMessage(item)) {
+                } else if (item && activeConversationId === targetConversationId && self.upsertActiveMessage(item)) {
                     self.renderMessages();
                     self.forceScrollToBottom(1800);
                 }
                 finalizeLocalState();
-                return self.loadMessages(activeConversationId).then(function() {
+                if (activeConversationId !== targetConversationId) {
+                    return typeof self.ctx.loadSessions === 'function' ? self.ctx.loadSessions() : null;
+                }
+                return self.loadMessages(targetConversationId).then(function() {
                     return typeof self.ctx.loadSessions === 'function' ? self.ctx.loadSessions() : null;
                 });
             }).catch(function(error) {
