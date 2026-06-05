@@ -36,6 +36,24 @@
         forbidden: '当前账号无权执行该通话操作',
         peer_connection_failed: '语音连接已中断'
     };
+    const LOCAL_TERMINATION_ECHO_TTL_MS = 5000;
+    const PENDING_OUTGOING_CANCEL_TTL_MS = 15000;
+    const CALL_ICON_MARKUP = {
+        close: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg>',
+        phone: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.8 19.8 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.11 4.18 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.72c.12.9.33 1.78.62 2.62a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.46-1.18a2 2 0 0 1 2.11-.45c.84.29 1.72.5 2.62.62A2 2 0 0 1 22 16.92Z"></path></svg>',
+        incoming: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 2v6h6"></path><path d="m22 2-7 7"></path><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.8 19.8 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.11 4.18 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.72c.12.9.33 1.78.62 2.62a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.46-1.18a2 2 0 0 1 2.11-.45c.84.29 1.72.5 2.62.62A2 2 0 0 1 22 16.92Z"></path></svg>',
+        waiting: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M12 7v6l4 2"></path></svg>',
+        active: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.8 19.8 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.11 4.18 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.72c.12.9.33 1.78.62 2.62a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.46-1.18a2 2 0 0 1 2.11-.45c.84.29 1.72.5 2.62.62A2 2 0 0 1 22 16.92Z"></path><path d="M9 12h6"></path></svg>',
+        success: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 5 5L20 7"></path></svg>',
+        warning: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 9v4"></path><path d="M12 17h.01"></path><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"></path></svg>',
+        ended: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4.93 17.07a16 16 0 0 1 14.14 0"></path><path d="m7.76 14.24-2.83 2.83"></path><path d="m19.07 17.07-2.83-2.83"></path></svg>',
+        accept: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.8 19.8 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.11 4.18 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.72c.12.9.33 1.78.62 2.62a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.46-1.18a2 2 0 0 1 2.11-.45c.84.29 1.72.5 2.62.62A2 2 0 0 1 22 16.92Z"></path><path d="m9 12 2 2 4-4"></path></svg>',
+        reject: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4.93 17.07a16 16 0 0 1 14.14 0"></path><path d="m9 10 6 6"></path><path d="m15 10-6 6"></path></svg>',
+        hangup: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4.93 17.07a16 16 0 0 1 14.14 0"></path><path d="M8.5 13.5 6 20"></path><path d="M15.5 13.5 18 20"></path></svg>',
+        cancel: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4.93 17.07a16 16 0 0 1 14.14 0"></path><path d="m10 10 4 4"></path><path d="m14 10-4 4"></path></svg>',
+        mute: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a3 3 0 0 1 3 3v6a3 3 0 1 1-6 0V6a3 3 0 0 1 3-3Z"></path><path d="M19 10v2a7 7 0 1 1-14 0v-2"></path><path d="M12 19v3"></path></svg>',
+        unmute: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m4 4 16 16"></path><path d="M9 9v3a3 3 0 0 0 5.12 2.12"></path><path d="M12 3a3 3 0 0 1 3 3v3"></path><path d="M19 10v2a7 7 0 0 1-11.06 5.8"></path><path d="M12 19v3"></path></svg>'
+    };
     function trim(value) {
         return String(value || '').trim();
     }
@@ -56,45 +74,63 @@
         if (normalized === 'invalid_target') return 'invalid_target';
         if (normalized === 'forbidden') return 'forbidden';
         if (normalized === 'peer_connection_failed') return 'peer_connection_failed';
+        if (normalized === 'hangup') return 'hangup';
         return normalized;
     }
 
-    function buildCallViewModel(mode, reason, hasCallId, peerName, muted) {
+    function getIconMarkup(name) {
+        return CALL_ICON_MARKUP[String(name || '').trim()] || CALL_ICON_MARKUP.phone;
+    }
+
+    function buildActionMarkup(iconName, label) {
+        return [
+            '<span class="ak-im-call-overlay-action-disc" aria-hidden="true">',
+            getIconMarkup(iconName),
+            '</span>',
+            '<span class="ak-im-call-overlay-action-label">', label, '</span>'
+        ].join('');
+    }
+
+    function buildCallViewModel(mode, reason, hasCallId, peerName, muted, meta) {
         const displayName = trim(peerName) || '联系人';
         const normalizedReason = normalizeReasonCode(reason);
+        const endReason = trim(meta && meta.endReason).toLowerCase();
+        const actorRole = trim(meta && meta.actorRole).toLowerCase();
+        const role = trim(meta && meta.role).toLowerCase();
+        const wasEverConnected = !!(meta && meta.wasEverConnected);
         if (mode === CALL_MODES.outgoing && !hasCallId) {
             return {
-                badge: '请求服务器',
-                subtitle: '正在创建语音通话会话',
-                headline: '等待服务器确认',
-                detailTitle: '正在发起语音通话',
-                detailBody: '请求已经发送，正在等待服务器返回通话会话。',
-                footer: '如果长时间停留在这里，通常表示通话服务没有及时响应。',
-                icon: '…',
+                badge: '正在发起',
+                subtitle: '等待服务器确认本次通话',
+                headline: '正在创建语音通话',
+                detailTitle: '请求已经发出',
+                detailBody: '如果这里长时间没有变化，通常表示服务端还没有确认通话会话。',
+                footer: '你可以随时取消本次呼叫。',
+                icon: 'waiting',
                 pending: true
             };
         }
         if (mode === CALL_MODES.outgoing) {
             return {
                 badge: '等待接听',
-                subtitle: '已通知对方接听语音通话',
+                subtitle: '对方已经收到语音通话邀请',
                 headline: '等待 ' + displayName + ' 接听',
                 detailTitle: '通话邀请已送达',
                 detailBody: '对方接听后会立即进入语音连接阶段。',
-                footer: '如果 30 秒内未接听，本次通话会自动结束。',
-                icon: '☎',
+                footer: '30 秒内无人接听会自动结束。',
+                icon: 'phone',
                 pending: true
             };
         }
         if (mode === CALL_MODES.incoming) {
             return {
                 badge: '收到来电',
-                subtitle: '对方向你发起了语音通话',
-                headline: displayName + ' 正在呼叫你',
-                detailTitle: '是否接听本次语音通话',
-                detailBody: '接听后会请求麦克风权限，并开始建立语音连接。',
-                footer: '你可以接听，也可以直接拒绝本次通话。',
-                icon: '☎',
+                subtitle: displayName + ' 正在呼叫你',
+                headline: '是否接听本次语音通话',
+                detailTitle: '接听前会请求麦克风权限',
+                detailBody: '如果你现在不方便，可以直接拒绝这次来电。',
+                footer: '关闭窗口也会按“拒绝”处理。',
+                icon: 'incoming',
                 pending: true
             };
         }
@@ -103,34 +139,70 @@
                 badge: '正在连接',
                 subtitle: '双方已进入语音连接阶段',
                 headline: '正在建立语音通道',
-                detailTitle: '准备音频流',
-                detailBody: '当前正在协商语音链路，通常很快就会接通。',
-                footer: '如果长时间停留在这里，多半是网络或麦克风权限问题。',
-                icon: '…',
+                detailTitle: '正在准备音频流',
+                detailBody: '通常几秒内就会接通；如果卡住，多半是网络或麦克风权限问题。',
+                footer: '你可以随时取消本次通话。',
+                icon: 'waiting',
                 pending: true
             };
         }
         if (mode === CALL_MODES.active) {
             return {
                 badge: '语音通话中',
-                subtitle: '语音连接已经建立',
-                headline: '通话进行中',
+                subtitle: '连接已经建立',
+                headline: '正在和 ' + displayName + ' 通话',
                 detailTitle: muted ? '你的麦克风已静音' : '你的麦克风正在工作',
-                detailBody: muted ? '你可以点击“取消静音”恢复说话。' : '你可以随时静音自己的麦克风，或直接挂断通话。',
-                footer: '当前语音连接已建立。',
-                icon: '✓',
+                detailBody: muted ? '点击“取消静音”即可恢复说话。' : '你可以随时静音自己的麦克风，或直接结束通话。',
+                footer: '当前语音连接稳定后会持续保持在线。',
+                icon: 'active',
                 pending: false
             };
         }
         if (mode === CALL_MODES.ended) {
+            if (endReason === 'hangup') {
+                if (!wasEverConnected && actorRole === 'caller' && role === 'callee') {
+                    return {
+                        badge: '通话请求已取消',
+                        subtitle: '对方取消了本次通话请求',
+                        headline: displayName + ' 已取消通话',
+                        detailTitle: '本次通话没有继续等待',
+                        detailBody: '你无需再处理这次通话请求，窗口会自动关闭。',
+                        footer: '窗口将自动关闭。',
+                        icon: 'ended',
+                        pending: false
+                    };
+                }
+                if (!wasEverConnected && actorRole === 'callee' && role === 'caller') {
+                    return {
+                        badge: '通话请求已结束',
+                        subtitle: displayName + ' 没有继续这次通话',
+                        headline: displayName + ' 已结束通话请求',
+                        detailTitle: '本次呼叫没有进入已接通状态',
+                        detailBody: '这不是无人接听超时，而是对方在接通前主动结束了这次通话。',
+                        footer: '窗口将自动关闭。',
+                        icon: 'ended',
+                        pending: false
+                    };
+                }
+                return {
+                    badge: '通话已结束',
+                    subtitle: wasEverConnected ? '对方结束了本次通话' : '通话请求已经结束',
+                    headline: wasEverConnected ? '对方已挂断' : '通话已结束',
+                    detailTitle: wasEverConnected ? '语音连接已经断开' : '本次呼叫没有继续保持',
+                    detailBody: wasEverConnected ? '如果还需要继续沟通，可以重新发起语音通话。' : '如需继续沟通，可以重新发起通话。',
+                    footer: '窗口将自动关闭。',
+                    icon: 'ended',
+                    pending: false
+                };
+            }
             return {
                 badge: '通话已结束',
                 subtitle: '本次语音通话已经结束',
                 headline: '通话已结束',
-                detailTitle: '本次通话未继续保持连接',
-                detailBody: '你可以稍后再次发起通话。',
-                footer: '如需继续沟通，可以重新发起语音通话。',
-                icon: '·',
+                detailTitle: '语音连接已关闭',
+                detailBody: '如果还需要继续沟通，可以重新发起语音通话。',
+                footer: '窗口将自动关闭。',
+                icon: 'ended',
                 pending: false
             };
         }
@@ -139,47 +211,47 @@
                 return {
                     badge: '对方忙线',
                     subtitle: '对方当前无法接听通话',
-                    headline: '对方或当前会话正在通话中',
+                    headline: '对方正在其他通话中',
                     detailTitle: '本次呼叫未建立',
-                    detailBody: '对方当前处于忙线状态，请稍后再试。',
-                    footer: '服务器已经返回明确结果：当前不可接听。',
-                    icon: '!',
+                    detailBody: '服务端已明确返回忙线结果，不是网络波动造成的等待。',
+                    footer: '窗口将自动关闭。',
+                    icon: 'warning',
                     pending: false
                 };
             }
             if (normalizedReason === 'rejected') {
                 return {
                     badge: '对方已拒绝',
-                    subtitle: '对方拒绝了本次语音通话',
-                    headline: '对方未接受通话邀请',
-                    detailTitle: '呼叫已被拒绝',
-                    detailBody: '这是对方主动拒绝，而不是服务端无响应。',
-                    footer: '你可以稍后再次发起通话。',
-                    icon: '!',
+                    subtitle: '对方明确拒绝了本次语音通话',
+                    headline: displayName + ' 已拒绝通话',
+                    detailTitle: '这不是超时未接听',
+                    detailBody: '对方主动点击了拒绝，本次呼叫不会继续等待到超时。',
+                    footer: '窗口将自动关闭。',
+                    icon: 'warning',
                     pending: false
                 };
             }
             if (normalizedReason === 'timeout') {
                 return {
                     badge: '对方未接听',
-                    subtitle: '对方在超时时间内没有接听',
-                    headline: '已通知对方，但未建立连接',
-                    detailTitle: '本次通话自动结束',
-                    detailBody: '服务器已成功创建通话，但对方在规定时间内没有接听。',
-                    footer: '这是“对方未接听”，不是“服务器无响应”。',
-                    icon: '!',
+                    subtitle: '对方在 30 秒内没有接听',
+                    headline: '本次通话无人接听',
+                    detailTitle: '通话会话已自动结束',
+                    detailBody: '服务端已经成功创建通话，只是对方一直没有接听。',
+                    footer: '窗口将自动关闭。',
+                    icon: 'warning',
                     pending: false
                 };
             }
             if (normalizedReason === 'socket_timeout') {
                 return {
                     badge: '服务器未确认',
-                    subtitle: '通话请求没有得到服务器确认',
+                    subtitle: '通话请求没有得到服务端确认',
                     headline: '请求已发出，但会话未建立',
-                    detailTitle: '卡在服务端确认阶段',
-                    detailBody: '当前没有拿到通话会话 ID，说明服务端没有及时确认本次呼叫。',
-                    footer: '这是服务端或信令链路异常，不是对方未接听。',
-                    icon: '!',
+                    detailTitle: '问题出在服务端确认阶段',
+                    detailBody: '当前没有拿到通话会话 ID，这不是对方未接听，而是服务端未及时确认。',
+                    footer: '窗口将自动关闭。',
+                    icon: 'warning',
                     pending: false
                 };
             }
@@ -190,8 +262,8 @@
                 headline: '本次语音通话未能建立',
                 detailTitle: '失败原因',
                 detailBody: reasonText,
-                footer: '你可以稍后重试，或检查网络与麦克风权限。',
-                icon: '!',
+                footer: '窗口将自动关闭。',
+                icon: 'warning',
                 pending: false
             };
         }
@@ -202,9 +274,64 @@
             detailTitle: '',
             detailBody: '',
             footer: '',
-            icon: '☎',
+            icon: 'phone',
             pending: false
         };
+    }
+
+    function buildCallActionLayout(mode, muted) {
+        if (mode === CALL_MODES.incoming) {
+            return {
+                layout: 'incoming',
+                reject: { visible: true, icon: 'reject', label: '拒绝', variant: 'danger', prominence: 'secondary', slot: '1' },
+                accept: { visible: true, icon: 'accept', label: '接听', variant: 'success', prominence: 'secondary', slot: '3' },
+                mute: { visible: false },
+                hangup: { visible: false }
+            };
+        }
+        if (mode === CALL_MODES.active) {
+            return {
+                layout: 'active',
+                reject: { visible: false },
+                accept: { visible: false },
+                mute: { visible: true, icon: muted ? 'unmute' : 'mute', label: muted ? '取消静音' : '静音', variant: 'neutral', prominence: 'secondary', slot: '1' },
+                hangup: { visible: true, icon: 'hangup', label: '结束通话', variant: 'danger', prominence: 'primary', slot: '2' }
+            };
+        }
+        if (mode === CALL_MODES.outgoing || mode === CALL_MODES.connecting) {
+            return {
+                layout: 'single',
+                reject: { visible: false },
+                accept: { visible: false },
+                mute: { visible: false },
+                hangup: { visible: true, icon: 'cancel', label: '取消呼叫', variant: 'danger', prominence: 'primary', slot: '2' }
+            };
+        }
+        return {
+            layout: 'hidden',
+            reject: { visible: false },
+            accept: { visible: false },
+            mute: { visible: false },
+            hangup: { visible: false }
+        };
+    }
+
+    function resolveCallAutoCloseMs(mode, reason, meta) {
+        if (mode === CALL_MODES.failed) {
+            const normalizedReason = normalizeReasonCode(reason);
+            if (normalizedReason === 'rejected') return 1800;
+            if (normalizedReason === 'busy') return 2200;
+            if (normalizedReason === 'socket_timeout') return 2600;
+            return 2400;
+        }
+        const endReason = normalizeReasonCode(meta && meta.endReason);
+        const wasEverConnected = !!(meta && meta.wasEverConnected);
+        const actorRole = trim(meta && meta.actorRole).toLowerCase();
+        const role = trim(meta && meta.role).toLowerCase();
+        if (endReason === 'hangup' && !wasEverConnected && actorRole === 'caller' && role === 'callee') return 1500;
+        if (endReason === 'hangup' && !wasEverConnected && actorRole === 'callee' && role === 'caller') return 1600;
+        if (wasEverConnected) return 1700;
+        return 1400;
     }
 
     function ensureModuleRegistry() {
@@ -580,6 +707,12 @@
         timers: { autoEnd: 0, launch: 0 },
         refs: {},
         lastFailReason: '',
+        lastEndReason: '',
+        lastEndActor: '',
+        lastEndActorRole: '',
+        everConnectedAt: 0,
+        localTermination: { action: '', role: '', callId: '', at: 0, wasEverConnected: false },
+        flowVersion: 0,
         bound: false,
         submodulePromise: null,
         signaling: null,
@@ -590,11 +723,11 @@
                 '  <div class="ak-im-call-overlay-backdrop"></div>',
                 '  <div class="ak-im-call-overlay-card" role="dialog" aria-modal="true" aria-label="通话面板">',
                 '    <div class="ak-im-call-overlay-header">',
-                '      <button class="ak-im-call-overlay-close" type="button" aria-label="关闭">×</button>',
+                '      <button class="ak-im-call-overlay-close" type="button" aria-label="关闭"></button>',
                 '      <div class="ak-im-call-overlay-header-main">',
                 '        <div class="ak-im-call-overlay-avatar" aria-hidden="true"></div>',
                 '        <div class="ak-im-call-overlay-header-text">',
-                '          <div class="ak-im-call-overlay-title">通话</div>',
+                '          <div class="ak-im-call-overlay-title">语音通话</div>',
                 '          <div class="ak-im-call-overlay-subtitle"></div>',
                 '        </div>',
                 '      </div>',
@@ -603,7 +736,7 @@
                 '    <div class="ak-im-call-overlay-stage">',
                 '      <div class="ak-im-call-overlay-pulse"></div>',
                 '      <div class="ak-im-call-overlay-placeholder">',
-                '        <div class="ak-im-call-overlay-placeholder-icon">☎</div>',
+                '        <div class="ak-im-call-overlay-placeholder-icon" aria-hidden="true"></div>',
                 '        <div class="ak-im-call-overlay-placeholder-text">等待通话连接</div>',
                 '        <div class="ak-im-call-overlay-detail">',
                 '          <div class="ak-im-call-overlay-detail-title"></div>',
@@ -615,11 +748,11 @@
                 '      <video class="ak-im-call-overlay-remote" playsinline autoplay></video>',
                 '    </div>',
                 '    <div class="ak-im-call-overlay-state"></div>',
-                '    <div class="ak-im-call-overlay-actions">',
-                '      <button class="ak-im-call-overlay-reject" type="button">拒绝</button>',
-                '      <button class="ak-im-call-overlay-accept" type="button">接听</button>',
-                '      <button class="ak-im-call-overlay-mute" type="button">静音</button>',
-                '      <button class="ak-im-call-overlay-hangup" type="button">挂断</button>',
+                '    <div class="ak-im-call-overlay-actions" data-layout="hidden">',
+                '      <button class="ak-im-call-overlay-action ak-im-call-overlay-reject" type="button"></button>',
+                '      <button class="ak-im-call-overlay-action ak-im-call-overlay-mute" type="button"></button>',
+                '      <button class="ak-im-call-overlay-action ak-im-call-overlay-hangup" type="button"></button>',
+                '      <button class="ak-im-call-overlay-action ak-im-call-overlay-accept" type="button"></button>',
                 '    </div>',
                 '  </div>'
             ].join('');
@@ -719,37 +852,55 @@
             const styleEl = document.createElement('style');
             styleEl.id = STYLE_ID;
             styleEl.textContent = [
-                '.ak-im-call-overlay{position:fixed;inset:0;z-index:2147483652;display:none;align-items:center;justify-content:center;padding:20px;background:rgba(4,10,18,.72);backdrop-filter:blur(12px)}',
+                '.ak-im-call-overlay{position:fixed;inset:0;z-index:2147483652;display:none;align-items:center;justify-content:center;padding:20px;background:rgba(2,8,20,.78);backdrop-filter:blur(14px)}',
                 '.ak-im-call-overlay[aria-hidden="false"]{display:flex}',
                 '.ak-im-call-overlay-backdrop{position:absolute;inset:0}',
-                '.ak-im-call-overlay-card{position:relative;z-index:1;width:min(calc(100vw - 32px),420px);min-height:520px;max-height:min(calc(100vh - 32px),720px);display:flex;flex-direction:column;overflow:hidden;border-radius:24px;background:linear-gradient(180deg,#07111c 0%,#10251f 48%,#040b12 100%);color:#fff;box-shadow:0 32px 90px rgba(0,0,0,.42)}',
-                '.ak-im-call-overlay-header{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:18px 18px 14px;background:linear-gradient(180deg,rgba(255,255,255,.08) 0%,rgba(255,255,255,.03) 100%)}',
+                '.ak-im-call-overlay-card{position:relative;z-index:1;width:min(calc(100vw - 32px),420px);min-height:520px;max-height:min(calc(100vh - 32px),720px);display:flex;flex-direction:column;overflow:hidden;border-radius:24px;background:linear-gradient(180deg,#07111d 0%,#0b1728 38%,#040812 100%);color:#f8fafc;box-shadow:0 34px 100px rgba(0,0,0,.48)}',
+                '.ak-im-call-overlay-header{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:18px 18px 14px;border-bottom:1px solid rgba(255,255,255,.06);background:linear-gradient(180deg,rgba(255,255,255,.06) 0%,rgba(255,255,255,.02) 100%)}',
                 '.ak-im-call-overlay-header-main{flex:1;min-width:0;display:flex;align-items:center;justify-content:center;gap:12px}',
                 '.ak-im-call-overlay-spacer{width:36px;height:36px;flex:0 0 36px}',
-                '.ak-im-call-overlay-avatar{width:52px;height:52px;border-radius:999px;flex:0 0 auto;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,#14b8a6 0%,#0ea5e9 100%);box-shadow:0 12px 28px rgba(8,145,178,.28);transition:transform .18s ease;color:#fff;font-size:20px;font-weight:700}',
+                '.ak-im-call-overlay-avatar{width:52px;height:52px;border-radius:999px;flex:0 0 auto;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,#14b8a6 0%,#38bdf8 100%);box-shadow:0 14px 32px rgba(15,118,110,.28);transition:transform .18s ease;color:#fff;font-size:20px;font-weight:700}',
                 '.ak-im-call-overlay-header-text{min-width:0;text-align:center}',
                 '.ak-im-call-overlay-title{font-size:19px;font-weight:700;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
                 '.ak-im-call-overlay-subtitle{margin-top:6px;font-size:12px;font-weight:600;line-height:1.4;color:#cbd5e1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
-                '.ak-im-call-overlay-close{width:36px;height:36px;border:none;border-radius:18px;background:rgba(255,255,255,.12);color:#fff;font-size:24px;line-height:36px;cursor:pointer;flex:0 0 auto}',
-                '.ak-im-call-overlay-stage{position:relative;flex:1;display:flex;align-items:center;justify-content:center;padding:28px 24px 18px;background:linear-gradient(180deg,#0f172a 0%,#0a2530 42%,#07131b 100%);overflow:hidden}',
-                '.ak-im-call-overlay-pulse{position:absolute;top:50%;left:50%;width:220px;height:220px;border-radius:50%;transform:translate(-50%,-50%);background:radial-gradient(circle,rgba(45,212,191,.2) 0%,rgba(45,212,191,0) 70%);opacity:0;pointer-events:none}',
-                '.ak-im-call-overlay-placeholder{position:relative;z-index:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;text-align:center;color:rgba(255,255,255,.92)}',
-                '.ak-im-call-overlay-placeholder-icon{width:92px;height:92px;border-radius:46px;display:flex;align-items:center;justify-content:center;font-size:38px;background:rgba(15,23,42,.36);box-shadow:inset 0 0 0 1px rgba(255,255,255,.12),0 18px 40px rgba(0,0,0,.28)}',
-                '.ak-im-call-overlay-placeholder-text{font-size:24px;font-weight:700;line-height:1.35;max-width:280px}',
-                '.ak-im-call-overlay-detail{width:min(100%,320px);padding:16px 18px;border-radius:18px;background:rgba(255,255,255,.06);box-shadow:inset 0 0 0 1px rgba(255,255,255,.08);display:flex;flex-direction:column;gap:8px;text-align:left}',
+                '.ak-im-call-overlay-close{width:36px;height:36px;border:none;border-radius:18px;background:rgba(255,255,255,.08);color:#e2e8f0;cursor:pointer;display:flex;align-items:center;justify-content:center;flex:0 0 auto;transition:background .18s ease,color .18s ease}',
+                '.ak-im-call-overlay-close:hover{background:rgba(255,255,255,.14);color:#fff}',
+                '.ak-im-call-overlay-close svg,.ak-im-call-overlay-placeholder-icon svg,.ak-im-call-overlay-action-disc svg{width:24px;height:24px;stroke:currentColor;stroke-linecap:round;stroke-linejoin:round;stroke-width:1.9;fill:none}',
+                '.ak-im-call-overlay-close svg{width:16px;height:16px}',
+                '.ak-im-call-overlay-stage{position:relative;flex:1;display:flex;align-items:center;justify-content:center;padding:34px 26px 20px;background:radial-gradient(circle at top,rgba(14,165,233,.12) 0%,rgba(7,17,29,0) 42%),linear-gradient(180deg,#0b1323 0%,#07101c 100%);overflow:hidden}',
+                '.ak-im-call-overlay-pulse{position:absolute;top:50%;left:50%;width:240px;height:240px;border-radius:50%;transform:translate(-50%,-50%);background:radial-gradient(circle,rgba(56,189,248,.18) 0%,rgba(56,189,248,0) 72%);opacity:0;pointer-events:none}',
+                '.ak-im-call-overlay-placeholder{position:relative;z-index:1;width:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:20px;text-align:center;color:#f8fafc}',
+                '.ak-im-call-overlay-placeholder-icon{width:116px;height:116px;border-radius:999px;display:flex;align-items:center;justify-content:center;color:#93c5fd;background:rgba(15,23,42,.58);box-shadow:inset 0 0 0 1px rgba(255,255,255,.08),0 18px 44px rgba(0,0,0,.32)}',
+                '.ak-im-call-overlay-placeholder-text{font-size:24px;font-weight:700;line-height:1.3;max-width:300px}',
+                '.ak-im-call-overlay-detail{width:min(100%,320px);padding:16px 18px;border-radius:18px;background:rgba(255,255,255,.05);box-shadow:inset 0 0 0 1px rgba(255,255,255,.06);display:flex;flex-direction:column;gap:8px;text-align:left}',
                 '.ak-im-call-overlay-detail-title{font-size:13px;font-weight:600;color:#cbd5e1}',
-                '.ak-im-call-overlay-detail-body{font-size:14px;line-height:1.6;color:rgba(255,255,255,.86)}',
+                '.ak-im-call-overlay-detail-body{font-size:14px;line-height:1.6;color:rgba(248,250,252,.88)}',
                 '.ak-im-call-overlay-local,.ak-im-call-overlay-remote{display:none}',
                 '.ak-im-call-overlay-audio{display:none}',
-                '.ak-im-call-overlay-state{padding:0 18px 12px;min-height:44px;font-size:12px;line-height:1.5;text-align:center;color:rgba(226,232,240,.84)}',
-                '.ak-im-call-overlay-actions{display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:12px;padding:16px 18px calc(20px + env(safe-area-inset-bottom,0px));background:rgba(2,10,15,.94);border-top:1px solid rgba(255,255,255,.06)}',
-                '.ak-im-call-overlay-actions button{min-width:96px;height:46px;padding:0 18px;border:none;border-radius:23px;font-size:14px;font-weight:700;cursor:pointer;box-shadow:0 8px 24px rgba(0,0,0,.22)}',
-                '.ak-im-call-overlay-reject{background:#ef4444;color:#fff}',
-                '.ak-im-call-overlay-accept{background:#22c55e;color:#fff}',
-                '.ak-im-call-overlay-hangup{background:#f97316;color:#fff}',
-                '.ak-im-call-overlay-mute{background:rgba(255,255,255,.12);color:#fff}',
-                '@keyframes akImCallOverlayPulse{0%{transform:translate(-50%,-50%) scale(.82);opacity:.2}50%{transform:translate(-50%,-50%) scale(1.05);opacity:.55}100%{transform:translate(-50%,-50%) scale(1.18);opacity:0}}',
-                '@media (max-width:768px){.ak-im-call-overlay{padding:0}.ak-im-call-overlay-card{width:100vw;min-height:100vh;max-height:100vh;border-radius:0;box-shadow:none}.ak-im-call-overlay-stage{padding:24px 18px 14px}.ak-im-call-overlay-actions{gap:10px;padding-left:12px;padding-right:12px}.ak-im-call-overlay-actions button{min-width:84px}.ak-im-call-overlay-title{font-size:17px}.ak-im-call-overlay-avatar{width:40px;height:40px;font-size:16px}.ak-im-call-overlay-placeholder-icon{width:84px;height:84px;font-size:34px}.ak-im-call-overlay-placeholder-text{font-size:21px}.ak-im-call-overlay-detail{width:100%}}'
+                '.ak-im-call-overlay-state{padding:0 20px 14px;min-height:38px;font-size:12px;line-height:1.5;text-align:center;color:rgba(226,232,240,.84)}',
+                '.ak-im-call-overlay-actions{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));align-items:end;justify-items:center;gap:12px;padding:18px 22px calc(22px + env(safe-area-inset-bottom,0px));border-top:1px solid rgba(255,255,255,.06);background:rgba(2,9,18,.94)}',
+                '.ak-im-call-overlay-actions[data-layout="hidden"]{min-height:0}',
+                '.ak-im-call-overlay-action{width:100%;max-width:112px;display:flex;flex-direction:column;align-items:center;gap:10px;padding:0;border:none;background:transparent;color:#e2e8f0;cursor:pointer}',
+                '.ak-im-call-overlay-action[data-slot="1"]{grid-column:1}',
+                '.ak-im-call-overlay-action[data-slot="2"]{grid-column:2}',
+                '.ak-im-call-overlay-action[data-slot="3"]{grid-column:3}',
+                '.ak-im-call-overlay-action:focus-visible{outline:2px solid rgba(148,163,184,.7);outline-offset:4px;border-radius:18px}',
+                '.ak-im-call-overlay-action-disc{width:62px;height:62px;border-radius:999px;display:flex;align-items:center;justify-content:center;background:rgba(148,163,184,.16);box-shadow:0 14px 30px rgba(0,0,0,.24);transition:transform .18s ease,background .18s ease,color .18s ease}',
+                '.ak-im-call-overlay-action:hover .ak-im-call-overlay-action-disc{transform:translateY(-1px)}',
+                '.ak-im-call-overlay-action-label{font-size:13px;font-weight:700;line-height:1.3;color:inherit;text-align:center}',
+                '.ak-im-call-overlay-action[data-variant="danger"] .ak-im-call-overlay-action-disc{background:#ef4444;color:#fff}',
+                '.ak-im-call-overlay-action[data-variant="success"] .ak-im-call-overlay-action-disc{background:#10b981;color:#fff}',
+                '.ak-im-call-overlay-action[data-variant="neutral"] .ak-im-call-overlay-action-disc{background:rgba(148,163,184,.16);color:#e2e8f0}',
+                '.ak-im-call-overlay-action[data-prominence="primary"] .ak-im-call-overlay-action-disc{width:74px;height:74px;box-shadow:0 18px 34px rgba(239,68,68,.26)}',
+                '.ak-im-call-overlay-action[data-prominence="primary"] .ak-im-call-overlay-action-label{font-size:14px}',
+                '.ak-im-call-overlay[data-mode="incoming"] .ak-im-call-overlay-placeholder-icon{color:#60a5fa;background:rgba(37,99,235,.12)}',
+                '.ak-im-call-overlay[data-mode="outgoing"] .ak-im-call-overlay-placeholder-icon,.ak-im-call-overlay[data-mode="connecting"] .ak-im-call-overlay-placeholder-icon{color:#67e8f9;background:rgba(8,145,178,.14)}',
+                '.ak-im-call-overlay[data-mode="active"] .ak-im-call-overlay-placeholder-icon{color:#34d399;background:rgba(16,185,129,.14)}',
+                '.ak-im-call-overlay[data-mode="failed"] .ak-im-call-overlay-placeholder-icon{color:#fbbf24;background:rgba(245,158,11,.14)}',
+                '.ak-im-call-overlay[data-mode="ended"] .ak-im-call-overlay-placeholder-icon{color:#cbd5e1;background:rgba(100,116,139,.18)}',
+                '@keyframes akImCallOverlayPulse{0%{transform:translate(-50%,-50%) scale(.82);opacity:.18}50%{transform:translate(-50%,-50%) scale(1.04);opacity:.5}100%{transform:translate(-50%,-50%) scale(1.18);opacity:0}}',
+                '@keyframes akImCallOverlayIconFloat{0%{transform:translateY(0)}50%{transform:translateY(-3px)}100%{transform:translateY(0)}}',
+                '@media (max-width:768px){.ak-im-call-overlay{padding:0}.ak-im-call-overlay-card{width:100vw;min-height:100vh;max-height:100vh;border-radius:0;box-shadow:none}.ak-im-call-overlay-stage{padding:28px 18px 18px}.ak-im-call-overlay-actions{gap:10px;padding-left:16px;padding-right:16px}.ak-im-call-overlay-title{font-size:17px}.ak-im-call-overlay-avatar{width:40px;height:40px;font-size:16px}.ak-im-call-overlay-placeholder-icon{width:104px;height:104px}.ak-im-call-overlay-placeholder-text{font-size:21px}.ak-im-call-overlay-detail{width:100%}.ak-im-call-overlay-action{max-width:96px}.ak-im-call-overlay-action-disc{width:58px;height:58px}.ak-im-call-overlay-action[data-prominence="primary"] .ak-im-call-overlay-action-disc{width:70px;height:70px}}'
             ].join('');
             (document.head || document.documentElement).appendChild(styleEl);
         },
@@ -758,12 +909,13 @@
             const mountRoot = document.body || document.documentElement || null;
             if (!mountRoot) return null;
             let panel = document.querySelector(PANEL_SELECTOR);
+            const needsUpgrade = !panel || !panel.querySelector('.ak-im-call-overlay-action') || !panel.querySelector('.ak-im-call-overlay-detail');
             if (!panel) {
                 const wrapper = document.createElement('div');
                 wrapper.innerHTML = '<div class="ak-im-call-overlay" aria-hidden="true">' + this.getShellMarkup() + '</div>';
                 panel = wrapper.firstElementChild;
                 mountRoot.appendChild(panel);
-            } else if (!panel.querySelector('.ak-im-call-overlay-detail')) {
+            } else if (needsUpgrade) {
                 const hidden = panel.getAttribute('aria-hidden');
                 const mode = panel.dataset.mode || '';
                 panel.innerHTML = this.getShellMarkup();
@@ -775,6 +927,7 @@
             this.refs.title = panel.querySelector('.ak-im-call-overlay-title');
             this.refs.subtitle = panel.querySelector('.ak-im-call-overlay-subtitle');
             this.refs.state = panel.querySelector('.ak-im-call-overlay-state');
+            this.refs.actions = panel.querySelector('.ak-im-call-overlay-actions');
             this.refs.accept = panel.querySelector('.ak-im-call-overlay-accept');
             this.refs.reject = panel.querySelector('.ak-im-call-overlay-reject');
             this.refs.hangup = panel.querySelector('.ak-im-call-overlay-hangup');
@@ -788,6 +941,7 @@
             this.refs.placeholderIcon = panel.querySelector('.ak-im-call-overlay-placeholder-icon');
             this.refs.detailTitle = panel.querySelector('.ak-im-call-overlay-detail-title');
             this.refs.detailBody = panel.querySelector('.ak-im-call-overlay-detail-body');
+            if (this.refs.close) this.refs.close.innerHTML = getIconMarkup('close');
             this.bindEvents();
             return panel;
         },
@@ -798,28 +952,163 @@
             const self = this;
             const panel = this.refs.panel;
             if (!panel) return;
-            panel.querySelector('.ak-im-call-overlay-backdrop').addEventListener('click', function() { self.close(); });
-            this.refs.close.addEventListener('click', function() { self.close(); });
-            this.refs.reject.addEventListener('click', function() { self.reject(); });
-            this.refs.accept.addEventListener('click', function() { self.accept(); });
-            this.refs.hangup.addEventListener('click', function() { self.hangup(); });
-            this.refs.mute.addEventListener('click', function() { self.toggleMute(); });
+            const backdrop = panel.querySelector('.ak-im-call-overlay-backdrop');
+            if (backdrop) backdrop.addEventListener('click', function() { self.close(); });
+            if (this.refs.close) this.refs.close.addEventListener('click', function() { self.close(); });
+            if (this.refs.reject) this.refs.reject.addEventListener('click', function() { self.reject(); });
+            if (this.refs.accept) this.refs.accept.addEventListener('click', function() { self.accept(); });
+            if (this.refs.hangup) this.refs.hangup.addEventListener('click', function() { self.hangup(); });
+            if (this.refs.mute) this.refs.mute.addEventListener('click', function() { self.toggleMute(); });
+        },
+
+        clearTimer(name) {
+            if (!this.timers || !this.timers[name]) return;
+            global.clearTimeout(this.timers[name]);
+            this.timers[name] = 0;
+        },
+
+        clearAllTimers() {
+            this.clearTimer('autoEnd');
+            this.clearTimer('launch');
+        },
+
+        clearResultState() {
+            this.lastFailReason = '';
+            this.lastEndReason = '';
+            this.lastEndActor = '';
+            this.lastEndActorRole = '';
+        },
+
+        bumpFlowVersion() {
+            this.flowVersion += 1;
+            return this.flowVersion;
+        },
+
+        isFlowCurrent(version) {
+            return Number(version) > 0 && this.flowVersion === Number(version);
+        },
+
+        clearLocalTermination() {
+            this.localTermination = { action: '', role: '', callId: '', at: 0, wasEverConnected: false };
+        },
+
+        pruneLocalTermination() {
+            const entry = this.localTermination || {};
+            if (!entry.at) return;
+            const ttl = entry.callId ? LOCAL_TERMINATION_ECHO_TTL_MS : PENDING_OUTGOING_CANCEL_TTL_MS;
+            if ((Date.now() - entry.at) > ttl) this.clearLocalTermination();
+        },
+
+        rememberLocalTermination(action, payload) {
+            payload = payload || {};
+            this.localTermination = {
+                action: trim(action).toLowerCase(),
+                role: trim(this.role).toLowerCase(),
+                callId: trim(payload.call_id || payload.callId || this.currentCallId),
+                at: Date.now(),
+                wasEverConnected: this.wasEverConnected()
+            };
+        },
+
+        shouldAbortFreshOutgoingCall() {
+            this.pruneLocalTermination();
+            const entry = this.localTermination || {};
+            return entry.action === 'cancel' && entry.role === 'caller' && !entry.callId && !!entry.at;
+        },
+
+        shouldSuppressTerminationEcho(type, payload) {
+            this.pruneLocalTermination();
+            const entry = this.localTermination || {};
+            if (!entry.at) return false;
+            const eventCallId = trim(payload && (payload.call_id || payload.callId));
+            if (entry.callId && eventCallId && entry.callId !== eventCallId) return false;
+            const reason = normalizeReasonCode(payload && (payload.reason || payload.end_reason || payload.fail_reason));
+            const actorRole = trim(payload && payload.actor_role).toLowerCase();
+            if (type === 'im.call.failed' && entry.action === 'reject' && reason === 'rejected' && actorRole === entry.role) {
+                return true;
+            }
+            if (type === 'im.call.ended' && reason === 'hangup' && actorRole && actorRole === entry.role) {
+                return true;
+            }
+            return false;
+        },
+
+        isRecentlyClosedCallPayload(payload) {
+            this.pruneLocalTermination();
+            const entry = this.localTermination || {};
+            const eventCallId = trim(payload && (payload.call_id || payload.callId));
+            return !!(entry.at && entry.callId && eventCallId && entry.callId === eventCallId);
+        },
+
+        isDifferentActiveCallPayload(payload) {
+            const eventCallId = trim(payload && (payload.call_id || payload.callId));
+            return !!(this.currentCallId && eventCallId && this.currentCallId !== eventCallId);
+        },
+
+        wasEverConnected() {
+            return this.everConnectedAt > 0;
+        },
+
+        markConnected() {
+            if (!this.everConnectedAt) this.everConnectedAt = Date.now();
+        },
+
+        buildRenderMeta() {
+            return {
+                endReason: this.lastEndReason,
+                actor: this.lastEndActor,
+                actorRole: this.lastEndActorRole,
+                role: this.role,
+                wasEverConnected: this.wasEverConnected()
+            };
+        },
+
+        renderActionButton(ref, config) {
+            if (!ref) return;
+            const visible = !!(config && config.visible);
+            ref.style.display = visible ? 'flex' : 'none';
+            if (!visible) {
+                ref.innerHTML = '';
+                ref.removeAttribute('data-variant');
+                ref.removeAttribute('data-prominence');
+                ref.removeAttribute('data-slot');
+                ref.removeAttribute('aria-label');
+                ref.removeAttribute('title');
+                return;
+            }
+            ref.innerHTML = buildActionMarkup(config.icon, config.label);
+            ref.dataset.variant = config.variant || 'neutral';
+            ref.dataset.prominence = config.prominence || 'secondary';
+            ref.dataset.slot = config.slot || '';
+            ref.setAttribute('aria-label', config.label || '');
+            ref.title = config.label || '';
+        },
+
+        sendHangupSignal(callId) {
+            const normalizedCallId = trim(callId || this.currentCallId);
+            if (!normalizedCallId || !this.signaling) return;
+            this.signaling.send('im.call.hangup', { call_id: normalizedCallId });
         },
 
         setState(mode, payload) {
             payload = payload || {};
             this.mode = mode || CALL_MODES.idle;
-            this.currentCallId = trim(payload.call_id || payload.callId || this.currentCallId);
-            this.currentConversationId = Number(payload.conversation_id || payload.conversationId || this.currentConversationId || 0);
-            this.currentPeerName = trim(payload.peer_name || payload.peer_display_name || payload.peerName || payload.title || this.currentPeerName || '联系人');
-            this.currentPeerUsername = trim(payload.peer_username || payload.peerUsername || this.currentPeerUsername);
-            this.currentKind = trim(payload.call_kind || payload.kind || this.currentKind || 'audio') || 'audio';
-            const nextReason = normalizeReasonCode(payload.reason || payload.fail_reason || '');
-            if (this.mode === CALL_MODES.failed) {
-                this.lastFailReason = nextReason || this.lastFailReason;
-            } else {
-                this.lastFailReason = nextReason && CALL_FAIL_REASON_TEXT[nextReason] ? nextReason : '';
-            }
+            const nextCallId = trim(payload.call_id || payload.callId);
+            if (nextCallId) this.currentCallId = nextCallId;
+            const nextConversationId = Number(payload.conversation_id || payload.conversationId || 0);
+            if (nextConversationId > 0) this.currentConversationId = nextConversationId;
+            const nextPeerName = trim(payload.peer_name || payload.peer_display_name || payload.peerName || payload.title);
+            if (nextPeerName) this.currentPeerName = nextPeerName;
+            const nextPeerUsername = trim(payload.peer_username || payload.peerUsername);
+            if (nextPeerUsername) this.currentPeerUsername = nextPeerUsername;
+            const nextKind = trim(payload.call_kind || payload.kind);
+            if (nextKind) this.currentKind = nextKind;
+            const nextRole = trim(payload.viewer_role || payload.role);
+            if (nextRole) this.role = nextRole.toLowerCase();
+            const nextActor = trim(payload.actor);
+            if (nextActor) this.lastEndActor = nextActor;
+            const nextActorRole = trim(payload.actor_role);
+            if (nextActorRole) this.lastEndActorRole = nextActorRole.toLowerCase();
             this.render();
         },
 
@@ -827,45 +1116,60 @@
             const refs = this.refs;
             if (!refs.panel) return;
             const visible = this.mode !== CALL_MODES.idle;
-            const view = buildCallViewModel(this.mode, this.lastFailReason, !!this.currentCallId, this.currentPeerName, this.muted);
-            const isIncoming = this.mode === CALL_MODES.incoming;
-            const isActive = this.mode === CALL_MODES.active;
-            const isPending = this.mode === CALL_MODES.outgoing || this.mode === CALL_MODES.incoming || this.mode === CALL_MODES.connecting;
+            const view = buildCallViewModel(this.mode, this.lastFailReason, !!this.currentCallId, this.currentPeerName, this.muted, this.buildRenderMeta());
+            const actionLayout = buildCallActionLayout(this.mode, this.muted);
             refs.panel.setAttribute('aria-hidden', visible ? 'false' : 'true');
             refs.panel.dataset.mode = this.mode;
-            refs.title.textContent = this.currentPeerName || '通话';
+            refs.title.textContent = this.currentPeerName || '语音通话';
             refs.subtitle.textContent = view.badge || '';
             refs.state.textContent = view.footer || '';
-            refs.accept.style.display = isIncoming ? 'inline-flex' : 'none';
-            refs.reject.style.display = isIncoming ? 'inline-flex' : 'none';
-            refs.hangup.style.display = isActive || this.mode === CALL_MODES.outgoing || this.mode === CALL_MODES.connecting ? 'inline-flex' : 'none';
-            refs.mute.style.display = isActive ? 'inline-flex' : 'none';
-            refs.mute.textContent = this.muted ? '取消静音' : '静音';
+            refs.state.style.display = view.footer ? 'block' : 'none';
             refs.placeholder.style.display = 'flex';
             if (refs.placeholderText) refs.placeholderText.textContent = view.headline || '';
             if (refs.detailTitle) refs.detailTitle.textContent = view.detailTitle || '';
             if (refs.detailBody) refs.detailBody.textContent = view.detailBody || '';
-            refs.pulse.style.animation = isPending ? 'akImCallOverlayPulse 1.8s ease-in-out infinite' : 'none';
-            refs.pulse.style.display = isPending ? 'block' : 'none';
-            refs.avatar.style.transform = isPending ? 'scale(1.06)' : 'scale(1)';
-            refs.avatar.textContent = (this.currentPeerName || '联').trim().slice(0, 1).toUpperCase();
-            refs.placeholderIcon.textContent = view.icon || '☎';
-            refs.placeholderIcon.style.animation = view.pending ? 'akImCallOverlayPulse 1.8s ease-in-out infinite' : 'none';
+            if (refs.avatar) {
+                refs.avatar.style.transform = view.pending ? 'scale(1.04)' : 'scale(1)';
+                refs.avatar.textContent = (this.currentPeerName || '联').trim().slice(0, 1).toUpperCase();
+            }
+            if (refs.placeholderIcon) {
+                refs.placeholderIcon.innerHTML = getIconMarkup(view.icon);
+                refs.placeholderIcon.dataset.icon = view.icon || 'phone';
+                refs.placeholderIcon.style.animation = view.pending ? 'akImCallOverlayIconFloat 2.2s ease-in-out infinite' : 'none';
+            }
+            if (refs.pulse) {
+                refs.pulse.style.display = view.pending ? 'block' : 'none';
+                refs.pulse.style.animation = view.pending ? 'akImCallOverlayPulse 1.8s ease-in-out infinite' : 'none';
+            }
+            if (refs.actions) refs.actions.dataset.layout = actionLayout.layout || 'hidden';
+            this.renderActionButton(refs.reject, actionLayout.reject);
+            this.renderActionButton(refs.accept, actionLayout.accept);
+            this.renderActionButton(refs.mute, actionLayout.mute);
+            this.renderActionButton(refs.hangup, actionLayout.hangup);
         },
 
         openOutgoing(payload) {
             payload = payload || {};
+            const flowVersion = this.bumpFlowVersion();
             this.ensureStyle();
             this.ensureShell();
+            this.clearAllTimers();
             this.cleanupMedia();
+            this.clearLocalTermination();
+            this.clearResultState();
             this.role = 'caller';
             this.muted = false;
             this.offerSent = false;
+            this.everConnectedAt = 0;
+            this.currentCallId = '';
+            this.currentConversationId = 0;
+            this.currentPeerName = '';
+            this.currentPeerUsername = '';
             this.currentKind = trim(payload.kind || payload.call_kind || this.currentKind || 'audio') || 'audio';
             this.setState(CALL_MODES.outgoing, payload);
-            clearTimeout(this.timers.launch);
             const self = this;
             this.ensureSubmodules().then(function() {
+                if (!self.isFlowCurrent(flowVersion) || self.mode !== CALL_MODES.outgoing) return;
                 self.signaling.send('im.call.start', {
                     conversation_id: Number(payload.conversationId || payload.conversation_id || 0),
                     callee_username: trim(payload.peerUsername || payload.peer_username),
@@ -884,20 +1188,36 @@
         },
 
         openIncoming(payload) {
+            payload = payload || {};
+            this.bumpFlowVersion();
+            this.ensureStyle();
+            this.ensureShell();
+            this.clearAllTimers();
             this.cleanupMedia();
+            this.clearLocalTermination();
+            this.clearResultState();
             this.role = 'callee';
             this.muted = false;
             this.offerSent = false;
+            this.everConnectedAt = 0;
+            this.currentCallId = '';
+            this.currentConversationId = 0;
+            this.currentPeerName = '';
+            this.currentPeerUsername = '';
             this.currentKind = trim(payload.call_kind || payload.kind || this.currentKind || 'audio') || 'audio';
             this.setState(CALL_MODES.incoming, payload);
         },
 
         async accept() {
             if (!this.currentCallId || !this.signaling) return;
+            const flowVersion = this.flowVersion;
+            this.clearTimer('autoEnd');
+            this.clearResultState();
             this.setState(CALL_MODES.connecting, {});
             try {
                 if (!this.webRTC || !this.webRTC.isSupported()) throw new Error('unsupported');
                 await this.webRTC.startLocal('audio');
+                if (!this.isFlowCurrent(flowVersion) || this.mode !== CALL_MODES.connecting || !this.currentCallId) return;
                 this.signaling.send('im.call.accept', {
                     call_id: this.currentCallId,
                     ws_id: trim(this.ctx && this.ctx.state && this.ctx.state.wsId),
@@ -909,61 +1229,108 @@
         },
 
         reject() {
-            if (this.currentCallId && this.signaling) this.signaling.send('im.call.reject', { call_id: this.currentCallId });
-            this.end('ended', {});
+            if (this.mode !== CALL_MODES.incoming) {
+                this.close();
+                return;
+            }
+            this.rememberLocalTermination('reject');
+            if (this.currentCallId && this.signaling) {
+                this.signaling.send('im.call.reject', { call_id: this.currentCallId });
+            }
+            this.reset({ preserveLocalTermination: true });
         },
 
         hangup() {
-            if (this.currentCallId && this.signaling) this.signaling.send('im.call.hangup', { call_id: this.currentCallId });
-            this.end('ended', {});
+            const action = this.wasEverConnected() || this.mode === CALL_MODES.active ? 'hangup' : 'cancel';
+            this.rememberLocalTermination(action);
+            if (this.currentCallId && this.signaling) {
+                this.signaling.send('im.call.hangup', { call_id: this.currentCallId });
+            }
+            this.reset({ preserveLocalTermination: true });
         },
 
         close() {
-            if (this.mode === CALL_MODES.active || this.mode === CALL_MODES.outgoing || this.mode === CALL_MODES.connecting || this.mode === CALL_MODES.incoming) {
+            if (this.mode === CALL_MODES.incoming) {
+                this.reject();
+                return;
+            }
+            if (this.mode === CALL_MODES.active || this.mode === CALL_MODES.outgoing || this.mode === CALL_MODES.connecting) {
                 this.hangup();
                 return;
             }
             this.reset();
         },
 
-        reset() {
-            clearTimeout(this.timers.autoEnd);
-            clearTimeout(this.timers.launch);
+        reset(options) {
+            options = options || {};
+            this.bumpFlowVersion();
+            this.clearAllTimers();
             this.cleanupMedia();
             this.mode = CALL_MODES.idle;
             this.currentCallId = '';
             this.currentConversationId = 0;
+            this.currentPeerName = '';
             this.currentPeerUsername = '';
+            this.currentKind = 'audio';
             this.role = '';
             this.muted = false;
             this.offerSent = false;
-            this.lastFailReason = '';
+            this.everConnectedAt = 0;
+            this.clearResultState();
+            if (!options.preserveLocalTermination) this.clearLocalTermination();
             this.render();
         },
 
-        end(reason, payload) {
+        end(reason, payload, options) {
             payload = payload || {};
-            const nextMode = reason === 'failed' ? CALL_MODES.failed : CALL_MODES.ended;
-            this.setState(nextMode, payload);
-            clearTimeout(this.timers.autoEnd);
-            clearTimeout(this.timers.launch);
+            options = options || {};
+            this.clearAllTimers();
             this.cleanupMedia();
+            const nextMode = reason === 'failed' ? CALL_MODES.failed : CALL_MODES.ended;
+            if (nextMode === CALL_MODES.failed) {
+                this.lastFailReason = normalizeReasonCode(options.reason || payload.reason || payload.fail_reason || this.lastFailReason || 'socket_error');
+            } else {
+                this.lastEndReason = normalizeReasonCode(options.endReason || payload.end_reason || payload.reason || this.lastEndReason || 'hangup');
+                this.lastEndActor = trim(options.actor || payload.actor || this.lastEndActor);
+                this.lastEndActorRole = trim(options.actorRole || payload.actor_role || this.lastEndActorRole).toLowerCase();
+            }
+            this.setState(nextMode, payload);
+            if (options.instantClose) {
+                this.reset({ preserveLocalTermination: !!options.preserveLocalTermination });
+                return;
+            }
             const self = this;
-            this.timers.autoEnd = global.setTimeout(function() { self.reset(); }, nextMode === CALL_MODES.failed ? 3600 : 1600);
+            const autoCloseMs = typeof options.autoCloseMs === 'number'
+                ? options.autoCloseMs
+                : resolveCallAutoCloseMs(nextMode, nextMode === CALL_MODES.failed ? this.lastFailReason : this.lastEndReason, this.buildRenderMeta());
+            if (autoCloseMs > 0) {
+                this.timers.autoEnd = global.setTimeout(function() {
+                    self.reset({ preserveLocalTermination: !!options.preserveLocalTermination });
+                }, autoCloseMs);
+            }
         },
 
-        fail(reason, message) {
-            this.lastFailReason = normalizeReasonCode(reason || 'socket_error');
-            this.end('failed', { reason: this.lastFailReason, message: trim(message) });
+        fail(reason, message, payload) {
+            payload = Object.assign({}, payload || {});
+            const normalizedReason = normalizeReasonCode(reason || payload.reason || 'socket_error');
+            this.lastFailReason = normalizedReason;
+            payload.reason = normalizedReason;
+            if (trim(message)) payload.message = trim(message);
+            this.end('failed', payload, { reason: normalizedReason });
         },
 
         async startCallerPeer() {
             if (!this.webRTC || this.role !== 'caller') return;
             if (this.offerSent) return;
+            const flowVersion = this.flowVersion;
             this.offerSent = true;
             try {
                 this.setState(CALL_MODES.connecting, {});
                 await this.webRTC.startLocal('audio');
+                if (!this.isFlowCurrent(flowVersion) || this.mode === CALL_MODES.idle || !this.currentCallId) {
+                    this.offerSent = false;
+                    return;
+                }
                 await this.webRTC.createOffer('audio');
             } catch (error) {
                 this.offerSent = false;
@@ -973,38 +1340,46 @@
 
         async handleSignalEvent(type, payload) {
             payload = payload || {};
+            this.pruneLocalTermination();
+            if (type !== 'im.call.started' && this.mode === CALL_MODES.idle && this.isRecentlyClosedCallPayload(payload)) return;
+            if (type !== 'im.call.ringing' && this.isDifferentActiveCallPayload(payload)) return;
             if (type === 'im.call.started') {
-                clearTimeout(this.timers.launch);
+                this.clearTimer('launch');
                 this.role = 'caller';
                 this.setState(CALL_MODES.outgoing, payload);
+                if (this.shouldAbortFreshOutgoingCall()) {
+                    this.rememberLocalTermination('cancel', payload);
+                    this.sendHangupSignal(payload.call_id);
+                    this.reset({ preserveLocalTermination: true });
+                }
                 return;
             }
             if (type === 'im.call.ringing') {
-                if (this.currentCallId && this.currentCallId !== trim(payload.call_id)) return;
-                this.role = 'callee';
-                this.ensureStyle();
-                this.ensureShell();
+                if (this.currentCallId && trim(payload.call_id) && this.currentCallId !== trim(payload.call_id)) return;
                 this.openIncoming(payload);
                 return;
             }
             if (type === 'im.call.accepted' || type === 'im.call.connected') {
+                this.markConnected();
                 this.setState(CALL_MODES.connecting, payload);
                 if (this.role === 'caller') await this.startCallerPeer();
                 return;
             }
             if (type === 'im.call.offer') {
                 if (!this.webRTC || !payload.sdp) return;
+                this.markConnected();
                 this.setState(CALL_MODES.connecting, payload);
                 try {
                     await this.webRTC.acceptOffer(payload.sdp, 'audio');
                 } catch (error) {
-                    this.fail('media_denied', error && error.message ? error.message : '');
+                    this.fail('media_denied', error && error.message ? error.message : '', payload);
                 }
                 return;
             }
             if (type === 'im.call.answer') {
                 if (this.webRTC && payload.sdp) {
                     await this.webRTC.acceptAnswer(payload.sdp);
+                    this.markConnected();
                     this.setState(CALL_MODES.active, payload);
                 }
                 return;
@@ -1018,11 +1393,14 @@
                 return;
             }
             if (type === 'im.call.failed' || type === 'im.call.error') {
-                this.fail(normalizeReasonCode(payload.reason) || (trim(payload.message) === 'busy' ? 'busy' : 'socket_error'), trim(payload.message));
+                if (this.shouldSuppressTerminationEcho(type, payload)) return;
+                this.fail(normalizeReasonCode(payload.reason) || (trim(payload.message) === 'busy' ? 'busy' : 'socket_error'), trim(payload.message), payload);
                 return;
             }
             if (type === 'im.call.ended') {
-                this.end('ended', payload);
+                if (this.shouldSuppressTerminationEcho(type, payload)) return;
+                const endReason = normalizeReasonCode(payload.reason || payload.end_reason || 'hangup');
+                this.end('ended', Object.assign({}, payload, { reason: endReason, end_reason: endReason }), { endReason: endReason });
             }
         },
 
@@ -1031,7 +1409,7 @@
             if (!data.type.startsWith('im.call.')) return false;
             this.ensureStyle();
             this.ensureShell();
-            try { this.handleSignalEvent(data.type, data.payload && typeof data.payload === 'object' ? data.payload : {}); } catch (e) {}
+            Promise.resolve(this.handleSignalEvent(data.type, data.payload && typeof data.payload === 'object' ? data.payload : {})).catch(function() {});
             return true;
         },
 
@@ -1062,12 +1440,14 @@
                 const playResult = audio.play();
                 if (playResult && typeof playResult.catch === 'function') playResult.catch(function() {});
             } catch (e) {}
+            this.markConnected();
             this.setState(CALL_MODES.active, {});
         },
 
         handlePeerState(state) {
             const normalizedState = trim(state).toLowerCase();
             if (normalizedState === 'connected') {
+                this.markConnected();
                 this.setState(CALL_MODES.active, {});
             }
             if (normalizedState === 'failed' || normalizedState === 'disconnected') {
@@ -1090,9 +1470,10 @@
         },
 
         destroy() {
-            clearTimeout(this.timers.autoEnd);
-            clearTimeout(this.timers.launch);
+            this.bumpFlowVersion();
+            this.clearAllTimers();
             this.cleanupMedia();
+            this.clearLocalTermination();
             if (this.signaling && typeof this.signaling.destroy === 'function') this.signaling.destroy();
             this.signaling = null;
             this.webRTC = null;
