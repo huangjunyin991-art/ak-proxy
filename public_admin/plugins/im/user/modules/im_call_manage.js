@@ -46,11 +46,11 @@
         active: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.8 19.8 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.11 4.18 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.72c.12.9.33 1.78.62 2.62a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.46-1.18a2 2 0 0 1 2.11-.45c.84.29 1.72.5 2.62.62A2 2 0 0 1 22 16.92Z"></path><path d="M9 12h6"></path></svg>',
         success: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 5 5L20 7"></path></svg>',
         warning: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 9v4"></path><path d="M12 17h.01"></path><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"></path></svg>',
-        ended: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4.93 17.07a16 16 0 0 1 14.14 0"></path><path d="m7.76 14.24-2.83 2.83"></path><path d="m19.07 17.07-2.83-2.83"></path></svg>',
+        ended: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.7 15.4a17 17 0 0 1 16.6 0"></path><path d="m6.15 14.65-2.15 3.75"></path><path d="m17.85 14.65 2.15 3.75"></path><path d="M4 4 20 20"></path></svg>',
         accept: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.8 19.8 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.11 4.18 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.72c.12.9.33 1.78.62 2.62a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.46-1.18a2 2 0 0 1 2.11-.45c.84.29 1.72.5 2.62.62A2 2 0 0 1 22 16.92Z"></path><path d="m9 12 2 2 4-4"></path></svg>',
-        reject: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4.93 17.07a16 16 0 0 1 14.14 0"></path><path d="m9 10 6 6"></path><path d="m15 10-6 6"></path></svg>',
-        hangup: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4.93 17.07a16 16 0 0 1 14.14 0"></path><path d="M8.5 13.5 6 20"></path><path d="M15.5 13.5 18 20"></path></svg>',
-        cancel: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4.93 17.07a16 16 0 0 1 14.14 0"></path><path d="m10 10 4 4"></path><path d="m14 10-4 4"></path></svg>',
+        reject: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.7 15.4a17 17 0 0 1 16.6 0"></path><path d="m6.15 14.65-2.15 3.75"></path><path d="m17.85 14.65 2.15 3.75"></path><path d="m9 9 6 6"></path><path d="m15 9-6 6"></path></svg>',
+        hangup: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.7 15.4a17 17 0 0 1 16.6 0"></path><path d="m6.15 14.65-2.15 3.75"></path><path d="m17.85 14.65 2.15 3.75"></path><path d="M9.2 16.35h5.6"></path></svg>',
+        cancel: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.7 15.4a17 17 0 0 1 16.6 0"></path><path d="m6.15 14.65-2.15 3.75"></path><path d="m17.85 14.65 2.15 3.75"></path><path d="M4 4 20 20"></path></svg>',
         mute: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a3 3 0 0 1 3 3v6a3 3 0 1 1-6 0V6a3 3 0 0 1 3-3Z"></path><path d="M19 10v2a7 7 0 1 1-14 0v-2"></path><path d="M12 19v3"></path></svg>',
         unmute: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m4 4 16 16"></path><path d="M9 9v3a3 3 0 0 0 5.12 2.12"></path><path d="M12 3a3 3 0 0 1 3 3v3"></path><path d="M19 10v2a7 7 0 0 1-11.06 5.8"></path><path d="M12 19v3"></path></svg>'
     };
@@ -75,6 +75,7 @@
         if (normalized === 'forbidden') return 'forbidden';
         if (normalized === 'peer_connection_failed') return 'peer_connection_failed';
         if (normalized === 'hangup') return 'hangup';
+        if (normalized === 'cancel' || normalized === 'cancelled') return 'cancel';
         return normalized;
     }
 
@@ -245,7 +246,33 @@
             };
         }
         if (mode === CALL_MODES.ended) {
+            if (endReason === 'cancel') {
+                return {
+                    badge: '通话已结束',
+                    subtitle: actorRole && actorRole === role ? '你已取消本次呼叫' : '本次呼叫已取消',
+                    headline: actorRole && actorRole === role ? '已取消呼叫' : '通话已结束',
+                    detailTitle: '本次呼叫没有继续建立连接',
+                    detailBody: actorRole && actorRole === role
+                        ? '你已主动取消本次呼叫，如需继续沟通，可以重新发起语音通话。'
+                        : '本次呼叫已被取消，如需继续沟通，可以重新发起语音通话。',
+                    footer: '窗口将自动关闭。',
+                    icon: 'ended',
+                    pending: false
+                };
+            }
             if (endReason === 'hangup') {
+                if (wasEverConnected && actorRole && actorRole === role) {
+                    return {
+                        badge: '通话已结束',
+                        subtitle: '你已结束本次通话',
+                        headline: '通话已结束',
+                        detailTitle: durationText ? '本次通话时长 ' + durationText : '本次通话已结束',
+                        detailBody: '如需继续沟通，可以重新发起语音通话。',
+                        footer: '窗口将自动关闭。',
+                        icon: 'ended',
+                        pending: false
+                    };
+                }
                 if (!wasEverConnected && actorRole === 'caller' && role === 'callee') {
                     return {
                         badge: '通话请求已取消',
@@ -325,7 +352,7 @@
                     detailTitle: '这不是超时未接听',
                     detailBody: '对方主动点击了拒绝，本次呼叫不会继续等待到超时。',
                     footer: '窗口将自动关闭。',
-                    icon: 'warning',
+                    icon: 'reject',
                     pending: false
                 };
             }
@@ -935,7 +962,10 @@
             this.signaling.init({
                 getWsURL: function() { return self.getWsURL(); },
                 onEvent: function(type, payload) { self.handleSignalEvent(type, payload); },
-                onError: function(reason, message) { self.fail(reason, message); }
+                onError: function(reason, message) {
+                    if (self.shouldIgnoreSignalingFailure(reason)) return;
+                    self.fail(reason, message);
+                }
             });
         },
 
@@ -1245,28 +1275,37 @@
                 if (typeof event.stopPropagation === 'function') event.stopPropagation();
                 if (typeof event.stopImmediatePropagation === 'function') event.stopImmediatePropagation();
             };
-            if (backdrop) backdrop.addEventListener('click', function(event) {
-                stopEvent(event);
+            const bindStopOnly = function(element) {
+                if (!element) return;
+                ['pointerdown', 'pointerup', 'mousedown', 'mouseup', 'touchstart', 'touchend'].forEach(function(eventName) {
+                    element.addEventListener(eventName, stopEvent);
+                });
+            };
+            const bindAction = function(element, handler) {
+                if (!element) return;
+                bindStopOnly(element);
+                element.addEventListener('click', function(event) {
+                    stopEvent(event);
+                    handler();
+                });
+            };
+            bindStopOnly(backdrop);
+            bindAction(backdrop, function() {
                 self.close();
             });
-            if (this.refs.close) this.refs.close.addEventListener('click', function(event) {
-                stopEvent(event);
+            bindAction(this.refs.close, function() {
                 self.close();
             });
-            if (this.refs.reject) this.refs.reject.addEventListener('click', function(event) {
-                stopEvent(event);
+            bindAction(this.refs.reject, function() {
                 self.reject();
             });
-            if (this.refs.accept) this.refs.accept.addEventListener('click', function(event) {
-                stopEvent(event);
+            bindAction(this.refs.accept, function() {
                 self.accept();
             });
-            if (this.refs.hangup) this.refs.hangup.addEventListener('click', function(event) {
-                stopEvent(event);
+            bindAction(this.refs.hangup, function() {
                 self.hangup();
             });
-            if (this.refs.mute) this.refs.mute.addEventListener('click', function(event) {
-                stopEvent(event);
+            bindAction(this.refs.mute, function() {
                 self.toggleMute();
             });
         },
@@ -1329,6 +1368,17 @@
             return entry.action === 'cancel' && entry.role === 'caller' && !entry.callId && !!entry.at;
         },
 
+        shouldIgnoreSignalingFailure() {
+            this.pruneLocalTermination();
+            const entry = this.localTermination || {};
+            if (!entry.at) return false;
+            return this.mode === CALL_MODES.ended && (
+                entry.action === 'cancel' ||
+                entry.action === 'hangup' ||
+                entry.action === 'reject'
+            );
+        },
+
         shouldSuppressTerminationEcho(type, payload) {
             this.pruneLocalTermination();
             const entry = this.localTermination || {};
@@ -1337,7 +1387,21 @@
             if (entry.callId && eventCallId && entry.callId !== eventCallId) return false;
             const reason = normalizeReasonCode(payload && (payload.reason || payload.end_reason || payload.fail_reason));
             const actorRole = trim(payload && payload.actor_role).toLowerCase();
-            if (type === 'im.call.failed' && entry.action === 'reject' && reason === 'rejected' && actorRole === entry.role) {
+            if ((type === 'im.call.failed' || type === 'im.call.error') && entry.action === 'reject' && reason === 'rejected' && actorRole === entry.role) {
+                return true;
+            }
+            if ((type === 'im.call.failed' || type === 'im.call.error') && entry.action === 'cancel' && entry.role === 'caller' && (
+                reason === 'socket_timeout' ||
+                reason === 'socket_error' ||
+                reason === 'socket_unavailable' ||
+                reason === 'call_not_found'
+            )) {
+                return true;
+            }
+            if (type === 'im.call.ended' && entry.action === 'cancel' && entry.role === 'caller' && reason === 'hangup') {
+                return true;
+            }
+            if (type === 'im.call.ended' && entry.action === 'hangup' && reason === 'hangup' && (!actorRole || actorRole === entry.role)) {
                 return true;
             }
             if (type === 'im.call.ended' && reason === 'hangup' && actorRole && actorRole === entry.role) {
@@ -1444,7 +1508,8 @@
                 role: this.role,
                 wasEverConnected: this.wasEverConnected(),
                 connectionPhase: this.connectionPhase,
-                durationText: trim(this.liveDurationText || this.lastDurationText)
+                durationText: trim(this.liveDurationText || this.lastDurationText),
+                localTermination: this.localTermination
             };
         },
 
@@ -1473,6 +1538,26 @@
             const normalizedCallId = trim(callId || this.currentCallId);
             if (!normalizedCallId || !this.signaling) return;
             this.signaling.send('im.call.hangup', { call_id: normalizedCallId });
+        },
+
+        presentLocalTermination(action, payload, options) {
+            const normalizedAction = trim(action).toLowerCase();
+            const nextPayload = Object.assign({}, payload || {});
+            const actorRole = trim(options && options.actorRole || this.role).toLowerCase();
+            const endReason = normalizedAction === 'cancel'
+                ? 'cancel'
+                : (normalizedAction === 'reject' ? 'rejected' : 'hangup');
+            if (actorRole && !trim(nextPayload.actor_role)) nextPayload.actor_role = actorRole;
+            if (!trim(nextPayload.reason)) nextPayload.reason = endReason;
+            if (!trim(nextPayload.end_reason)) nextPayload.end_reason = endReason;
+            this.end('ended', nextPayload, {
+                endReason: endReason,
+                actorRole: actorRole,
+                preserveLocalTermination: true,
+                autoCloseMs: typeof options === 'object' && typeof options.autoCloseMs === 'number'
+                    ? options.autoCloseMs
+                    : (endReason === 'cancel' ? 1800 : 2000)
+            });
         },
 
         setState(mode, payload) {
@@ -1652,7 +1737,9 @@
                 localTermination: this.localTermination
             });
             if (this.currentCallId && this.signaling) {
-                this.signaling.send('im.call.reject', { call_id: this.currentCallId });
+                try {
+                    this.signaling.send('im.call.reject', { call_id: this.currentCallId });
+                } catch (e) {}
             }
             this.reset({ preserveLocalTermination: true });
         },
@@ -1661,15 +1748,23 @@
             const hasEstablishedCall = this.activeStartedAt > 0 || this.mode === CALL_MODES.active;
             const action = hasEstablishedCall ? 'hangup' : 'cancel';
             this.rememberLocalTermination(action);
+            this.presentLocalTermination(action, {
+                call_id: this.currentCallId,
+                conversation_id: this.currentConversationId
+            }, {
+                actorRole: this.role,
+                autoCloseMs: hasEstablishedCall ? 2200 : 1800
+            });
             this.emitCallTimeline(action === 'hangup' ? 'local_hangup' : 'local_cancel', {
-                mode: hasEstablishedCall ? CALL_MODES.ended : this.mode,
-                endReason: 'hangup',
+                mode: CALL_MODES.ended,
+                endReason: action === 'cancel' ? 'cancel' : 'hangup',
                 localTermination: this.localTermination
             });
             if (this.currentCallId && this.signaling) {
-                this.signaling.send('im.call.hangup', { call_id: this.currentCallId });
+                try {
+                    this.signaling.send('im.call.hangup', { call_id: this.currentCallId });
+                } catch (e) {}
             }
-            this.reset({ preserveLocalTermination: true });
         },
 
         close() {
@@ -1795,15 +1890,19 @@
             if (type === 'im.call.started') {
                 this.clearTimer('launch');
                 this.role = 'caller';
+                if (this.shouldAbortFreshOutgoingCall()) {
+                    this.rememberLocalTermination('cancel', payload);
+                    this.presentLocalTermination('cancel', payload, {
+                        actorRole: 'caller',
+                        autoCloseMs: 1800
+                    });
+                    this.sendHangupSignal(payload.call_id);
+                    return;
+                }
                 this.setState(CALL_MODES.outgoing, payload);
                 this.recordCallSession('signal_started', {
                     mode: CALL_MODES.outgoing
                 });
-                if (this.shouldAbortFreshOutgoingCall()) {
-                    this.rememberLocalTermination('cancel', payload);
-                    this.sendHangupSignal(payload.call_id);
-                    this.reset({ preserveLocalTermination: true });
-                }
                 return;
             }
             if (type === 'im.call.ringing') {

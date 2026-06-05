@@ -4,8 +4,8 @@
     const STYLE_ID = 'ak-im-call-event-message-style';
 
     const ICONS = {
-        cancelled: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6.2 6.2 17.8 17.8"></path><path d="m8.4 13.2-.7 1a2 2 0 0 0 .2 2.6l1.4 1.4a2 2 0 0 0 2.6.2l1.4-1a12.5 12.5 0 0 1 5.7 1.6l1-.9a2.3 2.3 0 0 0 .5-2.4l-.6-1.6a2 2 0 0 0-1.6-1.3l-2.1-.2a12.4 12.4 0 0 1-4-1.2l-.6-.3"></path><path d="m14.1 9.9-.4-.7a12.4 12.4 0 0 1-1.2-4l-.2-2.1A2 2 0 0 0 11 1.5l-1.6-.6A2.3 2.3 0 0 0 7 1.4l-.9 1a12.5 12.5 0 0 1 1.6 5.7l1 1.4"></path></svg>',
-        rejected: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M22 16.9v2.6a2 2 0 0 1-2.2 2 19.7 19.7 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.7 19.7 0 0 1 2 4.2 2 2 0 0 1 4.1 2h2.6"></path><path d="m9 9 6 6"></path><path d="m15 9-6 6"></path></svg>',
+        cancelled: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.7 15.4a17 17 0 0 1 16.6 0"></path><path d="m6.15 14.65-2.15 3.75"></path><path d="m17.85 14.65 2.15 3.75"></path><path d="M4 4 20 20"></path></svg>',
+        rejected: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.7 15.4a17 17 0 0 1 16.6 0"></path><path d="m6.15 14.65-2.15 3.75"></path><path d="m17.85 14.65 2.15 3.75"></path><path d="m9 9 6 6"></path><path d="m15 9-6 6"></path></svg>',
         completed: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M22 16.9v2.6a2 2 0 0 1-2.2 2 19.7 19.7 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.7 19.7 0 0 1 2 4.2 2 2 0 0 1 4.1 2h2.6"></path><circle cx="18" cy="6" r="4"></circle><path d="M18 4.4v1.9l1.2.9"></path></svg>',
         default: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M22 16.9v2.6a2 2 0 0 1-2.2 2 19.7 19.7 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.7 19.7 0 0 1 2 4.2 2 2 0 0 1 4.1 2h2.6"></path></svg>'
     };
