@@ -212,7 +212,8 @@
             const payload = this.buildMessagePayload(outcome, snapshot);
             if (Math.max(0, toNumber(payload.conversation_id)) <= 0) return Promise.resolve(null);
             return Promise.resolve(sendMessagePayload(payload, {
-                resetComposer: false
+                resetComposer: false,
+                failSilently: true
             }));
         },
 
@@ -225,7 +226,7 @@
             const self = this;
             return this.emitOutcome(outcome, snapshot).catch(function(error) {
                 if (dedupKey) self.clearSentKey(dedupKey);
-                throw error;
+                return null;
             });
         },
 

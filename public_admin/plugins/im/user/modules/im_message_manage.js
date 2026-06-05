@@ -784,11 +784,13 @@
             const targetConversationId = explicitConversationId > 0
                 ? explicitConversationId
                 : Number(state && state.activeConversationId || 0);
+            const shouldFailSilently = !!(options && options.failSilently);
             if (!state || !state.allowed || !targetConversationId || !this.ctx || typeof this.ctx.request !== 'function') {
                 return Promise.resolve(null);
             }
             const restrictedMessage = this.getSendRestrictionMessage(targetConversationId);
             if (restrictedMessage) {
+                if (shouldFailSilently) return Promise.resolve(null);
                 return Promise.reject(new Error(restrictedMessage));
             }
             const requestPayload = Object.assign({
@@ -825,6 +827,7 @@
                     })) {
                         this.renderMessages();
                     }
+                    if (shouldFailSilently) return Promise.resolve(null);
                     return Promise.reject(error);
                 }
             }
@@ -854,6 +857,7 @@
                 })) {
                     self.renderMessages();
                 }
+                if (shouldFailSilently) return null;
                 throw error;
             });
         },
