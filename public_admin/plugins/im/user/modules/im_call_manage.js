@@ -3,7 +3,7 @@
 
     const STYLE_ID = 'ak-im-call-overlay-style';
     const PANEL_SELECTOR = '.ak-im-call-overlay';
-    const SHELL_VERSION = '20260606-9';
+    const SHELL_VERSION = '20260606-10';
     const PEER_DISCONNECT_GRACE_MS = 3500;
     const PEER_STATE_MUTE_MS = 1500;
     const REMOTE_EARPIECE_VOLUME = 0.1;
@@ -623,11 +623,11 @@
                 layout: 'video-grid',
                 reject: { visible: false },
                 accept: { visible: false },
-                mute: { visible: true, icon: muted ? 'unmute' : 'mute', label: muted ? '取消静音' : '静音', variant: muted ? 'primary' : 'neutral', prominence: 'secondary', slot: '1', appearance: 'tool', selected: muted },
+                mute: { visible: true, icon: muted ? 'unmute' : 'mute', label: muted ? '取消静音' : '静音', variant: muted ? 'selected' : 'neutral', prominence: 'secondary', slot: '1', appearance: 'tool', selected: muted },
                 hangup: { visible: true, icon: 'hangup', label: '挂断', variant: 'danger', prominence: 'primary', slot: '2', appearance: 'tool' },
-                camera: { visible: true, icon: cameraEnabled ? 'camera_on' : 'camera_off', label: cameraEnabled ? '摄像头' : '摄像头已关', variant: cameraEnabled ? 'neutral' : 'primary', prominence: 'secondary', slot: '3', appearance: 'tool', selected: !cameraEnabled },
-                speaker: { visible: true, icon: speakerOn ? 'speaker_on' : 'speaker_off', label: speakerOn ? '免提已开' : '免提', variant: speakerOn ? 'primary' : 'neutral', prominence: 'secondary', slot: '4', appearance: 'tool', selected: speakerOn },
-                cameraSwitch: { visible: !!canSwitchCamera, icon: 'camera_switch', label: '翻转', variant: 'neutral', prominence: 'secondary', slot: '6', appearance: 'tool' }
+                camera: { visible: true, icon: cameraEnabled ? 'camera_on' : 'camera_off', label: cameraEnabled ? '摄像头' : '摄像头已关', variant: cameraEnabled ? 'selected' : 'neutral', prominence: 'secondary', slot: '3', appearance: 'tool', selected: cameraEnabled },
+                speaker: { visible: true, icon: speakerOn ? 'speaker_on' : 'speaker_off', label: speakerOn ? '免提已开' : '免提', variant: speakerOn ? 'selected' : 'neutral', prominence: 'secondary', slot: '6', appearance: 'tool', selected: speakerOn },
+                cameraSwitch: { visible: !!canSwitchCamera, icon: 'camera_switch', label: '翻转', variant: 'neutral', prominence: 'secondary', slot: '4', appearance: 'tool' }
             };
         }
         if (mode === CALL_MODES.outgoing || mode === CALL_MODES.connecting) {
@@ -635,11 +635,11 @@
                 layout: 'video-grid',
                 reject: { visible: false },
                 accept: { visible: false },
-                mute: { visible: true, icon: muted ? 'unmute' : 'mute', label: muted ? '取消静音' : '静音', variant: muted ? 'primary' : 'neutral', prominence: 'secondary', slot: '1', appearance: 'tool', selected: muted },
+                mute: { visible: true, icon: muted ? 'unmute' : 'mute', label: muted ? '取消静音' : '静音', variant: muted ? 'selected' : 'neutral', prominence: 'secondary', slot: '1', appearance: 'tool', selected: muted },
                 hangup: { visible: true, icon: 'hangup', label: '挂断', variant: 'danger', prominence: 'primary', slot: '2', appearance: 'tool' },
-                camera: { visible: true, icon: cameraEnabled ? 'camera_on' : 'camera_off', label: cameraEnabled ? '摄像头' : '摄像头已关', variant: cameraEnabled ? 'neutral' : 'primary', prominence: 'secondary', slot: '3', appearance: 'tool', selected: !cameraEnabled },
-                speaker: { visible: true, icon: speakerOn ? 'speaker_on' : 'speaker_off', label: speakerOn ? '免提已开' : '免提', variant: speakerOn ? 'primary' : 'neutral', prominence: 'secondary', slot: '4', appearance: 'tool', selected: speakerOn },
-                cameraSwitch: { visible: !!canSwitchCamera, icon: 'camera_switch', label: '翻转', variant: 'neutral', prominence: 'secondary', slot: '6', appearance: 'tool' }
+                camera: { visible: true, icon: cameraEnabled ? 'camera_on' : 'camera_off', label: cameraEnabled ? '摄像头' : '摄像头已关', variant: cameraEnabled ? 'selected' : 'neutral', prominence: 'secondary', slot: '3', appearance: 'tool', selected: cameraEnabled },
+                speaker: { visible: true, icon: speakerOn ? 'speaker_on' : 'speaker_off', label: speakerOn ? '免提已开' : '免提', variant: speakerOn ? 'selected' : 'neutral', prominence: 'secondary', slot: '6', appearance: 'tool', selected: speakerOn },
+                cameraSwitch: { visible: !!canSwitchCamera, icon: 'camera_switch', label: '翻转', variant: 'neutral', prominence: 'secondary', slot: '4', appearance: 'tool' }
             };
         }
         const layout = buildCallActionLayout(mode, muted, speakerOn);
@@ -1799,6 +1799,20 @@
                 '.ak-im-call-overlay[data-kind="video"][data-mode="outgoing"] .ak-im-call-overlay-actions,.ak-im-call-overlay[data-kind="video"][data-mode="connecting"] .ak-im-call-overlay-actions,.ak-im-call-overlay[data-kind="video"] .ak-im-call-overlay-actions[data-layout="video-grid"]{background:transparent!important}',
                 '.ak-im-call-overlay[data-kind="video"] .ak-im-call-overlay-actions[data-layout="video-grid"]{box-shadow:none!important}',
                 '@media (max-width:768px){.ak-im-call-overlay[data-kind="video"][data-mode="outgoing"] .ak-im-call-overlay-placeholder,.ak-im-call-overlay[data-kind="video"][data-mode="connecting"] .ak-im-call-overlay-placeholder{padding:calc(116px + env(safe-area-inset-top,0px)) 20px calc(252px + env(safe-area-inset-bottom,0px))!important}.ak-im-call-overlay[data-kind="video"][data-mode="outgoing"] .ak-im-call-overlay-placeholder-icon,.ak-im-call-overlay[data-kind="video"][data-mode="connecting"] .ak-im-call-overlay-placeholder-icon{width:88px!important;height:88px!important;flex-basis:88px!important;border-radius:22px!important}.ak-im-call-overlay[data-kind="video"][data-mode="outgoing"] .ak-im-call-overlay-detail-title,.ak-im-call-overlay[data-kind="video"][data-mode="connecting"] .ak-im-call-overlay-detail-title{font-size:30px!important}.ak-im-call-overlay[data-kind="video"][data-mode="outgoing"] .ak-im-call-overlay-placeholder-text,.ak-im-call-overlay[data-kind="video"][data-mode="connecting"] .ak-im-call-overlay-placeholder-text{bottom:calc(236px + env(safe-area-inset-bottom,0px))!important;font-size:19px!important}.ak-im-call-overlay[data-kind="video"][data-mode="outgoing"] .ak-im-call-overlay-state,.ak-im-call-overlay[data-kind="video"][data-mode="connecting"] .ak-im-call-overlay-state{bottom:calc(270px + env(safe-area-inset-bottom,0px))!important}}'
+            ].join('');
+            styleEl.textContent += [
+                '.ak-im-call-overlay[data-kind="video"]{--ak-video-copy-bottom:318px;--ak-video-copy-gap:42px}',
+                '.ak-im-call-overlay[data-kind="video"] .ak-im-call-overlay-actions[data-layout="video-grid"]{bottom:calc(16px + env(safe-area-inset-bottom,0px))!important;padding:0!important;background:transparent!important;box-shadow:none!important;grid-template-rows:repeat(2,80px)!important}',
+                '.ak-im-call-overlay[data-kind="video"] .ak-im-call-overlay-actions[data-layout="video-grid"] .ak-im-call-overlay-action[data-appearance="tool"]{width:68px!important;max-width:68px!important;gap:6px!important;transform:none!important}',
+                '.ak-im-call-overlay[data-kind="video"] .ak-im-call-overlay-actions[data-layout="video-grid"] .ak-im-call-overlay-action-disc{width:52px!important;height:52px!important;background:rgba(15,23,42,.28)!important;color:#f8fafc!important;box-shadow:inset 0 0 0 1px rgba(255,255,255,.16),0 10px 22px rgba(2,6,23,.2)!important;transform:none!important}',
+                '.ak-im-call-overlay[data-kind="video"] .ak-im-call-overlay-actions[data-layout="video-grid"] .ak-im-call-overlay-action[data-variant="neutral"] .ak-im-call-overlay-action-disc{background:rgba(15,23,42,.28)!important;color:#f8fafc!important}',
+                '.ak-im-call-overlay[data-kind="video"] .ak-im-call-overlay-actions[data-layout="video-grid"] .ak-im-call-overlay-action[data-selected="1"] .ak-im-call-overlay-action-disc,.ak-im-call-overlay[data-kind="video"] .ak-im-call-overlay-actions[data-layout="video-grid"] .ak-im-call-overlay-action[data-variant="selected"] .ak-im-call-overlay-action-disc{width:52px!important;height:52px!important;background:rgba(255,255,255,.94)!important;color:#020617!important;box-shadow:0 12px 26px rgba(2,6,23,.22)!important;transform:none!important}',
+                '.ak-im-call-overlay[data-kind="video"] .ak-im-call-overlay-actions[data-layout="video-grid"] .ak-im-call-overlay-action[data-variant="danger"] .ak-im-call-overlay-action-disc{width:58px!important;height:58px!important;background:#ef4444!important;color:#fff!important;box-shadow:0 14px 30px rgba(239,68,68,.34)!important;transform:none!important}',
+                '.ak-im-call-overlay[data-kind="video"] .ak-im-call-overlay-actions[data-layout="video-grid"] .ak-im-call-overlay-action:hover .ak-im-call-overlay-action-disc,.ak-im-call-overlay[data-kind="video"] .ak-im-call-overlay-actions[data-layout="video-grid"] .ak-im-call-overlay-action:active .ak-im-call-overlay-action-disc,.ak-im-call-overlay[data-kind="video"] .ak-im-call-overlay-actions[data-layout="video-grid"] .ak-im-call-overlay-action:focus .ak-im-call-overlay-action-disc{transform:none!important}',
+                '.ak-im-call-overlay[data-kind="video"] .ak-im-call-overlay-actions[data-layout="video-grid"] .ak-im-call-overlay-action-label{font-size:12px!important;line-height:1.2!important;white-space:nowrap!important;color:rgba(255,255,255,.92)!important;text-shadow:0 4px 14px rgba(0,0,0,.34)!important}',
+                '.ak-im-call-overlay[data-kind="video"][data-mode="outgoing"] .ak-im-call-overlay-placeholder-text,.ak-im-call-overlay[data-kind="video"][data-mode="connecting"] .ak-im-call-overlay-placeholder-text{bottom:calc(var(--ak-video-copy-bottom) + env(safe-area-inset-bottom,0px))!important}',
+                '.ak-im-call-overlay[data-kind="video"][data-mode="outgoing"] .ak-im-call-overlay-state,.ak-im-call-overlay[data-kind="video"][data-mode="connecting"] .ak-im-call-overlay-state{bottom:calc(var(--ak-video-copy-bottom) + var(--ak-video-copy-gap) + env(safe-area-inset-bottom,0px))!important}',
+                '@media (max-width:768px){.ak-im-call-overlay[data-kind="video"]{--ak-video-copy-bottom:306px;--ak-video-copy-gap:40px}.ak-im-call-overlay[data-kind="video"] .ak-im-call-overlay-actions[data-layout="video-grid"]{bottom:calc(14px + env(safe-area-inset-bottom,0px))!important;grid-template-rows:repeat(2,78px)!important}.ak-im-call-overlay[data-kind="video"] .ak-im-call-overlay-actions[data-layout="video-grid"] .ak-im-call-overlay-action[data-appearance="tool"]{width:66px!important;max-width:66px!important}.ak-im-call-overlay[data-kind="video"] .ak-im-call-overlay-actions[data-layout="video-grid"] .ak-im-call-overlay-action-disc,.ak-im-call-overlay[data-kind="video"] .ak-im-call-overlay-actions[data-layout="video-grid"] .ak-im-call-overlay-action[data-selected="1"] .ak-im-call-overlay-action-disc,.ak-im-call-overlay[data-kind="video"] .ak-im-call-overlay-actions[data-layout="video-grid"] .ak-im-call-overlay-action[data-variant="selected"] .ak-im-call-overlay-action-disc{width:52px!important;height:52px!important}.ak-im-call-overlay[data-kind="video"] .ak-im-call-overlay-actions[data-layout="video-grid"] .ak-im-call-overlay-action[data-variant="danger"] .ak-im-call-overlay-action-disc{width:58px!important;height:58px!important}}'
             ].join('');
             if (!styleEl.parentNode) {
                 (document.head || document.documentElement).appendChild(styleEl);
