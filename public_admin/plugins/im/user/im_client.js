@@ -5060,11 +5060,44 @@
             if (params.get('ak_im_open') !== '1') return null;
             return {
                 tab: normalizeHomeTab(params.get('ak_im_tab')),
-                conversationId: Math.max(0, Number(params.get('conversation_id') || 0) || 0)
+                conversationId: Math.max(0, Number(params.get('conversation_id') || 0) || 0),
+                callId: String(params.get('call_id') || '').trim(),
+                callIntent: String(params.get('ak_im_call') || '').trim().toLowerCase()
             };
         } catch (e) {
             return null;
         }
+    }
+
+    function restoreInitialCallInvite(openRequest) {
+        const requestInfo = openRequest && typeof openRequest === 'object' ? openRequest : {};
+        const callId = String(requestInfo.callId || '').trim();
+        const callIntent = String(requestInfo.callIntent || '').trim().toLowerCase();
+        const conversationId = Math.max(0, Number(requestInfo.conversationId || 0) || 0);
+        if (!callId && callIntent !== 'invite') return Promise.resolve(null);
+        if (!callId && !conversationId) return Promise.resolve(null);
+        const params = [];
+        if (callId) params.push('call_id=' + encodeURIComponent(callId));
+        if (conversationId > 0) params.push('conversation_id=' + encodeURIComponent(String(conversationId)));
+        if (!params.length) return Promise.resolve(null);
+        return request(HTTP_ROOT + '/call/state?' + params.join('&')).then(function(data) {
+            const payload = data && (data.session || data.payload);
+            if (!data || !data.found || !payload) return null;
+            const status = String(payload.status || '').trim().toLowerCase();
+            const viewerRole = String(payload.viewer_role || payload.viewerRole || '').trim().toLowerCase();
+            if (viewerRole !== 'callee') return null;
+            if (status !== 'ringing' && status !== 'dialing') return null;
+            return ensureLazyModule('callManage').then(function(callManageModule) {
+                if (!callManageModule || typeof callManageModule.openIncoming !== 'function') return null;
+                callManageModule.openIncoming(Object.assign({}, payload, {
+                    restore_source: 'ntfy',
+                    reason: payload.reason || 'notification_restore'
+                }));
+                return true;
+            });
+        }).catch(function() {
+            return null;
+        });
     }
 
     function applyInitialOpenRequest() {
@@ -5078,20 +5111,27 @@
         ensureHomeTabData(state.homeTab);
         clearInitialOpenRequestURL();
         if (openRequest.conversationId > 0) {
-            openConversationById(openRequest.conversationId);
+            openConversationById(openRequest.conversationId).then(function() {
+                return restoreInitialCallInvite(openRequest);
+            }, function() {
+                return restoreInitialCallInvite(openRequest);
+            });
             return true;
         }
         render();
+        restoreInitialCallInvite(openRequest);
         return true;
     }
 
     function clearInitialOpenRequestURL() {
         try {
             const url = new URL(window.location.href);
-            if (!url.searchParams.has('ak_im_open') && !url.searchParams.has('ak_im_tab') && !url.searchParams.has('conversation_id')) return;
+            if (!url.searchParams.has('ak_im_open') && !url.searchParams.has('ak_im_tab') && !url.searchParams.has('conversation_id') && !url.searchParams.has('call_id') && !url.searchParams.has('ak_im_call')) return;
             url.searchParams.delete('ak_im_open');
             url.searchParams.delete('ak_im_tab');
             url.searchParams.delete('conversation_id');
+            url.searchParams.delete('call_id');
+            url.searchParams.delete('ak_im_call');
             const nextURL = url.pathname + (url.search || '') + url.hash;
             window.history.replaceState(window.history.state, document.title, nextURL);
         } catch (e) {}

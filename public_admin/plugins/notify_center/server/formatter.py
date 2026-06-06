@@ -67,6 +67,9 @@ def build_notification_url(event: dict[str, Any], public_base_url: str = '', *, 
     if recipient:
         separator = '&' if '?' in path else '?'
         path = f'{path}{separator}im_username={recipient}'
+    if _is_call_invite_event(event):
+        path = _append_query_param(path, 'ak_im_call', 'invite')
+        path = _append_query_param(path, 'call_id', event.get('call_id'))
 
     # 一次性 token，不依赖 cookie/bs，用于打开通知时切换 userkey。
     secret = str(internal_secret or '').strip()
@@ -79,6 +82,14 @@ def build_notification_url(event: dict[str, Any], public_base_url: str = '', *, 
 
     base = str(public_base_url or '').strip().rstrip('/')
     return f'{base}{path}' if base else path
+
+
+def _append_query_param(path: str, name: str, value: Any) -> str:
+    normalized_value = str(value or '').strip()
+    if not normalized_value:
+        return path
+    separator = '&' if '?' in path else '?'
+    return f'{path}{separator}{quote_plus(str(name))}={quote_plus(normalized_value)}'
 
 
 def build_recipient_usernames(event: dict[str, Any]) -> list[str]:

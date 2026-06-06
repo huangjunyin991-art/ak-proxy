@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -126,6 +127,21 @@ func (a *App) loadCallSessionState(callID string) map[string]any {
 		return map[string]any{"found": false}
 	}
 	return map[string]any{"found": true, "session": session.toMap()}
+}
+
+func (a *App) lookupCallSession(callID string, conversationID int64) *imCallSession {
+	if a == nil {
+		return nil
+	}
+	if normalizedCallID := normalizeCallID(callID); normalizedCallID != "" {
+		if session := a.getCallSession(normalizedCallID); session != nil {
+			return session
+		}
+	}
+	if conversationID > 0 {
+		return a.findActiveCallByConversation(conversationID)
+	}
+	return nil
 }
 
 func (a *App) createCallSession(ctx context.Context, req imCallRequest) (*imCallSession, error) {
@@ -343,8 +359,35 @@ func (a *App) handleCallState(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"error": true})
 		return
 	}
+	username, err := a.requireAllowedUser(r)
+	if err != nil {
+		writeJSON(w, http.StatusForbidden, map[string]any{"error": true, "message": err.Error()})
+		return
+	}
+	a.maybePruneCalls()
 	callID := strings.TrimSpace(r.URL.Query().Get("call_id"))
-	writeJSON(w, http.StatusOK, a.loadCallSessionState(callID))
+	conversationID := int64(0)
+	if rawConversationID := strings.TrimSpace(r.URL.Query().Get("conversation_id")); rawConversationID != "" {
+		parsedConversationID, parseErr := strconv.ParseInt(rawConversationID, 10, 64)
+		if parseErr != nil || parsedConversationID < 0 {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"error": true, "message": "invalid conversation_id"})
+			return
+		}
+		conversationID = parsedConversationID
+	}
+	session := a.lookupCallSession(callID, conversationID)
+	if session == nil {
+		writeJSON(w, http.StatusOK, map[string]any{"found": false})
+		return
+	}
+	if a.callUserRole(session, username) == "" {
+		writeJSON(w, http.StatusForbidden, map[string]any{"error": true, "message": "forbidden"})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"found":   true,
+		"session": a.buildCallEventPayload(session, username, map[string]any{"reason": "state_lookup"}),
+	})
 }
 
 func (a *App) handleCallAction(w http.ResponseWriter, r *http.Request, action string) {
