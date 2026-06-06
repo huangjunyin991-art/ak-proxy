@@ -1624,6 +1624,18 @@
             reportLaunchError: function(reason, detail) {
                 openCallDebugDialog(reason, detail);
             },
+            resolvePeerAvatarUrl: function(payload) {
+                const nextPayload = payload && typeof payload === 'object' ? payload : {};
+                const directAvatarUrl = getAvatarUrl(nextPayload.peerAvatarUrl || nextPayload.peer_avatar_url || nextPayload.avatarUrl || nextPayload.avatar_url || nextPayload);
+                if (directAvatarUrl) return directAvatarUrl;
+                const targetConversationId = Number(nextPayload.conversationId || nextPayload.conversation_id || state.activeConversationId || 0);
+                const sessionItem = targetConversationId
+                    ? (state.sessions.find(function(item) {
+                        return Number(item && item.conversation_id || 0) === targetConversationId;
+                    }) || getHiddenGroupActiveSession())
+                    : getActiveSession();
+                return resolveSessionAvatarUrl(sessionItem);
+            },
             openCall: function(kind, payload) {
                 if (typeof callManageModule.openOutgoing !== 'function') return;
                 const activeSession = getActiveSession();
@@ -1632,7 +1644,8 @@
                     kind: kind,
                     title: displayName,
                     peerName: displayName,
-                    conversationId: state.activeConversationId || 0
+                    conversationId: state.activeConversationId || 0,
+                    peerAvatarUrl: resolveSessionAvatarUrl(activeSession)
                 }, payload || {}));
             }
         });
@@ -3882,6 +3895,11 @@
         };
     }
 
+    function resolveSessionAvatarUrl(item) {
+        if (!item || typeof item !== 'object') return '';
+        return getAvatarUrl(buildAvatarDescriptor(item)) || getAvatarUrl(item);
+    }
+
     function buildAvatarImageMarkup(avatarUrl, altText) {
         const normalizedAvatarUrl = getAvatarUrl(avatarUrl);
         if (!normalizedAvatarUrl) return '';
@@ -4463,6 +4481,7 @@
         }
         const peerUsername = String(activeSession.peer_username || '').trim();
         const displayName = sessionManageModule && typeof sessionManageModule.getSessionDisplayName === 'function' ? sessionManageModule.getSessionDisplayName(activeSession) : '联系人';
+        const peerAvatarUrl = resolveSessionAvatarUrl(activeSession);
         showCallLaunchFallback(normalizedAction, displayName, '正在发起' + getCallActionLabel(normalizedAction));
         ensureLazyModule('callManage').then(function(callManageModule) {
             if (!callManageModule || typeof callManageModule.openOutgoing !== 'function') {
@@ -4477,6 +4496,7 @@
                 peerName: displayName,
                 title: displayName,
                 peerUsername: peerUsername,
+                peerAvatarUrl: peerAvatarUrl,
                 pageId: String(state.pageId || ''),
                 wsId: String(state.wsId || '')
             });
