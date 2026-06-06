@@ -423,8 +423,8 @@
         if (mode === CALL_MODES.incoming) {
             return {
                 layout: 'double',
-                reject: { visible: true, icon: 'reject', label: '拒绝', variant: 'danger', prominence: 'secondary', slot: '1', appearance: 'pill' },
-                accept: { visible: true, icon: 'accept', label: '接听', variant: 'success', prominence: 'primary', slot: '2', appearance: 'pill' },
+                reject: { visible: true, icon: '', label: '拒绝', variant: 'danger', prominence: 'secondary', slot: '1', appearance: 'pill' },
+                accept: { visible: true, icon: '', label: '接听', variant: 'success', prominence: 'primary', slot: '2', appearance: 'pill' },
                 mute: { visible: false },
                 hangup: { visible: false }
             };
@@ -1228,9 +1228,11 @@
                 '.ak-im-call-overlay-action-label{display:block;flex:0 0 auto;font-size:13px;font-weight:700;line-height:1.3;color:inherit;text-align:center}',
                 '.ak-im-call-overlay-action-pill-icon{display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto;width:16px;height:16px}',
                 '.ak-im-call-overlay-action-pill-icon svg{width:16px;height:16px;stroke:currentColor;stroke-linecap:round;stroke-linejoin:round;stroke-width:1.9;fill:none}',
-                '.ak-im-call-overlay-inline-actions .ak-im-call-overlay-action{all:unset;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;gap:8px;min-width:124px;height:52px;padding:0 18px;border-radius:999px;color:#f8fafc;cursor:pointer;font:inherit;-webkit-appearance:none;appearance:none;-webkit-tap-highlight-color:transparent;box-shadow:0 18px 34px rgba(2,6,23,.26);pointer-events:auto}',
+                '.ak-im-call-overlay-inline-actions .ak-im-call-overlay-action{all:unset;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;gap:8px;min-width:124px;height:52px;padding:0 18px;border-radius:999px;color:#f8fafc;cursor:pointer;font:inherit;-webkit-appearance:none;appearance:none;-webkit-tap-highlight-color:transparent;box-shadow:0 18px 34px rgba(2,6,23,.26);pointer-events:auto;border:1px solid rgba(255,255,255,.08)}',
                 '.ak-im-call-overlay-inline-actions .ak-im-call-overlay-action .ak-im-call-overlay-action-disc{display:none}',
-                '.ak-im-call-overlay-inline-actions .ak-im-call-overlay-action .ak-im-call-overlay-action-label{font-size:15px;line-height:1.2}',
+                '.ak-im-call-overlay-inline-actions .ak-im-call-overlay-action .ak-im-call-overlay-action-label{font-size:15px;font-weight:700;line-height:1.2}',
+                '.ak-im-call-overlay-inline-actions .ak-im-call-overlay-action:hover{transform:translateY(-1px)}',
+                '.ak-im-call-overlay-inline-actions .ak-im-call-overlay-action:active{transform:translateY(0)}',
                 '.ak-im-call-overlay-action[data-variant="danger"] .ak-im-call-overlay-action-disc{background:#ef4444;color:#fff}',
                 '.ak-im-call-overlay-action[data-variant="success"] .ak-im-call-overlay-action-disc{background:#10b981;color:#fff}',
                 '.ak-im-call-overlay-action[data-variant="primary"] .ak-im-call-overlay-action-disc{background:#2563eb;color:#fff}',
@@ -1575,6 +1577,7 @@
                 ref.removeAttribute('data-variant');
                 ref.removeAttribute('data-prominence');
                 ref.removeAttribute('data-slot');
+                ref.removeAttribute('data-appearance');
                 ref.removeAttribute('aria-label');
                 ref.removeAttribute('title');
                 return;
@@ -1766,7 +1769,7 @@
 
         openIncoming(payload) {
             payload = payload || {};
-            this.bumpFlowVersion();
+            const flowVersion = this.bumpFlowVersion();
             this.ensureStyle();
             this.ensureShell();
             this.clearAllTimers();
@@ -1791,9 +1794,18 @@
                 openedAt: this.openedAt,
                 mode: CALL_MODES.incoming
             });
+            const self = this;
+            this.ensureSubmodules().then(function() {
+                if (!self.isFlowCurrent(flowVersion) || self.mode !== CALL_MODES.incoming) return;
+            }).catch(function(error) {
+                self.fail('socket_unavailable', error && error.message ? error.message : '通话模块不可用');
+            });
         },
 
         async accept() {
+            await this.ensureSubmodules().catch(function() {
+                return null;
+            });
             if (!this.currentCallId || !this.signaling) return;
             const flowVersion = this.flowVersion;
             this.clearTimer('autoEnd');
@@ -1824,6 +1836,7 @@
         },
 
         reject() {
+            const self = this;
             if (this.mode !== CALL_MODES.incoming) {
                 this.close();
                 return;
@@ -1834,10 +1847,16 @@
                 endReason: 'rejected',
                 localTermination: this.localTermination
             });
-            if (this.currentCallId && this.signaling) {
+            const sendReject = function() {
+                if (!self.currentCallId || !self.signaling) return;
                 try {
-                    this.signaling.send('im.call.reject', { call_id: this.currentCallId });
+                    self.signaling.send('im.call.reject', { call_id: self.currentCallId });
                 } catch (e) {}
+            };
+            if (this.signaling) {
+                sendReject();
+            } else {
+                this.ensureSubmodules().then(sendReject).catch(function() {});
             }
             this.reset({ preserveLocalTermination: true });
         },
