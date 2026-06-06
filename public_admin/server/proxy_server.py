@@ -12718,19 +12718,6 @@ def _set_browse_session_cookie(response: Response, bs_id: str):
     return response
 
 
-def _clear_browse_session_cookie(response: Response):
-    for path in ("/", "/admin"):
-        response.delete_cookie(key=_BROWSE_SESSION_COOKIE, path=path)
-    return response
-
-
-def _clear_public_login_cookies(response: Response):
-    for key in ("ak_username", "ak_im_username", "ak_persist"):
-        for path in ("/", "/admin"):
-            response.delete_cookie(key=key, path=path)
-    return response
-
-
 def _apply_no_store_headers(response: Response):
     response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
     response.headers["Pragma"] = "no-cache"
@@ -12886,36 +12873,6 @@ async def admin_clear_ak_auth(request: Request):
     except Exception as e:
         return JSONResponse({"success": False, "message": f"清理失败: {str(e)}"})
     return JSONResponse({"success": True})
-
-
-@app.get("/admin/api/ak_auth/ntfy_force_login")
-async def admin_ak_auth_ntfy_force_login(request: Request):
-    reason = (request.query_params.get("reason") or "ntfy_token_invalid").strip()
-    im_username = (request.query_params.get("im_username") or "").strip().lower()
-    bs_id = (request.cookies.get(_BROWSE_SESSION_COOKIE) or "").strip()
-    removed_username = ""
-    if bs_id:
-        removed_session = _browse_sessions.pop(bs_id, None)
-        if isinstance(removed_session, dict):
-            removed_username = str(removed_session.get("username") or "").strip().lower()
-    query = {"reason": reason or "ntfy_token_invalid"}
-    if im_username:
-        query["im_username"] = im_username
-    location = "/pages/account/login.html?" + urlencode(query)
-    logger.warning(
-        "[NtfyForceLogin] reason=%s im_username=%s removed_bs=%s removed_username=%s",
-        reason or "-",
-        im_username or "-",
-        bs_id or "-",
-        removed_username or "-",
-    )
-    response = Response(status_code=307, headers={"location": location})
-    _apply_no_store_headers(response)
-    _clear_browse_session_cookie(response)
-    _clear_public_login_cookies(response)
-    return response
-
-
 
 
 _IM_SWITCH_TOKEN_MAX_AGE_SECONDS = 86400

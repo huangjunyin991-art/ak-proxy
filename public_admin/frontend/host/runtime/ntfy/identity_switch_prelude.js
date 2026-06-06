@@ -20,13 +20,22 @@
 
     var targetUsername = String(query.get('im_username') || '').trim().toLowerCase();
     var openFlag = String(query.get('ak_im_open') || '').trim().toLowerCase();
+    var reasonFlag = String(query.get('reason') || '').trim().toLowerCase();
+    var isOpenRequest = openFlag === '1' || openFlag === 'true';
+    var isForceLoginCleanup = !!targetUsername && !isOpenRequest && (
+        reasonFlag.indexOf('ntfy') !== -1 ||
+        reasonFlag.indexOf('token') !== -1 ||
+        reasonFlag.indexOf('signature') !== -1 ||
+        reasonFlag === 'already_used' ||
+        reasonFlag === 'missing_signature'
+    );
     var hasSignedToken = !!(
         query.get('im_switch_ts') &&
         query.get('im_switch_nonce') &&
         query.get('im_switch_sig')
     );
 
-    if (!targetUsername || (openFlag !== '1' && openFlag !== 'true')) return;
+    if (!targetUsername || (!isOpenRequest && !isForceLoginCleanup)) return;
 
     var switchDone = false;
     var switchResult = null;
@@ -131,6 +140,22 @@
         return '';
     }
 
+    function pickIdentityKey(source) {
+        if (!source || typeof source !== 'object') return '';
+        var keys = ['Key', 'key', 'UserKey', 'userkey', 'user_key', 'ukey'];
+        for (var i = 0; i < keys.length; i++) {
+            if (source[keys[i]] != null && source[keys[i]] !== '') return String(source[keys[i]]).trim();
+        }
+        return '';
+    }
+
+    function hasIdentityPayload(source) {
+        if (!source || typeof source !== 'object') return false;
+        if (pickIdentityKey(source)) return true;
+        var id = source.Id != null ? source.Id : (source.ID != null ? source.ID : source.id);
+        return !!(id != null && String(id || '').trim() && String(id || '').trim() !== '0');
+    }
+
     function readJsonStorage(store, key) {
         try {
             var raw = store && key ? store.getItem(key) : '';
@@ -151,11 +176,12 @@
 
     function readCurrentUsername() {
         try {
-            var runtimeUser = pickUsername(window.APP && APP.USER && APP.USER.MODEL);
+            var runtimeModel = window.APP && APP.USER && APP.USER.MODEL;
+            var runtimeUser = hasIdentityPayload(runtimeModel) ? pickUsername(runtimeModel) : '';
             if (runtimeUser) return runtimeUser;
         } catch (e) {}
         try {
-            var globalUser = pickUsername(window.USER_MODEL);
+            var globalUser = hasIdentityPayload(window.USER_MODEL) ? pickUsername(window.USER_MODEL) : '';
             if (globalUser) return globalUser;
         } catch (e2) {}
         try {
@@ -163,6 +189,7 @@
             for (var i = 0; i < keys.length; i++) {
                 var parsed = readJsonStorage(localStorage, keys[i]);
                 if (keys[i] === 'ak_login_result' && parsed && parsed.UserData) parsed = parsed.UserData;
+                if (!hasIdentityPayload(parsed)) continue;
                 var username = pickUsername(parsed);
                 if (username) return username;
             }
@@ -172,11 +199,33 @@
             for (var j = 0; j < sessionKeys.length; j++) {
                 var sessionParsed = readJsonStorage(sessionStorage, sessionKeys[j]);
                 if (sessionKeys[j] === 'ak_login_result' && sessionParsed && sessionParsed.UserData) sessionParsed = sessionParsed.UserData;
+                if (!hasIdentityPayload(sessionParsed)) continue;
                 var sessionUsername = pickUsername(sessionParsed);
                 if (sessionUsername) return sessionUsername;
             }
         } catch (e4) {}
-        return readCookie('ak_username') || readCookie('ak_im_username');
+        return '';
+    }
+
+    function hasAkLoginState() {
+        try {
+            var directKeys = ['userkey', 'UserKey', '_ak_sl'];
+            for (var d = 0; d < directKeys.length; d++) {
+                if (String(localStorage.getItem(directKeys[d]) || sessionStorage.getItem(directKeys[d]) || '').trim()) return true;
+            }
+        } catch (e) {}
+        try {
+            var keys = [getStoreKey(), 'AK_user_model', 'UserData', 'ak_login_result'];
+            for (var i = 0; i < keys.length; i++) {
+                var localParsed = readJsonStorage(localStorage, keys[i]);
+                if (keys[i] === 'ak_login_result' && localParsed && localParsed.UserData) localParsed = localParsed.UserData;
+                if (hasIdentityPayload(localParsed)) return true;
+                var sessionParsed = readJsonStorage(sessionStorage, keys[i]);
+                if (keys[i] === 'ak_login_result' && sessionParsed && sessionParsed.UserData) sessionParsed = sessionParsed.UserData;
+                if (hasIdentityPayload(sessionParsed)) return true;
+            }
+        } catch (e2) {}
+        return false;
     }
 
     function isTokenTerminalFailure(reason, status) {
@@ -231,7 +280,6 @@
         clearCookie('ak_username');
         clearCookie('ak_im_username');
         clearCookie('ak_persist');
-        clearCookie('ak_admin_bs');
         try { window.AKIMClientUsername = ''; } catch (e5) {}
         try { window.userkey = ''; } catch (e8) {}
         try { window.USER_MODEL = { Id: 0, Key: '' }; } catch (e6) {}
@@ -241,7 +289,7 @@
     }
 
     function redirectToLoginForTokenFailure(reason) {
-        var loginUrl = '/admin/api/ak_auth/ntfy_force_login?reason='
+        var loginUrl = '/pages/account/login.html?reason='
             + encodeURIComponent(String(reason || 'ntfy_token_invalid'))
             + '&im_username=' + encodeURIComponent(targetUsername);
         updateLock({
@@ -266,19 +314,23 @@
         }
     }
 
-    function maybeRedirectToLoginOnTokenFailure(result) {
+    function maybeRedirectToLoginOnSwitchFailure(result) {
         result = result || {};
+        if (result.synced) return false;
         var reason = String(result.reason || '').trim();
-        if (!isTokenTerminalFailure(reason, result.status)) return false;
         var currentUsername = readCurrentUsername();
-        debug('token-failure-check-current', {
+        var hasLoginState = hasAkLoginState();
+        var terminalTokenFailure = isTokenTerminalFailure(reason, result.status);
+        debug('switch-failure-check-current', {
             reason: reason,
             status: Number(result.status || 0),
-            currentUsername: currentUsername
+            currentUsername: currentUsername,
+            hasLoginState: hasLoginState,
+            terminalTokenFailure: terminalTokenFailure
         });
-        if (currentUsername && currentUsername === targetUsername) return false;
+        if (currentUsername && currentUsername === targetUsername && hasLoginState) return false;
         clearAkLoginStateForRelogin();
-        redirectToLoginForTokenFailure(reason || 'ntfy_token_invalid');
+        redirectToLoginForTokenFailure(terminalTokenFailure ? (reason || 'ntfy_token_invalid') : 'ntfy_switch_failed');
         return true;
     }
 
@@ -395,7 +447,7 @@
     function finish(result) {
         switchDone = true;
         switchResult = result || { synced: false, reason: 'unknown' };
-        if (maybeRedirectToLoginOnTokenFailure(switchResult)) {
+        if (maybeRedirectToLoginOnSwitchFailure(switchResult)) {
             switchResult.redirecting = true;
         }
         updateLock({
@@ -558,10 +610,19 @@
                     var xhr = this;
                     debug('indexdata-gate-wait', {});
                     waitWithTimeout(startSwitch(), MAX_INDEXDATA_WAIT_MS).then(function(result) {
+                        if (result && result.redirecting) {
+                            debug('indexdata-gate-block-redirecting', {});
+                            return;
+                        }
                         refreshAppModel();
                         debug('indexdata-gate-send', { reason: result && result.reason ? result.reason : '' });
                         nativeSend.call(xhr, patchIndexDataBody(body));
                     }).catch(function() {
+                        var lock = getLock();
+                        if (lock && lock.redirecting) {
+                            debug('indexdata-gate-fallback-block-redirecting', {});
+                            return;
+                        }
                         debug('indexdata-gate-fallback', {});
                         nativeSend.call(xhr, body);
                     });
@@ -625,6 +686,24 @@
         options = options || {};
         return waitWithTimeout(startSwitch(), Number(options.timeoutMs || 0) || MAX_RUNTIME_WAIT_MS);
     };
+
+    if (isForceLoginCleanup) {
+        clearAkLoginStateForRelogin();
+        updateLock({
+            active: false,
+            pending: false,
+            synced: false,
+            failed: true,
+            cleanupOnly: true,
+            reason: reasonFlag || 'ntfy_force_login'
+        });
+        debug('force-login-cleanup-only', {
+            reason: reasonFlag || '',
+            currentUsername: readCurrentUsername(),
+            hasLoginState: hasAkLoginState()
+        });
+        return;
+    }
 
     updateLock({ active: true, pending: true, synced: false, failed: false, startedAt: Date.now() });
     installHomeSyncHook();
