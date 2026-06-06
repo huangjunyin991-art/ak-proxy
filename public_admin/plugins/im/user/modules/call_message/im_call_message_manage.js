@@ -4,6 +4,7 @@
     const STYLE_ID = 'ak-im-call-event-message-style';
 
     const ICONS = {
+        audio: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6.62 10.79a15.1 15.1 0 0 0 6.59 6.59l2.2-2.2a1.25 1.25 0 0 1 1.28-.29 11.4 11.4 0 0 0 3.56.57c.69 0 1.25.56 1.25 1.25v3.5c0 .69-.56 1.25-1.25 1.25C10.45 21.96 2.04 13.55 2.04 3.75c0-.69.56-1.25 1.25-1.25h3.5c.69 0 1.25.56 1.25 1.25 0 1.22.19 2.42.57 3.56.13.43.03.88-.29 1.28l-1.7 2.2Z"></path></svg>',
         cancelled: '<svg viewBox="0 0 24 24" aria-hidden="true"><g transform="rotate(90 12 12)"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.8 19.8 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.11 4.18 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.72c.12.9.33 1.78.62 2.62a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.46-1.18a2 2 0 0 1 2.11-.45c.84.29 1.72.5 2.62.62A2 2 0 0 1 22 16.92Z"></path></g></svg>',
         rejected: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.7 15.4a17 17 0 0 1 16.6 0"></path><path d="m6.15 14.65-2.15 3.75"></path><path d="m17.85 14.65 2.15 3.75"></path><path d="m9 9 6 6"></path><path d="m15 9-6 6"></path></svg>',
         completed: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M22 16.9v2.6a2 2 0 0 1-2.2 2 19.7 19.7 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.7 19.7 0 0 1 2 4.2 2 2 0 0 1 4.1 2h2.6"></path><circle cx="18" cy="6" r="4"></circle><path d="M18 4.4v1.9l1.2.9"></path></svg>',
@@ -86,7 +87,7 @@
 
     function resolveIcon(eventName, kind) {
         if (normalizeKind(kind) === 'video') return ICONS.video;
-        return ICONS[eventName] || ICONS.default;
+        return ICONS.audio;
     }
 
     const callMessageManageModule = {
