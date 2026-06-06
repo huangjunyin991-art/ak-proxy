@@ -308,10 +308,17 @@ class NotifyCenterService:
         expired = 0
         for item in items:
             event_payload = item.get('payload') if isinstance(item.get('payload'), dict) else {}
+            channel = str(item.get('channel') or '')
+            send_url = _resolve_outbox_send_url(
+                item,
+                event_payload,
+                config=self.config,
+                refresh_im_token=(channel == 'ntfy'),
+            )
             payload = {
                 'title': str(item.get('title') or ''),
                 'body': str(item.get('body') or ''),
-                'url': str(item.get('url') or '/'),
+                'url': send_url,
                 'tag': str(item.get('event_id') or item.get('id') or ''),
                 'data': {
                     'event_id': str(item.get('event_id') or ''),
@@ -321,7 +328,6 @@ class NotifyCenterService:
                     'call_kind': str(event_payload.get('call_kind') or ''),
                 },
             }
-            channel = str(item.get('channel') or '')
             if channel == 'ntfy':
                 if self.ntfy_channel is None:
                     await self.repository.mark_outbox_failed(
@@ -422,6 +428,41 @@ def _build_default_ntfy_topic(username: str, config: NotifyCenterConfig) -> str:
     digest = hashlib.sha256(seed.encode('utf-8')).hexdigest()[:20]
     prefix = ''.join(ch if ch.isascii() and ch.isalnum() else '-' for ch in normalized).strip('-') or 'user'
     return f'ak-{prefix}-{digest}'
+
+
+def _resolve_outbox_send_url(item: dict[str, Any], event_payload: dict[str, Any],
+                             *, config: NotifyCenterConfig, refresh_im_token: bool = False) -> str:
+    current_url = str(item.get('url') or '').strip()
+    if not refresh_im_token or not _is_im_event_payload(event_payload):
+        return current_url or '/'
+    username = normalize_username(item.get('recipient_username'))
+    if not username:
+        return current_url or '/'
+    rebuilt = build_notification_url(
+        {**event_payload, 'recipient_username': username},
+        config.public_base_url,
+        internal_secret=config.internal_secret,
+    )
+    return str(rebuilt or current_url or '/').strip() or '/'
+
+
+def _is_im_event_payload(payload: dict[str, Any]) -> bool:
+    if not isinstance(payload, dict):
+        return False
+    event_type = str(payload.get('event_type') or '').strip().lower()
+    message_type = str(payload.get('message_type') or '').strip().lower()
+    if event_type.startswith('im.'):
+        return True
+    if message_type:
+        return True
+    return _safe_int(payload.get('conversation_id')) > 0 or _safe_int(payload.get('message_id')) > 0
+
+
+def _safe_int(value: Any) -> int:
+    try:
+        return int(value or 0)
+    except Exception:
+        return 0
 
 
 def _is_mobile_web_push_subscription(subscription: dict[str, Any]) -> bool:
