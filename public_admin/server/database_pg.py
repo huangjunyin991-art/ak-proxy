@@ -396,6 +396,20 @@ async def init_db(host: str = "127.0.0.1", port: int = 5432,
         ''')
 
         await conn.execute('''
+            CREATE TABLE IF NOT EXISTS im_switch_tokens (
+                token_hash TEXT PRIMARY KEY,
+                username TEXT NOT NULL,
+                conversation_id BIGINT NOT NULL DEFAULT 0,
+                nonce TEXT NOT NULL,
+                issued_at TIMESTAMP NOT NULL,
+                used_at TIMESTAMP NOT NULL DEFAULT NOW(),
+                expires_at TIMESTAMP NOT NULL,
+                client_ip TEXT DEFAULT '',
+                user_agent TEXT DEFAULT ''
+            )
+        ''')
+
+        await conn.execute('''
             CREATE TABLE IF NOT EXISTS admin_login_ban_levels (
                 ip_address TEXT PRIMARY KEY,
                 level INTEGER NOT NULL DEFAULT 0,
@@ -710,6 +724,8 @@ async def init_db(host: str = "127.0.0.1", port: int = 5432,
         await conn.execute('CREATE INDEX IF NOT EXISTS idx_admin_operation_leases_scope_expire ON admin_operation_leases(scope, expire)')
         await conn.execute('CREATE INDEX IF NOT EXISTS idx_admin_operation_leases_expire ON admin_operation_leases(expire)')
         await conn.execute('CREATE INDEX IF NOT EXISTS idx_admin_point_stats_quota_admin_used ON admin_point_stats_quota(admin_id, used_at)')
+        await conn.execute('CREATE INDEX IF NOT EXISTS idx_im_switch_tokens_expires_at ON im_switch_tokens(expires_at)')
+        await conn.execute('CREATE INDEX IF NOT EXISTS idx_im_switch_tokens_username_used ON im_switch_tokens(username, used_at DESC)')
 
     logger.info("PostgreSQL 数据库表和索引已就绪")
 
@@ -1037,6 +1053,52 @@ async def clear_ak_auth_state(username: str) -> bool:
             WHERE username = $1
         ''', username)
         return int(result.split()[-1]) > 0
+
+
+async def consume_im_switch_token(token_hash: str, username: str, conversation_id: int,
+                                  nonce: str, issued_at: datetime, expires_at: datetime,
+                                  client_ip: str = '', user_agent: str = '') -> Dict[str, Any]:
+    pool = _get_pool()
+    normalized_hash = str(token_hash or '').strip()
+    normalized_username = str(username or '').strip().lower()
+    normalized_nonce = str(nonce or '').strip()
+    if not normalized_hash or not normalized_username or not normalized_nonce:
+        return {'consumed': False, 'reason': 'missing_token_fields'}
+    now = datetime.now().replace(microsecond=0)
+    async with pool.acquire() as conn:
+        try:
+            await conn.execute(
+                'DELETE FROM im_switch_tokens WHERE expires_at < $1',
+                now - timedelta(days=1),
+            )
+        except Exception:
+            pass
+        row = await conn.fetchrow('''
+            INSERT INTO im_switch_tokens
+                (token_hash, username, conversation_id, nonce, issued_at, used_at, expires_at, client_ip, user_agent)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            ON CONFLICT(token_hash) DO NOTHING
+            RETURNING token_hash
+        ''', normalized_hash, normalized_username, int(conversation_id or 0), normalized_nonce,
+            issued_at.replace(microsecond=0), now, expires_at.replace(microsecond=0),
+            str(client_ip or '')[:120], str(user_agent or '')[:300])
+        if row:
+            return {'consumed': True, 'reason': 'ok'}
+        existing = await conn.fetchrow('''
+            SELECT username, conversation_id, used_at, expires_at
+            FROM im_switch_tokens
+            WHERE token_hash = $1
+        ''', normalized_hash)
+        if existing:
+            return {
+                'consumed': False,
+                'reason': 'already_used',
+                'username': existing['username'],
+                'conversation_id': int(existing['conversation_id'] or 0),
+                'used_at': existing['used_at'],
+                'expires_at': existing['expires_at'],
+            }
+        return {'consumed': False, 'reason': 'unknown'}
 
 
 async def clear_user_saved_password(username: str) -> bool:

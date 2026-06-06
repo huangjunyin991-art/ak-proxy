@@ -16,6 +16,7 @@ API服务器看到的是用户自己的IP，同时代理拦截登录/资产数�
 import asyncio
 
 import hashlib
+import hmac
 
 import json
 
@@ -37,7 +38,7 @@ from html import escape as html_escape
 
 from logging.handlers import RotatingFileHandler
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from email.utils import formatdate
 from pathlib import Path
 
@@ -10878,6 +10879,10 @@ AK_CLIENT_RUNTIME_JS_PATH = os.path.join(AK_CLIENT_RUNTIME_DIR, "ak_client_runti
 
 AK_CLIENT_RUNTIME_MANIFEST_PATH = os.path.join(AK_CLIENT_RUNTIME_DIR, "runtime_manifest.json")
 
+AK_NTFY_IDENTITY_SWITCH_PRELUDE_PATH = os.path.join(
+    AK_CLIENT_RUNTIME_DIR, "ntfy", "identity_switch_prelude.js"
+)
+
 
 def _resolve_client_runtime_module_path(module_path: str) -> str:
     normalized = os.path.normpath(str(module_path or "").strip().replace("\\", "/"))
@@ -10952,6 +10957,7 @@ def _build_client_runtime_bootstrap_content() -> str:
 def _iter_widget_asset_paths() -> list[str]:
     return [
         __file__,
+        AK_NTFY_IDENTITY_SWITCH_PRELUDE_PATH,
         *_iter_client_runtime_asset_paths(),
         os.path.join(PLUGINS_DIR, "notification", "user", "index.js"),
         os.path.join(PLUGINS_DIR, "notification", "user", "widget.js"),
@@ -11071,49 +11077,11 @@ def _build_widget_loader_headers(asset_version: str) -> dict[str, str]:
 
 
 def _build_ntfy_im_username_switch_prelude() -> str:
-    return """
-(function(){try{
-var q='';try{q=String(location.search||'');}catch(e){}
-if(!q||q.indexOf('im_username=')===-1)return;
-var p=null;try{p=new URLSearchParams(q);}catch(e2){}
-if(!p)return;
-var u=String(p.get('im_username')||'').trim().toLowerCase();
-if(!u)return;
-var open=String(p.get('ak_im_open')||'').trim().toLowerCase();
-if(open!=='1'&&open!=='true')return;
-var maxAge=String(86400*30);
-var switchDone=false;
-var switchResult=null;
-var switchPromise=null;
-function debug(step,extra){try{var d=window.__AK_NTFY_SWITCH_DEBUG__||{};d.ts=d.ts||Date.now();d.step=step;d.im_username=u;if(extra&&typeof extra==='object'){for(var k in extra){if(Object.prototype.hasOwnProperty.call(extra,k))d[k]=extra[k];}}window.__AK_NTFY_SWITCH_DEBUG__=d;}catch(_e){}}
-function parseCookies(){var out={};try{String(document.cookie||'').split(';').forEach(function(part){var idx=part.indexOf('=');if(idx<0)return;var key=part.slice(0,idx).trim();if(!key)return;out[key]=decodeURIComponent(part.slice(idx+1)||'');});}catch(_e){}return out;}
-function setCookie(name,val){try{document.cookie=name+'='+encodeURIComponent(val||'')+'; path=/; max-age='+maxAge+'; SameSite=Lax; Secure';}catch(_e){}}
-function clearCookie(name){try{document.cookie=name+'=; path=/; max-age=0; SameSite=Lax; Secure';}catch(_e){}}
-function restoreCookie(name,val){if(val){setCookie(name,val);}else{clearCookie(name);}}
-function getStoreKey(){var key='AK_user_model';try{if(window.APP&&APP.CONFIG&&APP.CONFIG.SYSTEM_KEYS&&APP.CONFIG.SYSTEM_KEYS.USER_MODEL_KEY){key=APP.CONFIG.SYSTEM_KEYS.USER_MODEL_KEY;}}catch(_e){}return key;}
-function writeStorage(store,key,value){try{if(store&&key)store.setItem(key,value);}catch(_e){}}
-function cloneObject(obj){var out={};if(!obj||typeof obj!=='object')return out;for(var k in obj){if(Object.prototype.hasOwnProperty.call(obj,k))out[k]=obj[k];}return out;}
-function buildModel(snapshot){var model=cloneObject(snapshot&&snapshot.userModel);var result=snapshot&&snapshot.loginResult;if(!Object.keys(model).length&&result&&typeof result.UserData==='object'){model=cloneObject(result.UserData);}model.UserName=u;model.Key=String(snapshot&&snapshot.userkey||model.Key||'');return model;}
-function applyInline(snapshot){if(!snapshot||!snapshot.userkey)return false;var model=buildModel(snapshot);if(!model.Key)return false;var result=cloneObject(snapshot.loginResult);var userData=cloneObject(result.UserData||model);userData.UserName=u;result.UserData=userData;result.Key=model.Key;var modelText=JSON.stringify(model);var resultText=JSON.stringify(result);var userDataText=JSON.stringify(userData);var storeKey=getStoreKey();writeStorage(localStorage,'AK_user_model',modelText);writeStorage(localStorage,storeKey,modelText);writeStorage(localStorage,'userkey',model.Key);writeStorage(localStorage,'UserKey',model.Key);writeStorage(localStorage,'ak_login_result',resultText);writeStorage(localStorage,'UserData',userDataText);writeStorage(localStorage,'ak_im_sync_key_'+u,model.Key);writeStorage(sessionStorage,'ak_login_result',resultText);writeStorage(sessionStorage,'UserData',userDataText);try{window.userkey=model.Key;window.USER_MODEL=model;window.AKIMClientUsername=u;if(window.APP&&APP.USER)APP.USER.MODEL=model;}catch(_e){}setCookie('ak_username',u);setCookie('ak_im_username',u);return true;}
-function applySnapshot(snapshot){snapshot=snapshot||{};snapshot.username=String(snapshot.username||u).trim().toLowerCase();if(snapshot.username!==u||!snapshot.userkey)return false;window.__AK_PENDING_IDENTITY_SWITCH__=snapshot;var auth=window.AKClientRuntimeAuth;if(auth&&typeof auth.applyIdentitySnapshot==='function'){var result=auth.applyIdentitySnapshot(snapshot,{source:'ntfy-prelude'});return !!(result===true||(result&&result.applied));}var ok=applyInline(snapshot);if(ok){try{window.dispatchEvent(new CustomEvent('ak:identity-switched',{detail:{username:u,source:'ntfy-prelude-inline'}}));}catch(_e){}}return ok;}
-function readStoredModel(){try{var raw=localStorage.getItem(getStoreKey())||localStorage.getItem('AK_user_model')||'';return raw?JSON.parse(raw):{};}catch(_e){return {};}}
-function refreshAppModel(){var model=readStoredModel();try{if(model&&typeof model==='object'&&(model.Key||model.key||model.Id||model.id)){window.USER_MODEL=model;if(window.APP&&APP.USER)APP.USER.MODEL=model;}}catch(_e){}return model&&typeof model==='object'?model:{};}
-function patchIndexDataBody(body){try{if(typeof body!=='string')return body;var model=refreshAppModel();var key=String(model.Key||model.key||'').trim();var userId=String(model.Id||model.ID||model.id||'').trim();if(!key&&!userId)return body;var params=new URLSearchParams(body);if(key)params.set('key',key);if(userId)params.set('UserID',userId);return params.toString();}catch(_e){return body;}}
-function finish(result){switchDone=true;switchResult=result||{synced:false,reason:'unknown'};debug('switch-finish',switchResult);return switchResult;}
-function buildApiUrl(){return '/admin/api/ak_auth/silent_login_by_token?u='+encodeURIComponent(u)
-+'&conversation_id='+encodeURIComponent(String(p.get('conversation_id')||''))
-+'&im_switch_ts='+encodeURIComponent(String(p.get('im_switch_ts')||''))
-+'&im_switch_nonce='+encodeURIComponent(String(p.get('im_switch_nonce')||''))
-+'&im_switch_sig='+encodeURIComponent(String(p.get('im_switch_sig')||''));}
-function startSwitch(){if(switchPromise)return switchPromise;if(switchDone)return Promise.resolve(switchResult);try{sessionStorage.setItem('ak_ntfy_im_username',u);}catch(_e){}switchPromise=new Promise(function(resolve){var oldCookies=parseCookies();debug('switch-start',{oldAkUsername:oldCookies.ak_username||'',oldAkImUsername:oldCookies.ak_im_username||'',cookies:String(document.cookie||'').slice(0,800)});var xhr=new XMLHttpRequest();var url=buildApiUrl();debug('api-prep',{apiUrl:url});xhr.open('POST',url,true);xhr.setRequestHeader('Content-Type','application/json; charset=UTF-8');xhr.onload=function(){var r=null;var ok=false;try{r=JSON.parse(xhr.responseText||'{}');}catch(_e){}debug('api-onload',{status:xhr.status||0,rOk:!!(r&&r.success),rKeyMasked:r&&r.userkeyMasked?String(r.userkeyMasked):''});if(xhr.status===200&&r&&r.success&&r.userkey){ok=applySnapshot(r);}if(ok){debug('applied-snapshot',{username:u,userId:r&&r.userId?r.userId:''});resolve(finish({synced:true,reason:'silent_login_ok',username:u,userId:r&&r.userId?r.userId:''}));return;}restoreCookie('ak_username',oldCookies.ak_username||'');restoreCookie('ak_im_username',oldCookies.ak_im_username||'');resolve(finish({synced:false,reason:(r&&r.code)||'silent_login_failed',username:u,status:xhr.status||0}));};xhr.onerror=function(){restoreCookie('ak_username',oldCookies.ak_username||'');restoreCookie('ak_im_username',oldCookies.ak_im_username||'');debug('api-error',{});resolve(finish({synced:false,reason:'network_error',username:u,status:xhr.status||0}));};try{xhr.send('{}');}catch(_e){restoreCookie('ak_username',oldCookies.ak_username||'');restoreCookie('ak_im_username',oldCookies.ak_im_username||'');resolve(finish({synced:false,reason:'send_exception',username:u}));}});window.__AK_NTFY_SWITCH_PROMISE__=switchPromise;return switchPromise;}
-function installHomeSyncHook(){try{window.__AKChatSyncUserModel=function(callback){var done=false;function cb(result){if(done)return;done=true;try{if(callback)callback(result||{synced:false,reason:'empty_result'});}catch(_e){}}try{startSwitch().then(cb).catch(function(){cb({synced:false,reason:'promise_error',username:u});});}catch(_e){cb({synced:false,reason:'exception',username:u});}};window.__AKChatSyncUserModel.__akNtfySwitchHook=1;debug('home-sync-hook-installed',{});}catch(_e){}}
-function installIndexDataGate(){try{if(window.__AK_NTFY_INDEXDATA_GATE__)return;window.__AK_NTFY_INDEXDATA_GATE__=1;var nativeOpen=XMLHttpRequest.prototype.open;var nativeSend=XMLHttpRequest.prototype.send;XMLHttpRequest.prototype.open=function(method,url){try{this.__akNtfyGateIndexData=String(url||'').indexOf('public_IndexData')!==-1;}catch(_e){}return nativeOpen.apply(this,arguments);};XMLHttpRequest.prototype.send=function(body){if(this.__akNtfyGateIndexData){var xhr=this;debug('indexdata-gate-wait',{});startSwitch().then(function(result){refreshAppModel();debug('indexdata-gate-send',{reason:result&&result.reason?result.reason:''});nativeSend.call(xhr,patchIndexDataBody(body));}).catch(function(){debug('indexdata-gate-fallback',{});nativeSend.call(xhr,body);});return;}return nativeSend.apply(this,arguments);};debug('indexdata-gate-installed',{});}catch(_e){}}
-try{sessionStorage.setItem('ak_ntfy_im_username',u);}catch(_e){}
-installHomeSyncHook();
-installIndexDataGate();
-startSwitch();
-}catch(_e){}})();
-"""
+    try:
+        return _read_text_file_sync(AK_NTFY_IDENTITY_SWITCH_PRELUDE_PATH)
+    except Exception as e:
+        logger.warning(f"[NtfyIdentitySwitchPrelude] 读取失败: {e}")
+        return ""
 async def _build_widget_loader_response() -> Response:
     asset_version = _get_widget_asset_version()
     bundle_url = _version_widget_asset_url("/ak/client-runtime.js", asset_version)
@@ -11135,6 +11103,8 @@ async def _build_widget_loader_response() -> Response:
         + "if(network&&typeof network.fixApiUrl==='function')network.fixApiUrl();"
         + "if(network&&typeof network.interceptNetworkRequests==='function')network.interceptNetworkRequests();"
         + "}"
+        + "function appendRuntimeBundle(){"
+        + "try{if(document.querySelector('script[data-ak-chat-widget-bundle=\"1\"]'))return;"
         + "var script=document.createElement('script');"
         + "script.src=src;"
         + "script.async=false;"
@@ -11143,6 +11113,10 @@ async def _build_widget_loader_response() -> Response:
         + "script.onerror=function(){window.__AKChatWidgetBundleRequested=0;};"
         + "script.dataset.akChatWidgetBundle='1';"
         + "(document.head||document.documentElement||document.body).appendChild(script);"
+        + "}catch(__e){window.__AKChatWidgetBundleRequested=0;}}"
+        + "var wait=window.__AKWaitForNtfyIdentitySwitch;"
+        + "if(typeof wait==='function'){try{wait({timeoutMs:8500}).then(appendRuntimeBundle).catch(appendRuntimeBundle);return;}catch(__e){}}"
+        + "appendRuntimeBundle();"
         + "}catch(_e){}})();"
     )
     if bootstrap_content:
@@ -12903,6 +12877,10 @@ async def admin_clear_ak_auth(request: Request):
 
 
 
+_IM_SWITCH_TOKEN_MAX_AGE_SECONDS = 86400
+_IM_SWITCH_TOKEN_FUTURE_SKEW_SECONDS = 300
+
+
 def _build_im_switch_token(secret: str, username: str, ts: int, nonce: str, conversation_id: int = 0) -> str:
     normalized_secret = str(secret or '').strip()
     if not normalized_secret:
@@ -12916,21 +12894,62 @@ def _build_im_switch_token(secret: str, username: str, ts: int, nonce: str, conv
     return hmac.new(normalized_secret.encode('utf-8'), payload, hashlib.sha256).hexdigest()
 
 
-def _verify_im_switch_token(secret: str, username: str, ts: str, nonce: str, sig: str, conversation_id: int = 0,
-                            max_age_seconds: int = 180) -> bool:
+def _build_im_switch_token_hash(username: str, ts: int, nonce: str, sig: str, conversation_id: int = 0) -> str:
+    payload = '\n'.join([
+        str(int(ts)),
+        str(nonce or ''),
+        str(username or '').strip().lower(),
+        str(int(conversation_id or 0)),
+        str(sig or '').strip().lower(),
+    ]).encode('utf-8')
+    return hashlib.sha256(payload).hexdigest()
+
+
+def _validate_im_switch_token(secret: str, username: str, ts: str, nonce: str, sig: str, conversation_id: int = 0,
+                              max_age_seconds: int = _IM_SWITCH_TOKEN_MAX_AGE_SECONDS) -> dict:
     normalized_secret = str(secret or '').strip()
     if not normalized_secret:
-        return False
+        return {"valid": False, "code": "missing_secret", "message": "server missing internal secret"}
     try:
         ts_int = int(str(ts or '').strip())
     except Exception:
-        return False
-    if abs(int(time.time()) - ts_int) > int(max_age_seconds or 0):
-        return False
-    if not str(nonce or '').strip() or not str(sig or '').strip():
-        return False
+        return {"valid": False, "code": "invalid_timestamp", "message": "token 时间戳无效"}
+    now = int(time.time())
+    if now - ts_int > int(max_age_seconds or 0):
+        return {"valid": False, "code": "token_expired", "message": "token 已超过 24 小时"}
+    if ts_int - now > _IM_SWITCH_TOKEN_FUTURE_SKEW_SECONDS:
+        return {"valid": False, "code": "token_from_future", "message": "token 时间戳异常"}
+    normalized_nonce = str(nonce or '').strip()
+    normalized_sig = str(sig or '').strip().lower()
+    if not normalized_nonce or not normalized_sig:
+        return {"valid": False, "code": "missing_signature", "message": "token 签名缺失"}
     expected = _build_im_switch_token(normalized_secret, username, ts_int, str(nonce or ''), conversation_id)
-    return hmac.compare_digest(expected, str(sig or '').strip().lower())
+    if not hmac.compare_digest(expected, normalized_sig):
+        return {"valid": False, "code": "invalid_signature", "message": "token 签名无效"}
+    issued_at = datetime.fromtimestamp(ts_int).replace(microsecond=0)
+    return {
+        "valid": True,
+        "code": "ok",
+        "ts": ts_int,
+        "nonce": normalized_nonce,
+        "sig": normalized_sig,
+        "issued_at": issued_at,
+        "expires_at": issued_at + timedelta(seconds=int(max_age_seconds or 0)),
+        "token_hash": _build_im_switch_token_hash(username, ts_int, normalized_nonce, normalized_sig, conversation_id),
+    }
+
+
+def _verify_im_switch_token(secret: str, username: str, ts: str, nonce: str, sig: str, conversation_id: int = 0,
+                            max_age_seconds: int = _IM_SWITCH_TOKEN_MAX_AGE_SECONDS) -> bool:
+    return bool(_validate_im_switch_token(
+        secret,
+        username,
+        ts,
+        nonce,
+        sig,
+        conversation_id=conversation_id,
+        max_age_seconds=max_age_seconds,
+    ).get("valid"))
 
 
 def _build_ak_identity_snapshot(username: str, userkey: str, login_result: dict, cookies: dict) -> dict:
@@ -13077,8 +13096,48 @@ async def admin_ak_auth_silent_login_by_token(request: Request):
     if not secret:
         return JSONResponse({"success": False, "message": "server missing internal secret"}, status_code=500)
 
-    if not _verify_im_switch_token(secret, wanted, ts, nonce, sig, conversation_id=conversation_id, max_age_seconds=180):
-        return JSONResponse({"success": False, "message": "token 无效或已过期"}, status_code=401)
+    token_state = _validate_im_switch_token(
+        secret,
+        wanted,
+        ts,
+        nonce,
+        sig,
+        conversation_id=conversation_id,
+        max_age_seconds=_IM_SWITCH_TOKEN_MAX_AGE_SECONDS,
+    )
+    if not token_state.get("valid"):
+        return JSONResponse({
+            "success": False,
+            "message": token_state.get("message") or "token 无效或已过期",
+            "code": token_state.get("code") or "invalid_token",
+        }, status_code=401)
+
+    try:
+        consume_result = await db.consume_im_switch_token(
+            token_state.get("token_hash", ""),
+            wanted,
+            conversation_id,
+            token_state.get("nonce", ""),
+            token_state.get("issued_at"),
+            token_state.get("expires_at"),
+            client_ip=_extract_client_ip(request),
+            user_agent=request.headers.get("user-agent", ""),
+        )
+    except Exception as e:
+        logger.warning(f"[AkAuthSilentLogin] consume_switch_token_failed username={wanted}: {e}")
+        return JSONResponse({
+            "success": False,
+            "message": "token 消费失败",
+            "code": "token_consume_failed",
+        }, status_code=500)
+    if not consume_result.get("consumed"):
+        reason = str(consume_result.get("reason") or "token_rejected")
+        status_code = 409 if reason == "already_used" else 401
+        return JSONResponse({
+            "success": False,
+            "message": "token 已被使用" if reason == "already_used" else "token 无法使用",
+            "code": reason,
+        }, status_code=status_code)
 
     snapshot, error_response = await _silent_login_ak_account(wanted, request)
     if error_response is not None:

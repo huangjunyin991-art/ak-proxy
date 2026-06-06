@@ -91,8 +91,25 @@
         return '';
     }
 
+    function getNtfyIdentityLockUsername(requireSynced) {
+        try {
+            var lock = window.__AK_NTFY_IDENTITY_LOCK__;
+            if (!lock || typeof lock !== 'object') return '';
+            if (lock.failed) return '';
+            if (requireSynced && !lock.synced) return '';
+            var username = normalizeUsername(lock.username || lock.targetUsername);
+            return username;
+        } catch(e) {}
+        return '';
+    }
+
     function ensureIMUsernameCookieFromUserModel() {
         try {
+            var lockedUsername = getNtfyIdentityLockUsername(false);
+            if (lockedUsername) {
+                if (getNtfyIdentityLockUsername(true)) syncLoginUsernameCookie(lockedUsername);
+                return true;
+            }
             var username = readActiveUsernameFromAppModel();
             if (!username) return false;
             var normalized = String(username || '').trim().toLowerCase();

@@ -69,8 +69,21 @@
         return match ? match[2] : null;
     }
 
+    function getNtfyIdentityLockUsername() {
+        try {
+            const lock = window.__AK_NTFY_IDENTITY_LOCK__;
+            if (!lock || typeof lock !== 'object' || lock.failed) return '';
+            const username = String(lock.username || lock.targetUsername || '').trim();
+            return username || '';
+        } catch (e) {}
+        return '';
+    }
+
     function getUsername(options) {
         options = options || {};
+        let lockedUser = getNtfyIdentityLockUsername();
+        if (lockedUser) return lockedUser;
+
         let cookieUser = getCookie('ak_username');
         if (cookieUser) return String(cookieUser).trim();
 

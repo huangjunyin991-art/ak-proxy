@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import secrets
 import time
 from typing import Any
 from urllib.parse import quote_plus
@@ -75,7 +76,7 @@ def build_notification_url(event: dict[str, Any], public_base_url: str = '', *, 
     secret = str(internal_secret or '').strip()
     if secret and recipient:
         ts = int(time.time())
-        nonce = str(event.get('nonce') or '') or str(int(time.time() * 1000))
+        nonce = str(event.get('nonce') or '') or secrets.token_urlsafe(16)
         token = _build_im_switch_token(secret, recipient, ts, nonce, conversation_id)
         if token:
             path = f"{path}&im_switch_ts={ts}&im_switch_nonce={quote_plus(nonce)}&im_switch_sig={token}"
