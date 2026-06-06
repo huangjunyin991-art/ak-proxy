@@ -5,6 +5,9 @@
     var MAX_INDEXDATA_WAIT_MS = 9000;
     var APP_PATCH_INTERVAL_MS = 50;
     var APP_PATCH_MAX_MS = 12000;
+    var LOGIN_GOTO_WAIT_MS = 3000;
+    var LOGIN_GOTO_POLL_MS = 50;
+    var LOGIN_GOTO_FALLBACK_MS = 800;
     var COOKIE_MAX_AGE = String(86400 * 30);
 
     function getQuery() {
@@ -42,6 +45,7 @@
     var switchPromise = null;
     var appPatchTimer = null;
     var appPatchStartedAt = Date.now();
+    var loginRedirectStarted = false;
 
     function debug(step, extra) {
         try {
@@ -203,11 +207,7 @@
         return '';
     }
 
-    function readCurrentUsername() {
-        var credentialUsername = readStoredCredentialUsername();
-        if (credentialUsername) return credentialUsername;
-        var localLoginUsername = readLocalLoginInfoUsername();
-        if (localLoginUsername) return localLoginUsername;
+    function readMainLoginUsername() {
         try {
             var runtimeModel = window.APP && APP.USER && APP.USER.MODEL;
             var runtimeUser = hasIdentityPayload(runtimeModel) ? pickUsername(runtimeModel) : '';
@@ -237,6 +237,16 @@
                 if (sessionUsername) return sessionUsername;
             }
         } catch (e4) {}
+        return '';
+    }
+
+    function readCurrentUsername() {
+        var mainLoginUsername = readMainLoginUsername();
+        if (mainLoginUsername) return mainLoginUsername;
+        var credentialUsername = readStoredCredentialUsername();
+        if (credentialUsername) return credentialUsername;
+        var localLoginUsername = readLocalLoginInfoUsername();
+        if (localLoginUsername) return localLoginUsername;
         return '';
     }
 
@@ -321,10 +331,73 @@
         } catch (e7) {}
     }
 
-    function redirectToLoginForTokenFailure(reason) {
-        var loginUrl = '/pages/account/login.html?reason='
+    function isLoginPage() {
+        try {
+            return String(window.location.pathname || '').toLowerCase() === '/pages/account/login.html';
+        } catch (e) {}
+        return false;
+    }
+
+    function buildLoginUrl(reason) {
+        return '/pages/account/login.html?reason='
             + encodeURIComponent(String(reason || 'ntfy_token_invalid'))
             + '&im_username=' + encodeURIComponent(targetUsername);
+    }
+
+    function fallbackRedirectToLogin(loginUrl, source) {
+        debug('token-failure-fallback-login', {
+            source: String(source || ''),
+            loginUrl: String(loginUrl || '')
+        });
+        try {
+            window.location.replace(loginUrl);
+        } catch (e) {
+            window.location.href = loginUrl;
+        }
+    }
+
+    function tryNativeGotoLogin(reason, loginUrl) {
+        try {
+            if (window.APP && APP.GLOBAL && typeof APP.GLOBAL.gotoLogin === 'function') {
+                debug('token-failure-native-goto-login', { reason: String(reason || '') });
+                APP.GLOBAL.gotoLogin();
+                setTimeout(function() {
+                    if (!isLoginPage()) fallbackRedirectToLogin(loginUrl, 'native_goto_timeout');
+                }, LOGIN_GOTO_FALLBACK_MS);
+                return true;
+            }
+        } catch (e) {
+            debug('token-failure-native-goto-error', {
+                reason: String(reason || ''),
+                message: String(e && e.message || e || '')
+            });
+        }
+        return false;
+    }
+
+    function scheduleNativeGotoLogin(reason, loginUrl) {
+        if (isLoginPage()) {
+            debug('token-failure-already-login-page', { reason: String(reason || '') });
+            return;
+        }
+        if (tryNativeGotoLogin(reason, loginUrl)) return;
+        var startedAt = Date.now();
+        var timer = setInterval(function() {
+            if (tryNativeGotoLogin(reason, loginUrl)) {
+                clearInterval(timer);
+                return;
+            }
+            if (Date.now() - startedAt >= LOGIN_GOTO_WAIT_MS) {
+                clearInterval(timer);
+                fallbackRedirectToLogin(loginUrl, 'native_goto_unavailable');
+            }
+        }, LOGIN_GOTO_POLL_MS);
+    }
+
+    function redirectToLoginForTokenFailure(reason) {
+        if (loginRedirectStarted) return;
+        loginRedirectStarted = true;
+        var loginUrl = buildLoginUrl(reason);
         updateLock({
             active: false,
             pending: false,
@@ -340,18 +413,15 @@
                 at: Date.now()
             }));
         } catch (e2) {}
-        try {
-            window.location.replace(loginUrl);
-        } catch (e) {
-            window.location.href = loginUrl;
-        }
+        scheduleNativeGotoLogin(reason || 'ntfy_token_invalid', loginUrl);
     }
 
     function maybeRedirectToLoginOnSwitchFailure(result) {
         result = result || {};
         if (result.synced) return false;
         var reason = String(result.reason || '').trim();
-        var currentUsername = readCurrentUsername();
+        var mainLoginUsername = readMainLoginUsername();
+        var currentUsername = mainLoginUsername || readCurrentUsername();
         var hasLoginState = hasAkLoginState();
         var terminalTokenFailure = isTokenTerminalFailure(reason, result.status);
         if (!terminalTokenFailure) return false;
@@ -359,10 +429,11 @@
             reason: reason,
             status: Number(result.status || 0),
             currentUsername: currentUsername,
+            mainLoginUsername: mainLoginUsername,
             hasLoginState: hasLoginState,
             terminalTokenFailure: terminalTokenFailure
         });
-        if (currentUsername && currentUsername === targetUsername && hasLoginState) return false;
+        if (mainLoginUsername && mainLoginUsername === targetUsername && hasLoginState) return false;
         clearAkLoginStateForRelogin();
         redirectToLoginForTokenFailure(terminalTokenFailure ? (reason || 'ntfy_token_invalid') : 'ntfy_switch_failed');
         return true;
@@ -736,6 +807,9 @@
             currentUsername: readCurrentUsername(),
             hasLoginState: hasAkLoginState()
         });
+        if (!isLoginPage()) {
+            redirectToLoginForTokenFailure(reasonFlag || 'ntfy_force_login');
+        }
         return;
     }
 
