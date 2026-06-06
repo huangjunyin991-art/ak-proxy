@@ -50,9 +50,9 @@
     }
 
     function buildPreviewText(eventName, durationText) {
-        if (eventName === 'completed') return '通话时长 ' + normalizeDurationText(durationText || '00:00');
-        if (eventName === 'rejected') return '已拒接';
-        return '已取消';
+        if (eventName === 'completed') return '📞 通话时长 ' + normalizeDurationText(durationText || '00:00');
+        if (eventName === 'rejected') return '📞 本次呼叫未接通 · 已拒接';
+        return '📞 本次呼叫未接通 · 已取消';
     }
 
     const callTimelineModule = {
@@ -123,7 +123,8 @@
                     by: 'callee',
                     connected: false,
                     durationSeconds: 0,
-                    durationText: ''
+                    durationText: '',
+                    reason: 'rejected'
                 };
             }
             if (normalizedTrigger === 'local_cancel' && role === 'caller' && !hasEstablishedCall) {
@@ -132,7 +133,8 @@
                     by: 'caller',
                     connected: false,
                     durationSeconds: 0,
-                    durationText: ''
+                    durationText: '',
+                    reason: 'cancelled'
                 };
             }
             if (normalizedTrigger === 'local_hangup' && (hasEstablishedCall || wasEverConnected)) {
@@ -141,7 +143,8 @@
                     by: role || 'caller',
                     connected: !!hasEstablishedCall,
                     durationSeconds: durationSeconds,
-                    durationText: durationText || '00:00'
+                    durationText: durationText || '00:00',
+                    reason: 'completed'
                 };
             }
             if (normalizedTrigger === 'failed' && role === 'caller' && (failReason === 'timeout' || failReason === 'socket_timeout')) {
@@ -150,7 +153,8 @@
                     by: 'caller',
                     connected: false,
                     durationSeconds: 0,
-                    durationText: ''
+                    durationText: '',
+                    reason: 'timeout'
                 };
             }
             return null;
@@ -181,25 +185,12 @@
             const nextOutcome = outcome && typeof outcome === 'object' ? outcome : {};
             const nextSnapshot = snapshot && typeof snapshot === 'object' ? snapshot : {};
             const conversationId = Math.max(0, toNumber(nextSnapshot.conversationId || nextSnapshot.conversation_id));
-            const previewText = buildPreviewText(nextOutcome.event, nextOutcome.durationText);
-            const contentPayload = {
-                event: nextOutcome.event,
-                call_kind: normalizeKind(nextSnapshot.kind || nextSnapshot.call_kind),
-                by: nextOutcome.by || normalizeRole(nextSnapshot.role),
-                connected: !!nextOutcome.connected,
-                call_id: trim(nextSnapshot.callId || nextSnapshot.call_id),
-                conversation_id: conversationId,
-                peer_username: trim(nextSnapshot.peerUsername || nextSnapshot.peer_username),
-                peer_name: trim(nextSnapshot.peerName || nextSnapshot.peer_name),
-                duration_seconds: Math.max(0, Math.floor(toNumber(nextOutcome.durationSeconds || nextSnapshot.durationSeconds || nextSnapshot.duration_seconds))),
-                duration_text: nextOutcome.durationText || normalizeDurationText(nextSnapshot.durationText || nextSnapshot.duration_text || ''),
-                preview_text: previewText,
-                label: buildCallLabel(nextSnapshot.kind || nextSnapshot.call_kind)
-            };
+            let previewText = buildPreviewText(nextOutcome.event, nextOutcome.durationText);
+            if (nextOutcome.reason === 'timeout') previewText = '📞 本次呼叫未接通 · 对方未接听';
             return {
                 conversation_id: conversationId,
-                message_type: 'call_event',
-                content: JSON.stringify(contentPayload),
+                message_type: 'text',
+                content: previewText,
                 content_preview: previewText
             };
         },

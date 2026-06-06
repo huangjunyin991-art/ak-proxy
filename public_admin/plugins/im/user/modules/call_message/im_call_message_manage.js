@@ -4,11 +4,12 @@
     const STYLE_ID = 'ak-im-call-event-message-style';
 
     const ICONS = {
-        cancelled: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.7 15.4a17 17 0 0 1 16.6 0"></path><path d="m6.15 14.65-2.15 3.75"></path><path d="m17.85 14.65 2.15 3.75"></path><path d="M4 4 20 20"></path></svg>',
+        cancelled: '<svg viewBox="0 0 24 24" aria-hidden="true"><g transform="rotate(90 12 12)"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.8 19.8 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.11 4.18 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.72c.12.9.33 1.78.62 2.62a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.46-1.18a2 2 0 0 1 2.11-.45c.84.29 1.72.5 2.62.62A2 2 0 0 1 22 16.92Z"></path></g></svg>',
         rejected: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.7 15.4a17 17 0 0 1 16.6 0"></path><path d="m6.15 14.65-2.15 3.75"></path><path d="m17.85 14.65 2.15 3.75"></path><path d="m9 9 6 6"></path><path d="m15 9-6 6"></path></svg>',
         completed: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M22 16.9v2.6a2 2 0 0 1-2.2 2 19.7 19.7 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.7 19.7 0 0 1 2 4.2 2 2 0 0 1 4.1 2h2.6"></path><circle cx="18" cy="6" r="4"></circle><path d="M18 4.4v1.9l1.2.9"></path></svg>',
         default: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M22 16.9v2.6a2 2 0 0 1-2.2 2 19.7 19.7 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.7 19.7 0 0 1 2 4.2 2 2 0 0 1 4.1 2h2.6"></path></svg>'
     };
+    const CALL_TEXT_PREFIX = '📞';
 
     function trim(value) {
         return String(value || '').trim();
@@ -47,12 +48,27 @@
         }).join(':');
     }
 
-    function buildMainText(eventName, durationText, fallbackText) {
+    function isPhoneText(value) {
+        return trim(value).indexOf(CALL_TEXT_PREFIX) === 0;
+    }
+
+    function normalizeTextEvent(text) {
+        const normalized = trim(text);
+        if (!normalized) return '';
+        if (normalized.indexOf('通话时长') >= 0) return 'completed';
+        if (normalized.indexOf('拒接') >= 0) return 'rejected';
+        if (normalized.indexOf('未接听') >= 0 || normalized.indexOf('取消') >= 0) return 'cancelled';
+        return '';
+    }
+
+    function buildMainText(eventName, durationText, fallbackText, options) {
+        options = options || {};
         const normalizedFallbackText = trim(fallbackText);
-        if (normalizedFallbackText) return normalizedFallbackText;
         if (eventName === 'completed') return '通话时长 ' + normalizeDurationText(durationText || '00:00');
-        if (eventName === 'rejected') return '已拒接';
-        return '已取消';
+        if (eventName === 'rejected') return options.remote ? '本次呼叫未接通 · 对方已拒接' : '本次呼叫未接通 · 已拒接';
+        if (normalizedFallbackText.indexOf('未接听') >= 0) return '本次呼叫未接通 · 对方未接听';
+        if (eventName === 'cancelled') return options.remote ? '本次呼叫未接通 · 对方已取消' : '本次呼叫未接通 · 已取消';
+        return normalizedFallbackText || '本次呼叫未接通';
     }
 
     function buildSubtitle(kind) {
@@ -69,6 +85,13 @@
         init(ctx) {
             this.ctx = ctx || null;
             return this;
+        },
+
+        getViewerUsername() {
+            if (this.ctx && typeof this.ctx.getViewerUsername === 'function') {
+                return trim(this.ctx.getViewerUsername()).toLowerCase();
+            }
+            return '';
         },
 
         escapeHtml(value) {
@@ -103,16 +126,33 @@
         },
 
         resolveCallEvent(item) {
-            if (trim(item && item.message_type).toLowerCase() !== 'call_event') return null;
-            const payload = safeParseJson(item && item.content) || {};
-            const eventName = normalizeEvent(payload.event);
-            const durationText = normalizeDurationText(payload.duration_text || payload.durationText || '');
-            const previewText = trim(item && item.content_preview || payload.preview_text || payload.previewText);
+            const messageType = trim(item && item.message_type).toLowerCase();
+            const rawContent = trim(item && item.content);
+            const rawPreview = trim(item && item.content_preview);
+            const senderUsername = trim(item && item.sender_username).toLowerCase();
+            const viewerUsername = this.getViewerUsername();
+            const isRemote = !!(senderUsername && viewerUsername && senderUsername !== viewerUsername);
+            let payload = {};
+            let eventName = '';
+            let durationText = '';
+            let previewText = rawPreview || rawContent;
+            if (messageType === 'call_event') {
+                payload = safeParseJson(item && item.content) || {};
+                eventName = normalizeEvent(payload.event);
+                durationText = normalizeDurationText(payload.duration_text || payload.durationText || '');
+                previewText = trim(rawPreview || payload.preview_text || payload.previewText);
+            } else if (messageType === 'text' && (isPhoneText(rawContent) || isPhoneText(rawPreview))) {
+                eventName = normalizeTextEvent(rawPreview || rawContent);
+                const durationMatch = String(rawPreview || rawContent).match(/通话时长\s*([0-9:]+)/);
+                durationText = normalizeDurationText(durationMatch && durationMatch[1] || '');
+            } else {
+                return null;
+            }
             return {
-                event: eventName || (previewText.indexOf('通话时长') === 0 ? 'completed' : (previewText === '已拒接' ? 'rejected' : 'cancelled')),
-                title: buildMainText(eventName, durationText, previewText),
-                subtitle: buildSubtitle(payload.call_kind || payload.kind),
-                icon: resolveIcon(eventName),
+                event: eventName || normalizeTextEvent(previewText) || (previewText.indexOf('通话时长') >= 0 ? 'completed' : (previewText.indexOf('拒接') >= 0 ? 'rejected' : 'cancelled')),
+                title: buildMainText(eventName || normalizeTextEvent(previewText), durationText, previewText, { remote: isRemote }),
+                subtitle: buildSubtitle(payload.call_kind || payload.kind || 'audio'),
+                icon: resolveIcon(eventName || normalizeTextEvent(previewText)),
                 durationText: durationText
             };
         },

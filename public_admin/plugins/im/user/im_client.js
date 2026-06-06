@@ -1540,29 +1540,13 @@
                 return Date.now();
             },
             sendCallResultPayload: function(payload) {
-                const requestPayload = Object.assign({}, payload || {});
-                const conversationId = Number(requestPayload.conversation_id || requestPayload.conversationId || 0);
-                if (conversationId <= 0) return Promise.resolve(null);
-                requestPayload.conversation_id = conversationId;
-                return request(HTTP_ROOT + '/messages', {
-                    method: 'POST',
-                    body: JSON.stringify(requestPayload)
-                }).then(function(result) {
-                    const refreshTasks = [
-                        loadSessions().catch(function() {
-                            return null;
-                        })
-                    ];
-                    if (Number(state.activeConversationId || 0) === conversationId) {
-                        refreshTasks.push(loadMessages(conversationId, { forceRefresh: true }).catch(function() {
-                            return null;
-                        }));
-                    }
-                    return Promise.all(refreshTasks).then(function() {
-                        return result || null;
-                    });
-                }).catch(function() {
-                    return null;
+                const messageManageModule = getMessageManageModule();
+                if (!messageManageModule || typeof messageManageModule.sendMessagePayload !== 'function') {
+                    return Promise.resolve(null);
+                }
+                return messageManageModule.sendMessagePayload(payload, {
+                    resetComposer: false,
+                    failSilently: true
                 });
             },
             sendMessagePayload: function(payload, options) {
@@ -1587,7 +1571,10 @@
         const callMessageManageModule = getCallMessageManageModule();
         if (!callMessageManageModule) return;
         callMessageManageModule.init({
-            escapeHtml: escapeHtml
+            escapeHtml: escapeHtml,
+            getViewerUsername: function() {
+                return String(state.username || '').trim().toLowerCase();
+            }
         });
     }
 
