@@ -178,6 +178,7 @@ func (a *App) createCallSession(ctx context.Context, req imCallRequest) (*imCall
 		CallerPageID:   strings.TrimSpace(req.PageID),
 	}
 	a.upsertCallSession(session)
+	a.notifyCallInvitation(ctx, session)
 	go a.watchCallInvitationTimeout(session.CallID)
 	return session, nil
 }

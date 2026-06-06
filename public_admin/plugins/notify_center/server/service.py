@@ -307,6 +307,7 @@ class NotifyCenterService:
         failed = 0
         expired = 0
         for item in items:
+            event_payload = item.get('payload') if isinstance(item.get('payload'), dict) else {}
             payload = {
                 'title': str(item.get('title') or ''),
                 'body': str(item.get('body') or ''),
@@ -315,6 +316,9 @@ class NotifyCenterService:
                 'data': {
                     'event_id': str(item.get('event_id') or ''),
                     'conversation_id': int(item.get('conversation_id') or 0),
+                    'event_type': str(event_payload.get('event_type') or ''),
+                    'call_id': str(event_payload.get('call_id') or ''),
+                    'call_kind': str(event_payload.get('call_kind') or ''),
                 },
             }
             channel = str(item.get('channel') or '')

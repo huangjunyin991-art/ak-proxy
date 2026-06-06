@@ -10,6 +10,10 @@ from .security import normalize_text, normalize_username
 
 
 def build_notification_title(event: dict[str, Any]) -> str:
+    if _is_call_invite_event(event):
+        sender_name = normalize_text(event.get('sender_display_name') or event.get('sender_username'), 40)
+        return f'{sender_name or "有人"} 邀请你{_call_kind_label(event)}'
+
     conversation_type = str(event.get('conversation_type') or '').strip().lower()
     sender_name = normalize_text(event.get('sender_display_name') or event.get('sender_username'), 40)
     if conversation_type == 'group':
@@ -19,11 +23,25 @@ def build_notification_title(event: dict[str, Any]) -> str:
 
 
 def build_notification_body(event: dict[str, Any], *, show_preview: bool = False) -> str:
+    if _is_call_invite_event(event):
+        return '点击接听或查看'
+
     if show_preview:
         preview = normalize_text(event.get('message_preview') or event.get('content') or '', 80)
         if preview:
             return preview
     return '点击查看'
+
+
+def _is_call_invite_event(event: dict[str, Any]) -> bool:
+    event_type = str(event.get('event_type') or '').strip().lower()
+    message_type = str(event.get('message_type') or '').strip().lower()
+    return event_type == 'im.call.invite' or message_type == 'call_invite'
+
+
+def _call_kind_label(event: dict[str, Any]) -> str:
+    kind = str(event.get('call_kind') or '').strip().lower()
+    return '视频通话' if kind == 'video' else '语音通话'
 
 
 def _build_im_switch_token(secret: str, username: str, ts: int, nonce: str, conversation_id: int = 0) -> str:
@@ -50,7 +68,7 @@ def build_notification_url(event: dict[str, Any], public_base_url: str = '', *, 
         separator = '&' if '?' in path else '?'
         path = f'{path}{separator}im_username={recipient}'
 
-    # 一次性 token（不依赖 cookie/bs），用于打开通知时切换 userkey。
+    # 一次性 token，不依赖 cookie/bs，用于打开通知时切换 userkey。
     secret = str(internal_secret or '').strip()
     if secret and recipient:
         ts = int(time.time())
