@@ -1539,6 +1539,32 @@
             getNow: function() {
                 return Date.now();
             },
+            sendCallResultPayload: function(payload) {
+                const requestPayload = Object.assign({}, payload || {});
+                const conversationId = Number(requestPayload.conversation_id || requestPayload.conversationId || 0);
+                if (conversationId <= 0) return Promise.resolve(null);
+                requestPayload.conversation_id = conversationId;
+                return request(HTTP_ROOT + '/messages', {
+                    method: 'POST',
+                    body: JSON.stringify(requestPayload)
+                }).then(function(result) {
+                    const refreshTasks = [
+                        loadSessions().catch(function() {
+                            return null;
+                        })
+                    ];
+                    if (Number(state.activeConversationId || 0) === conversationId) {
+                        refreshTasks.push(loadMessages(conversationId, { forceRefresh: true }).catch(function() {
+                            return null;
+                        }));
+                    }
+                    return Promise.all(refreshTasks).then(function() {
+                        return result || null;
+                    });
+                }).catch(function() {
+                    return null;
+                });
+            },
             sendMessagePayload: function(payload, options) {
                 const messageManageModule = getMessageManageModule();
                 if (!messageManageModule || typeof messageManageModule.sendMessagePayload !== 'function') {
@@ -4263,7 +4289,8 @@
             '.ak-im-call-overlay[data-ak-call-launch-fallback="1"] .ak-im-call-overlay-header-text{min-width:0;text-align:center}',
             '.ak-im-call-overlay[data-ak-call-launch-fallback="1"] .ak-im-call-overlay-title{font-size:18px;font-weight:700;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
             '.ak-im-call-overlay[data-ak-call-launch-fallback="1"] .ak-im-call-overlay-subtitle{margin-top:6px;font-size:13px;line-height:1.4;color:rgba(255,255,255,.72);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
-            '.ak-im-call-overlay[data-ak-call-launch-fallback="1"] .ak-im-call-overlay-close{width:36px;height:36px;border:none;border-radius:18px;background:rgba(255,255,255,.12);color:#fff;font-size:24px;line-height:36px;cursor:pointer;flex:0 0 auto}',
+            '.ak-im-call-overlay[data-ak-call-launch-fallback="1"] .ak-im-call-overlay-minimize{width:36px;height:36px;border:none;border-radius:18px;background:rgba(255,255,255,.12);color:#fff;cursor:pointer;display:flex;align-items:center;justify-content:center;flex:0 0 auto}',
+            '.ak-im-call-overlay[data-ak-call-launch-fallback="1"] .ak-im-call-overlay-minimize svg{width:16px;height:16px;stroke:currentColor;stroke-linecap:round;stroke-linejoin:round;stroke-width:1.9;fill:none}',
             '.ak-im-call-overlay[data-ak-call-launch-fallback="1"] .ak-im-call-overlay-stage{position:relative;flex:1;display:flex;align-items:center;justify-content:center;padding:18px 18px 12px;background:radial-gradient(circle at top,#164e63 0%,#0f271f 52%,#031018 100%);overflow:hidden}',
             '.ak-im-call-overlay[data-ak-call-launch-fallback="1"] .ak-im-call-overlay-pulse{position:absolute;top:50%;left:50%;width:220px;height:220px;border-radius:50%;transform:translate(-50%,-50%);background:radial-gradient(circle,rgba(45,212,191,.2) 0%,rgba(45,212,191,0) 70%);animation:akImCallFallbackPulse 1.8s ease-in-out infinite;pointer-events:none}',
             '.ak-im-call-overlay[data-ak-call-launch-fallback="1"] .ak-im-call-overlay-placeholder{position:relative;z-index:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;text-align:center;color:rgba(255,255,255,.84)}',
@@ -4293,7 +4320,7 @@
             '  <div class="ak-im-call-overlay-backdrop"></div>',
             '  <div class="ak-im-call-overlay-card" role="dialog" aria-modal="true" aria-label="通话面板">',
             '    <div class="ak-im-call-overlay-header">',
-            '      <button class="ak-im-call-overlay-close" type="button" aria-label="关闭">×</button>',
+            '      <div class="ak-im-call-overlay-spacer" aria-hidden="true"></div>',
             '      <div class="ak-im-call-overlay-header-main">',
             '        <div class="ak-im-call-overlay-avatar" aria-hidden="true"></div>',
             '        <div class="ak-im-call-overlay-header-text">',
@@ -4301,7 +4328,7 @@
             '          <div class="ak-im-call-overlay-subtitle"></div>',
             '        </div>',
             '      </div>',
-            '      <div class="ak-im-call-overlay-spacer" aria-hidden="true"></div>',
+            '      <button class="ak-im-call-overlay-minimize" type="button" aria-label="最小化"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 12h12"></path></svg></button>',
             '    </div>',
             '    <div class="ak-im-call-overlay-stage">',
             '      <div class="ak-im-call-overlay-pulse"></div>',
@@ -4325,13 +4352,15 @@
         ].join('');
         panel = wrapper.firstElementChild;
         mountRoot.appendChild(panel);
-        const closeFallback = function() {
+        const hideFallback = function() {
             if (panel.dataset.callManaged === '1') return;
             panel.setAttribute('aria-hidden', 'true');
         };
-        panel.querySelector('.ak-im-call-overlay-backdrop').addEventListener('click', closeFallback);
-        panel.querySelector('.ak-im-call-overlay-close').addEventListener('click', closeFallback);
-        panel.querySelector('.ak-im-call-overlay-hangup').addEventListener('click', closeFallback);
+        panel.querySelector('.ak-im-call-overlay-backdrop').addEventListener('click', function(event) {
+            if (event && typeof event.stopPropagation === 'function') event.stopPropagation();
+        });
+        panel.querySelector('.ak-im-call-overlay-minimize').addEventListener('click', hideFallback);
+        panel.querySelector('.ak-im-call-overlay-hangup').addEventListener('click', hideFallback);
         return panel;
     }
 

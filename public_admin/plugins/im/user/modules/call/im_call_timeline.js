@@ -144,7 +144,7 @@
                     durationText: durationText || '00:00'
                 };
             }
-            if (normalizedTrigger === 'failed' && role === 'caller' && failReason === 'timeout') {
+            if (normalizedTrigger === 'failed' && role === 'caller' && (failReason === 'timeout' || failReason === 'socket_timeout')) {
                 return {
                     event: 'cancelled',
                     by: 'caller',
@@ -205,12 +205,16 @@
         },
 
         emitOutcome(outcome, snapshot) {
+            const sendCallResultPayload = this.ctx && typeof this.ctx.sendCallResultPayload === 'function'
+                ? this.ctx.sendCallResultPayload
+                : null;
             const sendMessagePayload = this.ctx && typeof this.ctx.sendMessagePayload === 'function'
                 ? this.ctx.sendMessagePayload
                 : null;
-            if (!sendMessagePayload) return Promise.resolve(null);
             const payload = this.buildMessagePayload(outcome, snapshot);
             if (Math.max(0, toNumber(payload.conversation_id)) <= 0) return Promise.resolve(null);
+            if (sendCallResultPayload) return Promise.resolve(sendCallResultPayload(payload));
+            if (!sendMessagePayload) return Promise.resolve(null);
             return Promise.resolve(sendMessagePayload(payload, {
                 resetComposer: false,
                 failSilently: true

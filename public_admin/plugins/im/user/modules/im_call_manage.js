@@ -38,19 +38,21 @@
     };
     const LOCAL_TERMINATION_ECHO_TTL_MS = 5000;
     const PENDING_OUTGOING_CANCEL_TTL_MS = 15000;
+    const CALL_HANGUP_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><g transform="rotate(90 12 12)"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.8 19.8 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.11 4.18 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.72c.12.9.33 1.78.62 2.62a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.46-1.18a2 2 0 0 1 2.11-.45c.84.29 1.72.5 2.62.62A2 2 0 0 1 22 16.92Z"></path></g></svg>';
     const CALL_ICON_MARKUP = {
         close: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg>',
+        minimize: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 12h12"></path></svg>',
         phone: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.8 19.8 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.11 4.18 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.72c.12.9.33 1.78.62 2.62a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.46-1.18a2 2 0 0 1 2.11-.45c.84.29 1.72.5 2.62.62A2 2 0 0 1 22 16.92Z"></path></svg>',
         incoming: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 2v6h6"></path><path d="m22 2-7 7"></path><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.8 19.8 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.11 4.18 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.72c.12.9.33 1.78.62 2.62a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.46-1.18a2 2 0 0 1 2.11-.45c.84.29 1.72.5 2.62.62A2 2 0 0 1 22 16.92Z"></path></svg>',
         waiting: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M12 7v6l4 2"></path></svg>',
         active: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.8 19.8 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.11 4.18 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.72c.12.9.33 1.78.62 2.62a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.46-1.18a2 2 0 0 1 2.11-.45c.84.29 1.72.5 2.62.62A2 2 0 0 1 22 16.92Z"></path><path d="M9 12h6"></path></svg>',
         success: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 5 5L20 7"></path></svg>',
         warning: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 9v4"></path><path d="M12 17h.01"></path><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"></path></svg>',
-        ended: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.7 15.4a17 17 0 0 1 16.6 0"></path><path d="m6.15 14.65-2.15 3.75"></path><path d="m17.85 14.65 2.15 3.75"></path><path d="M4 4 20 20"></path></svg>',
+        ended: CALL_HANGUP_ICON,
         accept: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.8 19.8 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.11 4.18 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.72c.12.9.33 1.78.62 2.62a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.46-1.18a2 2 0 0 1 2.11-.45c.84.29 1.72.5 2.62.62A2 2 0 0 1 22 16.92Z"></path><path d="m9 12 2 2 4-4"></path></svg>',
         reject: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.7 15.4a17 17 0 0 1 16.6 0"></path><path d="m6.15 14.65-2.15 3.75"></path><path d="m17.85 14.65 2.15 3.75"></path><path d="m9 9 6 6"></path><path d="m15 9-6 6"></path></svg>',
-        hangup: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.7 15.4a17 17 0 0 1 16.6 0"></path><path d="m6.15 14.65-2.15 3.75"></path><path d="m17.85 14.65 2.15 3.75"></path><path d="M9.2 16.35h5.6"></path></svg>',
-        cancel: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.7 15.4a17 17 0 0 1 16.6 0"></path><path d="m6.15 14.65-2.15 3.75"></path><path d="m17.85 14.65 2.15 3.75"></path><path d="M4 4 20 20"></path></svg>',
+        hangup: CALL_HANGUP_ICON,
+        cancel: CALL_HANGUP_ICON,
         mute: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a3 3 0 0 1 3 3v6a3 3 0 1 1-6 0V6a3 3 0 0 1 3-3Z"></path><path d="M19 10v2a7 7 0 1 1-14 0v-2"></path><path d="M12 19v3"></path></svg>',
         unmute: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m4 4 16 16"></path><path d="M9 9v3a3 3 0 0 0 5.12 2.12"></path><path d="M12 3a3 3 0 0 1 3 3v3"></path><path d="M19 10v2a7 7 0 0 1-11.06 5.8"></path><path d="M12 19v3"></path></svg>'
     };
@@ -843,6 +845,7 @@
         localTermination: { action: '', role: '', callId: '', at: 0, wasEverConnected: false },
         flowVersion: 0,
         openedAt: 0,
+        minimized: false,
         bound: false,
         submodulePromise: null,
         signaling: null,
@@ -853,7 +856,7 @@
                 '  <div class="ak-im-call-overlay-backdrop"></div>',
                 '  <div class="ak-im-call-overlay-card" role="dialog" aria-modal="true" aria-label="通话面板">',
                 '    <div class="ak-im-call-overlay-header">',
-                '      <button class="ak-im-call-overlay-close" type="button" aria-label="关闭"></button>',
+                '      <div class="ak-im-call-overlay-spacer" aria-hidden="true"></div>',
                 '      <div class="ak-im-call-overlay-header-main">',
                 '        <div class="ak-im-call-overlay-avatar" aria-hidden="true"></div>',
                 '        <div class="ak-im-call-overlay-header-text">',
@@ -861,7 +864,7 @@
                 '          <div class="ak-im-call-overlay-subtitle"></div>',
                 '        </div>',
                 '      </div>',
-                '      <div class="ak-im-call-overlay-spacer" aria-hidden="true"></div>',
+                '      <button class="ak-im-call-overlay-minimize" type="button" aria-label="最小化"></button>',
                 '    </div>',
                 '    <div class="ak-im-call-overlay-stage">',
                 '      <div class="ak-im-call-overlay-pulse"></div>',
@@ -884,7 +887,11 @@
                 '      <button class="ak-im-call-overlay-action ak-im-call-overlay-hangup" type="button"></button>',
                 '      <button class="ak-im-call-overlay-action ak-im-call-overlay-accept" type="button"></button>',
                 '    </div>',
-                '  </div>'
+                '  </div>',
+                '  <button class="ak-im-call-overlay-restore" type="button" aria-label="恢复通话">',
+                '    <span class="ak-im-call-overlay-restore-icon" aria-hidden="true"></span>',
+                '    <span class="ak-im-call-overlay-restore-label">返回通话</span>',
+                '  </button>'
             ].join('');
         },
 
@@ -1171,10 +1178,10 @@
                 '.ak-im-call-overlay-header-text{min-width:0;text-align:center}',
                 '.ak-im-call-overlay-title{font-size:19px;font-weight:700;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
                 '.ak-im-call-overlay-subtitle{margin-top:6px;font-size:12px;font-weight:600;line-height:1.4;color:#cbd5e1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
-                '.ak-im-call-overlay-close{width:36px;height:36px;border:none;border-radius:18px;background:rgba(255,255,255,.08);color:#e2e8f0;cursor:pointer;display:flex;align-items:center;justify-content:center;flex:0 0 auto;transition:background .18s ease,color .18s ease}',
-                '.ak-im-call-overlay-close:hover{background:rgba(255,255,255,.14);color:#fff}',
-                '.ak-im-call-overlay-close svg,.ak-im-call-overlay-placeholder-icon svg,.ak-im-call-overlay-action-disc svg{width:24px;height:24px;stroke:currentColor;stroke-linecap:round;stroke-linejoin:round;stroke-width:1.9;fill:none}',
-                '.ak-im-call-overlay-close svg{width:16px;height:16px}',
+                '.ak-im-call-overlay-minimize{width:36px;height:36px;border:none;border-radius:18px;background:rgba(255,255,255,.08);color:#e2e8f0;cursor:pointer;display:flex;align-items:center;justify-content:center;flex:0 0 auto;transition:background .18s ease,color .18s ease}',
+                '.ak-im-call-overlay-minimize:hover{background:rgba(255,255,255,.14);color:#fff}',
+                '.ak-im-call-overlay-minimize svg,.ak-im-call-overlay-placeholder-icon svg,.ak-im-call-overlay-action-disc svg,.ak-im-call-overlay-restore-icon svg{width:24px;height:24px;stroke:currentColor;stroke-linecap:round;stroke-linejoin:round;stroke-width:1.9;fill:none}',
+                '.ak-im-call-overlay-minimize svg{width:16px;height:16px}',
                 '.ak-im-call-overlay-stage{position:relative;flex:1;display:flex;align-items:center;justify-content:center;padding:34px 26px 20px;background:radial-gradient(circle at top,rgba(14,165,233,.12) 0%,rgba(7,17,29,0) 42%),linear-gradient(180deg,#0b1323 0%,#07101c 100%);overflow:hidden}',
                 '.ak-im-call-overlay-pulse{position:absolute;top:50%;left:50%;width:240px;height:240px;border-radius:50%;transform:translate(-50%,-50%);background:radial-gradient(circle,rgba(56,189,248,.18) 0%,rgba(56,189,248,0) 72%);opacity:0;pointer-events:none}',
                 '.ak-im-call-overlay-placeholder{position:relative;z-index:1;width:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:20px;text-align:center;color:#f8fafc}',
@@ -1211,9 +1218,16 @@
                 '.ak-im-call-overlay[data-mode="active"] .ak-im-call-overlay-placeholder-icon{color:#34d399;background:rgba(16,185,129,.14)}',
                 '.ak-im-call-overlay[data-mode="failed"] .ak-im-call-overlay-placeholder-icon{color:#fbbf24;background:rgba(245,158,11,.14)}',
                 '.ak-im-call-overlay[data-mode="ended"] .ak-im-call-overlay-placeholder-icon{color:#cbd5e1;background:rgba(100,116,139,.18)}',
+                '.ak-im-call-overlay-restore{display:none;position:fixed;top:calc(env(safe-area-inset-top,0px) + 16px);right:16px;max-width:min(calc(100vw - 32px),220px);min-height:48px;padding:8px 14px 8px 8px;border:none;border-radius:999px;background:rgba(7,17,29,.94);color:#f8fafc;box-shadow:0 18px 40px rgba(0,0,0,.34);align-items:center;gap:10px;cursor:pointer;pointer-events:auto}',
+                '.ak-im-call-overlay-restore-icon{width:34px;height:34px;border-radius:999px;display:flex;align-items:center;justify-content:center;background:rgba(56,189,248,.16);color:#93c5fd;flex:0 0 auto}',
+                '.ak-im-call-overlay-restore-icon svg{width:18px;height:18px}',
+                '.ak-im-call-overlay-restore-label{min-width:0;font-size:13px;font-weight:700;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
+                '.ak-im-call-overlay[data-minimized="1"]{background:transparent;backdrop-filter:none;align-items:flex-start;justify-content:flex-end;padding:0;pointer-events:none}',
+                '.ak-im-call-overlay[data-minimized="1"] .ak-im-call-overlay-backdrop,.ak-im-call-overlay[data-minimized="1"] .ak-im-call-overlay-card{display:none}',
+                '.ak-im-call-overlay[data-minimized="1"] .ak-im-call-overlay-restore{display:flex}',
                 '@keyframes akImCallOverlayPulse{0%{transform:translate(-50%,-50%) scale(.82);opacity:.18}50%{transform:translate(-50%,-50%) scale(1.04);opacity:.5}100%{transform:translate(-50%,-50%) scale(1.18);opacity:0}}',
                 '@keyframes akImCallOverlayIconFloat{0%{transform:translateY(0)}50%{transform:translateY(-3px)}100%{transform:translateY(0)}}',
-                '@media (max-width:768px){.ak-im-call-overlay{padding:0}.ak-im-call-overlay-card{width:100vw;min-height:100vh;max-height:100vh;border-radius:0;box-shadow:none}.ak-im-call-overlay-stage{padding:28px 18px 18px}.ak-im-call-overlay-actions{gap:10px;padding-left:16px;padding-right:16px}.ak-im-call-overlay-actions[data-layout="single"]{padding-top:24px;padding-bottom:calc(28px + env(safe-area-inset-bottom,0px))}.ak-im-call-overlay-title{font-size:17px}.ak-im-call-overlay-avatar{width:40px;height:40px;font-size:16px}.ak-im-call-overlay-placeholder-icon{width:104px;height:104px}.ak-im-call-overlay-placeholder-text{font-size:21px}.ak-im-call-overlay-detail{width:100%}.ak-im-call-overlay-action{max-width:96px}.ak-im-call-overlay-actions[data-layout="single"] .ak-im-call-overlay-action{min-width:108px;min-height:112px;max-width:none;gap:13px}.ak-im-call-overlay-action-disc{width:58px;height:58px}.ak-im-call-overlay-action[data-prominence="primary"] .ak-im-call-overlay-action-disc{width:70px;height:70px}.ak-im-call-overlay-actions[data-layout="single"] .ak-im-call-overlay-action[data-prominence="primary"] .ak-im-call-overlay-action-disc{width:78px;height:78px}.ak-im-call-overlay-actions[data-layout="single"] .ak-im-call-overlay-action[data-prominence="primary"] .ak-im-call-overlay-action-label{font-size:14px}}'
+                '@media (max-width:768px){.ak-im-call-overlay{padding:0}.ak-im-call-overlay-card{width:100vw;min-height:100vh;max-height:100vh;border-radius:0;box-shadow:none}.ak-im-call-overlay-stage{padding:28px 18px 18px}.ak-im-call-overlay-actions{gap:10px;padding-left:16px;padding-right:16px}.ak-im-call-overlay-actions[data-layout="single"]{padding-top:24px;padding-bottom:calc(28px + env(safe-area-inset-bottom,0px))}.ak-im-call-overlay-title{font-size:17px}.ak-im-call-overlay-avatar{width:40px;height:40px;font-size:16px}.ak-im-call-overlay-placeholder-icon{width:104px;height:104px}.ak-im-call-overlay-placeholder-text{font-size:21px}.ak-im-call-overlay-detail{width:100%}.ak-im-call-overlay-action{max-width:96px}.ak-im-call-overlay-actions[data-layout="single"] .ak-im-call-overlay-action{min-width:108px;min-height:112px;max-width:none;gap:13px}.ak-im-call-overlay-action-disc{width:58px;height:58px}.ak-im-call-overlay-action[data-prominence="primary"] .ak-im-call-overlay-action-disc{width:70px;height:70px}.ak-im-call-overlay-actions[data-layout="single"] .ak-im-call-overlay-action[data-prominence="primary"] .ak-im-call-overlay-action-disc{width:78px;height:78px}.ak-im-call-overlay-actions[data-layout="single"] .ak-im-call-overlay-action[data-prominence="primary"] .ak-im-call-overlay-action-label{font-size:14px}.ak-im-call-overlay-restore{top:calc(env(safe-area-inset-top,0px) + 12px);right:12px}}'
             ].join('');
             (document.head || document.documentElement).appendChild(styleEl);
         },
@@ -1247,7 +1261,10 @@
             this.refs.accept = panel.querySelector('.ak-im-call-overlay-accept');
             this.refs.reject = panel.querySelector('.ak-im-call-overlay-reject');
             this.refs.hangup = panel.querySelector('.ak-im-call-overlay-hangup');
-            this.refs.close = panel.querySelector('.ak-im-call-overlay-close');
+            this.refs.minimize = panel.querySelector('.ak-im-call-overlay-minimize');
+            this.refs.restore = panel.querySelector('.ak-im-call-overlay-restore');
+            this.refs.restoreIcon = panel.querySelector('.ak-im-call-overlay-restore-icon');
+            this.refs.restoreLabel = panel.querySelector('.ak-im-call-overlay-restore-label');
             this.refs.mute = panel.querySelector('.ak-im-call-overlay-mute');
             this.refs.localAudio = panel.querySelector('.ak-im-call-overlay-audio');
             this.refs.placeholder = panel.querySelector('.ak-im-call-overlay-placeholder');
@@ -1257,7 +1274,8 @@
             this.refs.placeholderIcon = panel.querySelector('.ak-im-call-overlay-placeholder-icon');
             this.refs.detailTitle = panel.querySelector('.ak-im-call-overlay-detail-title');
             this.refs.detailBody = panel.querySelector('.ak-im-call-overlay-detail-body');
-            if (this.refs.close) this.refs.close.innerHTML = getIconMarkup('close');
+            if (this.refs.minimize) this.refs.minimize.innerHTML = getIconMarkup('minimize');
+            if (this.refs.restoreIcon) this.refs.restoreIcon.innerHTML = getIconMarkup('phone');
             this.bindEvents();
             return panel;
         },
@@ -1269,32 +1287,24 @@
             const panel = this.refs.panel;
             if (!panel) return;
             const backdrop = panel.querySelector('.ak-im-call-overlay-backdrop');
-            const stopEvent = function(event) {
+            const stopClick = function(event) {
                 if (!event) return;
-                if (typeof event.preventDefault === 'function') event.preventDefault();
                 if (typeof event.stopPropagation === 'function') event.stopPropagation();
-                if (typeof event.stopImmediatePropagation === 'function') event.stopImmediatePropagation();
-            };
-            const bindStopOnly = function(element) {
-                if (!element) return;
-                ['pointerdown', 'pointerup', 'mousedown', 'mouseup', 'touchstart', 'touchend'].forEach(function(eventName) {
-                    element.addEventListener(eventName, stopEvent);
-                });
             };
             const bindAction = function(element, handler) {
                 if (!element) return;
-                bindStopOnly(element);
                 element.addEventListener('click', function(event) {
-                    stopEvent(event);
+                    stopClick(event);
                     handler();
                 });
             };
-            bindStopOnly(backdrop);
-            bindAction(backdrop, function() {
-                self.close();
+            if (backdrop) backdrop.addEventListener('click', stopClick);
+            if (panel) panel.addEventListener('click', stopClick);
+            bindAction(this.refs.minimize, function() {
+                self.minimize();
             });
-            bindAction(this.refs.close, function() {
-                self.close();
+            bindAction(this.refs.restore, function() {
+                self.restore();
             });
             bindAction(this.refs.reject, function() {
                 self.reject();
@@ -1560,6 +1570,25 @@
             });
         },
 
+        canMinimize() {
+            return this.mode === CALL_MODES.incoming
+                || this.mode === CALL_MODES.outgoing
+                || this.mode === CALL_MODES.connecting
+                || this.mode === CALL_MODES.active;
+        },
+
+        minimize() {
+            if (!this.canMinimize()) return;
+            this.minimized = true;
+            this.render();
+        },
+
+        restore() {
+            if (this.mode === CALL_MODES.idle) return;
+            this.minimized = false;
+            this.render();
+        },
+
         setState(mode, payload) {
             payload = payload || {};
             this.mode = mode || CALL_MODES.idle;
@@ -1586,16 +1615,20 @@
             const refs = this.refs;
             if (!refs.panel) return;
             const visible = this.mode !== CALL_MODES.idle;
+            const showMinimizedShell = visible && this.minimized;
             const view = buildCallViewModel(this.mode, this.lastFailReason, !!this.currentCallId, this.currentPeerName, this.muted, this.buildRenderMeta());
             const actionLayout = buildCallActionLayout(this.mode, this.muted);
             const headerStatus = buildHeaderStatusText(view);
             refs.panel.setAttribute('aria-hidden', visible ? 'false' : 'true');
             refs.panel.dataset.mode = this.mode;
+            refs.panel.dataset.minimized = showMinimizedShell ? '1' : '0';
             refs.title.textContent = this.currentPeerName || '语音通话';
             refs.subtitle.textContent = headerStatus;
             refs.subtitle.style.display = headerStatus ? 'block' : 'none';
             refs.state.textContent = view.footer || '';
             refs.state.style.display = view.footer ? 'block' : 'none';
+            if (refs.minimize) refs.minimize.style.display = visible && !this.minimized && this.canMinimize() ? 'flex' : 'none';
+            if (refs.restoreLabel) refs.restoreLabel.textContent = (this.currentPeerName || '返回通话').trim() || '返回通话';
             refs.placeholder.style.display = 'flex';
             if (refs.placeholderText) refs.placeholderText.textContent = view.headline || '';
             if (refs.detailTitle) refs.detailTitle.textContent = view.detailTitle || '';
@@ -1630,6 +1663,7 @@
             this.clearLocalTermination();
             this.clearResultState();
             this.clearLiveSessionState();
+            this.minimized = false;
             this.role = 'caller';
             this.muted = false;
             this.offerSent = false;
@@ -1677,6 +1711,7 @@
             this.clearLocalTermination();
             this.clearResultState();
             this.clearLiveSessionState();
+            this.minimized = false;
             this.role = 'callee';
             this.muted = false;
             this.offerSent = false;
@@ -1785,6 +1820,7 @@
             this.clearAllTimers();
             this.cleanupMedia();
             this.mode = CALL_MODES.idle;
+            this.minimized = false;
             this.currentCallId = '';
             this.currentConversationId = 0;
             this.currentPeerName = '';
@@ -1807,6 +1843,7 @@
             this.captureDurationSnapshot();
             this.clearAllTimers();
             this.cleanupMedia();
+            this.minimized = false;
             const nextMode = reason === 'failed' ? CALL_MODES.failed : CALL_MODES.ended;
             if (nextMode === CALL_MODES.failed) {
                 this.lastFailReason = normalizeReasonCode(options.reason || payload.reason || payload.fail_reason || this.lastFailReason || 'socket_error');
