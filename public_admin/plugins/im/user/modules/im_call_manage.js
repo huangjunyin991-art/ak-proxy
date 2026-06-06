@@ -3,9 +3,11 @@
 
     const STYLE_ID = 'ak-im-call-overlay-style';
     const PANEL_SELECTOR = '.ak-im-call-overlay';
-    const SHELL_VERSION = '20260606-5';
+    const SHELL_VERSION = '20260606-6';
     const PEER_DISCONNECT_GRACE_MS = 3500;
     const PEER_STATE_MUTE_MS = 1500;
+    const REMOTE_EARPIECE_VOLUME = 0.1;
+    const REMOTE_SPEAKER_VOLUME = 1;
     const CALL_MODES = {
         idle: 'idle',
         outgoing: 'outgoing',
@@ -60,13 +62,15 @@
         mute: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a3 3 0 0 1 3 3v6a3 3 0 1 1-6 0V6a3 3 0 0 1 3-3Z"></path><path d="M19 10v2a7 7 0 1 1-14 0v-2"></path><path d="M12 19v3"></path></svg>',
         unmute: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m4 4 16 16"></path><path d="M9 9v3a3 3 0 0 0 5.12 2.12"></path><path d="M12 3a3 3 0 0 1 3 3v3"></path><path d="M19 10v2a7 7 0 0 1-11.06 5.8"></path><path d="M12 19v3"></path></svg>',
         speaker_on: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 14h4l5 4V6L8 10H4Z"></path><path d="M17 9.5a4.5 4.5 0 0 1 0 5"></path><path d="M19.8 7a8.2 8.2 0 0 1 0 10"></path></svg>',
-        speaker_off: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 14h4l5 4V6L8 10H4Z"></path><path d="m16.5 9.5 5 5"></path><path d="m21.5 9.5-5 5"></path></svg>'
+        speaker_off: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 14h4l5 4V6L8 10H4Z"></path><path d="m16.5 9.5 5 5"></path><path d="m21.5 9.5-5 5"></path></svg>',
+        camera_switch: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8.2 7.4 9.3 5.9h5.4l1.1 1.5"></path><rect x="4.2" y="7.4" width="15.6" height="11.4" rx="2.4"></rect><path d="M9.3 13.2a3.1 3.1 0 0 1 5.2-2.2"></path><path d="m14.5 8.8.1 2.4-2.4.1"></path><path d="M14.7 13a3.1 3.1 0 0 1-5.2 2.2"></path><path d="m9.5 17.4-.1-2.4 2.4-.1"></path></svg>',
+        float_window: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4.2" y="4.8" width="10.8" height="10.8" rx="2"></rect><rect x="10.2" y="9.4" width="9.6" height="9.6" rx="2"></rect></svg>'
     };
     const VIDEO_QUALITY_PROFILES = {
-        hd: { width: 1280, height: 720, frameRate: 24, maxBitrate: 1800000, label: '高清' },
-        sd: { width: 854, height: 480, frameRate: 20, maxBitrate: 900000, label: '标清' },
-        ld: { width: 640, height: 360, frameRate: 15, maxBitrate: 450000, label: '流畅' },
-        vld: { width: 426, height: 240, frameRate: 12, maxBitrate: 220000, label: '省流' }
+        hd: { width: 1280, height: 720, minWidth: 960, minHeight: 540, frameRate: 30, maxBitrate: 2800000, label: '高清' },
+        sd: { width: 960, height: 540, minWidth: 640, minHeight: 360, frameRate: 24, maxBitrate: 1400000, label: '标清' },
+        ld: { width: 640, height: 360, frameRate: 18, maxBitrate: 650000, label: '流畅' },
+        vld: { width: 426, height: 240, frameRate: 12, maxBitrate: 260000, label: '省流' }
     };
     const VIDEO_PROFILE_ORDER = ['vld', 'ld', 'sd', 'hd'];
 
@@ -104,7 +108,7 @@
     function buildVideoQualityText(profile, health) {
         const qualityLabel = getVideoProfileLabel(profile);
         const normalizedHealth = trim(health).toLowerCase();
-        if (normalizedHealth === 'weak') return '网络较弱 · 已切到' + qualityLabel + '模式';
+        if (normalizedHealth === 'weak') return '网络较弱 · 当前' + qualityLabel + '模式';
         if (normalizedHealth === 'normal') return '网络一般 · 当前' + qualityLabel + '模式';
         if (normalizedHealth === 'good') return '网络良好 · 当前' + qualityLabel + '模式';
         return qualityLabel ? '当前' + qualityLabel + '模式' : '';
@@ -541,6 +545,8 @@
                 reject: { visible: true, icon: '', label: '拒绝', variant: 'danger', prominence: 'secondary', slot: '1', appearance: 'pill' },
                 accept: { visible: true, icon: '', label: '接听', variant: 'success', prominence: 'primary', slot: '2', appearance: 'pill' },
                 mute: { visible: false },
+                speaker: { visible: false },
+                cameraSwitch: { visible: false },
                 hangup: { visible: false }
             };
         }
@@ -549,9 +555,10 @@
                 layout: 'active',
                 reject: { visible: false },
                 accept: { visible: false },
-                mute: { visible: true, icon: muted ? 'unmute' : 'mute', label: muted ? '取消静音' : '静音', variant: 'neutral', prominence: 'secondary', slot: '1', appearance: 'tool' },
+                mute: { visible: true, icon: muted ? 'unmute' : 'mute', label: muted ? '取消静音' : '静音', variant: muted ? 'primary' : 'neutral', prominence: 'secondary', slot: '1', appearance: 'tool', selected: muted },
                 hangup: { visible: true, icon: 'hangup', label: '挂断', variant: 'danger', prominence: 'primary', slot: '2', appearance: 'tool' },
-                speaker: { visible: true, icon: speakerOn ? 'speaker_on' : 'speaker_off', label: speakerOn ? '免提已开' : '免提', variant: speakerOn ? 'primary' : 'neutral', prominence: 'secondary', slot: '3', appearance: 'tool' }
+                speaker: { visible: true, icon: speakerOn ? 'speaker_on' : 'speaker_off', label: speakerOn ? '免提已开' : '免提', variant: speakerOn ? 'primary' : 'neutral', prominence: 'secondary', slot: '3', appearance: 'tool', selected: speakerOn },
+                cameraSwitch: { visible: false }
             };
         }
         if (mode === CALL_MODES.outgoing || mode === CALL_MODES.connecting) {
@@ -560,6 +567,8 @@
                 reject: { visible: false },
                 accept: { visible: false },
                 mute: { visible: false },
+                speaker: { visible: false },
+                cameraSwitch: { visible: false },
                 hangup: { visible: true, icon: 'cancel', label: '取消呼叫', variant: 'danger', prominence: 'primary', slot: '2', appearance: 'tool' }
             };
         }
@@ -569,11 +578,12 @@
                 accept: { visible: false },
                 mute: { visible: false },
                 speaker: { visible: false },
+                cameraSwitch: { visible: false },
                 hangup: { visible: false }
         };
     }
 
-    function buildVideoCallActionLayout(mode, muted, speakerOn) {
+    function buildVideoCallActionLayout(mode, muted, speakerOn, canSwitchCamera) {
         if (mode === CALL_MODES.incoming) {
             return buildCallActionLayout(mode, muted, speakerOn);
         }
@@ -582,12 +592,17 @@
                 layout: 'active',
                 reject: { visible: false },
                 accept: { visible: false },
-                mute: { visible: true, icon: muted ? 'unmute' : 'mute', label: muted ? '取消静音' : '静音', variant: 'neutral', prominence: 'secondary', slot: '1', appearance: 'tool' },
+                mute: { visible: true, icon: muted ? 'unmute' : 'mute', label: muted ? '取消静音' : '静音', variant: muted ? 'primary' : 'neutral', prominence: 'secondary', slot: '1', appearance: 'tool', selected: muted },
                 hangup: { visible: true, icon: 'hangup', label: '挂断', variant: 'danger', prominence: 'primary', slot: '2', appearance: 'tool' },
-                speaker: { visible: true, icon: speakerOn ? 'speaker_on' : 'speaker_off', label: speakerOn ? '免提已开' : '免提', variant: speakerOn ? 'primary' : 'neutral', prominence: 'secondary', slot: '3', appearance: 'tool' }
+                speaker: { visible: true, icon: speakerOn ? 'speaker_on' : 'speaker_off', label: speakerOn ? '免提已开' : '免提', variant: speakerOn ? 'primary' : 'neutral', prominence: 'secondary', slot: '3', appearance: 'tool', selected: speakerOn },
+                cameraSwitch: { visible: !!canSwitchCamera, icon: 'camera_switch', label: '翻转', variant: 'neutral', prominence: 'secondary', slot: '4', appearance: 'mini' }
             };
         }
-        return buildCallActionLayout(mode, muted, speakerOn);
+        const layout = buildCallActionLayout(mode, muted, speakerOn);
+        if (mode === CALL_MODES.outgoing || mode === CALL_MODES.connecting) {
+            layout.cameraSwitch = { visible: !!canSwitchCamera, icon: 'camera_switch', label: '翻转', variant: 'neutral', prominence: 'secondary', slot: '4', appearance: 'mini' };
+        }
+        return layout;
     }
 
     function resolveCallAutoCloseMs(mode, reason, meta) {
@@ -824,7 +839,9 @@
             options: {},
             role: '',
             currentKind: 'audio',
-            videoProfile: 'sd',
+            videoProfile: 'hd',
+            facingMode: 'user',
+            lastStatsSample: null,
 
             init(options) {
                 this.options = options || {};
@@ -840,7 +857,24 @@
                 return VIDEO_QUALITY_PROFILES[normalized] || VIDEO_QUALITY_PROFILES.sd;
             },
 
-            buildMediaConstraints(kind) {
+            buildVideoConstraints(facingMode, options) {
+                options = options || {};
+                const profile = this.getVideoProfileConfig(this.videoProfile);
+                const constraints = {
+                    width: { ideal: profile.width },
+                    height: { ideal: profile.height },
+                    frameRate: { ideal: profile.frameRate, max: profile.frameRate },
+                    facingMode: { ideal: trim(facingMode || this.facingMode || 'user') || 'user' },
+                    resizeMode: 'crop-and-scale'
+                };
+                if (!options.relaxed && profile.minWidth && profile.minHeight) {
+                    constraints.width.min = profile.minWidth;
+                    constraints.height.min = profile.minHeight;
+                }
+                return constraints;
+            },
+
+            buildMediaConstraints(kind, options) {
                 const normalizedKind = normalizeCallKind(kind || this.currentKind);
                 const constraints = {
                     audio: {
@@ -851,13 +885,7 @@
                     video: false
                 };
                 if (!isVideoCallKind(normalizedKind)) return constraints;
-                const profile = this.getVideoProfileConfig(this.videoProfile);
-                constraints.video = {
-                    width: { ideal: profile.width, max: profile.width },
-                    height: { ideal: profile.height, max: profile.height },
-                    frameRate: { ideal: profile.frameRate, max: profile.frameRate },
-                    facingMode: 'user'
-                };
+                constraints.video = this.buildVideoConstraints(this.facingMode, options);
                 return constraints;
             },
 
@@ -866,7 +894,12 @@
                 this.currentKind = normalizeCallKind(kind || this.currentKind);
                 if (this.localStream) return this.localStream;
                 const constraints = this.buildMediaConstraints(this.currentKind);
-                this.localStream = await global.navigator.mediaDevices.getUserMedia(constraints);
+                try {
+                    this.localStream = await global.navigator.mediaDevices.getUserMedia(constraints);
+                } catch (error) {
+                    if (!isVideoCallKind(this.currentKind)) throw error;
+                    this.localStream = await global.navigator.mediaDevices.getUserMedia(this.buildMediaConstraints(this.currentKind, { relaxed: true }));
+                }
                 this.emitLocalStream();
                 return this.localStream;
             },
@@ -903,6 +936,7 @@
 
             async createOffer(kind) {
                 const pc = await this.createPeer('caller', kind);
+                if (isVideoCallKind(kind || this.currentKind)) await this.applyVideoProfile(this.videoProfile);
                 const offer = await pc.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: isVideoCallKind(kind || this.currentKind) });
                 await pc.setLocalDescription(offer);
                 this.emitSignal('offer', { sdp: pc.localDescription });
@@ -910,6 +944,7 @@
 
             async acceptOffer(sdp, kind) {
                 const pc = await this.createPeer('callee', kind);
+                if (isVideoCallKind(kind || this.currentKind)) await this.applyVideoProfile(this.videoProfile);
                 await pc.setRemoteDescription(new global.RTCSessionDescription(sdp));
                 await this.flushIceCandidates();
                 const answer = await pc.createAnswer();
@@ -948,6 +983,10 @@
                 return true;
             },
 
+            getFacingMode() {
+                return this.facingMode;
+            },
+
             getVideoSender() {
                 if (!this.pc || typeof this.pc.getSenders !== 'function') return null;
                 const senders = this.pc.getSenders();
@@ -959,6 +998,44 @@
                 return null;
             },
 
+            async switchCamera() {
+                if (!this.isSupported() || !this.localStream || !isVideoCallKind(this.currentKind)) return false;
+                const nextFacingMode = this.facingMode === 'user' ? 'environment' : 'user';
+                const replacementStream = await global.navigator.mediaDevices.getUserMedia({
+                    audio: false,
+                    video: this.buildVideoConstraints(nextFacingMode)
+                });
+                const replacementTrack = replacementStream.getVideoTracks()[0] || null;
+                if (!replacementTrack) {
+                    replacementStream.getTracks().forEach(function(track) {
+                        try { track.stop(); } catch (e) {}
+                    });
+                    return false;
+                }
+                const oldTrack = this.localStream.getVideoTracks()[0] || null;
+                const sender = this.getVideoSender();
+                if (sender && typeof sender.replaceTrack === 'function') {
+                    try {
+                        await sender.replaceTrack(replacementTrack);
+                    } catch (error) {
+                        try { replacementTrack.stop(); } catch (e) {}
+                        throw error;
+                    }
+                }
+                if (oldTrack) {
+                    try { this.localStream.removeTrack(oldTrack); } catch (e) {}
+                    try { oldTrack.stop(); } catch (e) {}
+                }
+                this.localStream.addTrack(replacementTrack);
+                replacementStream.getAudioTracks().forEach(function(track) {
+                    try { track.stop(); } catch (e) {}
+                });
+                const settings = typeof replacementTrack.getSettings === 'function' ? replacementTrack.getSettings() : {};
+                this.facingMode = trim(settings && settings.facingMode) || nextFacingMode;
+                this.emitLocalStream();
+                return true;
+            },
+
             async applyVideoProfile(profile) {
                 const normalizedProfile = trim(profile).toLowerCase();
                 const nextProfile = VIDEO_QUALITY_PROFILES[normalizedProfile] ? normalizedProfile : 'sd';
@@ -968,12 +1045,10 @@
                 const videoTrack = this.localStream.getVideoTracks()[0] || null;
                 if (videoTrack && typeof videoTrack.applyConstraints === 'function') {
                     try {
-                        await videoTrack.applyConstraints({
-                            width: { ideal: config.width, max: config.width },
-                            height: { ideal: config.height, max: config.height },
-                            frameRate: { ideal: config.frameRate, max: config.frameRate }
-                        });
-                    } catch (e) {}
+                        await videoTrack.applyConstraints(this.buildVideoConstraints(this.facingMode));
+                    } catch (e) {
+                        try { await videoTrack.applyConstraints(this.buildVideoConstraints(this.facingMode, { relaxed: true })); } catch (ignored) {}
+                    }
                 }
                 const sender = this.getVideoSender();
                 if (sender && typeof sender.getParameters === 'function' && typeof sender.setParameters === 'function') {
@@ -994,28 +1069,48 @@
                 const report = await this.pc.getStats();
                 const snapshot = {
                     availableOutgoingBitrate: 0,
+                    outgoingBitrate: 0,
                     roundTripTime: 0,
                     packetsLost: 0,
                     jitter: 0,
                     framesPerSecond: 0,
-                    qualityLimitationReason: ''
+                    qualityLimitationReason: '',
+                    bytesSent: 0,
+                    sampleTime: 0
                 };
                 report.forEach(function(stat) {
                     if (!stat || typeof stat !== 'object') return;
+                    const statKind = trim(stat.kind || stat.mediaType);
                     if (stat.type === 'candidate-pair' && (stat.nominated || stat.selected)) {
                         if (Number(stat.availableOutgoingBitrate || 0) > 0) snapshot.availableOutgoingBitrate = Number(stat.availableOutgoingBitrate || 0);
                         if (Number(stat.currentRoundTripTime || 0) > 0) snapshot.roundTripTime = Number(stat.currentRoundTripTime || 0);
                     }
-                    if (stat.type === 'outbound-rtp' && stat.kind === 'video') {
+                    if (stat.type === 'outbound-rtp' && statKind === 'video') {
+                        if (Number(stat.bytesSent || 0) > 0) snapshot.bytesSent += Number(stat.bytesSent || 0);
+                        if (Number(stat.timestamp || 0) > 0) snapshot.sampleTime = Math.max(snapshot.sampleTime, Number(stat.timestamp || 0));
                         if (Number(stat.framesPerSecond || 0) > 0) snapshot.framesPerSecond = Number(stat.framesPerSecond || 0);
                         if (trim(stat.qualityLimitationReason)) snapshot.qualityLimitationReason = trim(stat.qualityLimitationReason);
                     }
-                    if ((stat.type === 'remote-inbound-rtp' || stat.type === 'inbound-rtp') && stat.kind === 'video') {
+                    if ((stat.type === 'remote-inbound-rtp' || stat.type === 'inbound-rtp') && statKind === 'video') {
                         if (Number(stat.packetsLost || 0) > 0) snapshot.packetsLost = Math.max(snapshot.packetsLost, Number(stat.packetsLost || 0));
                         if (Number(stat.jitter || 0) > 0) snapshot.jitter = Math.max(snapshot.jitter, Number(stat.jitter || 0));
                         if (!snapshot.roundTripTime && Number(stat.roundTripTime || 0) > 0) snapshot.roundTripTime = Number(stat.roundTripTime || 0);
                     }
                 });
+                const previous = this.lastStatsSample || null;
+                if (previous && snapshot.bytesSent > 0 && snapshot.sampleTime > previous.sampleTime) {
+                    const deltaBytes = snapshot.bytesSent - previous.bytesSent;
+                    const deltaMs = snapshot.sampleTime - previous.sampleTime;
+                    if (deltaBytes >= 0 && deltaMs > 0) {
+                        snapshot.outgoingBitrate = Math.round((deltaBytes * 8 * 1000) / deltaMs);
+                    }
+                }
+                if (snapshot.bytesSent > 0 && snapshot.sampleTime > 0) {
+                    this.lastStatsSample = {
+                        bytesSent: snapshot.bytesSent,
+                        sampleTime: snapshot.sampleTime
+                    };
+                }
                 return snapshot;
             },
 
@@ -1058,7 +1153,9 @@
                 this.pendingCandidates = [];
                 this.role = '';
                 this.currentKind = 'audio';
-                this.videoProfile = 'sd';
+                this.videoProfile = 'hd';
+                this.facingMode = 'user';
+                this.lastStatsSample = null;
             }
         };
     }
@@ -1094,7 +1191,10 @@
         terminalPresentation: 'panel',
         localVideoReady: false,
         remoteVideoReady: false,
-        qualityProfile: 'sd',
+        primaryVideoSource: 'remote',
+        cameraSwitching: false,
+        cameraFacingMode: 'user',
+        qualityProfile: 'hd',
         qualityHealth: 'normal',
         qualityStatusText: '',
         qualityUpgradeStreak: 0,
@@ -1141,6 +1241,7 @@
                 '      <button class="ak-im-call-overlay-action ak-im-call-overlay-mute" type="button"></button>',
                 '      <button class="ak-im-call-overlay-action ak-im-call-overlay-hangup" type="button"></button>',
                 '      <button class="ak-im-call-overlay-action ak-im-call-overlay-speaker" type="button"></button>',
+                '      <button class="ak-im-call-overlay-action ak-im-call-overlay-camera-switch" type="button"></button>',
                 '      <button class="ak-im-call-overlay-action ak-im-call-overlay-accept" type="button"></button>',
                 '    </div>',
                 '  </div>',
@@ -1193,7 +1294,10 @@
 
         ensureBuiltInModules() {
             const modules = ensureModuleRegistry();
-            if (!modules.callWebRTC || typeof modules.callWebRTC.applyVideoProfile !== 'function' || typeof modules.callWebRTC.readStatsSnapshot !== 'function') {
+            if (!modules.callWebRTC
+                || typeof modules.callWebRTC.applyVideoProfile !== 'function'
+                || typeof modules.callWebRTC.readStatsSnapshot !== 'function'
+                || typeof modules.callWebRTC.switchCamera !== 'function') {
                 modules.callWebRTC = createBuiltInWebRTCModule();
             }
             return {
@@ -1459,26 +1563,29 @@
                 '.ak-im-call-overlay[data-kind="video"]{padding:0;background:#020617;backdrop-filter:none}',
                 '.ak-im-call-overlay[data-kind="video"] .ak-im-call-overlay-backdrop{display:none}',
                 '.ak-im-call-overlay[data-kind="video"] .ak-im-call-overlay-card{width:100vw;min-height:100dvh;max-height:100dvh;border-radius:0;background:#020617;box-shadow:none}',
-                '.ak-im-call-overlay[data-kind="video"] .ak-im-call-overlay-header{position:absolute;top:0;left:0;right:0;z-index:4;padding:calc(16px + env(safe-area-inset-top,0px)) 16px 18px;border-bottom:none;background:linear-gradient(180deg,rgba(2,6,23,.82) 0%,rgba(2,6,23,.52) 48%,rgba(2,6,23,0) 100%)}',
+                '.ak-im-call-overlay[data-kind="video"] .ak-im-call-overlay-header{position:absolute;top:0;left:0;right:0;z-index:4;padding:calc(16px + env(safe-area-inset-top,0px)) 18px 18px;border-bottom:none;background:linear-gradient(180deg,rgba(2,6,23,.72) 0%,rgba(2,6,23,.42) 48%,rgba(2,6,23,0) 100%)}',
                 '.ak-im-call-overlay[data-kind="video"] .ak-im-call-overlay-header-main{justify-content:flex-start}',
                 '.ak-im-call-overlay[data-kind="video"] .ak-im-call-overlay-spacer,.ak-im-call-overlay[data-kind="video"] .ak-im-call-overlay-avatar{display:none}',
                 '.ak-im-call-overlay[data-kind="video"] .ak-im-call-overlay-header-text{text-align:left}',
                 '.ak-im-call-overlay[data-kind="video"] .ak-im-call-overlay-title{font-size:18px}',
                 '.ak-im-call-overlay[data-kind="video"] .ak-im-call-overlay-subtitle{margin-top:4px;font-size:11px;color:rgba(226,232,240,.86)}',
-                '.ak-im-call-overlay[data-kind="video"] .ak-im-call-overlay-minimize{margin-left:auto;background:rgba(15,23,42,.42);box-shadow:inset 0 0 0 1px rgba(255,255,255,.06)}',
+                '.ak-im-call-overlay[data-kind="video"] .ak-im-call-overlay-minimize{order:-1;margin-left:0;margin-right:12px;width:48px;height:48px;border-radius:24px;background:rgba(15,23,42,.42);box-shadow:inset 0 0 0 1px rgba(255,255,255,.08)}',
+                '.ak-im-call-overlay[data-kind="video"] .ak-im-call-overlay-minimize svg{width:24px;height:24px}',
                 '.ak-im-call-overlay[data-kind="video"] .ak-im-call-overlay-stage{padding:0;background:#020617}',
                 '.ak-im-call-overlay[data-kind="video"] .ak-im-call-overlay-placeholder{position:absolute;inset:0;z-index:1;padding:calc(112px + env(safe-area-inset-top,0px)) 24px calc(168px + env(safe-area-inset-bottom,0px));justify-content:flex-end;background:linear-gradient(180deg,rgba(2,6,23,.12) 0%,rgba(2,6,23,.2) 34%,rgba(2,6,23,.72) 100%)}',
                 '.ak-im-call-overlay[data-kind="video"] .ak-im-call-overlay-placeholder-icon{width:88px;height:88px;background:rgba(15,23,42,.42);box-shadow:inset 0 0 0 1px rgba(255,255,255,.08),0 16px 36px rgba(0,0,0,.28)}',
                 '.ak-im-call-overlay[data-kind="video"] .ak-im-call-overlay-placeholder-text{max-width:360px;font-size:28px;text-shadow:0 8px 24px rgba(0,0,0,.32)}',
                 '.ak-im-call-overlay[data-kind="video"] .ak-im-call-overlay-detail{width:min(100%,360px);padding:18px 18px 16px;border-radius:20px;background:rgba(2,6,23,.38);backdrop-filter:blur(14px);box-shadow:inset 0 0 0 1px rgba(255,255,255,.08)}',
                 '.ak-im-call-overlay[data-kind="video"] .ak-im-call-overlay-inline-actions{width:min(100%,360px)}',
-                '.ak-im-call-overlay[data-kind="video"] .ak-im-call-overlay-local{top:calc(env(safe-area-inset-top,0px) + 88px);right:18px;width:118px;height:164px;border-radius:20px;z-index:3;background:#0f172a}',
+                '.ak-im-call-overlay[data-kind="video"] .ak-im-call-overlay-local{top:calc(env(safe-area-inset-top,0px) + 88px);right:18px;width:118px;height:164px;border-radius:20px;z-index:3;background:#0f172a;transform:scaleX(-1);cursor:pointer}',
+                '.ak-im-call-overlay[data-kind="video"] .ak-im-call-overlay-remote{cursor:pointer}',
                 '.ak-im-call-overlay[data-kind="video"] .ak-im-call-overlay-state{position:absolute;left:0;right:0;bottom:calc(118px + env(safe-area-inset-bottom,0px));z-index:3;padding:0 20px;text-align:center;background:none;color:rgba(241,245,249,.86);text-shadow:0 2px 10px rgba(0,0,0,.28)}',
                 '.ak-im-call-overlay[data-kind="video"][data-video-surface="local"] .ak-im-call-overlay-local{inset:0;width:100%;height:100%;border:0;border-radius:0;box-shadow:none;z-index:0;transform:scaleX(-1)}',
+                '.ak-im-call-overlay[data-kind="video"][data-video-surface="local"] .ak-im-call-overlay-remote{inset:auto;top:calc(env(safe-area-inset-top,0px) + 88px);right:18px;width:118px;height:164px;border-radius:20px;z-index:3;box-shadow:0 18px 42px rgba(2,6,23,.44);border:1px solid rgba(255,255,255,.18)}',
                 '.ak-im-call-overlay[data-kind="video"][data-video-surface="local"] .ak-im-call-overlay-placeholder{background:linear-gradient(180deg,rgba(2,6,23,.12) 0%,rgba(2,6,23,.08) 36%,rgba(2,6,23,.74) 100%)}',
                 '.ak-im-call-overlay[data-kind="video"][data-video-surface="local"] .ak-im-call-overlay-placeholder-icon,.ak-im-call-overlay[data-kind="video"][data-video-surface="local"] .ak-im-call-overlay-detail{display:none}',
                 '.ak-im-call-overlay[data-kind="video"][data-video-surface="local"] .ak-im-call-overlay-placeholder-text{max-width:min(420px,calc(100vw - 48px));font-size:24px}',
-                '.ak-im-call-overlay[data-kind="video"][data-video-surface="remote"] .ak-im-call-overlay-local{transform:none}',
+                '.ak-im-call-overlay[data-kind="video"][data-video-surface="remote"] .ak-im-call-overlay-local{transform:scaleX(-1)}',
                 '.ak-im-call-overlay[data-kind="video"][data-video-surface="remote"] .ak-im-call-overlay-placeholder{display:none!important}',
                 '.ak-im-call-overlay-audio{display:none}',
                 '.ak-im-call-overlay-state{padding:0 20px 14px;min-height:38px;font-size:12px;line-height:1.5;text-align:center;color:rgba(226,232,240,.84)}',
@@ -1490,6 +1597,9 @@
                 '.ak-im-call-overlay[data-kind="video"] .ak-im-call-overlay-actions[data-layout="single"]{padding-top:42px}',
                 '.ak-im-call-overlay-action{all:unset;box-sizing:border-box;color:#e2e8f0;cursor:pointer;font:inherit;-webkit-appearance:none;appearance:none;-webkit-tap-highlight-color:transparent;pointer-events:auto}',
                 '.ak-im-call-overlay-actions .ak-im-call-overlay-action[data-appearance="tool"]{width:100%;max-width:112px;display:flex;flex-direction:column;align-items:center;justify-content:flex-start;gap:10px;padding:0;background:none;border:none;border-radius:0;box-shadow:none}',
+                '.ak-im-call-overlay[data-kind="video"] .ak-im-call-overlay-action[data-appearance="mini"]{position:absolute;right:42px;bottom:calc(104px + env(safe-area-inset-bottom,0px));display:flex;flex-direction:column;align-items:center;gap:6px;width:auto;max-width:none;color:#f8fafc}',
+                '.ak-im-call-overlay[data-kind="video"] .ak-im-call-overlay-action[data-appearance="mini"] .ak-im-call-overlay-action-disc{width:48px;height:48px;background:rgba(15,23,42,.48);box-shadow:inset 0 0 0 1px rgba(255,255,255,.1),0 14px 30px rgba(0,0,0,.2)}',
+                '.ak-im-call-overlay[data-kind="video"] .ak-im-call-overlay-action[data-appearance="mini"] .ak-im-call-overlay-action-label{display:none}',
                 '.ak-im-call-overlay-action[data-slot="1"]{grid-column:1}',
                 '.ak-im-call-overlay-action[data-slot="2"]{grid-column:2}',
                 '.ak-im-call-overlay-action[data-slot="3"]{grid-column:3}',
@@ -1510,6 +1620,7 @@
                 '.ak-im-call-overlay-action[data-variant="success"] .ak-im-call-overlay-action-disc{background:#10b981;color:#fff}',
                 '.ak-im-call-overlay-action[data-variant="primary"] .ak-im-call-overlay-action-disc{background:#2563eb;color:#fff}',
                 '.ak-im-call-overlay-action[data-variant="neutral"] .ak-im-call-overlay-action-disc{background:rgba(148,163,184,.16);color:#e2e8f0}',
+                '.ak-im-call-overlay-action[data-selected="1"] .ak-im-call-overlay-action-disc{transform:translateY(-1px)}',
                 '.ak-im-call-overlay-action[data-prominence="primary"] .ak-im-call-overlay-action-disc{width:74px;height:74px;box-shadow:0 18px 34px rgba(239,68,68,.26)}',
                 '.ak-im-call-overlay-action[data-prominence="primary"] .ak-im-call-overlay-action-label{font-size:14px}',
                 '.ak-im-call-overlay-actions[data-layout="single"] .ak-im-call-overlay-action[data-prominence="primary"] .ak-im-call-overlay-action-disc{width:82px;height:82px;box-shadow:0 20px 38px rgba(239,68,68,.3)}',
@@ -1542,6 +1653,7 @@
                 '.ak-im-call-overlay[data-terminal-presentation="toast"] .ak-im-call-overlay-detail,.ak-im-call-overlay[data-terminal-presentation="toast"] .ak-im-call-overlay-pulse,.ak-im-call-overlay[data-terminal-presentation="toast"] .ak-im-call-overlay-local,.ak-im-call-overlay[data-terminal-presentation="toast"] .ak-im-call-overlay-remote{display:none!important}',
                 '@keyframes akImCallOverlayPulse{0%{transform:translate(-50%,-50%) scale(.82);opacity:.18}50%{transform:translate(-50%,-50%) scale(1.04);opacity:.5}100%{transform:translate(-50%,-50%) scale(1.18);opacity:0}}',
                 '@keyframes akImCallOverlayIconFloat{0%{transform:translateY(0)}50%{transform:translateY(-3px)}100%{transform:translateY(0)}}',
+                '@media (max-width:768px){.ak-im-call-overlay[data-kind="video"][data-video-surface="local"] .ak-im-call-overlay-remote{top:calc(env(safe-area-inset-top,0px) + 76px);right:14px;width:96px;height:132px;border-radius:16px}.ak-im-call-overlay[data-kind="video"] .ak-im-call-overlay-action[data-appearance="mini"]{right:28px;bottom:calc(96px + env(safe-area-inset-bottom,0px))}}',
                 '@media (max-width:768px){.ak-im-call-overlay{padding:0}.ak-im-call-overlay-card{width:100vw;min-height:100dvh;max-height:100dvh;border-radius:0;box-shadow:none}.ak-im-call-overlay-header{padding-top:calc(18px + env(safe-area-inset-top,0px))}.ak-im-call-overlay-stage{padding:24px 18px 18px}.ak-im-call-overlay-actions{gap:10px;padding-left:16px;padding-right:16px}.ak-im-call-overlay-actions[data-layout="single"]{padding-top:24px;padding-bottom:calc(28px + env(safe-area-inset-bottom,0px))}.ak-im-call-overlay-title{font-size:17px}.ak-im-call-overlay-avatar{width:40px;height:40px;font-size:16px}.ak-im-call-overlay-placeholder{gap:16px}.ak-im-call-overlay-placeholder-icon{width:104px;height:104px}.ak-im-call-overlay-placeholder-text{font-size:21px}.ak-im-call-overlay-detail{width:100%}.ak-im-call-overlay-inline-actions{width:100%;gap:10px}.ak-im-call-overlay-inline-actions .ak-im-call-overlay-action[data-appearance="pill"]{min-width:0;flex:1;height:50px;padding:0 12px}.ak-im-call-overlay-actions .ak-im-call-overlay-action[data-appearance="tool"]{max-width:96px}.ak-im-call-overlay-actions[data-layout="single"] .ak-im-call-overlay-action[data-appearance="tool"]{min-width:108px;min-height:112px;max-width:none;gap:13px}.ak-im-call-overlay-action-disc{width:58px;height:58px}.ak-im-call-overlay-action[data-prominence="primary"] .ak-im-call-overlay-action-disc{width:70px;height:70px}.ak-im-call-overlay-actions[data-layout="single"] .ak-im-call-overlay-action[data-prominence="primary"] .ak-im-call-overlay-action-disc{width:78px;height:78px}.ak-im-call-overlay-actions[data-layout="single"] .ak-im-call-overlay-action[data-prominence="primary"] .ak-im-call-overlay-action-label{font-size:14px}.ak-im-call-overlay-restore{top:calc(env(safe-area-inset-top,0px) + 12px);right:12px}.ak-im-call-overlay-local{top:calc(env(safe-area-inset-top,0px) + 16px);right:16px;width:96px;height:132px;border-radius:16px}.ak-im-call-overlay[data-kind="video"] .ak-im-call-overlay-header{padding:calc(14px + env(safe-area-inset-top,0px)) 14px 16px}.ak-im-call-overlay[data-kind="video"] .ak-im-call-overlay-placeholder{padding:calc(104px + env(safe-area-inset-top,0px)) 18px calc(156px + env(safe-area-inset-bottom,0px))}.ak-im-call-overlay[data-kind="video"] .ak-im-call-overlay-placeholder-text{font-size:24px}.ak-im-call-overlay[data-kind="video"] .ak-im-call-overlay-local{top:calc(env(safe-area-inset-top,0px) + 76px);right:14px;width:96px;height:132px;border-radius:16px}.ak-im-call-overlay[data-kind="video"] .ak-im-call-overlay-state{bottom:calc(110px + env(safe-area-inset-bottom,0px));padding:0 16px}.ak-im-call-overlay[data-kind="video"] .ak-im-call-overlay-actions{padding-left:14px;padding-right:14px;padding-top:28px}.ak-im-call-overlay[data-kind="video"] .ak-im-call-overlay-actions[data-layout="single"]{padding-top:34px}}'
             ].join('');
             if (!styleEl.parentNode) {
@@ -1558,7 +1670,8 @@
                 || !panel.querySelector('.ak-im-call-overlay-action')
                 || !panel.querySelector('.ak-im-call-overlay-detail')
                 || !panel.querySelector('.ak-im-call-overlay-inline-actions')
-                || !panel.querySelector('.ak-im-call-overlay-speaker');
+                || !panel.querySelector('.ak-im-call-overlay-speaker')
+                || !panel.querySelector('.ak-im-call-overlay-camera-switch');
             if (!panel) {
                 const wrapper = document.createElement('div');
                 wrapper.innerHTML = '<div class="ak-im-call-overlay" aria-hidden="true">' + this.getShellMarkup() + '</div>';
@@ -1592,6 +1705,7 @@
             this.refs.restoreLabel = panel.querySelector('.ak-im-call-overlay-restore-label');
             this.refs.mute = panel.querySelector('.ak-im-call-overlay-mute');
             this.refs.speaker = panel.querySelector('.ak-im-call-overlay-speaker');
+            this.refs.cameraSwitch = panel.querySelector('.ak-im-call-overlay-camera-switch');
             this.refs.localAudio = panel.querySelector('.ak-im-call-overlay-audio');
             this.refs.localVideo = panel.querySelector('.ak-im-call-overlay-local');
             this.refs.remoteVideo = panel.querySelector('.ak-im-call-overlay-remote');
@@ -1650,11 +1764,20 @@
             bindAction(this.refs.speaker, function() {
                 self.toggleSpeaker();
             });
+            bindAction(this.refs.cameraSwitch, function() {
+                self.switchCamera();
+            });
+            bindAction(this.refs.localVideo, function() {
+                self.toggleVideoPrimary('local');
+            });
+            bindAction(this.refs.remoteVideo, function() {
+                self.toggleVideoPrimary('remote');
+            });
         },
 
         clearTimer(name) {
             if (!this.timers || !this.timers[name]) return;
-            if (name === 'duration') global.clearInterval(this.timers[name]);
+            if (name === 'duration' || name === 'videoQuality') global.clearInterval(this.timers[name]);
             else global.clearTimeout(this.timers[name]);
             this.timers[name] = 0;
         },
@@ -1719,7 +1842,10 @@
         clearVideoState() {
             this.localVideoReady = false;
             this.remoteVideoReady = false;
-            this.qualityProfile = 'sd';
+            this.primaryVideoSource = 'remote';
+            this.cameraSwitching = false;
+            this.cameraFacingMode = 'user';
+            this.qualityProfile = 'hd';
             this.qualityHealth = 'normal';
             this.qualityStatusText = '';
             this.qualityUpgradeStreak = 0;
@@ -1747,20 +1873,33 @@
 
         evaluateVideoQualitySnapshot(snapshot) {
             const nextSnapshot = snapshot && typeof snapshot === 'object' ? snapshot : {};
-            const bitrate = Number(nextSnapshot.availableOutgoingBitrate || 0);
+            const measuredBitrate = Number(nextSnapshot.outgoingBitrate || 0);
+            const capacityBitrate = Number(nextSnapshot.availableOutgoingBitrate || 0);
+            const bitrate = measuredBitrate > 0 ? measuredBitrate : capacityBitrate;
             const rtt = Number(nextSnapshot.roundTripTime || 0);
             const jitter = Number(nextSnapshot.jitter || 0);
             const packetsLost = Number(nextSnapshot.packetsLost || 0);
             const fps = Number(nextSnapshot.framesPerSecond || 0);
-            const currentIndex = getVideoProfileOrder(this.qualityProfile);
-            let health = 'good';
-            if (bitrate > 0 && bitrate < 320000) health = 'weak';
-            else if (bitrate > 0 && bitrate < 700000) health = 'normal';
-            if (rtt > 0.55 || jitter > 0.12 || packetsLost >= 18 || (fps > 0 && fps < 10)) health = 'weak';
-            else if (health === 'good' && (rtt > 0.28 || jitter > 0.06 || packetsLost >= 6 || (fps > 0 && fps < 16))) health = 'normal';
             const qualityLimited = trim(nextSnapshot.qualityLimitationReason).toLowerCase();
+            const currentIndex = getVideoProfileOrder(this.qualityProfile);
+            const currentProfile = VIDEO_QUALITY_PROFILES[this.qualityProfile] || VIDEO_QUALITY_PROFILES.hd;
+            const hasUsableStats = bitrate > 0 || rtt > 0 || jitter > 0 || packetsLost > 0 || fps > 0 || !!qualityLimited;
+            if (!hasUsableStats) {
+                this.qualityDowngradeStreak = 0;
+                this.qualityUpgradeStreak = 0;
+                return {
+                    health: 'normal',
+                    profile: this.qualityProfile,
+                    shouldChange: false
+                };
+            }
+            let health = 'normal';
+            if (bitrate > 0 && bitrate < Math.max(320000, Math.floor(currentProfile.maxBitrate * 0.5))) health = 'weak';
+            else if (bitrate > 0 && bitrate >= Math.floor(currentProfile.maxBitrate * 0.82) && rtt > 0 && rtt < 0.22 && jitter < 0.045 && packetsLost <= 2 && (!fps || fps >= Math.max(16, currentProfile.frameRate - 6))) health = 'good';
+            if (rtt > 0.48 || jitter > 0.1 || packetsLost >= 12 || (fps > 0 && fps < 11)) health = 'weak';
+            else if (health === 'good' && (rtt > 0.24 || jitter > 0.055 || packetsLost >= 4 || (fps > 0 && fps < 17))) health = 'normal';
             if (qualityLimited === 'bandwidth' || qualityLimited === 'cpu') {
-                if (health === 'good') health = 'normal';
+                health = health === 'weak' ? 'weak' : 'normal';
             }
             let targetIndex = currentIndex;
             if (health === 'weak') {
@@ -1770,7 +1909,10 @@
             } else if (health === 'good') {
                 this.qualityUpgradeStreak += 1;
                 this.qualityDowngradeStreak = 0;
-                if (this.qualityUpgradeStreak >= 3 && currentIndex < (VIDEO_PROFILE_ORDER.length - 1)) targetIndex = currentIndex + 1;
+                const nextProfile = VIDEO_PROFILE_ORDER[currentIndex + 1];
+                const nextProfileConfig = nextProfile ? VIDEO_QUALITY_PROFILES[nextProfile] : null;
+                const canUpgrade = !!(nextProfileConfig && measuredBitrate > 0 && measuredBitrate >= Math.floor(nextProfileConfig.maxBitrate * 0.82));
+                if (this.qualityUpgradeStreak >= 6 && currentIndex < (VIDEO_PROFILE_ORDER.length - 1) && canUpgrade) targetIndex = currentIndex + 1;
             } else {
                 this.qualityDowngradeStreak = 0;
                 this.qualityUpgradeStreak = 0;
@@ -2020,10 +2162,28 @@
                 localTermination: this.localTermination,
                 localVideoReady: this.localVideoReady,
                 remoteVideoReady: this.remoteVideoReady,
+                primaryVideoSource: this.primaryVideoSource,
+                cameraFacingMode: this.cameraFacingMode,
                 qualityProfile: this.qualityProfile,
                 qualityHealth: this.qualityHealth,
                 qualityStatusText: this.qualityStatusText
             };
+        },
+
+        resolveVideoSurface() {
+            if (!this.isVideoCall()) return 'none';
+            if (this.remoteVideoReady && this.localVideoReady && this.primaryVideoSource === 'local') return 'local';
+            if (this.remoteVideoReady) return 'remote';
+            if (this.localVideoReady) return 'local';
+            return 'empty';
+        },
+
+        canSwitchCamera() {
+            return this.isVideoCall()
+                && this.localVideoReady
+                && !this.cameraSwitching
+                && this.webRTC
+                && typeof this.webRTC.switchCamera === 'function';
         },
 
         renderActionButton(ref, config) {
@@ -2036,6 +2196,7 @@
                 ref.removeAttribute('data-prominence');
                 ref.removeAttribute('data-slot');
                 ref.removeAttribute('data-appearance');
+                ref.removeAttribute('data-selected');
                 ref.removeAttribute('aria-label');
                 ref.removeAttribute('title');
                 return;
@@ -2045,6 +2206,7 @@
             ref.dataset.prominence = config.prominence || 'secondary';
             ref.dataset.slot = config.slot || '';
             ref.dataset.appearance = config.appearance || 'tool';
+            ref.dataset.selected = config.selected ? '1' : '0';
             ref.setAttribute('aria-label', config.label || '');
             ref.title = config.label || '';
         },
@@ -2130,27 +2292,31 @@
                 this.mode,
                 renderMeta
             );
+            const canSwitchCamera = this.canSwitchCamera();
             const actionLayout = isVideoCall
-                ? buildVideoCallActionLayout(this.mode, this.muted, this.speakerEnabled)
+                ? buildVideoCallActionLayout(this.mode, this.muted, this.speakerEnabled, canSwitchCamera)
                 : buildCallActionLayout(this.mode, this.muted, this.speakerEnabled);
             const headerStatus = buildHeaderStatusText(view);
-            const stateText = trim(this.qualityStatusText) || trim(view.footer);
+            const stateText = this.cameraSwitching ? '正在翻转摄像头' : (trim(this.qualityStatusText) || trim(view.footer));
+            const videoSurface = this.resolveVideoSurface();
             refs.panel.setAttribute('aria-hidden', visible ? 'false' : 'true');
             refs.panel.dataset.mode = this.mode;
             refs.panel.dataset.minimized = showMinimizedShell ? '1' : '0';
             refs.panel.dataset.kind = this.currentKind;
             refs.panel.dataset.localVideoReady = this.localVideoReady ? '1' : '0';
             refs.panel.dataset.remoteVideoReady = this.remoteVideoReady ? '1' : '0';
-            refs.panel.dataset.videoSurface = isVideoCall
-                ? (this.remoteVideoReady ? 'remote' : (this.localVideoReady ? 'local' : 'empty'))
-                : 'none';
+            refs.panel.dataset.videoSurface = videoSurface;
+            refs.panel.dataset.cameraFacing = this.cameraFacingMode || 'user';
             refs.panel.dataset.terminalPresentation = this.terminalPresentation || 'panel';
             refs.title.textContent = this.currentPeerName || getCallKindLabel(this.currentKind);
             refs.subtitle.textContent = headerStatus;
             refs.subtitle.style.display = headerStatus ? 'block' : 'none';
             refs.state.textContent = stateText;
             refs.state.style.display = stateText ? 'block' : 'none';
-            if (refs.minimize) refs.minimize.style.display = visible && !this.minimized && this.canMinimize() ? 'flex' : 'none';
+            if (refs.minimize) {
+                refs.minimize.style.display = visible && !this.minimized && this.canMinimize() ? 'flex' : 'none';
+                refs.minimize.innerHTML = getIconMarkup(isVideoCall ? 'float_window' : 'minimize');
+            }
             if (refs.restoreIcon) refs.restoreIcon.innerHTML = getIconMarkup(isVideoCall ? 'video' : 'phone');
             if (refs.restoreLabel) refs.restoreLabel.textContent = (this.currentPeerName || getCallRestoreLabel(this.currentKind)).trim() || getCallRestoreLabel(this.currentKind);
             refs.placeholder.style.display = (isVideoCall && this.remoteVideoReady) ? 'none' : 'flex';
@@ -2180,6 +2346,7 @@
             this.renderActionButton(refs.mute, actionLayout.mute);
             this.renderActionButton(refs.speaker, actionLayout.speaker);
             this.renderActionButton(refs.hangup, actionLayout.hangup);
+            this.renderActionButton(refs.cameraSwitch, actionLayout.cameraSwitch);
             if (refs.inlineActions && actionLayout.layout === 'double') {
                 refs.inlineActions.style.display = 'flex';
                 if (refs.reject) refs.inlineActions.appendChild(refs.reject);
@@ -2192,6 +2359,7 @@
                     if (refs.mute && refs.mute.parentNode !== refs.actions) refs.actions.appendChild(refs.mute);
                     if (refs.hangup && refs.hangup.parentNode !== refs.actions) refs.actions.appendChild(refs.hangup);
                     if (refs.speaker && refs.speaker.parentNode !== refs.actions) refs.actions.appendChild(refs.speaker);
+                    if (refs.cameraSwitch && refs.cameraSwitch.parentNode !== refs.actions) refs.actions.appendChild(refs.cameraSwitch);
                     if (refs.accept && refs.accept.parentNode !== refs.actions) refs.actions.appendChild(refs.accept);
                     refs.actions.style.display = '';
                 }
@@ -2636,6 +2804,9 @@
             const audio = this.refs.localAudio;
             const localVideo = this.refs.localVideo;
             if (!stream) return;
+            if (this.webRTC && typeof this.webRTC.getFacingMode === 'function') {
+                this.cameraFacingMode = this.webRTC.getFacingMode() || this.cameraFacingMode || 'user';
+            }
             try {
                 if (audio) {
                     audio.srcObject = stream;
@@ -2659,21 +2830,28 @@
         attachRemoteStream(stream) {
             const audio = this.refs.localAudio;
             const remoteVideo = this.refs.remoteVideo;
+            const isVideo = this.isVideoCall();
             if (!stream) return;
             try {
                 if (audio) {
-                    audio.srcObject = stream;
-                    audio.muted = false;
-                    audio.volume = this.speakerEnabled ? 1 : 0.82;
-                    const playResult = audio.play();
-                    if (playResult && typeof playResult.catch === 'function') playResult.catch(function() {});
+                    if (isVideo) {
+                        audio.muted = true;
+                        audio.srcObject = null;
+                    } else {
+                        audio.srcObject = stream;
+                        audio.muted = false;
+                        audio.volume = this.getRemotePlaybackVolume();
+                        const playResult = audio.play();
+                        if (playResult && typeof playResult.catch === 'function') playResult.catch(function() {});
+                    }
                 }
             } catch (e) {}
             try {
-                if (remoteVideo) {
+                if (remoteVideo && isVideo) {
                     remoteVideo.srcObject = stream;
                     remoteVideo.muted = false;
                     remoteVideo.playsInline = true;
+                    remoteVideo.volume = this.getRemotePlaybackVolume();
                     const videoPlayResult = remoteVideo.play();
                     if (videoPlayResult && typeof videoPlayResult.catch === 'function') videoPlayResult.catch(function() {});
                 }
@@ -2682,6 +2860,21 @@
             this.markActive();
             this.setState(CALL_MODES.active, {});
             if (this.remoteVideoReady) this.startVideoQualityMonitor();
+        },
+
+        getRemotePlaybackVolume() {
+            return this.speakerEnabled ? REMOTE_SPEAKER_VOLUME : REMOTE_EARPIECE_VOLUME;
+        },
+
+        applyRemotePlaybackVolume() {
+            const volume = this.getRemotePlaybackVolume();
+            if (this.refs.localAudio) {
+                try { this.refs.localAudio.volume = volume; } catch (e) {}
+            }
+            if (this.refs.remoteVideo) {
+                try { this.refs.remoteVideo.volume = volume; } catch (e) {}
+            }
+            return volume;
         },
 
         handlePeerState(state) {
@@ -2707,13 +2900,38 @@
 
         toggleSpeaker() {
             this.speakerEnabled = !this.speakerEnabled;
-            if (this.refs.localAudio) {
-                this.refs.localAudio.volume = this.speakerEnabled ? 1 : 0.82;
-            }
-            if (this.refs.remoteVideo) {
-                this.refs.remoteVideo.volume = this.speakerEnabled ? 1 : 0.82;
-            }
+            this.applyRemotePlaybackVolume();
             this.render();
+        },
+
+        toggleVideoPrimary(source) {
+            if (!this.isVideoCall() || !this.localVideoReady || !this.remoteVideoReady) return;
+            const currentSurface = this.resolveVideoSurface();
+            const normalizedSource = trim(source).toLowerCase();
+            if (normalizedSource === 'local' && currentSurface === 'remote') this.primaryVideoSource = 'local';
+            else if (normalizedSource === 'remote' && currentSurface === 'local') this.primaryVideoSource = 'remote';
+            else return;
+            this.render();
+        },
+
+        switchCamera() {
+            if (!this.canSwitchCamera()) return;
+            const self = this;
+            this.cameraSwitching = true;
+            this.render();
+            Promise.resolve(this.webRTC.switchCamera()).then(function(switched) {
+                if (self.webRTC && typeof self.webRTC.getFacingMode === 'function') {
+                    self.cameraFacingMode = self.webRTC.getFacingMode() || self.cameraFacingMode || 'user';
+                }
+                if (!switched) {
+                    self.qualityStatusText = '当前设备不支持摄像头翻转';
+                }
+            }).catch(function() {
+                self.qualityStatusText = '摄像头翻转失败';
+            }).then(function() {
+                self.cameraSwitching = false;
+                self.render();
+            });
         },
 
         cleanupMedia() {
