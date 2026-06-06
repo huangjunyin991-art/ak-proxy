@@ -40,8 +40,6 @@ class NtfyClient:
         }
         click_url = payload.get('click_url') or ''
         tags = payload.get('tags') or ''
-        if click_url:
-            query['click'] = click_url
         if tags:
             query['tags'] = tags
         url = f'{server_url}/{quote(topic, safe="")}?{urlencode(query)}'
@@ -49,6 +47,8 @@ class NtfyClient:
             'Content-Type': 'text/plain; charset=utf-8',
             'Accept': 'application/json',
         }
+        if click_url:
+            headers['Click'] = click_url
         request = Request(
             url,
             data=(payload.get('message') or '点击查看').encode('utf-8'),
