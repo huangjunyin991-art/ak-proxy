@@ -66,7 +66,7 @@
         const normalizedFallbackText = trim(fallbackText);
         if (eventName === 'completed') return '通话时长 ' + normalizeDurationText(durationText || '00:00');
         if (eventName === 'rejected') return options.remote ? '本次呼叫未接通 · 对方已拒接' : '本次呼叫未接通 · 已拒接';
-        if (normalizedFallbackText.indexOf('未接听') >= 0) return '本次呼叫未接通 · 对方未接听';
+        if (normalizedFallbackText.indexOf('未接听') >= 0) return options.remote ? '本次呼叫未接通 · 你未接听' : '本次呼叫未接通 · 对方未接听';
         if (eventName === 'cancelled') return options.remote ? '本次呼叫未接通 · 对方已取消' : '本次呼叫未接通 · 已取消';
         return normalizedFallbackText || '本次呼叫未接通';
     }
@@ -112,17 +112,31 @@
             styleEl.id = STYLE_ID;
             styleEl.textContent = [
                 '.ak-im-bubble.ak-im-bubble-call-event{padding:10px 12px;min-width:0}',
+                '.ak-im-bubble.ak-im-bubble-call-event.ak-im-bubble-clickable{cursor:pointer;transition:transform .16s ease,box-shadow .16s ease,background-color .16s ease}',
+                '.ak-im-bubble.ak-im-bubble-call-event.ak-im-bubble-clickable:hover{transform:translateY(-1px);box-shadow:0 12px 24px rgba(15,23,42,.12)}',
+                '.ak-im-bubble.ak-im-bubble-call-event.ak-im-bubble-clickable:focus-visible{outline:2px solid rgba(37,99,235,.44);outline-offset:2px}',
                 '.ak-im-call-event-bubble{display:flex;align-items:center;gap:10px;min-width:0}',
                 '.ak-im-call-event-icon{width:28px;height:28px;border-radius:14px;display:flex;align-items:center;justify-content:center;flex:0 0 auto}',
                 '.ak-im-call-event-icon svg{width:18px;height:18px;stroke:currentColor;stroke-width:1.85;stroke-linecap:round;stroke-linejoin:round;fill:none}',
                 '.ak-im-call-event-bubble[data-event="cancelled"] .ak-im-call-event-icon{background:rgba(148,163,184,.16);color:#cbd5e1}',
                 '.ak-im-call-event-bubble[data-event="rejected"] .ak-im-call-event-icon{background:rgba(239,68,68,.14);color:#f87171}',
                 '.ak-im-call-event-bubble[data-event="completed"] .ak-im-call-event-icon{background:rgba(16,185,129,.14);color:#34d399}',
-                '.ak-im-call-event-text{min-width:0;display:flex;flex-direction:column;gap:2px}',
+                '.ak-im-call-event-text{min-width:0;display:flex;flex:1;flex-direction:column;gap:2px}',
                 '.ak-im-call-event-title{font-size:14px;font-weight:700;line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
-                '.ak-im-call-event-subtitle{font-size:11px;line-height:1.4;color:rgba(100,116,139,.92)}'
+                '.ak-im-call-event-subtitle{font-size:11px;line-height:1.4;color:rgba(100,116,139,.92)}',
+                '.ak-im-call-event-cta{display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto;min-width:56px;height:28px;padding:0 10px;border-radius:999px;background:rgba(37,99,235,.12);color:#2563eb;font-size:12px;font-weight:700;line-height:1.2;white-space:nowrap}'
             ].join('');
             (global.document.head || global.document.documentElement).appendChild(styleEl);
+        },
+
+        canRedial(item, callEvent) {
+            if (!callEvent) return false;
+            if (!this.ctx || typeof this.ctx.canRedial !== 'function') return false;
+            try {
+                return !!this.ctx.canRedial(item, callEvent);
+            } catch (e) {
+                return false;
+            }
         },
 
         resolveCallEvent(item) {
@@ -148,13 +162,16 @@
             } else {
                 return null;
             }
-            return {
+            const callEvent = {
                 event: eventName || normalizeTextEvent(previewText) || (previewText.indexOf('通话时长') >= 0 ? 'completed' : (previewText.indexOf('拒接') >= 0 ? 'rejected' : 'cancelled')),
                 title: buildMainText(eventName || normalizeTextEvent(previewText), durationText, previewText, { remote: isRemote }),
                 subtitle: buildSubtitle(payload.call_kind || payload.kind || 'audio'),
                 icon: resolveIcon(eventName || normalizeTextEvent(previewText)),
-                durationText: durationText
+                durationText: durationText,
+                kind: normalizeKind(payload.call_kind || payload.kind || 'audio')
             };
+            callEvent.canRedial = this.canRedial(item, callEvent);
+            return callEvent;
         },
 
         getMessageBubbleClassName(item) {
@@ -165,13 +182,27 @@
             const callEvent = this.resolveCallEvent(item);
             if (!callEvent) return '';
             this.ensureStyle();
-            return '<div class="ak-im-call-event-bubble" data-event="' + this.escapeHtml(callEvent.event) + '">' +
+            return '<div class="ak-im-call-event-bubble" data-event="' + this.escapeHtml(callEvent.event) + '"' + (callEvent.canRedial ? ' data-redial="1"' : '') + '>' +
                 '<span class="ak-im-call-event-icon" aria-hidden="true">' + callEvent.icon + '</span>' +
                 '<span class="ak-im-call-event-text">' +
                     '<span class="ak-im-call-event-title">' + this.escapeHtml(callEvent.title) + '</span>' +
                     '<span class="ak-im-call-event-subtitle">' + this.escapeHtml(callEvent.subtitle) + '</span>' +
                 '</span>' +
+                (callEvent.canRedial ? '<span class="ak-im-call-event-cta" aria-hidden="true">回拨</span>' : '') +
             '</div>';
+        },
+
+        getMessageBubbleClickHandler(item) {
+            const callEvent = this.resolveCallEvent(item);
+            const self = this;
+            if (!callEvent || !callEvent.canRedial) return null;
+            return function(event) {
+                if (event && typeof event.preventDefault === 'function') event.preventDefault();
+                if (event && typeof event.stopPropagation === 'function') event.stopPropagation();
+                if (self.ctx && typeof self.ctx.startRedial === 'function') {
+                    self.ctx.startRedial(item, callEvent);
+                }
+            };
         }
     };
 

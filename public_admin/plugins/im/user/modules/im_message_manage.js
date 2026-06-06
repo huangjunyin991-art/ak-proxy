@@ -722,13 +722,32 @@
                             footerMarkup +
                         '</div>' +
                     '</div>';
+                const bubble = wrapper.querySelector('.ak-im-bubble');
+                const bubbleClickHandler = bubble && self.ctx && typeof self.ctx.getMessageBubbleClickHandler === 'function'
+                    ? self.ctx.getMessageBubbleClickHandler(item, {
+                        isSelf: isSelf,
+                        activeSession: activeSession
+                    })
+                    : null;
+                if (bubble && typeof bubbleClickHandler === 'function') {
+                    bubble.classList.add('ak-im-bubble-clickable');
+                    bubble.setAttribute('role', 'button');
+                    bubble.setAttribute('tabindex', '0');
+                    bubble.addEventListener('click', function(event) {
+                        bubbleClickHandler(event);
+                    });
+                    bubble.addEventListener('keydown', function(event) {
+                        const key = String(event && event.key || '');
+                        if (key !== 'Enter' && key !== ' ') return;
+                        bubbleClickHandler(event);
+                    });
+                }
                 const messageAvatar = wrapper.querySelector('[data-im-message-avatar-username]');
                 const groupAdmins = self.ctx && typeof self.ctx.getGroupAdmins === 'function' ? self.ctx.getGroupAdmins() : null;
                 if (messageAvatar && groupAdmins && typeof groupAdmins.bindMemberLongPress === 'function' && isActiveGroupSession) {
                     groupAdmins.bindMemberLongPress(messageAvatar, Number(activeSession && activeSession.conversation_id || state.activeConversationId || 0), messageAvatar.getAttribute('data-im-message-avatar-username'));
                 }
                 if (isSelf) {
-                    const bubble = wrapper.querySelector('.ak-im-bubble');
                     if (bubble && !bubble.classList.contains('ak-im-bubble-voice')) {
                         let pressTimer = null;
                         const startPress = function() {

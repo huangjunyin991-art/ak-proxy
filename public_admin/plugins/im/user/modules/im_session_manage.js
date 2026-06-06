@@ -89,6 +89,23 @@
             }
         },
 
+        isCallPreviewText(value) {
+            return String(value || '').trim().indexOf('📞') === 0;
+        },
+
+        normalizeCallTextPreview(preview, senderUsername) {
+            const normalizedPreview = String(preview || '').trim();
+            const normalizedSender = String(senderUsername || '').trim().toLowerCase();
+            const viewerUsername = String(this.ctx && this.ctx.state && this.ctx.state.username || '').trim().toLowerCase();
+            const isRemote = !!(normalizedSender && viewerUsername && normalizedSender !== viewerUsername);
+            const durationMatch = normalizedPreview.match(/通话时长\s*([0-9:]+)/);
+            if (durationMatch && durationMatch[1]) return '通话时长 ' + durationMatch[1];
+            if (normalizedPreview.indexOf('拒接') >= 0) return isRemote ? '对方已拒接' : '已拒接';
+            if (normalizedPreview.indexOf('未接听') >= 0) return isRemote ? '你未接听' : '对方未接听';
+            if (normalizedPreview.indexOf('取消') >= 0) return isRemote ? '对方已取消' : '已取消';
+            return normalizedPreview.replace(/^📞\s*/, '').trim();
+        },
+
         normalizeCallEventPreview(item, fallbackPreview) {
             const payload = this.safeParseJson(item && item.content);
             const normalizedFallbackPreview = String(fallbackPreview || '').trim();
@@ -112,6 +129,8 @@
             let preview = String(item && item.last_message_preview || '').trim() || '暂无消息';
             if (String(item && item.last_message_type || '').trim().toLowerCase() === 'call_event') {
                 preview = this.normalizeCallEventPreview(item, preview) || '暂无消息';
+            } else if (this.isCallPreviewText(preview)) {
+                preview = this.normalizeCallTextPreview(preview, item && (item.last_message_sender_username || item.sender_username));
             }
             if (String(item && item.last_message_type || '').trim().toLowerCase() === 'emoji_custom' && preview && preview !== '暂无消息' && !/^\[.*\]$/.test(preview)) {
                 preview = '[' + preview + ']';
@@ -307,6 +326,7 @@
                     last_message_id: Number(item.id || session.last_message_id || 0) || 0,
                     last_message_type: nextMessageType || String(session.last_message_type || '').trim(),
                     last_message_preview: nextPreview || String(session.last_message_preview || '').trim(),
+                    last_message_sender_username: String(item.sender_username || session.last_message_sender_username || '').trim().toLowerCase(),
                     last_message_at: String(item.sent_at || session.last_message_at || '').trim(),
                     unread_count: nextUnreadCount,
                     unread: nextUnreadCount

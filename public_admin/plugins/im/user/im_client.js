@@ -1574,6 +1574,26 @@
             escapeHtml: escapeHtml,
             getViewerUsername: function() {
                 return String(state.username || '').trim().toLowerCase();
+            },
+            canRedial: function(item, callEvent) {
+                const activeSession = getActiveSession();
+                const callKind = callEvent && String(callEvent.kind || '').trim().toLowerCase() === 'video' ? 'video' : 'audio';
+                const itemConversationId = Number(item && item.conversation_id || 0);
+                const activeConversationId = Number(activeSession && activeSession.conversation_id || state.activeConversationId || 0);
+                if (!activeSession || state.view !== 'chat') return false;
+                if (itemConversationId > 0 && activeConversationId > 0 && itemConversationId !== activeConversationId) return false;
+                return !getCallActionUnavailableReason(callKind, activeSession);
+            },
+            startRedial: function(item, callEvent) {
+                const activeSession = getActiveSession();
+                const callKind = callEvent && String(callEvent.kind || '').trim().toLowerCase() === 'video' ? 'video' : 'audio';
+                const unavailableReason = getCallActionUnavailableReason(callKind, activeSession);
+                if (unavailableReason) {
+                    openCallUnavailableDialog(callKind, unavailableReason);
+                    return false;
+                }
+                openCallByAction(callKind);
+                return true;
             }
         });
     }
@@ -2035,6 +2055,7 @@
             buildDisplayNameWithHonorMarkup: buildDisplayNameWithHonorMarkup,
             buildMessageBubbleMarkup: buildMessageBubbleMarkup,
             getMessageBubbleClassName: getMessageBubbleClassName,
+            getMessageBubbleClickHandler: getMessageBubbleClickHandler,
             syncVoiceMessageBubbles: function() {
                 const voiceHoldModule = getVoiceHoldModule();
                 if (voiceHoldModule && typeof voiceHoldModule.syncMessageBubblePlaybackState === 'function') {
@@ -2693,6 +2714,15 @@
             if (emojiClassName) return emojiClassName;
         }
         return '';
+    }
+
+    function getMessageBubbleClickHandler(item) {
+        const callMessageModule = getCallMessageManageModule();
+        if (callMessageModule && typeof callMessageModule.getMessageBubbleClickHandler === 'function') {
+            const clickHandler = callMessageModule.getMessageBubbleClickHandler(item);
+            if (typeof clickHandler === 'function') return clickHandler;
+        }
+        return null;
     }
 
     function renderEmojiPanel() {
