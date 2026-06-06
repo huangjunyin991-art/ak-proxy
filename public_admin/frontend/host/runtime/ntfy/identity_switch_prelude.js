@@ -95,11 +95,15 @@
             domains.push(host);
             domains.push('.' + host.replace(/^\./, ''));
         }
+        var paths = ['/', '/admin', '/pages', '/pages/account'];
         for (var i = 0; i < domains.length; i++) {
             var domainPart = domains[i] ? '; domain=' + domains[i] : '';
-            try { document.cookie = key + '=; path=/; max-age=0; SameSite=Lax' + domainPart; } catch (e2) {}
-            try { document.cookie = key + '=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Lax' + domainPart; } catch (e3) {}
-            try { document.cookie = key + '=; path=/; max-age=0; SameSite=Lax; Secure' + domainPart; } catch (e4) {}
+            for (var j = 0; j < paths.length; j++) {
+                var pathPart = '; path=' + paths[j];
+                try { document.cookie = key + '=' + pathPart + '; max-age=0; SameSite=Lax' + domainPart; } catch (e2) {}
+                try { document.cookie = key + '=' + pathPart + '; expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Lax' + domainPart; } catch (e3) {}
+                try { document.cookie = key + '=' + pathPart + '; max-age=0; SameSite=Lax; Secure' + domainPart; } catch (e4) {}
+            }
         }
     }
 
@@ -196,9 +200,12 @@
             getStoreKey(),
             'userkey',
             'UserKey',
+            '_ak_sl',
             'ak_login_result',
             'UserData',
             'AK_local_login_info',
+            'ak_ntfy_im_username',
+            'ak_ntfy_force_login',
             'ak_im_sync_key_' + targetUsername
         ];
         for (var i = 0; i < storageKeys.length; i++) {
@@ -224,7 +231,9 @@
         clearCookie('ak_username');
         clearCookie('ak_im_username');
         clearCookie('ak_persist');
+        clearCookie('ak_admin_bs');
         try { window.AKIMClientUsername = ''; } catch (e5) {}
+        try { window.userkey = ''; } catch (e8) {}
         try { window.USER_MODEL = { Id: 0, Key: '' }; } catch (e6) {}
         try {
             if (window.APP && APP.USER) APP.USER.MODEL = { Id: 0, Key: '' };
@@ -232,7 +241,7 @@
     }
 
     function redirectToLoginForTokenFailure(reason) {
-        var loginUrl = '/pages/account/login.html?reason='
+        var loginUrl = '/admin/api/ak_auth/ntfy_force_login?reason='
             + encodeURIComponent(String(reason || 'ntfy_token_invalid'))
             + '&im_username=' + encodeURIComponent(targetUsername);
         updateLock({
@@ -243,6 +252,13 @@
             reason: String(reason || 'ntfy_token_invalid')
         });
         debug('token-failure-redirect-login', { reason: String(reason || ''), currentUsername: readCurrentUsername() });
+        try {
+            sessionStorage.setItem('ak_ntfy_force_login', JSON.stringify({
+                im_username: targetUsername,
+                reason: String(reason || 'ntfy_token_invalid'),
+                at: Date.now()
+            }));
+        } catch (e2) {}
         try {
             window.location.replace(loginUrl);
         } catch (e) {
