@@ -222,6 +222,8 @@
         window.AKClientRuntimeContext = window.AKClientRuntimeContext || {};
         window.AKClientRuntimeContext.withWidgetAssetVersion = withWidgetAssetVersion;
     } catch (e) {}
+    const CHAT_WS_RECONNECT_BASE_DELAY = 1000;
+    const CHAT_WS_RECONNECT_MAX_DELAY = 30000;
     const HEARTBEAT_INTERVAL = 5000; // 5秒心跳间隔
     
     // 状态
@@ -265,6 +267,16 @@
     let username = 'visitor';
     let heartbeatTimer = null;
     let reconnectTimer = null;
+    let reconnectFailureCount = 0;
+    let reconnectDelay = 0;
+    let wsConnectSeq = 0;
+    let wsCurrentUrl = '';
+    let wsLastOpenAt = 0;
+    let wsLastCloseAt = 0;
+    let wsLastCloseCode = 0;
+    let wsLastCloseReason = '';
+    let wsLastErrorAt = 0;
+    let wsLastErrorType = '';
     let presenceBlurTimer = null;
     let presenceSuspended = false;
     let pendingAssistRequest = null;
@@ -298,11 +310,9 @@
             setTimeout(function() {
                 if (!ws || ws.readyState !== WebSocket.OPEN) return;
                 if (!isPresenceForeground() || presenceSuspended) return;
-                const nextUsername = getUsername();
+                const nextUsername = normalizeChatUsername(getUsername());
                 if (!nextUsername || nextUsername === username) return;
-                if (sendPresence('online')) {
-                    startHeartbeat();
-                }
+                reconnectChatSocketForUsername(nextUsername, 'identity_refresh');
             }, delay);
         });
     }
@@ -328,6 +338,80 @@
         if (targetWs.readyState === WebSocket.CLOSING) return 'CLOSING';
         if (targetWs.readyState === WebSocket.CLOSED) return 'CLOSED';
         return String(targetWs.readyState);
+    }
+
+    function normalizeChatUsername(value) {
+        return String(value || '').trim().toLowerCase();
+    }
+
+    function buildChatWsUrl(nextUsername) {
+        try {
+            const finalUrl = new URL(WS_URL, window.location.href);
+            const normalizedUsername = normalizeChatUsername(nextUsername);
+            if (normalizedUsername) finalUrl.searchParams.set('username', normalizedUsername);
+            return finalUrl.toString();
+        } catch (e) {
+            return WS_URL + '?username=' + encodeURIComponent(normalizeChatUsername(nextUsername));
+        }
+    }
+
+    function updateChatWsDebug(eventName, extra) {
+        try {
+            const snapshot = {
+                kind: 'chat',
+                event: String(eventName || ''),
+                username: String(username || ''),
+                url: String(wsCurrentUrl || ''),
+                readyState: getChatWsReadyStateLabel(ws),
+                failureCount: Number(reconnectFailureCount || 0),
+                reconnectDelay: Number(reconnectDelay || 0),
+                lastOpenAt: Number(wsLastOpenAt || 0),
+                lastCloseAt: Number(wsLastCloseAt || 0),
+                lastCloseCode: Number(wsLastCloseCode || 0),
+                lastCloseReason: String(wsLastCloseReason || ''),
+                lastErrorAt: Number(wsLastErrorAt || 0),
+                lastErrorType: String(wsLastErrorType || ''),
+                updatedAt: new Date().toISOString()
+            };
+            if (extra && typeof extra === 'object') {
+                Object.keys(extra).forEach(function(key) {
+                    snapshot[key] = extra[key];
+                });
+            }
+            window.__AKWsDebug = window.__AKWsDebug || {};
+            window.__AKWsDebug.chat = snapshot;
+        } catch(e) {}
+    }
+
+    function getChatReconnectDelay() {
+        const cappedFailures = Math.min(Math.max(Number(reconnectFailureCount || 0), 0), 5);
+        return Math.min(CHAT_WS_RECONNECT_MAX_DELAY, CHAT_WS_RECONNECT_BASE_DELAY * Math.pow(2, cappedFailures)) + Math.floor(Math.random() * 450);
+    }
+
+    function closeChatSocketForReplacement(reason) {
+        const currentWs = ws;
+        ws = null;
+        wsConnectSeq += 1;
+        stopHeartbeat();
+        clearReconnectTimer();
+        updateChatWsDebug('close_for_replacement', { reason: String(reason || '') });
+        if (!currentWs) return;
+        try {
+            if (currentWs.readyState === WebSocket.OPEN || currentWs.readyState === WebSocket.CONNECTING) {
+                currentWs.close(1000, String(reason || 'replace').slice(0, 80));
+            }
+        } catch(e) {}
+    }
+
+    function reconnectChatSocketForUsername(nextUsername, reason) {
+        const normalizedUsername = normalizeChatUsername(nextUsername);
+        if (!normalizedUsername || normalizedUsername === normalizeChatUsername(username)) return false;
+        username = normalizedUsername;
+        closeChatSocketForReplacement(reason || 'username_changed');
+        if (!presenceSuspended && isPresenceForeground()) {
+            connect();
+        }
+        return true;
     }
 
     function logChatWsDebug(eventName, extra) {
@@ -1001,6 +1085,7 @@
             clearTimeout(reconnectTimer);
             reconnectTimer = null;
         }
+        reconnectDelay = 0;
     }
 
     function clearPresenceBlurTimer() {
@@ -3388,7 +3473,12 @@
         }
         try {
             if (type === 'online') {
-                username = getUsername();
+                const nextUsername = normalizeChatUsername(getUsername());
+                if (nextUsername && nextUsername !== normalizeChatUsername(username)) {
+                    reconnectChatSocketForUsername(nextUsername, 'send_presence_identity_changed');
+                    return false;
+                }
+                username = nextUsername || username;
             }
             ws.send(JSON.stringify({
                 type: type,
@@ -3412,9 +3502,13 @@
         if (presenceSuspended) {
             return;
         }
+        reconnectDelay = getChatReconnectDelay();
+        updateChatWsDebug('schedule_reconnect', { reason: String(reason || '') });
         reconnectTimer = setTimeout(function() {
+            reconnectTimer = null;
+            reconnectDelay = 0;
             connect();
-        }, 5000);
+        }, reconnectDelay);
     }
 
     function suspendPresence(reason) {
@@ -3438,6 +3532,12 @@
         presenceSuspended = false;
         clearReconnectTimer();
         if (ws && ws.readyState === WebSocket.OPEN) {
+            const nextUsername = normalizeChatUsername(getUsername());
+            if (nextUsername && nextUsername !== normalizeChatUsername(username)) {
+                reconnectChatSocketForUsername(nextUsername, reason || 'resume_identity_changed');
+                resumeAssistConnection(String(reason || 'resume_presence_identity_changed'));
+                return;
+            }
             sendPresence('online');
             startHeartbeat();
             resumeAssistConnection(String(reason || 'resume_presence_ws_open'));
@@ -3459,17 +3559,36 @@
     
     // 连接WebSocket
     function connect() {
-        // 获取用户名
-        username = getUsername();
+        const nextUsername = normalizeChatUsername(getUsername());
+        if (!nextUsername) return;
         clearReconnectTimer();
-        if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return;
+        if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
+            if (normalizeChatUsername(username) === nextUsername) {
+                updateChatWsDebug('reuse_socket', { expectedUsername: nextUsername });
+                return;
+            }
+            closeChatSocketForReplacement('username_changed');
+        }
+        username = nextUsername;
         
         try {
-            const currentWs = new WebSocket(WS_URL + '?username=' + encodeURIComponent(username));
+            const currentUrl = buildChatWsUrl(username);
+            const currentSeq = wsConnectSeq + 1;
+            wsConnectSeq = currentSeq;
+            wsCurrentUrl = currentUrl;
+            updateChatWsDebug('connecting', { expectedUsername: username });
+            const currentWs = new WebSocket(currentUrl);
             ws = currentWs;
             
             currentWs.onopen = function() {
                 if (ws !== currentWs) return;
+                if (wsConnectSeq !== currentSeq) return;
+                wsLastOpenAt = Date.now();
+                wsLastCloseCode = 0;
+                wsLastCloseReason = '';
+                reconnectFailureCount = 0;
+                reconnectDelay = 0;
+                updateChatWsDebug('open', { expectedUsername: username });
                 if (!isPresenceForeground() || presenceSuspended) {
                     presenceSuspended = true;
                     try {
@@ -3479,7 +3598,7 @@
                     } catch (e) {}
                     return;
                 }
-                sendPresence('online');
+                if (!sendPresence('online')) return;
                 startHeartbeat();
                 schedulePresenceIdentityRefresh();
                 emitChatBridgeEvent('ak-chat-ws-open', { username: username || '' });
@@ -3491,6 +3610,7 @@
             
             currentWs.onmessage = function(e) {
                 if (ws !== currentWs) return;
+                if (wsConnectSeq !== currentSeq) return;
                 try {
                     const data = JSON.parse(e.data);
                     emitChatBridgeEvent('ak-chat-ws-message', data);
@@ -3546,6 +3666,7 @@
             
             currentWs.onclose = function(event) {
                 if (ws !== currentWs) return;
+                if (wsConnectSeq !== currentSeq) return;
                 closeAssistRequestDialog(true);
                 closeVoiceRequestDialog(true);
                 if (!hasForegroundProtectedRealtimeSession()) {
@@ -3553,6 +3674,15 @@
                 }
                 stopHeartbeat();
                 ws = null;
+                wsLastCloseAt = Date.now();
+                wsLastCloseCode = Number((event && event.code) || 0);
+                wsLastCloseReason = String((event && event.reason) || '');
+                reconnectFailureCount = Math.min(Number(reconnectFailureCount || 0) + 1, 6);
+                updateChatWsDebug('close', {
+                    code: wsLastCloseCode,
+                    reason: wsLastCloseReason,
+                    wasClean: !!(event && event.wasClean)
+                });
                 emitChatBridgeEvent('ak-chat-ws-close', {
                     code: Number((event && event.code) || 0),
                     reason: String((event && event.reason) || '')
@@ -3562,13 +3692,25 @@
             
             currentWs.onerror = function(err) {
                 if (ws !== currentWs) return;
+                if (wsConnectSeq !== currentSeq) return;
+                wsLastErrorAt = Date.now();
+                wsLastErrorType = String((err && err.type) || 'error');
+                updateChatWsDebug('error', {
+                    type: wsLastErrorType,
+                    wsState: getChatWsReadyStateLabel(currentWs)
+                });
                 logChatWsDebug('ws_error', {
                     type: String((err && err.type) || ''),
                     wsState: getChatWsReadyStateLabel(currentWs)
                 });
-                console.error('[AKChat] WebSocket 错误:', err);
             };
         } catch(e) {
+            reconnectFailureCount = Math.min(Number(reconnectFailureCount || 0) + 1, 6);
+            wsLastErrorAt = Date.now();
+            wsLastErrorType = 'connect_exception';
+            updateChatWsDebug('connect_exception', {
+                message: String((e && e.message) || e || '')
+            });
             logChatWsDebug('connect_exception', {
                 message: String((e && e.message) || e || '')
             });
@@ -3617,7 +3759,9 @@
     function reconnect() {
         suspendPresence('manual_reconnect');
         // 重新获取用户名并连接
-        username = getUsername();
+        username = normalizeChatUsername(getUsername());
+        reconnectFailureCount = 0;
+        reconnectDelay = 0;
         if (isPresenceForeground()) {
             resumePresence('manual_reconnect');
         }

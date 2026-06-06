@@ -1428,15 +1428,164 @@
             }
         },
 
+        getSocketReadyStateLabel(targetWs) {
+            if (!targetWs) return 'NULL';
+            try {
+                if (targetWs.readyState === WebSocket.CONNECTING) return 'CONNECTING';
+                if (targetWs.readyState === WebSocket.OPEN) return 'OPEN';
+                if (targetWs.readyState === WebSocket.CLOSING) return 'CLOSING';
+                if (targetWs.readyState === WebSocket.CLOSED) return 'CLOSED';
+            } catch (e) {}
+            return String(targetWs.readyState);
+        },
+
+        ensureWsMeta(state) {
+            if (!state) return {};
+            if (!state.wsMeta || typeof state.wsMeta !== 'object') {
+                state.wsMeta = {};
+            }
+            const meta = state.wsMeta;
+            if (typeof meta.token !== 'number') meta.token = 0;
+            if (typeof meta.failureCount !== 'number') meta.failureCount = 0;
+            if (typeof meta.reconnectDelay !== 'number') meta.reconnectDelay = 0;
+            if (typeof meta.username !== 'string') meta.username = '';
+            if (typeof meta.url !== 'string') meta.url = '';
+            return meta;
+        },
+
+        updateWebSocketDebug(state, eventName, extra) {
+            try {
+                const meta = this.ensureWsMeta(state);
+                const snapshot = {
+                    kind: 'im',
+                    event: String(eventName || ''),
+                    username: String(meta.username || ''),
+                    url: String(meta.url || ''),
+                    readyState: this.getSocketReadyStateLabel(state && state.ws),
+                    failureCount: Number(meta.failureCount || 0),
+                    reconnectDelay: Number(meta.reconnectDelay || 0),
+                    lastAttemptAt: Number(meta.lastAttemptAt || 0),
+                    lastOpenAt: Number(meta.lastOpenAt || 0),
+                    lastCloseAt: Number(meta.lastCloseAt || 0),
+                    lastCloseCode: Number(meta.lastCloseCode || 0),
+                    lastCloseReason: String(meta.lastCloseReason || ''),
+                    lastErrorAt: Number(meta.lastErrorAt || 0),
+                    lastErrorType: String(meta.lastErrorType || ''),
+                    updatedAt: new Date().toISOString()
+                };
+                if (extra && typeof extra === 'object') {
+                    Object.keys(extra).forEach(function(key) {
+                        snapshot[key] = extra[key];
+                    });
+                }
+                window.__AKWsDebug = window.__AKWsDebug || {};
+                window.__AKWsDebug.im = snapshot;
+            } catch (e) {}
+        },
+
+        getExpectedWebSocketUsername(state) {
+            try {
+                if (this.ctx && typeof this.ctx.getWebSocketUsername === 'function') {
+                    const value = String(this.ctx.getWebSocketUsername() || '').trim().toLowerCase();
+                    if (value) return value;
+                }
+            } catch (e) {}
+            return String((state && state.username) || '').trim().toLowerCase();
+        },
+
+        clearWebSocketReconnect(state) {
+            const meta = this.ensureWsMeta(state);
+            if (meta.reconnectTimer) {
+                clearTimeout(meta.reconnectTimer);
+                meta.reconnectTimer = null;
+            }
+            meta.reconnectDelay = 0;
+        },
+
+        closeManagedWebSocket(state, reason) {
+            if (!state) return;
+            const meta = this.ensureWsMeta(state);
+            this.clearWebSocketReconnect(state);
+            const currentWs = state.ws;
+            state.ws = null;
+            meta.token += 1;
+            meta.closedByOwnerReason = String(reason || '');
+            this.updateWebSocketDebug(state, 'close_managed_socket', { reason: String(reason || '') });
+            if (!currentWs) return;
+            try {
+                if (currentWs.readyState === WebSocket.OPEN || currentWs.readyState === WebSocket.CONNECTING) {
+                    currentWs.close(1000, String(reason || 'replace').slice(0, 80));
+                }
+            } catch (e) {}
+        },
+
+        scheduleWebSocketReconnect(state, reason) {
+            if (!state || !state.allowed) return;
+            const username = this.getExpectedWebSocketUsername(state);
+            if (!username) return;
+            const meta = this.ensureWsMeta(state);
+            this.clearWebSocketReconnect(state);
+            const cappedFailures = Math.min(Math.max(Number(meta.failureCount || 0), 0), 5);
+            const baseDelay = Math.min(30000, 1000 * Math.pow(2, cappedFailures));
+            const jitter = Math.floor(Math.random() * 450);
+            meta.reconnectDelay = baseDelay + jitter;
+            const self = this;
+            meta.reconnectTimer = setTimeout(function() {
+                meta.reconnectTimer = null;
+                meta.reconnectDelay = 0;
+                if (state.allowed) self.ensureWebSocket();
+            }, meta.reconnectDelay);
+            this.updateWebSocketDebug(state, 'schedule_reconnect', {
+                reason: String(reason || ''),
+                expectedUsername: username
+            });
+        },
+
+        isCurrentWebSocket(state, socket, token) {
+            const meta = this.ensureWsMeta(state);
+            return !!state && state.ws === socket && Number(meta.token || 0) === Number(token || 0);
+        },
+
         ensureWebSocket() {
             const state = this.getState();
             if (!state || !this.ctx || typeof this.ctx.createWebSocket !== 'function') return;
-            if (state.ws && (state.ws.readyState === WebSocket.OPEN || state.ws.readyState === WebSocket.CONNECTING)) return;
+            if (typeof WebSocket === 'undefined') return;
+            const expectedUsername = this.getExpectedWebSocketUsername(state);
+            if (!state.allowed || !expectedUsername) {
+                this.closeManagedWebSocket(state, state && state.allowed ? 'missing_username' : 'not_allowed');
+                return;
+            }
+            const meta = this.ensureWsMeta(state);
+            if (state.ws && (state.ws.readyState === WebSocket.OPEN || state.ws.readyState === WebSocket.CONNECTING)) {
+                const currentUsername = String(meta.username || '').trim().toLowerCase();
+                if (!currentUsername || currentUsername === expectedUsername) {
+                    this.updateWebSocketDebug(state, 'reuse_socket', { expectedUsername: expectedUsername });
+                    return;
+                }
+                this.closeManagedWebSocket(state, 'username_changed');
+            }
+            this.clearWebSocketReconnect(state);
             const self = this;
+            const token = meta.token + 1;
+            meta.token = token;
+            meta.username = expectedUsername;
+            meta.url = '';
+            meta.opened = false;
+            meta.lastAttemptAt = Date.now();
             try {
-                state.ws = this.ctx.createWebSocket();
+                state.ws = this.ctx.createWebSocket(expectedUsername);
                 if (!state.ws) return;
-                state.ws.addEventListener('open', function() {
+                const currentSocket = state.ws;
+                try { meta.url = String(currentSocket.url || ''); } catch (e) {}
+                this.updateWebSocketDebug(state, 'connecting', { expectedUsername: expectedUsername });
+                currentSocket.addEventListener('open', function() {
+                    if (!self.isCurrentWebSocket(state, currentSocket, token)) return;
+                    meta.opened = true;
+                    meta.failureCount = 0;
+                    meta.lastOpenAt = Date.now();
+                    meta.lastCloseCode = 0;
+                    meta.lastCloseReason = '';
+                    self.updateWebSocketDebug(state, 'open', { expectedUsername: expectedUsername });
                     // WS 建立/重连后，若当前身处 chat 视图，补发一次强已读，避免由于进入会话时 WS 未 OPEN 导致首次丢失
                     try {
                         const cur = self.getState();
@@ -1445,19 +1594,42 @@
                         }
                     } catch (e) {}
                 });
-                state.ws.addEventListener('message', function(event) {
+                currentSocket.addEventListener('message', function(event) {
+                    if (!self.isCurrentWebSocket(state, currentSocket, token)) return;
                     try {
                         const data = JSON.parse(event.data || '{}');
                         self.handleSocketPayload(data);
                     } catch (e) {}
                 });
-                state.ws.addEventListener('close', function() {
-                    state.ws = null;
-                    setTimeout(function() {
-                        if (state.allowed) self.ensureWebSocket();
-                    }, 1500);
+                currentSocket.addEventListener('error', function(event) {
+                    if (!self.isCurrentWebSocket(state, currentSocket, token)) return;
+                    meta.lastErrorAt = Date.now();
+                    meta.lastErrorType = String((event && event.type) || 'error');
+                    self.updateWebSocketDebug(state, 'error', { expectedUsername: expectedUsername });
                 });
-            } catch (e) {}
+                currentSocket.addEventListener('close', function(event) {
+                    if (!self.isCurrentWebSocket(state, currentSocket, token)) return;
+                    state.ws = null;
+                    meta.lastCloseAt = Date.now();
+                    meta.lastCloseCode = Number((event && event.code) || 0);
+                    meta.lastCloseReason = String((event && event.reason) || '');
+                    meta.failureCount = Math.min(Number(meta.failureCount || 0) + 1, 6);
+                    meta.opened = false;
+                    self.updateWebSocketDebug(state, 'close', {
+                        expectedUsername: expectedUsername,
+                        wasClean: !!(event && event.wasClean)
+                    });
+                    self.scheduleWebSocketReconnect(state, 'ws_close');
+                });
+            } catch (e) {
+                meta.failureCount = Math.min(Number(meta.failureCount || 0) + 1, 6);
+                meta.lastErrorAt = Date.now();
+                meta.lastErrorType = 'create_exception';
+                this.updateWebSocketDebug(state, 'create_exception', {
+                    message: String((e && e.message) || e || '')
+                });
+                this.scheduleWebSocketReconnect(state, 'create_exception');
+            }
         },
 
         // 可见性恢复时补发一次强已读：用户从后台/锁屏回来后，如仍停留在同一会话则重新计为已读

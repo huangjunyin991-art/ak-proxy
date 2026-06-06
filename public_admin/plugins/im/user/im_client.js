@@ -261,6 +261,7 @@
         messagesByConversationId: {},
         activeMessagesLoading: false,
         ws: null,
+        wsMeta: null,
         open: !!initialOpenRequest,
         view: 'sessions',
         newSessionTarget: '',
@@ -2078,8 +2079,11 @@
             openActionSheet: openActionSheet,
             closeActionSheet: closeActionSheet,
             openReadProgressPanel: openReadProgressPanel,
-            createWebSocket: function() {
-                return new WebSocket(buildWsUrl());
+            createWebSocket: function(username) {
+                return new WebSocket(buildWsUrl(username));
+            },
+            getWebSocketUsername: function() {
+                return getBootstrapUsername();
             },
             getCallManage: getCallManageModule,
             ensureCallManageModule: function() {
@@ -3239,11 +3243,11 @@
         return getActiveRuntimeUsername() || getCanonicalUsername();
     }
 
-    function buildWsUrl() {
+    function buildWsUrl(usernameOverride) {
         const baseUrl = `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/im/ws`;
         try {
             const finalUrl = new URL(baseUrl);
-            const username = getBootstrapUsername();
+            const username = String(usernameOverride || getBootstrapUsername() || '').trim().toLowerCase();
             if (username) finalUrl.searchParams.set('username', username);
             return finalUrl.toString();
         } catch (e) {
@@ -6384,6 +6388,7 @@
     }
 
     function applyBootstrapUnavailable() {
+        closeWebSocket('bootstrap_unavailable');
         state.allowed = false;
         state.ready = true;
         state.honorName = '';
@@ -6556,6 +6561,7 @@
             }) : null;
             syncProfileDraftFromProfile();
             if (!state.allowed) {
+                closeWebSocket('bootstrap_not_allowed');
                 state.sessions = [];
                 state.activeConversationId = 0;
                 state.activeMessages = [];
@@ -6776,6 +6782,22 @@
         if (messageManageModule && typeof messageManageModule.markRead === 'function') {
             messageManageModule.markRead(conversationId);
         }
+    }
+
+    function closeWebSocket(reason) {
+        const messageManageModule = getMessageManageModule();
+        if (messageManageModule && typeof messageManageModule.closeManagedWebSocket === 'function') {
+            messageManageModule.closeManagedWebSocket(state, reason || 'closed_by_client');
+            return;
+        }
+        const currentWs = state.ws;
+        state.ws = null;
+        if (!currentWs) return;
+        try {
+            if (currentWs.readyState === WebSocket.OPEN || currentWs.readyState === WebSocket.CONNECTING) {
+                currentWs.close(1000, String(reason || 'closed_by_client').slice(0, 80));
+            }
+        } catch (e) {}
     }
 
     function ensureWebSocket() {
