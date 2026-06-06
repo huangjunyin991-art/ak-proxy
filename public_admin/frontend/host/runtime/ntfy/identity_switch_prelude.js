@@ -156,6 +156,35 @@
         return !!(id != null && String(id || '').trim() && String(id || '').trim() !== '0');
     }
 
+    function decodeBase64Json(raw) {
+        try {
+            if (!raw) return null;
+            var text = decodeURIComponent(escape(atob(String(raw || ''))));
+            return JSON.parse(text);
+        } catch (e) {}
+        return null;
+    }
+
+    function readStoredCredentialUsername() {
+        try {
+            var parsed = decodeBase64Json(localStorage.getItem('_ak_sl'));
+            return String(parsed && (parsed.a || parsed.account || parsed.Account) || '').trim().toLowerCase();
+        } catch (e) {}
+        return '';
+    }
+
+    function readLocalLoginInfoUsername() {
+        try {
+            var parsed = readJsonStorage(localStorage, 'AK_local_login_info');
+            if (!Array.isArray(parsed)) return '';
+            for (var i = 0; i < parsed.length; i++) {
+                var username = String(parsed[i] && (parsed[i].account || parsed[i].Account || parsed[i].username || parsed[i].UserName) || '').trim().toLowerCase();
+                if (username) return username;
+            }
+        } catch (e) {}
+        return '';
+    }
+
     function readJsonStorage(store, key) {
         try {
             var raw = store && key ? store.getItem(key) : '';
@@ -175,6 +204,10 @@
     }
 
     function readCurrentUsername() {
+        var credentialUsername = readStoredCredentialUsername();
+        if (credentialUsername) return credentialUsername;
+        var localLoginUsername = readLocalLoginInfoUsername();
+        if (localLoginUsername) return localLoginUsername;
         try {
             var runtimeModel = window.APP && APP.USER && APP.USER.MODEL;
             var runtimeUser = hasIdentityPayload(runtimeModel) ? pickUsername(runtimeModel) : '';
@@ -321,6 +354,7 @@
         var currentUsername = readCurrentUsername();
         var hasLoginState = hasAkLoginState();
         var terminalTokenFailure = isTokenTerminalFailure(reason, result.status);
+        if (!terminalTokenFailure) return false;
         debug('switch-failure-check-current', {
             reason: reason,
             status: Number(result.status || 0),
