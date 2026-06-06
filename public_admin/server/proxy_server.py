@@ -11098,7 +11098,7 @@ try{sessionStorage.setItem('ak_ntfy_im_username',u);}catch(_e){}
 var oldCookies=parseCookies();
 debug('switch-start',{oldAkUsername:oldCookies.ak_username||'',oldAkImUsername:oldCookies.ak_im_username||'',cookies:String(document.cookie||'').slice(0,800)});
 var xhr=new XMLHttpRequest();
-var url='/admin/api/ak_auth/switch_by_token?u='+encodeURIComponent(u)
+var url='/admin/api/ak_auth/silent_login_by_token?u='+encodeURIComponent(u)
 +'&conversation_id='+encodeURIComponent(String(p.get('conversation_id')||''))
 +'&im_switch_ts='+encodeURIComponent(String(p.get('im_switch_ts')||''))
 +'&im_switch_nonce='+encodeURIComponent(String(p.get('im_switch_nonce')||''))
@@ -12930,17 +12930,128 @@ def _verify_im_switch_token(secret: str, username: str, ts: str, nonce: str, sig
     return hmac.compare_digest(expected, str(sig or '').strip().lower())
 
 
-@app.post("/admin/api/ak_auth/switch_by_token")
-async def admin_ak_auth_switch_by_token(request: Request):
-    """不依赖 cookie/bs 的一次性切换：通过短期签名 token 换取 userkey。
+def _build_ak_identity_snapshot(username: str, userkey: str, login_result: dict, cookies: dict) -> dict:
+    normalized_username = str(username or "").strip().lower()
+    normalized_userkey = str(userkey or "").strip()
+    safe_login_result = dict(login_result) if isinstance(login_result, dict) else {}
+    user_data = safe_login_result.get("UserData")
+    if isinstance(user_data, dict):
+        safe_login_result["UserData"] = dict(user_data)
+    user_model = _build_ak_user_model(safe_login_result, normalized_userkey)
+    if normalized_username:
+        user_model["UserName"] = normalized_username
+        if isinstance(safe_login_result.get("UserData"), dict):
+            safe_login_result["UserData"]["UserName"] = normalized_username
+    if normalized_userkey:
+        user_model["Key"] = normalized_userkey
+        safe_login_result["Key"] = normalized_userkey
+    user_id = _extract_login_user_id(safe_login_result)
+    masked = ("***" + normalized_userkey[-4:]) if len(normalized_userkey) >= 4 else ("***" + normalized_userkey)
+    return {
+        "success": True,
+        "username": normalized_username,
+        "userkey": normalized_userkey,
+        "userkeyMasked": masked,
+        "userId": user_id,
+        "userModel": user_model,
+        "loginResult": safe_login_result,
+        "cookieNames": _summarize_cookie_names(cookies if isinstance(cookies, dict) else {}),
+        "loginMethod": "password",
+    }
 
-    token 由 notify_center 生成并附加在通知链接中：
-    - im_username
-    - im_switch_ts
-    - im_switch_nonce
-    - im_switch_sig
-    """
 
+async def _silent_login_ak_account(username: str, request: Request) -> tuple[Optional[dict], Optional[JSONResponse]]:
+    normalized_username = str(username or "").strip().lower()
+    if not normalized_username:
+        return None, JSONResponse({"success": False, "message": "缺少用户名"}, status_code=400)
+    try:
+        password = await db.get_user_password(normalized_username)
+    except Exception as e:
+        logger.warning(f"[AkAuthSilentLogin] load_password_failed username={normalized_username}: {e}")
+        return None, JSONResponse({"success": False, "message": "读取账号密码失败"}, status_code=500)
+    if not password:
+        return None, JSONResponse({
+            "success": False,
+            "message": "该账号没有保存密码，无法静默登录",
+            "code": "missing_saved_password",
+        }, status_code=404)
+
+    params = {
+        "account": normalized_username,
+        "password": password,
+        "client": "WEB",
+        "key": "123",
+        "UserID": "123",
+        "v": _make_rpc_v(),
+        "lang": "cn",
+    }
+    headers = {
+        "user-agent": request.headers.get("user-agent") or "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/124.0",
+        "accept": request.headers.get("accept") or "application/json, text/javascript, */*; q=0.01",
+        "x-real-ip": request.headers.get("x-real-ip", ""),
+        "x-forwarded-for": request.headers.get("x-forwarded-for", ""),
+    }
+    try:
+        response = await forward_request(
+            "POST",
+            "Login",
+            "application/x-www-form-urlencoded",
+            params,
+            b"",
+            headers,
+            client_ip=_extract_client_ip(request),
+            is_login=True,
+        )
+        result = response.json()
+    except Exception as e:
+        logger.warning(f"[AkAuthSilentLogin] upstream_login_failed username={normalized_username}: {e}")
+        return None, JSONResponse({"success": False, "message": f"静默登录失败: {str(e)}"}, status_code=502)
+
+    if not isinstance(result, dict):
+        return None, JSONResponse({"success": False, "message": "静默登录响应格式异常"}, status_code=502)
+    if result.get("Error") is True or (result.get("Error") and not result.get("UserData")):
+        message = str(result.get("Msg") or result.get("Message") or "静默登录失败")
+        logger.warning(f"[AkAuthSilentLogin] upstream_rejected username={normalized_username} msg={message}")
+        return None, JSONResponse({"success": False, "message": message, "code": "upstream_login_failed"}, status_code=502)
+    if not _is_ak_auth_payload_username_match(normalized_username, result, "silent_login_by_token"):
+        return None, JSONResponse({
+            "success": False,
+            "message": "静默登录返回账号与目标账号不一致",
+            "code": "ak_login_result_mismatch",
+        }, status_code=409)
+
+    userkey = _extract_login_result_userkey(result)
+    user_id = _extract_login_user_id(result)
+    if not userkey or not user_id:
+        return None, JSONResponse({
+            "success": False,
+            "message": "静默登录结果缺少 Key 或 UserID",
+            "code": "invalid_login_payload",
+        }, status_code=502)
+
+    cached = _cache_ak_auth(normalized_username, password, result, response.headers)
+    cached["auth_ticket_validated"] = True
+    try:
+        await db.save_ak_auth_state(
+            normalized_username,
+            userkey=cached.get("userkey", ""),
+            cookies=cached.get("cookies", {}),
+            login_payload=cached.get("login_result", {}),
+            ttl_seconds=_BROWSE_SESSION_TTL,
+        )
+    except Exception as e:
+        logger.warning(f"[AkAuthSilentLogin] persist_failed username={normalized_username}: {e}")
+    logger.info(f"[AkAuthSilentLogin] success username={normalized_username} user_id={user_id}")
+    return _build_ak_identity_snapshot(
+        normalized_username,
+        cached.get("userkey", ""),
+        cached.get("login_result", {}),
+        cached.get("cookies", {}),
+    ), None
+
+
+@app.post("/admin/api/ak_auth/silent_login_by_token")
+async def admin_ak_auth_silent_login_by_token(request: Request):
     wanted = (request.query_params.get("username") or request.query_params.get("u") or "").strip().lower()
     if not wanted:
         try:
@@ -12966,52 +13077,10 @@ async def admin_ak_auth_switch_by_token(request: Request):
     if not _verify_im_switch_token(secret, wanted, ts, nonce, sig, conversation_id=conversation_id, max_age_seconds=180):
         return JSONResponse({"success": False, "message": "token 无效或已过期"}, status_code=401)
 
-    try:
-        persisted = await db.load_ak_auth_state(wanted, check_expiry=False)
-    except Exception as e:
-        logger.warning(f"[AkAuthSwitchByToken] load_auth_state_failed {wanted}: {e}")
-        persisted = None
-
-    if not persisted:
-        return JSONResponse({"success": False, "message": "该账号没有可用登录态，请先让该账号登录一次"}, status_code=404)
-
-    userkey = str(persisted.get("userkey") or "")
-    cookies = persisted.get("cookies") or {}
-    if not userkey:
-        return JSONResponse({"success": False, "message": "该账号没有可用 userkey，请先让该账号登录一次"}, status_code=404)
-
-    persisted_login_result = persisted.get("login_result")
-    login_result = dict(persisted_login_result) if isinstance(persisted_login_result, dict) else {}
-    login_user_data = login_result.get("UserData")
-    if isinstance(login_user_data, dict):
-        login_result["UserData"] = dict(login_user_data)
-    if not _is_ak_auth_payload_username_match(wanted, login_result, "switch_by_token"):
-        return JSONResponse({
-            "success": False,
-            "message": "该账号登录态与目标账号不一致，请先重新登录该账号",
-            "code": "ak_auth_state_mismatch",
-        }, status_code=409)
-    user_model = _build_ak_user_model(login_result, userkey)
-    if wanted:
-        user_model["UserName"] = wanted
-        if isinstance(login_result.get("UserData"), dict):
-            login_result["UserData"]["UserName"] = wanted
-    if userkey:
-        user_model["Key"] = userkey
-        login_result["Key"] = userkey
-    user_id = _extract_login_user_id(login_result)
-
-    masked = ("***" + userkey[-4:]) if len(userkey) >= 4 else ("***" + userkey)
-    return JSONResponse({
-        "success": True,
-        "username": wanted,
-        "userkey": userkey,
-        "userkeyMasked": masked,
-        "userId": user_id,
-        "userModel": user_model,
-        "loginResult": login_result,
-        "cookieNames": _summarize_cookie_names(cookies if isinstance(cookies, dict) else {}),
-    })
+    snapshot, error_response = await _silent_login_ak_account(wanted, request)
+    if error_response is not None:
+        return error_response
+    return JSONResponse(snapshot)
 
 
 @app.get("/admin/api/ak_test")
