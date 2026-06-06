@@ -3,7 +3,9 @@
 
     const STYLE_ID = 'ak-im-call-overlay-style';
     const PANEL_SELECTOR = '.ak-im-call-overlay';
-    const SHELL_VERSION = '20260606-2';
+    const SHELL_VERSION = '20260606-3';
+    const PEER_DISCONNECT_GRACE_MS = 1200;
+    const PEER_STATE_MUTE_MS = 1500;
     const CALL_MODES = {
         idle: 'idle',
         outgoing: 'outgoing',
@@ -847,7 +849,7 @@
         muted: false,
         speakerEnabled: false,
         offerSent: false,
-        timers: { autoEnd: 0, launch: 0, duration: 0 },
+        timers: { autoEnd: 0, launch: 0, duration: 0, peerDisconnect: 0 },
         refs: {},
         lastFailReason: '',
         lastEndReason: '',
@@ -862,6 +864,7 @@
         flowVersion: 0,
         openedAt: 0,
         minimized: false,
+        ignorePeerStateUntil: 0,
         bound: false,
         submodulePromise: null,
         signaling: null,
@@ -1181,9 +1184,13 @@
         },
 
         ensureStyle() {
-            if (document.getElementById(STYLE_ID)) return;
-            const styleEl = document.createElement('style');
-            styleEl.id = STYLE_ID;
+            let styleEl = document.getElementById(STYLE_ID);
+            if (styleEl && styleEl.getAttribute('data-style-version') === SHELL_VERSION) return;
+            if (!styleEl) {
+                styleEl = document.createElement('style');
+                styleEl.id = STYLE_ID;
+            }
+            styleEl.setAttribute('data-style-version', SHELL_VERSION);
             styleEl.textContent = [
                 '.ak-im-call-overlay{position:fixed;inset:0;z-index:2147483652;display:none;align-items:center;justify-content:center;padding:20px;background:rgba(2,8,20,.78);backdrop-filter:blur(14px)}',
                 '.ak-im-call-overlay[aria-hidden="false"]{display:flex}',
@@ -1216,19 +1223,20 @@
                 '.ak-im-call-overlay-actions[data-layout="hidden"]{min-height:0}',
                 '.ak-im-call-overlay-actions[data-layout="single"]{grid-template-columns:minmax(0,1fr);align-items:start;justify-items:center;gap:0;padding-top:22px;padding-bottom:calc(24px + env(safe-area-inset-bottom,0px))}',
                 '.ak-im-call-overlay-actions[data-layout="double"]{display:none}',
-                '.ak-im-call-overlay-action{all:unset;box-sizing:border-box;width:100%;max-width:112px;display:flex;flex-direction:column;align-items:center;justify-content:flex-start;gap:10px;padding:0;background:none !important;border:none !important;border-radius:0 !important;box-shadow:none !important;color:#e2e8f0;cursor:pointer;font:inherit;-webkit-appearance:none;appearance:none;-webkit-tap-highlight-color:transparent}',
+                '.ak-im-call-overlay-action{all:unset;box-sizing:border-box;color:#e2e8f0;cursor:pointer;font:inherit;-webkit-appearance:none;appearance:none;-webkit-tap-highlight-color:transparent;pointer-events:auto}',
+                '.ak-im-call-overlay-actions .ak-im-call-overlay-action[data-appearance="tool"]{width:100%;max-width:112px;display:flex;flex-direction:column;align-items:center;justify-content:flex-start;gap:10px;padding:0;background:none;border:none;border-radius:0;box-shadow:none}',
                 '.ak-im-call-overlay-action[data-slot="1"]{grid-column:1}',
                 '.ak-im-call-overlay-action[data-slot="2"]{grid-column:2}',
                 '.ak-im-call-overlay-action[data-slot="3"]{grid-column:3}',
                 '.ak-im-call-overlay-actions[data-layout="single"] .ak-im-call-overlay-action[data-slot]{grid-column:1}',
-                '.ak-im-call-overlay-actions[data-layout="single"] .ak-im-call-overlay-action{width:auto;max-width:none;min-width:116px;min-height:118px;gap:12px;padding-top:2px;padding-bottom:2px}',
+                '.ak-im-call-overlay-actions[data-layout="single"] .ak-im-call-overlay-action[data-appearance="tool"]{width:auto;max-width:none;min-width:116px;min-height:118px;gap:12px;padding-top:2px;padding-bottom:2px}',
                 '.ak-im-call-overlay-action:focus-visible{outline:2px solid rgba(148,163,184,.7);outline-offset:4px;border-radius:18px}',
                 '.ak-im-call-overlay-action-disc{flex:0 0 auto;width:62px;height:62px;border-radius:999px;display:flex;align-items:center;justify-content:center;background:rgba(148,163,184,.16);box-shadow:0 14px 30px rgba(0,0,0,.24);transition:transform .18s ease,background .18s ease,color .18s ease}',
                 '.ak-im-call-overlay-action:hover .ak-im-call-overlay-action-disc{transform:translateY(-1px)}',
                 '.ak-im-call-overlay-action-label{display:block;flex:0 0 auto;font-size:13px;font-weight:700;line-height:1.3;color:inherit;text-align:center}',
                 '.ak-im-call-overlay-action-pill-icon{display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto;width:16px;height:16px}',
                 '.ak-im-call-overlay-action-pill-icon svg{width:16px;height:16px;stroke:currentColor;stroke-linecap:round;stroke-linejoin:round;stroke-width:1.9;fill:none}',
-                '.ak-im-call-overlay-inline-actions .ak-im-call-overlay-action{all:unset;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;gap:8px;min-width:124px;height:52px;padding:0 18px;border-radius:999px;color:#f8fafc;cursor:pointer;font:inherit;-webkit-appearance:none;appearance:none;-webkit-tap-highlight-color:transparent;box-shadow:0 18px 34px rgba(2,6,23,.26);pointer-events:auto;border:1px solid rgba(255,255,255,.08)}',
+                '.ak-im-call-overlay-inline-actions .ak-im-call-overlay-action[data-appearance="pill"]{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-width:124px;height:52px;padding:0 18px;border:none;border-radius:999px;color:#f8fafc;cursor:pointer;box-shadow:0 18px 34px rgba(2,6,23,.26);pointer-events:auto;text-align:center}',
                 '.ak-im-call-overlay-inline-actions .ak-im-call-overlay-action .ak-im-call-overlay-action-disc{display:none}',
                 '.ak-im-call-overlay-inline-actions .ak-im-call-overlay-action .ak-im-call-overlay-action-label{font-size:15px;font-weight:700;line-height:1.2}',
                 '.ak-im-call-overlay-inline-actions .ak-im-call-overlay-action:hover{transform:translateY(-1px)}',
@@ -1241,10 +1249,10 @@
                 '.ak-im-call-overlay-action[data-prominence="primary"] .ak-im-call-overlay-action-label{font-size:14px}',
                 '.ak-im-call-overlay-actions[data-layout="single"] .ak-im-call-overlay-action[data-prominence="primary"] .ak-im-call-overlay-action-disc{width:82px;height:82px;box-shadow:0 20px 38px rgba(239,68,68,.3)}',
                 '.ak-im-call-overlay-actions[data-layout="single"] .ak-im-call-overlay-action[data-prominence="primary"] .ak-im-call-overlay-action-label{min-height:18px;margin-top:2px;font-size:15px;line-height:1.2;white-space:nowrap}',
-                '.ak-im-call-overlay-inline-actions .ak-im-call-overlay-action[data-variant="danger"]{background:#ef4444;color:#fff}',
-                '.ak-im-call-overlay-inline-actions .ak-im-call-overlay-action[data-variant="success"]{background:#10b981;color:#fff}',
-                '.ak-im-call-overlay-inline-actions .ak-im-call-overlay-action[data-variant="primary"]{background:#2563eb;color:#fff}',
-                '.ak-im-call-overlay-inline-actions .ak-im-call-overlay-action[data-prominence="primary"]{box-shadow:0 20px 40px rgba(37,99,235,.28)}',
+                '.ak-im-call-overlay-inline-actions .ak-im-call-overlay-action[data-appearance="pill"][data-variant="danger"]{background:#ef4444;color:#fff}',
+                '.ak-im-call-overlay-inline-actions .ak-im-call-overlay-action[data-appearance="pill"][data-variant="success"]{background:#10b981;color:#fff}',
+                '.ak-im-call-overlay-inline-actions .ak-im-call-overlay-action[data-appearance="pill"][data-variant="primary"]{background:#2563eb;color:#fff}',
+                '.ak-im-call-overlay-inline-actions .ak-im-call-overlay-action[data-appearance="pill"][data-prominence="primary"]{box-shadow:0 20px 40px rgba(37,99,235,.28)}',
                 '.ak-im-call-overlay[data-mode="incoming"] .ak-im-call-overlay-placeholder-icon{color:#60a5fa;background:rgba(37,99,235,.12)}',
                 '.ak-im-call-overlay[data-mode="outgoing"] .ak-im-call-overlay-placeholder-icon,.ak-im-call-overlay[data-mode="connecting"] .ak-im-call-overlay-placeholder-icon{color:#67e8f9;background:rgba(8,145,178,.14)}',
                 '.ak-im-call-overlay[data-mode="active"] .ak-im-call-overlay-placeholder-icon{color:#34d399;background:rgba(16,185,129,.14)}',
@@ -1259,9 +1267,11 @@
                 '.ak-im-call-overlay[data-minimized="1"] .ak-im-call-overlay-restore{display:flex}',
                 '@keyframes akImCallOverlayPulse{0%{transform:translate(-50%,-50%) scale(.82);opacity:.18}50%{transform:translate(-50%,-50%) scale(1.04);opacity:.5}100%{transform:translate(-50%,-50%) scale(1.18);opacity:0}}',
                 '@keyframes akImCallOverlayIconFloat{0%{transform:translateY(0)}50%{transform:translateY(-3px)}100%{transform:translateY(0)}}',
-                '@media (max-width:768px){.ak-im-call-overlay{padding:0}.ak-im-call-overlay-card{width:100vw;min-height:100dvh;max-height:100dvh;border-radius:0;box-shadow:none}.ak-im-call-overlay-header{padding-top:calc(18px + env(safe-area-inset-top,0px))}.ak-im-call-overlay-stage{padding:24px 18px 18px}.ak-im-call-overlay-actions{gap:10px;padding-left:16px;padding-right:16px}.ak-im-call-overlay-actions[data-layout="single"]{padding-top:24px;padding-bottom:calc(28px + env(safe-area-inset-bottom,0px))}.ak-im-call-overlay-title{font-size:17px}.ak-im-call-overlay-avatar{width:40px;height:40px;font-size:16px}.ak-im-call-overlay-placeholder{gap:16px}.ak-im-call-overlay-placeholder-icon{width:104px;height:104px}.ak-im-call-overlay-placeholder-text{font-size:21px}.ak-im-call-overlay-detail{width:100%}.ak-im-call-overlay-inline-actions{width:100%;gap:10px}.ak-im-call-overlay-inline-actions .ak-im-call-overlay-action{min-width:0;flex:1;height:50px;padding:0 12px}.ak-im-call-overlay-action{max-width:96px}.ak-im-call-overlay-actions[data-layout="single"] .ak-im-call-overlay-action{min-width:108px;min-height:112px;max-width:none;gap:13px}.ak-im-call-overlay-action-disc{width:58px;height:58px}.ak-im-call-overlay-action[data-prominence="primary"] .ak-im-call-overlay-action-disc{width:70px;height:70px}.ak-im-call-overlay-actions[data-layout="single"] .ak-im-call-overlay-action[data-prominence="primary"] .ak-im-call-overlay-action-disc{width:78px;height:78px}.ak-im-call-overlay-actions[data-layout="single"] .ak-im-call-overlay-action[data-prominence="primary"] .ak-im-call-overlay-action-label{font-size:14px}.ak-im-call-overlay-restore{top:calc(env(safe-area-inset-top,0px) + 12px);right:12px}}'
+                '@media (max-width:768px){.ak-im-call-overlay{padding:0}.ak-im-call-overlay-card{width:100vw;min-height:100dvh;max-height:100dvh;border-radius:0;box-shadow:none}.ak-im-call-overlay-header{padding-top:calc(18px + env(safe-area-inset-top,0px))}.ak-im-call-overlay-stage{padding:24px 18px 18px}.ak-im-call-overlay-actions{gap:10px;padding-left:16px;padding-right:16px}.ak-im-call-overlay-actions[data-layout="single"]{padding-top:24px;padding-bottom:calc(28px + env(safe-area-inset-bottom,0px))}.ak-im-call-overlay-title{font-size:17px}.ak-im-call-overlay-avatar{width:40px;height:40px;font-size:16px}.ak-im-call-overlay-placeholder{gap:16px}.ak-im-call-overlay-placeholder-icon{width:104px;height:104px}.ak-im-call-overlay-placeholder-text{font-size:21px}.ak-im-call-overlay-detail{width:100%}.ak-im-call-overlay-inline-actions{width:100%;gap:10px}.ak-im-call-overlay-inline-actions .ak-im-call-overlay-action[data-appearance="pill"]{min-width:0;flex:1;height:50px;padding:0 12px}.ak-im-call-overlay-actions .ak-im-call-overlay-action[data-appearance="tool"]{max-width:96px}.ak-im-call-overlay-actions[data-layout="single"] .ak-im-call-overlay-action[data-appearance="tool"]{min-width:108px;min-height:112px;max-width:none;gap:13px}.ak-im-call-overlay-action-disc{width:58px;height:58px}.ak-im-call-overlay-action[data-prominence="primary"] .ak-im-call-overlay-action-disc{width:70px;height:70px}.ak-im-call-overlay-actions[data-layout="single"] .ak-im-call-overlay-action[data-prominence="primary"] .ak-im-call-overlay-action-disc{width:78px;height:78px}.ak-im-call-overlay-actions[data-layout="single"] .ak-im-call-overlay-action[data-prominence="primary"] .ak-im-call-overlay-action-label{font-size:14px}.ak-im-call-overlay-restore{top:calc(env(safe-area-inset-top,0px) + 12px);right:12px}}'
             ].join('');
-            (document.head || document.documentElement).appendChild(styleEl);
+            if (!styleEl.parentNode) {
+                (document.head || document.documentElement).appendChild(styleEl);
+            }
         },
 
         ensureShell() {
@@ -1376,6 +1386,7 @@
             this.clearTimer('autoEnd');
             this.clearTimer('launch');
             this.clearTimer('duration');
+            this.clearTimer('peerDisconnect');
         },
 
         clearResultState() {
@@ -1393,6 +1404,37 @@
 
         isFlowCurrent(version) {
             return Number(version) > 0 && this.flowVersion === Number(version);
+        },
+
+        mutePeerStateEvents(durationMs) {
+            const waitMs = Math.max(0, Number(durationMs || 0) || 0);
+            this.ignorePeerStateUntil = waitMs > 0 ? (Date.now() + waitMs) : 0;
+            this.clearTimer('peerDisconnect');
+        },
+
+        resumePeerStateEvents() {
+            this.ignorePeerStateUntil = 0;
+        },
+
+        shouldIgnorePeerState(state) {
+            const normalizedState = trim(state).toLowerCase();
+            if (!normalizedState || normalizedState === 'closed') return true;
+            if (this.mode === CALL_MODES.idle || this.mode === CALL_MODES.ended || this.mode === CALL_MODES.failed) return true;
+            return this.ignorePeerStateUntil > Date.now();
+        },
+
+        schedulePeerDisconnectFailure(state) {
+            const normalizedState = trim(state).toLowerCase();
+            if (!normalizedState || this.shouldIgnorePeerState(normalizedState)) return;
+            if (this.timers.peerDisconnect) return;
+            const flowVersion = this.flowVersion;
+            const self = this;
+            this.timers.peerDisconnect = global.setTimeout(function() {
+                self.timers.peerDisconnect = 0;
+                if (!self.isFlowCurrent(flowVersion)) return;
+                if (self.shouldIgnorePeerState(normalizedState)) return;
+                self.fail('peer_connection_failed', '', { connection_state: normalizedState });
+            }, PEER_DISCONNECT_GRACE_MS);
         },
 
         clearLocalTermination() {
@@ -1724,6 +1766,7 @@
             this.ensureStyle();
             this.ensureShell();
             this.clearAllTimers();
+            this.resumePeerStateEvents();
             this.cleanupMedia();
             this.clearLocalTermination();
             this.clearResultState();
@@ -1773,6 +1816,7 @@
             this.ensureStyle();
             this.ensureShell();
             this.clearAllTimers();
+            this.resumePeerStateEvents();
             this.cleanupMedia();
             this.clearLocalTermination();
             this.clearResultState();
@@ -1900,6 +1944,7 @@
             options = options || {};
             this.bumpFlowVersion();
             this.clearAllTimers();
+            this.mutePeerStateEvents(PEER_STATE_MUTE_MS);
             this.cleanupMedia();
             this.mode = CALL_MODES.idle;
             this.minimized = false;
@@ -1925,6 +1970,7 @@
             options = options || {};
             this.captureDurationSnapshot();
             this.clearAllTimers();
+            this.mutePeerStateEvents(PEER_STATE_MUTE_MS);
             this.cleanupMedia();
             this.minimized = false;
             const nextMode = reason === 'failed' ? CALL_MODES.failed : CALL_MODES.ended;
@@ -2005,6 +2051,9 @@
         async handleSignalEvent(type, payload) {
             payload = payload || {};
             this.pruneLocalTermination();
+            if (type === 'im.call.ended' || type === 'im.call.failed' || type === 'im.call.error') {
+                this.clearTimer('peerDisconnect');
+            }
             if (type !== 'im.call.started' && this.mode === CALL_MODES.idle && this.isRecentlyClosedCallPayload(payload)) return;
             if (type !== 'im.call.ringing' && this.isDifferentActiveCallPayload(payload)) return;
             if (type === 'im.call.started') {
@@ -2134,12 +2183,15 @@
 
         handlePeerState(state) {
             const normalizedState = trim(state).toLowerCase();
+            if (this.shouldIgnorePeerState(normalizedState)) return;
             if (normalizedState === 'connected') {
+                this.clearTimer('peerDisconnect');
                 this.markActive();
                 this.setState(CALL_MODES.active, {});
+                return;
             }
             if (normalizedState === 'failed' || normalizedState === 'disconnected') {
-                this.fail('peer_connection_failed');
+                this.schedulePeerDisconnectFailure(normalizedState);
             }
         },
 
@@ -2168,6 +2220,7 @@
         destroy() {
             this.bumpFlowVersion();
             this.clearAllTimers();
+            this.mutePeerStateEvents(PEER_STATE_MUTE_MS);
             this.cleanupMedia();
             this.clearLiveSessionState();
             this.clearLocalTermination();
