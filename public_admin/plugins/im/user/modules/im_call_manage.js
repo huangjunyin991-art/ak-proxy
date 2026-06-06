@@ -3,7 +3,7 @@
 
     const STYLE_ID = 'ak-im-call-overlay-style';
     const PANEL_SELECTOR = '.ak-im-call-overlay';
-    const SHELL_VERSION = '20260606-6';
+    const SHELL_VERSION = '20260606-7';
     const PEER_DISCONNECT_GRACE_MS = 3500;
     const PEER_STATE_MUTE_MS = 1500;
     const REMOTE_EARPIECE_VOLUME = 0.1;
@@ -43,7 +43,7 @@
     };
     const LOCAL_TERMINATION_ECHO_TTL_MS = 5000;
     const PENDING_OUTGOING_CANCEL_TTL_MS = 15000;
-    const CALL_HANGUP_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4.8 17.2a15.1 15.1 0 0 1 14.4 0"></path><path d="m8.3 13.9-2.1 5"></path><path d="m15.7 13.9 2.1 5"></path></svg>';
+    const CALL_HANGUP_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 10.4c3.7 2.6 8.3 2.6 12 0"></path><path d="M8.1 11.8 6.8 16c-.2.7.2 1.4.9 1.6l2.1.5c.6.1 1.2-.2 1.4-.8l.5-1.5c.2-.5.6-.8 1.1-.8h.4c.5 0 .9.3 1.1.8l.5 1.5c.2.6.8.9 1.4.8l2.1-.5c.7-.2 1.1-.9.9-1.6l-1.3-4.2"></path></svg>';
     const CALL_ICON_MARKUP = {
         close: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg>',
         minimize: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 12h12"></path></svg>',
@@ -63,8 +63,10 @@
         unmute: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m4 4 16 16"></path><path d="M9 9v3a3 3 0 0 0 5.12 2.12"></path><path d="M12 3a3 3 0 0 1 3 3v3"></path><path d="M19 10v2a7 7 0 0 1-11.06 5.8"></path><path d="M12 19v3"></path></svg>',
         speaker_on: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 14h4l5 4V6L8 10H4Z"></path><path d="M17 9.5a4.5 4.5 0 0 1 0 5"></path><path d="M19.8 7a8.2 8.2 0 0 1 0 10"></path></svg>',
         speaker_off: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 14h4l5 4V6L8 10H4Z"></path><path d="m16.5 9.5 5 5"></path><path d="m21.5 9.5-5 5"></path></svg>',
-        camera_switch: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8.2 7.4 9.3 5.9h5.4l1.1 1.5"></path><rect x="4.2" y="7.4" width="15.6" height="11.4" rx="2.4"></rect><path d="M9.3 13.2a3.1 3.1 0 0 1 5.2-2.2"></path><path d="m14.5 8.8.1 2.4-2.4.1"></path><path d="M14.7 13a3.1 3.1 0 0 1-5.2 2.2"></path><path d="m9.5 17.4-.1-2.4 2.4-.1"></path></svg>',
-        float_window: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4.2" y="4.8" width="10.8" height="10.8" rx="2"></rect><rect x="10.2" y="9.4" width="9.6" height="9.6" rx="2"></rect></svg>'
+        camera_on: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.7" y="6.9" width="11.6" height="10.2" rx="2.2"></rect><path d="m15.3 10 5-2.9v9.8l-5-2.9Z"></path></svg>',
+        camera_off: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m4 4 16 16"></path><path d="M10.4 6.9h4.9V10"></path><path d="M15.3 14.1v.8c0 1.2-1 2.2-2.2 2.2H5.9c-1.2 0-2.2-1-2.2-2.2V9.1c0-1 .7-1.9 1.6-2.1"></path><path d="m17.2 9 3.1-1.9v9.8l-5-2.9"></path></svg>',
+        camera_switch: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 7.5 9.3 5.8h5.4L16 7.5"></path><rect x="4" y="7.5" width="16" height="11" rx="2.6"></rect><path d="M9 13.2a3.2 3.2 0 0 1 5.2-2.5"></path><path d="m14.1 8.9.2 2.6-2.6.2"></path><path d="M15 12.8a3.2 3.2 0 0 1-5.2 2.5"></path><path d="m9.9 17.1-.2-2.6 2.6-.2"></path></svg>',
+        float_window: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="5" width="11.5" height="13" rx="2.2"></rect><rect x="12.8" y="10.8" width="7.2" height="8.2" rx="1.8"></rect></svg>'
     };
     const VIDEO_QUALITY_PROFILES = {
         hd: { width: 1280, height: 720, minWidth: 960, minHeight: 540, frameRate: 30, maxBitrate: 2800000, label: '高清' },
@@ -137,12 +139,14 @@
             nextView.icon = 'video';
         }
         if (mode === CALL_MODES.outgoing) {
+            const displayName = trim(viewMeta.peerName) || '联系人';
             if (!viewMeta.localVideoReady) {
                 nextView.detailTitle = '正在准备摄像头和麦克风';
                 nextView.detailBody = '建立视频通话前，需要先完成本地音视频设备初始化。';
             } else {
-                nextView.detailTitle = '你的本地画面已就绪';
-                nextView.detailBody = '会话已经创建成功，正在等待对方接听本次视频通话。';
+                nextView.headline = '等待对方接受邀请';
+                nextView.detailTitle = displayName;
+                nextView.detailBody = '视频通话';
             }
         }
         if (mode === CALL_MODES.incoming) {
@@ -154,12 +158,14 @@
             nextView.icon = 'video';
         }
         if (mode === CALL_MODES.connecting) {
+            const displayName = trim(viewMeta.peerName) || '联系人';
             if (!viewMeta.localVideoReady && (connectionPhase === 'accepting' || connectionPhase === 'preparing_local')) {
                 nextView.detailTitle = '正在准备摄像头和麦克风';
                 nextView.detailBody = '浏览器需要先完成本地音视频设备初始化，之后才会继续交换连接信息。';
             } else if (viewMeta.localVideoReady) {
-                nextView.detailTitle = '你的本地画面已就绪';
-                nextView.detailBody = '正在交换音视频连接信息，通常几秒内就会接通。';
+                nextView.headline = '正在建立视频连接';
+                nextView.detailTitle = displayName;
+                nextView.detailBody = '视频通话';
             }
             nextView.footer = '';
         }
@@ -583,25 +589,35 @@
         };
     }
 
-    function buildVideoCallActionLayout(mode, muted, speakerOn, canSwitchCamera) {
+    function buildVideoCallActionLayout(mode, muted, speakerOn, cameraEnabled, canSwitchCamera) {
         if (mode === CALL_MODES.incoming) {
             return buildCallActionLayout(mode, muted, speakerOn);
         }
         if (mode === CALL_MODES.active) {
             return {
-                layout: 'active',
+                layout: 'video-grid',
                 reject: { visible: false },
                 accept: { visible: false },
                 mute: { visible: true, icon: muted ? 'unmute' : 'mute', label: muted ? '取消静音' : '静音', variant: muted ? 'primary' : 'neutral', prominence: 'secondary', slot: '1', appearance: 'tool', selected: muted },
                 hangup: { visible: true, icon: 'hangup', label: '挂断', variant: 'danger', prominence: 'primary', slot: '2', appearance: 'tool' },
-                speaker: { visible: true, icon: speakerOn ? 'speaker_on' : 'speaker_off', label: speakerOn ? '免提已开' : '免提', variant: speakerOn ? 'primary' : 'neutral', prominence: 'secondary', slot: '3', appearance: 'tool', selected: speakerOn },
-                cameraSwitch: { visible: !!canSwitchCamera, icon: 'camera_switch', label: '翻转', variant: 'neutral', prominence: 'secondary', slot: '4', appearance: 'mini' }
+                camera: { visible: true, icon: cameraEnabled ? 'camera_on' : 'camera_off', label: cameraEnabled ? '摄像头' : '摄像头已关', variant: cameraEnabled ? 'neutral' : 'primary', prominence: 'secondary', slot: '3', appearance: 'tool', selected: !cameraEnabled },
+                speaker: { visible: true, icon: speakerOn ? 'speaker_on' : 'speaker_off', label: speakerOn ? '免提已开' : '免提', variant: speakerOn ? 'primary' : 'neutral', prominence: 'secondary', slot: '4', appearance: 'tool', selected: speakerOn },
+                cameraSwitch: { visible: !!canSwitchCamera, icon: 'camera_switch', label: '翻转', variant: 'neutral', prominence: 'secondary', slot: '6', appearance: 'tool' }
+            };
+        }
+        if (mode === CALL_MODES.outgoing || mode === CALL_MODES.connecting) {
+            return {
+                layout: 'video-grid',
+                reject: { visible: false },
+                accept: { visible: false },
+                mute: { visible: true, icon: muted ? 'unmute' : 'mute', label: muted ? '取消静音' : '静音', variant: muted ? 'primary' : 'neutral', prominence: 'secondary', slot: '1', appearance: 'tool', selected: muted },
+                hangup: { visible: true, icon: 'hangup', label: '挂断', variant: 'danger', prominence: 'primary', slot: '2', appearance: 'tool' },
+                camera: { visible: true, icon: cameraEnabled ? 'camera_on' : 'camera_off', label: cameraEnabled ? '摄像头' : '摄像头已关', variant: cameraEnabled ? 'neutral' : 'primary', prominence: 'secondary', slot: '3', appearance: 'tool', selected: !cameraEnabled },
+                speaker: { visible: true, icon: speakerOn ? 'speaker_on' : 'speaker_off', label: speakerOn ? '免提已开' : '免提', variant: speakerOn ? 'primary' : 'neutral', prominence: 'secondary', slot: '4', appearance: 'tool', selected: speakerOn },
+                cameraSwitch: { visible: !!canSwitchCamera, icon: 'camera_switch', label: '翻转', variant: 'neutral', prominence: 'secondary', slot: '6', appearance: 'tool' }
             };
         }
         const layout = buildCallActionLayout(mode, muted, speakerOn);
-        if (mode === CALL_MODES.outgoing || mode === CALL_MODES.connecting) {
-            layout.cameraSwitch = { visible: !!canSwitchCamera, icon: 'camera_switch', label: '翻转', variant: 'neutral', prominence: 'secondary', slot: '4', appearance: 'mini' };
-        }
         return layout;
     }
 
@@ -841,6 +857,7 @@
             currentKind: 'audio',
             videoProfile: 'hd',
             facingMode: 'user',
+            cameraEnabled: true,
             lastStatsSample: null,
 
             init(options) {
@@ -896,13 +913,14 @@
                 const constraints = this.buildMediaConstraints(this.currentKind);
                 try {
                     this.localStream = await global.navigator.mediaDevices.getUserMedia(constraints);
-                } catch (error) {
-                    if (!isVideoCallKind(this.currentKind)) throw error;
-                    this.localStream = await global.navigator.mediaDevices.getUserMedia(this.buildMediaConstraints(this.currentKind, { relaxed: true }));
-                }
-                this.emitLocalStream();
-                return this.localStream;
-            },
+            } catch (error) {
+                if (!isVideoCallKind(this.currentKind)) throw error;
+                this.localStream = await global.navigator.mediaDevices.getUserMedia(this.buildMediaConstraints(this.currentKind, { relaxed: true }));
+            }
+            if (isVideoCallKind(this.currentKind)) this.setCameraEnabled(this.cameraEnabled);
+            this.emitLocalStream();
+            return this.localStream;
+        },
 
             async createPeer(role, kind) {
                 this.role = String(role || '').toLowerCase();
@@ -983,6 +1001,15 @@
                 return true;
             },
 
+            setCameraEnabled(enabled) {
+                this.cameraEnabled = enabled !== false;
+                if (!this.localStream) return false;
+                this.localStream.getVideoTracks().forEach(function(track) {
+                    track.enabled = this.cameraEnabled;
+                }, this);
+                return true;
+            },
+
             getFacingMode() {
                 return this.facingMode;
             },
@@ -1012,6 +1039,7 @@
                     });
                     return false;
                 }
+                replacementTrack.enabled = this.cameraEnabled !== false;
                 const oldTrack = this.localStream.getVideoTracks()[0] || null;
                 const sender = this.getVideoSender();
                 if (sender && typeof sender.replaceTrack === 'function') {
@@ -1155,6 +1183,7 @@
                 this.currentKind = 'audio';
                 this.videoProfile = 'hd';
                 this.facingMode = 'user';
+                this.cameraEnabled = true;
                 this.lastStatsSample = null;
             }
         };
@@ -1171,6 +1200,7 @@
         role: '',
         muted: false,
         speakerEnabled: false,
+        cameraEnabled: true,
         offerSent: false,
         timers: { autoEnd: 0, launch: 0, duration: 0, peerDisconnect: 0, videoQuality: 0 },
         refs: {},
@@ -1240,12 +1270,14 @@
                 '      <button class="ak-im-call-overlay-action ak-im-call-overlay-reject" type="button"></button>',
                 '      <button class="ak-im-call-overlay-action ak-im-call-overlay-mute" type="button"></button>',
                 '      <button class="ak-im-call-overlay-action ak-im-call-overlay-hangup" type="button"></button>',
+                '      <button class="ak-im-call-overlay-action ak-im-call-overlay-camera" type="button"></button>',
                 '      <button class="ak-im-call-overlay-action ak-im-call-overlay-speaker" type="button"></button>',
                 '      <button class="ak-im-call-overlay-action ak-im-call-overlay-camera-switch" type="button"></button>',
                 '      <button class="ak-im-call-overlay-action ak-im-call-overlay-accept" type="button"></button>',
                 '    </div>',
                 '  </div>',
                 '  <button class="ak-im-call-overlay-restore" type="button" aria-label="恢复通话">',
+                '    <video class="ak-im-call-overlay-restore-video" playsinline autoplay muted></video>',
                 '    <span class="ak-im-call-overlay-restore-icon" aria-hidden="true"></span>',
                 '    <span class="ak-im-call-overlay-restore-label">返回通话</span>',
                 '  </button>'
@@ -1297,7 +1329,8 @@
             if (!modules.callWebRTC
                 || typeof modules.callWebRTC.applyVideoProfile !== 'function'
                 || typeof modules.callWebRTC.readStatsSnapshot !== 'function'
-                || typeof modules.callWebRTC.switchCamera !== 'function') {
+                || typeof modules.callWebRTC.switchCamera !== 'function'
+                || typeof modules.callWebRTC.setCameraEnabled !== 'function') {
                 modules.callWebRTC = createBuiltInWebRTCModule();
             }
             return {
@@ -1580,10 +1613,21 @@
                 '.ak-im-call-overlay[data-kind="video"] .ak-im-call-overlay-local{top:calc(env(safe-area-inset-top,0px) + 88px);right:18px;width:118px;height:164px;border-radius:20px;z-index:3;background:#0f172a;transform:scaleX(-1);cursor:pointer}',
                 '.ak-im-call-overlay[data-kind="video"] .ak-im-call-overlay-remote{cursor:pointer}',
                 '.ak-im-call-overlay[data-kind="video"] .ak-im-call-overlay-state{position:absolute;left:0;right:0;bottom:calc(118px + env(safe-area-inset-bottom,0px));z-index:3;padding:0 20px;text-align:center;background:none;color:rgba(241,245,249,.86);text-shadow:0 2px 10px rgba(0,0,0,.28)}',
+                '.ak-im-call-overlay[data-kind="video"][data-mode="outgoing"] .ak-im-call-overlay-header-main,.ak-im-call-overlay[data-kind="video"][data-mode="connecting"] .ak-im-call-overlay-header-main{display:none}',
+                '.ak-im-call-overlay[data-kind="video"][data-mode="outgoing"] .ak-im-call-overlay-minimize,.ak-im-call-overlay[data-kind="video"][data-mode="connecting"] .ak-im-call-overlay-minimize{margin-right:0}',
+                '.ak-im-call-overlay[data-kind="video"][data-mode="outgoing"][data-video-surface="local"] .ak-im-call-overlay-local,.ak-im-call-overlay[data-kind="video"][data-mode="connecting"][data-video-surface="local"] .ak-im-call-overlay-local{filter:blur(10px);transform:scale(1.05) scaleX(-1)}',
+                '.ak-im-call-overlay[data-kind="video"][data-mode="outgoing"] .ak-im-call-overlay-placeholder,.ak-im-call-overlay[data-kind="video"][data-mode="connecting"] .ak-im-call-overlay-placeholder{justify-content:center;gap:12px;padding:calc(118px + env(safe-area-inset-top,0px)) 28px calc(210px + env(safe-area-inset-bottom,0px));background:linear-gradient(180deg,rgba(15,23,42,.08) 0%,rgba(15,23,42,.12) 42%,rgba(15,23,42,.58) 100%)}',
+                '.ak-im-call-overlay[data-kind="video"][data-mode="outgoing"] .ak-im-call-overlay-placeholder-icon,.ak-im-call-overlay[data-kind="video"][data-mode="connecting"] .ak-im-call-overlay-placeholder-icon{order:1;width:112px;height:112px;border-radius:28px;background:rgba(255,255,255,.82);color:#0f172a;box-shadow:0 22px 60px rgba(2,6,23,.24);overflow:hidden}',
+                '.ak-im-call-overlay[data-kind="video"][data-mode="outgoing"] .ak-im-call-overlay-detail,.ak-im-call-overlay[data-kind="video"][data-mode="connecting"] .ak-im-call-overlay-detail{order:2;align-items:center;width:auto;min-width:0;padding:0;background:transparent;box-shadow:none;backdrop-filter:none;text-align:center}',
+                '.ak-im-call-overlay[data-kind="video"][data-mode="outgoing"] .ak-im-call-overlay-detail-title,.ak-im-call-overlay[data-kind="video"][data-mode="connecting"] .ak-im-call-overlay-detail-title{font-size:34px;font-weight:500;line-height:1.15;color:rgba(255,255,255,.9);text-shadow:0 8px 26px rgba(0,0,0,.24)}',
+                '.ak-im-call-overlay[data-kind="video"][data-mode="outgoing"] .ak-im-call-overlay-detail-body,.ak-im-call-overlay[data-kind="video"][data-mode="connecting"] .ak-im-call-overlay-detail-body{margin-top:8px;display:inline-flex;align-items:center;justify-content:center;min-height:34px;padding:0 18px;border-radius:999px;background:rgba(35,35,35,.36);font-size:16px;line-height:1;color:rgba(255,255,255,.72)}',
+                '.ak-im-call-overlay[data-kind="video"][data-mode="outgoing"] .ak-im-call-overlay-placeholder-text,.ak-im-call-overlay[data-kind="video"][data-mode="connecting"] .ak-im-call-overlay-placeholder-text{order:3;margin-top:min(23vh,220px);font-size:22px;font-weight:400;color:rgba(255,255,255,.72);text-shadow:0 8px 26px rgba(0,0,0,.24)}',
+                '.ak-im-call-overlay-peer-initial{display:flex;width:100%;height:100%;align-items:center;justify-content:center;font-size:42px;font-weight:700;color:#0f172a;background:linear-gradient(135deg,#f8fafc 0%,#cbd5e1 100%)}',
                 '.ak-im-call-overlay[data-kind="video"][data-video-surface="local"] .ak-im-call-overlay-local{inset:0;width:100%;height:100%;border:0;border-radius:0;box-shadow:none;z-index:0;transform:scaleX(-1)}',
+                '.ak-im-call-overlay[data-kind="video"][data-mode="outgoing"][data-video-surface="local"] .ak-im-call-overlay-local,.ak-im-call-overlay[data-kind="video"][data-mode="connecting"][data-video-surface="local"] .ak-im-call-overlay-local{filter:blur(10px);transform:scale(1.05) scaleX(-1)}',
                 '.ak-im-call-overlay[data-kind="video"][data-video-surface="local"] .ak-im-call-overlay-remote{inset:auto;top:calc(env(safe-area-inset-top,0px) + 88px);right:18px;width:118px;height:164px;border-radius:20px;z-index:3;box-shadow:0 18px 42px rgba(2,6,23,.44);border:1px solid rgba(255,255,255,.18)}',
                 '.ak-im-call-overlay[data-kind="video"][data-video-surface="local"] .ak-im-call-overlay-placeholder{background:linear-gradient(180deg,rgba(2,6,23,.12) 0%,rgba(2,6,23,.08) 36%,rgba(2,6,23,.74) 100%)}',
-                '.ak-im-call-overlay[data-kind="video"][data-video-surface="local"] .ak-im-call-overlay-placeholder-icon,.ak-im-call-overlay[data-kind="video"][data-video-surface="local"] .ak-im-call-overlay-detail{display:none}',
+                '.ak-im-call-overlay[data-kind="video"][data-video-surface="local"]:not([data-mode="outgoing"]):not([data-mode="connecting"]) .ak-im-call-overlay-placeholder-icon,.ak-im-call-overlay[data-kind="video"][data-video-surface="local"]:not([data-mode="outgoing"]):not([data-mode="connecting"]) .ak-im-call-overlay-detail{display:none}',
                 '.ak-im-call-overlay[data-kind="video"][data-video-surface="local"] .ak-im-call-overlay-placeholder-text{max-width:min(420px,calc(100vw - 48px));font-size:24px}',
                 '.ak-im-call-overlay[data-kind="video"][data-video-surface="remote"] .ak-im-call-overlay-local{transform:scaleX(-1)}',
                 '.ak-im-call-overlay[data-kind="video"][data-video-surface="remote"] .ak-im-call-overlay-placeholder{display:none!important}',
@@ -1595,11 +1639,17 @@
                 '.ak-im-call-overlay-actions[data-layout="double"]{display:none}',
                 '.ak-im-call-overlay[data-kind="video"] .ak-im-call-overlay-actions{position:absolute;left:0;right:0;bottom:0;z-index:4;border-top:none;background:linear-gradient(180deg,rgba(2,6,23,0) 0%,rgba(2,6,23,.86) 52%,rgba(2,6,23,.97) 100%);padding-top:34px}',
                 '.ak-im-call-overlay[data-kind="video"] .ak-im-call-overlay-actions[data-layout="single"]{padding-top:42px}',
+                '.ak-im-call-overlay[data-kind="video"][data-mode="outgoing"] .ak-im-call-overlay-actions,.ak-im-call-overlay[data-kind="video"][data-mode="connecting"] .ak-im-call-overlay-actions{padding:36px 52px calc(92px + env(safe-area-inset-bottom,0px));background:linear-gradient(180deg,rgba(2,6,23,0) 0%,rgba(2,6,23,.28) 28%,rgba(2,6,23,.74) 100%)}',
                 '.ak-im-call-overlay-action{all:unset;box-sizing:border-box;color:#e2e8f0;cursor:pointer;font:inherit;-webkit-appearance:none;appearance:none;-webkit-tap-highlight-color:transparent;pointer-events:auto}',
                 '.ak-im-call-overlay-actions .ak-im-call-overlay-action[data-appearance="tool"]{width:100%;max-width:112px;display:flex;flex-direction:column;align-items:center;justify-content:flex-start;gap:10px;padding:0;background:none;border:none;border-radius:0;box-shadow:none}',
                 '.ak-im-call-overlay[data-kind="video"] .ak-im-call-overlay-action[data-appearance="mini"]{position:absolute;right:42px;bottom:calc(104px + env(safe-area-inset-bottom,0px));display:flex;flex-direction:column;align-items:center;gap:6px;width:auto;max-width:none;color:#f8fafc}',
                 '.ak-im-call-overlay[data-kind="video"] .ak-im-call-overlay-action[data-appearance="mini"] .ak-im-call-overlay-action-disc{width:48px;height:48px;background:rgba(15,23,42,.48);box-shadow:inset 0 0 0 1px rgba(255,255,255,.1),0 14px 30px rgba(0,0,0,.2)}',
                 '.ak-im-call-overlay[data-kind="video"] .ak-im-call-overlay-action[data-appearance="mini"] .ak-im-call-overlay-action-label{display:none}',
+                '.ak-im-call-overlay[data-kind="video"][data-mode="outgoing"] .ak-im-call-overlay-action[data-appearance="tool"] .ak-im-call-overlay-action-disc,.ak-im-call-overlay[data-kind="video"][data-mode="connecting"] .ak-im-call-overlay-action[data-appearance="tool"] .ak-im-call-overlay-action-disc{width:86px;height:86px;background:rgba(255,255,255,.94);color:#020617;box-shadow:0 18px 45px rgba(2,6,23,.22)}',
+                '.ak-im-call-overlay[data-kind="video"][data-mode="outgoing"] .ak-im-call-overlay-action[data-appearance="tool"][data-variant="danger"] .ak-im-call-overlay-action-disc,.ak-im-call-overlay[data-kind="video"][data-mode="connecting"] .ak-im-call-overlay-action[data-appearance="tool"][data-variant="danger"] .ak-im-call-overlay-action-disc{width:92px;height:92px;background:#ef4444;color:#fff;box-shadow:0 20px 52px rgba(239,68,68,.34)}',
+                '.ak-im-call-overlay[data-kind="video"][data-mode="outgoing"] .ak-im-call-overlay-action[data-appearance="tool"] .ak-im-call-overlay-action-label,.ak-im-call-overlay[data-kind="video"][data-mode="connecting"] .ak-im-call-overlay-action[data-appearance="tool"] .ak-im-call-overlay-action-label{font-size:18px;font-weight:500;color:rgba(255,255,255,.86);text-shadow:0 6px 18px rgba(0,0,0,.28)}',
+                '.ak-im-call-overlay[data-kind="video"][data-mode="outgoing"] .ak-im-call-overlay-action[data-appearance="mini"],.ak-im-call-overlay[data-kind="video"][data-mode="connecting"] .ak-im-call-overlay-action[data-appearance="mini"]{right:72px;bottom:calc(26px + env(safe-area-inset-bottom,0px))}',
+                '.ak-im-call-overlay[data-kind="video"][data-mode="outgoing"] .ak-im-call-overlay-action[data-appearance="mini"] .ak-im-call-overlay-action-disc,.ak-im-call-overlay[data-kind="video"][data-mode="connecting"] .ak-im-call-overlay-action[data-appearance="mini"] .ak-im-call-overlay-action-disc{width:42px;height:42px;background:rgba(255,255,255,.16);color:#fff;box-shadow:none}',
                 '.ak-im-call-overlay-action[data-slot="1"]{grid-column:1}',
                 '.ak-im-call-overlay-action[data-slot="2"]{grid-column:2}',
                 '.ak-im-call-overlay-action[data-slot="3"]{grid-column:3}',
@@ -1656,6 +1706,35 @@
                 '@media (max-width:768px){.ak-im-call-overlay[data-kind="video"][data-video-surface="local"] .ak-im-call-overlay-remote{top:calc(env(safe-area-inset-top,0px) + 76px);right:14px;width:96px;height:132px;border-radius:16px}.ak-im-call-overlay[data-kind="video"] .ak-im-call-overlay-action[data-appearance="mini"]{right:28px;bottom:calc(96px + env(safe-area-inset-bottom,0px))}}',
                 '@media (max-width:768px){.ak-im-call-overlay{padding:0}.ak-im-call-overlay-card{width:100vw;min-height:100dvh;max-height:100dvh;border-radius:0;box-shadow:none}.ak-im-call-overlay-header{padding-top:calc(18px + env(safe-area-inset-top,0px))}.ak-im-call-overlay-stage{padding:24px 18px 18px}.ak-im-call-overlay-actions{gap:10px;padding-left:16px;padding-right:16px}.ak-im-call-overlay-actions[data-layout="single"]{padding-top:24px;padding-bottom:calc(28px + env(safe-area-inset-bottom,0px))}.ak-im-call-overlay-title{font-size:17px}.ak-im-call-overlay-avatar{width:40px;height:40px;font-size:16px}.ak-im-call-overlay-placeholder{gap:16px}.ak-im-call-overlay-placeholder-icon{width:104px;height:104px}.ak-im-call-overlay-placeholder-text{font-size:21px}.ak-im-call-overlay-detail{width:100%}.ak-im-call-overlay-inline-actions{width:100%;gap:10px}.ak-im-call-overlay-inline-actions .ak-im-call-overlay-action[data-appearance="pill"]{min-width:0;flex:1;height:50px;padding:0 12px}.ak-im-call-overlay-actions .ak-im-call-overlay-action[data-appearance="tool"]{max-width:96px}.ak-im-call-overlay-actions[data-layout="single"] .ak-im-call-overlay-action[data-appearance="tool"]{min-width:108px;min-height:112px;max-width:none;gap:13px}.ak-im-call-overlay-action-disc{width:58px;height:58px}.ak-im-call-overlay-action[data-prominence="primary"] .ak-im-call-overlay-action-disc{width:70px;height:70px}.ak-im-call-overlay-actions[data-layout="single"] .ak-im-call-overlay-action[data-prominence="primary"] .ak-im-call-overlay-action-disc{width:78px;height:78px}.ak-im-call-overlay-actions[data-layout="single"] .ak-im-call-overlay-action[data-prominence="primary"] .ak-im-call-overlay-action-label{font-size:14px}.ak-im-call-overlay-restore{top:calc(env(safe-area-inset-top,0px) + 12px);right:12px}.ak-im-call-overlay-local{top:calc(env(safe-area-inset-top,0px) + 16px);right:16px;width:96px;height:132px;border-radius:16px}.ak-im-call-overlay[data-kind="video"] .ak-im-call-overlay-header{padding:calc(14px + env(safe-area-inset-top,0px)) 14px 16px}.ak-im-call-overlay[data-kind="video"] .ak-im-call-overlay-placeholder{padding:calc(104px + env(safe-area-inset-top,0px)) 18px calc(156px + env(safe-area-inset-bottom,0px))}.ak-im-call-overlay[data-kind="video"] .ak-im-call-overlay-placeholder-text{font-size:24px}.ak-im-call-overlay[data-kind="video"] .ak-im-call-overlay-local{top:calc(env(safe-area-inset-top,0px) + 76px);right:14px;width:96px;height:132px;border-radius:16px}.ak-im-call-overlay[data-kind="video"] .ak-im-call-overlay-state{bottom:calc(110px + env(safe-area-inset-bottom,0px));padding:0 16px}.ak-im-call-overlay[data-kind="video"] .ak-im-call-overlay-actions{padding-left:14px;padding-right:14px;padding-top:28px}.ak-im-call-overlay[data-kind="video"] .ak-im-call-overlay-actions[data-layout="single"]{padding-top:34px}}'
             ].join('');
+            styleEl.textContent += [
+                '.ak-im-call-overlay[data-kind="video"] .ak-im-call-overlay-header{min-height:92px;justify-content:center;pointer-events:none}',
+                '.ak-im-call-overlay[data-kind="video"] .ak-im-call-overlay-header-main{position:absolute;top:calc(16px + env(safe-area-inset-top,0px));left:78px;right:78px;justify-content:center;pointer-events:none}',
+                '.ak-im-call-overlay[data-kind="video"] .ak-im-call-overlay-header-text{text-align:center}',
+                '.ak-im-call-overlay[data-kind="video"] .ak-im-call-overlay-title{font-size:20px}',
+                '.ak-im-call-overlay[data-kind="video"] .ak-im-call-overlay-subtitle{font-size:12px}',
+                '.ak-im-call-overlay[data-kind="video"] .ak-im-call-overlay-minimize{position:absolute;top:calc(16px + env(safe-area-inset-top,0px));left:18px;right:auto;order:0;margin:0;width:42px;height:42px;border-radius:21px;pointer-events:auto;background:rgba(15,23,42,.48);box-shadow:inset 0 0 0 1px rgba(255,255,255,.1),0 12px 28px rgba(2,6,23,.24)}',
+                '.ak-im-call-overlay[data-kind="video"] .ak-im-call-overlay-minimize svg{width:20px;height:20px}',
+                '.ak-im-call-overlay[data-kind="video"] .ak-im-call-overlay-actions[data-layout="video-grid"]{grid-template-columns:repeat(3,minmax(72px,1fr));grid-template-rows:repeat(2,86px);align-items:start;justify-items:center;gap:14px 18px;bottom:clamp(16px,3.6dvh,42px);padding:30px min(52px,7vw) calc(28px + env(safe-area-inset-bottom,0px));background:linear-gradient(180deg,rgba(2,6,23,0) 0%,rgba(2,6,23,.62) 36%,rgba(2,6,23,.9) 100%)}',
+                '.ak-im-call-overlay[data-kind="video"] .ak-im-call-overlay-actions[data-layout="video-grid"] .ak-im-call-overlay-action[data-appearance="tool"]{max-width:96px;gap:8px}',
+                '.ak-im-call-overlay[data-kind="video"] .ak-im-call-overlay-actions[data-layout="video-grid"] .ak-im-call-overlay-action-disc{width:62px;height:62px;background:rgba(15,23,42,.5);color:#f8fafc;box-shadow:inset 0 0 0 1px rgba(255,255,255,.1),0 16px 34px rgba(2,6,23,.26)}',
+                '.ak-im-call-overlay[data-kind="video"] .ak-im-call-overlay-actions[data-layout="video-grid"] .ak-im-call-overlay-action[data-variant="danger"] .ak-im-call-overlay-action-disc{width:76px;height:76px;background:#ef4444;color:#fff;box-shadow:0 18px 42px rgba(239,68,68,.34)}',
+                '.ak-im-call-overlay[data-kind="video"] .ak-im-call-overlay-actions[data-layout="video-grid"] .ak-im-call-overlay-action[data-variant="primary"] .ak-im-call-overlay-action-disc,.ak-im-call-overlay[data-kind="video"] .ak-im-call-overlay-actions[data-layout="video-grid"] .ak-im-call-overlay-action[data-selected="1"] .ak-im-call-overlay-action-disc{background:rgba(37,99,235,.92);color:#fff;box-shadow:0 16px 34px rgba(37,99,235,.3)}',
+                '.ak-im-call-overlay[data-kind="video"] .ak-im-call-overlay-actions[data-layout="video-grid"] .ak-im-call-overlay-action-label{font-size:13px;color:rgba(255,255,255,.92);text-shadow:0 6px 18px rgba(0,0,0,.35)}',
+                '.ak-im-call-overlay[data-kind="video"][data-mode="outgoing"] .ak-im-call-overlay-actions[data-layout="video-grid"],.ak-im-call-overlay[data-kind="video"][data-mode="connecting"] .ak-im-call-overlay-actions[data-layout="video-grid"]{bottom:clamp(18px,4dvh,46px);padding:30px min(54px,7vw) calc(28px + env(safe-area-inset-bottom,0px));background:linear-gradient(180deg,rgba(2,6,23,0) 0%,rgba(2,6,23,.42) 38%,rgba(2,6,23,.72) 100%)}',
+                '.ak-im-call-overlay[data-kind="video"][data-mode="outgoing"] .ak-im-call-overlay-actions[data-layout="video-grid"] .ak-im-call-overlay-action[data-variant="neutral"] .ak-im-call-overlay-action-disc,.ak-im-call-overlay[data-kind="video"][data-mode="connecting"] .ak-im-call-overlay-actions[data-layout="video-grid"] .ak-im-call-overlay-action[data-variant="neutral"] .ak-im-call-overlay-action-disc{background:rgba(255,255,255,.94);color:#020617;box-shadow:0 18px 44px rgba(2,6,23,.2)}',
+                '.ak-im-call-overlay[data-kind="video"] .ak-im-call-overlay-actions[data-layout="video-grid"] .ak-im-call-overlay-action[data-slot="4"]{grid-column:1;grid-row:2}',
+                '.ak-im-call-overlay[data-kind="video"] .ak-im-call-overlay-actions[data-layout="video-grid"] .ak-im-call-overlay-action[data-slot="6"]{grid-column:3;grid-row:2}',
+                '.ak-im-call-overlay[data-kind="video"] .ak-im-call-overlay-state{bottom:calc(248px + env(safe-area-inset-bottom,0px));font-size:13px}',
+                '.ak-im-call-overlay-restore-video{display:none;position:absolute;inset:0;width:100%;height:100%;object-fit:cover;background:#020617}',
+                '.ak-im-call-overlay-restore[data-kind="video"]{top:calc(env(safe-area-inset-top,0px) + 16px);left:16px;right:auto;max-width:none}',
+                '.ak-im-call-overlay-restore[data-kind="video"][data-video-ready="1"]{width:116px;height:158px;min-height:0;padding:0;overflow:hidden;border-radius:18px;background:#020617;box-shadow:0 20px 46px rgba(2,6,23,.36);border:1px solid rgba(255,255,255,.14)}',
+                '.ak-im-call-overlay-restore[data-kind="video"][data-video-ready="1"] .ak-im-call-overlay-restore-video{display:block}',
+                '.ak-im-call-overlay-restore[data-kind="video"][data-video-ready="1"][data-video-source="local"] .ak-im-call-overlay-restore-video{transform:scaleX(-1)}',
+                '.ak-im-call-overlay-restore[data-kind="video"][data-video-ready="1"] .ak-im-call-overlay-restore-icon{position:absolute;top:7px;left:7px;width:26px;height:26px;border-radius:13px;background:rgba(15,23,42,.56);color:#fff;z-index:1}',
+                '.ak-im-call-overlay-restore[data-kind="video"][data-video-ready="1"] .ak-im-call-overlay-restore-icon svg{width:15px;height:15px}',
+                '.ak-im-call-overlay-restore[data-kind="video"][data-video-ready="1"] .ak-im-call-overlay-restore-label{position:absolute;left:0;right:0;bottom:0;z-index:1;padding:22px 8px 8px;background:linear-gradient(180deg,rgba(2,6,23,0) 0%,rgba(2,6,23,.72) 100%);font-size:12px;text-align:center;color:#fff;text-shadow:0 2px 8px rgba(0,0,0,.45)}',
+                '@media (max-width:768px){.ak-im-call-overlay[data-kind="video"] .ak-im-call-overlay-header-main{left:66px;right:66px;top:calc(14px + env(safe-area-inset-top,0px))}.ak-im-call-overlay[data-kind="video"] .ak-im-call-overlay-minimize{top:calc(14px + env(safe-area-inset-top,0px));left:14px;width:40px;height:40px}.ak-im-call-overlay[data-kind="video"] .ak-im-call-overlay-actions[data-layout="video-grid"]{gap:10px 14px;bottom:clamp(14px,3dvh,34px);padding:24px 30px calc(22px + env(safe-area-inset-bottom,0px));grid-template-rows:repeat(2,82px)}.ak-im-call-overlay[data-kind="video"] .ak-im-call-overlay-actions[data-layout="video-grid"] .ak-im-call-overlay-action-disc{width:58px;height:58px}.ak-im-call-overlay[data-kind="video"] .ak-im-call-overlay-actions[data-layout="video-grid"] .ak-im-call-overlay-action[data-variant="danger"] .ak-im-call-overlay-action-disc{width:72px;height:72px}.ak-im-call-overlay[data-kind="video"] .ak-im-call-overlay-state{bottom:calc(226px + env(safe-area-inset-bottom,0px))}.ak-im-call-overlay-restore[data-kind="video"]{top:calc(env(safe-area-inset-top,0px) + 12px);left:12px}.ak-im-call-overlay-restore[data-kind="video"][data-video-ready="1"]{width:102px;height:140px;border-radius:16px}}'
+            ].join('');
             if (!styleEl.parentNode) {
                 (document.head || document.documentElement).appendChild(styleEl);
             }
@@ -1671,7 +1750,9 @@
                 || !panel.querySelector('.ak-im-call-overlay-detail')
                 || !panel.querySelector('.ak-im-call-overlay-inline-actions')
                 || !panel.querySelector('.ak-im-call-overlay-speaker')
-                || !panel.querySelector('.ak-im-call-overlay-camera-switch');
+                || !panel.querySelector('.ak-im-call-overlay-camera')
+                || !panel.querySelector('.ak-im-call-overlay-camera-switch')
+                || !panel.querySelector('.ak-im-call-overlay-restore-video');
             if (!panel) {
                 const wrapper = document.createElement('div');
                 wrapper.innerHTML = '<div class="ak-im-call-overlay" aria-hidden="true">' + this.getShellMarkup() + '</div>';
@@ -1701,10 +1782,12 @@
             this.refs.hangup = panel.querySelector('.ak-im-call-overlay-hangup');
             this.refs.minimize = panel.querySelector('.ak-im-call-overlay-minimize');
             this.refs.restore = panel.querySelector('.ak-im-call-overlay-restore');
+            this.refs.restoreVideo = panel.querySelector('.ak-im-call-overlay-restore-video');
             this.refs.restoreIcon = panel.querySelector('.ak-im-call-overlay-restore-icon');
             this.refs.restoreLabel = panel.querySelector('.ak-im-call-overlay-restore-label');
             this.refs.mute = panel.querySelector('.ak-im-call-overlay-mute');
             this.refs.speaker = panel.querySelector('.ak-im-call-overlay-speaker');
+            this.refs.camera = panel.querySelector('.ak-im-call-overlay-camera');
             this.refs.cameraSwitch = panel.querySelector('.ak-im-call-overlay-camera-switch');
             this.refs.localAudio = panel.querySelector('.ak-im-call-overlay-audio');
             this.refs.localVideo = panel.querySelector('.ak-im-call-overlay-local');
@@ -1763,6 +1846,9 @@
             });
             bindAction(this.refs.speaker, function() {
                 self.toggleSpeaker();
+            });
+            bindAction(this.refs.camera, function() {
+                self.toggleCamera();
             });
             bindAction(this.refs.cameraSwitch, function() {
                 self.switchCamera();
@@ -1843,6 +1929,7 @@
             this.localVideoReady = false;
             this.remoteVideoReady = false;
             this.primaryVideoSource = 'remote';
+            this.cameraEnabled = true;
             this.cameraSwitching = false;
             this.cameraFacingMode = 'user';
             this.qualityProfile = 'hd';
@@ -2160,9 +2247,11 @@
                 connectionPhase: this.connectionPhase,
                 durationText: trim(this.liveDurationText || this.lastDurationText),
                 localTermination: this.localTermination,
+                peerName: this.currentPeerName,
                 localVideoReady: this.localVideoReady,
                 remoteVideoReady: this.remoteVideoReady,
                 primaryVideoSource: this.primaryVideoSource,
+                cameraEnabled: this.cameraEnabled,
                 cameraFacingMode: this.cameraFacingMode,
                 qualityProfile: this.qualityProfile,
                 qualityHealth: this.qualityHealth,
@@ -2294,11 +2383,15 @@
             );
             const canSwitchCamera = this.canSwitchCamera();
             const actionLayout = isVideoCall
-                ? buildVideoCallActionLayout(this.mode, this.muted, this.speakerEnabled, canSwitchCamera)
+                ? buildVideoCallActionLayout(this.mode, this.muted, this.speakerEnabled, this.cameraEnabled, canSwitchCamera)
                 : buildCallActionLayout(this.mode, this.muted, this.speakerEnabled);
             const headerStatus = buildHeaderStatusText(view);
             const stateText = this.cameraSwitching ? '正在翻转摄像头' : (trim(this.qualityStatusText) || trim(view.footer));
             const videoSurface = this.resolveVideoSurface();
+            const isVideoWaitingIdentity = isVideoCall
+                && (this.mode === CALL_MODES.outgoing || this.mode === CALL_MODES.connecting)
+                && this.localVideoReady
+                && !this.remoteVideoReady;
             refs.panel.setAttribute('aria-hidden', visible ? 'false' : 'true');
             refs.panel.dataset.mode = this.mode;
             refs.panel.dataset.minimized = showMinimizedShell ? '1' : '0';
@@ -2306,6 +2399,7 @@
             refs.panel.dataset.localVideoReady = this.localVideoReady ? '1' : '0';
             refs.panel.dataset.remoteVideoReady = this.remoteVideoReady ? '1' : '0';
             refs.panel.dataset.videoSurface = videoSurface;
+            refs.panel.dataset.cameraEnabled = this.cameraEnabled ? '1' : '0';
             refs.panel.dataset.cameraFacing = this.cameraFacingMode || 'user';
             refs.panel.dataset.terminalPresentation = this.terminalPresentation || 'panel';
             refs.title.textContent = this.currentPeerName || getCallKindLabel(this.currentKind);
@@ -2319,6 +2413,26 @@
             }
             if (refs.restoreIcon) refs.restoreIcon.innerHTML = getIconMarkup(isVideoCall ? 'video' : 'phone');
             if (refs.restoreLabel) refs.restoreLabel.textContent = (this.currentPeerName || getCallRestoreLabel(this.currentKind)).trim() || getCallRestoreLabel(this.currentKind);
+            if (refs.restore) {
+                refs.restore.dataset.kind = this.currentKind;
+                refs.restore.dataset.videoReady = (isVideoCall && (this.remoteVideoReady || this.localVideoReady)) ? '1' : '0';
+                refs.restore.dataset.videoSource = this.remoteVideoReady ? 'remote' : (this.localVideoReady ? 'local' : 'none');
+            }
+            if (refs.restoreVideo) {
+                const restoreStream = isVideoCall && refs.remoteVideo && refs.remoteVideo.srcObject
+                    ? refs.remoteVideo.srcObject
+                    : (isVideoCall && refs.localVideo ? refs.localVideo.srcObject : null);
+                try {
+                    if (refs.restoreVideo.srcObject !== restoreStream) refs.restoreVideo.srcObject = restoreStream || null;
+                    refs.restoreVideo.muted = true;
+                    refs.restoreVideo.playsInline = true;
+                    refs.restoreVideo.style.display = showMinimizedShell && restoreStream ? 'block' : 'none';
+                    if (showMinimizedShell && restoreStream) {
+                        const restorePlayResult = refs.restoreVideo.play();
+                        if (restorePlayResult && typeof restorePlayResult.catch === 'function') restorePlayResult.catch(function() {});
+                    }
+                } catch (e) {}
+            }
             refs.placeholder.style.display = (isVideoCall && this.remoteVideoReady) ? 'none' : 'flex';
             if (refs.placeholderText) refs.placeholderText.textContent = view.headline || '';
             if (refs.detailTitle) refs.detailTitle.textContent = view.detailTitle || '';
@@ -2328,8 +2442,20 @@
                 refs.avatar.textContent = (this.currentPeerName || 'C').trim().slice(0, 1).toUpperCase();
             }
             if (refs.placeholderIcon) {
-                refs.placeholderIcon.innerHTML = getIconMarkup(view.icon);
-                refs.placeholderIcon.dataset.icon = view.icon || 'phone';
+                if (isVideoWaitingIdentity) {
+                    const initial = (this.currentPeerName || this.currentPeerUsername || 'V').trim().slice(0, 1).toUpperCase() || 'V';
+                    refs.placeholderIcon.innerHTML = '';
+                    const initialNode = document.createElement('span');
+                    initialNode.className = 'ak-im-call-overlay-peer-initial';
+                    initialNode.textContent = initial;
+                    refs.placeholderIcon.appendChild(initialNode);
+                    refs.placeholderIcon.dataset.icon = 'avatar';
+                    refs.placeholderIcon.dataset.identity = '1';
+                } else {
+                    refs.placeholderIcon.innerHTML = getIconMarkup(view.icon);
+                    refs.placeholderIcon.dataset.icon = view.icon || 'phone';
+                    refs.placeholderIcon.dataset.identity = '0';
+                }
                 refs.placeholderIcon.style.animation = view.pending ? 'akImCallOverlayIconFloat 2.2s ease-in-out infinite' : 'none';
             }
             if (refs.pulse) {
@@ -2345,6 +2471,7 @@
             this.renderActionButton(refs.accept, actionLayout.accept);
             this.renderActionButton(refs.mute, actionLayout.mute);
             this.renderActionButton(refs.speaker, actionLayout.speaker);
+            this.renderActionButton(refs.camera, actionLayout.camera);
             this.renderActionButton(refs.hangup, actionLayout.hangup);
             this.renderActionButton(refs.cameraSwitch, actionLayout.cameraSwitch);
             if (refs.inlineActions && actionLayout.layout === 'double') {
@@ -2358,6 +2485,7 @@
                     if (refs.reject && refs.reject.parentNode !== refs.actions) refs.actions.appendChild(refs.reject);
                     if (refs.mute && refs.mute.parentNode !== refs.actions) refs.actions.appendChild(refs.mute);
                     if (refs.hangup && refs.hangup.parentNode !== refs.actions) refs.actions.appendChild(refs.hangup);
+                    if (refs.camera && refs.camera.parentNode !== refs.actions) refs.actions.appendChild(refs.camera);
                     if (refs.speaker && refs.speaker.parentNode !== refs.actions) refs.actions.appendChild(refs.speaker);
                     if (refs.cameraSwitch && refs.cameraSwitch.parentNode !== refs.actions) refs.actions.appendChild(refs.cameraSwitch);
                     if (refs.accept && refs.accept.parentNode !== refs.actions) refs.actions.appendChild(refs.accept);
@@ -2823,6 +2951,12 @@
                     if (localVideoPlayResult && typeof localVideoPlayResult.catch === 'function') localVideoPlayResult.catch(function() {});
                 }
             } catch (e) {}
+            if (this.webRTC && typeof this.webRTC.setMuted === 'function') {
+                try { this.webRTC.setMuted(this.muted); } catch (e) {}
+            }
+            if (this.webRTC && typeof this.webRTC.setCameraEnabled === 'function') {
+                try { this.webRTC.setCameraEnabled(this.cameraEnabled); } catch (e) {}
+            }
             this.localVideoReady = !!(isVideoCallKind(this.currentKind) && stream.getVideoTracks && stream.getVideoTracks().length);
             this.render();
         },
@@ -2904,6 +3038,15 @@
             this.render();
         },
 
+        toggleCamera() {
+            if (!this.isVideoCall()) return;
+            this.cameraEnabled = !this.cameraEnabled;
+            if (this.webRTC && typeof this.webRTC.setCameraEnabled === 'function') {
+                try { this.webRTC.setCameraEnabled(this.cameraEnabled); } catch (e) {}
+            }
+            this.render();
+        },
+
         toggleVideoPrimary(source) {
             if (!this.isVideoCall() || !this.localVideoReady || !this.remoteVideoReady) return;
             const currentSurface = this.resolveVideoSurface();
@@ -2944,6 +3087,9 @@
             }
             if (this.refs.remoteVideo) {
                 try { this.refs.remoteVideo.srcObject = null; } catch (e) {}
+            }
+            if (this.refs.restoreVideo) {
+                try { this.refs.restoreVideo.srcObject = null; } catch (e) {}
             }
             this.localVideoReady = false;
             this.remoteVideoReady = false;

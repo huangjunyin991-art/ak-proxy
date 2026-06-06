@@ -7,9 +7,11 @@
         cancelled: '<svg viewBox="0 0 24 24" aria-hidden="true"><g transform="rotate(90 12 12)"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.8 19.8 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.11 4.18 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.72c.12.9.33 1.78.62 2.62a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.46-1.18a2 2 0 0 1 2.11-.45c.84.29 1.72.5 2.62.62A2 2 0 0 1 22 16.92Z"></path></g></svg>',
         rejected: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.7 15.4a17 17 0 0 1 16.6 0"></path><path d="m6.15 14.65-2.15 3.75"></path><path d="m17.85 14.65 2.15 3.75"></path><path d="m9 9 6 6"></path><path d="m15 9-6 6"></path></svg>',
         completed: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M22 16.9v2.6a2 2 0 0 1-2.2 2 19.7 19.7 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.7 19.7 0 0 1 2 4.2 2 2 0 0 1 4.1 2h2.6"></path><circle cx="18" cy="6" r="4"></circle><path d="M18 4.4v1.9l1.2.9"></path></svg>',
+        video: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4.3" y="7.1" width="10.9" height="9.8" rx="2.2"></rect><path d="m15.2 10 4.5-2.5v9l-4.5-2.5z"></path></svg>',
         default: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M22 16.9v2.6a2 2 0 0 1-2.2 2 19.7 19.7 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.7 19.7 0 0 1 2 4.2 2 2 0 0 1 4.1 2h2.6"></path></svg>'
     };
     const CALL_TEXT_PREFIX = '📞';
+    const VIDEO_TEXT_PREFIX = '视频通话';
 
     function trim(value) {
         return String(value || '').trim();
@@ -48,8 +50,15 @@
         }).join(':');
     }
 
+    function resolveTextKind(value) {
+        const normalized = trim(value);
+        if (normalized.indexOf(VIDEO_TEXT_PREFIX) === 0) return 'video';
+        if (normalized.indexOf(CALL_TEXT_PREFIX) === 0) return 'audio';
+        return '';
+    }
+
     function isPhoneText(value) {
-        return trim(value).indexOf(CALL_TEXT_PREFIX) === 0;
+        return !!resolveTextKind(value);
     }
 
     function normalizeTextEvent(text) {
@@ -75,7 +84,8 @@
         return normalizeKind(kind) === 'video' ? '视频通话' : '语音通话';
     }
 
-    function resolveIcon(eventName) {
+    function resolveIcon(eventName, kind) {
+        if (normalizeKind(kind) === 'video') return ICONS.video;
         return ICONS[eventName] || ICONS.default;
     }
 
@@ -121,6 +131,9 @@
                 '.ak-im-call-event-bubble[data-event="cancelled"] .ak-im-call-event-icon{background:rgba(148,163,184,.16);color:#cbd5e1}',
                 '.ak-im-call-event-bubble[data-event="rejected"] .ak-im-call-event-icon{background:rgba(239,68,68,.14);color:#f87171}',
                 '.ak-im-call-event-bubble[data-event="completed"] .ak-im-call-event-icon{background:rgba(16,185,129,.14);color:#34d399}',
+                '.ak-im-call-event-bubble[data-kind="video"] .ak-im-call-event-icon{background:rgba(14,165,233,.16);color:#38bdf8}',
+                '.ak-im-call-event-bubble[data-kind="video"][data-event="rejected"] .ak-im-call-event-icon{background:rgba(239,68,68,.14);color:#f87171}',
+                '.ak-im-call-event-bubble[data-kind="video"][data-event="completed"] .ak-im-call-event-icon{background:rgba(16,185,129,.14);color:#34d399}',
                 '.ak-im-call-event-text{min-width:0;display:flex;flex:1;flex-direction:column;gap:2px}',
                 '.ak-im-call-event-title{font-size:14px;font-weight:700;line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
                 '.ak-im-call-event-subtitle{font-size:11px;line-height:1.4;color:rgba(100,116,139,.92)}'
@@ -149,25 +162,28 @@
             let eventName = '';
             let durationText = '';
             let previewText = rawPreview || rawContent;
+            let textKind = '';
             if (messageType === 'call_event') {
                 payload = safeParseJson(item && item.content) || {};
                 eventName = normalizeEvent(payload.event);
                 durationText = normalizeDurationText(payload.duration_text || payload.durationText || '');
                 previewText = trim(rawPreview || payload.preview_text || payload.previewText);
             } else if (messageType === 'text' && (isPhoneText(rawContent) || isPhoneText(rawPreview))) {
+                textKind = resolveTextKind(rawContent) || resolveTextKind(rawPreview);
                 eventName = normalizeTextEvent(rawPreview || rawContent);
                 const durationMatch = String(rawPreview || rawContent).match(/通话时长\s*([0-9:]+)/);
                 durationText = normalizeDurationText(durationMatch && durationMatch[1] || '');
             } else {
                 return null;
             }
+            const kind = normalizeKind(payload.call_kind || payload.kind || textKind || 'audio');
             const callEvent = {
                 event: eventName || normalizeTextEvent(previewText) || (previewText.indexOf('通话时长') >= 0 ? 'completed' : (previewText.indexOf('拒接') >= 0 ? 'rejected' : 'cancelled')),
                 title: buildMainText(eventName || normalizeTextEvent(previewText), durationText, previewText, { remote: isRemote }),
-                subtitle: buildSubtitle(payload.call_kind || payload.kind || 'audio'),
-                icon: resolveIcon(eventName || normalizeTextEvent(previewText)),
+                subtitle: buildSubtitle(kind),
+                icon: resolveIcon(eventName || normalizeTextEvent(previewText), kind),
                 durationText: durationText,
-                kind: normalizeKind(payload.call_kind || payload.kind || 'audio')
+                kind: kind
             };
             callEvent.canRedial = this.canRedial(item, callEvent);
             return callEvent;
@@ -181,7 +197,7 @@
             const callEvent = this.resolveCallEvent(item);
             if (!callEvent) return '';
             this.ensureStyle();
-            return '<div class="ak-im-call-event-bubble" data-event="' + this.escapeHtml(callEvent.event) + '"' + (callEvent.canRedial ? ' data-redial="1"' : '') + '>' +
+            return '<div class="ak-im-call-event-bubble" data-event="' + this.escapeHtml(callEvent.event) + '" data-kind="' + this.escapeHtml(callEvent.kind) + '"' + (callEvent.canRedial ? ' data-redial="1"' : '') + '>' +
                 '<span class="ak-im-call-event-icon" aria-hidden="true">' + callEvent.icon + '</span>' +
                 '<span class="ak-im-call-event-text">' +
                     '<span class="ak-im-call-event-title">' + this.escapeHtml(callEvent.title) + '</span>' +

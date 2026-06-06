@@ -49,10 +49,11 @@
         return normalizeKind(kind) === 'video' ? '视频通话' : '语音通话';
     }
 
-    function buildPreviewText(eventName, durationText) {
-        if (eventName === 'completed') return '📞 通话时长 ' + normalizeDurationText(durationText || '00:00');
-        if (eventName === 'rejected') return '📞 本次呼叫未接通 · 已拒接';
-        return '📞 本次呼叫未接通 · 已取消';
+    function buildPreviewText(eventName, durationText, kind) {
+        const prefix = normalizeKind(kind) === 'video' ? '视频通话' : '📞';
+        if (eventName === 'completed') return prefix + ' 通话时长 ' + normalizeDurationText(durationText || '00:00');
+        if (eventName === 'rejected') return prefix + ' 本次呼叫未接通 · 已拒接';
+        return prefix + ' 本次呼叫未接通 · 已取消';
     }
 
     const callTimelineModule = {
@@ -185,8 +186,10 @@
             const nextOutcome = outcome && typeof outcome === 'object' ? outcome : {};
             const nextSnapshot = snapshot && typeof snapshot === 'object' ? snapshot : {};
             const conversationId = Math.max(0, toNumber(nextSnapshot.conversationId || nextSnapshot.conversation_id));
-            let previewText = buildPreviewText(nextOutcome.event, nextOutcome.durationText);
-            if (nextOutcome.reason === 'timeout') previewText = '📞 本次呼叫未接通 · 对方未接听';
+            const kind = normalizeKind(nextSnapshot.kind || nextSnapshot.call_kind);
+            const prefix = kind === 'video' ? '视频通话' : '📞';
+            let previewText = buildPreviewText(nextOutcome.event, nextOutcome.durationText, kind);
+            if (nextOutcome.reason === 'timeout') previewText = prefix + ' 本次呼叫未接通 · 对方未接听';
             return {
                 conversation_id: conversationId,
                 message_type: 'text',

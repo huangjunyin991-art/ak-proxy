@@ -35,6 +35,7 @@
         currentKind: 'audio',
         videoProfile: 'hd',
         facingMode: 'user',
+        cameraEnabled: true,
         lastStatsSample: null,
 
         init(options) {
@@ -94,6 +95,7 @@
                 if (!isVideoCallKind(this.currentKind)) throw error;
                 this.localStream = await global.navigator.mediaDevices.getUserMedia(this.buildMediaConstraints(this.currentKind, { relaxed: true }));
             }
+            if (isVideoCallKind(this.currentKind)) this.setCameraEnabled(this.cameraEnabled);
             this.emitLocalStream();
             return this.localStream;
         },
@@ -177,6 +179,15 @@
             return true;
         },
 
+        setCameraEnabled(enabled) {
+            this.cameraEnabled = enabled !== false;
+            if (!this.localStream) return false;
+            this.localStream.getVideoTracks().forEach(function(track) {
+                track.enabled = this.cameraEnabled;
+            }, this);
+            return true;
+        },
+
         getFacingMode() {
             return this.facingMode;
         },
@@ -206,6 +217,7 @@
                 });
                 return false;
             }
+            replacementTrack.enabled = this.cameraEnabled !== false;
             const oldTrack = this.localStream.getVideoTracks()[0] || null;
             const sender = this.getVideoSender();
             if (sender && typeof sender.replaceTrack === 'function') {
@@ -349,6 +361,7 @@
             this.currentKind = 'audio';
             this.videoProfile = 'hd';
             this.facingMode = 'user';
+            this.cameraEnabled = true;
             this.lastStatsSample = null;
         }
     };
