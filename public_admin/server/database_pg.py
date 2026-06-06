@@ -2,11 +2,12 @@
 """
 PostgreSQL 数据库模块 (asyncpg)
 参考 monitor/database.py 结构，使用 asyncpg 实现高并发异步读写
-支持连接池自动扩容：击穿时自动扩大并持久化
+连接池采用固定预算；运行期自动扩容默认关闭，避免压力下放大 PostgreSQL 连接数。
 """
 
 import asyncpg
 import asyncio
+import contextlib
 import hashlib
 import json
 import time
@@ -36,6 +37,7 @@ from .performance.notification_history import build_notification_campaign_page
 from .performance.admin_summary import build_admin_summary
 from .performance.admin_lists import build_admin_asset_list, build_admin_user_list
 from .performance.dashboard_stats import build_traffic_dashboard, build_user_growth
+from .runtime_performance import DbAcquireMetrics, InstrumentedPool
 
 logger = logging.getLogger("TransparentProxy.DB")
 
@@ -86,10 +88,30 @@ _pool_config: Dict = {}  # 保存连接参数，用于重建池
 _expand_lock = asyncio.Lock()  # 扩容锁，防止并发扩容
 _POOL_STATE_FILE = os.path.join(os.path.dirname(__file__), ".pool_size")  # 持久化文件
 _TABLE_COLUMNS_CACHE: Dict[str, List[str]] = {}
+_pool_monitor_task: Optional[asyncio.Task] = None
+_pool_metrics = DbAcquireMetrics()
+
+
+def _env_flag(name: str, default: bool = False) -> bool:
+    value = str(os.environ.get(name, '')).strip().lower()
+    if not value:
+        return default
+    return value in {'1', 'true', 'yes', 'on'}
+
+
+_DB_POOL_AUTO_EXPAND_ENABLED = _env_flag('AK_DB_POOL_AUTO_EXPAND', False)
+_DB_POOL_USE_PERSISTED_MAX = _env_flag('AK_DB_POOL_USE_PERSISTED_MAX', False)
 
 
 def _load_persisted_max_size(default: int) -> int:
     """从持久化文件加载上次扩容后的max_size"""
+    if not _DB_POOL_USE_PERSISTED_MAX:
+        if os.path.exists(_POOL_STATE_FILE):
+            logger.warning(
+                "检测到历史连接池扩容状态文件，但默认固定连接预算，已忽略；"
+                "如确需兼容旧行为可设置 AK_DB_POOL_USE_PERSISTED_MAX=1"
+            )
+        return default
     try:
         if os.path.exists(_POOL_STATE_FILE):
             with open(_POOL_STATE_FILE, 'r') as f:
@@ -115,6 +137,11 @@ def _persist_max_size(max_size: int):
 async def _auto_expand_pool():
     """连接池击穿时自动扩容（扩大50%，上限100）"""
     global _pool
+    if not _DB_POOL_AUTO_EXPAND_ENABLED:
+        logger.warning(
+            "连接池已达固定预算且自动扩容已禁用；请查看 pool.acquire 指标、慢 SQL 和请求风暴来源"
+        )
+        return
     async with _expand_lock:
         if _pool is None:
             return
@@ -135,7 +162,7 @@ async def _auto_expand_pool():
         cfg = _pool_config.copy()
         cfg['max_size'] = new_max
         try:
-            _pool = await asyncpg.create_pool(**cfg)
+            _pool = InstrumentedPool(await asyncpg.create_pool(**cfg), _pool_metrics)
             await old_pool.close()
             _pool_config['max_size'] = new_max
             _persist_max_size(new_max)
@@ -144,16 +171,14 @@ async def _auto_expand_pool():
             _pool = old_pool
 
 
-async def safe_acquire():
-    """安全获取连接，超时则触发自动扩容后重试"""
+async def safe_acquire(timeout: float = 5.0):
+    """按固定连接预算获取连接；超时只记录并抛出，不再自动扩容。"""
     pool = _get_pool()
     try:
-        return await asyncio.wait_for(pool.acquire(), timeout=5.0)
+        return await pool.acquire(timeout=timeout)
     except asyncio.TimeoutError:
-        logger.warning("连接池获取超时，触发自动扩容...")
-        await _auto_expand_pool()
-        pool = _get_pool()
-        return await pool.acquire()
+        logger.warning("连接池获取超时: timeout=%.1fs auto_expand=%s", timeout, _DB_POOL_AUTO_EXPAND_ENABLED)
+        raise
 
 
 _high_load_count = 0  # 连续高负载计数
@@ -175,7 +200,10 @@ async def _pool_monitor():
                 _high_load_count += 1
                 logger.warning(f"连接池高负载 [{_high_load_count}/3]: active={total-idle}/{max_sz}, idle={idle}")
                 if _high_load_count >= 3:  # 连续3次（90秒）高负载
-                    await _auto_expand_pool()
+                    if _DB_POOL_AUTO_EXPAND_ENABLED:
+                        await _auto_expand_pool()
+                    else:
+                        logger.warning("连接池持续饱和但自动扩容关闭，保持固定预算 max_size=%s", max_sz)
                     _high_load_count = 0
             else:
                 _high_load_count = 0
@@ -194,6 +222,12 @@ def get_pool_info() -> Dict:
         "idle": _pool.get_idle_size(),
         "active": _pool.get_size() - _pool.get_idle_size(),
         "usage_pct": round(((_pool.get_size() - _pool.get_idle_size()) / _pool.get_max_size()) * 100, 1) if _pool.get_max_size() > 0 else 0,
+        "policy": {
+            "auto_expand_enabled": _DB_POOL_AUTO_EXPAND_ENABLED,
+            "persisted_max_enabled": _DB_POOL_USE_PERSISTED_MAX,
+            "fixed_budget": not _DB_POOL_AUTO_EXPAND_ENABLED,
+        },
+        "acquire_metrics": _pool_metrics.snapshot(),
     }
 
 
@@ -202,7 +236,7 @@ async def init_db(host: str = "127.0.0.1", port: int = 5432,
                   password: str = "",
                   min_size: int = 5, max_size: int = 20):
     """初始化数据库连接池并创建表"""
-    global _pool, _pool_config
+    global _pool, _pool_config, _pool_monitor_task
 
     # 如果之前扩容过，使用持久化的更大值
     max_size = _load_persisted_max_size(max_size)
@@ -213,11 +247,15 @@ async def init_db(host: str = "127.0.0.1", port: int = 5432,
         min_size=min_size, max_size=max_size,
         command_timeout=30
     )
-    _pool = await asyncpg.create_pool(**_pool_config)
-    logger.info(f"PostgreSQL 连接池已创建 (pool={min_size}-{max_size})")
+    _pool = InstrumentedPool(await asyncpg.create_pool(**_pool_config), _pool_metrics)
+    logger.info(
+        "PostgreSQL 连接池已创建 (pool=%s-%s fixed_budget=%s auto_expand=%s)",
+        min_size, max_size, not _DB_POOL_AUTO_EXPAND_ENABLED, _DB_POOL_AUTO_EXPAND_ENABLED
+    )
 
-    # 启动连接池监控（每30秒检查，持续高负载则自动扩容）
-    asyncio.create_task(_pool_monitor())
+    # 启动连接池监控（每30秒检查，持续高负载时告警；自动扩容默认关闭）
+    if _pool_monitor_task is None or _pool_monitor_task.done():
+        _pool_monitor_task = asyncio.create_task(_pool_monitor(), name='ak-db-pool-monitor')
 
     async with _pool.acquire() as conn:
         # 用户登录记录表
@@ -678,7 +716,12 @@ async def init_db(host: str = "127.0.0.1", port: int = 5432,
 
 async def close_db():
     """关闭连接池"""
-    global _pool
+    global _pool, _pool_monitor_task
+    if _pool_monitor_task:
+        _pool_monitor_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await _pool_monitor_task
+        _pool_monitor_task = None
     if _pool:
         await _pool.close()
         _pool = None

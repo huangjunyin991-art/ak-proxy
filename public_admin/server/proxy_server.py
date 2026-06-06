@@ -38,6 +38,7 @@ from html import escape as html_escape
 from logging.handlers import RotatingFileHandler
 
 from datetime import datetime
+from email.utils import formatdate
 from pathlib import Path
 
 from typing import Any, Iterable, Optional
@@ -172,7 +173,15 @@ from plugins.remote_assist.server.types import AssistConsentStatus, AssistRole
 # 出口IP调度模块
 
 from .outbound_dispatcher import dispatcher, ace_sell_dispatcher, OutboundExit
-from .runtime_performance import TimedServiceStatusCache, resolve_worker_policy, run_blocking
+from .runtime_performance import (
+    TimedServiceStatusCache,
+    get_blocking_runner_snapshot,
+    get_event_loop_probe_snapshot,
+    resolve_worker_policy,
+    run_blocking,
+    start_event_loop_probe,
+    stop_event_loop_probe,
+)
 from .performance.cache.admin_stats_cache import AdminStatsCache
 from .performance.db_indexes.admin_index_plan import get_admin_index_plan
 from .performance.dispatcher_status.service import DispatcherStatusService
@@ -3001,7 +3010,7 @@ async def api_dispatcher_parse_sub(request: Request, response: Response):
 
     try:
         if url:
-            result = fetch_subscription(url)
+            result = await run_blocking(fetch_subscription, url)
         elif text:
             result = parse_subscription_text(text)
         elif json_config:
@@ -3101,7 +3110,7 @@ async def api_dispatcher_apply_sub(request: Request):
 
     if url:
 
-        parsed = fetch_subscription(url)
+        parsed = await run_blocking(fetch_subscription, url)
 
     elif text:
 
@@ -3415,6 +3424,20 @@ async def admin_performance_index_plan(request: Request):
         return error_response
 
     return {"items": get_admin_index_plan(), "executable": False}
+
+
+@app.get("/admin/api/performance/runtime")
+async def admin_performance_runtime(request: Request):
+    _, error_response = await _require_admin_token(request, super_admin_only=True)
+    if error_response is not None:
+        return error_response
+
+    return {
+        "success": True,
+        "event_loop": get_event_loop_probe_snapshot(),
+        "blocking_io": get_blocking_runner_snapshot(),
+        "db_pool": db.get_pool_info(),
+    }
 
 
 @app.post("/api/db/delete")
@@ -4650,6 +4673,8 @@ elif _RECOMMEND_TREE_IMPORT_ERROR is not None:
 
 async def admin_startup():
 
+    start_event_loop_probe()
+
     try:
 
         await db.init_db(
@@ -4862,6 +4887,10 @@ async def admin_shutdown():
         await notify_center_worker.stop()
 
     await _ak_web_client_pool.close_all()
+
+    await stop_event_loop_probe()
+
+    await db.close_db()
 
 
 async def _admin_login_success_response(security_context, client_ip: str, role: str, sub_name: str = '',
@@ -10737,6 +10766,59 @@ def _inject_admin_panel_versions(content: str, panel_versions: dict) -> str:
     return _ADMIN_PANEL_VERSION_PATTERN.sub(_replace, content)
 
 
+def _read_text_file_sync(path: str) -> str:
+    with open(path, "r", encoding="utf-8") as f:
+        return f.read()
+
+
+def _read_bytes_file_sync(path: str) -> bytes:
+    with open(path, "rb") as f:
+        return f.read()
+
+
+def _asset_headers_from_stat(stat_result, cache_control: str) -> dict[str, str]:
+    return {
+        "Cache-Control": cache_control,
+        "ETag": f'W/"{int(stat_result.st_mtime_ns)}-{int(stat_result.st_size)}"',
+        "Last-Modified": formatdate(float(stat_result.st_mtime), usegmt=True),
+    }
+
+
+async def _serve_text_asset(
+    request: Request,
+    path: str,
+    media_type: str,
+    not_found_content: str = "// not found",
+    cache_control: str = "no-cache, must-revalidate",
+) -> Response:
+    try:
+        stat_result = await run_blocking(os.stat, path)
+    except OSError:
+        return Response(content=not_found_content, media_type=media_type)
+    headers = _asset_headers_from_stat(stat_result, cache_control)
+    if request.headers.get("if-none-match") == headers["ETag"]:
+        return Response(status_code=304, headers=headers)
+    content = await run_blocking(_read_text_file_sync, path)
+    return Response(content=content, media_type=media_type, headers=headers)
+
+
+async def _serve_binary_asset(
+    request: Request,
+    path: str,
+    media_type: str,
+    cache_control: str = "public, max-age=3600, must-revalidate",
+) -> Response | None:
+    try:
+        stat_result = await run_blocking(os.stat, path)
+    except OSError:
+        return None
+    headers = _asset_headers_from_stat(stat_result, cache_control)
+    if request.headers.get("if-none-match") == headers["ETag"]:
+        return Response(status_code=304, headers=headers)
+    content = await run_blocking(_read_bytes_file_sync, path)
+    return Response(content=content, media_type=media_type, headers=headers)
+
+
 @app.get("/admin", response_class=HTMLResponse)
 @app.get("/admin/", response_class=HTMLResponse)
 async def admin_page(request: Request):
@@ -10755,8 +10837,7 @@ async def admin_page(request: Request):
         panel_versions['pointStats'],
     )
     if _ADMIN_HTML_CACHE["key"] != cache_key:
-        with open(html_path, "r", encoding="utf-8") as f:
-            content = f.read()
+        content = await run_blocking(_read_text_file_sync, html_path)
         content = _inject_admin_panel_versions(content, panel_versions)
         content_bytes = content.encode("utf-8")
         _ADMIN_HTML_CACHE["key"] = cache_key
@@ -11044,10 +11125,10 @@ def _build_ntfy_im_username_switch_prelude() -> str:
     )
 
 
-def _build_widget_loader_response() -> Response:
+async def _build_widget_loader_response() -> Response:
     asset_version = _get_widget_asset_version()
     bundle_url = _version_widget_asset_url("/ak/client-runtime.js", asset_version)
-    bootstrap_content = _build_client_runtime_bootstrap_content()
+    bootstrap_content = await run_blocking(_build_client_runtime_bootstrap_content)
     loader = (
         "(function(){"
         "try{"
@@ -11095,11 +11176,10 @@ def _build_im_location_config_prelude() -> str:
     return "window.__AK_IM_LOCATION__ = " + json.dumps(payload, ensure_ascii=False) + ";\n"
 
 
-def _build_widget_script_response(request: Request, js_path: str, extra_prelude: str = "") -> Response:
+async def _build_widget_script_response(request: Request, js_path: str, extra_prelude: str = "") -> Response:
     if not os.path.exists(js_path):
         return Response(content="// not found", media_type="application/javascript")
-    with open(js_path, "r", encoding="utf-8") as f:
-        content = f.read()
+    content = await run_blocking(_read_text_file_sync, js_path)
     asset_version = _get_widget_asset_version()
     prelude = f"window.__AK_WIDGET_ASSET_VERSION__ = {json.dumps(asset_version)};\n"
     if extra_prelude:
@@ -11111,8 +11191,8 @@ def _build_widget_script_response(request: Request, js_path: str, extra_prelude:
     )
 
 
-def _build_client_runtime_script_response(request: Request) -> Response:
-    content, missing_required = _build_client_runtime_content()
+async def _build_client_runtime_script_response(request: Request) -> Response:
+    content, missing_required = await run_blocking(_build_client_runtime_content)
     if missing_required:
         return Response(content="// not found", media_type="application/javascript")
     asset_version = _get_widget_asset_version()
@@ -11128,7 +11208,7 @@ def _build_client_runtime_script_response(request: Request) -> Response:
 
 async def chat_widget_js():
 
-    return _build_widget_loader_response()
+    return await _build_widget_loader_response()
 
 
 @app.get("/chat/widget.bundle.js")
@@ -11137,7 +11217,7 @@ async def chat_widget_js():
 
 async def ak_client_runtime_js(request: Request):
 
-    return _build_client_runtime_script_response(request)
+    return await _build_client_runtime_script_response(request)
 
 
 @app.get("/chat/notification-widget.js")
@@ -11146,7 +11226,7 @@ async def notification_widget_js(request: Request):
 
     js_path = os.path.join(PLUGINS_DIR, "notification", "user", "index.js")
 
-    return _build_widget_script_response(request, js_path)
+    return await _build_widget_script_response(request, js_path)
 
 
 @app.get("/chat/plugins/notification/user/index.js")
@@ -11155,7 +11235,7 @@ async def notification_user_plugin_index_js(request: Request):
 
     js_path = os.path.join(PLUGINS_DIR, "notification", "user", "index.js")
 
-    return _build_widget_script_response(request, js_path)
+    return await _build_widget_script_response(request, js_path)
 
 
 @app.get("/chat/plugins/notification/user/widget.js")
@@ -11164,7 +11244,7 @@ async def notification_user_plugin_widget_js(request: Request):
 
     js_path = os.path.join(PLUGINS_DIR, "notification", "user", "widget.js")
 
-    return _build_widget_script_response(request, js_path)
+    return await _build_widget_script_response(request, js_path)
 
 
 @app.get("/chat/plugins/im/user/im_entry.js")
@@ -11173,7 +11253,7 @@ async def im_user_plugin_entry_js(request: Request):
 
     js_path = os.path.join(PLUGINS_DIR, "im", "user", "im_entry.js")
 
-    return _build_widget_script_response(request, js_path, _build_im_location_config_prelude())
+    return await _build_widget_script_response(request, js_path, _build_im_location_config_prelude())
 
 
 @app.get("/chat/plugins/im/user/im_client.js")
@@ -11182,7 +11262,7 @@ async def im_user_plugin_client_js(request: Request):
 
     js_path = os.path.join(PLUGINS_DIR, "im", "user", "im_client.js")
 
-    return _build_widget_script_response(request, js_path)
+    return await _build_widget_script_response(request, js_path)
 
 
 @app.get("/chat/im/image-preview", response_class=HTMLResponse)
@@ -11248,7 +11328,7 @@ async def im_user_plugin_app_shell_module_js(request: Request):
 
     js_path = os.path.join(PLUGINS_DIR, "im", "user", "modules", "im_app_shell.js")
 
-    return _build_widget_script_response(request, js_path)
+    return await _build_widget_script_response(request, js_path)
 
 
 @app.get("/chat/plugins/im/user/modules/external_page/im_external_page.js")
@@ -11257,7 +11337,7 @@ async def im_user_plugin_external_page_module_js(request: Request):
 
     js_path = os.path.join(PLUGINS_DIR, "im", "user", "modules", "external_page", "im_external_page.js")
 
-    return _build_widget_script_response(request, js_path)
+    return await _build_widget_script_response(request, js_path)
 
 
 @app.get("/chat/plugins/im/user/modules/social/im_social_manage.js")
@@ -11266,7 +11346,7 @@ async def im_user_plugin_social_manage_module_js(request: Request):
 
     js_path = os.path.join(PLUGINS_DIR, "im", "user", "modules", "social", "im_social_manage.js")
 
-    return _build_widget_script_response(request, js_path)
+    return await _build_widget_script_response(request, js_path)
 
 
 @app.get("/chat/plugins/im/user/modules/hidden_groups/im_hidden_groups.js")
@@ -11275,7 +11355,7 @@ async def im_user_plugin_hidden_groups_module_js(request: Request):
 
     js_path = os.path.join(PLUGINS_DIR, "im", "user", "modules", "hidden_groups", "im_hidden_groups.js")
 
-    return _build_widget_script_response(request, js_path)
+    return await _build_widget_script_response(request, js_path)
 
 
 @app.get("/chat/plugins/im/user/modules/navigation/im_message_navigation.js")
@@ -11284,7 +11364,7 @@ async def im_user_plugin_message_navigation_module_js(request: Request):
 
     js_path = os.path.join(PLUGINS_DIR, "im", "user", "modules", "navigation", "im_message_navigation.js")
 
-    return _build_widget_script_response(request, js_path)
+    return await _build_widget_script_response(request, js_path)
 
 
 @app.get("/chat/plugins/im/user/modules/mentions/im_mention_manage.js")
@@ -11293,7 +11373,7 @@ async def im_user_plugin_mention_manage_module_js(request: Request):
 
     js_path = os.path.join(PLUGINS_DIR, "im", "user", "modules", "mentions", "im_mention_manage.js")
 
-    return _build_widget_script_response(request, js_path)
+    return await _build_widget_script_response(request, js_path)
 
 
 @app.get("/chat/plugins/im/user/modules/message_store/im_message_store.js")
@@ -11302,7 +11382,7 @@ async def im_user_plugin_message_store_module_js(request: Request):
 
     js_path = os.path.join(PLUGINS_DIR, "im", "user", "modules", "message_store", "im_message_store.js")
 
-    return _build_widget_script_response(request, js_path)
+    return await _build_widget_script_response(request, js_path)
 
 
 @app.get("/chat/plugins/im/user/modules/message_sync/im_message_sync.js")
@@ -11311,7 +11391,7 @@ async def im_user_plugin_message_sync_module_js(request: Request):
 
     js_path = os.path.join(PLUGINS_DIR, "im", "user", "modules", "message_sync", "im_message_sync.js")
 
-    return _build_widget_script_response(request, js_path)
+    return await _build_widget_script_response(request, js_path)
 
 
 @app.get("/chat/plugins/im/user/modules/resource_transport/im_resource_transport.js")
@@ -11320,7 +11400,7 @@ async def im_user_plugin_resource_transport_module_js(request: Request):
 
     js_path = os.path.join(PLUGINS_DIR, "im", "user", "modules", "resource_transport", "im_resource_transport.js")
 
-    return _build_widget_script_response(request, js_path)
+    return await _build_widget_script_response(request, js_path)
 
 
 @app.get("/chat/plugins/im/user/modules/avatar/im_avatar_runtime.js")
@@ -11329,7 +11409,7 @@ async def im_user_plugin_avatar_runtime_module_js(request: Request):
 
     js_path = os.path.join(PLUGINS_DIR, "im", "user", "modules", "avatar", "im_avatar_runtime.js")
 
-    return _build_widget_script_response(request, js_path)
+    return await _build_widget_script_response(request, js_path)
 
 
 @app.get("/chat/plugins/im/user/modules/avatar/vendors/dicebear_thumbs/im_dicebear_thumbs.js")
@@ -11338,7 +11418,7 @@ async def im_user_plugin_dicebear_thumbs_module_js(request: Request):
 
     js_path = os.path.join(PLUGINS_DIR, "im", "user", "modules", "avatar", "vendors", "dicebear_thumbs", "im_dicebear_thumbs.js")
 
-    return _build_widget_script_response(request, js_path)
+    return await _build_widget_script_response(request, js_path)
 
 
 @app.get("/chat/plugins/im/user/modules/honor_badge/im_honor_badge.js")
@@ -11347,7 +11427,7 @@ async def im_user_plugin_honor_badge_module_js(request: Request):
 
     js_path = os.path.join(PLUGINS_DIR, "im", "user", "modules", "honor_badge", "im_honor_badge.js")
 
-    return _build_widget_script_response(request, js_path)
+    return await _build_widget_script_response(request, js_path)
 
 
 @app.get("/chat/plugins/im/user/modules/im_image_manage.js")
@@ -11356,7 +11436,7 @@ async def im_user_plugin_image_manage_module_js(request: Request):
 
     js_path = os.path.join(PLUGINS_DIR, "im", "user", "modules", "im_image_manage.js")
 
-    return _build_widget_script_response(request, js_path)
+    return await _build_widget_script_response(request, js_path)
 
 
 @app.get("/chat/plugins/im/user/modules/im_file_manage.js")
@@ -11365,7 +11445,7 @@ async def im_user_plugin_file_manage_module_js(request: Request):
 
     js_path = os.path.join(PLUGINS_DIR, "im", "user", "modules", "im_file_manage.js")
 
-    return _build_widget_script_response(request, js_path)
+    return await _build_widget_script_response(request, js_path)
 
 
 @app.get("/chat/plugins/im/user/modules/video/im_video_manage.js")
@@ -11374,7 +11454,7 @@ async def im_user_plugin_video_manage_module_js(request: Request):
 
     js_path = os.path.join(PLUGINS_DIR, "im", "user", "modules", "video", "im_video_manage.js")
 
-    return _build_widget_script_response(request, js_path)
+    return await _build_widget_script_response(request, js_path)
 
 
 @app.get("/chat/plugins/im/user/modules/upload_progress/im_upload_progress.js")
@@ -11383,7 +11463,7 @@ async def im_user_plugin_upload_progress_module_js(request: Request):
 
     js_path = os.path.join(PLUGINS_DIR, "im", "user", "modules", "upload_progress", "im_upload_progress.js")
 
-    return _build_widget_script_response(request, js_path)
+    return await _build_widget_script_response(request, js_path)
 
 
 @app.get("/chat/plugins/im/user/modules/im_location_manage.js")
@@ -11392,7 +11472,7 @@ async def im_user_plugin_location_manage_module_js(request: Request):
 
     js_path = os.path.join(PLUGINS_DIR, "im", "user", "modules", "im_location_manage.js")
 
-    return _build_widget_script_response(request, js_path)
+    return await _build_widget_script_response(request, js_path)
 
 
 @app.get("/chat/plugins/im/user/modules/im_plus_entry_manage.js")
@@ -11401,7 +11481,7 @@ async def im_user_plugin_plus_entry_manage_module_js(request: Request):
 
     js_path = os.path.join(PLUGINS_DIR, "im", "user", "modules", "im_plus_entry_manage.js")
 
-    return _build_widget_script_response(request, js_path)
+    return await _build_widget_script_response(request, js_path)
 
 
 @app.get("/chat/plugins/im/user/modules/im_emoji_manage.js")
@@ -11410,7 +11490,7 @@ async def im_user_plugin_emoji_manage_module_js(request: Request):
 
     js_path = os.path.join(PLUGINS_DIR, "im", "user", "modules", "im_emoji_manage.js")
 
-    return _build_widget_script_response(request, js_path)
+    return await _build_widget_script_response(request, js_path)
 
 
 @app.get("/chat/plugins/im/user/modules/im_voice_hold_manage.js")
@@ -11419,7 +11499,7 @@ async def im_user_plugin_voice_hold_manage_module_js(request: Request):
 
     js_path = os.path.join(PLUGINS_DIR, "im", "user", "modules", "im_voice_hold_manage.js")
 
-    return _build_widget_script_response(request, js_path)
+    return await _build_widget_script_response(request, js_path)
 
 
 @app.get("/chat/plugins/im/user/modules/im_profile.js")
@@ -11428,7 +11508,7 @@ async def im_user_plugin_profile_module_js(request: Request):
 
     js_path = os.path.join(PLUGINS_DIR, "im", "user", "modules", "im_profile.js")
 
-    return _build_widget_script_response(request, js_path)
+    return await _build_widget_script_response(request, js_path)
 
 
 @app.get("/chat/plugins/im/user/modules/im_overlay.js")
@@ -11437,7 +11517,7 @@ async def im_user_plugin_overlay_module_js(request: Request):
 
     js_path = os.path.join(PLUGINS_DIR, "im", "user", "modules", "im_overlay.js")
 
-    return _build_widget_script_response(request, js_path)
+    return await _build_widget_script_response(request, js_path)
 
 
 @app.get("/chat/plugins/im/user/modules/im_group_manage.js")
@@ -11446,7 +11526,7 @@ async def im_user_plugin_group_manage_module_js(request: Request):
 
     js_path = os.path.join(PLUGINS_DIR, "im", "user", "modules", "im_group_manage.js")
 
-    return _build_widget_script_response(request, js_path)
+    return await _build_widget_script_response(request, js_path)
 
 
 @app.get("/chat/plugins/im/user/modules/im_group_admins.js")
@@ -11455,7 +11535,7 @@ async def im_user_plugin_group_admins_module_js(request: Request):
 
     js_path = os.path.join(PLUGINS_DIR, "im", "user", "modules", "im_group_admins.js")
 
-    return _build_widget_script_response(request, js_path)
+    return await _build_widget_script_response(request, js_path)
 
 
 @app.get("/chat/plugins/im/user/modules/im_group_create.js")
@@ -11464,7 +11544,7 @@ async def im_user_plugin_group_create_module_js(request: Request):
 
     js_path = os.path.join(PLUGINS_DIR, "im", "user", "modules", "im_group_create.js")
 
-    return _build_widget_script_response(request, js_path)
+    return await _build_widget_script_response(request, js_path)
 
 
 @app.get("/chat/plugins/im/user/modules/im_group_title.js")
@@ -11473,7 +11553,7 @@ async def im_user_plugin_group_title_module_js(request: Request):
 
     js_path = os.path.join(PLUGINS_DIR, "im", "user", "modules", "im_group_title.js")
 
-    return _build_widget_script_response(request, js_path)
+    return await _build_widget_script_response(request, js_path)
 
 
 @app.get("/chat/plugins/im/user/modules/im_message_manage.js")
@@ -11482,7 +11562,7 @@ async def im_user_plugin_message_manage_module_js(request: Request):
 
     js_path = os.path.join(PLUGINS_DIR, "im", "user", "modules", "im_message_manage.js")
 
-    return _build_widget_script_response(request, js_path)
+    return await _build_widget_script_response(request, js_path)
 
 
 @app.get("/chat/plugins/im/user/modules/im_session_manage.js")
@@ -11491,7 +11571,7 @@ async def im_user_plugin_session_manage_module_js(request: Request):
 
     js_path = os.path.join(PLUGINS_DIR, "im", "user", "modules", "im_session_manage.js")
 
-    return _build_widget_script_response(request, js_path)
+    return await _build_widget_script_response(request, js_path)
 
 
 @app.get("/chat/plugins/im/user/modules/im_call_manage.js")
@@ -11500,7 +11580,7 @@ async def im_user_plugin_call_manage_module_js(request: Request):
 
     js_path = os.path.join(PLUGINS_DIR, "im", "user", "modules", "im_call_manage.js")
 
-    return _build_widget_script_response(request, js_path)
+    return await _build_widget_script_response(request, js_path)
 
 
 @app.get("/chat/plugins/im/user/modules/call/im_call_signaling.js")
@@ -11509,7 +11589,7 @@ async def im_user_plugin_call_signaling_module_js(request: Request):
 
     js_path = os.path.join(PLUGINS_DIR, "im", "user", "modules", "call", "im_call_signaling.js")
 
-    return _build_widget_script_response(request, js_path)
+    return await _build_widget_script_response(request, js_path)
 
 
 @app.get("/chat/plugins/im/user/modules/call/im_call_session.js")
@@ -11518,7 +11598,7 @@ async def im_user_plugin_call_session_module_js(request: Request):
 
     js_path = os.path.join(PLUGINS_DIR, "im", "user", "modules", "call", "im_call_session.js")
 
-    return _build_widget_script_response(request, js_path)
+    return await _build_widget_script_response(request, js_path)
 
 
 @app.get("/chat/plugins/im/user/modules/call/im_call_timeline.js")
@@ -11527,7 +11607,7 @@ async def im_user_plugin_call_timeline_module_js(request: Request):
 
     js_path = os.path.join(PLUGINS_DIR, "im", "user", "modules", "call", "im_call_timeline.js")
 
-    return _build_widget_script_response(request, js_path)
+    return await _build_widget_script_response(request, js_path)
 
 
 @app.get("/chat/plugins/im/user/modules/call/im_call_webrtc.js")
@@ -11536,7 +11616,7 @@ async def im_user_plugin_call_webrtc_module_js(request: Request):
 
     js_path = os.path.join(PLUGINS_DIR, "im", "user", "modules", "call", "im_call_webrtc.js")
 
-    return _build_widget_script_response(request, js_path)
+    return await _build_widget_script_response(request, js_path)
 
 
 @app.get("/chat/plugins/im/user/modules/call_message/im_call_message_manage.js")
@@ -11545,7 +11625,7 @@ async def im_user_plugin_call_message_manage_module_js(request: Request):
 
     js_path = os.path.join(PLUGINS_DIR, "im", "user", "modules", "call_message", "im_call_message_manage.js")
 
-    return _build_widget_script_response(request, js_path)
+    return await _build_widget_script_response(request, js_path)
 
 
 @app.get("/chat/plugins/im/user/modules/im_meeting_manage.js")
@@ -11554,7 +11634,7 @@ async def im_user_plugin_meeting_manage_module_js(request: Request):
 
     js_path = os.path.join(PLUGINS_DIR, "im", "user", "modules", "im_meeting_manage.js")
 
-    return _build_widget_script_response(request, js_path)
+    return await _build_widget_script_response(request, js_path)
 
 
 @app.get("/chat/plugins/im/user/modules/im_meeting_join_bridge.js")
@@ -11563,121 +11643,65 @@ async def im_user_plugin_meeting_join_bridge_module_js(request: Request):
 
     js_path = os.path.join(PLUGINS_DIR, "im", "user", "modules", "im_meeting_join_bridge.js")
 
-    return _build_widget_script_response(request, js_path)
+    return await _build_widget_script_response(request, js_path)
 
 
 @app.get("/admin/api/notification-panel.js")
 
-async def notification_admin_panel_js():
+async def notification_admin_panel_js(request: Request):
 
     js_path = os.path.join(PLUGINS_DIR, "notification", "admin", "panel.js")
 
-    if os.path.exists(js_path):
-
-        with open(js_path, "r", encoding="utf-8") as f:
-
-            return Response(content=f.read(), media_type="application/javascript",
-
-                            headers={"Cache-Control": "no-cache, no-store, must-revalidate",
-
-                                     "Pragma": "no-cache", "Expires": "0"})
-
-    return Response(content="// not found", media_type="application/javascript")
+    return await _serve_text_asset(request, js_path, "application/javascript")
 
 
 @app.get("/admin/api/meeting-admin-panel.js")
 
-async def meeting_admin_panel_js():
+async def meeting_admin_panel_js(request: Request):
 
     js_path = os.path.join(FRONTEND_PAGES_DIR, "meeting_admin_panel.js")
 
-    if os.path.exists(js_path):
-
-        with open(js_path, "r", encoding="utf-8") as f:
-
-            return Response(content=f.read(), media_type="application/javascript",
-
-                            headers={"Cache-Control": "no-cache, no-store, must-revalidate",
-
-                                     "Pragma": "no-cache", "Expires": "0"})
-
-    return Response(content="// not found", media_type="application/javascript")
+    return await _serve_text_asset(request, js_path, "application/javascript")
 
 
 @app.get("/admin/api/active-defense-panel.js")
-async def active_defense_panel_js():
+async def active_defense_panel_js(request: Request):
     js_path = os.path.join(FRONTEND_PAGES_DIR, "active_defense_panel.js")
-    if os.path.exists(js_path):
-        with open(js_path, "r", encoding="utf-8") as f:
-            return Response(
-                content=f.read(),
-                media_type="application/javascript",
-                headers={"Cache-Control": "no-cache, no-store, must-revalidate", "Pragma": "no-cache", "Expires": "0"},
-            )
-    return Response(content="// not found", media_type="application/javascript")
+    return await _serve_text_asset(request, js_path, "application/javascript")
 
 
 @app.get("/admin/api/rate-ban-panel.js")
-async def rate_ban_panel_js():
+async def rate_ban_panel_js(request: Request):
     js_path = os.path.join(FRONTEND_PAGES_DIR, "rate_ban_panel.js")
-    if os.path.exists(js_path):
-        with open(js_path, "r", encoding="utf-8") as f:
-            return Response(
-                content=f.read(),
-                media_type="application/javascript",
-                headers={"Cache-Control": "no-cache, no-store, must-revalidate", "Pragma": "no-cache", "Expires": "0"},
-            )
-    return Response(content="// not found", media_type="application/javascript")
+    return await _serve_text_asset(request, js_path, "application/javascript")
 
 
 @app.get("/admin/api/risk-isolation-panel.js")
-async def risk_isolation_panel_js():
+async def risk_isolation_panel_js(request: Request):
     js_path = os.path.join(FRONTEND_PAGES_DIR, "risk_isolation_panel.js")
-    if os.path.exists(js_path):
-        with open(js_path, "r", encoding="utf-8") as f:
-            return Response(
-                content=f.read(),
-                media_type="application/javascript",
-                headers={"Cache-Control": "no-cache, no-store, must-revalidate", "Pragma": "no-cache", "Expires": "0"},
-            )
-    return Response(content="// not found", media_type="application/javascript")
+    return await _serve_text_asset(request, js_path, "application/javascript")
 
 
 @app.get("/admin/api/monitoring-panel.js")
-async def monitoring_panel_js():
+async def monitoring_panel_js(request: Request):
     js_path = os.path.join(FRONTEND_PAGES_DIR, "monitoring", "monitoring_panel.js")
-    if os.path.exists(js_path):
-        with open(js_path, "r", encoding="utf-8") as f:
-            return Response(content=f.read(), media_type="application/javascript",
-                            headers={"Cache-Control": "no-cache, no-store, must-revalidate",
-                                     "Pragma": "no-cache", "Expires": "0"})
-    return Response(content="// not found", media_type="application/javascript")
+    return await _serve_text_asset(request, js_path, "application/javascript")
 
 
 @app.get("/admin/api/monitoring-panel.css")
-async def monitoring_panel_css():
+async def monitoring_panel_css(request: Request):
     css_path = os.path.join(FRONTEND_PAGES_DIR, "monitoring", "monitoring_panel.css")
-    if os.path.exists(css_path):
-        with open(css_path, "r", encoding="utf-8") as f:
-            return Response(content=f.read(), media_type="text/css",
-                            headers={"Cache-Control": "no-cache, no-store, must-revalidate",
-                                     "Pragma": "no-cache", "Expires": "0"})
-    return Response(content="", media_type="text/css")
+    return await _serve_text_asset(request, css_path, "text/css", not_found_content="")
 
 
 @app.get("/admin/api/admin-theme.css")
-async def admin_theme_css():
+async def admin_theme_css(request: Request):
     css_path = os.path.join(FRONTEND_PAGES_DIR, "admin_recommend_theme.css")
-    if os.path.exists(css_path):
-        with open(css_path, "r", encoding="utf-8") as f:
-            return Response(content=f.read(), media_type="text/css",
-                            headers={"Cache-Control": "no-cache, no-store, must-revalidate",
-                                     "Pragma": "no-cache", "Expires": "0"})
-    return Response(content="", media_type="text/css")
+    return await _serve_text_asset(request, css_path, "text/css", not_found_content="")
 
 
 @app.get("/admin/api/shared/{asset_path:path}")
-async def admin_shared_asset(asset_path: str):
+async def admin_shared_asset(request: Request, asset_path: str):
     allowed_assets = {
         "lib/chart.umd.min.js": "application/javascript",
         "sticky_table/sticky_table.css": "text/css",
@@ -11693,16 +11717,17 @@ async def admin_shared_asset(asset_path: str):
     file_path = os.path.normpath(os.path.join(base_dir, asset_path))
     if not file_path.startswith(base_dir + os.sep):
         return Response(content="// not found", media_type="application/javascript")
-    if os.path.exists(file_path):
-        with open(file_path, "r", encoding="utf-8") as f:
-            return Response(content=f.read(), media_type=media_type,
-                            headers={"Cache-Control": "no-cache, no-store, must-revalidate",
-                                     "Pragma": "no-cache", "Expires": "0"})
-    return Response(content="" if media_type == "text/css" else "// not found", media_type=media_type)
+    return await _serve_text_asset(
+        request,
+        file_path,
+        media_type,
+        not_found_content="" if media_type == "text/css" else "// not found",
+        cache_control="public, max-age=300, must-revalidate",
+    )
 
 
 @app.get("/admin/api/recommend-tree-panel/{asset_name}")
-async def recommend_tree_panel_asset(asset_name: str):
+async def recommend_tree_panel_asset(request: Request, asset_name: str):
     allowed_assets = {
         "recommend_tree_api.js": "application/javascript",
         "recommend_tree_store.js": "application/javascript",
@@ -11715,16 +11740,16 @@ async def recommend_tree_panel_asset(asset_name: str):
     if not media_type:
         return Response(content="// not found", media_type="application/javascript")
     asset_path = os.path.join(FRONTEND_PAGES_DIR, "recommend_tree", asset_name)
-    if os.path.exists(asset_path):
-        with open(asset_path, "r", encoding="utf-8") as f:
-            return Response(content=f.read(), media_type=media_type,
-                            headers={"Cache-Control": "no-cache, no-store, must-revalidate",
-                                     "Pragma": "no-cache", "Expires": "0"})
-    return Response(content="" if media_type == "text/css" else "// not found", media_type=media_type)
+    return await _serve_text_asset(
+        request,
+        asset_path,
+        media_type,
+        not_found_content="" if media_type == "text/css" else "// not found",
+    )
 
 
 @app.get("/admin/api/point-stats-panel/{asset_name:path}")
-async def point_stats_panel_asset(asset_name: str):
+async def point_stats_panel_asset(request: Request, asset_name: str):
     allowed_assets = {
         "point_stats_api.js": "application/javascript",
         "point_stats_store.js": "application/javascript",
@@ -11745,51 +11770,31 @@ async def point_stats_panel_asset(asset_name: str):
     asset_path = os.path.normpath(os.path.join(base_dir, asset_name))
     if not asset_path.startswith(base_dir + os.sep):
         return Response(content="// not found", media_type="application/javascript")
-    if os.path.exists(asset_path):
-        with open(asset_path, "r", encoding="utf-8") as f:
-            return Response(content=f.read(), media_type=media_type,
-                            headers={"Cache-Control": "no-cache, no-store, must-revalidate",
-                                     "Pragma": "no-cache", "Expires": "0"})
-    return Response(content="" if media_type == "text/css" else "// not found", media_type=media_type)
+    return await _serve_text_asset(
+        request,
+        asset_path,
+        media_type,
+        not_found_content="" if media_type == "text/css" else "// not found",
+    )
 
 
 @app.get("/admin/api/plugins/notification/admin/index.js")
 
-async def notification_admin_plugin_index_js():
+async def notification_admin_plugin_index_js(request: Request):
 
     js_path = os.path.join(PLUGINS_DIR, "notification", "admin", "index.js")
 
-    if os.path.exists(js_path):
-
-        with open(js_path, "r", encoding="utf-8") as f:
-
-            return Response(content=f.read(), media_type="application/javascript",
-
-                            headers={"Cache-Control": "no-cache, no-store, must-revalidate",
-
-                                     "Pragma": "no-cache", "Expires": "0"})
-
-    return Response(content="// not found", media_type="application/javascript")
+    return await _serve_text_asset(request, js_path, "application/javascript")
 
 
 
 @app.get("/admin/api/plugins/notification/admin/panel.js")
 
-async def notification_admin_plugin_panel_js():
+async def notification_admin_plugin_panel_js(request: Request):
 
     js_path = os.path.join(PLUGINS_DIR, "notification", "admin", "panel.js")
 
-    if os.path.exists(js_path):
-
-        with open(js_path, "r", encoding="utf-8") as f:
-
-            return Response(content=f.read(), media_type="application/javascript",
-
-                            headers={"Cache-Control": "no-cache, no-store, must-revalidate",
-
-                                     "Pragma": "no-cache", "Expires": "0"})
-
-    return Response(content="// not found", media_type="application/javascript")
+    return await _serve_text_asset(request, js_path, "application/javascript")
 
 
 
@@ -11797,37 +11802,27 @@ async def notification_admin_plugin_panel_js():
 
 @app.get("/voice/client.js")
 
-async def remote_voice_client_js():
+async def remote_voice_client_js(request: Request):
 
     js_path = os.path.join(PLUGINS_DIR, "remote_voice", "user", "client.js")
 
-    if os.path.exists(js_path):
-
-        with open(js_path, "r", encoding="utf-8") as f:
-
-            return Response(content=f.read(), media_type="application/javascript",
-
-                            headers={"Cache-Control": "no-cache, no-store, must-revalidate",
-
-                                     "Pragma": "no-cache", "Expires": "0"})
-
-    return Response(content="// not found", media_type="application/javascript")
+    return await _serve_text_asset(request, js_path, "application/javascript")
 
 
 
 @app.get("/manifest.json")
 
-async def pwa_manifest():
+async def pwa_manifest(request: Request):
 
     path = os.path.join(PUBLIC_ADMIN_DIR, "manifest.json")
 
-    if os.path.exists(path):
-
-        with open(path, "r", encoding="utf-8") as f:
-
-            return Response(content=f.read(), media_type="application/manifest+json")
-
-    return Response(content="{}", media_type="application/manifest+json")
+    return await _serve_text_asset(
+        request,
+        path,
+        "application/manifest+json",
+        not_found_content="{}",
+        cache_control="no-cache, must-revalidate",
+    )
 
 
 def _build_notify_center_sw_content(base_content: str = "") -> str:
@@ -11856,12 +11851,9 @@ async def pwa_sw():
     headers = {"Service-Worker-Allowed": "/", "Cache-Control": "no-store, max-age=0", "Pragma": "no-cache"}
 
     if os.path.exists(path):
-
-        with open(path, "r", encoding="utf-8") as f:
-
-            return Response(content=_build_notify_center_sw_content(f.read()), media_type="application/javascript",
-
-                          headers=headers)
+        content = await run_blocking(_read_text_file_sync, path)
+        return Response(content=_build_notify_center_sw_content(content), media_type="application/javascript",
+                        headers=headers)
 
     return Response(
 
@@ -11885,12 +11877,9 @@ async def pwa_sw_api():
     headers = {"Service-Worker-Allowed": "/", "Cache-Control": "no-store, max-age=0", "Pragma": "no-cache"}
 
     if os.path.exists(path):
-
-        with open(path, "r", encoding="utf-8") as f:
-
-            return Response(content=_build_notify_center_sw_content(f.read()), media_type="application/javascript",
-
-                          headers=headers)
+        content = await run_blocking(_read_text_file_sync, path)
+        return Response(content=_build_notify_center_sw_content(content), media_type="application/javascript",
+                        headers=headers)
 
     return Response(
 
@@ -11914,29 +11903,29 @@ async def pwa_manifest_api():
 
     if os.path.exists(path):
 
-        with open(path, "r", encoding="utf-8") as f:
+        import json
 
-            import json
+        content = await run_blocking(_read_text_file_sync, path)
 
-            data = json.loads(f.read())
+        data = json.loads(content)
 
-            # 图标路径换成API路径（绕过CDN）
+        # 图标路径换成API路径（绕过CDN）
 
-            data.pop('theme_color', None)  # 不设置theme_color，保持浏览器默认
+        data.pop('theme_color', None)  # 不设置theme_color，保持浏览器默认
 
-            data['icons'] = [
+        data['icons'] = [
 
-                {'src': '/admin/api/pwa-icon/192', 'sizes': '192x192', 'type': 'image/svg+xml', 'purpose': 'any'},
+            {'src': '/admin/api/pwa-icon/192', 'sizes': '192x192', 'type': 'image/svg+xml', 'purpose': 'any'},
 
-                {'src': '/admin/api/pwa-icon/512', 'sizes': '512x512', 'type': 'image/svg+xml', 'purpose': 'any'},
+            {'src': '/admin/api/pwa-icon/512', 'sizes': '512x512', 'type': 'image/svg+xml', 'purpose': 'any'},
 
-                {'src': '/admin/api/pwa-icon-maskable/192', 'sizes': '192x192', 'type': 'image/svg+xml', 'purpose': 'maskable'},
+            {'src': '/admin/api/pwa-icon-maskable/192', 'sizes': '192x192', 'type': 'image/svg+xml', 'purpose': 'maskable'},
 
-                {'src': '/admin/api/pwa-icon-maskable/512', 'sizes': '512x512', 'type': 'image/svg+xml', 'purpose': 'maskable'},
+            {'src': '/admin/api/pwa-icon-maskable/512', 'sizes': '512x512', 'type': 'image/svg+xml', 'purpose': 'maskable'},
 
-            ]
+        ]
 
-            return Response(content=json.dumps(data), media_type="application/manifest+json")
+        return Response(content=json.dumps(data), media_type="application/manifest+json")
 
     return Response(content="{}", media_type="application/manifest+json")
 
@@ -11944,7 +11933,7 @@ async def pwa_manifest_api():
 
 @app.get("/admin/api/pwa-icon/{size}")
 
-async def pwa_icon_api(size: int):
+async def pwa_icon_api(request: Request, size: int):
 
     """通过API路径提供图标（绕过CDN对.png文件的拦截）"""
 
@@ -11954,11 +11943,9 @@ async def pwa_icon_api(size: int):
 
     path = os.path.join(PUBLIC_ADMIN_DIR, f"pwa-icon-{size}.png")
 
-    if os.path.exists(path):
-
-        with open(path, "rb") as f:
-
-            return Response(content=f.read(), media_type="image/png")
+    response = await _serve_binary_asset(request, path, "image/png")
+    if response is not None:
+        return response
     return Response(
         content=_build_pwa_icon_svg(size),
         media_type="image/svg+xml",
@@ -11969,7 +11956,7 @@ async def pwa_icon_api(size: int):
 
 @app.get("/admin/api/pwa-icon-maskable/{size}")
 
-async def pwa_icon_maskable_api(size: int):
+async def pwa_icon_maskable_api(request: Request, size: int):
 
     """Maskable图标（深色背景+安全区内Logo，适配Android自适应图标）"""
 
@@ -11979,11 +11966,9 @@ async def pwa_icon_maskable_api(size: int):
 
     path = os.path.join(PUBLIC_ADMIN_DIR, f"pwa-icon-maskable-{size}.png")
 
-    if os.path.exists(path):
-
-        with open(path, "rb") as f:
-
-            return Response(content=f.read(), media_type="image/png")
+    response = await _serve_binary_asset(request, path, "image/png")
+    if response is not None:
+        return response
     return Response(
         content=_build_pwa_icon_svg(size, maskable=True),
         media_type="image/svg+xml",
@@ -12002,13 +11987,13 @@ async def pwa_widget_api():
 
     """通过API路径提供widget.js（绕过CDN对.js文件的拦截）"""
 
-    return _build_widget_loader_response()
+    return await _build_widget_loader_response()
 
 
 
 @app.get("/pwa-icon-{size}.png")
 
-async def pwa_icon(size: int):
+async def pwa_icon(request: Request, size: int):
 
     """提供PWA图标（本地PNG文件）"""
 
@@ -12018,11 +12003,9 @@ async def pwa_icon(size: int):
 
     path = os.path.join(PUBLIC_ADMIN_DIR, f"pwa-icon-{size}.png")
 
-    if os.path.exists(path):
-
-        with open(path, "rb") as f:
-
-            return Response(content=f.read(), media_type="image/png")
+    response = await _serve_binary_asset(request, path, "image/png")
+    if response is not None:
+        return response
     return Response(
         content=_build_pwa_icon_svg(size),
         media_type="image/svg+xml",
