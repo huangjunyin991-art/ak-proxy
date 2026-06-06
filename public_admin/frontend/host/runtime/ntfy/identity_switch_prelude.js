@@ -83,6 +83,26 @@
         }
     }
 
+    function clearCookie(name) {
+        var key = String(name || '').trim();
+        if (!key) return;
+        var host = '';
+        try {
+            host = String(window.location.hostname || '').trim();
+        } catch (e) {}
+        var domains = [''];
+        if (host && host.indexOf('.') !== -1) {
+            domains.push(host);
+            domains.push('.' + host.replace(/^\./, ''));
+        }
+        for (var i = 0; i < domains.length; i++) {
+            var domainPart = domains[i] ? '; domain=' + domains[i] : '';
+            try { document.cookie = key + '=; path=/; max-age=0; SameSite=Lax' + domainPart; } catch (e2) {}
+            try { document.cookie = key + '=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Lax' + domainPart; } catch (e3) {}
+            try { document.cookie = key + '=; path=/; max-age=0; SameSite=Lax; Secure' + domainPart; } catch (e4) {}
+        }
+    }
+
     function writeStorage(store, key, value) {
         try {
             if (store && key) store.setItem(key, value);
@@ -105,6 +125,145 @@
             if (source[keys[i]] != null && source[keys[i]] !== '') return String(source[keys[i]]).trim().toLowerCase();
         }
         return '';
+    }
+
+    function readJsonStorage(store, key) {
+        try {
+            var raw = store && key ? store.getItem(key) : '';
+            if (!raw) return null;
+            return JSON.parse(raw);
+        } catch (e) {}
+        return null;
+    }
+
+    function readCookie(name) {
+        try {
+            var escaped = String(name || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            var match = document.cookie.match(new RegExp('(?:^|; )' + escaped + '=([^;]*)'));
+            return match ? decodeURIComponent(match[1] || '').trim().toLowerCase() : '';
+        } catch (e) {}
+        return '';
+    }
+
+    function readCurrentUsername() {
+        try {
+            var runtimeUser = pickUsername(window.APP && APP.USER && APP.USER.MODEL);
+            if (runtimeUser) return runtimeUser;
+        } catch (e) {}
+        try {
+            var globalUser = pickUsername(window.USER_MODEL);
+            if (globalUser) return globalUser;
+        } catch (e2) {}
+        try {
+            var keys = [getStoreKey(), 'AK_user_model', 'UserData', 'ak_login_result'];
+            for (var i = 0; i < keys.length; i++) {
+                var parsed = readJsonStorage(localStorage, keys[i]);
+                if (keys[i] === 'ak_login_result' && parsed && parsed.UserData) parsed = parsed.UserData;
+                var username = pickUsername(parsed);
+                if (username) return username;
+            }
+        } catch (e3) {}
+        try {
+            var sessionKeys = ['UserData', 'ak_login_result'];
+            for (var j = 0; j < sessionKeys.length; j++) {
+                var sessionParsed = readJsonStorage(sessionStorage, sessionKeys[j]);
+                if (sessionKeys[j] === 'ak_login_result' && sessionParsed && sessionParsed.UserData) sessionParsed = sessionParsed.UserData;
+                var sessionUsername = pickUsername(sessionParsed);
+                if (sessionUsername) return sessionUsername;
+            }
+        } catch (e4) {}
+        return readCookie('ak_username') || readCookie('ak_im_username');
+    }
+
+    function isTokenTerminalFailure(reason, status) {
+        var normalized = String(reason || '').trim().toLowerCase();
+        var terminal = {
+            already_used: 1,
+            invalid_signature: 1,
+            invalid_timestamp: 1,
+            invalid_token: 1,
+            missing_signature: 1,
+            token_expired: 1,
+            token_from_future: 1
+        };
+        if (terminal[normalized]) return true;
+        return Number(status || 0) === 401 && normalized && normalized.indexOf('token') !== -1;
+    }
+
+    function clearAkLoginStateForRelogin() {
+        var storageKeys = [
+            'AK_user_model',
+            getStoreKey(),
+            'userkey',
+            'UserKey',
+            'ak_login_result',
+            'UserData',
+            'AK_local_login_info',
+            'ak_im_sync_key_' + targetUsername
+        ];
+        for (var i = 0; i < storageKeys.length; i++) {
+            try { localStorage.removeItem(storageKeys[i]); } catch (e) {}
+            try { sessionStorage.removeItem(storageKeys[i]); } catch (e2) {}
+        }
+        try {
+            for (var li = localStorage.length - 1; li >= 0; li--) {
+                var localKey = String(localStorage.key(li) || '');
+                if (localKey.indexOf('ak_im_sync_key_') === 0 || localKey.indexOf('ak.im.bootstrap.v1:') === 0) {
+                    localStorage.removeItem(localKey);
+                }
+            }
+        } catch (e3) {}
+        try {
+            for (var si = sessionStorage.length - 1; si >= 0; si--) {
+                var sessionKey = String(sessionStorage.key(si) || '');
+                if (sessionKey.indexOf('ak_im_sync_key_') === 0 || sessionKey.indexOf('ak.im.bootstrap.v1:') === 0) {
+                    sessionStorage.removeItem(sessionKey);
+                }
+            }
+        } catch (e4) {}
+        clearCookie('ak_username');
+        clearCookie('ak_im_username');
+        clearCookie('ak_persist');
+        try { window.AKIMClientUsername = ''; } catch (e5) {}
+        try { window.USER_MODEL = { Id: 0, Key: '' }; } catch (e6) {}
+        try {
+            if (window.APP && APP.USER) APP.USER.MODEL = { Id: 0, Key: '' };
+        } catch (e7) {}
+    }
+
+    function redirectToLoginForTokenFailure(reason) {
+        var loginUrl = '/pages/account/login.html?reason='
+            + encodeURIComponent(String(reason || 'ntfy_token_invalid'))
+            + '&im_username=' + encodeURIComponent(targetUsername);
+        updateLock({
+            active: false,
+            pending: false,
+            failed: true,
+            redirecting: true,
+            reason: String(reason || 'ntfy_token_invalid')
+        });
+        debug('token-failure-redirect-login', { reason: String(reason || ''), currentUsername: readCurrentUsername() });
+        try {
+            window.location.replace(loginUrl);
+        } catch (e) {
+            window.location.href = loginUrl;
+        }
+    }
+
+    function maybeRedirectToLoginOnTokenFailure(result) {
+        result = result || {};
+        var reason = String(result.reason || '').trim();
+        if (!isTokenTerminalFailure(reason, result.status)) return false;
+        var currentUsername = readCurrentUsername();
+        debug('token-failure-check-current', {
+            reason: reason,
+            status: Number(result.status || 0),
+            currentUsername: currentUsername
+        });
+        if (currentUsername && currentUsername === targetUsername) return false;
+        clearAkLoginStateForRelogin();
+        redirectToLoginForTokenFailure(reason || 'ntfy_token_invalid');
+        return true;
     }
 
     function getStoreKey() {
@@ -220,6 +379,9 @@
     function finish(result) {
         switchDone = true;
         switchResult = result || { synced: false, reason: 'unknown' };
+        if (maybeRedirectToLoginOnTokenFailure(switchResult)) {
+            switchResult.redirecting = true;
+        }
         updateLock({
             pending: false,
             active: !!switchResult.synced,
