@@ -2165,19 +2165,20 @@ async def proxy_login(request: Request):
 
         try:
 
-            await db.save_ak_auth_state(
+            if _is_ak_auth_payload_username_match(account, cached.get("login_result", {}), "proxy_login"):
+                await db.save_ak_auth_state(
 
-                account,
+                    account,
 
-                userkey=cached.get("userkey", ""),
+                    userkey=cached.get("userkey", ""),
 
-                cookies=cached.get("cookies", {}),
+                    cookies=cached.get("cookies", {}),
 
-                login_payload=cached.get("login_result", {}),
+                    login_payload=cached.get("login_result", {}),
 
-                ttl_seconds=_BROWSE_SESSION_TTL,
+                    ttl_seconds=_BROWSE_SESSION_TTL,
 
-            )
+                )
 
         except Exception as e:
 
@@ -5332,13 +5333,14 @@ async def _ensure_point_stats_auth(username: str) -> dict:
         raise RuntimeError("自动登录结果缺少 Key 或 UserID")
     cached = _cache_ak_auth(username, password, result, response.headers)
     try:
-        await db.save_ak_auth_state(
-            username,
-            userkey=cached.get("userkey", ""),
-            cookies=cached.get("cookies", {}),
-            login_payload=cached.get("login_result", {}),
-            ttl_seconds=_BROWSE_SESSION_TTL,
-        )
+        if _is_ak_auth_payload_username_match(username, cached.get("login_result", {}), "point_history_auto_login"):
+            await db.save_ak_auth_state(
+                username,
+                userkey=cached.get("userkey", ""),
+                cookies=cached.get("cookies", {}),
+                login_payload=cached.get("login_result", {}),
+                ttl_seconds=_BROWSE_SESSION_TTL,
+            )
     except Exception as exc:
         logger.warning(f"[PointHistorySync] 自动登录态持久化失败 {username}: {exc}")
     return cached
@@ -11091,10 +11093,10 @@ function cloneObject(obj){var out={};if(!obj||typeof obj!=='object')return out;f
 function buildModel(snapshot){var model=cloneObject(snapshot&&snapshot.userModel);var result=snapshot&&snapshot.loginResult;if(!Object.keys(model).length&&result&&typeof result.UserData==='object'){model=cloneObject(result.UserData);}model.UserName=u;model.Key=String(snapshot&&snapshot.userkey||model.Key||'');return model;}
 function applyInline(snapshot){if(!snapshot||!snapshot.userkey)return false;var model=buildModel(snapshot);if(!model.Key)return false;var result=cloneObject(snapshot.loginResult);var userData=cloneObject(result.UserData||model);userData.UserName=u;result.UserData=userData;result.Key=model.Key;var modelText=JSON.stringify(model);var resultText=JSON.stringify(result);var userDataText=JSON.stringify(userData);var storeKey=getStoreKey();writeStorage(localStorage,'AK_user_model',modelText);writeStorage(localStorage,storeKey,modelText);writeStorage(localStorage,'userkey',model.Key);writeStorage(localStorage,'UserKey',model.Key);writeStorage(localStorage,'ak_login_result',resultText);writeStorage(localStorage,'UserData',userDataText);writeStorage(localStorage,'ak_im_sync_key_'+u,model.Key);writeStorage(sessionStorage,'ak_login_result',resultText);writeStorage(sessionStorage,'UserData',userDataText);try{window.userkey=model.Key;window.USER_MODEL=model;window.AKIMClientUsername=u;if(window.APP&&APP.USER)APP.USER.MODEL=model;}catch(_e){}setCookie('ak_username',u);setCookie('ak_im_username',u);return true;}
 function applySnapshot(snapshot){snapshot=snapshot||{};snapshot.username=String(snapshot.username||u).trim().toLowerCase();if(snapshot.username!==u||!snapshot.userkey)return false;window.__AK_PENDING_IDENTITY_SWITCH__=snapshot;var auth=window.AKClientRuntimeAuth;if(auth&&typeof auth.applyIdentitySnapshot==='function'){var result=auth.applyIdentitySnapshot(snapshot,{source:'ntfy-prelude'});return !!(result===true||(result&&result.applied));}var ok=applyInline(snapshot);if(ok){try{window.dispatchEvent(new CustomEvent('ak:identity-switched',{detail:{username:u,source:'ntfy-prelude-inline'}}));}catch(_e){}}return ok;}
+function reloadOnceAfterSwitch(){try{var nonce=String(p.get('im_switch_nonce')||p.get('im_switch_sig')||Date.now()).slice(0,48);var key='ak_ntfy_identity_reload_'+u+'_'+nonce;if(sessionStorage.getItem(key))return;sessionStorage.setItem(key,'1');setTimeout(function(){try{location.reload();}catch(_e){}},80);}catch(_e){}}
 try{sessionStorage.setItem('ak_ntfy_im_username',u);}catch(_e){}
 var oldCookies=parseCookies();
-setCookie('ak_username',u);setCookie('ak_im_username',u);
-debug('cookies-primed',{oldAkUsername:oldCookies.ak_username||'',oldAkImUsername:oldCookies.ak_im_username||'',cookies:String(document.cookie||'').slice(0,800)});
+debug('switch-start',{oldAkUsername:oldCookies.ak_username||'',oldAkImUsername:oldCookies.ak_im_username||'',cookies:String(document.cookie||'').slice(0,800)});
 var xhr=new XMLHttpRequest();
 var url='/admin/api/ak_auth/switch_by_token?u='+encodeURIComponent(u)
 +'&conversation_id='+encodeURIComponent(String(p.get('conversation_id')||''))
@@ -11104,7 +11106,7 @@ var url='/admin/api/ak_auth/switch_by_token?u='+encodeURIComponent(u)
 debug('api-prep',{apiUrl:url});
 xhr.open('POST',url,true);
 xhr.setRequestHeader('Content-Type','application/json; charset=UTF-8');
-xhr.onload=function(){var ok=false;var r=null;try{r=JSON.parse(xhr.responseText||'{}');}catch(_e){}debug('api-onload',{status:xhr.status||0,rOk:!!(r&&r.success),rKeyMasked:r&&r.userkeyMasked?String(r.userkeyMasked):''});if(xhr.status===200&&r&&r.success&&r.userkey){ok=applySnapshot(r);}if(ok){debug('applied-snapshot',{username:u,userId:r&&r.userId?r.userId:''});return;}restoreCookie('ak_username',oldCookies.ak_username||'');restoreCookie('ak_im_username',oldCookies.ak_im_username||'');debug('api-failed',{bodyHead:String(xhr.responseText||'').slice(0,200)});};
+xhr.onload=function(){var ok=false;var r=null;try{r=JSON.parse(xhr.responseText||'{}');}catch(_e){}debug('api-onload',{status:xhr.status||0,rOk:!!(r&&r.success),rKeyMasked:r&&r.userkeyMasked?String(r.userkeyMasked):''});if(xhr.status===200&&r&&r.success&&r.userkey){ok=applySnapshot(r);}if(ok){debug('applied-snapshot',{username:u,userId:r&&r.userId?r.userId:''});reloadOnceAfterSwitch();return;}restoreCookie('ak_username',oldCookies.ak_username||'');restoreCookie('ak_im_username',oldCookies.ak_im_username||'');debug('api-failed',{bodyHead:String(xhr.responseText||'').slice(0,200),code:r&&r.code?r.code:''});};
 xhr.onerror=function(){restoreCookie('ak_username',oldCookies.ak_username||'');restoreCookie('ak_im_username',oldCookies.ak_im_username||'');debug('api-error',{});};
 xhr.send('{}');
 }catch(_e){}})();
@@ -12207,10 +12209,13 @@ class BrowseSessionPersistQueue:
         username = (username or "").strip()
         if not username:
             return
+        login_result = cached.get("login_result", {})
+        if not _is_ak_auth_payload_username_match(username, login_result, "browse_session_queue_schedule"):
+            return
         self._pending[username] = {
             "cookies": dict(cached.get("cookies", {})),
             "userkey": cached.get("userkey", ""),
-            "login_result": cached.get("login_result", {}),
+            "login_result": login_result,
             "password": cached.get("password", ""),
             "expires": cached.get("expires", time.time() + _BROWSE_SESSION_TTL),
             "auth_ticket_validated": cached.get("auth_ticket_validated", False),
@@ -12224,6 +12229,8 @@ class BrowseSessionPersistQueue:
         self._pending = {}
         for username, cached in pending.items():
             try:
+                if not _is_ak_auth_payload_username_match(username, cached.get("login_result", {}), "browse_session_queue_flush"):
+                    continue
                 await db.save_ak_auth_state(
                     username,
                     userkey=cached.get("userkey", ""),
@@ -12446,6 +12453,20 @@ def _extract_login_result_username(login_result: dict, fallback: str = "") -> st
     return str(fallback or "").strip().lower()
 
 
+def _is_ak_auth_payload_username_match(username: str, login_result: dict, context: str = "") -> bool:
+    expected = str(username or "").strip().lower()
+    actual = _extract_login_result_username(login_result, "")
+    if not expected or not actual:
+        return True
+    if expected == actual:
+        return True
+    logger.warning(
+        f"[AKAuthPersistGuard] skip_mismatched_payload context={context or '-'} "
+        f"target={expected} payload_username={actual}"
+    )
+    return False
+
+
 def _extract_login_user_id(login_result: dict) -> str:
     if not isinstance(login_result, dict):
         return ""
@@ -12555,6 +12576,8 @@ async def _apply_cached_auth_to_browse_session(session: dict, cached: dict, resu
 async def _persist_browse_session_auth(session: dict):
     username, cached = _build_browse_session_persist_payload(session)
     if not username or not cached:
+        return
+    if not _is_ak_auth_payload_username_match(username, cached.get("login_result", {}), "browse_session_persist"):
         return
     _ak_auth_cache[username] = cached
     _browse_session_persist_queue.schedule(username, cached)
@@ -12962,6 +12985,12 @@ async def admin_ak_auth_switch_by_token(request: Request):
     login_user_data = login_result.get("UserData")
     if isinstance(login_user_data, dict):
         login_result["UserData"] = dict(login_user_data)
+    if not _is_ak_auth_payload_username_match(wanted, login_result, "switch_by_token"):
+        return JSONResponse({
+            "success": False,
+            "message": "该账号登录态与目标账号不一致，请先重新登录该账号",
+            "code": "ak_auth_state_mismatch",
+        }, status_code=409)
     user_model = _build_ak_user_model(login_result, userkey)
     if wanted:
         user_model["UserName"] = wanted

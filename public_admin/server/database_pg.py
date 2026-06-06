@@ -941,10 +941,37 @@ async def count_recent_login_password_failures(username: str, ip_address: str, h
     )
 
 
+def _extract_ak_payload_username(login_payload: Dict = None) -> str:
+    if not isinstance(login_payload, dict):
+        return ''
+    containers = []
+    user_data = login_payload.get('UserData')
+    if isinstance(user_data, dict):
+        containers.append(user_data)
+    containers.append(login_payload)
+    for item in containers:
+        if not isinstance(item, dict):
+            continue
+        for key in ('UserName', 'username', 'Account', 'account', 'Name', 'name'):
+            value = item.get(key)
+            if value not in (None, ''):
+                normalized = str(value).strip().lower()
+                if normalized:
+                    return normalized
+    return ''
+
+
 async def save_ak_auth_state(username: str, userkey: str = '', cookies: Dict = None,
                              login_payload: Dict = None, ttl_seconds: int = 3600):
     pool = _get_pool()
     username = username.lower() if username else username
+    payload_username = _extract_ak_payload_username(login_payload)
+    if username and payload_username and username != payload_username:
+        logger.warning(
+            f"[AKAuthPersistGuard] skip_mismatched_payload layer=database "
+            f"target={username} payload_username={payload_username}"
+        )
+        return
     now = datetime.now().replace(microsecond=0)
     expires_at = now + timedelta(seconds=ttl_seconds)
     cookies_json = json.dumps(cookies or {}, ensure_ascii=False)
