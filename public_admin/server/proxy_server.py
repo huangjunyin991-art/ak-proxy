@@ -11115,7 +11115,7 @@ async def _build_widget_loader_response() -> Response:
         + "(document.head||document.documentElement||document.body).appendChild(script);"
         + "}catch(__e){window.__AKChatWidgetBundleRequested=0;}}"
         + "var wait=window.__AKWaitForNtfyIdentitySwitch;"
-        + "if(typeof wait==='function'){try{wait({timeoutMs:8500}).then(appendRuntimeBundle).catch(appendRuntimeBundle);return;}catch(__e){}}"
+        + "if(typeof wait==='function'){try{wait({timeoutMs:8500}).then(function(result){if(result&&result.redirecting)return;appendRuntimeBundle();}).catch(appendRuntimeBundle);return;}catch(__e){}}"
         + "appendRuntimeBundle();"
         + "}catch(_e){}})();"
     )

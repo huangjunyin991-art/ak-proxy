@@ -26,7 +26,7 @@
         query.get('im_switch_sig')
     );
 
-    if (!targetUsername || (openFlag !== '1' && openFlag !== 'true') || !hasSignedToken) return;
+    if (!targetUsername || (openFlag !== '1' && openFlag !== 'true')) return;
 
     var switchDone = false;
     var switchResult = null;
@@ -407,6 +407,17 @@
         try {
             sessionStorage.setItem('ak_ntfy_im_username', targetUsername);
         } catch (e) {}
+        if (!hasSignedToken) {
+            debug('api-missing-signature', {});
+            switchPromise = Promise.resolve(finish({
+                synced: false,
+                reason: 'missing_signature',
+                username: targetUsername,
+                status: 401
+            }));
+            window.__AK_NTFY_SWITCH_PROMISE__ = switchPromise;
+            return switchPromise;
+        }
         switchPromise = new Promise(function(resolve) {
             var xhr = new XMLHttpRequest();
             var url = buildApiUrl();
