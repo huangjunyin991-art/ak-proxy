@@ -3,6 +3,7 @@
 
     const STYLE_ID = 'ak-im-call-overlay-style';
     const PANEL_SELECTOR = '.ak-im-call-overlay';
+    const SHELL_VERSION = '20260606-2';
     const CALL_MODES = {
         idle: 'idle',
         outgoing: 'outgoing',
@@ -52,7 +53,7 @@
         accept: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6.8 4.8c2.5 0 4.5 2 4.5 4.5v1c0 .7.5 1.2 1.2 1.2h.8c1.1 0 2 .9 2 2v1.2c0 .9-.8 1.7-1.7 1.7h-1.7c-4.4 0-8-3.6-8-8V6.5c0-.9.8-1.7 1.7-1.7Z"></path><path d="m10 12.2 1.6 1.6 3.2-3.2"></path></svg>',
         reject: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6.8 4.8c2.5 0 4.5 2 4.5 4.5v1c0 .7.5 1.2 1.2 1.2h.8c1.1 0 2 .9 2 2v1.2c0 .9-.8 1.7-1.7 1.7h-1.7c-4.4 0-8-3.6-8-8V6.5c0-.9.8-1.7 1.7-1.7Z"></path><path d="m15.8 6.8 3.6 3.6"></path><path d="m19.4 6.8-3.6 3.6"></path></svg>',
         hangup: CALL_HANGUP_ICON,
-        cancel: CALL_HANGUP_ICON,
+        cancel: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6.8 4.8c2.5 0 4.5 2 4.5 4.5v1c0 .7.5 1.2 1.2 1.2h.8c1.1 0 2 .9 2 2v1.2c0 .9-.8 1.7-1.7 1.7h-1.7c-4.4 0-8-3.6-8-8V6.5c0-.9.8-1.7 1.7-1.7Z"></path><path d="m15.8 6.8 3.6 3.6"></path><path d="m19.4 6.8-3.6 3.6"></path></svg>',
         mute: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a3 3 0 0 1 3 3v6a3 3 0 1 1-6 0V6a3 3 0 0 1 3-3Z"></path><path d="M19 10v2a7 7 0 1 1-14 0v-2"></path><path d="M12 19v3"></path></svg>',
         unmute: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m4 4 16 16"></path><path d="M9 9v3a3 3 0 0 0 5.12 2.12"></path><path d="M12 3a3 3 0 0 1 3 3v3"></path><path d="M19 10v2a7 7 0 0 1-11.06 5.8"></path><path d="M12 19v3"></path></svg>',
         speaker_on: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 14h4l5 4V6L8 10H4Z"></path><path d="M17 9.5a4.5 4.5 0 0 1 0 5"></path><path d="M19.8 7a8.2 8.2 0 0 1 0 10"></path></svg>',
@@ -1207,7 +1208,7 @@
                 '.ak-im-call-overlay-detail{width:min(100%,320px);padding:16px 18px;border-radius:18px;background:rgba(255,255,255,.05);box-shadow:inset 0 0 0 1px rgba(255,255,255,.06);display:flex;flex-direction:column;gap:8px;text-align:left}',
                 '.ak-im-call-overlay-detail-title{font-size:13px;font-weight:600;color:#cbd5e1}',
                 '.ak-im-call-overlay-detail-body{font-size:14px;line-height:1.6;color:rgba(248,250,252,.88)}',
-                '.ak-im-call-overlay-inline-actions{display:none;align-items:center;justify-content:center;gap:12px;width:min(100%,280px)}',
+                '.ak-im-call-overlay-inline-actions{display:none;position:relative;z-index:2;align-items:center;justify-content:center;gap:12px;width:min(100%,320px);pointer-events:auto}',
                 '.ak-im-call-overlay-local,.ak-im-call-overlay-remote{display:none}',
                 '.ak-im-call-overlay-audio{display:none}',
                 '.ak-im-call-overlay-state{padding:0 20px 14px;min-height:38px;font-size:12px;line-height:1.5;text-align:center;color:rgba(226,232,240,.84)}',
@@ -1227,7 +1228,7 @@
                 '.ak-im-call-overlay-action-label{display:block;flex:0 0 auto;font-size:13px;font-weight:700;line-height:1.3;color:inherit;text-align:center}',
                 '.ak-im-call-overlay-action-pill-icon{display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto;width:16px;height:16px}',
                 '.ak-im-call-overlay-action-pill-icon svg{width:16px;height:16px;stroke:currentColor;stroke-linecap:round;stroke-linejoin:round;stroke-width:1.9;fill:none}',
-                '.ak-im-call-overlay-inline-actions .ak-im-call-overlay-action{all:unset;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;gap:8px;min-width:124px;height:52px;padding:0 18px;border-radius:999px;color:#f8fafc;cursor:pointer;font:inherit;-webkit-appearance:none;appearance:none;-webkit-tap-highlight-color:transparent;box-shadow:0 18px 34px rgba(2,6,23,.26)}',
+                '.ak-im-call-overlay-inline-actions .ak-im-call-overlay-action{all:unset;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;gap:8px;min-width:124px;height:52px;padding:0 18px;border-radius:999px;color:#f8fafc;cursor:pointer;font:inherit;-webkit-appearance:none;appearance:none;-webkit-tap-highlight-color:transparent;box-shadow:0 18px 34px rgba(2,6,23,.26);pointer-events:auto}',
                 '.ak-im-call-overlay-inline-actions .ak-im-call-overlay-action .ak-im-call-overlay-action-disc{display:none}',
                 '.ak-im-call-overlay-inline-actions .ak-im-call-overlay-action .ak-im-call-overlay-action-label{font-size:15px;line-height:1.2}',
                 '.ak-im-call-overlay-action[data-variant="danger"] .ak-im-call-overlay-action-disc{background:#ef4444;color:#fff}',
@@ -1238,9 +1239,9 @@
                 '.ak-im-call-overlay-action[data-prominence="primary"] .ak-im-call-overlay-action-label{font-size:14px}',
                 '.ak-im-call-overlay-actions[data-layout="single"] .ak-im-call-overlay-action[data-prominence="primary"] .ak-im-call-overlay-action-disc{width:82px;height:82px;box-shadow:0 20px 38px rgba(239,68,68,.3)}',
                 '.ak-im-call-overlay-actions[data-layout="single"] .ak-im-call-overlay-action[data-prominence="primary"] .ak-im-call-overlay-action-label{min-height:18px;margin-top:2px;font-size:15px;line-height:1.2;white-space:nowrap}',
-                '.ak-im-call-overlay-inline-actions .ak-im-call-overlay-action[data-variant="danger"]{background:#ef4444}',
-                '.ak-im-call-overlay-inline-actions .ak-im-call-overlay-action[data-variant="success"]{background:#10b981}',
-                '.ak-im-call-overlay-inline-actions .ak-im-call-overlay-action[data-variant="primary"]{background:#2563eb}',
+                '.ak-im-call-overlay-inline-actions .ak-im-call-overlay-action[data-variant="danger"]{background:#ef4444;color:#fff}',
+                '.ak-im-call-overlay-inline-actions .ak-im-call-overlay-action[data-variant="success"]{background:#10b981;color:#fff}',
+                '.ak-im-call-overlay-inline-actions .ak-im-call-overlay-action[data-variant="primary"]{background:#2563eb;color:#fff}',
                 '.ak-im-call-overlay-inline-actions .ak-im-call-overlay-action[data-prominence="primary"]{box-shadow:0 20px 40px rgba(37,99,235,.28)}',
                 '.ak-im-call-overlay[data-mode="incoming"] .ak-im-call-overlay-placeholder-icon{color:#60a5fa;background:rgba(37,99,235,.12)}',
                 '.ak-im-call-overlay[data-mode="outgoing"] .ak-im-call-overlay-placeholder-icon,.ak-im-call-overlay[data-mode="connecting"] .ak-im-call-overlay-placeholder-icon{color:#67e8f9;background:rgba(8,145,178,.14)}',
@@ -1256,7 +1257,7 @@
                 '.ak-im-call-overlay[data-minimized="1"] .ak-im-call-overlay-restore{display:flex}',
                 '@keyframes akImCallOverlayPulse{0%{transform:translate(-50%,-50%) scale(.82);opacity:.18}50%{transform:translate(-50%,-50%) scale(1.04);opacity:.5}100%{transform:translate(-50%,-50%) scale(1.18);opacity:0}}',
                 '@keyframes akImCallOverlayIconFloat{0%{transform:translateY(0)}50%{transform:translateY(-3px)}100%{transform:translateY(0)}}',
-                '@media (max-width:768px){.ak-im-call-overlay{padding:0}.ak-im-call-overlay-card{width:100vw;min-height:100vh;max-height:100vh;border-radius:0;box-shadow:none}.ak-im-call-overlay-stage{padding:28px 18px 18px}.ak-im-call-overlay-actions{gap:10px;padding-left:16px;padding-right:16px}.ak-im-call-overlay-actions[data-layout="single"]{padding-top:24px;padding-bottom:calc(28px + env(safe-area-inset-bottom,0px))}.ak-im-call-overlay-title{font-size:17px}.ak-im-call-overlay-avatar{width:40px;height:40px;font-size:16px}.ak-im-call-overlay-placeholder-icon{width:104px;height:104px}.ak-im-call-overlay-placeholder-text{font-size:21px}.ak-im-call-overlay-detail{width:100%}.ak-im-call-overlay-inline-actions{width:100%;gap:10px}.ak-im-call-overlay-inline-actions .ak-im-call-overlay-action{min-width:0;flex:1;height:50px;padding:0 12px}.ak-im-call-overlay-action{max-width:96px}.ak-im-call-overlay-actions[data-layout="single"] .ak-im-call-overlay-action{min-width:108px;min-height:112px;max-width:none;gap:13px}.ak-im-call-overlay-action-disc{width:58px;height:58px}.ak-im-call-overlay-action[data-prominence="primary"] .ak-im-call-overlay-action-disc{width:70px;height:70px}.ak-im-call-overlay-actions[data-layout="single"] .ak-im-call-overlay-action[data-prominence="primary"] .ak-im-call-overlay-action-disc{width:78px;height:78px}.ak-im-call-overlay-actions[data-layout="single"] .ak-im-call-overlay-action[data-prominence="primary"] .ak-im-call-overlay-action-label{font-size:14px}.ak-im-call-overlay-restore{top:calc(env(safe-area-inset-top,0px) + 12px);right:12px}}'
+                '@media (max-width:768px){.ak-im-call-overlay{padding:0}.ak-im-call-overlay-card{width:100vw;min-height:100dvh;max-height:100dvh;border-radius:0;box-shadow:none}.ak-im-call-overlay-header{padding-top:calc(18px + env(safe-area-inset-top,0px))}.ak-im-call-overlay-stage{padding:24px 18px 18px}.ak-im-call-overlay-actions{gap:10px;padding-left:16px;padding-right:16px}.ak-im-call-overlay-actions[data-layout="single"]{padding-top:24px;padding-bottom:calc(28px + env(safe-area-inset-bottom,0px))}.ak-im-call-overlay-title{font-size:17px}.ak-im-call-overlay-avatar{width:40px;height:40px;font-size:16px}.ak-im-call-overlay-placeholder{gap:16px}.ak-im-call-overlay-placeholder-icon{width:104px;height:104px}.ak-im-call-overlay-placeholder-text{font-size:21px}.ak-im-call-overlay-detail{width:100%}.ak-im-call-overlay-inline-actions{width:100%;gap:10px}.ak-im-call-overlay-inline-actions .ak-im-call-overlay-action{min-width:0;flex:1;height:50px;padding:0 12px}.ak-im-call-overlay-action{max-width:96px}.ak-im-call-overlay-actions[data-layout="single"] .ak-im-call-overlay-action{min-width:108px;min-height:112px;max-width:none;gap:13px}.ak-im-call-overlay-action-disc{width:58px;height:58px}.ak-im-call-overlay-action[data-prominence="primary"] .ak-im-call-overlay-action-disc{width:70px;height:70px}.ak-im-call-overlay-actions[data-layout="single"] .ak-im-call-overlay-action[data-prominence="primary"] .ak-im-call-overlay-action-disc{width:78px;height:78px}.ak-im-call-overlay-actions[data-layout="single"] .ak-im-call-overlay-action[data-prominence="primary"] .ak-im-call-overlay-action-label{font-size:14px}.ak-im-call-overlay-restore{top:calc(env(safe-area-inset-top,0px) + 12px);right:12px}}'
             ].join('');
             (document.head || document.documentElement).appendChild(styleEl);
         },
@@ -1265,7 +1266,12 @@
             const mountRoot = document.body || document.documentElement || null;
             if (!mountRoot) return null;
             let panel = document.querySelector(PANEL_SELECTOR);
-            const needsUpgrade = !panel || !panel.querySelector('.ak-im-call-overlay-action') || !panel.querySelector('.ak-im-call-overlay-detail');
+            const needsUpgrade = !panel
+                || panel.getAttribute('data-shell-version') !== SHELL_VERSION
+                || !panel.querySelector('.ak-im-call-overlay-action')
+                || !panel.querySelector('.ak-im-call-overlay-detail')
+                || !panel.querySelector('.ak-im-call-overlay-inline-actions')
+                || !panel.querySelector('.ak-im-call-overlay-speaker');
             if (!panel) {
                 const wrapper = document.createElement('div');
                 wrapper.innerHTML = '<div class="ak-im-call-overlay" aria-hidden="true">' + this.getShellMarkup() + '</div>';
@@ -1274,14 +1280,17 @@
             } else if (needsUpgrade) {
                 const hidden = panel.getAttribute('aria-hidden');
                 const mode = panel.dataset.mode || '';
+                const minimized = panel.dataset.minimized || '0';
                 panel.innerHTML = this.getShellMarkup();
                 if (hidden != null) panel.setAttribute('aria-hidden', hidden);
                 if (mode) panel.dataset.mode = mode;
+                panel.dataset.minimized = minimized;
                 this.bound = false;
             }
             if (panel && panel.hasAttribute('data-ak-call-launch-fallback')) {
                 panel.removeAttribute('data-ak-call-launch-fallback');
             }
+            if (panel) panel.setAttribute('data-shell-version', SHELL_VERSION);
             this.refs.panel = panel;
             this.refs.title = panel.querySelector('.ak-im-call-overlay-title');
             this.refs.subtitle = panel.querySelector('.ak-im-call-overlay-subtitle');

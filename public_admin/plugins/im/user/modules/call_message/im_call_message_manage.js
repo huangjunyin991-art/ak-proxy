@@ -123,8 +123,7 @@
                 '.ak-im-call-event-bubble[data-event="completed"] .ak-im-call-event-icon{background:rgba(16,185,129,.14);color:#34d399}',
                 '.ak-im-call-event-text{min-width:0;display:flex;flex:1;flex-direction:column;gap:2px}',
                 '.ak-im-call-event-title{font-size:14px;font-weight:700;line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
-                '.ak-im-call-event-subtitle{font-size:11px;line-height:1.4;color:rgba(100,116,139,.92)}',
-                '.ak-im-call-event-cta{display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto;min-width:56px;height:28px;padding:0 10px;border-radius:999px;background:rgba(37,99,235,.12);color:#2563eb;font-size:12px;font-weight:700;line-height:1.2;white-space:nowrap}'
+                '.ak-im-call-event-subtitle{font-size:11px;line-height:1.4;color:rgba(100,116,139,.92)}'
             ].join('');
             (global.document.head || global.document.documentElement).appendChild(styleEl);
         },
@@ -188,7 +187,6 @@
                     '<span class="ak-im-call-event-title">' + this.escapeHtml(callEvent.title) + '</span>' +
                     '<span class="ak-im-call-event-subtitle">' + this.escapeHtml(callEvent.subtitle) + '</span>' +
                 '</span>' +
-                (callEvent.canRedial ? '<span class="ak-im-call-event-cta" aria-hidden="true">回拨</span>' : '') +
             '</div>';
         },
 
