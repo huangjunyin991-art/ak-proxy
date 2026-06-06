@@ -10,16 +10,63 @@
     var LOGIN_GOTO_FALLBACK_MS = 800;
     var COOKIE_MAX_AGE = String(86400 * 30);
 
+    function writeEarlyDebug(step, extra) {
+        try {
+            var data = window.__AK_NTFY_SWITCH_DEBUG__ || {};
+            data.ts = data.ts || Date.now();
+            data.step = step;
+            if (extra && typeof extra === 'object') {
+                for (var key in extra) {
+                    if (Object.prototype.hasOwnProperty.call(extra, key)) data[key] = extra[key];
+                }
+            }
+            window.__AK_NTFY_SWITCH_DEBUG__ = data;
+        } catch (e) {}
+    }
+
+    function parseSearchParams(search) {
+        try {
+            return new URLSearchParams(String(search || ''));
+        } catch (e) {
+            return null;
+        }
+    }
+
+    function getLoaderReferrerSearch() {
+        try {
+            var referrer = String(window.__AK_NTFY_LOADER_REFERRER__ || '').trim();
+            if (!referrer) return '';
+            return new URL(referrer, window.location.href).search || '';
+        } catch (e) {}
+        return '';
+    }
+
     function getQuery() {
         try {
-            return new URLSearchParams(String(window.location.search || ''));
+            var query = parseSearchParams(window.location.search);
+            var referrerSearch = getLoaderReferrerSearch();
+            var fallback = parseSearchParams(referrerSearch);
+            if (!query && !fallback) return null;
+            if (!query) query = parseSearchParams('');
+            if (fallback && typeof fallback.forEach === 'function') {
+                fallback.forEach(function(value, key) {
+                    if (!query.has(key)) query.set(key, value);
+                });
+            }
+            return query;
         } catch (e) {
             return null;
         }
     }
 
     var query = getQuery();
-    if (!query) return;
+    if (!query) {
+        writeEarlyDebug('skip-query-unavailable', {
+            locationSearch: String(window.location.search || ''),
+            loaderReferrer: String(window.__AK_NTFY_LOADER_REFERRER__ || '')
+        });
+        return;
+    }
 
     var targetUsername = String(query.get('im_username') || '').trim().toLowerCase();
     var openFlag = String(query.get('ak_im_open') || '').trim().toLowerCase();
@@ -38,7 +85,17 @@
         query.get('im_switch_sig')
     );
 
-    if (!targetUsername || (!isOpenRequest && !isForceLoginCleanup)) return;
+    if (!targetUsername || (!isOpenRequest && !isForceLoginCleanup)) {
+        writeEarlyDebug('skip-no-ntfy-open-request', {
+            targetUsername: targetUsername,
+            openFlag: openFlag,
+            reasonFlag: reasonFlag,
+            locationSearch: String(window.location.search || ''),
+            loaderReferrer: String(window.__AK_NTFY_LOADER_REFERRER__ || ''),
+            loaderReferrerSearch: getLoaderReferrerSearch()
+        });
+        return;
+    }
 
     var switchDone = false;
     var switchResult = null;

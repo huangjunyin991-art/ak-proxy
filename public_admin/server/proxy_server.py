@@ -11082,7 +11082,18 @@ def _build_ntfy_im_username_switch_prelude() -> str:
     except Exception as e:
         logger.warning(f"[NtfyIdentitySwitchPrelude] 读取失败: {e}")
         return ""
-async def _build_widget_loader_response() -> Response:
+
+
+def _build_ntfy_loader_context_prelude(request: Request | None = None) -> str:
+    referer = ""
+    try:
+        referer = str(request.headers.get("referer") or "").strip() if request is not None else ""
+    except Exception:
+        referer = ""
+    return "window.__AK_NTFY_LOADER_REFERRER__ = " + json.dumps(referer, ensure_ascii=False) + ";\n"
+
+
+async def _build_widget_loader_response(request: Request | None = None) -> Response:
     asset_version = _get_widget_asset_version()
     bundle_url = _version_widget_asset_url("/ak/client-runtime.js", asset_version)
     bootstrap_content = await run_blocking(_build_client_runtime_bootstrap_content)
@@ -11123,7 +11134,7 @@ async def _build_widget_loader_response() -> Response:
         loader = bootstrap_content + "\n;\n" + loader
     ntfy_prelude = _build_ntfy_im_username_switch_prelude()
     if ntfy_prelude:
-        loader = ntfy_prelude + "\n;\n" + loader
+        loader = _build_ntfy_loader_context_prelude(request) + ntfy_prelude + "\n;\n" + loader
     return Response(
         content=loader,
         media_type="application/javascript",
@@ -11169,9 +11180,9 @@ async def _build_client_runtime_script_response(request: Request) -> Response:
 
 @app.get("/chat/widget.js")
 
-async def chat_widget_js():
+async def chat_widget_js(request: Request):
 
-    return await _build_widget_loader_response()
+    return await _build_widget_loader_response(request)
 
 
 @app.get("/chat/widget.bundle.js")
@@ -11946,11 +11957,11 @@ async def pwa_icon_maskable_api(request: Request, size: int):
 
 @app.get("/admin/api/pwa-widget")
 
-async def pwa_widget_api():
+async def pwa_widget_api(request: Request):
 
     """通过API路径提供widget.js（绕过CDN对.js文件的拦截）"""
 
-    return await _build_widget_loader_response()
+    return await _build_widget_loader_response(request)
 
 
 
