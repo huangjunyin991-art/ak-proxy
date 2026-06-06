@@ -4454,6 +4454,31 @@ class OnlineUserManager:
 
 online_manager = OnlineUserManager()
 
+def _is_real_chat_username(username: str) -> bool:
+    normalized = online_manager.normalize_username(username)
+    return bool(normalized and normalized != 'visitor' and not normalized.startswith('guest_'))
+
+def _get_chat_ws_cookie_username(websocket: WebSocket) -> str:
+    try:
+        cookies = getattr(websocket, 'cookies', {}) or {}
+        for key in ('ak_username', 'ak_im_username'):
+            value = online_manager.normalize_username(cookies.get(key) or '')
+            if _is_real_chat_username(value):
+                return value
+    except Exception:
+        return ''
+    return ''
+
+def _resolve_chat_ws_username(websocket: WebSocket, *candidates) -> str:
+    cookie_username = _get_chat_ws_cookie_username(websocket)
+    if cookie_username:
+        return cookie_username
+    for candidate in candidates:
+        value = str(candidate or '').strip()
+        if value:
+            return value
+    return 'visitor'
+
 notification_service = NotificationService(
     push_user_payload=online_manager.send_payload_to_all_connections,
     broadcast_admin_event=ws_manager.broadcast,
@@ -10354,7 +10379,11 @@ async def chat_websocket(websocket: WebSocket):
 
     await websocket.accept()
 
-    username = websocket.query_params.get('username', 'visitor')
+    raw_query_username = websocket.query_params.get('username', 'visitor')
+
+    cookie_username = _get_chat_ws_cookie_username(websocket)
+
+    username = _resolve_chat_ws_username(websocket, raw_query_username)
 
     normalized_query_username = online_manager.normalize_username(username)
 
@@ -10362,7 +10391,8 @@ async def chat_websocket(websocket: WebSocket):
 
     logger.warning(
 
-        f"[ChatWS] accepted query_username={username or '-'} client={client}"
+        f"[ChatWS] accepted query_username={raw_query_username or '-'} resolved_username={username or '-'} "
+        f"cookie_username={cookie_username or '-'} client={client}"
 
     )
 
@@ -10394,7 +10424,8 @@ async def chat_websocket(websocket: WebSocket):
 
             if msg_type == 'online':
 
-                incoming_username = data.get('username', username)
+                raw_incoming_username = data.get('username', username)
+                incoming_username = _resolve_chat_ws_username(websocket, raw_incoming_username, username)
                 incoming_page = str(data.get('page') or '')
                 incoming_page_client_id = str(data.get('pageClientId') or '')
                 current_ws_id = online_manager.get_websocket_id(websocket)
@@ -10416,6 +10447,7 @@ async def chat_websocket(websocket: WebSocket):
                 logger.warning(
 
                     f"[ChatWS] online_received query_username={username or '-'} incoming_username={incoming_username or '-'} "
+                    f"raw_incoming_username={raw_incoming_username or '-'} "
 
                     f"client={client} page={incoming_page} page_client_id={incoming_page_client_id}"
 
@@ -10504,6 +10536,26 @@ async def chat_websocket(websocket: WebSocket):
             elif msg_type == 'heartbeat':
 
                 hp = data.get('page', '')
+
+                heartbeat_username = _resolve_chat_ws_username(websocket, data.get('username', ''), username)
+
+                if online_manager.normalize_username(heartbeat_username) != online_manager.normalize_username(username):
+                    remaining_user = online_manager.user_offline(username, websocket)
+                    if not remaining_user:
+                        await ws_manager.broadcast({'type': 'user_offline', 'data': {'username': username}})
+                    current_user = await online_manager.user_online(
+                        heartbeat_username,
+                        websocket,
+                        hp,
+                        data.get('userAgent', '') or websocket.headers.get('user-agent', ''),
+                        data.get('pageClientId', ''),
+                    )
+                    username = (current_user or {}).get('username') or str(heartbeat_username or '').strip()
+                    await ws_manager.broadcast({'type': 'user_online', 'data': {
+                        'username': username,
+                        'page': (current_user or {}).get('page') or hp,
+                    }})
+                    continue
 
                 online_manager.update_heartbeat(
                     username,
