@@ -105,6 +105,157 @@
         return false;
     }
 
+    function normalizeUsername(value) {
+        return String(value || '').trim().toLowerCase();
+    }
+
+    function clonePlainObject(source) {
+        var target = {};
+        if (!source || typeof source !== 'object') return target;
+        for (var key in source) {
+            if (Object.prototype.hasOwnProperty.call(source, key)) {
+                target[key] = source[key];
+            }
+        }
+        return target;
+    }
+
+    function getUserModelStoreKeys() {
+        var keys = ['AK_user_model'];
+        try {
+            if (window.APP && APP.CONFIG && APP.CONFIG.SYSTEM_KEYS && APP.CONFIG.SYSTEM_KEYS.USER_MODEL_KEY) {
+                var appKey = String(APP.CONFIG.SYSTEM_KEYS.USER_MODEL_KEY || '').trim();
+                if (appKey && keys.indexOf(appKey) === -1) keys.unshift(appKey);
+            }
+        } catch(e) {}
+        return keys;
+    }
+
+    function writeStorageItem(store, key, value) {
+        try {
+            if (store && key) store.setItem(key, value);
+        } catch(e) {}
+    }
+
+    function pruneBootstrapCachesExcept(username) {
+        var normalized = normalizeUsername(username);
+        if (!normalized) return;
+        var stores = [];
+        try { stores.push(sessionStorage); } catch(e) {}
+        try { stores.push(localStorage); } catch(e2) {}
+        for (var si = 0; si < stores.length; si++) {
+            var store = stores[si];
+            if (!store) continue;
+            try {
+                for (var i = store.length - 1; i >= 0; i--) {
+                    var key = String(store.key(i) || '');
+                    if (key.indexOf('ak.im.bootstrap.v1:') !== 0) continue;
+                    if (key.slice(-normalized.length - 1) === ':' + normalized) continue;
+                    store.removeItem(key);
+                }
+            } catch(e3) {}
+        }
+    }
+
+    function buildIdentityModel(snapshot, username, userkey) {
+        var model = clonePlainObject(snapshot && snapshot.userModel);
+        var loginResult = snapshot && snapshot.loginResult;
+        if (!Object.keys(model).length && loginResult && typeof loginResult.UserData === 'object') {
+            model = clonePlainObject(loginResult.UserData);
+        }
+        model.UserName = username;
+        if (userkey) model.Key = userkey;
+        return model;
+    }
+
+    function buildLoginResult(snapshot, model, username, userkey) {
+        var loginResult = clonePlainObject(snapshot && snapshot.loginResult);
+        var userData = clonePlainObject(loginResult.UserData);
+        if (!Object.keys(userData).length) userData = clonePlainObject(model);
+        userData.UserName = username;
+        loginResult.UserData = userData;
+        if (userkey) loginResult.Key = userkey;
+        if (loginResult.Error == null) loginResult.Error = false;
+        return loginResult;
+    }
+
+    function dispatchIdentitySwitched(username, snapshot, source) {
+        try {
+            var detail = {
+                username: username,
+                userId: snapshot && snapshot.userId,
+                source: source || 'runtime-auth',
+                at: Date.now()
+            };
+            window.dispatchEvent(new CustomEvent('ak:identity-switched', { detail: detail }));
+        } catch(e) {}
+    }
+
+    function applyIdentitySnapshot(snapshot, options) {
+        options = options || {};
+        try {
+            if (!snapshot || typeof snapshot !== 'object') return { applied: false, reason: 'empty_snapshot' };
+            var username = normalizeUsername(snapshot.username)
+                || normalizeUsername(pickUsernameFromObject(snapshot.userModel))
+                || normalizeUsername(pickUsernameFromObject(snapshot.loginResult && snapshot.loginResult.UserData));
+            var userkey = String(snapshot.userkey || extractUserKey(snapshot.userModel) || extractUserKey(snapshot.loginResult) || '').trim();
+            if (!username || !userkey) return { applied: false, reason: 'missing_identity' };
+
+            var model = buildIdentityModel(snapshot, username, userkey);
+            var loginResult = buildLoginResult(snapshot, model, username, userkey);
+            var userData = loginResult.UserData && typeof loginResult.UserData === 'object' ? loginResult.UserData : model;
+            var modelText = JSON.stringify(model);
+            var loginResultText = JSON.stringify(loginResult);
+            var userDataText = JSON.stringify(userData);
+            var keys = getUserModelStoreKeys();
+            for (var i = 0; i < keys.length; i++) {
+                writeStorageItem(localStorage, keys[i], modelText);
+            }
+            writeStorageItem(localStorage, 'userkey', userkey);
+            writeStorageItem(localStorage, 'UserKey', userkey);
+            writeStorageItem(localStorage, 'ak_login_result', loginResultText);
+            writeStorageItem(localStorage, 'UserData', userDataText);
+            writeStorageItem(localStorage, 'ak_im_sync_key_' + username, userkey);
+            writeStorageItem(sessionStorage, 'ak_login_result', loginResultText);
+            writeStorageItem(sessionStorage, 'UserData', userDataText);
+            syncLoginUsernameCookie(username);
+            try { window.userkey = userkey; } catch(e2) {}
+            try { window.USER_MODEL = model; } catch(e3) {}
+            try { window.AKIMClientUsername = username; } catch(e4) {}
+            try {
+                window.APP = window.APP || {};
+                APP.USER = APP.USER || {};
+                APP.USER.MODEL = model;
+            } catch(e5) {}
+            pruneBootstrapCachesExcept(username);
+            try {
+                window.__AK_LAST_IDENTITY_SWITCH__ = {
+                    username: username,
+                    source: String(options.source || 'runtime-auth'),
+                    at: Date.now()
+                };
+            } catch(e6) {}
+            try {
+                if (window.AKChat && typeof window.AKChat.reconnect === 'function') {
+                    window.AKChat.reconnect();
+                }
+            } catch(e7) {}
+            if (!options.silent) dispatchIdentitySwitched(username, snapshot, options.source);
+            return { applied: true, username: username };
+        } catch(e8) {
+            return { applied: false, reason: 'exception', message: String((e8 && e8.message) || e8 || '') };
+        }
+    }
+
+    function consumePendingIdentitySwitch() {
+        try {
+            var pending = window.__AK_PENDING_IDENTITY_SWITCH__;
+            if (!pending || typeof pending !== 'object') return;
+            window.__AK_PENDING_IDENTITY_SWITCH__ = null;
+            applyIdentitySnapshot(pending, { source: 'pending-identity-switch' });
+        } catch(e) {}
+    }
+
     function storeUserModel(result) {
         try {
             if (!result || typeof result !== 'object') return;
@@ -113,6 +264,15 @@
             var model = Object.assign({}, userData);
             var key = extractUserKey(result);
             if (key) model.Key = key;
+            if (key && applyIdentitySnapshot({
+                username: pickUsernameFromObject(model),
+                userkey: key,
+                userModel: model,
+                loginResult: result
+            }, { source: 'login-capture', silent: true }).applied) {
+                dispatchIdentitySwitched(normalizeUsername(pickUsernameFromObject(model)), { userModel: model, loginResult: result }, 'login-capture');
+                return;
+            }
             var storeKey = 'AK_user_model';
             try {
                 if (window.APP && APP.CONFIG && APP.CONFIG.SYSTEM_KEYS && APP.CONFIG.SYSTEM_KEYS.USER_MODEL_KEY) {
@@ -299,6 +459,9 @@
     window.AKClientRuntimeAuth.installRuntimeContext = installRuntimeContext;
     window.AKClientRuntimeAuth.syncLoginUsernameCookie = syncLoginUsernameCookie;
     window.AKClientRuntimeAuth.ensureIMUsernameCookieFromUserModel = ensureIMUsernameCookieFromUserModel;
+    window.AKClientRuntimeAuth.applyIdentitySnapshot = applyIdentitySnapshot;
+    window.AKClientRuntimeAuth.consumePendingIdentitySwitch = consumePendingIdentitySwitch;
     window.AKClientRuntimeAuth.setupLoginCapture = setupLoginCapture;
     window.AKClientRuntimeAuth.autoLogin = autoLogin;
+    consumePendingIdentitySwitch();
 })();

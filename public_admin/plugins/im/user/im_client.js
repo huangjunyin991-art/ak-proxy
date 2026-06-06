@@ -14,6 +14,9 @@
     const BOOTSTRAP_IDENTITY_RETRY_DELAYS = [120, 250, 500, 900, 1500, 2400, 3600];
     const BOOTSTRAP_REQUEST_RETRY_DELAYS = [800, 1800, 3200];
     const IM_HISTORY_GUARD_KEY = '__akImHistoryGuard';
+    let identitySwitchBound = false;
+    let lastIdentitySwitchUsername = '';
+    let lastIdentitySwitchAt = 0;
     const lazyModuleScriptConfigs = {
         profile: {
             selector: 'script[data-ak-im-user-plugin-profile="1"]',
@@ -3133,6 +3136,67 @@
             const runtimeUsername = getActiveRuntimeUsername();
             if (!runtimeUsername) return;
             setCurrentIMUsername(runtimeUsername);
+        } catch (e) {}
+    }
+
+    function resetIMForIdentitySwitch(username, source) {
+        const normalized = String(username || '').trim().toLowerCase();
+        if (!normalized) return;
+        const now = Date.now();
+        if (lastIdentitySwitchUsername === normalized && now - lastIdentitySwitchAt < 800) return;
+        lastIdentitySwitchUsername = normalized;
+        lastIdentitySwitchAt = now;
+        try {
+            if (window.__AKIM_DIAG__ && window.__AKIM_DIAG__.bootstrap) {
+                window.__AKIM_DIAG__.bootstrap.identity_switch = {
+                    username: normalized,
+                    source: String(source || ''),
+                    at: now
+                };
+            }
+        } catch (e) {}
+        closeWebSocket('identity_switched');
+        setCurrentIMUsername(normalized);
+        state.username = normalized;
+        state.ready = false;
+        state.allowed = false;
+        state.displayName = '';
+        state.honorName = '';
+        state.profile = null;
+        state.ntfyBinding = null;
+        state.sessions = [];
+        state.activeConversationId = 0;
+        state.activeMessages = [];
+        state.activeMessagesLoading = false;
+        state.contacts = [];
+        state.contactsLoaded = false;
+        state.contactsLoading = false;
+        state.plusPanelOpen = false;
+        state.emojiPanelOpen = false;
+        state.homeAddMenuOpen = false;
+        try { closePlusPanel({ silent: true }); } catch (e2) {}
+        try { closeEmojiPicker({ silent: true }); } catch (e3) {}
+        try { closeHomeAddMenu({ silent: true }); } catch (e4) {}
+        render();
+        waitMs(80).then(function() {
+            return loadBootstrapWhenIdentityReady(0);
+        }).catch(function() {
+            return null;
+        });
+    }
+
+    function handleRuntimeIdentitySwitched(event) {
+        const detail = event && event.detail && typeof event.detail === 'object' ? event.detail : {};
+        const username = String(detail.username || getActiveRuntimeUsername() || '').trim().toLowerCase();
+        if (!username) return;
+        resetIMForIdentitySwitch(username, detail.source || 'runtime');
+    }
+
+    function bindRuntimeIdentitySwitchEvent() {
+        if (identitySwitchBound) return;
+        identitySwitchBound = true;
+        try {
+            window.addEventListener('ak:identity-switched', handleRuntimeIdentitySwitched);
         } catch (e) {}
     }
 
@@ -6867,6 +6931,7 @@
                 window.__AKIM_DIAG__.bootstrap.init_called_at = Date.now();
             }
         } catch (e) {}
+        bindRuntimeIdentitySwitchEvent();
         sanitizeDuplicateIdentityCookies();
         initAppShellModule();
         ensureRoot();

@@ -11069,62 +11069,46 @@ def _build_widget_loader_headers(asset_version: str) -> dict[str, str]:
 
 
 def _build_ntfy_im_username_switch_prelude() -> str:
-    """在页面最早阶段根据 URL 的 im_username 切换 IM 登录上下文。
-
-    目标：从 ntfy 通知打开 /pages/home.html?first=true&ak_im_open=1&im_username=xxx 时，
-    强制把 cookie 中的 ak_username/ak_im_username 切到 xxx，并尝试同步 AK_user_model.Key。
-    """
-    return (
-        "(function(){try{"
-        "var q='';try{q=String(location.search||'');}catch(e){}"
-        "if(!q||q.indexOf('im_username=')===-1)return;"
-        "var p=null;try{p=new URLSearchParams(q);}catch(e2){}"
-        "if(!p)return;"
-        "var u=String(p.get('im_username')||'').trim().toLowerCase();"
-        "if(!u)return;"
-        "var open=String(p.get('ak_im_open')||'').trim();"
-        "if(open!=='1'&&open.toLowerCase()!=='true')return;"
-        "try{window.__AK_NTFY_SWITCH_DEBUG__={ts:Date.now(),step:'init',im_username:u};}catch(__d0){}"
-        "try{sessionStorage.setItem('ak_ntfy_im_username',u);}catch(e3){}"
-        "var setCookie=function(name,val){try{document.cookie=name+'='+encodeURIComponent(val)+'; path=/; max-age='+String(86400*30)+'; SameSite=Lax; Secure';}catch(e){}};"
-        "try{document.cookie='ak_username='+encodeURIComponent(u)+'; path=/; max-age='+String(86400*30)+'; Secure';}catch(_e1){}"
-        "try{document.cookie='ak_im_username='+encodeURIComponent(u)+'; path=/; max-age='+String(86400*30)+'; Secure';}catch(_e2){}"
-        "setCookie('ak_username',u);setCookie('ak_im_username',u);"
-        "try{var __d=window.__AK_NTFY_SWITCH_DEBUG__||{};__d.step='cookies-set';__d.cookies=String(document.cookie||'').slice(0,800);window.__AK_NTFY_SWITCH_DEBUG__=__d;}catch(__d1){}"
-        "var storeKey='AK_user_model';try{if(window.APP&&APP.CONFIG&&APP.CONFIG.SYSTEM_KEYS&&APP.CONFIG.SYSTEM_KEYS.USER_MODEL_KEY){storeKey=APP.CONFIG.SYSTEM_KEYS.USER_MODEL_KEY;}}catch(e4){}"
-        "var getCookie=function(n){try{var m=document.cookie.match(new RegExp('(?:^|; )'+n+'=([^;]*)'));return m?decodeURIComponent(m[1]||'').trim().toLowerCase():'';}catch(e){return '';}};"
-        "var doSync=function(){"
-        "try{"
-        "var raw='';try{raw=localStorage.getItem(storeKey)||'';}catch(e5){}"
-        "var stored=null;try{stored=raw?JSON.parse(raw):null;}catch(e6){stored=null;}"
-        "var storedU=(stored&&stored.UserName)?String(stored.UserName).trim().toLowerCase():'';"
-        "var cookieU=getCookie('ak_username');"
-        "var force=!!(u&&open&&open!=='0');"
-        "try{var __d=window.__AK_NTFY_SWITCH_DEBUG__||{};__d.step='before-sync';__d.force=!!force;__d.cookieU=cookieU;__d.storedU=storedU;__d.storeKey=storeKey;__d.userkeyLS=(function(){try{return String(localStorage.getItem('userkey')||'');}catch(_e){return '';}})();__d.userkeyLS2=(function(){try{return String(localStorage.getItem('UserKey')||'');}catch(_e){return '';}})();window.__AK_NTFY_SWITCH_DEBUG__=__d;}catch(__d2){}"
-        "if(!cookieU)return;"
-        "if(!force&&cookieU===storedU)return;"
-        "var cachedKey='';try{cachedKey=localStorage.getItem('ak_im_sync_key_'+cookieU)||'';}catch(e7){}"
-        "var data='account='+encodeURIComponent(cookieU);if(cachedKey)data+='&password='+encodeURIComponent(cachedKey);"
-        "var xhr=new XMLHttpRequest();"
-        "var url='/admin/api/ak_auth/switch_by_token?u='+encodeURIComponent(cookieU)"
-        "+'&conversation_id='+encodeURIComponent(String(p.get('conversation_id')||''))"
-        "+'&im_switch_ts='+encodeURIComponent(String(p.get('im_switch_ts')||''))"
-        "+'&im_switch_nonce='+encodeURIComponent(String(p.get('im_switch_nonce')||''))"
-        "+'&im_switch_sig='+encodeURIComponent(String(p.get('im_switch_sig')||''));"
-        "try{var __d=window.__AK_NTFY_SWITCH_DEBUG__||{};__d.step='api-prep';__d.apiUrl=url;window.__AK_NTFY_SWITCH_DEBUG__=__d;}catch(__d3){}"
-        "xhr.open('POST',url,true);"
-        "xhr.setRequestHeader('Content-Type','application/json; charset=UTF-8');"
-        "xhr.onload=function(){try{var __d=window.__AK_NTFY_SWITCH_DEBUG__||{};__d.step='api-onload';__d.status=xhr.status||0;window.__AK_NTFY_SWITCH_DEBUG__=__d;}catch(__d4){}var ok=false;if(xhr.status===200){try{var r=JSON.parse(xhr.responseText||'{}');try{var __d=window.__AK_NTFY_SWITCH_DEBUG__||{};__d.step='api-200';__d.rOk=!!(r&&r.success);__d.rKeyMasked=(r&&r.userkeyMasked)?String(r.userkeyMasked):((r&&r.userkey)?('***'+String(r.userkey).slice(-4)):'(empty)');__d.cookieNames=r&&r.cookieNames?String(r.cookieNames):'';window.__AK_NTFY_SWITCH_DEBUG__=__d;}catch(__d5){}if(r&&r.success&&r.userkey){var uk=String(r.userkey||'');var nm=Object.assign({},stored||{},{UserName:cookieU,Key:uk});try{localStorage.setItem(storeKey,JSON.stringify(nm));}catch(e8){}try{localStorage.setItem('userkey',uk);localStorage.setItem('UserKey',uk);}catch(e9b){}try{window.userkey=uk;}catch(e9c){}if(window.APP&&APP.USER){try{APP.USER.MODEL=nm;}catch(_e){} }window.USER_MODEL=nm;try{var __d=window.__AK_NTFY_SWITCH_DEBUG__||{};__d.step='applied-userkey';__d.userkeyMasked=('***'+uk.slice(-4));window.__AK_NTFY_SWITCH_DEBUG__=__d;}catch(__d6){}ok=true;}}catch(e10){}}if(!ok){try{var __d=window.__AK_NTFY_SWITCH_DEBUG__||{};__d.step='api-failed';__d.bodyHead=String(xhr.responseText||'').slice(0,200);window.__AK_NTFY_SWITCH_DEBUG__=__d;}catch(__d7){}}};"
-        "xhr.onerror=function(){try{var __d=window.__AK_NTFY_SWITCH_DEBUG__||{};__d.step='api-error';window.__AK_NTFY_SWITCH_DEBUG__=__d;}catch(__d8){}};"
-        "xhr.send('{}');"
-        "}catch(e13){}"
-        "};"
-        "if(typeof window.__AKChatSyncUserModel==='function'){try{window.__AKChatSyncUserModel();return;}catch(e14){}}"
-        "try{setTimeout(doSync,30);}catch(e15){}"
-        "}catch(_e){}})();"
-    )
-
-
+    return """
+(function(){try{
+var q='';try{q=String(location.search||'');}catch(e){}
+if(!q||q.indexOf('im_username=')===-1)return;
+var p=null;try{p=new URLSearchParams(q);}catch(e2){}
+if(!p)return;
+var u=String(p.get('im_username')||'').trim().toLowerCase();
+if(!u)return;
+var open=String(p.get('ak_im_open')||'').trim().toLowerCase();
+if(open!=='1'&&open!=='true')return;
+var maxAge=String(86400*30);
+function debug(step,extra){try{var d=window.__AK_NTFY_SWITCH_DEBUG__||{};d.ts=d.ts||Date.now();d.step=step;d.im_username=u;if(extra&&typeof extra==='object'){for(var k in extra){if(Object.prototype.hasOwnProperty.call(extra,k))d[k]=extra[k];}}window.__AK_NTFY_SWITCH_DEBUG__=d;}catch(_e){}}
+function parseCookies(){var out={};try{String(document.cookie||'').split(';').forEach(function(part){var idx=part.indexOf('=');if(idx<0)return;var key=part.slice(0,idx).trim();if(!key)return;out[key]=decodeURIComponent(part.slice(idx+1)||'');});}catch(_e){}return out;}
+function setCookie(name,val){try{document.cookie=name+'='+encodeURIComponent(val||'')+'; path=/; max-age='+maxAge+'; SameSite=Lax; Secure';}catch(_e){}}
+function clearCookie(name){try{document.cookie=name+'=; path=/; max-age=0; SameSite=Lax; Secure';}catch(_e){}}
+function restoreCookie(name,val){if(val){setCookie(name,val);}else{clearCookie(name);}}
+function getStoreKey(){var key='AK_user_model';try{if(window.APP&&APP.CONFIG&&APP.CONFIG.SYSTEM_KEYS&&APP.CONFIG.SYSTEM_KEYS.USER_MODEL_KEY){key=APP.CONFIG.SYSTEM_KEYS.USER_MODEL_KEY;}}catch(_e){}return key;}
+function writeStorage(store,key,value){try{if(store&&key)store.setItem(key,value);}catch(_e){}}
+function cloneObject(obj){var out={};if(!obj||typeof obj!=='object')return out;for(var k in obj){if(Object.prototype.hasOwnProperty.call(obj,k))out[k]=obj[k];}return out;}
+function buildModel(snapshot){var model=cloneObject(snapshot&&snapshot.userModel);var result=snapshot&&snapshot.loginResult;if(!Object.keys(model).length&&result&&typeof result.UserData==='object'){model=cloneObject(result.UserData);}model.UserName=u;model.Key=String(snapshot&&snapshot.userkey||model.Key||'');return model;}
+function applyInline(snapshot){if(!snapshot||!snapshot.userkey)return false;var model=buildModel(snapshot);if(!model.Key)return false;var result=cloneObject(snapshot.loginResult);var userData=cloneObject(result.UserData||model);userData.UserName=u;result.UserData=userData;result.Key=model.Key;var modelText=JSON.stringify(model);var resultText=JSON.stringify(result);var userDataText=JSON.stringify(userData);var storeKey=getStoreKey();writeStorage(localStorage,'AK_user_model',modelText);writeStorage(localStorage,storeKey,modelText);writeStorage(localStorage,'userkey',model.Key);writeStorage(localStorage,'UserKey',model.Key);writeStorage(localStorage,'ak_login_result',resultText);writeStorage(localStorage,'UserData',userDataText);writeStorage(localStorage,'ak_im_sync_key_'+u,model.Key);writeStorage(sessionStorage,'ak_login_result',resultText);writeStorage(sessionStorage,'UserData',userDataText);try{window.userkey=model.Key;window.USER_MODEL=model;window.AKIMClientUsername=u;if(window.APP&&APP.USER)APP.USER.MODEL=model;}catch(_e){}setCookie('ak_username',u);setCookie('ak_im_username',u);return true;}
+function applySnapshot(snapshot){snapshot=snapshot||{};snapshot.username=String(snapshot.username||u).trim().toLowerCase();if(snapshot.username!==u||!snapshot.userkey)return false;window.__AK_PENDING_IDENTITY_SWITCH__=snapshot;var auth=window.AKClientRuntimeAuth;if(auth&&typeof auth.applyIdentitySnapshot==='function'){var result=auth.applyIdentitySnapshot(snapshot,{source:'ntfy-prelude'});return !!(result===true||(result&&result.applied));}var ok=applyInline(snapshot);if(ok){try{window.dispatchEvent(new CustomEvent('ak:identity-switched',{detail:{username:u,source:'ntfy-prelude-inline'}}));}catch(_e){}}return ok;}
+try{sessionStorage.setItem('ak_ntfy_im_username',u);}catch(_e){}
+var oldCookies=parseCookies();
+setCookie('ak_username',u);setCookie('ak_im_username',u);
+debug('cookies-primed',{oldAkUsername:oldCookies.ak_username||'',oldAkImUsername:oldCookies.ak_im_username||'',cookies:String(document.cookie||'').slice(0,800)});
+var xhr=new XMLHttpRequest();
+var url='/admin/api/ak_auth/switch_by_token?u='+encodeURIComponent(u)
++'&conversation_id='+encodeURIComponent(String(p.get('conversation_id')||''))
++'&im_switch_ts='+encodeURIComponent(String(p.get('im_switch_ts')||''))
++'&im_switch_nonce='+encodeURIComponent(String(p.get('im_switch_nonce')||''))
++'&im_switch_sig='+encodeURIComponent(String(p.get('im_switch_sig')||''));
+debug('api-prep',{apiUrl:url});
+xhr.open('POST',url,true);
+xhr.setRequestHeader('Content-Type','application/json; charset=UTF-8');
+xhr.onload=function(){var ok=false;var r=null;try{r=JSON.parse(xhr.responseText||'{}');}catch(_e){}debug('api-onload',{status:xhr.status||0,rOk:!!(r&&r.success),rKeyMasked:r&&r.userkeyMasked?String(r.userkeyMasked):''});if(xhr.status===200&&r&&r.success&&r.userkey){ok=applySnapshot(r);}if(ok){debug('applied-snapshot',{username:u,userId:r&&r.userId?r.userId:''});return;}restoreCookie('ak_username',oldCookies.ak_username||'');restoreCookie('ak_im_username',oldCookies.ak_im_username||'');debug('api-failed',{bodyHead:String(xhr.responseText||'').slice(0,200)});};
+xhr.onerror=function(){restoreCookie('ak_username',oldCookies.ak_username||'');restoreCookie('ak_im_username',oldCookies.ak_im_username||'');debug('api-error',{});};
+xhr.send('{}');
+}catch(_e){}})();
+"""
 async def _build_widget_loader_response() -> Response:
     asset_version = _get_widget_asset_version()
     bundle_url = _version_widget_asset_url("/ak/client-runtime.js", asset_version)
@@ -12973,12 +12957,30 @@ async def admin_ak_auth_switch_by_token(request: Request):
     if not userkey:
         return JSONResponse({"success": False, "message": "该账号没有可用 userkey，请先让该账号登录一次"}, status_code=404)
 
+    persisted_login_result = persisted.get("login_result")
+    login_result = dict(persisted_login_result) if isinstance(persisted_login_result, dict) else {}
+    login_user_data = login_result.get("UserData")
+    if isinstance(login_user_data, dict):
+        login_result["UserData"] = dict(login_user_data)
+    user_model = _build_ak_user_model(login_result, userkey)
+    if wanted:
+        user_model["UserName"] = wanted
+        if isinstance(login_result.get("UserData"), dict):
+            login_result["UserData"]["UserName"] = wanted
+    if userkey:
+        user_model["Key"] = userkey
+        login_result["Key"] = userkey
+    user_id = _extract_login_user_id(login_result)
+
     masked = ("***" + userkey[-4:]) if len(userkey) >= 4 else ("***" + userkey)
     return JSONResponse({
         "success": True,
         "username": wanted,
         "userkey": userkey,
         "userkeyMasked": masked,
+        "userId": user_id,
+        "userModel": user_model,
+        "loginResult": login_result,
         "cookieNames": _summarize_cookie_names(cookies if isinstance(cookies, dict) else {}),
     })
 
