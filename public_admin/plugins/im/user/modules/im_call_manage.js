@@ -3,7 +3,7 @@
 
     const STYLE_ID = 'ak-im-call-overlay-style';
     const PANEL_SELECTOR = '.ak-im-call-overlay';
-    const SHELL_VERSION = '20260606-3';
+    const SHELL_VERSION = '20260606-4';
     const PEER_DISCONNECT_GRACE_MS = 1200;
     const PEER_STATE_MUTE_MS = 1500;
     const CALL_MODES = {
@@ -46,6 +46,7 @@
         close: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg>',
         minimize: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 12h12"></path></svg>',
         phone: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6.8 4.8c2.5 0 4.5 2 4.5 4.5v1c0 .7.5 1.2 1.2 1.2h.8c1.1 0 2 .9 2 2v1.2c0 .9-.8 1.7-1.7 1.7h-1.7c-4.4 0-8-3.6-8-8V6.5c0-.9.8-1.7 1.7-1.7Z"></path><path d="M15.2 6.2a5.5 5.5 0 0 1 2.6 2.6"></path><path d="M14.7 3.8a8.9 8.9 0 0 1 5.5 5.5"></path></svg>',
+        video: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.8" y="6.9" width="11.8" height="10.2" rx="2.2"></rect><path d="m15.6 10 4.6-2.7v9.4L15.6 14Z"></path></svg>',
         incoming: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 4v5.4h5.4"></path><path d="m21.4 4-6 6"></path><path d="M6.8 4.8c2.5 0 4.5 2 4.5 4.5v1c0 .7.5 1.2 1.2 1.2h.8c1.1 0 2 .9 2 2v1.2c0 .9-.8 1.7-1.7 1.7h-1.7c-4.4 0-8-3.6-8-8V6.5c0-.9.8-1.7 1.7-1.7Z"></path></svg>',
         waiting: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M12 7v6l4 2"></path></svg>',
         active: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6.8 4.8c2.5 0 4.5 2 4.5 4.5v1c0 .7.5 1.2 1.2 1.2h.8c1.1 0 2 .9 2 2v1.2c0 .9-.8 1.7-1.7 1.7h-1.7c-4.4 0-8-3.6-8-8V6.5c0-.9.8-1.7 1.7-1.7Z"></path><path d="M10 12.2h4.5"></path><path d="M15.2 6.2a5.5 5.5 0 0 1 2.6 2.6"></path></svg>',
@@ -61,8 +62,120 @@
         speaker_on: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 14h4l5 4V6L8 10H4Z"></path><path d="M17 9.5a4.5 4.5 0 0 1 0 5"></path><path d="M19.8 7a8.2 8.2 0 0 1 0 10"></path></svg>',
         speaker_off: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 14h4l5 4V6L8 10H4Z"></path><path d="m16.5 9.5 5 5"></path><path d="m21.5 9.5-5 5"></path></svg>'
     };
+    const VIDEO_QUALITY_PROFILES = {
+        hd: { width: 1280, height: 720, frameRate: 24, maxBitrate: 1800000, label: '高清' },
+        sd: { width: 854, height: 480, frameRate: 20, maxBitrate: 900000, label: '标清' },
+        ld: { width: 640, height: 360, frameRate: 15, maxBitrate: 450000, label: '流畅' },
+        vld: { width: 426, height: 240, frameRate: 12, maxBitrate: 220000, label: '省流' }
+    };
+    const VIDEO_PROFILE_ORDER = ['vld', 'ld', 'sd', 'hd'];
+
     function trim(value) {
         return String(value || '').trim();
+    }
+
+    function normalizeCallKind(value) {
+        return trim(value).toLowerCase() === 'video' ? 'video' : 'audio';
+    }
+
+    function isVideoCallKind(value) {
+        return normalizeCallKind(value) === 'video';
+    }
+
+    function getCallKindLabel(kind) {
+        return isVideoCallKind(kind) ? '视频通话' : '语音通话';
+    }
+
+    function getCallRestoreLabel(kind) {
+        return isVideoCallKind(kind) ? '返回视频通话' : '返回语音通话';
+    }
+
+    function getVideoProfileOrder(profile) {
+        const normalized = trim(profile).toLowerCase();
+        const index = VIDEO_PROFILE_ORDER.indexOf(normalized);
+        return index >= 0 ? index : VIDEO_PROFILE_ORDER.indexOf('sd');
+    }
+
+    function getVideoProfileLabel(profile) {
+        const normalized = trim(profile).toLowerCase();
+        return VIDEO_QUALITY_PROFILES[normalized] ? VIDEO_QUALITY_PROFILES[normalized].label : '自适应';
+    }
+
+    function buildVideoQualityText(profile, health) {
+        const qualityLabel = getVideoProfileLabel(profile);
+        const normalizedHealth = trim(health).toLowerCase();
+        if (normalizedHealth === 'weak') return '网络较弱 · 已切到' + qualityLabel + '模式';
+        if (normalizedHealth === 'normal') return '网络一般 · 当前' + qualityLabel + '模式';
+        if (normalizedHealth === 'good') return '网络良好 · 当前' + qualityLabel + '模式';
+        return qualityLabel ? '当前' + qualityLabel + '模式' : '';
+    }
+
+    function adaptCallViewModel(view, kind, mode, meta) {
+        const nextView = Object.assign({}, view || {});
+        const normalizedKind = normalizeCallKind(kind);
+        const viewMeta = meta && typeof meta === 'object' ? meta : {};
+        const connectionPhase = trim(viewMeta.connectionPhase).toLowerCase();
+        if (mode === CALL_MODES.incoming) nextView.footer = '';
+        if (normalizedKind !== 'video') return nextView;
+        nextView.badge = trim(nextView.badge).replace(/语音通话/g, '视频通话').replace(/语音/g, '视频');
+        nextView.subtitle = trim(nextView.subtitle).replace(/语音通话/g, '视频通话').replace(/语音连接/g, '视频连接').replace(/语音/g, '视频');
+        nextView.headline = trim(nextView.headline).replace(/语音通话/g, '视频通话').replace(/语音通道/g, '视频通道').replace(/语音设备/g, '音视频设备').replace(/语音/g, '视频');
+        nextView.detailTitle = trim(nextView.detailTitle).replace(/语音通话/g, '视频通话').replace(/语音连接/g, '视频连接').replace(/语音设备/g, '音视频设备').replace(/语音/g, '视频');
+        nextView.detailBody = trim(nextView.detailBody)
+            .replace(/语音通话/g, '视频通话')
+            .replace(/语音连接/g, '视频连接')
+            .replace(/语音设备/g, '音视频设备')
+            .replace(/麦克风权限/g, '麦克风和摄像头权限')
+            .replace(/麦克风/g, '麦克风和摄像头')
+            .replace(/语音/g, '视频');
+        nextView.footer = trim(nextView.footer).replace(/语音通话/g, '视频通话').replace(/语音/g, '视频');
+        if (nextView.icon === 'phone' || nextView.icon === 'incoming' || nextView.icon === 'active') {
+            nextView.icon = 'video';
+        }
+        if (mode === CALL_MODES.outgoing) {
+            if (!viewMeta.localVideoReady) {
+                nextView.detailTitle = '正在准备摄像头和麦克风';
+                nextView.detailBody = '建立视频通话前，需要先完成本地音视频设备初始化。';
+            } else {
+                nextView.detailTitle = '你的本地画面已就绪';
+                nextView.detailBody = '会话已经创建成功，正在等待对方接听本次视频通话。';
+            }
+        }
+        if (mode === CALL_MODES.incoming) {
+            nextView.badge = '收到视频来电';
+            nextView.headline = '是否接听本次视频通话';
+            nextView.detailTitle = '接听前会请求麦克风和摄像头权限';
+            nextView.detailBody = '如果你现在不方便出镜，可以先拒绝，稍后再回拨。';
+            nextView.footer = '';
+            nextView.icon = 'video';
+        }
+        if (mode === CALL_MODES.connecting) {
+            if (!viewMeta.localVideoReady && (connectionPhase === 'accepting' || connectionPhase === 'preparing_local')) {
+                nextView.detailTitle = '正在准备摄像头和麦克风';
+                nextView.detailBody = '浏览器需要先完成本地音视频设备初始化，之后才会继续交换连接信息。';
+            } else if (viewMeta.localVideoReady) {
+                nextView.detailTitle = '你的本地画面已就绪';
+                nextView.detailBody = '正在交换音视频连接信息，通常几秒内就会接通。';
+            }
+            nextView.footer = '';
+        }
+        if (mode === CALL_MODES.active) {
+            const remoteVideoReady = !!viewMeta.remoteVideoReady;
+            nextView.badge = '视频通话中';
+            nextView.subtitle = remoteVideoReady
+                ? (trim(nextView.subtitle) || '画面已接通')
+                : '语音已接通，正在等待对方画面';
+            nextView.detailTitle = remoteVideoReady ? '当前视频与音频均已接通' : '当前语音已接通，正在等待对方画面';
+            nextView.detailBody = remoteVideoReady
+                ? '对方画面会直接显示在主视图，本地画面会保留在右上角小窗。'
+                : '如果这里长时间没有出现对方画面，通常是对端摄像头权限、设备占用或网络质量导致的。';
+            nextView.footer = '';
+            nextView.icon = 'video';
+        }
+        if ((mode === CALL_MODES.failed || mode === CALL_MODES.ended) && nextView.icon === 'phone') {
+            nextView.icon = 'video';
+        }
+        return nextView;
     }
 
     function normalizeReasonCode(value) {
@@ -460,6 +573,23 @@
         };
     }
 
+    function buildVideoCallActionLayout(mode, muted, speakerOn) {
+        if (mode === CALL_MODES.incoming) {
+            return buildCallActionLayout(mode, muted, speakerOn);
+        }
+        if (mode === CALL_MODES.active) {
+            return {
+                layout: 'active',
+                reject: { visible: false },
+                accept: { visible: false },
+                mute: { visible: true, icon: muted ? 'unmute' : 'mute', label: muted ? '取消静音' : '静音', variant: 'neutral', prominence: 'secondary', slot: '1', appearance: 'tool' },
+                hangup: { visible: true, icon: 'hangup', label: '挂断', variant: 'danger', prominence: 'primary', slot: '2', appearance: 'tool' },
+                speaker: { visible: true, icon: speakerOn ? 'speaker_on' : 'speaker_off', label: speakerOn ? '免提已开' : '免提', variant: speakerOn ? 'primary' : 'neutral', prominence: 'secondary', slot: '3', appearance: 'tool' }
+            };
+        }
+        return buildCallActionLayout(mode, muted, speakerOn);
+    }
+
     function resolveCallAutoCloseMs(mode, reason, meta) {
         if (mode === CALL_MODES.failed) {
             const normalizedReason = normalizeReasonCode(reason);
@@ -693,6 +823,8 @@
             pendingCandidates: [],
             options: {},
             role: '',
+            currentKind: 'audio',
+            videoProfile: 'sd',
 
             init(options) {
                 this.options = options || {};
@@ -703,17 +835,37 @@
                 return !!(global.navigator && global.navigator.mediaDevices && typeof global.navigator.mediaDevices.getUserMedia === 'function' && global.RTCPeerConnection);
             },
 
-            async startLocal(kind) {
-                if (!this.isSupported()) throw new Error('当前浏览器不支持实时语音通话');
-                if (this.localStream) return this.localStream;
+            getVideoProfileConfig(profile) {
+                const normalized = trim(profile).toLowerCase();
+                return VIDEO_QUALITY_PROFILES[normalized] || VIDEO_QUALITY_PROFILES.sd;
+            },
+
+            buildMediaConstraints(kind) {
+                const normalizedKind = normalizeCallKind(kind || this.currentKind);
                 const constraints = {
                     audio: {
                         echoCancellation: true,
                         noiseSuppression: true,
                         autoGainControl: true
                     },
-                    video: String(kind || 'audio').toLowerCase() === 'video'
+                    video: false
                 };
+                if (!isVideoCallKind(normalizedKind)) return constraints;
+                const profile = this.getVideoProfileConfig(this.videoProfile);
+                constraints.video = {
+                    width: { ideal: profile.width, max: profile.width },
+                    height: { ideal: profile.height, max: profile.height },
+                    frameRate: { ideal: profile.frameRate, max: profile.frameRate },
+                    facingMode: 'user'
+                };
+                return constraints;
+            },
+
+            async startLocal(kind) {
+                if (!this.isSupported()) throw new Error('当前浏览器不支持实时语音通话');
+                this.currentKind = normalizeCallKind(kind || this.currentKind);
+                if (this.localStream) return this.localStream;
+                const constraints = this.buildMediaConstraints(this.currentKind);
                 this.localStream = await global.navigator.mediaDevices.getUserMedia(constraints);
                 this.emitLocalStream();
                 return this.localStream;
@@ -721,6 +873,7 @@
 
             async createPeer(role, kind) {
                 this.role = String(role || '').toLowerCase();
+                this.currentKind = normalizeCallKind(kind || this.currentKind);
                 if (!this.localStream) await this.startLocal(kind);
                 if (this.pc) return this.pc;
                 const pc = new global.RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
@@ -750,7 +903,7 @@
 
             async createOffer(kind) {
                 const pc = await this.createPeer('caller', kind);
-                const offer = await pc.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: String(kind || 'audio').toLowerCase() === 'video' });
+                const offer = await pc.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: isVideoCallKind(kind || this.currentKind) });
                 await pc.setLocalDescription(offer);
                 this.emitSignal('offer', { sdp: pc.localDescription });
             },
@@ -795,6 +948,77 @@
                 return true;
             },
 
+            getVideoSender() {
+                if (!this.pc || typeof this.pc.getSenders !== 'function') return null;
+                const senders = this.pc.getSenders();
+                for (let index = 0; index < senders.length; index += 1) {
+                    const sender = senders[index];
+                    const track = sender && sender.track;
+                    if (track && track.kind === 'video') return sender;
+                }
+                return null;
+            },
+
+            async applyVideoProfile(profile) {
+                const normalizedProfile = trim(profile).toLowerCase();
+                const nextProfile = VIDEO_QUALITY_PROFILES[normalizedProfile] ? normalizedProfile : 'sd';
+                this.videoProfile = nextProfile;
+                if (!this.localStream || !isVideoCallKind(this.currentKind)) return false;
+                const config = this.getVideoProfileConfig(nextProfile);
+                const videoTrack = this.localStream.getVideoTracks()[0] || null;
+                if (videoTrack && typeof videoTrack.applyConstraints === 'function') {
+                    try {
+                        await videoTrack.applyConstraints({
+                            width: { ideal: config.width, max: config.width },
+                            height: { ideal: config.height, max: config.height },
+                            frameRate: { ideal: config.frameRate, max: config.frameRate }
+                        });
+                    } catch (e) {}
+                }
+                const sender = this.getVideoSender();
+                if (sender && typeof sender.getParameters === 'function' && typeof sender.setParameters === 'function') {
+                    try {
+                        const parameters = sender.getParameters() || {};
+                        parameters.encodings = parameters.encodings && parameters.encodings.length ? parameters.encodings : [{}];
+                        parameters.encodings[0].maxBitrate = config.maxBitrate;
+                        parameters.encodings[0].maxFramerate = config.frameRate;
+                        await sender.setParameters(parameters);
+                    } catch (e) {}
+                }
+                this.emitLocalStream();
+                return true;
+            },
+
+            async readStatsSnapshot() {
+                if (!this.pc || typeof this.pc.getStats !== 'function') return null;
+                const report = await this.pc.getStats();
+                const snapshot = {
+                    availableOutgoingBitrate: 0,
+                    roundTripTime: 0,
+                    packetsLost: 0,
+                    jitter: 0,
+                    framesPerSecond: 0,
+                    qualityLimitationReason: ''
+                };
+                report.forEach(function(stat) {
+                    if (!stat || typeof stat !== 'object') return;
+                    if (stat.type === 'candidate-pair' && (stat.nominated || stat.selected)) {
+                        if (Number(stat.availableOutgoingBitrate || 0) > 0) snapshot.availableOutgoingBitrate = Number(stat.availableOutgoingBitrate || 0);
+                        if (Number(stat.currentRoundTripTime || 0) > 0) snapshot.roundTripTime = Number(stat.currentRoundTripTime || 0);
+                    }
+                    if (stat.type === 'outbound-rtp' && stat.kind === 'video') {
+                        if (Number(stat.framesPerSecond || 0) > 0) snapshot.framesPerSecond = Number(stat.framesPerSecond || 0);
+                        if (trim(stat.qualityLimitationReason)) snapshot.qualityLimitationReason = trim(stat.qualityLimitationReason);
+                    }
+                    if ((stat.type === 'remote-inbound-rtp' || stat.type === 'inbound-rtp') && stat.kind === 'video') {
+                        if (Number(stat.packetsLost || 0) > 0) snapshot.packetsLost = Math.max(snapshot.packetsLost, Number(stat.packetsLost || 0));
+                        if (Number(stat.jitter || 0) > 0) snapshot.jitter = Math.max(snapshot.jitter, Number(stat.jitter || 0));
+                        if (!snapshot.roundTripTime && Number(stat.roundTripTime || 0) > 0) snapshot.roundTripTime = Number(stat.roundTripTime || 0);
+                    }
+                });
+                return snapshot;
+            },
+
             emitSignal(type, payload) {
                 if (this.options && typeof this.options.onSignal === 'function') {
                     this.options.onSignal(type, payload || {});
@@ -833,6 +1057,8 @@
                 this.remoteStream = null;
                 this.pendingCandidates = [];
                 this.role = '';
+                this.currentKind = 'audio';
+                this.videoProfile = 'sd';
             }
         };
     }
@@ -849,7 +1075,7 @@
         muted: false,
         speakerEnabled: false,
         offerSent: false,
-        timers: { autoEnd: 0, launch: 0, duration: 0, peerDisconnect: 0 },
+        timers: { autoEnd: 0, launch: 0, duration: 0, peerDisconnect: 0, videoQuality: 0 },
         refs: {},
         lastFailReason: '',
         lastEndReason: '',
@@ -865,6 +1091,14 @@
         openedAt: 0,
         minimized: false,
         ignorePeerStateUntil: 0,
+        localVideoReady: false,
+        remoteVideoReady: false,
+        qualityProfile: 'sd',
+        qualityHealth: 'normal',
+        qualityStatusText: '',
+        qualityUpgradeStreak: 0,
+        qualityDowngradeStreak: 0,
+        qualityLastChangedAt: 0,
         bound: false,
         submodulePromise: null,
         signaling: null,
@@ -1216,13 +1450,35 @@
                 '.ak-im-call-overlay-detail-title{font-size:13px;font-weight:600;color:#cbd5e1}',
                 '.ak-im-call-overlay-detail-body{font-size:14px;line-height:1.6;color:rgba(248,250,252,.88)}',
                 '.ak-im-call-overlay-inline-actions{display:none;position:relative;z-index:2;align-items:center;justify-content:center;gap:12px;width:min(100%,320px);pointer-events:auto}',
-                '.ak-im-call-overlay-local,.ak-im-call-overlay-remote{display:none}',
+                '.ak-im-call-overlay-local,.ak-im-call-overlay-remote{display:none;position:absolute;background:#020617;object-fit:cover}',
+                '.ak-im-call-overlay-remote{inset:0;width:100%;height:100%;z-index:0}',
+                '.ak-im-call-overlay-local{top:18px;right:18px;width:112px;height:152px;border-radius:18px;z-index:2;box-shadow:0 18px 42px rgba(2,6,23,.44);border:1px solid rgba(255,255,255,.18)}',
+                '.ak-im-call-overlay[data-kind="video"]{padding:0;background:#020617;backdrop-filter:none}',
+                '.ak-im-call-overlay[data-kind="video"] .ak-im-call-overlay-backdrop{display:none}',
+                '.ak-im-call-overlay[data-kind="video"] .ak-im-call-overlay-card{width:100vw;min-height:100dvh;max-height:100dvh;border-radius:0;background:#020617;box-shadow:none}',
+                '.ak-im-call-overlay[data-kind="video"] .ak-im-call-overlay-header{position:absolute;top:0;left:0;right:0;z-index:4;padding:calc(16px + env(safe-area-inset-top,0px)) 16px 18px;border-bottom:none;background:linear-gradient(180deg,rgba(2,6,23,.82) 0%,rgba(2,6,23,.52) 48%,rgba(2,6,23,0) 100%)}',
+                '.ak-im-call-overlay[data-kind="video"] .ak-im-call-overlay-header-main{justify-content:flex-start}',
+                '.ak-im-call-overlay[data-kind="video"] .ak-im-call-overlay-spacer,.ak-im-call-overlay[data-kind="video"] .ak-im-call-overlay-avatar{display:none}',
+                '.ak-im-call-overlay[data-kind="video"] .ak-im-call-overlay-header-text{text-align:left}',
+                '.ak-im-call-overlay[data-kind="video"] .ak-im-call-overlay-title{font-size:18px}',
+                '.ak-im-call-overlay[data-kind="video"] .ak-im-call-overlay-subtitle{margin-top:4px;font-size:11px;color:rgba(226,232,240,.86)}',
+                '.ak-im-call-overlay[data-kind="video"] .ak-im-call-overlay-minimize{margin-left:auto;background:rgba(15,23,42,.42);box-shadow:inset 0 0 0 1px rgba(255,255,255,.06)}',
+                '.ak-im-call-overlay[data-kind="video"] .ak-im-call-overlay-stage{padding:0;background:#020617}',
+                '.ak-im-call-overlay[data-kind="video"] .ak-im-call-overlay-placeholder{position:absolute;inset:0;z-index:1;padding:calc(112px + env(safe-area-inset-top,0px)) 24px calc(168px + env(safe-area-inset-bottom,0px));justify-content:flex-end;background:linear-gradient(180deg,rgba(2,6,23,.12) 0%,rgba(2,6,23,.2) 34%,rgba(2,6,23,.72) 100%)}',
+                '.ak-im-call-overlay[data-kind="video"] .ak-im-call-overlay-placeholder-icon{width:88px;height:88px;background:rgba(15,23,42,.42);box-shadow:inset 0 0 0 1px rgba(255,255,255,.08),0 16px 36px rgba(0,0,0,.28)}',
+                '.ak-im-call-overlay[data-kind="video"] .ak-im-call-overlay-placeholder-text{max-width:360px;font-size:28px;text-shadow:0 8px 24px rgba(0,0,0,.32)}',
+                '.ak-im-call-overlay[data-kind="video"] .ak-im-call-overlay-detail{width:min(100%,360px);padding:18px 18px 16px;border-radius:20px;background:rgba(2,6,23,.38);backdrop-filter:blur(14px);box-shadow:inset 0 0 0 1px rgba(255,255,255,.08)}',
+                '.ak-im-call-overlay[data-kind="video"] .ak-im-call-overlay-inline-actions{width:min(100%,360px)}',
+                '.ak-im-call-overlay[data-kind="video"] .ak-im-call-overlay-local{top:calc(env(safe-area-inset-top,0px) + 88px);right:18px;width:118px;height:164px;border-radius:20px;z-index:3;background:#0f172a}',
+                '.ak-im-call-overlay[data-kind="video"] .ak-im-call-overlay-state{position:absolute;left:0;right:0;bottom:calc(118px + env(safe-area-inset-bottom,0px));z-index:3;padding:0 20px;text-align:center;background:none;color:rgba(241,245,249,.86);text-shadow:0 2px 10px rgba(0,0,0,.28)}',
                 '.ak-im-call-overlay-audio{display:none}',
                 '.ak-im-call-overlay-state{padding:0 20px 14px;min-height:38px;font-size:12px;line-height:1.5;text-align:center;color:rgba(226,232,240,.84)}',
                 '.ak-im-call-overlay-actions{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));align-items:end;justify-items:center;gap:12px;padding:18px 22px calc(22px + env(safe-area-inset-bottom,0px));border-top:1px solid rgba(255,255,255,.06);background:rgba(2,9,18,.94)}',
-                '.ak-im-call-overlay-actions[data-layout="hidden"]{min-height:0}',
+                '.ak-im-call-overlay-actions[data-layout="hidden"]{display:none}',
                 '.ak-im-call-overlay-actions[data-layout="single"]{grid-template-columns:minmax(0,1fr);align-items:start;justify-items:center;gap:0;padding-top:22px;padding-bottom:calc(24px + env(safe-area-inset-bottom,0px))}',
                 '.ak-im-call-overlay-actions[data-layout="double"]{display:none}',
+                '.ak-im-call-overlay[data-kind="video"] .ak-im-call-overlay-actions{position:absolute;left:0;right:0;bottom:0;z-index:4;border-top:none;background:linear-gradient(180deg,rgba(2,6,23,0) 0%,rgba(2,6,23,.86) 52%,rgba(2,6,23,.97) 100%);padding-top:34px}',
+                '.ak-im-call-overlay[data-kind="video"] .ak-im-call-overlay-actions[data-layout="single"]{padding-top:42px}',
                 '.ak-im-call-overlay-action{all:unset;box-sizing:border-box;color:#e2e8f0;cursor:pointer;font:inherit;-webkit-appearance:none;appearance:none;-webkit-tap-highlight-color:transparent;pointer-events:auto}',
                 '.ak-im-call-overlay-actions .ak-im-call-overlay-action[data-appearance="tool"]{width:100%;max-width:112px;display:flex;flex-direction:column;align-items:center;justify-content:flex-start;gap:10px;padding:0;background:none;border:none;border-radius:0;box-shadow:none}',
                 '.ak-im-call-overlay-action[data-slot="1"]{grid-column:1}',
@@ -1267,7 +1523,7 @@
                 '.ak-im-call-overlay[data-minimized="1"] .ak-im-call-overlay-restore{display:flex}',
                 '@keyframes akImCallOverlayPulse{0%{transform:translate(-50%,-50%) scale(.82);opacity:.18}50%{transform:translate(-50%,-50%) scale(1.04);opacity:.5}100%{transform:translate(-50%,-50%) scale(1.18);opacity:0}}',
                 '@keyframes akImCallOverlayIconFloat{0%{transform:translateY(0)}50%{transform:translateY(-3px)}100%{transform:translateY(0)}}',
-                '@media (max-width:768px){.ak-im-call-overlay{padding:0}.ak-im-call-overlay-card{width:100vw;min-height:100dvh;max-height:100dvh;border-radius:0;box-shadow:none}.ak-im-call-overlay-header{padding-top:calc(18px + env(safe-area-inset-top,0px))}.ak-im-call-overlay-stage{padding:24px 18px 18px}.ak-im-call-overlay-actions{gap:10px;padding-left:16px;padding-right:16px}.ak-im-call-overlay-actions[data-layout="single"]{padding-top:24px;padding-bottom:calc(28px + env(safe-area-inset-bottom,0px))}.ak-im-call-overlay-title{font-size:17px}.ak-im-call-overlay-avatar{width:40px;height:40px;font-size:16px}.ak-im-call-overlay-placeholder{gap:16px}.ak-im-call-overlay-placeholder-icon{width:104px;height:104px}.ak-im-call-overlay-placeholder-text{font-size:21px}.ak-im-call-overlay-detail{width:100%}.ak-im-call-overlay-inline-actions{width:100%;gap:10px}.ak-im-call-overlay-inline-actions .ak-im-call-overlay-action[data-appearance="pill"]{min-width:0;flex:1;height:50px;padding:0 12px}.ak-im-call-overlay-actions .ak-im-call-overlay-action[data-appearance="tool"]{max-width:96px}.ak-im-call-overlay-actions[data-layout="single"] .ak-im-call-overlay-action[data-appearance="tool"]{min-width:108px;min-height:112px;max-width:none;gap:13px}.ak-im-call-overlay-action-disc{width:58px;height:58px}.ak-im-call-overlay-action[data-prominence="primary"] .ak-im-call-overlay-action-disc{width:70px;height:70px}.ak-im-call-overlay-actions[data-layout="single"] .ak-im-call-overlay-action[data-prominence="primary"] .ak-im-call-overlay-action-disc{width:78px;height:78px}.ak-im-call-overlay-actions[data-layout="single"] .ak-im-call-overlay-action[data-prominence="primary"] .ak-im-call-overlay-action-label{font-size:14px}.ak-im-call-overlay-restore{top:calc(env(safe-area-inset-top,0px) + 12px);right:12px}}'
+                '@media (max-width:768px){.ak-im-call-overlay{padding:0}.ak-im-call-overlay-card{width:100vw;min-height:100dvh;max-height:100dvh;border-radius:0;box-shadow:none}.ak-im-call-overlay-header{padding-top:calc(18px + env(safe-area-inset-top,0px))}.ak-im-call-overlay-stage{padding:24px 18px 18px}.ak-im-call-overlay-actions{gap:10px;padding-left:16px;padding-right:16px}.ak-im-call-overlay-actions[data-layout="single"]{padding-top:24px;padding-bottom:calc(28px + env(safe-area-inset-bottom,0px))}.ak-im-call-overlay-title{font-size:17px}.ak-im-call-overlay-avatar{width:40px;height:40px;font-size:16px}.ak-im-call-overlay-placeholder{gap:16px}.ak-im-call-overlay-placeholder-icon{width:104px;height:104px}.ak-im-call-overlay-placeholder-text{font-size:21px}.ak-im-call-overlay-detail{width:100%}.ak-im-call-overlay-inline-actions{width:100%;gap:10px}.ak-im-call-overlay-inline-actions .ak-im-call-overlay-action[data-appearance="pill"]{min-width:0;flex:1;height:50px;padding:0 12px}.ak-im-call-overlay-actions .ak-im-call-overlay-action[data-appearance="tool"]{max-width:96px}.ak-im-call-overlay-actions[data-layout="single"] .ak-im-call-overlay-action[data-appearance="tool"]{min-width:108px;min-height:112px;max-width:none;gap:13px}.ak-im-call-overlay-action-disc{width:58px;height:58px}.ak-im-call-overlay-action[data-prominence="primary"] .ak-im-call-overlay-action-disc{width:70px;height:70px}.ak-im-call-overlay-actions[data-layout="single"] .ak-im-call-overlay-action[data-prominence="primary"] .ak-im-call-overlay-action-disc{width:78px;height:78px}.ak-im-call-overlay-actions[data-layout="single"] .ak-im-call-overlay-action[data-prominence="primary"] .ak-im-call-overlay-action-label{font-size:14px}.ak-im-call-overlay-restore{top:calc(env(safe-area-inset-top,0px) + 12px);right:12px}.ak-im-call-overlay-local{top:calc(env(safe-area-inset-top,0px) + 16px);right:16px;width:96px;height:132px;border-radius:16px}.ak-im-call-overlay[data-kind="video"] .ak-im-call-overlay-header{padding:calc(14px + env(safe-area-inset-top,0px)) 14px 16px}.ak-im-call-overlay[data-kind="video"] .ak-im-call-overlay-placeholder{padding:calc(104px + env(safe-area-inset-top,0px)) 18px calc(156px + env(safe-area-inset-bottom,0px))}.ak-im-call-overlay[data-kind="video"] .ak-im-call-overlay-placeholder-text{font-size:24px}.ak-im-call-overlay[data-kind="video"] .ak-im-call-overlay-local{top:calc(env(safe-area-inset-top,0px) + 76px);right:14px;width:96px;height:132px;border-radius:16px}.ak-im-call-overlay[data-kind="video"] .ak-im-call-overlay-state{bottom:calc(110px + env(safe-area-inset-bottom,0px));padding:0 16px}.ak-im-call-overlay[data-kind="video"] .ak-im-call-overlay-actions{padding-left:14px;padding-right:14px;padding-top:28px}.ak-im-call-overlay[data-kind="video"] .ak-im-call-overlay-actions[data-layout="single"]{padding-top:34px}}'
             ].join('');
             if (!styleEl.parentNode) {
                 (document.head || document.documentElement).appendChild(styleEl);
@@ -1318,6 +1574,8 @@
             this.refs.mute = panel.querySelector('.ak-im-call-overlay-mute');
             this.refs.speaker = panel.querySelector('.ak-im-call-overlay-speaker');
             this.refs.localAudio = panel.querySelector('.ak-im-call-overlay-audio');
+            this.refs.localVideo = panel.querySelector('.ak-im-call-overlay-local');
+            this.refs.remoteVideo = panel.querySelector('.ak-im-call-overlay-remote');
             this.refs.placeholder = panel.querySelector('.ak-im-call-overlay-placeholder');
             this.refs.placeholderText = panel.querySelector('.ak-im-call-overlay-placeholder-text');
             this.refs.pulse = panel.querySelector('.ak-im-call-overlay-pulse');
@@ -1387,6 +1645,7 @@
             this.clearTimer('launch');
             this.clearTimer('duration');
             this.clearTimer('peerDisconnect');
+            this.clearTimer('videoQuality');
         },
 
         clearResultState() {
@@ -1435,6 +1694,103 @@
                 if (self.shouldIgnorePeerState(normalizedState)) return;
                 self.fail('peer_connection_failed', '', { connection_state: normalizedState });
             }, PEER_DISCONNECT_GRACE_MS);
+        },
+
+        clearVideoState() {
+            this.localVideoReady = false;
+            this.remoteVideoReady = false;
+            this.qualityProfile = 'sd';
+            this.qualityHealth = 'normal';
+            this.qualityStatusText = '';
+            this.qualityUpgradeStreak = 0;
+            this.qualityDowngradeStreak = 0;
+            this.qualityLastChangedAt = 0;
+        },
+
+        isVideoCall() {
+            return isVideoCallKind(this.currentKind);
+        },
+
+        updateVideoStatusText() {
+            this.qualityStatusText = this.isVideoCall() ? buildVideoQualityText(this.qualityProfile, this.qualityHealth) : '';
+            return this.qualityStatusText;
+        },
+
+        applyVideoProfileLocally(profile, health) {
+            const normalizedProfile = VIDEO_QUALITY_PROFILES[trim(profile).toLowerCase()] ? trim(profile).toLowerCase() : 'sd';
+            this.qualityProfile = normalizedProfile;
+            if (trim(health)) this.qualityHealth = trim(health).toLowerCase();
+            this.qualityLastChangedAt = Date.now();
+            this.updateVideoStatusText();
+            return normalizedProfile;
+        },
+
+        evaluateVideoQualitySnapshot(snapshot) {
+            const nextSnapshot = snapshot && typeof snapshot === 'object' ? snapshot : {};
+            const bitrate = Number(nextSnapshot.availableOutgoingBitrate || 0);
+            const rtt = Number(nextSnapshot.roundTripTime || 0);
+            const jitter = Number(nextSnapshot.jitter || 0);
+            const packetsLost = Number(nextSnapshot.packetsLost || 0);
+            const fps = Number(nextSnapshot.framesPerSecond || 0);
+            const currentIndex = getVideoProfileOrder(this.qualityProfile);
+            let health = 'good';
+            if (bitrate > 0 && bitrate < 320000) health = 'weak';
+            else if (bitrate > 0 && bitrate < 700000) health = 'normal';
+            if (rtt > 0.55 || jitter > 0.12 || packetsLost >= 18 || (fps > 0 && fps < 10)) health = 'weak';
+            else if (health === 'good' && (rtt > 0.28 || jitter > 0.06 || packetsLost >= 6 || (fps > 0 && fps < 16))) health = 'normal';
+            const qualityLimited = trim(nextSnapshot.qualityLimitationReason).toLowerCase();
+            if (qualityLimited === 'bandwidth' || qualityLimited === 'cpu') {
+                if (health === 'good') health = 'normal';
+            }
+            let targetIndex = currentIndex;
+            if (health === 'weak') {
+                this.qualityDowngradeStreak += 1;
+                this.qualityUpgradeStreak = 0;
+                if (this.qualityDowngradeStreak >= 2 && currentIndex > 0) targetIndex = currentIndex - 1;
+            } else if (health === 'good') {
+                this.qualityUpgradeStreak += 1;
+                this.qualityDowngradeStreak = 0;
+                if (this.qualityUpgradeStreak >= 3 && currentIndex < (VIDEO_PROFILE_ORDER.length - 1)) targetIndex = currentIndex + 1;
+            } else {
+                this.qualityDowngradeStreak = 0;
+                this.qualityUpgradeStreak = 0;
+            }
+            return {
+                health: health,
+                profile: VIDEO_PROFILE_ORDER[targetIndex] || this.qualityProfile,
+                shouldChange: targetIndex !== currentIndex
+            };
+        },
+
+        startVideoQualityMonitor() {
+            if (!this.isVideoCall() || !this.webRTC || typeof this.webRTC.readStatsSnapshot !== 'function') return;
+            if (this.timers.videoQuality) return;
+            const self = this;
+            this.updateVideoStatusText();
+            this.timers.videoQuality = global.setInterval(function() {
+                if (!self.isVideoCall() || self.mode !== CALL_MODES.active || !self.webRTC || typeof self.webRTC.readStatsSnapshot !== 'function') {
+                    self.clearTimer('videoQuality');
+                    return;
+                }
+                Promise.resolve(self.webRTC.readStatsSnapshot()).then(function(snapshot) {
+                    if (!snapshot) return;
+                    const nextQuality = self.evaluateVideoQualitySnapshot(snapshot);
+                    self.applyVideoProfileLocally(self.qualityProfile, nextQuality.health);
+                    if (!nextQuality.shouldChange) {
+                        self.render();
+                        return;
+                    }
+                    const changedProfile = nextQuality.profile;
+                    Promise.resolve(self.webRTC.applyVideoProfile(changedProfile)).catch(function() {
+                        return false;
+                    }).then(function() {
+                        self.applyVideoProfileLocally(changedProfile, nextQuality.health);
+                        self.render();
+                    });
+                }).catch(function() {
+                    return null;
+                });
+            }, 2000);
         },
 
         clearLocalTermination() {
@@ -1590,6 +1946,7 @@
             this.markConnected();
             this.setConnectionPhase('', { render: false });
             this.startDurationTicker();
+            if (this.isVideoCall()) this.startVideoQualityMonitor();
             this.recordCallSession('mark_active', {
                 mode: CALL_MODES.active,
                 activeAt: this.activeStartedAt,
@@ -1603,10 +1960,16 @@
                 actor: this.lastEndActor,
                 actorRole: this.lastEndActorRole,
                 role: this.role,
+                kind: this.currentKind,
                 wasEverConnected: this.wasEverConnected(),
                 connectionPhase: this.connectionPhase,
                 durationText: trim(this.liveDurationText || this.lastDurationText),
-                localTermination: this.localTermination
+                localTermination: this.localTermination,
+                localVideoReady: this.localVideoReady,
+                remoteVideoReady: this.remoteVideoReady,
+                qualityProfile: this.qualityProfile,
+                qualityHealth: this.qualityHealth,
+                qualityStatusText: this.qualityStatusText
             };
         },
 
@@ -1690,7 +2053,7 @@
             const nextPeerUsername = trim(payload.peer_username || payload.peerUsername);
             if (nextPeerUsername) this.currentPeerUsername = nextPeerUsername;
             const nextKind = trim(payload.call_kind || payload.kind);
-            if (nextKind) this.currentKind = nextKind;
+            if (nextKind) this.currentKind = normalizeCallKind(nextKind);
             const nextRole = trim(payload.viewer_role || payload.role);
             if (nextRole) this.role = nextRole.toLowerCase();
             const nextActor = trim(payload.actor);
@@ -1705,26 +2068,40 @@
             if (!refs.panel) return;
             const visible = this.mode !== CALL_MODES.idle;
             const showMinimizedShell = visible && this.minimized;
-            const view = buildCallViewModel(this.mode, this.lastFailReason, !!this.currentCallId, this.currentPeerName, this.muted, this.buildRenderMeta());
-            const actionLayout = buildCallActionLayout(this.mode, this.muted, this.speakerEnabled);
+            const isVideoCall = this.isVideoCall();
+            const renderMeta = this.buildRenderMeta();
+            const view = adaptCallViewModel(
+                buildCallViewModel(this.mode, this.lastFailReason, !!this.currentCallId, this.currentPeerName, this.muted, renderMeta),
+                this.currentKind,
+                this.mode,
+                renderMeta
+            );
+            const actionLayout = isVideoCall
+                ? buildVideoCallActionLayout(this.mode, this.muted, this.speakerEnabled)
+                : buildCallActionLayout(this.mode, this.muted, this.speakerEnabled);
             const headerStatus = buildHeaderStatusText(view);
+            const stateText = trim(this.qualityStatusText) || trim(view.footer);
             refs.panel.setAttribute('aria-hidden', visible ? 'false' : 'true');
             refs.panel.dataset.mode = this.mode;
             refs.panel.dataset.minimized = showMinimizedShell ? '1' : '0';
-            refs.title.textContent = this.currentPeerName || '语音通话';
+            refs.panel.dataset.kind = this.currentKind;
+            refs.panel.dataset.localVideoReady = this.localVideoReady ? '1' : '0';
+            refs.panel.dataset.remoteVideoReady = this.remoteVideoReady ? '1' : '0';
+            refs.title.textContent = this.currentPeerName || getCallKindLabel(this.currentKind);
             refs.subtitle.textContent = headerStatus;
             refs.subtitle.style.display = headerStatus ? 'block' : 'none';
-            refs.state.textContent = view.footer || '';
-            refs.state.style.display = view.footer ? 'block' : 'none';
+            refs.state.textContent = stateText;
+            refs.state.style.display = stateText ? 'block' : 'none';
             if (refs.minimize) refs.minimize.style.display = visible && !this.minimized && this.canMinimize() ? 'flex' : 'none';
-            if (refs.restoreLabel) refs.restoreLabel.textContent = (this.currentPeerName || '返回通话').trim() || '返回通话';
-            refs.placeholder.style.display = 'flex';
+            if (refs.restoreIcon) refs.restoreIcon.innerHTML = getIconMarkup(isVideoCall ? 'video' : 'phone');
+            if (refs.restoreLabel) refs.restoreLabel.textContent = (this.currentPeerName || getCallRestoreLabel(this.currentKind)).trim() || getCallRestoreLabel(this.currentKind);
+            refs.placeholder.style.display = (isVideoCall && this.remoteVideoReady) ? 'none' : 'flex';
             if (refs.placeholderText) refs.placeholderText.textContent = view.headline || '';
             if (refs.detailTitle) refs.detailTitle.textContent = view.detailTitle || '';
             if (refs.detailBody) refs.detailBody.textContent = view.detailBody || '';
             if (refs.avatar) {
                 refs.avatar.style.transform = view.pending ? 'scale(1.04)' : 'scale(1)';
-                refs.avatar.textContent = (this.currentPeerName || '联').trim().slice(0, 1).toUpperCase();
+                refs.avatar.textContent = (this.currentPeerName || 'C').trim().slice(0, 1).toUpperCase();
             }
             if (refs.placeholderIcon) {
                 refs.placeholderIcon.innerHTML = getIconMarkup(view.icon);
@@ -1735,6 +2112,9 @@
                 refs.pulse.style.display = view.pending ? 'block' : 'none';
                 refs.pulse.style.animation = view.pending ? 'akImCallOverlayPulse 1.8s ease-in-out infinite' : 'none';
             }
+            if (refs.localVideo) refs.localVideo.style.display = isVideoCall && this.localVideoReady && !this.minimized ? 'block' : 'none';
+            if (refs.remoteVideo) refs.remoteVideo.style.display = isVideoCall && this.remoteVideoReady && !this.minimized ? 'block' : 'none';
+            if (refs.localAudio) refs.localAudio.style.display = isVideoCall ? 'none' : '';
             if (refs.actions) refs.actions.dataset.layout = actionLayout.layout || 'hidden';
             if (refs.inlineActions) refs.inlineActions.innerHTML = '';
             this.renderActionButton(refs.reject, actionLayout.reject);
@@ -1782,7 +2162,8 @@
             this.currentConversationId = 0;
             this.currentPeerName = '';
             this.currentPeerUsername = '';
-            this.currentKind = trim(payload.kind || payload.call_kind || this.currentKind || 'audio') || 'audio';
+            this.currentKind = normalizeCallKind(payload.kind || payload.call_kind || this.currentKind || 'audio');
+            this.clearVideoState();
             this.setConnectionPhase('launching', { render: false });
             this.setState(CALL_MODES.outgoing, payload);
             this.ensureCallLifecycleModules();
@@ -1831,7 +2212,8 @@
             this.currentConversationId = 0;
             this.currentPeerName = '';
             this.currentPeerUsername = '';
-            this.currentKind = trim(payload.call_kind || payload.kind || this.currentKind || 'audio') || 'audio';
+            this.currentKind = normalizeCallKind(payload.call_kind || payload.kind || this.currentKind || 'audio');
+            this.clearVideoState();
             this.setState(CALL_MODES.incoming, payload);
             this.ensureCallLifecycleModules();
             this.recordCallSession('open_incoming', {
@@ -1862,7 +2244,7 @@
             });
             try {
                 if (!this.webRTC || !this.webRTC.isSupported()) throw new Error('unsupported');
-                await this.webRTC.startLocal('audio');
+                await this.webRTC.startLocal(this.currentKind);
                 if (!this.isFlowCurrent(flowVersion) || this.mode !== CALL_MODES.connecting || !this.currentCallId) return;
                 this.setConnectionPhase('accepted');
                 this.recordCallSession('accept_ready', {
@@ -1961,6 +2343,7 @@
             if (!options.preserveLocalTermination) this.openedAt = 0;
             this.clearResultState();
             this.clearLiveSessionState();
+            this.clearVideoState();
             if (!options.preserveLocalTermination) this.clearLocalTermination();
             this.render();
         },
@@ -2031,7 +2414,7 @@
                     mode: CALL_MODES.connecting,
                     connectionPhase: 'preparing_local'
                 });
-                await this.webRTC.startLocal('audio');
+                await this.webRTC.startLocal(this.currentKind);
                 if (!this.isFlowCurrent(flowVersion) || this.mode === CALL_MODES.idle || !this.currentCallId) {
                     this.offerSent = false;
                     return;
@@ -2041,7 +2424,7 @@
                     mode: CALL_MODES.connecting,
                     connectionPhase: 'negotiating'
                 });
-                await this.webRTC.createOffer('audio');
+                await this.webRTC.createOffer(this.currentKind);
             } catch (error) {
                 this.offerSent = false;
                 this.fail('media_denied', error && error.message ? error.message : '');
@@ -2100,7 +2483,7 @@
                     connectionPhase: 'negotiating'
                 });
                 try {
-                    await this.webRTC.acceptOffer(payload.sdp, 'audio');
+                    await this.webRTC.acceptOffer(payload.sdp, this.currentKind || payload.call_kind || payload.kind || 'audio');
                 } catch (error) {
                     this.fail('media_denied', error && error.message ? error.message : '', payload);
                 }
@@ -2160,25 +2543,51 @@
 
         attachLocalStream(stream) {
             const audio = this.refs.localAudio;
-            if (!audio || !stream) return;
+            const localVideo = this.refs.localVideo;
+            if (!stream) return;
             try {
-                audio.srcObject = stream;
-                audio.muted = true;
+                if (audio) {
+                    audio.srcObject = stream;
+                    audio.muted = true;
+                }
             } catch (e) {}
+            try {
+                if (localVideo) {
+                    localVideo.srcObject = stream;
+                    localVideo.muted = true;
+                    localVideo.playsInline = true;
+                }
+            } catch (e) {}
+            this.localVideoReady = !!(isVideoCallKind(this.currentKind) && stream.getVideoTracks && stream.getVideoTracks().length);
+            this.render();
         },
 
         attachRemoteStream(stream) {
             const audio = this.refs.localAudio;
-            if (!audio || !stream) return;
+            const remoteVideo = this.refs.remoteVideo;
+            if (!stream) return;
             try {
-                audio.srcObject = stream;
-                audio.muted = false;
-                audio.volume = this.speakerEnabled ? 1 : 0.82;
-                const playResult = audio.play();
-                if (playResult && typeof playResult.catch === 'function') playResult.catch(function() {});
+                if (audio) {
+                    audio.srcObject = stream;
+                    audio.muted = false;
+                    audio.volume = this.speakerEnabled ? 1 : 0.82;
+                    const playResult = audio.play();
+                    if (playResult && typeof playResult.catch === 'function') playResult.catch(function() {});
+                }
             } catch (e) {}
+            try {
+                if (remoteVideo) {
+                    remoteVideo.srcObject = stream;
+                    remoteVideo.muted = false;
+                    remoteVideo.playsInline = true;
+                    const videoPlayResult = remoteVideo.play();
+                    if (videoPlayResult && typeof videoPlayResult.catch === 'function') videoPlayResult.catch(function() {});
+                }
+            } catch (e) {}
+            this.remoteVideoReady = !!(isVideoCallKind(this.currentKind) && stream.getVideoTracks && stream.getVideoTracks().length);
             this.markActive();
             this.setState(CALL_MODES.active, {});
+            if (this.remoteVideoReady) this.startVideoQualityMonitor();
         },
 
         handlePeerState(state) {
@@ -2207,6 +2616,9 @@
             if (this.refs.localAudio) {
                 this.refs.localAudio.volume = this.speakerEnabled ? 1 : 0.82;
             }
+            if (this.refs.remoteVideo) {
+                this.refs.remoteVideo.volume = this.speakerEnabled ? 1 : 0.82;
+            }
             this.render();
         },
 
@@ -2215,6 +2627,14 @@
             if (this.refs.localAudio) {
                 try { this.refs.localAudio.srcObject = null; } catch (e) {}
             }
+            if (this.refs.localVideo) {
+                try { this.refs.localVideo.srcObject = null; } catch (e) {}
+            }
+            if (this.refs.remoteVideo) {
+                try { this.refs.remoteVideo.srcObject = null; } catch (e) {}
+            }
+            this.localVideoReady = false;
+            this.remoteVideoReady = false;
         },
 
         destroy() {

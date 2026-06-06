@@ -2899,6 +2899,12 @@
             openCallByAction('audio');
             return;
         }
+        if (actionKey === 'call-video') {
+            state.plusPanelOpen = false;
+            render();
+            openCallByAction('video');
+            return;
+        }
         if (actionLabelMap[actionKey]) {
             state.plusPanelOpen = false;
             render();
