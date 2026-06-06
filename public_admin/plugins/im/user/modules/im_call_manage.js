@@ -3,8 +3,8 @@
 
     const STYLE_ID = 'ak-im-call-overlay-style';
     const PANEL_SELECTOR = '.ak-im-call-overlay';
-    const SHELL_VERSION = '20260606-4';
-    const PEER_DISCONNECT_GRACE_MS = 1200;
+    const SHELL_VERSION = '20260606-5';
+    const PEER_DISCONNECT_GRACE_MS = 3500;
     const PEER_STATE_MUTE_MS = 1500;
     const CALL_MODES = {
         idle: 'idle',
@@ -1091,6 +1091,7 @@
         openedAt: 0,
         minimized: false,
         ignorePeerStateUntil: 0,
+        terminalPresentation: 'panel',
         localVideoReady: false,
         remoteVideoReady: false,
         qualityProfile: 'sd',
@@ -1192,7 +1193,9 @@
 
         ensureBuiltInModules() {
             const modules = ensureModuleRegistry();
-            if (!modules.callWebRTC) modules.callWebRTC = createBuiltInWebRTCModule();
+            if (!modules.callWebRTC || typeof modules.callWebRTC.applyVideoProfile !== 'function' || typeof modules.callWebRTC.readStatsSnapshot !== 'function') {
+                modules.callWebRTC = createBuiltInWebRTCModule();
+            }
             return {
                 signaling: this.ctx && typeof this.ctx.sendSocketEnvelope === 'function'
                     ? createSharedSocketSignalingModule(this.ctx)
@@ -1471,6 +1474,12 @@
                 '.ak-im-call-overlay[data-kind="video"] .ak-im-call-overlay-inline-actions{width:min(100%,360px)}',
                 '.ak-im-call-overlay[data-kind="video"] .ak-im-call-overlay-local{top:calc(env(safe-area-inset-top,0px) + 88px);right:18px;width:118px;height:164px;border-radius:20px;z-index:3;background:#0f172a}',
                 '.ak-im-call-overlay[data-kind="video"] .ak-im-call-overlay-state{position:absolute;left:0;right:0;bottom:calc(118px + env(safe-area-inset-bottom,0px));z-index:3;padding:0 20px;text-align:center;background:none;color:rgba(241,245,249,.86);text-shadow:0 2px 10px rgba(0,0,0,.28)}',
+                '.ak-im-call-overlay[data-kind="video"][data-video-surface="local"] .ak-im-call-overlay-local{inset:0;width:100%;height:100%;border:0;border-radius:0;box-shadow:none;z-index:0;transform:scaleX(-1)}',
+                '.ak-im-call-overlay[data-kind="video"][data-video-surface="local"] .ak-im-call-overlay-placeholder{background:linear-gradient(180deg,rgba(2,6,23,.12) 0%,rgba(2,6,23,.08) 36%,rgba(2,6,23,.74) 100%)}',
+                '.ak-im-call-overlay[data-kind="video"][data-video-surface="local"] .ak-im-call-overlay-placeholder-icon,.ak-im-call-overlay[data-kind="video"][data-video-surface="local"] .ak-im-call-overlay-detail{display:none}',
+                '.ak-im-call-overlay[data-kind="video"][data-video-surface="local"] .ak-im-call-overlay-placeholder-text{max-width:min(420px,calc(100vw - 48px));font-size:24px}',
+                '.ak-im-call-overlay[data-kind="video"][data-video-surface="remote"] .ak-im-call-overlay-local{transform:none}',
+                '.ak-im-call-overlay[data-kind="video"][data-video-surface="remote"] .ak-im-call-overlay-placeholder{display:none!important}',
                 '.ak-im-call-overlay-audio{display:none}',
                 '.ak-im-call-overlay-state{padding:0 20px 14px;min-height:38px;font-size:12px;line-height:1.5;text-align:center;color:rgba(226,232,240,.84)}',
                 '.ak-im-call-overlay-actions{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));align-items:end;justify-items:center;gap:12px;padding:18px 22px calc(22px + env(safe-area-inset-bottom,0px));border-top:1px solid rgba(255,255,255,.06);background:rgba(2,9,18,.94)}',
@@ -1521,6 +1530,16 @@
                 '.ak-im-call-overlay[data-minimized="1"]{background:transparent;backdrop-filter:none;align-items:flex-start;justify-content:flex-end;padding:0;pointer-events:none}',
                 '.ak-im-call-overlay[data-minimized="1"] .ak-im-call-overlay-backdrop,.ak-im-call-overlay[data-minimized="1"] .ak-im-call-overlay-card{display:none}',
                 '.ak-im-call-overlay[data-minimized="1"] .ak-im-call-overlay-restore{display:flex}',
+                '.ak-im-call-overlay[data-terminal-presentation="toast"]{align-items:center;justify-content:center;padding:18px;background:rgba(2,8,20,.22);backdrop-filter:none}',
+                '.ak-im-call-overlay[data-terminal-presentation="toast"] .ak-im-call-overlay-backdrop{display:none}',
+                '.ak-im-call-overlay[data-terminal-presentation="toast"] .ak-im-call-overlay-card{width:min(calc(100vw - 36px),300px);min-height:0;max-height:none;border-radius:20px;background:rgba(15,23,42,.94);box-shadow:0 22px 70px rgba(2,6,23,.36)}',
+                '.ak-im-call-overlay[data-terminal-presentation="toast"] .ak-im-call-overlay-header,.ak-im-call-overlay[data-terminal-presentation="toast"] .ak-im-call-overlay-actions,.ak-im-call-overlay[data-terminal-presentation="toast"] .ak-im-call-overlay-state{display:none!important}',
+                '.ak-im-call-overlay[data-terminal-presentation="toast"] .ak-im-call-overlay-stage{min-height:0;padding:22px;background:transparent}',
+                '.ak-im-call-overlay[data-terminal-presentation="toast"] .ak-im-call-overlay-placeholder{position:relative;inset:auto;padding:0;gap:10px;justify-content:center;background:transparent}',
+                '.ak-im-call-overlay[data-terminal-presentation="toast"] .ak-im-call-overlay-placeholder-icon{width:44px;height:44px}',
+                '.ak-im-call-overlay[data-terminal-presentation="toast"] .ak-im-call-overlay-placeholder-icon svg{width:22px;height:22px}',
+                '.ak-im-call-overlay[data-terminal-presentation="toast"] .ak-im-call-overlay-placeholder-text{max-width:240px;font-size:16px;line-height:1.35}',
+                '.ak-im-call-overlay[data-terminal-presentation="toast"] .ak-im-call-overlay-detail,.ak-im-call-overlay[data-terminal-presentation="toast"] .ak-im-call-overlay-pulse,.ak-im-call-overlay[data-terminal-presentation="toast"] .ak-im-call-overlay-local,.ak-im-call-overlay[data-terminal-presentation="toast"] .ak-im-call-overlay-remote{display:none!important}',
                 '@keyframes akImCallOverlayPulse{0%{transform:translate(-50%,-50%) scale(.82);opacity:.18}50%{transform:translate(-50%,-50%) scale(1.04);opacity:.5}100%{transform:translate(-50%,-50%) scale(1.18);opacity:0}}',
                 '@keyframes akImCallOverlayIconFloat{0%{transform:translateY(0)}50%{transform:translateY(-3px)}100%{transform:translateY(0)}}',
                 '@media (max-width:768px){.ak-im-call-overlay{padding:0}.ak-im-call-overlay-card{width:100vw;min-height:100dvh;max-height:100dvh;border-radius:0;box-shadow:none}.ak-im-call-overlay-header{padding-top:calc(18px + env(safe-area-inset-top,0px))}.ak-im-call-overlay-stage{padding:24px 18px 18px}.ak-im-call-overlay-actions{gap:10px;padding-left:16px;padding-right:16px}.ak-im-call-overlay-actions[data-layout="single"]{padding-top:24px;padding-bottom:calc(28px + env(safe-area-inset-bottom,0px))}.ak-im-call-overlay-title{font-size:17px}.ak-im-call-overlay-avatar{width:40px;height:40px;font-size:16px}.ak-im-call-overlay-placeholder{gap:16px}.ak-im-call-overlay-placeholder-icon{width:104px;height:104px}.ak-im-call-overlay-placeholder-text{font-size:21px}.ak-im-call-overlay-detail{width:100%}.ak-im-call-overlay-inline-actions{width:100%;gap:10px}.ak-im-call-overlay-inline-actions .ak-im-call-overlay-action[data-appearance="pill"]{min-width:0;flex:1;height:50px;padding:0 12px}.ak-im-call-overlay-actions .ak-im-call-overlay-action[data-appearance="tool"]{max-width:96px}.ak-im-call-overlay-actions[data-layout="single"] .ak-im-call-overlay-action[data-appearance="tool"]{min-width:108px;min-height:112px;max-width:none;gap:13px}.ak-im-call-overlay-action-disc{width:58px;height:58px}.ak-im-call-overlay-action[data-prominence="primary"] .ak-im-call-overlay-action-disc{width:70px;height:70px}.ak-im-call-overlay-actions[data-layout="single"] .ak-im-call-overlay-action[data-prominence="primary"] .ak-im-call-overlay-action-disc{width:78px;height:78px}.ak-im-call-overlay-actions[data-layout="single"] .ak-im-call-overlay-action[data-prominence="primary"] .ak-im-call-overlay-action-label{font-size:14px}.ak-im-call-overlay-restore{top:calc(env(safe-area-inset-top,0px) + 12px);right:12px}.ak-im-call-overlay-local{top:calc(env(safe-area-inset-top,0px) + 16px);right:16px;width:96px;height:132px;border-radius:16px}.ak-im-call-overlay[data-kind="video"] .ak-im-call-overlay-header{padding:calc(14px + env(safe-area-inset-top,0px)) 14px 16px}.ak-im-call-overlay[data-kind="video"] .ak-im-call-overlay-placeholder{padding:calc(104px + env(safe-area-inset-top,0px)) 18px calc(156px + env(safe-area-inset-bottom,0px))}.ak-im-call-overlay[data-kind="video"] .ak-im-call-overlay-placeholder-text{font-size:24px}.ak-im-call-overlay[data-kind="video"] .ak-im-call-overlay-local{top:calc(env(safe-area-inset-top,0px) + 76px);right:14px;width:96px;height:132px;border-radius:16px}.ak-im-call-overlay[data-kind="video"] .ak-im-call-overlay-state{bottom:calc(110px + env(safe-area-inset-bottom,0px));padding:0 16px}.ak-im-call-overlay[data-kind="video"] .ak-im-call-overlay-actions{padding-left:14px;padding-right:14px;padding-top:28px}.ak-im-call-overlay[data-kind="video"] .ak-im-call-overlay-actions[data-layout="single"]{padding-top:34px}}'
@@ -1654,6 +1673,7 @@
             this.lastEndActor = '';
             this.lastEndActorRole = '';
             this.lastDurationText = '';
+            this.terminalPresentation = 'panel';
         },
 
         bumpFlowVersion() {
@@ -1875,6 +1895,39 @@
             return !!(this.currentCallId && eventCallId && this.currentCallId !== eventCallId);
         },
 
+        getViewerRole(payload) {
+            return trim(payload && (payload.viewer_role || payload.role) || this.role).toLowerCase();
+        },
+
+        resolveSignalTerminalPresentation(type, reason, payload) {
+            const normalizedType = trim(type).toLowerCase();
+            const normalizedReason = normalizeReasonCode(reason);
+            const viewerRole = this.getViewerRole(payload);
+            const actorRole = trim(payload && payload.actor_role).toLowerCase();
+            const wasConnected = this.wasEverConnected() || this.mode === CALL_MODES.active || !!(payload && (payload.connected_at || payload.accepted_at));
+            if (normalizedReason === 'timeout' && viewerRole === 'callee') {
+                return { action: 'silent' };
+            }
+            if ((normalizedReason === 'rejected' || normalizedReason === 'hangup') && actorRole && viewerRole && actorRole === viewerRole) {
+                return { action: 'silent' };
+            }
+            if (normalizedReason === 'hangup' && actorRole && viewerRole && actorRole !== viewerRole) {
+                if (!wasConnected && actorRole === 'caller' && viewerRole === 'callee') {
+                    return { action: 'silent' };
+                }
+                return { action: 'show', presentation: wasConnected ? 'toast' : 'panel', autoCloseMs: wasConnected ? 1200 : 1600 };
+            }
+            if (normalizedType === 'im.call.failed' || normalizedType === 'im.call.error') {
+                if (normalizedReason === 'timeout' && viewerRole === 'caller') {
+                    return { action: 'show', presentation: 'panel', autoCloseMs: 1800 };
+                }
+                if (normalizedReason === 'rejected' && viewerRole === 'caller') {
+                    return { action: 'show', presentation: 'panel', autoCloseMs: 1700 };
+                }
+            }
+            return { action: 'show', presentation: 'panel' };
+        },
+
         wasEverConnected() {
             return this.everConnectedAt > 0;
         },
@@ -2016,6 +2069,7 @@
                 endReason: endReason,
                 actorRole: actorRole,
                 preserveLocalTermination: true,
+                presentation: 'panel',
                 autoCloseMs: typeof options === 'object' && typeof options.autoCloseMs === 'number'
                     ? options.autoCloseMs
                     : (endReason === 'cancel' ? 1800 : 2000)
@@ -2087,6 +2141,10 @@
             refs.panel.dataset.kind = this.currentKind;
             refs.panel.dataset.localVideoReady = this.localVideoReady ? '1' : '0';
             refs.panel.dataset.remoteVideoReady = this.remoteVideoReady ? '1' : '0';
+            refs.panel.dataset.videoSurface = isVideoCall
+                ? (this.remoteVideoReady ? 'remote' : (this.localVideoReady ? 'local' : 'empty'))
+                : 'none';
+            refs.panel.dataset.terminalPresentation = this.terminalPresentation || 'panel';
             refs.title.textContent = this.currentPeerName || getCallKindLabel(this.currentKind);
             refs.subtitle.textContent = headerStatus;
             refs.subtitle.style.display = headerStatus ? 'block' : 'none';
@@ -2157,6 +2215,7 @@
             this.speakerEnabled = false;
             this.offerSent = false;
             this.everConnectedAt = 0;
+            this.terminalPresentation = 'panel';
             this.openedAt = Date.now();
             this.currentCallId = '';
             this.currentConversationId = 0;
@@ -2174,6 +2233,15 @@
             const self = this;
             this.ensureSubmodules().then(function() {
                 if (!self.isFlowCurrent(flowVersion) || self.mode !== CALL_MODES.outgoing) return;
+                if (!self.isVideoCall()) return null;
+                self.setConnectionPhase('preparing_local');
+                return self.webRTC.startLocal(self.currentKind).then(function() {
+                    if (!self.isFlowCurrent(flowVersion) || self.mode !== CALL_MODES.outgoing) return null;
+                    self.setConnectionPhase('launching');
+                    return null;
+                });
+            }).then(function() {
+                if (!self.isFlowCurrent(flowVersion) || self.mode !== CALL_MODES.outgoing) return;
                 self.signaling.send('im.call.start', {
                     conversation_id: Number(payload.conversationId || payload.conversation_id || 0),
                     callee_username: trim(payload.peerUsername || payload.peer_username),
@@ -2187,7 +2255,7 @@
                     }
                 }, 10000);
             }).catch(function(error) {
-                self.fail('unsupported', error && error.message ? error.message : '通话模块不可用');
+                self.fail(self.isVideoCall() ? 'media_denied' : 'unsupported', error && error.message ? error.message : '通话模块不可用');
             });
         },
 
@@ -2207,6 +2275,7 @@
             this.muted = false;
             this.offerSent = false;
             this.everConnectedAt = 0;
+            this.terminalPresentation = 'panel';
             this.openedAt = Date.now();
             this.currentCallId = '';
             this.currentConversationId = 0;
@@ -2340,6 +2409,7 @@
             this.speakerEnabled = false;
             this.offerSent = false;
             this.everConnectedAt = 0;
+            this.terminalPresentation = 'panel';
             if (!options.preserveLocalTermination) this.openedAt = 0;
             this.clearResultState();
             this.clearLiveSessionState();
@@ -2356,6 +2426,7 @@
             this.mutePeerStateEvents(PEER_STATE_MUTE_MS);
             this.cleanupMedia();
             this.minimized = false;
+            this.terminalPresentation = trim(options.presentation).toLowerCase() === 'toast' ? 'toast' : 'panel';
             const nextMode = reason === 'failed' ? CALL_MODES.failed : CALL_MODES.ended;
             if (nextMode === CALL_MODES.failed) {
                 this.lastFailReason = normalizeReasonCode(options.reason || payload.reason || payload.fail_reason || this.lastFailReason || 'socket_error');
@@ -2388,13 +2459,14 @@
             }
         },
 
-        fail(reason, message, payload) {
+        fail(reason, message, payload, options) {
             payload = Object.assign({}, payload || {});
             const normalizedReason = normalizeReasonCode(reason || payload.reason || 'socket_error');
             this.lastFailReason = normalizedReason;
             payload.reason = normalizedReason;
             if (trim(message)) payload.message = trim(message);
-            this.end('failed', payload, { reason: normalizedReason });
+            const nextOptions = options && typeof options === 'object' ? options : {};
+            this.end('failed', payload, Object.assign({}, nextOptions, { reason: normalizedReason }));
             this.emitCallTimeline('failed', {
                 mode: CALL_MODES.failed,
                 failReason: normalizedReason,
@@ -2513,13 +2585,31 @@
             }
             if (type === 'im.call.failed' || type === 'im.call.error') {
                 if (this.shouldSuppressTerminationEcho(type, payload)) return;
-                this.fail(normalizeReasonCode(payload.reason) || (trim(payload.message) === 'busy' ? 'busy' : 'socket_error'), trim(payload.message), payload);
+                const failReason = normalizeReasonCode(payload.reason) || (trim(payload.message) === 'busy' ? 'busy' : 'socket_error');
+                const terminal = this.resolveSignalTerminalPresentation(type, failReason, payload);
+                if (terminal.action === 'silent') {
+                    this.reset({ preserveLocalTermination: true });
+                    return;
+                }
+                this.fail(failReason, trim(payload.message), payload, {
+                    presentation: terminal.presentation,
+                    autoCloseMs: terminal.autoCloseMs
+                });
                 return;
             }
             if (type === 'im.call.ended') {
                 if (this.shouldSuppressTerminationEcho(type, payload)) return;
                 const endReason = normalizeReasonCode(payload.reason || payload.end_reason || 'hangup');
-                this.end('ended', Object.assign({}, payload, { reason: endReason, end_reason: endReason }), { endReason: endReason });
+                const terminal = this.resolveSignalTerminalPresentation(type, endReason, payload);
+                if (terminal.action === 'silent') {
+                    this.reset({ preserveLocalTermination: true });
+                    return;
+                }
+                this.end('ended', Object.assign({}, payload, { reason: endReason, end_reason: endReason }), {
+                    endReason: endReason,
+                    presentation: terminal.presentation,
+                    autoCloseMs: terminal.autoCloseMs
+                });
             }
         },
 
@@ -2537,7 +2627,8 @@
             const eventType = type === 'ice' ? 'im.call.ice' : (type === 'answer' ? 'im.call.answer' : 'im.call.offer');
             this.signaling.send(eventType, Object.assign({
                 call_id: this.currentCallId,
-                conversation_id: this.currentConversationId
+                conversation_id: this.currentConversationId,
+                call_kind: this.currentKind
             }, payload || {}));
         },
 
@@ -2556,6 +2647,9 @@
                     localVideo.srcObject = stream;
                     localVideo.muted = true;
                     localVideo.playsInline = true;
+                    localVideo.autoplay = true;
+                    const localVideoPlayResult = localVideo.play();
+                    if (localVideoPlayResult && typeof localVideoPlayResult.catch === 'function') localVideoPlayResult.catch(function() {});
                 }
             } catch (e) {}
             this.localVideoReady = !!(isVideoCallKind(this.currentKind) && stream.getVideoTracks && stream.getVideoTracks().length);

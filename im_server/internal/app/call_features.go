@@ -114,7 +114,7 @@ func (a *App) broadcastCallSession(session *imCallSession, includeRoles map[stri
 	}
 	_ = includeRoles
 	payload := map[string]any{
-		"type": "im.call.session_state",
+		"type":    "im.call.session_state",
 		"payload": session.toMap(),
 	}
 	a.broadcastUsernames(callParticipantSet(session), payload)
@@ -413,10 +413,18 @@ func (a *App) handleCallAction(w http.ResponseWriter, r *http.Request, action st
 		a.broadcastCallSessionEvent(session, "im.call.accepted", nil, nil)
 		a.broadcastCallSessionEvent(session, "im.call.connected", nil, nil)
 	case "reject":
-		a.broadcastCallSessionEvent(session, "im.call.failed", nil, nil)
+		a.broadcastCallSessionEvent(session, "im.call.failed", nil, map[string]any{
+			"reason":     "rejected",
+			"actor":      normalizeCallUsername(username),
+			"actor_role": role,
+		})
 		defer a.deleteCallSession(session.CallID)
 	case "hangup":
-		a.broadcastCallSessionEvent(session, "im.call.ended", nil, nil)
+		a.broadcastCallSessionEvent(session, "im.call.ended", nil, map[string]any{
+			"reason":     "hangup",
+			"actor":      normalizeCallUsername(username),
+			"actor_role": role,
+		})
 		defer a.deleteCallSession(session.CallID)
 	case "mute", "unmute":
 		a.broadcastCallSessionEvent(session, "im.call.updated", nil, map[string]any{"muted_by": role})
