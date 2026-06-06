@@ -3,9 +3,10 @@
 
     const STYLE_ID = 'ak-im-call-overlay-style';
     const PANEL_SELECTOR = '.ak-im-call-overlay';
-    const SHELL_VERSION = '20260606-10';
+    const SHELL_VERSION = '20260606-11';
     const PEER_DISCONNECT_GRACE_MS = 3500;
     const PEER_STATE_MUTE_MS = 1500;
+    const CHROME_AUTO_HIDE_MS = 5000;
     const REMOTE_EARPIECE_VOLUME = 0.1;
     const REMOTE_SPEAKER_VOLUME = 1;
     const CALL_MODES = {
@@ -586,9 +587,9 @@
                 layout: 'active',
                 reject: { visible: false },
                 accept: { visible: false },
-                mute: { visible: true, icon: muted ? 'unmute' : 'mute', label: muted ? '取消静音' : '静音', variant: muted ? 'primary' : 'neutral', prominence: 'secondary', slot: '1', appearance: 'tool', selected: muted },
+                mute: { visible: true, icon: muted ? 'unmute' : 'mute', label: muted ? '取消静音' : '静音', variant: muted ? 'selected' : 'neutral', prominence: 'secondary', slot: '1', appearance: 'tool', selected: muted },
                 hangup: { visible: true, icon: 'hangup', label: '挂断', variant: 'danger', prominence: 'primary', slot: '2', appearance: 'tool' },
-                speaker: { visible: true, icon: speakerOn ? 'speaker_on' : 'speaker_off', label: speakerOn ? '免提已开' : '免提', variant: speakerOn ? 'primary' : 'neutral', prominence: 'secondary', slot: '3', appearance: 'tool', selected: speakerOn },
+                speaker: { visible: true, icon: speakerOn ? 'speaker_on' : 'speaker_off', label: speakerOn ? '免提已开' : '免提', variant: speakerOn ? 'selected' : 'neutral', prominence: 'secondary', slot: '3', appearance: 'tool', selected: speakerOn },
                 cameraSwitch: { visible: false }
             };
         }
@@ -1228,7 +1229,7 @@
         speakerEnabled: false,
         cameraEnabled: true,
         offerSent: false,
-        timers: { autoEnd: 0, launch: 0, duration: 0, peerDisconnect: 0, videoQuality: 0 },
+        timers: { autoEnd: 0, launch: 0, duration: 0, peerDisconnect: 0, videoQuality: 0, chromeHide: 0 },
         refs: {},
         lastFailReason: '',
         lastEndReason: '',
@@ -1243,6 +1244,7 @@
         flowVersion: 0,
         openedAt: 0,
         minimized: false,
+        chromeVisible: true,
         ignorePeerStateUntil: 0,
         terminalPresentation: 'panel',
         localVideoReady: false,
@@ -1814,6 +1816,28 @@
                 '.ak-im-call-overlay[data-kind="video"][data-mode="outgoing"] .ak-im-call-overlay-state,.ak-im-call-overlay[data-kind="video"][data-mode="connecting"] .ak-im-call-overlay-state{bottom:calc(var(--ak-video-copy-bottom) + var(--ak-video-copy-gap) + env(safe-area-inset-bottom,0px))!important}',
                 '@media (max-width:768px){.ak-im-call-overlay[data-kind="video"]{--ak-video-copy-bottom:306px;--ak-video-copy-gap:40px}.ak-im-call-overlay[data-kind="video"] .ak-im-call-overlay-actions[data-layout="video-grid"]{bottom:calc(14px + env(safe-area-inset-bottom,0px))!important;grid-template-rows:repeat(2,78px)!important}.ak-im-call-overlay[data-kind="video"] .ak-im-call-overlay-actions[data-layout="video-grid"] .ak-im-call-overlay-action[data-appearance="tool"]{width:66px!important;max-width:66px!important}.ak-im-call-overlay[data-kind="video"] .ak-im-call-overlay-actions[data-layout="video-grid"] .ak-im-call-overlay-action-disc,.ak-im-call-overlay[data-kind="video"] .ak-im-call-overlay-actions[data-layout="video-grid"] .ak-im-call-overlay-action[data-selected="1"] .ak-im-call-overlay-action-disc,.ak-im-call-overlay[data-kind="video"] .ak-im-call-overlay-actions[data-layout="video-grid"] .ak-im-call-overlay-action[data-variant="selected"] .ak-im-call-overlay-action-disc{width:52px!important;height:52px!important}.ak-im-call-overlay[data-kind="video"] .ak-im-call-overlay-actions[data-layout="video-grid"] .ak-im-call-overlay-action[data-variant="danger"] .ak-im-call-overlay-action-disc{width:58px!important;height:58px!important}}'
             ].join('');
+            styleEl.textContent += [
+                '.ak-im-call-overlay .ak-im-call-overlay-header,.ak-im-call-overlay .ak-im-call-overlay-actions,.ak-im-call-overlay .ak-im-call-overlay-state{transition:opacity .2s ease,transform .2s ease}',
+                '.ak-im-call-overlay[data-mode="active"][data-chrome-visible="0"] .ak-im-call-overlay-header,.ak-im-call-overlay[data-mode="active"][data-chrome-visible="0"] .ak-im-call-overlay-actions,.ak-im-call-overlay[data-mode="active"][data-chrome-visible="0"] .ak-im-call-overlay-state{opacity:0!important;pointer-events:none!important}',
+                '.ak-im-call-overlay[data-mode="active"][data-chrome-visible="0"] .ak-im-call-overlay-header{transform:translateY(-8px)}',
+                '.ak-im-call-overlay[data-mode="active"][data-chrome-visible="0"] .ak-im-call-overlay-actions{transform:translateY(10px)}',
+                '.ak-im-call-overlay[data-kind="video"][data-mode="active"][data-chrome-visible="0"] .ak-im-call-overlay-actions[data-layout="video-grid"]{transform:translateX(-50%) translateY(10px)!important}',
+                '.ak-im-call-overlay-action[data-variant="selected"] .ak-im-call-overlay-action-disc{background:rgba(255,255,255,.94)!important;color:#020617!important}',
+                '.ak-im-call-overlay[data-kind="audio"][data-mode="active"] .ak-im-call-overlay-placeholder{align-items:center!important;justify-content:center!important;gap:20px!important;text-align:center!important}',
+                '.ak-im-call-overlay[data-kind="audio"][data-mode="active"] .ak-im-call-overlay-placeholder-text{max-width:min(520px,calc(100vw - 48px))!important;text-align:center!important;margin:0 auto!important}',
+                '.ak-im-call-overlay[data-kind="audio"][data-mode="active"] .ak-im-call-overlay-detail{width:min(520px,calc(100vw - 40px))!important;align-items:center!important;text-align:center!important;padding:16px 18px!important}',
+                '.ak-im-call-overlay[data-kind="audio"][data-mode="active"] .ak-im-call-overlay-detail-title,.ak-im-call-overlay[data-kind="audio"][data-mode="active"] .ak-im-call-overlay-detail-body{text-align:center!important}',
+                '.ak-im-call-overlay[data-kind="audio"][data-mode="active"] .ak-im-call-overlay-actions[data-layout="active"]{grid-template-columns:repeat(3,1fr)!important;align-items:start!important;gap:10px!important;padding-top:20px!important;background:rgba(2,9,18,.94)!important}',
+                '.ak-im-call-overlay[data-kind="audio"][data-mode="active"] .ak-im-call-overlay-action[data-appearance="tool"]{max-width:86px!important;gap:9px!important}',
+                '.ak-im-call-overlay[data-kind="audio"][data-mode="active"] .ak-im-call-overlay-action-disc,.ak-im-call-overlay[data-kind="audio"][data-mode="active"] .ak-im-call-overlay-action[data-prominence="primary"] .ak-im-call-overlay-action-disc{width:60px!important;height:60px!important;transform:none!important}',
+                '.ak-im-call-overlay[data-kind="audio"][data-mode="active"] .ak-im-call-overlay-action[data-variant="neutral"] .ak-im-call-overlay-action-disc{background:rgba(148,163,184,.16)!important;color:#e2e8f0!important}',
+                '.ak-im-call-overlay[data-kind="audio"][data-mode="active"] .ak-im-call-overlay-action[data-selected="1"] .ak-im-call-overlay-action-disc,.ak-im-call-overlay[data-kind="audio"][data-mode="active"] .ak-im-call-overlay-action[data-variant="selected"] .ak-im-call-overlay-action-disc{background:rgba(255,255,255,.94)!important;color:#020617!important;box-shadow:0 14px 30px rgba(2,6,23,.22)!important}',
+                '.ak-im-call-overlay[data-kind="audio"][data-mode="active"] .ak-im-call-overlay-action[data-variant="danger"] .ak-im-call-overlay-action-disc{background:#ef4444!important;color:#fff!important;box-shadow:0 16px 34px rgba(239,68,68,.3)!important}',
+                '.ak-im-call-overlay[data-kind="audio"][data-mode="active"] .ak-im-call-overlay-action:hover .ak-im-call-overlay-action-disc,.ak-im-call-overlay[data-kind="audio"][data-mode="active"] .ak-im-call-overlay-action:active .ak-im-call-overlay-action-disc{transform:none!important}',
+                '.ak-im-call-overlay[data-kind="audio"][data-mode="active"] .ak-im-call-overlay-action-label{font-size:13px!important;line-height:1.2!important}',
+                '.ak-im-call-overlay[data-kind="video"] .ak-im-call-overlay-minimize{left:auto!important;right:18px!important;top:calc(16px + env(safe-area-inset-top,0px))!important;margin:0!important}',
+                '@media (max-width:768px){.ak-im-call-overlay[data-kind="video"] .ak-im-call-overlay-minimize{left:auto!important;right:14px!important;top:calc(14px + env(safe-area-inset-top,0px))!important}.ak-im-call-overlay[data-kind="audio"][data-mode="active"] .ak-im-call-overlay-detail{width:min(520px,calc(100vw - 36px))!important}.ak-im-call-overlay[data-kind="audio"][data-mode="active"] .ak-im-call-overlay-actions[data-layout="active"]{padding-bottom:calc(24px + env(safe-area-inset-bottom,0px))!important}.ak-im-call-overlay[data-kind="audio"][data-mode="active"] .ak-im-call-overlay-action-disc,.ak-im-call-overlay[data-kind="audio"][data-mode="active"] .ak-im-call-overlay-action[data-prominence="primary"] .ak-im-call-overlay-action-disc{width:58px!important;height:58px!important}}'
+            ].join('');
             if (!styleEl.parentNode) {
                 (document.head || document.documentElement).appendChild(styleEl);
             }
@@ -1900,11 +1924,17 @@
                 if (!element) return;
                 element.addEventListener('click', function(event) {
                     stopClick(event);
+                    self.revealChrome({ render: false });
                     handler();
                 });
             };
             if (backdrop) backdrop.addEventListener('click', stopClick);
-            if (panel) panel.addEventListener('click', stopClick);
+            if (panel) {
+                panel.addEventListener('pointerdown', function(event) {
+                    self.handleChromeInteraction(event);
+                });
+                panel.addEventListener('click', stopClick);
+            }
             bindAction(this.refs.minimize, function() {
                 self.minimize();
             });
@@ -1947,12 +1977,57 @@
             this.timers[name] = 0;
         },
 
+        canAutoHideChrome() {
+            return this.mode === CALL_MODES.active
+                && !this.minimized
+                && trim(this.terminalPresentation || 'panel') === 'panel';
+        },
+
+        scheduleChromeAutoHide() {
+            this.clearTimer('chromeHide');
+            if (!this.canAutoHideChrome() || !this.chromeVisible) return;
+            const self = this;
+            this.timers.chromeHide = global.setTimeout(function() {
+                self.timers.chromeHide = 0;
+                if (!self.canAutoHideChrome()) return;
+                self.chromeVisible = false;
+                self.render();
+            }, CHROME_AUTO_HIDE_MS);
+        },
+
+        revealChrome(options) {
+            options = options || {};
+            if (this.mode === CALL_MODES.idle) return;
+            const changed = this.chromeVisible !== true;
+            this.chromeVisible = true;
+            if (this.canAutoHideChrome()) this.scheduleChromeAutoHide();
+            else this.clearTimer('chromeHide');
+            if (changed && options.render !== false) this.render();
+        },
+
+        resetChromeState() {
+            this.clearTimer('chromeHide');
+            this.chromeVisible = true;
+        },
+
+        handleChromeModeChange() {
+            this.chromeVisible = true;
+            if (this.canAutoHideChrome()) this.scheduleChromeAutoHide();
+            else this.clearTimer('chromeHide');
+        },
+
+        handleChromeInteraction() {
+            if (!this.canAutoHideChrome()) return;
+            this.revealChrome();
+        },
+
         clearAllTimers() {
             this.clearTimer('autoEnd');
             this.clearTimer('launch');
             this.clearTimer('duration');
             this.clearTimer('peerDisconnect');
             this.clearTimer('videoQuality');
+            this.clearTimer('chromeHide');
         },
 
         clearResultState() {
@@ -2466,17 +2541,20 @@
         minimize() {
             if (!this.canMinimize()) return;
             this.minimized = true;
+            this.clearTimer('chromeHide');
             this.render();
         },
 
         restore() {
             if (this.mode === CALL_MODES.idle) return;
             this.minimized = false;
+            this.revealChrome({ render: false });
             this.render();
         },
 
         setState(mode, payload) {
             payload = payload || {};
+            const previousMode = this.mode;
             this.mode = mode || CALL_MODES.idle;
             const nextCallId = trim(payload.call_id || payload.callId);
             if (nextCallId) this.currentCallId = nextCallId;
@@ -2496,6 +2574,7 @@
             if (nextActor) this.lastEndActor = nextActor;
             const nextActorRole = trim(payload.actor_role);
             if (nextActorRole) this.lastEndActorRole = nextActorRole.toLowerCase();
+            if (previousMode !== this.mode) this.handleChromeModeChange();
             this.render();
         },
 
@@ -2533,6 +2612,7 @@
             refs.panel.dataset.cameraEnabled = this.cameraEnabled ? '1' : '0';
             refs.panel.dataset.cameraFacing = this.cameraFacingMode || 'user';
             refs.panel.dataset.terminalPresentation = this.terminalPresentation || 'panel';
+            refs.panel.dataset.chromeVisible = (!this.canAutoHideChrome() || this.chromeVisible) ? '1' : '0';
             refs.title.textContent = this.currentPeerName || getCallKindLabel(this.currentKind);
             refs.subtitle.textContent = headerStatus;
             refs.subtitle.style.display = headerStatus ? 'block' : 'none';
@@ -2540,7 +2620,7 @@
             refs.state.style.display = stateText ? 'block' : 'none';
             if (refs.minimize) {
                 refs.minimize.style.display = visible && !this.minimized && this.canMinimize() ? 'flex' : 'none';
-                refs.minimize.innerHTML = getIconMarkup(isVideoCall ? 'float_window' : 'minimize');
+                refs.minimize.innerHTML = getIconMarkup('float_window');
             }
             if (refs.restoreIcon) refs.restoreIcon.innerHTML = getIconMarkup(isVideoCall ? 'video' : 'phone');
             if (refs.restoreLabel) refs.restoreLabel.textContent = (this.currentPeerName || getCallRestoreLabel(this.currentKind)).trim() || getCallRestoreLabel(this.currentKind);
@@ -2830,6 +2910,7 @@
             this.cleanupMedia();
             this.mode = CALL_MODES.idle;
             this.minimized = false;
+            this.chromeVisible = true;
             this.currentCallId = '';
             this.currentConversationId = 0;
             this.currentPeerName = '';
@@ -3238,6 +3319,7 @@
             this.cleanupMedia();
             this.clearLiveSessionState();
             this.clearLocalTermination();
+            this.resetChromeState();
             this.openedAt = 0;
             if (this.signaling && typeof this.signaling.destroy === 'function') this.signaling.destroy();
             this.signaling = null;
