@@ -113,7 +113,7 @@ After=network.target
 Type=simple
 User=${SERVICE_USER}
 WorkingDirectory=${IM_DIR}
-Environment="IM_ADDR=:18081"
+Environment="IM_ADDR=127.0.0.1:18081"
 Environment="IM_DATABASE_URL=${DB_URL}"
 Environment="IM_ALLOWED_ORIGIN=${ALLOWED_ORIGIN}"
 Environment="IM_AUTH_COOKIE=ak_username"

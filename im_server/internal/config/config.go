@@ -6,17 +6,17 @@ import (
 )
 
 type Config struct {
-	Addr             string
-	DatabaseURL      string
-	CookieName       string
-	AllowedOrigin    string
-	CompressMinBytes int
-	EmojiSourceDir   string
-	EmojiStoreDir    string
-	VoiceStoreDir    string
-	ImageStoreDir    string
-	FileStoreDir     string
-	VideoStoreDir    string
+	Addr                      string
+	DatabaseURL               string
+	CookieName                string
+	AllowedOrigin             string
+	CompressMinBytes          int
+	EmojiSourceDir            string
+	EmojiStoreDir             string
+	VoiceStoreDir             string
+	ImageStoreDir             string
+	FileStoreDir              string
+	VideoStoreDir             string
 	NotifyCenterEnabled       bool
 	NotifyCenterWebhookURL    string
 	NotifyCenterWebhookSecret string
@@ -25,7 +25,7 @@ type Config struct {
 
 func Load() Config {
 	return Config{
-		Addr:                      getEnv("IM_ADDR", ":18081"),
+		Addr:                      getEnv("IM_ADDR", "127.0.0.1:18081"),
 		DatabaseURL:               getEnv("IM_DATABASE_URL", ""),
 		CookieName:                getEnv("IM_AUTH_COOKIE", "ak_username"),
 		AllowedOrigin:             getEnv("IM_ALLOWED_ORIGIN", ""),

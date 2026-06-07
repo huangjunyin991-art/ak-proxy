@@ -149,7 +149,7 @@
 
 | 编号 | 风险 | 证据 | 加固方向 |
 |---|---|---|---|
-| P1-NET-001 | 服务默认监听所有网卡 | `PROXY_HOST=0.0.0.0`、`IM_ADDR=:18081` | 默认绑定 loopback，公网只经 Nginx/网关暴露。 |
+| P1-NET-001 | 服务默认监听所有网卡 | 历史默认 `PROXY_HOST=0.0.0.0`、`IM_ADDR=:18081` | IM 默认监听已收口到 loopback，公网只经 Nginx/网关暴露。 |
 | P1-CORS-001 | CORS 通配与 credentials 组合 | FastAPI 和 Nginx 中存在 wildcard CORS | 按部署域名生成 allowlist。 |
 | P1-TLS-001 | 上游 TLS 校验关闭 | 多处 `verify=False`、Nginx `proxy_ssl_verify off` | 统一 CA 配置，临时例外必须有到期时间。 |
 | P1-BOOT-001 | 维护脚本曾存在默认 license key | 历史版本 `maintain_ak_proxy.sh` 写入固定默认 key | 已移除固定默认密钥，首次缺失时生成服务器本地随机密钥。 |
@@ -241,3 +241,4 @@
 | 2026-06-08 | Phase 0 `/api/status` 信息最小化 | 已落地 | 公开 `/api/status` 仅返回最小探活信息；原详细代理诊断信息不再通过通用状态接口提供，后续如有运维展示需求应接入专用监控接口。 |
 | 2026-06-08 | P1-BOOT-001 固定 License 管理密钥移除 | 已落地 | 维护脚本不再写入固定默认 `LICENSE_ADMIN_KEY`；首次缺失时生成高熵随机值写入服务器 env，已有值或显式传入值保持优先。 |
 | 2026-06-08 | P0-EDGE-001 IM internal 公网阻断 | 部分落地 | Nginx 模板新增 `/im/internal/` 优先匹配并返回 404，避免公网经 `/im/` 代理命中 Go IM internal 路由；Go 端 HMAC 内部认证仍作为后续增强项。 |
+| 2026-06-08 | P1-NET-001 IM 默认 loopback 监听 | 已落地 | Go IM 默认 `IM_ADDR` 从 `:18081` 改为 `127.0.0.1:18081`，部署脚本生成的 systemd 环境同步收口；显式配置 `IM_ADDR` 仍可覆盖。 |
