@@ -8,6 +8,7 @@
         range: '7d',
         lightTimer: null,
         heavyTimer: null,
+        indexPlanTimer: null,
         loadingHeavy: false,
         loadingLight: false,
         data: {
@@ -19,11 +20,13 @@
             fileAssets: null,
             staticCache: null,
             runtimeHygiene: null,
-            runtimePerformance: null
+            runtimePerformance: null,
+            indexPlan: null
         },
         loadingStaticCache: false,
         loadingRuntimeHygiene: false,
-        loadingRuntimePerformance: false
+        loadingRuntimePerformance: false,
+        loadingIndexPlan: false
     };
 
     function token() {
@@ -185,11 +188,28 @@
         });
     }
 
+    function performancePost(path, payload) {
+        return fetch('/admin/api/performance' + path, {
+            method: 'POST',
+            headers: {
+                'Authorization': 'Bearer ' + token(),
+                'Content-Type': 'application/json'
+            },
+            credentials: 'same-origin',
+            body: JSON.stringify(payload || {})
+        }).then(function(resp) {
+            return resp.json().then(function(body) {
+                if (!resp.ok || body.error) throw new Error(body.message || body.detail || '运行时性能接口请求失败');
+                return body;
+            });
+        });
+    }
+
     function ensureCss() {
         if (document.querySelector('link[data-monitoring-panel-css="1"]')) return;
         var link = document.createElement('link');
         link.rel = 'stylesheet';
-        link.href = '/admin/api/monitoring-panel.css?v=20260608-01';
+        link.href = '/admin/api/monitoring-panel.css?v=20260608-02';
         link.setAttribute('data-monitoring-panel-css', '1');
         document.head.appendChild(link);
     }
@@ -239,7 +259,12 @@
             '<div class="monitoring-table-wrap monitoring-runtime-performance-table-wrap"><table class="monitoring-table monitoring-runtime-performance-table"><thead><tr><th>类型</th><th>指标</th><th>函数/调用点</th><th>排队/等待</th><th>运行/滞后</th><th>时间</th></tr></thead><tbody id="monitoringRuntimePerformanceRows"></tbody></table></div>' +
             '</div>' +
             '<div class="monitoring-section"><div class="monitoring-section-header"><h4>聊天统计</h4><span class="monitoring-meta" id="monitoringChatMeta">-</span></div><div class="monitoring-grid" id="monitoringChatCards"></div><div class="monitoring-bars" id="monitoringTypeBars" style="margin-top:14px;"></div></div>' +
-            '<div class="monitoring-section"><div class="monitoring-section-header"><h4>数据库表占用</h4><span class="monitoring-meta" id="monitoringDbMeta">-</span></div><div class="monitoring-bars" id="monitoringDbBars"></div></div>' +
+            '<div class="monitoring-section monitoring-db-section"><div class="monitoring-section-header"><h4>数据库表占用</h4><span class="monitoring-meta" id="monitoringDbMeta">-</span></div><div class="monitoring-bars" id="monitoringDbBars"></div>' +
+            '<div class="monitoring-index-panel"><div class="monitoring-section-header monitoring-subsection-header"><h4>索引优化计划</h4><span class="monitoring-meta" id="monitoringIndexPlanMeta">读取中...</span></div>' +
+            '<div class="monitoring-grid monitoring-index-cards" id="monitoringIndexPlanCards"></div>' +
+            '<div class="monitoring-cache-actions"><button class="monitoring-btn" data-monitoring-action="refresh-index-plan">刷新索引状态</button><button class="monitoring-btn primary" data-monitoring-action="run-index-plan">执行 1 个缺失索引</button><span class="monitoring-meta">使用 CONCURRENTLY 小批量执行，避免长时间锁表；大表仍建议低峰操作。</span></div>' +
+            '<div class="monitoring-table-wrap monitoring-index-table-wrap"><table class="monitoring-table monitoring-index-table"><thead><tr><th>索引</th><th>状态</th><th>表</th><th>用途</th><th>风险</th><th>说明</th></tr></thead><tbody id="monitoringIndexPlanRows"></tbody></table></div>' +
+            '<div class="monitoring-table-wrap monitoring-index-result-wrap"><table class="monitoring-table monitoring-index-result-table"><thead><tr><th>最近执行</th><th>结果</th><th>耗时</th><th>时间</th><th>信息</th></tr></thead><tbody id="monitoringIndexRunRows"></tbody></table></div></div></div>' +
             '<div class="monitoring-section"><div class="monitoring-section-header"><h4>文件资源 Top</h4><span class="monitoring-meta" id="monitoringFileAssetMeta">按 active 文件大小倒序；删除后聊天消息保留，附件显示失效</span></div><div class="monitoring-table-wrap"><table class="monitoring-table"><thead><tr><th>文件名</th><th>类型</th><th>大小</th><th>状态</th><th>引用消息</th><th>过期时间</th><th>创建时间</th><th>storage_name</th><th>操作</th></tr></thead><tbody id="monitoringFileAssetRows"></tbody></table></div></div>' +
             '<div class="monitoring-section"><div class="monitoring-section-header"><h4>群组存储与活跃排行</h4><span class="monitoring-meta" id="monitoringGroupMeta">文件占用为消息载荷估算口径</span></div><div class="monitoring-table-wrap"><table class="monitoring-table"><thead><tr><th>群组</th><th>群主</th><th>成员</th><th>管理员</th><th>总消息</th><th>今日</th><th>范围内</th><th>纯文本</th><th>消息载荷</th><th>文件估算</th><th>总占用</th><th>最近活跃</th></tr></thead><tbody id="monitoringGroupRows"></tbody></table></div></div>' +
             '<div class="monitoring-section monitoring-runtime-section">' +
@@ -310,6 +335,10 @@
                 runRuntimeHygieneOnce();
             } else if (action === 'refresh-runtime-hygiene') {
                 loadRuntimeHygiene(true);
+            } else if (action === 'refresh-index-plan') {
+                loadIndexPlan(true);
+            } else if (action === 'run-index-plan') {
+                runIndexPlan();
             }
         });
         document.getElementById('monitoringRange').addEventListener('change', function() {
@@ -321,6 +350,7 @@
             loadStaticCachePolicy();
             loadRuntimeHygiene(true);
             loadRuntimePerformance(true);
+            loadIndexPlan(true);
         });
         document.getElementById('monitoringRefreshHeavy').addEventListener('click', function() { loadHeavy(true); });
     }
@@ -549,6 +579,105 @@
         }
     }
 
+    function indexStatusLabel(status) {
+        var value = String(status || '').toLowerCase();
+        if (value === 'exists') return '已存在';
+        if (value === 'installed') return '已安装';
+        if (value === 'missing') return '缺失';
+        if (value === 'missing_table') return '缺少表';
+        if (value === 'blocked_extension') return '等待扩展';
+        if (value === 'invalid') return '无效';
+        return value || '-';
+    }
+
+    function indexStatusClass(status) {
+        var value = String(status || '').toLowerCase();
+        if (value === 'exists' || value === 'installed') return 'ok';
+        if (value === 'missing') return 'warn';
+        if (value === 'blocked_extension' || value === 'missing_table') return 'blocked';
+        if (value === 'invalid') return 'bad';
+        return 'neutral';
+    }
+
+    function renderIndexStatus(status) {
+        var cls = indexStatusClass(status);
+        return '<span class="monitoring-index-status ' + escapeHtml(cls) + '">' + escapeHtml(indexStatusLabel(status)) + '</span>';
+    }
+
+    function renderIndexPlanRows(item) {
+        if (!item || item.error) return '<tr><td colspan="6"><div class="monitoring-empty">索引计划暂不可用</div></td></tr>';
+        var list = Array.isArray(item.items) ? item.items : [];
+        if (!list.length) return '<tr><td colspan="6"><div class="monitoring-empty">暂无索引计划</div></td></tr>';
+        list = list.slice().sort(function(a, b) {
+            var score = { missing: 0, blocked_extension: 1, invalid: 2, missing_table: 3, exists: 4, installed: 4 };
+            return (score[a.status] == null ? 9 : score[a.status]) - (score[b.status] == null ? 9 : score[b.status]);
+        });
+        return list.map(function(row) {
+            return '<tr>' +
+                '<td><code>' + escapeHtml(row.name || '-') + '</code></td>' +
+                '<td>' + renderIndexStatus(row.status) + '</td>' +
+                '<td>' + escapeHtml(row.table || '-') + '</td>' +
+                '<td>' + escapeHtml(row.purpose || '-') + '</td>' +
+                '<td>' + escapeHtml(row.risk || '-') + '</td>' +
+                '<td>' + escapeHtml(row.message || (row.runnable ? '可执行' : '-')) + '</td>' +
+                '</tr>';
+        }).join('');
+    }
+
+    function renderIndexRunRows(runner) {
+        var results = runner && Array.isArray(runner.recent_results) ? runner.recent_results.slice().reverse() : [];
+        if (!results.length) return '<tr><td colspan="5"><div class="monitoring-empty">暂无执行记录</div></td></tr>';
+        return results.slice(0, 8).map(function(row) {
+            return '<tr>' +
+                '<td><code>' + escapeHtml(row.name || '-') + '</code></td>' +
+                '<td>' + escapeHtml(row.status || '-') + '</td>' +
+                '<td>' + escapeHtml(formatMs(row.elapsed_ms)) + '</td>' +
+                '<td>' + escapeHtml(formatSampleTime(row.finished_at)) + '</td>' +
+                '<td>' + escapeHtml(row.message || '-') + '</td>' +
+                '</tr>';
+        }).join('');
+    }
+
+    function renderIndexPlan() {
+        var item = state.data.indexPlan || {};
+        var summary = item.summary || {};
+        var runner = item.runner || {};
+        var cards = document.getElementById('monitoringIndexPlanCards');
+        var meta = document.getElementById('monitoringIndexPlanMeta');
+        var rows = document.getElementById('monitoringIndexPlanRows');
+        var runRows = document.getElementById('monitoringIndexRunRows');
+        if (!item.error && !item.summary && !item.items) {
+            if (cards) setHtmlIfChanged(cards, renderCard('索引计划', '读取中', '等待首次对账'));
+            if (rows) setHtmlIfChanged(rows, '<tr><td colspan="6"><div class="monitoring-empty">等待首次对账</div></td></tr>');
+            if (runRows) setHtmlIfChanged(runRows, '<tr><td colspan="5"><div class="monitoring-empty">暂无执行记录</div></td></tr>');
+            if (meta) setTextIfChanged(meta, '读取中...');
+            return;
+        }
+        if (item.error) {
+            if (cards) setHtmlIfChanged(cards, renderCard('索引计划', '不可用', item.error));
+            if (rows) setHtmlIfChanged(rows, renderIndexPlanRows(item));
+            if (runRows) setHtmlIfChanged(runRows, renderIndexRunRows(runner));
+            if (meta) setTextIfChanged(meta, '索引计划读取失败');
+            return;
+        }
+        var runningText = runner.running ? ('运行中：' + (runner.current_name || '准备中')) : '空闲';
+        if (cards) {
+            setHtmlIfChanged(cards,
+                renderCard('索引就绪', formatNumber(summary.ready) + ' / ' + formatNumber(summary.total), '缺失 ' + formatNumber(summary.missing) + '；可执行 ' + formatNumber(summary.runnable)) +
+                renderCard('阻塞项', formatNumber(summary.blocked), '缺表或扩展未就绪') +
+                renderCard('无效索引', formatNumber(summary.invalid), '需要人工清理后重建') +
+                renderCard('执行器', runningText, '完成 ' + formatNumber(runner.completed) + '；失败 ' + formatNumber(runner.failed))
+            );
+        }
+        if (rows) setHtmlIfChanged(rows, renderIndexPlanRows(item));
+        if (runRows) setHtmlIfChanged(runRows, renderIndexRunRows(runner));
+        if (meta) {
+            var planned = runner.running && runner.planned_names ? '；计划 ' + runner.planned_names.join(', ') : '';
+            var last = runner.finished_at ? '；上次结束 ' + formatSampleTime(runner.finished_at) : '';
+            setTextIfChanged(meta, runningText + planned + last);
+        }
+    }
+
     function render() {
         var system = state.data.system || {};
         var health = state.data.health || {};
@@ -622,6 +751,7 @@
             var timeText = database.cache && database.cache.hit ? '缓存 ' + database.cache.age_seconds + ' 秒' : '更新于 ' + formatTime(database.generated_at);
             setTextIfChanged(dbMeta, countText + timeText);
         }
+        renderIndexPlan();
         var fileAssetRows = document.getElementById('monitoringFileAssetRows');
         if (fileAssetRows) {
             var assets = Array.isArray(fileAssets.items) ? fileAssets.items : [];
@@ -863,6 +993,59 @@
         });
     }
 
+    function clearIndexPlanTimer() {
+        if (state.indexPlanTimer) clearTimeout(state.indexPlanTimer);
+        state.indexPlanTimer = null;
+    }
+
+    function scheduleIndexPlanFollowup() {
+        clearIndexPlanTimer();
+        var runner = state.data.indexPlan && state.data.indexPlan.runner || {};
+        if (!state.active || !runner.running) return;
+        state.indexPlanTimer = setTimeout(function() {
+            loadIndexPlan(false);
+        }, 5000);
+    }
+
+    function loadIndexPlan(force) {
+        if (!state.active || state.loadingIndexPlan) return Promise.resolve();
+        state.loadingIndexPlan = true;
+        return performanceApi('/index-plan', force ? { force: '1' } : {}).then(function(body) {
+            state.data.indexPlan = body || {};
+            renderIndexPlan();
+            scheduleIndexPlanFollowup();
+        }).catch(function(err) {
+            state.data.indexPlan = { error: err && err.message || '索引计划读取失败' };
+            renderIndexPlan();
+            if (force) notify(state.data.indexPlan.error, 'error');
+        }).finally(function() {
+            state.loadingIndexPlan = false;
+        });
+    }
+
+    function runIndexPlan() {
+        var current = state.data.indexPlan || {};
+        var runner = current.runner || {};
+        var summary = current.summary || {};
+        if (runner.running) {
+            notify('索引执行器正在运行，请等待当前批次结束', 'warning');
+            return;
+        }
+        if (!Number(summary.runnable || 0)) {
+            notify('当前没有可执行的缺失索引', 'info');
+            return;
+        }
+        if (!window.confirm('确认执行 1 个缺失索引？\n系统会使用 CREATE INDEX CONCURRENTLY，并限制小批量执行；大表仍建议低峰操作。')) return;
+        performancePost('/index-plan/run', { limit: 1 }).then(function(body) {
+            state.data.indexPlan = body || {};
+            renderIndexPlan();
+            scheduleIndexPlanFollowup();
+            notify(body.accepted ? '索引执行已启动' : (body.message || '没有可执行索引'), body.accepted ? 'success' : 'info');
+        }).catch(function(err) {
+            notify(err && err.message || '索引执行启动失败', 'error');
+        });
+    }
+
     function collectRuntimeHygienePolicy() {
         return {
             enabled: inputChecked('runtimeHygieneEnabled'),
@@ -1032,6 +1215,7 @@
         loadStaticCachePolicy();
         loadRuntimeHygiene(false);
         loadRuntimePerformance(false);
+        loadIndexPlan(false);
         stopTimers();
         state.lightTimer = setInterval(function() {
             loadLight(false);
@@ -1044,6 +1228,7 @@
     function stopTimers() {
         if (state.lightTimer) clearInterval(state.lightTimer);
         if (state.heavyTimer) clearInterval(state.heavyTimer);
+        clearIndexPlanTimer();
         state.lightTimer = null;
         state.heavyTimer = null;
     }
@@ -1064,7 +1249,7 @@
         init: init,
         start: start,
         stop: stop,
-        refreshLight: function() { return Promise.all([loadLight(true), loadStaticCachePolicy(), loadRuntimeHygiene(true), loadRuntimePerformance(true)]); },
+        refreshLight: function() { return Promise.all([loadLight(true), loadStaticCachePolicy(), loadRuntimeHygiene(true), loadRuntimePerformance(true), loadIndexPlan(true)]); },
         refreshHeavy: function() { return loadHeavy(true); }
     };
 

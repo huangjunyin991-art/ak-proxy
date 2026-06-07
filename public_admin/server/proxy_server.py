@@ -185,7 +185,7 @@ from .runtime_performance import (
 )
 from .runtime_hygiene import RuntimeHygieneConfigService, RuntimeHygienePolicy, RuntimeHygieneService
 from .performance.cache.admin_stats_cache import AdminStatsCache
-from .performance.db_indexes.admin_index_plan import get_admin_index_plan
+from .performance.db_indexes import get_admin_index_plan_status, start_admin_index_plan_run
 from .performance.dispatcher_status.service import DispatcherStatusService
 from .performance.login_events import LoginEventWorker, LoginSideEffectQueue
 from .admin_realtime import AdminRealtimeHub, AdminRealtimeTopic
@@ -3420,7 +3420,32 @@ async def admin_performance_index_plan(request: Request):
     if error_response is not None:
         return error_response
 
-    return {"items": get_admin_index_plan(), "executable": False}
+    try:
+        return await get_admin_index_plan_status(db._get_pool())
+    except Exception as exc:
+        return JSONResponse(status_code=500, content={"error": True, "message": str(exc)[:300]})
+
+
+@app.post("/admin/api/performance/index-plan/run")
+async def admin_performance_run_index_plan(request: Request):
+    _, error_response = await _require_admin_token(request, super_admin_only=True)
+    if error_response is not None:
+        return error_response
+
+    try:
+        payload = await request.json()
+    except Exception:
+        payload = {}
+    try:
+        limit = int((payload or {}).get("limit") or 1)
+    except Exception:
+        limit = 1
+    raw_names = (payload or {}).get("names") or []
+    names = raw_names if isinstance(raw_names, list) else []
+    try:
+        return await start_admin_index_plan_run(db._get_pool(), limit=limit, names=names)
+    except Exception as exc:
+        return JSONResponse(status_code=500, content={"error": True, "message": str(exc)[:300]})
 
 
 @app.get("/admin/api/performance/runtime")
