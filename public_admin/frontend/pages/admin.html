@@ -5904,7 +5904,7 @@
                 if (currentPanelName === 'banlist') {
                     loadBanlist();
                 } else if (currentPanelName === 'users') {
-                    loadBanlist().then(() => loadUsers());
+                    loadUsers(usersCurrentPage);
                 } else if (currentPanelName === 'usage') {
                     loadUsage(usageCurrentPage);
                 }
@@ -6495,17 +6495,8 @@
                     url += `&sort_field=${usersSortField}&sort_dir=${usersSortAsc ? 'asc' : 'desc'}`;
                 }
                 
-                // 并行获取用户数据和封禁列表
-                const [res, banRes] = await Promise.all([
-                    fetch(url, { headers: getHeaders() }),
-                    fetch(`${API_BASE}/admin/api/banlist`, { headers: getHeaders() })
-                ]);
+                const res = await fetch(url, { headers: getHeaders() });
                 const data = await res.json();
-                const banData = await banRes.json();
-                bannedUsersSet.clear();
-                banData.forEach(item => {
-                    if (item.ban_type === 'user' || item.ban_type === 'username') bannedUsersSet.add(item.ban_value.toLowerCase());
-                });
                 
                 const rows = data.rows || [];
                 usersTotalCount = data.total || 0;
@@ -6519,6 +6510,11 @@
             }
         }
         
+        function isUserAssetBanned(user) {
+            const value = user && user.is_banned;
+            return value === true || value === 1 || value === '1' || value === 'true' || value === 't';
+        }
+
         // 渲染用户表格
         function renderUsersTable(users, keepSortInfo = false) {
             const tbody = document.getElementById('usersTable');
@@ -6535,7 +6531,7 @@
             }
             
             tbody.innerHTML = users.map(user => {
-                const banned = bannedUsersSet.has((user.username || '').toLowerCase());
+                const banned = isUserAssetBanned(user);
                 const usernameArg = jsArg(user.username || '');
                 const banBtn = banned
                     ? `<button class="btn btn-success" onclick="unban('user', ${usernameArg})" style="padding: 4px 12px; font-size: 12px;">解封</button>`
@@ -6854,9 +6850,6 @@
             }
         }
         
-        // 全局封禁用户集合（前端维护）
-        const bannedUsersSet = new Set();
-
         // 加载封禁列表
         async function loadBanlist() {
             try {
@@ -6864,12 +6857,6 @@
                 const data = await res.json();
                 const tbody = document.getElementById('banlistTable');
                 
-                // 更新封禁用户集合
-                bannedUsersSet.clear();
-                data.forEach(item => {
-                    if ((item.ban_type === 'user' || item.ban_type === 'username') && item.ban_status === 'active') bannedUsersSet.add(item.ban_value.toLowerCase());
-                });
-
                 if (data.length === 0) {
                     tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: var(--text-secondary);">暂无封禁</td></tr>';
                     return;
@@ -7356,9 +7343,13 @@
                 });
                 if (res.ok) {
                     closeBanModal();
-                    await loadBanlist();
-                    if (banType === 'ip') { loadIPs(); }
-                    else { loadUsers(); loadUsage(); }
+                    if (currentPanelName === 'banlist') await loadBanlist();
+                    if (banType === 'ip') {
+                        if (currentPanelName === 'ips') loadIPs();
+                    } else {
+                        if (currentPanelName === 'users') loadUsers(usersCurrentPage);
+                        if (currentPanelName === 'usage') loadUsage(usageCurrentPage);
+                    }
                     refreshStats();
                     showToast(`${banType === 'ip' ? 'IP' : '用户'} ${banValue} 已封禁`);
                 } else {
@@ -7399,12 +7390,12 @@
                 if (res.ok) {
                     closeUnbanModal();
                     // 刷新相关列表
-                    await loadBanlist();
+                    if (currentPanelName === 'banlist') await loadBanlist();
                     if (unbanType === 'ip') {
-                        loadIPs();
+                        if (currentPanelName === 'ips') loadIPs();
                     } else {
-                        loadUsers();
-                        loadUsage();
+                        if (currentPanelName === 'users') loadUsers(usersCurrentPage);
+                        if (currentPanelName === 'usage') loadUsage(usageCurrentPage);
                     }
                     refreshStats();
                 } else {
@@ -8386,7 +8377,7 @@
             if (panelName === 'usage') loadUsage();
             if (panelName === 'users') {
                 scheduleUsersSearchInputSync();
-                loadBanlist().then(() => loadUsers());
+                loadUsers();
                 if (window.showUsersFloatScroll) showUsersFloatScroll();
             } else {
                 if (window.hideUsersFloatScroll) hideUsersFloatScroll();
