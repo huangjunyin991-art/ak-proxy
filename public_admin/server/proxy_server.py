@@ -10959,6 +10959,7 @@ def _admin_panel_versions():
             'riskIsolation': 0.0,
             'recommendTree': 0.0,
             'pointStats': 0.0,
+            'settings': 0.0,
         }
     else:
         try:
@@ -10971,6 +10972,7 @@ def _admin_panel_versions():
                 'riskIsolation': 0.0,
                 'recommendTree': 0.0,
                 'pointStats': 0.0,
+                'settings': 0.0,
             }
     _ADMIN_PANEL_VERSIONS_CACHE["versions"] = versions
     _ADMIN_PANEL_VERSIONS_CACHE["expires_at"] = now + 30.0
@@ -10979,7 +10981,8 @@ def _admin_panel_versions():
 
 _ADMIN_PANEL_VERSION_PATTERN = re.compile(
     r"var\s+(monitoringPanelBuildVersion|meetingPanelBuildVersion|activeDefensePanelBuildVersion|"
-    r"riskIsolationPanelBuildVersion|recommendTreePanelBuildVersion|pointStatsPanelBuildVersion|rateBanPanelBuildVersion)\s*=\s*'[^']*'"
+    r"riskIsolationPanelBuildVersion|recommendTreePanelBuildVersion|pointStatsPanelBuildVersion|"
+    r"rateBanPanelBuildVersion|settingsPanelBuildVersion)\s*=\s*'[^']*'"
 )
 
 _ADMIN_PANEL_VAR_TO_KEY = {
@@ -10990,6 +10993,7 @@ _ADMIN_PANEL_VAR_TO_KEY = {
     'recommendTreePanelBuildVersion': 'recommendTree',
     'pointStatsPanelBuildVersion': 'pointStats',
     'rateBanPanelBuildVersion': 'rateBan',
+    'settingsPanelBuildVersion': 'settings',
 }
 
 
@@ -11072,6 +11076,7 @@ async def admin_page(request: Request):
         panel_versions['riskIsolation'],
         panel_versions['recommendTree'],
         panel_versions['pointStats'],
+        panel_versions.get('settings', 0.0),
     )
     if _ADMIN_HTML_CACHE["key"] != cache_key:
         content = await run_blocking(_read_text_file_sync, html_path)
@@ -11893,6 +11898,12 @@ async def risk_isolation_panel_js(request: Request):
 @app.get("/admin/api/monitoring-panel.js")
 async def monitoring_panel_js(request: Request):
     js_path = os.path.join(FRONTEND_PAGES_DIR, "monitoring", "monitoring_panel.js")
+    return await _serve_text_asset(request, js_path, "application/javascript")
+
+
+@app.get("/admin/api/settings-panel.js")
+async def settings_panel_js(request: Request):
+    js_path = os.path.join(FRONTEND_PAGES_DIR, "settings_panel.js")
     return await _serve_text_asset(request, js_path, "application/javascript")
 
 

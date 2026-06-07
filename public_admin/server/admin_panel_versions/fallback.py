@@ -9,6 +9,7 @@ PANEL_KEYS = (
     "riskIsolation",
     "recommendTree",
     "pointStats",
+    "settings",
 )
 
 
@@ -47,6 +48,9 @@ PANEL_VERSION_FILES = {
         ("point_stats", "point_stats_panel.js"),
         ("point_stats", "point_stats_renderer.js"),
         ("point_stats", "point_stats_store.js"),
+    ),
+    "settings": (
+        ("settings_panel.js",),
     ),
 }
 
