@@ -5845,8 +5845,12 @@
             };
             
             ws.onmessage = (event) => {
-                const data = JSON.parse(event.data);
-                handleWebSocketMessage(data);
+                try {
+                    const data = JSON.parse(event.data);
+                    handleWebSocketMessage(data);
+                } catch (e) {
+                    console.error('[AdminWS] 消息处理失败', e);
+                }
             };
         }
         
@@ -5914,6 +5918,35 @@
                     addChatLogItem(data.data);
                     addActivityItem('info', '💬', `<strong>${escapeHtml(data.data.username || '')}</strong> 发送消息`, time);
                 }
+            }
+        }
+
+        function addActivityItem(type, icon, html, time) {
+            try {
+                const safeType = ['success', 'failed', 'info'].includes(type) ? type : 'info';
+                const item = {
+                    type: safeType,
+                    icon: icon || '•',
+                    html: String(html || ''),
+                    time: time || new Date().toLocaleTimeString('zh-CN', {hour: '2-digit', minute: '2-digit', second: '2-digit'})
+                };
+                activityItems.unshift(item);
+                if (activityItems.length > 40) {
+                    activityItems = activityItems.slice(0, 40);
+                }
+                const stream = document.getElementById('activityStream');
+                if (!stream) return;
+                stream.innerHTML = activityItems.map(entry => `
+                    <div class="activity-item">
+                        <div class="activity-icon ${entry.type}">${escapeHtml(entry.icon)}</div>
+                        <div class="activity-content">
+                            <div class="activity-text">${entry.html}</div>
+                            <div class="activity-time">${escapeHtml(entry.time)}</div>
+                        </div>
+                    </div>
+                `).join('');
+            } catch (e) {
+                console.error('[ActivityStream] 渲染失败', e);
             }
         }
         
