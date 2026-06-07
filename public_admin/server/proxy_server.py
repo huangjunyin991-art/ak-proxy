@@ -10621,20 +10621,11 @@ async def remote_voice_websocket(websocket: WebSocket):
 
         if current_session and current_session.status in COUNTED_VOICE_SESSION_STATUSES:
             remaining_roles = await remote_voice_signal_bus.get_roles(voice_session_id)
-            if role_name not in remaining_roles:
+            if remaining_roles:
+                await _publish_remote_voice_session_state(current_session)
+            else:
                 closed_session = remote_voice.close_session(voice_session_id, status=VoiceSessionStatus.FAILED)
                 if closed_session:
-                    await remote_voice_signal_bus.publish(
-                        voice_session_id,
-                        _build_remote_voice_signal_message(
-                            closed_session,
-                            'hangup',
-                            {
-                                'reason': f'{role_name}_disconnected',
-                                'status': closed_session.status.value,
-                            },
-                        ),
-                    )
                     await _publish_remote_voice_session_state(closed_session)
                     await _send_remote_voice_unbind_to_user(closed_session)
 

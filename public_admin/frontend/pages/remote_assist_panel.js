@@ -389,7 +389,8 @@
 
         function buildRemoteAssistVoiceToggleHtml(label) {
             const textHtml = `<span style="white-space:nowrap;">${label}</span>`;
-            if (String(label || '').trim() === '关闭语音') {
+            const normalizedLabel = String(label || '').trim();
+            if (normalizedLabel === '关闭语音' || normalizedLabel === '取消语音') {
                 return textHtml;
             }
             return `${getRemoteAssistVoiceIconHtml(16)}${textHtml}`;
@@ -421,14 +422,18 @@
                 label = '等待确认';
                 disabled = true;
                 title = '用户接受远程指导后才能发起实时语音';
-            } else if (isRemoteAssistVoiceCountedStatus(remoteAssistVoiceStatus)) {
+            } else if (isRemoteAssistVoiceSocketStatus(remoteAssistVoiceStatus)) {
                 label = '关闭语音';
+                disabled = false;
+                title = `当前语音状态：${remoteAssistVoiceStatus}`;
+            } else if (isRemoteAssistVoiceCountedStatus(remoteAssistVoiceStatus)) {
+                label = '取消语音';
                 disabled = false;
                 title = `当前语音状态：${remoteAssistVoiceStatus}`;
             } else if (remoteAssistVoiceStatus) {
                 title = `当前语音状态：${remoteAssistVoiceStatus}`;
             }
-            const showIcon = label !== '关闭语音';
+            const showIcon = label !== '关闭语音' && label !== '取消语音';
             button.innerHTML = buildRemoteAssistVoiceToggleHtml(label);
             button.disabled = !!disabled;
             button.setAttribute('aria-label', label);
@@ -477,7 +482,7 @@
         function renderRemoteAssistVoiceStrip() {
             const muteBtn = document.getElementById('remoteAssistVoiceMuteBtn');
             if (!muteBtn) return;
-            const visible = !!(remoteAssistVoiceSessionId && isRemoteAssistVoiceCountedStatus(remoteAssistVoiceStatus));
+            const visible = !!(remoteAssistVoiceSessionId && isRemoteAssistVoiceSocketStatus(remoteAssistVoiceStatus));
             const currentStatus = String(remoteAssistVoiceStatus || '').trim().toLowerCase();
             const level = Math.max(0, Math.min(1, Math.max(Number(remoteAssistVoiceLocalLevel || 0), Number(remoteAssistVoiceRemoteLevel || 0))));
             if (muteBtn) {
@@ -547,10 +552,12 @@
             return remoteAssistVoiceLibraryPromise;
         }
 
-        async function disconnectRemoteAssistVoiceClient(notifyServer = false, reason = 'closed', clearSession = false) {
+        async function disconnectRemoteAssistVoiceClient(notifyServer = false, reason = 'closed', clearSession = false, options = {}) {
             const client = remoteAssistVoiceClient;
             remoteAssistVoiceClient = null;
-            clearRemoteAssistVoiceStatePollTimer();
+            if (!(options && options.preservePoll)) {
+                clearRemoteAssistVoiceStatePollTimer();
+            }
             try {
                 if (client) {
                     if (notifyServer && typeof client.hangup === 'function') {
@@ -572,7 +579,7 @@
             }
             if (!isRemoteAssistVoiceSocketStatus(remoteAssistVoiceStatus)) {
                 if (remoteAssistVoiceClient) {
-                    await disconnectRemoteAssistVoiceClient(false, remoteAssistVoiceStatus || 'closed', false);
+                    await disconnectRemoteAssistVoiceClient(false, remoteAssistVoiceStatus || 'closed', false, { preservePoll: true });
                 }
                 renderRemoteAssistVoiceStrip();
                 updateRemoteAssistVoiceButton();
@@ -710,7 +717,12 @@
                     }
                     await ensureRemoteAssistVoiceClient();
                 } else if (remoteAssistVoiceSessionId && isRemoteAssistVoiceCountedStatus(remoteAssistVoiceStatus)) {
-                    await disconnectRemoteAssistVoiceClient(false, remoteAssistVoiceStatus || 'ringing', false);
+                    if (remoteAssistVoiceClient) {
+                        await disconnectRemoteAssistVoiceClient(false, remoteAssistVoiceStatus || 'ringing', false, { preservePoll: true });
+                    } else {
+                        renderRemoteAssistVoiceStrip();
+                        updateRemoteAssistVoiceButton();
+                    }
                 } else {
                     await disconnectRemoteAssistVoiceClient(false, remoteAssistVoiceStatus || 'closed', true);
                 }
