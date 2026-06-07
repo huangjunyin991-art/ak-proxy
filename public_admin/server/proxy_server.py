@@ -665,6 +665,43 @@ def _make_rpc_v() -> str:
     return str(now.year + now.month + now.day + now.hour + now.minute)
 
 
+def _normalize_cors_origin(value: str) -> str:
+    origin = str(value or "").strip().rstrip("/")
+    if not origin:
+        return ""
+    if origin == "*":
+        return origin
+    if "://" not in origin:
+        origin = f"https://{origin}"
+    parsed = urlsplit(origin)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        return ""
+    return f"{parsed.scheme}://{parsed.netloc}"
+
+
+def _load_cors_allowed_origins() -> list[str]:
+    raw = os.getenv("AK_CORS_ALLOWED_ORIGINS", "") or os.getenv("CORS_ALLOWED_ORIGINS", "")
+    candidates = re.split(r"[\s,;]+", raw.strip()) if raw.strip() else []
+    admin_domain = os.getenv("ADMIN_DOMAIN", "").strip()
+    if admin_domain:
+        candidates.append(admin_domain)
+
+    origins: list[str] = []
+    seen: set[str] = set()
+    for item in candidates:
+        origin = _normalize_cors_origin(item)
+        if origin and origin not in seen:
+            origins.append(origin)
+            seen.add(origin)
+    return origins
+
+
+_CORS_ALLOWED_ORIGINS = _load_cors_allowed_origins()
+_CORS_ALLOW_CREDENTIALS = bool(_CORS_ALLOWED_ORIGINS) and "*" not in _CORS_ALLOWED_ORIGINS
+if "*" in _CORS_ALLOWED_ORIGINS:
+    logger.warning("[CORS] AK_CORS_ALLOWED_ORIGINS 包含 *，已禁用跨域 credentials")
+
+
 app = FastAPI(title="AK透明代理")
 
 
@@ -673,9 +710,9 @@ app.add_middleware(
 
     CORSMiddleware,
 
-    allow_origins=["*"],
+    allow_origins=_CORS_ALLOWED_ORIGINS,
 
-    allow_credentials=True,
+    allow_credentials=_CORS_ALLOW_CREDENTIALS,
 
     allow_methods=["*"],
 

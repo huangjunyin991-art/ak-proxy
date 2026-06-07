@@ -150,7 +150,7 @@
 | 编号 | 风险 | 证据 | 加固方向 |
 |---|---|---|---|
 | P1-NET-001 | 服务默认监听所有网卡 | 历史默认 `PROXY_HOST=0.0.0.0`、`IM_ADDR=:18081` | IM 默认监听已收口到 loopback，公网只经 Nginx/网关暴露。 |
-| P1-CORS-001 | CORS 通配与 credentials 组合 | FastAPI 和 Nginx 中存在 wildcard CORS | 按部署域名生成 allowlist。 |
+| P1-CORS-001 | CORS 通配与 credentials 组合 | 历史版本 FastAPI 和 Nginx 中存在 wildcard CORS | 已收敛为环境 allowlist 与管理域名模板，不再默认开放 `* + credentials`。 |
 | P1-TLS-001 | 上游 TLS 校验关闭 | 多处 `verify=False`、Nginx `proxy_ssl_verify off` | 统一 CA 配置，临时例外必须有到期时间。 |
 | P1-BOOT-001 | 维护脚本曾存在默认 license key | 历史版本 `maintain_ak_proxy.sh` 写入固定默认 key | 已移除固定默认密钥，首次缺失时生成服务器本地随机密钥。 |
 | P1-NTFY-001 | 用户可配置 ntfy server URL | ntfy client 接受 http/https URL | 经过 SSRF 网关，禁止内网 IP、metadata 地址和危险重定向。 |
@@ -242,3 +242,4 @@
 | 2026-06-08 | P1-BOOT-001 固定 License 管理密钥移除 | 已落地 | 维护脚本不再写入固定默认 `LICENSE_ADMIN_KEY`；首次缺失时生成高熵随机值写入服务器 env，已有值或显式传入值保持优先。 |
 | 2026-06-08 | P0-EDGE-001 IM internal 公网阻断 | 部分落地 | Nginx 模板新增 `/im/internal/` 优先匹配并返回 404，避免公网经 `/im/` 代理命中 Go IM internal 路由；Go 端 HMAC 内部认证仍作为后续增强项。 |
 | 2026-06-08 | P1-NET-001 IM 默认 loopback 监听 | 已落地 | Go IM 默认 `IM_ADDR` 从 `:18081` 改为 `127.0.0.1:18081`，部署脚本生成的 systemd 环境同步收口；显式配置 `IM_ADDR` 仍可覆盖。 |
+| 2026-06-08 | P1-CORS-001 CORS 白名单收敛 | 已落地 | FastAPI CORS 改为 `AK_CORS_ALLOWED_ORIGINS`/`ADMIN_DOMAIN` allowlist，默认不开放跨域；Nginx 模板移除 wildcard Origin，改为管理域名来源。 |
