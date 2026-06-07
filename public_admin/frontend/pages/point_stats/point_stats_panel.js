@@ -12,9 +12,13 @@
     var restoringFocus = false;
     var syncPollTimer = null;
     var syncPollKey = '';
+    var syncPollUsername = '';
+    var syncPollPointType = '';
+    var syncPollingRegistered = false;
     var SYNC_POLL_INTERVAL_MS = 1500;
     var BACKFILL_POLL_OWNER = 'panel:pointStats';
     var BACKFILL_POLL_ID = 'pointStats:backfillStatus';
+    var SYNC_POLL_ID = 'pointStats:syncStatus';
     var backfillPollingRegistered = false;
 
     function mountNode() {
@@ -118,6 +122,28 @@
             syncPollTimer = null;
         }
         syncPollKey = '';
+        syncPollUsername = '';
+        syncPollPointType = '';
+    }
+
+    function ensureSyncPolling() {
+        var registry = window.AKPollingRegistry;
+        if (!registry || syncPollingRegistered) return;
+        registry.register({
+            id: SYNC_POLL_ID,
+            owner: BACKFILL_POLL_OWNER,
+            intervalMs: SYNC_POLL_INTERVAL_MS,
+            jitterMs: 200,
+            immediate: false,
+            dedupeKey: SYNC_POLL_ID,
+            runWhen: function() {
+                return pointStatsPanelActive() && store && store.state.syncing && !!syncPollUsername && !!syncPollPointType;
+            },
+            task: function() {
+                return pollSyncOnce(syncPollUsername, syncPollPointType);
+            }
+        });
+        syncPollingRegistered = true;
     }
 
     function pollSyncOnce(username, pointType) {
@@ -150,6 +176,14 @@
     function startSyncPoll(username, pointType) {
         stopSyncPoll();
         syncPollKey = (username || '').toLowerCase() + ':' + (pointType || '').toUpperCase();
+        syncPollUsername = username || '';
+        syncPollPointType = pointType || '';
+        ensureSyncPolling();
+        if (window.AKPollingRegistry) {
+            window.AKPollingRegistry.startOwner(BACKFILL_POLL_OWNER);
+            pollSyncOnce(syncPollUsername, syncPollPointType);
+            return;
+        }
         syncPollTimer = setInterval(function() {
             pollSyncOnce(username, pointType);
         }, SYNC_POLL_INTERVAL_MS);
@@ -484,4 +518,11 @@
         refreshQuota: refreshQuota,
         refreshBackfillStatus: refreshBackfillStatus
     };
+
+    window.addEventListener('ak-admin-panel-changed', function(event) {
+        var panel = event && event.detail && event.detail.panel;
+        if (panel === 'pointStats') return;
+        stopSyncPoll();
+        if (window.AKPollingRegistry) window.AKPollingRegistry.stopOwner(BACKFILL_POLL_OWNER);
+    });
 })();

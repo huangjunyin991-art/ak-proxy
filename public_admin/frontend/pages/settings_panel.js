@@ -7,9 +7,65 @@
     // Settings panel module. Loaded only when the settings panel is opened.
 
         // ===== 代理池管理 =====
+        const SETTINGS_POLL_OWNER = 'panel:settings';
         let ppRefreshTimer = null;
+        let ppRefreshEnabled = false;
         let ppCurrentView = 'slots';
         let ppCachedNodes = [];
+        let settingsPollingRegistered = false;
+
+        function setupSettingsPollingRegistry() {
+            const registry = window.AKPollingRegistry;
+            if (!registry || settingsPollingRegistered) return registry || null;
+            settingsPollingRegistered = true;
+            registry.register({
+                id: 'settings.proxy-pool-status',
+                owner: SETTINGS_POLL_OWNER,
+                intervalMs: 5000,
+                jitterMs: 700,
+                immediate: false,
+                dedupeKey: 'GET:/admin/api/proxy_pool/status',
+                runWhen: function() {
+                    return ppRefreshEnabled && shouldRunAdminPanelPoll('settings');
+                },
+                task: loadProxyPoolStatus
+            });
+            registry.register({
+                id: 'settings.load-balancer-light',
+                owner: SETTINGS_POLL_OWNER,
+                intervalMs: 8000,
+                jitterMs: 900,
+                immediate: false,
+                dedupeKey: 'GET:/api/dispatcher/light',
+                runWhen: function() {
+                    return lbRefreshEnabled && shouldRunAdminPanelPoll('settings') && isSuperAdmin();
+                },
+                task: refreshLbLightStatus
+            });
+            registry.register({
+                id: 'settings.remote-voice-usage',
+                owner: SETTINGS_POLL_OWNER,
+                intervalMs: 8000,
+                jitterMs: 900,
+                immediate: false,
+                dedupeKey: 'GET:/admin/api/remote_voice/usage',
+                runWhen: function() {
+                    return remoteVoiceRefreshEnabled && shouldRunAdminPanelPoll('settings') && isSuperAdmin();
+                },
+                task: loadRemoteVoicePanel
+            });
+            return registry;
+        }
+
+        function startSettingsPollingOwner() {
+            const registry = setupSettingsPollingRegistry();
+            if (registry) registry.startOwner(SETTINGS_POLL_OWNER);
+            return !!registry;
+        }
+
+        function stopSettingsPollingOwner() {
+            if (window.AKPollingRegistry) window.AKPollingRegistry.stopOwner(SETTINGS_POLL_OWNER);
+        }
 
         async function loadProxyPoolStatus() {
             if (!shouldRunAdminPanelPoll('settings')) return;
@@ -84,6 +140,7 @@
                     if (ppCurrentView === 'nodes') renderPPNodes(ppCachedNodes);
                     startProxyPoolRefresh();
                 } else {
+                    ppRefreshEnabled = false;
                     document.getElementById('proxyPoolStatus').textContent = '已加载·未启用';
                     document.getElementById('proxyPoolStatus').style.background = 'rgba(255,71,87,0.2)';
                     document.getElementById('proxyPoolStatus').style.color = 'var(--accent-red)';
@@ -96,13 +153,17 @@
         }
 
         function startProxyPoolRefresh() {
-            if (ppRefreshTimer || !shouldRunAdminPanelPoll('settings')) return;
+            if (!shouldRunAdminPanelPoll('settings')) return;
+            ppRefreshEnabled = true;
+            if (startSettingsPollingOwner()) return;
+            if (ppRefreshTimer) return;
             ppRefreshTimer = setInterval(() => {
                 if (shouldRunAdminPanelPoll('settings')) loadProxyPoolStatus();
             }, 5000);
         }
 
         function stopProxyPoolRefresh() {
+            ppRefreshEnabled = false;
             if (ppRefreshTimer) {
                 clearInterval(ppRefreshTimer);
                 ppRefreshTimer = null;
@@ -110,6 +171,7 @@
         }
 
         function stopSettingsPanelRefresh() {
+            stopSettingsPollingOwner();
             stopSubAdminStatusRefresh();
             stopLbRefresh();
             stopRemoteVoiceRefresh();
@@ -118,6 +180,7 @@
 
         function startSettingsPanelRefresh() {
             if (!shouldRunAdminPanelPoll('settings')) return;
+            startSettingsPollingOwner();
             loadSubAdminStatus({ refreshSettingModules: false });
             startSubAdminStatusRefresh();
             if (!isSuperAdmin()) return;
@@ -207,6 +270,8 @@
         let lbMetaData = null;
         let lbLightApiAvailable = true;
         let remoteVoiceRefreshTimer = null;
+        let lbRefreshEnabled = false;
+        let remoteVoiceRefreshEnabled = false;
 
         function mergeLbStatusData(lightData, metaData) {
             const previousExits = {};
@@ -297,26 +362,32 @@
         }
 
         function startLbRefresh() {
-            if (lbRefreshTimer) return;
             if (!shouldRunAdminPanelPoll('settings')) return;
+            lbRefreshEnabled = true;
+            if (startSettingsPollingOwner()) return;
+            if (lbRefreshTimer) return;
             lbRefreshTimer = setInterval(() => {
                 if (shouldRunAdminPanelPoll('settings')) refreshLbLightStatus();
             }, 8000);
         }
 
         function stopLbRefresh() {
+            lbRefreshEnabled = false;
             if (lbRefreshTimer) { clearInterval(lbRefreshTimer); lbRefreshTimer = null; }
         }
 
         function startRemoteVoiceRefresh() {
-            if (remoteVoiceRefreshTimer) return;
             if (!shouldRunAdminPanelPoll('settings')) return;
+            remoteVoiceRefreshEnabled = true;
+            if (startSettingsPollingOwner()) return;
+            if (remoteVoiceRefreshTimer) return;
             remoteVoiceRefreshTimer = setInterval(() => {
                 if (shouldRunAdminPanelPoll('settings')) loadRemoteVoicePanel();
             }, 8000);
         }
 
         function stopRemoteVoiceRefresh() {
+            remoteVoiceRefreshEnabled = false;
             if (remoteVoiceRefreshTimer) {
                 clearInterval(remoteVoiceRefreshTimer);
                 remoteVoiceRefreshTimer = null;

@@ -28,6 +28,51 @@
         loadingRuntimePerformance: false,
         loadingIndexPlan: false
     };
+    var MONITORING_POLL_OWNER = 'panel:monitoring';
+    var monitoringPollingRegistered = false;
+
+    function shouldRunMonitoringPoll() {
+        if (!state.active) return false;
+        if (typeof window.shouldRunAdminPanelPoll === 'function') {
+            return window.shouldRunAdminPanelPoll('monitoring');
+        }
+        return document.visibilityState === 'visible';
+    }
+
+    function setupMonitoringPollingRegistry() {
+        var registry = window.AKPollingRegistry;
+        if (!registry || monitoringPollingRegistered) return registry || null;
+        monitoringPollingRegistered = true;
+        registry.register({
+            id: 'monitoring.light',
+            owner: MONITORING_POLL_OWNER,
+            intervalMs: 5000,
+            jitterMs: 700,
+            immediate: false,
+            dedupeKey: 'monitoring.light',
+            runWhen: shouldRunMonitoringPoll,
+            task: function() {
+                return Promise.all([
+                    loadLight(false),
+                    loadRuntimeHygiene(false),
+                    loadRuntimePerformance(false)
+                ]);
+            }
+        });
+        registry.register({
+            id: 'monitoring.heavy',
+            owner: MONITORING_POLL_OWNER,
+            intervalMs: 3600000,
+            jitterMs: 10000,
+            immediate: false,
+            dedupeKey: 'monitoring.heavy',
+            runWhen: shouldRunMonitoringPoll,
+            task: function() {
+                return loadHeavy(false);
+            }
+        });
+        return registry;
+    }
 
     function token() {
         return sessionStorage.getItem('admin_token') || '';
@@ -1217,6 +1262,11 @@
         loadRuntimePerformance(false);
         loadIndexPlan(false);
         stopTimers();
+        var registry = setupMonitoringPollingRegistry();
+        if (registry) {
+            registry.startOwner(MONITORING_POLL_OWNER);
+            return;
+        }
         state.lightTimer = setInterval(function() {
             loadLight(false);
             loadRuntimeHygiene(false);
@@ -1226,6 +1276,7 @@
     }
 
     function stopTimers() {
+        if (window.AKPollingRegistry) window.AKPollingRegistry.stopOwner(MONITORING_POLL_OWNER);
         if (state.lightTimer) clearInterval(state.lightTimer);
         if (state.heavyTimer) clearInterval(state.heavyTimer);
         clearIndexPlanTimer();

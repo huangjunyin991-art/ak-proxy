@@ -7054,6 +7054,7 @@
             if (window.AKPollingRegistry) {
                 window.AKPollingRegistry.startOwner('panel:online');
                 window.AKPollingRegistry.requestTopic('online.users');
+                return;
             }
             _onlineUsersRefreshTimer = setInterval(() => {
                 if (shouldRunAdminPanelPoll('online')) loadOnlineUsers({ force: true });
@@ -7419,8 +7420,13 @@
         // 启动子管理员状态定时刷新
         function startSubAdminStatusRefresh() {
             if (!isSuperAdmin()) return;
-            if (subAdminStatusTimer) return;
             if (!shouldRunAdminPanelPoll('settings')) return;
+            setupAdminPollingRegistry();
+            if (window.AKPollingRegistry) {
+                window.AKPollingRegistry.startOwner('panel:settings');
+                return;
+            }
+            if (subAdminStatusTimer) return;
             subAdminStatusTimer = setInterval(() => {
                 if (shouldRunAdminPanelPoll('settings')) loadSubAdminStatus({ refreshSettingModules: false });
             }, 10000);
@@ -8012,6 +8018,9 @@
         }
 
         function stopSettingsPanelRefresh() {
+            if (window.AKPollingRegistry) {
+                window.AKPollingRegistry.stopOwner('panel:settings');
+            }
             stopSubAdminStatusRefresh();
             callSettingsPanelModule('stop');
         }
@@ -9926,6 +9935,30 @@
                 onData: applyDashboardData,
                 fallbackTask: loadDashboard
             });
+            registry.register({
+                id: 'settings.sub-admin-status',
+                owner: 'panel:settings',
+                intervalMs: 10000,
+                jitterMs: 800,
+                immediate: true,
+                dedupeKey: 'GET:/admin/api/sub_admin/list',
+                runWhen: function() {
+                    return isSuperAdmin() && shouldRunAdminPanelPoll('settings');
+                },
+                task: function() {
+                    return loadSubAdminStatus({ refreshSettingModules: false });
+                }
+            });
+            registry.register({
+                id: 'admin.verify-token',
+                owner: 'global:admin',
+                intervalMs: 30000,
+                jitterMs: 1000,
+                immediate: true,
+                dedupeKey: 'GET:/admin/api/verify_token',
+                runWhen: shouldRunAdminGlobalPoll,
+                task: verifyToken
+            });
         }
 
         function initApp() {
@@ -9947,6 +9980,10 @@
                     clearInterval(adminStatsTimer);
                     adminStatsTimer = null;
                 }
+                if (adminVerifyTimer) {
+                    clearInterval(adminVerifyTimer);
+                    adminVerifyTimer = null;
+                }
                 window.AKPollingRegistry.startOwner('global:admin');
                 window.AKPollingRegistry.requestTopic('admin.stats');
                 if (isAdminPanelAllowed('online')) window.AKPollingRegistry.requestTopic('online.count');
@@ -9958,12 +9995,12 @@
                         if (shouldRunAdminGlobalPoll()) fetchAndApplyStats();
                     }, 15000);
                 }
-            }
-            verifyToken();
-            if (!adminVerifyTimer) {
-                adminVerifyTimer = setInterval(() => {
-                    if (shouldRunAdminGlobalPoll()) verifyToken();
-                }, 30000);
+                verifyToken();
+                if (!adminVerifyTimer) {
+                    adminVerifyTimer = setInterval(() => {
+                        if (shouldRunAdminGlobalPoll()) verifyToken();
+                    }, 30000);
+                }
             }
         }
 
