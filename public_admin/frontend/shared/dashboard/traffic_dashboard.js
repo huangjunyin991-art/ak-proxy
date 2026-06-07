@@ -126,11 +126,13 @@
         }
     }
 
-    async function loadDashboard() {
+    async function loadDashboard(options = {}) {
         if (!canPollDashboard()) return;
         try {
             const base = window.API_BASE || window.location.origin;
-            const res = await fetch(`${base}/admin/api/dashboard?force_refresh=1`, { headers: buildAuthHeaders() });
+            const force = !!(options && options.force);
+            const url = `${base}/admin/api/dashboard${force ? '?force_refresh=1' : ''}`;
+            const res = await fetch(url, { headers: buildAuthHeaders() });
             if (!res.ok) throw new Error(`dashboard request failed: ${res.status}`);
             const data = await res.json();
             renderDashboard(data || {});

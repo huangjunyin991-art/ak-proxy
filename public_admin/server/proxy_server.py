@@ -4597,11 +4597,44 @@ async def _load_admin_stats_topic() -> dict:
 
 
 async def _load_dashboard_topic() -> dict:
-    result = await _ADMIN_STATS_CACHE.get_dashboard_result(force_refresh=True)
-    data = dict(result.value)
+    result = await _ADMIN_STATS_CACHE.get_dashboard_result()
+    return _build_dashboard_response_payload(result)
+
+
+def _build_dashboard_response_payload(result) -> dict:
+    data = _normalize_dashboard_payload(result.value)
+    if result.hit:
+        data["cache_hit"] = True
     if result.stale:
         data["cache_stale"] = True
     return data
+
+
+def _safe_int(value, default: int = 0) -> int:
+    try:
+        return int(value or default)
+    except (TypeError, ValueError):
+        return default
+
+
+def _safe_float(value, default: float = 0.0) -> float:
+    try:
+        return float(value or default)
+    except (TypeError, ValueError):
+        return default
+
+
+def _normalize_dashboard_payload(value) -> dict:
+    source = value if isinstance(value, dict) else {}
+    return {
+        "today_requests": _safe_int(source.get("today_requests")),
+        "success_rate": _safe_float(source.get("success_rate")),
+        "active_users": _safe_int(source.get("active_users")),
+        "peak_rpm": _safe_int(source.get("peak_rpm")),
+        "hourly_data": source.get("hourly_data") if isinstance(source.get("hourly_data"), list) else [],
+        "top_users": source.get("top_users") if isinstance(source.get("top_users"), list) else [],
+        "top_ips": source.get("top_ips") if isinstance(source.get("top_ips"), list) else [],
+    }
 
 
 async def _load_online_count_topic() -> dict:
@@ -5777,10 +5810,7 @@ async def admin_dashboard(request: Request, force_refresh: bool = False):
     try:
 
         result = await _ADMIN_STATS_CACHE.get_dashboard_result(force_refresh=force_refresh)
-        data = dict(result.value)
-        if result.stale:
-            data["cache_stale"] = True
-        return data
+        return _build_dashboard_response_payload(result)
 
     except Exception as e:
 

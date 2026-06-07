@@ -3373,7 +3373,7 @@
     <script src="/admin/api/shared/polling/polling_registry.js?v=2026060701" defer></script>
     <script src="/admin/api/shared/lib/chart.umd.min.js?v=2026060201" defer></script>
     <script src="/admin/api/shared/dashboard/user_growth_chart.js?v=2025060201" defer></script>
-    <script src="/admin/api/shared/dashboard/traffic_dashboard.js?v=2026060704" defer></script>
+    <script src="/admin/api/shared/dashboard/traffic_dashboard.js?v=2026060705" defer></script>
 </head>
 <body>
     <!-- 横屏提示 -->
@@ -8346,6 +8346,10 @@
         }
 
         function refreshCurrentPanel() {
+            if (currentPanelName === 'dashboard') {
+                loadDashboard({ force: true });
+                return;
+            }
             const activeTab = document.querySelector('.tab.active');
             if (activeTab) activeTab.click();
         }
@@ -9911,12 +9915,14 @@
         }
 
         // 加载仪表盘数据
-        async function loadDashboard() {
+        async function loadDashboard(options = {}) {
             if (window.AdminTrafficDashboard && typeof window.AdminTrafficDashboard.loadDashboard === 'function') {
-                return window.AdminTrafficDashboard.loadDashboard();
+                return window.AdminTrafficDashboard.loadDashboard(options);
             }
             try {
-                const res = await fetch(`${API_BASE}/admin/api/dashboard?force_refresh=1`, { headers: getHeaders() });
+                const force = !!(options && options.force);
+                const url = `${API_BASE}/admin/api/dashboard${force ? '?force_refresh=1' : ''}`;
+                const res = await fetch(url, { headers: getHeaders() });
                 const data = await res.json();
                 renderDashboardInline(data || {});
             } catch (e) {
