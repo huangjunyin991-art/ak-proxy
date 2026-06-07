@@ -7428,10 +7428,10 @@
         // 启动子管理员状态定时刷新
         function startSubAdminStatusRefresh() {
             if (!isSuperAdmin()) return;
-            stopSubAdminStatusRefresh();
+            if (subAdminStatusTimer) return;
             if (!shouldRunAdminPanelPoll('settings')) return;
             subAdminStatusTimer = setInterval(() => {
-                if (shouldRunAdminPanelPoll('settings')) loadSubAdminStatus();
+                if (shouldRunAdminPanelPoll('settings')) loadSubAdminStatus({ refreshSettingModules: false });
             }, 10000);
         }
         
@@ -7662,24 +7662,28 @@
         }
         
         // 加载子管理员状态
-        async function loadSubAdminStatus() {
+        async function loadSubAdminStatus(options = {}) {
             if (!shouldRunAdminPanelPoll('settings')) return;
+            const refreshSettingModules = options.refreshSettingModules !== false;
             if (!isSuperAdmin()) {
                 document.getElementById('subAdminSection').style.display = 'none';
                 document.getElementById('proxyPoolSection').style.display = 'none';
                 document.getElementById('remoteVoiceSection').style.display = 'none';
                 stopLbRefresh();
                 stopRemoteVoiceRefresh();
+                stopProxyPoolRefresh();
                 return;
             }
             
             document.getElementById('subAdminSection').style.display = 'block';
             document.getElementById('loadBalanceSection').style.display = 'block';
             document.getElementById('remoteVoiceSection').style.display = 'block';
-            loadLbStatus();
-            startLbRefresh();
-            loadRemoteVoicePanel();
-            startRemoteVoiceRefresh();
+            if (refreshSettingModules) {
+                loadLbStatus();
+                startLbRefresh();
+                loadRemoteVoicePanel();
+                startRemoteVoiceRefresh();
+            }
             
             try {
                 const res = await fetch(`${API_BASE}/admin/api/sub_admin`, { headers: getHeaders() });
@@ -8073,12 +8077,7 @@
                     renderPPSlots(pool.slots || []);
                     ppCachedNodes = pool.nodes || [];
                     if (ppCurrentView === 'nodes') renderPPNodes(ppCachedNodes);
-
-                    if (!ppRefreshTimer) {
-                        ppRefreshTimer = setInterval(() => {
-                            if (shouldRunAdminPanelPoll('settings')) loadProxyPoolStatus();
-                        }, 5000);
-                    }
+                    startProxyPoolRefresh();
                 } else {
                     document.getElementById('proxyPoolStatus').textContent = '已加载·未启用';
                     document.getElementById('proxyPoolStatus').style.background = 'rgba(255,71,87,0.2)';
@@ -8091,11 +8090,32 @@
             }
         }
 
+        function startProxyPoolRefresh() {
+            if (ppRefreshTimer || !shouldRunAdminPanelPoll('settings')) return;
+            ppRefreshTimer = setInterval(() => {
+                if (shouldRunAdminPanelPoll('settings')) loadProxyPoolStatus();
+            }, 5000);
+        }
+
         function stopProxyPoolRefresh() {
             if (ppRefreshTimer) {
                 clearInterval(ppRefreshTimer);
                 ppRefreshTimer = null;
             }
+        }
+
+        function stopSettingsPanelRefresh() {
+            stopSubAdminStatusRefresh();
+            stopLbRefresh();
+            stopRemoteVoiceRefresh();
+            stopProxyPoolRefresh();
+        }
+
+        function startSettingsPanelRefresh() {
+            if (!shouldRunAdminPanelPoll('settings')) return;
+            loadSubAdminStatus();
+            startSubAdminStatusRefresh();
+            loadSubscriptionGroups();
         }
 
         function renderPPSlots(slots) {
@@ -8394,13 +8414,9 @@
             if (panelName === 'monitoring') ensureLazyPanelModule('monitoring');
             if (panelName === 'meetings') ensureLazyPanelModule('meetings');
             if (panelName === 'settings') {
-                loadSubAdminStatus();
-                startSubAdminStatusRefresh();
-                loadSubscriptionGroups();
+                startSettingsPanelRefresh();
             } else {
-                stopSubAdminStatusRefresh();
-                stopLbRefresh();
-                stopRemoteVoiceRefresh();
+                stopSettingsPanelRefresh();
             }
         }
 
@@ -10084,7 +10100,7 @@
         }
 
         function startLbRefresh() {
-            stopLbRefresh();
+            if (lbRefreshTimer) return;
             if (!shouldRunAdminPanelPoll('settings')) return;
             lbRefreshTimer = setInterval(() => {
                 if (shouldRunAdminPanelPoll('settings')) refreshLbLightStatus();
@@ -10096,7 +10112,7 @@
         }
 
         function startRemoteVoiceRefresh() {
-            stopRemoteVoiceRefresh();
+            if (remoteVoiceRefreshTimer) return;
             if (!shouldRunAdminPanelPoll('settings')) return;
             remoteVoiceRefreshTimer = setInterval(() => {
                 if (shouldRunAdminPanelPoll('settings')) loadRemoteVoicePanel();
@@ -11049,10 +11065,7 @@
             stopAdminGlobalPolling();
             stopDashboard();
             stopOnlineUsersAutoRefresh();
-            stopSubAdminStatusRefresh();
-            stopLbRefresh();
-            stopRemoteVoiceRefresh();
-            stopProxyPoolRefresh();
+            stopSettingsPanelRefresh();
             stopChatHistoryFallback();
         }
 
@@ -11079,13 +11092,9 @@
                 stopChatHistoryFallback();
             }
             if (currentPanelName === 'settings') {
-                loadSubAdminStatus();
-                startSubAdminStatusRefresh();
+                startSettingsPanelRefresh();
             } else {
-                stopSubAdminStatusRefresh();
-                stopLbRefresh();
-                stopRemoteVoiceRefresh();
-                stopProxyPoolRefresh();
+                stopSettingsPanelRefresh();
             }
             if (currentPanelName === 'online' && currentChatUser && !chatRefreshTimer) {
                 refreshChatHistory({ force: true, reason: 'resume-online' });
