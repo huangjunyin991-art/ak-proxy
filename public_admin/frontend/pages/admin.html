@@ -3373,7 +3373,7 @@
     <script src="/admin/api/shared/polling/polling_registry.js?v=2026060701" defer></script>
     <script src="/admin/api/shared/lib/chart.umd.min.js?v=2026060201" defer></script>
     <script src="/admin/api/shared/dashboard/user_growth_chart.js?v=2025060201" defer></script>
-    <script src="/admin/api/shared/dashboard/traffic_dashboard.js?v=2026060703" defer></script>
+    <script src="/admin/api/shared/dashboard/traffic_dashboard.js?v=2026060704" defer></script>
 </head>
 <body>
     <!-- 横屏提示 -->
@@ -9880,6 +9880,7 @@
             if (window.AKPollingRegistry) {
                 window.AKPollingRegistry.startOwner('panel:dashboard');
                 window.AKPollingRegistry.requestTopic('dashboard.summary');
+                loadDashboard();
                 return;
             }
             if (window.AdminTrafficDashboard && typeof window.AdminTrafficDashboard.loadDashboard === 'function') {

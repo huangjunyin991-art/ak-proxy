@@ -29,6 +29,18 @@
         return !window.shouldRunAdminPanelPoll || window.shouldRunAdminPanelPoll('dashboard');
     }
 
+    function buildAuthHeaders() {
+        try {
+            if (typeof window.getHeaders === 'function') return window.getHeaders();
+        } catch (error) {}
+        try {
+            const token = window.sessionStorage ? window.sessionStorage.getItem('admin_token') : '';
+            return token ? { Authorization: `Bearer ${token}` } : {};
+        } catch (error) {
+            return {};
+        }
+    }
+
     function renderHourlyChart(data) {
         const container = document.getElementById('hourlyChart');
         const labelsContainer = document.getElementById('chartLabels');
@@ -118,7 +130,8 @@
         if (!canPollDashboard()) return;
         try {
             const base = window.API_BASE || window.location.origin;
-            const res = await fetch(`${base}/admin/api/dashboard?force_refresh=1`);
+            const res = await fetch(`${base}/admin/api/dashboard?force_refresh=1`, { headers: buildAuthHeaders() });
+            if (!res.ok) throw new Error(`dashboard request failed: ${res.status}`);
             const data = await res.json();
             renderDashboard(data || {});
         } catch (error) {
