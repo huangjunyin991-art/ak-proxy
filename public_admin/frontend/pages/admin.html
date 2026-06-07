@@ -4902,6 +4902,11 @@
         const ADMIN_ACTIVE_PANEL_STORAGE_KEY = 'ak_admin_active_panel';
         let currentChatUser = null;
         let chatRefreshTimer = null;
+        let chatHistoryInFlight = false;
+        let lastChatWsMessageAt = 0;
+        let lastChatHistoryRefreshAt = 0;
+        const CHAT_HISTORY_FALLBACK_INTERVAL_MS = 10000;
+        const CHAT_HISTORY_STALE_MS = 30000;
         let ppRefreshTimer = null;
         let dashboardTimer = null;
         let adminStatsTimer = null;
@@ -5932,6 +5937,7 @@
                 addActivityItem('info', '⚪', `<strong>${escapeHtml(data.data?.username || '')}</strong> 离线`, time);
             } else if (data.type === 'chat_message') {
                 if (data.data.username === currentChatUser) {
+                    lastChatWsMessageAt = Date.now();
                     if (!data.data.is_admin) {
                         addChatMessage(data.data.content, false, data.data.time);
                     }
@@ -7150,41 +7156,76 @@
             if (data.success) loadOnlineUsers();
         }
 
-        // 刷新聊天记录
-        async function refreshChatHistory() {
-            if (!currentChatUser) return;
-            if (!shouldRunAdminPanelPoll('online')) return;
-            
+        function shouldRefreshChatHistory(force) {
+            if (force) return true;
+            if (!isAdminWsOpen()) return true;
+            const latestFreshAt = Math.max(lastChatWsMessageAt || 0, lastChatHistoryRefreshAt || 0);
+            return !latestFreshAt || Date.now() - latestFreshAt >= CHAT_HISTORY_STALE_MS;
+        }
+
+        function stopChatHistoryFallback() {
+            if (chatRefreshTimer) {
+                clearInterval(chatRefreshTimer);
+                chatRefreshTimer = null;
+            }
+        }
+
+        function startChatHistoryFallback() {
+            if (chatRefreshTimer || !currentChatUser) return;
+            chatRefreshTimer = setInterval(() => {
+                refreshChatHistory({ reason: 'fallback' });
+            }, CHAT_HISTORY_FALLBACK_INTERVAL_MS);
+        }
+
+        // 刷新聊天记录。聊天模块私有兜底，不进入 PollingRegistry 广播 topic。
+        async function refreshChatHistory(options = {}) {
+            const force = !!options.force;
+            if (!currentChatUser) return false;
+            if (!shouldRunAdminPanelPoll('online')) return false;
+            if (!shouldRefreshChatHistory(force)) return false;
+            if (chatHistoryInFlight) return false;
+
+            const targetUser = currentChatUser;
+            chatHistoryInFlight = true;
             try {
-                const res = await fetch(`${API_BASE}/admin/api/chat/history/${currentChatUser}`, { headers: getHeaders() });
+                const res = await fetch(`${API_BASE}/admin/api/chat/history/${encodeURIComponent(targetUser)}`, { headers: getHeaders() });
+                if (!checkTokenValid(res)) return false;
+                if (!res.ok) throw new Error(`chat history request failed: ${res.status}`);
                 const messages = await res.json();
-                
+                if (targetUser !== currentChatUser) return false;
+
                 // 重新渲染聊天记录
                 const container = document.getElementById('chatMessages');
+                if (!container) return false;
                 const scrollAtBottom = container.scrollHeight - container.scrollTop <= container.clientHeight + 50;
-                
+
                 container.innerHTML = '';
-                messages.forEach(msg => {
+                (Array.isArray(messages) ? messages : []).forEach(msg => {
                     addChatMessage(msg.content, msg.is_admin, msg.time);
                 });
-                
+                lastChatHistoryRefreshAt = Date.now();
+
                 // 如果之前在底部，保持在底部
                 if (scrollAtBottom) {
                     container.scrollTop = container.scrollHeight;
                 }
+                return true;
             } catch (e) {
                 console.error('刷新聊天记录失败', e);
+                return false;
+            } finally {
+                chatHistoryInFlight = false;
             }
         }
         
         // 开始聊天
         async function startChat(username) {
             // 清除旧的定时器
-            if (chatRefreshTimer) {
-                clearInterval(chatRefreshTimer);
-            }
+            stopChatHistoryFallback();
             
             currentChatUser = username;
+            lastChatWsMessageAt = 0;
+            lastChatHistoryRefreshAt = 0;
             document.getElementById('chatTarget').textContent = username;
             document.getElementById('chatStatus').textContent = '在线';
             document.getElementById('chatStatus').style.color = 'var(--accent-green)';
@@ -7192,10 +7233,10 @@
             document.getElementById('chatSendBtn').disabled = false;
             
             // 加载聊天历史
-            await refreshChatHistory();
+            await refreshChatHistory({ force: true, reason: 'switch-user' });
             
-            // 每3秒刷新一次聊天记录（作为WebSocket的备份）
-            chatRefreshTimer = setInterval(refreshChatHistory, 3000);
+            // 低频 HTTP 兜底，WebSocket 正常时不重复拉取历史。
+            startChatHistoryFallback();
             
             document.getElementById('chatInput').focus();
         }
@@ -7246,6 +7287,7 @@
                     const now = new Date();
                     const timeStr = now.toTimeString().split(' ')[0].substring(0, 5);
                     addChatMessage(content, true, timeStr);
+                    lastChatHistoryRefreshAt = Date.now();
                     input.value = '';
                 } else {
                     showAlert('发送失败，用户可能已离线', 'error');
@@ -11011,10 +11053,7 @@
             stopLbRefresh();
             stopRemoteVoiceRefresh();
             stopProxyPoolRefresh();
-            if (chatRefreshTimer) {
-                clearInterval(chatRefreshTimer);
-                chatRefreshTimer = null;
-            }
+            stopChatHistoryFallback();
         }
 
         function resumeAdminPolling() {
@@ -11037,10 +11076,7 @@
                 startOnlineUsersAutoRefresh();
             } else {
                 stopOnlineUsersAutoRefresh();
-                if (chatRefreshTimer) {
-                    clearInterval(chatRefreshTimer);
-                    chatRefreshTimer = null;
-                }
+                stopChatHistoryFallback();
             }
             if (currentPanelName === 'settings') {
                 loadSubAdminStatus();
@@ -11052,8 +11088,8 @@
                 stopProxyPoolRefresh();
             }
             if (currentPanelName === 'online' && currentChatUser && !chatRefreshTimer) {
-                refreshChatHistory();
-                chatRefreshTimer = setInterval(refreshChatHistory, 3000);
+                refreshChatHistory({ force: true, reason: 'resume-online' });
+                startChatHistoryFallback();
             }
         }
         
