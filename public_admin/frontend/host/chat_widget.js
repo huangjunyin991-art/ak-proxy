@@ -1633,28 +1633,6 @@
         return remoteVoiceConnectedRoles.indexOf('admin') >= 0 ? '管理员已就绪，正在等待音频建立' : '等待管理员进入语音';
     }
 
-    function getRemoteVoiceQualityLabel(state) {
-        const qualityLevel = state && state.qualityLevel;
-        const qualityScore = Number(state && state.qualityScore || 0);
-        const degraded = !!(state && state.qualityDegraded);
-        const recovering = !!(state && state.qualityRecovering);
-        const label = qualityLevel && qualityLevel.label ? String(qualityLevel.label) : '高清';
-        if (recovering) return `${label} · 恢复中`;
-        if (degraded) return `${label} · 已降级`;
-        if (qualityScore > 0) return `${label} · 稳定`;
-        return label;
-    }
-
-    function getRemoteVoiceQualitySubLabel(state) {
-        if (!state) return '';
-        const qualityScore = Number(state.qualityScore || 0);
-        const level = state.qualityLevel || {};
-        const qualityLevelText = level.label ? `${level.label}${level.width && level.height ? ` ${level.width}×${level.height}` : ''}` : '高清';
-        const scoreText = qualityScore > 0 ? `分数 ${Math.round(qualityScore * 100)}%` : '';
-        const flagText = state.qualityRecovering ? '恢复中' : (state.qualityDegraded ? '弱网降级' : '正常');
-        return [qualityLevelText, scoreText, flagText].filter(Boolean).join(' · ');
-    }
-
     function renderRemoteVoiceBar() {
         const visible = !!remoteVoiceSessionId || isRemoteVoiceCountedStatus(remoteVoiceStatus);
         if (remoteVoiceBar) remoteVoiceBar.classList.toggle('visible', !!visible);
@@ -1662,9 +1640,6 @@
         const level = Math.max(remoteVoiceLocalLevel, remoteVoiceRemoteLevel);
         setRemoteVoiceLevel(remoteVoicePulse, level);
         const canControl = !!(remoteVoiceClient && remoteVoiceSessionId && isRemoteVoiceCountedStatus(remoteVoiceStatus));
-        const clientState = remoteVoiceClient && typeof remoteVoiceClient.getState === 'function' ? remoteVoiceClient.getState() : null;
-        const qualityLabel = getRemoteVoiceQualityLabel(clientState);
-        const qualitySubLabel = getRemoteVoiceQualitySubLabel(clientState);
         if (remoteVoiceMuteBtn) {
             remoteVoiceMuteBtn.disabled = !canControl;
             remoteVoiceMuteBtn.style.setProperty('--voice-fill-percent', `${getRemoteVoiceFillPercent(level, currentStatus, remoteVoiceMutedSelf)}%`);
@@ -1672,10 +1647,10 @@
                 ? 'muted'
                 : (currentStatus === 'active' ? 'active' : 'pending');
             remoteVoiceMuteBtn.setAttribute('aria-label', remoteVoiceMutedSelf ? '恢复麦克风' : '切换麦克风');
-            remoteVoiceMuteBtn.title = `${getRemoteVoiceStatusLabel()} · ${getRemoteVoiceSubLabel()}${qualitySubLabel ? ' · ' + qualitySubLabel : ''}${canControl ? (remoteVoiceMutedSelf ? ' · 点击恢复麦克风' : ' · 点击静音麦克风') : ''}`;
+            remoteVoiceMuteBtn.title = `${getRemoteVoiceStatusLabel()} · ${getRemoteVoiceSubLabel()}${canControl ? (remoteVoiceMutedSelf ? ' · 点击恢复麦克风' : ' · 点击静音麦克风') : ''}`;
         }
         if (remoteVoiceBar) {
-            remoteVoiceBar.title = `${getRemoteVoiceStatusLabel()} · ${getRemoteVoiceSubLabel()}${qualityLabel ? ' · ' + qualityLabel : ''}${qualitySubLabel ? ' · ' + qualitySubLabel : ''}`;
+            remoteVoiceBar.title = `${getRemoteVoiceStatusLabel()} · ${getRemoteVoiceSubLabel()}`;
         }
     }
 
@@ -1743,10 +1718,6 @@
         return remoteVoiceLibraryPromise;
     }
 
-    async function ensureRemoteVideoLibrary() {
-        return await ensureRemoteVoiceLibrary();
-    }
-
     async function stopRemoteVoiceClient(notifyServer, reason, clearSession = true) {
         const client = remoteVoiceClient;
         remoteVoiceClient = null;
@@ -1761,10 +1732,6 @@
         } catch (e) {
         }
         resetRemoteVoiceUiState(reason, clearSession);
-    }
-
-    async function stopRemoteVideoClient(notifyServer, reason, clearSession = true) {
-        await stopRemoteVoiceClient(notifyServer, reason, clearSession);
     }
 
     async function startRemoteVoiceClient(bindPayload) {
@@ -1786,7 +1753,6 @@
             role: 'user',
             site: String(payload.site || 'ak_web').trim() || 'ak_web',
             remoteAudio: remoteVoiceAudio,
-            enableVideo: false,
             onStateChange: function(state) {
                 if (remoteVoiceClient !== client) return;
                 remoteVoiceStatus = String(state && state.status || remoteVoiceStatus || '').trim() || remoteVoiceStatus;
@@ -1817,62 +1783,10 @@
         }
     }
 
-    async function startRemoteVideoClient(bindPayload) {
-        const payload = bindPayload || {};
-        const nextSessionId = String(payload.voice_session_id || '').trim();
-        if (!nextSessionId) return;
-        await ensureRemoteVideoLibrary();
-        await stopRemoteVideoClient(false, 'switch_session', true);
-        remoteVoiceSessionId = nextSessionId;
-        remoteVoiceStatus = String(payload.status || 'connecting');
-        renderRemoteVoiceBar();
-        const ClientCtor = window.AKRemoteVoiceClient;
-        const client = new ClientCtor({
-            voiceSessionId: nextSessionId,
-            role: 'user',
-            site: String(payload.site || 'ak_web').trim() || 'ak_web',
-            remoteAudio: remoteVoiceAudio,
-            remoteVideo: remoteVoiceAudio ? remoteVoiceAudio._akRemoteVideoEl || null : null,
-            enableVideo: true,
-            onStateChange: function(state) {
-                if (remoteVoiceClient !== client) return;
-                remoteVoiceStatus = String(state && state.status || remoteVoiceStatus || '').trim() || remoteVoiceStatus;
-                remoteVoiceMutedSelf = !!(state && state.mutedSelf);
-                remoteVoiceMutedPeer = !!(state && state.mutedPeer);
-                remoteVoiceLocalLevel = Number(state && state.localLevel || 0);
-                remoteVoiceRemoteLevel = Number(state && state.remoteLevel || 0);
-                remoteVoiceConnectedRoles = Array.isArray(state && state.connectedRoles) ? state.connectedRoles.slice() : [];
-                renderRemoteVoiceBar();
-            },
-            onError: function(error) {
-                console.error('[AKChat] remote video error:', error);
-            }
-        });
-        remoteVoiceClient = client;
-        try {
-            await client.start();
-            emitRemoteVoiceEvent('video_client_started', { voice_session_id: nextSessionId });
-        } catch (error) {
-            console.error('[AKChat] 启动实时视频失败:', error);
-            await stopRemoteVideoClient(true, 'media_error', true);
-        }
-    }
-
     async function toggleRemoteVoiceMute() {
         if (!remoteVoiceClient || !remoteVoiceSessionId) return false;
         try {
             await remoteVoiceClient.toggleMuted();
-            return true;
-        } catch (e) {
-            return false;
-        }
-    }
-
-    async function toggleRemoteCamera() {
-        if (!remoteVoiceClient || !remoteVoiceSessionId || typeof remoteVoiceClient.toggleCamera !== 'function') return false;
-        try {
-            await remoteVoiceClient.toggleCamera();
-            renderRemoteVoiceBar();
             return true;
         } catch (e) {
             return false;

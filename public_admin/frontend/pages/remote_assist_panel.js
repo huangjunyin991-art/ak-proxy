@@ -256,11 +256,37 @@
         let remoteAssistPanelProxySnapshotRequestKey = '';
         let remoteAssistPanelProxySnapshotTimer = null;
         let remoteAssistPanelSnapshotRequestSeq = 0;
+        let remoteAssistOpenSeq = 0;
+        let remoteAssistOpenPromise = null;
+        let remoteAssistOpeningUsername = '';
         const REMOTE_ASSIST_PREPARE_LOG_THRESHOLD_MS = 80;
         const REMOTE_ASSIST_RENDER_LOG_THRESHOLD_MS = 200;
         const REMOTE_ASSIST_PENDING_ROUTE_REQUEST_RETRY_MS = 1000;
         const REMOTE_ASSIST_PROXY_EVENT_SNAPSHOT_MIN_INTERVAL_MS = 600;
         const REMOTE_ASSIST_PROXY_EVENT_SNAPSHOT_DELAY_MS = 120;
+
+        function isRemoteAssistSocketReady() {
+            return !!(remoteAssistPanelWs
+                && (remoteAssistPanelWs.readyState === WebSocket.OPEN || remoteAssistPanelWs.readyState === WebSocket.CONNECTING));
+        }
+
+        function showRemoteAssistPanelShell() {
+            const panel = document.getElementById('remoteAssistPanel');
+            const overlay = document.getElementById('remoteAssistOverlay');
+            if (panel) panel.classList.add('open');
+            if (overlay) overlay.style.display = getMobileLayoutMedia().matches ? 'none' : 'block';
+        }
+
+        function focusExistingRemoteAssist(targetUsername) {
+            if (!remoteAssistPanelSessionId) return false;
+            if (String(remoteAssistPanelUsername || '').trim() !== String(targetUsername || '').trim()) return false;
+            showRemoteAssistPanelShell();
+            updateRemoteAssistVoiceButton();
+            if (!isRemoteAssistSocketReady()) {
+                reconnectRemoteAssistPanel();
+            }
+            return true;
+        }
 
         function clearRemoteAssistReconnectTimer() {
             if (remoteAssistPanelReconnectTimer) {
@@ -2014,69 +2040,104 @@
         }
 
         async function openRemoteAssist(username) {
-            await closeAkBrowser();
-            await closeRemoteAssistPanel();
             const targetUsername = String(username || '').trim();
-            // 先发 remote_assist/start 触发全局 fetch 拦截器的 TOTP 验证（如有需要），
-            // 验证通过且 success=true 才真正打开远程指导面板，避免出现空白等待页。
-            let data;
+            if (!targetUsername) {
+                if (typeof showToast === 'function') showToast('远程指导失败: 缺少用户名', 'error');
+                return;
+            }
+            if (focusExistingRemoteAssist(targetUsername)) return;
+            if (remoteAssistOpenPromise && remoteAssistOpeningUsername === targetUsername) {
+                return remoteAssistOpenPromise;
+            }
+            const openSeq = ++remoteAssistOpenSeq;
+            remoteAssistOpeningUsername = targetUsername;
+            remoteAssistOpenPromise = (async () => {
+                await closeAkBrowser();
+                if (openSeq !== remoteAssistOpenSeq) return;
+                await closeRemoteAssistPanel(true, { cancelOpen: false });
+                if (openSeq !== remoteAssistOpenSeq) return;
+                // 先发 remote_assist/start 触发全局 fetch 拦截器的 TOTP 验证（如有需要），
+                // 验证通过且 success=true 才真正打开远程指导面板，避免出现空白等待页。
+                let data;
+                try {
+                    const res = await fetch(`${API_BASE}/admin/api/remote_assist/start`, {
+                        method: 'POST',
+                        headers: {
+                            ...getHeaders(),
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({ username: targetUsername })
+                    });
+                    data = await res.json();
+                } catch (e) {
+                    if (openSeq === remoteAssistOpenSeq) {
+                        logRemoteAssistDebug('open_remote_assist_error', {
+                            username: targetUsername,
+                            message: String((e && e.message) || e || '')
+                        });
+                        if (typeof showToast === 'function') {
+                            showToast(`远程指导失败: ${e.message}`, 'error');
+                        }
+                    }
+                    return;
+                }
+                if (openSeq !== remoteAssistOpenSeq) {
+                    if (data && data.success && data.session_id) {
+                        await releaseRemoteAssistPanelSession(data.session_id);
+                    }
+                    return;
+                }
+                if (!data || !data.success) {
+                    const msg = (data && (data.message || data.detail)) || '该操作需要 Google 验证码授权';
+                    if (typeof showToast === 'function') {
+                        showToast(`远程指导失败: ${msg}`, 'error');
+                    }
+                    return;
+                }
+                // 验证通过 → 真正打开远程指导面板
+                remoteAssistPanelUsername = targetUsername;
+                const panel = document.getElementById('remoteAssistPanel');
+                const overlay = document.getElementById('remoteAssistOverlay');
+                setRemoteAssistTitle(remoteAssistPanelUsername);
+                setRemoteAssistMeta('正在发起远程指导请求');
+                setRemoteAssistLoading(true, '正在等待用户确认远程指导');
+                remoteAssistPanelLastHtml = '';
+                remoteAssistPanelLastScroll = null;
+                remoteAssistPanelApplyingScrollDepth = 0;
+                remoteAssistPanelConsentStatus = 'waiting';
+                resetRemoteAssistVoiceUi('', true);
+                remoteAssistPanelPendingRoute = '';
+                remoteAssistPanelWaitingForRouteSnapshot = false;
+                resetRemoteAssistPendingSnapshotRequest();
+                clearRemoteAssistScrollRestoreTimer();
+                clearRemoteAssistRouteSnapshotTimer();
+                clearRemoteAssistProxySnapshotTimer();
+                updateRemoteAssistVoiceButton();
+                panel.classList.add('open');
+                overlay.style.display = getMobileLayoutMedia().matches ? 'none' : 'block';
+                resetRemoteAssistFrameDocument(buildRemoteAssistPlaceholderHtml('正在等待用户确认远程指导'));
+                remoteAssistPanelSessionId = String(data.session_id || '').trim();
+                remoteAssistPanelConsentStatus = String(data.consent_status || 'waiting');
+                updateRemoteAssistVoiceButton();
+                loadRemoteAssistVoiceState();
+                connectRemoteAssistPanelSocket(remoteAssistPanelSessionId);
+            })();
             try {
-                const res = await fetch(`${API_BASE}/admin/api/remote_assist/start`, {
-                    method: 'POST',
-                    headers: {
-                        ...getHeaders(),
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({ username: targetUsername })
-                });
-                data = await res.json();
-            } catch (e) {
-                logRemoteAssistDebug('open_remote_assist_error', {
-                    username: targetUsername,
-                    message: String((e && e.message) || e || '')
-                });
-                if (typeof showToast === 'function') {
-                    showToast(`远程指导失败: ${e.message}`, 'error');
+                return await remoteAssistOpenPromise;
+            } finally {
+                if (openSeq === remoteAssistOpenSeq) {
+                    remoteAssistOpenPromise = null;
+                    remoteAssistOpeningUsername = '';
                 }
-                return;
             }
-            if (!data || !data.success) {
-                const msg = (data && (data.message || data.detail)) || '该操作需要 Google 验证码授权';
-                if (typeof showToast === 'function') {
-                    showToast(`远程指导失败: ${msg}`, 'error');
-                }
-                return;
-            }
-            // 验证通过 → 真正打开远程指导面板
-            remoteAssistPanelUsername = targetUsername;
-            const panel = document.getElementById('remoteAssistPanel');
-            const overlay = document.getElementById('remoteAssistOverlay');
-            setRemoteAssistTitle(remoteAssistPanelUsername);
-            setRemoteAssistMeta('正在发起远程指导请求');
-            setRemoteAssistLoading(true, '正在等待用户确认远程指导');
-            remoteAssistPanelLastHtml = '';
-            remoteAssistPanelLastScroll = null;
-            remoteAssistPanelApplyingScrollDepth = 0;
-            remoteAssistPanelConsentStatus = 'waiting';
-            resetRemoteAssistVoiceUi('', true);
-            remoteAssistPanelPendingRoute = '';
-            remoteAssistPanelWaitingForRouteSnapshot = false;
-            resetRemoteAssistPendingSnapshotRequest();
-            clearRemoteAssistScrollRestoreTimer();
-            clearRemoteAssistRouteSnapshotTimer();
-            clearRemoteAssistProxySnapshotTimer();
-            updateRemoteAssistVoiceButton();
-            panel.classList.add('open');
-            overlay.style.display = getMobileLayoutMedia().matches ? 'none' : 'block';
-            resetRemoteAssistFrameDocument(buildRemoteAssistPlaceholderHtml('正在等待用户确认远程指导'));
-            remoteAssistPanelSessionId = String(data.session_id || '').trim();
-            remoteAssistPanelConsentStatus = String(data.consent_status || 'waiting');
-            updateRemoteAssistVoiceButton();
-            loadRemoteAssistVoiceState();
-            connectRemoteAssistPanelSocket(remoteAssistPanelSessionId);
         }
 
-        async function closeRemoteAssistPanel(releaseSession = true) {
+        async function closeRemoteAssistPanel(releaseSession = true, options = {}) {
+            if (!options || options.cancelOpen !== false) {
+                remoteAssistOpenSeq++;
+                remoteAssistOpenPromise = null;
+                remoteAssistOpeningUsername = '';
+            }
             const panel = document.getElementById('remoteAssistPanel');
             const overlay = document.getElementById('remoteAssistOverlay');
             const closingSessionId = remoteAssistPanelSessionId;
