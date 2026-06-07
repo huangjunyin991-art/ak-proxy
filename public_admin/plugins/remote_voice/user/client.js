@@ -59,6 +59,7 @@
             this.localTracksAttached = false;
             this.startPromise = null;
             this.stopPromise = null;
+            this.offerPromise = null;
         }
 
         getState() {
@@ -420,13 +421,23 @@
         }
 
         async maybeCreateOffer() {
+            if (this.role !== 'admin' || this.sentOffer || this.offerPromise || !this.ws || this.ws.readyState !== WebSocket.OPEN) {
+                return;
+            }
+            this.offerPromise = this._maybeCreateOffer().finally(() => {
+                this.offerPromise = null;
+            });
+            return await this.offerPromise;
+        }
+
+        async _maybeCreateOffer() {
             if (this.role !== 'admin' || this.sentOffer || !this.ws || this.ws.readyState !== WebSocket.OPEN) {
                 return;
             }
             try {
                 await this.ensureLocalStream();
                 const connection = this.ensurePeer();
-                if (!connection || connection.signalingState !== 'stable') {
+                if (this.sentOffer || !this.ws || this.ws.readyState !== WebSocket.OPEN || !connection || connection.signalingState !== 'stable') {
                     return;
                 }
                 this.sentOffer = true;
@@ -573,6 +584,7 @@
             this.remoteLevelBuffer = null;
             this.connectedRoles = [];
             this.sentOffer = false;
+            this.offerPromise = null;
             this.localTracksAttached = false;
             this.pendingCandidates = [];
             this.emitState({
