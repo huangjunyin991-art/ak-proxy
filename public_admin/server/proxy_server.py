@@ -423,6 +423,7 @@ from plugins.notification.server.notification_service import NotificationService
 try:
     from plugins.notify_center.server.channels.web_push import WebPushChannel
     from plugins.notify_center.server.config import NotifyCenterConfig
+    from plugins.notify_center.server.identity import attach_identity_cookie as attach_notify_identity_cookie
     from plugins.notify_center.server.outbox_worker import NotifyCenterOutboxWorker
     from plugins.notify_center.server.repository import NotifyCenterRepository
     from plugins.notify_center.server.router import create_notify_center_router
@@ -431,6 +432,7 @@ try:
 except Exception as e:
     WebPushChannel = None
     NotifyCenterConfig = None
+    attach_notify_identity_cookie = None
     NotifyCenterOutboxWorker = None
     NotifyCenterRepository = None
     NotifyCenterService = None
@@ -2436,6 +2438,7 @@ async def proxy_login(request: Request):
 
         resp.set_cookie(key="ak_username", value=login_identity_username or account, max_age=86400*30, httponly=False, samesite="lax")
         resp.set_cookie(key="ak_im_username", value=login_identity_username or account, max_age=86400*30, httponly=False, samesite="lax")
+        _attach_notify_center_identity_cookie(resp, request, login_identity_username or account)
 
     return resp
 
@@ -4816,6 +4819,27 @@ if (
         logger.warning(f"[NotifyCenter] 初始化失败，已跳过: {e}")
 elif _NOTIFY_CENTER_IMPORT_ERROR is not None:
     logger.warning(f"[NotifyCenter] 模块不可用，已跳过: {_NOTIFY_CENTER_IMPORT_ERROR}")
+
+def _attach_notify_center_identity_cookie(response, request: Request, username: str) -> bool:
+    if attach_notify_identity_cookie is None:
+        return False
+    service = globals().get('notify_center_service')
+    config = getattr(service, 'config', None)
+    if config is None:
+        return False
+    try:
+        return bool(attach_notify_identity_cookie(
+            response,
+            request,
+            username=username,
+            secret=getattr(config, 'identity_secret', ''),
+            cookie_name=getattr(config, 'identity_cookie_name', 'ak_notify_identity'),
+            ttl_seconds=int(getattr(config, 'identity_ttl_seconds', 86400 * 30) or 86400 * 30),
+        ))
+    except Exception as e:
+        logger.warning(f"[NotifyCenter] identity_cookie_attach_failed username={username}: {e}")
+        return False
+
 
 license_center_service = None
 if LicenseCenterRepository is not None and LicenseCenterService is not None:
@@ -13791,7 +13815,9 @@ async def admin_ak_auth_silent_login_by_token(request: Request):
     snapshot, error_response = await _silent_login_ak_account(wanted, request)
     if error_response is not None:
         return error_response
-    return JSONResponse(snapshot)
+    resp = JSONResponse(snapshot)
+    _attach_notify_center_identity_cookie(resp, request, wanted)
+    return resp
 
 
 @app.get("/admin/api/ak_test")

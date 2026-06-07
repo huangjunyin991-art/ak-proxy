@@ -27,6 +27,9 @@ def _env_int(name: str, default: int, minimum: int | None = None, maximum: int |
 class NotifyCenterConfig:
     enabled: bool
     internal_secret: str
+    identity_secret: str
+    identity_cookie_name: str
+    identity_ttl_seconds: int
     cookie_name: str
     public_base_url: str
     vapid_public_key: str
@@ -45,9 +48,14 @@ class NotifyCenterConfig:
 
     @classmethod
     def from_env(cls) -> 'NotifyCenterConfig':
+        internal_secret = str(os.environ.get('NOTIFY_CENTER_INTERNAL_SECRET') or os.environ.get('IM_NOTIFY_CENTER_WEBHOOK_SECRET') or '').strip()
+        identity_secret = str(os.environ.get('NOTIFY_CENTER_IDENTITY_SECRET') or internal_secret).strip()
         return cls(
             enabled=_env_bool('NOTIFY_CENTER_ENABLED', False),
-            internal_secret=str(os.environ.get('NOTIFY_CENTER_INTERNAL_SECRET') or os.environ.get('IM_NOTIFY_CENTER_WEBHOOK_SECRET') or '').strip(),
+            internal_secret=internal_secret,
+            identity_secret=identity_secret,
+            identity_cookie_name=str(os.environ.get('NOTIFY_CENTER_IDENTITY_COOKIE') or 'ak_notify_identity').strip() or 'ak_notify_identity',
+            identity_ttl_seconds=_env_int('NOTIFY_CENTER_IDENTITY_TTL_SECONDS', 86400 * 30, 60, 86400 * 90),
             cookie_name=str(os.environ.get('NOTIFY_CENTER_COOKIE_NAME') or os.environ.get('IM_AUTH_COOKIE') or 'ak_username').strip() or 'ak_username',
             public_base_url=str(os.environ.get('NOTIFY_CENTER_PUBLIC_BASE_URL') or '').strip().rstrip('/'),
             vapid_public_key=str(os.environ.get('WEB_PUSH_VAPID_PUBLIC_KEY') or '').strip(),

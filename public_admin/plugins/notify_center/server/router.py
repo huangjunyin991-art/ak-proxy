@@ -6,6 +6,8 @@ from typing import Awaitable, Callable
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 
+from .config import NotifyCenterConfig
+from .identity import get_identity_cookie_username
 from .security import normalize_username, verify_signature
 from .service import NotifyCenterService
 
@@ -34,7 +36,7 @@ def create_notify_center_router(
             payload = await request.json()
         except Exception:
             return JSONResponse(status_code=400, content={'success': False, 'message': '请求体无效'})
-        username = _resolve_current_username(request, service.config.cookie_name)
+        username = _resolve_current_username(request, service.config)
         if not username:
             return JSONResponse(status_code=401, content={'success': False, 'message': '未识别当前用户'})
         subscription = payload.get('subscription') if isinstance(payload, dict) and isinstance(payload.get('subscription'), dict) else {}
@@ -54,7 +56,7 @@ def create_notify_center_router(
 
     @router.get('/api/notify-center/web-push/diagnostics')
     async def web_push_diagnostics(request: Request):
-        username = _resolve_current_username(request, service.config.cookie_name)
+        username = _resolve_current_username(request, service.config)
         if not username:
             return JSONResponse(status_code=401, content={'success': False, 'message': '未识别当前用户'})
         try:
@@ -65,7 +67,7 @@ def create_notify_center_router(
 
     @router.get('/api/notify-center/ntfy/binding')
     async def get_ntfy_binding(request: Request):
-        username = _resolve_current_username(request, service.config.cookie_name)
+        username = _resolve_current_username(request, service.config)
         if not username:
             return JSONResponse(status_code=401, content={'success': False, 'message': '未识别当前用户'})
         try:
@@ -80,7 +82,7 @@ def create_notify_center_router(
             payload = await request.json()
         except Exception:
             return JSONResponse(status_code=400, content={'success': False, 'message': '请求体无效'})
-        username = _resolve_current_username(request, service.config.cookie_name)
+        username = _resolve_current_username(request, service.config)
         if not username:
             return JSONResponse(status_code=401, content={'success': False, 'message': '未识别当前用户'})
         try:
@@ -101,7 +103,7 @@ def create_notify_center_router(
             payload = await request.json()
         except Exception:
             payload = {}
-        username = _resolve_current_username(request, service.config.cookie_name)
+        username = _resolve_current_username(request, service.config)
         if not username:
             return JSONResponse(status_code=401, content={'success': False, 'message': '未识别当前用户'})
         try:
@@ -116,7 +118,7 @@ def create_notify_center_router(
             payload = await request.json()
         except Exception:
             payload = {}
-        username = _resolve_current_username(request, service.config.cookie_name)
+        username = _resolve_current_username(request, service.config)
         if not username:
             return JSONResponse(status_code=401, content={'success': False, 'message': '未识别当前用户'})
         try:
@@ -209,7 +211,7 @@ def create_notify_center_router(
             payload = await request.json()
         except Exception:
             payload = {}
-        username = _resolve_current_username(request, service.config.cookie_name)
+        username = _resolve_current_username(request, service.config)
         if not username:
             return JSONResponse(status_code=401, content={'success': False, 'message': '未识别当前用户'})
         endpoint = str(payload.get('endpoint') or '').strip() if isinstance(payload, dict) else ''
@@ -265,20 +267,9 @@ def _consume_task_exception(task: asyncio.Task) -> None:
         pass
 
 
-def _resolve_current_username(request: Request, cookie_name: str) -> str:
-    return (
-        normalize_username(request.headers.get('X-AK-IM-Username'))
-        or normalize_username(request.cookies.get('ak_im_username'))
-        or normalize_username(request.cookies.get(cookie_name or 'ak_username'))
-    )
-
-
-def _resolve_username(request: Request, cookie_name: str, payload: dict | None = None) -> str:
-    payload_username = payload.get('im_username') if isinstance(payload, dict) else ''
-    return (
-        normalize_username(payload_username)
-        or normalize_username(request.query_params.get('im_username'))
-        or normalize_username(request.headers.get('X-AK-IM-Username'))
-        or normalize_username(request.cookies.get('ak_im_username'))
-        or normalize_username(request.cookies.get(cookie_name or 'ak_username'))
+def _resolve_current_username(request: Request, config: NotifyCenterConfig) -> str:
+    return get_identity_cookie_username(
+        request,
+        cookie_name=config.identity_cookie_name,
+        secret=config.identity_secret,
     )

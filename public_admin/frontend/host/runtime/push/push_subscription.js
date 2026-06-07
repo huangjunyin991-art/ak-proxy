@@ -223,11 +223,9 @@
             method: 'POST',
             credentials: 'same-origin',
             headers: {
-                'Content-Type': 'application/json',
-                'X-AK-IM-Username': imUsername
+                'Content-Type': 'application/json'
             },
             body: JSON.stringify({
-                im_username: imUsername,
                 subscription: subscription.toJSON ? subscription.toJSON() : subscription,
                 platform: navigator.platform || ''
             })
@@ -306,15 +304,13 @@
         var data = subscription.toJSON ? subscription.toJSON() : subscription;
         var endpoint = String(data && data.endpoint || '').trim();
         if (!endpoint) return Promise.resolve(true);
-        var imUsername = String(imUsernameOverride || getIMUsername() || '').trim().toLowerCase();
         return fetch('/api/notify-center/web-push/subscriptions', {
             method: 'DELETE',
             credentials: 'same-origin',
             headers: {
-                'Content-Type': 'application/json',
-                'X-AK-IM-Username': imUsername
+                'Content-Type': 'application/json'
             },
-            body: JSON.stringify({endpoint: endpoint, im_username: imUsername})
+            body: JSON.stringify({endpoint: endpoint})
         }).then(function(resp) {
             return !!(resp && resp.ok);
         }).catch(function() {
