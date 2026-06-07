@@ -9,6 +9,10 @@
     var LOGIN_GOTO_POLL_MS = 50;
     var LOGIN_GOTO_FALLBACK_MS = 800;
     var COOKIE_MAX_AGE = String(86400 * 30);
+    var NTFY_OPEN_TICKET_KEY = 'ak_ntfy_open_ticket';
+    var NTFY_FORCE_LOGIN_KEY = 'ak_ntfy_force_login';
+    var NTFY_TARGET_USERNAME_KEY = 'ak_ntfy_im_username';
+    var NTFY_OPEN_TICKET_TTL_MS = 24 * 60 * 60 * 1000;
 
     function writeEarlyDebug(step, extra) {
         try {
@@ -68,42 +72,60 @@
         return;
     }
 
-    var targetUsername = String(query.get('im_username') || '').trim().toLowerCase();
+    var explicitTargetUsername = String(query.get('im_username') || '').trim().toLowerCase();
+    var targetUsername = explicitTargetUsername;
     var recoveredTarget = null;
-    if (!targetUsername) {
-        recoveredTarget = recoverTargetUsername();
-        if (recoveredTarget && recoveredTarget.username) targetUsername = recoveredTarget.username;
-    }
     var openFlag = String(query.get('ak_im_open') || '').trim().toLowerCase();
     var reasonFlag = String(query.get('reason') || '').trim().toLowerCase();
-    var isOpenRequest = openFlag === '1' || openFlag === 'true';
-    var isForceLoginCleanup = !!targetUsername && !isOpenRequest && (
-        reasonFlag.indexOf('ntfy') !== -1 ||
-        reasonFlag.indexOf('token') !== -1 ||
-        reasonFlag.indexOf('signature') !== -1 ||
-        reasonFlag === 'already_used' ||
-        reasonFlag === 'missing_signature'
+    var isOpenRequest = (openFlag === '1' || openFlag === 'true') && !!targetUsername;
+    var activeOpenTicket = null;
+    var explicitOpenRequest = !!targetUsername && !isLoginPage() && (
+        isOpenRequest ||
+        (queryHasSignedToken() && isLikelyHomeOpen())
     );
-    var hasSignedToken = !!(
-        query.get('im_switch_ts') &&
-        query.get('im_switch_nonce') &&
-        query.get('im_switch_sig')
-    );
+
+    if (isLoginPage() && !explicitOpenRequest) {
+        clearNtfyTransientOpenState('login_page');
+        writeEarlyDebug('skip-login-page-cleanup', {
+            targetUsername: targetUsername,
+            openFlag: openFlag,
+            reasonFlag: reasonFlag,
+            locationSearch: String(window.location.search || ''),
+            loaderReferrer: String(window.__AK_NTFY_LOADER_REFERRER__ || '')
+        });
+        return;
+    }
+
+    if (explicitOpenRequest) {
+        activeOpenTicket = buildOpenTicketFromQuery(targetUsername, 'query');
+        persistOpenTicket(activeOpenTicket);
+    } else if (!targetUsername && isLikelyHomeOpen()) {
+        activeOpenTicket = readUsableOpenTicket();
+        if (activeOpenTicket && activeOpenTicket.username) {
+            targetUsername = activeOpenTicket.username;
+            recoveredTarget = {
+                username: activeOpenTicket.username,
+                source: activeOpenTicket.source || NTFY_OPEN_TICKET_KEY
+            };
+            applyOpenTicketToQuery(activeOpenTicket);
+        }
+    }
     var isRecoveredOpenRequest = !!(
         targetUsername &&
-        !isOpenRequest &&
-        !isForceLoginCleanup &&
+        !explicitOpenRequest &&
         recoveredTarget &&
         recoveredTarget.username &&
         isLikelyHomeOpen()
     );
+    var hasSignedToken = queryHasSignedToken();
 
-    if (!targetUsername || (!isOpenRequest && !isForceLoginCleanup && !isRecoveredOpenRequest)) {
+    if (!targetUsername || (!explicitOpenRequest && !isRecoveredOpenRequest)) {
         writeEarlyDebug('skip-no-ntfy-open-request', {
             targetUsername: targetUsername,
             openFlag: openFlag,
             reasonFlag: reasonFlag,
             recoveredTarget: recoveredTarget || null,
+            explicitOpenRequest: explicitOpenRequest,
             isRecoveredOpenRequest: isRecoveredOpenRequest,
             locationSearch: String(window.location.search || ''),
             loaderReferrer: String(window.__AK_NTFY_LOADER_REFERRER__ || ''),
@@ -279,6 +301,132 @@
         return '';
     }
 
+    function queryHasSignedToken() {
+        try {
+            return !!(
+                query.get('im_switch_ts') &&
+                query.get('im_switch_nonce') &&
+                query.get('im_switch_sig')
+            );
+        } catch (e) {}
+        return false;
+    }
+
+    function removeStorageItem(key) {
+        try { localStorage.removeItem(key); } catch (e) {}
+        try { sessionStorage.removeItem(key); } catch (e2) {}
+    }
+
+    function clearNtfyTransientOpenState(reason) {
+        removeStorageItem(NTFY_OPEN_TICKET_KEY);
+        removeStorageItem(NTFY_FORCE_LOGIN_KEY);
+        try {
+            window.__AK_NTFY_LAST_TICKET_CLEANUP__ = {
+                reason: String(reason || ''),
+                at: Date.now()
+            };
+        } catch (e) {}
+    }
+
+    function normalizeTicketUsername(ticket) {
+        return String(ticket && (ticket.username || ticket.im_username || ticket.targetUsername) || '').trim().toLowerCase();
+    }
+
+    function isOpenTicketExpired(ticket) {
+        var createdAt = Number(ticket && (ticket.createdAt || ticket.at) || 0);
+        if (!createdAt) return true;
+        return Date.now() - createdAt > NTFY_OPEN_TICKET_TTL_MS;
+    }
+
+    function isOpenTicketConsumed(ticket) {
+        return !!(ticket && (ticket.consumed || ticket.consumedAt));
+    }
+
+    function sanitizeOpenTicket(ticket, source) {
+        if (!ticket || typeof ticket !== 'object') return null;
+        var username = normalizeTicketUsername(ticket);
+        if (!username) return null;
+        return {
+            username: username,
+            conversation_id: String(ticket.conversation_id || ticket.conversationId || ''),
+            im_switch_ts: String(ticket.im_switch_ts || ''),
+            im_switch_nonce: String(ticket.im_switch_nonce || ''),
+            im_switch_sig: String(ticket.im_switch_sig || ''),
+            source: String(ticket.source || source || NTFY_OPEN_TICKET_KEY),
+            createdAt: Number(ticket.createdAt || ticket.at || Date.now()),
+            consumedAt: Number(ticket.consumedAt || 0)
+        };
+    }
+
+    function buildOpenTicketFromQuery(username, source) {
+        return sanitizeOpenTicket({
+            username: username,
+            conversation_id: String(query.get('conversation_id') || ''),
+            im_switch_ts: String(query.get('im_switch_ts') || ''),
+            im_switch_nonce: String(query.get('im_switch_nonce') || ''),
+            im_switch_sig: String(query.get('im_switch_sig') || ''),
+            source: source || 'query',
+            createdAt: Date.now()
+        }, source || 'query');
+    }
+
+    function persistOpenTicket(ticket) {
+        ticket = sanitizeOpenTicket(ticket);
+        if (!ticket) return null;
+        var text = JSON.stringify(ticket);
+        writeStorage(sessionStorage, NTFY_OPEN_TICKET_KEY, text);
+        writeStorage(localStorage, NTFY_OPEN_TICKET_KEY, text);
+        return ticket;
+    }
+
+    function readOpenTicketFromStore(store, source) {
+        var parsed = readJsonStorage(store, NTFY_OPEN_TICKET_KEY);
+        return sanitizeOpenTicket(parsed, source);
+    }
+
+    function readUsableOpenTicket() {
+        var stores = [
+            { store: sessionStorage, source: 'session_ticket' },
+            { store: localStorage, source: 'local_ticket' }
+        ];
+        for (var i = 0; i < stores.length; i++) {
+            var ticket = readOpenTicketFromStore(stores[i].store, stores[i].source);
+            if (!ticket) continue;
+            if (isOpenTicketConsumed(ticket) || isOpenTicketExpired(ticket)) {
+                clearNtfyTransientOpenState(isOpenTicketExpired(ticket) ? 'ticket_expired' : 'ticket_consumed');
+                return null;
+            }
+            return ticket;
+        }
+        return null;
+    }
+
+    function applyOpenTicketToQuery(ticket) {
+        ticket = sanitizeOpenTicket(ticket);
+        if (!ticket) return false;
+        try {
+            query.set('im_username', ticket.username);
+            query.set('ak_im_open', '1');
+            if (ticket.conversation_id) query.set('conversation_id', ticket.conversation_id);
+            if (ticket.im_switch_ts) query.set('im_switch_ts', ticket.im_switch_ts);
+            if (ticket.im_switch_nonce) query.set('im_switch_nonce', ticket.im_switch_nonce);
+            if (ticket.im_switch_sig) query.set('im_switch_sig', ticket.im_switch_sig);
+            return true;
+        } catch (e) {}
+        return false;
+    }
+
+    function consumeOpenTicket(reason) {
+        clearNtfyTransientOpenState(reason || 'ticket_consumed');
+        try {
+            window.__AK_NTFY_OPEN_TICKET_CONSUMED__ = {
+                username: targetUsername,
+                reason: String(reason || ''),
+                at: Date.now()
+            };
+        } catch (e) {}
+    }
+
     function isLikelyHomeOpen() {
         try {
             var pathname = String(window.location.pathname || '').toLowerCase();
@@ -290,60 +438,6 @@
             return refFirst === 'true' || refFirst === '1';
         } catch (e) {}
         return false;
-    }
-
-    function readStoredNtfyUsername() {
-        try {
-            var keys = ['ak_ntfy_im_username'];
-            var stores = [sessionStorage, localStorage];
-            for (var si = 0; si < stores.length; si++) {
-                for (var i = 0; i < keys.length; i++) {
-                    var value = String(stores[si].getItem(keys[i]) || '').trim().toLowerCase();
-                    if (value) return { username: value, source: keys[i] };
-                }
-            }
-        } catch (e) {}
-        return null;
-    }
-
-    function readForceLoginUsername() {
-        try {
-            var stores = [sessionStorage, localStorage];
-            for (var si = 0; si < stores.length; si++) {
-                var parsed = readJsonStorage(stores[si], 'ak_ntfy_force_login');
-                var username = String(parsed && (parsed.im_username || parsed.username || parsed.targetUsername) || '').trim().toLowerCase();
-                if (username) return { username: username, source: 'ak_ntfy_force_login' };
-            }
-        } catch (e) {}
-        return null;
-    }
-
-    function readSingleSyncKeyUsername() {
-        try {
-            var found = '';
-            for (var i = localStorage.length - 1; i >= 0; i--) {
-                var key = String(localStorage.key(i) || '');
-                if (key.indexOf('ak_im_sync_key_') !== 0) continue;
-                var username = key.slice('ak_im_sync_key_'.length).trim().toLowerCase();
-                if (!username) continue;
-                if (found && found !== username) return null;
-                found = username;
-            }
-            return found ? { username: found, source: 'ak_im_sync_key' } : null;
-        } catch (e) {}
-        return null;
-    }
-
-    function recoverTargetUsername() {
-        var candidates = [
-            readStoredNtfyUsername(),
-            readForceLoginUsername(),
-            readSingleSyncKeyUsername()
-        ];
-        for (var i = 0; i < candidates.length; i++) {
-            if (candidates[i] && candidates[i].username) return candidates[i];
-        }
-        return null;
     }
 
     function readMainLoginUsername() {
@@ -435,8 +529,9 @@
             'ak_login_result',
             'UserData',
             'AK_local_login_info',
-            'ak_ntfy_im_username',
-            'ak_ntfy_force_login',
+            NTFY_TARGET_USERNAME_KEY,
+            NTFY_FORCE_LOGIN_KEY,
+            NTFY_OPEN_TICKET_KEY,
             'ak_im_sync_key_' + targetUsername
         ];
         for (var i = 0; i < storageKeys.length; i++) {
@@ -545,13 +640,7 @@
             reason: String(reason || 'ntfy_token_invalid')
         });
         debug('token-failure-redirect-login', { reason: String(reason || ''), currentUsername: readCurrentUsername() });
-        try {
-            sessionStorage.setItem('ak_ntfy_force_login', JSON.stringify({
-                im_username: targetUsername,
-                reason: String(reason || 'ntfy_token_invalid'),
-                at: Date.now()
-            }));
-        } catch (e2) {}
+        consumeOpenTicket(reason || 'ntfy_token_invalid');
         scheduleNativeGotoLogin(reason || 'ntfy_token_invalid', loginUrl);
     }
 
@@ -572,7 +661,7 @@
             hasLoginState: hasLoginState,
             terminalTokenFailure: terminalTokenFailure
         });
-        if (mainLoginUsername && mainLoginUsername === targetUsername && hasLoginState) return false;
+        if (currentUsername && currentUsername === targetUsername && hasLoginState) return false;
         clearAkLoginStateForRelogin();
         redirectToLoginForTokenFailure(terminalTokenFailure ? (reason || 'ntfy_token_invalid') : 'ntfy_switch_failed');
         return true;
@@ -648,10 +737,10 @@
         writeStorage(localStorage, 'ak_login_result', loginResultText);
         writeStorage(localStorage, 'UserData', userDataText);
         writeStorage(localStorage, 'ak_im_sync_key_' + targetUsername, model.Key);
-        writeStorage(localStorage, 'ak_ntfy_im_username', targetUsername);
+        writeStorage(localStorage, NTFY_TARGET_USERNAME_KEY, targetUsername);
         writeStorage(sessionStorage, 'ak_login_result', loginResultText);
         writeStorage(sessionStorage, 'UserData', userDataText);
-        writeStorage(sessionStorage, 'ak_ntfy_im_username', targetUsername);
+        writeStorage(sessionStorage, NTFY_TARGET_USERNAME_KEY, targetUsername);
         setCookie('ak_username', targetUsername);
         setCookie('ak_im_username', targetUsername);
         refreshAppModel();
@@ -695,6 +784,7 @@
         if (maybeRedirectToLoginOnSwitchFailure(switchResult)) {
             switchResult.redirecting = true;
         }
+        consumeOpenTicket(switchResult.reason || (switchResult.synced ? 'silent_login_ok' : 'switch_finished'));
         updateLock({
             pending: false,
             active: !!switchResult.synced,
@@ -718,8 +808,8 @@
             startedAt: Date.now()
         });
         try {
-            sessionStorage.setItem('ak_ntfy_im_username', targetUsername);
-            localStorage.setItem('ak_ntfy_im_username', targetUsername);
+            sessionStorage.setItem(NTFY_TARGET_USERNAME_KEY, targetUsername);
+            localStorage.setItem(NTFY_TARGET_USERNAME_KEY, targetUsername);
         } catch (e) {}
         if (!hasSignedToken) {
             debug('api-missing-signature', {});
@@ -932,27 +1022,6 @@
         options = options || {};
         return waitWithTimeout(startSwitch(), Number(options.timeoutMs || 0) || MAX_RUNTIME_WAIT_MS);
     };
-
-    if (isForceLoginCleanup) {
-        clearAkLoginStateForRelogin();
-        updateLock({
-            active: false,
-            pending: false,
-            synced: false,
-            failed: true,
-            cleanupOnly: true,
-            reason: reasonFlag || 'ntfy_force_login'
-        });
-        debug('force-login-cleanup-only', {
-            reason: reasonFlag || '',
-            currentUsername: readCurrentUsername(),
-            hasLoginState: hasAkLoginState()
-        });
-        if (!isLoginPage()) {
-            redirectToLoginForTokenFailure(reasonFlag || 'ntfy_force_login');
-        }
-        return;
-    }
 
     updateLock({ active: true, pending: true, synced: false, failed: false, startedAt: Date.now() });
     installHomeSyncHook();
