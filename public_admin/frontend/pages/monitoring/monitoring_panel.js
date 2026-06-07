@@ -185,8 +185,8 @@
             '</div>' +
             '</div>' +
             '<div class="monitoring-alert" id="monitoringAlert"></div>' +
-            '<div class="monitoring-grid" id="monitoringCards"></div>' +
             '<div class="monitoring-section"><div class="monitoring-section-header"><h4>服务器负载</h4><span class="monitoring-meta" id="monitoringSystemMeta">-</span></div><div class="monitoring-donuts" id="monitoringSystemDonuts"></div><div class="monitoring-bars" id="monitoringSystemBars"></div></div>' +
+            '<div class="monitoring-grid" id="monitoringCards"></div>' +
             '<div class="monitoring-section"><div class="monitoring-section-header"><h4>聊天统计</h4><span class="monitoring-meta" id="monitoringChatMeta">-</span></div><div class="monitoring-grid" id="monitoringChatCards"></div><div class="monitoring-bars" id="monitoringTypeBars" style="margin-top:14px;"></div></div>' +
             '<div class="monitoring-section"><div class="monitoring-section-header"><h4>数据库表占用</h4><span class="monitoring-meta" id="monitoringDbMeta">-</span></div><div class="monitoring-bars" id="monitoringDbBars"></div></div>' +
             '<div class="monitoring-section"><div class="monitoring-section-header"><h4>文件资源 Top</h4><span class="monitoring-meta" id="monitoringFileAssetMeta">按 active 文件大小倒序；删除后聊天消息保留，附件显示失效</span></div><div class="monitoring-table-wrap"><table class="monitoring-table"><thead><tr><th>文件名</th><th>类型</th><th>大小</th><th>状态</th><th>引用消息</th><th>过期时间</th><th>创建时间</th><th>storage_name</th><th>操作</th></tr></thead><tbody id="monitoringFileAssetRows"></tbody></table></div></div>' +
