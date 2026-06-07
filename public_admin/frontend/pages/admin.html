@@ -7061,10 +7061,9 @@
             if (window.AKPollingRegistry) {
                 window.AKPollingRegistry.startOwner('panel:online');
                 window.AKPollingRegistry.requestTopic('online.users');
-                return;
             }
             _onlineUsersRefreshTimer = setInterval(() => {
-                if (shouldRunAdminPanelPoll('online')) loadOnlineUsers();
+                if (shouldRunAdminPanelPoll('online')) loadOnlineUsers({ force: true });
             }, ONLINE_REFRESH_INTERVAL);
         }
 
@@ -8312,9 +8311,8 @@
             if (panelName === 'online') {
                 if (window.AKPollingRegistry) {
                     window.AKPollingRegistry.requestTopic('online.users');
-                } else {
-                    loadOnlineUsers();
                 }
+                loadOnlineUsers({ force: true });
                 startOnlineUsersAutoRefresh();
             } else {
                 stopOnlineUsersAutoRefresh();
