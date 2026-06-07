@@ -17,9 +17,11 @@
             chat: null,
             groups: null,
             fileAssets: null,
-            staticCache: null
+            staticCache: null,
+            runtimeHygiene: null
         },
-        loadingStaticCache: false
+        loadingStaticCache: false,
+        loadingRuntimeHygiene: false
     };
 
     function token() {
@@ -75,6 +77,14 @@
         if (days > 0) return days + '天 ' + hours + '小时';
         if (hours > 0) return hours + '小时 ' + minutes + '分钟';
         return minutes + '分钟';
+    }
+
+    function formatSeconds(value) {
+        var total = Math.max(0, Math.round(Number(value || 0)));
+        if (total >= 86400) return Math.round(total / 86400 * 10) / 10 + '天';
+        if (total >= 3600) return Math.round(total / 3600 * 10) / 10 + '小时';
+        if (total >= 60) return Math.round(total / 60 * 10) / 10 + '分钟';
+        return total + '秒';
     }
 
     function secondsToDays(value) {
@@ -134,7 +144,7 @@
         if (document.querySelector('link[data-monitoring-panel-css="1"]')) return;
         var link = document.createElement('link');
         link.rel = 'stylesheet';
-        link.href = '/admin/api/monitoring-panel.css?v=20260524-01';
+        link.href = '/admin/api/monitoring-panel.css?v=20260607-01';
         link.setAttribute('data-monitoring-panel-css', '1');
         document.head.appendChild(link);
     }
@@ -167,7 +177,7 @@
         if (!el) return;
         el.innerHTML = '<div class="monitoring-root">' +
             '<div class="monitoring-header">' +
-            '<div class="monitoring-title"><h3>监控中心</h3><p>低成本健康状态 5 秒刷新，高成本统计 1 小时刷新；高负载时优先保护正常业务。</p></div>' +
+            '<div class="monitoring-title"><h3>性能监控</h3><p>低成本健康状态 5 秒刷新，高成本统计 1 小时刷新；高负载时优先保护正常业务。</p></div>' +
             '<div class="monitoring-actions">' +
             '<select class="monitoring-select" id="monitoringRange"><option value="24h">24小时</option><option value="7d" selected>7天</option><option value="30d">30天</option></select>' +
             '<button class="monitoring-btn" id="monitoringRefreshLight">刷新状态</button>' +
@@ -175,6 +185,30 @@
             '</div>' +
             '</div>' +
             '<div class="monitoring-alert" id="monitoringAlert"></div>' +
+            '<div class="monitoring-section monitoring-runtime-section">' +
+            '<div class="monitoring-section-header"><h4>运行时维护</h4><span class="monitoring-meta" id="monitoringRuntimeMeta">读取中...</span></div>' +
+            '<div class="monitoring-grid" id="monitoringRuntimeCards"></div>' +
+            '<div class="monitoring-cache-grid monitoring-runtime-policy-grid">' +
+            '<label class="monitoring-switch-card"><input id="runtimeHygieneEnabled" type="checkbox"><span class="monitoring-switch-control"></span><span class="monitoring-switch-copy"><strong>启用自动维护</strong><small>周期清理过期缓存和空闲连接</small></span></label>' +
+            '<label class="monitoring-switch-card"><input id="runtimeCleanupBrowseSessions" type="checkbox"><span class="monitoring-switch-control"></span><span class="monitoring-switch-copy"><strong>清理浏览会话</strong><small>移除过期 AK 页面会话</small></span></label>' +
+            '<label class="monitoring-switch-card"><input id="runtimeCleanupAkAuthCache" type="checkbox"><span class="monitoring-switch-control"></span><span class="monitoring-switch-copy"><strong>清理 AK 登录缓存</strong><small>移除过期登录态缓存</small></span></label>' +
+            '<label class="monitoring-switch-card"><input id="runtimeCleanupStaticLocks" type="checkbox"><span class="monitoring-switch-control"></span><span class="monitoring-switch-copy"><strong>清理静态资源锁</strong><small>释放无请求占用的缓存锁</small></span></label>' +
+            '<label><span>维护周期（秒）</span><input class="monitoring-input" id="runtimeCleanupInterval" type="number" min="5" step="5"></label>' +
+            '<label><span>AK 代理连接最大寿命（秒）</span><input class="monitoring-input" id="runtimeAkClientMaxAge" type="number" min="60" step="30"></label>' +
+            '<label><span>AK 代理连接最大请求数</span><input class="monitoring-input" id="runtimeAkClientMaxRequests" type="number" min="10" step="10"></label>' +
+            '<label><span>AK 代理连接空闲释放（秒）</span><input class="monitoring-input" id="runtimeAkClientIdle" type="number" min="30" step="30"></label>' +
+            '<label><span>出口连接最大寿命（秒）</span><input class="monitoring-input" id="runtimeOutboundClientMaxAge" type="number" min="60" step="30"></label>' +
+            '<label><span>出口连接最大请求数</span><input class="monitoring-input" id="runtimeOutboundClientMaxRequests" type="number" min="10" step="10"></label>' +
+            '<label><span>出口连接空闲释放（秒）</span><input class="monitoring-input" id="runtimeOutboundClientIdle" type="number" min="30" step="30"></label>' +
+            '</div>' +
+            '<div class="monitoring-cache-actions monitoring-runtime-actions">' +
+            '<button class="monitoring-btn primary" data-monitoring-action="save-runtime-hygiene">保存运行时配置</button>' +
+            '<button class="monitoring-btn" data-monitoring-action="run-runtime-hygiene-once">立即清理一次</button>' +
+            '<button class="monitoring-btn" data-monitoring-action="refresh-runtime-hygiene">刷新运行态</button>' +
+            '<span class="monitoring-meta">连接池状态属于性能监控，保存后立即应用到当前进程。</span>' +
+            '</div>' +
+            '<div class="monitoring-table-wrap monitoring-runtime-table-wrap"><table class="monitoring-table"><thead><tr><th>连接池</th><th>节点</th><th>状态</th><th>年龄</th><th>空闲</th><th>请求</th><th>换新次数</th><th>最近原因</th></tr></thead><tbody id="monitoringRuntimeClientRows"></tbody></table></div>' +
+            '</div>' +
             '<div class="monitoring-section monitoring-cache-section">' +
             '<div class="monitoring-section-header"><h4>K937 静态资源缓存策略</h4><span class="monitoring-meta" id="monitoringStaticCacheMeta">读取中...</span></div>' +
             '<div class="monitoring-cache-grid">' +
@@ -213,6 +247,12 @@
                 saveStaticCachePolicy();
             } else if (action === 'refresh-static-cache-upstream') {
                 refreshStaticCacheUpstream();
+            } else if (action === 'save-runtime-hygiene') {
+                saveRuntimeHygienePolicy();
+            } else if (action === 'run-runtime-hygiene-once') {
+                runRuntimeHygieneOnce();
+            } else if (action === 'refresh-runtime-hygiene') {
+                loadRuntimeHygiene(true);
             }
         });
         document.getElementById('monitoringRange').addEventListener('change', function() {
@@ -398,6 +438,7 @@
         var groupMeta = document.getElementById('monitoringGroupMeta');
         if (groupMeta) setTextIfChanged(groupMeta, (groups.cache && groups.cache.hit ? '缓存 ' + groups.cache.age_seconds + ' 秒；' : '') + '文件占用为消息载荷估算口径');
         renderAlert();
+        renderRuntimeHygiene();
         renderStaticCachePolicy();
     }
 
@@ -409,6 +450,104 @@
     function inputNumber(id) {
         var el = document.getElementById(id);
         return Number(el && el.value || 0);
+    }
+
+    function inputChecked(id) {
+        var el = document.getElementById(id);
+        return !!(el && el.checked);
+    }
+
+    function setChecked(id, value) {
+        var el = document.getElementById(id);
+        if (el && document.activeElement !== el) el.checked = !!value;
+    }
+
+    function runtimePolicyEditing() {
+        var grid = document.querySelector('.monitoring-runtime-policy-grid');
+        return !!(grid && document.activeElement && grid.contains(document.activeElement));
+    }
+
+    function renderRuntimeClientRows(item) {
+        var rows = [];
+        var akPool = item.ak_web_client_pool || {};
+        (akPool.clients || []).forEach(function(client) {
+            rows.push({
+                pool: 'AK 网页代理',
+                name: client.key || '-',
+                client: client
+            });
+        });
+        var dispatcher = item.dispatcher || {};
+        (dispatcher.exits || []).forEach(function(exit) {
+            rows.push({
+                pool: '出口调度',
+                name: (exit.type === 'direct' ? '直连' : exit.name || '-') + (exit.proxy ? ' · ' + exit.proxy : ''),
+                client: exit.client || {}
+            });
+        });
+        if (!rows.length) return '<tr><td colspan="8"><div class="monitoring-empty">暂无连接池条目</div></td></tr>';
+        return rows.map(function(row) {
+            var c = row.client || {};
+            var open = !!c.open;
+            return '<tr>' +
+                '<td>' + escapeHtml(row.pool) + '</td>' +
+                '<td>' + escapeHtml(row.name) + '</td>' +
+                '<td><span style="color:' + (open ? '#00ff88' : 'var(--text-secondary)') + '">' + (open ? '打开' : '关闭') + '</span></td>' +
+                '<td>' + escapeHtml(formatSeconds(c.age_seconds)) + '</td>' +
+                '<td>' + escapeHtml(formatSeconds(c.idle_seconds)) + '</td>' +
+                '<td>' + formatNumber(c.request_count) + '</td>' +
+                '<td>' + formatNumber(c.retire_count) + '</td>' +
+                '<td>' + escapeHtml(c.last_retire_reason || '-') + '</td>' +
+                '</tr>';
+        }).join('');
+    }
+
+    function renderRuntimeHygiene() {
+        var item = state.data.runtimeHygiene || {};
+        var policy = item.policy || {};
+        if (!runtimePolicyEditing()) {
+            setChecked('runtimeHygieneEnabled', policy.enabled !== false);
+            setChecked('runtimeCleanupBrowseSessions', policy.cleanup_browse_sessions_enabled !== false);
+            setChecked('runtimeCleanupAkAuthCache', policy.cleanup_ak_auth_cache_enabled !== false);
+            setChecked('runtimeCleanupStaticLocks', policy.cleanup_static_cache_locks_enabled !== false);
+            setInputValue('runtimeCleanupInterval', policy.cleanup_interval_seconds || 300);
+            setInputValue('runtimeAkClientMaxAge', policy.ak_web_client_max_age_seconds || 900);
+            setInputValue('runtimeAkClientMaxRequests', policy.ak_web_client_max_requests || 800);
+            setInputValue('runtimeAkClientIdle', policy.ak_web_client_idle_seconds || 300);
+            setInputValue('runtimeOutboundClientMaxAge', policy.outbound_client_max_age_seconds || 900);
+            setInputValue('runtimeOutboundClientMaxRequests', policy.outbound_client_max_requests || 800);
+            setInputValue('runtimeOutboundClientIdle', policy.outbound_client_idle_seconds || 300);
+        }
+
+        var service = item.service || {};
+        var akPool = item.ak_web_client_pool || {};
+        var dispatcher = item.dispatcher || {};
+        var exits = dispatcher.exits || [];
+        var dispatcherOpen = exits.reduce(function(total, ex) {
+            return total + ((ex.client && ex.client.open) ? 1 : 0);
+        }, 0);
+        var browse = item.browse_sessions || {};
+        var auth = item.ak_auth_cache || {};
+        var staticCache = item.static_resource_cache || {};
+        var cards = document.getElementById('monitoringRuntimeCards');
+        if (cards) {
+            setHtmlIfChanged(cards,
+                renderCard('维护任务', service.running ? '运行中' : (policy.enabled === false ? '已关闭' : '未运行'), '周期 ' + formatSeconds(policy.cleanup_interval_seconds || 0) + '；执行 ' + formatNumber(service.run_count) + ' 次') +
+                renderCard('AK 代理连接池', formatNumber(akPool.open_clients) + ' 打开', '跟踪 ' + formatNumber(akPool.tracked_clients) + '；换新 ' + formatNumber(akPool.retire_count)) +
+                renderCard('出口连接池', formatNumber(dispatcherOpen) + ' 打开', '出口 ' + formatNumber(exits.length) + '；活跃 ' + formatNumber(dispatcher.total_active)) +
+                renderCard('浏览会话缓存', formatNumber(browse.count), '过期待清理 ' + formatNumber(browse.expired_count) + '；已验证 ' + formatNumber(browse.validated_count)) +
+                renderCard('AK 登录缓存', formatNumber(auth.count), '过期待清理 ' + formatNumber(auth.expired_count)) +
+                renderCard('静态资源锁', formatNumber(staticCache.lock_count), '上次清理剩余 ' + formatNumber((staticCache.last_lock_cleanup || {}).remaining))
+            );
+        }
+        var meta = document.getElementById('monitoringRuntimeMeta');
+        if (meta) {
+            var lastText = service.last_finished_at ? '上次清理 ' + formatTime(service.last_finished_at * 1000) : '尚未执行清理';
+            var errText = service.last_error ? ' · 最近错误: ' + service.last_error : '';
+            setTextIfChanged(meta, lastText + errText);
+        }
+        var rows = document.getElementById('monitoringRuntimeClientRows');
+        if (rows) setHtmlIfChanged(rows, renderRuntimeClientRows(item));
     }
 
     function renderStaticCachePolicy() {
@@ -437,6 +576,55 @@
             notify(err && err.message || '静态资源缓存策略读取失败', 'error');
         }).finally(function() {
             state.loadingStaticCache = false;
+        });
+    }
+
+    function loadRuntimeHygiene(force) {
+        if (!state.active || state.loadingRuntimeHygiene) return Promise.resolve();
+        state.loadingRuntimeHygiene = true;
+        return api('/runtime-hygiene', force ? { force: '1' } : {}).then(function(body) {
+            state.data.runtimeHygiene = body.item || {};
+            renderRuntimeHygiene();
+        }).catch(function(err) {
+            notify(err && err.message || '运行时维护状态读取失败', 'error');
+        }).finally(function() {
+            state.loadingRuntimeHygiene = false;
+        });
+    }
+
+    function collectRuntimeHygienePolicy() {
+        return {
+            enabled: inputChecked('runtimeHygieneEnabled'),
+            cleanup_browse_sessions_enabled: inputChecked('runtimeCleanupBrowseSessions'),
+            cleanup_ak_auth_cache_enabled: inputChecked('runtimeCleanupAkAuthCache'),
+            cleanup_static_cache_locks_enabled: inputChecked('runtimeCleanupStaticLocks'),
+            cleanup_interval_seconds: inputNumber('runtimeCleanupInterval'),
+            ak_web_client_max_age_seconds: inputNumber('runtimeAkClientMaxAge'),
+            ak_web_client_max_requests: inputNumber('runtimeAkClientMaxRequests'),
+            ak_web_client_idle_seconds: inputNumber('runtimeAkClientIdle'),
+            outbound_client_max_age_seconds: inputNumber('runtimeOutboundClientMaxAge'),
+            outbound_client_max_requests: inputNumber('runtimeOutboundClientMaxRequests'),
+            outbound_client_idle_seconds: inputNumber('runtimeOutboundClientIdle')
+        };
+    }
+
+    function saveRuntimeHygienePolicy() {
+        apiPost('/runtime-hygiene/config', collectRuntimeHygienePolicy()).then(function(body) {
+            state.data.runtimeHygiene = body.item || {};
+            renderRuntimeHygiene();
+            notify('运行时维护配置已保存并应用', 'success');
+        }).catch(function(err) {
+            notify(err && err.message || '运行时维护配置保存失败', 'error');
+        });
+    }
+
+    function runRuntimeHygieneOnce() {
+        apiPost('/runtime-hygiene/run-once', {}).then(function(body) {
+            state.data.runtimeHygiene = body.item || {};
+            renderRuntimeHygiene();
+            notify('运行时维护已执行一次', 'success');
+        }).catch(function(err) {
+            notify(err && err.message || '运行时维护执行失败', 'error');
         });
     }
 
@@ -564,8 +752,12 @@
         if (!state.initialized) init();
         loadOverview(false);
         loadStaticCachePolicy();
+        loadRuntimeHygiene(false);
         stopTimers();
-        state.lightTimer = setInterval(function() { loadLight(false); }, 5000);
+        state.lightTimer = setInterval(function() {
+            loadLight(false);
+            loadRuntimeHygiene(false);
+        }, 5000);
         state.heavyTimer = setInterval(function() { loadHeavy(false); }, 3600000);
     }
 

@@ -33,7 +33,7 @@ def create_monitoring_router(
         if not token or not await verify_admin_token(token):
             return None, JSONResponse(status_code=401, content={"error": True, "message": "未授权"})
         if get_token_role(token) != super_admin_role:
-            return None, JSONResponse(status_code=403, content={"error": True, "message": "仅系统总管理员可查看监控中心"})
+            return None, JSONResponse(status_code=403, content={"error": True, "message": "仅系统总管理员可查看性能监控"})
         return token, None
 
     def static_cache_service():

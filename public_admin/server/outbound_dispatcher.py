@@ -22,6 +22,8 @@ from typing import Optional
 
 import httpx
 
+from .runtime_hygiene import RuntimeHygienePolicy
+
 try:
     from .dispatcher_policy import (
         DispatcherPolicyConfig,
@@ -55,9 +57,10 @@ class OutboundExit:
                  '_inflight_logins', '_frozen_until', '_frozen_reason', '_connect_failures', '_ip_detect_failures',
                  'ip_detect_checked_at', 'ip_detect_last_error',
                  'latency_ms', 'latency_checked_at', 'latency_probe_failures', 'latency_probe_error', 'latency_probing',
-                 '_client', '_client_lock')
+                 '_client', '_client_lock', '_client_policy', '_client_created_at', '_client_last_used_at',
+                 '_client_request_count', '_client_generation', '_client_retire_count', '_client_last_retire_reason')
 
-    def __init__(self, name: str, proxy_url: Optional[str] = None):
+    def __init__(self, name: str, proxy_url: Optional[str] = None, client_policy: RuntimeHygienePolicy | None = None):
         self.name = name
         self.proxy_url = proxy_url  # None=直连, "socks5://127.0.0.1:port"=隧道
         self.healthy = True   # 默认乐观在线，首次健康检查后修正
@@ -89,6 +92,13 @@ class OutboundExit:
         self.latency_probing: bool = False
         self._client: Optional[httpx.AsyncClient] = None   # 持久连接池
         self._client_lock = asyncio.Lock()                 # 保护 client 创建
+        self._client_policy = client_policy or RuntimeHygienePolicy()
+        self._client_created_at = 0.0
+        self._client_last_used_at = 0.0
+        self._client_request_count = 0
+        self._client_generation = 0
+        self._client_retire_count = 0
+        self._client_last_retire_reason = ""
 
     @property
     def is_direct(self) -> bool:
@@ -238,17 +248,16 @@ class OutboundExit:
 
     async def get_client(self) -> httpx.AsyncClient:
         """获取或创建持久 httpx.AsyncClient（带连接池，复用TCP连接）"""
-        if self._client and not self._client.is_closed:
+        now = time.time()
+        if self._client and not self._client.is_closed and not self._client_retire_reason(now):
+            self._mark_client_used(now)
             return self._client
         async with self._client_lock:
-            if self._client and not self._client.is_closed:
+            now = time.time()
+            if self._client and not self._client.is_closed and not self._client_retire_reason(now):
+                self._mark_client_used(now)
                 return self._client
-            # 关闭旧的
-            if self._client:
-                try:
-                    await self._client.aclose()
-                except Exception:
-                    pass
+            await self._close_client_locked(self._client_retire_reason(now) or "recreate")
             limits = httpx.Limits(
                 max_connections=40,
                 max_keepalive_connections=20,
@@ -262,16 +271,74 @@ class OutboundExit:
                 trust_env=False,
                 http2=False,  # SOCKS5 代理不支持 h2
             )
+            self._client_created_at = now
+            self._client_last_used_at = now
+            self._client_request_count = 1
+            self._client_generation += 1
+            self._client_last_retire_reason = ""
             return self._client
 
-    async def close_client(self):
-        """关闭持久 client"""
-        if self._client and not self._client.is_closed:
+    def _mark_client_used(self, now: float) -> None:
+        self._client_last_used_at = now
+        self._client_request_count += 1
+
+    def _client_retire_reason(self, now: float) -> str:
+        if not self._client or self._client.is_closed:
+            return ""
+        policy = self._client_policy
+        if policy.outbound_client_max_age_seconds > 0 and self._client_created_at:
+            if now - self._client_created_at >= policy.outbound_client_max_age_seconds:
+                return "max_age"
+        if policy.outbound_client_max_requests > 0 and self._client_request_count >= policy.outbound_client_max_requests:
+            return "max_requests"
+        if policy.outbound_client_idle_seconds > 0 and self._client_last_used_at:
+            if now - self._client_last_used_at >= policy.outbound_client_idle_seconds:
+                return "idle"
+        return ""
+
+    async def _close_client_locked(self, reason: str = "closed") -> bool:
+        client = self._client
+        self._client = None
+        if client and not client.is_closed:
             try:
-                await self._client.aclose()
+                await client.aclose()
             except Exception:
                 pass
-        self._client = None
+            self._client_retire_count += 1
+            self._client_last_retire_reason = reason
+            return True
+        return False
+
+    async def close_client(self, reason: str = "closed"):
+        """关闭持久 client"""
+        async with self._client_lock:
+            await self._close_client_locked(reason)
+
+    async def cleanup_idle_client(self) -> bool:
+        async with self._client_lock:
+            if not self._client or self._client.is_closed:
+                return False
+            reason = self._client_retire_reason(time.time())
+            if reason != "idle":
+                return False
+            return await self._close_client_locked(reason)
+
+    def update_client_policy(self, policy: RuntimeHygienePolicy) -> None:
+        self._client_policy = policy
+
+    def client_snapshot(self) -> dict:
+        now = time.time()
+        return {
+            "open": bool(self._client and not self._client.is_closed),
+            "created_at": self._client_created_at,
+            "last_used_at": self._client_last_used_at,
+            "age_seconds": round(now - self._client_created_at, 1) if self._client_created_at else 0,
+            "idle_seconds": round(now - self._client_last_used_at, 1) if self._client_last_used_at else 0,
+            "request_count": self._client_request_count,
+            "generation": self._client_generation,
+            "retire_count": self._client_retire_count,
+            "last_retire_reason": self._client_last_retire_reason,
+        }
 
     def record_error(self, msg: str = ""):
         self.errors += 1
@@ -296,8 +363,9 @@ class OutboundDispatcher:
     DEDICATED_FAST_RPC_PATHS = {"public_ace", "public_ep_sellrecords1", "public_indexdata"}
 
     def __init__(self):
+        self.client_policy = RuntimeHygienePolicy()
         self.exits: list[OutboundExit] = [
-            OutboundExit("direct", None),
+            OutboundExit("direct", None, self.client_policy),
         ]
         self._health_task: Optional[asyncio.Task] = None
         self._latency_probe_task: Optional[asyncio.Task] = None
@@ -330,7 +398,7 @@ class OutboundDispatcher:
     def add_socks5(self, name: str, port: int) -> int:
         """添加一个 sing-box SOCKS5 出口，返回索引"""
         proxy_url = f"socks5://127.0.0.1:{port}"
-        self.exits.append(OutboundExit(name, proxy_url))
+        self.exits.append(OutboundExit(name, proxy_url, self.client_policy))
         idx = len(self.exits) - 1
         logger.info(f"[Dispatcher] 添加出口 #{idx}: {name} -> :{port}")
         self._ensure_health_check_started()
@@ -713,6 +781,7 @@ class OutboundDispatcher:
             except Exception as e:
                 last_error = e
                 current_exit.record_error(str(e))
+                await current_exit.close_client("request_error")
                 if not current_exit.is_direct:
                     current_exit.freeze_for_connect_error(str(e))
                 if attempt_index + 1 < len(attempts):
@@ -1033,6 +1102,7 @@ class OutboundDispatcher:
                     "latency_probe_failures": ex.latency_probe_failures,
                     "latency_probe_error": ex.latency_probe_error,
                     "latency_probing": ex.latency_probing,
+                    "client": ex.client_snapshot(),
                 })
 
             healthy_count = sum(1 for ex in self.exits if ex.healthy)
@@ -1043,6 +1113,7 @@ class OutboundDispatcher:
                 "total_active": total_active,
                 "max_login_per_min": self.MAX_LOGIN_PER_MIN,
                 "policy": self.policy_config.to_dict() if self.policy_config is not None else {},
+                "client_policy": self.client_policy.to_dict(),
                 "exits": exits_info,
             }
         except Exception as e:
@@ -1081,6 +1152,21 @@ class OutboundDispatcher:
                 f"latency_enabled {old_enabled} -> {self.policy_config.latency_strategy_enabled}"
             )
         return ok
+
+    def set_client_policy(self, policy: RuntimeHygienePolicy) -> None:
+        self.client_policy = policy
+        for ex in self.exits:
+            ex.update_client_policy(policy)
+
+    async def cleanup_idle_clients(self) -> int:
+        removed = 0
+        for ex in list(self.exits):
+            try:
+                if await ex.cleanup_idle_client():
+                    removed += 1
+            except Exception as exc:
+                logger.debug("[Dispatcher] cleanup idle client failed for %s: %s", ex.name, exc)
+        return removed
 
     def get_exit_logs(self, index: int) -> list[dict]:
         """获取指定出口的错误日志"""

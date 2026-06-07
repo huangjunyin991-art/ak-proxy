@@ -183,6 +183,7 @@ from .runtime_performance import (
     start_event_loop_probe,
     stop_event_loop_probe,
 )
+from .runtime_hygiene import RuntimeHygieneConfigService, RuntimeHygienePolicy, RuntimeHygieneService
 from .performance.cache.admin_stats_cache import AdminStatsCache
 from .performance.db_indexes.admin_index_plan import get_admin_index_plan
 from .performance.dispatcher_status.service import DispatcherStatusService
@@ -3434,12 +3435,62 @@ async def admin_performance_runtime(request: Request):
     if error_response is not None:
         return error_response
 
+    runtime_hygiene = {}
+    try:
+        await _ensure_runtime_hygiene_ready()
+        runtime_hygiene = _build_runtime_hygiene_snapshot()
+    except Exception as exc:
+        runtime_hygiene = {"error": str(exc)}
+
     return {
         "success": True,
         "event_loop": get_event_loop_probe_snapshot(),
         "blocking_io": get_blocking_runner_snapshot(),
         "db_pool": db.get_pool_info(),
+        "runtime_hygiene": runtime_hygiene,
     }
+
+
+@app.get("/admin/api/monitoring/runtime-hygiene")
+async def admin_monitoring_runtime_hygiene(request: Request):
+    _, error_response = await _require_admin_token(request, super_admin_only=True)
+    if error_response is not None:
+        return error_response
+    try:
+        await _ensure_runtime_hygiene_ready()
+        payload = await _runtime_hygiene_config_service.get_policy_payload()
+        return {"success": True, "item": _build_runtime_hygiene_snapshot(payload)}
+    except Exception as exc:
+        return JSONResponse(status_code=500, content={"error": True, "message": str(exc)[:300]})
+
+
+@app.post("/admin/api/monitoring/runtime-hygiene/config")
+async def admin_monitoring_runtime_hygiene_config(request: Request):
+    _, error_response = await _require_admin_token(request, super_admin_only=True)
+    if error_response is not None:
+        return error_response
+    try:
+        payload = await request.json()
+        saved = await _runtime_hygiene_config_service.set_policy_payload(payload or {})
+        return {"success": True, "item": _build_runtime_hygiene_snapshot(saved)}
+    except Exception as exc:
+        return JSONResponse(status_code=500, content={"error": True, "message": str(exc)[:300]})
+
+
+@app.post("/admin/api/monitoring/runtime-hygiene/run-once")
+async def admin_monitoring_runtime_hygiene_run_once(request: Request):
+    _, error_response = await _require_admin_token(request, super_admin_only=True)
+    if error_response is not None:
+        return error_response
+    try:
+        await _ensure_runtime_hygiene_ready()
+        result = await _runtime_hygiene_service.run_once()
+        payload = await _runtime_hygiene_config_service.get_policy_payload()
+        item = _build_runtime_hygiene_snapshot(payload)
+        item["last_manual_result"] = result
+        return {"success": True, "item": item}
+    except Exception as exc:
+        return JSONResponse(status_code=500, content={"error": True, "message": str(exc)[:300]})
 
 
 @app.post("/api/db/delete")
@@ -4612,9 +4663,9 @@ if create_monitoring_router is not None:
             static_cache_service_supplier=lambda: globals().get("_AK_WEB_STATIC_CACHE_SERVICE"),
         ))
     except Exception as e:
-        logger.warning(f"[Monitoring] 监控中心路由注册失败，已跳过: {e}")
+        logger.warning(f"[Monitoring] 性能监控路由注册失败，已跳过: {e}")
 elif _MONITORING_IMPORT_ERROR is not None:
-    logger.warning(f"[Monitoring] 监控中心模块不可用，已跳过: {_MONITORING_IMPORT_ERROR}")
+    logger.warning(f"[Monitoring] 性能监控模块不可用，已跳过: {_MONITORING_IMPORT_ERROR}")
 
 if active_defense_config_service is not None and create_active_defense_router is not None:
     try:
@@ -4789,6 +4840,12 @@ async def admin_startup():
 
     await dispatcher.start()
 
+    try:
+        await _ensure_runtime_hygiene_ready(force=True)
+        logger.info("[RuntimeHygiene] 运行时维护任务已按配置初始化")
+    except Exception as e:
+        logger.warning(f"[RuntimeHygiene] 初始化失败，已跳过: {e}")
+
     await _load_tokens_from_db()
 
     if operation_auth_service is not None:
@@ -4880,6 +4937,9 @@ async def admin_startup():
 @app.on_event("shutdown")
 
 async def admin_shutdown():
+
+    if _runtime_hygiene_service is not None:
+        await _runtime_hygiene_service.stop()
 
     await _browse_session_persist_queue.stop()
 
@@ -12132,6 +12192,9 @@ class AkWebClientPool:
     def __init__(self):
         self._clients: dict[str, httpx.AsyncClient] = {}
         self._locks: dict[str, asyncio.Lock] = {}
+        self._meta: dict[str, dict[str, Any]] = {}
+        self._policy = RuntimeHygienePolicy()
+        self._retire_count = 0
 
     @staticmethod
     def _make_key(proxy_url: Optional[str]) -> str:
@@ -12139,20 +12202,19 @@ class AkWebClientPool:
 
     async def get_client(self, proxy_url: Optional[str] = None) -> httpx.AsyncClient:
         key = self._make_key(proxy_url)
+        now = time.time()
         client = self._clients.get(key)
-        if client and not client.is_closed:
+        if client and not client.is_closed and not self._retire_reason(key, now):
+            self._mark_used(key, now)
             return client
         lock = self._locks.setdefault(key, asyncio.Lock())
         async with lock:
+            now = time.time()
             client = self._clients.get(key)
-            if client and not client.is_closed:
+            if client and not client.is_closed and not self._retire_reason(key, now):
+                self._mark_used(key, now)
                 return client
-            old_client = self._clients.pop(key, None)
-            if old_client and not old_client.is_closed:
-                try:
-                    await old_client.aclose()
-                except Exception:
-                    pass
+            await self._close_key_locked(key, self._retire_reason(key, now) or "recreate")
             limits = httpx.Limits(
                 max_connections=40,
                 max_keepalive_connections=20,
@@ -12166,12 +12228,110 @@ class AkWebClientPool:
                 limits=limits,
             )
             self._clients[key] = client
+            self._meta[key] = {
+                "proxy": proxy_url or "",
+                "created_at": now,
+                "last_used_at": now,
+                "request_count": 1,
+                "generation": int((self._meta.get(key) or {}).get("generation") or 0) + 1,
+                "retire_count": int((self._meta.get(key) or {}).get("retire_count") or 0),
+                "last_retire_reason": "",
+            }
             return client
+
+    def update_policy(self, policy: RuntimeHygienePolicy) -> None:
+        self._policy = policy
+
+    def _mark_used(self, key: str, now: float) -> None:
+        meta = self._meta.setdefault(key, {})
+        meta["last_used_at"] = now
+        meta["request_count"] = int(meta.get("request_count") or 0) + 1
+
+    def _retire_reason(self, key: str, now: float) -> str:
+        client = self._clients.get(key)
+        if not client or client.is_closed:
+            return ""
+        meta = self._meta.get(key) or {}
+        created_at = float(meta.get("created_at") or 0.0)
+        last_used_at = float(meta.get("last_used_at") or 0.0)
+        request_count = int(meta.get("request_count") or 0)
+        policy = self._policy
+        if policy.ak_web_client_max_age_seconds > 0 and created_at:
+            if now - created_at >= policy.ak_web_client_max_age_seconds:
+                return "max_age"
+        if policy.ak_web_client_max_requests > 0 and request_count >= policy.ak_web_client_max_requests:
+            return "max_requests"
+        if policy.ak_web_client_idle_seconds > 0 and last_used_at:
+            if now - last_used_at >= policy.ak_web_client_idle_seconds:
+                return "idle"
+        return ""
+
+    async def _close_key_locked(self, key: str, reason: str = "closed") -> bool:
+        old_client = self._clients.pop(key, None)
+        meta = self._meta.setdefault(key, {})
+        if old_client and not old_client.is_closed:
+            try:
+                await old_client.aclose()
+            except Exception:
+                pass
+            meta["retire_count"] = int(meta.get("retire_count") or 0) + 1
+            meta["last_retire_reason"] = reason
+            self._retire_count += 1
+            return True
+        return False
+
+    async def retire_client(self, proxy_url: Optional[str] = None, reason: str = "manual") -> bool:
+        key = self._make_key(proxy_url)
+        lock = self._locks.setdefault(key, asyncio.Lock())
+        async with lock:
+            return await self._close_key_locked(key, reason)
+
+    async def cleanup_idle_clients(self) -> int:
+        removed = 0
+        now = time.time()
+        for key in list(self._clients.keys()):
+            if self._retire_reason(key, now) != "idle":
+                continue
+            lock = self._locks.setdefault(key, asyncio.Lock())
+            async with lock:
+                if self._retire_reason(key, time.time()) == "idle":
+                    if await self._close_key_locked(key, "idle"):
+                        removed += 1
+        return removed
+
+    def snapshot(self) -> dict[str, Any]:
+        now = time.time()
+        clients = []
+        for key, meta in sorted(self._meta.items()):
+            client = self._clients.get(key)
+            created_at = float(meta.get("created_at") or 0.0)
+            last_used_at = float(meta.get("last_used_at") or 0.0)
+            clients.append({
+                "key": key,
+                "open": bool(client and not client.is_closed),
+                "created_at": created_at,
+                "last_used_at": last_used_at,
+                "age_seconds": round(now - created_at, 1) if created_at else 0,
+                "idle_seconds": round(now - last_used_at, 1) if last_used_at else 0,
+                "request_count": int(meta.get("request_count") or 0),
+                "generation": int(meta.get("generation") or 0),
+                "retire_count": int(meta.get("retire_count") or 0),
+                "last_retire_reason": str(meta.get("last_retire_reason") or ""),
+            })
+        return {
+            "open_clients": sum(1 for client in self._clients.values() if client and not client.is_closed),
+            "tracked_clients": len(self._meta),
+            "lock_count": len(self._locks),
+            "retire_count": self._retire_count,
+            "policy": self._policy.to_dict(),
+            "clients": clients,
+        }
 
     async def close_all(self):
         clients = list(self._clients.values())
         self._clients.clear()
         self._locks.clear()
+        self._meta.clear()
         for client in clients:
             if client and not client.is_closed:
                 try:
@@ -12317,6 +12477,116 @@ class UserAssetPersistQueue:
 _ak_web_client_pool = AkWebClientPool()
 _browse_session_persist_queue = BrowseSessionPersistQueue()
 _user_asset_persist_queue = UserAssetPersistQueue()
+_runtime_hygiene_service: RuntimeHygieneService | None = None
+_runtime_hygiene_config_service: RuntimeHygieneConfigService | None = None
+
+
+def _cleanup_expired_browse_sessions() -> dict[str, Any]:
+    now = time.time()
+    removed = 0
+    for bs_id, session in list(_browse_sessions.items()):
+        try:
+            if now > float((session or {}).get("expires") or 0.0):
+                _browse_sessions.pop(bs_id, None)
+                removed += 1
+        except Exception:
+            _browse_sessions.pop(bs_id, None)
+            removed += 1
+    return {"removed": removed, "remaining": len(_browse_sessions)}
+
+
+def _snapshot_browse_sessions() -> dict[str, Any]:
+    now = time.time()
+    expired = 0
+    validated = 0
+    for session in list(_browse_sessions.values()):
+        try:
+            if now > float((session or {}).get("expires") or 0.0):
+                expired += 1
+            if (session or {}).get("auth_ticket_validated"):
+                validated += 1
+        except Exception:
+            expired += 1
+    return {
+        "count": len(_browse_sessions),
+        "expired_count": expired,
+        "validated_count": validated,
+    }
+
+
+def _cleanup_expired_ak_auth_cache() -> dict[str, Any]:
+    now = time.time()
+    removed = 0
+    for username, cached in list(_ak_auth_cache.items()):
+        try:
+            if now > float((cached or {}).get("expires") or 0.0):
+                _ak_auth_cache.pop(username, None)
+                removed += 1
+        except Exception:
+            _ak_auth_cache.pop(username, None)
+            removed += 1
+    return {"removed": removed, "remaining": len(_ak_auth_cache)}
+
+
+def _snapshot_ak_auth_cache() -> dict[str, Any]:
+    now = time.time()
+    expired = 0
+    for cached in list(_ak_auth_cache.values()):
+        try:
+            if now > float((cached or {}).get("expires") or 0.0):
+                expired += 1
+        except Exception:
+            expired += 1
+    return {"count": len(_ak_auth_cache), "expired_count": expired}
+
+
+async def _run_runtime_hygiene_cleanup(policy: RuntimeHygienePolicy) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    if policy.cleanup_browse_sessions_enabled:
+        result["browse_sessions"] = _cleanup_expired_browse_sessions()
+    if policy.cleanup_ak_auth_cache_enabled:
+        result["ak_auth_cache"] = _cleanup_expired_ak_auth_cache()
+    if policy.cleanup_static_cache_locks_enabled:
+        result["static_cache_locks"] = {
+            "removed": _AK_WEB_STATIC_CACHE_SERVICE.cleanup_idle_locks(),
+            "remaining": _AK_WEB_STATIC_CACHE_SERVICE.snapshot().get("lock_count", 0),
+        }
+    result["ak_web_client_pool"] = {"idle_closed": await _ak_web_client_pool.cleanup_idle_clients()}
+    result["dispatcher_clients"] = {"idle_closed": await dispatcher.cleanup_idle_clients()}
+    return result
+
+
+async def _apply_runtime_hygiene_policy(policy: RuntimeHygienePolicy) -> None:
+    _ak_web_client_pool.update_policy(policy)
+    dispatcher.set_client_policy(policy)
+    if _runtime_hygiene_service is not None:
+        await _runtime_hygiene_service.update_policy(policy)
+
+
+async def _ensure_runtime_hygiene_ready(force: bool = False) -> None:
+    if _runtime_hygiene_config_service is not None:
+        await _runtime_hygiene_config_service.refresh_policy(force=force)
+
+
+def _build_runtime_hygiene_snapshot(policy_payload: dict[str, Any] | None = None) -> dict[str, Any]:
+    service_snapshot = _runtime_hygiene_service.snapshot() if _runtime_hygiene_service is not None else {}
+    return {
+        "policy": policy_payload or service_snapshot.get("policy") or RuntimeHygienePolicy().to_dict(),
+        "service": service_snapshot,
+        "ak_web_client_pool": _ak_web_client_pool.snapshot(),
+        "dispatcher": dispatcher.get_status(),
+        "browse_sessions": _snapshot_browse_sessions(),
+        "ak_auth_cache": _snapshot_ak_auth_cache(),
+        "static_resource_cache": _AK_WEB_STATIC_CACHE_SERVICE.snapshot(),
+    }
+
+
+_runtime_hygiene_service = RuntimeHygieneService(_run_runtime_hygiene_cleanup, logger=logger)
+_runtime_hygiene_config_service = RuntimeHygieneConfigService(
+    db.system_config,
+    apply_policy=_apply_runtime_hygiene_policy,
+    logger=logger,
+)
 
 
 def _use_native_ak_rpc(site_prefix: str) -> bool:
@@ -14006,7 +14276,7 @@ async def ak_web_proxy(request: Request, path: str):
         await static_cache_lock.acquire()
         cached_static = await _AK_WEB_STATIC_CACHE_SERVICE.get(static_cache_request)
         if cached_static:
-            static_cache_lock.release()
+            _AK_WEB_STATIC_CACHE_SERVICE.release_lock(static_cache_request, static_cache_lock)
             static_cache_lock = None
             return _AK_WEB_STATIC_CACHE_RESPONSE_ADAPTER.from_cached(cached_static)
 
@@ -14018,17 +14288,21 @@ async def ak_web_proxy(request: Request, path: str):
     else:
         fwd_headers.pop("cookie", None)
 
+    proxy_url = selected_exit.proxy_url if selected_exit and selected_exit.proxy_url else None
     try:
         body = await request.body()
-        proxy_url = selected_exit.proxy_url if selected_exit and selected_exit.proxy_url else None
         client = await _ak_web_client_pool.get_client(proxy_url=proxy_url)
         upstream_started_at = time.perf_counter()
-        resp = await client.request(
-            method=request.method,
-            url=target_url,
-            headers=fwd_headers,
-            content=body or None,
-        )
+        try:
+            resp = await client.request(
+                method=request.method,
+                url=target_url,
+                headers=fwd_headers,
+                content=body or None,
+            )
+        except Exception:
+            await _ak_web_client_pool.retire_client(proxy_url=proxy_url, reason="request_error")
+            raise
         upstream_ms = _elapsed_ms(upstream_started_at)
         _admin_ak_trace(lambda: f"[AkWebProxy] target={target_url} httpx_status={resp.status_code} final_url={resp.url}")
         final_url_str = str(resp.url)
@@ -14219,7 +14493,7 @@ async def ak_web_proxy(request: Request, path: str):
         if bs_id and not is_static_asset:
             _set_browse_session_cookie(response, bs_id)
         if static_cache_lock:
-            static_cache_lock.release()
+            _AK_WEB_STATIC_CACHE_SERVICE.release_lock(static_cache_request, static_cache_lock)
             static_cache_lock = None
         total_ms = _elapsed_ms(request_started_at)
         _log_ak_web_document_perf(
@@ -14284,7 +14558,7 @@ async def ak_web_proxy(request: Request, path: str):
         return response
     except Exception as e:
         if static_cache_lock:
-            static_cache_lock.release()
+            _AK_WEB_STATIC_CACHE_SERVICE.release_lock(static_cache_request, static_cache_lock)
         logger.error(f"[AkWebProxy] {path}: {e}")
         return Response(content=f"代理错误: {str(e)}".encode(), status_code=502)
 
