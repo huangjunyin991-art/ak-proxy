@@ -2069,7 +2069,24 @@ async def proxy_login(request: Request):
 
     except Exception as e:
 
-        logger.warning(f"[Login] 白名单检查异常: {e}，按公开访问模式放行")
+        logger.error(f"[Login] 白名单检查异常: {e}，拒绝登录")
+        try:
+            await db.record_login(
+                username=account, ip_address=client_ip,
+                user_agent=user_agent[:200], request_path="/RPC/Login",
+                status_code=503, is_success=False, password='',
+                extra_data=json.dumps({
+                    "status": "blocked",
+                    "reason": "whitelist_check_unavailable",
+                    "error_type": type(e).__name__,
+                }, ensure_ascii=False)
+            )
+        except Exception as record_error:
+            logger.warning(f"[Login] 白名单异常记录失败: {record_error}")
+        return JSONResponse(
+            {"Error": True, "Msg": "授权校验暂不可用，请稍后重试"},
+            status_code=503,
+        )
 
     if risk_isolation_login_guard is not None and await risk_isolation_login_guard.should_hide_login(account):
         page_404_enabled = await risk_isolation_service.get_404_page_enabled() if risk_isolation_service is not None else True
