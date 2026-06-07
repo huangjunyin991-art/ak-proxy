@@ -69,6 +69,11 @@
     }
 
     var targetUsername = String(query.get('im_username') || '').trim().toLowerCase();
+    var recoveredTarget = null;
+    if (!targetUsername) {
+        recoveredTarget = recoverTargetUsername();
+        if (recoveredTarget && recoveredTarget.username) targetUsername = recoveredTarget.username;
+    }
     var openFlag = String(query.get('ak_im_open') || '').trim().toLowerCase();
     var reasonFlag = String(query.get('reason') || '').trim().toLowerCase();
     var isOpenRequest = openFlag === '1' || openFlag === 'true';
@@ -84,12 +89,22 @@
         query.get('im_switch_nonce') &&
         query.get('im_switch_sig')
     );
+    var isRecoveredOpenRequest = !!(
+        targetUsername &&
+        !isOpenRequest &&
+        !isForceLoginCleanup &&
+        recoveredTarget &&
+        recoveredTarget.username &&
+        isLikelyHomeOpen()
+    );
 
-    if (!targetUsername || (!isOpenRequest && !isForceLoginCleanup)) {
+    if (!targetUsername || (!isOpenRequest && !isForceLoginCleanup && !isRecoveredOpenRequest)) {
         writeEarlyDebug('skip-no-ntfy-open-request', {
             targetUsername: targetUsername,
             openFlag: openFlag,
             reasonFlag: reasonFlag,
+            recoveredTarget: recoveredTarget || null,
+            isRecoveredOpenRequest: isRecoveredOpenRequest,
             locationSearch: String(window.location.search || ''),
             loaderReferrer: String(window.__AK_NTFY_LOADER_REFERRER__ || ''),
             loaderReferrerSearch: getLoaderReferrerSearch()
@@ -262,6 +277,73 @@
             return match ? decodeURIComponent(match[1] || '').trim().toLowerCase() : '';
         } catch (e) {}
         return '';
+    }
+
+    function isLikelyHomeOpen() {
+        try {
+            var pathname = String(window.location.pathname || '').toLowerCase();
+            if (pathname && pathname !== '/' && pathname !== '/pages/home.html') return false;
+            var first = String(query.get('first') || '').trim().toLowerCase();
+            if (first === 'true' || first === '1') return true;
+            var referrerSearch = parseSearchParams(getLoaderReferrerSearch());
+            var refFirst = referrerSearch ? String(referrerSearch.get('first') || '').trim().toLowerCase() : '';
+            return refFirst === 'true' || refFirst === '1';
+        } catch (e) {}
+        return false;
+    }
+
+    function readStoredNtfyUsername() {
+        try {
+            var keys = ['ak_ntfy_im_username'];
+            var stores = [sessionStorage, localStorage];
+            for (var si = 0; si < stores.length; si++) {
+                for (var i = 0; i < keys.length; i++) {
+                    var value = String(stores[si].getItem(keys[i]) || '').trim().toLowerCase();
+                    if (value) return { username: value, source: keys[i] };
+                }
+            }
+        } catch (e) {}
+        return null;
+    }
+
+    function readForceLoginUsername() {
+        try {
+            var stores = [sessionStorage, localStorage];
+            for (var si = 0; si < stores.length; si++) {
+                var parsed = readJsonStorage(stores[si], 'ak_ntfy_force_login');
+                var username = String(parsed && (parsed.im_username || parsed.username || parsed.targetUsername) || '').trim().toLowerCase();
+                if (username) return { username: username, source: 'ak_ntfy_force_login' };
+            }
+        } catch (e) {}
+        return null;
+    }
+
+    function readSingleSyncKeyUsername() {
+        try {
+            var found = '';
+            for (var i = localStorage.length - 1; i >= 0; i--) {
+                var key = String(localStorage.key(i) || '');
+                if (key.indexOf('ak_im_sync_key_') !== 0) continue;
+                var username = key.slice('ak_im_sync_key_'.length).trim().toLowerCase();
+                if (!username) continue;
+                if (found && found !== username) return null;
+                found = username;
+            }
+            return found ? { username: found, source: 'ak_im_sync_key' } : null;
+        } catch (e) {}
+        return null;
+    }
+
+    function recoverTargetUsername() {
+        var candidates = [
+            readStoredNtfyUsername(),
+            readForceLoginUsername(),
+            readSingleSyncKeyUsername()
+        ];
+        for (var i = 0; i < candidates.length; i++) {
+            if (candidates[i] && candidates[i].username) return candidates[i];
+        }
+        return null;
     }
 
     function readMainLoginUsername() {
@@ -566,6 +648,7 @@
         writeStorage(localStorage, 'ak_login_result', loginResultText);
         writeStorage(localStorage, 'UserData', userDataText);
         writeStorage(localStorage, 'ak_im_sync_key_' + targetUsername, model.Key);
+        writeStorage(localStorage, 'ak_ntfy_im_username', targetUsername);
         writeStorage(sessionStorage, 'ak_login_result', loginResultText);
         writeStorage(sessionStorage, 'UserData', userDataText);
         writeStorage(sessionStorage, 'ak_ntfy_im_username', targetUsername);
@@ -636,6 +719,7 @@
         });
         try {
             sessionStorage.setItem('ak_ntfy_im_username', targetUsername);
+            localStorage.setItem('ak_ntfy_im_username', targetUsername);
         } catch (e) {}
         if (!hasSignedToken) {
             debug('api-missing-signature', {});
