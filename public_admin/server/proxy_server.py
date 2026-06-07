@@ -11293,6 +11293,16 @@ _WIDGET_CACHE_MAX_AGE = 31536000
 
 _WIDGET_REVALIDATE_MAX_AGE = 300
 
+_WIDGET_ASSET_VERSION_CACHE_TTL_SECONDS = 2.0
+
+_WIDGET_ASSET_VERSION_CACHE = {"expires_at": 0.0, "value": ""}
+
+_WIDGET_RUNTIME_CONTENT_CACHE = {"asset_version": "", "content": "", "missing_required": []}
+
+_WIDGET_BOOTSTRAP_CONTENT_CACHE = {"asset_version": "", "content": ""}
+
+_WIDGET_NTFY_PRELUDE_CACHE = {"asset_version": "", "content": ""}
+
 
 IM_LOCATION_AMAP_WEB_KEY = str(os.getenv("IM_LOCATION_AMAP_WEB_KEY", str(globals().get("IM_LOCATION_AMAP_WEB_KEY", "")))).strip()
 
@@ -11432,7 +11442,7 @@ def _get_widget_dynamic_version_seed() -> str:
     return json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
 
-def _get_widget_asset_version() -> str:
+def _compute_widget_asset_version() -> str:
     latest_mtime_ns = 0
     for asset_path in _iter_widget_asset_paths():
         try:
@@ -11442,6 +11452,17 @@ def _get_widget_asset_version() -> str:
     static_version = str(latest_mtime_ns or 1)
     dynamic_hash = hashlib.sha1(_get_widget_dynamic_version_seed().encode("utf-8")).hexdigest()[:10]
     return f"{static_version}-{dynamic_hash}"
+
+
+def _get_widget_asset_version() -> str:
+    now = time.monotonic()
+    cached = str(_WIDGET_ASSET_VERSION_CACHE.get("value") or "")
+    if cached and now < float(_WIDGET_ASSET_VERSION_CACHE.get("expires_at") or 0.0):
+        return cached
+    asset_version = _compute_widget_asset_version()
+    _WIDGET_ASSET_VERSION_CACHE["value"] = asset_version
+    _WIDGET_ASSET_VERSION_CACHE["expires_at"] = now + _WIDGET_ASSET_VERSION_CACHE_TTL_SECONDS
+    return asset_version
 
 
 def _build_widget_cache_headers(request: Request, asset_version: str) -> dict[str, str]:
@@ -11510,6 +11531,49 @@ def _build_ntfy_im_username_switch_prelude() -> str:
         return ""
 
 
+def _refresh_widget_bootstrap_content_cache(asset_version: str) -> str:
+    content = _build_client_runtime_bootstrap_content()
+    _WIDGET_BOOTSTRAP_CONTENT_CACHE["asset_version"] = asset_version
+    _WIDGET_BOOTSTRAP_CONTENT_CACHE["content"] = content
+    return content
+
+
+async def _get_widget_bootstrap_content(asset_version: str) -> str:
+    if _WIDGET_BOOTSTRAP_CONTENT_CACHE.get("asset_version") == asset_version:
+        return str(_WIDGET_BOOTSTRAP_CONTENT_CACHE.get("content") or "")
+    return await run_blocking(_refresh_widget_bootstrap_content_cache, asset_version)
+
+
+def _refresh_widget_ntfy_prelude_cache(asset_version: str) -> str:
+    content = _build_ntfy_im_username_switch_prelude()
+    _WIDGET_NTFY_PRELUDE_CACHE["asset_version"] = asset_version
+    _WIDGET_NTFY_PRELUDE_CACHE["content"] = content
+    return content
+
+
+async def _get_widget_ntfy_prelude(asset_version: str) -> str:
+    if _WIDGET_NTFY_PRELUDE_CACHE.get("asset_version") == asset_version:
+        return str(_WIDGET_NTFY_PRELUDE_CACHE.get("content") or "")
+    return await run_blocking(_refresh_widget_ntfy_prelude_cache, asset_version)
+
+
+def _refresh_client_runtime_content_cache(asset_version: str) -> tuple[str, list[str]]:
+    content, missing_required = _build_client_runtime_content()
+    _WIDGET_RUNTIME_CONTENT_CACHE["asset_version"] = asset_version
+    _WIDGET_RUNTIME_CONTENT_CACHE["content"] = content
+    _WIDGET_RUNTIME_CONTENT_CACHE["missing_required"] = list(missing_required or [])
+    return content, missing_required
+
+
+async def _get_client_runtime_content(asset_version: str) -> tuple[str, list[str]]:
+    if _WIDGET_RUNTIME_CONTENT_CACHE.get("asset_version") == asset_version:
+        return (
+            str(_WIDGET_RUNTIME_CONTENT_CACHE.get("content") or ""),
+            list(_WIDGET_RUNTIME_CONTENT_CACHE.get("missing_required") or []),
+        )
+    return await run_blocking(_refresh_client_runtime_content_cache, asset_version)
+
+
 def _build_ntfy_loader_context_prelude(request: Request | None = None) -> str:
     referer = ""
     try:
@@ -11522,7 +11586,7 @@ def _build_ntfy_loader_context_prelude(request: Request | None = None) -> str:
 async def _build_widget_loader_response(request: Request | None = None) -> Response:
     asset_version = _get_widget_asset_version()
     bundle_url = _version_widget_asset_url("/ak/client-runtime.js", asset_version)
-    bootstrap_content = await run_blocking(_build_client_runtime_bootstrap_content)
+    bootstrap_content = await _get_widget_bootstrap_content(asset_version)
     loader = (
         "(function(){"
         "try{"
@@ -11558,7 +11622,7 @@ async def _build_widget_loader_response(request: Request | None = None) -> Respo
     )
     if bootstrap_content:
         loader = bootstrap_content + "\n;\n" + loader
-    ntfy_prelude = _build_ntfy_im_username_switch_prelude()
+    ntfy_prelude = await _get_widget_ntfy_prelude(asset_version)
     if ntfy_prelude:
         loader = _build_ntfy_loader_context_prelude(request) + ntfy_prelude + "\n;\n" + loader
     return Response(
@@ -11579,28 +11643,34 @@ def _build_im_location_config_prelude() -> str:
 async def _build_widget_script_response(request: Request, js_path: str, extra_prelude: str = "") -> Response:
     if not os.path.exists(js_path):
         return Response(content="// not found", media_type="application/javascript")
-    content = await run_blocking(_read_text_file_sync, js_path)
     asset_version = _get_widget_asset_version()
+    headers = _build_widget_cache_headers(request, asset_version)
+    if request.headers.get("if-none-match") == headers["ETag"]:
+        return Response(status_code=304, headers=headers)
+    content = await run_blocking(_read_text_file_sync, js_path)
     prelude = f"window.__AK_WIDGET_ASSET_VERSION__ = {json.dumps(asset_version)};\n"
     if extra_prelude:
         prelude += extra_prelude
     return Response(
         content=prelude + content,
         media_type="application/javascript",
-        headers=_build_widget_cache_headers(request, asset_version),
+        headers=headers,
     )
 
 
 async def _build_client_runtime_script_response(request: Request) -> Response:
-    content, missing_required = await run_blocking(_build_client_runtime_content)
+    asset_version = _get_widget_asset_version()
+    headers = _build_widget_cache_headers(request, asset_version)
+    if request.headers.get("if-none-match") == headers["ETag"]:
+        return Response(status_code=304, headers=headers)
+    content, missing_required = await _get_client_runtime_content(asset_version)
     if missing_required:
         return Response(content="// not found", media_type="application/javascript")
-    asset_version = _get_widget_asset_version()
     prelude = f"window.__AK_WIDGET_ASSET_VERSION__ = {json.dumps(asset_version)};\n"
     return Response(
         content=prelude + content,
         media_type="application/javascript",
-        headers=_build_widget_cache_headers(request, asset_version),
+        headers=headers,
     )
 
 

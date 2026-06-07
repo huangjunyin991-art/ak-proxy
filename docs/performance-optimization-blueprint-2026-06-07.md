@@ -764,7 +764,7 @@ CPU 预算 =
 | PERF-001 | 部分完成 | 新增 DB acquire 指标包装，`db.get_pool_info()` 返回 `acquire_metrics`，记录 in-flight、completed、slow、timeout、max/avg wait 和最近慢 acquire。 |
 | PERF-002 | 完成默认策略切换 | PostgreSQL 连接池改为固定预算；历史 `.pool_size` 默认忽略；运行期自动扩容默认关闭，仅在显式 `AK_DB_POOL_AUTO_EXPAND=1` 时保留兼容。 |
 | PERF-004 | 部分完成 | `/api/dispatcher/parse_sub` 和 `/api/dispatcher/apply_sub` 的同步订阅拉取改为通过 bounded blocking runner 执行，避免直接卡住事件循环。 |
-| PERF-005 | 部分完成 | Python 仍需服务的 admin panel、shared asset、PWA manifest/SW/icon、widget/IM 插件脚本读取进入 blocking runner，并补 ETag/Last-Modified/304 支持。 |
+| PERF-005 | 部分完成 | Python 仍需服务的 admin panel、shared asset、PWA manifest/SW/icon、widget/IM 插件脚本读取进入 blocking runner，并补 ETag/Last-Modified/304 支持；AK client runtime 增加服务端版本/拼接缓存与 304 快速返回。 |
 | PERF-006 | 部分完成 | dashboard/admin summary 优先读取已有人登录 rollup；回填未完成但 rollup 已有数据时，不再周期性回扫 `login_records` 聚合。 |
 | Wave 0 指标 | 部分完成 | 新增 event loop lag probe、blocking I/O runner 指标，并通过 `/admin/api/performance/runtime` 暴露给 super admin。 |
 | PERF-018 | 部分完成 | 监控面板首次进入改为轻量状态先渲染、重型统计延后加载，避免 `/overview` 聚合请求阻塞首屏交互。 |
