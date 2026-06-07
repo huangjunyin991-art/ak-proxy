@@ -9,7 +9,6 @@ ENV_DIR="$(dirname "$ENV_FILE")"
 BRANCH="${DEPLOY_BRANCH:-main}"
 VENV_PY="${VENV_PY:-$REPO_DIR/venv/bin/python}"
 DEFAULT_LICENSE_SERVER_URL="http://121.4.46.66:8080"
-DEFAULT_LICENSE_ADMIN_KEY="ak-lovejjy1314"
 DO_PULL=1
 DO_RESTART=1
 DO_STATUS=1
@@ -144,6 +143,45 @@ escape_env_value() {
     printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'
 }
 
+generate_license_admin_key() {
+    if command -v openssl >/dev/null 2>&1; then
+        openssl rand -hex 32
+        return
+    fi
+    if command -v python3 >/dev/null 2>&1; then
+        python3 - <<'PY'
+import secrets
+print(secrets.token_hex(32))
+PY
+        return
+    fi
+    if command -v python >/dev/null 2>&1; then
+        python - <<'PY'
+import secrets
+print(secrets.token_hex(32))
+PY
+        return
+    fi
+    echo "[ERROR] 无法生成 LICENSE_ADMIN_KEY：缺少 openssl/python3/python" >&2
+    exit 1
+}
+
+env_var_has_value() {
+    local key="$1"
+    if [ ! -f "$ENV_FILE" ]; then
+        return 1
+    fi
+    sudo awk -F= -v key="$key" '
+        $1 == key {
+            value = $0
+            sub("^[^=]*=", "", value)
+            gsub(/^[ \t"]+|[ \t"]+$/, "", value)
+            if (length(value) > 0) found = 1
+        }
+        END { exit found ? 0 : 1 }
+    ' "$ENV_FILE"
+}
+
 upsert_env_var() {
     local key="$1"
     local value="$2"
@@ -191,8 +229,9 @@ update_env() {
     if [ -z "$LICENSE_SERVER_URL_VALUE" ] && ! sudo grep -q '^LICENSE_SERVER_URL=' "$ENV_FILE"; then
         LICENSE_SERVER_URL_VALUE="$DEFAULT_LICENSE_SERVER_URL"
     fi
-    if [ -z "$LICENSE_ADMIN_KEY_VALUE" ] && ! sudo grep -q '^LICENSE_ADMIN_KEY=' "$ENV_FILE"; then
-        LICENSE_ADMIN_KEY_VALUE="$DEFAULT_LICENSE_ADMIN_KEY"
+    if [ -z "$LICENSE_ADMIN_KEY_VALUE" ] && ! env_var_has_value LICENSE_ADMIN_KEY; then
+        LICENSE_ADMIN_KEY_VALUE="$(generate_license_admin_key)"
+        echo "[OK] LICENSE_ADMIN_KEY 未配置，已随机生成"
     fi
     validate_license_url "$LICENSE_SERVER_URL_VALUE"
     upsert_env_var LICENSE_SERVER_URL "$LICENSE_SERVER_URL_VALUE"
@@ -205,7 +244,7 @@ update_env() {
     else
         echo "[WARN] LICENSE_SERVER_URL 未配置，激活码代理功能会不可用"
     fi
-    if sudo grep -q '^LICENSE_ADMIN_KEY=' "$ENV_FILE"; then
+    if env_var_has_value LICENSE_ADMIN_KEY; then
         echo "[OK] LICENSE_ADMIN_KEY 已配置"
     else
         echo "[WARN] LICENSE_ADMIN_KEY 未配置，激活码代理功能会不可用"

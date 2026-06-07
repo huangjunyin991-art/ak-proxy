@@ -152,7 +152,7 @@
 | P1-NET-001 | 服务默认监听所有网卡 | `PROXY_HOST=0.0.0.0`、`IM_ADDR=:18081` | 默认绑定 loopback，公网只经 Nginx/网关暴露。 |
 | P1-CORS-001 | CORS 通配与 credentials 组合 | FastAPI 和 Nginx 中存在 wildcard CORS | 按部署域名生成 allowlist。 |
 | P1-TLS-001 | 上游 TLS 校验关闭 | 多处 `verify=False`、Nginx `proxy_ssl_verify off` | 统一 CA 配置，临时例外必须有到期时间。 |
-| P1-BOOT-001 | 维护脚本存在默认 license key | `maintain_ak_proxy.sh` 写入默认 key | 禁止默认密钥，首次启动必须显式配置。 |
+| P1-BOOT-001 | 维护脚本曾存在默认 license key | 历史版本 `maintain_ak_proxy.sh` 写入固定默认 key | 已移除固定默认密钥，首次缺失时生成服务器本地随机密钥。 |
 | P1-NTFY-001 | 用户可配置 ntfy server URL | ntfy client 接受 http/https URL | 经过 SSRF 网关，禁止内网 IP、metadata 地址和危险重定向。 |
 | P1-LOG-001 | trace/debug 可能记录敏感片段 | 登录、转发、脚本注入日志 | 统一 `AuditRedactor`，只留摘要。 |
 | P1-DEPLOY-001 | systemd 与 env 路径不一致 | `EnvironmentFile=-/etc/ak-proxy.env` 与新脚本路径不同 | 收敛为单一 env 规范，缺失关键 env 时启动失败。 |
@@ -181,7 +181,7 @@
 2. IM 默认监听 `127.0.0.1:18081`，公网只允许经边界网关访问。
 3. 登录授权异常改为 fail closed。
 4. `/api/status` 最小化为公开健康检查；详细诊断信息不保留通用状态接口。
-5. 禁用默认 license key，缺失关键 secret 时启动失败。
+5. 禁用固定默认 license key，首次缺失时随机生成服务器本地密钥。
 6. 关闭敏感 trace 输出，禁止记录 cookie、password、userkey。
 
 ### Phase 1：身份和实时通道
@@ -239,3 +239,4 @@
 |---|---|---|---|
 | 2026-06-08 | P0-LOGIN-001 登录授权异常 fail closed | 已落地 | `/RPC/Login` 在白名单状态或授权信息读取异常时返回 503，不再按公开访问模式放行；明确开启公开访问模式时行为保持不变。 |
 | 2026-06-08 | Phase 0 `/api/status` 信息最小化 | 已落地 | 公开 `/api/status` 仅返回最小探活信息；原详细代理诊断信息不再通过通用状态接口提供，后续如有运维展示需求应接入专用监控接口。 |
+| 2026-06-08 | P1-BOOT-001 固定 License 管理密钥移除 | 已落地 | 维护脚本不再写入固定默认 `LICENSE_ADMIN_KEY`；首次缺失时生成高熵随机值写入服务器 env，已有值或显式传入值保持优先。 |

@@ -132,6 +132,64 @@ escape_env_value() {
     printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'
 }
 
+generate_license_admin_key() {
+    if command -v openssl >/dev/null 2>&1; then
+        openssl rand -hex 32
+        return
+    fi
+    if command -v python3 >/dev/null 2>&1; then
+        python3 - <<'PY'
+import secrets
+print(secrets.token_hex(32))
+PY
+        return
+    fi
+    if command -v python >/dev/null 2>&1; then
+        python - <<'PY'
+import secrets
+print(secrets.token_hex(32))
+PY
+        return
+    fi
+    echo "[ERROR] 无法生成 LICENSE_ADMIN_KEY：缺少 openssl/python3/python" >&2
+    exit 1
+}
+
+read_existing_env_value() {
+    local key="$1"
+    if [ ! -f "$ENV_FILE" ]; then
+        return 1
+    fi
+    sudo awk -F= -v key="$key" '
+        $1 == key {
+            value = $0
+            sub("^[^=]*=", "", value)
+            gsub(/^[ \t"]+|[ \t"]+$/, "", value)
+            if (length(value) > 0) {
+                print value
+                found = 1
+                exit
+            }
+        }
+        END { exit found ? 0 : 1 }
+    ' "$ENV_FILE"
+}
+
+prepare_license_admin_key() {
+    if [ -n "$LICENSE_ADMIN_KEY_VALUE" ]; then
+        return
+    fi
+    local existing_key=""
+    existing_key="$(read_existing_env_value LICENSE_ADMIN_KEY 2>/dev/null || true)"
+    if [ -n "$existing_key" ]; then
+        LICENSE_ADMIN_KEY_VALUE="$existing_key"
+        echo "[OK] 已沿用现有 LICENSE_ADMIN_KEY"
+        return
+    fi
+    LICENSE_ADMIN_KEY_VALUE="$(generate_license_admin_key)"
+    echo "[OK] LICENSE_ADMIN_KEY 未配置，已随机生成"
+}
+
 validate_domain() {
     if [ -z "$ADMIN_DOMAIN" ]; then
         echo "[ERROR] 请通过 --domain 指定域名"
@@ -242,6 +300,7 @@ if [ "$SKIP_ENV" -eq 0 ]; then
     ADMIN_PASSWORD_VALUE="$(read_secret ADMIN_PASSWORD "管理员主密码" "$ADMIN_PASSWORD_VALUE")"
     DB_SECONDARY_PASSWORD_VALUE="$(read_secret DB_SECONDARY_PASSWORD "数据库二级密码" "$DB_SECONDARY_PASSWORD_VALUE")"
     AK_PROXY_DB_PASSWORD_VALUE="$(read_secret AK_PROXY_DB_PASSWORD "PostgreSQL 数据库密码" "$AK_PROXY_DB_PASSWORD_VALUE")"
+    prepare_license_admin_key
     write_env_file "$ADMIN_PASSWORD_VALUE" "$DB_SECONDARY_PASSWORD_VALUE" "$AK_PROXY_DB_PASSWORD_VALUE"
     write_systemd_service
 fi
