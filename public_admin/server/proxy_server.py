@@ -5828,6 +5828,37 @@ async def admin_point_stats_users(request: Request, search: str = None, limit: i
     return await db.search_point_stat_users(search=search, limit=limit)
 
 
+@app.get("/admin/api/point-stats/backfill/status")
+async def admin_point_stats_backfill_status(request: Request, include_counts: bool = False):
+    _, error_response = await _require_admin_token(request, 'pointStats', super_admin_only=True)
+    if error_response is not None:
+        return error_response
+    try:
+        return await db.get_point_stats_backfill_status(include_counts=include_counts)
+    except Exception as e:
+        logger.warning(f"[PointStatsBackfill] 状态查询失败: {e}", exc_info=True)
+        return JSONResponse(status_code=500, content={"error": True, "message": str(e)})
+
+
+@app.post("/admin/api/point-stats/backfill/run")
+async def admin_point_stats_backfill_run(request: Request):
+    _, error_response = await _require_admin_token(request, 'pointStats', super_admin_only=True)
+    if error_response is not None:
+        return error_response
+    try:
+        try:
+            data = await request.json()
+        except Exception:
+            data = {}
+        return await db.start_point_stats_backfill(
+            batch_size=data.get("batch_size", 1000) if isinstance(data, dict) else 1000,
+            max_batches=data.get("max_batches", 0) if isinstance(data, dict) else 0,
+        )
+    except Exception as e:
+        logger.warning(f"[PointStatsBackfill] 启动失败: {e}", exc_info=True)
+        return JSONResponse(status_code=500, content={"error": True, "message": str(e)})
+
+
 
 @app.get("/admin/api/dashboard")
 

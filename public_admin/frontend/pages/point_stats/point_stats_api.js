@@ -93,12 +93,35 @@
         }).then(parseResponse);
     }
 
+    function getBackfillStatus(payload) {
+        var params = new URLSearchParams();
+        if (payload && payload.includeCounts) params.set('include_counts', 'true');
+        return fetch('/admin/api/point-stats/backfill/status?' + params.toString(), {
+            headers: authHeaders(),
+            credentials: 'same-origin'
+        }).then(parseResponse);
+    }
+
+    function runBackfill(payload) {
+        return fetch('/admin/api/point-stats/backfill/run', {
+            method: 'POST',
+            headers: authHeaders({ 'Content-Type': 'application/json' }),
+            credentials: 'same-origin',
+            body: JSON.stringify({
+                batch_size: payload && payload.batchSize ? payload.batchSize : 1000,
+                max_batches: payload && payload.maxBatches ? payload.maxBatches : 0
+            })
+        }).then(parseResponse);
+    }
+
     window.AKPointStatsApi = {
         getStats: getStats,
         getDetail: getDetail,
         searchUsers: searchUsers,
         syncRecords: syncRecords,
         syncStatus: syncStatus,
-        getQuota: getQuota
+        getQuota: getQuota,
+        getBackfillStatus: getBackfillStatus,
+        runBackfill: runBackfill
     };
 })();

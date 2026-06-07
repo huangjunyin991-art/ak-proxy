@@ -4,7 +4,7 @@ from .query_filters import PointStatsQuery, point_record_date_text_expr
 
 
 async def fetch_point_stats_range_row(conn, query: PointStatsQuery) -> Dict[str, Any]:
-    date_expr = point_record_date_text_expr()
+    date_expr = point_record_date_text_expr() if query.date_fallback_enabled else 'record_date::text'
     row = await conn.fetchrow(f'''
         SELECT MIN({date_expr}) AS start_date,
                MAX({date_expr}) AS end_date

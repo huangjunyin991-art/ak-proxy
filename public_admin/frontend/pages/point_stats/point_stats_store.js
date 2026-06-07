@@ -33,6 +33,20 @@
                 cooldownSeconds: 300,
                 cooldownMap: {},
                 fetchedAt: 0
+            },
+            backfill: {
+                status: 'idle',
+                loading: false,
+                message: '',
+                pendingTotal: null,
+                pendingRecordDate: null,
+                pendingCategory: null,
+                totalRecords: null,
+                processed: 0,
+                updated: 0,
+                batches: 0,
+                checked: false,
+                error: ''
             }
         };
 
@@ -168,6 +182,22 @@
             state.quota.fetchedAt = now;
         }
 
+        function setBackfillStatus(payload) {
+            if (!payload || typeof payload !== 'object') return;
+            state.backfill.status = payload.status || 'idle';
+            state.backfill.message = payload.message || '';
+            state.backfill.pendingTotal = payload.pending_total == null ? state.backfill.pendingTotal : Number(payload.pending_total || 0);
+            state.backfill.pendingRecordDate = payload.pending_record_date == null ? state.backfill.pendingRecordDate : Number(payload.pending_record_date || 0);
+            state.backfill.pendingCategory = payload.pending_category == null ? state.backfill.pendingCategory : Number(payload.pending_category || 0);
+            state.backfill.totalRecords = payload.total_records == null ? state.backfill.totalRecords : Number(payload.total_records || 0);
+            state.backfill.processed = Number(payload.processed || 0);
+            state.backfill.updated = Number(payload.updated || 0);
+            state.backfill.batches = Number(payload.batches || 0);
+            state.backfill.error = payload.error || '';
+            state.backfill.checked = state.backfill.checked || payload.pending_total != null || !!(payload.structured_ready && payload.structured_ready.checked_at);
+            state.backfill.loading = false;
+        }
+
         function markCooldown(account, pointType) {
             if (!account || !pointType) return;
             var k = _cooldownKey(account, pointType);
@@ -215,6 +245,7 @@
             setDetailError: setDetailError,
             setDetailData: setDetailData,
             setQuota: setQuota,
+            setBackfillStatus: setBackfillStatus,
             markCooldown: markCooldown,
             getCooldownRemaining: getCooldownRemaining,
             isQuotaExhausted: isQuotaExhausted,

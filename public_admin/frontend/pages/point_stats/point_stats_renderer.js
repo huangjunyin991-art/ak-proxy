@@ -61,6 +61,27 @@
         return '<div class="ps-rt-quota-line ' + cls + '">今日 <b>' + used + '</b>/' + limit + ' 个账号</div>';
     }
 
+    function renderBackfillLine(state) {
+        var q = state.quota || {};
+        if (!q.isSuperAdmin) return '';
+        var bf = state.backfill || {};
+        var running = bf.status === 'running';
+        var tone = bf.error ? ' error' : (running ? ' running' : '');
+        var pending = bf.pendingTotal == null ? '-' : number(bf.pendingTotal);
+        var datePending = bf.pendingRecordDate == null ? '-' : number(bf.pendingRecordDate);
+        var categoryPending = bf.pendingCategory == null ? '-' : number(bf.pendingCategory);
+        var message = bf.message || (bf.checked ? '旧数据字段状态已检查' : '旧数据字段状态未检查');
+        var progress = running ? ' · 已扫 ' + number(bf.processed) + ' / 更新 ' + number(bf.updated) : '';
+        var runDisabled = running || bf.loading;
+        return '<div class="ps-backfill-line' + tone + '">' +
+            '<span>旧数据结构化：待补 ' + pending + '，日期 ' + datePending + '，分类 ' + categoryPending + progress + ' · ' + html(message) + '</span>' +
+            '<div class="ps-backfill-actions">' +
+            '<button class="ps-rt-btn secondary" data-action="backfill-check"' + (bf.loading ? ' disabled' : '') + '>检查</button>' +
+            '<button class="ps-rt-btn primary" data-action="backfill-run"' + (runDisabled ? ' disabled' : '') + '>' + (running ? '补齐中' : '补齐') + '</button>' +
+            '</div>' +
+            '</div>';
+    }
+
     function rankClassOf(label) {
         var raw = String(label || 'M0').toUpperCase();
         if (raw.charAt(0) === 'A') {
@@ -185,6 +206,7 @@
             '<section class="ps-rt-hero">',
             '<div class="ps-rt-account-action-row"><div class="ps-account-wrap"><label class="ps-rt-field"><input class="ps-rt-input ps-account-input" data-role="account-input" value="' + html(state.accountQuery) + '" placeholder="请输入账号" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"></label>' + renderOptions(state) + '</div><div class="ps-rt-action-stack"><button class="ps-rt-btn primary" data-action="sync"' + btnAttr + '>' + html(btnLabel) + '</button>' + renderQuotaLine(state) + '</div></div>',
             '<div class="ps-rt-cache-line ' + (state.error ? 'error' : 'info') + '">' + html(state.status) + '</div>',
+            renderBackfillLine(state),
             '</section>',
             renderDatePicker(state),
             '<section class="ps-rt-stats">' + renderSummary(state) + '</section>',

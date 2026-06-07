@@ -18,6 +18,7 @@ class PointStatsQuery:
     args: list[Any]
     base_where_clause: str
     where_clause: str
+    date_fallback_enabled: bool
 
 
 def normalize_point_type(point_type: str | None, required: bool = False) -> str | None:
@@ -54,24 +55,34 @@ def point_record_date_text_expr() -> str:
     return "COALESCE(record_date::text, NULLIF(substring(record_time FROM '^\\d{4}-\\d{2}-\\d{2}'), ''))"
 
 
-def append_point_date_filters(filters: list[str], args: list[Any], start: Optional[str], end: Optional[str]) -> None:
+def append_point_date_filters(filters: list[str], args: list[Any], start: Optional[str], end: Optional[str],
+                              fallback_enabled: bool = True) -> None:
     text_date_expr = "NULLIF(substring(record_time FROM '^\\d{4}-\\d{2}-\\d{2}'), '')"
     if start:
-        args.extend([date.fromisoformat(start), start])
-        date_index = len(args) - 1
-        text_index = len(args)
-        filters.append(f"(record_date >= ${date_index} OR (record_date IS NULL AND {text_date_expr} >= ${text_index}))")
+        args.append(date.fromisoformat(start))
+        date_index = len(args)
+        if fallback_enabled:
+            args.append(start)
+            text_index = len(args)
+            filters.append(f"(record_date >= ${date_index} OR (record_date IS NULL AND {text_date_expr} >= ${text_index}))")
+        else:
+            filters.append(f"record_date >= ${date_index}")
     if end:
-        args.extend([date.fromisoformat(end), end])
-        date_index = len(args) - 1
-        text_index = len(args)
-        filters.append(f"(record_date <= ${date_index} OR (record_date IS NULL AND {text_date_expr} <= ${text_index}))")
+        args.append(date.fromisoformat(end))
+        date_index = len(args)
+        if fallback_enabled:
+            args.append(end)
+            text_index = len(args)
+            filters.append(f"(record_date <= ${date_index} OR (record_date IS NULL AND {text_date_expr} <= ${text_index}))")
+        else:
+            filters.append(f"record_date <= ${date_index}")
 
 
 def build_point_stats_query(username: str | None = None, point_type: str | None = None,
                             start_date=None, end_date=None,
                             require_username: bool = False,
-                            require_point_type: bool = False) -> PointStatsQuery:
+                            require_point_type: bool = False,
+                            date_fallback_enabled: bool = True) -> PointStatsQuery:
     normalized_username = str(username or '').strip().lower() or None
     if require_username and not normalized_username:
         raise ValueError('缺少账号')
@@ -87,7 +98,7 @@ def build_point_stats_query(username: str | None = None, point_type: str | None 
         base_filters.append(f'point_type = ${len(base_args)}')
     filters = list(base_filters)
     args = list(base_args)
-    append_point_date_filters(filters, args, start, end)
+    append_point_date_filters(filters, args, start, end, fallback_enabled=date_fallback_enabled)
     return PointStatsQuery(
         username=normalized_username,
         point_type=code,
@@ -99,4 +110,5 @@ def build_point_stats_query(username: str | None = None, point_type: str | None 
         args=args,
         base_where_clause=f"WHERE {' AND '.join(base_filters)}" if base_filters else '',
         where_clause=f"WHERE {' AND '.join(filters)}" if filters else '',
+        date_fallback_enabled=date_fallback_enabled,
     )

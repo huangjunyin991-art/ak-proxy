@@ -24,7 +24,9 @@ from .db_guard import BigTableGuard, GuardError
 from .performance.point_stats import (
     build_point_stats as build_point_stats_result,
     build_point_stats_detail as build_point_stats_detail_result,
+    get_point_stats_backfill_status as get_point_stats_backfill_status_result,
     search_point_stat_users as search_point_stat_users_result,
+    start_point_stats_backfill as start_point_stats_backfill_result,
 )
 from .performance.ban_maintenance import ensure_ban_normalized, run_ban_normalization
 from .performance.login_guard import (
@@ -1724,6 +1726,23 @@ async def get_point_stats_detail(username: str, point_type: str, category: str, 
 async def search_point_stat_users(search: str = None, limit: int = 12) -> Dict:
     pool = _get_pool()
     return await search_point_stat_users_result(pool, search=search, limit=limit)
+
+
+# ===== 点数统计维护 =====
+
+async def get_point_stats_backfill_status(include_counts: bool = False) -> Dict:
+    pool = _get_pool()
+    return await get_point_stats_backfill_status_result(pool, include_counts=include_counts)
+
+
+async def start_point_stats_backfill(batch_size: int = 1000, max_batches: int = 0) -> Dict:
+    pool = _get_pool()
+    return await start_point_stats_backfill_result(
+        pool,
+        resolve_category=resolve_point_category,
+        batch_size=batch_size,
+        max_batches=max_batches,
+    )
 
 
 # ===== 封禁管理 =====

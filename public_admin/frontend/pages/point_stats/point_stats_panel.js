@@ -13,6 +13,9 @@
     var syncPollTimer = null;
     var syncPollKey = '';
     var SYNC_POLL_INTERVAL_MS = 1500;
+    var BACKFILL_POLL_OWNER = 'panel:pointStats';
+    var BACKFILL_POLL_ID = 'pointStats:backfillStatus';
+    var backfillPollingRegistered = false;
 
     function mountNode() {
         return document.getElementById('pointStatsPanelMount');
@@ -151,6 +154,70 @@
             pollSyncOnce(username, pointType);
         }, SYNC_POLL_INTERVAL_MS);
         pollSyncOnce(username, pointType);
+    }
+
+    function pointStatsPanelActive() {
+        return !!document.querySelector('.tab.active[data-panel="pointStats"]');
+    }
+
+    function ensureBackfillPolling() {
+        var registry = window.AKPollingRegistry;
+        if (!registry || backfillPollingRegistered) return;
+        registry.register({
+            id: BACKFILL_POLL_ID,
+            owner: BACKFILL_POLL_OWNER,
+            intervalMs: 2000,
+            jitterMs: 300,
+            immediate: false,
+            dedupeKey: BACKFILL_POLL_ID,
+            runWhen: function() {
+                return pointStatsPanelActive() && store && store.state.backfill && store.state.backfill.status === 'running';
+            },
+            task: function() {
+                return refreshBackfillStatus(false);
+            }
+        });
+        backfillPollingRegistered = true;
+        registry.startOwner(BACKFILL_POLL_OWNER);
+    }
+
+    function refreshBackfillStatus(includeCounts) {
+        if (!api || !store || !api.getBackfillStatus || !store.state.quota.isSuperAdmin) return Promise.resolve();
+        ensureBackfillPolling();
+        if (includeCounts) {
+            store.state.backfill.loading = true;
+            render();
+        }
+        return api.getBackfillStatus({ includeCounts: !!includeCounts }).then(function(payload) {
+            store.setBackfillStatus(payload);
+            render();
+            return payload;
+        }).catch(function(error) {
+            store.state.backfill.loading = false;
+            store.state.backfill.error = error.message || '旧数据字段状态查询失败';
+            store.state.backfill.message = store.state.backfill.error;
+            render();
+        });
+    }
+
+    function runBackfill() {
+        if (!api || !store || !api.runBackfill || !store.state.quota.isSuperAdmin) return;
+        ensureBackfillPolling();
+        store.state.backfill.loading = true;
+        store.state.backfill.error = '';
+        store.state.backfill.message = '旧数据字段补齐启动中...';
+        render();
+        api.runBackfill({ batchSize: 1000, maxBatches: 0 }).then(function(payload) {
+            store.setBackfillStatus(payload);
+            render();
+            return refreshBackfillStatus(false);
+        }).catch(function(error) {
+            store.state.backfill.loading = false;
+            store.state.backfill.error = error.message || '旧数据字段补齐启动失败';
+            store.state.backfill.message = store.state.backfill.error;
+            notify(store.state.backfill.error, 'error');
+            render();
+        });
     }
 
     function refreshQuota() {
@@ -298,6 +365,10 @@
             loadStats();
         } else if (action === 'sync') {
             syncRecords();
+        } else if (action === 'backfill-check') {
+            refreshBackfillStatus(true);
+        } else if (action === 'backfill-run') {
+            runBackfill();
         } else if (action === 'clear-account') {
             store.clearAccount();
             render();
@@ -402,12 +473,15 @@
         bindEvents();
         render();
         if (store.state.username && !store.state.payload && !store.state.loading) loadStats();
-        refreshQuota();
+        refreshQuota().then(function() {
+            if (store.state.quota.isSuperAdmin) refreshBackfillStatus(false);
+        });
     }
 
     window.AKPointStatsPanel = {
         start: start,
         refresh: loadStats,
-        refreshQuota: refreshQuota
+        refreshQuota: refreshQuota,
+        refreshBackfillStatus: refreshBackfillStatus
     };
 })();

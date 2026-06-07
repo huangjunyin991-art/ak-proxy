@@ -1,5 +1,6 @@
 from typing import Callable, Dict
 
+from .backfill import is_record_date_backfill_complete
 from .detail_pagination import build_point_record_item, normalize_point_detail_page, paginate_point_category_records
 from .detail_repository import fetch_category_page, fetch_detail_fallback_rows, fetch_unresolved_category_count
 from .query_filters import build_point_stats_query
@@ -17,6 +18,7 @@ async def build_point_stats_detail(pool, username: str, point_type: str, categor
         end_date=end_date,
         require_username=True,
         require_point_type=True,
+        date_fallback_enabled=not is_record_date_backfill_complete(),
     )
     category_name = str(category or '').strip()
     if not category_name:

@@ -1,5 +1,6 @@
 from typing import Callable, Dict
 
+from .backfill import is_record_date_backfill_complete
 from .detail_pagination import build_point_categories
 from .query_filters import build_point_stats_query
 from .summary_repository import (
@@ -25,6 +26,7 @@ async def build_point_stats(pool, username: str = None, point_type: str = None,
         point_type=point_type,
         start_date=start_date,
         end_date=end_date,
+        date_fallback_enabled=not is_record_date_backfill_complete(),
     )
     if resolve_category is None or format_description is None:
         raise ValueError('缺少点数分类处理器')
