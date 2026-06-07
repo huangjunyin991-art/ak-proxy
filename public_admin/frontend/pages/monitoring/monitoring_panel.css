@@ -172,6 +172,16 @@
     background: linear-gradient(135deg, rgba(102, 126, 234, 0.08), rgba(0, 212, 255, 0.04)), var(--bg-card);
 }
 
+.monitoring-runtime-performance-section {
+    border-color: rgba(0, 255, 136, 0.28);
+    background: linear-gradient(135deg, rgba(0, 255, 136, 0.07), rgba(245, 205, 96, 0.035)), var(--bg-card);
+}
+
+.monitoring-runtime-performance-section .monitoring-grid,
+.monitoring-runtime-performance-section .monitoring-bars {
+    margin-bottom: 14px;
+}
+
 .monitoring-runtime-section .monitoring-grid {
     margin-bottom: 14px;
 }
@@ -182,6 +192,14 @@
 
 .monitoring-runtime-table-wrap {
     margin-top: 14px;
+}
+
+.monitoring-runtime-performance-table-wrap {
+    margin-top: 14px;
+}
+
+.monitoring-runtime-performance-table {
+    min-width: 780px;
 }
 
 .monitoring-cache-grid {

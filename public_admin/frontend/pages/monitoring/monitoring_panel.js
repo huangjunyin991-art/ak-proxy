@@ -18,10 +18,12 @@
             groups: null,
             fileAssets: null,
             staticCache: null,
-            runtimeHygiene: null
+            runtimeHygiene: null,
+            runtimePerformance: null
         },
         loadingStaticCache: false,
-        loadingRuntimeHygiene: false
+        loadingRuntimeHygiene: false,
+        loadingRuntimePerformance: false
     };
 
     function token() {
@@ -87,6 +89,19 @@
         return total + '秒';
     }
 
+    function formatMs(value) {
+        var n = Number(value || 0);
+        if (!isFinite(n) || n < 0) return '-';
+        if (n >= 1000) return (n / 1000).toFixed(n >= 10000 ? 1 : 2) + ' s';
+        return n.toFixed(n >= 10 ? 1 : 2) + ' ms';
+    }
+
+    function formatSampleTime(value) {
+        var n = Number(value || 0);
+        if (!isFinite(n) || n <= 0) return '-';
+        return formatTime(n < 1000000000000 ? n * 1000 : n);
+    }
+
     function secondsToDays(value) {
         var seconds = Number(value || 0);
         return Math.max(0, Math.round(seconds / 86400 * 100) / 100);
@@ -140,6 +155,20 @@
         });
     }
 
+    function performanceApi(path, params) {
+        var query = new URLSearchParams(params || {});
+        var url = '/admin/api/performance' + path + (query.toString() ? '?' + query.toString() : '');
+        return fetch(url, {
+            headers: { 'Authorization': 'Bearer ' + token() },
+            credentials: 'same-origin'
+        }).then(function(resp) {
+            return resp.json().then(function(body) {
+                if (!resp.ok || body.error) throw new Error(body.message || body.detail || '运行时性能接口请求失败');
+                return body;
+            });
+        });
+    }
+
     function ensureCss() {
         if (document.querySelector('link[data-monitoring-panel-css="1"]')) return;
         var link = document.createElement('link');
@@ -187,6 +216,12 @@
             '<div class="monitoring-alert" id="monitoringAlert"></div>' +
             '<div class="monitoring-section"><div class="monitoring-section-header"><h4>服务器负载</h4><span class="monitoring-meta" id="monitoringSystemMeta">-</span></div><div class="monitoring-donuts" id="monitoringSystemDonuts"></div><div class="monitoring-bars" id="monitoringSystemBars"></div></div>' +
             '<div class="monitoring-grid" id="monitoringCards"></div>' +
+            '<div class="monitoring-section monitoring-runtime-performance-section">' +
+            '<div class="monitoring-section-header"><h4>运行时性能</h4><span class="monitoring-meta" id="monitoringRuntimePerformanceMeta">读取中...</span></div>' +
+            '<div class="monitoring-grid" id="monitoringRuntimePerformanceCards"></div>' +
+            '<div class="monitoring-bars" id="monitoringRuntimePerformanceBars"></div>' +
+            '<div class="monitoring-table-wrap monitoring-runtime-performance-table-wrap"><table class="monitoring-table monitoring-runtime-performance-table"><thead><tr><th>类型</th><th>指标</th><th>函数/调用点</th><th>排队/等待</th><th>运行/滞后</th><th>时间</th></tr></thead><tbody id="monitoringRuntimePerformanceRows"></tbody></table></div>' +
+            '</div>' +
             '<div class="monitoring-section"><div class="monitoring-section-header"><h4>聊天统计</h4><span class="monitoring-meta" id="monitoringChatMeta">-</span></div><div class="monitoring-grid" id="monitoringChatCards"></div><div class="monitoring-bars" id="monitoringTypeBars" style="margin-top:14px;"></div></div>' +
             '<div class="monitoring-section"><div class="monitoring-section-header"><h4>数据库表占用</h4><span class="monitoring-meta" id="monitoringDbMeta">-</span></div><div class="monitoring-bars" id="monitoringDbBars"></div></div>' +
             '<div class="monitoring-section"><div class="monitoring-section-header"><h4>文件资源 Top</h4><span class="monitoring-meta" id="monitoringFileAssetMeta">按 active 文件大小倒序；删除后聊天消息保留，附件显示失效</span></div><div class="monitoring-table-wrap"><table class="monitoring-table"><thead><tr><th>文件名</th><th>类型</th><th>大小</th><th>状态</th><th>引用消息</th><th>过期时间</th><th>创建时间</th><th>storage_name</th><th>操作</th></tr></thead><tbody id="monitoringFileAssetRows"></tbody></table></div></div>' +
@@ -259,7 +294,10 @@
             state.range = this.value || '7d';
             loadHeavy(false);
         });
-        document.getElementById('monitoringRefreshLight').addEventListener('click', function() { loadLight(true); });
+        document.getElementById('monitoringRefreshLight').addEventListener('click', function() {
+            loadLight(true);
+            loadRuntimePerformance(true);
+        });
         document.getElementById('monitoringRefreshHeavy').addEventListener('click', function() { loadHeavy(true); });
     }
 
@@ -328,6 +366,9 @@
         });
         var system = state.data.system;
         if (system && system.high_load) messages.push('当前系统负载较高：' + (system.high_load_reasons || []).join('、'));
+        runtimePerformanceWarnings(state.data.runtimePerformance).forEach(function(message) {
+            messages.push(message);
+        });
         if (!messages.length) {
             alert.classList.remove('show');
             alert.textContent = '';
@@ -338,6 +379,140 @@
         if (!alert.dataset.notified) {
             alert.dataset.notified = '1';
             notify(alert.textContent, 'warning');
+        }
+    }
+
+    function runtimePerformanceWarnings(item) {
+        var warnings = [];
+        if (!item || item.error) return warnings;
+        var eventLoop = item.event_loop || {};
+        var blocking = item.blocking_io || {};
+        var dbPool = item.db_pool || {};
+        var acquire = dbPool.acquire_metrics || {};
+        var policy = dbPool.policy || {};
+        if (Number(eventLoop.p99_lag_ms || 0) >= 250) warnings.push('事件循环 p99 lag 已超过 250ms');
+        if (Number(blocking.max_concurrency || 0) > 0 && Number(blocking.in_flight || 0) >= Number(blocking.max_concurrency || 0)) warnings.push('阻塞 I/O runner 已打满');
+        if (Number(dbPool.usage_pct || 0) >= 90) warnings.push('DB 连接池使用率接近上限');
+        if (Number(acquire.timeouts || 0) > 0) warnings.push('DB acquire 出现超时');
+        if (policy.fixed_budget !== true) warnings.push('DB 连接池当前不是固定预算模式');
+        return warnings;
+    }
+
+    function runtimeProgressPercent(value, threshold) {
+        var n = Number(value || 0);
+        var t = Number(threshold || 1);
+        if (!isFinite(n) || !isFinite(t) || t <= 0) return 0;
+        return Math.max(0, Math.min(100, n / t * 100));
+    }
+
+    function renderRuntimePerformanceRows(item) {
+        if (!item || item.error) return '<tr><td colspan="6"><div class="monitoring-empty">运行时性能数据暂不可用</div></td></tr>';
+        var eventLoop = item.event_loop || {};
+        var blocking = item.blocking_io || {};
+        var dbPool = item.db_pool || {};
+        var acquire = dbPool.acquire_metrics || {};
+        var rows = [];
+        (eventLoop.recent_slow || []).forEach(function(sample) {
+            rows.push({
+                kind: '事件循环',
+                metric: 'lag',
+                target: '-',
+                wait: '-',
+                run: formatMs(sample.lag_ms),
+                ts: sample.ts
+            });
+        });
+        (blocking.recent_slow || []).forEach(function(sample) {
+            rows.push({
+                kind: '阻塞 I/O',
+                metric: 'slow',
+                target: sample.func || '-',
+                wait: formatMs(sample.queue_ms),
+                run: formatMs(sample.run_ms),
+                ts: sample.ts
+            });
+        });
+        (acquire.recent_slow || []).forEach(function(sample) {
+            rows.push({
+                kind: 'DB acquire',
+                metric: 'slow',
+                target: sample.callsite || '-',
+                wait: formatMs(sample.wait_ms),
+                run: '-',
+                ts: sample.ts
+            });
+        });
+        (acquire.recent_errors || []).forEach(function(sample) {
+            rows.push({
+                kind: 'DB acquire',
+                metric: sample.error || 'error',
+                target: sample.callsite || '-',
+                wait: formatMs(sample.wait_ms),
+                run: sample.error || '-',
+                ts: sample.ts
+            });
+        });
+        rows.sort(function(a, b) { return Number(b.ts || 0) - Number(a.ts || 0); });
+        if (!rows.length) return '<tr><td colspan="6"><div class="monitoring-empty">暂无慢样本或错误</div></td></tr>';
+        return rows.slice(0, 24).map(function(row) {
+            return '<tr>' +
+                '<td>' + escapeHtml(row.kind) + '</td>' +
+                '<td>' + escapeHtml(row.metric) + '</td>' +
+                '<td>' + escapeHtml(row.target) + '</td>' +
+                '<td>' + escapeHtml(row.wait) + '</td>' +
+                '<td>' + escapeHtml(row.run) + '</td>' +
+                '<td>' + escapeHtml(formatSampleTime(row.ts)) + '</td>' +
+                '</tr>';
+        }).join('');
+    }
+
+    function renderRuntimePerformance() {
+        var item = state.data.runtimePerformance || {};
+        var cards = document.getElementById('monitoringRuntimePerformanceCards');
+        var bars = document.getElementById('monitoringRuntimePerformanceBars');
+        var rows = document.getElementById('monitoringRuntimePerformanceRows');
+        var meta = document.getElementById('monitoringRuntimePerformanceMeta');
+        if (!item.error && !item.event_loop && !item.blocking_io && !item.db_pool) {
+            if (cards) setHtmlIfChanged(cards, renderCard('运行时性能', '读取中', '等待首次轻量刷新'));
+            if (bars) setHtmlIfChanged(bars, '');
+            if (rows) setHtmlIfChanged(rows, '<tr><td colspan="6"><div class="monitoring-empty">等待首次采样</div></td></tr>');
+            if (meta) setTextIfChanged(meta, '读取中...');
+            return;
+        }
+        if (item.error) {
+            if (cards) setHtmlIfChanged(cards, renderCard('运行时性能', '不可用', item.error));
+            if (bars) setHtmlIfChanged(bars, '');
+            if (rows) setHtmlIfChanged(rows, renderRuntimePerformanceRows(item));
+            if (meta) setTextIfChanged(meta, '运行时性能数据暂不可用');
+            return;
+        }
+        var eventLoop = item.event_loop || {};
+        var blocking = item.blocking_io || {};
+        var dbPool = item.db_pool || {};
+        var acquire = dbPool.acquire_metrics || {};
+        var policy = dbPool.policy || {};
+        var dbPolicyText = policy.fixed_budget ? '固定预算' : (policy.auto_expand_enabled ? '自动扩容' : '未知');
+        if (cards) {
+            setHtmlIfChanged(cards,
+                renderCard('事件循环 p99', formatMs(eventLoop.p99_lag_ms), 'max ' + formatMs(eventLoop.max_lag_ms) + '；慢样本 ' + formatNumber(eventLoop.slow_count)) +
+                renderCard('事件循环状态', eventLoop.running ? '运行中' : '未运行', '采样 ' + formatNumber(eventLoop.sample_count) + '；间隔 ' + formatSeconds(eventLoop.interval_seconds)) +
+                renderCard('阻塞 I/O 并发', formatNumber(blocking.in_flight) + ' / ' + formatNumber(blocking.max_concurrency), '完成 ' + formatNumber(blocking.completed) + '；慢调用 ' + formatNumber(blocking.slow_count)) +
+                renderCard('阻塞 I/O 耗时', formatMs(blocking.avg_run_ms), 'max ' + formatMs(blocking.max_run_ms) + '；排队 max ' + formatMs(blocking.max_queue_ms)) +
+                renderCard('DB 连接池', formatPercent(dbPool.usage_pct), 'active ' + formatNumber(dbPool.active) + ' / max ' + formatNumber(dbPool.max_size) + '；' + dbPolicyText) +
+                renderCard('DB acquire', formatMs(acquire.avg_wait_ms), 'max ' + formatMs(acquire.max_wait_ms) + '；timeout ' + formatNumber(acquire.timeouts))
+            );
+        }
+        if (bars) {
+            setHtmlIfChanged(bars,
+                renderProgress('事件循环 p99', runtimeProgressPercent(eventLoop.p99_lag_ms, 250), formatMs(eventLoop.p99_lag_ms) + ' / 250 ms') +
+                renderProgress('阻塞 I/O 饱和度', Number(blocking.max_concurrency || 0) > 0 ? Number(blocking.in_flight || 0) / Number(blocking.max_concurrency || 1) * 100 : 0, formatNumber(blocking.in_flight) + ' / ' + formatNumber(blocking.max_concurrency)) +
+                renderProgress('DB 连接使用率', dbPool.usage_pct, formatPercent(dbPool.usage_pct)) +
+                renderProgress('DB acquire max', runtimeProgressPercent(acquire.max_wait_ms, 500), formatMs(acquire.max_wait_ms) + ' / 500 ms')
+            );
+        }
+        if (rows) setHtmlIfChanged(rows, renderRuntimePerformanceRows(item));
+        if (meta) {
+            setTextIfChanged(meta, '轻量指标 5 秒刷新 · DB ' + dbPolicyText + ' · 阻塞 I/O 并发上限 ' + formatNumber(blocking.max_concurrency));
         }
     }
 
@@ -437,9 +612,10 @@
         }
         var groupMeta = document.getElementById('monitoringGroupMeta');
         if (groupMeta) setTextIfChanged(groupMeta, (groups.cache && groups.cache.hit ? '缓存 ' + groups.cache.age_seconds + ' 秒；' : '') + '文件占用为消息载荷估算口径');
-        renderAlert();
+        renderRuntimePerformance();
         renderRuntimeHygiene();
         renderStaticCachePolicy();
+        renderAlert();
     }
 
     function setInputValue(id, value) {
@@ -589,6 +765,23 @@
             notify(err && err.message || '运行时维护状态读取失败', 'error');
         }).finally(function() {
             state.loadingRuntimeHygiene = false;
+        });
+    }
+
+    function loadRuntimePerformance(force) {
+        if (!state.active || state.loadingRuntimePerformance) return Promise.resolve();
+        state.loadingRuntimePerformance = true;
+        return performanceApi('/runtime', force ? { force: '1' } : {}).then(function(body) {
+            state.data.runtimePerformance = body || {};
+            renderRuntimePerformance();
+            renderAlert();
+        }).catch(function(err) {
+            state.data.runtimePerformance = { error: err && err.message || '运行时性能数据读取失败' };
+            renderRuntimePerformance();
+            renderAlert();
+            if (force) notify(state.data.runtimePerformance.error, 'error');
+        }).finally(function() {
+            state.loadingRuntimePerformance = false;
         });
     }
 
@@ -753,10 +946,12 @@
         loadOverview(false);
         loadStaticCachePolicy();
         loadRuntimeHygiene(false);
+        loadRuntimePerformance(false);
         stopTimers();
         state.lightTimer = setInterval(function() {
             loadLight(false);
             loadRuntimeHygiene(false);
+            loadRuntimePerformance(false);
         }, 5000);
         state.heavyTimer = setInterval(function() { loadHeavy(false); }, 3600000);
     }
@@ -784,7 +979,7 @@
         init: init,
         start: start,
         stop: stop,
-        refreshLight: function() { return loadLight(true); },
+        refreshLight: function() { return Promise.all([loadLight(true), loadRuntimePerformance(true)]); },
         refreshHeavy: function() { return loadHeavy(true); }
     };
 
