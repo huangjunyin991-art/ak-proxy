@@ -8,6 +8,11 @@ class StaticResourceCacheConfig:
     ttl_seconds: int = 2 * 60 * 60
     browser_max_age_seconds: int = 2 * 60 * 60
     max_body_bytes: int = 30 * 1024 * 1024
+    memory_enabled: bool = True
+    memory_stats_enabled: bool = True
+    memory_max_entries: int = 512
+    memory_max_bytes: int = 64 * 1024 * 1024
+    memory_max_body_bytes: int = 2 * 1024 * 1024
     cleanup_interval_seconds: int = 30 * 60
     allowed_status_codes: set[int] = field(default_factory=lambda: {200})
     allowed_methods: set[str] = field(default_factory=lambda: {'GET'})

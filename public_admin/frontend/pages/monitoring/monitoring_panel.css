@@ -186,6 +186,10 @@
     margin-bottom: 14px;
 }
 
+.monitoring-cache-section .monitoring-grid {
+    margin-bottom: 14px;
+}
+
 .monitoring-runtime-policy-grid {
     margin-top: 6px;
 }

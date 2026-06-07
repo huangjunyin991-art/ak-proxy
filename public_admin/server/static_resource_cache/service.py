@@ -5,18 +5,49 @@ from typing import Optional
 from .browser_policy import StaticResourceBrowserPolicy
 from .config import StaticResourceCacheConfig
 from .key_builder import StaticResourceCacheKeyBuilder
+from .memory_cache import StaticResourceMemoryCache
+from .memory_policy import StaticResourceMemoryPolicy
 from .models import CachedStaticResource, StaticResourcePayload, StaticResourceRequest
 from .policy import StaticResourceCachePolicy
 from .store import DiskStaticResourceCacheStore
 
 
+_BROWSER_POLICY_KEYS = {
+    'js_browser_max_age_seconds',
+    'css_browser_max_age_seconds',
+    'media_browser_max_age_seconds',
+    'js_disk_ttl_seconds',
+    'css_disk_ttl_seconds',
+    'media_disk_ttl_seconds',
+    'stale_while_revalidate_seconds',
+}
+
+_MEMORY_POLICY_KEYS = {
+    'memory_enabled',
+    'memory_stats_enabled',
+    'memory_max_entries',
+    'memory_max_bytes',
+    'memory_max_body_bytes',
+}
+
+
 class StaticResourceCacheService:
     def __init__(self, config: StaticResourceCacheConfig, policy: StaticResourceCachePolicy,
-                 key_builder: StaticResourceCacheKeyBuilder, store: DiskStaticResourceCacheStore):
+                 key_builder: StaticResourceCacheKeyBuilder, store: DiskStaticResourceCacheStore,
+                 memory_cache: Optional[StaticResourceMemoryCache] = None):
         self.config = config
         self.policy = policy
         self.key_builder = key_builder
         self.store = store
+        self.memory_policy = StaticResourceMemoryPolicy(config.root_dir, config)
+        self.memory_cache = memory_cache or StaticResourceMemoryCache(
+            self.memory_policy.snapshot().max_entries,
+            self.memory_policy.snapshot().max_bytes,
+            self.memory_policy.snapshot().max_body_bytes,
+            self.memory_policy.snapshot().enabled,
+            self.memory_policy.snapshot().stats_enabled,
+        )
+        self.memory_cache.update_policy(self.memory_policy.to_dict())
         self.browser_policy = StaticResourceBrowserPolicy(config.root_dir)
         self._locks: dict[str, asyncio.Lock] = {}
         self._last_lock_cleanup = {"removed": 0, "remaining": 0, "ts": 0.0}
@@ -30,8 +61,15 @@ class StaticResourceCacheService:
     async def get(self, request: StaticResourceRequest) -> Optional[CachedStaticResource]:
         if not self.policy.can_read(request):
             return None
+        cache_key = self.cache_key(request)
+        cached = self.memory_cache.get(cache_key)
+        if cached is not None:
+            return cached
         try:
-            return await self.store.get(self.cache_key(request))
+            cached = await self.store.get(cache_key)
+            if cached is not None:
+                self.memory_cache.set(cache_key, cached)
+            return cached
         except Exception:
             return None
 
@@ -99,11 +137,13 @@ class StaticResourceCacheService:
                 expires_at=now + self.browser_policy.disk_ttl_seconds(request.path, payload.content_type),
             )
             await self.store.set(cache_key, resource)
+            self.memory_cache.set(cache_key, resource)
             return True
         except Exception:
             return False
 
     async def cleanup_expired(self) -> int:
+        self.memory_cache.cleanup_expired()
         try:
             return await self.store.cleanup_expired()
         except Exception:
@@ -113,21 +153,33 @@ class StaticResourceCacheService:
         return {
             "lock_count": len(self._locks),
             "last_lock_cleanup": dict(self._last_lock_cleanup),
+            "memory_policy": self.memory_policy.to_dict(),
+            "memory_cache": self.memory_cache.snapshot(),
             "browser_policy": self.get_browser_policy(),
         }
 
     def get_browser_policy(self) -> dict:
-        return self.browser_policy.to_dict()
+        result = self.browser_policy.to_dict()
+        result['memory_policy'] = self.memory_policy.to_dict()
+        result['memory_cache'] = self.memory_cache.snapshot()
+        return result
 
     def update_browser_policy(self, values: dict) -> dict:
-        self.browser_policy.update(values or {})
-        return self.browser_policy.to_dict()
+        payload = values or {}
+        if any(key in payload for key in _BROWSER_POLICY_KEYS):
+            self.browser_policy.update(payload)
+        if any(key in payload for key in _MEMORY_POLICY_KEYS):
+            self.memory_policy.update(payload)
+            self.memory_cache.update_policy(self.memory_policy.to_dict())
+        return self.get_browser_policy()
 
     def refresh_upstream_version(self) -> dict:
         self.browser_policy.refresh_version()
         removed = self.browser_policy.clear_storage()
-        result = self.browser_policy.to_dict()
+        memory_removed = self.memory_cache.clear()
+        result = self.get_browser_policy()
         result['removed_entries'] = removed
+        result['removed_memory_entries'] = memory_removed
         return result
 
     def version_url(self, url: str) -> str:
@@ -138,4 +190,11 @@ def create_static_resource_cache_service(config: StaticResourceCacheConfig) -> S
     key_builder = StaticResourceCacheKeyBuilder()
     policy = StaticResourceCachePolicy(config)
     store = DiskStaticResourceCacheStore(config, key_builder)
-    return StaticResourceCacheService(config, policy, key_builder, store)
+    memory_cache = StaticResourceMemoryCache(
+        config.memory_max_entries,
+        config.memory_max_bytes,
+        config.memory_max_body_bytes,
+        config.memory_enabled,
+        config.memory_stats_enabled,
+    )
+    return StaticResourceCacheService(config, policy, key_builder, store, memory_cache)

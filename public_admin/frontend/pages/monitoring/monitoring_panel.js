@@ -124,6 +124,22 @@
         return Math.max(60, Math.round(Number(value || 0) * 3600));
     }
 
+    function bytesToMb(value) {
+        return Math.max(1, Math.round(Number(value || 0) / 1024 / 1024 * 100) / 100);
+    }
+
+    function bytesToKb(value) {
+        return Math.max(16, Math.round(Number(value || 0) / 1024));
+    }
+
+    function mbToBytes(value) {
+        return Math.max(1024 * 1024, Math.round(Number(value || 0) * 1024 * 1024));
+    }
+
+    function kbToBytes(value) {
+        return Math.max(16 * 1024, Math.round(Number(value || 0) * 1024));
+    }
+
     function api(path, params) {
         var query = new URLSearchParams(params || {});
         var url = '/admin/api/monitoring' + path + (query.toString() ? '?' + query.toString() : '');
@@ -173,7 +189,7 @@
         if (document.querySelector('link[data-monitoring-panel-css="1"]')) return;
         var link = document.createElement('link');
         link.rel = 'stylesheet';
-        link.href = '/admin/api/monitoring-panel.css?v=20260607-01';
+        link.href = '/admin/api/monitoring-panel.css?v=20260608-01';
         link.setAttribute('data-monitoring-panel-css', '1');
         document.head.appendChild(link);
     }
@@ -252,7 +268,13 @@
             '</div>' +
             '<div class="monitoring-section monitoring-cache-section">' +
             '<div class="monitoring-section-header"><h4>K937 静态资源缓存策略</h4><span class="monitoring-meta" id="monitoringStaticCacheMeta">读取中...</span></div>' +
+            '<div class="monitoring-grid" id="monitoringStaticCacheRuntimeCards"></div>' +
             '<div class="monitoring-cache-grid">' +
+            '<label class="monitoring-switch-card"><input id="staticCacheMemoryEnabled" type="checkbox"><span class="monitoring-switch-control"></span><span class="monitoring-switch-copy"><strong>启用 L1 内存缓存</strong><small>关闭后回退到磁盘静态缓存</small></span></label>' +
+            '<label class="monitoring-switch-card"><input id="staticCacheMemoryStatsEnabled" type="checkbox"><span class="monitoring-switch-control"></span><span class="monitoring-switch-copy"><strong>启用实时统计</strong><small>只影响 hit/miss 等计数</small></span></label>' +
+            '<label><span>L1 最大条目</span><input class="monitoring-input" id="staticCacheMemoryMaxEntries" type="number" min="1" step="16"></label>' +
+            '<label><span>L1 总内存（MB）</span><input class="monitoring-input" id="staticCacheMemoryMaxMb" type="number" min="1" step="1"></label>' +
+            '<label><span>L1 单资源上限（KB）</span><input class="monitoring-input" id="staticCacheMemoryMaxBodyKb" type="number" min="16" step="16"></label>' +
             '<label><span>JS 浏览器缓存（小时）</span><input class="monitoring-input" id="staticCacheJsBrowserHours" type="number" min="1" step="1"></label>' +
             '<label><span>CSS 浏览器缓存（天）</span><input class="monitoring-input" id="staticCacheCssBrowserDays" type="number" min="1" step="1"></label>' +
             '<label><span>图片/字体浏览器缓存（天）</span><input class="monitoring-input" id="staticCacheMediaBrowserDays" type="number" min="1" step="1"></label>' +
@@ -296,6 +318,8 @@
         });
         document.getElementById('monitoringRefreshLight').addEventListener('click', function() {
             loadLight(true);
+            loadStaticCachePolicy();
+            loadRuntimeHygiene(true);
             loadRuntimePerformance(true);
         });
         document.getElementById('monitoringRefreshHeavy').addEventListener('click', function() { loadHeavy(true); });
@@ -726,8 +750,51 @@
         if (rows) setHtmlIfChanged(rows, renderRuntimeClientRows(item));
     }
 
+    function staticCacheRuntimeSnapshot() {
+        var runtimeCache = (state.data.runtimeHygiene && state.data.runtimeHygiene.static_resource_cache) || {};
+        var policyCache = state.data.staticCache || {};
+        return {
+            policy: policyCache.memory_policy || runtimeCache.memory_policy || {},
+            cache: runtimeCache.memory_cache || policyCache.memory_cache || {}
+        };
+    }
+
+    function renderStaticCacheRuntimeCards() {
+        var target = document.getElementById('monitoringStaticCacheRuntimeCards');
+        if (!target) return;
+        var snapshot = staticCacheRuntimeSnapshot();
+        var policy = snapshot.policy || {};
+        var cache = snapshot.cache || {};
+        if (!policy.max_entries && !cache.max_entries) {
+            setHtmlIfChanged(target, renderCard('L1 内存缓存', '读取中', '等待运行态刷新'));
+            return;
+        }
+        var enabled = policy.enabled !== false && cache.enabled !== false;
+        var statsEnabled = policy.stats_enabled !== false && cache.stats_enabled !== false;
+        var maxBytes = Number(policy.max_bytes || cache.max_bytes || 0);
+        var usedBytes = Number(cache.bytes || 0);
+        var usageText = maxBytes > 0 ? formatBytes(usedBytes) + ' / ' + formatBytes(maxBytes) : formatBytes(usedBytes);
+        var hitText = statsEnabled ? formatPercent(cache.hit_ratio_pct) : '已关闭';
+        var hitSub = statsEnabled
+            ? 'hit ' + formatNumber(cache.hits) + '；miss ' + formatNumber(cache.misses)
+            : '缓存继续工作，不再累计 hit/miss';
+        setHtmlIfChanged(target,
+            renderCard('L1 内存缓存', enabled ? '已启用' : '已关闭', enabled ? '条目 ' + formatNumber(cache.entries) + ' / ' + formatNumber(policy.max_entries || cache.max_entries) + '；' + usageText : '请求会回退到磁盘缓存') +
+            renderCard('实时统计', statsEnabled ? '已启用' : '已关闭', hitSub) +
+            renderCard('L1 命中率', hitText, '写入 ' + (statsEnabled ? formatNumber(cache.writes) : '-') + '；单资源上限 ' + formatBytes(policy.max_body_bytes || cache.max_body_bytes)) +
+            renderCard('L1 淘汰', statsEnabled ? formatNumber(cache.evictions) : '-', '过期 ' + (statsEnabled ? formatNumber(cache.expired) : '-') + '；拒绝 ' + (statsEnabled ? formatNumber(cache.rejected) : '-'))
+        );
+    }
+
     function renderStaticCachePolicy() {
         var item = state.data.staticCache || {};
+        var runtime = staticCacheRuntimeSnapshot();
+        var memoryPolicy = runtime.policy || {};
+        setChecked('staticCacheMemoryEnabled', memoryPolicy.enabled !== false);
+        setChecked('staticCacheMemoryStatsEnabled', memoryPolicy.stats_enabled !== false);
+        setInputValue('staticCacheMemoryMaxEntries', memoryPolicy.max_entries || 512);
+        setInputValue('staticCacheMemoryMaxMb', bytesToMb(memoryPolicy.max_bytes || 64 * 1024 * 1024));
+        setInputValue('staticCacheMemoryMaxBodyKb', bytesToKb(memoryPolicy.max_body_bytes || 2 * 1024 * 1024));
         setInputValue('staticCacheJsBrowserHours', secondsToHours(item.js_browser_max_age_seconds));
         setInputValue('staticCacheCssBrowserDays', secondsToDays(item.css_browser_max_age_seconds));
         setInputValue('staticCacheMediaBrowserDays', secondsToDays(item.media_browser_max_age_seconds));
@@ -740,6 +807,7 @@
             var version = item.version ? '版本 ' + item.version : '版本 -';
             setTextIfChanged(meta, version + ' · 更新于 ' + formatTime(item.updated_at ? item.updated_at * 1000 : ''));
         }
+        renderStaticCacheRuntimeCards();
     }
 
     function loadStaticCachePolicy() {
@@ -761,6 +829,7 @@
         return api('/runtime-hygiene', force ? { force: '1' } : {}).then(function(body) {
             state.data.runtimeHygiene = body.item || {};
             renderRuntimeHygiene();
+            renderStaticCachePolicy();
         }).catch(function(err) {
             notify(err && err.message || '运行时维护状态读取失败', 'error');
         }).finally(function() {
@@ -829,14 +898,20 @@
             js_disk_ttl_seconds: daysToSeconds(inputNumber('staticCacheJsDiskDays')),
             css_disk_ttl_seconds: daysToSeconds(inputNumber('staticCacheCssDiskDays')),
             media_disk_ttl_seconds: daysToSeconds(inputNumber('staticCacheMediaDiskDays')),
-            stale_while_revalidate_seconds: daysToSecondsAllowZero(inputNumber('staticCacheStaleDays'))
+            stale_while_revalidate_seconds: daysToSecondsAllowZero(inputNumber('staticCacheStaleDays')),
+            memory_enabled: inputChecked('staticCacheMemoryEnabled'),
+            memory_stats_enabled: inputChecked('staticCacheMemoryStatsEnabled'),
+            memory_max_entries: inputNumber('staticCacheMemoryMaxEntries'),
+            memory_max_bytes: mbToBytes(inputNumber('staticCacheMemoryMaxMb')),
+            memory_max_body_bytes: kbToBytes(inputNumber('staticCacheMemoryMaxBodyKb'))
         };
         apiPost('/static-cache/policy', payload).then(function(body) {
             state.data.staticCache = body.item || {};
             renderStaticCachePolicy();
-            notify('K937 静态资源缓存时间已保存', 'success');
+            notify('K937 静态资源缓存配置已保存', 'success');
+            return loadRuntimeHygiene(true);
         }).catch(function(err) {
-            notify(err && err.message || '缓存时间保存失败', 'error');
+            notify(err && err.message || '缓存配置保存失败', 'error');
         });
     }
 
@@ -846,6 +921,7 @@
             state.data.staticCache = body.item || {};
             renderStaticCachePolicy();
             notify('已切换上游资源版本，清理缓存分片 ' + formatNumber((body.item && body.item.removed_entries) || 0) + ' 个', 'success');
+            return loadRuntimeHygiene(true);
         }).catch(function(err) {
             notify(err && err.message || '启用上游新资源失败', 'error');
         });
@@ -979,7 +1055,7 @@
         init: init,
         start: start,
         stop: stop,
-        refreshLight: function() { return Promise.all([loadLight(true), loadRuntimePerformance(true)]); },
+        refreshLight: function() { return Promise.all([loadLight(true), loadStaticCachePolicy(), loadRuntimeHygiene(true), loadRuntimePerformance(true)]); },
         refreshHeavy: function() { return loadHeavy(true); }
     };
 

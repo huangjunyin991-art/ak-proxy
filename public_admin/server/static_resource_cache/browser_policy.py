@@ -127,7 +127,7 @@ class StaticResourceBrowserPolicy:
         if not root.exists():
             return 0
         for item in root.iterdir():
-            if item == self.config_path:
+            if item == self.config_path or item.name == 'memory_policy.json':
                 continue
             try:
                 if item.is_dir():
