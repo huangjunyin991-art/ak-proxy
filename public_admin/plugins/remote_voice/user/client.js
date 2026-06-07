@@ -232,8 +232,17 @@
             return await new Promise((resolve, reject) => {
                 try {
                     const currentWs = new WebSocket(this.wsUrlBuilder(this.voiceSessionId, this.role, this.site));
+                    let opened = false;
+                    let settled = false;
+                    const rejectConnect = error => {
+                        if (settled) return;
+                        settled = true;
+                        reject(error instanceof Error ? error : new Error(String(error || '实时语音信令连接失败')));
+                    };
                     this.ws = currentWs;
                     currentWs.onopen = () => {
+                        opened = true;
+                        settled = true;
                         this.emitState({ status: 'connecting', phase: 'signal_ready' });
                         resolve(currentWs);
                     };
@@ -246,9 +255,21 @@
                         }
                     };
                     currentWs.onerror = err => {
-                        this.fail(err);
+                        const error = err instanceof Error ? err : new Error('实时语音信令连接失败');
+                        if (!opened) {
+                            rejectConnect(error);
+                        }
+                        this.fail(error);
                     };
-                    currentWs.onclose = () => {
+                    currentWs.onclose = event => {
+                        if (!opened) {
+                            const reason = String((event && event.reason) || '').trim() || '实时语音信令连接已关闭';
+                            const error = new Error(reason);
+                            if (event && typeof event.code !== 'undefined') {
+                                error.code = event.code;
+                            }
+                            rejectConnect(error);
+                        }
                         if (!this.destroyed) {
                             this.stop(false, 'socket_closed');
                         }

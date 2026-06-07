@@ -337,6 +337,16 @@
             return current === 'reserved' || current === 'ringing' || current === 'connecting' || current === 'active';
         }
 
+        function isRemoteAssistVoiceSocketStatus(status) {
+            const current = String(status || '').trim().toLowerCase();
+            return current === 'connecting' || current === 'active';
+        }
+
+        function isRemoteAssistVoiceTerminalStatus(status) {
+            const current = String(status || '').trim().toLowerCase();
+            return current === 'rejected' || current === 'timeout' || current === 'closed' || current === 'failed' || current === 'socket_closed';
+        }
+
         function clearRemoteAssistVoiceStatePollTimer() {
             if (remoteAssistVoiceStatePollTimer) {
                 clearTimeout(remoteAssistVoiceStatePollTimer);
@@ -556,10 +566,16 @@
         }
 
         async function ensureRemoteAssistVoiceClient() {
-            if (!remoteAssistPanelSessionId || !remoteAssistVoiceSessionId || !isRemoteAssistVoiceCountedStatus(remoteAssistVoiceStatus)) {
-                if (!remoteAssistVoiceSessionId) {
-                    await disconnectRemoteAssistVoiceClient(false, remoteAssistVoiceStatus || 'closed', true);
+            if (!remoteAssistPanelSessionId || !remoteAssistVoiceSessionId) {
+                await disconnectRemoteAssistVoiceClient(false, remoteAssistVoiceStatus || 'closed', true);
+                return;
+            }
+            if (!isRemoteAssistVoiceSocketStatus(remoteAssistVoiceStatus)) {
+                if (remoteAssistVoiceClient) {
+                    await disconnectRemoteAssistVoiceClient(false, remoteAssistVoiceStatus || 'closed', false);
                 }
+                renderRemoteAssistVoiceStrip();
+                updateRemoteAssistVoiceButton();
                 return;
             }
             if (remoteAssistVoiceClient && remoteAssistVoiceClient.voiceSessionId === remoteAssistVoiceSessionId) {
@@ -605,7 +621,7 @@
                 },
                 onError: function(error) {
                     if (remoteAssistVoiceClient !== client) return;
-                    showToast(`实时语音异常：${(error && error.message) || '未知错误'}`, 'error');
+                    handleRemoteAssistVoiceClientError(error, client, currentVoiceSessionId);
                 }
             });
             remoteAssistVoiceClient = client;
@@ -613,13 +629,39 @@
             try {
                 await client.start();
             } catch (e) {
+                await loadRemoteAssistVoiceState({ syncClient: false });
+                if (
+                    remoteAssistVoiceClient !== client
+                    || remoteAssistVoiceSessionId !== currentVoiceSessionId
+                    || !isRemoteAssistVoiceSocketStatus(remoteAssistVoiceStatus)
+                    || isRemoteAssistVoiceTerminalStatus(remoteAssistVoiceStatus)
+                ) {
+                    updateRemoteAssistVoiceButton();
+                    return;
+                }
                 if (remoteAssistVoiceClient === client) {
                     remoteAssistVoiceClient = null;
                     resetRemoteAssistVoiceUi('failed', true);
                 }
                 updateRemoteAssistVoiceButton();
-                showToast(`启动实时语音失败: ${e.message}`, 'error');
+                showToast(`启动实时语音失败: ${(e && e.message) || '信令连接失败'}`, 'error');
             }
+        }
+
+        async function handleRemoteAssistVoiceClientError(error, client, voiceSessionId) {
+            if (remoteAssistVoiceClient !== client) return;
+            if (isRemoteAssistVoiceTerminalStatus(remoteAssistVoiceStatus) || !isRemoteAssistVoiceSocketStatus(remoteAssistVoiceStatus)) return;
+            await loadRemoteAssistVoiceState({ syncClient: false });
+            if (
+                remoteAssistVoiceClient !== client
+                || remoteAssistVoiceSessionId !== voiceSessionId
+                || isRemoteAssistVoiceTerminalStatus(remoteAssistVoiceStatus)
+                || !isRemoteAssistVoiceSocketStatus(remoteAssistVoiceStatus)
+            ) {
+                return;
+            }
+            const message = String((error && error.message) || '').trim() || '信令连接失败';
+            showToast(`实时语音异常：${message}`, 'error');
         }
 
         async function toggleRemoteAssistVoiceMute() {
@@ -631,7 +673,8 @@
             }
         }
 
-        async function loadRemoteAssistVoiceState() {
+        async function loadRemoteAssistVoiceState(options = {}) {
+            const shouldSyncClient = !(options && options.syncClient === false);
             if (!remoteAssistPanelSessionId) {
                 clearRemoteAssistVoiceStatePollTimer();
                 await disconnectRemoteAssistVoiceClient(false, 'closed', true);
@@ -659,8 +702,15 @@
                     clearRemoteAssistVoiceStatePollTimer();
                 }
                 maybeRequestRemoteAssistSnapshotForVoiceStatus(previousVoiceStatus, remoteAssistVoiceStatus);
-                if (remoteAssistVoiceSessionId && isRemoteAssistVoiceCountedStatus(remoteAssistVoiceStatus)) {
+                if (remoteAssistVoiceSessionId && isRemoteAssistVoiceSocketStatus(remoteAssistVoiceStatus)) {
+                    if (!shouldSyncClient) {
+                        renderRemoteAssistVoiceStrip();
+                        updateRemoteAssistVoiceButton();
+                        return;
+                    }
                     await ensureRemoteAssistVoiceClient();
+                } else if (remoteAssistVoiceSessionId && isRemoteAssistVoiceCountedStatus(remoteAssistVoiceStatus)) {
+                    await disconnectRemoteAssistVoiceClient(false, remoteAssistVoiceStatus || 'ringing', false);
                 } else {
                     await disconnectRemoteAssistVoiceClient(false, remoteAssistVoiceStatus || 'closed', true);
                 }
@@ -716,7 +766,9 @@
                     remoteAssistVoiceRemoteLevel = 0;
                     remoteAssistVoiceConnectedRoles = [];
                     scheduleRemoteAssistVoiceStateRefresh(700);
-                    await ensureRemoteAssistVoiceClient();
+                    if (isRemoteAssistVoiceSocketStatus(remoteAssistVoiceStatus)) {
+                        await ensureRemoteAssistVoiceClient();
+                    }
                 }
                 updateRemoteAssistVoiceButton();
                 showToast(data.message || (shouldClose ? '已关闭实时语音' : '已发起实时语音邀请'));
