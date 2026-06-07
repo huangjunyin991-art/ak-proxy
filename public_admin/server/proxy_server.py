@@ -2707,57 +2707,53 @@ async def proxy_rpc(path: str, request: Request):
 
 # ===== 管理API =====
 
-@app.get("/api/status")
+def _format_uptime_bucket(uptime_seconds: float) -> str:
 
-async def api_status():
+    seconds = max(0, int(uptime_seconds))
 
-    """获取代理状态（JSON）"""
+    if seconds < 60:
+
+        return "lt_1m"
+
+    if seconds < 3600:
+
+        return "lt_1h"
+
+    if seconds < 86400:
+
+        return "lt_1d"
+
+    if seconds < 604800:
+
+        return "lt_7d"
+
+    return "gte_7d"
+
+
+def _build_public_status_payload() -> dict:
 
     uptime = (datetime.now() - stats.start_time).total_seconds()
 
     return {
 
+        "ok": True,
+
         "running": True,
 
-        "uptime_seconds": int(uptime),
+        "service": "ak-proxy",
 
-        "total_requests": stats.total_requests,
-
-        "login": {
-
-            "total": stats.login_requests,
-
-            "success": stats.login_success,
-
-            "fail": stats.login_fail,
-
-            "last_account": stats.last_login_account,
-
-            "last_time": stats.last_login_time,
-
-        },
-
-        "index_data_requests": stats.index_data_requests,
-
-        "other_requests": stats.other_requests,
-
-        "errors": stats.errors,
-
-        "report": {
-
-            "server": MONITOR_SERVER or "未配置",
-
-            "success": stats.report_success,
-
-            "fail": stats.report_fail,
-
-        },
-
-        "api_target": AKAPI_URL,
-
-        "dispatcher": dispatcher.summary(),
+        "uptime_bucket": _format_uptime_bucket(uptime),
 
     }
+
+
+@app.get("/api/status")
+
+async def api_status():
+
+    """公开健康状态，仅返回最小探活信息。"""
+
+    return _build_public_status_payload()
 
 
 
