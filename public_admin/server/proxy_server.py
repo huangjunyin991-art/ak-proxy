@@ -157,11 +157,6 @@ except NameError:
 
 from . import database_pg as db
 from .db_guard import GuardError
-from .ntfy_identity_exchange import (
-    DEFAULT_NTFY_IDENTITY_EXCHANGE_POLICY,
-    build_reused_snapshot,
-    is_same_token_collision,
-)
 from .security import AdminSecurityFacade
 from .security.context import build_security_context
 from .security.result import SecurityResult
@@ -12893,7 +12888,6 @@ async def admin_clear_ak_auth(request: Request):
 
 _IM_SWITCH_TOKEN_MAX_AGE_SECONDS = 86400
 _IM_SWITCH_TOKEN_FUTURE_SKEW_SECONDS = 300
-_IM_SWITCH_EXCHANGE_POLICY = DEFAULT_NTFY_IDENTITY_EXCHANGE_POLICY
 
 
 def _build_im_switch_token(secret: str, username: str, ts: int, nonce: str, conversation_id: int = 0) -> str:
@@ -13147,20 +13141,6 @@ async def admin_ak_auth_silent_login_by_token(request: Request):
         }, status_code=500)
     if not consume_result.get("consumed"):
         reason = str(consume_result.get("reason") or "token_rejected")
-        if is_same_token_collision(consume_result, wanted, conversation_id):
-            cached_snapshot = await db.wait_im_switch_token_snapshot(
-                token_state.get("token_hash", ""),
-                wanted,
-                conversation_id,
-                timeout_seconds=_IM_SWITCH_EXCHANGE_POLICY.wait_timeout_seconds,
-                poll_seconds=_IM_SWITCH_EXCHANGE_POLICY.wait_poll_seconds,
-            )
-            if cached_snapshot:
-                logger.info(
-                    f"[AkAuthSilentLogin] reuse_recent_switch_snapshot username={wanted} "
-                    f"conversation_id={conversation_id}"
-                )
-                return JSONResponse(build_reused_snapshot(cached_snapshot))
         status_code = 409 if reason == "already_used" else 401
         return JSONResponse({
             "success": False,
@@ -13171,16 +13151,6 @@ async def admin_ak_auth_silent_login_by_token(request: Request):
     snapshot, error_response = await _silent_login_ak_account(wanted, request)
     if error_response is not None:
         return error_response
-    try:
-        await db.save_im_switch_token_snapshot(
-            token_state.get("token_hash", ""),
-            wanted,
-            conversation_id,
-            snapshot,
-            ttl_seconds=_IM_SWITCH_EXCHANGE_POLICY.result_ttl_seconds,
-        )
-    except Exception as e:
-        logger.warning(f"[AkAuthSilentLogin] save_switch_snapshot_failed username={wanted}: {e}")
     return JSONResponse(snapshot)
 
 
