@@ -2,7 +2,7 @@
 
 ## 背景
 
-原 `public_admin/frontend/host/chat_widget.js` 已不再只是聊天组件，而是被代理 AK 用户页面的客户端运行时。它同时承担登录保持、API 重写、PWA、IM 插件启动、在线状态、远程协助、远程语音和页面补丁等职责。
+原 `public_admin/frontend/host/chat_widget.js` 已不再只是聊天组件，而是被代理 AK 用户页面的客户端运行时。它同时承担登录保持、API 重写、IM 插件启动、在线状态、远程协助、远程语音和页面补丁等职责。
 
 继续使用 `chat_widget` 命名会误导维护者，也会让后续功能继续堆叠到单一大文件中。因此重构目标是逐步把它迁移为模块化、松耦合、可降级的 AK client runtime。
 
@@ -24,7 +24,6 @@
 - 登录请求凭据捕获
 - API URL 重写
 - fetch / XMLHttpRequest / jQuery AJAX 拦截
-- PWA manifest 与 Service Worker 注册
 - 首页 IM 插件与通知组件启动
 - ChatWS 在线状态、心跳和管理员消息
 - 远程协助请求、连接恢复、路由同步、快照同步、点击高亮、滚动同步
@@ -143,13 +142,6 @@ public_admin/frontend/host/chat_widget.js
 /admin/api/chat-widget-loader
 ```
 
-### 旧 PWA 兼容 URL
-
-```text
-/admin/api/pwa-widget
-```
-
-以上三个 URL 当前都返回同一个 loader 响应。
 
 ### 内部 URL 重写
 
@@ -206,11 +198,11 @@ public_admin/frontend/host/runtime/runtime_manifest.json
 ```text
 network/api_url_rewriter.js       required
 network/request_interceptor.js    required
+core/scheduler.js                 optional
 auth/session.js                   optional
 presence/identity.js              optional
 chat/shell.js                     optional
 patches/recommend_friend_patch.js  optional
-pwa/pwa_runtime.js                 optional
 im/im_loader.js                    optional
 ak_client_runtime.js              required
 ```
@@ -235,29 +227,8 @@ if (window.AKClientRuntimePatches && typeof window.AKClientRuntimePatches.instal
 }
 ```
 
-如果该 optional 模块缺失，只会导致“附近玩家首卡返回上一级”功能失效，不影响登录、API 拦截、IM、PWA、ChatWS、远程协助和远程语音。
+如果该 optional 模块缺失，只会导致“附近玩家首卡返回上一级”功能失效，不影响登录、API 拦截、IM、ChatWS、远程协助和远程语音。
 
-已抽离的 PWA 模块：
-
-```text
-public_admin/frontend/host/runtime/pwa/pwa_runtime.js
-```
-
-该模块通过以下命名空间暴露启动函数：
-
-```js
-window.AKClientRuntimePWA.setupPWA
-```
-
-主运行时暴露最小上下文接口：
-
-```js
-window.AKClientRuntimeContext.hasPersistCookie
-```
-
-PWA 模块通过该接口判断持久登录状态，不直接依赖主运行时闭包内部函数。
-
-如果该 optional 模块缺失，只会导致 PWA manifest 注入、Service Worker 注册和安装提示缺失，不影响其它运行时能力。
 
 已抽离的持久登录模块：
 
@@ -276,7 +247,7 @@ window.AKClientRuntimeAuth.setupLoginCapture
 window.AKClientRuntimeAuth.autoLogin
 ```
 
-主运行时通过该模块处理持久登录凭据、登录响应用户模型落库、登录页自动填充和提交。如果该 optional 模块缺失，只会导致持久登录、自动登录和登录凭据捕获能力缺失，不影响 Network、ChatWS、在线状态、IM、PWA、远程协助和远程语音主链路。
+主运行时通过该模块处理持久登录凭据、登录响应用户模型落库、登录页自动填充和提交。如果该 optional 模块缺失，只会导致持久登录、自动登录和登录凭据捕获能力缺失，不影响 Network、ChatWS、在线状态、IM、远程协助和远程语音主链路。
 
 已抽离的在线身份模块：
 
@@ -339,7 +310,7 @@ window.AKClientRuntimeContext.withWidgetAssetVersion
 
 IM 模块通过该接口为 `/chat/plugins/im/user/im_entry.js` 追加运行时版本号，不直接依赖主运行时闭包内部函数。
 
-如果该 optional 模块缺失，只会导致首页 IM/通知入口缺失，不影响登录、API 拦截、PWA、ChatWS、远程协助、远程语音和页面补丁。
+如果该 optional 模块缺失，只会导致首页 IM/通知入口缺失，不影响登录、API 拦截、ChatWS、远程协助、远程语音和页面补丁。
 
 已抽离的 Network 模块：
 
@@ -389,8 +360,6 @@ public_admin/frontend/host/runtime/
   network/
     api_url_rewriter.js
     request_interceptor.js
-  pwa/
-    pwa_runtime.js
   im/
     im_loader.js
     notification_widget.js
@@ -453,7 +422,7 @@ public_admin/frontend/host/runtime/
 - 远程协助主体
 - 远程语音
 - 聊天 UI 初始化
-- 首页 IM/PWA 启动
+- 首页 IM/通知启动
 
 原因：登录页只需要完成登录链路，不应初始化 Chat/Assist/Voice 主体，避免移动端登录页加载变慢。
 
@@ -472,7 +441,6 @@ public_admin/frontend/host/runtime/
 
 能力：
 
-- PWA
 - IM 插件
 - 通知组件
 
@@ -485,8 +453,8 @@ public_admin/frontend/host/runtime/
 ```powershell
 node --check public_admin/frontend/host/runtime/network/api_url_rewriter.js
 node --check public_admin/frontend/host/runtime/network/request_interceptor.js
+node --check public_admin/frontend/host/runtime/core/scheduler.js
 node --check public_admin/frontend/host/runtime/patches/recommend_friend_patch.js
-node --check public_admin/frontend/host/runtime/pwa/pwa_runtime.js
 node --check public_admin/frontend/host/runtime/im/im_loader.js
 node --check public_admin/frontend/host/runtime/ak_client_runtime.js
 python -m json.tool public_admin/frontend/host/runtime/runtime_manifest.json
@@ -506,7 +474,7 @@ curl -s https://ak2025.vip/admin/api/chat-widget-loader | grep '/ak/client-runti
 
 - 登录保持仍正常
 - AK/EP 交易页加载不卡顿
-- 首页 IM/PWA/通知仍正常
+- 首页 IM/通知仍正常
 - 远程协助跨页面同步正常
 - 远程协助管理员端只响应点击
 - 附近玩家首卡返回上一级正常

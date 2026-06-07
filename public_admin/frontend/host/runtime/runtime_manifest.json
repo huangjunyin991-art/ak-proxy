@@ -12,6 +12,11 @@
       "required": true
     },
     {
+      "name": "core_scheduler",
+      "path": "core/scheduler.js",
+      "required": false
+    },
+    {
       "name": "auth_session",
       "path": "auth/session.js",
       "required": false
@@ -34,11 +39,6 @@
     {
       "name": "login_password_error_patch",
       "path": "patches/login_password_error_patch.js",
-      "required": false
-    },
-    {
-      "name": "pwa_runtime",
-      "path": "pwa/pwa_runtime.js",
       "required": false
     },
     {

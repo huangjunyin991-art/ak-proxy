@@ -44,6 +44,90 @@
         return false;
     }
 
+    function getScheduler() {
+        try {
+            return window.AKClientRuntimeScheduler || null;
+        } catch(e) {}
+        return null;
+    }
+
+    function scheduleRuntimeDelay(task, delay, label) {
+        var scheduler = getScheduler();
+        if (scheduler && typeof scheduler.delay === 'function') {
+            return scheduler.delay(task, delay, { label: label || '' });
+        }
+        return setTimeout(task, Math.max(0, Number(delay || 0)));
+    }
+
+    function scheduleRuntimeEvery(task, interval, label) {
+        var scheduler = getScheduler();
+        if (scheduler && typeof scheduler.every === 'function') {
+            return scheduler.every(task, interval, { label: label || '' });
+        }
+        return setInterval(task, Math.max(1, Number(interval || 1000)));
+    }
+
+    function cancelRuntimeSchedule(handle) {
+        if (!handle) return;
+        var scheduler = getScheduler();
+        if (scheduler && typeof scheduler.cancel === 'function' && scheduler.cancel(handle)) return;
+        if (handle && typeof handle.cancel === 'function') {
+            handle.cancel();
+            return;
+        }
+        try {
+            clearTimeout(handle);
+            clearInterval(handle);
+        } catch(e) {}
+    }
+
+    function isLoginRuntimePage() {
+        try {
+            return String(window.location.pathname || '').toLowerCase().indexOf('/login') !== -1;
+        } catch(e) {
+            return false;
+        }
+    }
+
+    function isEmbeddedRuntimePage() {
+        try {
+            return window.self !== window.top;
+        } catch(e) {
+            return true;
+        }
+    }
+
+    function getRuntimeBootProfile() {
+        var embedded = isEmbeddedRuntimePage();
+        var login = isLoginRuntimePage();
+        var plugin = isPluginBootPage();
+        var tier = embedded ? 'embedded' : (login ? 'login' : (plugin ? 'home' : 'standard'));
+        return {
+            tier: tier,
+            embedded: embedded,
+            login: login,
+            home: plugin,
+            mobileLight: isMobileLightBoot(),
+            realtime: !embedded && !login,
+            homePlugins: !embedded && !login && plugin
+        };
+    }
+
+    function installRuntimeBootProfile() {
+        try {
+            window.AKClientRuntimeContext = window.AKClientRuntimeContext || {};
+            window.AKClientRuntimeContext.getBootProfile = getRuntimeBootProfile;
+        } catch(e) {}
+    }
+
+    function shouldBootHomePlugins() {
+        return !!getRuntimeBootProfile().homePlugins;
+    }
+
+    function shouldBootRealtimeShell() {
+        return !!getRuntimeBootProfile().realtime;
+    }
+
     function installRuntimeContext() {
         try {
             var auth = getAuthModule();
@@ -115,7 +199,7 @@
         }
     }
 
-    function scheduleDeferredStartup(task, delay) {
+    function scheduleDeferredStartup(task, delay, label) {
         var started = false;
         function run() {
             if (started) return;
@@ -123,20 +207,28 @@
             task();
         }
         var wait = typeof delay === 'number' ? delay : 1200;
+        var scheduler = getScheduler();
+        if (scheduler && typeof scheduler.defer === 'function') {
+            return scheduler.defer(run, {
+                delayMs: wait,
+                lightBoot: isMobileLightBoot(),
+                label: label || 'runtime-deferred-startup'
+            });
+        }
         if (!isMobileLightBoot()) {
-            setTimeout(run, 0);
+            scheduleRuntimeDelay(run, 0, label || 'runtime-deferred-startup');
             return;
         }
         if ('requestIdleCallback' in window) {
             window.requestIdleCallback(run, { timeout: wait + 1500 });
         }
         if (document.readyState === 'complete') {
-            setTimeout(run, wait);
+            scheduleRuntimeDelay(run, wait, label || 'runtime-deferred-startup');
         } else {
             window.addEventListener('load', function() {
-                setTimeout(run, wait);
+                scheduleRuntimeDelay(run, wait, label || 'runtime-deferred-startup:load');
             }, { once: true });
-            setTimeout(run, wait + 2500);
+            scheduleRuntimeDelay(run, wait + 2500, label || 'runtime-deferred-startup:fallback');
         }
     }
 
@@ -153,17 +245,6 @@
         }
     }
     
-    function bootPWAFeature() {
-        return;
-        try {
-            var pwa = window.AKClientRuntimePWA;
-            if (pwa && typeof pwa.setupPWA === 'function') {
-                pwa.setupPWA();
-            }
-        } catch(e) {
-        }
-    }
-
     function bootWebPushFeature() {
         try {
             var push = window.AKClientRuntimePush;
@@ -176,6 +257,7 @@
     
     // 持久化登录：尽早隐藏登录页并自动登录
     installRuntimeContext();
+    installRuntimeBootProfile();
     autoLogin();
     // 立即执行一次
     fixApiUrl();
@@ -185,18 +267,17 @@
     setupLoginCapture();
     installRuntimePagePatches();
     // 延迟再执行（确保APP对象已加载）
-    setTimeout(fixApiUrl, 500);
-    setTimeout(fixApiUrl, 1500);
-    setTimeout(fixApiUrl, 3000);
-    if (isPluginBootPage()) {
-        scheduleDeferredStartup(bootPWAFeature, 1800);
-        scheduleDeferredStartup(bootWebPushFeature, 2600);
+    scheduleRuntimeDelay(fixApiUrl, 500, 'fix-api-url:500');
+    scheduleRuntimeDelay(fixApiUrl, 1500, 'fix-api-url:1500');
+    scheduleRuntimeDelay(fixApiUrl, 3000, 'fix-api-url:3000');
+    if (shouldBootHomePlugins()) {
+        scheduleDeferredStartup(bootWebPushFeature, 2600, 'boot-web-push');
     }
     
     // ===== 以下是聊天组件代码，需要等待 DOM 准备好 =====
     function initChatWidget() {
         // 在 iframe 里不初始化（避免子框架发送错误的page覆盖父页面）
-        if (window.self !== window.top) return;
+        if (isEmbeddedRuntimePage()) return;
         // 防止重复初始化
         if (window._akChatInitialized) return;
         window._akChatInitialized = true;
@@ -3795,15 +3876,15 @@
         rejectVoiceRequest: rejectVoiceRequest,
         toggleVoiceMute: toggleRemoteVoiceMute
     };
-    if (isPluginBootPage()) {
-        scheduleDeferredStartup(bootIMFeature, 1600);
+    if (shouldBootHomePlugins()) {
+        scheduleDeferredStartup(bootIMFeature, 1600, 'boot-im');
     }
     emitChatBridgeEvent('ak-chat-ready', { api: window.AKChat });
     
     // 监听SPA路由变化（history.pushState / replaceState / 浏览器前进后退）
     function onUrlChange() {
-        if (isPluginBootPage()) {
-            scheduleDeferredStartup(refreshIMFeature, 500);
+        if (shouldBootHomePlugins()) {
+            scheduleDeferredStartup(refreshIMFeature, 500, 'refresh-im');
         }
         if (ws && ws.readyState === WebSocket.OPEN && !document.hidden) {
             sendPresence('online');
@@ -3909,11 +3990,11 @@
     });
     
     // DOM加载完成后立即连接（不等待所有资源加载）
-    setTimeout(function() {
+    scheduleRuntimeDelay(function() {
         if (isPresenceForeground()) {
             resumePresence('initial_boot');
         }
-    }, 100);
+    }, 100, 'presence-initial-boot');
     
     } // 结束 initChatWidget 函数
     
@@ -3922,32 +4003,25 @@
         if (document.body) {
             initChatWidget();
         } else {
-            setTimeout(tryInit, 100);
+            scheduleRuntimeDelay(tryInit, 100, 'chat-widget-wait-body');
         }
-    }
-    
-    function scheduleChatWidgetInit() {
-        scheduleDeferredStartup(tryInit, 700);
     }
 
-    function isLoginRuntimePage() {
-        try {
-            return String(window.location.pathname || '').toLowerCase().indexOf('/login') !== -1;
-        } catch(e) {
-            return false;
-        }
+    function scheduleChatWidgetInit() {
+        scheduleDeferredStartup(tryInit, 700, 'chat-widget-init');
     }
 
     function scheduleChatWidgetInitWhenAllowed() {
-        if (!isLoginRuntimePage()) {
+        if (shouldBootRealtimeShell()) {
             scheduleChatWidgetInit();
             return;
         }
-        var loginRouteTimer = setInterval(function() {
+        if (isEmbeddedRuntimePage()) return;
+        var loginRouteTimer = scheduleRuntimeEvery(function() {
             if (isLoginRuntimePage()) return;
-            clearInterval(loginRouteTimer);
+            cancelRuntimeSchedule(loginRouteTimer);
             scheduleChatWidgetInit();
-        }, 500);
+        }, 500, 'login-route-watch');
     }
 
     if (document.readyState === 'loading') {
