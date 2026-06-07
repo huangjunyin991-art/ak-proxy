@@ -240,6 +240,8 @@
         let remoteAssistVoiceSnapshotRequestAt = 0;
         let remoteAssistVoiceSnapshotRequestKey = '';
         let remoteAssistPanelPendingRoute = '';
+        let remoteAssistPanelPendingRouteRequestAt = 0;
+        let remoteAssistPanelPendingRouteRequestKey = '';
         let remoteAssistPanelWaitingForRouteSnapshot = false;
         let remoteAssistPanelRenderSeq = 0;
         let remoteAssistPanelLoadedRenderSeq = 0;
