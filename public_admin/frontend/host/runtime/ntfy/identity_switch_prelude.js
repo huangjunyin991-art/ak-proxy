@@ -898,6 +898,144 @@
         });
     }
 
+    function resolveRequestUrl(input) {
+        try {
+            if (typeof input === 'string') return input;
+            if (input && typeof input.url === 'string') return input.url;
+        } catch (e) {}
+        return '';
+    }
+
+    function isImApiRequestUrl(url) {
+        try {
+            var parsed = new URL(String(url || ''), window.location.href);
+            var pathname = String(parsed.pathname || '').toLowerCase();
+            return pathname === '/im/api' || pathname.indexOf('/im/api/') === 0;
+        } catch (e) {}
+        return false;
+    }
+
+    function shouldBlockAfterIdentitySwitch(result) {
+        if (result && result.redirecting) return true;
+        var lock = getLock();
+        return !!(lock && lock.redirecting);
+    }
+
+    function buildBlockedFetchResponse(reason) {
+        try {
+            if (typeof Response === 'function') {
+                return new Response(JSON.stringify({
+                    success: false,
+                    blocked: true,
+                    reason: String(reason || 'ntfy_identity_switch_redirecting')
+                }), {
+                    status: 409,
+                    headers: { 'Content-Type': 'application/json; charset=utf-8' }
+                });
+            }
+        } catch (e) {}
+        return Promise.reject(new Error(String(reason || 'ntfy_identity_switch_redirecting')));
+    }
+
+    function installImApiGate() {
+        try {
+            if (window.__AK_NTFY_IM_API_GATE__) return;
+            window.__AK_NTFY_IM_API_GATE__ = 1;
+
+            if (window.fetch) {
+                var nativeFetch = window.fetch;
+                window.fetch = function(input, init) {
+                    var url = resolveRequestUrl(input);
+                    if (!isImApiRequestUrl(url)) {
+                        return nativeFetch.apply(this, arguments);
+                    }
+                    debug('im-api-fetch-gate-wait', { url: String(url || '') });
+                    var args = arguments;
+                    var self = this;
+                    return waitWithTimeout(startSwitch(), MAX_INDEXDATA_WAIT_MS).then(function(result) {
+                        if (shouldBlockAfterIdentitySwitch(result)) {
+                            debug('im-api-fetch-gate-block', {
+                                url: String(url || ''),
+                                reason: result && result.reason ? result.reason : ''
+                            });
+                            return buildBlockedFetchResponse(result && result.reason);
+                        }
+                        refreshAppModel();
+                        debug('im-api-fetch-gate-send', {
+                            url: String(url || ''),
+                            reason: result && result.reason ? result.reason : ''
+                        });
+                        return nativeFetch.apply(self, args);
+                    }).catch(function(error) {
+                        if (shouldBlockAfterIdentitySwitch(null)) {
+                            debug('im-api-fetch-gate-block-error', {
+                                url: String(url || ''),
+                                message: String(error && error.message || error || '')
+                            });
+                            return buildBlockedFetchResponse('ntfy_identity_redirecting');
+                        }
+                        debug('im-api-fetch-gate-fallback', {
+                            url: String(url || ''),
+                            message: String(error && error.message || error || '')
+                        });
+                        return nativeFetch.apply(self, args);
+                    });
+                };
+            }
+
+            if (window.XMLHttpRequest && XMLHttpRequest.prototype) {
+                var nativeOpen = XMLHttpRequest.prototype.open;
+                var nativeSend = XMLHttpRequest.prototype.send;
+                XMLHttpRequest.prototype.open = function(method, url) {
+                    try {
+                        this.__akNtfyGateImApi = isImApiRequestUrl(url);
+                        this.__akNtfyGateImApiUrl = String(url || '');
+                    } catch (e) {}
+                    return nativeOpen.apply(this, arguments);
+                };
+                XMLHttpRequest.prototype.send = function(body) {
+                    if (this.__akNtfyGateImApi) {
+                        var xhr = this;
+                        var args = arguments;
+                        var url = xhr.__akNtfyGateImApiUrl || '';
+                        debug('im-api-xhr-gate-wait', { url: String(url || '') });
+                        waitWithTimeout(startSwitch(), MAX_INDEXDATA_WAIT_MS).then(function(result) {
+                            if (shouldBlockAfterIdentitySwitch(result)) {
+                                debug('im-api-xhr-gate-block', {
+                                    url: String(url || ''),
+                                    reason: result && result.reason ? result.reason : ''
+                                });
+                                return;
+                            }
+                            refreshAppModel();
+                            debug('im-api-xhr-gate-send', {
+                                url: String(url || ''),
+                                reason: result && result.reason ? result.reason : ''
+                            });
+                            nativeSend.apply(xhr, args);
+                        }).catch(function(error) {
+                            if (shouldBlockAfterIdentitySwitch(null)) {
+                                debug('im-api-xhr-gate-block-error', {
+                                    url: String(url || ''),
+                                    message: String(error && error.message || error || '')
+                                });
+                                return;
+                            }
+                            debug('im-api-xhr-gate-fallback', {
+                                url: String(url || ''),
+                                message: String(error && error.message || error || '')
+                            });
+                            nativeSend.apply(xhr, args);
+                        });
+                        return;
+                    }
+                    return nativeSend.apply(this, arguments);
+                };
+            }
+            debug('im-api-gate-installed', {});
+        } catch (e) {}
+    }
+
     function patchIndexDataBody(body) {
         try {
             if (typeof body !== 'string') return body;
@@ -1025,6 +1163,7 @@
 
     updateLock({ active: true, pending: true, synced: false, failed: false, startedAt: Date.now() });
     installHomeSyncHook();
+    installImApiGate();
     installIndexDataGate();
     installAppPatchWatchdog();
     startSwitch();
