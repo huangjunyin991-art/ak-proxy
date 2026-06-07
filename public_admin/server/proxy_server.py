@@ -187,6 +187,7 @@ from .runtime_hygiene import RuntimeHygieneConfigService, RuntimeHygienePolicy, 
 from .performance.cache.admin_stats_cache import AdminStatsCache
 from .performance.db_indexes.admin_index_plan import get_admin_index_plan
 from .performance.dispatcher_status.service import DispatcherStatusService
+from .admin_realtime import AdminRealtimeHub, AdminRealtimeTopic
 from .static_resource_cache import (
     StaticResourceCacheConfig,
     StaticResourcePayload,
@@ -4089,6 +4090,7 @@ class ConnectionManager:
         self.active_connections = set()
 
         self.sub_admin_sessions = {}
+        self.admin_connections = {}
 
 
 
@@ -4103,12 +4105,74 @@ class ConnectionManager:
     def disconnect(self, websocket: WebSocket):
 
         self.active_connections.discard(websocket)
+        self.admin_connections.pop(id(websocket), None)
 
         to_remove = [n for n, s in self.sub_admin_sessions.items() if s.get('websocket') is websocket]
 
         for n in to_remove:
 
             del self.sub_admin_sessions[n]
+
+    def register_admin_connection(self, websocket: WebSocket, role: str, sub_name: str = ''):
+        permissions = {}
+        if role == ROLE_SUB_ADMIN and sub_name:
+            permissions = get_sub_admin_permissions(sub_name)
+        self.admin_connections[id(websocket)] = {
+            'websocket': websocket,
+            'role': role,
+            'sub_name': sub_name or '',
+            'permissions': permissions or {},
+            'last_heartbeat': datetime.now(),
+        }
+
+    def is_admin_authenticated(self, websocket: WebSocket) -> bool:
+        return id(websocket) in self.admin_connections
+
+    def _can_receive_topic(self, connection: dict, topic: str) -> bool:
+        role = connection.get('role')
+        if role == ROLE_SUPER_ADMIN:
+            return True
+        if role != ROLE_SUB_ADMIN:
+            return False
+        permissions = connection.get('permissions') or {}
+        topic_permissions = {
+            'dashboard.summary': 'dashboard',
+            'online.count': 'online',
+            'online.users': 'online',
+        }
+        required_permission = topic_permissions.get(topic)
+        if required_permission is None:
+            return topic == 'admin.stats'
+        return bool(permissions.get(required_permission))
+
+    def can_receive_topic(self, websocket: WebSocket, topic: str) -> bool:
+        connection = self.admin_connections.get(id(websocket))
+        return bool(connection and self._can_receive_topic(connection, topic))
+
+    async def send_topic_message(self, topic: str, message: dict, connection_ids: set[int] | None = None) -> int:
+        sent = 0
+        dead = []
+        target_ids = set(connection_ids or [])
+        for connection_id, connection in list(self.admin_connections.items()):
+            if target_ids and connection_id not in target_ids:
+                continue
+            if not self._can_receive_topic(connection, topic):
+                continue
+            websocket = connection.get('websocket')
+            if not websocket:
+                dead.append(connection_id)
+                continue
+            try:
+                await websocket.send_json(message)
+                sent += 1
+            except Exception:
+                dead.append(connection_id)
+        for connection_id in dead:
+            connection = self.admin_connections.pop(connection_id, None)
+            websocket = connection.get('websocket') if connection else None
+            if websocket:
+                self.active_connections.discard(websocket)
+        return sent
 
 
 
@@ -4530,6 +4594,58 @@ class OnlineUserManager:
 
 online_manager = OnlineUserManager()
 
+
+async def _load_admin_stats_topic() -> dict:
+    result = await _ADMIN_STATS_CACHE.get_stats_result()
+    data = dict(result.value)
+    if result.stale:
+        data["cache_stale"] = True
+    return data
+
+
+async def _load_dashboard_topic() -> dict:
+    result = await _ADMIN_STATS_CACHE.get_dashboard_result()
+    data = dict(result.value)
+    if result.stale:
+        data["cache_stale"] = True
+    return data
+
+
+async def _load_online_count_topic() -> dict:
+    return {"count": online_manager.get_online_user_count()}
+
+
+async def _load_online_users_topic() -> dict:
+    items = online_manager.get_online_users()
+    return {"items": items, "count": len(items)}
+
+
+admin_realtime_hub = AdminRealtimeHub(sender=ws_manager.send_topic_message, logger=logger)
+admin_realtime_hub.register_topic(AdminRealtimeTopic(
+    name="admin.stats",
+    loader=_load_admin_stats_topic,
+    interval_seconds=15.0,
+    ttl_seconds=15.0,
+))
+admin_realtime_hub.register_topic(AdminRealtimeTopic(
+    name="online.count",
+    loader=_load_online_count_topic,
+    interval_seconds=8.0,
+    ttl_seconds=8.0,
+))
+admin_realtime_hub.register_topic(AdminRealtimeTopic(
+    name="online.users",
+    loader=_load_online_users_topic,
+    interval_seconds=8.0,
+    ttl_seconds=8.0,
+))
+admin_realtime_hub.register_topic(AdminRealtimeTopic(
+    name="dashboard.summary",
+    loader=_load_dashboard_topic,
+    interval_seconds=30.0,
+    ttl_seconds=30.0,
+))
+
 def _is_real_chat_username(username: str) -> bool:
     normalized = online_manager.normalize_username(username)
     return bool(normalized and normalized != 'visitor' and not normalized.startswith('guest_'))
@@ -4940,6 +5056,8 @@ async def admin_shutdown():
 
     if _runtime_hygiene_service is not None:
         await _runtime_hygiene_service.stop()
+
+    await admin_realtime_hub.stop()
 
     await _browse_session_persist_queue.stop()
 
@@ -8771,6 +8889,10 @@ async def admin_websocket(websocket: WebSocket):
 
                     token = msg.get('token', '')
 
+                    if not token or not await verify_admin_token(token):
+                        await websocket.send_json({'type': 'auth_error'})
+                        continue
+
                     role = get_token_role(token)
 
                     if role == ROLE_SUB_ADMIN:
@@ -8780,17 +8902,37 @@ async def admin_websocket(websocket: WebSocket):
                         if sub_name:
 
                             ws_manager.register_sub_admin(sub_name, websocket)
+                            ws_manager.register_admin_connection(websocket, role, sub_name)
+                            await websocket.send_json({'type': 'auth_ok'})
 
                     elif role == ROLE_SUPER_ADMIN:
 
                         sub_name = '__super__'
 
                         ws_manager.register_sub_admin(sub_name, websocket)
+                        ws_manager.register_admin_connection(websocket, role, '')
+                        await websocket.send_json({'type': 'auth_ok'})
 
                 elif msg_type == 'heartbeat':
                     await websocket.send_json({'type': 'pong'})
                     if sub_name and sub_name != '__super__':
                         ws_manager.heartbeat_sub_admin(sub_name)
+                elif msg_type == 'admin_topic_subscribe':
+                    if not ws_manager.is_admin_authenticated(websocket):
+                        continue
+                    for topic in msg.get('topics') or []:
+                        topic_name = str(topic or '').strip()
+                        if ws_manager.can_receive_topic(websocket, topic_name):
+                            await admin_realtime_hub.subscribe(id(websocket), topic_name)
+                elif msg_type == 'admin_topic_unsubscribe':
+                    for topic in msg.get('topics') or []:
+                        await admin_realtime_hub.unsubscribe(id(websocket), str(topic or '').strip())
+                elif msg_type == 'admin_topic_refresh':
+                    if not ws_manager.is_admin_authenticated(websocket):
+                        continue
+                    topic_name = str(msg.get('topic') or '').strip()
+                    if ws_manager.can_receive_topic(websocket, topic_name):
+                        admin_realtime_hub.request_refresh(topic_name)
 
             except Exception:
 
@@ -8799,6 +8941,7 @@ async def admin_websocket(websocket: WebSocket):
     except (WebSocketDisconnect, Exception):
 
         ws_manager.disconnect(websocket)
+        await admin_realtime_hub.disconnect(id(websocket))
 
 
 
@@ -11743,6 +11886,7 @@ async def admin_shared_asset(request: Request, asset_path: str):
         "dashboard/dashboard.css": "text/css",
         "dashboard/user_growth_chart.js": "application/javascript",
         "dashboard/traffic_dashboard.js": "application/javascript",
+        "polling/polling_registry.js": "application/javascript",
     }
     media_type = allowed_assets.get(asset_path)
     if not media_type:

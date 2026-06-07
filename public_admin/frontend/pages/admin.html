@@ -3370,6 +3370,7 @@
     <link rel="stylesheet" href="/admin/api/shared/sticky_table/sticky_table.css?v=2026052701">
     <link rel="stylesheet" href="/admin/api/shared/dashboard/dashboard.css?v=2025060201">
     <script src="/admin/api/shared/sticky_table/sticky_table.js?v=2026052701" defer></script>
+    <script src="/admin/api/shared/polling/polling_registry.js?v=2026060701" defer></script>
     <script src="/admin/api/shared/lib/chart.umd.min.js?v=2026060201" defer></script>
     <script src="/admin/api/shared/dashboard/user_growth_chart.js?v=2025060201" defer></script>
     <script src="/admin/api/shared/dashboard/traffic_dashboard.js?v=2026052801" defer></script>
@@ -5004,6 +5005,25 @@
             return isAdminPageActive() && currentPanelName === panelName;
         }
 
+        function isAdminPanelAllowed(panelName) {
+            const tab = document.querySelector(`.tab[data-panel="${panelName}"]`);
+            return !!tab && tab.dataset.allowed !== '0' && tab.style.display !== 'none';
+        }
+
+        window.AKAdminSendWsMessage = function(message) {
+            if (!ws || ws.readyState !== WebSocket.OPEN) return false;
+            try {
+                ws.send(JSON.stringify(message || {}));
+                return true;
+            } catch (e) {
+                return false;
+            }
+        };
+
+        function isAdminWsOpen() {
+            return !!(ws && ws.readyState === WebSocket.OPEN);
+        }
+
         window.AdminPanelLazyLoaders = window.AdminPanelLazyLoaders || {};
         const ADMIN_LAZY_PANEL_GLOBALS = {
             pointStats: 'AKPointStatsPanel',
@@ -5814,6 +5834,9 @@
                 if (token) {
                     ws.send(JSON.stringify({ type: 'auth', token: token }));
                 }
+                if (window.AKPollingRegistry) {
+                    window.AKPollingRegistry.resumeOwners();
+                }
                 // 启动心跳（每10秒）
                 if (window._adminHeartbeat) clearInterval(window._adminHeartbeat);
                 window._adminHeartbeat = setInterval(() => {
@@ -5852,6 +5875,14 @@
                 window.dispatchEvent(new CustomEvent('ak-admin-ws-message', { detail: data || {} }));
             } catch (e) {
             }
+            if (data.type === 'admin_topic_data') {
+                if (window.AKPollingRegistry) window.AKPollingRegistry.handleWebSocketMessage(data);
+                return;
+            }
+            if (data.type === 'admin_topic_error') {
+                console.warn('[AdminTopic]', data.topic, data.message || 'topic refresh failed');
+                return;
+            }
             
             if (data.type === 'new_login') {
                 addActivityItem('success', '🆕', `<strong>${escapeHtml(data.data.username || '')}</strong> 登录`, time);
@@ -5882,14 +5913,18 @@
                 if (currentPanelName === 'banlist') loadBanlist();
                 refreshStats();
             } else if (data.type === 'user_online') {
-                if (currentPanelName === 'online') {
+                if (window.AKPollingRegistry) {
+                    window.AKPollingRegistry.requestTopic(currentPanelName === 'online' ? 'online.users' : 'online.count');
+                } else if (currentPanelName === 'online') {
                     loadOnlineUsers({ force: true });
                 } else {
                     refreshOnlineUserCount();
                 }
                 addActivityItem('success', '🟢', `<strong>${escapeHtml(data.data?.username || '')}</strong> 上线`, time);
             } else if (data.type === 'user_offline') {
-                if (currentPanelName === 'online') {
+                if (window.AKPollingRegistry) {
+                    window.AKPollingRegistry.requestTopic(currentPanelName === 'online' ? 'online.users' : 'online.count');
+                } else if (currentPanelName === 'online') {
                     loadOnlineUsers({ force: true });
                 } else {
                     refreshOnlineUserCount();
@@ -6210,31 +6245,41 @@
             if (typeof syncMobileTabLabel === 'function') syncMobileTabLabel();
         }
 
-        // 加载统计
-        async function refreshStats() {
+        function applyStatsData(data) {
+            if (!data || data.error) {
+                console.warn('获取统计数据失败:', data && data.message);
+                return;
+            }
+            if (!shouldRunAdminGlobalPoll()) return;
+            document.getElementById('statUsers').textContent = data.total_users;
+            document.getElementById('statToday').textContent = data.today_logins;
+            document.getElementById('statLogins').textContent = data.total_logins;
+            document.getElementById('statIPs').textContent = data.total_ips;
+            document.getElementById('statBanned').textContent = data.banned_count;
+            updateBanlistTabCount(data.banned_count);
+            document.getElementById('statTotalAce').textContent = formatNumber(data.total_ace);
+            document.getElementById('statTotalEP').textContent = formatNumber(data.total_ep);
+            document.getElementById('statTotalSP').textContent = formatNumber(data.total_sp);
+            document.getElementById('statTotalRP').textContent = formatNumber(data.total_rp);
+            document.getElementById('statTotalTP').textContent = formatNumber(data.total_tp);
+            window.dispatchEvent(new CustomEvent('admin:stats-refreshed', { detail: data }));
+        }
+
+        async function fetchAndApplyStats() {
             try {
                 const res = await fetch(`${API_BASE}/admin/api/stats`, { headers: getHeaders() });
                 const data = await res.json();
-                if (data.error) {
-                    console.warn('获取统计数据失败:', data.message);
-                    return;
-                }
-                if (!shouldRunAdminGlobalPoll()) return;
-                document.getElementById('statUsers').textContent = data.total_users;
-                document.getElementById('statToday').textContent = data.today_logins;
-                document.getElementById('statLogins').textContent = data.total_logins;
-                document.getElementById('statIPs').textContent = data.total_ips;
-                document.getElementById('statBanned').textContent = data.banned_count;
-                updateBanlistTabCount(data.banned_count);
-                document.getElementById('statTotalAce').textContent = formatNumber(data.total_ace);
-                document.getElementById('statTotalEP').textContent = formatNumber(data.total_ep);
-                document.getElementById('statTotalSP').textContent = formatNumber(data.total_sp);
-                document.getElementById('statTotalRP').textContent = formatNumber(data.total_rp);
-                document.getElementById('statTotalTP').textContent = formatNumber(data.total_tp);
-                window.dispatchEvent(new CustomEvent('admin:stats-refreshed', { detail: data }));
+                applyStatsData(data);
             } catch (e) {
                 console.error('加载统计失败', e);
             }
+        }
+
+        // 加载统计
+        async function refreshStats(options) {
+            const force = !!(options && options.force);
+            if (!force && window.AKPollingRegistry && window.AKPollingRegistry.requestTopic('admin.stats')) return;
+            return fetchAndApplyStats();
         }
         
         // 存储原始数据用于搜索
@@ -6966,24 +7011,40 @@
             return Math.max(0, Number(data && data.count || 0));
         }
 
-        async function refreshOnlineUserCount() {
+        function applyOnlineCountData(data) {
+            const count = data && typeof data.count !== 'undefined' ? data.count : data;
+            updateOnlineTabCount(count);
+        }
+
+        async function fetchAndApplyOnlineUserCount() {
             if (!shouldRunAdminGlobalPoll()) return;
             const seq = ++_onlineUserCountSeq;
             try {
                 const count = await fetchOnlineUserCount();
                 if (seq !== _onlineUserCountSeq) return;
-                updateOnlineTabCount(count);
+                applyOnlineCountData({ count });
             } catch (e) {
                 if (e.name !== 'AbortError') console.error('刷新在线用户数量失败', e);
             }
         }
 
+        async function refreshOnlineUserCount(options) {
+            const force = !!(options && options.force);
+            if (!force && window.AKPollingRegistry && window.AKPollingRegistry.requestTopic('online.count')) return;
+            return fetchAndApplyOnlineUserCount();
+        }
+
         function startOnlineUserCountRefresh() {
             if (!shouldRunAdminGlobalPoll()) return;
-            refreshOnlineUserCount();
+            if (window.AKPollingRegistry) {
+                window.AKPollingRegistry.startOwner('global:admin');
+                window.AKPollingRegistry.requestTopic('online.count');
+                return;
+            }
+            fetchAndApplyOnlineUserCount();
             if (_onlineUserCountRefreshTimer) return;
             _onlineUserCountRefreshTimer = setInterval(() => {
-                if (shouldRunAdminGlobalPoll() && currentPanelName !== 'online') refreshOnlineUserCount();
+                if (shouldRunAdminGlobalPoll() && currentPanelName !== 'online') fetchAndApplyOnlineUserCount();
             }, ONLINE_REFRESH_INTERVAL);
         }
 
@@ -6997,12 +7058,20 @@
         function startOnlineUsersAutoRefresh() {
             stopOnlineUsersAutoRefresh();
             if (!shouldRunAdminPanelPoll('online')) return;
+            if (window.AKPollingRegistry) {
+                window.AKPollingRegistry.startOwner('panel:online');
+                window.AKPollingRegistry.requestTopic('online.users');
+                return;
+            }
             _onlineUsersRefreshTimer = setInterval(() => {
                 if (shouldRunAdminPanelPoll('online')) loadOnlineUsers();
             }, ONLINE_REFRESH_INTERVAL);
         }
 
         function stopOnlineUsersAutoRefresh() {
+            if (window.AKPollingRegistry) {
+                window.AKPollingRegistry.stopOwner('panel:online');
+            }
             if (_onlineUsersRefreshTimer) {
                 clearInterval(_onlineUsersRefreshTimer);
                 _onlineUsersRefreshTimer = null;
@@ -7033,19 +7102,28 @@
             _onlineUsersAbortCtrl = new AbortController();
             try {
                 const users = await fetchOnlineUsers(_onlineUsersAbortCtrl.signal);
-                updateOnlineTabCount(users.length);
-                const tbody = document.getElementById('onlineTable');
-                if (!tbody) return;
-                
-                if (users.length === 0) {
-                    tbody.innerHTML = '<tr><td colspan="4" style="text-align: center; color: var(--text-secondary);">暂无在线用户</td></tr>';
-                    return;
-                }
-                
-                tbody.innerHTML = users.map(user => {
-                    const username = user.username || '';
-                    const usernameArg = jsArg(username);
-                    return `
+                applyOnlineUsersData({ items: users, count: users.length });
+            } catch (e) {
+                if (e.name !== 'AbortError') console.error('加载在线用户失败', e);
+            }
+        }
+
+        function applyOnlineUsersData(data) {
+            const users = Array.isArray(data) ? data : Array.isArray(data && data.items) ? data.items : [];
+            updateOnlineTabCount(typeof (data && data.count) !== 'undefined' ? data.count : users.length);
+            if (!shouldRunAdminPanelPoll('online')) return;
+            const tbody = document.getElementById('onlineTable');
+            if (!tbody) return;
+
+            if (users.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="4" style="text-align: center; color: var(--text-secondary);">暂无在线用户</td></tr>';
+                return;
+            }
+
+            tbody.innerHTML = users.map(user => {
+                const username = user.username || '';
+                const usernameArg = jsArg(username);
+                return `
                     <tr>
                         <td>
                             <span style="display: inline-block; width: 8px; height: 8px; background: var(--accent-green); border-radius: 50%; margin-right: 8px;"></span>
@@ -7060,10 +7138,7 @@
                         </td>
                     </tr>
                 `;
-                }).join('');
-            } catch (e) {
-                if (e.name !== 'AbortError') console.error('加载在线用户失败', e);
-            }
+            }).join('');
         }
         
         async function kickUser(username) {
@@ -8235,7 +8310,11 @@
                 stopDashboard();
             }
             if (panelName === 'online') {
-                loadOnlineUsers();
+                if (window.AKPollingRegistry) {
+                    window.AKPollingRegistry.requestTopic('online.users');
+                } else {
+                    loadOnlineUsers();
+                }
                 startOnlineUsersAutoRefresh();
             } else {
                 stopOnlineUsersAutoRefresh();
@@ -9690,10 +9769,23 @@
             }
             console.warn('AdminTrafficDashboard 未就绪，已跳过内联兜底实现。');
         }
+
+        function applyDashboardData(data) {
+            if (window.AdminTrafficDashboard && typeof window.AdminTrafficDashboard.renderDashboard === 'function') {
+                window.AdminTrafficDashboard.renderDashboard(data || {});
+                return;
+            }
+            loadDashboard();
+        }
         
         // 启动仪表盘
         function startDashboard() {
             if (!shouldRunAdminPanelPoll('dashboard')) return;
+            if (window.AKPollingRegistry) {
+                window.AKPollingRegistry.startOwner('panel:dashboard');
+                window.AKPollingRegistry.requestTopic('dashboard.summary');
+                return;
+            }
             if (window.AdminTrafficDashboard && typeof window.AdminTrafficDashboard.loadDashboard === 'function') {
                 window.AdminTrafficDashboard.loadDashboard();
             } else {
@@ -9714,6 +9806,9 @@
         
         // 停止仪表盘
         function stopDashboard() {
+            if (window.AKPollingRegistry) {
+                window.AKPollingRegistry.stopOwner('panel:dashboard');
+            }
             if (dashboardTimer) {
                 clearInterval(dashboardTimer);
                 dashboardTimer = null;
@@ -10699,26 +10794,93 @@
         }
 
         // 初始化应用（登录成功后调用）
+        function setupAdminPollingRegistry() {
+            const registry = window.AKPollingRegistry;
+            if (!registry || registry._akAdminConfigured) return;
+            registry._akAdminConfigured = true;
+            registry.configure({
+                sendWsMessage: window.AKAdminSendWsMessage,
+                isWsOpen: isAdminWsOpen,
+                logger: console
+            });
+            registry.registerTopic({
+                topic: 'admin.stats',
+                owner: 'global:admin',
+                intervalMs: 15000,
+                jitterMs: 1200,
+                runWhen: shouldRunAdminGlobalPoll,
+                onData: applyStatsData,
+                fallbackTask: fetchAndApplyStats
+            });
+            registry.registerTopic({
+                topic: 'online.count',
+                owner: 'global:admin',
+                intervalMs: ONLINE_REFRESH_INTERVAL,
+                jitterMs: 1000,
+                runWhen: function() {
+                    return shouldRunAdminGlobalPoll() && isAdminPanelAllowed('online');
+                },
+                onData: applyOnlineCountData,
+                fallbackTask: fetchAndApplyOnlineUserCount
+            });
+            registry.registerTopic({
+                topic: 'online.users',
+                owner: 'panel:online',
+                intervalMs: ONLINE_REFRESH_INTERVAL,
+                jitterMs: 1000,
+                runWhen: function() {
+                    return shouldRunAdminPanelPoll('online');
+                },
+                onData: applyOnlineUsersData,
+                fallbackTask: function() {
+                    return _doLoadOnlineUsers(false);
+                }
+            });
+            registry.registerTopic({
+                topic: 'dashboard.summary',
+                owner: 'panel:dashboard',
+                intervalMs: 30000,
+                jitterMs: 1500,
+                runWhen: function() {
+                    return shouldRunAdminPanelPoll('dashboard');
+                },
+                onData: applyDashboardData,
+                fallbackTask: loadDashboard
+            });
+        }
+
         function initApp() {
             if (adminAppInitialized) {
                 resumeAdminPolling();
                 return;
             }
             adminAppInitialized = true;
+            setupAdminPollingRegistry();
             initWebSocket();
             resumeAdminPolling();
         }
 
         function startAdminGlobalPolling() {
             if (!shouldRunAdminGlobalPoll()) return;
-            refreshStats();
-            startOnlineUserCountRefresh();
-            verifyToken();
-            if (!adminStatsTimer) {
-                adminStatsTimer = setInterval(() => {
-                    if (shouldRunAdminGlobalPoll()) refreshStats();
-                }, 15000);
+            setupAdminPollingRegistry();
+            if (window.AKPollingRegistry) {
+                if (adminStatsTimer) {
+                    clearInterval(adminStatsTimer);
+                    adminStatsTimer = null;
+                }
+                window.AKPollingRegistry.startOwner('global:admin');
+                window.AKPollingRegistry.requestTopic('admin.stats');
+                if (isAdminPanelAllowed('online')) window.AKPollingRegistry.requestTopic('online.count');
+            } else {
+                fetchAndApplyStats();
+                startOnlineUserCountRefresh();
+                if (!adminStatsTimer) {
+                    adminStatsTimer = setInterval(() => {
+                        if (shouldRunAdminGlobalPoll()) fetchAndApplyStats();
+                    }, 15000);
+                }
             }
+            verifyToken();
             if (!adminVerifyTimer) {
                 adminVerifyTimer = setInterval(() => {
                     if (shouldRunAdminGlobalPoll()) verifyToken();
@@ -10727,6 +10889,9 @@
         }
 
         function stopAdminGlobalPolling() {
+            if (window.AKPollingRegistry) {
+                window.AKPollingRegistry.stopOwner('global:admin');
+            }
             stopOnlineUserCountRefresh();
             if (adminStatsTimer) {
                 clearInterval(adminStatsTimer);
@@ -10739,6 +10904,9 @@
         }
 
         function pauseAdminPolling() {
+            if (window.AKPollingRegistry) {
+                window.AKPollingRegistry.pauseAll();
+            }
             stopAdminGlobalPolling();
             stopDashboard();
             stopOnlineUsersAutoRefresh();
@@ -10764,7 +10932,11 @@
                 stopDashboard();
             }
             if (currentPanelName === 'online') {
-                loadOnlineUsers();
+                if (window.AKPollingRegistry) {
+                    window.AKPollingRegistry.requestTopic('online.users');
+                } else {
+                    loadOnlineUsers();
+                }
                 startOnlineUsersAutoRefresh();
             } else {
                 stopOnlineUsersAutoRefresh();

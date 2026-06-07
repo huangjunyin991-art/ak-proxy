@@ -89,18 +89,23 @@
         if (peak) peak.textContent = formatNumber(data.peak_rpm || 0);
     }
 
+    function renderDashboard(data) {
+        data = data || {};
+        renderMetrics(data);
+        renderHourlyChart(data.hourly_data || []);
+        renderTopUsers(data.top_users || []);
+        renderTopIps(data.top_ips || []);
+        const time = document.getElementById('chartUpdateTime');
+        if (time) time.textContent = '更新于 ' + new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+    }
+
     async function loadDashboard() {
         if (!canPollDashboard()) return;
         try {
             const base = window.API_BASE || window.location.origin;
             const res = await fetch(`${base}/admin/api/dashboard`);
             const data = await res.json();
-            renderMetrics(data || {});
-            renderHourlyChart((data && data.hourly_data) || []);
-            renderTopUsers((data && data.top_users) || []);
-            renderTopIps((data && data.top_ips) || []);
-            const time = document.getElementById('chartUpdateTime');
-            if (time) time.textContent = '更新于 ' + new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+            renderDashboard(data || {});
         } catch (error) {
             console.error('加载仪表盘失败', error);
         }
@@ -111,5 +116,6 @@
         renderHourlyChart,
         renderTopUsers,
         renderTopIps,
+        renderDashboard,
     };
 })();
