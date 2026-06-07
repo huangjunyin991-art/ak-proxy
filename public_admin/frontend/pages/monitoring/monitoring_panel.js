@@ -8,6 +8,7 @@
         range: '7d',
         lightTimer: null,
         heavyTimer: null,
+        startupHeavyTimer: null,
         indexPlanTimer: null,
         loadingHeavy: false,
         loadingLight: false,
@@ -1238,6 +1239,27 @@
         });
     }
 
+    function clearStartupHeavyTimer() {
+        if (state.startupHeavyTimer) {
+            clearTimeout(state.startupHeavyTimer);
+            state.startupHeavyTimer = null;
+        }
+    }
+
+    function scheduleStartupHeavyLoad() {
+        clearStartupHeavyTimer();
+        state.startupHeavyTimer = setTimeout(function() {
+            state.startupHeavyTimer = null;
+            if (state.active) loadHeavy(false);
+        }, 800);
+    }
+
+    function loadInitialMonitoringData() {
+        return loadLight(false).finally(function() {
+            if (state.active) scheduleStartupHeavyLoad();
+        });
+    }
+
     function expireFileAsset(storageName, originalName, referencedMessages) {
         if (!storageName) return;
         var message = '确认删除文件“' + originalName + '”并释放存储空间？';
@@ -1256,12 +1278,12 @@
     function start() {
         state.active = true;
         if (!state.initialized) init();
-        loadOverview(false);
+        stopTimers();
+        loadInitialMonitoringData();
         loadStaticCachePolicy();
         loadRuntimeHygiene(false);
         loadRuntimePerformance(false);
         loadIndexPlan(false);
-        stopTimers();
         var registry = setupMonitoringPollingRegistry();
         if (registry) {
             registry.startOwner(MONITORING_POLL_OWNER);
@@ -1279,6 +1301,7 @@
         if (window.AKPollingRegistry) window.AKPollingRegistry.stopOwner(MONITORING_POLL_OWNER);
         if (state.lightTimer) clearInterval(state.lightTimer);
         if (state.heavyTimer) clearInterval(state.heavyTimer);
+        clearStartupHeavyTimer();
         clearIndexPlanTimer();
         state.lightTimer = null;
         state.heavyTimer = null;
