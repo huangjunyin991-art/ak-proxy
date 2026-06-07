@@ -3,11 +3,11 @@ from typing import Any, Dict, List
 
 
 async def fetch_traffic_dashboard_row(conn, start_day: date, end_day: date) -> Dict[str, Any]:
-    row: Dict[str, Any] = {}
+    row = await _try_fetch_traffic_dashboard_rollup_row(conn, start_day)
+    if row and int(row.get('total') or 0) > 0:
+        return row
     if await _is_login_rollup_ready(conn):
-        row = await _fetch_traffic_dashboard_rollup_row(conn, start_day)
-        if row and int(row.get('total') or 0) > 0:
-            return row
+        return row or {}
     has_legacy_rows = await conn.fetchval('''
         SELECT EXISTS (
             SELECT 1
@@ -18,8 +18,6 @@ async def fetch_traffic_dashboard_row(conn, start_day: date, end_day: date) -> D
     ''', start_day, end_day)
     if has_legacy_rows:
         return await _fetch_traffic_dashboard_legacy_row(conn, start_day, end_day)
-    if not row:
-        row = await _fetch_traffic_dashboard_rollup_row(conn, start_day)
     return row or {}
 
 
@@ -44,6 +42,13 @@ async def _is_login_rollup_ready(conn) -> bool:
         return not bool(pending)
     except Exception:
         return False
+
+
+async def _try_fetch_traffic_dashboard_rollup_row(conn, day: date) -> Dict[str, Any]:
+    try:
+        return await _fetch_traffic_dashboard_rollup_row(conn, day)
+    except Exception:
+        return {}
 
 
 async def _fetch_traffic_dashboard_rollup_row(conn, day: date) -> Dict[str, Any]:
