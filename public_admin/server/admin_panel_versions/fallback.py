@@ -10,6 +10,7 @@ PANEL_KEYS = (
     "recommendTree",
     "pointStats",
     "settings",
+    "remoteAssist",
 )
 
 
@@ -51,6 +52,9 @@ PANEL_VERSION_FILES = {
     ),
     "settings": (
         ("settings_panel.js",),
+    ),
+    "remoteAssist": (
+        ("remote_assist_panel.js",),
     ),
 }
 
