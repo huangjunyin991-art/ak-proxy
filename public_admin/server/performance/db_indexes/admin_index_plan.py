@@ -46,6 +46,31 @@ ADMIN_INDEX_PLAN = [
         purpose="deduplicate structured password failure events backfilled from login_records",
     ),
     AdminIndexDefinition(
+        name="idx_login_delta_pending",
+        sql="CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_login_delta_pending ON login_aggregate_delta(processed_at, id);",
+        purpose="login aggregate worker claims unprocessed deltas without scanning login_records",
+    ),
+    AdminIndexDefinition(
+        name="idx_login_delta_pending_source",
+        sql="CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_login_delta_pending_source ON login_aggregate_delta(processed_at, source, id);",
+        purpose="login aggregate worker prioritizes live events over historical backfill",
+    ),
+    AdminIndexDefinition(
+        name="idx_login_rollup_minutely_day",
+        sql="CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_login_rollup_minutely_day ON login_rollup_minutely(login_day, total_count DESC);",
+        purpose="dashboard peak RPM from minute rollup",
+    ),
+    AdminIndexDefinition(
+        name="idx_user_login_rollup_day_count",
+        sql="CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_user_login_rollup_day_count ON user_login_rollup_daily(login_day, total_count DESC, last_login DESC);",
+        purpose="dashboard top users from daily rollup",
+    ),
+    AdminIndexDefinition(
+        name="idx_ip_login_rollup_day_count",
+        sql="CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_ip_login_rollup_day_count ON ip_login_rollup_daily(login_day, total_count DESC, last_seen DESC);",
+        purpose="dashboard top IPs from daily rollup",
+    ),
+    AdminIndexDefinition(
         name="idx_notification_campaigns_created_by_id",
         sql="CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_notification_campaigns_created_by_id ON notification_campaigns(created_by, id DESC);",
         purpose="notification history page selection for scoped sub-admin queries",
@@ -74,6 +99,37 @@ ADMIN_INDEX_PLAN = [
         name="idx_authorized_accounts_status_username",
         sql="CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_authorized_accounts_status_username ON authorized_accounts(status, username);",
         purpose="admin user list authorization status join",
+    ),
+    AdminIndexDefinition(
+        name="ext_pg_trgm",
+        sql="CREATE EXTENSION IF NOT EXISTS pg_trgm;",
+        purpose="enable trigram indexes for admin fuzzy search",
+        risk="requires_extension_privilege",
+    ),
+    AdminIndexDefinition(
+        name="idx_authorized_accounts_username_trgm",
+        sql="CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_authorized_accounts_username_trgm ON authorized_accounts USING GIN (username gin_trgm_ops);",
+        purpose="authorized account fuzzy username search",
+    ),
+    AdminIndexDefinition(
+        name="idx_authorized_accounts_nickname_trgm",
+        sql="CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_authorized_accounts_nickname_trgm ON authorized_accounts USING GIN (nickname gin_trgm_ops);",
+        purpose="authorized account fuzzy nickname search",
+    ),
+    AdminIndexDefinition(
+        name="idx_user_stats_username_trgm",
+        sql="CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_user_stats_username_trgm ON user_stats USING GIN (username gin_trgm_ops);",
+        purpose="admin user fuzzy username search",
+    ),
+    AdminIndexDefinition(
+        name="idx_user_stats_real_name_trgm",
+        sql="CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_user_stats_real_name_trgm ON user_stats USING GIN (real_name gin_trgm_ops);",
+        purpose="admin user fuzzy real-name search",
+    ),
+    AdminIndexDefinition(
+        name="idx_user_assets_username_trgm",
+        sql="CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_user_assets_username_trgm ON user_assets USING GIN (username gin_trgm_ops);",
+        purpose="admin asset fuzzy username search",
     ),
     AdminIndexDefinition(
         name="idx_authorized_accounts_status_added_by_created",

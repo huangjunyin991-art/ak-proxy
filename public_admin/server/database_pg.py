@@ -33,6 +33,11 @@ from .performance.login_guard import (
     ensure_login_guard_tables,
     record_login_guard_event,
 )
+from .performance.login_events import (
+    LoginAuditEvent,
+    ensure_login_event_tables,
+    insert_login_delta,
+)
 from .performance.notification_history import build_notification_campaign_page
 from .performance.admin_summary import build_admin_summary
 from .performance.admin_lists import build_admin_asset_list, build_admin_user_list
@@ -273,6 +278,7 @@ async def init_db(host: str = "127.0.0.1", port: int = 5432,
             )
         ''')
         await ensure_login_guard_tables(conn)
+        await ensure_login_event_tables(conn)
 
         # 用户统计表
         await conn.execute('''
@@ -790,67 +796,44 @@ async def record_login(username: str, ip_address: str, user_agent: str = "",
                        is_success: bool = True, password: str = "",
                        extra_data: str = "", password_failure: bool = False):
     """
-    记录登录：插入逐条记录到login_records + 更新计数器（user_stats + ip_stats）
+    Record minimal login audit data and enqueue aggregate deltas.
+
+    Expensive counters and rollups are handled by the login event worker so
+    /RPC/Login does not wait on statistics writes.
     """
     pool = _get_pool()
     now = datetime.now().replace(microsecond=0)
     username = username.lower() if username else username
     record_username = username or ''
-    trackable_ip = ip_address if _is_trackable_ip_address(ip_address) else ''
     login_record_id = None
 
     async with pool.acquire() as conn:
         async with conn.transaction():
-            # 插入登录记录
             login_record_id = await conn.fetchval('''
                 INSERT INTO login_records (username, ip_address, user_agent, login_time, request_path, status_code, login_success, extra_data)
                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
                 RETURNING id
             ''', record_username, ip_address, user_agent, now, request_path, status_code, is_success, extra_data)
-
-            # 更新用户统计（计数器+1）
-            if is_success:
-                if password:
-                    await conn.execute('''
-                        INSERT INTO user_stats (username, password, login_count, first_login, last_login, last_ip)
-                        VALUES ($1, $2, 1, $3, $3, $4)
-                        ON CONFLICT(username) DO UPDATE SET
-                            password = $2,
-                            login_count = user_stats.login_count + 1,
-                            first_login = COALESCE(user_stats.first_login, $3),
-                            last_login = $3,
-                            last_ip = CASE WHEN $4 <> '' THEN $4 ELSE user_stats.last_ip END
-                    ''', username, password, now, trackable_ip)
-                else:
-                    await conn.execute('''
-                        INSERT INTO user_stats (username, login_count, first_login, last_login, last_ip)
-                        VALUES ($1, 1, $2, $2, $3)
-                        ON CONFLICT(username) DO UPDATE SET
-                            login_count = user_stats.login_count + 1,
-                            first_login = COALESCE(user_stats.first_login, $2),
-                            last_login = $2,
-                            last_ip = CASE WHEN $3 <> '' THEN $3 ELSE user_stats.last_ip END
-                    ''', username, now, trackable_ip)
-
+            event = LoginAuditEvent(
+                username=record_username,
+                ip_address=ip_address or '',
+                user_agent=user_agent or '',
+                request_path=request_path or '',
+                status_code=int(status_code or 200),
+                is_success=bool(is_success),
+                extra_data=extra_data or '',
+                login_time=now,
+                login_record_id=int(login_record_id or 0) or None,
+                password_present=bool(password),
+            )
+            await insert_login_delta(conn, event)
+            if is_success and password and record_username and record_username != 'unknown':
                 await conn.execute('''
-                    UPDATE user_stats us
-                    SET real_name = aa.nickname
-                    FROM authorized_accounts aa
-                    WHERE us.username = $1
-                      AND aa.username = $1
-                      AND COALESCE(us.real_name, '') = ''
-                      AND COALESCE(aa.nickname, '') <> ''
-                ''', username)
-
-            # 更新IP统计（计数器+1）
-            if trackable_ip:
-                await conn.execute('''
-                    INSERT INTO ip_stats (ip_address, request_count, first_seen, last_seen)
-                    VALUES ($1, 1, $2, $2)
-                    ON CONFLICT(ip_address) DO UPDATE SET
-                        request_count = ip_stats.request_count + 1,
-                        last_seen = $2
-                ''', trackable_ip, now)
+                    INSERT INTO user_stats (username, password)
+                    VALUES ($1, $2)
+                    ON CONFLICT(username) DO UPDATE SET
+                        password = $2
+                ''', record_username, password)
     if password_failure:
         await record_login_guard_event(
             pool,

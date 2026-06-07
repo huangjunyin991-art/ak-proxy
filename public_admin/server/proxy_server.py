@@ -187,6 +187,7 @@ from .runtime_hygiene import RuntimeHygieneConfigService, RuntimeHygienePolicy, 
 from .performance.cache.admin_stats_cache import AdminStatsCache
 from .performance.db_indexes.admin_index_plan import get_admin_index_plan
 from .performance.dispatcher_status.service import DispatcherStatusService
+from .performance.login_events import LoginEventWorker, LoginSideEffectQueue
 from .admin_realtime import AdminRealtimeHub, AdminRealtimeTopic
 from .static_resource_cache import (
     StaticResourceCacheConfig,
@@ -2299,13 +2300,7 @@ async def proxy_login(request: Request):
 
         if asset_keys.intersection(user_data.keys()):
 
-            try:
-
-                await db.update_user_assets(account, user_data)
-
-            except Exception as e:
-
-                logger.warning(f"[Login] 资产保存失败: {e}")
+            _user_asset_persist_queue.schedule(account, user_data)
 
             report_data["assets"] = {
 
@@ -2347,9 +2342,7 @@ async def proxy_login(request: Request):
 
             }
 
-    asyncio.create_task(report_to_monitor("login", report_data))
-
-    asyncio.create_task(ws_manager.broadcast({
+    _login_side_effect_queue.schedule(report_data, {
 
         "type": "new_login",
 
@@ -2369,7 +2362,7 @@ async def proxy_login(request: Request):
 
         }
 
-    }))
+    })
 
     resp = JSONResponse(result)
     if response is not None:
@@ -4941,6 +4934,10 @@ async def admin_startup():
 
     await _user_asset_persist_queue.start()
 
+    await _login_side_effect_queue.start()
+
+    await _login_event_worker.start()
+
     _reset_dispatcher_temp_event_file()
 
     try:
@@ -5062,6 +5059,10 @@ async def admin_shutdown():
     await _browse_session_persist_queue.stop()
 
     await _user_asset_persist_queue.stop()
+
+    await _login_side_effect_queue.stop()
+
+    await _login_event_worker.stop()
 
     if notify_center_worker is not None:
         await notify_center_worker.stop()
@@ -12621,6 +12622,21 @@ class UserAssetPersistQueue:
 _ak_web_client_pool = AkWebClientPool()
 _browse_session_persist_queue = BrowseSessionPersistQueue()
 _user_asset_persist_queue = UserAssetPersistQueue()
+
+
+async def _report_login_side_effect(payload: dict):
+    await report_to_monitor("login", payload)
+
+
+_login_side_effect_queue = LoginSideEffectQueue(
+    monitor_reporter=_report_login_side_effect,
+    admin_broadcaster=ws_manager.broadcast,
+    logger=logger,
+)
+_login_event_worker = LoginEventWorker(
+    pool_supplier=db._get_pool,
+    logger=logger,
+)
 _runtime_hygiene_service: RuntimeHygieneService | None = None
 _runtime_hygiene_config_service: RuntimeHygieneConfigService | None = None
 

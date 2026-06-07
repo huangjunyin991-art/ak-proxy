@@ -3,6 +3,75 @@ from typing import Any, Dict, List
 
 
 async def fetch_traffic_dashboard_row(conn, start_day: date, end_day: date) -> Dict[str, Any]:
+    row = await _fetch_traffic_dashboard_rollup_row(conn, start_day)
+    if row and int(row.get('total') or 0) > 0:
+        return row
+    has_legacy_rows = await conn.fetchval('''
+        SELECT EXISTS (
+            SELECT 1
+            FROM login_records
+            WHERE login_time >= $1 AND login_time < $2
+            LIMIT 1
+        )
+    ''', start_day, end_day)
+    if has_legacy_rows:
+        return await _fetch_traffic_dashboard_legacy_row(conn, start_day, end_day)
+    return row or {}
+
+
+async def _fetch_traffic_dashboard_rollup_row(conn, day: date) -> Dict[str, Any]:
+    row = await conn.fetchrow('''
+        WITH summary AS (
+            SELECT total_count AS total,
+                   success_count AS success
+            FROM login_rollup_daily
+            WHERE login_day = $1
+        ),
+        active_users AS (
+            SELECT COUNT(*) AS count
+            FROM user_login_rollup_daily
+            WHERE login_day = $1
+              AND total_count > 0
+        ),
+        peak AS (
+            SELECT COALESCE(MAX(total_count), 0) AS count
+            FROM login_rollup_minutely
+            WHERE login_day = $1
+        ),
+        hourly AS (
+            SELECT login_hour AS hour, total_count AS count
+            FROM login_rollup_hourly
+            WHERE login_day = $1
+        ),
+        top_users AS (
+            SELECT username, total_count AS count, last_login
+            FROM user_login_rollup_daily
+            WHERE login_day = $1
+            ORDER BY total_count DESC, last_login DESC NULLS LAST
+            LIMIT 10
+        ),
+        top_ips AS (
+            SELECT ip_address AS ip, total_count AS count
+            FROM ip_login_rollup_daily
+            WHERE login_day = $1
+            ORDER BY total_count DESC, last_seen DESC NULLS LAST
+            LIMIT 10
+        )
+        SELECT COALESCE(summary.total, 0) AS total,
+               COALESCE(summary.success, 0) AS success,
+               COALESCE(active_users.count, 0) AS active_users,
+               COALESCE(peak.count, 0) AS peak_rpm,
+               COALESCE((SELECT jsonb_agg(jsonb_build_object('hour', hour, 'count', count) ORDER BY hour) FROM hourly), '[]'::jsonb)::text AS hourly_data_json,
+               COALESCE((SELECT jsonb_agg(jsonb_build_object('username', username, 'count', count, 'last_login', last_login) ORDER BY count DESC, last_login DESC) FROM top_users), '[]'::jsonb)::text AS top_users_json,
+               COALESCE((SELECT jsonb_agg(jsonb_build_object('ip', ip, 'count', count) ORDER BY count DESC) FROM top_ips), '[]'::jsonb)::text AS top_ips_json
+        FROM active_users
+        CROSS JOIN peak
+        LEFT JOIN summary ON TRUE
+    ''', day)
+    return dict(row) if row else {}
+
+
+async def _fetch_traffic_dashboard_legacy_row(conn, start_day: date, end_day: date) -> Dict[str, Any]:
     row = await conn.fetchrow('''
         WITH daily AS (
             SELECT username, ip_address, login_time,
