@@ -154,7 +154,7 @@
 | P1-TLS-001 | 上游 TLS 校验关闭 | 多处 `verify=False`、Nginx `proxy_ssl_verify off` | 统一 CA 配置，临时例外必须有到期时间。 |
 | P1-BOOT-001 | 维护脚本曾存在默认 license key | 历史版本 `maintain_ak_proxy.sh` 写入固定默认 key | 已移除固定默认密钥，首次缺失时生成服务器本地随机密钥。 |
 | P1-NTFY-001 | 用户可配置 ntfy server URL | ntfy client 接受 http/https URL | 经过 SSRF 网关，禁止内网 IP、metadata 地址和危险重定向。 |
-| P1-LOG-001 | trace/debug 可能记录敏感片段 | 登录、转发、脚本注入日志 | 统一 `AuditRedactor`，只留摘要。 |
+| P1-LOG-001 | trace/debug 可能记录敏感片段 | 历史版本登录、转发、脚本注入日志存在 body 片段 | 已引入日志 redactor，登录/RPC/AK 网页代理 trace 不再输出原始 body，敏感字段默认脱敏。 |
 | P1-DEPLOY-001 | systemd 与 env 路径不一致 | `EnvironmentFile=-/etc/ak-proxy.env` 与新脚本路径不同 | 收敛为单一 env 规范，缺失关键 env 时启动失败。 |
 | P1-TEST-001 | 缺少 CI、安全扫描和 Go 测试 | 无 pytest/CI，Go 包无 `_test.go` | 建立分层验证门禁。 |
 
@@ -243,3 +243,4 @@
 | 2026-06-08 | P0-EDGE-001 IM internal 公网阻断 | 部分落地 | Nginx 模板新增 `/im/internal/` 优先匹配并返回 404，避免公网经 `/im/` 代理命中 Go IM internal 路由；Go 端 HMAC 内部认证仍作为后续增强项。 |
 | 2026-06-08 | P1-NET-001 IM 默认 loopback 监听 | 已落地 | Go IM 默认 `IM_ADDR` 从 `:18081` 改为 `127.0.0.1:18081`，部署脚本生成的 systemd 环境同步收口；显式配置 `IM_ADDR` 仍可覆盖。 |
 | 2026-06-08 | P1-CORS-001 CORS 白名单收敛 | 已落地 | FastAPI CORS 改为 `AK_CORS_ALLOWED_ORIGINS`/`ADMIN_DOMAIN` allowlist，默认不开放跨域；Nginx 模板移除 wildcard Origin，改为管理域名来源。 |
+| 2026-06-08 | P1-LOG-001 日志脱敏基础收口 | 已落地 | 新增 `security.audit.redactor`，将登录/RPC/AK 网页代理的 body 片段改为长度与 SHA-256 摘要，trace 输出统一经过敏感字段脱敏。 |

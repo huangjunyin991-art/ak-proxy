@@ -2,6 +2,7 @@ from typing import Any, Mapping
 
 from ..context import SecurityContext
 from ..result import SecurityResult
+from .redactor import is_sensitive_key, redact_log_value
 
 
 class SecurityAuditLogger:
@@ -32,12 +33,10 @@ class SecurityAuditLogger:
             return
 
     def _sanitize_metadata(self, metadata: Mapping[str, Any]) -> dict:
-        blocked = {'password', 'token', 'authorization', 'cookie', 'secret', 'code'}
         sanitized = {}
         for key, value in metadata.items():
-            normalized_key = str(key or '').lower()
-            if any(item in normalized_key for item in blocked):
+            if is_sensitive_key(key):
                 continue
             if isinstance(value, (str, int, float, bool)) or value is None:
-                sanitized[str(key)] = value
+                sanitized[str(key)] = redact_log_value(value)
         return sanitized

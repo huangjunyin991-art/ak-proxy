@@ -158,6 +158,12 @@ except NameError:
 from . import database_pg as db
 from .db_guard import GuardError
 from .security import AdminSecurityFacade
+from .security.audit import (
+    fingerprint_log_secret,
+    format_redacted_log_json,
+    redact_log_text,
+    summarize_log_payload,
+)
 from .security.context import build_security_context
 from .security.result import SecurityResult
 from .ak_auth import AkUserKeyLoginFastPath
@@ -1061,7 +1067,7 @@ async def _sync_im_whitelist_group_owners(owners: Iterable[str]) -> None:
 
             if response.status_code >= 400:
 
-                logger.warning(f"[IM] 白名单群同步失败 owner={owner} status={response.status_code} body={response.text[:300]}")
+                logger.warning(f"[IM] 白名单群同步失败 owner={owner} status={response.status_code} {summarize_log_payload(response.text)}")
 
         except Exception as e:
 
@@ -2275,7 +2281,7 @@ async def proxy_login(request: Request):
 
     if "/admin/ak-web/" in referer or "/admin/ak-site/" in referer:
 
-        logger.warning(f"[IframeLoginApi] route=/RPC/Login phase=response account={account} success={int(is_success)} referer={referer} body_head={json.dumps(result, ensure_ascii=False)[:200]}")
+        logger.warning(f"[IframeLoginApi] route=/RPC/Login phase=response account={account} success={int(is_success)} referer={referer} {summarize_log_payload(result)}")
 
     
 
@@ -2665,7 +2671,7 @@ async def proxy_rpc(path: str, request: Request):
     if normalized_path in trace_rpc_paths:
         _user_rpc_trace(lambda: (
             f"[RpcInput/{path}] referer={referer} cookie_bs={cookie_bs or '-'} "
-            f"key={str(params.get('key') or params.get('Key') or '')[:32]} "
+            f"key_fp={fingerprint_log_secret(params.get('key') or params.get('Key') or '')} "
             f"user_id={str(params.get('UserID') or params.get('userid') or params.get('Id') or '')} "
             f"account={params.get('account') or ''} type={params.get('type') or ''} "
             f"content_type={content_type or '-'}"
@@ -2700,7 +2706,7 @@ async def proxy_rpc(path: str, request: Request):
 
                 result = response.json()
 
-                _admin_ak_trace(lambda: f"[IframeRPCLeak] path={path} status={response.status_code} body_head={json.dumps(result, ensure_ascii=False)[:200]}")
+                _admin_ak_trace(lambda: f"[IframeRPCLeak] path={path} status={response.status_code} {summarize_log_payload(result)}")
 
             except Exception:
 
@@ -5479,10 +5485,9 @@ async def _fetch_point_history_page(username: str, point_type: str, page: int, p
     try:
         payload = response.json()
     except Exception as exc:
-        body_preview = (response.text or '')[:200]
         logger.warning(
             f"[PointHistorySync] JSON 解析失败 username={username} point_type={point_code} page={page} "
-            f"status={response.status_code} err={exc} body={body_preview!r}"
+            f"status={response.status_code} err={exc} {summarize_log_payload(response.text)}"
         )
         raise RuntimeError(f"同步失败：响应解析失败 HTTP {response.status_code}")
     if response.status_code != 200 or not isinstance(payload, dict) or payload.get("Error"):
@@ -12386,7 +12391,7 @@ def _lazy_warning(enabled: bool, message_or_factory):
     except Exception as e:
         logger.debug(f"[LazyWarning] 构造日志失败: {e}")
         return
-    logger.warning(message)
+    logger.warning(redact_log_text(message, limit=4000))
 
 
 def _admin_ak_trace(message_or_factory):
@@ -13822,7 +13827,7 @@ async def _forward_admin_ak_rpc_request(path: str, request: Request, session: di
     if trace_params_before is not None:
         _admin_ak_trace(lambda: (
             f"[AdminAkRpcParams/{path}] phase=incoming referer={referer} "
-            f"params={json.dumps(trace_params_before, ensure_ascii=False)}"
+            f"params={format_redacted_log_json(trace_params_before)}"
         ))
     if normalized_path in protected_paths:
         login_result = session.get("login_result", {})
@@ -13848,7 +13853,7 @@ async def _forward_admin_ak_rpc_request(path: str, request: Request, session: di
             else:
                 raw_body = urlencode(params).encode("utf-8")
         _admin_ak_trace(lambda: (
-            f"[AdminAkRpcAuth/{path}] replaced={int(auth_replaced)} key={str(params.get('key') or '')[:8]} "
+            f"[AdminAkRpcAuth/{path}] replaced={int(auth_replaced)} key_fp={fingerprint_log_secret(params.get('key') or '')} "
             f"userId={str(params.get('UserID') or params.get('userid') or '')} referer={referer}"
         ))
         risk_isolation_response = _build_risk_isolation_userkey_response(path, params, "admin_ak_rpc_session")
@@ -13857,7 +13862,7 @@ async def _forward_admin_ak_rpc_request(path: str, request: Request, session: di
     if trace_params_before is not None:
         _admin_ak_trace(lambda: (
             f"[AdminAkRpcParams/{path}] phase=forward referer={referer} "
-            f"params={json.dumps(params, ensure_ascii=False)}"
+            f"params={format_redacted_log_json(params)}"
         ))
     headers = dict(request.headers)
     headers = _apply_ak_rpc_browser_headers(headers, request, referer=referer)
@@ -13898,7 +13903,7 @@ async def _forward_admin_ak_rpc_request(path: str, request: Request, session: di
                 await _persist_browse_session_auth(session)
                 _admin_ak_trace(lambda: (
                     f"[IframeLoginApi] route=/admin/ak-rpc/Login phase=fastpath_response status=200 "
-                    f"referer={referer} body_head={json.dumps(result, ensure_ascii=False)[:200]}"
+                    f"referer={referer} {summarize_log_payload(result)}"
                 ))
                 proxy_response = JSONResponse(content=result, status_code=200)
                 response_body = json.dumps(result, ensure_ascii=False).encode("utf-8")
@@ -13959,8 +13964,8 @@ async def _forward_admin_ak_rpc_request(path: str, request: Request, session: di
         if should_persist:
             await _persist_browse_session_auth(session)
         if is_login_path:
-            _admin_ak_trace(lambda: f"[IframeLoginApi] route=/admin/ak-rpc/Login phase=response status={response.status_code} referer={referer} body_head={json.dumps(result, ensure_ascii=False)[:200]}")
-        _admin_ak_trace(lambda: f"[AdminAkRpc/{path}] status={response.status_code} dest={fetch_dest} accept={accept} referer={referer} body_head={json.dumps(result, ensure_ascii=False)[:200]}")
+            _admin_ak_trace(lambda: f"[IframeLoginApi] route=/admin/ak-rpc/Login phase=response status={response.status_code} referer={referer} {summarize_log_payload(result)}")
+        _admin_ak_trace(lambda: f"[AdminAkRpc/{path}] status={response.status_code} dest={fetch_dest} accept={accept} referer={referer} {summarize_log_payload(result)}")
         proxy_response = JSONResponse(content=result, status_code=response.status_code)
         response_body = json.dumps(result, ensure_ascii=False).encode("utf-8")
         total_ms = _elapsed_ms(request_started_at)
@@ -14652,14 +14657,13 @@ async def ak_web_proxy(request: Request, path: str):
         is_static_asset = bool(static_cache_request)
         rewrite_started_at = time.perf_counter()
         if fetch_dest == "script" and "application/json" in content_type.lower():
-            body_head = content[:200].decode("utf-8", errors="replace")
-            logger.warning(f"[AkSiteProxy/{path}] script_json_mismatch bs={bs_id} source={bs_source} cookie_bs={cookie_bs} referer={referer} target={target_url} final_url={resp.url} body_head={body_head}")
+            logger.warning(f"[AkSiteProxy/{path}] script_json_mismatch bs={bs_id} source={bs_source} cookie_bs={cookie_bs} referer={referer} target={target_url} final_url={resp.url} {summarize_log_payload(content)}")
         if "application/json" in content_type.lower():
             body_head = content[:300].decode("utf-8", errors="replace")
             lowered_body = body_head.lower()
             normalized_body = lowered_body.replace(" ", "")
             if "用戶未登錄" in body_head or '"islogin":false' in normalized_body or '"error":true' in normalized_body:
-                logger.warning(f"[AkSiteJsonLoginReject/{path}] bs={bs_id} source={bs_source} cookie_bs={cookie_bs} referer={referer} dest={fetch_dest} accept={accept} target={target_url} final_url={resp.url} body_head={body_head}")
+                logger.warning(f"[AkSiteJsonLoginReject/{path}] bs={bs_id} source={bs_source} cookie_bs={cookie_bs} referer={referer} dest={fetch_dest} accept={accept} target={target_url} final_url={resp.url} {summarize_log_payload(content)}")
 
         if path.lower().endswith("base.js") and any(t in content_type.lower() for t in ("javascript", "ecmascript")):
             text = content.decode("utf-8", errors="replace")
@@ -14674,7 +14678,7 @@ async def ak_web_proxy(request: Request, path: str):
         if any(t in content_type.lower() for t in ("javascript", "ecmascript")) and normalized_path in debug_body_targets:
             js_text = content.decode("utf-8", errors="replace")
             js_has_old_host = int(any(token in js_text for token in ("ak928.vip", "www.ak928.vip", "404.html")))
-            _admin_ak_trace(lambda: f"[AkJsBody/{path}] bs={bs_id} referer={referer} target={target_url} final_url={resp.url} old_host={js_has_old_host} body_head={js_text[:400]!r}")
+            _admin_ak_trace(lambda: f"[AkJsBody/{path}] bs={bs_id} referer={referer} target={target_url} final_url={resp.url} old_host={js_has_old_host} {summarize_log_payload(js_text)}")
 
         # 对文本内容（HTML/CSS）做 URL 替换 + HTML 注入拦截器
         if any(t in content_type for t in ("text/html", "text/css")):
@@ -14706,7 +14710,7 @@ async def ak_web_proxy(request: Request, path: str):
                     text, account_login_interval_injected = _inject_account_login_submit_interval(text)
                     if account_login_interval_injected:
                         _admin_ak_trace(lambda: f"[AkAccountLoginIntervalInject/{path}] bs={bs_id or '-'} final_url={resp.url}")
-                _admin_ak_trace(lambda: f"[HtmlRewrite/{path}] bs={bs_id} final_url={resp.url} head_sample={text[:400]!r}")
+                _admin_ak_trace(lambda: f"[HtmlRewrite/{path}] bs={bs_id} final_url={resp.url} {summarize_log_payload(text)}")
                 if normalized_path == "pages/home.html":
                     _admin_ak_trace(lambda: (
                         f"[AkHomeHtmlScan/{path}] bs={bs_id} referer={referer} final_url={resp.url} "
@@ -14717,12 +14721,12 @@ async def ak_web_proxy(request: Request, path: str):
                         f"has_old_host={int(any(token in text for token in ('ak928.vip', 'www.ak928.vip', '404.html')))}"
                     ))
                     _admin_ak_trace(lambda: (
-                        f"[AkHomeHtmlSnippet/{path}] home_css={_extract_debug_snippet(text, '/admin/ak-web/assets/css/home.css')!r} "
-                        f"message_svg={_extract_debug_snippet(text, '/admin/ak-web/assets/images/home/message.svg')!r}"
+                        f"[AkHomeHtmlSnippet/{path}] home_css={redact_log_text(_extract_debug_snippet(text, '/admin/ak-web/assets/css/home.css'), limit=120)!r} "
+                        f"message_svg={redact_log_text(_extract_debug_snippet(text, '/admin/ak-web/assets/images/home/message.svg'), limit=120)!r}"
                     ))
             if "text/css" in content_type and normalized_path in debug_body_targets:
                 css_has_old_host = int(any(token in text for token in ("ak928.vip", "www.ak928.vip", "404.html")))
-                _admin_ak_trace(lambda: f"[AkCssBody/{path}] bs={bs_id} referer={referer} target={target_url} final_url={resp.url} old_host={css_has_old_host} body_head={text[:400]!r}")
+                _admin_ak_trace(lambda: f"[AkCssBody/{path}] bs={bs_id} referer={referer} target={target_url} final_url={resp.url} old_host={css_has_old_host} {summarize_log_payload(text)}")
             # HTML：注入 JS 拦截器
             if "text/html" in content_type and bs_id:
                 inject_started_at = time.perf_counter()
@@ -14732,8 +14736,8 @@ async def ak_web_proxy(request: Request, path: str):
                 inject_user_id = str(inject_user_model.get("Id") or inject_user_model.get("ID") or _extract_login_user_id(_sess.get("login_result", {})) or "").strip()
                 _admin_ak_trace(lambda: (
                     f"[AkInjectAuth/{path}] bs={bs_id} source={bs_source} cookie_bs={cookie_bs or '-'} "
-                    f"username={_sess.get('username', '') or '-'} session_key={str(_sess.get('userkey', '') or '')[:12]} "
-                    f"inject_key={inject_model_key[:12]} inject_user_id={inject_user_id or '-'} referer={referer}"
+                    f"username={_sess.get('username', '') or '-'} session_key_fp={fingerprint_log_secret(_sess.get('userkey', '') or '')} "
+                    f"inject_key_fp={fingerprint_log_secret(inject_model_key)} inject_user_id={inject_user_id or '-'} referer={referer}"
                 ))
                 if _use_native_ak_rpc(site_prefix):
                     injector = _build_native_injector(_sess.get("username", ""), _sess.get("password", ""), _sess.get("userkey", ""), _sess.get("login_result", {}))
