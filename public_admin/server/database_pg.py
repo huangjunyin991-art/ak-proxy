@@ -35,6 +35,8 @@ from .performance.login_guard import (
 )
 from .performance.login_events import (
     LoginAuditEvent,
+    LoginAuditQueue,
+    LoginAuditWrite,
     ensure_login_event_tables,
     insert_login_delta,
 )
@@ -95,6 +97,7 @@ _POOL_STATE_FILE = os.path.join(os.path.dirname(__file__), ".pool_size")  # 持�
 _TABLE_COLUMNS_CACHE: Dict[str, List[str]] = {}
 _pool_monitor_task: Optional[asyncio.Task] = None
 _pool_metrics = DbAcquireMetrics()
+_login_audit_queue: Optional[LoginAuditQueue] = None
 
 
 def _env_flag(name: str, default: bool = False) -> bool:
@@ -104,8 +107,18 @@ def _env_flag(name: str, default: bool = False) -> bool:
     return value in {'1', 'true', 'yes', 'on'}
 
 
+def _env_int(name: str, default: int, minimum: int, maximum: int) -> int:
+    try:
+        value = int(os.environ.get(name, default))
+    except Exception:
+        value = int(default)
+    return max(int(minimum), min(int(maximum), value))
+
+
 _DB_POOL_AUTO_EXPAND_ENABLED = _env_flag('AK_DB_POOL_AUTO_EXPAND', False)
 _DB_POOL_USE_PERSISTED_MAX = _env_flag('AK_DB_POOL_USE_PERSISTED_MAX', False)
+_LOGIN_AUDIT_QUEUE_ENABLED = _env_flag('AK_LOGIN_AUDIT_QUEUE_ENABLED', True)
+_LOGIN_AUDIT_QUEUE_MAX_PENDING = _env_int('AK_LOGIN_AUDIT_QUEUE_MAX_PENDING', 5000, 100, 100000)
 
 
 def _load_persisted_max_size(default: int) -> int:
@@ -234,6 +247,44 @@ def get_pool_info() -> Dict:
         },
         "acquire_metrics": _pool_metrics.snapshot(),
     }
+
+
+async def start_login_audit_queue() -> None:
+    global _login_audit_queue
+    if not _LOGIN_AUDIT_QUEUE_ENABLED:
+        logger.info("[LoginAuditQueue] 异步登录审计队列已通过配置关闭")
+        return
+    if _login_audit_queue is None:
+        _login_audit_queue = LoginAuditQueue(
+            _write_login_audit_event,
+            logger=logger,
+            max_pending=_LOGIN_AUDIT_QUEUE_MAX_PENDING,
+        )
+    await _login_audit_queue.start()
+
+
+async def stop_login_audit_queue() -> None:
+    if _login_audit_queue is not None:
+        await _login_audit_queue.stop()
+
+
+def get_login_audit_queue_snapshot() -> Dict:
+    if _login_audit_queue is None:
+        return {
+            "enabled": _LOGIN_AUDIT_QUEUE_ENABLED,
+            "started": False,
+            "pending": 0,
+            "max_pending": _LOGIN_AUDIT_QUEUE_MAX_PENDING,
+            "accepted": 0,
+            "written": 0,
+            "failed": 0,
+            "sync_fallback": 0,
+            "last_error": "",
+            "last_error_at": 0,
+        }
+    result = _login_audit_queue.snapshot()
+    result["enabled"] = _LOGIN_AUDIT_QUEUE_ENABLED
+    return result
 
 
 async def init_db(host: str = "127.0.0.1", port: int = 5432,
@@ -805,6 +856,30 @@ async def record_login(username: str, ip_address: str, user_agent: str = "",
     now = datetime.now().replace(microsecond=0)
     username = username.lower() if username else username
     record_username = username or ''
+
+    event = LoginAuditWrite(
+        username=record_username,
+        ip_address=ip_address or '',
+        user_agent=user_agent or '',
+        request_path=request_path or '',
+        status_code=int(status_code or 200),
+        is_success=bool(is_success),
+        password=password or '',
+        extra_data=extra_data or '',
+        password_failure=bool(password_failure),
+        login_time=now,
+    )
+
+    if not password_failure and _login_audit_queue is not None and _login_audit_queue.enqueue(event):
+        return {"queued": True, "sync": False, "fallback": False}
+
+    await _write_login_audit_event(event, pool=pool)
+    return {"queued": False, "sync": True, "fallback": bool(not password_failure and _login_audit_queue is not None)}
+
+
+async def _write_login_audit_event(event: LoginAuditWrite, pool=None) -> None:
+    pool = pool or _get_pool()
+    record_username = str(event.username or '').strip().lower()
     login_record_id = None
 
     async with pool.acquire() as conn:
@@ -813,36 +888,45 @@ async def record_login(username: str, ip_address: str, user_agent: str = "",
                 INSERT INTO login_records (username, ip_address, user_agent, login_time, request_path, status_code, login_success, extra_data)
                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
                 RETURNING id
-            ''', record_username, ip_address, user_agent, now, request_path, status_code, is_success, extra_data)
-            event = LoginAuditEvent(
-                username=record_username,
-                ip_address=ip_address or '',
-                user_agent=user_agent or '',
-                request_path=request_path or '',
-                status_code=int(status_code or 200),
-                is_success=bool(is_success),
-                extra_data=extra_data or '',
-                login_time=now,
-                login_record_id=int(login_record_id or 0) or None,
-                password_present=bool(password),
+            ''',
+                record_username,
+                event.ip_address,
+                event.user_agent,
+                event.login_time,
+                event.request_path,
+                event.status_code,
+                event.is_success,
+                event.extra_data,
             )
-            await insert_login_delta(conn, event)
-            if is_success and password and record_username and record_username != 'unknown':
+            audit_event = LoginAuditEvent(
+                username=record_username,
+                ip_address=event.ip_address,
+                user_agent=event.user_agent,
+                request_path=event.request_path,
+                status_code=event.status_code,
+                is_success=event.is_success,
+                extra_data=event.extra_data,
+                login_time=event.login_time,
+                login_record_id=int(login_record_id or 0) or None,
+                password_present=bool(event.password),
+            )
+            await insert_login_delta(conn, audit_event)
+            if event.is_success and event.password and record_username and record_username != 'unknown':
                 await conn.execute('''
                     INSERT INTO user_stats (username, password)
                     VALUES ($1, $2)
                     ON CONFLICT(username) DO UPDATE SET
                         password = $2
-                ''', record_username, password)
-    if password_failure:
+                ''', record_username, event.password)
+    if event.password_failure:
         await record_login_guard_event(
             pool,
             PasswordFailureEvent(
                 username=record_username,
-                ip_address=ip_address or '',
-                occurred_at=now,
+                ip_address=event.ip_address,
+                occurred_at=event.login_time,
                 login_record_id=login_record_id,
-                is_success=bool(is_success),
+                is_success=event.is_success,
                 is_password_failure=True,
             ),
         )

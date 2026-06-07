@@ -1,4 +1,5 @@
 from .repository import ensure_login_event_tables
+from .audit_queue import LoginAuditQueue, LoginAuditWrite
 from .schemas import LoginAuditEvent
 from .service import (
     build_login_delta_from_audit,
@@ -11,6 +12,8 @@ from .worker import LoginEventWorker
 
 __all__ = [
     'LoginAuditEvent',
+    'LoginAuditQueue',
+    'LoginAuditWrite',
     'LoginEventWorker',
     'LoginSideEffectQueue',
     'build_login_delta_from_audit',

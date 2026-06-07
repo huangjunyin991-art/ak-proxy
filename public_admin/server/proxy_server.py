@@ -3441,6 +3441,7 @@ async def admin_performance_runtime(request: Request):
         "event_loop": get_event_loop_probe_snapshot(),
         "blocking_io": get_blocking_runner_snapshot(),
         "db_pool": db.get_pool_info(),
+        "login_audit_queue": db.get_login_audit_queue_snapshot(),
         "runtime_hygiene": runtime_hygiene,
     }
 
@@ -4969,6 +4970,8 @@ async def admin_startup():
 
     await _login_side_effect_queue.start()
 
+    await db.start_login_audit_queue()
+
     await _login_event_worker.start()
 
     _reset_dispatcher_temp_event_file()
@@ -5094,6 +5097,8 @@ async def admin_shutdown():
     await _user_asset_persist_queue.stop()
 
     await _login_side_effect_queue.stop()
+
+    await db.stop_login_audit_queue()
 
     await _login_event_worker.stop()
 

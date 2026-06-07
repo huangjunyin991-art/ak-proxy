@@ -412,12 +412,15 @@
         var eventLoop = item.event_loop || {};
         var blocking = item.blocking_io || {};
         var dbPool = item.db_pool || {};
+        var auditQueue = item.login_audit_queue || {};
         var acquire = dbPool.acquire_metrics || {};
         var policy = dbPool.policy || {};
         if (Number(eventLoop.p99_lag_ms || 0) >= 250) warnings.push('事件循环 p99 lag 已超过 250ms');
         if (Number(blocking.max_concurrency || 0) > 0 && Number(blocking.in_flight || 0) >= Number(blocking.max_concurrency || 0)) warnings.push('阻塞 I/O runner 已打满');
         if (Number(dbPool.usage_pct || 0) >= 90) warnings.push('DB 连接池使用率接近上限');
         if (Number(acquire.timeouts || 0) > 0) warnings.push('DB acquire 出现超时');
+        if (Number(auditQueue.failed || 0) > 0) warnings.push('登录审计异步写入出现失败');
+        if (Number(auditQueue.max_pending || 0) > 0 && Number(auditQueue.pending || 0) / Number(auditQueue.max_pending || 1) >= 0.8) warnings.push('登录审计队列接近满载');
         if (policy.fixed_budget !== true) warnings.push('DB 连接池当前不是固定预算模式');
         return warnings;
     }
@@ -513,9 +516,12 @@
         var eventLoop = item.event_loop || {};
         var blocking = item.blocking_io || {};
         var dbPool = item.db_pool || {};
+        var auditQueue = item.login_audit_queue || {};
         var acquire = dbPool.acquire_metrics || {};
         var policy = dbPool.policy || {};
         var dbPolicyText = policy.fixed_budget ? '固定预算' : (policy.auto_expand_enabled ? '自动扩容' : '未知');
+        var auditQueueEnabled = auditQueue.enabled !== false;
+        var auditQueueText = auditQueueEnabled ? (auditQueue.started ? '运行中' : '未启动') : '已关闭';
         if (cards) {
             setHtmlIfChanged(cards,
                 renderCard('事件循环 p99', formatMs(eventLoop.p99_lag_ms), 'max ' + formatMs(eventLoop.max_lag_ms) + '；慢样本 ' + formatNumber(eventLoop.slow_count)) +
@@ -523,7 +529,9 @@
                 renderCard('阻塞 I/O 并发', formatNumber(blocking.in_flight) + ' / ' + formatNumber(blocking.max_concurrency), '完成 ' + formatNumber(blocking.completed) + '；慢调用 ' + formatNumber(blocking.slow_count)) +
                 renderCard('阻塞 I/O 耗时', formatMs(blocking.avg_run_ms), 'max ' + formatMs(blocking.max_run_ms) + '；排队 max ' + formatMs(blocking.max_queue_ms)) +
                 renderCard('DB 连接池', formatPercent(dbPool.usage_pct), 'active ' + formatNumber(dbPool.active) + ' / max ' + formatNumber(dbPool.max_size) + '；' + dbPolicyText) +
-                renderCard('DB acquire', formatMs(acquire.avg_wait_ms), 'max ' + formatMs(acquire.max_wait_ms) + '；timeout ' + formatNumber(acquire.timeouts))
+                renderCard('DB acquire', formatMs(acquire.avg_wait_ms), 'max ' + formatMs(acquire.max_wait_ms) + '；timeout ' + formatNumber(acquire.timeouts)) +
+                renderCard('登录审计队列', auditQueueText, 'pending ' + formatNumber(auditQueue.pending) + ' / ' + formatNumber(auditQueue.max_pending) + '；fallback ' + formatNumber(auditQueue.sync_fallback)) +
+                renderCard('登录审计写入', formatNumber(auditQueue.written), 'accepted ' + formatNumber(auditQueue.accepted) + '；failed ' + formatNumber(auditQueue.failed))
             );
         }
         if (bars) {
@@ -531,12 +539,13 @@
                 renderProgress('事件循环 p99', runtimeProgressPercent(eventLoop.p99_lag_ms, 250), formatMs(eventLoop.p99_lag_ms) + ' / 250 ms') +
                 renderProgress('阻塞 I/O 饱和度', Number(blocking.max_concurrency || 0) > 0 ? Number(blocking.in_flight || 0) / Number(blocking.max_concurrency || 1) * 100 : 0, formatNumber(blocking.in_flight) + ' / ' + formatNumber(blocking.max_concurrency)) +
                 renderProgress('DB 连接使用率', dbPool.usage_pct, formatPercent(dbPool.usage_pct)) +
-                renderProgress('DB acquire max', runtimeProgressPercent(acquire.max_wait_ms, 500), formatMs(acquire.max_wait_ms) + ' / 500 ms')
+                renderProgress('DB acquire max', runtimeProgressPercent(acquire.max_wait_ms, 500), formatMs(acquire.max_wait_ms) + ' / 500 ms') +
+                renderProgress('登录审计队列', Number(auditQueue.max_pending || 0) > 0 ? Number(auditQueue.pending || 0) / Number(auditQueue.max_pending || 1) * 100 : 0, formatNumber(auditQueue.pending) + ' / ' + formatNumber(auditQueue.max_pending))
             );
         }
         if (rows) setHtmlIfChanged(rows, renderRuntimePerformanceRows(item));
         if (meta) {
-            setTextIfChanged(meta, '轻量指标 5 秒刷新 · DB ' + dbPolicyText + ' · 阻塞 I/O 并发上限 ' + formatNumber(blocking.max_concurrency));
+            setTextIfChanged(meta, '轻量指标 5 秒刷新 · DB ' + dbPolicyText + ' · 登录审计 ' + auditQueueText + ' · 阻塞 I/O 并发上限 ' + formatNumber(blocking.max_concurrency));
         }
     }
 
