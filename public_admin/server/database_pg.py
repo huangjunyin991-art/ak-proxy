@@ -405,7 +405,10 @@ async def init_db(host: str = "127.0.0.1", port: int = 5432,
                 used_at TIMESTAMP NOT NULL DEFAULT NOW(),
                 expires_at TIMESTAMP NOT NULL,
                 client_ip TEXT DEFAULT '',
-                user_agent TEXT DEFAULT ''
+                user_agent TEXT DEFAULT '',
+                exchange_snapshot JSONB,
+                exchange_snapshot_at TIMESTAMP,
+                exchange_snapshot_expires_at TIMESTAMP
             )
         ''')
 
@@ -542,6 +545,9 @@ async def init_db(host: str = "127.0.0.1", port: int = 5432,
             await conn.execute("ALTER TABLE user_stats ADD COLUMN IF NOT EXISTS ak_auth_updated_at TIMESTAMP")
             await conn.execute("ALTER TABLE user_stats ADD COLUMN IF NOT EXISTS ak_auth_expires_at TIMESTAMP")
             await conn.execute("ALTER TABLE user_stats ADD COLUMN IF NOT EXISTS real_name TEXT DEFAULT ''")
+            await conn.execute("ALTER TABLE im_switch_tokens ADD COLUMN IF NOT EXISTS exchange_snapshot JSONB")
+            await conn.execute("ALTER TABLE im_switch_tokens ADD COLUMN IF NOT EXISTS exchange_snapshot_at TIMESTAMP")
+            await conn.execute("ALTER TABLE im_switch_tokens ADD COLUMN IF NOT EXISTS exchange_snapshot_expires_at TIMESTAMP")
             await conn.execute("ALTER TABLE ip_stats ADD COLUMN IF NOT EXISTS preban_count INTEGER DEFAULT 0")
             await conn.execute("ALTER TABLE ip_stats ADD COLUMN IF NOT EXISTS preban_first_seen TIMESTAMP")
             await conn.execute("ALTER TABLE ip_stats ADD COLUMN IF NOT EXISTS preban_last_seen TIMESTAMP")
@@ -726,6 +732,7 @@ async def init_db(host: str = "127.0.0.1", port: int = 5432,
         await conn.execute('CREATE INDEX IF NOT EXISTS idx_admin_point_stats_quota_admin_used ON admin_point_stats_quota(admin_id, used_at)')
         await conn.execute('CREATE INDEX IF NOT EXISTS idx_im_switch_tokens_expires_at ON im_switch_tokens(expires_at)')
         await conn.execute('CREATE INDEX IF NOT EXISTS idx_im_switch_tokens_username_used ON im_switch_tokens(username, used_at DESC)')
+        await conn.execute('CREATE INDEX IF NOT EXISTS idx_im_switch_tokens_exchange_snapshot_expires_at ON im_switch_tokens(exchange_snapshot_expires_at) WHERE exchange_snapshot_expires_at IS NOT NULL')
 
     logger.info("PostgreSQL 数据库表和索引已就绪")
 
@@ -1071,6 +1078,14 @@ async def consume_im_switch_token(token_hash: str, username: str, conversation_i
                 'DELETE FROM im_switch_tokens WHERE expires_at < $1',
                 now - timedelta(days=1),
             )
+            await conn.execute('''
+                UPDATE im_switch_tokens
+                SET exchange_snapshot = NULL,
+                    exchange_snapshot_at = NULL,
+                    exchange_snapshot_expires_at = NULL
+                WHERE exchange_snapshot_expires_at IS NOT NULL
+                  AND exchange_snapshot_expires_at < $1
+            ''', now)
         except Exception:
             pass
         row = await conn.fetchrow('''
@@ -1099,6 +1114,89 @@ async def consume_im_switch_token(token_hash: str, username: str, conversation_i
                 'expires_at': existing['expires_at'],
             }
         return {'consumed': False, 'reason': 'unknown'}
+
+
+async def save_im_switch_token_snapshot(token_hash: str, username: str, conversation_id: int,
+                                        snapshot: Dict[str, Any], ttl_seconds: int = 8) -> bool:
+    pool = _get_pool()
+    normalized_hash = str(token_hash or '').strip()
+    normalized_username = str(username or '').strip().lower()
+    if not normalized_hash or not normalized_username or not isinstance(snapshot, dict):
+        return False
+    now = datetime.now().replace(microsecond=0)
+    try:
+        ttl = max(1, int(ttl_seconds or 0))
+    except Exception:
+        ttl = 8
+    expires_at = now + timedelta(seconds=ttl)
+    snapshot_text = json.dumps(snapshot, ensure_ascii=False, separators=(',', ':'))
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow('''
+            UPDATE im_switch_tokens
+            SET exchange_snapshot = $4::jsonb,
+                exchange_snapshot_at = $5,
+                exchange_snapshot_expires_at = $6
+            WHERE token_hash = $1
+              AND username = $2
+              AND conversation_id = $3
+            RETURNING token_hash
+        ''', normalized_hash, normalized_username, int(conversation_id or 0), snapshot_text, now, expires_at)
+        return bool(row)
+
+
+def _decode_im_switch_snapshot(value: Any) -> Optional[Dict[str, Any]]:
+    if isinstance(value, dict):
+        return dict(value)
+    if isinstance(value, str) and value.strip():
+        try:
+            parsed = json.loads(value)
+            return dict(parsed) if isinstance(parsed, dict) else None
+        except Exception:
+            return None
+    return None
+
+
+async def get_im_switch_token_snapshot(token_hash: str, username: str, conversation_id: int) -> Optional[Dict[str, Any]]:
+    pool = _get_pool()
+    normalized_hash = str(token_hash or '').strip()
+    normalized_username = str(username or '').strip().lower()
+    if not normalized_hash or not normalized_username:
+        return None
+    now = datetime.now().replace(microsecond=0)
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow('''
+            SELECT exchange_snapshot
+            FROM im_switch_tokens
+            WHERE token_hash = $1
+              AND username = $2
+              AND conversation_id = $3
+              AND exchange_snapshot IS NOT NULL
+              AND exchange_snapshot_expires_at >= $4
+        ''', normalized_hash, normalized_username, int(conversation_id or 0), now)
+    if not row:
+        return None
+    return _decode_im_switch_snapshot(row['exchange_snapshot'])
+
+
+async def wait_im_switch_token_snapshot(token_hash: str, username: str, conversation_id: int,
+                                        timeout_seconds: float = 6.0,
+                                        poll_seconds: float = 0.12) -> Optional[Dict[str, Any]]:
+    try:
+        timeout = max(0.1, float(timeout_seconds or 0))
+    except Exception:
+        timeout = 6.0
+    try:
+        poll = min(1.0, max(0.03, float(poll_seconds or 0)))
+    except Exception:
+        poll = 0.12
+    deadline = time.monotonic() + timeout
+    while True:
+        snapshot = await get_im_switch_token_snapshot(token_hash, username, conversation_id)
+        if snapshot:
+            return snapshot
+        if time.monotonic() >= deadline:
+            return None
+        await asyncio.sleep(poll)
 
 
 async def clear_user_saved_password(username: str) -> bool:
