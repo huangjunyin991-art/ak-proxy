@@ -488,6 +488,7 @@
         var eventLoop = item.event_loop || {};
         var blocking = item.blocking_io || {};
         var dbPool = item.db_pool || {};
+        var bulkWriter = item.bulk_writer || {};
         var auditQueue = item.login_audit_queue || {};
         var acquire = dbPool.acquire_metrics || {};
         var policy = dbPool.policy || {};
@@ -495,6 +496,7 @@
         if (Number(blocking.max_concurrency || 0) > 0 && Number(blocking.in_flight || 0) >= Number(blocking.max_concurrency || 0)) warnings.push('阻塞 I/O runner 已打满');
         if (Number(dbPool.usage_pct || 0) >= 90) warnings.push('DB 连接池使用率接近上限');
         if (Number(acquire.timeouts || 0) > 0) warnings.push('DB acquire 出现超时');
+        if (Number(bulkWriter.failed || 0) > 0) warnings.push('批量写入出现失败');
         if (Number(auditQueue.failed || 0) > 0) warnings.push('登录审计异步写入出现失败');
         if (Number(auditQueue.max_pending || 0) > 0 && Number(auditQueue.pending || 0) / Number(auditQueue.max_pending || 1) >= 0.8) warnings.push('登录审计队列接近满载');
         if (policy.fixed_budget !== true) warnings.push('DB 连接池当前不是固定预算模式');
@@ -513,6 +515,7 @@
         var eventLoop = item.event_loop || {};
         var blocking = item.blocking_io || {};
         var dbPool = item.db_pool || {};
+        var bulkWriter = item.bulk_writer || {};
         var acquire = dbPool.acquire_metrics || {};
         var rows = [];
         (eventLoop.recent_slow || []).forEach(function(sample) {
@@ -555,6 +558,16 @@
                 ts: sample.ts
             });
         });
+        (bulkWriter.recent || []).forEach(function(sample) {
+            rows.push({
+                kind: '批量写入',
+                metric: sample.failed ? (sample.error || 'error') : 'slow',
+                target: sample.operation || '-',
+                wait: '-',
+                run: formatMs(sample.elapsed_ms),
+                ts: sample.ts
+            });
+        });
         rows.sort(function(a, b) { return Number(b.ts || 0) - Number(a.ts || 0); });
         if (!rows.length) return '<tr><td colspan="6"><div class="monitoring-empty">暂无慢样本或错误</div></td></tr>';
         return rows.slice(0, 24).map(function(row) {
@@ -575,7 +588,7 @@
         var bars = document.getElementById('monitoringRuntimePerformanceBars');
         var rows = document.getElementById('monitoringRuntimePerformanceRows');
         var meta = document.getElementById('monitoringRuntimePerformanceMeta');
-        if (!item.error && !item.event_loop && !item.blocking_io && !item.db_pool) {
+        if (!item.error && !item.event_loop && !item.blocking_io && !item.db_pool && !item.bulk_writer) {
             if (cards) setHtmlIfChanged(cards, renderCard('运行时性能', '读取中', '等待首次轻量刷新'));
             if (bars) setHtmlIfChanged(bars, '');
             if (rows) setHtmlIfChanged(rows, '<tr><td colspan="6"><div class="monitoring-empty">等待首次采样</div></td></tr>');
@@ -592,12 +605,26 @@
         var eventLoop = item.event_loop || {};
         var blocking = item.blocking_io || {};
         var dbPool = item.db_pool || {};
+        var bulkWriter = item.bulk_writer || {};
         var auditQueue = item.login_audit_queue || {};
         var acquire = dbPool.acquire_metrics || {};
         var policy = dbPool.policy || {};
         var dbPolicyText = policy.fixed_budget ? '固定预算' : (policy.auto_expand_enabled ? '自动扩容' : '未知');
         var auditQueueEnabled = auditQueue.enabled !== false;
         var auditQueueText = auditQueueEnabled ? (auditQueue.started ? '运行中' : '未启动') : '已关闭';
+        var bulkOperations = bulkWriter.operations || {};
+        var topBulkOperation = Object.keys(bulkOperations).map(function(name) {
+            var op = bulkOperations[name] || {};
+            return {
+                name: name,
+                rows: Number(op.rows || 0),
+                avgRows: Number(op.avg_rows || 0),
+                maxMs: Number(op.max_ms || 0),
+                failed: Number(op.failed || 0)
+            };
+        }).sort(function(a, b) {
+            return b.rows - a.rows;
+        })[0] || { name: '-', rows: 0, avgRows: 0, maxMs: 0, failed: 0 };
         if (cards) {
             setHtmlIfChanged(cards,
                 renderCard('事件循环 p99', formatMs(eventLoop.p99_lag_ms), 'max ' + formatMs(eventLoop.max_lag_ms) + '；慢样本 ' + formatNumber(eventLoop.slow_count)) +
@@ -606,6 +633,8 @@
                 renderCard('阻塞 I/O 耗时', formatMs(blocking.avg_run_ms), 'max ' + formatMs(blocking.max_run_ms) + '；排队 max ' + formatMs(blocking.max_queue_ms)) +
                 renderCard('DB 连接池', formatPercent(dbPool.usage_pct), 'active ' + formatNumber(dbPool.active) + ' / max ' + formatNumber(dbPool.max_size) + '；' + dbPolicyText) +
                 renderCard('DB acquire', formatMs(acquire.avg_wait_ms), 'max ' + formatMs(acquire.max_wait_ms) + '；timeout ' + formatNumber(acquire.timeouts)) +
+                renderCard('批量写入', formatNumber(bulkWriter.rows), 'calls ' + formatNumber(bulkWriter.calls) + '；failed ' + formatNumber(bulkWriter.failed)) +
+                renderCard('批量写热点', topBulkOperation.name, 'avg ' + formatNumber(topBulkOperation.avgRows) + ' 行；max ' + formatMs(topBulkOperation.maxMs)) +
                 renderCard('登录审计队列', auditQueueText, 'pending ' + formatNumber(auditQueue.pending) + ' / ' + formatNumber(auditQueue.max_pending) + '；fallback ' + formatNumber(auditQueue.sync_fallback)) +
                 renderCard('登录审计写入', formatNumber(auditQueue.written), 'accepted ' + formatNumber(auditQueue.accepted) + '；failed ' + formatNumber(auditQueue.failed))
             );
@@ -616,12 +645,14 @@
                 renderProgress('阻塞 I/O 饱和度', Number(blocking.max_concurrency || 0) > 0 ? Number(blocking.in_flight || 0) / Number(blocking.max_concurrency || 1) * 100 : 0, formatNumber(blocking.in_flight) + ' / ' + formatNumber(blocking.max_concurrency)) +
                 renderProgress('DB 连接使用率', dbPool.usage_pct, formatPercent(dbPool.usage_pct)) +
                 renderProgress('DB acquire max', runtimeProgressPercent(acquire.max_wait_ms, 500), formatMs(acquire.max_wait_ms) + ' / 500 ms') +
+                renderProgress('批量写 max', runtimeProgressPercent(topBulkOperation.maxMs, 500), formatMs(topBulkOperation.maxMs) + ' / 500 ms') +
+                renderProgress('批量写失败', Number(bulkWriter.calls || 0) > 0 ? Number(bulkWriter.failed || 0) / Number(bulkWriter.calls || 1) * 100 : 0, formatNumber(bulkWriter.failed) + ' / ' + formatNumber(bulkWriter.calls)) +
                 renderProgress('登录审计队列', Number(auditQueue.max_pending || 0) > 0 ? Number(auditQueue.pending || 0) / Number(auditQueue.max_pending || 1) * 100 : 0, formatNumber(auditQueue.pending) + ' / ' + formatNumber(auditQueue.max_pending))
             );
         }
         if (rows) setHtmlIfChanged(rows, renderRuntimePerformanceRows(item));
         if (meta) {
-            setTextIfChanged(meta, '轻量指标 5 秒刷新 · DB ' + dbPolicyText + ' · 登录审计 ' + auditQueueText + ' · 阻塞 I/O 并发上限 ' + formatNumber(blocking.max_concurrency));
+            setTextIfChanged(meta, '轻量指标 5 秒刷新 · DB ' + dbPolicyText + ' · 批量写 ' + formatNumber(bulkWriter.calls) + ' 次 · 登录审计 ' + auditQueueText + ' · 阻塞 I/O 并发上限 ' + formatNumber(blocking.max_concurrency));
         }
     }
 

@@ -195,6 +195,7 @@ from .performance.db_indexes import get_admin_index_plan_status, start_admin_ind
 from .performance.dispatcher_status.service import DispatcherStatusService
 from .performance.login_events import LoginEventWorker, LoginSideEffectQueue
 from .admin_realtime import AdminRealtimeHub, AdminRealtimeTopic
+from .db.bulk_writer import get_bulk_writer_snapshot
 from .static_resource_cache import (
     StaticResourceCacheConfig,
     StaticResourcePayload,
@@ -3524,6 +3525,7 @@ async def admin_performance_runtime(request: Request):
         "success": True,
         "event_loop": get_event_loop_probe_snapshot(),
         "blocking_io": get_blocking_runner_snapshot(),
+        "bulk_writer": get_bulk_writer_snapshot(),
         "db_pool": db.get_pool_info(),
         "login_audit_queue": db.get_login_audit_queue_snapshot(),
         "runtime_hygiene": runtime_hygiene,

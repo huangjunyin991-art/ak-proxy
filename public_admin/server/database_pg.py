@@ -47,8 +47,45 @@ from .performance.admin_summary import build_admin_summary
 from .performance.admin_lists import build_admin_asset_list, build_admin_user_list
 from .performance.dashboard_stats import build_traffic_dashboard, build_user_growth
 from .runtime_performance import DbAcquireMetrics, InstrumentedPool
+from .db.bulk_writer import execute_bulk_unnest, rows_to_columns
 
 logger = logging.getLogger("TransparentProxy.DB")
+
+_POINT_HISTORY_BULK_UPSERT_SQL = '''
+    INSERT INTO point_history_records (
+        username, point_type, record_key, record_time, record_date, resolved_category, operation_type,
+        amount, balance, type_name, type_name_cn, description, raw_data, saved_at
+    )
+    SELECT username, point_type, record_key, record_time, record_date, resolved_category, operation_type,
+           amount, balance, type_name, type_name_cn, description, raw_data::jsonb, saved_at
+    FROM UNNEST(
+        $1::text[], $2::text[], $3::text[], $4::text[], $5::date[], $6::text[], $7::integer[],
+        $8::double precision[], $9::double precision[], $10::text[], $11::text[], $12::text[],
+        $13::text[], $14::timestamp[]
+    ) AS rows(
+        username, point_type, record_key, record_time, record_date, resolved_category, operation_type,
+        amount, balance, type_name, type_name_cn, description, raw_data, saved_at
+    )
+    ON CONFLICT(username, point_type, record_key) DO UPDATE SET
+        record_time = EXCLUDED.record_time,
+        record_date = EXCLUDED.record_date,
+        resolved_category = EXCLUDED.resolved_category,
+        operation_type = EXCLUDED.operation_type,
+        amount = EXCLUDED.amount,
+        balance = EXCLUDED.balance,
+        type_name = EXCLUDED.type_name,
+        type_name_cn = EXCLUDED.type_name_cn,
+        description = EXCLUDED.description,
+        raw_data = EXCLUDED.raw_data,
+        saved_at = EXCLUDED.saved_at
+'''
+
+_NOTIFICATION_DELIVERY_BULK_INSERT_SQL = '''
+    INSERT INTO notification_deliveries
+        (campaign_id, username, delivery_status, delivered_at, last_push_at, created_at)
+    SELECT campaign_id, username, 'sent', sent_at, sent_at, sent_at
+    FROM UNNEST($1::bigint[], $2::text[], $3::timestamp[]) AS rows(campaign_id, username, sent_at)
+'''
 
 SENSITIVE_OUTPUT_FIELDS = {
     'password',
@@ -1575,6 +1612,19 @@ async def _refresh_point_history_user_summary(conn, username: str):
     ''', normalized_username, record_count, row['latest_saved_at'])
 
 
+async def _upsert_point_history_records_bulk(conn, normalized: List[tuple], operation: str) -> None:
+    if not normalized:
+        return
+    columns = rows_to_columns(normalized, 14)
+    await execute_bulk_unnest(
+        conn,
+        _POINT_HISTORY_BULK_UPSERT_SQL,
+        columns,
+        operation=operation,
+        row_count=len(normalized),
+    )
+
+
 async def get_point_history_record_keys(username: str, point_type: str) -> set:
     pool = _get_pool()
     username = username.lower() if username else username
@@ -1637,25 +1687,7 @@ async def replace_point_history_records(username: str, point_type: str, records:
             if not normalized:
                 await _refresh_point_history_user_summary(conn, username)
                 return 0
-            await conn.executemany('''
-                INSERT INTO point_history_records (
-                    username, point_type, record_key, record_time, record_date, resolved_category, operation_type,
-                    amount, balance, type_name, type_name_cn, description, raw_data, saved_at
-                )
-                VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::jsonb,$14)
-                ON CONFLICT(username, point_type, record_key) DO UPDATE SET
-                    record_time = EXCLUDED.record_time,
-                    record_date = EXCLUDED.record_date,
-                    resolved_category = EXCLUDED.resolved_category,
-                    operation_type = EXCLUDED.operation_type,
-                    amount = EXCLUDED.amount,
-                    balance = EXCLUDED.balance,
-                    type_name = EXCLUDED.type_name,
-                    type_name_cn = EXCLUDED.type_name_cn,
-                    description = EXCLUDED.description,
-                    raw_data = EXCLUDED.raw_data,
-                    saved_at = EXCLUDED.saved_at
-            ''', normalized)
+            await _upsert_point_history_records_bulk(conn, normalized, "point_history.replace")
             await _refresh_point_history_user_summary(conn, username)
             return len(normalized)
 
@@ -1673,25 +1705,7 @@ async def save_point_history_records(username: str, point_type: str, records: Li
         return 0
     async with pool.acquire() as conn:
         async with conn.transaction():
-            await conn.executemany('''
-                INSERT INTO point_history_records (
-                    username, point_type, record_key, record_time, record_date, resolved_category, operation_type,
-                    amount, balance, type_name, type_name_cn, description, raw_data, saved_at
-                )
-                VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::jsonb,$14)
-                ON CONFLICT(username, point_type, record_key) DO UPDATE SET
-                    record_time = EXCLUDED.record_time,
-                    record_date = EXCLUDED.record_date,
-                    resolved_category = EXCLUDED.resolved_category,
-                    operation_type = EXCLUDED.operation_type,
-                    amount = EXCLUDED.amount,
-                    balance = EXCLUDED.balance,
-                    type_name = EXCLUDED.type_name,
-                    type_name_cn = EXCLUDED.type_name_cn,
-                    description = EXCLUDED.description,
-                    raw_data = EXCLUDED.raw_data,
-                    saved_at = EXCLUDED.saved_at
-            ''', normalized)
+            await _upsert_point_history_records_bulk(conn, normalized, "point_history.save")
             await _refresh_point_history_user_summary(conn, username)
     return len(normalized)
 
@@ -3397,6 +3411,20 @@ def _serialize_notification_item(row: Dict[str, Any]) -> Dict:
     }
 
 
+async def _insert_notification_deliveries_bulk(conn, campaign_id: int, usernames: List[str], sent_at: datetime) -> None:
+    rows = [(int(campaign_id), str(username or '').strip().lower(), sent_at) for username in usernames or [] if username]
+    if not rows:
+        return
+    columns = rows_to_columns(rows, 3)
+    await execute_bulk_unnest(
+        conn,
+        _NOTIFICATION_DELIVERY_BULK_INSERT_SQL,
+        columns,
+        operation="notification.deliveries",
+        row_count=len(rows),
+    )
+
+
 async def create_notification_campaign(notification_type: str, title: str, content: str,
                                       payload: Dict[str, Any], audience_mode: str,
                                       audience_snapshot: Dict[str, Any], created_by: str,
@@ -3422,11 +3450,7 @@ async def create_notification_campaign(notification_type: str, title: str, conte
                 RETURNING id, notification_type, title, content, payload_json, audience_mode, audience_snapshot_json, created_by, target_count, created_at, published_at
             ''', notification_type, title, content, payload_json, audience_mode, audience_snapshot_json, created_by, len(normalized_usernames), now)
             if normalized_usernames:
-                await conn.executemany('''
-                    INSERT INTO notification_deliveries
-                        (campaign_id, username, delivery_status, delivered_at, last_push_at, created_at)
-                    VALUES ($1, $2, 'sent', $3, $3, $3)
-                ''', [(row['id'], username, now) for username in normalized_usernames])
+                await _insert_notification_deliveries_bulk(conn, int(row['id']), normalized_usernames, now)
     return _serialize_notification_campaign(dict(row))
 
 
