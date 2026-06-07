@@ -244,3 +244,4 @@
 | 2026-06-08 | P1-NET-001 IM 默认 loopback 监听 | 已落地 | Go IM 默认 `IM_ADDR` 从 `:18081` 改为 `127.0.0.1:18081`，部署脚本生成的 systemd 环境同步收口；显式配置 `IM_ADDR` 仍可覆盖。 |
 | 2026-06-08 | P1-CORS-001 CORS 白名单收敛 | 已落地 | FastAPI CORS 改为 `AK_CORS_ALLOWED_ORIGINS`/`ADMIN_DOMAIN` allowlist，默认不开放跨域；Nginx 模板移除 wildcard Origin，改为管理域名来源。 |
 | 2026-06-08 | P1-LOG-001 日志脱敏基础收口 | 已落地 | 新增 `security.audit.redactor`，将登录/RPC/AK 网页代理的 body 片段改为长度与 SHA-256 摘要，trace 输出统一经过敏感字段脱敏。 |
+| 2026-06-08 | P0-WS-001 `/admin/ws` 认证前隔离 | 已落地 | 管理台 WebSocket 连接先完成 `auth` 校验，成功后才进入旧广播池和 topic 权限表；认证失败、首包非 auth 或超时均关闭连接并清理订阅状态。 |

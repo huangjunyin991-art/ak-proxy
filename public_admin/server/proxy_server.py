@@ -4173,8 +4173,6 @@ class ConnectionManager:
 
         await websocket.accept()
 
-        self.active_connections.add(websocket)
-
 
 
     def disconnect(self, websocket: WebSocket):
@@ -4192,6 +4190,7 @@ class ConnectionManager:
         permissions = {}
         if role == ROLE_SUB_ADMIN and sub_name:
             permissions = get_sub_admin_permissions(sub_name)
+        self.active_connections.add(websocket)
         self.admin_connections[id(websocket)] = {
             'websocket': websocket,
             'role': role,
@@ -9010,6 +9009,49 @@ async def admin_toggle_server(group_id: str, request: Request):
 
 # --- WebSocket ---
 
+ADMIN_WS_AUTH_TIMEOUT_SECONDS = 10
+
+
+async def _resolve_admin_ws_auth(websocket: WebSocket) -> tuple[str, str] | None:
+    try:
+        data = await asyncio.wait_for(
+            websocket.receive_text(),
+            timeout=ADMIN_WS_AUTH_TIMEOUT_SECONDS,
+        )
+        msg = json.loads(data)
+    except WebSocketDisconnect:
+        raise
+    except Exception:
+        return None
+
+    if not isinstance(msg, dict) or msg.get('type') != 'auth':
+        return None
+
+    token = str(msg.get('token') or '')
+    if not token or not await verify_admin_token(token):
+        return None
+
+    role = get_token_role(token)
+    if role == ROLE_SUPER_ADMIN:
+        return role, '__super__'
+    if role == ROLE_SUB_ADMIN:
+        sub_name = get_token_sub_name(token)
+        if sub_name:
+            return role, sub_name
+    return None
+
+
+async def _reject_admin_ws_auth(websocket: WebSocket) -> None:
+    try:
+        await websocket.send_json({'type': 'auth_error'})
+    except Exception:
+        pass
+    try:
+        await websocket.close(code=1008)
+    except Exception:
+        pass
+
+
 @app.websocket("/admin/ws")
 
 async def admin_websocket(websocket: WebSocket):
@@ -9021,6 +9063,29 @@ async def admin_websocket(websocket: WebSocket):
     sub_name = None
 
     try:
+
+        auth = await _resolve_admin_ws_auth(websocket)
+        if not auth:
+            await _reject_admin_ws_auth(websocket)
+            return
+
+        role, auth_sub_name = auth
+
+        if role == ROLE_SUB_ADMIN:
+
+            sub_name = auth_sub_name
+
+            ws_manager.register_sub_admin(sub_name, websocket)
+            ws_manager.register_admin_connection(websocket, role, sub_name)
+            await websocket.send_json({'type': 'auth_ok'})
+
+        elif role == ROLE_SUPER_ADMIN:
+
+            sub_name = '__super__'
+
+            ws_manager.register_sub_admin(sub_name, websocket)
+            ws_manager.register_admin_connection(websocket, role, '')
+            await websocket.send_json({'type': 'auth_ok'})
 
         while True:
 
@@ -9034,31 +9099,7 @@ async def admin_websocket(websocket: WebSocket):
 
                 if msg_type == 'auth':
 
-                    token = msg.get('token', '')
-
-                    if not token or not await verify_admin_token(token):
-                        await websocket.send_json({'type': 'auth_error'})
-                        continue
-
-                    role = get_token_role(token)
-
-                    if role == ROLE_SUB_ADMIN:
-
-                        sub_name = get_token_sub_name(token)
-
-                        if sub_name:
-
-                            ws_manager.register_sub_admin(sub_name, websocket)
-                            ws_manager.register_admin_connection(websocket, role, sub_name)
-                            await websocket.send_json({'type': 'auth_ok'})
-
-                    elif role == ROLE_SUPER_ADMIN:
-
-                        sub_name = '__super__'
-
-                        ws_manager.register_sub_admin(sub_name, websocket)
-                        ws_manager.register_admin_connection(websocket, role, '')
-                        await websocket.send_json({'type': 'auth_ok'})
+                    await websocket.send_json({'type': 'auth_ok'})
 
                 elif msg_type == 'heartbeat':
                     await websocket.send_json({'type': 'pong'})
@@ -9085,10 +9126,21 @@ async def admin_websocket(websocket: WebSocket):
 
                 pass
 
-    except (WebSocketDisconnect, Exception):
+    except WebSocketDisconnect:
+
+        pass
+
+    except Exception:
+
+        pass
+
+    finally:
 
         ws_manager.disconnect(websocket)
-        await admin_realtime_hub.disconnect(id(websocket))
+        try:
+            await admin_realtime_hub.disconnect(id(websocket))
+        except Exception:
+            pass
 
 
 
