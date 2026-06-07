@@ -342,6 +342,10 @@
             return current === 'connecting' || current === 'active';
         }
 
+        function isRemoteAssistVoiceSignalStatus(status) {
+            return isRemoteAssistVoiceCountedStatus(status);
+        }
+
         function isRemoteAssistVoiceTerminalStatus(status) {
             const current = String(status || '').trim().toLowerCase();
             return current === 'rejected' || current === 'timeout' || current === 'closed' || current === 'failed' || current === 'socket_closed';
@@ -577,7 +581,7 @@
                 await disconnectRemoteAssistVoiceClient(false, remoteAssistVoiceStatus || 'closed', true);
                 return;
             }
-            if (!isRemoteAssistVoiceSocketStatus(remoteAssistVoiceStatus)) {
+            if (!isRemoteAssistVoiceSignalStatus(remoteAssistVoiceStatus)) {
                 if (remoteAssistVoiceClient) {
                     await disconnectRemoteAssistVoiceClient(false, remoteAssistVoiceStatus || 'closed', false, { preservePoll: true });
                 }
@@ -598,6 +602,8 @@
                 voiceSessionId: currentVoiceSessionId,
                 role: 'admin',
                 site: 'ak_web',
+                initialStatus: remoteAssistVoiceStatus,
+                preserveSessionStatusOnSignalOpen: true,
                 lazyMedia: true,
                 remoteAudio: voiceAudioEl,
                 wsUrlBuilder: buildRemoteVoiceWsUrl,
@@ -640,7 +646,7 @@
                 if (
                     remoteAssistVoiceClient !== client
                     || remoteAssistVoiceSessionId !== currentVoiceSessionId
-                    || !isRemoteAssistVoiceSocketStatus(remoteAssistVoiceStatus)
+                    || !isRemoteAssistVoiceSignalStatus(remoteAssistVoiceStatus)
                     || isRemoteAssistVoiceTerminalStatus(remoteAssistVoiceStatus)
                 ) {
                     updateRemoteAssistVoiceButton();
@@ -709,7 +715,7 @@
                     clearRemoteAssistVoiceStatePollTimer();
                 }
                 maybeRequestRemoteAssistSnapshotForVoiceStatus(previousVoiceStatus, remoteAssistVoiceStatus);
-                if (remoteAssistVoiceSessionId && isRemoteAssistVoiceSocketStatus(remoteAssistVoiceStatus)) {
+                if (remoteAssistVoiceSessionId && isRemoteAssistVoiceSignalStatus(remoteAssistVoiceStatus)) {
                     if (!shouldSyncClient) {
                         renderRemoteAssistVoiceStrip();
                         updateRemoteAssistVoiceButton();
@@ -778,7 +784,7 @@
                     remoteAssistVoiceRemoteLevel = 0;
                     remoteAssistVoiceConnectedRoles = [];
                     scheduleRemoteAssistVoiceStateRefresh(700);
-                    if (isRemoteAssistVoiceSocketStatus(remoteAssistVoiceStatus)) {
+                    if (isRemoteAssistVoiceSignalStatus(remoteAssistVoiceStatus)) {
                         await ensureRemoteAssistVoiceClient();
                     }
                 }

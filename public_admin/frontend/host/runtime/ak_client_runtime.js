@@ -981,6 +981,7 @@
         assistRequestOverlay.classList.add('visible');
         syncAssistOverlaySnapshot('voice_request_open', 80);
         emitRemoteVoiceEvent('request', pendingVoiceRequest);
+        ensureRemoteVoiceLibrary().catch(() => {});
     }
 
     function sendAssistRequestResponse(accepted) {

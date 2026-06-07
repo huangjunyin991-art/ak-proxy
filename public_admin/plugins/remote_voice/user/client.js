@@ -2,6 +2,9 @@
     const DEFAULT_SITE = 'ak_web';
     const DEFAULT_HEARTBEAT_INTERVAL = 10000;
     const DEFAULT_LEVEL_INTERVAL = 120;
+    const ICE_SERVERS = [
+        { urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] }
+    ];
 
     function buildDefaultWsUrl(voiceSessionId, role, site) {
         const protocol = window.location.protocol === 'https:' ? 'wss://' : 'ws://';
@@ -25,8 +28,10 @@
             this.wsUrlBuilder = typeof config.wsUrlBuilder === 'function' ? config.wsUrlBuilder : buildDefaultWsUrl;
             this.onStateChange = typeof config.onStateChange === 'function' ? config.onStateChange : function() {};
             this.onError = typeof config.onError === 'function' ? config.onError : function() {};
+            this.preserveSessionStatusOnSignalOpen = !!config.preserveSessionStatusOnSignalOpen;
             this.remoteAudio = config.remoteAudio || null;
             this.localStream = config.localStream || null;
+            this.localStreamPromise = null;
             this.lazyMedia = !!config.lazyMedia;
             this.localTrack = null;
             this.remoteStream = null;
@@ -40,7 +45,7 @@
             this.levelTimer = null;
             this.heartbeatTimer = null;
             this.connectedRoles = [];
-            this.status = 'idle';
+            this.status = String(config.initialStatus || 'idle').trim() || 'idle';
             this.phase = 'idle';
             this.mutedSelf = false;
             this.mutedPeer = false;
@@ -115,6 +120,7 @@
             this.destroyed = false;
             await this.ensureAudioContext();
             await this.connectSocket();
+            this.ensurePeer();
             if (!this.lazyMedia) {
                 await this.ensureLocalStream();
             }
@@ -146,6 +152,14 @@
         }
 
         async ensureLocalStream() {
+            if (this.localStreamPromise) return await this.localStreamPromise;
+            this.localStreamPromise = this._ensureLocalStream().finally(() => {
+                this.localStreamPromise = null;
+            });
+            return await this.localStreamPromise;
+        }
+
+        async _ensureLocalStream() {
             if (!this.localStream) {
                 if (!navigator.mediaDevices || typeof navigator.mediaDevices.getUserMedia !== 'function') {
                     throw new Error('当前浏览器不支持麦克风采集');
@@ -181,9 +195,8 @@
         ensurePeer() {
             if (this.peer) return this.peer;
             const connection = new RTCPeerConnection({
-                iceServers: [
-                    { urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] }
-                ]
+                iceServers: ICE_SERVERS,
+                iceCandidatePoolSize: 4
             });
             this.peer = connection;
             if (this.localStream) {
@@ -243,7 +256,11 @@
                     currentWs.onopen = () => {
                         opened = true;
                         settled = true;
-                        this.emitState({ status: 'connecting', phase: 'signal_ready' });
+                        const patch = { phase: 'signal_ready' };
+                        if (!this.preserveSessionStatusOnSignalOpen) {
+                            patch.status = 'connecting';
+                        }
+                        this.emitState(patch);
                         resolve(currentWs);
                     };
                     currentWs.onmessage = async event => {
@@ -432,6 +449,7 @@
                 sdp: String(payload.sdp || '')
             });
             await this.peer.setRemoteDescription(description);
+            await this.drainPendingCandidates();
             const answer = await this.peer.createAnswer();
             await this.peer.setLocalDescription(answer);
             this.send('answer', { sdp: answer.sdp, type: answer.type });
@@ -447,12 +465,7 @@
                     sdp: String(payload.sdp || '')
                 });
                 await this.peer.setRemoteDescription(description);
-                while (this.pendingCandidates.length) {
-                    const candidate = this.pendingCandidates.shift();
-                    if (candidate) {
-                        await this.peer.addIceCandidate(candidate);
-                    }
-                }
+                await this.drainPendingCandidates();
                 this.emitState({ status: 'connecting', phase: 'answer_applied' });
             } finally {
                 this.settingRemoteAnswer = false;
@@ -467,6 +480,19 @@
                 return;
             }
             await this.peer.addIceCandidate(candidate);
+        }
+
+        async drainPendingCandidates() {
+            if (!this.peer || !this.peer.remoteDescription) return;
+            while (this.pendingCandidates.length) {
+                const candidate = this.pendingCandidates.shift();
+                if (!candidate) continue;
+                try {
+                    await this.peer.addIceCandidate(candidate);
+                } catch (e) {
+                    this.fail(e);
+                }
+            }
         }
 
         send(type, payload) {
