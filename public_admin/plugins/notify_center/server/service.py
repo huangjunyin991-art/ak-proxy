@@ -438,8 +438,9 @@ def _resolve_outbox_send_url(item: dict[str, Any], event_payload: dict[str, Any]
     username = normalize_username(item.get('recipient_username'))
     if not username:
         return current_url or '/'
+    conversation_id = _safe_int(event_payload.get('conversation_id')) or _safe_int(item.get('conversation_id'))
     rebuilt = build_notification_url(
-        {**event_payload, 'recipient_username': username},
+        {**event_payload, 'conversation_id': conversation_id, 'recipient_username': username},
         config.public_base_url,
         internal_secret=config.internal_secret,
     )

@@ -99,6 +99,7 @@
     if (explicitOpenRequest) {
         activeOpenTicket = buildOpenTicketFromQuery(targetUsername, 'query');
         persistOpenTicket(activeOpenTicket);
+        applyOpenTicketToQuery(activeOpenTicket);
     } else if (!targetUsername && isLikelyHomeOpen()) {
         activeOpenTicket = readUsableOpenTicket();
         if (activeOpenTicket && activeOpenTicket.username) {
@@ -361,7 +362,7 @@
     function buildOpenTicketFromQuery(username, source) {
         return sanitizeOpenTicket({
             username: username,
-            conversation_id: String(query.get('conversation_id') || ''),
+            conversation_id: pickConversationIdForQuery(username),
             im_switch_ts: String(query.get('im_switch_ts') || ''),
             im_switch_nonce: String(query.get('im_switch_nonce') || ''),
             im_switch_sig: String(query.get('im_switch_sig') || ''),
@@ -382,6 +383,32 @@
     function readOpenTicketFromStore(store, source) {
         var parsed = readJsonStorage(store, NTFY_OPEN_TICKET_KEY);
         return sanitizeOpenTicket(parsed, source);
+    }
+
+    function readStoredOpenTicketMatchingQuery(username) {
+        var stores = [
+            { store: sessionStorage, source: 'session_ticket' },
+            { store: localStorage, source: 'local_ticket' }
+        ];
+        var ts = String(query.get('im_switch_ts') || '');
+        var nonce = String(query.get('im_switch_nonce') || '');
+        var sig = String(query.get('im_switch_sig') || '');
+        if (!ts || !nonce || !sig) return null;
+        for (var i = 0; i < stores.length; i++) {
+            var ticket = readOpenTicketFromStore(stores[i].store, stores[i].source);
+            if (!ticket || isOpenTicketConsumed(ticket) || isOpenTicketExpired(ticket)) continue;
+            if (ticket.username !== String(username || '').trim().toLowerCase()) continue;
+            if (ticket.im_switch_ts !== ts || ticket.im_switch_nonce !== nonce || ticket.im_switch_sig !== sig) continue;
+            return ticket;
+        }
+        return null;
+    }
+
+    function pickConversationIdForQuery(username) {
+        var queryConversationId = String(query.get('conversation_id') || '').trim();
+        if (queryConversationId) return queryConversationId;
+        var storedTicket = readStoredOpenTicketMatchingQuery(username);
+        return storedTicket && storedTicket.conversation_id ? String(storedTicket.conversation_id || '').trim() : '';
     }
 
     function readUsableOpenTicket() {
