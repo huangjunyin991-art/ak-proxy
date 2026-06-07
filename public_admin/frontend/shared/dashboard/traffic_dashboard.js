@@ -118,7 +118,7 @@
         if (!canPollDashboard()) return;
         try {
             const base = window.API_BASE || window.location.origin;
-            const res = await fetch(`${base}/admin/api/dashboard`);
+            const res = await fetch(`${base}/admin/api/dashboard?force_refresh=1`);
             const data = await res.json();
             renderDashboard(data || {});
         } catch (error) {

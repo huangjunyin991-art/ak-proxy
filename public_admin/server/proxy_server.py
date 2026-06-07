@@ -4597,7 +4597,7 @@ async def _load_admin_stats_topic() -> dict:
 
 
 async def _load_dashboard_topic() -> dict:
-    result = await _ADMIN_STATS_CACHE.get_dashboard_result()
+    result = await _ADMIN_STATS_CACHE.get_dashboard_result(force_refresh=True)
     data = dict(result.value)
     if result.stale:
         data["cache_stale"] = True
@@ -5768,7 +5768,7 @@ async def admin_point_stats_users(request: Request, search: str = None, limit: i
 
 @app.get("/admin/api/dashboard")
 
-async def admin_dashboard(request: Request):
+async def admin_dashboard(request: Request, force_refresh: bool = False):
 
     _, error_response = await _require_admin_token(request, 'dashboard')
     if error_response is not None:
@@ -5776,7 +5776,7 @@ async def admin_dashboard(request: Request):
 
     try:
 
-        result = await _ADMIN_STATS_CACHE.get_dashboard_result()
+        result = await _ADMIN_STATS_CACHE.get_dashboard_result(force_refresh=force_refresh)
         data = dict(result.value)
         if result.stale:
             data["cache_stale"] = True

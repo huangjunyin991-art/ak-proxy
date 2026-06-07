@@ -3373,7 +3373,7 @@
     <script src="/admin/api/shared/polling/polling_registry.js?v=2026060701" defer></script>
     <script src="/admin/api/shared/lib/chart.umd.min.js?v=2026060201" defer></script>
     <script src="/admin/api/shared/dashboard/user_growth_chart.js?v=2025060201" defer></script>
-    <script src="/admin/api/shared/dashboard/traffic_dashboard.js?v=2026060702" defer></script>
+    <script src="/admin/api/shared/dashboard/traffic_dashboard.js?v=2026060703" defer></script>
 </head>
 <body>
     <!-- 横屏提示 -->
@@ -9860,7 +9860,7 @@
                 return window.AdminTrafficDashboard.loadDashboard();
             }
             try {
-                const res = await fetch(`${API_BASE}/admin/api/dashboard`, { headers: getHeaders() });
+                const res = await fetch(`${API_BASE}/admin/api/dashboard?force_refresh=1`, { headers: getHeaders() });
                 const data = await res.json();
                 renderDashboardInline(data || {});
             } catch (e) {
