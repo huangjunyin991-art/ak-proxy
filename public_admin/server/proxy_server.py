@@ -12888,7 +12888,6 @@ async def admin_clear_ak_auth(request: Request):
 
 _IM_SWITCH_TOKEN_MAX_AGE_SECONDS = 86400
 _IM_SWITCH_TOKEN_FUTURE_SKEW_SECONDS = 300
-_IM_SWITCH_TOKEN_REPLAY_GRACE_SECONDS = 120
 
 
 def _build_im_switch_token(secret: str, username: str, ts: int, nonce: str, conversation_id: int = 0) -> str:
@@ -12960,29 +12959,6 @@ def _verify_im_switch_token(secret: str, username: str, ts: str, nonce: str, sig
         conversation_id=conversation_id,
         max_age_seconds=max_age_seconds,
     ).get("valid"))
-
-
-def _is_recent_im_switch_token_replay(consume_result: dict, username: str, conversation_id: int) -> bool:
-    if str(consume_result.get("reason") or "") != "already_used":
-        return False
-    if str(consume_result.get("username") or "").strip().lower() != str(username or "").strip().lower():
-        return False
-    try:
-        if int(consume_result.get("conversation_id") or 0) != int(conversation_id or 0):
-            return False
-    except Exception:
-        return False
-    used_at = consume_result.get("used_at")
-    if not isinstance(used_at, datetime):
-        return False
-    now = datetime.now().replace(microsecond=0)
-    try:
-        if used_at.tzinfo is not None:
-            used_at = used_at.replace(tzinfo=None)
-    except Exception:
-        return False
-    age_seconds = (now - used_at.replace(microsecond=0)).total_seconds()
-    return 0 <= age_seconds <= _IM_SWITCH_TOKEN_REPLAY_GRACE_SECONDS
 
 
 def _build_ak_identity_snapshot(username: str, userkey: str, login_result: dict, cookies: dict) -> dict:
@@ -13165,16 +13141,6 @@ async def admin_ak_auth_silent_login_by_token(request: Request):
         }, status_code=500)
     if not consume_result.get("consumed"):
         reason = str(consume_result.get("reason") or "token_rejected")
-        if _is_recent_im_switch_token_replay(consume_result, wanted, conversation_id):
-            logger.info(
-                f"[AkAuthSilentLogin] accept_recent_token_replay username={wanted} "
-                f"conversation_id={conversation_id}"
-            )
-            snapshot, error_response = await _silent_login_ak_account(wanted, request)
-            if error_response is not None:
-                return error_response
-            snapshot["tokenReplayAccepted"] = True
-            return JSONResponse(snapshot)
         status_code = 409 if reason == "already_used" else 401
         return JSONResponse({
             "success": False,

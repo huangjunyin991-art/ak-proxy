@@ -13,6 +13,11 @@
     var NTFY_FORCE_LOGIN_KEY = 'ak_ntfy_force_login';
     var NTFY_TARGET_USERNAME_KEY = 'ak_ntfy_im_username';
     var NTFY_OPEN_TICKET_TTL_MS = 24 * 60 * 60 * 1000;
+    var NTFY_EXCHANGE_KEY_PREFIX = 'ak_ntfy_exchange_v1:';
+    var NTFY_EXCHANGE_PENDING_TTL_MS = 15000;
+    var NTFY_EXCHANGE_RESULT_TTL_MS = 6000;
+    var NTFY_EXCHANGE_POLL_MS = 80;
+    var ntfyExchangeOwnerId = String(Date.now()) + ':' + String(Math.random()).slice(2);
 
     function writeEarlyDebug(step, extra) {
         try {
@@ -805,6 +810,238 @@
             + '&im_switch_sig=' + encodeURIComponent(String(query.get('im_switch_sig') || ''));
     }
 
+    function stableHash(text) {
+        var hash = 5381;
+        var value = String(text || '');
+        for (var i = 0; i < value.length; i++) {
+            hash = ((hash << 5) + hash + value.charCodeAt(i)) >>> 0;
+        }
+        return hash.toString(36);
+    }
+
+    function getExchangeParts() {
+        return {
+            username: targetUsername,
+            conversation_id: String(query.get('conversation_id') || ''),
+            im_switch_ts: String(query.get('im_switch_ts') || ''),
+            im_switch_nonce: String(query.get('im_switch_nonce') || ''),
+            im_switch_sig: String(query.get('im_switch_sig') || '')
+        };
+    }
+
+    function getExchangeKey() {
+        if (!hasSignedToken) return '';
+        var parts = getExchangeParts();
+        if (!parts.username || !parts.im_switch_ts || !parts.im_switch_nonce || !parts.im_switch_sig) return '';
+        return NTFY_EXCHANGE_KEY_PREFIX + stableHash([
+            parts.username,
+            parts.conversation_id,
+            parts.im_switch_ts,
+            parts.im_switch_nonce,
+            parts.im_switch_sig
+        ].join('|'));
+    }
+
+    function exchangeRecordMatches(record) {
+        if (!record || typeof record !== 'object') return false;
+        var parts = getExchangeParts();
+        return String(record.username || '') === parts.username
+            && String(record.conversation_id || '') === parts.conversation_id
+            && String(record.im_switch_ts || '') === parts.im_switch_ts
+            && String(record.im_switch_nonce || '') === parts.im_switch_nonce
+            && String(record.im_switch_sig || '') === parts.im_switch_sig;
+    }
+
+    function exchangeRecordExpired(record) {
+        var state = String(record && record.state || '');
+        var updatedAt = Number(record && (record.updatedAt || record.startedAt) || 0);
+        if (!updatedAt) return true;
+        var ttl = state === 'pending' ? NTFY_EXCHANGE_PENDING_TTL_MS : NTFY_EXCHANGE_RESULT_TTL_MS;
+        return Date.now() - updatedAt > ttl;
+    }
+
+    function readExchangeRecord(key) {
+        try {
+            if (!key) return null;
+            var record = readJsonStorage(localStorage, key);
+            if (!exchangeRecordMatches(record)) return null;
+            if (exchangeRecordExpired(record)) {
+                localStorage.removeItem(key);
+                return null;
+            }
+            return record;
+        } catch (e) {}
+        return null;
+    }
+
+    function writeExchangeRecord(key, state, patch) {
+        try {
+            if (!key) return null;
+            var parts = getExchangeParts();
+            var record = {
+                state: state,
+                ownerId: ntfyExchangeOwnerId,
+                username: parts.username,
+                conversation_id: parts.conversation_id,
+                im_switch_ts: parts.im_switch_ts,
+                im_switch_nonce: parts.im_switch_nonce,
+                im_switch_sig: parts.im_switch_sig,
+                startedAt: Date.now(),
+                updatedAt: Date.now()
+            };
+            if (patch && typeof patch === 'object') {
+                for (var keyName in patch) {
+                    if (Object.prototype.hasOwnProperty.call(patch, keyName)) record[keyName] = patch[keyName];
+                }
+            }
+            localStorage.setItem(key, JSON.stringify(record));
+            return record;
+        } catch (e) {}
+        return null;
+    }
+
+    function claimExchange(key) {
+        if (!key) return { claimed: true, record: null };
+        var existing = readExchangeRecord(key);
+        if (existing && (existing.state === 'pending' || existing.state === 'success')) {
+            return { claimed: false, record: existing };
+        }
+        var pending = writeExchangeRecord(key, 'pending', {});
+        if (!pending) return { claimed: true, record: null };
+        var actual = readExchangeRecord(key);
+        if (actual && actual.ownerId === ntfyExchangeOwnerId && actual.state === 'pending') {
+            return { claimed: true, record: actual };
+        }
+        return { claimed: false, record: actual };
+    }
+
+    function writeExchangeSuccess(key, snapshot, result) {
+        if (!key) return;
+        writeExchangeRecord(key, 'success', {
+            snapshot: snapshot || null,
+            result: result || null
+        });
+    }
+
+    function writeExchangeFailure(key, result) {
+        if (!key) return;
+        writeExchangeRecord(key, 'failed', {
+            result: result || null
+        });
+    }
+
+    function resultFromExchangeRecord(record) {
+        if (!record) return { synced: false, reason: 'exchange_missing', username: targetUsername };
+        if (record.state === 'success') {
+            var applied = false;
+            if (record.snapshot) applied = applySnapshot(record.snapshot);
+            if (!applied) {
+                var model = refreshAppModel();
+                applied = !!(model && (model.Key || model.key));
+            }
+            return {
+                synced: !!applied,
+                reason: applied ? 'exchange_reused' : 'exchange_apply_failed',
+                username: targetUsername,
+                userId: record.snapshot && record.snapshot.userId ? record.snapshot.userId : ''
+            };
+        }
+        if (record.state === 'failed') {
+            return record.result || { synced: false, reason: 'exchange_failed', username: targetUsername };
+        }
+        return { synced: false, reason: 'exchange_pending_timeout', username: targetUsername };
+    }
+
+    function waitForExchangeResult(key, timeoutMs) {
+        var timeout = Math.max(300, Number(timeoutMs || 0) || NTFY_EXCHANGE_PENDING_TTL_MS);
+        return new Promise(function(resolve) {
+            var startedAt = Date.now();
+            var timer = setInterval(function() {
+                var record = readExchangeRecord(key);
+                if (record && record.state !== 'pending') {
+                    clearInterval(timer);
+                    resolve(resultFromExchangeRecord(record));
+                    return;
+                }
+                if (!record || Date.now() - startedAt >= timeout) {
+                    clearInterval(timer);
+                    resolve({ synced: false, reason: 'exchange_wait_timeout', username: targetUsername });
+                }
+            }, NTFY_EXCHANGE_POLL_MS);
+        });
+    }
+
+    function sendSwitchRequest(exchangeKey) {
+        return new Promise(function(resolve) {
+            var xhr = new XMLHttpRequest();
+            var url = buildApiUrl();
+            debug('api-prep', { apiUrl: url });
+            xhr.open('POST', url, true);
+            xhr.setRequestHeader('Content-Type', 'application/json; charset=UTF-8');
+            xhr.onload = function() {
+                var response = null;
+                var applied = false;
+                try {
+                    response = JSON.parse(xhr.responseText || '{}');
+                } catch (e) {}
+                debug('api-onload', {
+                    status: xhr.status || 0,
+                    rOk: !!(response && response.success),
+                    code: response && response.code ? String(response.code) : '',
+                    rKeyMasked: response && response.userkeyMasked ? String(response.userkeyMasked) : ''
+                });
+                if (xhr.status === 200 && response && response.success && response.userkey) {
+                    applied = applySnapshot(response);
+                }
+                if (applied) {
+                    debug('applied-snapshot', { username: targetUsername, userId: response && response.userId ? response.userId : '' });
+                    var successResult = {
+                        synced: true,
+                        reason: 'silent_login_ok',
+                        username: targetUsername,
+                        userId: response && response.userId ? response.userId : ''
+                    };
+                    writeExchangeSuccess(exchangeKey, response, successResult);
+                    resolve(finish(successResult));
+                    return;
+                }
+                var failureResult = {
+                    synced: false,
+                    reason: (response && response.code) || 'silent_login_failed',
+                    username: targetUsername,
+                    status: xhr.status || 0
+                };
+                if (failureResult.reason === 'already_used' && exchangeKey) {
+                    debug('exchange-wait-after-already-used', {});
+                    waitForExchangeResult(exchangeKey, 2500).then(function(exchangeResult) {
+                        if (exchangeResult && exchangeResult.synced) {
+                            resolve(finish(exchangeResult));
+                            return;
+                        }
+                        writeExchangeFailure(exchangeKey, failureResult);
+                        resolve(finish(failureResult));
+                    });
+                    return;
+                }
+                writeExchangeFailure(exchangeKey, failureResult);
+                resolve(finish(failureResult));
+            };
+            xhr.onerror = function() {
+                debug('api-error', {});
+                var errorResult = { synced: false, reason: 'network_error', username: targetUsername, status: xhr.status || 0 };
+                writeExchangeFailure(exchangeKey, errorResult);
+                resolve(finish(errorResult));
+            };
+            try {
+                xhr.send('{}');
+            } catch (e) {
+                var sendResult = { synced: false, reason: 'send_exception', username: targetUsername };
+                writeExchangeFailure(exchangeKey, sendResult);
+                resolve(finish(sendResult));
+            }
+        });
+    }
+
     function finish(result) {
         switchDone = true;
         switchResult = result || { synced: false, reason: 'unknown' };
@@ -849,54 +1086,28 @@
             window.__AK_NTFY_SWITCH_PROMISE__ = switchPromise;
             return switchPromise;
         }
-        switchPromise = new Promise(function(resolve) {
-            var xhr = new XMLHttpRequest();
-            var url = buildApiUrl();
-            debug('api-prep', { apiUrl: url });
-            xhr.open('POST', url, true);
-            xhr.setRequestHeader('Content-Type', 'application/json; charset=UTF-8');
-            xhr.onload = function() {
-                var response = null;
-                var applied = false;
-                try {
-                    response = JSON.parse(xhr.responseText || '{}');
-                } catch (e) {}
-                debug('api-onload', {
-                    status: xhr.status || 0,
-                    rOk: !!(response && response.success),
-                    code: response && response.code ? String(response.code) : '',
-                    rKeyMasked: response && response.userkeyMasked ? String(response.userkeyMasked) : ''
-                });
-                if (xhr.status === 200 && response && response.success && response.userkey) {
-                    applied = applySnapshot(response);
+        var exchangeKey = getExchangeKey();
+        var exchangeClaim = claimExchange(exchangeKey);
+        if (!exchangeClaim.claimed) {
+            debug('exchange-wait-existing', {
+                state: exchangeClaim.record && exchangeClaim.record.state ? String(exchangeClaim.record.state) : ''
+            });
+            switchPromise = waitForExchangeResult(exchangeKey, MAX_INDEXDATA_WAIT_MS).then(function(result) {
+                if (result && result.reason === 'exchange_wait_timeout') {
+                    try { localStorage.removeItem(exchangeKey); } catch (e) {}
+                    var retryClaim = claimExchange(exchangeKey);
+                    if (retryClaim.claimed) {
+                        debug('exchange-takeover-after-timeout', {});
+                        return sendSwitchRequest(exchangeKey);
+                    }
                 }
-                if (applied) {
-                    debug('applied-snapshot', { username: targetUsername, userId: response && response.userId ? response.userId : '' });
-                    resolve(finish({
-                        synced: true,
-                        reason: 'silent_login_ok',
-                        username: targetUsername,
-                        userId: response && response.userId ? response.userId : ''
-                    }));
-                    return;
-                }
-                resolve(finish({
-                    synced: false,
-                    reason: (response && response.code) || 'silent_login_failed',
-                    username: targetUsername,
-                    status: xhr.status || 0
-                }));
-            };
-            xhr.onerror = function() {
-                debug('api-error', {});
-                resolve(finish({ synced: false, reason: 'network_error', username: targetUsername, status: xhr.status || 0 }));
-            };
-            try {
-                xhr.send('{}');
-            } catch (e) {
-                resolve(finish({ synced: false, reason: 'send_exception', username: targetUsername }));
-            }
-        });
+                return finish(result || { synced: false, reason: 'exchange_empty_result', username: targetUsername });
+            });
+            window.__AK_NTFY_SWITCH_PROMISE__ = switchPromise;
+            return switchPromise;
+        }
+        debug('exchange-claimed', { hasExchangeKey: !!exchangeKey });
+        switchPromise = sendSwitchRequest(exchangeKey);
         window.__AK_NTFY_SWITCH_PROMISE__ = switchPromise;
         return switchPromise;
     }
