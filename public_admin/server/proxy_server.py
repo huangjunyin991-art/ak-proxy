@@ -156,6 +156,7 @@ except NameError:
 # 数据库模块
 
 from . import database_pg as db
+from .db.sql_policy import classify_admin_sql
 from .db_guard import GuardError
 from .security import AdminSecurityFacade
 from .security.audit import (
@@ -7321,7 +7322,7 @@ async def admin_db_query(table_name: str, request: Request,
 
 async def admin_db_insert(table_name: str, request: Request):
 
-    _, error_response = await _require_admin_token(request, 'database')
+    _, error_response = await _require_admin_token(request, 'database', super_admin_only=True)
     if error_response is not None:
         return error_response
 
@@ -7345,7 +7346,7 @@ async def admin_db_insert(table_name: str, request: Request):
 
 async def admin_db_update(table_name: str, request: Request):
 
-    _, error_response = await _require_admin_token(request, 'database')
+    _, error_response = await _require_admin_token(request, 'database', super_admin_only=True)
     if error_response is not None:
         return error_response
 
@@ -7379,7 +7380,7 @@ async def admin_db_delete_row(table_name: str, request: Request,
 
                               pk_column: str = "id", pk_value: str = None):
 
-    _, error_response = await _require_admin_token(request, 'database')
+    _, error_response = await _require_admin_token(request, 'database', super_admin_only=True)
     if error_response is not None:
         return error_response
 
@@ -7409,11 +7410,19 @@ async def admin_db_sql(request: Request):
     if error_response is not None:
         return error_response
 
-    check_db_auth(request)
-
     data = await request.json()
 
     sql = data.get('sql', '')
+
+    sql_policy = classify_admin_sql(sql)
+
+    if sql and not sql_policy.is_readonly:
+
+        _, error_response = await _require_admin_token(request, 'database', super_admin_only=True)
+        if error_response is not None:
+            return error_response
+
+    check_db_auth(request)
 
     if not sql:
 

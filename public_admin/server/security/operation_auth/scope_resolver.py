@@ -1,5 +1,7 @@
 import json
 
+from ...db.sql_policy import classify_admin_sql
+
 
 class OperationScopeResolver:
     def __init__(self):
@@ -17,6 +19,7 @@ class OperationScopeResolver:
             ('POST', '/admin/api/whitelist/nickname'): 'moderate_ops',
             ('POST', '/admin/api/notifications/send'): 'moderate_ops',
             ('POST', '/api/db/delete'): 'db_write_ops',
+            ('GET', '/admin/api/db/tables'): 'db_read_ops',
             ('POST', '/api/dispatcher/add'): 'dispatcher_ops',
             ('POST', '/api/dispatcher/remove'): 'dispatcher_ops',
             ('POST', '/api/dispatcher/detect_ips'): 'dispatcher_ops',
@@ -94,6 +97,8 @@ class OperationScopeResolver:
             ('POST', '/admin/api/db/insert/', 'db_write_ops'),
             ('PUT', '/admin/api/db/update/', 'db_write_ops'),
             ('DELETE', '/admin/api/db/delete/', 'db_write_ops'),
+            ('GET', '/admin/api/db/schema/', 'db_read_ops'),
+            ('GET', '/admin/api/db/query/', 'db_read_ops'),
             ('DELETE', '/admin/api/credits/config/', 'account_ops'),
             ('DELETE', '/admin/api/subscription_groups/', 'dispatcher_ops'),
             ('POST', '/admin/api/subscription_groups/', 'dispatcher_ops'),
@@ -136,20 +141,6 @@ class OperationScopeResolver:
                 sql = str(data.get('sql') or '')
             except Exception:
                 sql = ''
-        token = self._first_sql_token(sql)
-        if token in {'select', 'show', 'explain', 'describe'}:
+        if classify_admin_sql(sql).is_readonly:
             return 'db_read_ops'
         return 'db_write_ops'
-
-    def _first_sql_token(self, sql: str) -> str:
-        text = str(sql or '').lstrip()
-        while text.startswith('--') or text.startswith('/*'):
-            if text.startswith('--'):
-                _, _, text = text.partition('\n')
-                text = text.lstrip()
-                continue
-            end_index = text.find('*/')
-            if end_index < 0:
-                return ''
-            text = text[end_index + 2:].lstrip()
-        return text.split(None, 1)[0].strip('(').lower() if text else ''

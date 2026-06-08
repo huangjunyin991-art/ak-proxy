@@ -5,6 +5,8 @@ import time
 from dataclasses import dataclass
 from typing import Callable, Dict, Optional
 
+from ..db.sql_policy import strip_leading_sql_comments
+
 
 @dataclass
 class QueryDecision:
@@ -107,7 +109,7 @@ class BigTableGuard:
         return decision
 
     async def validate_sql(self, sql: str) -> None:
-        normalized = (sql or "").strip()
+        normalized = strip_leading_sql_comments(sql).strip()
         if not normalized:
             return
         upper_sql = normalized.upper()

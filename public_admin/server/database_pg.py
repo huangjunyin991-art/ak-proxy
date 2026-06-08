@@ -48,6 +48,7 @@ from .performance.admin_lists import build_admin_asset_list, build_admin_user_li
 from .performance.dashboard_stats import build_traffic_dashboard, build_user_growth
 from .runtime_performance import DbAcquireMetrics, InstrumentedPool
 from .db.bulk_writer import execute_bulk_unnest, rows_to_columns
+from .db.sql_policy import classify_admin_sql
 
 logger = logging.getLogger("TransparentProxy.DB")
 
@@ -126,6 +127,22 @@ def _is_trackable_ip_address(ip_address: str) -> bool:
 
 def _sanitize_output_rows(rows) -> List[Dict[str, Any]]:
     return [_sanitize_output_row(dict(row)) for row in rows]
+
+
+_SQL_IDENTIFIER_RE = re.compile(r'^[A-Za-z_][A-Za-z0-9_]*$')
+
+
+def _quote_identifier(value: str, kind: str = 'identifier') -> str:
+    name = str(value or '').strip()
+    if not _SQL_IDENTIFIER_RE.fullmatch(name):
+        raise GuardError("invalid_identifier", f"Invalid {kind}")
+    return f'"{name}"'
+
+
+def _quote_existing_column(column_name: str, columns: List[str], kind: str = 'column') -> str:
+    if column_name not in columns:
+        raise GuardError("invalid_identifier", f"Invalid {kind}")
+    return _quote_identifier(column_name, kind)
 
 
 # 全局连接池
@@ -2303,7 +2320,10 @@ async def query_table(table_name: str, limit: int = 100, offset: int = 0,
     """查询表数据（带大表保护与单条件筛选）"""
     pool = _get_pool()
     async with pool.acquire() as conn:
+        quoted_table = _quote_identifier(table_name, 'table')
         columns = await _get_table_columns(table_name, conn)
+        if not columns:
+            raise GuardError("unknown_table", "Unknown table")
 
         # 构建过滤条件（仅允许已存在字段，运算符白名单）
         has_filter = bool(filter_col) and filter_col in columns and filter_val is not None
@@ -2325,7 +2345,8 @@ async def query_table(table_name: str, limit: int = 100, offset: int = 0,
 
         where_clause = ''
         if has_filter:
-            where_clause = f" WHERE {filter_col} {op.upper()} $1"
+            quoted_filter_col = _quote_existing_column(filter_col, columns, 'filter column')
+            where_clause = f" WHERE {quoted_filter_col} {op.upper()} $1"
             sql_params.append(filter_val if op != 'ilike' else f"%{filter_val}%")
         elif not decision.count_allowed:
             # 大表无筛选时拒绝
@@ -2334,12 +2355,13 @@ async def query_table(table_name: str, limit: int = 100, offset: int = 0,
         order_clause = ''
         if order_by and order_by in columns:
             direction = 'DESC' if order_desc else 'ASC'
-            order_clause = f' ORDER BY {order_by} {direction}'
+            quoted_order_by = _quote_existing_column(order_by, columns, 'order column')
+            order_clause = f' ORDER BY {quoted_order_by} {direction}'
 
-        total_sql = f'SELECT COUNT(*) FROM {table_name}{where_clause}'
+        total_sql = f'SELECT COUNT(*) FROM {quoted_table}{where_clause}'
         total = await conn.fetchval(total_sql, *sql_params)
 
-        data_sql = f'SELECT * FROM {table_name}{where_clause}{order_clause} LIMIT {normalized_limit} OFFSET {offset}'
+        data_sql = f'SELECT * FROM {quoted_table}{where_clause}{order_clause} LIMIT {normalized_limit} OFFSET {offset}'
         rows = await conn.fetch(data_sql, *sql_params)
 
         return {
@@ -2355,11 +2377,18 @@ async def query_table(table_name: str, limit: int = 100, offset: int = 0,
 async def insert_row(table_name: str, data: dict) -> int:
     """插入数据"""
     pool = _get_pool()
-    cols = ', '.join(data.keys())
-    placeholders = ', '.join([f'${i+1}' for i in range(len(data))])
-    sql = f'INSERT INTO {table_name} ({cols}) VALUES ({placeholders}) RETURNING id'
     async with pool.acquire() as conn:
-        row_id = await conn.fetchval(sql, *data.values())
+        quoted_table = _quote_identifier(table_name, 'table')
+        columns = await _get_table_columns(table_name, conn)
+        if not columns:
+            raise GuardError("unknown_table", "Unknown table")
+        insert_keys = [key for key in data.keys() if key in columns]
+        if not insert_keys:
+            raise GuardError("empty_insert", "No valid columns to insert")
+        cols = ', '.join(_quote_existing_column(key, columns, 'column') for key in insert_keys)
+        placeholders = ', '.join([f'${i+1}' for i in range(len(insert_keys))])
+        sql = f'INSERT INTO {quoted_table} ({cols}) VALUES ({placeholders}) RETURNING id'
+        row_id = await conn.fetchval(sql, *[data[key] for key in insert_keys])
         return row_id
 
 
@@ -2367,6 +2396,7 @@ async def update_row(table_name: str, pk_column: str, pk_value, data: dict) -> i
     """更新数据（自动根据列类型转换值）"""
     pool = _get_pool()
     async with pool.acquire() as conn:
+        quoted_table = _quote_identifier(table_name, 'table')
         # 查询列类型用于自动转换
         col_types = {}
         rows = await conn.fetch(
@@ -2374,6 +2404,10 @@ async def update_row(table_name: str, pk_column: str, pk_value, data: dict) -> i
             table_name)
         for r in rows:
             col_types[r['column_name']] = r['data_type']
+        if not col_types:
+            raise GuardError("unknown_table", "Unknown table")
+        if pk_column not in col_types:
+            raise GuardError("invalid_identifier", "Invalid primary key column")
 
         # 过滤掉不属于该表的字段（如JOIN产生的虚拟列）
         filtered = {}
@@ -2385,12 +2419,13 @@ async def update_row(table_name: str, pk_column: str, pk_value, data: dict) -> i
         if not filtered:
             return 0
 
-        set_parts = [f'{k} = ${i+1}' for i, k in enumerate(filtered.keys())]
+        set_parts = [f'{_quote_identifier(k, "column")} = ${i+1}' for i, k in enumerate(filtered.keys())]
         set_clause = ', '.join(set_parts)
         pk_idx = len(filtered) + 1
         # 主键值也需要转换
         pk_converted = _convert_value(pk_value, col_types.get(pk_column, ''))
-        sql = f'UPDATE {table_name} SET {set_clause} WHERE {pk_column} = ${pk_idx}'
+        quoted_pk_column = _quote_identifier(pk_column, 'primary key column')
+        sql = f'UPDATE {quoted_table} SET {set_clause} WHERE {quoted_pk_column} = ${pk_idx}'
         result = await conn.execute(sql, *filtered.values(), pk_converted)
         return int(result.split()[-1])
 
@@ -2433,23 +2468,38 @@ async def delete_row(table_name: str, pk_column: str, pk_value) -> int:
             pk_value = int(pk_value)
         except (ValueError, TypeError):
             pass
-    sql = f'DELETE FROM {table_name} WHERE {pk_column} = $1'
     async with pool.acquire() as conn:
+        quoted_table = _quote_identifier(table_name, 'table')
+        columns = await _get_table_columns(table_name, conn)
+        if not columns:
+            raise GuardError("unknown_table", "Unknown table")
+        quoted_pk_column = _quote_existing_column(pk_column, columns, 'primary key column')
+        sql = f'DELETE FROM {quoted_table} WHERE {quoted_pk_column} = $1'
         result = await conn.execute(sql, pk_value)
         return int(result.split()[-1])
 
 
 async def execute_sql(sql: str):
     """执行自定义SQL（带大表保护）"""
+    policy = classify_admin_sql(sql)
+    if policy.has_multiple_statements:
+        raise GuardError("multi_statement_blocked", "Multiple SQL statements are not allowed")
+
     guard = get_big_table_guard()
     await guard.validate_sql(sql)
 
     pool = _get_pool()
     async with pool.acquire() as conn:
-        if sql.strip().upper().startswith('SELECT'):
-            raise ValueError("自定义SQL暂不支持SELECT查询")
+        if policy.is_readonly:
+            async with conn.transaction(readonly=True):
+                rows = await conn.fetch(sql)
+                return _sanitize_output_rows(rows)
         result = await conn.execute(sql)
-        return {'affected_rows': int(result.split()[-1]) if result else 0}
+        try:
+            affected_rows = int(result.split()[-1]) if result else 0
+        except (ValueError, IndexError):
+            affected_rows = 0
+        return {'affected_rows': affected_rows}
 
 
 # ===== 管理员Token持久化 =====

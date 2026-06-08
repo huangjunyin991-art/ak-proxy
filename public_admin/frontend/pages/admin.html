@@ -3992,10 +3992,11 @@
                         <option value="">选择表...</option>
                     </select>
                     <button class="btn btn-primary" onclick="loadTableData()" style="padding: 10px 20px;">刷新</button>
-                    <button class="btn btn-primary" onclick="showAddRowModal()" style="padding: 10px 20px;">➕ 新增</button>
-                    <button class="btn btn-danger" onclick="showSqlModal()" style="padding: 10px 20px;">执行SQL</button>
-                    <button id="dbBatchDeleteBtn" class="btn btn-danger" onclick="batchDeleteDbRows()" style="padding: 10px 20px; display:none;">批量删除 (<span id="dbSelectedCount">0</span>)</button>
+                    <button class="btn btn-primary" data-db-write-control="1" onclick="showAddRowModal()" style="padding: 10px 20px;">➕ 新增</button>
+                    <button class="btn btn-danger" data-db-write-control="1" onclick="showSqlModal()" style="padding: 10px 20px;">执行SQL</button>
+                    <button id="dbBatchDeleteBtn" class="btn btn-danger" data-db-write-control="1" onclick="batchDeleteDbRows()" style="padding: 10px 20px; display:none;">批量删除 (<span id="dbSelectedCount">0</span>)</button>
                     <button class="btn" onclick="lockDatabase()" style="padding: 10px 20px; background: var(--bg-secondary); color: #ff5252; border: 1px solid #ff5252;">🔒 锁定</button>
+                    <span id="dbReadonlyNotice" style="display:none; padding: 8px 12px; border: 1px solid rgba(255, 215, 64, 0.35); border-radius: 8px; color: #ffd740; background: rgba(255, 215, 64, 0.08); font-size: 12px;">当前账号为只读模式</span>
                 </div>
                 <div style="display: flex; gap: 10px; margin-bottom: 10px; align-items: center; flex-wrap: wrap;">
                     <label style="color: var(--text-secondary); font-size: 12px;">筛选字段</label>
@@ -5763,6 +5764,7 @@
             sessionStorage.removeItem('admin_role');
             sessionStorage.removeItem('admin_role_name');
             sessionStorage.removeItem('admin_permissions');
+            sessionStorage.removeItem('db_auth_token');
             isLoggedIn = false;
             currentUserRole = null;
             location.reload();
@@ -8489,6 +8491,29 @@
                 'X-DB-Token': dbAuthToken || ''
             };
         }
+
+        function canWriteDatabase() {
+            return isSuperAdmin();
+        }
+
+        function ensureDbWriteAllowed() {
+            if (canWriteDatabase()) return true;
+            showAlert('当前账号仅可查看数据库，写入操作需要系统总管理员', 'warning');
+            return false;
+        }
+
+        function syncDbWriteControls() {
+            const writable = canWriteDatabase();
+            document.querySelectorAll('[data-db-write-control="1"]').forEach(el => {
+                if (el.id === 'dbBatchDeleteBtn') {
+                    if (!writable) el.style.display = 'none';
+                    return;
+                }
+                el.style.display = writable ? '' : 'none';
+            });
+            const notice = document.getElementById('dbReadonlyNotice');
+            if (notice) notice.style.display = writable ? 'none' : 'inline-flex';
+        }
         
         // 显示数据库验证弹窗
         function showDbAuthModal() {
@@ -8549,6 +8574,7 @@
         function showDbContent() {
             document.getElementById('dbAuthOverlay').style.display = 'none';
             document.getElementById('dbContent').style.display = 'block';
+            syncDbWriteControls();
         }
         
         // 锁定数据库（清除Token）
@@ -8649,21 +8675,30 @@
                     return;
                 }
                 const data = await dataRes.json();
+                const writable = canWriteDatabase();
+                syncDbWriteControls();
                 
                 // 渲染表头
                 const thead = document.getElementById('dbTableHead');
-                thead.innerHTML = '<tr><th style="width:40px;"><input type="checkbox" onchange="dbToggleAll(this.checked)" id="dbCheckAll"></th>' + 
+                const selectHeader = writable ? '<th style="width:40px;"><input type="checkbox" onchange="dbToggleAll(this.checked)" id="dbCheckAll"></th>' : '';
+                const actionHeader = writable ? '<th>操作</th>' : '';
+                thead.innerHTML = '<tr>' + selectHeader +
                     dbSchema.map(c => `<th style="white-space: nowrap;">${escapeHtml(c.name)}<br><span style="font-size: 10px; color: var(--text-secondary);">${escapeHtml(c.type)}</span></th>`).join('') +
-                    '<th>操作</th></tr>';
+                    actionHeader + '</tr>';
                 
                 // 渲染数据
                 const tbody = document.getElementById('dbTableBody');
                 if (data.rows.length === 0) {
-                    tbody.innerHTML = '<tr><td colspan="' + (dbSchema.length + 2) + '" style="text-align: center; color: var(--text-secondary); padding: 40px;">暂无数据</td></tr>';
+                    tbody.innerHTML = '<tr><td colspan="' + (dbSchema.length + (writable ? 2 : 0)) + '" style="text-align: center; color: var(--text-secondary); padding: 40px;">暂无数据</td></tr>';
                 } else {
                     tbody.innerHTML = data.rows.map(row => {
                         const pkValue = row[dbPkColumn];
-                        return `<tr><td><input type="checkbox" class="db-row-check" value="${escapeHtml(pkValue)}" onchange="dbUpdateSelected()"></td>` +
+                        const selectCell = writable ? `<td><input type="checkbox" class="db-row-check" value="${escapeHtml(pkValue)}" onchange="dbUpdateSelected()"></td>` : '';
+                        const actionCell = writable ? `<td style="white-space: nowrap;">
+                                <button class="btn" onclick="showEditRowModal(${jsArg(pkValue)})" style="padding: 4px 10px; font-size: 12px; background: #45aaf2; color: #fff;">编辑</button>
+                                <button class="btn btn-danger" onclick="deleteDbRow(${jsArg(pkValue)})" style="padding: 4px 10px; font-size: 12px;">删除</button>
+                            </td>` : '';
+                        return `<tr>${selectCell}` +
                             dbSchema.map(c => {
                                 let val = row[c.name];
                                 if (val === null) val = '<span style="color: #666;">NULL</span>';
@@ -8672,10 +8707,7 @@
                                 if (val !== '<span style="color: #666;">NULL</span>') val = escapeHtml(val);
                                 return `<td style="max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${escapeHtml(String(row[c.name] || ''))}">${val}</td>`;
                             }).join('') +
-                            `<td style="white-space: nowrap;">
-                                <button class="btn" onclick="showEditRowModal(${jsArg(pkValue)})" style="padding: 4px 10px; font-size: 12px; background: #45aaf2; color: #fff;">编辑</button>
-                                <button class="btn btn-danger" onclick="deleteDbRow(${jsArg(pkValue)})" style="padding: 4px 10px; font-size: 12px;">删除</button>
-                            </td></tr>`;
+                            actionCell + '</tr>';
                     }).join('');
                 }
                 
@@ -8722,6 +8754,7 @@
         
         // 显示新增行弹窗
         function showAddRowModal() {
+            if (!ensureDbWriteAllowed()) return;
             if (!dbCurrentTable || dbSchema.length === 0) {
                 showAlert('请先选择一个表', 'warning');
                 return;
@@ -8765,6 +8798,7 @@
         
         // 显示编辑行弹窗
         async function showEditRowModal(pkValue) {
+            if (!ensureDbWriteAllowed()) return;
             if (!dbCurrentTable) return;
             
             // 获取当前行数据
@@ -8834,6 +8868,7 @@
         
         // 全选/取消全选
         function dbToggleAll(checked) {
+            if (!canWriteDatabase()) return;
             document.querySelectorAll('.db-row-check').forEach(cb => cb.checked = checked);
             dbUpdateSelected();
         }
@@ -8844,11 +8879,12 @@
             const btn = document.getElementById('dbBatchDeleteBtn');
             const count = document.getElementById('dbSelectedCount');
             count.textContent = checked.length;
-            btn.style.display = checked.length > 0 ? 'inline-block' : 'none';
+            btn.style.display = canWriteDatabase() && checked.length > 0 ? 'inline-block' : 'none';
         }
 
         // 批量删除
         async function batchDeleteDbRows() {
+            if (!ensureDbWriteAllowed()) return;
             const checked = document.querySelectorAll('.db-row-check:checked');
             if (checked.length === 0) return;
             if (!confirm(`确定要删除选中的 ${checked.length} 条记录吗？`)) return;
@@ -8868,6 +8904,7 @@
 
         // 删除行
         async function deleteDbRow(pkValue) {
+            if (!ensureDbWriteAllowed()) return;
             if (!confirm(`确定要删除 ${dbPkColumn}=${pkValue} 的记录吗？`)) return;
             
             try {
@@ -8889,6 +8926,7 @@
         
         // 显示SQL执行弹窗
         function showSqlModal() {
+            if (!ensureDbWriteAllowed()) return;
             const content = `
                 <div style="margin-bottom: 15px;">
                     <label style="display: block; margin-bottom: 5px; color: var(--text-secondary);">输入SQL语句</label>
