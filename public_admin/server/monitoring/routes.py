@@ -26,6 +26,7 @@ def create_monitoring_router(
     static_cache_service_supplier: Callable[[], object] = None,
     static_cache_warmup_supplier: Callable[[], object] = None,
     request_metrics_supplier: Callable[[], object] = None,
+    request_metrics_config_supplier: Callable[[], object] = None,
 ) -> APIRouter:
     router = APIRouter(prefix="/admin/api/monitoring")
     service = MonitoringService(pool_supplier=pool_supplier, im_server_internal_url=im_server_internal_url)
@@ -46,6 +47,9 @@ def create_monitoring_router(
 
     def request_metrics():
         return request_metrics_supplier() if request_metrics_supplier else None
+
+    def request_metrics_config():
+        return request_metrics_config_supplier() if request_metrics_config_supplier else None
 
     @router.get("/overview")
     async def monitoring_overview(request: Request, range: str = "7d", force: str = ""):
@@ -236,10 +240,16 @@ def create_monitoring_router(
             return JSONResponse(status_code=500, content={"error": True, "message": str(exc)[:300]})
 
     @router.get("/request-metrics")
-    async def monitoring_request_metrics(request: Request, limit: int = 80):
+    async def monitoring_request_metrics(request: Request, limit: int = 80, force: str = ""):
         _, error_response = await require_super_admin(request)
         if error_response is not None:
             return error_response
+        config = request_metrics_config()
+        if config is not None:
+            try:
+                return {"success": True, "item": await config.snapshot(limit=limit, force_refresh=force == "1")}
+            except Exception as exc:
+                return JSONResponse(status_code=500, content={"error": True, "message": str(exc)[:300]})
         metrics = request_metrics()
         if metrics is None:
             return JSONResponse(status_code=503, content={"error": True, "message": "慢请求采集服务不可用"})
@@ -253,11 +263,15 @@ def create_monitoring_router(
         _, error_response = await require_super_admin(request)
         if error_response is not None:
             return error_response
+        config = request_metrics_config()
         metrics = request_metrics()
-        if metrics is None:
+        if config is None and metrics is None:
             return JSONResponse(status_code=503, content={"error": True, "message": "慢请求采集服务不可用"})
         try:
             payload = await request.json()
+            if config is not None:
+                await config.set_policy_payload(payload or {})
+                return {"success": True, "item": await config.snapshot(limit=80, force_refresh=False)}
             return {"success": True, "item": metrics.update_policy(payload or {})}
         except Exception as exc:
             return JSONResponse(status_code=500, content={"error": True, "message": str(exc)[:300]})

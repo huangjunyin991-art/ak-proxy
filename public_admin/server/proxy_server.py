@@ -197,7 +197,7 @@ from .performance.cache.admin_stats_cache import AdminStatsCache
 from .performance.db_indexes import get_admin_index_plan_status, start_admin_index_plan_run
 from .performance.dispatcher_status.service import DispatcherStatusService
 from .performance.login_events import LoginEventWorker, LoginSideEffectQueue
-from .performance.request_metrics import RequestMetricsService
+from .performance.request_metrics import RequestMetricsConfigService, RequestMetricsService
 from .admin_realtime import AdminRealtimeHub, AdminRealtimeTopic
 from .db.bulk_writer import get_bulk_writer_snapshot
 from .static_resource_cache import (
@@ -5378,6 +5378,7 @@ if create_monitoring_router is not None:
             static_cache_service_supplier=lambda: globals().get("_AK_WEB_STATIC_CACHE_SERVICE"),
             static_cache_warmup_supplier=lambda: globals().get("_AK_STATIC_WARMUP_SERVICE"),
             request_metrics_supplier=lambda: globals().get("_request_metrics_service"),
+            request_metrics_config_supplier=lambda: globals().get("_request_metrics_config_service"),
         ))
     except Exception as e:
         logger.warning(f"[Monitoring] 性能监控路由注册失败，已跳过: {e}")
@@ -5574,6 +5575,12 @@ async def admin_startup():
         logger.info("[RuntimeHygiene] 运行时维护任务已按配置初始化")
     except Exception as e:
         logger.warning(f"[RuntimeHygiene] 初始化失败，已跳过: {e}")
+
+    try:
+        await _ensure_request_metrics_ready(force=True)
+        logger.info("[RequestMetrics] request metrics policy initialized from config")
+    except Exception as e:
+        logger.warning(f"[RequestMetrics] init failed, fallback to default disabled: {e}")
 
     await _load_tokens_from_db()
 
@@ -13541,6 +13548,7 @@ _login_event_worker = LoginEventWorker(
     logger=logger,
 )
 _request_metrics_service = RequestMetricsService()
+_request_metrics_config_service: RequestMetricsConfigService | None = None
 _runtime_hygiene_service: RuntimeHygieneService | None = None
 _runtime_hygiene_config_service: RuntimeHygieneConfigService | None = None
 
@@ -13632,6 +13640,11 @@ async def _ensure_runtime_hygiene_ready(force: bool = False) -> None:
         await _runtime_hygiene_config_service.refresh_policy(force=force)
 
 
+async def _ensure_request_metrics_ready(force: bool = False) -> None:
+    if _request_metrics_config_service is not None:
+        await _request_metrics_config_service.refresh_policy(force=force)
+
+
 def _build_runtime_hygiene_snapshot(policy_payload: dict[str, Any] | None = None) -> dict[str, Any]:
     service_snapshot = _runtime_hygiene_service.snapshot() if _runtime_hygiene_service is not None else {}
     return {
@@ -13649,6 +13662,11 @@ _runtime_hygiene_service = RuntimeHygieneService(_run_runtime_hygiene_cleanup, l
 _runtime_hygiene_config_service = RuntimeHygieneConfigService(
     db.system_config,
     apply_policy=_apply_runtime_hygiene_policy,
+    logger=logger,
+)
+_request_metrics_config_service = RequestMetricsConfigService(
+    db.system_config,
+    _request_metrics_service,
     logger=logger,
 )
 

@@ -1624,7 +1624,9 @@
     function loadRequestMetrics(force) {
         if (!shouldLoadCollapsibleSection('requestMetrics') || state.loadingRequestMetrics) return Promise.resolve();
         state.loadingRequestMetrics = true;
-        return api('/request-metrics', { limit: '80' }).then(function(body) {
+        var params = { limit: '80' };
+        if (force) params.force = '1';
+        return api('/request-metrics', params).then(function(body) {
             state.data.requestMetrics = body.item || {};
             renderRequestMetrics();
             if (force) notify('慢请求采集状态已刷新', 'success');
