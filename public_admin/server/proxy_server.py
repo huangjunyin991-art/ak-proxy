@@ -2521,9 +2521,7 @@ async def proxy_login(request: Request):
 
     if is_success:
 
-        resp.set_cookie(key="ak_username", value=login_identity_username or account, max_age=86400*30, httponly=False, samesite="lax")
-        resp.set_cookie(key="ak_im_username", value=login_identity_username or account, max_age=86400*30, httponly=False, samesite="lax")
-        _attach_notify_center_identity_cookie(resp, request, login_identity_username or account)
+        _attach_browser_login_identity_cookies(resp, request, login_identity_username or account)
 
     _record_request_metric(
         kind="rpc",
@@ -4986,6 +4984,28 @@ def _attach_notify_center_identity_cookie(response, request: Request, username: 
     except Exception as e:
         logger.warning(f"[NotifyCenter] identity_cookie_attach_failed username={username}: {e}")
         return False
+
+
+def _attach_browser_login_identity_cookies(response, request: Request, username: str) -> str:
+    normalized_username = online_manager.normalize_username(username)
+    if not normalized_username:
+        return ''
+    response.set_cookie(
+        key="ak_username",
+        value=normalized_username,
+        max_age=86400 * 30,
+        httponly=False,
+        samesite="lax",
+    )
+    response.set_cookie(
+        key="ak_im_username",
+        value=normalized_username,
+        max_age=86400 * 30,
+        httponly=False,
+        samesite="lax",
+    )
+    _attach_notify_center_identity_cookie(response, request, normalized_username)
+    return normalized_username
 
 
 def _get_ws_ticket_ttl_seconds() -> int:
@@ -14702,6 +14722,8 @@ async def _forward_admin_ak_rpc_request(path: str, request: Request, session: di
                     f"referer={referer} {summarize_log_payload(result)}"
                 ))
                 proxy_response = JSONResponse(content=result, status_code=200)
+                login_identity_username = _extract_login_result_username(result, account) or account
+                _attach_browser_login_identity_cookies(proxy_response, request, login_identity_username)
                 response_body = json.dumps(result, ensure_ascii=False).encode("utf-8")
                 total_ms = _elapsed_ms(request_started_at)
                 _schedule_remote_assist_proxy_event(
@@ -14763,6 +14785,9 @@ async def _forward_admin_ak_rpc_request(path: str, request: Request, session: di
             _admin_ak_trace(lambda: f"[IframeLoginApi] route=/admin/ak-rpc/Login phase=response status={response.status_code} referer={referer} {summarize_log_payload(result)}")
         _admin_ak_trace(lambda: f"[AdminAkRpc/{path}] status={response.status_code} dest={fetch_dest} accept={accept} referer={referer} {summarize_log_payload(result)}")
         proxy_response = JSONResponse(content=result, status_code=response.status_code)
+        if is_login_success:
+            login_identity_username = _extract_login_result_username(result, account) or account
+            _attach_browser_login_identity_cookies(proxy_response, request, login_identity_username)
         response_body = json.dumps(result, ensure_ascii=False).encode("utf-8")
         total_ms = _elapsed_ms(request_started_at)
         _schedule_remote_assist_proxy_event(
