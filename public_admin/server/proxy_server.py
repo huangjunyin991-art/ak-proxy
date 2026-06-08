@@ -15137,6 +15137,149 @@ def _build_ak_site_forward_headers(request: Request) -> dict:
     if request.headers.get("content-type"):
         headers["Content-Type"] = request.headers["content-type"]
     return headers
+
+
+_AK_PUBLIC_STATIC_PREFIXES = {"assets", "content"}
+
+
+def _normalize_ak_public_static_path(prefix: str, asset_path: str) -> str:
+    normalized_prefix = str(prefix or "").strip("/").lower()
+    cleaned_path = str(asset_path or "").strip("/")
+    if normalized_prefix not in _AK_PUBLIC_STATIC_PREFIXES or not cleaned_path:
+        return ""
+    parts = [part for part in cleaned_path.split("/") if part]
+    if any(part in {".", ".."} for part in parts):
+        return ""
+    return f"{normalized_prefix}/{'/'.join(parts)}"
+
+
+def _build_ak_public_static_target_url(normalized_path: str, request: Request) -> str:
+    query_parts = [
+        p for p in str(request.url.query).split("&")
+        if p and not p.startswith("bs=") and not p.startswith("ak_static_v=")
+    ]
+    target_url = f"{_AK_BASE}/{normalized_path}"
+    if query_parts:
+        target_url += "?" + "&".join(query_parts)
+    return target_url
+
+
+def _transform_ak_public_static_content(normalized_path: str, content_type: str, content: bytes) -> bytes:
+    lowered_content_type = str(content_type or "").lower()
+    if not content:
+        return content
+    if "text/css" in lowered_content_type:
+        text = content.decode("utf-8", errors="replace")
+        return _rewrite_site_css_roots(text, _AK_WEB_PREFIX).encode("utf-8")
+    if normalized_path.lower().endswith("base.js") and any(t in lowered_content_type for t in ("javascript", "ecmascript")):
+        text = content.decode("utf-8", errors="replace")
+        text, _ = _inject_base_js_no_login_probe(text)
+        return text.encode("utf-8")
+    return content
+
+
+async def _proxy_ak_public_static_asset(request: Request, prefix: str, asset_path: str):
+    request_started_at = time.perf_counter()
+    normalized_path = _normalize_ak_public_static_path(prefix, asset_path)
+    if not normalized_path:
+        return Response(status_code=404)
+    target_url = _build_ak_public_static_target_url(normalized_path, request)
+    cache_request = _build_ak_web_static_cache_request(
+        request.method,
+        _AK_WEB_PREFIX,
+        target_url,
+        normalized_path,
+    )
+    static_cache_lock = None
+    try:
+        if cache_request:
+            cached_static = await _AK_WEB_STATIC_CACHE_SERVICE.get(cache_request)
+            if cached_static:
+                return _AK_WEB_STATIC_CACHE_RESPONSE_ADAPTER.from_cached(cached_static)
+            static_cache_lock = await _AK_WEB_STATIC_CACHE_SERVICE.get_or_lock(cache_request)
+            await static_cache_lock.acquire()
+            cached_static = await _AK_WEB_STATIC_CACHE_SERVICE.get(cache_request)
+            if cached_static:
+                _AK_WEB_STATIC_CACHE_SERVICE.release_lock(cache_request, static_cache_lock)
+                static_cache_lock = None
+                return _AK_WEB_STATIC_CACHE_RESPONSE_ADAPTER.from_cached(cached_static)
+
+        fwd_headers = _build_ak_site_forward_headers(request)
+        proxy_url = None
+        selected_exit = _get_direct_exit() if _should_force_direct_ak_web(_AK_WEB_PREFIX) else _select_forward_exit(normalized_path or "static")
+        if selected_exit and selected_exit.proxy_url:
+            proxy_url = selected_exit.proxy_url
+        client = await _ak_web_client_pool.get_client(proxy_url=proxy_url)
+        try:
+            upstream_started_at = time.perf_counter()
+            resp = await client.request(
+                method=request.method,
+                url=target_url,
+                headers=fwd_headers,
+            )
+            upstream_ms = _elapsed_ms(upstream_started_at)
+        except Exception:
+            await _ak_web_client_pool.retire_client(proxy_url=proxy_url, reason="static_request_error")
+            raise
+
+        skip_headers = {"content-encoding", "transfer-encoding", "content-length", "set-cookie"}
+        resp_headers = {k: v for k, v in resp.headers.items() if k.lower() not in skip_headers}
+        content_type = resp.headers.get("content-type", "")
+        content = _transform_ak_public_static_content(normalized_path, content_type, resp.content)
+        response = Response(
+            content=content,
+            status_code=resp.status_code,
+            headers=resp_headers,
+            media_type=content_type or "application/octet-stream",
+        )
+        if cache_request:
+            stored_static = await _AK_WEB_STATIC_CACHE_SERVICE.store_payload(
+                cache_request,
+                StaticResourcePayload(
+                    status_code=resp.status_code,
+                    headers=dict(response.headers),
+                    policy_headers=dict(resp.headers),
+                    content_type=content_type or "application/octet-stream",
+                    body=content,
+                ),
+            )
+            _AK_WEB_STATIC_CACHE_RESPONSE_ADAPTER.mark(
+                response,
+                "MISS" if stored_static else "BYPASS",
+                cache_request.path,
+                content_type or "application/octet-stream",
+            )
+        else:
+            _AK_WEB_STATIC_CACHE_RESPONSE_ADAPTER.mark(
+                response,
+                "BYPASS",
+                normalized_path,
+                content_type or "application/octet-stream",
+            )
+        _admin_ak_trace(lambda: (
+            f"[AkPublicStatic/{normalized_path}] status={resp.status_code} upstream_ms={upstream_ms} "
+            f"total_ms={_elapsed_ms(request_started_at)} cacheable={int(bool(cache_request))} "
+            f"content_type={content_type or '-'} bytes={len(content or b'')}"
+        ))
+        return response
+    except Exception as e:
+        logger.error(f"[AkPublicStatic] {normalized_path or prefix + '/' + asset_path}: {e}")
+        return Response(content=f"代理错误: {str(e)}".encode(), status_code=502)
+    finally:
+        if static_cache_lock:
+            _AK_WEB_STATIC_CACHE_SERVICE.release_lock(cache_request, static_cache_lock)
+
+
+@app.api_route("/assets/{asset_path:path}", methods=["GET", "HEAD"])
+async def ak_public_assets_proxy(request: Request, asset_path: str):
+    return await _proxy_ak_public_static_asset(request, "assets", asset_path)
+
+
+@app.api_route("/content/{asset_path:path}", methods=["GET", "HEAD"])
+async def ak_public_content_proxy(request: Request, asset_path: str):
+    return await _proxy_ak_public_static_asset(request, "content", asset_path)
+
+
 @app.api_route("/admin/ak-site/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"])
 @app.api_route("/admin/ak-web/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"])
 @app.api_route("/ak-web/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"])
