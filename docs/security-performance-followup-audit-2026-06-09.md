@@ -137,6 +137,7 @@
 ### S6. 自定义只读 SQL 权限边界过宽
 
 级别：P2
+状态：已处理。`/admin/api/db/sql` 现在统一要求系统总管理员和 `db_write_ops` 操作授权；执行层增加单语句、危险函数/系统 schema 拦截、`statement_timeout` 与返回行数上限，避免 raw SQL 以“只读”名义读穿或拖垮数据库。固定表结构、分页查询和监控统计接口不走 raw SQL 限制。
 位置：
 
 - `public_admin/server/db/sql_policy.py:4`

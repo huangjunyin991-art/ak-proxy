@@ -97,6 +97,18 @@ SENSITIVE_OUTPUT_FIELDS = {
 }
 
 
+def _get_int_env(name: str, default: int, minimum: int, maximum: int) -> int:
+    try:
+        value = int(os.getenv(name, str(default)) or default)
+    except (TypeError, ValueError):
+        value = default
+    return max(minimum, min(value, maximum))
+
+
+ADMIN_SQL_MAX_ROWS = _get_int_env('ADMIN_SQL_MAX_ROWS', 1000, 1, 10000)
+ADMIN_SQL_TIMEOUT_MS = _get_int_env('ADMIN_SQL_TIMEOUT_MS', 5000, 500, 60000)
+
+
 def _admin_token_hash(token: str) -> str:
     return hashlib.sha256(str(token or '').encode('utf-8')).hexdigest()
 
@@ -2480,26 +2492,59 @@ async def delete_row(table_name: str, pk_column: str, pk_value) -> int:
 
 
 async def execute_sql(sql: str):
-    """执行自定义SQL（带大表保护）"""
+    """执行自定义SQL（带大表保护、超时和返回行数上限）"""
     policy = classify_admin_sql(sql)
     if policy.has_multiple_statements:
         raise GuardError("multi_statement_blocked", "Multiple SQL statements are not allowed")
+    if policy.blocked:
+        raise GuardError(policy.block_code, policy.block_message)
+    if policy.explain_analyze:
+        raise GuardError("explain_analyze_blocked", "自定义 SQL 不允许执行 EXPLAIN ANALYZE")
 
     guard = get_big_table_guard()
     await guard.validate_sql(sql)
 
     pool = _get_pool()
     async with pool.acquire() as conn:
-        if policy.is_readonly:
-            async with conn.transaction(readonly=True):
-                rows = await conn.fetch(sql)
-                return _sanitize_output_rows(rows)
-        result = await conn.execute(sql)
+        timeout_seconds = ADMIN_SQL_TIMEOUT_MS / 1000
         try:
-            affected_rows = int(result.split()[-1]) if result else 0
-        except (ValueError, IndexError):
-            affected_rows = 0
-        return {'affected_rows': affected_rows}
+            if policy.is_readonly:
+                async with conn.transaction(readonly=True):
+                    await _set_local_statement_timeout(conn)
+                    return await _fetch_admin_sql_rows(conn, sql, ADMIN_SQL_MAX_ROWS, timeout_seconds)
+            async with conn.transaction():
+                await _set_local_statement_timeout(conn)
+                result = await conn.execute(sql, timeout=timeout_seconds)
+                try:
+                    affected_rows = int(result.split()[-1]) if result else 0
+                except (ValueError, IndexError):
+                    affected_rows = 0
+                return {'affected_rows': affected_rows}
+        except (asyncio.TimeoutError, asyncpg.exceptions.QueryCanceledError) as exc:
+            raise GuardError("sql_timeout", f"SQL执行超过 {ADMIN_SQL_TIMEOUT_MS}ms，已中止") from exc
+
+
+async def _set_local_statement_timeout(conn) -> None:
+    await conn.execute(f"SET LOCAL statement_timeout = {ADMIN_SQL_TIMEOUT_MS}")
+
+
+async def _fetch_admin_sql_rows(conn, sql: str, max_rows: int, timeout_seconds: float) -> List[Dict[str, Any]]:
+    cursor = await conn.cursor(sql, timeout=timeout_seconds)
+    rows = await cursor.fetch(max_rows + 1, timeout=timeout_seconds)
+    truncated = len(rows) > max_rows
+    sanitized = _sanitize_output_rows(rows[:max_rows])
+    if truncated:
+        sanitized.append(_build_admin_sql_truncation_notice(sanitized, max_rows))
+    return sanitized
+
+
+def _build_admin_sql_truncation_notice(rows: List[Dict[str, Any]], max_rows: int) -> Dict[str, Any]:
+    if not rows:
+        return {"notice": f"结果已截断，仅显示前 {max_rows} 行"}
+    notice = {key: "" for key in rows[0].keys()}
+    first_key = next(iter(notice), "notice")
+    notice[first_key] = f"结果已截断，仅显示前 {max_rows} 行"
+    return notice
 
 
 # ===== 管理员Token持久化 =====

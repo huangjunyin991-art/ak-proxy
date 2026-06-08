@@ -1,8 +1,3 @@
-import json
-
-from ...db.sql_policy import classify_admin_sql
-
-
 class OperationScopeResolver:
     def __init__(self):
         self.exact = {
@@ -118,8 +113,6 @@ class OperationScopeResolver:
     def resolve(self, method: str, path: str, body: bytes | None = None) -> str:
         normalized_method = str(method or '').upper()
         normalized_path = self._normalize_path(path)
-        if normalized_method == 'POST' and normalized_path == '/admin/api/db/sql':
-            return self._resolve_sql_scope(body)
         scope = self.exact.get((normalized_method, normalized_path))
         if scope:
             return scope
@@ -129,22 +122,10 @@ class OperationScopeResolver:
         return ''
 
     def needs_body(self, method: str, path: str) -> bool:
-        return str(method or '').upper() == 'POST' and self._normalize_path(path) == '/admin/api/db/sql'
+        return False
 
     def _normalize_path(self, path: str) -> str:
         normalized = str(path or '').split('?', 1)[0]
         if len(normalized) > 1:
             normalized = normalized.rstrip('/')
         return normalized or '/'
-
-    def _resolve_sql_scope(self, body: bytes | None) -> str:
-        sql = ''
-        if body:
-            try:
-                data = json.loads(body.decode('utf-8'))
-                sql = str(data.get('sql') or '')
-            except Exception:
-                sql = ''
-        if classify_admin_sql(sql).is_readonly:
-            return 'db_read_ops'
-        return 'db_write_ops'
