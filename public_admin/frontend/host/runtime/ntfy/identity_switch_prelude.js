@@ -18,6 +18,141 @@
     var NTFY_EXCHANGE_RESULT_TTL_MS = 6000;
     var NTFY_EXCHANGE_POLL_MS = 80;
     var ntfyExchangeOwnerId = String(Date.now()) + ':' + String(Math.random()).slice(2);
+    var NTFY_SENSITIVE_QUERY_KEYS = {
+        ak_im_open: true,
+        im_switch_ts: true,
+        im_switch_nonce: true,
+        im_switch_sig: true,
+        ts: true,
+        nonce: true,
+        sig: true
+    };
+    var NTFY_OPEN_QUERY_CLEANUP_KEYS = {
+        ak_im_open: true,
+        im_switch_ts: true,
+        im_switch_nonce: true,
+        im_switch_sig: true
+    };
+
+    function isSensitiveQueryKey(key) {
+        return !!NTFY_SENSITIVE_QUERY_KEYS[String(key || '').trim().toLowerCase()];
+    }
+
+    function isOpenQueryCleanupKey(key) {
+        return !!NTFY_OPEN_QUERY_CLEANUP_KEYS[String(key || '').trim().toLowerCase()];
+    }
+
+    function redactSearchParams(params) {
+        var changed = false;
+        var keys = [];
+        try {
+            params.forEach(function(_value, key) {
+                keys.push(key);
+            });
+            for (var i = 0; i < keys.length; i++) {
+                if (!isSensitiveQueryKey(keys[i])) continue;
+                if (params.get(keys[i]) !== 'redacted') {
+                    params.set(keys[i], 'redacted');
+                    changed = true;
+                }
+            }
+        } catch (e) {}
+        return changed;
+    }
+
+    function redactSensitiveSearch(search) {
+        var value = String(search || '');
+        if (!value) return '';
+        try {
+            var hasPrefix = value.charAt(0) === '?';
+            var params = parseSearchParams(hasPrefix ? value.slice(1) : value);
+            if (!params) return value;
+            if (!redactSearchParams(params)) return value;
+            var next = params.toString();
+            return next ? (hasPrefix ? '?' : '') + next : '';
+        } catch (e) {}
+        return value;
+    }
+
+    function redactSensitiveUrl(value) {
+        var text = String(value || '');
+        if (!text) return '';
+        try {
+            var parsed = new URL(text, window.location.href);
+            redactSearchParams(parsed.searchParams);
+            var safePath = (parsed.pathname || '/') + (parsed.search || '') + (parsed.hash || '');
+            return parsed.origin === window.location.origin ? safePath : '[external]' + safePath;
+        } catch (e) {
+            return redactSensitiveSearch(text);
+        }
+    }
+
+    function shouldRedactDebugKey(key) {
+        var normalized = String(key || '').toLowerCase();
+        return normalized.indexOf('url') !== -1 ||
+            normalized.indexOf('referrer') !== -1 ||
+            normalized.indexOf('search') !== -1 ||
+            normalized.indexOf('query') !== -1 ||
+            normalized.indexOf('location') !== -1;
+    }
+
+    function redactDebugValue(key, value, depth) {
+        var currentDepth = Number(depth || 0);
+        if (typeof value === 'string') {
+            if (
+                shouldRedactDebugKey(key) ||
+                value.indexOf('im_switch_') !== -1 ||
+                value.indexOf('ak_im_open') !== -1 ||
+                value.indexOf('silent_login_by_token') !== -1
+            ) {
+                if (String(key || '').toLowerCase().indexOf('search') !== -1 && value.charAt(0) === '?') {
+                    return redactSensitiveSearch(value);
+                }
+                return redactSensitiveUrl(value);
+            }
+            return value;
+        }
+        if (!value || typeof value !== 'object' || currentDepth > 2) return value;
+        if (Array.isArray(value)) {
+            return value.map(function(item) {
+                return redactDebugValue(key, item, currentDepth + 1);
+            });
+        }
+        var result = {};
+        try {
+            for (var itemKey in value) {
+                if (Object.prototype.hasOwnProperty.call(value, itemKey)) {
+                    result[itemKey] = redactDebugValue(itemKey, value[itemKey], currentDepth + 1);
+                }
+            }
+            return result;
+        } catch (e) {}
+        return value;
+    }
+
+    function cleanupSensitiveOpenQuery(reason) {
+        try {
+            if (!window.history || typeof window.history.replaceState !== 'function') return false;
+            var current = new URL(window.location.href);
+            var keys = [];
+            current.searchParams.forEach(function(_value, key) {
+                if (isOpenQueryCleanupKey(key)) keys.push(key);
+            });
+            if (!keys.length) return false;
+            for (var i = 0; i < keys.length; i++) {
+                current.searchParams.delete(keys[i]);
+            }
+            var nextUrl = (current.pathname || '/') + (current.search || '') + (current.hash || '');
+            window.history.replaceState(window.history.state, document.title, nextUrl);
+            window.__AK_NTFY_LAST_QUERY_CLEANUP__ = {
+                reason: String(reason || ''),
+                at: Date.now(),
+                url: redactSensitiveUrl(nextUrl)
+            };
+            return true;
+        } catch (e) {}
+        return false;
+    }
 
     function writeEarlyDebug(step, extra) {
         try {
@@ -26,7 +161,7 @@
             data.step = step;
             if (extra && typeof extra === 'object') {
                 for (var key in extra) {
-                    if (Object.prototype.hasOwnProperty.call(extra, key)) data[key] = extra[key];
+                    if (Object.prototype.hasOwnProperty.call(extra, key)) data[key] = redactDebugValue(key, extra[key], 0);
                 }
             }
             window.__AK_NTFY_SWITCH_DEBUG__ = data;
@@ -76,6 +211,7 @@
         });
         return;
     }
+    cleanupSensitiveOpenQuery('query_loaded');
 
     var explicitTargetUsername = String(query.get('im_username') || '').trim().toLowerCase();
     var targetUsername = explicitTargetUsername;
@@ -155,7 +291,7 @@
             data.im_username = targetUsername;
             if (extra && typeof extra === 'object') {
                 for (var key in extra) {
-                    if (Object.prototype.hasOwnProperty.call(extra, key)) data[key] = extra[key];
+                    if (Object.prototype.hasOwnProperty.call(extra, key)) data[key] = redactDebugValue(key, extra[key], 0);
                 }
             }
             window.__AK_NTFY_SWITCH_DEBUG__ = data;

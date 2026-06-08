@@ -1,9 +1,19 @@
 (function() {
     'use strict';
 
-    var VERSION = '20260525-02';
+    var VERSION = '20260609-01';
     var CACHE_NAME = 'ak-notify-sw-state';
     var STATE_URL = '/__ak_notify_sw_state__';
+    var SAFE_NOTIFICATION_ENTRY = '/pages/home.html?first=true';
+    var SENSITIVE_QUERY_KEYS = {
+        ak_im_open: true,
+        im_switch_ts: true,
+        im_switch_nonce: true,
+        im_switch_sig: true,
+        ts: true,
+        nonce: true,
+        sig: true
+    };
 
     function nowIso() {
         return new Date().toISOString();
@@ -48,6 +58,48 @@
         }
     }
 
+    function isSensitiveQueryKey(key) {
+        return !!SENSITIVE_QUERY_KEYS[String(key || '').trim().toLowerCase()];
+    }
+
+    function redactUrlForState(url) {
+        try {
+            var parsed = url && url.href ? new URL(url.href) : new URL(String(url || SAFE_NOTIFICATION_ENTRY), self.location.origin);
+            if (parsed.origin !== self.location.origin) return '[external-blocked]';
+            var keys = [];
+            parsed.searchParams.forEach(function(_value, key) {
+                if (isSensitiveQueryKey(key)) keys.push(key);
+            });
+            for (var i = 0; i < keys.length; i++) {
+                parsed.searchParams.set(keys[i], 'redacted');
+            }
+            return (parsed.pathname || '/') + (parsed.search || '') + (parsed.hash || '');
+        } catch(e) {
+            return SAFE_NOTIFICATION_ENTRY;
+        }
+    }
+
+    function buildSafeNavigation(target) {
+        var fallback = new URL(SAFE_NOTIFICATION_ENTRY, self.location.origin);
+        try {
+            var parsed = new URL(String(target || SAFE_NOTIFICATION_ENTRY), self.location.origin);
+            if (parsed.origin !== self.location.origin) {
+                return {url: fallback, blockedExternal: true};
+            }
+            return {url: parsed, blockedExternal: false};
+        } catch(e) {
+            return {url: fallback, blockedExternal: true};
+        }
+    }
+
+    function toRelativeUrl(url) {
+        try {
+            return (url.pathname || '/') + (url.search || '') + (url.hash || '');
+        } catch(e) {
+            return SAFE_NOTIFICATION_ENTRY;
+        }
+    }
+
     self.addEventListener('install', function() {
         if (self.skipWaiting) self.skipWaiting();
     });
@@ -62,6 +114,7 @@
 
     self.addEventListener('push', function(event) {
         var payload = parsePayload(event);
+        var safeNavigation = buildSafeNavigation(payload.url || SAFE_NOTIFICATION_ENTRY);
         var title = payload.title || '有新消息';
         var options = {
             body: payload.body || '点击查看',
@@ -70,7 +123,7 @@
             tag: payload.tag || 'ak-notify',
             renotify: true,
             data: {
-                url: payload.url || '/',
+                url: toRelativeUrl(safeNavigation.url),
                 event_id: payload.data && payload.data.event_id || '',
                 conversation_id: payload.data && payload.data.conversation_id || 0
             }
@@ -82,6 +135,8 @@
             last_push_tag: options.tag,
             last_push_event_id: options.data.event_id,
             last_push_conversation_id: options.data.conversation_id,
+            last_push_url: redactUrlForState(safeNavigation.url),
+            last_push_url_blocked_external: safeNavigation.blockedExternal,
             last_show_notification_called: false,
             last_show_notification_ok: false,
             last_show_notification_error: ''
@@ -110,13 +165,13 @@
     self.addEventListener('notificationclick', function(event) {
         if (event.notification) event.notification.close();
         var target = event.notification && event.notification.data && event.notification.data.url || '/';
-        var targetUrl;
-        try {
-            targetUrl = new URL(target, self.location.origin).href;
-        } catch(e) {
-            targetUrl = self.location.origin + '/';
-        }
-        var task = writeState({last_notification_click_at: nowIso(), last_notification_click_url: targetUrl}).then(function() {
+        var safeNavigation = buildSafeNavigation(target);
+        var targetUrl = safeNavigation.url.href;
+        var task = writeState({
+            last_notification_click_at: nowIso(),
+            last_notification_click_url: redactUrlForState(safeNavigation.url),
+            last_notification_click_blocked_external: safeNavigation.blockedExternal
+        }).then(function() {
             if (!self.clients) return null;
             return self.clients.matchAll({type: 'window', includeUncontrolled: true}).then(function(list) {
                 for (var i = 0; i < list.length; i++) {
