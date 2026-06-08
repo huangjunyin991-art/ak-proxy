@@ -4900,6 +4900,7 @@
         let currentUserRole = null;  // 当前用户权限
         let currentPanelName = 'dashboard';
         const ADMIN_ACTIVE_PANEL_STORAGE_KEY = 'ak_admin_active_panel';
+        const ADMIN_LAST_STATS_STORAGE_KEY = 'ak_admin_last_stats';
         let currentChatUser = null;
         let chatRefreshTimer = null;
         let chatHistoryInFlight = false;
@@ -4910,6 +4911,7 @@
         let dashboardTimer = null;
         let adminStatsTimer = null;
         let adminVerifyTimer = null;
+        let adminStatsBootstrapRetryTimer = null;
         let adminAppInitialized = false;
         let activityItems = [];
         const nativeFetch = window.fetch.bind(window);
@@ -5642,6 +5644,7 @@
         function showMainContent() {
             document.getElementById('loginOverlay').style.display = 'none';
             document.getElementById('mainContent').classList.add('visible');
+            bootstrapStats();
             // 根据权限动态显示/隐藏标签页
             applyPermissions();
             restoreActivePanel();
@@ -6251,12 +6254,55 @@
             if (typeof syncMobileTabLabel === 'function') syncMobileTabLabel();
         }
 
-        function applyStatsData(data) {
+        function statsHasValue() {
+            return ['statUsers', 'statToday', 'statLogins', 'statIPs', 'statTotalAce', 'statTotalEP', 'statTotalSP', 'statTotalRP', 'statTotalTP', 'statBanned'].some(id => {
+                const el = document.getElementById(id);
+                const value = String(el && el.textContent || '').trim();
+                return value && value !== '-' && value !== 'undefined' && value !== 'null';
+            });
+        }
+
+        function hasStatsPayload(data) {
+            return !!(data && ['total_users', 'today_logins', 'total_logins', 'total_ips', 'banned_count', 'total_ace', 'total_ep', 'total_sp', 'total_rp', 'total_tp'].some(key => data[key] !== undefined && data[key] !== null));
+        }
+
+        function cacheStatsData(data) {
+            try {
+                sessionStorage.setItem(ADMIN_LAST_STATS_STORAGE_KEY, JSON.stringify({
+                    total_users: data.total_users,
+                    today_logins: data.today_logins,
+                    total_logins: data.total_logins,
+                    total_ips: data.total_ips,
+                    banned_count: data.banned_count,
+                    total_ace: data.total_ace,
+                    total_ep: data.total_ep,
+                    total_sp: data.total_sp,
+                    total_rp: data.total_rp,
+                    total_tp: data.total_tp
+                }));
+            } catch (e) {}
+        }
+
+        function restoreStatsFromCache() {
+            if (statsHasValue()) return false;
+            try {
+                const raw = sessionStorage.getItem(ADMIN_LAST_STATS_STORAGE_KEY);
+                if (!raw) return false;
+                applyStatsData(JSON.parse(raw), { allowInactive: true, skipCache: true });
+                return true;
+            } catch (e) {
+                return false;
+            }
+        }
+
+        function applyStatsData(data, options) {
+            options = options || {};
             if (!data || data.error) {
                 console.warn('获取统计数据失败:', data && data.message);
                 return;
             }
-            if (!shouldRunAdminGlobalPoll()) return;
+            if (!hasStatsPayload(data)) return;
+            if (!options.allowInactive && !shouldRunAdminGlobalPoll()) return;
             document.getElementById('statUsers').textContent = data.total_users;
             document.getElementById('statToday').textContent = data.today_logins;
             document.getElementById('statLogins').textContent = data.total_logins;
@@ -6268,24 +6314,53 @@
             document.getElementById('statTotalSP').textContent = formatNumber(data.total_sp);
             document.getElementById('statTotalRP').textContent = formatNumber(data.total_rp);
             document.getElementById('statTotalTP').textContent = formatNumber(data.total_tp);
+            if (!options.skipCache) cacheStatsData(data);
             window.dispatchEvent(new CustomEvent('admin:stats-refreshed', { detail: data }));
         }
 
-        async function fetchAndApplyStats() {
+        async function fetchAndApplyStats(options) {
+            options = options || {};
             try {
                 const res = await fetch(`${API_BASE}/admin/api/stats`, { headers: getHeaders() });
+                if (!res.ok) return false;
                 const data = await res.json();
-                applyStatsData(data);
+                applyStatsData(data, options);
+                return !data || !data.error;
             } catch (e) {
                 console.error('加载统计失败', e);
             }
         }
 
         // 加载统计
+        function clearStatsBootstrapRetry() {
+            if (adminStatsBootstrapRetryTimer) {
+                clearTimeout(adminStatsBootstrapRetryTimer);
+                adminStatsBootstrapRetryTimer = null;
+            }
+        }
+
+        function scheduleStatsBootstrapRetry(attempt) {
+            clearStatsBootstrapRetry();
+            if (statsHasValue() || attempt > 4) return;
+            const delay = Math.min(6000, 700 * attempt);
+            adminStatsBootstrapRetryTimer = setTimeout(async () => {
+                adminStatsBootstrapRetryTimer = null;
+                await fetchAndApplyStats({ allowInactive: true });
+                scheduleStatsBootstrapRetry(attempt + 1);
+            }, delay);
+        }
+
+        function bootstrapStats() {
+            restoreStatsFromCache();
+            fetchAndApplyStats({ allowInactive: true }).then(() => {
+                if (!statsHasValue()) scheduleStatsBootstrapRetry(1);
+            });
+        }
+
         async function refreshStats(options) {
             const force = !!(options && options.force);
             if (!force && window.AKPollingRegistry && window.AKPollingRegistry.requestTopic('admin.stats')) return;
-            return fetchAndApplyStats();
+            return fetchAndApplyStats(options);
         }
         
         // 存储原始数据用于搜索
@@ -9975,6 +10050,7 @@
         function startAdminGlobalPolling() {
             if (!shouldRunAdminGlobalPoll()) return;
             setupAdminPollingRegistry();
+            bootstrapStats();
             if (window.AKPollingRegistry) {
                 if (adminStatsTimer) {
                     clearInterval(adminStatsTimer);
@@ -10005,6 +10081,7 @@
         }
 
         function stopAdminGlobalPolling() {
+            clearStatsBootstrapRetry();
             if (window.AKPollingRegistry) {
                 window.AKPollingRegistry.stopOwner('global:admin');
             }
