@@ -302,12 +302,35 @@
         });
     }
 
+    function currentPanelAssetVersion() {
+        var fallback = '20260608-06';
+        var script = document.currentScript || document.querySelector('script[data-monitoring-panel-loader="1"]');
+        if (!script || !script.src) return fallback;
+        try {
+            var url = new URL(script.src, window.location.href);
+            return url.searchParams.get('v') || url.searchParams.get('t') || fallback;
+        } catch (e) {
+            return fallback;
+        }
+    }
+
     function ensureCss() {
-        if (document.querySelector('link[data-monitoring-panel-css="1"]')) return;
+        var version = currentPanelAssetVersion();
+        var href = '/admin/api/monitoring-panel.css?v=' + encodeURIComponent(version);
+        var existing = document.querySelector('link[data-monitoring-panel-css="1"]');
+        if (existing) {
+            var existingHref = existing.getAttribute('href') || '';
+            if (existingHref !== href) {
+                existing.href = href;
+                existing.setAttribute('data-monitoring-panel-css-version', version);
+            }
+            return;
+        }
         var link = document.createElement('link');
         link.rel = 'stylesheet';
-        link.href = '/admin/api/monitoring-panel.css?v=20260608-05';
+        link.href = href;
         link.setAttribute('data-monitoring-panel-css', '1');
+        link.setAttribute('data-monitoring-panel-css-version', version);
         document.head.appendChild(link);
     }
 
@@ -734,16 +757,38 @@
             '</div>';
     }
 
+    function renderRequestInsightTitle(title, subtitle) {
+        return '<div class="monitoring-request-insight-heading">' +
+            '<div class="monitoring-request-insight-title">' + escapeHtml(title) + '</div>' +
+            (subtitle ? '<div class="monitoring-request-insight-subtitle">' + escapeHtml(subtitle) + '</div>' : '') +
+            '</div>';
+    }
+
+    function renderRequestMetricSummary(diagnostics, sampleCount) {
+        var timing = diagnostics && diagnostics.timing || {};
+        return '<div class="monitoring-request-summary-strip">' +
+            '<div class="monitoring-request-summary-item"><span>诊断样本</span><strong>' + escapeHtml(formatNumber(sampleCount)) + '</strong></div>' +
+            '<div class="monitoring-request-summary-item"><span>平均总耗时</span><strong>' + escapeHtml(formatMs(timing.avg_total_ms)) + '</strong></div>' +
+            '<div class="monitoring-request-summary-item"><span>上游占比</span><strong>' + escapeHtml(requestMetricRatioText(timing.upstream_ratio)) + '</strong></div>' +
+            '</div>';
+    }
+
     function renderRequestMetricDiagnostics(diagnostics) {
         var item = diagnostics || {};
-        if (!Number(item.sample_count || 0)) {
+        var sampleCount = Number(item.sample_count || 0);
+        if (!sampleCount) {
             return '<div class="monitoring-diagnosis-empty">暂无慢请求诊断样本</div>';
         }
-        return '<div class="monitoring-request-diagnosis-grid">' +
-            '<div class="monitoring-request-diagnosis-card is-wide"><div class="monitoring-request-diagnosis-title">诊断建议</div><div class="monitoring-request-advice-list">' + renderRequestMetricAdvice(item.advice) + '</div></div>' +
-            '<div class="monitoring-request-diagnosis-card"><div class="monitoring-request-diagnosis-title">接口 Top</div>' + renderRequestMetricTopList(item.top_paths, '暂无接口样本') + '</div>' +
-            '<div class="monitoring-request-diagnosis-card"><div class="monitoring-request-diagnosis-title">出口 Top</div>' + renderRequestMetricTopList(item.top_exits, '暂无出口样本') + '</div>' +
-            '<div class="monitoring-request-diagnosis-card"><div class="monitoring-request-diagnosis-title">耗时构成</div>' + renderRequestMetricTiming(item) + '</div>' +
+        return '<div class="monitoring-request-insights">' +
+            '<div class="monitoring-request-insight-panel monitoring-request-insight-primary">' +
+                '<div class="monitoring-request-insight-head">' + renderRequestInsightTitle('诊断摘要', '基于当前保留的慢请求和错误请求样本') + '<span class="monitoring-request-sample-pill">' + escapeHtml(formatNumber(sampleCount)) + ' 条样本</span></div>' +
+                renderRequestMetricSummary(item, sampleCount) +
+                '<div class="monitoring-request-advice-heading">处理建议</div>' +
+                '<div class="monitoring-request-advice-list">' + renderRequestMetricAdvice(item.advice) + '</div>' +
+            '</div>' +
+            '<div class="monitoring-request-insight-panel">' + renderRequestInsightTitle('接口 Top', '按慢请求集中度排序') + renderRequestMetricTopList(item.top_paths, '暂无接口样本') + '</div>' +
+            '<div class="monitoring-request-insight-panel">' + renderRequestInsightTitle('出口 Top', '按代理出口集中度排序') + renderRequestMetricTopList(item.top_exits, '暂无出口样本') + '</div>' +
+            '<div class="monitoring-request-insight-panel monitoring-request-insight-timing">' + renderRequestInsightTitle('耗时构成', '定位耗时集中在上游、重写还是注入') + renderRequestMetricTiming(item) + '</div>' +
             '</div>';
     }
 
