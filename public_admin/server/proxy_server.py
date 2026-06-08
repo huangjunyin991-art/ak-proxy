@@ -15073,6 +15073,9 @@ async def admin_remote_assist_close(request: Request):
     token, role, admin_name = await _resolve_admin_identity(request)
     if not token or not role:
         return JSONResponse({"success": False, "message": "未登录或登录已失效"}, status_code=401)
+    _, permission_error = await _require_admin_token(request, 'online')
+    if permission_error is not None:
+        return permission_error
     data = await request.json()
     session_id = (data.get("session_id") or "").strip()
     if not session_id:
@@ -15167,6 +15170,9 @@ async def admin_remote_voice_start(request: Request):
     token, role, admin_name = await _resolve_admin_identity(request)
     if not token or not role:
         return JSONResponse({"success": False, "message": "未登录或登录已失效"}, status_code=401)
+    _, permission_error = await _require_admin_token(request, 'online')
+    if permission_error is not None:
+        return permission_error
     data = await request.json()
     assist_session_id = (data.get("assist_session_id") or "").strip()
     if not assist_session_id:
@@ -15225,6 +15231,9 @@ async def admin_remote_voice_close(request: Request):
     token, role, admin_name = await _resolve_admin_identity(request)
     if not token or not role:
         return JSONResponse({"success": False, "message": "未登录或登录已失效"}, status_code=401)
+    _, permission_error = await _require_admin_token(request, 'online')
+    if permission_error is not None:
+        return permission_error
     data = await request.json()
     voice_session_id = (data.get("voice_session_id") or "").strip()
     assist_session_id = (data.get("assist_session_id") or "").strip()
