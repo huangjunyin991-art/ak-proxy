@@ -86,3 +86,32 @@ if permission_error is not None:
    - documented public business auth
 3. 对 `admin_session` 级写接口继续逐个复核业务语义，确认是否应该提升到具体权限位。
 4. 长期可以把 `proxy_server.py` 中的大量管理接口拆到独立路由模块，避免权限边界分散在超大文件里。
+
+## 自动化检查脚本
+
+已新增静态扫描脚本：
+
+```powershell
+python tools\security\audit_admin_write_routes.py
+```
+
+默认行为：
+
+- 扫描 `public_admin/server/**/*.py` 与 `public_admin/plugins/**/server/**/*.py`。
+- 只检查 `POST / PUT / PATCH / DELETE` 写接口。
+- 缺少已知后端守门方式时标记为 `MISSING`，并返回非零退出码。
+- 仅有管理员登录态、但没有具体权限位或作用域时标记为 `WARN`，默认不阻断。
+
+严格模式：
+
+```powershell
+python tools\security\audit_admin_write_routes.py --fail-on warn
+```
+
+该模式会把 `WARN` 也作为失败处理，适合在做专项安全收口时使用。
+
+输出完整清单：
+
+```powershell
+python tools\security\audit_admin_write_routes.py --include-ok --include-public
+```

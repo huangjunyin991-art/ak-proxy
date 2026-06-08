@@ -8,6 +8,8 @@
 !im_server/**
 !deploy/
 !deploy/**
+!tools/
+!tools/**
 
 **/__pycache__/
 **/*.pyc
