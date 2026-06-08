@@ -94,6 +94,7 @@
 ### S4. IM 内部会议发布接口缺少代码层内部鉴权
 
 级别：P1，需验证部署暴露面
+状态：已处理。所有 `/im/internal/*` 路由注册点已统一套用代码层 loopback guard，非本机来源直接 403；现有 handler 内的局部 loopback 检查保留为重复保险。后续如需抵抗同机 SSRF，可在该 guard 内平滑升级 HMAC/时间戳/nonce 校验。
 位置：
 
 - `im_server/internal/app/app.go:373`

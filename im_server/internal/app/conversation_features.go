@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"net"
 	"net/http"
 	"sort"
 	"strings"
@@ -191,16 +190,6 @@ func roundProgressPercent(readCount int64, totalCount int64) int {
 		readCount = totalCount
 	}
 	return int(math.Round((float64(readCount) * 100) / float64(totalCount)))
-}
-
-func isLoopbackRequest(r *http.Request) bool {
-	host, _, err := net.SplitHostPort(strings.TrimSpace(r.RemoteAddr))
-	if err != nil {
-		host = strings.TrimSpace(r.RemoteAddr)
-	}
-	host = strings.Trim(host, "[]")
-	ip := net.ParseIP(host)
-	return ip != nil && ip.IsLoopback()
 }
 
 func (a *App) loadConversationMeta(ctx context.Context, conversationID int64) (conversationMeta, error) {
