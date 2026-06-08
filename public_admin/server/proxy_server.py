@@ -166,6 +166,7 @@ from .security.audit import (
     summarize_log_payload,
 )
 from .security.context import build_security_context
+from .security.im_image_policy import build_im_image_preview_headers, validate_im_image_preview_src
 from .security.result import SecurityResult
 from .security.upstream_http import resolve_upstream_tls_verify
 from .ak_auth import AkUserKeyLoginFastPath
@@ -12406,9 +12407,51 @@ async def im_image_preview_page(request: Request):
 
     label = str(request.query_params.get("label") or "图片预览").strip() or "图片预览"
 
-    safe_src = html_escape(src, quote=True)
-
     safe_label = html_escape(label, quote=True)
+
+    nonce = secrets.token_urlsafe(16)
+
+    headers = build_im_image_preview_headers(nonce)
+
+    forwarded_proto = str(request.headers.get("x-forwarded-proto") or "").split(",", 1)[0].strip()
+
+    forwarded_host = str(request.headers.get("x-forwarded-host") or request.headers.get("host") or "").split(",", 1)[0].strip()
+
+    same_origin_scheme = forwarded_proto or request.url.scheme
+
+    same_origin_host = forwarded_host or request.url.netloc
+
+    same_origin = f"{same_origin_scheme}://{same_origin_host}"
+
+    source_result = validate_im_image_preview_src(src, same_origin=same_origin)
+
+    if not source_result.allowed:
+
+        html = f"""<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>{safe_label}</title>
+<style nonce="{nonce}">
+html,body{{margin:0;width:100%;height:100%;background:#0f172a;color:#e5e7eb;overflow:hidden;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}}
+body{{display:flex;align-items:center;justify-content:center;padding:24px;box-sizing:border-box;text-align:center}}
+.ak-im-image-preview-error{{max-width:320px;line-height:1.7}}
+.ak-im-image-preview-error strong{{display:block;margin-bottom:8px;font-size:17px;color:#fff}}
+.ak-im-image-preview-error span{{display:block;font-size:14px;color:#9ca3af}}
+</style>
+</head>
+<body>
+<main class="ak-im-image-preview-error" role="alert">
+<strong>图片地址无效或已过期</strong>
+<span>仅支持查看聊天中的图片资源。</span>
+</main>
+</body>
+</html>"""
+
+        return HTMLResponse(content=html, status_code=400, headers=headers)
+
+    safe_src = html_escape(source_result.src, quote=True)
 
     html = f"""<!doctype html>
 <html lang="zh-CN">
@@ -12416,7 +12459,7 @@ async def im_image_preview_page(request: Request):
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>{safe_label}</title>
-<style>
+<style nonce="{nonce}">
 html,body{{margin:0;width:100%;height:100%;background:#000;overflow:hidden}}
 body{{display:flex;align-items:center;justify-content:center;touch-action:manipulation}}
 .ak-im-image-preview-page{{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:#000;padding:0;box-sizing:border-box;cursor:zoom-out}}
@@ -12427,7 +12470,7 @@ body{{display:flex;align-items:center;justify-content:center;touch-action:manipu
 <main class="ak-im-image-preview-page" role="button" tabindex="0" aria-label="关闭图片预览">
 <img src="{safe_src}" alt="{safe_label}">
 </main>
-<script>
+<script nonce="{nonce}">
 (function() {{
     function closePreview() {{
         if (window.history.length > 1) {{
@@ -12452,7 +12495,7 @@ body{{display:flex;align-items:center;justify-content:center;touch-action:manipu
 </body>
 </html>"""
 
-    return HTMLResponse(content=html, headers={"Cache-Control": "no-store"})
+    return HTMLResponse(content=html, headers=headers)
 
 
 @app.get("/chat/plugins/im/user/modules/im_app_shell.js")
