@@ -172,8 +172,8 @@ func (a *App) emitCallOutcomeMessage(ctx context.Context, session *imCallSession
 		}
 		return MessageItem{}, false, err
 	}
-	var nextSeqNo int64
-	if err := tx.QueryRow(ctx, `SELECT COALESCE(MAX(seq_no), 0) + 1 FROM im_message WHERE conversation_id = $1`, payload.ConversationID).Scan(&nextSeqNo); err != nil {
+	nextSeqNo, err := a.allocateMessageSeqNoTx(ctx, tx, payload.ConversationID)
+	if err != nil {
 		return MessageItem{}, false, err
 	}
 	var item MessageItem
@@ -216,6 +216,6 @@ func (a *App) emitCallOutcomeMessage(ctx context.Context, session *imCallSession
 		a.populateMessageReadProgress(items, members, senderUsername)
 		item = items[0]
 	}
-	a.broadcastMessageCreated(ctx, payload.ConversationID, item)
+	a.broadcastMessageCreated(ctx, payload.ConversationID, item, members)
 	return item, true, nil
 }

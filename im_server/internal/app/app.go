@@ -456,6 +456,7 @@ func (a *App) ensureSchema(ctx context.Context) error {
 		)`,
 		`ALTER TABLE im_conversation ADD COLUMN IF NOT EXISTS hidden_for_all BOOLEAN NOT NULL DEFAULT FALSE`,
 		`ALTER TABLE im_conversation ADD COLUMN IF NOT EXISTS purged_before_seq_no BIGINT NOT NULL DEFAULT 0`,
+		`ALTER TABLE im_conversation ADD COLUMN IF NOT EXISTS last_seq_no BIGINT NOT NULL DEFAULT 0`,
 		`ALTER TABLE im_conversation ADD COLUMN IF NOT EXISTS all_muted BOOLEAN NOT NULL DEFAULT FALSE`,
 		`ALTER TABLE im_conversation ADD COLUMN IF NOT EXISTS all_muted_by TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE im_conversation ADD COLUMN IF NOT EXISTS all_muted_at TIMESTAMP`,
@@ -1737,68 +1738,8 @@ func (a *App) handleSessions(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusForbidden, map[string]any{"error": true, "message": err.Error()})
 		return
 	}
-	rows, err := a.db.Query(r.Context(), `
-		SELECT c.id, c.conversation_type, COALESCE(c.title, '') AS conversation_title, COALESCE(c.avatar_url, '') AS avatar_url, COALESCE(c.owner_username, '') AS owner_username,
-			COALESCE((SELECT COUNT(1) FROM im_conversation_member member WHERE member.conversation_id = c.id AND member.left_at IS NULL), 0) AS member_count,
-			COALESCE(c.all_muted, FALSE) AS all_muted,
-			COALESCE(c.all_muted_by, '') AS all_muted_by,
-			c.all_muted_at,
-			cm.mute_until,
-			COALESCE(cm.pin_type, 'none') AS pin_type,
-			cm.pinned_at,
-			COALESCE(c.last_message_id, 0) AS last_message_id,
-			COALESCE(lm.message_type, '') AS last_message_type,
-			COALESCE(c.last_message_preview, '') AS last_message_preview,
-			c.last_message_at,
-			COALESCE((SELECT COUNT(1) FROM im_message m2 WHERE m2.conversation_id = c.id AND m2.deleted_at IS NULL AND m2.sender_username <> $1 AND m2.seq_no > COALESCE(cm.last_read_seq_no, 0) AND m2.seq_no > COALESCE(c.purged_before_seq_no, 0) AND m2.sent_at + INTERVAL '2 seconds' >= cm.joined_at), 0) AS unread_count,
-			COALESCE((SELECT COUNT(DISTINCT m3.id) FROM im_message_mention mm JOIN im_message m3 ON m3.id = mm.message_id WHERE mm.conversation_id = c.id AND m3.deleted_at IS NULL AND m3.sender_username <> $1 AND m3.seq_no > COALESCE(cm.last_read_seq_no, 0) AND m3.seq_no > COALESCE(c.purged_before_seq_no, 0) AND m3.sent_at + INTERVAL '2 seconds' >= cm.joined_at AND (mm.mention_all = TRUE OR mm.mentioned_username = $1)), 0) AS mention_unread_count,
-			COALESCE(EXISTS(SELECT 1 FROM im_message_mention mm JOIN im_message m4 ON m4.id = mm.message_id WHERE mm.conversation_id = c.id AND m4.deleted_at IS NULL AND m4.sender_username <> $1 AND m4.seq_no > COALESCE(cm.last_read_seq_no, 0) AND m4.seq_no > COALESCE(c.purged_before_seq_no, 0) AND m4.sent_at + INTERVAL '2 seconds' >= cm.joined_at AND mm.mentioned_username = $1), FALSE) AS mention_me_unread,
-			COALESCE(EXISTS(SELECT 1 FROM im_message_mention mm JOIN im_message m5 ON m5.id = mm.message_id WHERE mm.conversation_id = c.id AND m5.deleted_at IS NULL AND m5.sender_username <> $1 AND m5.seq_no > COALESCE(cm.last_read_seq_no, 0) AND m5.seq_no > COALESCE(c.purged_before_seq_no, 0) AND m5.sent_at + INTERVAL '2 seconds' >= cm.joined_at AND mm.mention_all = TRUE), FALSE) AS mention_all_unread,
-			COALESCE((SELECT peer.username FROM im_conversation_member peer WHERE peer.conversation_id = c.id AND peer.username <> $1 AND peer.left_at IS NULL ORDER BY peer.username LIMIT 1), '') AS peer_username
-		FROM im_conversation c
-		JOIN im_conversation_member cm ON cm.conversation_id = c.id AND cm.username = $1 AND cm.left_at IS NULL
-		LEFT JOIN im_message lm ON lm.id = c.last_message_id
-		WHERE c.deleted_at IS NULL AND COALESCE(c.hidden_for_all, FALSE) = FALSE
-		ORDER BY CASE COALESCE(cm.pin_type, 'none') WHEN 'system' THEN 2 WHEN 'manual' THEN 1 ELSE 0 END DESC,
-			COALESCE(cm.pinned_at, c.last_message_at, c.created_at) DESC,
-			COALESCE(c.last_message_at, c.created_at) DESC`, username)
+	items, err := a.loadSessionItems(r.Context(), username)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
-		return
-	}
-	defer rows.Close()
-	items := make([]SessionItem, 0)
-	for rows.Next() {
-		var item SessionItem
-		var lastMessageAt *time.Time
-		var pinnedAt *time.Time
-		var allMutedAt *time.Time
-		var muteUntil *time.Time
-		if err := rows.Scan(&item.ConversationID, &item.ConversationType, &item.ConversationTitle, &item.AvatarURL, &item.OwnerUsername, &item.MemberCount, &item.AllMuted, &item.AllMutedBy, &allMutedAt, &muteUntil, &item.PinType, &pinnedAt, &item.LastMessageID, &item.LastMessageType, &item.LastMessagePreview, &lastMessageAt, &item.UnreadCount, &item.MentionUnreadCount, &item.MentionMeUnread, &item.MentionAllUnread, &item.PeerUsername); err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
-			return
-		}
-		item.AllMutedBy = strings.ToLower(strings.TrimSpace(item.AllMutedBy))
-		item.AllMutedAt = formatOptionalTime(allMutedAt)
-		item.MutedUntil = formatOptionalTime(muteUntil)
-		item.IsPinned = item.PinType == "system" || item.PinType == "manual"
-		if pinnedAt != nil {
-			item.PinnedAt = formatIMTimestamp(*pinnedAt)
-		}
-		if lastMessageAt != nil {
-			item.LastMessageAt = formatIMTimestamp(*lastMessageAt)
-		}
-		item.CanSend = true
-		if item.ConversationType == "group" {
-			if muteUntil != nil && muteUntil.After(time.Now()) {
-				item.CanSend = false
-				item.SendRestriction = "group_mute"
-				item.SendRestrictionHint = "你已被禁言"
-			}
-		}
-		items = append(items, item)
-	}
-	if err := rows.Err(); err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
 		return
 	}
@@ -2064,7 +2005,7 @@ func (a *App) handleSendMessage(w http.ResponseWriter, r *http.Request, username
 		writeJSON(w, http.StatusForbidden, map[string]any{"error": true, "message": "forbidden"})
 		return
 	}
-	message, err := a.insertMessage(r.Context(), req.ConversationID, username, req)
+	result, err := a.insertMessageWithMembers(r.Context(), req.ConversationID, username, req)
 	if err != nil {
 		var sendRestrictedErr *socialsvc.SendRestrictedError
 		if errors.As(err, &sendRestrictedErr) {
@@ -2082,8 +2023,8 @@ func (a *App) handleSendMessage(w http.ResponseWriter, r *http.Request, username
 		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": true, "message": err.Error()})
 		return
 	}
-	a.broadcastMessageCreated(r.Context(), req.ConversationID, message)
-	writeJSON(w, http.StatusOK, map[string]any{"item": message})
+	a.broadcastMessageCreated(r.Context(), req.ConversationID, result.Item, result.Members)
+	writeJSON(w, http.StatusOK, map[string]any{"item": result.Item})
 }
 
 func buildMessageStorage(req sendMessageRequest) (messageType string, contentPreview string, contentPayload string, contentSizeRaw int, contentSizeStored int, err error) {
@@ -2209,36 +2150,49 @@ func buildMessageStorage(req sendMessageRequest) (messageType string, contentPre
 	return
 }
 
+type insertedMessageResult struct {
+	Item    MessageItem
+	Members []conversationMemberSnapshot
+}
+
 func (a *App) insertMessage(ctx context.Context, conversationID int64, username string, req sendMessageRequest) (MessageItem, error) {
-	messageType, preview, contentPayload, contentSizeRaw, contentSizeStored, err := buildMessageStorage(req)
+	result, err := a.insertMessageWithMembers(ctx, conversationID, username, req)
 	if err != nil {
 		return MessageItem{}, err
+	}
+	return result.Item, nil
+}
+
+func (a *App) insertMessageWithMembers(ctx context.Context, conversationID int64, username string, req sendMessageRequest) (insertedMessageResult, error) {
+	messageType, preview, contentPayload, contentSizeRaw, contentSizeStored, err := buildMessageStorage(req)
+	if err != nil {
+		return insertedMessageResult{}, err
 	}
 	if messageType == "emoji_custom" {
 		exists, existsErr := a.emojiAssetExists(ctx, req.EmojiAssetID)
 		if existsErr != nil {
-			return MessageItem{}, existsErr
+			return insertedMessageResult{}, existsErr
 		}
 		if !exists {
-			return MessageItem{}, errInvalidEmojiAssetID
+			return insertedMessageResult{}, errInvalidEmojiAssetID
 		}
 	}
 	tx, err := a.db.Begin(ctx)
 	if err != nil {
-		return MessageItem{}, err
+		return insertedMessageResult{}, err
 	}
 	defer tx.Rollback(ctx)
 	if a.social != nil {
 		if err := a.social.AssertCanSendMessageTx(ctx, tx, username, conversationID); err != nil {
-			return MessageItem{}, err
+			return insertedMessageResult{}, err
 		}
 	}
 	if err := a.assertGroupCanSendMessageTx(ctx, tx, conversationID, username); err != nil {
-		return MessageItem{}, err
+		return insertedMessageResult{}, err
 	}
-	var nextSeqNo int64
-	if err := tx.QueryRow(ctx, `SELECT COALESCE(MAX(seq_no), 0) + 1 FROM im_message WHERE conversation_id = $1`, conversationID).Scan(&nextSeqNo); err != nil {
-		return MessageItem{}, err
+	nextSeqNo, err := a.allocateMessageSeqNoTx(ctx, tx, conversationID)
+	if err != nil {
+		return insertedMessageResult{}, err
 	}
 	var item MessageItem
 	var sentAt time.Time
@@ -2249,7 +2203,27 @@ func (a *App) insertMessage(ctx context.Context, conversationID int64, username 
 		conversationID, username, nextSeqNo, messageType, preview, contentPayload, contentSizeRaw, contentSizeStored,
 	).Scan(&item.ID, &item.ConversationID, &item.SenderUsername, &item.SeqNo, &item.MessageType, &item.Content, &item.ContentPreview, &item.Status, &sentAt)
 	if err != nil {
-		return MessageItem{}, err
+		return insertedMessageResult{}, err
+	}
+	mentionUsernames, mentionAll, err := a.saveMessageMentionsTx(ctx, tx, item.ID, conversationID, username, req)
+	if err != nil {
+		return insertedMessageResult{}, err
+	}
+	item.MentionUsernames = mentionUsernames
+	item.MentionAll = mentionAll
+	if a.social != nil {
+		if err := a.social.AfterMessageSentTx(ctx, tx, username, conversationID, item.ID); err != nil {
+			return insertedMessageResult{}, err
+		}
+	}
+	if _, err := tx.Exec(ctx, `UPDATE im_conversation SET last_message_id = $1, last_message_preview = $2, last_message_at = timezone('Asia/Shanghai', NOW()), updated_at = NOW() WHERE id = $3`, item.ID, item.ContentPreview, conversationID); err != nil {
+		return insertedMessageResult{}, err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE im_conversation_member SET last_read_seq_no = GREATEST(last_read_seq_no, $1), last_read_at = NOW(), updated_at = NOW() WHERE conversation_id = $2 AND username = $3`, item.SeqNo, conversationID, username); err != nil {
+		return insertedMessageResult{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return insertedMessageResult{}, err
 	}
 	item.SentAt = formatIMTimestamp(sentAt)
 	senderIdentity := a.buildUserIdentityItem(ctx, item.SenderUsername)
@@ -2261,33 +2235,13 @@ func (a *App) insertMessage(ctx context.Context, conversationID int64, username 
 	item.SenderAvatarURL = senderIdentity.AvatarURL
 	item.ClientTempID = strings.TrimSpace(req.ClientTempID)
 	item = a.normalizeOutgoingMessageItem(ctx, item)
-	mentionUsernames, mentionAll, err := a.saveMessageMentionsTx(ctx, tx, item.ID, conversationID, username, req)
-	if err != nil {
-		return MessageItem{}, err
-	}
-	item.MentionUsernames = mentionUsernames
-	item.MentionAll = mentionAll
-	if a.social != nil {
-		if err := a.social.AfterMessageSentTx(ctx, tx, username, conversationID, item.ID); err != nil {
-			return MessageItem{}, err
-		}
-	}
-	if _, err := tx.Exec(ctx, `UPDATE im_conversation SET last_message_id = $1, last_message_preview = $2, last_message_at = timezone('Asia/Shanghai', NOW()), updated_at = NOW() WHERE id = $3`, item.ID, item.ContentPreview, conversationID); err != nil {
-		return MessageItem{}, err
-	}
-	if _, err := tx.Exec(ctx, `UPDATE im_conversation_member SET last_read_seq_no = GREATEST(last_read_seq_no, $1), last_read_at = NOW(), updated_at = NOW() WHERE conversation_id = $2 AND username = $3`, item.SeqNo, conversationID, username); err != nil {
-		return MessageItem{}, err
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return MessageItem{}, err
-	}
 	members, err := a.listConversationMembers(ctx, conversationID)
 	if err == nil {
 		items := []MessageItem{item}
 		a.populateMessageReadProgress(items, members, username)
 		item = items[0]
 	}
-	return item, nil
+	return insertedMessageResult{Item: item, Members: members}, nil
 }
 
 func (a *App) saveMessageMentionsTx(ctx context.Context, tx pgx.Tx, messageID int64, conversationID int64, senderUsername string, req sendMessageRequest) ([]string, bool, error) {
@@ -2668,7 +2622,7 @@ func (a *App) handleWS(w http.ResponseWriter, r *http.Request) {
 			if !a.ensureConversationMember(r.Context(), fmt.Sprintf("%d", payload.ConversationID), username) {
 				continue
 			}
-			item, err := a.insertMessage(r.Context(), payload.ConversationID, username, payload)
+			result, err := a.insertMessageWithMembers(r.Context(), payload.ConversationID, username, payload)
 			if err != nil {
 				var sendRestrictedErr *socialsvc.SendRestrictedError
 				if errors.As(err, &sendRestrictedErr) {
@@ -2680,7 +2634,7 @@ func (a *App) handleWS(w http.ResponseWriter, r *http.Request) {
 				}
 				continue
 			}
-			a.broadcastMessageCreated(r.Context(), payload.ConversationID, item)
+			a.broadcastMessageCreated(r.Context(), payload.ConversationID, result.Item, result.Members)
 		case "im.message.read":
 			var payload wsReadPayload
 			if err := json.Unmarshal(env.Payload, &payload); err != nil {

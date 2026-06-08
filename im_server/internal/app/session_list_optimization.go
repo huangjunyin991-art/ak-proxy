@@ -38,6 +38,142 @@ func collectSessionPeerUsernames(items []SessionItem) []string {
 	return normalizeUsernames(usernames)
 }
 
+func (a *App) loadSessionItems(ctx context.Context, username string) ([]SessionItem, error) {
+	normalizedUsername := strings.ToLower(strings.TrimSpace(username))
+	rows, err := a.db.Query(ctx, `
+		WITH visible AS (
+			SELECT c.id,
+			       c.conversation_type,
+			       COALESCE(c.title, '') AS conversation_title,
+			       COALESCE(c.avatar_url, '') AS avatar_url,
+			       COALESCE(c.owner_username, '') AS owner_username,
+			       COALESCE(c.all_muted, FALSE) AS all_muted,
+			       COALESCE(c.all_muted_by, '') AS all_muted_by,
+			       c.all_muted_at,
+			       COALESCE(c.purged_before_seq_no, 0) AS purged_before_seq_no,
+			       COALESCE(cm.last_read_seq_no, 0) AS last_read_seq_no,
+			       cm.joined_at,
+			       cm.mute_until,
+			       COALESCE(cm.pin_type, 'none') AS pin_type,
+			       cm.pinned_at,
+			       COALESCE(c.last_message_id, 0) AS last_message_id,
+			       COALESCE(c.last_message_preview, '') AS last_message_preview,
+			       c.last_message_at,
+			       c.created_at
+			FROM im_conversation c
+			JOIN im_conversation_member cm ON cm.conversation_id = c.id AND cm.username = $1 AND cm.left_at IS NULL
+			WHERE c.deleted_at IS NULL AND COALESCE(c.hidden_for_all, FALSE) = FALSE
+		),
+		member_counts AS (
+			SELECT member.conversation_id, COUNT(1) AS member_count
+			FROM im_conversation_member member
+			JOIN visible v ON v.id = member.conversation_id
+			WHERE member.left_at IS NULL
+			GROUP BY member.conversation_id
+		),
+		peers AS (
+			SELECT peer.conversation_id, MIN(peer.username) AS peer_username
+			FROM im_conversation_member peer
+			JOIN visible v ON v.id = peer.conversation_id
+			WHERE peer.username <> $1 AND peer.left_at IS NULL
+			GROUP BY peer.conversation_id
+		),
+		unread AS (
+			SELECT v.id AS conversation_id, COUNT(m.id) AS unread_count
+			FROM visible v
+			JOIN im_message m ON m.conversation_id = v.id
+			WHERE m.deleted_at IS NULL
+			  AND m.sender_username <> $1
+			  AND m.seq_no > v.last_read_seq_no
+			  AND m.seq_no > v.purged_before_seq_no
+			  AND m.sent_at + INTERVAL '2 seconds' >= v.joined_at
+			GROUP BY v.id
+		),
+		mention_unread AS (
+			SELECT v.id AS conversation_id,
+			       COUNT(DISTINCT m.id) AS mention_unread_count,
+			       BOOL_OR(mm.mentioned_username = $1 AND mm.mention_all = FALSE) AS mention_me_unread,
+			       BOOL_OR(mm.mention_all = TRUE) AS mention_all_unread
+			FROM visible v
+			JOIN im_message_mention mm ON mm.conversation_id = v.id
+			JOIN im_message m ON m.id = mm.message_id
+			WHERE m.deleted_at IS NULL
+			  AND m.sender_username <> $1
+			  AND m.seq_no > v.last_read_seq_no
+			  AND m.seq_no > v.purged_before_seq_no
+			  AND m.sent_at + INTERVAL '2 seconds' >= v.joined_at
+			  AND (mm.mention_all = TRUE OR mm.mentioned_username = $1)
+			GROUP BY v.id
+		)
+		SELECT v.id,
+		       v.conversation_type,
+		       v.conversation_title,
+		       v.avatar_url,
+		       v.owner_username,
+		       COALESCE(mc.member_count, 0) AS member_count,
+		       v.all_muted,
+		       v.all_muted_by,
+		       v.all_muted_at,
+		       v.mute_until,
+		       v.pin_type,
+		       v.pinned_at,
+		       v.last_message_id,
+		       COALESCE(lm.message_type, '') AS last_message_type,
+		       v.last_message_preview,
+		       v.last_message_at,
+		       COALESCE(u.unread_count, 0) AS unread_count,
+		       COALESCE(mu.mention_unread_count, 0) AS mention_unread_count,
+		       COALESCE(mu.mention_me_unread, FALSE) AS mention_me_unread,
+		       COALESCE(mu.mention_all_unread, FALSE) AS mention_all_unread,
+		       COALESCE(p.peer_username, '') AS peer_username
+		FROM visible v
+		LEFT JOIN im_message lm ON lm.id = v.last_message_id
+		LEFT JOIN member_counts mc ON mc.conversation_id = v.id
+		LEFT JOIN unread u ON u.conversation_id = v.id
+		LEFT JOIN mention_unread mu ON mu.conversation_id = v.id
+		LEFT JOIN peers p ON p.conversation_id = v.id
+		ORDER BY CASE v.pin_type WHEN 'system' THEN 2 WHEN 'manual' THEN 1 ELSE 0 END DESC,
+		         COALESCE(v.pinned_at, v.last_message_at, v.created_at) DESC,
+		         COALESCE(v.last_message_at, v.created_at) DESC`, normalizedUsername)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := make([]SessionItem, 0)
+	now := time.Now()
+	for rows.Next() {
+		var item SessionItem
+		var lastMessageAt *time.Time
+		var pinnedAt *time.Time
+		var allMutedAt *time.Time
+		var muteUntil *time.Time
+		if err := rows.Scan(&item.ConversationID, &item.ConversationType, &item.ConversationTitle, &item.AvatarURL, &item.OwnerUsername, &item.MemberCount, &item.AllMuted, &item.AllMutedBy, &allMutedAt, &muteUntil, &item.PinType, &pinnedAt, &item.LastMessageID, &item.LastMessageType, &item.LastMessagePreview, &lastMessageAt, &item.UnreadCount, &item.MentionUnreadCount, &item.MentionMeUnread, &item.MentionAllUnread, &item.PeerUsername); err != nil {
+			return nil, err
+		}
+		item.AllMutedBy = strings.ToLower(strings.TrimSpace(item.AllMutedBy))
+		item.AllMutedAt = formatOptionalTime(allMutedAt)
+		item.MutedUntil = formatOptionalTime(muteUntil)
+		item.IsPinned = item.PinType == "system" || item.PinType == "manual"
+		if pinnedAt != nil {
+			item.PinnedAt = formatIMTimestamp(*pinnedAt)
+		}
+		if lastMessageAt != nil {
+			item.LastMessageAt = formatIMTimestamp(*lastMessageAt)
+		}
+		item.CanSend = true
+		if item.ConversationType == "group" && muteUntil != nil && muteUntil.After(now) {
+			item.CanSend = false
+			item.SendRestriction = "group_mute"
+			item.SendRestrictionHint = "你已被禁言"
+		}
+		items = append(items, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 func (a *App) enrichSessionItems(ctx context.Context, username string, items []SessionItem) []SessionItem {
 	if len(items) == 0 {
 		return items
@@ -152,12 +288,23 @@ func (a *App) loadSessionMembersPreviewMap(ctx context.Context, groupIDs []int64
 		               WHEN admin.username IS NOT NULL THEN 'admin'
 		               ELSE COALESCE(NULLIF(cm.role, ''), 'member')
 		           END AS role,
-		           cm.mute_until
+		           cm.mute_until,
+		           ROW_NUMBER() OVER (
+		               PARTITION BY cm.conversation_id
+		               ORDER BY
+		                   CASE
+		                       WHEN LOWER(TRIM(cm.username)) = LOWER(TRIM(COALESCE(c.owner_username, ''))) THEN 0
+		                       WHEN admin.username IS NOT NULL THEN 1
+		                       ELSE 2
+		                   END ASC,
+		                   LOWER(TRIM(cm.username)) ASC
+		           ) AS preview_rank
 		    FROM im_conversation_member cm
 		    JOIN im_conversation c ON c.id = cm.conversation_id
 		    LEFT JOIN im_conversation_admin admin ON admin.conversation_id = cm.conversation_id AND admin.username = cm.username AND admin.revoked_at IS NULL
 		    WHERE cm.conversation_id = ANY($1::bigint[]) AND cm.left_at IS NULL
 		) members
+		WHERE preview_rank <= 9
 		ORDER BY conversation_id ASC, LOWER(username) ASC`, groupIDs)
 	if err != nil {
 		return result, err

@@ -5,8 +5,8 @@ import (
 	"errors"
 	"strings"
 
-	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 type txQueryer interface {
@@ -129,17 +129,79 @@ func (s *Service) GetDirectSendRule(ctx context.Context, username string, conver
 
 func (s *Service) ListDirectSendRules(ctx context.Context, username string, conversationIDs []int64) (map[int64]DirectSendRule, error) {
 	result := map[int64]DirectSendRule{}
+	normalizedUsername := normalizeUsername(username)
+	ids := uniqueConversationIDs(conversationIDs)
+	if s == nil || s.db == nil || normalizedUsername == "" || len(ids) == 0 {
+		return result, nil
+	}
+	rows, err := s.db.Query(ctx, `
+		WITH requested AS (
+			SELECT DISTINCT unnest($1::bigint[]) AS conversation_id
+		),
+		peer AS (
+			SELECT DISTINCT ON (cm.conversation_id)
+			       cm.conversation_id,
+			       cm.username
+			FROM im_conversation_member cm
+			JOIN requested r ON r.conversation_id = cm.conversation_id
+			WHERE cm.username <> $2 AND cm.left_at IS NULL
+			ORDER BY cm.conversation_id ASC, cm.username ASC
+		)
+		SELECT r.conversation_id,
+		       COALESCE(c.conversation_type, '') AS conversation_type,
+		       COALESCE(peer.username, '') AS peer_username,
+		       COALESCE(g.initiator_username, '') AS initiator_username,
+		       COALESCE(g.reply_unlocked_at IS NOT NULL, FALSE) AS reply_unlocked,
+		       COALESCE(self_block.id IS NOT NULL, FALSE) AS self_blocked_peer,
+		       COALESCE(peer_block.id IS NOT NULL, FALSE) AS blocked_by_peer
+		FROM requested r
+		LEFT JOIN im_conversation c ON c.id = r.conversation_id AND c.deleted_at IS NULL
+		LEFT JOIN peer ON peer.conversation_id = r.conversation_id
+		LEFT JOIN im_direct_message_gate g ON g.conversation_id = r.conversation_id
+		LEFT JOIN im_user_blacklist self_block ON self_block.owner_username = $2 AND self_block.target_username = peer.username AND self_block.deleted_at IS NULL
+		LEFT JOIN im_user_blacklist peer_block ON peer_block.owner_username = peer.username AND peer_block.target_username = $2 AND peer_block.deleted_at IS NULL`, ids, normalizedUsername)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var snapshot directConversationSnapshot
+		if err := rows.Scan(&snapshot.ConversationID, &snapshot.ConversationType, &snapshot.PeerUsername, &snapshot.InitiatorUsername, &snapshot.ReplyUnlocked, &snapshot.SelfBlockedPeer, &snapshot.BlockedByPeer); err != nil {
+			return nil, err
+		}
+		snapshot.ConversationType = strings.ToLower(strings.TrimSpace(snapshot.ConversationType))
+		snapshot.PeerUsername = normalizeUsername(snapshot.PeerUsername)
+		snapshot.InitiatorUsername = normalizeUsername(snapshot.InitiatorUsername)
+		result[snapshot.ConversationID] = buildDirectSendRule(normalizedUsername, snapshot)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	for _, conversationID := range ids {
+		if conversationID <= 0 {
+			continue
+		}
+		if _, ok := result[conversationID]; !ok {
+			result[conversationID] = DirectSendRule{ConversationID: conversationID, CanSend: true}
+		}
+	}
+	return result, nil
+}
+
+func uniqueConversationIDs(conversationIDs []int64) []int64 {
+	seen := map[int64]struct{}{}
+	result := make([]int64, 0, len(conversationIDs))
 	for _, conversationID := range conversationIDs {
 		if conversationID <= 0 {
 			continue
 		}
-		rule, err := s.GetDirectSendRule(ctx, username, conversationID)
-		if err != nil {
-			return nil, err
+		if _, ok := seen[conversationID]; ok {
+			continue
 		}
-		result[conversationID] = rule
+		seen[conversationID] = struct{}{}
+		result = append(result, conversationID)
 	}
-	return result, nil
+	return result
 }
 
 func (s *Service) AssertCanSendMessageTx(ctx context.Context, tx pgx.Tx, username string, conversationID int64) error {

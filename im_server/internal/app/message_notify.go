@@ -165,12 +165,12 @@ func (p *MessageNotifyPublisher) sign(timestamp string, nonce string, body []byt
 	return hex.EncodeToString(mac.Sum(nil))
 }
 
-func (a *App) broadcastMessageCreated(ctx context.Context, conversationID int64, item MessageItem) {
+func (a *App) broadcastMessageCreated(ctx context.Context, conversationID int64, item MessageItem, memberSnapshots ...[]conversationMemberSnapshot) {
 	a.broadcastConversation(conversationID, map[string]any{"type": "im.message.created", "payload": item})
-	a.notifyMessageCreated(ctx, item)
+	a.notifyMessageCreated(ctx, item, memberSnapshots...)
 }
 
-func (a *App) notifyMessageCreated(ctx context.Context, item MessageItem) {
+func (a *App) notifyMessageCreated(ctx context.Context, item MessageItem, memberSnapshots ...[]conversationMemberSnapshot) {
 	if a == nil || a.messageNotifier == nil || item.ID <= 0 || item.ConversationID <= 0 {
 		return
 	}
@@ -179,10 +179,17 @@ func (a *App) notifyMessageCreated(ctx context.Context, item MessageItem) {
 		log.Printf("im notify center load conversation meta failed: conversation_id=%d err=%v", item.ConversationID, err)
 		return
 	}
-	members, err := a.listConversationMembers(ctx, item.ConversationID)
-	if err != nil {
-		log.Printf("im notify center load members failed: conversation_id=%d err=%v", item.ConversationID, err)
-		return
+	var members []conversationMemberSnapshot
+	if len(memberSnapshots) > 0 {
+		members = memberSnapshots[0]
+	}
+	if members == nil {
+		var err error
+		members, err = a.listConversationMembers(ctx, item.ConversationID)
+		if err != nil {
+			log.Printf("im notify center load members failed: conversation_id=%d err=%v", item.ConversationID, err)
+			return
+		}
 	}
 	sender := strings.ToLower(strings.TrimSpace(item.SenderUsername))
 	recipients := make([]string, 0, len(members))
@@ -209,19 +216,19 @@ func (a *App) notifyMessageCreated(ctx context.Context, item MessageItem) {
 		conversationTitle = whitelistMainGroupTitle
 	}
 	event := map[string]any{
-		"event_id":             fmt.Sprintf("im:%d:%d", item.ConversationID, item.ID),
-		"event_type":           "im.message.created",
-		"message_id":           item.ID,
-		"conversation_id":      item.ConversationID,
-		"conversation_type":    strings.TrimSpace(meta.ConversationType),
-		"conversation_title":   conversationTitle,
-		"sender_username":      item.SenderUsername,
-		"sender_display_name":  item.SenderDisplayName,
-		"message_type":         item.MessageType,
-		"sent_at":              item.SentAt,
-		"recipient_usernames":  recipients,
-		"mention_usernames":    item.MentionUsernames,
-		"mention_all":          item.MentionAll,
+		"event_id":            fmt.Sprintf("im:%d:%d", item.ConversationID, item.ID),
+		"event_type":          "im.message.created",
+		"message_id":          item.ID,
+		"conversation_id":     item.ConversationID,
+		"conversation_type":   strings.TrimSpace(meta.ConversationType),
+		"conversation_title":  conversationTitle,
+		"sender_username":     item.SenderUsername,
+		"sender_display_name": item.SenderDisplayName,
+		"message_type":        item.MessageType,
+		"sent_at":             item.SentAt,
+		"recipient_usernames": recipients,
+		"mention_usernames":   item.MentionUsernames,
+		"mention_all":         item.MentionAll,
 	}
 	a.messageNotifier.Publish(ctx, event)
 }
