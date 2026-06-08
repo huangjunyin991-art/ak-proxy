@@ -5,6 +5,8 @@ from typing import Any
 
 import httpx
 
+from ..security.upstream_http import resolve_upstream_tls_verify
+
 DEFAULT_BASE_URL = "http://127.0.0.1:8080/RPC/"
 DEFAULT_PAGE_SIZE = 15
 DEFAULT_MAX_PAGES = 0
@@ -124,7 +126,13 @@ class RecommendTreeProvider:
     async def build_tree(self, auth: dict[str, Any], root_rid: Any = "", page_size: int = DEFAULT_PAGE_SIZE, max_pages: int = DEFAULT_MAX_PAGES, max_depth: int = 0, max_nodes: int = 0) -> dict[str, Any]:
         started_at = time.time()
         root_id = root_rid or auth.get("user_id")
-        async with httpx.AsyncClient(headers=make_headers(), verify=False, follow_redirects=True, trust_env=False, timeout=25.0) as client:
+        async with httpx.AsyncClient(
+            headers=make_headers(),
+            verify=resolve_upstream_tls_verify("recommend_tree"),
+            follow_redirects=True,
+            trust_env=False,
+            timeout=25.0,
+        ) as client:
             current, first_children, request_count = await self.fetch_all_children(client, auth, root_id, page_size, max_pages)
             root_source = current or auth.get("user_data") or {"Id": root_id}
             root = node_from_player(root_source, fallback_id=root_id)

@@ -167,6 +167,7 @@ from .security.audit import (
 )
 from .security.context import build_security_context
 from .security.result import SecurityResult
+from .security.upstream_http import resolve_upstream_tls_verify
 from .ak_auth import AkUserKeyLoginFastPath
 from .ws_ticket import WsTicketDiagnosticsPolicyStore, WsTicketRepository, WsTicketService, create_ws_ticket_router
 from .ws_ticket.service import WsTicketError
@@ -1781,7 +1782,10 @@ async def report_to_monitor(endpoint: str, data: dict):
 
     try:
 
-        async with httpx.AsyncClient(verify=False, timeout=10) as client:
+        async with httpx.AsyncClient(
+            verify=resolve_upstream_tls_verify("monitor"),
+            timeout=10,
+        ) as client:
 
             resp = await client.post(url, json=data, headers=headers)
 
@@ -6116,7 +6120,13 @@ async def _ensure_point_stats_auth(username: str) -> dict:
     password = await db.get_user_password(username)
     if not password:
         raise RuntimeError("该账号没有可用登录态，且账号管理表中没有保存密码，请先让该账号登录一次或在账号管理中补齐密码")
-    async with httpx.AsyncClient(headers=_POINT_STATS_LOGIN_HEADERS, verify=False, follow_redirects=True, trust_env=False, timeout=25.0) as client:
+    async with httpx.AsyncClient(
+        headers=_POINT_STATS_LOGIN_HEADERS,
+        verify=resolve_upstream_tls_verify("point_stats"),
+        follow_redirects=True,
+        trust_env=False,
+        timeout=25.0,
+    ) as client:
         response = await client.post(_POINT_STATS_LOGIN_RPC_URL, data={
             "account": username,
             "password": password,
@@ -13285,7 +13295,7 @@ class AkWebClientPool:
                 keepalive_expiry=120,
             )
             client = httpx.AsyncClient(
-                verify=False,
+                verify=resolve_upstream_tls_verify("ak_web"),
                 proxy=proxy_url,
                 timeout=httpx.Timeout(20, connect=10),
                 follow_redirects=True,
@@ -14536,7 +14546,11 @@ async def admin_ak_test(request: Request):
     results = {}
     # 方式A：c.get() + follow_redirects在构造函数
     try:
-        async with httpx.AsyncClient(verify=False, follow_redirects=True, timeout=15) as c:
+        async with httpx.AsyncClient(
+            verify=resolve_upstream_tls_verify("ak_test"),
+            follow_redirects=True,
+            timeout=15,
+        ) as c:
             r = await c.get(url, headers=hdrs)
         results["A_get_constructor"] = {
             "status": r.status_code, "final_url": str(r.url),
@@ -14547,7 +14561,11 @@ async def admin_ak_test(request: Request):
         results["A_get_constructor"] = {"error": str(e)}
     # 方式B：client.request() + follow_redirects在request()参数（同ak_web_proxy当前代码）
     try:
-        async with httpx.AsyncClient(verify=False, timeout=15, cookies={}) as c:
+        async with httpx.AsyncClient(
+            verify=resolve_upstream_tls_verify("ak_test"),
+            timeout=15,
+            cookies={},
+        ) as c:
             r = await c.request("GET", url, headers=hdrs, content=None, follow_redirects=True)
         results["B_request_param"] = {
             "status": r.status_code, "final_url": str(r.url),

@@ -2,6 +2,7 @@ from typing import Any
 
 import httpx
 
+from ..security.upstream_http import resolve_upstream_tls_verify
 from .provider import RecommendTreeProvider, make_headers
 from .repository import RecommendTreeRepository
 from .tree_builder import build_payload
@@ -51,7 +52,13 @@ class RecommendTreeService:
         password = await self.repository.get_user_password(account)
         if not password:
             raise RuntimeError("该账号没有可用登录态或已保存密码，请先让该账号登录一次，或在账号管理中补齐密码")
-        async with httpx.AsyncClient(headers=make_headers(), verify=False, follow_redirects=True, trust_env=False, timeout=25.0) as client:
+        async with httpx.AsyncClient(
+            headers=make_headers(),
+            verify=resolve_upstream_tls_verify("recommend_tree"),
+            follow_redirects=True,
+            trust_env=False,
+            timeout=25.0,
+        ) as client:
             return await self.provider.login(client, self.repository.normalize_account(account), password)
 
     @staticmethod

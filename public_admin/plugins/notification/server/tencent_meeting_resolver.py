@@ -7,7 +7,8 @@ from datetime import datetime
 from html import unescape
 from typing import Any
 from urllib.parse import urlparse
-from urllib.request import Request, urlopen
+
+from public_admin.server.security.url_fetch_gateway import UrlFetchGateway, UrlFetchPolicy
 
 
 _NEXT_DATA_RE = re.compile(r'<script id="__NEXT_DATA__" type="application/json">(.*?)</script>', re.S)
@@ -24,9 +25,19 @@ class TencentMeetingShareLinkResolverError(ValueError):
 
 
 class TencentMeetingShareLinkResolver:
-    def __init__(self, *, timeout_seconds: float = 8.0, user_agent: str | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        timeout_seconds: float = 8.0,
+        user_agent: str | None = None,
+        fetch_gateway: UrlFetchGateway | None = None,
+    ) -> None:
         self.timeout_seconds = timeout_seconds
         self.user_agent = user_agent or 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0 Safari/537.36'
+        self.fetch_gateway = fetch_gateway or UrlFetchGateway(UrlFetchPolicy(
+            timeout_seconds=max(1, int(timeout_seconds or 8)),
+            max_response_bytes=1024 * 1024,
+        ))
 
     def resolve(self, url: str) -> dict[str, str]:
         normalized_url = _normalize_http_url(url)
@@ -95,18 +106,15 @@ class TencentMeetingShareLinkResolver:
         }
 
     def _fetch_html(self, url: str) -> tuple[str, str]:
-        request = Request(
-            url,
-            headers={
-                'User-Agent': self.user_agent,
-                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-            },
-        )
+        headers = {
+            'User-Agent': self.user_agent,
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        }
         try:
-            with urlopen(request, timeout=self.timeout_seconds) as response:
-                final_url = str(response.geturl() or url)
-                charset = response.headers.get_content_charset() or 'utf-8'
-                body = response.read()
+            response = self.fetch_gateway.request_sync(url, headers=headers)
+            final_url = str(response.url or url)
+            charset = _charset_from_content_type(response.headers.get('Content-Type') or '') or 'utf-8'
+            body = response.body
         except Exception as exc:
             raise TencentMeetingShareLinkResolverError(f'分享链接抓取失败: {exc}') from exc
         try:
@@ -165,6 +173,13 @@ def _extract_next_data(html_text: str) -> dict[str, Any]:
     except Exception:
         return {}
     return data if isinstance(data, dict) else {}
+
+
+def _charset_from_content_type(content_type: str) -> str:
+    match = re.search(r'charset=([^;\s]+)', str(content_type or ''), re.I)
+    if not match:
+        return ''
+    return match.group(1).strip().strip('"\'')
 
 
 def _extract_text_by_id(html_text: str, element_id: str) -> str:

@@ -23,6 +23,7 @@ from typing import Optional
 import httpx
 
 from .runtime_hygiene import RuntimeHygienePolicy
+from .security.upstream_http import resolve_upstream_tls_verify
 
 try:
     from .dispatcher_policy import (
@@ -264,7 +265,7 @@ class OutboundExit:
                 keepalive_expiry=120,
             )
             self._client = httpx.AsyncClient(
-                verify=False,
+                verify=resolve_upstream_tls_verify("dispatcher"),
                 limits=limits,
                 proxy=self.proxy_url,
                 timeout=httpx.Timeout(30, connect=10),
