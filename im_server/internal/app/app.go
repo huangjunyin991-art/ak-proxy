@@ -496,6 +496,14 @@ func (a *App) ensureSchema(ctx context.Context) error {
 			UNIQUE(conversation_id, seq_no)
 		)`,
 		`ALTER TABLE im_message ALTER COLUMN sent_at SET DEFAULT timezone('Asia/Shanghai', NOW())`,
+		`CREATE TABLE IF NOT EXISTS im_call_outcome_message (
+			call_id TEXT PRIMARY KEY,
+			conversation_id BIGINT NOT NULL REFERENCES im_conversation(id) ON DELETE CASCADE,
+			message_id BIGINT NOT NULL DEFAULT 0,
+			outcome TEXT NOT NULL DEFAULT '',
+			created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+			updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+		)`,
 		`CREATE TABLE IF NOT EXISTS im_conversation_admin (
 			id BIGSERIAL PRIMARY KEY,
 			conversation_id BIGINT NOT NULL REFERENCES im_conversation(id) ON DELETE CASCADE,
@@ -573,6 +581,7 @@ func (a *App) ensureSchema(ctx context.Context) error {
 		`CREATE INDEX IF NOT EXISTS idx_im_conversation_member_override_username ON im_conversation_member_override(username)`,
 		`CREATE INDEX IF NOT EXISTS idx_im_user_avatar_history_username_created_at ON im_user_avatar_history(username, created_at DESC, id DESC)`,
 		`CREATE INDEX IF NOT EXISTS idx_im_message_conversation_id ON im_message(conversation_id, seq_no DESC)`,
+		`CREATE INDEX IF NOT EXISTS idx_im_call_outcome_message_conversation ON im_call_outcome_message(conversation_id, created_at DESC)`,
 		`CREATE TABLE IF NOT EXISTS im_message_mention (
 			id BIGSERIAL PRIMARY KEY,
 			message_id BIGINT NOT NULL REFERENCES im_message(id) ON DELETE CASCADE,

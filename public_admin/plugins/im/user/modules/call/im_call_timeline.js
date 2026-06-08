@@ -216,6 +216,8 @@
         },
 
         handleTerminalSnapshot(trigger, snapshot) {
+            const snapshotCallId = trim(snapshot && (snapshot.callId || snapshot.call_id));
+            if (snapshotCallId) return Promise.resolve(null);
             const outcome = this.resolveOutcome(trigger, snapshot);
             if (!outcome) return Promise.resolve(null);
             const dedupKey = this.buildDedupKey(outcome, snapshot);

@@ -85,6 +85,40 @@
         return normalizeKind(kind) === 'video' ? '视频通话' : '语音通话';
     }
 
+    function resolveViewerRole(payload, viewerUsername) {
+        const viewer = trim(viewerUsername).toLowerCase();
+        const caller = trim(payload && payload.caller_username).toLowerCase();
+        const callee = trim(payload && payload.callee_username).toLowerCase();
+        if (viewer && caller && viewer === caller) return 'caller';
+        if (viewer && callee && viewer === callee) return 'callee';
+        return '';
+    }
+
+    function buildStructuredMainText(payload, fallbackText, viewerUsername, isRemote) {
+        const nextPayload = payload && typeof payload === 'object' ? payload : {};
+        const eventName = normalizeEvent(nextPayload.event);
+        const reason = trim(nextPayload.reason).toLowerCase();
+        const actorRole = trim(nextPayload.actor_role || nextPayload.actorRole).toLowerCase();
+        const viewerRole = resolveViewerRole(nextPayload, viewerUsername);
+        const durationText = normalizeDurationText(nextPayload.duration_text || nextPayload.durationText || '');
+        if (eventName === 'completed') return '通话时长 ' + (durationText || '00:00');
+        if (eventName === 'rejected') {
+            if (viewerRole === 'caller') return '本次呼叫未接通 · 对方已拒接';
+            if (viewerRole === 'callee' && actorRole === 'callee') return '已拒接';
+            return isRemote ? '本次呼叫未接通 · 对方已拒接' : '已拒接';
+        }
+        if (eventName === 'cancelled') {
+            if (reason === 'timeout') {
+                if (viewerRole === 'caller') return '本次呼叫未接通 · 对方未接听';
+                if (viewerRole === 'callee') return '未接听';
+                return isRemote ? '未接听' : '本次呼叫未接通 · 对方未接听';
+            }
+            if (actorRole && viewerRole && actorRole !== viewerRole) return '对方已取消通话';
+            return actorRole === 'caller' || !isRemote ? '已取消' : '对方已取消通话';
+        }
+        return trim(fallbackText) || '通话记录';
+    }
+
     function resolveIcon(eventName, kind) {
         if (normalizeKind(kind) === 'video') return ICONS.video;
         return ICONS.audio;
@@ -152,8 +186,30 @@
             }
         },
 
+        resolveStructuredCallEvent(item) {
+            const payload = safeParseJson(item && item.content) || {};
+            const rawPreview = trim(item && item.content_preview);
+            const senderUsername = trim(item && item.sender_username).toLowerCase();
+            const viewerUsername = this.getViewerUsername();
+            const isRemote = !!(senderUsername && viewerUsername && senderUsername !== viewerUsername);
+            const eventName = normalizeEvent(payload.event) || 'cancelled';
+            const kind = normalizeKind(payload.call_kind || payload.kind || 'audio');
+            const durationText = normalizeDurationText(payload.duration_text || payload.durationText || '');
+            const callEvent = {
+                event: eventName,
+                title: buildStructuredMainText(payload, rawPreview, viewerUsername, isRemote),
+                subtitle: buildSubtitle(kind),
+                icon: resolveIcon(eventName, kind),
+                durationText: durationText,
+                kind: kind
+            };
+            callEvent.canRedial = this.canRedial(item, callEvent);
+            return callEvent;
+        },
+
         resolveCallEvent(item) {
             const messageType = trim(item && item.message_type).toLowerCase();
+            if (messageType === 'call_event') return this.resolveStructuredCallEvent(item);
             const rawContent = trim(item && item.content);
             const rawPreview = trim(item && item.content_preview);
             const senderUsername = trim(item && item.sender_username).toLowerCase();
@@ -164,12 +220,7 @@
             let durationText = '';
             let previewText = rawPreview || rawContent;
             let textKind = '';
-            if (messageType === 'call_event') {
-                payload = safeParseJson(item && item.content) || {};
-                eventName = normalizeEvent(payload.event);
-                durationText = normalizeDurationText(payload.duration_text || payload.durationText || '');
-                previewText = trim(rawPreview || payload.preview_text || payload.previewText);
-            } else if (messageType === 'text' && (isPhoneText(rawContent) || isPhoneText(rawPreview))) {
+            if (messageType === 'text' && (isPhoneText(rawContent) || isPhoneText(rawPreview))) {
                 textKind = resolveTextKind(rawContent) || resolveTextKind(rawPreview);
                 eventName = normalizeTextEvent(rawPreview || rawContent);
                 const durationMatch = String(rawPreview || rawContent).match(/通话时长\s*([0-9:]+)/);

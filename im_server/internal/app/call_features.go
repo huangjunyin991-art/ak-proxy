@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"sort"
 	"strconv"
@@ -215,6 +216,11 @@ func (a *App) watchCallInvitationTimeout(callID string) {
 	a.broadcastCallSessionEvent(session, "im.call.failed", map[string]any{
 		"reason": "timeout",
 	})
+	if _, emitted, err := a.emitCallOutcomeMessage(context.Background(), session, "timeout", session.CallerUsername, "caller"); err != nil {
+		log.Printf("emit call outcome failed: call_id=%s reason=timeout err=%v", session.CallID, err)
+	} else if emitted {
+		log.Printf("emit call outcome: call_id=%s outcome=timeout", session.CallID)
+	}
 	a.deleteCallSession(session.CallID)
 }
 
@@ -461,6 +467,11 @@ func (a *App) handleCallAction(w http.ResponseWriter, r *http.Request, action st
 			"actor":      normalizeCallUsername(username),
 			"actor_role": role,
 		})
+		if _, emitted, err := a.emitCallOutcomeMessage(r.Context(), session, "rejected", username, role); err != nil {
+			log.Printf("emit call outcome failed: call_id=%s reason=rejected err=%v", session.CallID, err)
+		} else if emitted {
+			log.Printf("emit call outcome: call_id=%s outcome=rejected", session.CallID)
+		}
 		defer a.deleteCallSession(session.CallID)
 	case "hangup":
 		a.broadcastCallSessionEvent(session, "im.call.ended", map[string]any{
@@ -468,6 +479,11 @@ func (a *App) handleCallAction(w http.ResponseWriter, r *http.Request, action st
 			"actor":      normalizeCallUsername(username),
 			"actor_role": role,
 		})
+		if _, emitted, err := a.emitCallOutcomeMessage(r.Context(), session, "hangup", username, role); err != nil {
+			log.Printf("emit call outcome failed: call_id=%s reason=hangup err=%v", session.CallID, err)
+		} else if emitted {
+			log.Printf("emit call outcome: call_id=%s outcome=hangup", session.CallID)
+		}
 		defer a.deleteCallSession(session.CallID)
 	case "mute", "unmute":
 		a.broadcastCallSessionEvent(session, "im.call.updated", map[string]any{"muted_by": role})

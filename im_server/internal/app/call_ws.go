@@ -2,6 +2,7 @@ package app
 
 import (
 	"encoding/json"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -103,7 +104,8 @@ func (a *App) handleCallSignal(username string, client *HubConn, env wsEnvelope,
 		if session == nil {
 			return true
 		}
-		if a.callUserRole(session, username) == "" {
+		role := a.callUserRole(session, username)
+		if role == "" {
 			sendError("forbidden", "forbidden")
 			return true
 		}
@@ -113,8 +115,13 @@ func (a *App) handleCallSignal(username string, client *HubConn, env wsEnvelope,
 		a.broadcastCallSessionEvent(session, "im.call.failed", map[string]any{
 			"reason":     "rejected",
 			"actor":      normalizeCallUsername(username),
-			"actor_role": a.callUserRole(session, username),
+			"actor_role": role,
 		})
+		if _, emitted, err := a.emitCallOutcomeMessage(r.Context(), session, "rejected", username, role); err != nil {
+			log.Printf("emit call outcome failed: call_id=%s reason=rejected err=%v", session.CallID, err)
+		} else if emitted {
+			log.Printf("emit call outcome: call_id=%s outcome=rejected", session.CallID)
+		}
 		a.deleteCallSession(session.CallID)
 		return true
 	case "im.call.hangup":
@@ -122,7 +129,8 @@ func (a *App) handleCallSignal(username string, client *HubConn, env wsEnvelope,
 		if session == nil {
 			return true
 		}
-		if a.callUserRole(session, username) == "" {
+		role := a.callUserRole(session, username)
+		if role == "" {
 			sendError("forbidden", "forbidden")
 			return true
 		}
@@ -132,8 +140,13 @@ func (a *App) handleCallSignal(username string, client *HubConn, env wsEnvelope,
 		a.broadcastCallSessionEvent(session, "im.call.ended", map[string]any{
 			"reason":     "hangup",
 			"actor":      normalizeCallUsername(username),
-			"actor_role": a.callUserRole(session, username),
+			"actor_role": role,
 		})
+		if _, emitted, err := a.emitCallOutcomeMessage(r.Context(), session, "hangup", username, role); err != nil {
+			log.Printf("emit call outcome failed: call_id=%s reason=hangup err=%v", session.CallID, err)
+		} else if emitted {
+			log.Printf("emit call outcome: call_id=%s outcome=hangup", session.CallID)
+		}
 		a.deleteCallSession(session.CallID)
 		return true
 	case "im.call.mute":
