@@ -2,14 +2,18 @@ from __future__ import annotations
 
 from typing import Any
 
+from public_admin.server.security.url_fetch_gateway import UrlFetchGateway
 from ..base import ChannelSendResult
 from .client import NtfyClient, normalize_server_url, normalize_topic
 from .payload import build_ntfy_payload
 
 
 class NtfyChannel:
-    def __init__(self, *, timeout_seconds: int = 8):
-        self._client = NtfyClient(timeout_seconds=timeout_seconds)
+    def __init__(self, *, timeout_seconds: int = 8, fetch_gateway: UrlFetchGateway | None = None):
+        self._client = NtfyClient(timeout_seconds=timeout_seconds, fetch_gateway=fetch_gateway)
+
+    def validate_server_url(self, server_url: str) -> str:
+        return self._client.validate_server_url(server_url)
 
     async def send(self, *, binding: dict[str, Any], notification: dict[str, Any]) -> ChannelSendResult:
         if not binding:

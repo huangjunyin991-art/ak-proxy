@@ -84,11 +84,12 @@ class NotifyCenterService:
         normalized_username = normalize_username(username)
         if not normalized_username:
             raise ValueError('未识别当前用户')
-        existing = await self._ensure_default_ntfy_binding(normalized_username)
+        existing = await self.repository.get_ntfy_binding(normalized_username)
+        normalized_server_url = self._normalize_ntfy_server_url(server_url or self.config.ntfy_default_server_url)
         binding = await self.repository.upsert_ntfy_binding(
             username=normalized_username,
             topic=str(existing.get('topic') or _build_default_ntfy_topic(normalized_username, self.config)),
-            server_url=normalize_ntfy_server_url(server_url or self.config.ntfy_default_server_url),
+            server_url=normalized_server_url,
             enabled=bool(enabled),
         )
         return _public_ntfy_binding(binding, username=normalized_username, default_server_url=self.config.ntfy_default_server_url)
@@ -132,6 +133,16 @@ class NotifyCenterService:
             server_url=normalize_ntfy_server_url(self.config.ntfy_default_server_url),
             enabled=True,
         )
+
+    def _normalize_ntfy_server_url(self, server_url: str) -> str:
+        if self.ntfy_channel is not None and hasattr(self.ntfy_channel, 'validate_server_url'):
+            try:
+                return str(self.ntfy_channel.validate_server_url(server_url))
+            except ValueError:
+                raise
+            except Exception as exc:
+                raise ValueError(str(exc)) from exc
+        return normalize_ntfy_server_url(server_url)
 
     async def get_pushdeer_binding(self, username: str) -> dict[str, Any]:
         normalized_username = normalize_username(username)

@@ -6,8 +6,7 @@ from typing import Awaitable, Callable
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 
-from .config import NotifyCenterConfig
-from .identity import get_identity_cookie_username
+from .identity_resolver import NotifyIdentityResolver
 from .security import normalize_username, verify_signature
 from .service import NotifyCenterService
 
@@ -25,6 +24,7 @@ def create_notify_center_router(
     require_admin_user_scope: AdminUserGuardCallable | None = None,
 ) -> APIRouter:
     router = APIRouter()
+    identity_resolver = NotifyIdentityResolver(service.config)
 
     async def _require_admin_request(request: Request) -> JSONResponse | None:
         if require_admin_request is not None:
@@ -55,7 +55,7 @@ def create_notify_center_router(
             payload = await request.json()
         except Exception:
             return JSONResponse(status_code=400, content={'success': False, 'message': '请求体无效'})
-        username = _resolve_current_username(request, service.config)
+        username = _resolve_current_username(request, identity_resolver)
         if not username:
             return JSONResponse(status_code=401, content={'success': False, 'message': '未识别当前用户'})
         subscription = payload.get('subscription') if isinstance(payload, dict) and isinstance(payload.get('subscription'), dict) else {}
@@ -75,7 +75,7 @@ def create_notify_center_router(
 
     @router.get('/api/notify-center/web-push/diagnostics')
     async def web_push_diagnostics(request: Request):
-        username = _resolve_current_username(request, service.config)
+        username = _resolve_current_username(request, identity_resolver)
         if not username:
             return JSONResponse(status_code=401, content={'success': False, 'message': '未识别当前用户'})
         try:
@@ -86,7 +86,7 @@ def create_notify_center_router(
 
     @router.get('/api/notify-center/ntfy/binding')
     async def get_ntfy_binding(request: Request):
-        username = _resolve_current_username(request, service.config)
+        username = _resolve_current_username(request, identity_resolver)
         if not username:
             return JSONResponse(status_code=401, content={'success': False, 'message': '未识别当前用户'})
         try:
@@ -101,7 +101,7 @@ def create_notify_center_router(
             payload = await request.json()
         except Exception:
             return JSONResponse(status_code=400, content={'success': False, 'message': '请求体无效'})
-        username = _resolve_current_username(request, service.config)
+        username = _resolve_current_username(request, identity_resolver)
         if not username:
             return JSONResponse(status_code=401, content={'success': False, 'message': '未识别当前用户'})
         try:
@@ -122,7 +122,7 @@ def create_notify_center_router(
             payload = await request.json()
         except Exception:
             payload = {}
-        username = _resolve_current_username(request, service.config)
+        username = _resolve_current_username(request, identity_resolver)
         if not username:
             return JSONResponse(status_code=401, content={'success': False, 'message': '未识别当前用户'})
         try:
@@ -137,7 +137,7 @@ def create_notify_center_router(
             payload = await request.json()
         except Exception:
             payload = {}
-        username = _resolve_current_username(request, service.config)
+        username = _resolve_current_username(request, identity_resolver)
         if not username:
             return JSONResponse(status_code=401, content={'success': False, 'message': '未识别当前用户'})
         try:
@@ -242,7 +242,7 @@ def create_notify_center_router(
             payload = await request.json()
         except Exception:
             payload = {}
-        username = _resolve_current_username(request, service.config)
+        username = _resolve_current_username(request, identity_resolver)
         if not username:
             return JSONResponse(status_code=401, content={'success': False, 'message': '未识别当前用户'})
         endpoint = str(payload.get('endpoint') or '').strip() if isinstance(payload, dict) else ''
@@ -301,9 +301,5 @@ def _consume_task_exception(task: asyncio.Task) -> None:
         pass
 
 
-def _resolve_current_username(request: Request, config: NotifyCenterConfig) -> str:
-    return get_identity_cookie_username(
-        request,
-        cookie_name=config.identity_cookie_name,
-        secret=config.identity_secret,
-    )
+def _resolve_current_username(request: Request, identity_resolver: NotifyIdentityResolver) -> str:
+    return identity_resolver.resolve(request).username
