@@ -31,6 +31,7 @@
 ### S1. OperationAuth 导入或初始化失败时 fail-open
 
 级别：P1
+状态：已处理。OperationAuth 现在导入、初始化或 scope 自检失败时不再静默跳过；生产默认安装 fail-closed middleware，所有需要操作租约的敏感接口返回 503。仅显式设置 `ADMIN_ALLOW_OPERATION_AUTH_DISABLED=1` 时允许开发环境绕过，并通过 `/admin/api/operation_auth/status` 暴露当前可用性、失败原因和自检结果。
 位置：
 
 - `public_admin/server/proxy_server.py:546`

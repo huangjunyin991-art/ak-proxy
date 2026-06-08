@@ -567,6 +567,13 @@ except Exception as e:
     create_operation_auth_router = None
     _OPERATION_AUTH_IMPORT_ERROR = e
 
+from .security.operation_auth_failsafe import (
+    FallbackOperationScopeResolver,
+    OPERATION_AUTH_DISABLE_ENV,
+    OperationAuthUnavailableMiddleware,
+    env_flag as operation_auth_env_flag,
+    run_operation_auth_self_check,
+)
 from .security.risk import LockoutStore
 
 # ===== 日志配置 =====
@@ -3947,6 +3954,7 @@ OPERATION_TOTP_MAX_FAILS = 5
 OPERATION_TOTP_LOCKOUT_SECONDS = 3600
 
 GOOGLE_LOGIN_TOKEN_TTL_SECONDS = 3600
+OPERATION_AUTH_DISABLE_ALLOWED = operation_auth_env_flag(os.getenv(OPERATION_AUTH_DISABLE_ENV), False)
 
 admin_security = AdminSecurityFacade(
     db_module=db,
@@ -3963,17 +3971,84 @@ admin_security = AdminSecurityFacade(
 
 operation_auth_service = None
 operation_scope_resolver = None
+operation_auth_repository = None
+operation_auth_self_check = None
+operation_auth_middleware_installed = False
+operation_auth_fail_closed_installed = False
+operation_auth_startup_error = ""
+_OPERATION_AUTH_INIT_ERROR = None
 operation_totp_lockouts = LockoutStore(OPERATION_TOTP_MAX_FAILS, OPERATION_TOTP_LOCKOUT_SECONDS)
-if OperationAuthService is not None:
-    operation_auth_repository = OperationAuthRepository(db)
-    operation_auth_service = OperationAuthService(
-        repository=operation_auth_repository,
-        super_admin_role=ROLE_SUPER_ADMIN,
-        sub_admin_role=ROLE_SUB_ADMIN,
-    )
-    operation_scope_resolver = OperationScopeResolver()
+if (
+    OperationAuthService is not None
+    and OperationAuthRepository is not None
+    and OperationScopeResolver is not None
+    and OperationAuthMiddleware is not None
+    and create_operation_auth_router is not None
+):
+    try:
+        operation_auth_repository = OperationAuthRepository(db)
+        operation_auth_service = OperationAuthService(
+            repository=operation_auth_repository,
+            super_admin_role=ROLE_SUPER_ADMIN,
+            sub_admin_role=ROLE_SUB_ADMIN,
+        )
+        operation_scope_resolver = OperationScopeResolver()
+        operation_auth_self_check = run_operation_auth_self_check(operation_scope_resolver)
+        if not operation_auth_self_check.ok:
+            raise RuntimeError("; ".join(operation_auth_self_check.issues))
+    except Exception as e:
+        operation_auth_repository = None
+        operation_auth_service = None
+        operation_scope_resolver = None
+        _OPERATION_AUTH_INIT_ERROR = e
 else:
-    logger.warning(f"[OperationAuth] 操作鉴权模块不可用，已跳过: {_OPERATION_AUTH_IMPORT_ERROR}")
+    missing = [
+        name for name, component in (
+            ("OperationAuthService", OperationAuthService),
+            ("OperationAuthRepository", OperationAuthRepository),
+            ("OperationScopeResolver", OperationScopeResolver),
+            ("OperationAuthMiddleware", OperationAuthMiddleware),
+            ("create_operation_auth_router", create_operation_auth_router),
+        )
+        if component is None
+    ]
+    _OPERATION_AUTH_INIT_ERROR = RuntimeError(
+        "missing operation auth components: " + ", ".join(missing)
+    )
+
+
+def _operation_auth_available() -> bool:
+    return bool(
+        operation_auth_service is not None
+        and operation_scope_resolver is not None
+        and OperationAuthMiddleware is not None
+        and create_operation_auth_router is not None
+        and (operation_auth_self_check is None or operation_auth_self_check.ok)
+    )
+
+
+def _operation_auth_unavailable_reason() -> str:
+    if _OPERATION_AUTH_IMPORT_ERROR is not None:
+        return f"import_failed: {_OPERATION_AUTH_IMPORT_ERROR}"
+    if _OPERATION_AUTH_INIT_ERROR is not None:
+        return f"init_failed: {_OPERATION_AUTH_INIT_ERROR}"
+    if operation_auth_self_check is not None and not operation_auth_self_check.ok:
+        return "self_check_failed: " + "; ".join(operation_auth_self_check.issues)
+    if not _operation_auth_available():
+        return "operation_auth_not_available"
+    return ""
+
+
+if not _operation_auth_available():
+    _operation_auth_reason = _operation_auth_unavailable_reason()
+    if OPERATION_AUTH_DISABLE_ALLOWED:
+        logger.warning(
+            f"[OperationAuth] 操作二次授权不可用，但 {OPERATION_AUTH_DISABLE_ENV}=1 已显式允许开发绕过: {_operation_auth_reason}"
+        )
+    else:
+        logger.error(
+            f"[OperationAuth] 操作二次授权不可用，敏感操作将 fail-closed: {_operation_auth_reason}"
+        )
 
 
 risk_isolation_service = None
@@ -4308,6 +4383,26 @@ def check_db_auth(request: Request):
     if not verify_db_token(token):
 
         raise HTTPException(status_code=403, detail="数据库操作需要二级密码验证")
+
+
+@app.get("/admin/api/operation_auth/status")
+async def admin_operation_auth_status(request: Request):
+    _, error_response = await _require_admin_token(request)
+    if error_response is not None:
+        return error_response
+    return {
+        "success": True,
+        "available": _operation_auth_available(),
+        "middleware_installed": bool(operation_auth_middleware_installed),
+        "fail_closed_installed": bool(operation_auth_fail_closed_installed),
+        "disable_allowed": bool(OPERATION_AUTH_DISABLE_ALLOWED),
+        "disable_env": OPERATION_AUTH_DISABLE_ENV,
+        "unavailable_reason": _operation_auth_unavailable_reason(),
+        "import_error": str(_OPERATION_AUTH_IMPORT_ERROR or ""),
+        "init_error": str(_OPERATION_AUTH_INIT_ERROR or ""),
+        "startup_error": operation_auth_startup_error,
+        "self_check": operation_auth_self_check.to_dict() if operation_auth_self_check is not None else None,
+    }
 
 
 
@@ -5371,13 +5466,14 @@ if LicenseCenterRepository is not None and LicenseCenterService is not None:
 elif _LICENSE_CENTER_IMPORT_ERROR is not None:
     logger.warning(f"[LicenseCenter] 模块不可用，已跳过: {_LICENSE_CENTER_IMPORT_ERROR}")
 
-if operation_auth_service is not None and operation_scope_resolver is not None and OperationAuthMiddleware is not None:
+if _operation_auth_available():
     app.add_middleware(
         OperationAuthMiddleware,
         service=operation_auth_service,
         resolver=operation_scope_resolver,
         resolve_admin_identity=_resolve_admin_identity,
     )
+    operation_auth_middleware_installed = True
     app.include_router(create_operation_auth_router(
         service=operation_auth_service,
         resolve_admin_identity=_resolve_admin_identity,
@@ -5389,6 +5485,13 @@ if operation_auth_service is not None and operation_scope_resolver is not None a
         totp_lockout_seconds=OPERATION_TOTP_LOCKOUT_SECONDS,
         logger=logger,
     ))
+elif not OPERATION_AUTH_DISABLE_ALLOWED:
+    app.add_middleware(
+        OperationAuthUnavailableMiddleware,
+        resolver=operation_scope_resolver or FallbackOperationScopeResolver(),
+        reason=_operation_auth_unavailable_reason(),
+    )
+    operation_auth_fail_closed_installed = True
 
 app.include_router(create_notification_router(
     service=notification_service,
@@ -5663,7 +5766,9 @@ async def admin_startup():
             await operation_auth_service.ensure_secret(ROLE_SUPER_ADMIN, '')
             await operation_auth_service.cleanup_expired()
         except Exception as e:
-            logger.warning(f"[OperationAuth] 初始化主管理员密钥或清理租约失败: {e}")
+            global operation_auth_startup_error
+            operation_auth_startup_error = str(e)
+            logger.error(f"[OperationAuth] 初始化主管理员密钥或清理租约失败: {e}")
 
     try:
 
