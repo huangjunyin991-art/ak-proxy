@@ -256,6 +256,92 @@
     margin-bottom: 14px;
 }
 
+.monitoring-request-diagnosis {
+    margin: 14px 0;
+}
+
+.monitoring-diagnosis-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 12px;
+}
+
+.monitoring-diagnosis-panel {
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 12px;
+    background: rgba(255, 255, 255, 0.035);
+    padding: 12px;
+    min-width: 0;
+}
+
+.monitoring-diagnosis-panel-wide {
+    grid-column: 1 / -1;
+}
+
+.monitoring-diagnosis-panel h5 {
+    margin: 0 0 10px;
+    color: var(--text-primary);
+    font-size: 13px;
+}
+
+.monitoring-diagnosis-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 4px;
+    padding: 8px 0;
+    border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.monitoring-diagnosis-row:first-of-type {
+    border-top: 0;
+    padding-top: 0;
+}
+
+.monitoring-diagnosis-key {
+    color: var(--text-primary);
+    font-size: 12px;
+    overflow-wrap: anywhere;
+}
+
+.monitoring-diagnosis-value {
+    color: var(--text-secondary);
+    font-size: 12px;
+}
+
+.monitoring-diagnosis-advice {
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 10px;
+    padding: 9px 10px;
+    color: var(--text-secondary);
+    background: rgba(255, 255, 255, 0.04);
+    font-size: 12px;
+    line-height: 1.55;
+}
+
+.monitoring-diagnosis-advice + .monitoring-diagnosis-advice {
+    margin-top: 8px;
+}
+
+.monitoring-diagnosis-advice-warning {
+    border-color: rgba(245, 205, 96, 0.34);
+    color: #f5cd60;
+    background: rgba(245, 205, 96, 0.08);
+}
+
+.monitoring-diagnosis-advice-danger {
+    border-color: rgba(255, 71, 87, 0.36);
+    color: #ff8a96;
+    background: rgba(255, 71, 87, 0.08);
+}
+
+.monitoring-diagnosis-empty {
+    color: var(--text-secondary);
+    border: 1px dashed rgba(255, 255, 255, 0.13);
+    border-radius: 12px;
+    padding: 12px;
+    font-size: 12px;
+}
+
 .monitoring-runtime-section .monitoring-grid {
     margin-bottom: 14px;
 }
@@ -841,6 +927,10 @@
     .monitoring-donut-sub {
         font-size: 10px;
         line-height: 1.3;
+    }
+
+    .monitoring-diagnosis-grid {
+        grid-template-columns: 1fr;
     }
 
     .monitoring-bar-row {

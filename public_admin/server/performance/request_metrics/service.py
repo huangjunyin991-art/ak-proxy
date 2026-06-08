@@ -3,6 +3,7 @@ from collections import Counter, deque
 from threading import RLock
 from typing import Any
 
+from .diagnostics import build_request_metrics_diagnostics
 from .models import RequestMetricEvent, RequestMetricsPolicy
 
 
@@ -60,6 +61,7 @@ class RequestMetricsService:
             items = list(self._events)
             items.sort(key=lambda item: (int(item.get("total_ms") or 0), int(item.get("id") or 0)), reverse=True)
             limit = max(1, min(500, int(limit or 80)))
+            diagnostics = build_request_metrics_diagnostics(items, self._policy)
             return {
                 "available": True,
                 "generated_at": time.time(),
@@ -78,6 +80,7 @@ class RequestMetricsService:
                     "by_cache_state": dict(self._cache_counts),
                     "by_status_class": dict(self._status_counts),
                 },
+                "diagnostics": diagnostics,
                 "items": items[:limit],
             }
 

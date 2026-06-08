@@ -378,6 +378,7 @@
             '<div class="monitoring-cache-actions monitoring-request-metrics-actions"><button class="monitoring-btn primary" data-monitoring-action="save-request-metrics-policy">保存采集策略</button><button class="monitoring-btn" data-monitoring-action="refresh-request-metrics">刷新慢请求</button><button class="monitoring-btn danger" data-monitoring-action="clear-request-metrics">清空记录</button><span class="monitoring-meta" id="monitoringRequestMetricsPolicyMeta">采集默认关闭</span></div>' +
             '<div class="monitoring-grid" id="monitoringRequestMetricsCards"></div>' +
             '<div class="monitoring-bars" id="monitoringRequestMetricsBars"></div>' +
+            '<div class="monitoring-request-diagnosis" id="monitoringRequestMetricsDiagnosis"></div>' +
             '<div class="monitoring-table-wrap monitoring-request-metrics-table-wrap"><table class="monitoring-table monitoring-request-metrics-table"><thead><tr><th>时间</th><th>类型</th><th>路径</th><th>状态</th><th>总耗时</th><th>上游</th><th>重写/注入</th><th>缓存</th><th>出口</th><th>大小/类型</th></tr></thead><tbody id="monitoringRequestMetricsRows"></tbody></table></div>' +
             '</details>' +
             '<details class="monitoring-section monitoring-chat-section monitoring-collapsible-section" data-monitoring-section="chat">' +
@@ -661,6 +662,76 @@
         return { label: state, className: state.toLowerCase() };
     }
 
+    function requestMetricRatioText(value) {
+        return formatPercent(Number(value || 0) * 100);
+    }
+
+    function requestMetricAdviceText(advice) {
+        var code = String(advice && advice.code || '');
+        if (code === 'upstream_dominant') {
+            return '上游耗时占比 ' + requestMetricRatioText(advice.ratio) + '，优先检查出口线路或 AK 上游接口响应。';
+        }
+        if (code === 'path_hotspot') {
+            return (advice.path || '某接口') + ' 慢请求集中，' + formatNumber(advice.count) + ' 条，平均 ' + formatMs(advice.avg_total_ms) + '。';
+        }
+        if (code === 'exit_hotspot') {
+            return (advice.exit_name || '某出口') + ' 慢请求集中，' + formatNumber(advice.count) + ' 条，平均 ' + formatMs(advice.avg_total_ms) + '。';
+        }
+        if (code === 'rpc_html_response') {
+            return 'RPC 返回了 HTML，可能是上游登录态失效、风控页或错误页，共 ' + formatNumber(advice.count) + ' 条。';
+        }
+        if (code === 'server_error') {
+            return '出现 5xx 或代理异常，共 ' + formatNumber(advice.count) + ' 条，需要优先排查。';
+        }
+        if (code === 'cache_miss_hotspot') {
+            return '可缓存资源 MISS/BYPASS 偏多，共 ' + formatNumber(advice.count) + ' 条，可检查静态缓存策略和预热。';
+        }
+        if (code === 'samples_normal') {
+            return '当前样本没有明显单点集中，继续观察阈值 ' + formatMs(advice.threshold_ms) + ' 以上的请求。';
+        }
+        return '暂无明确诊断结论。';
+    }
+
+    function renderRequestMetricAdvice(advice) {
+        var list = Array.isArray(advice) ? advice : [];
+        if (!list.length) list = [{ code: 'no_samples', severity: 'info' }];
+        return list.map(function(item) {
+            var severity = String(item.severity || 'info').toLowerCase();
+            return '<div class="monitoring-diagnosis-advice monitoring-diagnosis-advice-' + escapeHtml(severity) + '">' + escapeHtml(requestMetricAdviceText(item)) + '</div>';
+        }).join('');
+    }
+
+    function renderRequestMetricTopList(items, emptyText) {
+        var list = Array.isArray(items) ? items.slice(0, 5) : [];
+        if (!list.length) return '<div class="monitoring-empty">' + escapeHtml(emptyText || '暂无样本') + '</div>';
+        return list.map(function(item) {
+            return '<div class="monitoring-diagnosis-row">' +
+                '<div class="monitoring-diagnosis-key">' + escapeHtml(item.key || '-') + '</div>' +
+                '<div class="monitoring-diagnosis-value">' + escapeHtml(formatNumber(item.count) + ' 条 / 平均 ' + formatMs(item.avg_total_ms) + ' / 最大 ' + formatMs(item.max_total_ms)) + '</div>' +
+                '</div>';
+        }).join('');
+    }
+
+    function renderRequestMetricTiming(diagnostics) {
+        var timing = diagnostics && diagnostics.timing || {};
+        return renderProgress('上游占比', Number(timing.upstream_ratio || 0) * 100, requestMetricRatioText(timing.upstream_ratio) + ' / 平均 ' + formatMs(timing.avg_upstream_ms)) +
+            renderProgress('重写占比', Number(timing.rewrite_ratio || 0) * 100, requestMetricRatioText(timing.rewrite_ratio) + ' / 平均 ' + formatMs(timing.avg_rewrite_ms)) +
+            renderProgress('注入占比', Number(timing.inject_ratio || 0) * 100, requestMetricRatioText(timing.inject_ratio) + ' / 平均 ' + formatMs(timing.avg_inject_ms));
+    }
+
+    function renderRequestMetricDiagnostics(diagnostics) {
+        var item = diagnostics || {};
+        if (!Number(item.sample_count || 0)) {
+            return '<div class="monitoring-diagnosis-empty">暂无慢请求诊断样本</div>';
+        }
+        return '<div class="monitoring-diagnosis-grid">' +
+            '<div class="monitoring-diagnosis-panel monitoring-diagnosis-panel-wide"><h5>诊断建议</h5>' + renderRequestMetricAdvice(item.advice) + '</div>' +
+            '<div class="monitoring-diagnosis-panel"><h5>接口 Top</h5>' + renderRequestMetricTopList(item.top_paths, '暂无接口样本') + '</div>' +
+            '<div class="monitoring-diagnosis-panel"><h5>出口 Top</h5>' + renderRequestMetricTopList(item.top_exits, '暂无出口样本') + '</div>' +
+            '<div class="monitoring-diagnosis-panel"><h5>耗时构成</h5>' + renderRequestMetricTiming(item) + '</div>' +
+            '</div>';
+    }
+
     function renderRequestMetricRows(item) {
         var rows = Array.isArray(item && item.items) ? item.items : [];
         if (!rows.length) return '<tr><td colspan="10"><div class="monitoring-empty">暂无慢请求或错误请求</div></td></tr>';
@@ -691,6 +762,7 @@
         var cards = document.getElementById('monitoringRequestMetricsCards');
         var bars = document.getElementById('monitoringRequestMetricsBars');
         var rows = document.getElementById('monitoringRequestMetricsRows');
+        var diagnosis = document.getElementById('monitoringRequestMetricsDiagnosis');
         var meta = document.getElementById('monitoringRequestMetricsMeta');
         var policyMeta = document.getElementById('monitoringRequestMetricsPolicyMeta');
         setChecked('requestMetricsEnabled', !!policy.enabled);
@@ -699,6 +771,7 @@
         if (!item || (!item.policy && !item.summary && !item.items && !item.error)) {
             if (cards) setHtmlIfChanged(cards, renderCard('慢请求采集', '读取中', '展开后读取采集策略'));
             if (bars) setHtmlIfChanged(bars, '');
+            if (diagnosis) setHtmlIfChanged(diagnosis, '');
             if (rows) setHtmlIfChanged(rows, '<tr><td colspan="10"><div class="monitoring-empty">等待首次采样</div></td></tr>');
             if (meta) setTextIfChanged(meta, '读取中...');
             if (policyMeta) setTextIfChanged(policyMeta, '采集默认关闭');
@@ -708,6 +781,7 @@
             var message = item.error || item.message || '慢请求采集服务不可用';
             if (cards) setHtmlIfChanged(cards, renderCard('慢请求采集', '不可用', message));
             if (bars) setHtmlIfChanged(bars, '');
+            if (diagnosis) setHtmlIfChanged(diagnosis, '');
             if (rows) setHtmlIfChanged(rows, renderRequestMetricRows(item));
             if (meta) setTextIfChanged(meta, message);
             if (policyMeta) setTextIfChanged(policyMeta, message);
@@ -729,6 +803,7 @@
                 renderRequestMetricDistribution('状态', summary.by_status_class || {})
             );
         }
+        if (diagnosis) setHtmlIfChanged(diagnosis, renderRequestMetricDiagnostics(item.diagnostics || {}));
         if (rows) setHtmlIfChanged(rows, renderRequestMetricRows(item));
         if (meta) setTextIfChanged(meta, enabledText + ' · 更新于 ' + formatSampleTime(item.generated_at));
         if (policyMeta) {
