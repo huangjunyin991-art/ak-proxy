@@ -8,11 +8,14 @@ VPN订阅解析模块
 import base64
 import json
 import logging
-import ssl
 import re
 import urllib.parse
 from typing import Optional
-from urllib.request import HTTPSHandler, ProxyHandler, Request, build_opener
+
+try:
+    from .security.url_fetch_gateway import UrlFetchGateway, UrlFetchPolicy
+except Exception:
+    from public_admin.server.security.url_fetch_gateway import UrlFetchGateway, UrlFetchPolicy
 
 logger = logging.getLogger("TransparentProxy")
 
@@ -588,14 +591,18 @@ def _detect_subscription_response_kind(text: str) -> str:
 
 
 def _fetch_subscription_text(url: str, timeout: int) -> str:
-    ctx = ssl._create_unverified_context()
-    req = Request(url, headers={
-        'User-Agent': SUBSCRIPTION_FETCH_USER_AGENT,
-        'Accept': '*/*',
-    })
-    opener = build_opener(ProxyHandler({}), HTTPSHandler(context=ctx))
-    with opener.open(req, timeout=timeout) as resp:
-        return resp.read().decode('utf-8', errors='replace').strip()
+    gateway = UrlFetchGateway(UrlFetchPolicy(
+        timeout_seconds=max(1, int(timeout or 15)),
+        max_response_bytes=4 * 1024 * 1024,
+    ))
+    response = gateway.request_sync(
+        url,
+        headers={
+            'User-Agent': SUBSCRIPTION_FETCH_USER_AGENT,
+            'Accept': '*/*',
+        },
+    )
+    return response.text.strip()
 
 
 def fetch_subscription(url: str, timeout: int = 15) -> dict:

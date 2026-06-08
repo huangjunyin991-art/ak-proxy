@@ -8,6 +8,8 @@ from .formatter import build_notification_body, build_notification_title, build_
 from .repository import NotifyCenterRepository
 from .security import normalize_username
 
+from public_admin.server.security.url_fetch_gateway import UrlFetchGateway, UrlFetchPolicy
+
 try:
     from .channels.pushdeer import PushDeerChannel
     from .channels.pushdeer.client import normalize_server_url
@@ -144,6 +146,16 @@ class NotifyCenterService:
                 raise ValueError(str(exc)) from exc
         return normalize_ntfy_server_url(server_url)
 
+    def _normalize_pushdeer_server_url(self, server_url: str) -> str:
+        if self.pushdeer_channel is not None and hasattr(self.pushdeer_channel, 'validate_server_url'):
+            try:
+                return str(self.pushdeer_channel.validate_server_url(server_url))
+            except ValueError:
+                raise
+            except Exception as exc:
+                raise ValueError(str(exc)) from exc
+        return UrlFetchGateway(UrlFetchPolicy(max_response_bytes=64 * 1024)).validate_url(normalize_server_url(server_url))
+
     async def get_pushdeer_binding(self, username: str) -> dict[str, Any]:
         normalized_username = normalize_username(username)
         if not normalized_username:
@@ -164,7 +176,7 @@ class NotifyCenterService:
         binding = await self.repository.upsert_pushdeer_binding(
             username=normalized_username,
             pushkey=normalized_pushkey,
-            server_url=normalize_server_url(server_url),
+            server_url=self._normalize_pushdeer_server_url(server_url),
             enabled=bool(enabled),
         )
         return _public_pushdeer_binding(binding, username=normalized_username)

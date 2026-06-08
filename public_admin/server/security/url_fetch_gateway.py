@@ -104,6 +104,26 @@ class UrlFetchGateway:
             body=payload,
         )
 
+    def request_sync(
+        self,
+        url: str,
+        *,
+        method: str = "GET",
+        headers: Mapping[str, str] | None = None,
+        body: bytes | str | None = None,
+    ) -> UrlFetchResponse:
+        payload: bytes | None
+        if isinstance(body, str):
+            payload = body.encode("utf-8")
+        else:
+            payload = body
+        return self._request_sync(
+            url,
+            method=str(method or "GET").upper(),
+            headers=dict(headers or {}),
+            body=payload,
+        )
+
     def _request_sync(self, url: str, *, method: str, headers: dict[str, str], body: bytes | None) -> UrlFetchResponse:
         current_url = self.validate_url(url)
         opener = build_opener(ProxyHandler({}), _NoRedirectHandler())
