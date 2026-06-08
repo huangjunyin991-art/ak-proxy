@@ -2839,6 +2839,55 @@
             });
         },
 
+        restoreOutgoing(payload) {
+            payload = payload || {};
+            const flowVersion = this.bumpFlowVersion();
+            this.ensureStyle();
+            this.ensureShell();
+            this.clearAllTimers();
+            this.resumePeerStateEvents();
+            this.cleanupMedia();
+            this.clearLocalTermination();
+            this.clearResultState();
+            this.clearLiveSessionState();
+            this.minimized = false;
+            this.role = 'caller';
+            this.muted = false;
+            this.speakerEnabled = false;
+            this.offerSent = false;
+            this.everConnectedAt = 0;
+            this.terminalPresentation = 'panel';
+            this.openedAt = Date.now();
+            this.currentCallId = '';
+            this.currentConversationId = 0;
+            this.currentPeerName = '';
+            this.currentPeerUsername = '';
+            this.currentPeerAvatarUrl = '';
+            this.currentKind = normalizeCallKind(payload.kind || payload.call_kind || this.currentKind || 'audio');
+            this.clearVideoState();
+            this.setConnectionPhase('launching', { render: false });
+            this.setState(CALL_MODES.outgoing, Object.assign({}, payload, {
+                viewer_role: 'caller',
+                role: 'caller'
+            }));
+            this.ensureCallLifecycleModules();
+            this.recordCallSession('restore_outgoing', {
+                openedAt: this.openedAt,
+                mode: CALL_MODES.outgoing,
+                connectionPhase: this.connectionPhase
+            });
+            const self = this;
+            this.ensureSubmodules().then(function() {
+                if (!self.isFlowCurrent(flowVersion) || self.mode !== CALL_MODES.outgoing) return;
+                self.recordCallSession('restore_outgoing_ready', {
+                    mode: CALL_MODES.outgoing,
+                    connectionPhase: self.connectionPhase
+                });
+            }).catch(function(error) {
+                self.fail('socket_unavailable', error && error.message ? error.message : 'call module unavailable');
+            });
+        },
+
         openIncoming(payload) {
             payload = payload || {};
             const flowVersion = this.bumpFlowVersion();

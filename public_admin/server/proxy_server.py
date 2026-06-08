@@ -12657,6 +12657,15 @@ async def im_user_plugin_call_timeline_module_js(request: Request):
     return await _build_widget_script_response(request, js_path)
 
 
+@app.get("/chat/plugins/im/user/modules/call/im_call_recovery.js")
+
+async def im_user_plugin_call_recovery_module_js(request: Request):
+
+    js_path = os.path.join(PLUGINS_DIR, "im", "user", "modules", "call", "im_call_recovery.js")
+
+    return await _build_widget_script_response(request, js_path)
+
+
 @app.get("/chat/plugins/im/user/modules/call/im_call_webrtc.js")
 
 async def im_user_plugin_call_webrtc_module_js(request: Request):

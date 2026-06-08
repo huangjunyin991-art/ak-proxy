@@ -114,6 +114,12 @@
             src: `${API_ROOT}/chat/plugins/im/user/modules/call/im_call_timeline.js`,
             errorMessage: '通话结果模块加载失败'
         },
+        callRecovery: {
+            selector: 'script[data-ak-im-user-plugin-call-recovery="1"]',
+            datasetKey: 'akImUserPluginCallRecovery',
+            src: `${API_ROOT}/chat/plugins/im/user/modules/call/im_call_recovery.js`,
+            errorMessage: 'call recovery module failed to load'
+        },
         callMessage: {
             selector: 'script[data-ak-im-user-plugin-call-message-manage="1"]',
             datasetKey: 'akImUserPluginCallMessageManage',
@@ -1563,6 +1569,33 @@
         });
     }
 
+    function getCallRecoveryModule() {
+        const modules = window.AKIMUserModules;
+        if (!modules || typeof modules !== 'object') return null;
+        const callRecoveryModule = modules.callRecovery;
+        if (!callRecoveryModule || typeof callRecoveryModule.init !== 'function') return null;
+        return callRecoveryModule;
+    }
+
+    function initCallRecoveryModule() {
+        const callRecoveryModule = getCallRecoveryModule();
+        if (!callRecoveryModule) return;
+        callRecoveryModule.init({
+            state: state,
+            httpRoot: HTTP_ROOT,
+            request: request,
+            getNow: function() {
+                return Date.now();
+            },
+            getActiveSession: getActiveSession,
+            isGroupSession: isGroupSession,
+            getCallManage: getCallManageModule,
+            ensureCallManageModule: function() {
+                return ensureLazyModule('callManage');
+            }
+        });
+    }
+
     function getCallMessageManageModule() {
         const modules = window.AKIMUserModules;
         if (!modules || typeof modules !== 'object') return null;
@@ -2514,6 +2547,7 @@
         if (moduleKey === 'callManage') return getCallManageModule();
         if (moduleKey === 'callSession') return getCallSessionModule();
         if (moduleKey === 'callTimeline') return getCallTimelineModule();
+        if (moduleKey === 'callRecovery') return getCallRecoveryModule();
         if (moduleKey === 'callMessage') return getCallMessageManageModule();
 	    if (moduleKey === 'social') return getSocialModule();
         if (moduleKey === 'hiddenGroups') return getHiddenGroupsModule();
@@ -2547,6 +2581,7 @@
         else if (moduleKey === 'callManage') initCallManageModule();
         else if (moduleKey === 'callSession') initCallSessionModule();
         else if (moduleKey === 'callTimeline') initCallTimelineModule();
+        else if (moduleKey === 'callRecovery') initCallRecoveryModule();
         else if (moduleKey === 'callMessage') initCallMessageManageModule();
 	    else if (moduleKey === 'social') initSocialModule();
         else if (moduleKey === 'hiddenGroups') initHiddenGroupsModule();
@@ -2638,6 +2673,7 @@
             ensureOptionalLazyModule('callManage'),
             ensureOptionalLazyModule('callSession'),
             ensureOptionalLazyModule('callTimeline'),
+            ensureOptionalLazyModule('callRecovery'),
             ensureOptionalLazyModule('callMessage'),
             ensureOptionalLazyModule('plus'),
             ensureOptionalLazyModule('emoji'),
@@ -6796,6 +6832,17 @@
         return Promise.resolve(null);
     }
 
+    function scheduleActiveCallRecovery(conversationId, source) {
+        const targetConversationId = Number(conversationId || 0);
+        if (!targetConversationId) return;
+        const callRecoveryModule = getCallRecoveryModule();
+        if (!callRecoveryModule || typeof callRecoveryModule.checkActiveConversation !== 'function') return;
+        Promise.resolve(callRecoveryModule.checkActiveConversation({
+            conversationId: targetConversationId,
+            source: source || 'load_messages'
+        })).catch(function() {});
+    }
+
     function loadMessages(conversationId, options) {
         const targetConversationId = Number(conversationId || 0);
         if (!targetConversationId) {
@@ -6818,6 +6865,7 @@
             render();
         }
         return ensureChatFeatureModules().then(function() {
+            scheduleActiveCallRecovery(targetConversationId, 'load_messages');
             const messageManageModule = getMessageManageModule();
             if (messageManageModule && typeof messageManageModule.loadMessages === 'function') {
                 return messageManageModule.loadMessages(targetConversationId, forceRefresh ? { forceRefresh: true } : null);
