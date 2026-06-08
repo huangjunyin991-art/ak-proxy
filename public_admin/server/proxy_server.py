@@ -11123,7 +11123,7 @@ def _max_mtime_among(paths):
 
 
 def _admin_panel_versions():
-    """读取单文件 panel 版本清单；清单模块不可用时返回稳定兜底版本。"""
+    """读取拆分 panel 的自动 mtime 版本；模块不可用时返回稳定兜底版本。"""
     now = time.time()
     cached_versions = _ADMIN_PANEL_VERSIONS_CACHE.get("versions")
     if cached_versions is not None and now < float(_ADMIN_PANEL_VERSIONS_CACHE.get("expires_at") or 0.0):
@@ -11141,6 +11141,7 @@ def _admin_panel_versions():
             'monitoring': 0.0,
             'meeting': 0.0,
             'activeDefense': 0.0,
+            'rateBan': 0.0,
             'riskIsolation': 0.0,
             'recommendTree': 0.0,
             'pointStats': 0.0,
@@ -11155,6 +11156,7 @@ def _admin_panel_versions():
                 'monitoring': 0.0,
                 'meeting': 0.0,
                 'activeDefense': 0.0,
+                'rateBan': 0.0,
                 'riskIsolation': 0.0,
                 'recommendTree': 0.0,
                 'pointStats': 0.0,
@@ -11261,6 +11263,7 @@ async def admin_page(request: Request):
         panel_versions['monitoring'],
         panel_versions['meeting'],
         panel_versions['activeDefense'],
+        panel_versions.get('rateBan', 0.0),
         panel_versions['riskIsolation'],
         panel_versions['recommendTree'],
         panel_versions['pointStats'],

@@ -157,6 +157,38 @@
     color: var(--accent);
 }
 
+.monitoring-collapsible-section {
+    overflow: hidden;
+}
+
+.monitoring-collapsible-summary {
+    cursor: pointer;
+    list-style: none;
+    margin-bottom: 0;
+}
+
+.monitoring-collapsible-summary::-webkit-details-marker {
+    display: none;
+}
+
+.monitoring-collapsible-summary::after {
+    content: "展开";
+    color: var(--text-secondary);
+    font-size: 12px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 4px 9px;
+    background: rgba(255, 255, 255, 0.04);
+}
+
+.monitoring-collapsible-section[open] > .monitoring-collapsible-summary {
+    margin-bottom: 14px;
+}
+
+.monitoring-collapsible-section[open] > .monitoring-collapsible-summary::after {
+    content: "收起";
+}
+
 .monitoring-meta {
     color: var(--text-secondary);
     font-size: 12px;

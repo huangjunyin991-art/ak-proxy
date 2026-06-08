@@ -9,6 +9,7 @@ PANEL_KEYS = (
     "riskIsolation",
     "recommendTree",
     "pointStats",
+    "rateBan",
     "settings",
     "remoteAssist",
 )
@@ -24,6 +25,9 @@ PANEL_VERSION_FILES = {
     ),
     "activeDefense": (
         ("active_defense_panel.js",),
+    ),
+    "rateBan": (
+        ("rate_ban_panel.js",),
     ),
     "riskIsolation": (
         ("risk_isolation_panel.js",),

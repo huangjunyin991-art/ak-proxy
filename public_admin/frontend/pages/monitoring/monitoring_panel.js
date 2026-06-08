@@ -313,8 +313,8 @@
             '<div class="monitoring-table-wrap monitoring-index-result-wrap"><table class="monitoring-table monitoring-index-result-table"><thead><tr><th>最近执行</th><th>结果</th><th>耗时</th><th>时间</th><th>信息</th></tr></thead><tbody id="monitoringIndexRunRows"></tbody></table></div></div></div>' +
             '<div class="monitoring-section"><div class="monitoring-section-header"><h4>文件资源 Top</h4><span class="monitoring-meta" id="monitoringFileAssetMeta">按 active 文件大小倒序；删除后聊天消息保留，附件显示失效</span></div><div class="monitoring-table-wrap"><table class="monitoring-table"><thead><tr><th>文件名</th><th>类型</th><th>大小</th><th>状态</th><th>引用消息</th><th>过期时间</th><th>创建时间</th><th>storage_name</th><th>操作</th></tr></thead><tbody id="monitoringFileAssetRows"></tbody></table></div></div>' +
             '<div class="monitoring-section"><div class="monitoring-section-header"><h4>群组存储与活跃排行</h4><span class="monitoring-meta" id="monitoringGroupMeta">文件占用为消息载荷估算口径</span></div><div class="monitoring-table-wrap"><table class="monitoring-table"><thead><tr><th>群组</th><th>群主</th><th>成员</th><th>管理员</th><th>总消息</th><th>今日</th><th>范围内</th><th>纯文本</th><th>消息载荷</th><th>文件估算</th><th>总占用</th><th>最近活跃</th></tr></thead><tbody id="monitoringGroupRows"></tbody></table></div></div>' +
-            '<div class="monitoring-section monitoring-runtime-section">' +
-            '<div class="monitoring-section-header"><h4>运行时维护</h4><span class="monitoring-meta" id="monitoringRuntimeMeta">读取中...</span></div>' +
+            '<details class="monitoring-section monitoring-runtime-section monitoring-collapsible-section">' +
+            '<summary class="monitoring-section-header monitoring-collapsible-summary"><h4>运行时维护</h4><span class="monitoring-meta" id="monitoringRuntimeMeta">读取中...</span></summary>' +
             '<div class="monitoring-grid" id="monitoringRuntimeCards"></div>' +
             '<div class="monitoring-cache-grid monitoring-runtime-policy-grid">' +
             '<label class="monitoring-switch-card"><input id="runtimeHygieneEnabled" type="checkbox"><span class="monitoring-switch-control"></span><span class="monitoring-switch-copy"><strong>启用自动维护</strong><small>周期清理过期缓存和空闲连接</small></span></label>' +
@@ -336,9 +336,9 @@
             '<span class="monitoring-meta">连接池状态属于性能监控，保存后立即应用到当前进程。</span>' +
             '</div>' +
             '<div class="monitoring-table-wrap monitoring-runtime-table-wrap"><table class="monitoring-table"><thead><tr><th>连接池</th><th>节点</th><th>状态</th><th>年龄</th><th>空闲</th><th>请求</th><th>换新次数</th><th>最近原因</th></tr></thead><tbody id="monitoringRuntimeClientRows"></tbody></table></div>' +
-            '</div>' +
-            '<div class="monitoring-section monitoring-cache-section">' +
-            '<div class="monitoring-section-header"><h4>K937 静态资源缓存策略</h4><span class="monitoring-meta" id="monitoringStaticCacheMeta">读取中...</span></div>' +
+            '</details>' +
+            '<details class="monitoring-section monitoring-cache-section monitoring-collapsible-section">' +
+            '<summary class="monitoring-section-header monitoring-collapsible-summary"><h4>K937 静态资源缓存策略</h4><span class="monitoring-meta" id="monitoringStaticCacheMeta">读取中...</span></summary>' +
             '<div class="monitoring-grid" id="monitoringStaticCacheRuntimeCards"></div>' +
             '<div class="monitoring-cache-grid">' +
             '<label class="monitoring-switch-card"><input id="staticCacheMemoryEnabled" type="checkbox"><span class="monitoring-switch-control"></span><span class="monitoring-switch-copy"><strong>启用 L1 内存缓存</strong><small>关闭后回退到磁盘静态缓存</small></span></label>' +
@@ -359,7 +359,7 @@
             '<button class="monitoring-btn danger" data-monitoring-action="refresh-static-cache-upstream">立即启用上游新资源</button>' +
             '<span class="monitoring-meta">HTML 继续 no-store；点击启用新资源会清空服务端静态缓存并切换全局资源版本。</span>' +
             '</div>' +
-            '</div>' +
+            '</details>' +
             '</div>';
         el.addEventListener('click', function(event) {
             var target = event.target;
